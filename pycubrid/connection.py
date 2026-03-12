@@ -60,6 +60,7 @@ class Connection:
         self._session_id = 0
         self._autocommit = False
         self._cursors: set[Cursor] = set()
+        self._protocol_version: int = 1
 
         self.connect()
         if autocommit:
@@ -93,11 +94,12 @@ class Connection:
             self._socket.sendall(open_db_packet.write())
             data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
             data_length = struct.unpack(">i", data_length_bytes)[0]
-            response_body = self._recv_exact(self._socket, data_length)
+            response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
             open_db_packet.parse(response_body)
 
             self._cas_info = open_db_packet.cas_info
             self._session_id = open_db_packet.session_id
+            self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._connected = True
         except OSError as exc:
             self._safe_close_socket()
@@ -233,7 +235,7 @@ class Connection:
 
             data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
             data_length = struct.unpack(">i", data_length_bytes)[0]
-            response_body = self._recv_exact(self._socket, data_length)
+            response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
 
             packet.parse(response_body)
             return packet

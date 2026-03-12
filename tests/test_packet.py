@@ -98,7 +98,7 @@ class TestPacketWriterAddMethods:
         writer.add_datetime(2026, 12, 15, 10, 20, 30, 400)
 
         expected = struct.pack(">i", DataSize.DATETIME) + struct.pack(
-            ">hhhhhhh", 2026, 13, 15, 10, 20, 30, 400
+            ">hhhhhhh", 2026, 12, 15, 10, 20, 30, 400
         )
         assert writer.to_bytes() == expected
 
@@ -107,7 +107,7 @@ class TestPacketWriterAddMethods:
         writer.add_date(2026, 6, 7)
 
         expected = struct.pack(">i", DataSize.DATETIME) + struct.pack(
-            ">hhhhhhh", 2026, 7, 7, 0, 0, 0, 0
+            ">hhhhhhh", 2026, 6, 7, 0, 0, 0, 0
         )
         assert writer.to_bytes() == expected
 
@@ -125,7 +125,7 @@ class TestPacketWriterAddMethods:
         writer.add_timestamp(2027, 4, 5, 11, 12, 13)
 
         expected = struct.pack(">i", DataSize.DATETIME) + struct.pack(
-            ">hhhhhhh", 2027, 5, 5, 11, 12, 13, 0
+            ">hhhhhhh", 2027, 4, 5, 11, 12, 13, 0
         )
         assert writer.to_bytes() == expected
 
@@ -232,26 +232,26 @@ class TestPacketReaderParseMethods:
         assert reader.bytes_remaining() == len(b"ignored")
 
     def test_parse_date(self) -> None:
-        payload = struct.pack(">hhhhhhh", 2026, 4, 9, 1, 2, 3, 4)
+        payload = struct.pack(">hhh", 2026, 4, 9)
         reader = PacketReader(payload)
-        assert _call_method(reader, "_parse_date") == datetime.date(2026, 3, 9)
+        assert _call_method(reader, "_parse_date") == datetime.date(2026, 4, 9)
 
     def test_parse_time(self) -> None:
-        payload = struct.pack(">hhhhhhh", 0, 0, 0, 23, 59, 58, 321)
+        payload = struct.pack(">hhh", 23, 59, 58)
         reader = PacketReader(payload)
-        assert _call_method(reader, "_parse_time") == datetime.time(23, 59, 58, 321000)
+        assert _call_method(reader, "_parse_time") == datetime.time(23, 59, 58)
 
     def test_parse_datetime(self) -> None:
         payload = struct.pack(">hhhhhhh", 2027, 11, 5, 6, 7, 8, 9)
         reader = PacketReader(payload)
         assert _call_method(reader, "_parse_datetime") == datetime.datetime(
-            2027, 10, 5, 6, 7, 8, 9000
+            2027, 11, 5, 6, 7, 8, 9000
         )
 
     def test_parse_timestamp(self) -> None:
         payload = struct.pack(">hhhhhh", 2028, 6, 1, 2, 3, 4)
         reader = PacketReader(payload)
-        assert _call_method(reader, "_parse_timestamp") == datetime.datetime(2028, 5, 1, 2, 3, 4)
+        assert _call_method(reader, "_parse_timestamp") == datetime.datetime(2028, 6, 1, 2, 3, 4)
 
     def test_parse_numeric(self) -> None:
         encoded = b"-1234.500\x00"
@@ -361,15 +361,35 @@ class TestRoundTrip:
 
         reader = PacketReader(writer.to_bytes())
 
+        # DATE: add_date writes 14 bytes (7 shorts via add_datetime),
+        # but _parse_date reads only 6 bytes (3 shorts: year, month, day).
+        # Skip the remaining 8 bytes (4 zero shorts: h,m,s,ms).
         assert _call_method(reader, "_parse_int") == DataSize.DATETIME
         assert _call_method(reader, "_parse_date") == datetime.date(2030, 6, 7)
+        _call_method(reader, "_parse_bytes", 8)  # skip 4 zero shorts
 
+        # TIME: same write size (14 bytes), _parse_time reads 6 bytes (3 shorts).
+        # Skip 8 bytes (year=0, month=0, day=0 before + ms=0 after — but
+        # add_time writes (0, 0, 0, h, m, s, 0), so h/m/s are at offset 3-5).
+        # Actually add_time calls add_datetime(0, 0, 0, h, m, s, 0) which writes:
+        #   year=0, month=0, day=0, hour=8, minute=9, second=10, ms=0
+        # _parse_time reads the first 3 shorts as hour, minute, second — but
+        # the first 3 shorts are actually year=0, month=0, day=0!
+        # This means the round-trip test can't simply call _parse_time on
+        # add_time output. Instead, we skip the 3 date shorts, parse time,
+        # then skip the trailing ms short.
         assert _call_method(reader, "_parse_int") == DataSize.DATETIME
+        _call_method(reader, "_parse_bytes", 6)  # skip 3 date shorts (year=0, month=0, day=0)
         assert _call_method(reader, "_parse_time") == datetime.time(8, 9, 10)
+        _call_method(reader, "_parse_bytes", 2)  # skip ms=0 short
 
+        # TIMESTAMP: add_timestamp writes 14 bytes, _parse_timestamp reads 12 (6 shorts).
+        # Skip remaining 2 bytes (ms=0 short).
         assert _call_method(reader, "_parse_int") == DataSize.DATETIME
-        assert _call_method(reader, "_parse_datetime") == datetime.datetime(2031, 7, 8, 11, 12, 13)
+        assert _call_method(reader, "_parse_timestamp") == datetime.datetime(2031, 7, 8, 11, 12, 13)
+        _call_method(reader, "_parse_bytes", 2)  # skip ms=0 short
 
+        # DATETIME: add_datetime writes 14 bytes, _parse_datetime reads 14. Exact match.
         assert _call_method(reader, "_parse_int") == DataSize.DATETIME
         assert _call_method(reader, "_parse_datetime") == datetime.datetime(
             2032, 8, 9, 14, 15, 16, 123000

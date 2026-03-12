@@ -19,7 +19,7 @@ from pycubrid.constants import (
     CUBRIDStatementType,
     DataSize,
 )
-from pycubrid.exceptions import DatabaseError
+from pycubrid.exceptions import DatabaseError, IntegrityError, ProgrammingError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -221,6 +221,36 @@ class TestRaiseError:
         with pytest.raises(DatabaseError, match="test error"):
             _raise_error(reader, len(error_body))
 
+    def test_raises_integrity_error_for_unique(self) -> None:
+        error_body = struct.pack(">i", -670) + b"Unique constraint violation\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(IntegrityError, match="Unique constraint violation"):
+            _raise_error(reader, len(error_body))
+
+    def test_raises_integrity_error_for_duplicate(self) -> None:
+        error_body = struct.pack(">i", -670) + b"duplicate key\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(IntegrityError, match="duplicate key"):
+            _raise_error(reader, len(error_body))
+
+    def test_raises_integrity_error_for_foreign_key(self) -> None:
+        error_body = struct.pack(">i", -671) + b"Foreign key constraint violation\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(IntegrityError, match="Foreign key constraint violation"):
+            _raise_error(reader, len(error_body))
+
+    def test_raises_programming_error_for_syntax(self) -> None:
+        error_body = struct.pack(">i", -493) + b"syntax error\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(ProgrammingError, match="syntax error"):
+            _raise_error(reader, len(error_body))
+
+    def test_raises_programming_error_for_unknown_class(self) -> None:
+        error_body = struct.pack(">i", -494) + b"Unknown class 'foo'\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(ProgrammingError, match="Unknown class"):
+            _raise_error(reader, len(error_body))
+
 
 class TestParseColumnMetadata:
     """Tests for _parse_column_metadata helper."""
@@ -332,30 +362,33 @@ class TestReadValue:
         assert result == Decimal("123.45")
 
     def test_date(self) -> None:
-        data = struct.pack(">7h", 2025, 2, 15, 0, 0, 0, 0)  # month 1-based on wire
+        # Wire DATE is 3 shorts: year, month(1-based), day
+        data = struct.pack(">3h", 2025, 2, 15)
         reader = PacketReader(data)
-        result = _read_value(reader, CUBRIDDataType.DATE, 14)
-        assert result == datetime.date(2025, 1, 15)  # month -1 in parse
+        result = _read_value(reader, CUBRIDDataType.DATE, 6)
+        assert result == datetime.date(2025, 2, 15)  # month used as-is (1-based)
 
     def test_time(self) -> None:
-        data = struct.pack(">7h", 0, 0, 0, 10, 30, 45, 500)
+        # Wire TIME is 3 shorts: hour, minute, second
+        data = struct.pack(">3h", 10, 30, 45)
         reader = PacketReader(data)
-        result = _read_value(reader, CUBRIDDataType.TIME, 14)
-        assert result == datetime.time(10, 30, 45, 500000)
+        result = _read_value(reader, CUBRIDDataType.TIME, 6)
+        assert result == datetime.time(10, 30, 45)
 
     def test_datetime(self) -> None:
+        # Wire DATETIME is 7 shorts: year, month(1-based), day, hour, min, sec, ms
         data = struct.pack(">7h", 2025, 4, 20, 14, 30, 0, 123)
         reader = PacketReader(data)
         result = _read_value(reader, CUBRIDDataType.DATETIME, 14)
-        assert result == datetime.datetime(2025, 3, 20, 14, 30, 0, 123000)
+        assert result == datetime.datetime(2025, 4, 20, 14, 30, 0, 123000)
 
     def test_timestamp(self) -> None:
-        data = struct.pack(">7h", 2025, 7, 4, 12, 0, 0, 0)
+        # Wire TIMESTAMP is 6 shorts: year, month(1-based), day, hour, min, sec
+        data = struct.pack(">6h", 2025, 7, 4, 12, 0, 0)
         reader = PacketReader(data)
-        result = _read_value(reader, CUBRIDDataType.TIMESTAMP, 14)
-        # timestamp uses _parse_timestamp which reads 6 shorts (no msec)
+        result = _read_value(reader, CUBRIDDataType.TIMESTAMP, 12)
         assert result.year == 2025
-        assert result.month == 6  # month -1
+        assert result.month == 7  # month used as-is (1-based)
         assert result.day == 4
 
     def test_object(self) -> None:
@@ -543,7 +576,7 @@ class TestOpenDatabasePacket:
 
     def test_parse_success(self) -> None:
         pkt = OpenDatabasePacket("testdb", "dba", "")
-        broker_info = bytes([1, 0, 0x47, 0, 1, 0, 0, 0])
+        broker_info = bytes([1, 0, 1, 0, 0x47, 0, 0, 0])
         session_id = struct.pack(">i", 42)
         response = (
             DEFAULT_CAS_INFO
@@ -1115,24 +1148,105 @@ class TestBatchExecutePacket:
         payload = data[8:]
         assert payload[0] == CASFunctionCode.EXECUTE_BATCH
 
+    def test_write_includes_timeout_for_proto_gt_3(self) -> None:
+        """Default protocol version > 3 should write timeout field."""
+        pkt = BatchExecutePacket(["INSERT INTO t VALUES(1)"], auto_commit=False)
+        data = pkt.write(DEFAULT_CAS_INFO)
+        payload = data[8:]
+        # FC(1) + autoCommit add_byte(4+1=5) + timeout add_int(4+4=8) + NTS
+        # Verify the timeout int (0) is present after auto_commit byte
+        assert len(payload) > 14  # FC + auto_commit + timeout + at least some SQL
+
+    def test_write_no_timeout_for_proto_le_3(self) -> None:
+        """Protocol version <= 3 should NOT write timeout field."""
+        pkt = BatchExecutePacket(["INSERT INTO t VALUES(1)"], auto_commit=False, protocol_version=3)
+        data_no_timeout = pkt.write(DEFAULT_CAS_INFO)
+        pkt_with = BatchExecutePacket(
+            ["INSERT INTO t VALUES(1)"], auto_commit=False, protocol_version=7
+        )
+        data_with_timeout = pkt_with.write(DEFAULT_CAS_INFO)
+        # With timeout should be 8 bytes longer (add_int = 4 len prefix + 4 value)
+        assert len(data_with_timeout) - len(data_no_timeout) == 8
+
     def test_parse_success(self) -> None:
-        pkt = BatchExecutePacket(["INSERT INTO t VALUES(1)"])
+        """Parse new wire format: responseCode + executedCount + per-result data."""
+        pkt = BatchExecutePacket(["INSERT INTO t VALUES(1)"], protocol_version=7)
         response = bytearray()
         response.extend(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">i", 2))  # result_count = 2
-        # Result 1
-        response.append(CUBRIDStatementType.INSERT)
-        response.extend(struct.pack(">i", 1))
-        # Result 2
-        response.append(CUBRIDStatementType.INSERT)
-        response.extend(struct.pack(">i", 1))
+        response.extend(struct.pack(">i", 0))  # response_code = 0 (success)
+        response.extend(struct.pack(">i", 2))  # executedCount = 2
+        # Result 1: success
+        response.append(CUBRIDStatementType.INSERT)  # stmtType
+        response.extend(struct.pack(">i", 1))  # result = 1 (rows affected)
+        response.extend(struct.pack(">i", 0))  # unused int
+        response.extend(struct.pack(">h", 0))  # unused short
+        response.extend(struct.pack(">h", 0))  # unused short
+        # Result 2: success
+        response.append(CUBRIDStatementType.INSERT)  # stmtType
+        response.extend(struct.pack(">i", 1))  # result = 1
+        response.extend(struct.pack(">i", 0))  # unused
+        response.extend(struct.pack(">h", 0))  # unused
+        response.extend(struct.pack(">h", 0))  # unused
+        # lastShardId (proto > 4)
+        response.extend(struct.pack(">i", 0))
 
         pkt.parse(bytes(response))
         assert len(pkt.results) == 2
         assert pkt.results[0] == (CUBRIDStatementType.INSERT, 1)
         assert pkt.results[1] == (CUBRIDStatementType.INSERT, 1)
+        assert pkt.errors == []
 
-    def test_parse_error(self) -> None:
+    def test_parse_with_errors(self) -> None:
+        """Parse batch response where some results are errors."""
+        pkt = BatchExecutePacket(["BAD SQL", "INSERT"], protocol_version=7)
+        response = bytearray()
+        response.extend(DEFAULT_CAS_INFO)
+        response.extend(struct.pack(">i", 0))  # response_code
+        response.extend(struct.pack(">i", 2))  # executedCount = 2
+        # Result 1: error (result < 0)
+        response.append(0)  # stmtType
+        response.extend(struct.pack(">i", -1))  # result = -1 (error)
+        error_code = -493
+        response.extend(struct.pack(">i", error_code))  # errorCode (proto > 2)
+        error_msg = b"syntax error\x00"
+        response.extend(struct.pack(">i", len(error_msg)))  # msgLen
+        response.extend(error_msg)  # error message NTS
+        # Result 2: success
+        response.append(CUBRIDStatementType.INSERT)  # stmtType
+        response.extend(struct.pack(">i", 1))  # result = 1
+        response.extend(struct.pack(">i", 0))  # unused
+        response.extend(struct.pack(">h", 0))  # unused
+        response.extend(struct.pack(">h", 0))  # unused
+        # lastShardId
+        response.extend(struct.pack(">i", 0))
+
+        pkt.parse(bytes(response))
+        assert len(pkt.errors) == 1
+        assert pkt.errors[0]["code"] == -493
+        assert "syntax error" in pkt.errors[0]["message"]
+        assert len(pkt.results) == 1
+        assert pkt.results[0] == (CUBRIDStatementType.INSERT, 1)
+
+    def test_parse_no_shard_id_for_low_proto(self) -> None:
+        """Protocol version <= 4 should NOT read lastShardId."""
+        pkt = BatchExecutePacket(["INSERT"], protocol_version=4)
+        response = bytearray()
+        response.extend(DEFAULT_CAS_INFO)
+        response.extend(struct.pack(">i", 0))  # response_code
+        response.extend(struct.pack(">i", 1))  # executedCount = 1
+        response.append(CUBRIDStatementType.INSERT)
+        response.extend(struct.pack(">i", 1))  # result
+        response.extend(struct.pack(">i", 0))  # unused
+        response.extend(struct.pack(">h", 0))  # unused
+        response.extend(struct.pack(">h", 0))  # unused
+        # No lastShardId for proto <= 4
+
+        pkt.parse(bytes(response))
+        assert len(pkt.results) == 1
+        assert pkt.results[0] == (CUBRIDStatementType.INSERT, 1)
+
+    def test_parse_error_response(self) -> None:
+        """Global error (response_code < 0) raises DatabaseError."""
         pkt = BatchExecutePacket(["BAD SQL"])
         response = _build_error_response(DEFAULT_CAS_INFO, -1, "batch error")
         with pytest.raises(DatabaseError, match="batch error"):

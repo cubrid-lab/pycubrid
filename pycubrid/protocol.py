@@ -21,7 +21,7 @@ from .constants import (
     CUBRIDStatementType,
     DataSize,
 )
-from .exceptions import DatabaseError
+from .exceptions import DatabaseError, IntegrityError, ProgrammingError
 from .packet import PacketReader, PacketWriter, build_protocol_header
 
 
@@ -68,8 +68,15 @@ class ResultInfo:
 
 
 def _raise_error(reader: PacketReader, response_length: int) -> None:
-    """Parse an error response and raise ``DatabaseError``."""
+    """Parse an error response and raise the appropriate DB-API exception."""
     error_code, error_message = reader.read_error(response_length)
+    msg_lower = error_message.lower()
+    if any(
+        kw in msg_lower for kw in ("unique", "duplicate", "foreign key", "constraint violation")
+    ):
+        raise IntegrityError(msg=error_message, code=error_code)
+    if any(kw in msg_lower for kw in ("syntax", "unknown class", "does not exist", "not found")):
+        raise ProgrammingError(msg=error_message, code=error_code)
     raise DatabaseError(msg=error_message, code=error_code)
 
 
@@ -293,8 +300,8 @@ class OpenDatabasePacket:
         broker_bytes = reader._parse_bytes(DataSize.BROKER_INFO)
         self.broker_info = {
             "db_type": broker_bytes[0],
-            "protocol_version": broker_bytes[2] & 0x3F,
-            "statement_pooling": broker_bytes[4],
+            "protocol_version": broker_bytes[4] & 0x3F,
+            "statement_pooling": broker_bytes[2],
         }
         self.session_id = reader._parse_int()
 
@@ -668,8 +675,9 @@ class GetEngineVersionPacket:
         if response_code < 0:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
-        # response_code is the length of the version string
-        self.engine_version = reader._parse_null_terminated_string(response_code)
+        # response_code is 0 on success; version string follows
+        version_len = len(data) - DataSize.CAS_INFO - DataSize.INT
+        self.engine_version = reader._parse_null_terminated_string(version_len)
 
 
 class GetSchemaPacket:
@@ -714,16 +722,25 @@ class GetSchemaPacket:
 class BatchExecutePacket:
     """Batch execute multiple SQL statements (FC=20)."""
 
-    def __init__(self, sql_list: list[str], auto_commit: bool = False) -> None:
+    def __init__(
+        self,
+        sql_list: list[str],
+        auto_commit: bool = False,
+        protocol_version: int = CASProtocol.VERSION,
+    ) -> None:
         self.sql_list = sql_list
         self.auto_commit = auto_commit
+        self.protocol_version = protocol_version
         self.results: list[tuple[int, int]] = []
+        self.errors: list[dict[str, Any]] = []
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the batch execute request."""
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.EXECUTE_BATCH)
         writer.add_byte(1 if self.auto_commit else 0)
+        if self.protocol_version > 3:
+            writer.add_int(0)  # timeout
         for sql in self.sql_list:
             writer._write_null_terminated_string(sql)
         payload = writer.to_bytes()
@@ -738,12 +755,24 @@ class BatchExecutePacket:
         if response_code < 0:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
-        result_count = response_code
+        executed_count = reader._parse_int()
         self.results = []
-        for _ in range(result_count):
+        self.errors = []
+        for _ in range(executed_count):
             stmt_type = reader._parse_byte()
-            count = reader._parse_int()
-            self.results.append((stmt_type, count))
+            result = reader._parse_int()
+            if result < 0:
+                error_code = reader._parse_int() if self.protocol_version > 2 else result
+                msg_len = reader._parse_int()
+                error_msg = reader._parse_null_terminated_string(msg_len)
+                self.errors.append({"code": error_code, "message": error_msg})
+            else:
+                self.results.append((stmt_type, result))
+                reader._parse_int()  # unused
+                reader._parse_short()  # unused
+                reader._parse_short()  # unused
+        if self.protocol_version > 4:
+            _ = reader._parse_int()  # lastShardId
 
 
 class LOBNewPacket:
