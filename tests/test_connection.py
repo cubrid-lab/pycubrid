@@ -22,19 +22,19 @@ def build_open_db_response(cas_info: bytes = b"\x00\x01\x02\x03", session_id: in
     body = cas_info + struct.pack(">i", 0)
     body += b"\x00" * 8
     body += struct.pack(">i", session_id)
-    data_length = struct.pack(">i", len(body))
+    data_length = struct.pack(">i", len(body) - 4)
     return data_length + body
 
 
 def build_simple_ok_response(cas_info: bytes = b"\x00\x01\x02\x03") -> bytes:
     body = cas_info + struct.pack(">i", 0)
-    return struct.pack(">i", len(body)) + body
+    return struct.pack(">i", len(body) - 4) + body
 
 
 def build_server_version_response(version: str, cas_info: bytes = b"\x00\x01\x02\x03") -> bytes:
     payload = version.encode("utf-8") + b"\x00"
     body = cas_info + struct.pack(">i", len(payload)) + payload
-    return struct.pack(">i", len(body)) + body
+    return struct.pack(">i", len(body) - 4) + body
 
 
 def build_last_insert_id_response(
@@ -42,7 +42,7 @@ def build_last_insert_id_response(
 ) -> bytes:
     payload = last_insert_id.encode("utf-8") + b"\x00"
     body = cas_info + struct.pack(">i", len(payload)) + payload
-    return struct.pack(">i", len(body)) + body
+    return struct.pack(">i", len(body) - 4) + body
 
 
 @pytest.fixture
@@ -457,7 +457,7 @@ class TestSendAndReceiveFraming:
                 self.parsed_data = data
 
         body = conn._cas_info + struct.pack(">i", 0)
-        frame = struct.pack(">i", len(body)) + body
+        frame = struct.pack(">i", len(body) - 4) + body
         sock.recv.side_effect = list(sock.recv.side_effect) + [
             frame[:2],
             frame[2:4],

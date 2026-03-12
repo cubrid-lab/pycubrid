@@ -13,7 +13,6 @@ from .protocol import (
     CloseQueryPacket,
     ColumnMetaData,
     FetchPacket,
-    GetLastInsertIdPacket,
     PrepareAndExecutePacket,
 )
 
@@ -40,7 +39,7 @@ class Cursor:
         self._row_index: int = 0
         self._statement_type: int = 0
         self._total_tuple_count: int = 0
-        self._lastrowid: str | None = None
+        self._lastrowid: int | None = None
         self._connection._cursors.add(self)
 
     @property
@@ -54,7 +53,7 @@ class Cursor:
         return self._rowcount
 
     @property
-    def lastrowid(self) -> str | None:
+    def lastrowid(self) -> int | None:
         """Return the last generated identifier for an INSERT statement."""
         return self._lastrowid
 
@@ -120,10 +119,17 @@ class Cursor:
             self._rowcount = -1
 
         if packet.statement_type == CUBRIDStatementType.INSERT:
-            last_insert_packet = GetLastInsertIdPacket()
             try:
-                self._connection._send_and_receive(last_insert_packet)
-                self._lastrowid = last_insert_packet.last_insert_id or None
+                lid_packet = PrepareAndExecutePacket(
+                    sql="SELECT LAST_INSERT_ID()",
+                    auto_commit=self._connection.autocommit,
+                )
+                self._connection._send_and_receive(lid_packet)
+                if lid_packet.rows and lid_packet.rows[0][0] is not None:
+                    val = lid_packet.rows[0][0]
+                    self._lastrowid = int(val) if val else None
+                if lid_packet.query_handle:
+                    self._connection._send_and_receive(CloseQueryPacket(lid_packet.query_handle))
             except Exception:
                 self._lastrowid = None
 
@@ -162,7 +168,11 @@ class Cursor:
         if auto_commit is None:
             auto_commit = self._connection.autocommit
 
-        packet = BatchExecutePacket(sql_list=sql_list, auto_commit=auto_commit)
+        packet = BatchExecutePacket(
+            sql_list=sql_list,
+            auto_commit=auto_commit,
+            protocol_version=self._connection._protocol_version,
+        )
         self._connection._send_and_receive(packet)
 
         self._description = None

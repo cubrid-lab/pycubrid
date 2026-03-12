@@ -71,7 +71,7 @@ class PacketWriter:
 
     def add_time(self, hour: int, minute: int, second: int) -> None:
         """Write a length-prefixed time (date fields zeroed)."""
-        self.add_datetime(0, -1, 0, hour, minute, second, 0)
+        self.add_datetime(0, 0, 0, hour, minute, second, 0)
 
     def add_timestamp(
         self,
@@ -98,7 +98,7 @@ class PacketWriter:
         """Write a length-prefixed datetime with seven shorts."""
         self._write_int(DataSize.DATETIME)
         self._write_short(year)
-        self._write_short(month + 1)
+        self._write_short(month)
         self._write_short(day)
         self._write_short(hour)
         self._write_short(minute)
@@ -214,27 +214,19 @@ class PacketReader:
 
     def _parse_date(self) -> datetime.date:
         year = self._parse_short()
-        month = self._parse_short() - 1
+        month = self._parse_short()
         day = self._parse_short()
-        _ = self._parse_short()
-        _ = self._parse_short()
-        _ = self._parse_short()
-        _ = self._parse_short()
         return datetime.date(year, month, day)
 
     def _parse_time(self) -> datetime.time:
-        _ = self._parse_short()
-        _ = self._parse_short()
-        _ = self._parse_short()
         hour = self._parse_short()
         minute = self._parse_short()
         second = self._parse_short()
-        millisecond = self._parse_short()
-        return datetime.time(hour, minute, second, millisecond * 1000)
+        return datetime.time(hour, minute, second)
 
     def _parse_datetime(self) -> datetime.datetime:
         year = self._parse_short()
-        month = self._parse_short() - 1
+        month = self._parse_short()
         day = self._parse_short()
         hour = self._parse_short()
         minute = self._parse_short()
@@ -244,7 +236,7 @@ class PacketReader:
 
     def _parse_timestamp(self) -> datetime.datetime:
         year = self._parse_short()
-        month = self._parse_short() - 1
+        month = self._parse_short()
         day = self._parse_short()
         hour = self._parse_short()
         minute = self._parse_short()
