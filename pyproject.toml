@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycubrid"
+version = "0.1.0"
+description = "Pure Python DB-API 2.0 driver for CUBRID database"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "Yeongseon Choe", email = "yeongseon.choe@gmail.com"},
+    {name = "Gyeongjun Paik", email = "paikend@gmail.com"},
+]
+keywords = ["CUBRID", "database", "driver", "DB-API", "PEP 249"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Database :: Front-Ends",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+    "pytest-cov",
+]
+
+[project.urls]
+Homepage = "https://github.com/sqlalchemy-cubrid/pycubrid"
+Repository = "https://github.com/sqlalchemy-cubrid/pycubrid"
+Documentation = "https://github.com/sqlalchemy-cubrid/pycubrid/tree/main/docs"
+
+[tool.setuptools]
+packages = ["pycubrid"]
+include-package-data = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb native -v -r fxX --maxfail=25 -p no:warnings"
+python_files = "tests/*test_*.py"

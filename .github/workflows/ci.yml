@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check pycubrid/ tests/
+      - name: Ruff format check
+        run: ruff format --check pycubrid/ tests/
+
+  offline-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pytest-cov
+      - name: Run offline tests with coverage
+        run: |
+          python -m pytest tests/ \
+            --ignore=tests/test_integration.py \
+            -v --tb=short \
+            --cov=pycubrid \
+            --cov-report=term-missing \
+            --cov-fail-under=95
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: [lint, offline-tests]
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+        cubrid-version: ["11.2", "11.4"]
+    services:
+      cubrid:
+        image: cubrid/cubrid:${{ matrix.cubrid-version }}
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33000:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Wait for CUBRID readiness
+        run: |
+          for i in $(seq 1 30); do
+            if csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; then
+              echo "CUBRID ready"
+              exit 0
+            fi
+            echo "Waiting for CUBRID... (attempt $i/30)"
+            sleep 5
+          done
+          echo "CUBRID failed readiness check"
+          exit 1
+      - name: Run integration tests
+        env:
+          CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+        run: |
+          if [ -f tests/test_integration.py ]; then
+            python -m pytest tests/test_integration.py -v --tb=short
+          else
+            echo "tests/test_integration.py not present yet; skipping integration suite."
+          fi
