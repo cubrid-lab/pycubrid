@@ -1,0 +1,299 @@
+from __future__ import annotations
+
+import datetime
+import struct
+from decimal import Decimal
+from typing import cast
+
+from .constants import CUBRIDDataType, DataSize
+
+DEFAULT_CAS_INFO: bytes = b"\x00\x00\x00\x00"
+
+
+def build_protocol_header(data_length: int, cas_info: bytes) -> bytes:
+    """Build an 8-byte protocol header."""
+    return struct.pack(">i", data_length) + cas_info
+
+
+def parse_protocol_header(data: bytes) -> tuple[int, bytes]:
+    """Parse an 8-byte protocol header."""
+    data_length = cast(int, struct.unpack(">i", data[: DataSize.DATA_LENGTH])[0])
+    cas_info = data[DataSize.DATA_LENGTH : DataSize.DATA_LENGTH + DataSize.CAS_INFO]
+    return data_length, cas_info
+
+
+class PacketWriter:
+    def __init__(self) -> None:
+        self._buffer: bytearray = bytearray()
+
+    def add_byte(self, value: int) -> None:
+        """Write a length-prefixed byte value."""
+        self._write_int(DataSize.BYTE)
+        self._write_byte(value)
+
+    def add_short(self, value: int) -> None:
+        """Write a length-prefixed short value."""
+        self._write_int(DataSize.SHORT)
+        self._write_short(value)
+
+    def add_int(self, value: int) -> None:
+        """Write a length-prefixed int value."""
+        self._write_int(DataSize.INT)
+        self._write_int(value)
+
+    def add_long(self, value: int) -> None:
+        """Write a length-prefixed long value."""
+        self._write_int(DataSize.LONG)
+        self._write_long(value)
+
+    def add_float(self, value: float) -> None:
+        """Write a length-prefixed float value."""
+        self._write_int(DataSize.FLOAT)
+        self._write_float(value)
+
+    def add_double(self, value: float) -> None:
+        """Write a length-prefixed double value."""
+        self._write_int(DataSize.DOUBLE)
+        self._write_double(value)
+
+    def add_bytes(self, value: bytes) -> None:
+        """Write length-prefixed raw bytes."""
+        self._write_int(len(value))
+        self._write_bytes(value)
+
+    def add_null(self) -> None:
+        """Write a null marker (zero length)."""
+        self._write_int(DataSize.UNSPECIFIED)
+
+    def add_date(self, year: int, month: int, day: int) -> None:
+        """Write a length-prefixed date (time fields zeroed)."""
+        self.add_datetime(year, month, day, 0, 0, 0, 0)
+
+    def add_time(self, hour: int, minute: int, second: int) -> None:
+        """Write a length-prefixed time (date fields zeroed)."""
+        self.add_datetime(0, -1, 0, hour, minute, second, 0)
+
+    def add_timestamp(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+    ) -> None:
+        """Write a length-prefixed timestamp (millisecond zeroed)."""
+        self.add_datetime(year, month, day, hour, minute, second, 0)
+
+    def add_datetime(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+        millisecond: int,
+    ) -> None:
+        """Write a length-prefixed datetime with seven shorts."""
+        self._write_int(DataSize.DATETIME)
+        self._write_short(year)
+        self._write_short(month + 1)
+        self._write_short(day)
+        self._write_short(hour)
+        self._write_short(minute)
+        self._write_short(second)
+        self._write_short(millisecond)
+
+    def add_cache_time(self) -> None:
+        """Write a length-prefixed cache time value (two zero ints)."""
+        self._write_int(DataSize.LONG)
+        self._write_int(0)
+        self._write_int(0)
+
+    def _write_byte(self, value: int) -> None:
+        self._buffer.extend(struct.pack(">B", value & 0xFF))
+
+    def _write_short(self, value: int) -> None:
+        self._buffer.extend(struct.pack(">h", value))
+
+    def _write_int(self, value: int) -> None:
+        self._buffer.extend(struct.pack(">i", value))
+
+    def _write_long(self, value: int) -> None:
+        self._buffer.extend(struct.pack(">q", value))
+
+    def _write_float(self, value: float) -> None:
+        self._buffer.extend(struct.pack(">f", value))
+
+    def _write_double(self, value: float) -> None:
+        self._buffer.extend(struct.pack(">d", value))
+
+    def _write_bytes(self, value: bytes) -> None:
+        self._buffer.extend(value)
+
+    def _write_filler(self, count: int, value: int = 0) -> None:
+        if count <= 0:
+            return
+        self._buffer.extend(bytes([value & 0xFF]) * count)
+
+    def _write_null_terminated_string(self, value: str) -> None:
+        encoded = value.encode("utf-8")
+        self._write_int(len(encoded) + 1)
+        self._write_bytes(encoded)
+        self._write_byte(0)
+
+    def _write_fixed_length_string(self, value: str, length: int, filler: int = 0) -> None:
+        if length <= 0:
+            return
+
+        encoded = value.encode("utf-8")
+        fixed = encoded[:length]
+        self._write_bytes(fixed)
+        if len(fixed) < length:
+            self._write_filler(length - len(fixed), filler)
+
+    def to_bytes(self) -> bytes:
+        """Return all bytes currently written."""
+        return bytes(self._buffer)
+
+    def __len__(self) -> int:
+        """Return current buffer size."""
+        return len(self._buffer)
+
+
+class PacketReader:
+    def __init__(self, data: bytes | bytearray) -> None:
+        self._buffer: memoryview = memoryview(data)
+        self._offset: int = 0
+
+    def _parse_byte(self) -> int:
+        value = self._buffer[self._offset]
+        self._offset += DataSize.BYTE
+        return value
+
+    def _parse_short(self) -> int:
+        value = cast(int, struct.unpack_from(">h", self._buffer, self._offset)[0])
+        self._offset += DataSize.SHORT
+        return value
+
+    def _parse_int(self) -> int:
+        value = cast(int, struct.unpack_from(">i", self._buffer, self._offset)[0])
+        self._offset += DataSize.INT
+        return value
+
+    def _parse_long(self) -> int:
+        value = cast(int, struct.unpack_from(">q", self._buffer, self._offset)[0])
+        self._offset += DataSize.LONG
+        return value
+
+    def _parse_float(self) -> float:
+        value = cast(float, struct.unpack_from(">f", self._buffer, self._offset)[0])
+        self._offset += DataSize.FLOAT
+        return value
+
+    def _parse_double(self) -> float:
+        value = cast(float, struct.unpack_from(">d", self._buffer, self._offset)[0])
+        self._offset += DataSize.DOUBLE
+        return value
+
+    def _parse_bytes(self, count: int) -> bytes:
+        start = self._offset
+        end = start + count
+        self._offset = end
+        return bytes(self._buffer[start:end])
+
+    def _parse_null_terminated_string(self, length: int) -> str:
+        if length <= 0:
+            return ""
+
+        data = self._parse_bytes(length)
+        if data and data[-1] == 0:
+            data = data[:-1]
+        return data.decode("utf-8")
+
+    def _parse_date(self) -> datetime.date:
+        year = self._parse_short()
+        month = self._parse_short() - 1
+        day = self._parse_short()
+        _ = self._parse_short()
+        _ = self._parse_short()
+        _ = self._parse_short()
+        _ = self._parse_short()
+        return datetime.date(year, month, day)
+
+    def _parse_time(self) -> datetime.time:
+        _ = self._parse_short()
+        _ = self._parse_short()
+        _ = self._parse_short()
+        hour = self._parse_short()
+        minute = self._parse_short()
+        second = self._parse_short()
+        millisecond = self._parse_short()
+        return datetime.time(hour, minute, second, millisecond * 1000)
+
+    def _parse_datetime(self) -> datetime.datetime:
+        year = self._parse_short()
+        month = self._parse_short() - 1
+        day = self._parse_short()
+        hour = self._parse_short()
+        minute = self._parse_short()
+        second = self._parse_short()
+        millisecond = self._parse_short()
+        return datetime.datetime(year, month, day, hour, minute, second, millisecond * 1000)
+
+    def _parse_timestamp(self) -> datetime.datetime:
+        year = self._parse_short()
+        month = self._parse_short() - 1
+        day = self._parse_short()
+        hour = self._parse_short()
+        minute = self._parse_short()
+        second = self._parse_short()
+        return datetime.datetime(year, month, day, hour, minute, second, 0)
+
+    def _parse_numeric(self, size: int) -> Decimal:
+        value = self._parse_null_terminated_string(size)
+        return Decimal(value)
+
+    def _parse_object(self) -> str:
+        page = self._parse_int()
+        slot = self._parse_short()
+        volume = self._parse_short()
+        return f"OID:@{page}|{slot}|{volume}"
+
+    def read_blob(self, size: int) -> dict[str, object]:
+        """Read a packed BLOB handle from the buffer."""
+        return self._read_lob(size, CUBRIDDataType.BLOB)
+
+    def read_clob(self, size: int) -> dict[str, object]:
+        """Read a packed CLOB handle from the buffer."""
+        return self._read_lob(size, CUBRIDDataType.CLOB)
+
+    def read_error(self, response_length: int) -> tuple[int, str]:
+        """Read an error packet body as ``(error_code, message)``."""
+        error_code = self._parse_int()
+        message_size = response_length - DataSize.INT
+        error_message = self._parse_null_terminated_string(message_size)
+        return error_code, error_message
+
+    def bytes_remaining(self) -> int:
+        """Return unread byte count."""
+        return len(self._buffer) - self._offset
+
+    def _parse_buffer(self, count: int) -> bytes:
+        return self._parse_bytes(count)
+
+    def _read_lob(self, size: int, lob_type: CUBRIDDataType) -> dict[str, object]:
+        packed_lob_handle = self._parse_buffer(size)
+        lob_reader = PacketReader(packed_lob_handle)
+        _ = lob_reader._parse_int()
+        lob_length = lob_reader._parse_long()
+        locator_size = lob_reader._parse_int()
+        file_locator = lob_reader._parse_null_terminated_string(locator_size)
+
+        return {
+            "lob_type": lob_type,
+            "lob_length": lob_length,
+            "file_locator": file_locator,
+            "packed_lob_handle": packed_lob_handle,
+        }
