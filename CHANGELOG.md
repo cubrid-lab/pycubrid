@@ -14,6 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Timestamp, DateFromTicks, TimeFromTicks, TimestampFromTicks, Binary)
 - CAS protocol constants (41 function codes, 27+ data types, isolation levels)
 
+## [0.4.0] - 2026-03-12
+
+### Added
+- `Lob` class for BLOB/CLOB Large Object support (create, write, read)
+- `Connection.create_lob()` helper for server-side LOB creation
+- `Connection.get_schema_info()` for schema introspection via CAS protocol
+- `Cursor.executemany_batch()` for batch execution of multiple SQL statements
+- Exported `Lob` from package `__init__.py`
+
 ## [0.3.0] - 2026-03-12
 
 ### Added

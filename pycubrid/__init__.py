@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pycubrid.exceptions import (
     DatabaseError,
@@ -30,11 +30,12 @@ from pycubrid.types import (
     TimestampFromTicks,
     TimeFromTicks,
 )
+from pycubrid.lob import Lob
 
 if TYPE_CHECKING:
     from pycubrid.connection import Connection
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 # PEP 249 module-level attributes
 apilevel = "2.0"
@@ -48,7 +49,7 @@ def connect(
     database: str = "",
     user: str = "dba",
     password: str = "",
-    **kwargs: object,
+    **kwargs: Any,
 ) -> Connection:
     """Create a new database connection.
 
@@ -108,4 +109,5 @@ __all__ = [
     "TimeFromTicks",
     "TimestampFromTicks",
     "Binary",
+    "Lob",
 ]

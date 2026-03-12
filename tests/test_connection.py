@@ -4,13 +4,14 @@ import struct
 import sys
 import types
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from pycubrid.connection import Connection
-from pycubrid.constants import CASFunctionCode
+from pycubrid.constants import CASFunctionCode, CUBRIDDataType
 from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.protocol import GetSchemaPacket
 
 
 def build_handshake_response(port: int = 0) -> bytes:
@@ -293,6 +294,60 @@ class TestMetadataMethods:
         last_id = conn.get_last_insert_id()
 
         assert last_id == "42"
+
+
+class TestAdvancedMethods:
+    def test_create_lob_delegates_to_lob_create(self, socket_queue: list[MagicMock]) -> None:
+        conn, _ = make_connected_connection(socket_queue)
+        sentinel_lob = object()
+
+        with patch("pycubrid.lob.Lob.create", return_value=sentinel_lob) as create_mock:
+            result = conn.create_lob(CUBRIDDataType.BLOB)
+
+        assert result is sentinel_lob
+        create_mock.assert_called_once_with(conn, CUBRIDDataType.BLOB)
+
+    def test_get_schema_info_sends_get_schema_packet(self, socket_queue: list[MagicMock]) -> None:
+        conn, _ = make_connected_connection(socket_queue)
+
+        def send_and_receive(packet: object) -> object:
+            assert isinstance(packet, GetSchemaPacket)
+            packet.query_handle = 77
+            packet.tuple_count = 3
+            return packet
+
+        conn._send_and_receive = MagicMock(side_effect=send_and_receive)
+
+        packet = conn.get_schema_info(schema_type=1, table_name="users", pattern_match_flag=0)
+
+        assert isinstance(packet, GetSchemaPacket)
+        assert packet.schema_type == 1
+        assert packet.table_name == "users"
+        assert packet.pattern_match_flag == 0
+        assert packet.query_handle == 77
+        assert packet.tuple_count == 3
+
+    def test_create_lob_raises_interface_error_when_closed(
+        self, socket_queue: list[MagicMock]
+    ) -> None:
+        conn, sock = make_connected_connection(socket_queue)
+        close_frame = build_simple_ok_response(conn._cas_info)
+        sock.recv.side_effect = list(sock.recv.side_effect) + [close_frame[:4], close_frame[4:]]
+        conn.close()
+
+        with pytest.raises(InterfaceError, match="connection is closed"):
+            conn.create_lob(CUBRIDDataType.CLOB)
+
+    def test_get_schema_info_raises_interface_error_when_closed(
+        self, socket_queue: list[MagicMock]
+    ) -> None:
+        conn, sock = make_connected_connection(socket_queue)
+        close_frame = build_simple_ok_response(conn._cas_info)
+        sock.recv.side_effect = list(sock.recv.side_effect) + [close_frame[:4], close_frame[4:]]
+        conn.close()
+
+        with pytest.raises(InterfaceError, match="connection is closed"):
+            conn.get_schema_info(1)
 
 
 class TestContextManager:

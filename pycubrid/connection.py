@@ -13,6 +13,7 @@ from .protocol import (
     CommitPacket,
     GetEngineVersionPacket,
     GetLastInsertIdPacket,
+    GetSchemaPacket,
     OpenDatabasePacket,
     RollbackPacket,
     SetDbParameterPacket,
@@ -173,6 +174,29 @@ class Connection:
         self._ensure_connected()
         packet = self._send_and_receive(GetLastInsertIdPacket())
         return packet.last_insert_id
+
+    def create_lob(self, lob_type: int) -> Any:
+        """Create a new LOB object on the server."""
+        self._ensure_connected()
+        from .lob import Lob
+
+        return Lob.create(self, lob_type)
+
+    def get_schema_info(
+        self,
+        schema_type: int,
+        table_name: str = "",
+        pattern_match_flag: int = 1,
+    ) -> Any:
+        """Query schema information from the server."""
+        self._ensure_connected()
+        packet = GetSchemaPacket(
+            schema_type=schema_type,
+            table_name=table_name,
+            pattern_match_flag=pattern_match_flag,
+        )
+        self._send_and_receive(packet)
+        return packet
 
     def __enter__(self) -> Connection:
         """Enter context manager scope and return this connection."""

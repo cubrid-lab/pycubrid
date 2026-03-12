@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from .constants import CUBRIDStatementType
 from .exceptions import InterfaceError, ProgrammingError
 from .protocol import (
+    BatchExecutePacket,
     CloseQueryPacket,
     ColumnMetaData,
     FetchPacket,
@@ -148,6 +149,33 @@ class Cursor:
             self._rowcount = total_rowcount
 
         return self
+
+    def executemany_batch(
+        self,
+        sql_list: list[str],
+        auto_commit: bool | None = None,
+    ) -> list[tuple[int, int]]:
+        """Execute multiple SQL statements in a single batch request."""
+        self._check_closed()
+        self._connection._ensure_connected()
+
+        if auto_commit is None:
+            auto_commit = self._connection.autocommit
+
+        packet = BatchExecutePacket(sql_list=sql_list, auto_commit=auto_commit)
+        self._connection._send_and_receive(packet)
+
+        self._description = None
+        self._rows = []
+        self._row_index = 0
+        self._query_handle = None
+
+        if packet.results:
+            self._rowcount = sum(count for _, count in packet.results)
+        else:
+            self._rowcount = 0
+
+        return packet.results
 
     def fetchone(self) -> tuple[Any, ...] | None:
         """Fetch the next row of a query result set."""

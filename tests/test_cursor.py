@@ -10,6 +10,7 @@ from pycubrid.constants import CUBRIDStatementType
 from pycubrid.cursor import Cursor
 from pycubrid.exceptions import InterfaceError, ProgrammingError
 from pycubrid.protocol import (
+    BatchExecutePacket,
     CloseQueryPacket,
     ColumnMetaData,
     FetchPacket,
@@ -401,6 +402,95 @@ def test_executemany_select_keeps_rowcount_negative(
     mock_connection._send_and_receive.side_effect = send
     cursor.executemany("SELECT ?", [[1], [2]])
     assert cursor.rowcount == -1
+
+
+def test_executemany_batch_executes_multiple_sql(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    expected_results = [(20, 2), (22, 1)]
+
+    def send(packet: object) -> object:
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = expected_results
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+
+    result = cursor.executemany_batch(["INSERT INTO t VALUES (1)", "UPDATE t SET v = 2"])
+
+    sent_packet = mock_connection._send_and_receive.call_args.args[0]
+    assert isinstance(sent_packet, BatchExecutePacket)
+    assert sent_packet.sql_list == ["INSERT INTO t VALUES (1)", "UPDATE t SET v = 2"]
+    assert sent_packet.auto_commit is False
+    assert result == expected_results
+    assert cursor.rowcount == 3
+
+
+def test_executemany_batch_auto_commit_override(cursor: Cursor, mock_connection: MagicMock) -> None:
+    cursor.executemany_batch(["DELETE FROM t"], auto_commit=True)
+
+    sent_packet = mock_connection._send_and_receive.call_args.args[0]
+    assert isinstance(sent_packet, BatchExecutePacket)
+    assert sent_packet.auto_commit is True
+
+
+def test_executemany_batch_empty_list_sets_zero_rowcount(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    def send(packet: object) -> object:
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = []
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+
+    result = cursor.executemany_batch([])
+
+    assert result == []
+    assert cursor.rowcount == 0
+
+
+def test_executemany_batch_resets_result_state(cursor: Cursor, mock_connection: MagicMock) -> None:
+    cursor._description = (("id", 8, None, None, 10, 0, False),)
+    cursor._rows = [[1], [2]]
+    cursor._row_index = 1
+    cursor._query_handle = 100
+
+    def send(packet: object) -> object:
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = [(20, 1)]
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+
+    cursor.executemany_batch(["INSERT INTO t VALUES (1)"])
+
+    assert cursor.description is None
+    assert cursor._rows == []
+    assert cursor._row_index == 0
+    assert cursor._query_handle is None
+
+
+def test_executemany_batch_rowcount_sums_all_counts(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    def send(packet: object) -> object:
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = [(20, 2), (22, 5), (23, 1)]
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+
+    cursor.executemany_batch(["INSERT INTO t VALUES (1)", "UPDATE t SET v = 3", "DELETE FROM t"])
+
+    assert cursor.rowcount == 8
+
+
+def test_executemany_batch_closed_cursor_raises(cursor: Cursor) -> None:
+    cursor.close()
+
+    with pytest.raises(InterfaceError, match="closed"):
+        cursor.executemany_batch(["SELECT 1"])
 
 
 def test_close_sends_close_query_and_removes_cursor(
