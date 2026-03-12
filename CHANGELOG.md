@@ -14,6 +14,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Timestamp, DateFromTicks, TimeFromTicks, TimestampFromTicks, Binary)
 - CAS protocol constants (41 function codes, 27+ data types, isolation levels)
 
+## [0.3.0] - 2026-03-12
+
+### Added
+- PEP 249 `Connection` class with full CAS handshake lifecycle
+  (`ClientInfoExchange` → `OpenDatabase` → `CloseDatabase`)
+- TCP socket management with partial-read handling
+- `commit()`, `rollback()`, `close()`, `cursor()` methods
+- `autocommit` property for transaction control
+- `get_server_version()` and `get_last_insert_id()` helper methods
+- Context manager protocol (`with conn:` auto-close)
+- PEP 249 `Cursor` class with full query execution
+  (`execute`, `executemany`, `fetchone`, `fetchmany`, `fetchall`)
+- Client-side parameter binding (str, int, float, None, bool, bytes,
+  date, time, datetime, Decimal)
+- `description` and `rowcount` attributes per PEP 249 spec
+- Iterator protocol and context manager for Cursor
+- `callproc()`, `setinputsizes()`, `setoutputsize()` stubs
+
+### Fixed
+- Double-parse bug in `_send_and_receive()` — now correctly passes
+  response body (without data_length prefix) to packet.parse()
+
 ## [0.2.0] - 2026-03-12
 
 ### Added
