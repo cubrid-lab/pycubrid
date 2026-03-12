@@ -68,6 +68,26 @@ The project targets CUBRID 11.x series and is validated in CI against:
 - 11.2
 - 11.4
 
+## SQLAlchemy Integration
+
+`pycubrid` works as a driver for [sqlalchemy-cubrid](https://github.com/sqlalchemy-cubrid/sqlalchemy-cubrid) — the SQLAlchemy 2.0 dialect for CUBRID:
+
+```bash
+pip install "sqlalchemy-cubrid[pycubrid]"
+```
+
+```python
+from sqlalchemy import create_engine, text
+
+engine = create_engine("cubrid+pycubrid://dba@localhost:33000/testdb")
+
+with engine.connect() as conn:
+    result = conn.execute(text("SELECT 1"))
+    print(result.scalar())
+```
+
+All SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) work transparently with the pycubrid driver.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, test commands, and pull request

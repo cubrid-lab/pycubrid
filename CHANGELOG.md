@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.0] - 2026-03-12
+
+### Added
+- SQLAlchemy integration via `sqlalchemy-cubrid` v2.1.0 (`cubrid+pycubrid://` URL scheme)
+- Updated README with SQLAlchemy usage examples
+
+### Changed
+- Version bumped to 0.5.0
+
 ## [0.1.0] - 2026-03-12
 
 ### Added
