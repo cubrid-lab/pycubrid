@@ -69,7 +69,7 @@ pycubrid/                   # Main package
 ### Setup
 
 ```bash
-git clone https://github.com/sqlalchemy-cubrid/pycubrid.git
+git clone https://github.com/cubrid-labs/pycubrid.git
 cd pycubrid
 make install          # pip install -e ".[dev]"
 ```

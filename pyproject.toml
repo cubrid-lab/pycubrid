@@ -37,9 +37,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sqlalchemy-cubrid/pycubrid"
-Repository = "https://github.com/sqlalchemy-cubrid/pycubrid"
-Documentation = "https://github.com/sqlalchemy-cubrid/pycubrid/tree/main/docs"
+Homepage = "https://github.com/cubrid-labs/pycubrid"
+Repository = "https://github.com/cubrid-labs/pycubrid"
+Documentation = "https://github.com/cubrid-labs/pycubrid/tree/main/docs"
 
 [tool.setuptools]
 packages = ["pycubrid"]

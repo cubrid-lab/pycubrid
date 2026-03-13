@@ -5,9 +5,9 @@
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
 [![python version](https://img.shields.io/pypi/pyversions/pycubrid)](https://www.python.org)
-[![ci workflow](https://github.com/sqlalchemy-cubrid/pycubrid/actions/workflows/ci.yml/badge.svg)](https://github.com/sqlalchemy-cubrid/pycubrid/actions/workflows/ci.yml)
-[![license](https://img.shields.io/github/license/sqlalchemy-cubrid/pycubrid)](https://github.com/sqlalchemy-cubrid/pycubrid/blob/main/LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/sqlalchemy-cubrid/pycubrid)](https://github.com/sqlalchemy-cubrid/pycubrid)
+[![ci workflow](https://github.com/cubrid-labs/pycubrid/actions/workflows/ci.yml/badge.svg)](https://github.com/cubrid-labs/pycubrid/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 <!-- BADGES:END -->
 

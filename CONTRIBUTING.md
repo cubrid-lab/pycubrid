@@ -13,7 +13,7 @@ Thank you for your interest in contributing to `pycubrid`.
 ### Installation
 
 ```bash
-git clone https://github.com/sqlalchemy-cubrid/pycubrid.git
+git clone https://github.com/cubrid-labs/pycubrid.git
 cd pycubrid
 
 python3 -m venv venv
