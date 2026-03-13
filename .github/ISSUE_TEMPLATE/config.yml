@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: PEP 249 — DB-API 2.0
+    url: https://peps.python.org/pep-0249/
+    about: Python Database API Specification v2.0
+  - name: CUBRID Documentation
+    url: https://cubrid.org/documentation
+    about: Official CUBRID database documentation
