@@ -11,20 +11,21 @@ or native CCI library.
 - **Language**: Python 3.10+
 - **Protocol**: CUBRID CAS binary protocol (version 7, since CUBRID 10.0.0)
 - **License**: MIT
-- **Version**: 0.1.0
+- **Version**: 0.5.0
 
 ## Architecture
 
 ```
-pycubrid/                   # Main package
+pycubrid/                   # Main package (9 modules)
 ├── __init__.py             # Public API — PEP 249 globals, connect(), exports
 ├── exceptions.py           # Full PEP 249 exception hierarchy (10 classes)
 ├── types.py                # PEP 249 type objects + constructors
 ├── constants.py            # CAS protocol constants (function codes, data types, etc.)
-├── packet.py               # PacketReader/PacketWriter — binary serialization (planned)
-├── protocol.py             # CAS protocol packets — handshake, query, fetch (planned)
-├── connection.py           # PEP 249 Connection class (planned)
-├── cursor.py               # PEP 249 Cursor class (planned)
+├── packet.py               # PacketReader/PacketWriter — binary serialization
+├── protocol.py             # CAS protocol packets — 18 packet classes
+├── connection.py           # PEP 249 Connection class
+├── cursor.py               # PEP 249 Cursor class
+├── lob.py                  # LOB (Large Object) support
 └── py.typed                # PEP 561 marker
 ```
 
@@ -35,11 +36,12 @@ pycubrid/                   # Main package
 | `__init__.py` | PEP 249 module globals (`apilevel`, `threadsafety`, `paramstyle`), `connect()`, re-exports |
 | `exceptions.py` | `Warning`, `Error`, `InterfaceError`, `DatabaseError` + 6 subclasses |
 | `types.py` | `DBAPIType` class, `STRING`/`BINARY`/`NUMBER`/`DATETIME`/`ROWID` type objects, constructors |
-| `constants.py` | `CASFunctionCode`, `CUBRIDDataType`, `CUBRIDStatementType`, protocol/data-size constants |
-| `packet.py` | Low-level binary read/write with big-endian byte ordering (planned) |
-| `protocol.py` | High-level CAS packet classes for each function code (planned) |
-| `connection.py` | `Connection` — TCP socket management, transactions, autocommit (planned) |
-| `cursor.py` | `Cursor` — execute, fetch, description, iteration (planned) |
+| `constants.py` | `CASFunctionCode` (41 funcs), `CUBRIDDataType` (27+ types), `CUBRIDStatementType`, protocol/data-size constants |
+| `packet.py` | Low-level binary read/write with big-endian byte ordering |
+| `protocol.py` | High-level CAS packet classes for each function code (18 packet types) |
+| `connection.py` | `Connection` — TCP socket management, transactions, autocommit, LOB creation, schema info |
+| `cursor.py` | `Cursor` — execute, executemany, fetch, prepare, callproc, description, iteration |
+| `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |
 
 ## Wire Protocol Summary
 
@@ -96,6 +98,11 @@ export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
 pytest tests/test_integration.py -v
 ```
 
+### Test Stats
+
+- **471 offline tests + 41 integration tests**, **99.88% coverage** (1654 statements, 2 missed)
+- Coverage threshold: 95% (CI-enforced)
+
 ## Code Conventions
 
 ### Style
@@ -123,12 +130,31 @@ tests/
 ├── test_exceptions.py       # PEP 249 exception hierarchy
 ├── test_types.py            # Type objects and constructors
 ├── test_constants.py        # Protocol constants
-├── test_packet.py           # PacketReader/PacketWriter (planned)
-├── test_protocol.py         # CAS protocol packets (planned)
-├── test_connection.py       # Connection class (planned)
-├── test_cursor.py           # Cursor class (planned)
-├── test_integration.py      # Live DB tests (planned)
-└── test_pep249.py           # Full PEP 249 compliance (planned)
+├── test_packet.py           # PacketReader/PacketWriter
+├── test_protocol.py         # CAS protocol packets
+├── test_connection.py       # Connection class
+├── test_cursor.py           # Cursor class
+├── test_lob.py              # LOB support
+├── test_init.py             # Module-level API tests
+├── test_integration.py      # Live DB tests (requires Docker)
+└── test_pep249.py           # Full PEP 249 compliance
+```
+
+## Documentation
+
+```
+docs/
+├── CONNECTION.md       # Connection strings, URL format, configuration
+├── TYPES.md            # Full type mapping, CUBRID-specific types
+├── API_REFERENCE.md    # Complete API documentation
+├── PROTOCOL.md         # CAS wire protocol reference
+├── DEVELOPMENT.md      # Dev setup, testing, Docker, coverage, CI/CD
+├── EXAMPLES.md         # Practical usage examples with code
+├── README.ko.md        # Korean translation
+├── README.zh.md        # Chinese translation
+├── README.hi.md        # Hindi translation
+├── README.de.md        # German translation
+└── README.ru.md        # Russian translation
 ```
 
 ## Commit Convention
