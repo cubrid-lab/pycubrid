@@ -1,6 +1,6 @@
 # pycubrid
 
-**Pure Python DB-API 2.0 driver for CUBRID**
+**Pure Python DB-API 2.0 driver for the CUBRID database** — no C extensions, no compilation, PEP 249 compliant database connector.
 
 [🇰🇷 한국어](docs/README.ko.md) · [🇺🇸 English](README.md) · [🇨🇳 中文](docs/README.zh.md) · [🇮🇳 हिन्दी](docs/README.hi.md) · [🇩🇪 Deutsch](docs/README.de.md) · [🇷🇺 Русский](docs/README.ru.md)
 
@@ -190,6 +190,44 @@ pycubrid/
 ├── lob.py            # LOB (Large Object) support
 └── py.typed          # PEP 561 marker
 ```
+
+## FAQ
+
+### How do I connect to CUBRID with Python?
+
+```python
+import pycubrid
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+```
+
+### How do I install pycubrid?
+
+`pip install pycubrid` — no C extensions or build tools required.
+
+### What parameter style does pycubrid use?
+
+Question mark (`qmark`) style: `cursor.execute("SELECT * FROM users WHERE id = ?", (1,))`
+
+### Does pycubrid work with SQLAlchemy?
+
+Yes. Install `pip install "sqlalchemy-cubrid[pycubrid]"` and use the connection URL `cubrid+pycubrid://dba@localhost:33000/testdb`.
+
+### What Python versions are supported?
+
+Python 3.10, 3.11, 3.12, and 3.13.
+
+### Does pycubrid support LOBs (CLOB/BLOB)?
+
+Yes. Insert strings/bytes directly into CLOB/BLOB columns. For reading, LOB columns return data that can be accessed through the cursor.
+
+### Is pycubrid thread-safe?
+
+pycubrid has `threadsafety = 1`, meaning connections cannot be shared between threads. Create a separate connection per thread.
+
+### What CUBRID versions are supported?
+
+CUBRID 10.2, 11.0, 11.2, and 11.4 are tested in CI.
+
 
 ## Contributing
 
