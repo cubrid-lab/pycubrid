@@ -12,7 +12,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 - [Running Tests](#running-tests)
   - [Offline Tests](#offline-tests)
   - [Integration Tests](#integration-tests)
-  - [Coverage](#coverage)
+  - [Code Coverage](#code-coverage)
 - [Docker Setup](#docker-setup)
 - [Code Style](#code-style)
 - [Makefile Commands](#makefile-commands)
@@ -140,7 +140,7 @@ pytest tests/test_integration.py -v
 docker compose down -v
 ```
 
-### Coverage
+### Code Coverage
 
 Current test metrics:
 

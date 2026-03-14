@@ -125,7 +125,7 @@ marketers = cur.fetchall()
 - **LOB support** — `create_lob()`, read/write CLOB and BLOB columns
 - **Schema introspection** — `get_schema_info()` for tables, columns, indexes, constraints
 - **Auto-commit control** — `connection.autocommit` property for transaction management
-- **Server version detection** — `connection.get_server_version()` returns `(major, minor, patch)`
+- **Server version detection** — `connection.get_server_version()` returns version string (e.g., `"11.2.0.0378"`)
 - **Iterator protocol** — iterate over cursor results with `for row in cursor`
 - **Context managers** — `with` statements for both connections and cursors
 
@@ -166,6 +166,7 @@ All SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) work 
 | [Protocol](docs/PROTOCOL.md) | CAS wire protocol reference |
 | [Development](docs/DEVELOPMENT.md) | Dev setup, testing, Docker, coverage, CI/CD |
 | [Examples](docs/EXAMPLES.md) | Practical usage examples with code |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Connection errors, query problems, LOB handling, debugging |
 
 ## Compatibility
 
