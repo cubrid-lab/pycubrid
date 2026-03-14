@@ -82,15 +82,25 @@ jobs:
       - name: Wait for CUBRID readiness
         run: |
           for i in $(seq 1 30); do
-            if csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; then
-              echo "CUBRID ready"
-              exit 0
+            if python -c "
+          from pycubrid import connect
+          try:
+              conn = connect('CUBRID:localhost:33000:testdb:::', user='dba', password='')
+              cur = conn.cursor()
+              cur.execute('SELECT 1')
+              cur.close()
+              conn.close()
+              print('CUBRID ready')
+              exit(0)
+          except Exception as e:
+              print(f'Not ready: {e}')
+              exit(1)
+          "; then
+              break
             fi
             echo "Waiting for CUBRID... (attempt $i/30)"
             sleep 5
           done
-          echo "CUBRID failed readiness check"
-          exit 1
       - name: Run integration tests
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
