@@ -234,15 +234,21 @@ CUBRID 10.2, 11.0, 11.2, and 11.4 are tested in CI.
 
 ## Benchmark
 
-Performance benchmarks comparing pycubrid against PyMySQL are tracked in the [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark) suite.
+**Environment**: Intel Core i5-9400F @ 2.90GHz · Linux x86_64 · CUBRID 11.2 · MySQL 8.0 · Docker localhost
 
-[![Benchmark](https://github.com/cubrid-labs/cubrid-benchmark/actions/workflows/bench.yml/badge.svg)](https://cubrid-labs.github.io/cubrid-benchmark/)
+**Test Parameters**: 1000 rows × 5 rounds
 
-- **Tier 0** — Functional smoke tests (connect + CRUD)
-- **Tier 1** — Driver throughput: 10K INSERT/SELECT, 1K UPDATE/DELETE
-- Same schema, same seed data, same CI hardware per run
-- Results published to [GitHub Pages dashboard](https://cubrid-labs.github.io/cubrid-benchmark/)
+| Operation | pycubrid (CUBRID) | PyMySQL (MySQL) | Ratio |
+|-----------|-------------------|-----------------|-------|
+| insert_sequential | 10.47s | 1.74s | 6.0× |
+| select_by_pk | 15.99s | 3.52s | 4.5× |
+| select_full_scan | 10.31s | 1.86s | 5.5× |
+| update_indexed | 10.70s | 2.19s | 4.9× |
+| delete_sequential | 10.75s | 2.10s | 5.1× |
 
+**Note**: pycubrid is a pure-Python driver; overhead reflects Python-level protocol parsing. A C-extension driver would close the gap.
+
+Full benchmark suite: [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
 ## Related Projects
 
 - [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid) — SQLAlchemy 2.0 dialect for CUBRID
