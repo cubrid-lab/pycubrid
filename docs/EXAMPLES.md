@@ -211,6 +211,7 @@ with pycubrid.connect(database="testdb") as conn:
 ### Autocommit Mode
 
 ```python
+# Explicitly enable autocommit (default is False)
 conn = pycubrid.connect(database="testdb", autocommit=True)
 cur = conn.cursor()
 

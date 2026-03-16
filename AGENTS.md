@@ -40,7 +40,7 @@ pycubrid/                   # Main package (9 modules)
 | `packet.py` | Low-level binary read/write with big-endian byte ordering |
 | `protocol.py` | High-level CAS packet classes for each function code (18 packet types) |
 | `connection.py` | `Connection` — TCP socket management, transactions, autocommit, LOB creation, schema info |
-| `cursor.py` | `Cursor` — execute, executemany, fetch, prepare, callproc, description, iteration |
+| `cursor.py` | `Cursor` — execute, executemany, fetch, callproc, description, iteration |
 | `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |
 
 ## Wire Protocol Summary

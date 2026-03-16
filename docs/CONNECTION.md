@@ -191,7 +191,7 @@ The `autocommit` property controls whether each statement is committed automatic
 
 ```python
 # Check current mode
-print(conn.autocommit)  # True (server default)
+print(conn.autocommit)  # False (driver default)
 
 # Disable autocommit for transaction grouping
 conn.autocommit = False
@@ -204,13 +204,17 @@ conn.autocommit = True
 
 | Property           | Description                                              |
 |--------------------|----------------------------------------------------------|
-| Default value      | `True` (CUBRID server default)                           |
+| Default value      | `False`                                                  |
 | Getter             | Returns current autocommit state                         |
 | Setter (`= True`)  | Sends `SetDbParameterPacket` + `CommitPacket` to server  |
 | Setter (`= False`) | Sends `SetDbParameterPacket` to server                   |
 
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
+>
+> The CUBRID server default is `autocommit=True`, but pycubrid `Connection` defaults to
+> `autocommit=False` for explicit transaction control. Pass `autocommit=True` to `connect()`
+> to enable.
 
 ---
 

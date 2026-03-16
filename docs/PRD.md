@@ -50,7 +50,7 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 | PEP 249 (DB-API 2.0) compliant | ✅ | ✅ Full API compliance |
 | Offline tests (no live DB) | ✅ | ✅ 471 tests, 99.88% coverage |
 | LOB (CLOB/BLOB) support | ✅ | ✅ `create_lob()`, read/write |
-| Prepared statements | ✅ | ✅ `cursor.prepare()` / `cursor.execute()` |
+| Prepared statements | ✅ | ✅ `cursor.execute(sql, params)` — uses CAS `PREPARE_AND_EXECUTE` |
 | CI/CD with version matrix | ✅ | ✅ Py 3.10–3.13 × CUBRID 11.2–11.4 |
 | Publishable to PyPI | ✅ | ✅ Release workflow on tag |
 | ≥ 95% code coverage | ✅ | ✅ 99.88% (CI-enforced) |
@@ -67,7 +67,7 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 pycubrid/                    # 10 modules
 ├── __init__.py              # Public API — connect(), types, exceptions, __version__
 ├── connection.py            # Connection class — connect, commit, rollback, cursor, LOB
-├── cursor.py                # Cursor class — execute, fetch, prepare, callproc, iterator
+├── cursor.py                # Cursor class — execute, fetch, executemany, callproc, iterator
 ├── types.py                 # DB-API 2.0 type objects and constructors
 ├── exceptions.py            # PEP 249 exception hierarchy
 ├── constants.py             # CAS function codes, data types, protocol constants
@@ -121,7 +121,7 @@ Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`,
 - `executemany(sql, seq_of_params)` — batch execute
 - `executemany_batch(sql, seq_of_params)` — optimized batch insert
 - `fetchone()` / `fetchmany(size)` / `fetchall()` — result retrieval
-- `prepare(sql)` — server-side prepared statements
+- `execute(sql, params)` — parameterized queries via CAS `PREPARE_AND_EXECUTE`
 - `callproc(procname, params)` — stored procedure calls
 - Iterator protocol — `for row in cursor`
 - Context manager — `with conn.cursor() as cur`
@@ -155,7 +155,7 @@ Direct implementation of CUBRID's Client Application Server (CAS) binary protoco
 | Test File | Tests | Coverage Area |
 |---|---|---|
 | `test_connection.py` | ~80 | Connection, authentication, auto-commit, context manager |
-| `test_cursor.py` | ~100 | Execute, fetch, prepare, callproc, iterator, description |
+| `test_cursor.py` | ~100 | Execute, fetch, executemany, callproc, iterator, description |
 | `test_types.py` | ~50 | Type objects, constructors, date/time conversion |
 | `test_exceptions.py` | ~30 | Exception hierarchy, error codes |
 | `test_protocol.py` | ~80 | Packet building, parsing, CAS function codes |
