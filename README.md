@@ -230,6 +230,18 @@ pycubrid has `threadsafety = 1`, meaning connections cannot be shared between th
 CUBRID 10.2, 11.0, 11.2, and 11.4 are tested in CI.
 
 
+## Benchmark
+
+Performance benchmarks comparing pycubrid against PyMySQL are tracked in the [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark) suite.
+
+[![Benchmark](https://github.com/cubrid-labs/cubrid-benchmark/actions/workflows/bench.yml/badge.svg)](https://cubrid-labs.github.io/cubrid-benchmark/)
+
+- **Tier 0** — Functional smoke tests (connect + CRUD)
+- **Tier 1** — Driver throughput: 10K INSERT/SELECT, 1K UPDATE/DELETE
+- Same schema, same seed data, same CI hardware per run
+- Results published to [GitHub Pages dashboard](https://cubrid-labs.github.io/cubrid-benchmark/)
+
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for development setup.
