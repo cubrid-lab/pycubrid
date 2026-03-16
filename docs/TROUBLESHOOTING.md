@@ -38,8 +38,8 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [rowcount Is -1 After SELECT](#rowcount-is--1-after-select)
   - [executemany() Performance](#executemany-performance)
 - [Prepared Statement Issues](#prepared-statement-issues)
-  - [prepare() Then execute() Pattern](#prepare-then-execute-pattern)
-  - [Mixing Prepared and Direct Execution](#mixing-prepared-and-direct-execution)
+  - [execute(sql, params) Pattern](#executesql-params-pattern)
+  - [Mixing Parameterized and Direct Execution](#mixing-parameterized-and-direct-execution)
 - [Docker Issues](#docker-issues)
   - [Container Starts but Cannot Connect](#container-starts-but-cannot-connect)
   - [Database Not Found](#database-not-found)
@@ -470,7 +470,7 @@ with pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba
 
 | Scenario | autocommit | Behavior |
 |---|---|---|
-| Default constructor | `True` (server default) | Each statement commits immediately |
+| Default constructor | `False` (driver default) | Explicit `commit()` required |
 | Via SQLAlchemy | `False` (dialect sets it) | SQLAlchemy manages transactions |
 | Context manager exit | N/A | Commits on success, rollbacks on exception |
 
@@ -478,7 +478,7 @@ with pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba
 
 ```python
 # Check current mode
-print(conn.autocommit)  # True
+print(conn.autocommit)  # False
 
 # Disable for manual transaction control
 conn.autocommit = False
@@ -776,53 +776,49 @@ cur.executemany_batch(sql_list)
 
 ## Prepared Statement Issues
 
-### prepare() Then execute() Pattern
+### execute(sql, params) Pattern
 
 **Correct pattern:**
 
 ```python
-# Prepare once
-cur.prepare("SELECT * FROM users WHERE department = ?")
+sql = "SELECT * FROM users WHERE department = ?"
 
-# Execute multiple times with different parameters
-cur.execute(None, ("Engineering",))
+# Execute with SQL + parameters
+cur.execute(sql, ("Engineering",))
 engineers = cur.fetchall()
 
-cur.execute(None, ("Marketing",))
+cur.execute(sql, ("Marketing",))
 marketers = cur.fetchall()
 ```
 
 **Key points:**
 
-- Pass `None` as the first argument to `execute()` when using a prepared statement
-- The parameters go in the second argument
-- The prepared statement stays active until a new `prepare()` or `execute("SQL", ...)` call
+- Always pass the SQL string as the first argument to `execute()`
+- Pass parameter values in the second argument
+- Each call uses CAS `PREPARE_AND_EXECUTE`; no separate prepare step is needed
 
 ---
 
-### Mixing Prepared and Direct Execution
+### Mixing Parameterized and Direct Execution
 
-**Calling `execute()` with a SQL string replaces the prepared statement:**
+**You can safely mix parameterized and direct SQL execution on one cursor:**
 
 ```python
-cur.prepare("SELECT * FROM users WHERE id = ?")
-cur.execute(None, (1,))  # Uses prepared statement
+cur.execute("SELECT * FROM users WHERE id = ?", (1,))
 
-cur.execute("SELECT * FROM departments")  # Replaces prepared statement
+cur.execute("SELECT * FROM departments")
 
-cur.execute(None, (2,))  # ERROR or unexpected — no prepared statement active
+cur.execute("SELECT * FROM users WHERE id = ?", (2,))
 ```
 
-**Best practice:** Use separate cursors for prepared statements and ad-hoc queries:
+**Best practice:** Keep SQL explicit at each call site:
 
 ```python
-# Cursor for prepared queries
-prep_cur = conn.cursor()
-prep_cur.prepare("SELECT * FROM users WHERE id = ?")
+sql = "SELECT * FROM users WHERE id = ?"
 
-# Cursor for ad-hoc queries
-adhoc_cur = conn.cursor()
-adhoc_cur.execute("SELECT COUNT(*) FROM users")
+cur.execute(sql, (1,))
+cur.execute(sql, (2,))
+cur.execute("SELECT COUNT(*) FROM users")
 ```
 
 ---

@@ -94,14 +94,15 @@ cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 conn.commit()
 ```
 
-### Prepared Statements
+### Parameterized Queries
 
 ```python
-cur.prepare("SELECT * FROM users WHERE department = ?")
-cur.execute(None, ("Engineering",))
+sql = "SELECT * FROM users WHERE department = ?"
+
+cur.execute(sql, ("Engineering",))
 engineers = cur.fetchall()
 
-cur.execute(None, ("Marketing",))
+cur.execute(sql, ("Marketing",))
 marketers = cur.fetchall()
 ```
 
@@ -121,7 +122,7 @@ marketers = cur.fetchall()
 
 - **Pure Python** — no C extensions, no compilation, works everywhere Python runs
 - **Complete DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **Prepared statements** — `cursor.prepare()` / `cursor.execute()` for server-side preparation
+- **Parameterized queries** — `cursor.execute(sql, params)` with server-side `PREPARE_AND_EXECUTE`
 - **Batch operations** — `executemany()` and `executemany_batch()` for bulk inserts
 - **LOB support** — `create_lob()`, read/write CLOB and BLOB columns
 - **Schema introspection** — `get_schema_info()` for tables, columns, indexes, constraints
@@ -183,7 +184,7 @@ All SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) work 
 pycubrid/
 ├── __init__.py       # Public API — connect(), types, exceptions, __version__
 ├── connection.py     # Connection class — connect, commit, rollback, cursor, LOB
-├── cursor.py         # Cursor class — execute, fetch, prepare, callproc, iterator
+├── cursor.py         # Cursor class — execute, fetch, executemany, callproc, iterator
 ├── types.py          # DB-API 2.0 type objects and constructors
 ├── exceptions.py     # PEP 249 exception hierarchy
 ├── constants.py      # CAS function codes, data types, protocol constants
