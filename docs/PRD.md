@@ -63,18 +63,30 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 
 ### 2.1 Module Structure
 
-```
-pycubrid/                    # 10 modules
-├── __init__.py              # Public API — connect(), types, exceptions, __version__
-├── connection.py            # Connection class — connect, commit, rollback, cursor, LOB
-├── cursor.py                # Cursor class — execute, fetch, executemany, callproc, iterator
-├── types.py                 # DB-API 2.0 type objects and constructors
-├── exceptions.py            # PEP 249 exception hierarchy
-├── constants.py             # CAS function codes, data types, protocol constants
-├── protocol.py              # CAS wire protocol packet classes (18 packet types)
-├── packet.py                # Low-level packet reader/writer
-├── lob.py                   # LOB (Large Object) support
-└── py.typed                 # PEP 561 marker
+```mermaid
+graph TD
+    root[pycubrid/ - 10 modules]
+    init[__init__.py - Public API connect(), types, exceptions, __version__]
+    connection[connection.py - Connection class connect/commit/rollback/cursor/LOB]
+    cursor[cursor.py - Cursor class execute/fetch/executemany/callproc/iterator]
+    types[types.py - DB-API 2.0 type objects and constructors]
+    exceptions[exceptions.py - PEP 249 exception hierarchy]
+    constants[constants.py - CAS function codes, data types, protocol constants]
+    protocol[protocol.py - CAS wire protocol packet classes (18 packet types)]
+    packet[packet.py - Low-level packet reader/writer]
+    lob[lob.py - LOB support]
+    typed[py.typed - PEP 561 marker]
+
+    root --> init
+    root --> connection
+    root --> cursor
+    root --> types
+    root --> exceptions
+    root --> constants
+    root --> protocol
+    root --> packet
+    root --> lob
+    root --> typed
 ```
 
 ### 2.2 Dependency Matrix
@@ -261,16 +273,26 @@ DB-API 2.0 is the standard Python database interface. Strict compliance means:
 
 pycubrid is the foundational driver in the cubrid-labs Python ecosystem:
 
-```
-pycubrid (DB-API 2.0 driver)
-    └── sqlalchemy-cubrid (SQLAlchemy 2.0 dialect)
-            └── cubrid-cookbook (runnable examples)
-                    ├── FastAPI examples
-                    ├── Django examples
-                    ├── Flask examples
-                    ├── Pandas examples
-                    ├── Streamlit examples
-                    └── Celery examples
+```mermaid
+graph TD
+    pycubrid[pycubrid (DB-API 2.0 driver)]
+    sqlalchemy[sqlalchemy-cubrid (SQLAlchemy 2.0 dialect)]
+    cookbook[cubrid-cookbook (runnable examples)]
+    fastapi[FastAPI examples]
+    django[Django examples]
+    flask[Flask examples]
+    pandas[Pandas examples]
+    streamlit[Streamlit examples]
+    celery[Celery examples]
+
+    pycubrid --> sqlalchemy
+    sqlalchemy --> cookbook
+    cookbook --> fastapi
+    cookbook --> django
+    cookbook --> flask
+    cookbook --> pandas
+    cookbook --> streamlit
+    cookbook --> celery
 ```
 
 ---

@@ -785,18 +785,30 @@ cur.execute("INSERT INTO my_table (clob_col) VALUES (?)", ["large text content"]
 
 pycubrid implements the full PEP 249 exception hierarchy:
 
-```
-Exception
-├── Warning
-└── Error
-    ├── InterfaceError
-    └── DatabaseError
-        ├── DataError
-        ├── OperationalError
-        ├── IntegrityError
-        ├── InternalError
-        ├── ProgrammingError
-        └── NotSupportedError
+```mermaid
+graph TD
+    exception[Exception]
+    warning[Warning]
+    error[Error]
+    interface[InterfaceError]
+    database[DatabaseError]
+    data[DataError]
+    operational[OperationalError]
+    integrity[IntegrityError]
+    internal[InternalError]
+    programming[ProgrammingError]
+    notsupported[NotSupportedError]
+
+    exception --> warning
+    exception --> error
+    error --> interface
+    error --> database
+    database --> data
+    database --> operational
+    database --> integrity
+    database --> internal
+    database --> programming
+    database --> notsupported
 ```
 
 All exceptions have `msg` (str) and `code` (int) attributes. `DatabaseError` and its subclasses additionally have `errno` (int | None) and `sqlstate` (str | None).

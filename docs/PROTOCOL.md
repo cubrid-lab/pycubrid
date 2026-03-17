@@ -55,16 +55,11 @@ Key characteristics:
 
 ## Architecture
 
-```
-┌──────────┐     TCP      ┌──────────┐     ┌──────────┐
-│  Client  │ ──────────── │  Broker  │ ──> │  CAS     │
-│ (pycubrid)│  port 33000 │          │     │  Process  │
-└──────────┘              └──────────┘     └──────────┘
-                                                │
-                                           ┌────┴────┐
-                                           │ CUBRID  │
-                                           │ Database│
-                                           └─────────┘
+```mermaid
+graph LR
+    client[Client (pycubrid)] -- TCP port 33000 --> broker[Broker]
+    broker --> cas[CAS Process]
+    cas --> db[CUBRID Database]
 ```
 
 1. **Client** connects to the **Broker** on port 33000
@@ -78,11 +73,10 @@ Key characteristics:
 
 All packets after the initial handshake use the following frame format:
 
-```
-┌────────────────────┬────────────────────┬──────────────────────┐
-│  Data Length (4B)   │  CAS Info (4B)     │  Payload (variable)  │
-│  big-endian int32   │  session state     │  function-specific   │
-└────────────────────┴────────────────────┴──────────────────────┘
+```mermaid
+graph LR
+    data[Data Length (4B) big-endian int32] --> casinfo[CAS Info (4B) session state]
+    casinfo --> payload[Payload (variable) function-specific]
 ```
 
 | Field       | Size    | Description |
@@ -114,18 +108,12 @@ The connection flow has three phases:
 
 ### Phase 1: Client Info Exchange
 
-```
-Client → Broker (10 bytes, raw):
-┌──────────┬──────────┬──────────┬──────────┐
-│ "CUBRK"  │ CLIENT   │ CAS_VER  │ Padding  │
-│ (5 bytes)│ _JDBC(3) │ (0x47)   │ (3 bytes)│
-└──────────┴──────────┴──────────┴──────────┘
-
-Broker → Client (4 bytes):
-┌──────────────────────────┐
-│ New Connection Port      │
-│ (int32, big-endian)      │
-└──────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Broker
+    Client->>Broker: ClientInfoExchange raw 10B ("CUBRK", CLIENT_JDBC=3, CAS_VER=0x47, padding)
+    Broker-->>Client: New Connection Port (4B int32, big-endian)
 ```
 
 - **Magic string**: `"CUBRK"` (5 ASCII bytes)
@@ -135,18 +123,12 @@ Broker → Client (4 bytes):
 
 ### Phase 2: Open Database
 
-```
-Client → CAS (628 bytes, raw):
-┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
-│ Database     │ User         │ Password     │ Extended     │ Reserved     │
-│ (32 bytes)   │ (32 bytes)   │ (32 bytes)   │ (512 bytes)  │ (20 bytes)   │
-└──────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
-
-CAS → Client (framed response):
-┌──────────┬──────────┬──────────┬──────────┬──────────┐
-│ CAS Info │ Response │ Broker   │ Session  │          │
-│ (4B)     │ Code(4B) │ Info(8B) │ ID (4B)  │          │
-└──────────┴──────────┴──────────┴──────────┴──────────┘
+```mermaid
+sequenceDiagram
+    participant Client
+    participant CAS
+    Client->>CAS: OpenDatabase raw 628B (database 32B, user 32B, password 32B, extended 512B, reserved 20B)
+    CAS-->>Client: Framed response (CAS Info 4B, Response Code 4B, Broker Info 8B, Session ID 4B)
 ```
 
 - Database, user, and password are fixed-length null-padded strings
@@ -166,19 +148,18 @@ After successful `OpenDatabase`, the connection is ready for SQL operations.
 
 Every operation after connection follows this pattern:
 
-```
-1. Client builds payload:
-   [function_code (1 byte)] [arguments...]
-
-2. Client frames and sends:
-   [data_length (4B)] [cas_info (4B)] [payload]
-
-3. Server processes and responds:
-   [data_length (4B)] [cas_info (4B)] [response_code (4B)] [result_data...]
-
-4. Client checks response_code:
-   >= 0 → Success (code may carry additional info)
-   <  0 → Error (followed by error_code + error_message)
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    Client->>Client: Build payload [function_code (1B)] [arguments...]
+    Client->>Server: Send [data_length (4B)] [cas_info (4B)] [payload]
+    Server-->>Client: Response [data_length (4B)] [cas_info (4B)] [response_code (4B)] [result_data...]
+    alt response_code >= 0
+        Client->>Client: Success path (code may carry additional info)
+    else response_code < 0
+        Client->>Client: Error path (error_code + error_message)
+    end
 ```
 
 ---
@@ -577,11 +558,9 @@ class ColumnMetaData:
 
 When `response_code < 0`, the response contains an error:
 
-```
-┌──────────────┬──────────────────────────────────┐
-│ Error Code   │ Error Message                    │
-│ (4B int)     │ (null-terminated string)          │
-└──────────────┴──────────────────────────────────┘
+```mermaid
+graph LR
+    code[Error Code (4B int)] --> message[Error Message (null-terminated string)]
 ```
 
 pycubrid classifies errors automatically:

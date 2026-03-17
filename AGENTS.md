@@ -15,18 +15,30 @@ or native CCI library.
 
 ## Architecture
 
-```
-pycubrid/                   # Main package (9 modules)
-├── __init__.py             # Public API — PEP 249 globals, connect(), exports
-├── exceptions.py           # Full PEP 249 exception hierarchy (10 classes)
-├── types.py                # PEP 249 type objects + constructors
-├── constants.py            # CAS protocol constants (function codes, data types, etc.)
-├── packet.py               # PacketReader/PacketWriter — binary serialization
-├── protocol.py             # CAS protocol packets — 18 packet classes
-├── connection.py           # PEP 249 Connection class
-├── cursor.py               # PEP 249 Cursor class
-├── lob.py                  # LOB (Large Object) support
-└── py.typed                # PEP 561 marker
+```mermaid
+graph TD
+    root[pycubrid/ - Main package (9 modules)]
+    init[__init__.py - Public API, PEP 249 globals, connect(), exports]
+    exceptions[exceptions.py - Full PEP 249 exception hierarchy (10 classes)]
+    types[types.py - PEP 249 type objects and constructors]
+    constants[constants.py - CAS protocol constants]
+    packet[packet.py - PacketReader/PacketWriter binary serialization]
+    protocol[protocol.py - CAS protocol packets (18 packet classes)]
+    connection[connection.py - PEP 249 Connection class]
+    cursor[cursor.py - PEP 249 Cursor class]
+    lob[lob.py - LOB support]
+    typed[py.typed - PEP 561 marker]
+
+    root --> init
+    root --> exceptions
+    root --> types
+    root --> constants
+    root --> packet
+    root --> protocol
+    root --> connection
+    root --> cursor
+    root --> lob
+    root --> typed
 ```
 
 ### Module Responsibilities
@@ -124,37 +136,64 @@ pytest tests/test_integration.py -v
 
 ## Test Structure
 
-```
-tests/
-├── conftest.py              # Shared fixtures
-├── test_exceptions.py       # PEP 249 exception hierarchy
-├── test_types.py            # Type objects and constructors
-├── test_constants.py        # Protocol constants
-├── test_packet.py           # PacketReader/PacketWriter
-├── test_protocol.py         # CAS protocol packets
-├── test_connection.py       # Connection class
-├── test_cursor.py           # Cursor class
-├── test_lob.py              # LOB support
-├── test_init.py             # Module-level API tests
-├── test_integration.py      # Live DB tests (requires Docker)
-└── test_pep249.py           # Full PEP 249 compliance
+```mermaid
+graph TD
+    tests[tests/]
+    conftest[conftest.py - Shared fixtures]
+    test_exceptions[test_exceptions.py - PEP 249 exception hierarchy]
+    test_types[test_types.py - Type objects and constructors]
+    test_constants[test_constants.py - Protocol constants]
+    test_packet[test_packet.py - PacketReader/PacketWriter]
+    test_protocol[test_protocol.py - CAS protocol packets]
+    test_connection[test_connection.py - Connection class]
+    test_cursor[test_cursor.py - Cursor class]
+    test_lob[test_lob.py - LOB support]
+    test_init[test_init.py - Module-level API tests]
+    test_integration[test_integration.py - Live DB tests (requires Docker)]
+    test_pep249[test_pep249.py - Full PEP 249 compliance]
+
+    tests --> conftest
+    tests --> test_exceptions
+    tests --> test_types
+    tests --> test_constants
+    tests --> test_packet
+    tests --> test_protocol
+    tests --> test_connection
+    tests --> test_cursor
+    tests --> test_lob
+    tests --> test_init
+    tests --> test_integration
+    tests --> test_pep249
 ```
 
 ## Documentation
 
-```
-docs/
-├── CONNECTION.md       # Connection strings, URL format, configuration
-├── TYPES.md            # Full type mapping, CUBRID-specific types
-├── API_REFERENCE.md    # Complete API documentation
-├── PROTOCOL.md         # CAS wire protocol reference
-├── DEVELOPMENT.md      # Dev setup, testing, Docker, coverage, CI/CD
-├── EXAMPLES.md         # Practical usage examples with code
-├── README.ko.md        # Korean translation
-├── README.zh.md        # Chinese translation
-├── README.hi.md        # Hindi translation
-├── README.de.md        # German translation
-└── README.ru.md        # Russian translation
+```mermaid
+graph TD
+    docs[docs/]
+    connection[CONNECTION.md - Connection strings, URL format, configuration]
+    types[TYPES.md - Full type mapping, CUBRID-specific types]
+    api[API_REFERENCE.md - Complete API documentation]
+    protocol[PROTOCOL.md - CAS wire protocol reference]
+    development[DEVELOPMENT.md - Dev setup, testing, Docker, coverage, CI/CD]
+    examples[EXAMPLES.md - Practical usage examples with code]
+    ko[README.ko.md - Korean translation]
+    zh[README.zh.md - Chinese translation]
+    hi[README.hi.md - Hindi translation]
+    de[README.de.md - German translation]
+    ru[README.ru.md - Russian translation]
+
+    docs --> connection
+    docs --> types
+    docs --> api
+    docs --> protocol
+    docs --> development
+    docs --> examples
+    docs --> ko
+    docs --> zh
+    docs --> hi
+    docs --> de
+    docs --> ru
 ```
 
 ## Commit Convention

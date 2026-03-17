@@ -60,49 +60,62 @@ make install
 
 ## Project Structure
 
-```
-pycubrid/
-├── pycubrid/                    # Main package (9 modules)
-│   ├── __init__.py              # Public API, PEP 249 module attributes
-│   ├── connection.py            # Connection class (TCP, CAS handshake)
-│   ├── cursor.py                # Cursor class (execute, fetch, iterate)
-│   ├── types.py                 # PEP 249 type objects and constructors
-│   ├── exceptions.py            # Full PEP 249 exception hierarchy
-│   ├── constants.py             # CAS protocol enums (41 function codes, 27+ types)
-│   ├── protocol.py              # 18 packet classes (serialize/deserialize)
-│   ├── packet.py                # PacketWriter + PacketReader primitives
-│   ├── lob.py                   # LOB (BLOB/CLOB) support
-│   └── py.typed                 # PEP 561 marker
-│
-├── tests/                       # Test suite
-│   ├── conftest.py              # Shared fixtures (mock connection, mock socket)
-│   ├── test_connection.py       # Connection lifecycle tests
-│   ├── test_cursor.py           # Cursor operations tests
-│   ├── test_types.py            # Type object tests
-│   ├── test_exceptions.py       # Exception hierarchy tests
-│   ├── test_constants.py        # Constants enumeration tests
-│   ├── test_protocol.py         # Packet serialization/deserialization tests
-│   ├── test_packet.py           # PacketWriter/PacketReader tests
-│   ├── test_lob.py              # LOB tests
-│   ├── test_pep249.py           # PEP 249 compliance tests
-│   ├── test_integration.py      # Live DB integration tests (requires Docker)
-│   └── test_suite.py            # Extended test suite
-│
-├── docs/                        # Documentation
-│   ├── CONNECTION.md            # Connection guide
-│   ├── TYPES.md                 # Type system reference
-│   ├── API_REFERENCE.md         # Complete API documentation
-│   ├── PROTOCOL.md              # CAS protocol reference
-│   ├── DEVELOPMENT.md           # This file
-│   └── EXAMPLES.md              # Usage examples
-│
-├── pyproject.toml               # Package configuration
-├── Makefile                     # Development commands
-├── docker-compose.yml           # CUBRID container setup
-├── CHANGELOG.md                 # Release history
-├── CONTRIBUTING.md              # Contribution guidelines
-├── LICENSE                      # MIT license
-└── README.md                    # Project overview
+```mermaid
+graph TD
+    root[pycubrid/]
+
+    pkg[pycubrid/ - Main package (9 modules)]
+    tests[tests/ - Test suite]
+    docs[docs/ - Documentation]
+    pyproject[pyproject.toml - Package configuration]
+    makefile[Makefile - Development commands]
+    compose[docker-compose.yml - CUBRID container setup]
+    changelog[CHANGELOG.md - Release history]
+    contributing[CONTRIBUTING.md - Contribution guidelines]
+    license[LICENSE - MIT license]
+    readme[README.md - Project overview]
+
+    root --> pkg
+    root --> tests
+    root --> docs
+    root --> pyproject
+    root --> makefile
+    root --> compose
+    root --> changelog
+    root --> contributing
+    root --> license
+    root --> readme
+
+    pkg --> init[__init__.py - Public API, PEP 249 module attributes]
+    pkg --> connection[connection.py - Connection class (TCP, CAS handshake)]
+    pkg --> cursor[cursor.py - Cursor class (execute, fetch, iterate)]
+    pkg --> types[types.py - PEP 249 type objects and constructors]
+    pkg --> exceptions[exceptions.py - Full PEP 249 exception hierarchy]
+    pkg --> constants[constants.py - CAS protocol enums (41 function codes, 27+ types)]
+    pkg --> protocol[protocol.py - 18 packet classes (serialize/deserialize)]
+    pkg --> packet[packet.py - PacketWriter + PacketReader primitives]
+    pkg --> lob[lob.py - LOB (BLOB/CLOB) support]
+    pkg --> typed[py.typed - PEP 561 marker]
+
+    tests --> conftest[conftest.py - Shared fixtures (mock connection, mock socket)]
+    tests --> test_connection[test_connection.py - Connection lifecycle tests]
+    tests --> test_cursor[test_cursor.py - Cursor operations tests]
+    tests --> test_types[test_types.py - Type object tests]
+    tests --> test_exceptions[test_exceptions.py - Exception hierarchy tests]
+    tests --> test_constants[test_constants.py - Constants enumeration tests]
+    tests --> test_protocol[test_protocol.py - Packet serialization/deserialization tests]
+    tests --> test_packet[test_packet.py - PacketWriter/PacketReader tests]
+    tests --> test_lob[test_lob.py - LOB tests]
+    tests --> test_pep249[test_pep249.py - PEP 249 compliance tests]
+    tests --> test_integration[test_integration.py - Live DB integration tests (requires Docker)]
+    tests --> test_suite[test_suite.py - Extended test suite]
+
+    docs --> doc_connection[CONNECTION.md - Connection guide]
+    docs --> doc_types[TYPES.md - Type system reference]
+    docs --> doc_api[API_REFERENCE.md - Complete API documentation]
+    docs --> doc_protocol[PROTOCOL.md - CAS protocol reference]
+    docs --> doc_dev[DEVELOPMENT.md - This file]
+    docs --> doc_examples[EXAMPLES.md - Usage examples]
 ```
 
 ---
@@ -287,39 +300,18 @@ ruff format pycubrid/ tests/
 
 ## Architecture Overview
 
-```
-                    User Code
-                       │
-                       ▼
-              ┌─────────────────┐
-              │   __init__.py   │  Module API (connect, types, exceptions)
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │  connection.py  │  TCP socket + CAS handshake + session
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │   cursor.py     │  SQL execution + parameter binding + fetch
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │  protocol.py    │  18 packet classes (serialize/deserialize)
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │   packet.py     │  PacketWriter + PacketReader (binary I/O)
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │  constants.py   │  CAS function codes, data types, enums
-              └─────────────────┘
+```mermaid
+graph TD
+    user[User Code] --> init[__init__.py - Module API connect/types/exceptions]
+    init --> connection[connection.py - TCP socket, CAS handshake, session]
+    connection --> cursor[cursor.py - SQL execution, parameter binding, fetch]
+    cursor --> protocol[protocol.py - 18 packet classes serialize/deserialize]
+    protocol --> packet[packet.py - PacketWriter + PacketReader binary I/O]
+    packet --> constants[constants.py - CAS function codes, data types, enums]
 
-   Supporting:
-   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-   │  types.py    │  │ exceptions.py│  │   lob.py     │
-   │ PEP249 types │  │ PEP249 errs  │  │ LOB objects  │
-   └──────────────┘  └──────────────┘  └──────────────┘
+    types[types.py - PEP 249 types] --> cursor
+    exceptions[exceptions.py - PEP 249 errors] --> connection
+    lob[lob.py - LOB objects] --> connection
 ```
 
 ### Data Flow
