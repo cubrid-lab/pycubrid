@@ -168,10 +168,7 @@ class TestExceptionRepr:
 
     def test_database_error_repr_with_known_errno_description(self) -> None:
         r = repr(DatabaseError("original message", errno=-493))
-        assert (
-            r
-            == "DatabaseError('original message', errno=-493, description='Table not found')"
-        )
+        assert r == "DatabaseError('original message', errno=-493, description='Table not found')"
 
     def test_database_error_repr_with_unknown_errno_no_description(self) -> None:
         r = repr(DatabaseError("original message", errno=-99999))
