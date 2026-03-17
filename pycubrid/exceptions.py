@@ -17,6 +17,8 @@ Exception hierarchy::
 
 from __future__ import annotations
 
+from .error_codes import get_error_description
+
 
 class Warning(Exception):
     """Exception raised for important warnings.
@@ -46,7 +48,13 @@ class Error(Exception):
         super().__init__(msg)
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.msg!r})"
+        parts = [repr(self.msg)]
+        if self.code != 0:
+            parts.append(f"code={self.code}")
+            description = get_error_description(self.code)
+            if description is not None:
+                parts.append(f"description={description!r}")
+        return f"{self.__class__.__name__}({', '.join(parts)})"
 
 
 class InterfaceError(Error):
@@ -81,9 +89,28 @@ class DatabaseError(Error):
         parts = [repr(self.msg)]
         if self.errno is not None:
             parts.append(f"errno={self.errno}")
+            description = get_error_description(self.errno)
+            if description is not None:
+                parts.append(f"description={description!r}")
         if self.sqlstate is not None:
             parts.append(f"sqlstate={self.sqlstate!r}")
         return f"{self.__class__.__name__}({', '.join(parts)})"
+
+    def __str__(self) -> str:
+        message = self.msg
+        details: list[str] = []
+        if self.errno is not None:
+            details.append(f"errno={self.errno}")
+            description = get_error_description(self.errno)
+            if description is not None:
+                details.append(f"description={description!r}")
+        if self.sqlstate is not None:
+            details.append(f"sqlstate={self.sqlstate!r}")
+        if not details:
+            return message
+        if message:
+            return f"{message} ({', '.join(details)})"
+        return f"({', '.join(details)})"
 
 
 class DataError(DatabaseError):

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from pycubrid import get_error_description as public_get_error_description
+from pycubrid.error_codes import get_error_description
 from pycubrid.exceptions import (
     DatabaseError,
     DataError,
@@ -163,6 +165,59 @@ class TestExceptionRepr:
         r = repr(ProgrammingError("syntax error", errno=-493))
         assert r.startswith("ProgrammingError(")
         assert "errno=-493" in r
+
+    def test_database_error_repr_with_known_errno_description(self) -> None:
+        r = repr(DatabaseError("original message", errno=-493))
+        assert (
+            r
+            == "DatabaseError('original message', errno=-493, description='Table not found')"
+        )
+
+    def test_database_error_repr_with_unknown_errno_no_description(self) -> None:
+        r = repr(DatabaseError("original message", errno=-99999))
+        assert r == "DatabaseError('original message', errno=-99999)"
+
+    def test_error_repr_with_known_code_description(self) -> None:
+        r = repr(Error("operation failed", code=-111))
+        assert r == "Error('operation failed', code=-111, description='Invalid operation')"
+
+    def test_error_repr_with_unknown_code_no_description(self) -> None:
+        r = repr(Error("operation failed", code=-99999))
+        assert r == "Error('operation failed', code=-99999)"
+
+    def test_database_error_str_with_known_errno_description(self) -> None:
+        s = str(DatabaseError("original message", errno=-493))
+        assert s == "original message (errno=-493, description='Table not found')"
+
+    @pytest.mark.parametrize(
+        "exc_class",
+        [
+            DataError,
+            OperationalError,
+            IntegrityError,
+            InternalError,
+            ProgrammingError,
+            NotSupportedError,
+        ],
+    )
+    def test_database_error_subclasses_repr_include_description_when_known(
+        self, exc_class: type[DatabaseError]
+    ) -> None:
+        r = repr(exc_class("x", errno=-493))
+        assert "errno=-493" in r
+        assert "description='Table not found'" in r
+
+
+class TestErrorCodeLookup:
+    def test_get_error_description_known(self) -> None:
+        assert get_error_description(-493) == "Table not found"
+        assert get_error_description(-21003) == "Connection refused"
+
+    def test_get_error_description_unknown(self) -> None:
+        assert get_error_description(-99999) is None
+
+    def test_get_error_description_exported_in_public_api(self) -> None:
+        assert public_get_error_description(-394) == "Column not found"
 
 
 # ---------------------------------------------------------------------------
