@@ -113,14 +113,14 @@ class Connection:
         for cursor in list(self._cursors):
             try:
                 cursor.close()
-            except Exception:
+            except Exception:  # nosec B110 — best-effort cursor cleanup
                 pass
             finally:
                 self._cursors.discard(cursor)
 
         try:
             self._send_and_receive(CloseDatabasePacket())
-        except Exception:
+        except Exception:  # nosec B110 — best-effort socket cleanup on close
             pass
         finally:
             self._safe_close_socket()

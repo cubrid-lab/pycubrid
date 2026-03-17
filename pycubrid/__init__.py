@@ -49,7 +49,7 @@ def connect(
     port: int = 33000,
     database: str = "",
     user: str = "dba",
-    password: str = "",
+    password: str = "",  # nosec B107 — PEP 249 default empty password
     **kwargs: Any,
 ) -> Connection:
     """Create a new database connection.
