@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from pycubrid.error_codes import get_error_description
 from pycubrid.exceptions import (
     DatabaseError,
     DataError,
@@ -95,6 +96,7 @@ __all__ = [
     "InternalError",
     "ProgrammingError",
     "NotSupportedError",
+    "get_error_description",
     # Type objects
     "STRING",
     "BINARY",
