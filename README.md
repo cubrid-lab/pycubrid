@@ -255,7 +255,9 @@ Full benchmark suite: [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-b
 - [cubrid-client](https://github.com/cubrid-labs/cubrid-client) — Native TypeScript client for CUBRID (CAS protocol)
 - [drizzle-cubrid](https://github.com/cubrid-labs/drizzle-cubrid) — Drizzle ORM dialect for CUBRID
 - [cubrid-go](https://github.com/cubrid-labs/cubrid-go) — Pure Go database/sql driver for CUBRID
+- [gorm-cubrid](https://github.com/cubrid-labs/gorm-cubrid) — GORM dialect for CUBRID
 - [cubrid-rs](https://github.com/cubrid-labs/cubrid-rs) — Native Rust database driver for CUBRID (sync + async, pure Rust)
+- [sea-orm-cubrid](https://github.com/cubrid-labs/sea-orm-cubrid) — SeaORM backend for CUBRID
 - [cubrid-cookbook](https://github.com/cubrid-labs/cubrid-cookbook) — Production-ready examples for all CUBRID drivers
 - [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark) — Multi-language benchmark suite for CUBRID
 
