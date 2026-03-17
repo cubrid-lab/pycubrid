@@ -419,6 +419,33 @@ class TestErrorHandling:
         with pytest.raises(OperationalError, match="socket communication failed"):
             conn.commit()
 
+    def test_send_and_receive_marks_connection_closed_on_transport_failure(
+        self,
+        socket_queue: list[MagicMock],
+    ) -> None:
+        conn, sock = make_connected_connection(socket_queue)
+        sock.sendall.side_effect = OSError("write fail")
+
+        with pytest.raises(OperationalError, match="socket communication failed"):
+            conn.commit()
+
+        assert conn._connected is False
+        assert conn._socket is None
+
+    def test_send_and_receive_marks_connection_closed_on_recv_failure(
+        self,
+        socket_queue: list[MagicMock],
+    ) -> None:
+        conn, sock = make_connected_connection(socket_queue)
+        original_side_effect = list(sock.recv.side_effect) if sock.recv.side_effect else []
+        sock.recv.side_effect = original_side_effect + [OSError("read fail")]
+
+        with pytest.raises(OperationalError, match="socket communication failed"):
+            conn.commit()
+
+        assert conn._connected is False
+        assert conn._socket is None
+
     def test_send_and_receive_raises_interface_error_when_socket_none(
         self,
         socket_queue: list[MagicMock],

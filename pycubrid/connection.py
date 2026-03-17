@@ -240,6 +240,8 @@ class Connection:
             packet.parse(response_body)
             return packet
         except OSError as exc:
+            self._safe_close_socket()
+            self._connected = False
             raise OperationalError("socket communication failed") from exc
 
     def _recv_exact(self, sock: socket.socket, size: int) -> bytes:
