@@ -259,25 +259,18 @@ tables = conn.get_schema_info(schema_type=1)  # Tables
 
 When `pycubrid.connect()` is called, the following protocol handshake occurs:
 
-```
-Client                              Broker (port 33000)
-  │                                       │
-  ├─── TCP connect ──────────────────────►│
-  │                                       │
-  ├─── ClientInfoExchangePacket ─────────►│
-  │    (magic: "CUBRK", client_type=3)    │
-  │                                       │
-  │◄── New CAS port (4 bytes) ───────────┤
-  │                                       │
-  ├─── Reconnect to CAS port ───────────►│  (if port > 0)
-  │    (or reuse connection if port = 0)  │
-  │                                       │
-  ├─── OpenDatabasePacket ───────────────►│
-  │    (database, user, password)         │
-  │                                       │
-  │◄── Session ID ───────────────────────┤
-  │                                       │
-  │    Connection established ✓           │
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Broker as Broker (port 33000)
+  participant CAS
+
+  Client->>Broker: TCP connect
+  Client->>Broker: ClientInfoExchangePacket (CUBRK)
+  Broker-->>Client: New CAS port
+  Client->>CAS: Reconnect to CAS port
+  Client->>CAS: OpenDatabasePacket
+  CAS-->>Client: Session ID
 ```
 
 ### Step-by-Step
