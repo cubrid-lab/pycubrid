@@ -284,6 +284,12 @@ Full benchmark suite: [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-b
 - [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark) — Multi-language benchmark suite for CUBRID
 
 
+## Roadmap
+
+See [`ROADMAP.md`](ROADMAP.md) for this project's direction and next milestones.
+
+For the ecosystem-wide view, see the [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-labs/.github/blob/main/ROADMAP.md) and [Project Board](https://github.com/orgs/cubrid-labs/projects/2).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for development setup.
