@@ -20,8 +20,8 @@ jobs:
   badge-sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: yeongseon/badge-sync@v0.4.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: yeongseon/badge-sync@6b72d375ae401102646e2090bc782c912fcb4171 # v0.4.0
         with:
           command: apply
       - name: Check for changes
@@ -34,7 +34,7 @@ jobs:
           fi
       - name: Create Pull Request
         if: steps.diff.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8
         with:
           commit-message: 'chore: sync README badges'
           title: 'chore: sync README badges'
