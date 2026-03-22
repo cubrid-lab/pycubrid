@@ -1,0 +1,44 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to publish (for example v0.5.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+      - name: Check if tag matches __version__
+        run: |
+          TAG_NAME="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          VERSION_FROM_FILE=$(python -c "import pycubrid; print(pycubrid.__version__)")
+          TAG_VERSION=${TAG_NAME#v}
+          echo "Version from file: $VERSION_FROM_FILE"
+          echo "Tag name: $TAG_NAME"
+          echo "Version from tag: $TAG_VERSION"
+          if [ "$VERSION_FROM_FILE" != "$TAG_VERSION" ]; then
+            echo "::error ::Version in __init__.py ($VERSION_FROM_FILE) does not match git tag ($TAG_VERSION)"
+            exit 1
+          fi
+      - run: pip install build
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
