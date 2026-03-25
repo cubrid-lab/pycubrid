@@ -208,3 +208,41 @@ Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
 ```
 
 Types: `feat`, `fix`, `docs`, `chore`, `ci`, `style`, `test`, `refactor`
+
+## Competition Context (공모전 — Performance Loop System)
+
+> This repo is the **primary optimization target** of the competition.
+> Timeline: 2026-03-25 ~ 2026-11-04
+> Board: [CUBRID Ecosystem Roadmap](https://github.com/orgs/cubrid-labs/projects/2)
+
+### Competition Role
+
+pycubrid's 4.5-6× performance gap vs PyMySQL is the biggest measurable improvement opportunity.
+The competition hero metric is **reducing this gap with documented before/after numbers**.
+
+### Competition Issues on This Repo
+
+| Issue | Phase | Priority |
+|-------|-------|----------|
+| #19 cProfile/line_profiler hot path analysis | R2 | Must-Have |
+| #20 Optimize serialization path (protocol.py/packet.py) | R2 | Must-Have |
+| #21 Optimize cursor fetch performance | R2 | Must-Have |
+| #22 Second optimization cycle (connection reuse, batch) | R3 | Must-Have |
+| #14 Performance investigation template | R2 | Must-Have |
+| #15 Add lightweight perf microbenchmarks | R2 | Must-Have |
+| #16 Expose optional driver-level timing hooks | R2 | Nice-to-Have |
+
+### Decision Gate (Week 8)
+
+If combined improvements from #20 + #21 achieve < +10%, pivot competition narrative
+from "major speedup" to "public regression-prevention loop with verified targeted gains."
+
+### Current Performance Gap (baseline)
+
+| Operation | CUBRID/MySQL Ratio | Notes |
+|-----------|-------------------|-------|
+| insert | 6.0× | Heaviest gap |
+| select_by_pk | 4.5× | |
+| full_scan | 5.5× | |
+| update | 4.9× | |
+| delete | 5.1× | |
