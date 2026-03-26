@@ -130,11 +130,47 @@ class Connection:
         """Commit the current transaction."""
         self._ensure_connected()
         self._send_and_receive(CommitPacket())
+        self._invalidate_query_handles()
 
     def rollback(self) -> None:
         """Roll back the current transaction."""
         self._ensure_connected()
         self._send_and_receive(RollbackPacket())
+        self._invalidate_query_handles()
+
+    def _invalidate_query_handles(self) -> None:
+        """Invalidate all cursor query handles.
+
+        After commit/rollback the CUBRID broker may reset the CAS
+        connection, making previous query handles stale.  Clearing them
+        prevents cursors from sending CloseQueryPacket on a dead socket.
+        """
+        for cursor in self._cursors:
+            cursor._query_handle = None
+
+    # -- CAS_INFO status constants (matches JDBC UConnection) ----------------
+    _CAS_INFO_STATUS_INACTIVE: int = 0
+    _CAS_INFO_STATUS_ACTIVE: int = 1
+
+    def _check_reconnect(self) -> None:
+        """Reconnect to the broker when the CAS has been released.
+
+        The CUBRID broker sets the first byte of CAS_INFO to ``INACTIVE``
+        (0) when the CAS process is no longer reserved for this client
+        (``KEEP_CONNECTION=AUTO``).  The official JDBC driver checks this
+        before every request and transparently reconnects.  This method
+        replicates that behaviour so that ``commit()`` followed by a new
+        query works without the caller having to manage reconnection.
+        """
+        self._ensure_connected()
+        if (
+            self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE
+            and self._socket is not None
+        ):
+            self._safe_close_socket()
+            self._connected = False
+            self._invalidate_query_handles()
+            self.connect()
 
     def cursor(self) -> Cursor:
         """Create and return a new cursor bound to this connection."""
@@ -224,8 +260,15 @@ class Connection:
         return sock
 
     def _send_and_receive(self, packet: Any) -> Any:
-        """Send a framed CAS request and parse the framed response into ``packet``."""
-        self._ensure_connected()
+        """Send a framed CAS request and parse the framed response into ``packet``.
+
+        After each response the CAS_INFO status byte is checked.  When the
+        broker signals ``INACTIVE`` (the CAS process has been released), the
+        driver closes the current socket and reconnects transparently before
+        the *next* request — matching the behaviour of the official CUBRID
+        JDBC driver (``UClientSideConnection.checkReconnect``).
+        """
+        self._check_reconnect()
         if self._socket is None:
             raise InterfaceError("connection is closed")
 
@@ -236,6 +279,9 @@ class Connection:
             data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
             data_length = struct.unpack(">i", data_length_bytes)[0]
             response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
+
+            # Update CAS_INFO from the response (first 4 bytes).
+            self._cas_info = response_body[: DataSize.CAS_INFO]
 
             packet.parse(response_body)
             return packet
