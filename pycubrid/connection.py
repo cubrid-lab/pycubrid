@@ -163,10 +163,7 @@ class Connection:
         query works without the caller having to manage reconnection.
         """
         self._ensure_connected()
-        if (
-            self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE
-            and self._socket is not None
-        ):
+        if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._socket is not None:
             self._safe_close_socket()
             self._connected = False
             self._invalidate_query_handles()
