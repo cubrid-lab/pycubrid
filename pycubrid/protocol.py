@@ -521,10 +521,14 @@ class FetchPacket:
         query_handle: int,
         current_tuple_count: int,
         fetch_size: int = 100,
+        columns: list[ColumnMetaData] | None = None,
+        statement_type: int = CUBRIDStatementType.SELECT,
     ) -> None:
         self.query_handle = query_handle
         self.current_tuple_count = current_tuple_count
         self.fetch_size = fetch_size
+        self._columns = columns
+        self._statement_type = statement_type
 
         self.tuple_count: int = 0
         self.rows: list[list[Any]] = []
@@ -546,7 +550,7 @@ class FetchPacket:
         self,
         data: bytes,
         columns: list[ColumnMetaData] | None = None,
-        statement_type: int = CUBRIDStatementType.SELECT,
+        statement_type: int | None = None,
     ) -> None:
         """Parse the fetch response."""
         reader = PacketReader(data)
@@ -556,9 +560,14 @@ class FetchPacket:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
 
+        effective_columns = columns if columns is not None else self._columns
+        effective_stmt_type = statement_type if statement_type is not None else self._statement_type
+
         self.tuple_count = reader._parse_int()
-        if self.tuple_count > 0 and columns:
-            self.rows = _parse_row_data(reader, self.tuple_count, columns, statement_type)
+        if self.tuple_count > 0 and effective_columns:
+            self.rows = _parse_row_data(
+                reader, self.tuple_count, effective_columns, effective_stmt_type
+            )
 
 
 class CommitPacket:

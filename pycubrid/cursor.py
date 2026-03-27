@@ -280,7 +280,13 @@ class Cursor:
         if self._row_index >= self._total_tuple_count:
             return False
 
-        packet = FetchPacket(self._query_handle, self._row_index, fetch_size=100)
+        packet = FetchPacket(
+            self._query_handle,
+            self._row_index,
+            fetch_size=100,
+            columns=self._columns,
+            statement_type=self._statement_type,
+        )
         self._connection._send_and_receive(packet)
         if not packet.rows:
             return False
