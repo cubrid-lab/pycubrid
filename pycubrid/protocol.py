@@ -132,54 +132,104 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
     return columns
 
 
+def _read_string(reader: PacketReader, size: int) -> str:
+    return reader._parse_null_terminated_string(size)
+
+
+def _read_short(reader: PacketReader, size: int) -> int:
+    return reader._parse_short()
+
+
+def _read_int(reader: PacketReader, size: int) -> int:
+    return reader._parse_int()
+
+
+def _read_long(reader: PacketReader, size: int) -> int:
+    return reader._parse_long()
+
+
+def _read_float(reader: PacketReader, size: int) -> float:
+    return reader._parse_float()
+
+
+def _read_double(reader: PacketReader, size: int) -> float:
+    return reader._parse_double()
+
+
+def _read_numeric(reader: PacketReader, size: int) -> Any:
+    return reader._parse_numeric(size)
+
+
+def _read_date(reader: PacketReader, size: int) -> Any:
+    return reader._parse_date()
+
+
+def _read_time(reader: PacketReader, size: int) -> Any:
+    return reader._parse_time()
+
+
+def _read_datetime(reader: PacketReader, size: int) -> Any:
+    return reader._parse_datetime()
+
+
+def _read_timestamp(reader: PacketReader, size: int) -> Any:
+    return reader._parse_timestamp()
+
+
+def _read_object(reader: PacketReader, size: int) -> str:
+    return reader._parse_object()
+
+
+def _read_raw_bytes(reader: PacketReader, size: int) -> bytes:
+    return reader._parse_bytes(size)
+
+
+def _read_blob(reader: PacketReader, size: int) -> dict[str, object]:
+    return reader.read_blob(size)
+
+
+def _read_clob(reader: PacketReader, size: int) -> dict[str, object]:
+    return reader.read_clob(size)
+
+
+def _read_null(reader: PacketReader, size: int) -> None:
+    return None
+
+
+_TYPE_READERS: dict[int, Any] = {
+    CUBRIDDataType.CHAR: _read_string,
+    CUBRIDDataType.STRING: _read_string,
+    CUBRIDDataType.NCHAR: _read_string,
+    CUBRIDDataType.VARNCHAR: _read_string,
+    CUBRIDDataType.ENUM: _read_string,
+    CUBRIDDataType.SHORT: _read_short,
+    CUBRIDDataType.INT: _read_int,
+    CUBRIDDataType.BIGINT: _read_long,
+    CUBRIDDataType.FLOAT: _read_float,
+    CUBRIDDataType.DOUBLE: _read_double,
+    CUBRIDDataType.MONETARY: _read_double,
+    CUBRIDDataType.NUMERIC: _read_numeric,
+    CUBRIDDataType.DATE: _read_date,
+    CUBRIDDataType.TIME: _read_time,
+    CUBRIDDataType.DATETIME: _read_datetime,
+    CUBRIDDataType.TIMESTAMP: _read_timestamp,
+    CUBRIDDataType.OBJECT: _read_object,
+    CUBRIDDataType.BIT: _read_raw_bytes,
+    CUBRIDDataType.VARBIT: _read_raw_bytes,
+    CUBRIDDataType.SET: _read_raw_bytes,
+    CUBRIDDataType.MULTISET: _read_raw_bytes,
+    CUBRIDDataType.SEQUENCE: _read_raw_bytes,
+    CUBRIDDataType.BLOB: _read_blob,
+    CUBRIDDataType.CLOB: _read_clob,
+    CUBRIDDataType.NULL: _read_null,
+}
+
+
 def _read_value(reader: PacketReader, column_type: int, size: int) -> Any:
     """Read a single value based on CUBRIDDataType."""
-    dt = column_type
-    if dt in (
-        CUBRIDDataType.CHAR,
-        CUBRIDDataType.STRING,
-        CUBRIDDataType.NCHAR,
-        CUBRIDDataType.VARNCHAR,
-        CUBRIDDataType.ENUM,
-    ):
-        return reader._parse_null_terminated_string(size)
-    if dt == CUBRIDDataType.SHORT:
-        return reader._parse_short()
-    if dt == CUBRIDDataType.INT:
-        return reader._parse_int()
-    if dt == CUBRIDDataType.BIGINT:
-        return reader._parse_long()
-    if dt == CUBRIDDataType.FLOAT:
-        return reader._parse_float()
-    if dt in (CUBRIDDataType.DOUBLE, CUBRIDDataType.MONETARY):
-        return reader._parse_double()
-    if dt == CUBRIDDataType.NUMERIC:
-        return reader._parse_numeric(size)
-    if dt == CUBRIDDataType.DATE:
-        return reader._parse_date()
-    if dt == CUBRIDDataType.TIME:
-        return reader._parse_time()
-    if dt == CUBRIDDataType.DATETIME:
-        return reader._parse_datetime()
-    if dt == CUBRIDDataType.TIMESTAMP:
-        return reader._parse_timestamp()
-    if dt == CUBRIDDataType.OBJECT:
-        return reader._parse_object()
-    if dt in (CUBRIDDataType.BIT, CUBRIDDataType.VARBIT):
-        return reader._parse_bytes(size)
-    if dt in (
-        CUBRIDDataType.SET,
-        CUBRIDDataType.MULTISET,
-        CUBRIDDataType.SEQUENCE,
-    ):
-        return reader._parse_bytes(size)
-    if dt == CUBRIDDataType.BLOB:
-        return reader.read_blob(size)
-    if dt == CUBRIDDataType.CLOB:
-        return reader.read_clob(size)
-    if dt in (CUBRIDDataType.NULL, CUBRIDDataType.UNKNOWN):
-        return None
-    # Fallback: read raw bytes for unknown types
+    handler = _TYPE_READERS.get(column_type)
+    if handler is not None:
+        return handler(reader, size)
     return reader._parse_bytes(size)
 
 
@@ -196,23 +246,29 @@ def _parse_row_data(
         CUBRIDStatementType.EVALUATE,
         CUBRIDStatementType.CALL_SP,
     )
+    col_types = [col.column_type for col in columns]
+    _parse_int = reader._parse_int
+    _parse_bytes = reader._parse_bytes
+    _parse_byte = reader._parse_byte
+    _null_type = CUBRIDDataType.NULL
+    _oid_size = DataSize.OID
     for _ in range(tuple_count):
-        _ = reader._parse_int()  # row index
-        _ = reader._parse_bytes(DataSize.OID)  # OID
+        _parse_int()  # row index
+        _parse_bytes(_oid_size)  # OID
         row: list[Any] = []
-        for col in columns:
-            size = reader._parse_int()
+        for col_type in col_types:
+            size = _parse_int()
             if size <= 0:
                 row.append(None)
             else:
-                col_type = col.column_type
-                if is_call_type or col_type == CUBRIDDataType.NULL:
-                    col_type = reader._parse_byte()
+                ct = col_type
+                if is_call_type or ct == _null_type:
+                    ct = _parse_byte()
                     size -= 1
                     if size <= 0:
                         row.append(None)
                         continue
-                row.append(_read_value(reader, col_type, size))
+                row.append(_read_value(reader, ct, size))
         rows.append(row)
     return rows
 
