@@ -18,7 +18,7 @@ def build_handshake_response(port: int = 0) -> bytes:
     return struct.pack(">i", port)
 
 
-def build_open_db_response(cas_info: bytes = b"\x00\x01\x02\x03", session_id: int = 1234) -> bytes:
+def build_open_db_response(cas_info: bytes = b"\x01\x01\x02\x03", session_id: int = 1234) -> bytes:
     body = cas_info + struct.pack(">i", 0)
     body += b"\x00" * 8
     body += struct.pack(">i", session_id)
@@ -26,19 +26,19 @@ def build_open_db_response(cas_info: bytes = b"\x00\x01\x02\x03", session_id: in
     return data_length + body
 
 
-def build_simple_ok_response(cas_info: bytes = b"\x00\x01\x02\x03") -> bytes:
+def build_simple_ok_response(cas_info: bytes = b"\x01\x01\x02\x03") -> bytes:
     body = cas_info + struct.pack(">i", 0)
     return struct.pack(">i", len(body) - 4) + body
 
 
-def build_server_version_response(version: str, cas_info: bytes = b"\x00\x01\x02\x03") -> bytes:
+def build_server_version_response(version: str, cas_info: bytes = b"\x01\x01\x02\x03") -> bytes:
     payload = version.encode("utf-8") + b"\x00"
     body = cas_info + struct.pack(">i", len(payload)) + payload
     return struct.pack(">i", len(body) - 4) + body
 
 
 def build_last_insert_id_response(
-    last_insert_id: str, cas_info: bytes = b"\x00\x01\x02\x03"
+    last_insert_id: str, cas_info: bytes = b"\x01\x01\x02\x03"
 ) -> bytes:
     payload = last_insert_id.encode("utf-8") + b"\x00"
     body = cas_info + struct.pack(">i", len(payload)) + payload
@@ -106,7 +106,7 @@ class TestConnectionEstablishment:
 
         assert conn._connected is True
         assert conn._session_id == 777
-        assert conn._cas_info == b"\x00\x01\x02\x03"
+        assert conn._cas_info == b"\x01\x01\x02\x03"
         assert sock.connect.call_args[0][0] == ("localhost", 33000)
 
     def test_connect_with_port_redirection(self, socket_queue: list[MagicMock]) -> None:
