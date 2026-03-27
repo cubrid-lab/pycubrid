@@ -11,7 +11,7 @@ or native CCI library.
 - **Language**: Python 3.10+
 - **Protocol**: CUBRID CAS binary protocol (version 7, since CUBRID 10.0.0)
 - **License**: MIT
-- **Version**: 0.5.0
+- **Version**: 0.6.0
 
 ## Architecture
 

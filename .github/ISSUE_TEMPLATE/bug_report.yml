@@ -50,7 +50,7 @@ body:
       placeholder: |
         - Python version: 3.10
         - CUBRID version: 11.2
-        - pycubrid version: 0.5.0
+        - pycubrid version: 0.6.0
         - Operating System: Linux/macOS/Windows
     validations:
       required: true

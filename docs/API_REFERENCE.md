@@ -48,7 +48,7 @@ These attributes are defined at the module level as required by PEP 249.
 | `apilevel`     | `"2.0"`   | DB-API specification version |
 | `threadsafety` | `1`       | Threads may share the module but not connections |
 | `paramstyle`   | `"qmark"` | Question mark parameter style: `WHERE name = ?` |
-| `__version__`  | `"0.5.0"` | Package version string |
+| `__version__`  | `"0.6.0"` | Package version string |
 
 ```python
 import pycubrid
@@ -56,7 +56,7 @@ import pycubrid
 print(pycubrid.apilevel)      # "2.0"
 print(pycubrid.threadsafety)  # 1
 print(pycubrid.paramstyle)    # "qmark"
-print(pycubrid.__version__)   # "0.5.0"
+print(pycubrid.__version__)   # "0.6.0"
 ```
 
 ---
