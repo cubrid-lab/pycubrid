@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.0] - 2026-03-28
+
+### Added
+- Transparent CAS reconnection when broker signals `CAS_INFO_STATUS=INACTIVE`,
+  matching the official CUBRID JDBC driver's `UClientSideConnection.checkReconnect()` behaviour
+- `_check_reconnect()` method inspects `CAS_INFO[0]` before every request and
+  reconnects automatically when the CAS process has been released (`KEEP_CONNECTION=AUTO`)
+- `_invalidate_query_handles()` clears stale cursor query handles after
+  commit/rollback to prevent `CloseQueryPacket` on dead sockets
+- `CAS_INFO` is now updated from every server response so the status byte is always current
+
+### Changed
+- `_send_and_receive()` now calls `_check_reconnect()` instead of `_ensure_connected()`
+  for automatic reconnection support
+- `fetchall()` now returns `list[tuple]` instead of `tuple[tuple, ...]` for
+  better interoperability with SQLAlchemy and other frameworks
+
+### Performance
+- Pre-compiled `struct` objects in `packet.py` — eliminates repeated `struct.Struct()`
+  instantiation on every read/write call
+- Dict-based type dispatch table `_TYPE_READERS` in `protocol.py` — replaces
+  long if/elif chain in `_read_value()` for O(1) type dispatch
+- Slice-based `fetchall()`/`fetchmany()` in `cursor.py` — replaces per-row
+  `fetchone()` loop with direct list slicing
+- SELECT 10K rows fetch: 96ms → 78ms (−19%)
+- Connection establishment: 2.24ms → 1.66ms (−26%)
+- INSERT execute: 7.81ms → 7.10ms (−9%)
+
+### Fixed
+- DDL statements (CREATE TABLE, ALTER TABLE) followed by DML on the same
+  connection no longer fail with "connection lost during receive" (closes #23)
+
 ## [0.5.0] - 2026-03-12
 
 ### Added
