@@ -3,9 +3,16 @@ from __future__ import annotations
 import datetime
 import struct
 from decimal import Decimal
-from typing import cast
 
 from .constants import CUBRIDDataType, DataSize
+
+# Pre-compiled struct objects — avoids format-string parsing on every call.
+_STRUCT_SHORT = struct.Struct(">h")
+_STRUCT_INT = struct.Struct(">i")
+_STRUCT_LONG = struct.Struct(">q")
+_STRUCT_FLOAT = struct.Struct(">f")
+_STRUCT_DOUBLE = struct.Struct(">d")
+_STRUCT_BYTE = struct.Struct(">B")
 
 DEFAULT_CAS_INFO: bytes = b"\x00\x00\x00\x00"
 
@@ -17,7 +24,7 @@ def build_protocol_header(data_length: int, cas_info: bytes) -> bytes:
 
 def parse_protocol_header(data: bytes) -> tuple[int, bytes]:
     """Parse an 8-byte protocol header."""
-    data_length = cast(int, struct.unpack(">i", data[: DataSize.DATA_LENGTH])[0])
+    data_length: int = _STRUCT_INT.unpack(data[: DataSize.DATA_LENGTH])[0]
     cas_info = data[DataSize.DATA_LENGTH : DataSize.DATA_LENGTH + DataSize.CAS_INFO]
     return data_length, cas_info
 
@@ -112,22 +119,22 @@ class PacketWriter:
         self._write_int(0)
 
     def _write_byte(self, value: int) -> None:
-        self._buffer.extend(struct.pack(">B", value & 0xFF))
+        self._buffer.extend(_STRUCT_BYTE.pack(value & 0xFF))
 
     def _write_short(self, value: int) -> None:
-        self._buffer.extend(struct.pack(">h", value))
+        self._buffer.extend(_STRUCT_SHORT.pack(value))
 
     def _write_int(self, value: int) -> None:
-        self._buffer.extend(struct.pack(">i", value))
+        self._buffer.extend(_STRUCT_INT.pack(value))
 
     def _write_long(self, value: int) -> None:
-        self._buffer.extend(struct.pack(">q", value))
+        self._buffer.extend(_STRUCT_LONG.pack(value))
 
     def _write_float(self, value: float) -> None:
-        self._buffer.extend(struct.pack(">f", value))
+        self._buffer.extend(_STRUCT_FLOAT.pack(value))
 
     def _write_double(self, value: float) -> None:
-        self._buffer.extend(struct.pack(">d", value))
+        self._buffer.extend(_STRUCT_DOUBLE.pack(value))
 
     def _write_bytes(self, value: bytes) -> None:
         self._buffer.extend(value)
@@ -173,27 +180,27 @@ class PacketReader:
         return value
 
     def _parse_short(self) -> int:
-        value = cast(int, struct.unpack_from(">h", self._buffer, self._offset)[0])
+        value: int = _STRUCT_SHORT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.SHORT
         return value
 
     def _parse_int(self) -> int:
-        value = cast(int, struct.unpack_from(">i", self._buffer, self._offset)[0])
+        value: int = _STRUCT_INT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.INT
         return value
 
     def _parse_long(self) -> int:
-        value = cast(int, struct.unpack_from(">q", self._buffer, self._offset)[0])
+        value: int = _STRUCT_LONG.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.LONG
         return value
 
     def _parse_float(self) -> float:
-        value = cast(float, struct.unpack_from(">f", self._buffer, self._offset)[0])
+        value: float = _STRUCT_FLOAT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.FLOAT
         return value
 
     def _parse_double(self) -> float:
-        value = cast(float, struct.unpack_from(">d", self._buffer, self._offset)[0])
+        value: float = _STRUCT_DOUBLE.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.DOUBLE
         return value
 

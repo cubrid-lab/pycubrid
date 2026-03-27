@@ -207,11 +207,19 @@ class Cursor:
         fetch_size = self.arraysize if size is None else size
 
         rows: list[tuple[Any, ...]] = []
-        while len(rows) < fetch_size:
-            row = self.fetchone()
-            if row is None:
-                break
-            rows.append(row)
+        remaining = fetch_size
+        while remaining > 0:
+            available = len(self._rows) - self._row_index
+            if available <= 0:
+                if not self._fetch_more_rows():
+                    break
+                available = len(self._rows) - self._row_index
+
+            take = min(available, remaining)
+            end = self._row_index + take
+            rows.extend(tuple(r) for r in self._rows[self._row_index : end])
+            self._row_index = end
+            remaining -= take
         return rows
 
     def fetchall(self) -> list[tuple[Any, ...]]:
@@ -221,10 +229,12 @@ class Cursor:
 
         rows: list[tuple[Any, ...]] = []
         while True:
-            row = self.fetchone()
-            if row is None:
+            available = len(self._rows) - self._row_index
+            if available > 0:
+                rows.extend(tuple(r) for r in self._rows[self._row_index :])
+                self._row_index = len(self._rows)
+            if not self._fetch_more_rows():
                 return rows
-            rows.append(row)
 
     def setinputsizes(self, sizes: Any) -> None:
         """DB-API no-op for input size hints."""
