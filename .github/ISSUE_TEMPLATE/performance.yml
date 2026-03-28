@@ -1,0 +1,91 @@
+name: Performance Investigation
+description: Report a measured performance regression or gap detected by cubrid-benchmark
+title: "[Perf]: "
+labels: ["performance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when cubrid-benchmark detects a measurable performance gap or regression.
+        Link to the benchmark run that triggered this investigation.
+
+  - type: textarea
+    id: benchmark-source
+    attributes:
+      label: Benchmark Source
+      description: Link to the cubrid-benchmark run or report that triggered this investigation
+      placeholder: |
+        https://github.com/cubrid-labs/cubrid-benchmark/actions/runs/...
+        or paste the relevant benchmark output table
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operations-affected
+    attributes:
+      label: Operation(s) Affected
+      description: Which database operation(s) show the performance gap?
+      options:
+        - connect
+        - execute
+        - fetch
+        - other
+      multiple: true
+    validations:
+      required: true
+
+  - type: textarea
+    id: measured-delta
+    attributes:
+      label: Measured Delta
+      description: Quantify the performance gap with CI run provenance
+      placeholder: |
+        Baseline (before): X ops/sec (run: <CI link>)
+        Current (after):   Y ops/sec (run: <CI link>)
+        Delta: Z% regression / N× slower than PyMySQL
+
+        Include the full benchmark result table if available.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-vs-actual
+    attributes:
+      label: Expected vs Actual Performance
+      description: Describe what performance level is expected and what was observed
+      placeholder: |
+        Expected: Similar throughput to previous run / within Nx of PyMySQL baseline
+        Actual:   Nx slower, specifically on <operation> with <row count> rows
+    validations:
+      required: true
+
+  - type: textarea
+    id: profiling-results
+    attributes:
+      label: Profiling Results
+      description: |
+        Paste cProfile output from the relevant profiling script.
+        Run: python scripts/profile_connect.py  (or profile_execute.py / profile_fetch.py)
+      placeholder: |
+        $ python scripts/profile_connect.py --iterations 100
+           ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+           ...
+
+        Attach .prof file (snakeviz-compatible) if available.
+    validations:
+      required: false
+
+  - type: textarea
+    id: fix-verification
+    attributes:
+      label: Fix Verification
+      description: After the fix, re-run the benchmark and paste results here with a link
+      placeholder: |
+        Fix applied: <PR link or commit>
+        Re-benchmark run: <CI link>
+
+        Before: X ops/sec
+        After:  Y ops/sec
+        Improvement: Z%
+    validations:
+      required: false
