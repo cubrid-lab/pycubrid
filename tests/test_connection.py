@@ -79,6 +79,16 @@ def socket_queue(monkeypatch: pytest.MonkeyPatch) -> list[MagicMock]:
 def make_socket(recv_chunks: list[bytes]) -> MagicMock:
     sock = MagicMock()
     sock.recv.side_effect = recv_chunks
+
+    # Support recv_into: delegate to sock.recv() so that tests which later
+    # replace sock.recv.side_effect automatically feed recv_into as well.
+    def _recv_into(buffer: memoryview | bytearray, nbytes: int = 0) -> int:
+        chunk = sock.recv(nbytes)
+        n = len(chunk)
+        buffer[:n] = chunk
+        return n
+
+    sock.recv_into.side_effect = _recv_into
     return sock
 
 
@@ -463,6 +473,7 @@ class TestErrorHandling:
         conn, _ = make_connected_connection(socket_queue)
         bad_sock = MagicMock()
         bad_sock.recv.side_effect = [b""]
+        bad_sock.recv_into.return_value = 0
 
         with pytest.raises(OperationalError, match="connection lost during receive"):
             conn._recv_exact(bad_sock, 1)

@@ -26,6 +26,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   long if/elif chain in `_read_value()` for O(1) type dispatch
 - Slice-based `fetchall()`/`fetchmany()` in `cursor.py` — replaces per-row
   `fetchone()` loop with direct list slicing
+- `executemany()` DML batch path — pre-renders all parameter sets into SQL
+  strings and sends a single `BatchExecutePacket` instead of N round-trips
+- `recv_into()` in `_recv_exact()` — writes directly into a pre-allocated
+  buffer via `memoryview`, avoiding temporary `bytes` allocations
+- `TCP_NODELAY` and `SO_KEEPALIVE` socket options on connection creation
+- Module-level `_CursorClass` cache — eliminates `importlib.import_module()`
+  + `getattr()` on every `Connection.cursor()` call
 - SELECT 10K rows fetch: 96ms → 78ms (−19%)
 - Connection establishment: 2.24ms → 1.66ms (−26%)
 - INSERT execute: 7.81ms → 7.10ms (−9%)

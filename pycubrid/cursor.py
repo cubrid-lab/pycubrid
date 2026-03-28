@@ -140,8 +140,36 @@ class Cursor:
         operation: str,
         seq_of_parameters: Sequence[Sequence[Any] | Mapping[str, Any]],
     ) -> Cursor:
-        """Execute the same operation repeatedly with multiple parameter sets."""
+        """Execute the same operation repeatedly with multiple parameter sets.
+
+        For DML statements (INSERT, UPDATE, DELETE) the driver renders all
+        parameter sets into complete SQL strings and sends them as a single
+        batch request via ``BatchExecutePacket``, reducing N network
+        round-trips to one.  SELECT statements fall back to the per-row loop
+        to preserve cursor result-set semantics.
+        """
         self._check_closed()
+        if not seq_of_parameters:
+            return self
+
+        # Heuristic: detect SELECT to decide on batch path.
+        stripped = operation.lstrip()
+        is_select = stripped[:6].upper().startswith("SELECT")
+
+        if is_select:
+            return self._executemany_loop(operation, seq_of_parameters)
+
+        # --- DML batch path: render + single RPC --------------------------
+        sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
+        self.executemany_batch(sql_list)
+        return self
+
+    def _executemany_loop(
+        self,
+        operation: str,
+        seq_of_parameters: Sequence[Sequence[Any] | Mapping[str, Any]],
+    ) -> Cursor:
+        """Fallback per-row execution loop (used for SELECT in executemany)."""
         total_rowcount = 0
         has_non_select = False
 
