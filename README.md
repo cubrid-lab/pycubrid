@@ -11,8 +11,6 @@
 [![coverage](https://codecov.io/gh/cubrid-labs/pycubrid/branch/main/graph/badge.svg)](https://codecov.io/gh/cubrid-labs/pycubrid)
 [![license](https://img.shields.io/github/license/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid/blob/main/LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid)
-![dev version](https://img.shields.io/badge/dev-v0.7.0--dev-orange)
-![status](https://img.shields.io/badge/status-beta-yellow)
 <!-- BADGES:END -->
 
 ---
