@@ -22,6 +22,8 @@ from .protocol import (
 if TYPE_CHECKING:
     from typing import Any as Cursor
 
+_CursorClass: type | None = None
+
 
 class Connection:
     """PEP 249 DB-API connection for the CUBRID CAS protocol."""
@@ -172,9 +174,10 @@ class Connection:
     def cursor(self) -> Cursor:
         """Create and return a new cursor bound to this connection."""
         self._ensure_connected()
-        cursor_module = import_module("pycubrid.cursor")
-        cursor_class = getattr(cursor_module, "Cursor")
-        cursor = cursor_class(self)
+        global _CursorClass  # noqa: PLW0603
+        if _CursorClass is None:
+            _CursorClass = getattr(import_module("pycubrid.cursor"), "Cursor")
+        cursor = _CursorClass(self)
         self._cursors.add(cursor)
         return cursor
 
@@ -251,6 +254,8 @@ class Connection:
 
     def _create_socket(self, host: str, port: int) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         if self._connect_timeout is not None:
             sock.settimeout(self._connect_timeout)
         sock.connect((host, port))
@@ -290,13 +295,12 @@ class Connection:
     def _recv_exact(self, sock: socket.socket, size: int) -> bytes:
         """Receive exactly ``size`` bytes from the socket."""
         buf = bytearray(size)
+        view = memoryview(buf)
         pos = 0
         while pos < size:
-            chunk = sock.recv(size - pos)
-            if not chunk:
+            n = sock.recv_into(view[pos:], size - pos)
+            if n == 0:
                 raise OperationalError("connection lost during receive")
-            n = len(chunk)
-            buf[pos : pos + n] = chunk
             pos += n
         return bytes(buf)
 

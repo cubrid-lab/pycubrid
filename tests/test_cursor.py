@@ -389,16 +389,11 @@ def test_fetchall_returns_remaining_rows(cursor: Cursor, mock_connection: MagicM
 def test_executemany_accumulates_non_select_rowcount(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    counts = iter([1, 2, 3])
-
+    # DML executemany now uses BatchExecutePacket (single RPC) instead of
+    # per-row PrepareAndExecutePacket calls.
     def send(packet: object) -> object:
-        if isinstance(packet, PrepareAndExecutePacket):
-            _set_prepare_packet(
-                packet,
-                stmt_type=CUBRIDStatementType.UPDATE,
-                result_count=next(counts),
-                with_columns=False,
-            )
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = [(0, 1), (0, 2), (0, 3)]
         return packet
 
     mock_connection._send_and_receive.side_effect = send
