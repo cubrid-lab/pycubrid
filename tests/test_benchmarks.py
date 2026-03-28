@@ -1,5 +1,9 @@
 """Microbenchmarks for pycubrid driver performance profiling.
 
+Tier 0 — Connection: open/close latency, handshake time
+Tier 1 — Single-row CRUD: INSERT, SELECT, UPDATE, DELETE latency
+Tier 1+ — Multi-row and prepared statement reuse benchmarks
+
 These benchmarks require a live CUBRID database.
 Run with: pytest tests/test_benchmarks.py -v --benchmark-enable
 
@@ -67,7 +71,7 @@ def cursor(db_conn):
 
 
 def test_bench_connect_disconnect(benchmark):
-    """Measure connection establishment and teardown latency."""
+    """Tier 0: Measure connection establishment and teardown latency."""
 
     def connect_cycle():
         conn = pycubrid.connect(
@@ -83,7 +87,7 @@ def test_bench_connect_disconnect(benchmark):
 
 
 def test_bench_single_insert(benchmark, cursor, db_conn):
-    """Measure single row INSERT latency."""
+    """Tier 1: Measure single row INSERT latency."""
 
     def single_insert():
         cursor.execute(
@@ -96,7 +100,7 @@ def test_bench_single_insert(benchmark, cursor, db_conn):
 
 
 def test_bench_single_select(benchmark, cursor, db_conn):
-    """Measure single row SELECT by PK latency."""
+    """Tier 1: Measure single row SELECT by PK latency."""
     cursor.execute(f"INSERT INTO {TABLE} (name, amount) VALUES (?, ?)", ("select_test", 1))
     db_conn.commit()
 
@@ -105,6 +109,45 @@ def test_bench_single_select(benchmark, cursor, db_conn):
         cursor.fetchone()
 
     benchmark.pedantic(single_select, rounds=100, warmup_rounds=5)
+
+
+def test_bench_single_update(benchmark, cursor, db_conn):
+    """Tier 1: Measure single row UPDATE latency."""
+    cursor.execute(
+        f"INSERT INTO {TABLE} (name, amount) VALUES (?, ?)",
+        ("update_target", 1),
+    )
+    db_conn.commit()
+
+    counter = [0]
+
+    def single_update():
+        counter[0] += 1
+        cursor.execute(
+            f"UPDATE {TABLE} SET amount = ? WHERE name = ?",
+            (counter[0], "update_target"),
+        )
+        db_conn.commit()
+
+    benchmark.pedantic(single_update, rounds=100, warmup_rounds=5)
+
+
+def test_bench_single_delete(benchmark, cursor, db_conn):
+    """Tier 1: Measure single row DELETE + re-INSERT latency."""
+
+    def delete_cycle():
+        cursor.execute(
+            f"INSERT INTO {TABLE} (name, amount) VALUES (?, ?)",
+            ("del_target", 1),
+        )
+        db_conn.commit()
+        cursor.execute(
+            f"DELETE FROM {TABLE} WHERE name = ?",
+            ("del_target",),
+        )
+        db_conn.commit()
+
+    benchmark.pedantic(delete_cycle, rounds=100, warmup_rounds=5)
 
 
 def test_bench_bulk_insert_100(benchmark, cursor, db_conn):

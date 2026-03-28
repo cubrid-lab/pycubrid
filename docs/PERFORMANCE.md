@@ -10,6 +10,7 @@ This guide summarizes benchmark behavior for `pycubrid` and shows practical tuni
 - [Benchmark Results](#benchmark-results)
 - [Performance Characteristics](#performance-characteristics)
 - [Optimization Tips](#optimization-tips)
+- [Performance Investigation](#performance-investigation)
 - [Running Benchmarks](#running-benchmarks)
 
 ---
@@ -83,6 +84,103 @@ flowchart TD
     Txn -->|Yes| GroupTxn[Group statements in one transaction]
     Txn -->|No| Net[Profile network and CAS round-trips]
 ```
+
+---
+
+## Performance Investigation
+
+Use this workflow when [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
+detects a measurable gap or regression. The goal is to reproduce, profile, fix, and verify —
+without hardcoding thresholds that age badly.
+
+### When to Investigate
+
+- A benchmark run shows a ratio increase vs the baseline recorded in this document.
+- A CI run flags a deviation from the previous run's numbers.
+- You are about to submit a change to the hot path (protocol.py, packet.py, cursor.py).
+
+### Workflow
+
+```mermaid
+flowchart TD
+    Detect[cubrid-benchmark detects gap] --> Issue[File a Performance issue\nusing the issue template]
+    Issue --> Profile[Run profiling scripts\nto isolate the hot path]
+    Profile --> Optimize[Apply targeted fix\n(see Optimization Tips)]
+    Optimize --> Verify[Re-run profiling scripts\nand cubrid-benchmark]
+    Verify --> Close[Attach results to issue\nand close]
+```
+
+1. **File an issue** — use the
+   [Performance Investigation template](../.github/ISSUE_TEMPLATE/performance.yml).
+   Paste the benchmark output and link the CI run that triggered this.
+
+2. **Profile the affected operation** — pick the script that matches the slow operation:
+
+   | Operation | Script |
+   |-----------|--------|
+   | Connection handshake | `scripts/profile_connect.py` |
+   | INSERT / SELECT / UPDATE / DELETE | `scripts/profile_execute.py` |
+   | Row fetching (fetchone/fetchall/fetchmany) | `scripts/profile_fetch.py` |
+
+3. **Optimise** — guided by cProfile's cumulative time, focus changes on the top frames.
+   Keep patches targeted; avoid speculative refactors.
+
+4. **Verify** — re-run the profiling script and the full benchmark suite.
+   Attach before/after numbers to the issue.
+
+### Running the Profiling Scripts
+
+All scripts require a live CUBRID instance. Defaults target `localhost:33000/demodb` with
+user `dba`.
+
+#### Connection handshake
+
+```bash
+# 100 connect/close cycles (default):
+python scripts/profile_connect.py
+
+# Custom target, 50 iterations, save .prof:
+python scripts/profile_connect.py \
+    --host myhost --port 33000 --database testdb \
+    --user dba --password secret \
+    --iterations 50 --output connect.prof
+```
+
+#### Statement execution
+
+```bash
+# All DML operations, 100 iterations each (default):
+python scripts/profile_execute.py
+
+# INSERT only, 200 iterations:
+python scripts/profile_execute.py --operation insert --iterations 200
+
+# Save .prof for snakeviz:
+python scripts/profile_execute.py --output exec.prof
+```
+
+#### Result fetching
+
+```bash
+# 1000 rows, 50 fetch iterations (default):
+python scripts/profile_fetch.py
+
+# 5000 rows, 20 iterations, fetchmany batch size 100:
+python scripts/profile_fetch.py --rows 5000 --iterations 20 --fetch-size 100
+
+# Save .prof for snakeviz:
+python scripts/profile_fetch.py --output fetch.prof
+```
+
+#### Visualising .prof files with snakeviz
+
+```bash
+pip install snakeviz
+snakeviz profile_output.prof
+```
+
+snakeviz opens an interactive flame graph in the browser, making it easy to drill into
+nested call stacks.
 
 ---
 
