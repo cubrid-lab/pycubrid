@@ -13,6 +13,9 @@ _STRUCT_LONG = struct.Struct(">q")
 _STRUCT_FLOAT = struct.Struct(">f")
 _STRUCT_DOUBLE = struct.Struct(">d")
 _STRUCT_BYTE = struct.Struct(">B")
+_STRUCT_3H = struct.Struct(">3h")
+_STRUCT_6H = struct.Struct(">6h")
+_STRUCT_7H = struct.Struct(">7h")
 
 DEFAULT_CAS_INFO: bytes = b"\x00\x00\x00\x00"
 
@@ -170,6 +173,8 @@ class PacketWriter:
 
 
 class PacketReader:
+    __slots__ = ("_buffer", "_offset")
+
     def __init__(self, data: bytes | bytearray) -> None:
         self._buffer: memoryview = memoryview(data)
         self._offset: int = 0
@@ -179,27 +184,27 @@ class PacketReader:
         self._offset += DataSize.BYTE
         return value
 
-    def _parse_short(self) -> int:
+    def _parse_short(self, size: int = 0) -> int:
         value: int = _STRUCT_SHORT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.SHORT
         return value
 
-    def _parse_int(self) -> int:
+    def _parse_int(self, size: int = 0) -> int:
         value: int = _STRUCT_INT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.INT
         return value
 
-    def _parse_long(self) -> int:
+    def _parse_long(self, size: int = 0) -> int:
         value: int = _STRUCT_LONG.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.LONG
         return value
 
-    def _parse_float(self) -> float:
+    def _parse_float(self, size: int = 0) -> float:
         value: float = _STRUCT_FLOAT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.FLOAT
         return value
 
-    def _parse_double(self) -> float:
+    def _parse_double(self, size: int = 0) -> float:
         value: float = _STRUCT_DOUBLE.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.DOUBLE
         return value
@@ -214,47 +219,39 @@ class PacketReader:
         if length <= 0:
             return ""
 
-        data = self._parse_bytes(length)
-        if data and data[-1] == 0:
-            data = data[:-1]
-        return data.decode("utf-8")
+        start = self._offset
+        end = start + length
+        self._offset = end
+        view = self._buffer[start:end]
+        if view[-1] == 0:
+            view = view[:-1]
+        return bytes(view).decode("utf-8")
 
-    def _parse_date(self) -> datetime.date:
-        year = self._parse_short()
-        month = self._parse_short()
-        day = self._parse_short()
+    def _parse_date(self, size: int = 0) -> datetime.date:
+        year, month, day = _STRUCT_3H.unpack_from(self._buffer, self._offset)
+        self._offset += 6
         return datetime.date(year, month, day)
 
-    def _parse_time(self) -> datetime.time:
-        hour = self._parse_short()
-        minute = self._parse_short()
-        second = self._parse_short()
+    def _parse_time(self, size: int = 0) -> datetime.time:
+        hour, minute, second = _STRUCT_3H.unpack_from(self._buffer, self._offset)
+        self._offset += 6
         return datetime.time(hour, minute, second)
 
-    def _parse_datetime(self) -> datetime.datetime:
-        year = self._parse_short()
-        month = self._parse_short()
-        day = self._parse_short()
-        hour = self._parse_short()
-        minute = self._parse_short()
-        second = self._parse_short()
-        millisecond = self._parse_short()
-        return datetime.datetime(year, month, day, hour, minute, second, millisecond * 1000)
+    def _parse_datetime(self, size: int = 0) -> datetime.datetime:
+        y, mo, d, h, mi, s, ms = _STRUCT_7H.unpack_from(self._buffer, self._offset)
+        self._offset += 14
+        return datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
 
-    def _parse_timestamp(self) -> datetime.datetime:
-        year = self._parse_short()
-        month = self._parse_short()
-        day = self._parse_short()
-        hour = self._parse_short()
-        minute = self._parse_short()
-        second = self._parse_short()
-        return datetime.datetime(year, month, day, hour, minute, second, 0)
+    def _parse_timestamp(self, size: int = 0) -> datetime.datetime:
+        y, mo, d, h, mi, s = _STRUCT_6H.unpack_from(self._buffer, self._offset)
+        self._offset += 12
+        return datetime.datetime(y, mo, d, h, mi, s, 0)
 
     def _parse_numeric(self, size: int) -> Decimal:
         value = self._parse_null_terminated_string(size)
         return Decimal(value)
 
-    def _parse_object(self) -> str:
+    def _parse_object(self, size: int = 0) -> str:
         page = self._parse_int()
         slot = self._parse_short()
         volume = self._parse_short()
