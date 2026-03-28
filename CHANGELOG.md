@@ -18,8 +18,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - `_send_and_receive()` now calls `_check_reconnect()` instead of `_ensure_connected()`
   for automatic reconnection support
-- `fetchall()` now returns `list[tuple]` instead of `tuple[tuple, ...]` for
-  better interoperability with SQLAlchemy and other frameworks
 
 ### Performance
 - Pre-compiled `struct` objects in `packet.py` — eliminates repeated `struct.Struct()`
