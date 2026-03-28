@@ -289,15 +289,16 @@ class Connection:
 
     def _recv_exact(self, sock: socket.socket, size: int) -> bytes:
         """Receive exactly ``size`` bytes from the socket."""
-        chunks: list[bytes] = []
-        received = 0
-        while received < size:
-            chunk = sock.recv(size - received)
+        buf = bytearray(size)
+        pos = 0
+        while pos < size:
+            chunk = sock.recv(size - pos)
             if not chunk:
                 raise OperationalError("connection lost during receive")
-            chunks.append(chunk)
-            received += len(chunk)
-        return b"".join(chunks)
+            n = len(chunk)
+            buf[pos : pos + n] = chunk
+            pos += n
+        return bytes(buf)
 
     def _ensure_connected(self) -> None:
         """Raise ``InterfaceError`` when called on a closed connection."""

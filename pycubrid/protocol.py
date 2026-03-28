@@ -132,105 +132,49 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
     return columns
 
 
-def _read_string(reader: PacketReader, size: int) -> str:
-    return reader._parse_null_terminated_string(size)
+# ---------------------------------------------------------------------------
+# Type dispatch: method-name table
+# ---------------------------------------------------------------------------
 
-
-def _read_short(reader: PacketReader, size: int) -> int:
-    return reader._parse_short()
-
-
-def _read_int(reader: PacketReader, size: int) -> int:
-    return reader._parse_int()
-
-
-def _read_long(reader: PacketReader, size: int) -> int:
-    return reader._parse_long()
-
-
-def _read_float(reader: PacketReader, size: int) -> float:
-    return reader._parse_float()
-
-
-def _read_double(reader: PacketReader, size: int) -> float:
-    return reader._parse_double()
-
-
-def _read_numeric(reader: PacketReader, size: int) -> Any:
-    return reader._parse_numeric(size)
-
-
-def _read_date(reader: PacketReader, size: int) -> Any:
-    return reader._parse_date()
-
-
-def _read_time(reader: PacketReader, size: int) -> Any:
-    return reader._parse_time()
-
-
-def _read_datetime(reader: PacketReader, size: int) -> Any:
-    return reader._parse_datetime()
-
-
-def _read_timestamp(reader: PacketReader, size: int) -> Any:
-    return reader._parse_timestamp()
-
-
-def _read_object(reader: PacketReader, size: int) -> str:
-    return reader._parse_object()
-
-
-def _read_raw_bytes(reader: PacketReader, size: int) -> bytes:
-    return reader._parse_bytes(size)
-
-
-def _read_blob(reader: PacketReader, size: int) -> dict[str, object]:
-    return reader.read_blob(size)
-
-
-def _read_clob(reader: PacketReader, size: int) -> dict[str, object]:
-    return reader.read_clob(size)
-
-
-def _read_null(reader: PacketReader, size: int) -> None:
-    return None
-
-
-_TYPE_READERS: dict[int, Any] = {
-    CUBRIDDataType.CHAR: _read_string,
-    CUBRIDDataType.STRING: _read_string,
-    CUBRIDDataType.NCHAR: _read_string,
-    CUBRIDDataType.VARNCHAR: _read_string,
-    CUBRIDDataType.ENUM: _read_string,
-    CUBRIDDataType.SHORT: _read_short,
-    CUBRIDDataType.INT: _read_int,
-    CUBRIDDataType.BIGINT: _read_long,
-    CUBRIDDataType.FLOAT: _read_float,
-    CUBRIDDataType.DOUBLE: _read_double,
-    CUBRIDDataType.MONETARY: _read_double,
-    CUBRIDDataType.NUMERIC: _read_numeric,
-    CUBRIDDataType.DATE: _read_date,
-    CUBRIDDataType.TIME: _read_time,
-    CUBRIDDataType.DATETIME: _read_datetime,
-    CUBRIDDataType.TIMESTAMP: _read_timestamp,
-    CUBRIDDataType.OBJECT: _read_object,
-    CUBRIDDataType.BIT: _read_raw_bytes,
-    CUBRIDDataType.VARBIT: _read_raw_bytes,
-    CUBRIDDataType.SET: _read_raw_bytes,
-    CUBRIDDataType.MULTISET: _read_raw_bytes,
-    CUBRIDDataType.SEQUENCE: _read_raw_bytes,
-    CUBRIDDataType.BLOB: _read_blob,
-    CUBRIDDataType.CLOB: _read_clob,
-    CUBRIDDataType.NULL: _read_null,
+_TYPE_METHOD_NAMES: dict[int, str] = {
+    CUBRIDDataType.CHAR: "_parse_null_terminated_string",
+    CUBRIDDataType.STRING: "_parse_null_terminated_string",
+    CUBRIDDataType.NCHAR: "_parse_null_terminated_string",
+    CUBRIDDataType.VARNCHAR: "_parse_null_terminated_string",
+    CUBRIDDataType.ENUM: "_parse_null_terminated_string",
+    CUBRIDDataType.SHORT: "_parse_short",
+    CUBRIDDataType.INT: "_parse_int",
+    CUBRIDDataType.BIGINT: "_parse_long",
+    CUBRIDDataType.FLOAT: "_parse_float",
+    CUBRIDDataType.DOUBLE: "_parse_double",
+    CUBRIDDataType.MONETARY: "_parse_double",
+    CUBRIDDataType.NUMERIC: "_parse_numeric",
+    CUBRIDDataType.DATE: "_parse_date",
+    CUBRIDDataType.TIME: "_parse_time",
+    CUBRIDDataType.DATETIME: "_parse_datetime",
+    CUBRIDDataType.TIMESTAMP: "_parse_timestamp",
+    CUBRIDDataType.OBJECT: "_parse_object",
+    CUBRIDDataType.BIT: "_parse_bytes",
+    CUBRIDDataType.VARBIT: "_parse_bytes",
+    CUBRIDDataType.SET: "_parse_bytes",
+    CUBRIDDataType.MULTISET: "_parse_bytes",
+    CUBRIDDataType.SEQUENCE: "_parse_bytes",
+    CUBRIDDataType.BLOB: "read_blob",
+    CUBRIDDataType.CLOB: "read_clob",
 }
 
 
+def _resolve_reader(reader: PacketReader, col_type: int) -> Any:
+    method_name = _TYPE_METHOD_NAMES.get(col_type)
+    if method_name is not None:
+        return getattr(reader, method_name)
+    return reader._parse_bytes
+
+
 def _read_value(reader: PacketReader, column_type: int, size: int) -> Any:
-    """Read a single value based on CUBRIDDataType."""
-    handler = _TYPE_READERS.get(column_type)
-    if handler is not None:
-        return handler(reader, size)
-    return reader._parse_bytes(size)
+    if column_type == CUBRIDDataType.NULL:
+        return None
+    return _resolve_reader(reader, column_type)(size)
 
 
 def _parse_row_data(
@@ -238,38 +182,58 @@ def _parse_row_data(
     tuple_count: int,
     columns: list[ColumnMetaData],
     statement_type: int,
-) -> list[list[Any]]:
+) -> list[tuple[Any, ...]]:
     """Parse row data from the reader."""
-    rows: list[list[Any]] = []
     is_call_type = statement_type in (
         CUBRIDStatementType.CALL,
         CUBRIDStatementType.EVALUATE,
         CUBRIDStatementType.CALL_SP,
     )
+    ncols = len(columns)
     col_types = [col.column_type for col in columns]
+
     _parse_int = reader._parse_int
     _parse_bytes = reader._parse_bytes
     _parse_byte = reader._parse_byte
     _null_type = CUBRIDDataType.NULL
     _oid_size = DataSize.OID
+    _get = _TYPE_METHOD_NAMES.get
+    _getattr = getattr
+
+    if is_call_type or _null_type in col_types:
+        col_readers = None
+    else:
+        col_readers = [_resolve_reader(reader, ct) for ct in col_types]
+
+    rows: list[tuple[Any, ...]] = []
+    _rows_append = rows.append
+
     for _ in range(tuple_count):
-        _parse_int()  # row index
-        _parse_bytes(_oid_size)  # OID
-        row: list[Any] = []
-        for col_type in col_types:
-            size = _parse_int()
-            if size <= 0:
-                row.append(None)
-            else:
-                ct = col_type
+        _parse_int()
+        _parse_bytes(_oid_size)
+        row: list[Any] = [None] * ncols
+        if col_readers is not None:
+            for i in range(ncols):
+                size = _parse_int()
+                if size > 0:
+                    row[i] = col_readers[i](size)
+        else:
+            for i in range(ncols):
+                size = _parse_int()
+                if size <= 0:
+                    continue
+                ct = col_types[i]
                 if is_call_type or ct == _null_type:
                     ct = _parse_byte()
                     size -= 1
                     if size <= 0:
-                        row.append(None)
                         continue
-                row.append(_read_value(reader, ct, size))
-        rows.append(row)
+                method_name = _get(ct)
+                if method_name is not None:
+                    row[i] = _getattr(reader, method_name)(size)
+                else:
+                    row[i] = _parse_bytes(size)
+        _rows_append(tuple(row))
     return rows
 
 
@@ -384,7 +348,7 @@ class PrepareAndExecutePacket:
         self.result_count: int = 0
         self.result_infos: list[ResultInfo] = []
         self.tuple_count: int = 0
-        self.rows: list[list[Any]] = []
+        self.rows: list[tuple[Any, ...]] = []
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the prepare-and-execute request."""
@@ -512,7 +476,7 @@ class ExecutePacket:
         self.result_count: int = 0
         self.result_infos: list[ResultInfo] = []
         self.tuple_count: int = 0
-        self.rows: list[list[Any]] = []
+        self.rows: list[tuple[Any, ...]] = []
         self.columns: list[ColumnMetaData] = []
 
     def write(self, cas_info: bytes) -> bytes:
@@ -587,7 +551,7 @@ class FetchPacket:
         self._statement_type = statement_type
 
         self.tuple_count: int = 0
-        self.rows: list[list[Any]] = []
+        self.rows: list[tuple[Any, ...]] = []
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the fetch request."""

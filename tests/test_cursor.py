@@ -44,7 +44,7 @@ def _set_prepare_packet(
     packet: PrepareAndExecutePacket,
     *,
     stmt_type: int,
-    rows: list[list[object]] | None = None,
+    rows: list[tuple[object, ...]] | None = None,
     total_count: int = 0,
     result_count: int = 0,
     with_columns: bool = True,
@@ -88,7 +88,7 @@ def test_execute_select_sets_description_and_rowcount(
             _set_prepare_packet(
                 packet,
                 stmt_type=CUBRIDStatementType.SELECT,
-                rows=[[1], [2]],
+                rows=[(1,), (2,)],
                 total_count=2,
                 result_count=2,
             )
@@ -100,7 +100,7 @@ def test_execute_select_sets_description_and_rowcount(
     assert cursor.rowcount == -1
     assert cursor.description == (("id", 8, None, None, 10, 0, False),)
     assert cursor._query_handle == 1
-    assert cursor._rows == [[1], [2]]
+    assert cursor._rows == [(1,), (2,)]
     assert cursor._total_tuple_count == 2
     mock_connection._ensure_connected.assert_called()
 
@@ -111,7 +111,7 @@ def test_execute_closes_existing_query_handle(cursor: Cursor, mock_connection: M
     def send(packet: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
-                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[[10]], total_count=1
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(10,)], total_count=1
             )
         return packet
 
@@ -145,7 +145,7 @@ def test_execute_insert_sets_rowcount_and_lastrowid(
                 packet.statement_type = CUBRIDStatementType.SELECT
                 packet.columns = []
                 packet.total_tuple_count = 1
-                packet.rows = [[55]]
+                packet.rows = [(55,)]
                 packet.result_infos = []
         return packet
 
@@ -204,7 +204,7 @@ def test_execute_binds_sequence_parameters_all_supported_types(
         if isinstance(packet, PrepareAndExecutePacket):
             captured_sql.append(packet.sql)
             _set_prepare_packet(
-                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[[1]], total_count=1
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
             )
         return packet
 
@@ -237,7 +237,7 @@ def test_execute_binds_mapping_parameters(cursor: Cursor, mock_connection: Magic
         if isinstance(packet, PrepareAndExecutePacket):
             captured_sql.append(packet.sql)
             _set_prepare_packet(
-                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[[1]], total_count=1
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
             )
         return packet
 
@@ -267,7 +267,7 @@ def test_fetchone_basic_and_end(cursor: Cursor, mock_connection: MagicMock) -> N
             _set_prepare_packet(
                 packet,
                 stmt_type=CUBRIDStatementType.SELECT,
-                rows=[[1], [2]],
+                rows=[(1,), (2,)],
                 total_count=2,
                 result_count=2,
             )
@@ -294,14 +294,14 @@ def test_fetchone_fetches_more_rows(cursor: Cursor, mock_connection: MagicMock) 
             _set_prepare_packet(
                 packet,
                 stmt_type=CUBRIDStatementType.SELECT,
-                rows=[[1]],
+                rows=[(1,)],
                 total_count=3,
                 result_count=3,
             )
         elif isinstance(packet, FetchPacket):
             fetch_calls += 1
             if fetch_calls == 1:
-                packet.rows = [[2], [3]]
+                packet.rows = [(2,), (3,)]
             else:
                 packet.rows = []
         return packet
@@ -356,7 +356,7 @@ def test_fetchmany_with_size_and_default_arraysize(
             _set_prepare_packet(
                 packet,
                 stmt_type=CUBRIDStatementType.SELECT,
-                rows=[[1], [2], [3]],
+                rows=[(1,), (2,), (3,)],
                 total_count=3,
                 result_count=3,
             )
@@ -375,7 +375,7 @@ def test_fetchall_returns_remaining_rows(cursor: Cursor, mock_connection: MagicM
             _set_prepare_packet(
                 packet,
                 stmt_type=CUBRIDStatementType.SELECT,
-                rows=[[1], [2], [3]],
+                rows=[(1,), (2,), (3,)],
                 total_count=3,
             )
         return packet
@@ -412,7 +412,7 @@ def test_executemany_select_keeps_rowcount_negative(
     def send(packet: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
-                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[[1]], total_count=1
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
             )
         return packet
 
@@ -469,7 +469,7 @@ def test_executemany_batch_empty_list_sets_zero_rowcount(
 
 def test_executemany_batch_resets_result_state(cursor: Cursor, mock_connection: MagicMock) -> None:
     cursor._description = (("id", 8, None, None, 10, 0, False),)
-    cursor._rows = [[1], [2]]
+    cursor._rows = [(1,), (2,)]
     cursor._row_index = 1
     cursor._query_handle = 100
 
@@ -537,7 +537,7 @@ def test_callproc_formats_sql_and_returns_parameters(
         if isinstance(packet, PrepareAndExecutePacket):
             captured_sql.append(packet.sql)
             _set_prepare_packet(
-                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[[1]], total_count=1
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
             )
         return packet
 
@@ -555,7 +555,7 @@ def test_callproc_without_parameters(cursor: Cursor, mock_connection: MagicMock)
         if isinstance(packet, PrepareAndExecutePacket):
             captured_sql.append(packet.sql)
             _set_prepare_packet(
-                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[[1]], total_count=1
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
             )
         return packet
 
@@ -571,7 +571,7 @@ def test_iterator_protocol(cursor: Cursor, mock_connection: MagicMock) -> None:
             _set_prepare_packet(
                 packet,
                 stmt_type=CUBRIDStatementType.SELECT,
-                rows=[[1], [2]],
+                rows=[(1,), (2,)],
                 total_count=2,
             )
         return packet

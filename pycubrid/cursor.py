@@ -35,7 +35,7 @@ class Cursor:
         self._arraysize: int = 1
         self._query_handle: int | None = None
         self._columns: list[ColumnMetaData] = []
-        self._rows: list[list[Any]] = []
+        self._rows: list[tuple[Any, ...]] = []
         self._row_index: int = 0
         self._statement_type: int = 0
         self._total_tuple_count: int = 0
@@ -198,7 +198,7 @@ class Cursor:
 
         row = self._rows[self._row_index]
         self._row_index += 1
-        return tuple(row)
+        return row
 
     def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]:
         """Fetch the next set of rows of a query result."""
@@ -217,7 +217,7 @@ class Cursor:
 
             take = min(available, remaining)
             end = self._row_index + take
-            rows.extend(tuple(r) for r in self._rows[self._row_index : end])
+            rows.extend(self._rows[self._row_index : end])
             self._row_index = end
             remaining -= take
         return rows
@@ -231,7 +231,7 @@ class Cursor:
         while True:
             available = len(self._rows) - self._row_index
             if available > 0:
-                rows.extend(tuple(r) for r in self._rows[self._row_index :])
+                rows.extend(self._rows[self._row_index :])
                 self._row_index = len(self._rows)
             if not self._fetch_more_rows():
                 return rows
