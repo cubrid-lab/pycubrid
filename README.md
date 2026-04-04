@@ -256,34 +256,10 @@ pycubrid has `threadsafety = 1`, meaning connections cannot be shared between th
 CUBRID 10.2, 11.0, 11.2, and 11.4 are tested in CI.
 
 
-## Benchmark
-
-**Environment**: Intel Core i5-9400F @ 2.90GHz · Linux x86_64 · CUBRID 11.2 · MySQL 8.0 · Docker localhost
-
-**Test Parameters**: 1000 rows × 5 rounds
-
-| Operation | pycubrid (CUBRID) | PyMySQL (MySQL) | Ratio |
-|-----------|-------------------|-----------------|-------|
-| insert_sequential | 10.47s | 1.74s | 6.0× |
-| select_by_pk | 15.99s | 3.52s | 4.5× |
-| select_full_scan | 10.31s | 1.86s | 5.5× |
-| update_indexed | 10.70s | 2.19s | 4.9× |
-| delete_sequential | 10.75s | 2.10s | 5.1× |
-
-**Note**: pycubrid is a pure-Python driver; overhead reflects Python-level protocol parsing. A C-extension driver would close the gap.
-
-Full benchmark suite: [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
 ## Related Projects
 
 - [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid) — SQLAlchemy 2.0 dialect for CUBRID
-- [cubrid-client](https://github.com/cubrid-labs/cubrid-client) — Native TypeScript client for CUBRID (CAS protocol)
-- [drizzle-cubrid](https://github.com/cubrid-labs/drizzle-cubrid) — Drizzle ORM dialect for CUBRID
-- [cubrid-go](https://github.com/cubrid-labs/cubrid-go) — Pure Go database/sql driver for CUBRID
-- [gorm-cubrid](https://github.com/cubrid-labs/gorm-cubrid) — GORM dialect for CUBRID
-- [cubrid-rs](https://github.com/cubrid-labs/cubrid-rs) — Native Rust database driver for CUBRID (sync + async, pure Rust)
-- [sea-orm-cubrid](https://github.com/cubrid-labs/sea-orm-cubrid) — SeaORM backend for CUBRID
-- [cubrid-cookbook](https://github.com/cubrid-labs/cubrid-cookbook) — Production-ready examples for all CUBRID drivers
-- [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark) — Multi-language benchmark suite for CUBRID
+- [cubrid-python-cookbook](https://github.com/cubrid-labs/cubrid-python-cookbook) — Production-ready Python examples for CUBRID
 
 
 ## Roadmap
