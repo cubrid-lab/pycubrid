@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0] - 2026-04-04
+
+### Added
+- `docs/SUPPORT_MATRIX.md`: Comprehensive support matrix documenting Python versions,
+  CUBRID versions, PEP 249 compliance, data type mappings, driver features, and known
+  limitations — defines the 1.0 support boundary
+- Connection pooling section in `docs/CONNECTION.md` clarifying that pycubrid has no
+  built-in pool and recommending SQLAlchemy or external pooling
+
+### Fixed
+- README documentation table: Removed incorrect "connection pool" reference from
+  Connection guide description — pycubrid has no driver-level connection pool
+
+### Changed
+- Version bumped to 0.7.0 (stabilization release on path to 1.0)
+
 ## [0.6.0] - 2026-03-28
 
 ### Added

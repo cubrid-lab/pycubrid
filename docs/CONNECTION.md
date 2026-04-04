@@ -405,4 +405,26 @@ All SQLAlchemy features — ORM, Core, Alembic migrations, schema reflection —
 
 ---
 
+## Connection Pooling
+
+pycubrid does not include a built-in connection pool. Each `pycubrid.connect()` call creates a new TCP connection to the CUBRID broker.
+
+For connection pooling, use one of:
+
+- **SQLAlchemy's built-in pool** (recommended):
+  ```python
+  from sqlalchemy import create_engine
+  engine = create_engine(
+      "cubrid+pycubrid://dba@localhost:33000/testdb",
+      pool_size=5,
+      pool_pre_ping=True,
+  )
+  ```
+
+- **External pooling libraries** (e.g., `sqlalchemy.pool`, `DBUtils`)
+
+See [Troubleshooting](TROUBLESHOOTING.md) for pool tuning guidance.
+
+---
+
 *See also: [Type System](TYPES.md) · [API Reference](API_REFERENCE.md) · [Examples](EXAMPLES.md)*
