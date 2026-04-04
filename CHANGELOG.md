@@ -12,7 +12,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   limitations — defines the 1.0 support boundary
 - Connection pooling section in `docs/CONNECTION.md` clarifying that pycubrid has no
   built-in pool and recommending SQLAlchemy or external pooling
-- `"License :: OSI Approved :: MIT License"` classifier in `pyproject.toml`
 
 ### Fixed
 - README documentation table: Removed incorrect "connection pool" reference from
