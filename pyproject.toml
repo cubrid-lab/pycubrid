@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycubrid"
-version = "0.6.0"
+version = "0.7.0"
 description = "Pure Python DB-API 2.0 driver for CUBRID database"
 readme = "README.md"
 license = "MIT"
@@ -24,6 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
     "Topic :: Database",
     "Topic :: Database :: Front-Ends",
 ]
