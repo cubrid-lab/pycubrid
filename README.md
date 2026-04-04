@@ -160,7 +160,7 @@ All SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) work 
 
 | Guide | Description |
 |---|---|
-| [Connection](docs/CONNECTION.md) | Connection strings, URL format, configuration, connection pool |
+| [Connection](docs/CONNECTION.md) | Connection strings, URL format, configuration |
 | [Type Mapping](docs/TYPES.md) | Full type mapping, CUBRID-specific types, collection types |
 | [API Reference](docs/API_REFERENCE.md) | Complete API documentation — modules, classes, functions |
 | [Protocol](docs/PROTOCOL.md) | CAS wire protocol reference |
