@@ -61,9 +61,21 @@ cur.close()
 conn.close()
 ```
 
+!!! tip
+    Keep one connection open for related operations instead of repeatedly opening/closing per statement.
+
 ---
 
 ## CRUD Operations
+
+```mermaid
+flowchart LR
+    A[CREATE TABLE] --> B[INSERT]
+    B --> C[SELECT]
+    C --> D[UPDATE]
+    D --> E[DELETE]
+    E --> F[COMMIT]
+```
 
 ### Create Table
 
@@ -117,6 +129,9 @@ conn.commit()
 cur.close()
 conn.close()
 ```
+
+!!! warning
+    Do not use string interpolation for SQL. Always use `?` placeholders with parameter lists or tuples.
 
 ### Select Rows
 
@@ -208,6 +223,9 @@ with pycubrid.connect(database="testdb") as conn:
     # Auto-rollbacks if an exception is raised
 ```
 
+!!! note
+    With context manager usage, explicit `conn.commit()` is unnecessary on the success path.
+
 ### Autocommit Mode
 
 ```python
@@ -262,6 +280,17 @@ cur.execute("""
 cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
             ["Nobody", None])
 ```
+
+### Parameter binding reference
+
+| Parameter shape | Example | Notes |
+|---|---|---|
+| `list` / `tuple` | `cur.execute(sql, ["Alice", 25])` | Recommended for positional clarity |
+| `dict` (mapping) | `cur.execute(sql, {"name": "Alice", "age": 25})` | Values are used in mapping order |
+| `None` | `cur.execute(sql, [None])` | Encoded as SQL `NULL` |
+
+!!! danger
+    Passing a scalar instead of sequence/mapping (for example `params="Alice"`) raises `ProgrammingError`.
 
 ---
 
