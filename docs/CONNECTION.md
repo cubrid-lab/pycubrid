@@ -30,6 +30,9 @@ This guide covers how to install pycubrid, connect to a CUBRID database, and und
 
 No C compiler or native libraries required — pycubrid is pure Python.
 
+!!! tip
+    For local development, start with `host="localhost"`, `port=33000`, `user="dba"`, and empty password unless your environment is hardened.
+
 ---
 
 ## Installation
@@ -78,6 +81,15 @@ pycubrid.connect(
 | Kwarg             | Type    | Default | Description                           |
 |-------------------|---------|---------|---------------------------------------|
 | `connect_timeout` | `float` | `None`  | Socket connection timeout in seconds  |
+| `autocommit`      | `bool`  | `False` | Enable immediate commit per statement |
+
+### Common Connection Profiles
+
+| Profile | host | port | user | password | autocommit | Use case |
+|---|---|---:|---|---|---|---|
+| Local default | `localhost` | `33000` | `dba` | `""` | `False` | Development and smoke tests |
+| Remote app | `db.example.com` | `33000` | `app_user` | required | `False` | Production service workloads |
+| Script mode | any | any | any | any | `True` | One-off migration/maintenance scripts |
 
 ### Return Value
 
@@ -107,6 +119,9 @@ cur.close()
 conn.close()
 ```
 
+!!! warning
+    The `database` argument is required in real environments. Empty database names can fail at `OpenDatabasePacket` stage depending on server configuration.
+
 ### With Password
 
 ```python
@@ -131,6 +146,9 @@ conn = pycubrid.connect(
     connect_timeout=10.0,  # 10-second timeout
 )
 ```
+
+!!! note
+    If you run behind firewalls or load balancers, set `connect_timeout` explicitly and monitor for broker redirection failures.
 
 ---
 
@@ -272,6 +290,31 @@ sequenceDiagram
   Client->>CAS: OpenDatabasePacket
   CAS-->>Client: Session ID
 ```
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant App as Python App
+  participant Driver as pycubrid.Connection
+  participant Broker as Broker:33000
+  participant CAS as CAS Worker
+
+  App->>Driver: pycubrid.connect(...)
+  Driver->>Broker: TCP connect
+  Driver->>Broker: ClientInfoExchangePacket("CUBRK")
+  Broker-->>Driver: new_connection_port
+  alt redirected (port > 0)
+    Driver->>CAS: TCP reconnect to redirected port
+  else direct mode (port == 0)
+    Driver->>Broker: reuse existing socket
+  end
+  Driver->>CAS: OpenDatabasePacket(database, user, password)
+  CAS-->>Driver: session_id + broker_info + cas_info
+  Driver-->>App: connected Connection object
+```
+
+!!! danger
+    If broker redirection returns a CAS port not reachable from your client network, connection succeeds at step 1 but fails before session establishment.
 
 ### Step-by-Step
 
