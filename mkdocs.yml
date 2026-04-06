@@ -30,18 +30,22 @@ theme:
 nav:
   - Home: index.md
   - Getting Started:
+      - Quick Start: quickstart.md
       - Connection Guide: CONNECTION.md
       - Examples: EXAMPLES.md
-  - User Guide:
-      - Type System: TYPES.md
-      - Protocol Reference: PROTOCOL.md
-      - Architecture: ARCHITECTURE.md
-  - API Reference: API_REFERENCE.md
-  - Development:
-      - Development Guide: DEVELOPMENT.md
-      - Support Matrix: SUPPORT_MATRIX.md
+  - Reference:
+      - API Reference: API_REFERENCE.md
+      - Type Mapping: TYPES.md
+      - Protocol: PROTOCOL.md
+  - Architecture: ARCHITECTURE.md
+  - Operations:
       - Performance: PERFORMANCE.md
-  - Troubleshooting: TROUBLESHOOTING.md
+      - Support Matrix: SUPPORT_MATRIX.md
+      - Troubleshooting: TROUBLESHOOTING.md
+  - Development: DEVELOPMENT.md
+  - FAQ: faq.md
+  - Changelog: https://github.com/cubrid-labs/pycubrid/blob/main/CHANGELOG.md
+  - Contributing: https://github.com/cubrid-labs/pycubrid/blob/main/CONTRIBUTING.md
 
 markdown_extensions:
   - admonition
