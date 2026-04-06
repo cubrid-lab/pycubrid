@@ -56,6 +56,35 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
 
 ---
 
+## Troubleshooting Decision Tree
+
+```mermaid
+flowchart TD
+    A[Start: pycubrid error observed] --> B{Connection established?}
+    B -->|No| C[Check broker status and port reachability]
+    C --> D{Authentication error?}
+    D -->|Yes| E[Verify user/password and database]
+    D -->|No| F[Set connect_timeout and inspect network/firewall]
+    B -->|Yes| G{Query or transaction failure?}
+    G -->|Query| H[Validate SQL syntax and placeholder count]
+    G -->|Transaction| I[Confirm autocommit and explicit commit/rollback]
+    G -->|LOB| J[Validate LOB type and read/write flow]
+    H --> K[Catch specific pycubrid exceptions]
+    I --> K
+    J --> K
+    E --> K
+    F --> K
+    K --> L[Use debug script and logs, then escalate with reproducible case]
+```
+
+!!! tip
+    Start from the first failing operation (`connect`, `execute`, `fetch`, or `commit`) and isolate one variable at a time.
+
+!!! note
+    Most production failures can be classified quickly into one of four buckets: connectivity, authentication, SQL/binding, or transaction state.
+
+---
+
 ## Connection Issues
 
 ### ConnectionRefusedError on Port 33000
@@ -67,6 +96,9 @@ ConnectionRefusedError: [Errno 111] Connection refused
 ```
 
 **Causes and fixes:**
+
+!!! warning
+    CUBRID startup is asynchronous in Docker-based setups. A successful container start does not always mean the broker is already accepting connections.
 
 1. **CUBRID broker is not running**
 
@@ -320,6 +352,9 @@ ProgrammingError: Syntax error ...
 ```
 ProgrammingError: Cannot convert parameter ...
 ```
+
+!!! danger
+    pycubrid supports qmark placeholders (`?`) only. Mixing `%s`, `:name`, or f-string SQL construction often causes subtle runtime errors or SQL injection risk.
 
 **pycubrid uses `qmark` paramstyle** (question marks). Do not use named parameters or format strings:
 
