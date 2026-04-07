@@ -23,6 +23,7 @@ DOC_FILES = [
 
 EXCLUDED_FILES = {
     "agent-playbook.md",
+    "PRD.md",
 }
 
 
