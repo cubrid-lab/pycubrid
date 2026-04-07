@@ -1,0 +1,6054 @@
+============================================================
+File: index.md
+============================================================
+
+# pycubrid
+
+Pure Python DB-API 2.0 driver for CUBRID database with no C extensions.
+
+## Key features
+
+- Full PEP 249 (DB-API 2.0) compliant connection and cursor interface
+- Direct CUBRID CAS wire protocol implementation in pure Python
+- Typed package support (`py.typed`) for modern IDEs and static analysis
+- LOB support for CLOB and BLOB operations
+
+## Quick install
+
+```bash
+pip install pycubrid
+```
+
+## Minimal example
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba", password="")
+cur = conn.cursor()
+cur.execute("SELECT 1")
+print(cur.fetchone())
+conn.close()
+```
+
+## Documentation
+
+- [Getting Started](CONNECTION.md)
+- [User Guide](TYPES.md)
+- [API Reference](API_REFERENCE.md)
+
+## Project links
+
+- [GitHub](https://github.com/cubrid-labs/pycubrid)
+- [PyPI](https://pypi.org/project/pycubrid/)
+- [Changelog](https://github.com/cubrid-labs/pycubrid/blob/main/CHANGELOG.md)
+- [Contributing](https://github.com/cubrid-labs/pycubrid/blob/main/CONTRIBUTING.md)
+
+============================================================
+File: quickstart.md
+============================================================
+
+# Connect to CUBRID in 5 Minutes
+
+Get from `pip install` to a working CRUD script with explicit transaction handling.
+
+---
+
+## Prerequisites
+
+- CUBRID server and broker are running
+- Python 3.9+
+- Access to a target database (for example, `testdb`)
+
+!!! note
+    Default local connection values in pycubrid examples are:
+    `host="localhost"`, `port=33000`, `user="dba"`, `password=""`.
+
+---
+
+## 1) Install pycubrid
+
+```bash
+pip install pycubrid
+```
+
+!!! tip
+    Use a virtual environment to isolate dependencies:
+    `python -m venv .venv && source .venv/bin/activate`.
+
+---
+
+## 2) Open a connection and run a query
+
+```python
+from __future__ import annotations
+
+import pycubrid
+
+conn = pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="testdb",
+    user="dba",
+    password="",
+)
+
+cur = conn.cursor()
+cur.execute("SELECT 1 + 1")
+print(cur.fetchone())  # (2,)
+
+cur.close()
+conn.close()
+```
+
+---
+
+## 3) Run simple CRUD operations
+
+```python
+from __future__ import annotations
+
+import pycubrid
+
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+cur.execute(
+    """
+    CREATE TABLE IF NOT EXISTS qs_users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        age INT NOT NULL
+    )
+    """
+)
+
+# INSERT
+cur.execute("INSERT INTO qs_users (name, age) VALUES (?, ?)", ["Alice", 30])
+
+# SELECT
+cur.execute("SELECT id, name, age FROM qs_users ORDER BY id")
+print(cur.fetchall())
+
+# UPDATE
+cur.execute("UPDATE qs_users SET age = ? WHERE name = ?", [31, "Alice"])
+
+# DELETE
+cur.execute("DELETE FROM qs_users WHERE name = ?", ["Alice"])
+
+conn.commit()
+cur.close()
+conn.close()
+```
+
+!!! warning
+    pycubrid uses `?` placeholders (qmark style), not `%s`.
+
+---
+
+## 4) Use explicit transaction handling
+
+```python
+from __future__ import annotations
+
+import pycubrid
+
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+try:
+    cur.execute("INSERT INTO qs_users (name, age) VALUES (?, ?)", ["Bob", 25])
+    cur.execute("INSERT INTO qs_users (name, age) VALUES (?, ?)", ["Carol", 28])
+    conn.commit()
+except pycubrid.Error:
+    conn.rollback()
+    raise
+finally:
+    cur.close()
+    conn.close()
+```
+
+!!! tip
+    For automatic commit/rollback and close, use `with pycubrid.connect(...) as conn:`.
+
+---
+
+## Quickstart workflow
+
+```mermaid
+flowchart TD
+    A[Install pycubrid] --> B[Connect with pycubrid.connect]
+    B --> C[Create cursor]
+    C --> D[Execute CRUD SQL]
+    D --> E{Success?}
+    E -->|Yes| F[Commit]
+    E -->|No| G[Rollback]
+    F --> H[Close cursor and connection]
+    G --> H
+```
+
+---
+
+## Next steps
+
+- Read the full [Connection Guide](CONNECTION.md) for handshake and connection options
+- Explore more runnable patterns in [Examples](EXAMPLES.md)
+
+============================================================
+File: CONNECTION.md
+============================================================
+
+# Connection Guide
+
+This guide covers how to install pycubrid, connect to a CUBRID database, and understand the connection lifecycle.
+
+---
+
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Connection Function](#connection-function)
+- [Connection Examples](#connection-examples)
+- [Context Manager Protocol](#context-manager-protocol)
+- [Autocommit Mode](#autocommit-mode)
+- [Connection Methods](#connection-methods)
+- [Broker Handshake](#broker-handshake)
+- [Server Version Detection](#server-version-detection)
+- [Troubleshooting](#troubleshooting)
+- [Docker Quick Start](#docker-quick-start)
+- [SQLAlchemy Integration](#sqlalchemy-integration)
+
+---
+
+## Prerequisites
+
+| Requirement   | Version    |
+|---------------|------------|
+| Python        | 3.10+      |
+| CUBRID Server | 10.2–11.4  |
+
+No C compiler or native libraries required — pycubrid is pure Python.
+
+!!! tip
+    For local development, start with `host="localhost"`, `port=33000`, `user="dba"`, and empty password unless your environment is hardened.
+
+---
+
+## Installation
+
+### From PyPI
+
+```bash
+pip install pycubrid
+```
+
+### From Source
+
+```bash
+git clone https://github.com/cubrid-labs/pycubrid.git
+cd pycubrid
+pip install -e ".[dev]"
+```
+
+---
+
+## Connection Function
+
+```python
+pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="",
+    user="dba",
+    password="",
+    **kwargs,
+) -> Connection
+```
+
+### Parameters
+
+| Parameter   | Type  | Default       | Description                              |
+|-------------|-------|---------------|------------------------------------------|
+| `host`      | `str` | `"localhost"` | CUBRID server hostname or IP address     |
+| `port`      | `int` | `33000`       | CUBRID broker port                       |
+| `database`  | `str` | `""`          | Database name *(required)*               |
+| `user`      | `str` | `"dba"`       | Database username                        |
+| `password`  | `str` | `""`          | Database password                        |
+
+### Keyword Arguments
+
+| Kwarg             | Type    | Default | Description                           |
+|-------------------|---------|---------|---------------------------------------|
+| `connect_timeout` | `float` | `None`  | Socket connection timeout in seconds  |
+| `autocommit`      | `bool`  | `False` | Enable immediate commit per statement |
+
+### Common Connection Profiles
+
+| Profile | host | port | user | password | autocommit | Use case |
+|---|---|---:|---|---|---|---|
+| Local default | `localhost` | `33000` | `dba` | `""` | `False` | Development and smoke tests |
+| Remote app | `db.example.com` | `33000` | `app_user` | required | `False` | Production service workloads |
+| Script mode | any | any | any | any | `True` | One-off migration/maintenance scripts |
+
+### Return Value
+
+Returns a `Connection` object implementing PEP 249.
+
+---
+
+## Connection Examples
+
+### Basic Connection
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="testdb",
+    user="dba",
+)
+
+cur = conn.cursor()
+cur.execute("SELECT 1 + 1")
+print(cur.fetchone())  # (2,)
+
+cur.close()
+conn.close()
+```
+
+!!! warning
+    The `database` argument is required in real environments. Empty database names can fail at `OpenDatabasePacket` stage depending on server configuration.
+
+### With Password
+
+```python
+conn = pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="demodb",
+    user="dba",
+    password="mypassword",
+)
+```
+
+### Custom Port and Timeout
+
+```python
+conn = pycubrid.connect(
+    host="db-server.internal",
+    port=33100,
+    database="production",
+    user="app_user",
+    password="secret",
+    connect_timeout=10.0,  # 10-second timeout
+)
+```
+
+!!! note
+    If you run behind firewalls or load balancers, set `connect_timeout` explicitly and monitor for broker redirection failures.
+
+---
+
+## Context Manager Protocol
+
+pycubrid connections support the `with` statement for automatic resource management:
+
+```python
+import pycubrid
+
+with pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="testdb",
+    user="dba",
+) as conn:
+    cur = conn.cursor()
+    cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ("Alice",))
+    # Connection commits automatically on success
+# Connection is closed automatically after exiting the block
+```
+
+### Behavior
+
+| Scenario          | Action                                  |
+|-------------------|-----------------------------------------|
+| No exception      | `conn.commit()` then `conn.close()`     |
+| Exception raised  | `conn.rollback()` then `conn.close()`   |
+
+The `__enter__` method returns the connection itself. The `__exit__` method:
+
+1. Commits the transaction if no exception occurred
+2. Rolls back the transaction if an exception was raised
+3. Always closes the connection
+
+### Manual Transaction Control
+
+If you need explicit control, manage transactions directly:
+
+```python
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+try:
+    cur = conn.cursor()
+    cur.execute("INSERT INTO cookbook_logs (msg) VALUES (?)", ("event",))
+    conn.commit()
+except Exception:
+    conn.rollback()
+    raise
+finally:
+    conn.close()
+```
+
+---
+
+## Autocommit Mode
+
+The `autocommit` property controls whether each statement is committed automatically.
+
+```python
+# Check current mode
+print(conn.autocommit)  # False (driver default)
+
+# Disable autocommit for transaction grouping
+conn.autocommit = False
+
+# Re-enable autocommit
+conn.autocommit = True
+```
+
+### Details
+
+| Property           | Description                                              |
+|--------------------|----------------------------------------------------------|
+| Default value      | `False`                                                  |
+| Getter             | Returns current autocommit state                         |
+| Setter (`= True`)  | Sends `SetDbParameterPacket` + `CommitPacket` to server  |
+| Setter (`= False`) | Sends `SetDbParameterPacket` to server                   |
+
+> **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
+> `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
+>
+> The CUBRID server default is `autocommit=True`, but pycubrid `Connection` defaults to
+> `autocommit=False` for explicit transaction control. Pass `autocommit=True` to `connect()`
+> to enable.
+
+---
+
+## Connection Methods
+
+| Method                              | Return Type   | Description                                     |
+|-------------------------------------|---------------|-------------------------------------------------|
+| `cursor()`                          | `Cursor`      | Create a new cursor for executing SQL            |
+| `commit()`                          | `None`        | Commit the current transaction                   |
+| `rollback()`                        | `None`        | Roll back the current transaction                |
+| `close()`                           | `None`        | Close the connection and free resources           |
+| `get_server_version()`              | `str`         | Return the CUBRID server version string          |
+| `get_last_insert_id()`              | `str`         | Return the last auto-increment ID                |
+| `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
+| `get_schema_info(schema_type, ...)` | `list`        | Query schema metadata from the server            |
+
+### LOB Creation
+
+```python
+# Create a CLOB (Character Large Object)
+clob = conn.create_lob(24)  # 24 = CLOB
+clob.write("Large text content...")
+
+# Create a BLOB (Binary Large Object)
+blob = conn.create_lob(23)  # 23 = BLOB
+blob.write(b"\x89PNG\r\n...")
+```
+
+> **Tip**: For simple inserts, pass strings or bytes directly as query parameters instead of
+> creating LOB objects explicitly. See [Examples](EXAMPLES.md) for details.
+
+### Schema Information
+
+```python
+# Get schema information (schema_type constants from CUBRID docs)
+tables = conn.get_schema_info(schema_type=1)  # Tables
+```
+
+---
+
+## Broker Handshake
+
+When `pycubrid.connect()` is called, the following protocol handshake occurs:
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Broker as Broker (port 33000)
+  participant CAS
+
+  Client->>Broker: TCP connect
+  Client->>Broker: ClientInfoExchangePacket (CUBRK)
+  Broker-->>Client: New CAS port
+  Client->>CAS: Reconnect to CAS port
+  Client->>CAS: OpenDatabasePacket
+  CAS-->>Client: Session ID
+```
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant App as Python App
+  participant Driver as pycubrid.Connection
+  participant Broker as Broker:33000
+  participant CAS as CAS Worker
+
+  App->>Driver: pycubrid.connect(...)
+  Driver->>Broker: TCP connect
+  Driver->>Broker: ClientInfoExchangePacket("CUBRK")
+  Broker-->>Driver: new_connection_port
+  alt redirected (port > 0)
+    Driver->>CAS: TCP reconnect to redirected port
+  else direct mode (port == 0)
+    Driver->>Broker: reuse existing socket
+  end
+  Driver->>CAS: OpenDatabasePacket(database, user, password)
+  CAS-->>Driver: session_id + broker_info + cas_info
+  Driver-->>App: connected Connection object
+```
+
+!!! danger
+    If broker redirection returns a CAS port not reachable from your client network, connection succeeds at step 1 but fails before session establishment.
+
+### Step-by-Step
+
+1. **TCP Connect** — Open a socket to the broker (default port 33000)
+2. **Client Info Exchange** — Send the magic string `b"CUBRK"` with client type `CLIENT_JDBC=3` and protocol version bytes
+3. **Port Redirect** — The broker responds with a 4-byte big-endian integer:
+   - If `port > 0`: Disconnect from broker, reconnect to the new CAS port on the same host
+   - If `port == 0`: Reuse the existing connection (direct CAS mode)
+4. **Open Database** — Send database name, username, and password via `OpenDatabasePacket`
+5. **Session Established** — Server returns a session ID; the connection is ready
+
+---
+
+## Server Version Detection
+
+```python
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+version = conn.get_server_version()
+print(version)  # e.g., "11.2.0.0374"
+conn.close()
+```
+
+The `get_server_version()` method sends a `GetDbVersionPacket` to the server and returns the version as a string.
+
+---
+
+## Troubleshooting
+
+### Common Connection Errors
+
+#### `ConnectionRefusedError` on port 33000
+
+The CUBRID broker is not running or not listening on the expected port.
+
+1. Verify the broker is running:
+   ```bash
+   cubrid broker status
+   ```
+2. Check the broker port in `cubrid_broker.conf` (default: 33000)
+3. If using Docker:
+   ```bash
+   docker compose up -d
+   docker compose logs cubrid
+   ```
+
+#### `Authentication failed`
+
+CUBRID's default `dba` user has no password. If you set one, ensure it matches:
+
+```python
+# If dba has no password
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+
+# If dba has a password
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba", password="mypassword")
+```
+
+#### `TimeoutError` or `socket.timeout`
+
+The server did not respond within the timeout period:
+
+```python
+# Increase timeout
+conn = pycubrid.connect(
+    host="slow-server.example.com",
+    port=33000,
+    database="testdb",
+    user="dba",
+    connect_timeout=30.0,
+)
+```
+
+#### `OperationalError: Connection is closed`
+
+The connection was closed by the server (session timeout, network interruption, or broker restart). Create a new connection:
+
+```python
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+```
+
+---
+
+## Docker Quick Start
+
+For local development, use the provided `docker-compose.yml`:
+
+```bash
+# Start CUBRID 11.2 (default)
+docker compose up -d
+
+# Start a specific version
+CUBRID_VERSION=11.4 docker compose up -d
+
+# Verify it's running
+docker compose ps
+
+# Connect with pycubrid
+python3 -c "
+import pycubrid
+with pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba') as conn:
+    cur = conn.cursor()
+    cur.execute('SELECT 1 + 1')
+    print(cur.fetchone())
+"
+
+# Stop and clean up
+docker compose down -v
+```
+
+---
+
+## SQLAlchemy Integration
+
+pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid):
+
+```bash
+pip install "sqlalchemy-cubrid[pycubrid]"
+```
+
+```python
+from sqlalchemy import create_engine, text
+
+engine = create_engine("cubrid+pycubrid://dba@localhost:33000/testdb")
+
+with engine.connect() as conn:
+    result = conn.execute(text("SELECT 1"))
+    print(result.scalar())
+```
+
+All SQLAlchemy features — ORM, Core, Alembic migrations, schema reflection — work transparently with the pycubrid driver.
+
+---
+
+## Connection Pooling
+
+pycubrid does not include a built-in connection pool. Each `pycubrid.connect()` call creates a new TCP connection to the CUBRID broker.
+
+For connection pooling, use one of:
+
+- **SQLAlchemy's built-in pool** (recommended):
+  ```python
+  from sqlalchemy import create_engine
+  engine = create_engine(
+      "cubrid+pycubrid://dba@localhost:33000/testdb",
+      pool_size=5,
+      pool_pre_ping=True,
+  )
+  ```
+
+- **External pooling libraries** (e.g., `sqlalchemy.pool`, `DBUtils`)
+
+See [Troubleshooting](TROUBLESHOOTING.md) for pool tuning guidance.
+
+---
+
+*See also: [Type System](TYPES.md) · [API Reference](API_REFERENCE.md) · [Examples](EXAMPLES.md)*
+
+============================================================
+File: API_REFERENCE.md
+============================================================
+
+# API Reference
+
+Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for CUBRID.
+
+---
+
+## Table of Contents
+
+- [Module-Level Attributes](#module-level-attributes)
+- [Module-Level Constructor](#module-level-constructor)
+- [Connection Class](#connection-class)
+  - [Constructor](#connection-constructor)
+  - [Methods](#connection-methods)
+  - [Properties](#connection-properties)
+  - [Context Manager](#connection-context-manager)
+- [Cursor Class](#cursor-class)
+  - [Constructor](#cursor-constructor)
+  - [Methods](#cursor-methods)
+  - [Properties](#cursor-properties)
+  - [Iterator Protocol](#iterator-protocol)
+  - [Context Manager](#cursor-context-manager)
+- [Lob Class](#lob-class)
+  - [Factory Method](#lob-factory-method)
+  - [Methods](#lob-methods)
+  - [Properties](#lob-properties)
+- [Exception Hierarchy](#exception-hierarchy)
+  - [Warning](#warning)
+  - [Error](#error)
+  - [InterfaceError](#interfaceerror)
+  - [DatabaseError](#databaseerror)
+  - [DataError](#dataerror)
+  - [OperationalError](#operationalerror)
+  - [IntegrityError](#integrityerror)
+  - [InternalError](#internalerror)
+  - [ProgrammingError](#programmingerror)
+  - [NotSupportedError](#notsupportederror)
+- [Type Objects](#type-objects)
+- [Type Constructors](#type-constructors)
+
+---
+
+## Module-Level Attributes
+
+These attributes are defined at the module level as required by PEP 249.
+
+| Attribute      | Value     | Description |
+|----------------|-----------|-------------|
+| `apilevel`     | `"2.0"`   | DB-API specification version |
+| `threadsafety` | `1`       | Threads may share the module but not connections |
+| `paramstyle`   | `"qmark"` | Question mark parameter style: `WHERE name = ?` |
+| `__version__`  | `"0.6.0"` | Package version string |
+
+```python
+import pycubrid
+
+print(pycubrid.apilevel)      # "2.0"
+print(pycubrid.threadsafety)  # 1
+print(pycubrid.paramstyle)    # "qmark"
+print(pycubrid.__version__)   # "0.6.0"
+```
+
+---
+
+## Module-Level Constructor
+
+### `pycubrid.connect()`
+
+```python
+def connect(
+    host: str = "localhost",
+    port: int = 33000,
+    database: str = "",
+    user: str = "dba",
+    password: str = "",
+    **kwargs: Any,
+) -> Connection
+```
+
+Create a new database connection.
+
+**Parameters:**
+
+| Parameter  | Type  | Default       | Description |
+|------------|-------|---------------|-------------|
+| `host`     | `str` | `"localhost"` | CUBRID server hostname or IP address |
+| `port`     | `int` | `33000`       | CUBRID broker port |
+| `database` | `str` | `""`          | Database name |
+| `user`     | `str` | `"dba"`       | Database user |
+| `password` | `str` | `""`          | Database password |
+| `**kwargs` | `Any` | —             | Additional parameters (e.g., `connect_timeout`) |
+
+**Returns:** A new `Connection` instance.
+
+**Raises:** `OperationalError` if the connection cannot be established.
+
+```python
+import pycubrid
+
+# Minimal connection
+conn = pycubrid.connect(database="testdb")
+
+# Full connection with timeout
+conn = pycubrid.connect(
+    host="192.168.1.100",
+    port=33000,
+    database="production",
+    user="app_user",
+    password="secret",
+    connect_timeout=5.0,
+)
+```
+
+---
+
+## Connection Class
+
+`pycubrid.connection.Connection`
+
+Represents a single connection to a CUBRID database via the CAS broker protocol.
+
+### Connection Constructor
+
+```python
+class Connection:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        database: str,
+        user: str,
+        password: str,
+        autocommit: bool = False,
+        **kwargs: Any,
+    ) -> None
+```
+
+> **Note:** Do not instantiate `Connection` directly. Use `pycubrid.connect()` instead.
+
+### Connection Methods
+
+#### `connect()`
+
+```python
+def connect(self) -> None
+```
+
+Establish a TCP CAS session with broker handshake and open the database.
+Called automatically by the constructor. Calling on an already-connected instance is a no-op.
+
+**Raises:** `OperationalError` on network failure.
+
+---
+
+#### `close()`
+
+```python
+def close(self) -> None
+```
+
+Close the connection and all tracked cursors. Sends a `CloseDatabasePacket` to the server. Calling on an already-closed connection is a no-op. After `close()`, any further method calls will raise `InterfaceError`.
+
+```python
+conn = pycubrid.connect(database="testdb")
+# ... work ...
+conn.close()  # Connection and all cursors are closed
+```
+
+---
+
+#### `commit()`
+
+```python
+def commit(self) -> None
+```
+
+Commit the current transaction. Sends a `CommitPacket` to the server.
+
+**Raises:** `InterfaceError` if the connection is closed.
+
+---
+
+#### `rollback()`
+
+```python
+def rollback(self) -> None
+```
+
+Roll back the current transaction. Sends a `RollbackPacket` to the server.
+
+**Raises:** `InterfaceError` if the connection is closed.
+
+---
+
+#### `cursor()`
+
+```python
+def cursor(self) -> Cursor
+```
+
+Create and return a new `Cursor` bound to this connection. The cursor is tracked by the connection and will be closed when the connection closes.
+
+**Returns:** A new `Cursor` instance.
+
+**Raises:** `InterfaceError` if the connection is closed.
+
+```python
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+cur.execute("SELECT 1 + 1")
+print(cur.fetchone())  # (2,)
+cur.close()
+```
+
+---
+
+#### `get_server_version()`
+
+```python
+def get_server_version(self) -> str
+```
+
+Return the server engine version string (e.g., `"11.2.0.0378"`).
+
+```python
+conn = pycubrid.connect(database="testdb")
+print(conn.get_server_version())  # "11.2.0.0378"
+```
+
+---
+
+#### `get_last_insert_id()`
+
+```python
+def get_last_insert_id(self) -> str
+```
+
+Return the last auto-increment value generated by an INSERT statement, as a string.
+
+```python
+cur.execute("INSERT INTO users (name) VALUES ('alice')")
+conn.commit()
+print(conn.get_last_insert_id())  # "1"
+```
+
+---
+
+#### `create_lob(lob_type)`
+
+```python
+def create_lob(self, lob_type: int) -> Lob
+```
+
+Create a new LOB (Large Object) on the server.
+
+**Parameters:**
+
+| Parameter  | Type  | Description |
+|------------|-------|-------------|
+| `lob_type` | `int` | LOB type code: `23` for BLOB, `24` for CLOB |
+
+**Returns:** A new `Lob` instance.
+
+```python
+from pycubrid.constants import CUBRIDDataType
+
+lob = conn.create_lob(CUBRIDDataType.CLOB)  # 24
+lob.write(b"Hello, CUBRID!")
+```
+
+> **Important:** `Lob` objects cannot be passed as query parameters. Insert strings/bytes directly into CLOB/BLOB columns instead. See [TYPES.md](TYPES.md) for details.
+
+---
+
+#### `get_schema_info(schema_type, table_name, pattern_match_flag)`
+
+```python
+def get_schema_info(
+    self,
+    schema_type: int,
+    table_name: str = "",
+    pattern_match_flag: int = 1,
+) -> GetSchemaPacket
+```
+
+Query schema information from the server.
+
+**Parameters:**
+
+| Parameter            | Type  | Default | Description |
+|----------------------|-------|---------|-------------|
+| `schema_type`        | `int` | —       | Schema type code (see `CCISchemaType`) |
+| `table_name`         | `str` | `""`    | Table name filter |
+| `pattern_match_flag` | `int` | `1`     | Pattern match flag |
+
+**Returns:** A `GetSchemaPacket` with `query_handle` and `tuple_count` attributes.
+
+```python
+from pycubrid.constants import CCISchemaType
+
+packet = conn.get_schema_info(CCISchemaType.CLASS)
+print(f"Found {packet.tuple_count} tables")
+```
+
+**Available `CCISchemaType` values:**
+
+| Code | Name              | Description |
+|------|-------------------|-------------|
+| 1    | `CLASS`           | Tables |
+| 2    | `VCLASS`          | Views |
+| 4    | `ATTRIBUTE`       | Columns |
+| 11   | `CONSTRAINT`      | Constraints |
+| 16   | `PRIMARY_KEY`     | Primary keys |
+| 17   | `IMPORTED_KEYS`   | Foreign keys (imported) |
+| 18   | `EXPORTED_KEYS`   | Foreign keys (exported) |
+
+---
+
+### Connection Properties
+
+#### `autocommit`
+
+```python
+@property
+def autocommit(self) -> bool
+
+@autocommit.setter
+def autocommit(self, value: bool) -> None
+```
+
+Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server.
+
+```python
+conn = pycubrid.connect(database="testdb")
+print(conn.autocommit)  # False
+
+conn.autocommit = True
+# Statements now auto-commit
+```
+
+---
+
+### Connection Context Manager
+
+`Connection` implements the context manager protocol (`__enter__` / `__exit__`).
+
+- On successful exit: calls `commit()` then `close()`.
+- On exception: calls `rollback()` then `close()`.
+
+```python
+with pycubrid.connect(database="testdb") as conn:
+    cur = conn.cursor()
+    cur.execute("INSERT INTO users (name) VALUES ('bob')")
+    # Auto-commits on exit
+
+# conn is closed here
+```
+
+---
+
+## Cursor Class
+
+`pycubrid.cursor.Cursor`
+
+Represents a database cursor for executing SQL statements and fetching results.
+
+### Cursor Constructor
+
+```python
+class Cursor:
+    def __init__(self, connection: Connection) -> None
+```
+
+> **Note:** Do not instantiate `Cursor` directly. Use `connection.cursor()` instead.
+
+### Cursor Methods
+
+#### `execute(operation, parameters)`
+
+```python
+def execute(
+    self,
+    operation: str,
+    parameters: Sequence[Any] | Mapping[str, Any] | None = None,
+) -> Cursor
+```
+
+Prepare and execute a SQL statement.
+
+**Parameters:**
+
+| Parameter    | Type | Description |
+|--------------|------|-------------|
+| `operation`  | `str` | SQL statement with optional `?` placeholders |
+| `parameters` | `Sequence` or `Mapping` or `None` | Parameter values to bind |
+
+**Returns:** The cursor itself (for chaining).
+
+**Raises:**
+- `InterfaceError` if the cursor is closed
+- `ProgrammingError` on SQL errors or parameter mismatch
+
+```python
+# Simple query
+cur.execute("SELECT * FROM users")
+
+# Parameterized query (qmark style)
+cur.execute("SELECT * FROM users WHERE age > ?", [21])
+
+# INSERT with parameters
+cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
+```
+
+**Supported parameter types:**
+
+| Python Type          | SQL Literal |
+|----------------------|-------------|
+| `None`               | `NULL` |
+| `bool`               | `1` / `0` |
+| `str`                | `'escaped'` |
+| `bytes`              | `X'hex'` |
+| `int`, `float`       | Numeric literal |
+| `Decimal`            | Numeric literal |
+| `datetime.date`      | `DATE'YYYY-MM-DD'` |
+| `datetime.time`      | `TIME'HH:MM:SS'` |
+| `datetime.datetime`  | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` |
+
+---
+
+#### `executemany(operation, seq_of_parameters)`
+
+```python
+def executemany(
+    self,
+    operation: str,
+    seq_of_parameters: Sequence[Sequence[Any] | Mapping[str, Any]],
+) -> Cursor
+```
+
+Execute the same SQL statement repeatedly with different parameter sets. For non-SELECT statements, `rowcount` is set to the cumulative total of affected rows.
+
+```python
+data = [("alice", 30), ("bob", 25), ("carol", 28)]
+cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
+print(cur.rowcount)  # 3
+```
+
+---
+
+#### `executemany_batch(sql_list, auto_commit)`
+
+```python
+def executemany_batch(
+    self,
+    sql_list: list[str],
+    auto_commit: bool | None = None,
+) -> list[tuple[int, int]]
+```
+
+Execute multiple **distinct** SQL statements in a single batch request to the server. This is more efficient than calling `execute()` in a loop when the SQL statements differ.
+
+**Parameters:**
+
+| Parameter     | Type | Description |
+|---------------|------|-------------|
+| `sql_list`    | `list[str]` | List of complete SQL statements |
+| `auto_commit` | `bool` or `None` | Override auto-commit for this batch (default: connection setting) |
+
+**Returns:** List of `(statement_type, result_count)` tuples.
+
+```python
+results = cur.executemany_batch([
+    "CREATE TABLE t1 (id INT AUTO_INCREMENT PRIMARY KEY, val VARCHAR(50))",
+    "INSERT INTO t1 (val) VALUES ('hello')",
+    "INSERT INTO t1 (val) VALUES ('world')",
+])
+# results: [(4, 0), (20, 1), (20, 1)]
+# statement_type 4 = CREATE_CLASS, 20 = INSERT
+```
+
+> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249.
+
+---
+
+#### `fetchone()`
+
+```python
+def fetchone(self) -> tuple[Any, ...] | None
+```
+
+Fetch the next row of a query result set. Returns `None` when no more rows are available. Automatically fetches more rows from the server when the local buffer is exhausted (100 rows per fetch).
+
+```python
+cur.execute("SELECT name, age FROM users")
+row = cur.fetchone()
+if row:
+    name, age = row
+```
+
+---
+
+#### `fetchmany(size)`
+
+```python
+def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]
+```
+
+Fetch the next `size` rows. Defaults to `cursor.arraysize` if `size` is not specified.
+
+```python
+cur.execute("SELECT * FROM users")
+batch = cur.fetchmany(10)  # Up to 10 rows
+```
+
+---
+
+#### `fetchall()`
+
+```python
+def fetchall(self) -> list[tuple[Any, ...]]
+```
+
+Fetch all remaining rows of a query result. Returns an empty list if no rows remain.
+
+```python
+cur.execute("SELECT * FROM users")
+all_rows = cur.fetchall()
+for row in all_rows:
+    print(row)
+```
+
+---
+
+#### `callproc(procname, parameters)`
+
+```python
+def callproc(
+    self,
+    procname: str,
+    parameters: Sequence[Any] = (),
+) -> Sequence[Any]
+```
+
+Call a stored procedure. Constructs and executes a `CALL procname(?, ?, ...)` statement.
+
+**Returns:** The original `parameters` sequence (as per PEP 249).
+
+```python
+cur.callproc("my_procedure", [1, "hello"])
+```
+
+---
+
+#### `setinputsizes(sizes)`
+
+```python
+def setinputsizes(self, sizes: Any) -> None
+```
+
+DB-API no-op. Accepted for compatibility.
+
+---
+
+#### `setoutputsize(size, column)`
+
+```python
+def setoutputsize(self, size: int, column: int | None = None) -> None
+```
+
+DB-API no-op. Accepted for compatibility.
+
+---
+
+#### `close()`
+
+```python
+def close(self) -> None
+```
+
+Close the cursor and release the active query handle. Calling on an already-closed cursor is a no-op.
+
+---
+
+### Cursor Properties
+
+#### `description`
+
+```python
+@property
+def description(self) -> tuple[DescriptionItem, ...] | None
+```
+
+Return result-set metadata for the last executed statement, or `None` if no query has been executed or the last statement did not return rows.
+
+Each item is a 7-tuple:
+
+```python
+(name, type_code, display_size, internal_size, precision, scale, null_ok)
+#  str    int        None           None          int       int    bool
+```
+
+| Index | Field          | Type   | Description |
+|-------|----------------|--------|-------------|
+| 0     | `name`         | `str`  | Column name |
+| 1     | `type_code`    | `int`  | CUBRID data type code (see `CUBRIDDataType`) |
+| 2     | `display_size` | `None` | Not used |
+| 3     | `internal_size`| `None` | Not used |
+| 4     | `precision`    | `int`  | Column precision |
+| 5     | `scale`        | `int`  | Column scale |
+| 6     | `null_ok`      | `bool` | Whether the column is nullable |
+
+```python
+cur.execute("SELECT name, age FROM users")
+for col in cur.description:
+    print(f"{col[0]}: type={col[1]}, precision={col[4]}, nullable={col[6]}")
+```
+
+---
+
+#### `rowcount`
+
+```python
+@property
+def rowcount(self) -> int
+```
+
+Number of rows affected by the last `execute()` call. Returns `-1` for SELECT statements or if no statement has been executed.
+
+---
+
+#### `lastrowid`
+
+```python
+@property
+def lastrowid(self) -> int | None
+```
+
+Last generated auto-increment identifier for an INSERT statement. `None` if no INSERT has been executed or the table has no auto-increment column.
+
+```python
+cur.execute("INSERT INTO users (name) VALUES ('alice')")
+print(cur.lastrowid)  # e.g., 1
+```
+
+---
+
+#### `arraysize`
+
+```python
+@property
+def arraysize(self) -> int
+
+@arraysize.setter
+def arraysize(self, value: int) -> None
+```
+
+Default number of rows for `fetchmany()`. Defaults to `1`.
+
+**Raises:** `ProgrammingError` if set to a value less than 1.
+
+---
+
+### Iterator Protocol
+
+`Cursor` implements the iterator protocol, allowing you to iterate directly over result rows:
+
+```python
+cur.execute("SELECT name, age FROM users")
+for name, age in cur:
+    print(f"{name} is {age} years old")
+```
+
+Calls `fetchone()` internally. Raises `StopIteration` when no more rows.
+
+---
+
+### Cursor Context Manager
+
+```python
+with conn.cursor() as cur:
+    cur.execute("SELECT 1")
+    print(cur.fetchone())
+# cur is automatically closed
+```
+
+---
+
+## Lob Class
+
+`pycubrid.lob.Lob`
+
+Represents a CUBRID Large Object (BLOB or CLOB).
+
+### Lob Factory Method
+
+#### `Lob.create(connection, lob_type)`
+
+```python
+@classmethod
+def create(cls, connection: Connection, lob_type: int) -> Lob
+```
+
+Create a new LOB object on the server. Prefer using `connection.create_lob()` instead.
+
+**Parameters:**
+
+| Parameter    | Type         | Description |
+|--------------|--------------|-------------|
+| `connection` | `Connection` | Active database connection |
+| `lob_type`   | `int`        | `CUBRIDDataType.BLOB` (23) or `CUBRIDDataType.CLOB` (24) |
+
+**Raises:** `ValueError` if `lob_type` is not BLOB or CLOB.
+
+---
+
+### Lob Methods
+
+#### `write(data, offset)`
+
+```python
+def write(self, data: bytes, offset: int = 0) -> int
+```
+
+Write bytes to the LOB starting from `offset`.
+
+**Returns:** Number of bytes written.
+
+---
+
+#### `read(length, offset)`
+
+```python
+def read(self, length: int, offset: int = 0) -> bytes
+```
+
+Read up to `length` bytes from the LOB starting from `offset`.
+
+**Returns:** The read bytes.
+
+---
+
+### Lob Properties
+
+#### `lob_handle`
+
+```python
+@property
+def lob_handle(self) -> bytes
+```
+
+The raw LOB handle bytes used for server communication.
+
+---
+
+#### `lob_type`
+
+```python
+@property
+def lob_type(self) -> int
+```
+
+The LOB type code (`23` = BLOB, `24` = CLOB).
+
+---
+
+### LOB Usage Notes
+
+**LOB columns return a dict on fetch**, not a `Lob` object:
+
+```python
+cur.execute("SELECT clob_col FROM my_table")
+row = cur.fetchone()
+lob_info = row[0]
+# {'lob_type': 24, 'lob_length': 1234, 'file_locator': '...', 'packed_lob_handle': b'...'}
+```
+
+**To insert LOB data**, pass strings/bytes directly:
+
+```python
+cur.execute("INSERT INTO my_table (clob_col) VALUES (?)", ["large text content"])
+```
+
+---
+
+## Exception Hierarchy
+
+pycubrid implements the full PEP 249 exception hierarchy:
+
+```mermaid
+graph TD
+    exception[Exception]
+    warning[Warning]
+    error[Error]
+    interface[InterfaceError]
+    database[DatabaseError]
+    data[DataError]
+    operational[OperationalError]
+    integrity[IntegrityError]
+    internal[InternalError]
+    programming[ProgrammingError]
+    notsupported[NotSupportedError]
+
+    exception --> warning
+    exception --> error
+    error --> interface
+    error --> database
+    database --> data
+    database --> operational
+    database --> integrity
+    database --> internal
+    database --> programming
+    database --> notsupported
+```
+
+All exceptions have `msg` (str) and `code` (int) attributes. `DatabaseError` and its subclasses additionally have `errno` (int | None) and `sqlstate` (str | None).
+
+---
+
+### Warning
+
+```python
+class Warning(Exception):
+    def __init__(self, msg: str = "", code: int = 0) -> None
+```
+
+Raised for important warnings (e.g., data truncation during insertion).
+
+---
+
+### Error
+
+```python
+class Error(Exception):
+    def __init__(self, msg: str = "", code: int = 0) -> None
+```
+
+Base class for all pycubrid errors.
+
+---
+
+### InterfaceError
+
+```python
+class InterfaceError(Error)
+```
+
+Raised for errors related to the database interface — calling methods on closed connections/cursors, invalid arguments, etc.
+
+---
+
+### DatabaseError
+
+```python
+class DatabaseError(Error):
+    def __init__(
+        self,
+        msg: str = "",
+        code: int = 0,
+        errno: int | None = None,
+        sqlstate: str | None = None,
+    ) -> None
+```
+
+Base class for database-side errors. Includes `errno` and `sqlstate` for server-reported error details.
+
+---
+
+### DataError
+
+```python
+class DataError(DatabaseError)
+```
+
+Raised for data processing problems (division by zero, numeric overflow, etc.).
+
+---
+
+### OperationalError
+
+```python
+class OperationalError(DatabaseError)
+```
+
+Raised for database operation errors (unexpected disconnect, memory errors, transaction failures, connection lost).
+
+---
+
+### IntegrityError
+
+```python
+class IntegrityError(DatabaseError)
+```
+
+Raised when relational integrity is affected (foreign key violation, duplicate key, constraint violation).
+
+---
+
+### InternalError
+
+```python
+class InternalError(DatabaseError)
+```
+
+Raised for internal database errors (invalid cursor state, out-of-sync transactions).
+
+---
+
+### ProgrammingError
+
+```python
+class ProgrammingError(DatabaseError)
+```
+
+Raised for programming errors (SQL syntax errors, table not found, wrong number of parameters, unsupported parameter types).
+
+---
+
+### NotSupportedError
+
+```python
+class NotSupportedError(DatabaseError)
+```
+
+Raised when an unsupported method or API is called.
+
+---
+
+### Error Classification
+
+pycubrid automatically classifies server errors based on the error message:
+
+| Keywords in error message | Exception raised |
+|---------------------------|-----------------|
+| `unique`, `duplicate`, `foreign key`, `constraint violation` | `IntegrityError` |
+| `syntax`, `unknown class`, `does not exist`, `not found` | `ProgrammingError` |
+| All others | `DatabaseError` |
+
+---
+
+## Type Objects
+
+PEP 249 type objects for comparing `cursor.description` type codes:
+
+| Type Object | Description | Matching CUBRID types |
+|-------------|-------------|----------------------|
+| `STRING`    | String types | `CHAR`, `STRING`, `NCHAR`, `VARNCHAR` |
+| `BINARY`    | Binary types | `BIT`, `VARBIT`, `BLOB` |
+| `NUMBER`    | Numeric types | `SHORT`, `INT`, `BIGINT`, `FLOAT`, `DOUBLE`, `NUMERIC`, `MONETARY` |
+| `DATETIME`  | Date/time types | `DATE`, `TIME`, `DATETIME`, `TIMESTAMP` |
+| `ROWID`     | Row ID types | `OBJECT` |
+
+```python
+import pycubrid
+
+cur.execute("SELECT name FROM users")
+type_code = cur.description[0][1]
+
+if type_code == pycubrid.STRING:
+    print("It's a string column")
+```
+
+---
+
+## Type Constructors
+
+PEP 249 constructor functions:
+
+| Constructor         | Return Type          | Description |
+|---------------------|----------------------|-------------|
+| `Date(y, m, d)`     | `datetime.date`      | Construct a date |
+| `Time(h, m, s)`     | `datetime.time`      | Construct a time |
+| `Timestamp(y,m,d,h,m,s)` | `datetime.datetime` | Construct a timestamp |
+| `DateFromTicks(t)`  | `datetime.date`      | Date from Unix ticks |
+| `TimeFromTicks(t)`  | `datetime.time`      | Time from Unix ticks |
+| `TimestampFromTicks(t)` | `datetime.datetime` | Timestamp from Unix ticks |
+| `Binary(s)`         | `bytes`              | Binary string from bytes |
+
+```python
+import pycubrid
+
+d = pycubrid.Date(2025, 1, 15)
+t = pycubrid.Time(14, 30, 0)
+ts = pycubrid.Timestamp(2025, 1, 15, 14, 30, 0)
+b = pycubrid.Binary(b"\x00\x01\x02")
+```
+
+============================================================
+File: TYPES.md
+============================================================
+
+# Type System
+
+Complete reference for pycubrid's PEP 249 type objects, constructors, and CUBRID CCI data type codes.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [DBAPIType Class](#dbapitype-class)
+- [PEP 249 Type Objects](#pep-249-type-objects)
+  - [STRING](#string)
+  - [BINARY](#binary)
+  - [NUMBER](#number)
+  - [DATETIME](#datetime)
+  - [ROWID](#rowid)
+- [PEP 249 Constructors](#pep-249-constructors)
+- [CUBRID CCI_U_TYPE Codes](#cubrid-cci_u_type-codes)
+- [Type Conversion Table](#type-conversion-table)
+- [LOB Type Handling](#lob-type-handling)
+- [Collection Types](#collection-types)
+- [Usage Examples](#usage-examples)
+
+---
+
+## Overview
+
+pycubrid implements the DB-API 2.0 (PEP 249) type system with:
+
+- **5 type objects** — `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
+- **7 constructors** — `Date`, `Time`, `Timestamp`, `DateFromTicks`, `TimeFromTicks`, `TimestampFromTicks`, `Binary`
+- **27+ CCI data type codes** — mapping CUBRID wire types to Python types
+
+Type objects enable comparison with `cursor.description` type codes:
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb")
+cur = conn.cursor()
+cur.execute("SELECT name, age, created_at FROM cookbook_users")
+
+for col in cur.description:
+    col_name = col[0]
+    col_type = col[1]
+
+    if col_type == pycubrid.STRING:
+        print(f"{col_name} is a string column")
+    elif col_type == pycubrid.NUMBER:
+        print(f"{col_name} is a numeric column")
+    elif col_type == pycubrid.DATETIME:
+        print(f"{col_name} is a date/time column")
+```
+
+---
+
+## DBAPIType Class
+
+The `DBAPIType` class implements the PEP 249 type comparison protocol. Each instance wraps a `frozenset` of integer type codes and compares equal to any code in that set.
+
+```python
+from pycubrid.types import DBAPIType
+
+# Create a custom type object
+MY_TYPE = DBAPIType("MY_TYPE", frozenset({1, 2, 3}))
+
+# Comparison with integer type codes
+assert MY_TYPE == 1      # True — 1 is in the set
+assert MY_TYPE == 4      # False — 4 is not in the set
+assert MY_TYPE != 4      # True
+
+# Comparison with other DBAPIType instances
+OTHER = DBAPIType("OTHER", frozenset({1, 2, 3}))
+assert MY_TYPE == OTHER  # True — same value sets
+```
+
+### Methods
+
+| Method | Description |
+|---|---|
+| `__eq__(other)` | Returns `True` if `other` (int) is in `values`, or if `other` (DBAPIType) has the same `values` set |
+| `__ne__(other)` | Negation of `__eq__` |
+| `__hash__()` | Hash based on the frozen set of values |
+| `__repr__()` | Returns `DBAPIType('name')` |
+
+---
+
+## PEP 249 Type Objects
+
+### STRING
+
+Describes string-based columns.
+
+```python
+from pycubrid import STRING
+```
+
+| Member Type | CCI Code | CUBRID SQL Type |
+|---|---|---|
+| CHAR | 1 | `CHAR(n)` |
+| STRING (VARCHAR) | 2 | `VARCHAR(n)` |
+| NCHAR | 3 | `NCHAR(n)` |
+| VARNCHAR | 4 | `NCHAR VARYING(n)` |
+| ENUM | 25 | `ENUM` |
+| CLOB | 24 | `CLOB` |
+
+### BINARY
+
+Describes binary data columns.
+
+```python
+from pycubrid import BINARY
+```
+
+| Member Type | CCI Code | CUBRID SQL Type |
+|---|---|---|
+| BIT | 5 | `BIT(n)` |
+| VARBIT | 6 | `BIT VARYING(n)` |
+| BLOB | 23 | `BLOB` |
+
+### NUMBER
+
+Describes numeric columns.
+
+```python
+from pycubrid import NUMBER
+```
+
+| Member Type | CCI Code | CUBRID SQL Type | Python Type |
+|---|---|---|---|
+| SHORT | 9 | `SMALLINT` | `int` |
+| INT | 8 | `INTEGER` | `int` |
+| BIGINT | 21 | `BIGINT` | `int` |
+| FLOAT | 11 | `FLOAT` | `float` |
+| DOUBLE | 12 | `DOUBLE` | `float` |
+| NUMERIC | 7 | `NUMERIC(p, s)` | `Decimal` |
+| MONETARY | 10 | `MONETARY` | `float` |
+
+### DATETIME
+
+Describes date and time columns.
+
+```python
+from pycubrid import DATETIME
+```
+
+| Member Type | CCI Code | CUBRID SQL Type | Python Type |
+|---|---|---|---|
+| DATE | 13 | `DATE` | `datetime.date` |
+| TIME | 14 | `TIME` | `datetime.time` |
+| TIMESTAMP | 15 | `TIMESTAMP` | `datetime.datetime` |
+| DATETIME | 22 | `DATETIME` | `datetime.datetime` |
+| TIMESTAMPTZ | 29 | `TIMESTAMPTZ` | `datetime.datetime` |
+| TIMESTAMPLTZ | 30 | `TIMESTAMPLTZ` | `datetime.datetime` |
+| DATETIMETZ | 31 | `DATETIMETZ` | `datetime.datetime` |
+| DATETIMELTZ | 32 | `DATETIMELTZ` | `datetime.datetime` |
+
+### ROWID
+
+Describes row identifier columns.
+
+```python
+from pycubrid import ROWID
+```
+
+| Member Type | CCI Code | CUBRID SQL Type | Python Type |
+|---|---|---|---|
+| OBJECT | 19 | `OBJECT` (OID) | `str` (`"OID:@page|slot|volume"`) |
+
+---
+
+## PEP 249 Constructors
+
+These functions create Python objects suitable for use as query parameters.
+
+| Constructor | Signature | Returns | Description |
+|---|---|---|---|
+| `Date` | `(year, month, day)` | `datetime.date` | Calendar date |
+| `Time` | `(hour, minute, second)` | `datetime.time` | Time of day |
+| `Timestamp` | `(year, month, day, hour, minute, second)` | `datetime.datetime` | Date and time |
+| `DateFromTicks` | `(ticks)` | `datetime.date` | Date from Unix timestamp |
+| `TimeFromTicks` | `(ticks)` | `datetime.time` | Time from Unix timestamp |
+| `TimestampFromTicks` | `(ticks)` | `datetime.datetime` | Datetime from Unix timestamp |
+| `Binary` | `(value)` | `bytes` | Binary data from `bytes`, `bytearray`, or `str` (UTF-8) |
+
+### Usage
+
+```python
+import pycubrid
+
+# Date/Time constructors
+d = pycubrid.Date(2025, 3, 15)
+t = pycubrid.Time(14, 30, 0)
+ts = pycubrid.Timestamp(2025, 3, 15, 14, 30, 0)
+
+# From Unix timestamps
+d2 = pycubrid.DateFromTicks(1710500000.0)
+t2 = pycubrid.TimeFromTicks(1710500000.0)
+ts2 = pycubrid.TimestampFromTicks(1710500000.0)
+
+# Binary constructor
+b1 = pycubrid.Binary(b"\x00\x01\x02")           # from bytes
+b2 = pycubrid.Binary(bytearray([0, 1, 2]))      # from bytearray
+b3 = pycubrid.Binary("hello")                    # from str → UTF-8 encoded bytes
+```
+
+---
+
+## CUBRID CCI_U_TYPE Codes
+
+These integer codes are used on the CAS wire protocol and appear in `cursor.description[n][1]`.
+
+| Constant | Code | CUBRID Type | Category |
+|---|---|---|---|
+| `UNKNOWN` / `NULL` | 0 | NULL | — |
+| `CHAR` | 1 | `CHAR(n)` | STRING |
+| `STRING` | 2 | `VARCHAR(n)` | STRING |
+| `NCHAR` | 3 | `NCHAR(n)` | STRING |
+| `VARNCHAR` | 4 | `NCHAR VARYING(n)` | STRING |
+| `BIT` | 5 | `BIT(n)` | BINARY |
+| `VARBIT` | 6 | `BIT VARYING(n)` | BINARY |
+| `NUMERIC` | 7 | `NUMERIC(p, s)` | NUMBER |
+| `INT` | 8 | `INTEGER` | NUMBER |
+| `SHORT` | 9 | `SMALLINT` | NUMBER |
+| `MONETARY` | 10 | `MONETARY` | NUMBER |
+| `FLOAT` | 11 | `FLOAT` | NUMBER |
+| `DOUBLE` | 12 | `DOUBLE` | NUMBER |
+| `DATE` | 13 | `DATE` | DATETIME |
+| `TIME` | 14 | `TIME` | DATETIME |
+| `TIMESTAMP` | 15 | `TIMESTAMP` | DATETIME |
+| `SET` | 16 | `SET` | Collection |
+| `MULTISET` | 17 | `MULTISET` | Collection |
+| `SEQUENCE` | 18 | `SEQUENCE` / `LIST` | Collection |
+| `OBJECT` | 19 | `OBJECT` (OID) | ROWID |
+| `RESULTSET` | 20 | Result set | — |
+| `BIGINT` | 21 | `BIGINT` | NUMBER |
+| `DATETIME` | 22 | `DATETIME` | DATETIME |
+| `BLOB` | 23 | `BLOB` | BINARY |
+| `CLOB` | 24 | `CLOB` | STRING |
+| `ENUM` | 25 | `ENUM` | STRING |
+| `TIMESTAMPTZ` | 29 | `TIMESTAMPTZ` | DATETIME |
+| `TIMESTAMPLTZ` | 30 | `TIMESTAMPLTZ` | DATETIME |
+| `DATETIMETZ` | 31 | `DATETIMETZ` | DATETIME |
+| `DATETIMELTZ` | 32 | `DATETIMELTZ` | DATETIME |
+
+These codes are available as the `CUBRIDDataType` enum:
+
+```python
+from pycubrid.constants import CUBRIDDataType
+
+print(CUBRIDDataType.INT)       # CUBRIDDataType.INT (8)
+print(CUBRIDDataType.VARCHAR)   # AttributeError — use CUBRIDDataType.STRING (2)
+```
+
+---
+
+## Type Conversion Table
+
+How pycubrid converts CUBRID wire types to Python objects when fetching results:
+
+| CUBRID Type | CCI Code | Python Type | Notes |
+|---|---|---|---|
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, UTF-8 decoded |
+| `SHORT` (SMALLINT) | 9 | `int` | 16-bit signed |
+| `INTEGER` | 8 | `int` | 32-bit signed |
+| `BIGINT` | 21 | `int` | 64-bit signed |
+| `FLOAT` | 11 | `float` | IEEE 754 single |
+| `DOUBLE`, `MONETARY` | 12, 10 | `float` | IEEE 754 double |
+| `NUMERIC` / `DECIMAL` | 7 | `Decimal` | Exact numeric (string-parsed) |
+| `DATE` | 13 | `datetime.date` | Calendar date |
+| `TIME` | 14 | `datetime.time` | Time of day |
+| `TIMESTAMP` | 15 | `datetime.datetime` | Date + time (microsecond = 0) |
+| `DATETIME` | 22 | `datetime.datetime` | Date + time + millisecond |
+| `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps |
+| `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes |
+| `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
+| `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` | Raw bytes (not decoded) |
+| `OBJECT` (OID) | 19 | `str` | Format: `"OID:@page\|slot\|volume"` |
+| `BLOB` | 23 | `dict` | LOB handle (see below) |
+| `CLOB` | 24 | `dict` | LOB handle (see below) |
+| `NULL` / `UNKNOWN` | 0 | `None` | — |
+
+---
+
+## LOB Type Handling
+
+LOB columns (BLOB and CLOB) are **not** returned as content. Instead, they return a **handle dictionary** that can be used with the `Lob` class to read the actual data.
+
+### LOB Handle Structure
+
+When you fetch a BLOB or CLOB column, you receive:
+
+```python
+{
+    "lob_type": 23,                    # CUBRIDDataType.BLOB (23) or CLOB (24)
+    "lob_length": 1024,                # Size of the LOB content in bytes
+    "file_locator": "file://.../...",   # Server-side file locator
+    "packed_lob_handle": b"...",        # Raw handle bytes for Lob.read()
+}
+```
+
+### Reading LOB Content
+
+```python
+from pycubrid.lob import Lob
+from pycubrid.constants import CUBRIDDataType
+
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb")
+cur = conn.cursor()
+
+# Insert string data directly into CLOB column
+cur.execute("INSERT INTO cookbook_docs (content) VALUES ('Hello, CLOB!')")
+conn.commit()
+
+# Fetch returns a LOB handle dict, not the content
+cur.execute("SELECT content FROM cookbook_docs WHERE id = 1")
+row = cur.fetchone()
+lob_handle = row[0]  # dict with lob_type, lob_length, etc.
+
+# To read content, use Lob class with the packed handle
+lob = Lob(conn, CUBRIDDataType.CLOB, lob_handle["packed_lob_handle"])
+content = lob.read(lob_handle["lob_length"])
+print(content)  # b'Hello, CLOB!'
+```
+
+> **Important**: You cannot pass `Lob` objects as query parameters. Insert strings directly into CLOB columns and bytes directly into BLOB columns.
+
+---
+
+## Collection Types
+
+CUBRID's collection types (`SET`, `MULTISET`, `SEQUENCE`) are returned as raw `bytes` by pycubrid. The driver does not decode collection contents — they are returned in their wire format.
+
+| CUBRID Type | CCI Code | Python Return Type |
+|---|---|---|
+| `SET` | 16 | `bytes` |
+| `MULTISET` | 17 | `bytes` |
+| `SEQUENCE` | 18 | `bytes` |
+
+> **Note**: Collection types are a CUBRID-specific feature. If you need structured collection data, consider using normalized tables or JSON-encoded strings.
+
+---
+
+## Usage Examples
+
+### Type Checking with cursor.description
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb")
+cur = conn.cursor()
+cur.execute("SELECT * FROM cookbook_users LIMIT 1")
+
+for col in cur.description:
+    name, type_code, _, _, precision, scale, nullable = col
+    if type_code == pycubrid.STRING:
+        print(f"  {name}: STRING (precision={precision})")
+    elif type_code == pycubrid.NUMBER:
+        print(f"  {name}: NUMBER (precision={precision}, scale={scale})")
+    elif type_code == pycubrid.DATETIME:
+        print(f"  {name}: DATETIME")
+    elif type_code == pycubrid.BINARY:
+        print(f"  {name}: BINARY")
+    elif type_code == pycubrid.ROWID:
+        print(f"  {name}: ROWID (OID)")
+    else:
+        print(f"  {name}: type_code={type_code}")
+
+cur.close()
+conn.close()
+```
+
+### Parameter Binding with Constructors
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb")
+cur = conn.cursor()
+
+# Use PEP 249 constructors for parameter values
+cur.execute(
+    "INSERT INTO cookbook_events (event_date, event_time, created_at) VALUES (?, ?, ?)",
+    [
+        pycubrid.Date(2025, 12, 25),
+        pycubrid.Time(10, 0, 0),
+        pycubrid.Timestamp(2025, 3, 15, 14, 30, 0),
+    ],
+)
+conn.commit()
+cur.close()
+conn.close()
+```
+
+### Using CUBRIDDataType Enum
+
+```python
+from pycubrid.constants import CUBRIDDataType
+
+# Check specific type codes
+assert CUBRIDDataType.INT == 8
+assert CUBRIDDataType.STRING == 2
+assert CUBRIDDataType.DATETIME == 22
+
+# Use in type switch logic
+def describe_type(code: int) -> str:
+    match code:
+        case CUBRIDDataType.INT | CUBRIDDataType.BIGINT | CUBRIDDataType.SHORT:
+            return "integer"
+        case CUBRIDDataType.FLOAT | CUBRIDDataType.DOUBLE:
+            return "floating point"
+        case CUBRIDDataType.NUMERIC:
+            return "exact decimal"
+        case CUBRIDDataType.STRING | CUBRIDDataType.CHAR:
+            return "text"
+        case _:
+            return f"other ({code})"
+```
+
+---
+
+*See also: [API Reference](API_REFERENCE.md) · [Examples](EXAMPLES.md) · [Connection Guide](CONNECTION.md)*
+
+============================================================
+File: EXAMPLES.md
+============================================================
+
+# Usage Examples
+
+Practical examples for using pycubrid — from basic CRUD to advanced features.
+
+---
+
+## Table of Contents
+
+- [Basic Connection](#basic-connection)
+- [CRUD Operations](#crud-operations)
+  - [Create Table](#create-table)
+  - [Insert Rows](#insert-rows)
+  - [Select Rows](#select-rows)
+  - [Update Rows](#update-rows)
+  - [Delete Rows](#delete-rows)
+- [Transactions](#transactions)
+  - [Manual Commit/Rollback](#manual-commitrollback)
+  - [Context Manager](#context-manager)
+  - [Autocommit Mode](#autocommit-mode)
+- [Parameterized Queries](#parameterized-queries)
+- [Batch Operations](#batch-operations)
+  - [executemany](#executemany)
+  - [executemany_batch](#executemany_batch)
+- [Fetching Strategies](#fetching-strategies)
+- [Cursor as Iterator](#cursor-as-iterator)
+- [Column Metadata](#column-metadata)
+- [LOB Handling](#lob-handling)
+- [Schema Introspection](#schema-introspection)
+- [Stored Procedures](#stored-procedures)
+- [Date and Time](#date-and-time)
+- [Error Handling](#error-handling)
+- [SQLAlchemy Integration](#sqlalchemy-integration)
+- [Connection Pooling Pattern](#connection-pooling-pattern)
+
+---
+
+## Basic Connection
+
+```python
+import pycubrid
+
+# Connect to CUBRID
+conn = pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="testdb",
+    user="dba",
+    password="",
+)
+
+# Check server version
+print(f"Server: {conn.get_server_version()}")
+
+# Do work...
+cur = conn.cursor()
+cur.execute("SELECT 1 + 1")
+print(cur.fetchone())  # (2,)
+
+# Cleanup
+cur.close()
+conn.close()
+```
+
+!!! tip
+    Keep one connection open for related operations instead of repeatedly opening/closing per statement.
+
+---
+
+## CRUD Operations
+
+```mermaid
+flowchart LR
+    A[CREATE TABLE] --> B[INSERT]
+    B --> C[SELECT]
+    C --> D[UPDATE]
+    D --> E[DELETE]
+    E --> F[COMMIT]
+```
+
+### Create Table
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS cookbook_users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(200) UNIQUE,
+        age INT DEFAULT 0,
+        created_at DATETIME DEFAULT SYS_DATETIME
+    )
+""")
+conn.commit()
+
+cur.close()
+conn.close()
+```
+
+### Insert Rows
+
+```python
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+# Single insert
+cur.execute(
+    "INSERT INTO cookbook_users (name, email, age) VALUES (?, ?, ?)",
+    ["Alice", "alice@example.com", 30],
+)
+print(f"Inserted ID: {cur.lastrowid}")
+
+# Multiple inserts
+users = [
+    ["Bob", "bob@example.com", 25],
+    ["Carol", "carol@example.com", 28],
+    ["Dave", "dave@example.com", 35],
+]
+cur.executemany(
+    "INSERT INTO cookbook_users (name, email, age) VALUES (?, ?, ?)",
+    users,
+)
+print(f"Inserted {cur.rowcount} rows")
+
+conn.commit()
+cur.close()
+conn.close()
+```
+
+!!! warning
+    Do not use string interpolation for SQL. Always use `?` placeholders with parameter lists or tuples.
+
+### Select Rows
+
+```python
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+# All rows
+cur.execute("SELECT id, name, email, age FROM cookbook_users ORDER BY id")
+for row in cur.fetchall():
+    print(f"  {row[0]}: {row[1]} ({row[2]}) age={row[3]}")
+
+# Filtered query
+cur.execute("SELECT name, age FROM cookbook_users WHERE age > ?", [27])
+print(f"\nUsers older than 27:")
+for name, age in cur:
+    print(f"  {name}: {age}")
+
+cur.close()
+conn.close()
+```
+
+### Update Rows
+
+```python
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+cur.execute(
+    "UPDATE cookbook_users SET age = ? WHERE name = ?",
+    [31, "Alice"],
+)
+print(f"Updated {cur.rowcount} row(s)")
+
+conn.commit()
+cur.close()
+conn.close()
+```
+
+### Delete Rows
+
+```python
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+cur.execute("DELETE FROM cookbook_users WHERE name = ?", ["Dave"])
+print(f"Deleted {cur.rowcount} row(s)")
+
+conn.commit()
+cur.close()
+conn.close()
+```
+
+---
+
+## Transactions
+
+### Manual Commit/Rollback
+
+```python
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+try:
+    cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
+                ["Eve", "eve@example.com"])
+    cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
+                ["Frank", "frank@example.com"])
+    conn.commit()
+    print("Transaction committed")
+except pycubrid.Error as e:
+    conn.rollback()
+    print(f"Transaction rolled back: {e}")
+finally:
+    cur.close()
+    conn.close()
+```
+
+### Context Manager
+
+The connection context manager auto-commits on success and auto-rolls back on exception:
+
+```python
+with pycubrid.connect(database="testdb") as conn:
+    cur = conn.cursor()
+    cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
+                ["Grace", "grace@example.com"])
+    # Auto-commits when exiting the `with` block without exception
+    # Auto-rollbacks if an exception is raised
+```
+
+!!! note
+    With context manager usage, explicit `conn.commit()` is unnecessary on the success path.
+
+### Autocommit Mode
+
+```python
+# Explicitly enable autocommit (default is False)
+conn = pycubrid.connect(database="testdb", autocommit=True)
+cur = conn.cursor()
+
+# Each statement commits immediately — no explicit commit needed
+cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ["Heidi"])
+cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ["Ivan"])
+
+# Can also toggle dynamically
+conn.autocommit = False
+cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ["Judy"])
+conn.commit()  # Manual commit required now
+
+cur.close()
+conn.close()
+```
+
+---
+
+## Parameterized Queries
+
+pycubrid uses `qmark` parameter style — `?` placeholders:
+
+```python
+cur = conn.cursor()
+
+# Positional parameters (list or tuple)
+cur.execute("SELECT * FROM cookbook_users WHERE name = ? AND age > ?", ["Alice", 25])
+
+# Dict parameters (values used in order)
+cur.execute("SELECT * FROM cookbook_users WHERE name = ? AND age > ?",
+            {"name": "Alice", "age": 25})
+
+# Supported types
+import datetime
+from decimal import Decimal
+
+cur.execute("""
+    INSERT INTO cookbook_products (name, price, available, launch_date)
+    VALUES (?, ?, ?, ?)
+""", [
+    "Widget",                              # str  → 'Widget'
+    Decimal("19.99"),                       # Decimal → 19.99
+    True,                                  # bool → 1
+    datetime.date(2025, 6, 15),            # date → DATE'2025-06-15'
+])
+
+# None maps to NULL
+cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
+            ["Nobody", None])
+```
+
+### Parameter binding reference
+
+| Parameter shape | Example | Notes |
+|---|---|---|
+| `list` / `tuple` | `cur.execute(sql, ["Alice", 25])` | Recommended for positional clarity |
+| `dict` (mapping) | `cur.execute(sql, {"name": "Alice", "age": 25})` | Values are used in mapping order |
+| `None` | `cur.execute(sql, [None])` | Encoded as SQL `NULL` |
+
+!!! danger
+    Passing a scalar instead of sequence/mapping (for example `params="Alice"`) raises `ProgrammingError`.
+
+---
+
+## Batch Operations
+
+### executemany
+
+Execute the same SQL with different parameter sets:
+
+```python
+cur = conn.cursor()
+
+users = [
+    ("Alice", 30),
+    ("Bob", 25),
+    ("Carol", 28),
+]
+cur.executemany(
+    "INSERT INTO cookbook_users (name, age) VALUES (?, ?)",
+    users,
+)
+print(f"Inserted {cur.rowcount} rows")  # 3
+conn.commit()
+```
+
+### executemany_batch
+
+Execute **different** SQL statements in a single server round-trip:
+
+```python
+cur = conn.cursor()
+
+results = cur.executemany_batch([
+    "INSERT INTO cookbook_users (name, age) VALUES ('Xena', 40)",
+    "INSERT INTO cookbook_users (name, age) VALUES ('Yuri', 22)",
+    "UPDATE cookbook_users SET age = 26 WHERE name = 'Bob'",
+])
+
+for stmt_type, count in results:
+    print(f"Statement type {stmt_type}: affected {count} row(s)")
+
+conn.commit()
+```
+
+---
+
+## Fetching Strategies
+
+```python
+cur = conn.cursor()
+cur.execute("SELECT id, name FROM cookbook_users ORDER BY id")
+
+# fetchone — one row at a time
+row = cur.fetchone()
+print(f"First: {row}")
+
+# fetchmany — batch of N rows
+batch = cur.fetchmany(3)
+print(f"Next 3: {batch}")
+
+# fetchall — everything remaining
+rest = cur.fetchall()
+print(f"Remaining: {len(rest)} rows")
+```
+
+### Array Size
+
+Control the default batch size for `fetchmany()`:
+
+```python
+cur.arraysize = 50
+cur.execute("SELECT * FROM cookbook_users")
+batch = cur.fetchmany()  # Fetches up to 50 rows
+```
+
+---
+
+## Cursor as Iterator
+
+```python
+cur = conn.cursor()
+cur.execute("SELECT name, age FROM cookbook_users")
+
+for name, age in cur:
+    print(f"{name} is {age} years old")
+```
+
+---
+
+## Column Metadata
+
+```python
+cur = conn.cursor()
+cur.execute("SELECT id, name, email, age FROM cookbook_users")
+
+print("Columns:")
+for col in cur.description:
+    print(f"  {col[0]:15s} type={col[1]:3d}  precision={col[4]}  nullable={col[6]}")
+
+# Output:
+#   id              type=  8  precision=10  nullable=False
+#   name            type=  2  precision=100  nullable=False
+#   email           type=  2  precision=200  nullable=True
+#   age             type=  8  precision=10  nullable=True
+```
+
+---
+
+## LOB Handling
+
+### Inserting LOB Data
+
+For most use cases, insert strings or bytes directly:
+
+```python
+cur = conn.cursor()
+
+# CLOB — insert text directly
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS cookbook_documents (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(100),
+        content CLOB
+    )
+""")
+conn.commit()
+
+cur.execute(
+    "INSERT INTO cookbook_documents (title, content) VALUES (?, ?)",
+    ["Report", "This is a large text document..."],
+)
+conn.commit()
+```
+
+### Reading LOB Data
+
+LOB columns return a dict with metadata:
+
+```python
+cur.execute("SELECT title, content FROM cookbook_documents WHERE id = 1")
+row = cur.fetchone()
+
+title = row[0]       # "Report"
+lob_info = row[1]    # dict
+print(f"LOB type: {lob_info['lob_type']}")        # 24 (CLOB)
+print(f"LOB length: {lob_info['lob_length']}")     # byte length
+print(f"Locator: {lob_info['file_locator']}")      # server file path
+```
+
+### Using the Lob Class
+
+For fine-grained LOB control:
+
+```python
+from pycubrid.constants import CUBRIDDataType
+
+# Create a LOB handle on the server
+lob = conn.create_lob(CUBRIDDataType.CLOB)  # 24
+
+# Write data
+lob.write(b"Hello, CUBRID LOB!")
+
+# Read data back
+data = lob.read(length=1024, offset=0)
+print(data)  # b"Hello, CUBRID LOB!"
+```
+
+---
+
+## Schema Introspection
+
+```python
+from pycubrid.constants import CCISchemaType
+
+# List all tables
+packet = conn.get_schema_info(CCISchemaType.CLASS)
+print(f"Found {packet.tuple_count} tables")
+
+# List columns of a specific table
+packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="cookbook_users")
+print(f"Table has {packet.tuple_count} columns")
+
+# Get primary key info
+packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="cookbook_users")
+print(f"Primary key entries: {packet.tuple_count}")
+```
+
+---
+
+## Stored Procedures
+
+```python
+cur = conn.cursor()
+
+# Create a stored procedure
+cur.execute("""
+    CREATE OR REPLACE PROCEDURE cookbook_greet(name VARCHAR)
+    AS LANGUAGE JAVA
+    NAME 'com.example.Greet.greet(java.lang.String)'
+""")
+conn.commit()
+
+# Call it
+cur.callproc("cookbook_greet", ["World"])
+```
+
+> **Note:** CUBRID stored procedures are Java-based. Ensure the Java class is registered on the server.
+
+---
+
+## Date and Time
+
+```python
+import datetime
+import pycubrid
+
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS cookbook_events (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        event_name VARCHAR(100),
+        event_date DATE,
+        event_time TIME,
+        event_ts DATETIME
+    )
+""")
+conn.commit()
+
+# Insert with Python datetime objects
+cur.execute(
+    "INSERT INTO cookbook_events (event_name, event_date, event_time, event_ts) VALUES (?, ?, ?, ?)",
+    [
+        "Launch Party",
+        datetime.date(2025, 6, 15),
+        datetime.time(14, 30, 0),
+        datetime.datetime(2025, 6, 15, 14, 30, 0),
+    ],
+)
+conn.commit()
+
+# Read back — returns Python datetime objects
+cur.execute("SELECT event_name, event_date, event_time, event_ts FROM cookbook_events")
+row = cur.fetchone()
+print(f"Event: {row[0]}")
+print(f"Date:  {row[1]}")  # datetime.date(2025, 6, 15)
+print(f"Time:  {row[2]}")  # datetime.time(14, 30)
+print(f"TS:    {row[3]}")  # datetime.datetime(2025, 6, 15, 14, 30)
+
+# Using PEP 249 constructors
+d = pycubrid.Date(2025, 1, 1)
+t = pycubrid.Time(12, 0, 0)
+ts = pycubrid.Timestamp(2025, 1, 1, 12, 0, 0)
+
+cur.close()
+conn.close()
+```
+
+---
+
+## Error Handling
+
+### Catching Specific Errors
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(database="testdb")
+cur = conn.cursor()
+
+try:
+    cur.execute("INSERT INTO cookbook_users (email) VALUES (?)", ["duplicate@example.com"])
+    cur.execute("INSERT INTO cookbook_users (email) VALUES (?)", ["duplicate@example.com"])
+    conn.commit()
+except pycubrid.IntegrityError as e:
+    print(f"Duplicate key: {e.msg}")
+    conn.rollback()
+except pycubrid.ProgrammingError as e:
+    print(f"SQL error: {e.msg}")
+    conn.rollback()
+except pycubrid.OperationalError as e:
+    print(f"Connection error: {e.msg}")
+except pycubrid.Error as e:
+    print(f"Database error: {e.msg} (code={e.code})")
+    conn.rollback()
+finally:
+    cur.close()
+    conn.close()
+```
+
+### Checking Closed State
+
+```python
+conn = pycubrid.connect(database="testdb")
+conn.close()
+
+try:
+    cur = conn.cursor()
+except pycubrid.InterfaceError as e:
+    print(f"Expected: {e.msg}")  # "connection is closed"
+```
+
+---
+
+## SQLAlchemy Integration
+
+pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid):
+
+```python
+from sqlalchemy import create_engine, text, Column, Integer, String
+from sqlalchemy.orm import DeclarativeBase, Session
+
+# Connect using pycubrid driver
+engine = create_engine("cubrid+pycubrid://dba@localhost:33000/testdb")
+
+# Raw SQL
+with engine.connect() as conn:
+    result = conn.execute(text("SELECT 1 + 1"))
+    print(result.scalar())  # 2
+
+# ORM
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = "cookbook_sa_users"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100))
+
+Base.metadata.create_all(engine)
+
+with Session(engine) as session:
+    session.add(User(name="Alice"))
+    session.commit()
+
+    users = session.query(User).all()
+    for u in users:
+        print(f"{u.id}: {u.name}")
+```
+
+---
+
+## Connection Pooling Pattern
+
+pycubrid itself does not include a connection pool, but you can use a simple pattern or SQLAlchemy's built-in pool:
+
+### Simple Pool with queue
+
+```python
+import queue
+import pycubrid
+
+class ConnectionPool:
+    def __init__(self, size: int = 5, **connect_kwargs):
+        self._pool: queue.Queue = queue.Queue(maxsize=size)
+        self._connect_kwargs = connect_kwargs
+        for _ in range(size):
+            self._pool.put(pycubrid.connect(**connect_kwargs))
+
+    def get(self) -> pycubrid.connection.Connection:
+        return self._pool.get()
+
+    def put(self, conn) -> None:
+        self._pool.put(conn)
+
+    def close_all(self) -> None:
+        while not self._pool.empty():
+            conn = self._pool.get_nowait()
+            conn.close()
+
+# Usage
+pool = ConnectionPool(size=3, database="testdb")
+
+conn = pool.get()
+try:
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM cookbook_users")
+    print(cur.fetchone())
+    cur.close()
+finally:
+    pool.put(conn)
+
+pool.close_all()
+```
+
+### SQLAlchemy Pool (Recommended)
+
+```python
+from sqlalchemy import create_engine
+
+engine = create_engine(
+    "cubrid+pycubrid://dba@localhost:33000/testdb",
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+)
+```
+
+============================================================
+File: PROTOCOL.md
+============================================================
+
+# CAS Protocol Reference
+
+Technical documentation for the CUBRID CAS (Common Application Server) wire protocol as implemented by pycubrid.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Packet Framing](#packet-framing)
+- [Connection Handshake](#connection-handshake)
+- [Request/Response Lifecycle](#requestresponse-lifecycle)
+- [Function Codes](#function-codes)
+- [Packet Classes](#packet-classes)
+  - [ClientInfoExchangePacket](#clientinfoexchangepacket)
+  - [OpenDatabasePacket](#opendatabasepacket)
+  - [PrepareAndExecutePacket](#prepareandexecutepacket)
+  - [PreparePacket](#preparepacket)
+  - [ExecutePacket](#executepacket)
+  - [FetchPacket](#fetchpacket)
+  - [CommitPacket](#commitpacket)
+  - [RollbackPacket](#rollbackpacket)
+  - [CloseDatabasePacket](#closedatabasepacket)
+  - [CloseQueryPacket](#closequerypacket)
+  - [GetEngineVersionPacket](#getengineversionpacket)
+  - [GetSchemaPacket](#getschemapacket)
+  - [BatchExecutePacket](#batchexecutepacket)
+  - [LOBNewPacket](#lobnewpacket)
+  - [LOBWritePacket](#lobwritepacket)
+  - [LOBReadPacket](#lobreadpacket)
+  - [GetLastInsertIdPacket](#getlastinsertidpacket)
+  - [GetDbParameterPacket / SetDbParameterPacket](#getdbparameterpacket--setdbparameterpacket)
+- [PacketWriter](#packetwriter)
+- [PacketReader](#packetreader)
+- [Data Types on the Wire](#data-types-on-the-wire)
+- [Error Handling](#error-handling)
+- [Constants Reference](#constants-reference)
+
+---
+
+## Overview
+
+CUBRID uses a proprietary binary protocol called **CAS** (Common Application Server) for client–server communication. The protocol operates over TCP sockets with big-endian byte ordering.
+
+Key characteristics:
+
+- **Transport**: TCP (default port 33000 for the broker)
+- **Byte order**: Big-endian (network byte order)
+- **Framing**: 4-byte data length + 4-byte CAS info + payload
+- **Handshake**: Magic string `CUBRK` + client type + protocol version
+- **Session**: Stateful — session ID maintained after `OpenDatabase`
+
+---
+
+## Architecture
+
+```mermaid
+graph LR
+    client[Client (pycubrid)] -- TCP port 33000 --> broker[Broker]
+    broker --> cas[CAS Process]
+    cas --> db[CUBRID Database]
+```
+
+1. **Client** connects to the **Broker** on port 33000
+2. **Broker** performs handshake and may redirect to a CAS process on a different port
+3. **Client** opens a database session on the CAS process
+4. All subsequent requests go through the CAS session
+
+---
+
+## Packet Framing
+
+All packets after the initial handshake use the following frame format:
+
+```mermaid
+graph LR
+    data[Data Length (4B) big-endian int32] --> casinfo[CAS Info (4B) session state]
+    casinfo --> payload[Payload (variable) function-specific]
+```
+
+| Field       | Size    | Description |
+|-------------|---------|-------------|
+| Data Length  | 4 bytes | Length of CAS Info + Payload (signed int32, big-endian) |
+| CAS Info     | 4 bytes | Session state bytes maintained by the server |
+| Payload      | variable | Function code + arguments (requests) or response data |
+
+**Building a header:**
+
+```python
+from pycubrid.packet import build_protocol_header
+
+header = build_protocol_header(data_length=42, cas_info=b"\x00\x00\x00\x00")
+# Returns 8 bytes: 4-byte length + 4-byte cas_info
+```
+
+### Exceptions
+
+The **handshake packet** (`ClientInfoExchangePacket`) does NOT use this framing — it sends raw bytes without a length/cas_info header.
+
+The **open database packet** (`OpenDatabasePacket`) sends raw bytes (628 bytes) without a header, but its *response* uses standard framing.
+
+---
+
+## Connection Handshake
+
+The connection flow has three phases:
+
+### Phase 1: Client Info Exchange
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Broker
+    Client->>Broker: ClientInfoExchange raw 10B ("CUBRK", CLIENT_JDBC=3, CAS_VER=0x47, padding)
+    Broker-->>Client: New Connection Port (4B int32, big-endian)
+```
+
+- **Magic string**: `"CUBRK"` (5 ASCII bytes)
+- **Client type**: `CLIENT_JDBC = 3` (pycubrid identifies as a JDBC-compatible client)
+- **CAS version**: `PROTO_INDICATOR(0x40) | VERSION(7) = 0x47`
+- **New port**: If > 0, disconnect from broker and reconnect to this port. If 0, reuse current socket.
+
+### Phase 2: Open Database
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant CAS
+    Client->>CAS: OpenDatabase raw 628B (database 32B, user 32B, password 32B, extended 512B, reserved 20B)
+    CAS-->>Client: Framed response (CAS Info 4B, Response Code 4B, Broker Info 8B, Session ID 4B)
+```
+
+- Database, user, and password are fixed-length null-padded strings
+- **Broker Info** (8 bytes) contains:
+  - Byte 0: `db_type`
+  - Byte 2: `statement_pooling`
+  - Byte 4: `protocol_version` (lower 6 bits)
+- **Session ID**: Used for subsequent CAS info tracking
+
+### Phase 3: Ready
+
+After successful `OpenDatabase`, the connection is ready for SQL operations.
+
+---
+
+## Request/Response Lifecycle
+
+Every operation after connection follows this pattern:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    Client->>Client: Build payload [function_code (1B)] [arguments...]
+    Client->>Server: Send [data_length (4B)] [cas_info (4B)] [payload]
+    Server-->>Client: Response [data_length (4B)] [cas_info (4B)] [response_code (4B)] [result_data...]
+    alt response_code >= 0
+        Client->>Client: Success path (code may carry additional info)
+    else response_code < 0
+        Client->>Client: Error path (error_code + error_message)
+    end
+```
+
+---
+
+## Function Codes
+
+All 41 CAS function codes, defined in `CASFunctionCode`:
+
+| Code | Name                  | Description |
+|------|-----------------------|-------------|
+| 1    | `END_TRAN`            | Commit or rollback a transaction |
+| 2    | `PREPARE`             | Prepare a SQL statement |
+| 3    | `EXECUTE`             | Execute a prepared statement |
+| 4    | `GET_DB_PARAMETER`    | Get a database parameter value |
+| 5    | `SET_DB_PARAMETER`    | Set a database parameter value |
+| 6    | `CLOSE_REQ_HANDLE`    | Close a query/request handle |
+| 7    | `CURSOR`              | Position the cursor |
+| 8    | `FETCH`               | Fetch result rows |
+| 9    | `SCHEMA_INFO`         | Get schema information |
+| 10   | `OID_GET`             | Get object by OID |
+| 11   | `OID_PUT`             | Update object by OID |
+| 15   | `GET_DB_VERSION`      | Get the database engine version |
+| 16   | `GET_CLASS_NUM_OBJS`  | Get class object count |
+| 17   | `OID_CMD`             | OID operations (drop, lock, etc.) |
+| 18   | `COLLECTION`          | Collection operations |
+| 19   | `NEXT_RESULT`         | Get next result set |
+| 20   | `EXECUTE_BATCH`       | Batch execute multiple SQL statements |
+| 21   | `EXECUTE_ARRAY`       | Execute with array binding |
+| 22   | `CURSOR_UPDATE`       | Update via cursor |
+| 23   | `GET_ATTR_TYPE_STR`   | Get attribute type string |
+| 24   | `GET_QUERY_INFO`      | Get query plan information |
+| 26   | `SAVEPOINT`           | Set or rollback to savepoint |
+| 27   | `PARAMETER_INFO`      | Get parameter metadata |
+| 28–30 | `XA_*`               | XA distributed transaction operations |
+| 31   | `CON_CLOSE`           | Close the CAS connection |
+| 32   | `CHECK_CAS`           | Ping the CAS process |
+| 33   | `MAKE_OUT_RS`         | Create output result set |
+| 34   | `GET_GENERATED_KEYS`  | Get auto-generated keys |
+| 35   | `LOB_NEW`             | Create a new LOB handle |
+| 36   | `LOB_WRITE`           | Write data to a LOB |
+| 37   | `LOB_READ`            | Read data from a LOB |
+| 38   | `END_SESSION`         | End the CAS session |
+| 39   | `GET_ROW_COUNT`       | Get affected row count |
+| 40   | `GET_LAST_INSERT_ID`  | Get last auto-increment ID |
+| 41   | `PREPARE_AND_EXECUTE` | Combined prepare + execute |
+
+---
+
+## Packet Classes
+
+pycubrid implements 18 packet classes in `pycubrid.protocol`. Each class provides:
+
+- `write()` — Serialize the request (some take `cas_info` parameter)
+- `parse(data)` — Deserialize the response
+
+### ClientInfoExchangePacket
+
+**Handshake packet** — no standard framing.
+
+```python
+packet = ClientInfoExchangePacket()
+raw = packet.write()          # 10 bytes, no cas_info needed
+packet.parse(response_4bytes) # Parses new_connection_port
+```
+
+| Attribute              | Type  | Description |
+|------------------------|-------|-------------|
+| `new_connection_port`  | `int` | Port for the CAS process (0 = reuse current) |
+
+---
+
+### OpenDatabasePacket
+
+**Open a database session** — sends 628 raw bytes, receives framed response.
+
+```python
+packet = OpenDatabasePacket(database="testdb", user="dba", password="")
+raw = packet.write()        # 628 bytes, no cas_info
+packet.parse(response_data) # Framed response with CAS info prefix
+```
+
+| Attribute        | Type   | Description |
+|------------------|--------|-------------|
+| `cas_info`       | `bytes` | CAS session info (4 bytes) |
+| `response_code`  | `int`   | 0 on success, negative on error |
+| `broker_info`    | `dict`  | `{db_type, protocol_version, statement_pooling}` |
+| `session_id`     | `int`   | Server session identifier |
+
+---
+
+### PrepareAndExecutePacket
+
+**Combined prepare + execute** (FC=41) — the primary packet for SQL operations.
+
+| Attribute            | Type   | Description |
+|----------------------|--------|-------------|
+| `query_handle`       | `int`  | Server-assigned query handle |
+| `statement_type`     | `int`  | `CUBRIDStatementType` code |
+| `bind_count`         | `int`  | Number of bind parameters |
+| `column_count`       | `int`  | Number of result columns |
+| `columns`            | `list[ColumnMetaData]` | Column metadata |
+| `total_tuple_count`  | `int`  | Total rows in result set |
+| `result_count`       | `int`  | Number of result info entries |
+| `result_infos`       | `list[ResultInfo]` | Per-statement result info |
+| `tuple_count`        | `int`  | Rows in the initial fetch |
+| `rows`               | `list[list[Any]]` | Fetched row data |
+
+---
+
+### PreparePacket
+
+**Prepare a statement** (FC=2) — separate prepare step.
+
+| Attribute        | Type   | Description |
+|------------------|--------|-------------|
+| `query_handle`   | `int`  | Server-assigned query handle |
+| `statement_type` | `int`  | Statement type code |
+| `bind_count`     | `int`  | Number of bind parameters |
+| `column_count`   | `int`  | Number of result columns |
+| `columns`        | `list[ColumnMetaData]` | Column metadata |
+
+---
+
+### ExecutePacket
+
+**Execute a prepared statement** (FC=3).
+
+| Attribute            | Type   | Description |
+|----------------------|--------|-------------|
+| `total_tuple_count`  | `int`  | Total result rows |
+| `result_count`       | `int`  | Number of result infos |
+| `result_infos`       | `list[ResultInfo]` | Per-statement results |
+| `tuple_count`        | `int`  | Inline fetch row count |
+| `rows`               | `list[list[Any]]` | Inline fetched rows |
+
+---
+
+### FetchPacket
+
+**Fetch result rows** (FC=8) — used for paginated row retrieval.
+
+| Attribute      | Type   | Description |
+|----------------|--------|-------------|
+| `tuple_count`  | `int`  | Number of fetched rows |
+| `rows`         | `list[list[Any]]` | Row data |
+
+---
+
+### CommitPacket
+
+**Commit transaction** (FC=1 with `CCITransactionType.COMMIT`).
+
+No result attributes — raises an exception on error.
+
+---
+
+### RollbackPacket
+
+**Rollback transaction** (FC=1 with `CCITransactionType.ROLLBACK`).
+
+No result attributes — raises an exception on error.
+
+---
+
+### CloseDatabasePacket
+
+**Close the CAS session** (FC=31).
+
+---
+
+### CloseQueryPacket
+
+**Release a query handle** (FC=6).
+
+---
+
+### GetEngineVersionPacket
+
+**Get server version** (FC=15).
+
+| Attribute        | Type  | Description |
+|------------------|-------|-------------|
+| `engine_version` | `str` | Version string (e.g., `"11.2.0.0378"`) |
+
+---
+
+### GetSchemaPacket
+
+**Schema introspection** (FC=9).
+
+| Attribute      | Type  | Description |
+|----------------|-------|-------------|
+| `query_handle` | `int` | Handle for fetching schema rows |
+| `tuple_count`  | `int` | Number of schema entries |
+
+---
+
+### BatchExecutePacket
+
+**Batch execute** (FC=20) — multiple SQL statements in one request.
+
+| Attribute | Type  | Description |
+|-----------|-------|-------------|
+| `results` | `list[tuple[int, int]]` | `(stmt_type, result_count)` per statement |
+| `errors`  | `list[dict]` | `{code, message}` for failed statements |
+
+---
+
+### LOBNewPacket
+
+**Create LOB handle** (FC=35).
+
+| Attribute    | Type    | Description |
+|--------------|---------|-------------|
+| `lob_handle` | `bytes` | Server-generated LOB handle |
+
+---
+
+### LOBWritePacket
+
+**Write LOB data** (FC=36).
+
+---
+
+### LOBReadPacket
+
+**Read LOB data** (FC=37).
+
+| Attribute    | Type    | Description |
+|--------------|---------|-------------|
+| `bytes_read` | `int`   | Actual bytes read |
+| `lob_data`   | `bytes` | The read data |
+
+---
+
+### GetLastInsertIdPacket
+
+**Get last insert ID** (FC=40).
+
+| Attribute        | Type  | Description |
+|------------------|-------|-------------|
+| `last_insert_id` | `str` | Last auto-increment value as string |
+
+---
+
+### GetDbParameterPacket / SetDbParameterPacket
+
+**Get/Set database parameters** (FC=4 / FC=5).
+
+| Attribute | Type  | Description |
+|-----------|-------|-------------|
+| `value`   | `int` | Parameter value (get result / set input) |
+
+Available parameters (`CCIDbParam`):
+
+| Code | Name               | Description |
+|------|--------------------|-------------|
+| 1    | `ISOLATION_LEVEL`  | Transaction isolation level |
+| 2    | `LOCK_TIMEOUT`     | Lock wait timeout |
+| 3    | `MAX_STRING_LENGTH`| Maximum string length |
+| 4    | `AUTO_COMMIT`      | Auto-commit mode (0/1) |
+
+---
+
+## PacketWriter
+
+`pycubrid.packet.PacketWriter` — serializes data in CAS wire format.
+
+### Public Methods
+
+| Method | Description |
+|--------|-------------|
+| `add_byte(value)` | Write length-prefixed byte (1B length + 1B value) |
+| `add_short(value)` | Write length-prefixed short (4B length + 2B value) |
+| `add_int(value)` | Write length-prefixed int (4B length + 4B value) |
+| `add_long(value)` | Write length-prefixed long (4B length + 8B value) |
+| `add_float(value)` | Write length-prefixed float (4B length + 4B value) |
+| `add_double(value)` | Write length-prefixed double (4B length + 8B value) |
+| `add_bytes(value)` | Write length-prefixed raw bytes |
+| `add_null()` | Write null marker (zero-length) |
+| `add_date(y, m, d)` | Write length-prefixed date |
+| `add_time(h, m, s)` | Write length-prefixed time |
+| `add_timestamp(y,m,d,h,m,s)` | Write length-prefixed timestamp |
+| `add_datetime(y,m,d,h,m,s,ms)` | Write length-prefixed datetime |
+| `add_cache_time()` | Write cache time (two zero ints) |
+| `to_bytes()` | Return all written bytes |
+
+### Internal Methods
+
+| Method | Description |
+|--------|-------------|
+| `_write_byte(value)` | Raw byte, no length prefix |
+| `_write_short(value)` | Raw short (2B) |
+| `_write_int(value)` | Raw int (4B) |
+| `_write_long(value)` | Raw long (8B) |
+| `_write_float(value)` | Raw float (4B) |
+| `_write_double(value)` | Raw double (8B) |
+| `_write_bytes(value)` | Raw bytes, no prefix |
+| `_write_filler(count, value)` | Fill N bytes with value |
+| `_write_null_terminated_string(value)` | Length-prefixed UTF-8 string + null terminator |
+| `_write_fixed_length_string(value, length)` | Fixed-width null-padded string |
+
+---
+
+## PacketReader
+
+`pycubrid.packet.PacketReader` — deserializes CAS wire data.
+
+### Primitive Parsers
+
+| Method | Returns | Bytes Consumed |
+|--------|---------|----------------|
+| `_parse_byte()` | `int` | 1 |
+| `_parse_short()` | `int` | 2 |
+| `_parse_int()` | `int` | 4 |
+| `_parse_long()` | `int` | 8 |
+| `_parse_float()` | `float` | 4 |
+| `_parse_double()` | `float` | 8 |
+| `_parse_bytes(count)` | `bytes` | `count` |
+| `_parse_null_terminated_string(length)` | `str` | `length` |
+
+### Composite Parsers
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `_parse_date()` | `datetime.date` | 3 shorts (year, month, day) |
+| `_parse_time()` | `datetime.time` | 3 shorts (hour, minute, second) |
+| `_parse_datetime()` | `datetime.datetime` | 7 shorts (y,m,d,h,m,s,ms) |
+| `_parse_timestamp()` | `datetime.datetime` | 6 shorts (y,m,d,h,m,s) |
+| `_parse_numeric(size)` | `Decimal` | Null-terminated string → Decimal |
+| `_parse_object()` | `str` | OID string (`"OID:@page|slot|volume"`) |
+| `read_blob(size)` | `dict` | BLOB handle info |
+| `read_clob(size)` | `dict` | CLOB handle info |
+| `read_error(length)` | `(int, str)` | Error code and message |
+| `bytes_remaining()` | `int` | Unread bytes in buffer |
+
+---
+
+## Data Types on the Wire
+
+Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:
+
+| Type Code | Name       | Wire Format |
+|-----------|------------|-------------|
+| 0         | `NULL`     | size ≤ 0 → `None` |
+| 1         | `CHAR`     | Null-terminated UTF-8 string |
+| 2         | `STRING`   | Null-terminated UTF-8 string |
+| 3         | `NCHAR`    | Null-terminated UTF-8 string |
+| 4         | `VARNCHAR` | Null-terminated UTF-8 string |
+| 5         | `BIT`      | Raw bytes |
+| 6         | `VARBIT`   | Raw bytes |
+| 7         | `NUMERIC`  | Null-terminated string → `Decimal` |
+| 8         | `INT`      | 4-byte big-endian signed int |
+| 9         | `SHORT`    | 2-byte big-endian signed short |
+| 10        | `MONETARY` | 8-byte big-endian double |
+| 11        | `FLOAT`    | 4-byte big-endian float |
+| 12        | `DOUBLE`   | 8-byte big-endian double |
+| 13        | `DATE`     | 3 shorts: year, month, day |
+| 14        | `TIME`     | 3 shorts: hour, minute, second |
+| 15        | `TIMESTAMP`| 6 shorts: y, m, d, h, m, s |
+| 16–18     | `SET/MULTISET/SEQUENCE` | Raw bytes |
+| 19        | `OBJECT`   | 4B page + 2B slot + 2B volume |
+| 21        | `BIGINT`   | 8-byte big-endian signed long |
+| 22        | `DATETIME` | 7 shorts: y, m, d, h, m, s, ms |
+| 23        | `BLOB`     | Packed LOB handle → `dict` |
+| 24        | `CLOB`     | Packed LOB handle → `dict` |
+| 25        | `ENUM`     | Null-terminated UTF-8 string |
+
+### Column Metadata
+
+Each column in a result set carries metadata parsed from the wire:
+
+```python
+@dataclass
+class ColumnMetaData:
+    column_type: int         # CUBRIDDataType code
+    scale: int               # Decimal scale (-1 if not applicable)
+    precision: int           # Precision (-1 if not applicable)
+    name: str                # Column alias
+    real_name: str           # Actual column name
+    table_name: str          # Source table name
+    is_nullable: bool        # Allows NULL
+    default_value: str       # Default value expression
+    is_auto_increment: bool  # AUTO_INCREMENT column
+    is_unique_key: bool      # Part of unique index
+    is_primary_key: bool     # Part of primary key
+    is_reverse_index: bool   # Has reverse index
+    is_reverse_unique: bool  # Has reverse unique index
+    is_foreign_key: bool     # Part of foreign key
+    is_shared: bool          # Shared attribute
+```
+
+---
+
+## Error Handling
+
+When `response_code < 0`, the response contains an error:
+
+```mermaid
+graph LR
+    code[Error Code (4B int)] --> message[Error Message (null-terminated string)]
+```
+
+pycubrid classifies errors automatically:
+
+| Error pattern | Exception |
+|---------------|-----------|
+| `unique`, `duplicate`, `foreign key`, `constraint violation` | `IntegrityError` |
+| `syntax`, `unknown class`, `does not exist`, `not found` | `ProgrammingError` |
+| All other errors | `DatabaseError` |
+
+---
+
+## Constants Reference
+
+### CAS Protocol Constants
+
+```python
+class CASProtocol:
+    MAGIC_STRING = "CUBRK"    # Handshake magic
+    CLIENT_JDBC = 3           # Client type identifier
+    PROTO_INDICATOR = 0x40    # Protocol indicator bit
+    VERSION = 7               # Protocol version
+    CAS_VERSION = 0x47        # Combined version byte
+```
+
+### Wire Data Sizes
+
+```python
+class DataSize:
+    BYTE = 1          BOOL = 1
+    SHORT = 2         INT = 4
+    FLOAT = 4         LONG = 8
+    DOUBLE = 8        OBJECT = 8
+    OID = 8           BROKER_INFO = 8
+    DATE = 14         TIME = 14
+    DATETIME = 14     TIMESTAMP = 14
+    RESULTSET = 4     DATA_LENGTH = 4
+    CAS_INFO = 4
+```
+
+### Statement Types
+
+| Code | Name | Code | Name |
+|------|------|------|------|
+| 0 | `ALTER_CLASS` | 20 | `INSERT` |
+| 4 | `CREATE_CLASS` | 21 | `SELECT` |
+| 5 | `CREATE_INDEX` | 22 | `UPDATE` |
+| 9 | `DROP_CLASS` | 23 | `DELETE` |
+| 10 | `DROP_INDEX` | 24 | `CALL` |
+| 16 | `ROLLBACK_WORK` | 126 | `CALL_SP` |
+| 17 | `GRANT` | 127 | `UNKNOWN` |
+
+### Transaction Types
+
+| Code | Name |
+|------|------|
+| 1 | `COMMIT` |
+| 2 | `ROLLBACK` |
+
+### Isolation Levels
+
+| Code | Name |
+|------|------|
+| 0x01 | `COMMIT_CLASS_UNCOMMIT_INSTANCE` (default) |
+| 0x02 | `COMMIT_CLASS_COMMIT_INSTANCE` |
+| 0x03 | `REP_CLASS_UNCOMMIT_INSTANCE` |
+| 0x04 | `REP_CLASS_COMMIT_INSTANCE` |
+| 0x05 | `REP_CLASS_REP_INSTANCE` |
+| 0x06 | `SERIALIZABLE` |
+
+============================================================
+File: ARCHITECTURE.md
+============================================================
+
+# Architecture
+
+## Design Objectives
+
+- **Pure Python**: Zero system dependencies, no C extensions or CCI library required, runs anywhere Python runs.
+- **Full PEP 249 Compliance**: Implements the Python Database API Specification v2.0 for maximum compatibility.
+- **CAS Binary Protocol v7**: Specifically designed for CUBRID 10.0+ using the version 7 binary protocol.
+- **Single-connection Synchronous Model**: Reliable, blocking I/O model suitable for standard application integration.
+- **PEP 561 Typed**: Fully type-hinted for modern IDE support and static analysis.
+
+## High-Level Flow
+
+### Phase 1: Connection Handshake
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant pycubrid as pycubrid.connect()
+    participant Broker as Broker (port 33000)
+    participant CAS as CAS Process
+    participant DB as CUBRID Database
+    
+    App->>pycubrid: connect(host, port, database, user, password)
+    rect rgb(230, 245, 255)
+      note over pycubrid, CAS: Phase 1 — Broker Handshake
+      pycubrid->>Broker: TCP connect to port 33000
+      pycubrid->>Broker: ClientInfoExchange ("CUBRK" + CLIENT_JDBC=3 + v7)
+      Broker-->>pycubrid: New CAS port (4B int32)
+      pycubrid->>CAS: TCP reconnect to CAS port
+    end
+    rect rgb(230, 255, 230)
+      note over pycubrid, DB: Phase 2 — Database Session
+      pycubrid->>CAS: OpenDatabase (db, user, password — 628B raw)
+      CAS->>DB: Authenticate + open session
+      DB-->>CAS: Session established
+      CAS-->>pycubrid: CAS Info (4B) + Session ID (4B) + Broker Info (8B)
+    end
+    pycubrid-->>App: Connection object
+```
+
+### Phase 2: Query Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Cursor
+    participant Connection
+    participant CAS
+    
+    App->>Cursor: execute("SELECT ...", params)
+    rect rgb(255, 245, 230)
+      note over Cursor, CAS: SQL Execution
+      Cursor->>Connection: _send_and_receive(PrepareAndExecutePacket)
+      Connection->>CAS: [4B length][4B cas_info][FC=41 + SQL + params]
+      CAS-->>Connection: [4B length][4B cas_info][result metadata + inline rows]
+      Connection-->>Cursor: Parsed response (columns, rows)
+    end
+    Cursor-->>App: None (results buffered)
+    
+    App->>Cursor: fetchall()
+    alt All rows in initial fetch
+      Cursor-->>App: Buffered rows
+    else More rows on server
+      Cursor->>Connection: _send_and_receive(FetchPacket)
+      Connection->>CAS: [4B length][4B cas_info][FC=8 + handle + offset]
+      CAS-->>Connection: [4B length][4B cas_info][row data]
+      Connection-->>Cursor: Additional rows
+      Cursor-->>App: All rows
+    end
+    
+    App->>Cursor: close()
+    Cursor->>Connection: _send_and_receive(CloseQueryPacket)
+    Connection->>CAS: [FC=6 + query_handle]
+```
+
+## CAS Reconnection
+
+```mermaid
+sequenceDiagram
+    participant Connection
+    participant CAS
+    
+    Connection->>Connection: _check_reconnect() inspects CAS_INFO[0]
+    alt CAS status == INACTIVE
+      Connection->>CAS: ClientInfoExchange
+      CAS-->>Connection: New port
+      Connection->>CAS: OpenDatabase
+      CAS-->>Connection: New session
+      note over Connection: Session restored transparently
+    else CAS status == ACTIVE
+      note over Connection: No action needed
+    end
+```
+
+## Module Boundaries
+
+```mermaid
+flowchart TD
+    init["__init__.py<br/>Public API & PEP 249 globals"]
+    conn["connection.py<br/>TCP socket, transactions, LOB"]
+    cursor["cursor.py<br/>execute, fetch, callproc"]
+    protocol["protocol.py<br/>18 CAS packet classes"]
+    packet["packet.py<br/>PacketReader / PacketWriter"]
+    constants["constants.py<br/>CASFunctionCode, CUBRIDDataType"]
+    types["types.py<br/>DBAPIType, STRING, NUMBER, ..."]
+    exceptions["exceptions.py<br/>PEP 249 exception hierarchy"]
+    lob["lob.py<br/>Lob class (BLOB/CLOB)"]
+    
+    init --> conn
+    init --> types
+    init --> exceptions
+    init --> lob
+    conn --> protocol
+    conn --> packet
+    conn --> cursor
+    conn --> exceptions
+    cursor --> protocol
+    cursor --> packet
+    cursor --> exceptions
+    protocol --> packet
+    protocol --> constants
+    protocol --> exceptions
+    lob --> conn
+```
+
+- **`__init__.py` — Public API & PEP 249 Globals**: The entry point of the package. It exposes the `connect` function, exception hierarchy, and DB-API type objects.
+- **`connection.py` — TCP Socket & Transaction Management**: Manages the physical TCP connection to the CAS, handles transactions (commit/rollback), and acts as the owner for LOB operations.
+- **`cursor.py` — SQL Execution & Result Fetching**: Implements the `Cursor` object, handling SQL preparation, execution, and the various fetch operations while maintaining state of results.
+- **`protocol.py` — CAS Packet Classes**: Defines 18 specialized packet classes that map to CUBRID CAS function codes, handling the serialization and deserialization of specific requests and responses.
+- **`packet.py` — PacketReader / PacketWriter**: Provides low-level utilities for reading from and writing to the wire format, handling byte order and primitive type serialization.
+- **`constants.py` — CAS Constants**: Contains enumeration for CAS function codes, CUBRID data types, and other protocol-level constants.
+- **`types.py` — DB-API Types**: Defines the type objects required by PEP 249 and manages the mapping between CUBRID types and Python types.
+- **`exceptions.py` — PEP 249 Exceptions**: Implements the standard hierarchy of exceptions required by the DB-API 2.0 specification.
+- **`lob.py` — LOB Management**: Implements the `Lob` class for handling Large Object data (BLOB/CLOB), providing an interface for reading and writing data in chunks.
+
+## Packet Format
+
+```text
+┌─────────────────┬──────────────┬─────────────────────────┐
+│  Data Length     │  CAS Info    │  Payload                │
+│  (4 bytes)       │  (4 bytes)   │  (variable length)      │
+│  big-endian int  │  session     │  [FC byte][arguments…]  │
+└─────────────────┴──────────────┴─────────────────────────┘
+```
+
+The handshake packet (`ClientInfoExchange`) does NOT use this framing; it uses a specialized 10-byte fixed header for the initial broker negotiation.
+
+## Type Dispatch
+
+```mermaid
+flowchart TD
+    wire["Wire Data<br/>[4B size][raw bytes]"]
+    dispatch{"_TYPE_READERS<br/>dict dispatch<br/>O(1) lookup"}
+    
+    wire --> dispatch
+    
+    dispatch -->|"1-4, 25"| str["str<br/>(UTF-8 decoded)"]
+    dispatch -->|"5, 6"| bytes["bytes<br/>(raw binary)"]
+    dispatch -->|"7"| decimal["Decimal<br/>(string-parsed)"]
+    dispatch -->|"8"| int32["int<br/>(4B signed)"]
+    dispatch -->|"9"| int16["int<br/>(2B signed)"]
+    dispatch -->|"21"| int64["int<br/>(8B signed)"]
+    dispatch -->|"11"| float32["float<br/>(IEEE 754 single)"]
+    dispatch -->|"12, 10"| float64["float<br/>(IEEE 754 double)"]
+    dispatch -->|"13"| date["datetime.date"]
+    dispatch -->|"14"| time["datetime.time"]
+    dispatch -->|"15, 22, 29-32"| datetime["datetime.datetime"]
+    dispatch -->|"19"| oid["str (OID)"]
+    dispatch -->|"23, 24"| lob["dict (LOB handle)"]
+    dispatch -->|"16-18"| collection["bytes (opaque)"]
+```
+
+## Key Design Decisions
+
+- **Pure Python over C extension**: Zero system dependencies ensure the driver runs anywhere Python is available, simplifying deployment and avoiding cross-compilation issues.
+- **CAS protocol v7**: By targeting minimum CUBRID 10.0.0, the codebase remains clean and avoids complex backward compatibility logic for deprecated protocol versions.
+- **`qmark` paramstyle**: Using question mark placeholders (`?`) directly matches the expectations of the CAS wire protocol, minimizing the need for complex client-side parameter parsing.
+- **Dict-based type dispatch**: Utilizing the `_TYPE_READERS` dictionary provides O(1) lookup performance, ensuring high-speed result parsing compared to iterative conditional checks.
+- **Opaque collection types**: Returning SET, MULTISET, and SEQUENCE types as raw `bytes` avoids the performance overhead and complexity of recursive parsing for features that are rarely used in standard applications.
+- **Identify as JDBC client**: Sending `CLIENT_JDBC=3` during handshake ensures the CAS treats pycubrid with the same stability and feature set as the official JDBC driver.
+
+## Public API Boundary
+
+```python
+# Module-level attributes (PEP 249)
+apilevel = "2.0"
+threadsafety = 1
+paramstyle = "qmark"
+
+# Constructor
+connect(host, port, database, user, password, **kwargs) -> Connection
+
+# Exceptions
+Warning, Error, InterfaceError, DatabaseError, DataError,
+OperationalError, IntegrityError, InternalError,
+ProgrammingError, NotSupportedError
+
+# Type Objects
+STRING, BINARY, NUMBER, DATETIME, ROWID
+
+# Constructors
+Date, Time, Timestamp, DateFromTicks, TimeFromTicks, TimestampFromTicks, Binary
+
+# Extensions
+Lob, get_error_description
+```
+
+## What This Package Owns / Does Not Own
+
+- **Owns**: CAS wire protocol implementation, PEP 249 interface, type conversion, connection lifecycle, LOB support.
+- **Does not own**: Connection pooling (use SQLAlchemy), ORM (use sqlalchemy-cubrid), schema migration (use Alembic), query building (use SQLAlchemy Core).
+
+## Related Documents
+
+- [Protocol Reference](PROTOCOL.md)
+- [Connection Guide](CONNECTION.md)
+- [Type System](TYPES.md)
+- [API Reference](API_REFERENCE.md)
+- [Support Matrix](SUPPORT_MATRIX.md)
+
+============================================================
+File: PERFORMANCE.md
+============================================================
+
+# Performance Guide
+
+This guide summarizes benchmark behavior for `pycubrid` and shows practical tuning steps.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Benchmark Results](#benchmark-results)
+- [Performance Characteristics](#performance-characteristics)
+- [Optimization Tips](#optimization-tips)
+- [Performance Investigation](#performance-investigation)
+- [Running Benchmarks](#running-benchmarks)
+
+---
+
+## Overview
+
+`pycubrid` is a pure Python DBAPI2 driver that talks to CUBRID over the CAS binary protocol.
+
+```mermaid
+flowchart LR
+    App[Python Application] --> Driver[pycubrid\nPure Python DBAPI2]
+    Driver --> CAS[CAS Binary Protocol over TCP]
+    CAS --> Broker[CUBRID Broker / CAS]
+    Broker --> Server[(CUBRID Server)]
+```
+
+```mermaid
+flowchart TD
+    Q[SQL + Parameters] --> Encode[Python object encoding]
+    Encode --> Packet[CAS packet serialization]
+    Packet --> Net[TCP round-trip]
+    Net --> Exec[Server execution]
+    Exec --> Decode[Row decoding to Python objects]
+```
+
+---
+
+## Benchmark Results
+
+Source: [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
+
+Environment: Intel Core i5-9400F @ 2.90GHz, 6 cores, Linux x86_64, Docker containers.
+
+Workload: Python `pycubrid` vs `PyMySQL`, 10000 rows x 5 rounds.
+
+| Scenario | CUBRID (pycubrid) | MySQL (PyMySQL) | Ratio (CUBRID/MySQL) |
+|---|---:|---:|---:|
+| insert_sequential | 10.47s | 1.74s | 6.0x |
+| select_by_pk | 15.99s | 3.52s | 4.5x |
+| select_full_scan | 10.31s | 1.86s | 5.5x |
+| update_indexed | 10.70s | 2.19s | 4.9x |
+| delete_sequential | 10.75s | 2.10s | 5.1x |
+
+---
+
+## Performance Characteristics
+
+- `pycubrid` is pure Python, so packet encode/decode and row conversion run in the interpreter.
+- `PyMySQL` can benefit from optional C acceleration in parts of the stack, which reduces CPU overhead.
+- CAS uses a binary protocol with explicit packet framing and parsing; this adds per-request work.
+- Small, chatty queries amplify Python-level and round-trip overhead.
+- Throughput improves when calls are batched and transaction boundaries are controlled.
+
+---
+
+## Optimization Tips
+
+- Use explicit transactions for write bursts instead of per-statement commits.
+- Batch inserts and updates with `executemany()` where possible.
+- Reuse long-lived connections to avoid repeated handshake cost.
+- Select only required columns and avoid unnecessary full scans.
+- Keep hot predicates indexed and validate plans in CUBRID.
+
+```mermaid
+flowchart TD
+    Start[Slow query path] --> Batching{Batchable workload?}
+    Batching -->|Yes| ExecMany[Use executemany / multi-row patterns]
+    Batching -->|No| Index{Index coverage good?}
+    Index -->|No| AddIdx[Add or tune index]
+    Index -->|Yes| Txn{Too many commits?}
+    Txn -->|Yes| GroupTxn[Group statements in one transaction]
+    Txn -->|No| Net[Profile network and CAS round-trips]
+```
+
+---
+
+## Performance Investigation
+
+Use this workflow when [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
+detects a measurable gap or regression. The goal is to reproduce, profile, fix, and verify —
+without hardcoding thresholds that age badly.
+
+### When to Investigate
+
+- A benchmark run shows a ratio increase vs the baseline recorded in this document.
+- A CI run flags a deviation from the previous run's numbers.
+- You are about to submit a change to the hot path (protocol.py, packet.py, cursor.py).
+
+### Workflow
+
+```mermaid
+flowchart TD
+    Detect[cubrid-benchmark detects gap] --> Issue[File a Performance issue\nusing the issue template]
+    Issue --> Profile[Run profiling scripts\nto isolate the hot path]
+    Profile --> Optimize[Apply targeted fix\n(see Optimization Tips)]
+    Optimize --> Verify[Re-run profiling scripts\nand cubrid-benchmark]
+    Verify --> Close[Attach results to issue\nand close]
+```
+
+1. **File an issue** — use the
+   [Performance Investigation template](../.github/ISSUE_TEMPLATE/performance.yml).
+   Paste the benchmark output and link the CI run that triggered this.
+
+2. **Profile the affected operation** — pick the script that matches the slow operation:
+
+   | Operation | Script |
+   |-----------|--------|
+   | Connection handshake | `scripts/profile_connect.py` |
+   | INSERT / SELECT / UPDATE / DELETE | `scripts/profile_execute.py` |
+   | Row fetching (fetchone/fetchall/fetchmany) | `scripts/profile_fetch.py` |
+
+3. **Optimise** — guided by cProfile's cumulative time, focus changes on the top frames.
+   Keep patches targeted; avoid speculative refactors.
+
+4. **Verify** — re-run the profiling script and the full benchmark suite.
+   Attach before/after numbers to the issue.
+
+### Running the Profiling Scripts
+
+All scripts require a live CUBRID instance. Defaults target `localhost:33000/demodb` with
+user `dba`.
+
+#### Connection handshake
+
+```bash
+# 100 connect/close cycles (default):
+python scripts/profile_connect.py
+
+# Custom target, 50 iterations, save .prof:
+python scripts/profile_connect.py \
+    --host myhost --port 33000 --database testdb \
+    --user dba --password secret \
+    --iterations 50 --output connect.prof
+```
+
+#### Statement execution
+
+```bash
+# All DML operations, 100 iterations each (default):
+python scripts/profile_execute.py
+
+# INSERT only, 200 iterations:
+python scripts/profile_execute.py --operation insert --iterations 200
+
+# Save .prof for snakeviz:
+python scripts/profile_execute.py --output exec.prof
+```
+
+#### Result fetching
+
+```bash
+# 1000 rows, 50 fetch iterations (default):
+python scripts/profile_fetch.py
+
+# 5000 rows, 20 iterations, fetchmany batch size 100:
+python scripts/profile_fetch.py --rows 5000 --iterations 20 --fetch-size 100
+
+# Save .prof for snakeviz:
+python scripts/profile_fetch.py --output fetch.prof
+```
+
+#### Visualising .prof files with snakeviz
+
+```bash
+pip install snakeviz
+snakeviz profile_output.prof
+```
+
+snakeviz opens an interactive flame graph in the browser, making it easy to drill into
+nested call stacks.
+
+---
+
+## Running Benchmarks
+
+1. Clone the benchmark suite: `git clone https://github.com/cubrid-labs/cubrid-benchmark`.
+2. Start benchmark containers and databases as documented in that repository.
+3. Run the Python benchmark scenario (`pycubrid` vs `PyMySQL`) with the provided runner.
+4. Execute multiple rounds (the published run used 10000 rows x 5 rounds).
+5. Export and compare result artifacts (JSON/markdown tables) for trend analysis.
+
+For exact commands and benchmark harness details, use the benchmark repo README and scripts.
+
+============================================================
+File: TROUBLESHOOTING.md
+============================================================
+
+# Troubleshooting Guide
+
+Comprehensive solutions for common pycubrid issues — connection errors, query problems, type mismatches, LOB handling, performance tuning, and Docker setup.
+
+---
+
+## Table of Contents
+
+- [Connection Issues](#connection-issues)
+  - [ConnectionRefusedError on Port 33000](#connectionrefusederror-on-port-33000)
+  - [Authentication Failed](#authentication-failed)
+  - [TimeoutError or socket.timeout](#timeouterror-or-sockettimeout)
+  - [Connection Closed Unexpectedly](#connection-closed-unexpectedly)
+  - [Broker Port Redirect Failure](#broker-port-redirect-failure)
+- [Query Issues](#query-issues)
+  - [ProgrammingError: SQL Syntax](#programmingerror-sql-syntax)
+  - [Parameter Binding Errors](#parameter-binding-errors)
+  - [Wrong Number of Parameters](#wrong-number-of-parameters)
+  - [Reserved Word Conflicts](#reserved-word-conflicts)
+  - [Empty Result Set](#empty-result-set)
+- [Transaction Issues](#transaction-issues)
+  - [Data Not Persisted After Insert](#data-not-persisted-after-insert)
+  - [Autocommit Behavior](#autocommit-behavior)
+  - [Deadlocks](#deadlocks)
+- [Type Mapping Issues](#type-mapping-issues)
+  - [Date/Time Handling](#datetime-handling)
+  - [Decimal Precision Loss](#decimal-precision-loss)
+  - [NULL Handling](#null-handling)
+  - [Boolean Values](#boolean-values)
+  - [Unicode / NCHAR Encoding](#unicode--nchar-encoding)
+- [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
+  - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
+  - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)
+  - [LOB Size Limits](#lob-size-limits)
+- [Cursor Issues](#cursor-issues)
+  - [InterfaceError: Cursor is Closed](#interfaceerror-cursor-is-closed)
+  - [fetchone() Returns None Unexpectedly](#fetchone-returns-none-unexpectedly)
+  - [rowcount Is -1 After SELECT](#rowcount-is--1-after-select)
+  - [executemany() Performance](#executemany-performance)
+- [Prepared Statement Issues](#prepared-statement-issues)
+  - [execute(sql, params) Pattern](#executesql-params-pattern)
+  - [Mixing Parameterized and Direct Execution](#mixing-parameterized-and-direct-execution)
+- [Docker Issues](#docker-issues)
+  - [Container Starts but Cannot Connect](#container-starts-but-cannot-connect)
+  - [Database Not Found](#database-not-found)
+  - [Container Health Check](#container-health-check)
+- [SQLAlchemy Integration Issues](#sqlalchemy-integration-issues)
+  - [Wrong Connection URL Format](#wrong-connection-url-format)
+  - [Autocommit Conflicts](#autocommit-conflicts)
+  - [Connection Pool Exhaustion](#connection-pool-exhaustion)
+- [Performance Issues](#performance-issues)
+  - [Slow Queries](#slow-queries)
+  - [High Memory Usage](#high-memory-usage)
+  - [Connection Overhead](#connection-overhead)
+- [Debugging Techniques](#debugging-techniques)
+
+---
+
+## Troubleshooting Decision Tree
+
+```mermaid
+flowchart TD
+    A[Start: pycubrid error observed] --> B{Connection established?}
+    B -->|No| C[Check broker status and port reachability]
+    C --> D{Authentication error?}
+    D -->|Yes| E[Verify user/password and database]
+    D -->|No| F[Set connect_timeout and inspect network/firewall]
+    B -->|Yes| G{Query or transaction failure?}
+    G -->|Query| H[Validate SQL syntax and placeholder count]
+    G -->|Transaction| I[Confirm autocommit and explicit commit/rollback]
+    G -->|LOB| J[Validate LOB type and read/write flow]
+    H --> K[Catch specific pycubrid exceptions]
+    I --> K
+    J --> K
+    E --> K
+    F --> K
+    K --> L[Use debug script and logs, then escalate with reproducible case]
+```
+
+!!! tip
+    Start from the first failing operation (`connect`, `execute`, `fetch`, or `commit`) and isolate one variable at a time.
+
+!!! note
+    Most production failures can be classified quickly into one of four buckets: connectivity, authentication, SQL/binding, or transaction state.
+
+---
+
+## Connection Issues
+
+### ConnectionRefusedError on Port 33000
+
+**Symptom:**
+
+```
+ConnectionRefusedError: [Errno 111] Connection refused
+```
+
+**Causes and fixes:**
+
+!!! warning
+    CUBRID startup is asynchronous in Docker-based setups. A successful container start does not always mean the broker is already accepting connections.
+
+1. **CUBRID broker is not running**
+
+   ```bash
+   # Check if broker is running
+   cubrid broker status
+
+   # Start the broker
+   cubrid broker start
+   ```
+
+2. **Wrong port** — The broker may be configured on a different port.
+
+   ```bash
+   # Check broker port in configuration
+   cat $CUBRID/conf/cubrid_broker.conf | grep BROKER_PORT
+   ```
+
+3. **Docker container not ready** — The CUBRID container takes a few seconds to initialize.
+
+   ```bash
+   # Check container status
+   docker compose ps
+
+   # Wait for health check
+   docker compose up -d
+   sleep 5  # Wait for broker initialization
+
+   # Verify with logs
+   docker compose logs cubrid | tail -20
+   ```
+
+4. **Firewall or network** — Port 33000 may be blocked.
+
+   ```bash
+   # Test port connectivity
+   nc -zv localhost 33000
+
+   # On macOS/Linux
+   telnet localhost 33000
+   ```
+
+---
+
+### Authentication Failed
+
+**Symptom:**
+
+```
+OperationalError: Authentication failed
+```
+
+**Fixes:**
+
+CUBRID's default `dba` user has **no password**. If you set a password, make sure it matches:
+
+```python
+# Default — no password
+conn = pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="testdb",
+    user="dba",
+)
+
+# With password
+conn = pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="testdb",
+    user="dba",
+    password="your_password",
+)
+```
+
+**Common mistakes:**
+- Passing `password=""` when the user has a password set
+- Passing a password when the user has no password (some CUBRID versions reject this)
+- Wrong username — CUBRID usernames are case-insensitive but must exist
+
+---
+
+### TimeoutError or socket.timeout
+
+**Symptom:**
+
+```
+TimeoutError: [Errno 110] Connection timed out
+socket.timeout: timed out
+```
+
+**Fixes:**
+
+1. **Increase timeout** for slow networks:
+
+   ```python
+   conn = pycubrid.connect(
+       host="remote-server.example.com",
+       port=33000,
+       database="testdb",
+       user="dba",
+       connect_timeout=30.0,  # 30-second timeout
+   )
+   ```
+
+2. **Verify server is reachable:**
+
+   ```bash
+   ping remote-server.example.com
+   nc -zv remote-server.example.com 33000
+   ```
+
+3. **Check for network firewalls** between client and server.
+
+---
+
+### Connection Closed Unexpectedly
+
+**Symptom:**
+
+```
+OperationalError: Connection is closed
+InterfaceError: Connection is closed
+```
+
+**Causes:**
+
+- **Server-side session timeout** — CUBRID broker has a `SESSION_TIMEOUT` setting. Default is 300 seconds (5 minutes) of inactivity.
+- **Broker restart** — If the broker restarts, all existing connections are terminated.
+- **Network interruption** — Temporary network failure drops the TCP connection.
+- **Idle connection cleanup** — The broker may close idle connections to free resources.
+
+**Fix:** Create a new connection when this error occurs:
+
+```python
+import pycubrid
+
+def get_connection():
+    return pycubrid.connect(
+        host="localhost",
+        port=33000,
+        database="testdb",
+        user="dba",
+    )
+
+conn = get_connection()
+try:
+    cur = conn.cursor()
+    cur.execute("SELECT 1")
+except pycubrid.OperationalError:
+    # Reconnect on connection loss
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1")
+```
+
+**For long-running applications**, use SQLAlchemy with connection pooling — it handles reconnection automatically:
+
+```python
+from sqlalchemy import create_engine
+
+engine = create_engine(
+    "cubrid+pycubrid://dba@localhost:33000/testdb",
+    pool_pre_ping=True,  # Test connection before use
+    pool_recycle=1800,    # Recycle connections every 30 minutes
+)
+```
+
+---
+
+### Broker Port Redirect Failure
+
+**Symptom:**
+
+```
+OperationalError: ... (during connection handshake)
+```
+
+**Background:** When pycubrid connects to port 33000, the CUBRID broker may redirect the connection to a different CAS (CUBRID Application Server) port. If the redirect port is unreachable, the connection fails.
+
+**Fix:**
+
+1. **Check CAS processes are running:**
+
+   ```bash
+   cubrid broker status -b  # Shows broker and CAS process details
+   ```
+
+2. **Ensure all CAS ports are reachable** — If using Docker with port forwarding, only port 33000 may be exposed. When the broker redirects to a different port, the connection fails if that port is not forwarded.
+
+   **Docker fix** — Expose a range of ports, or configure the broker to reuse the connection (port 0 mode):
+
+   ```yaml
+   # docker-compose.yml
+   services:
+     cubrid:
+       image: cubrid/cubrid:11.2
+       ports:
+         - "33000:33000"
+       environment:
+         CUBRID_DB: testdb
+   ```
+
+   The default Docker image is configured correctly for single-port access. If you see this error with Docker, check that you're not overriding broker configuration.
+
+---
+
+## Query Issues
+
+### ProgrammingError: SQL Syntax
+
+**Symptom:**
+
+```
+ProgrammingError: Syntax error ...
+```
+
+**Common causes:**
+
+1. **Using MySQL/PostgreSQL-specific syntax** — CUBRID has its own SQL dialect:
+
+   ```python
+   # WRONG — CUBRID doesn't support LIMIT with comma syntax
+   cur.execute("SELECT * FROM users LIMIT 0, 10")
+
+   # CORRECT — use LIMIT with OFFSET
+   cur.execute("SELECT * FROM users LIMIT 10 OFFSET 0")
+   ```
+
+2. **Using reserved words as identifiers** — Quote them with double quotes:
+
+   ```python
+   # WRONG — 'value' is a reserved word
+   cur.execute("SELECT value FROM config")
+
+   # CORRECT — quote the identifier
+   cur.execute('SELECT "value" FROM config')
+
+   # BETTER — avoid reserved words
+   cur.execute("SELECT val FROM config")
+   ```
+
+3. **Missing semicolons are fine** — pycubrid does not require trailing semicolons (and they may cause errors in some contexts).
+
+---
+
+### Parameter Binding Errors
+
+**Symptom:**
+
+```
+ProgrammingError: Cannot convert parameter ...
+```
+
+!!! danger
+    pycubrid supports qmark placeholders (`?`) only. Mixing `%s`, `:name`, or f-string SQL construction often causes subtle runtime errors or SQL injection risk.
+
+**pycubrid uses `qmark` paramstyle** (question marks). Do not use named parameters or format strings:
+
+```python
+# CORRECT — qmark style
+cur.execute("SELECT * FROM users WHERE name = ? AND age > ?", ("Alice", 25))
+
+# WRONG — named parameters (not supported)
+cur.execute("SELECT * FROM users WHERE name = :name", {"name": "Alice"})
+
+# WRONG — format string (SQL injection risk!)
+cur.execute(f"SELECT * FROM users WHERE name = '{name}'")
+
+# WRONG — %s style (not supported)
+cur.execute("SELECT * FROM users WHERE name = %s", ("Alice",))
+```
+
+**Supported Python types for parameters:**
+
+| Python Type | SQL Result |
+|---|---|
+| `None` | `NULL` |
+| `bool` | `1` or `0` |
+| `int`, `float` | Numeric literal |
+| `Decimal` | Numeric literal |
+| `str` | `'escaped_string'` |
+| `bytes` | `X'hex_string'` |
+| `datetime.date` | `DATE'YYYY-MM-DD'` |
+| `datetime.time` | `TIME'HH:MM:SS'` |
+| `datetime.datetime` | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` |
+
+---
+
+### Wrong Number of Parameters
+
+**Symptom:**
+
+```
+ProgrammingError: Incorrect number of bindings supplied
+```
+
+**Fix:** Ensure the number of `?` placeholders matches the number of parameters:
+
+```python
+# WRONG — 2 placeholders, 1 parameter
+cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ("Alice",))
+
+# CORRECT — 2 placeholders, 2 parameters
+cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ("Alice", 30))
+```
+
+**For single parameters**, pass a tuple (not a bare value):
+
+```python
+# WRONG — string is iterable, each character becomes a parameter
+cur.execute("SELECT * FROM users WHERE name = ?", "Alice")
+
+# CORRECT — wrap in a tuple
+cur.execute("SELECT * FROM users WHERE name = ?", ("Alice",))
+```
+
+---
+
+### Reserved Word Conflicts
+
+**Common CUBRID reserved words** that often clash with column/table names:
+
+| Reserved Word | Safe Alternative |
+|---|---|
+| `value` | `val`, `item_value` |
+| `count` | `cnt`, `item_count` |
+| `data` | `file_data`, `raw_data` |
+| `level` | `user_level`, `access_level` |
+| `name` | Usually OK, but check if issues occur |
+| `status` | `item_status` |
+| `type` | `item_type` |
+| `action` | `user_action` |
+
+**To use reserved words as identifiers**, quote them with double quotes:
+
+```python
+cur.execute('CREATE TABLE "order" (id INT, "value" VARCHAR(100))')
+cur.execute('SELECT "value" FROM "order"')
+```
+
+---
+
+### Empty Result Set
+
+**Symptom:** `fetchone()` returns `None` or `fetchall()` returns `[]` when you expect data.
+
+**Common causes:**
+
+1. **Uncommitted INSERT** — data was inserted but not committed:
+
+   ```python
+   cur.execute("INSERT INTO users (name) VALUES (?)", ("Alice",))
+   conn.commit()  # Don't forget this!
+   cur.execute("SELECT * FROM users WHERE name = ?", ("Alice",))
+   print(cur.fetchall())
+   ```
+
+2. **Different connection** — each connection has its own transaction view. Uncommitted data in one connection is not visible in another.
+
+3. **Case sensitivity** — CUBRID string comparison is case-sensitive by default:
+
+   ```python
+   # These return different results
+   cur.execute("SELECT * FROM users WHERE name = ?", ("alice",))
+   cur.execute("SELECT * FROM users WHERE name = ?", ("Alice",))
+   ```
+
+---
+
+## Transaction Issues
+
+### Data Not Persisted After Insert
+
+**Symptom:** Data is inserted successfully (no error), but a subsequent query from a different connection or after reconnection shows no data.
+
+**Cause:** `autocommit` is `False` by default in pycubrid when using the constructor directly. You must call `conn.commit()` explicitly.
+
+```python
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+
+cur = conn.cursor()
+cur.execute("INSERT INTO users (name) VALUES (?)", ("Alice",))
+conn.commit()  # Required! Without this, data is lost on close
+conn.close()
+```
+
+**Or use the context manager** which auto-commits on success:
+
+```python
+with pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba") as conn:
+    cur = conn.cursor()
+    cur.execute("INSERT INTO users (name) VALUES (?)", ("Alice",))
+    # Auto-commits on successful exit
+```
+
+---
+
+### Autocommit Behavior
+
+**Symptom:** Unexpected commit or rollback behavior.
+
+**Key facts:**
+
+| Scenario | autocommit | Behavior |
+|---|---|---|
+| Default constructor | `False` (driver default) | Explicit `commit()` required |
+| Via SQLAlchemy | `False` (dialect sets it) | SQLAlchemy manages transactions |
+| Context manager exit | N/A | Commits on success, rollbacks on exception |
+
+**To switch modes:**
+
+```python
+# Check current mode
+print(conn.autocommit)  # False
+
+# Disable for manual transaction control
+conn.autocommit = False
+
+cur.execute("INSERT INTO users (name) VALUES (?)", ("Alice",))
+cur.execute("INSERT INTO users (name) VALUES (?)", ("Bob",))
+conn.commit()  # Both inserts committed together
+```
+
+---
+
+### Deadlocks
+
+**Symptom:**
+
+```
+OperationalError: Deadlock detected ...
+```
+
+**CUBRID uses row-level locking.** Deadlocks occur when two connections hold locks that each other needs.
+
+**Prevention:**
+
+1. Keep transactions short
+2. Access tables in a consistent order
+3. Use `SELECT ... FOR UPDATE` to lock rows upfront
+4. Set appropriate isolation levels
+
+```python
+# Lock rows before updating to prevent deadlocks
+cur.execute("SELECT * FROM accounts WHERE id = ? FOR UPDATE", (1,))
+cur.execute("UPDATE accounts SET balance = balance - 100 WHERE id = ?", (1,))
+conn.commit()
+```
+
+---
+
+## Type Mapping Issues
+
+### Date/Time Handling
+
+**CUBRID type → Python type mapping:**
+
+| CUBRID Type | Python Type | Example |
+|---|---|---|
+| `DATE` | `datetime.date` | `date(2025, 1, 15)` |
+| `TIME` | `datetime.time` | `time(14, 30, 0)` |
+| `DATETIME` | `datetime.datetime` | `datetime(2025, 1, 15, 14, 30, 0)` |
+| `TIMESTAMP` | `datetime.datetime` | `datetime(2025, 1, 15, 14, 30, 0)` |
+
+**Common issue — inserting date strings:**
+
+```python
+# CORRECT — use Python datetime objects
+from datetime import date, datetime
+
+cur.execute("INSERT INTO events (event_date) VALUES (?)", (date(2025, 1, 15),))
+cur.execute("INSERT INTO events (event_time) VALUES (?)", (datetime(2025, 1, 15, 14, 30, 0),))
+
+# ALSO CORRECT — CUBRID accepts date literal strings in SQL
+cur.execute("INSERT INTO events (event_date) VALUES (DATE'2025-01-15')")
+```
+
+---
+
+### Decimal Precision Loss
+
+**Symptom:** Decimal values lose precision when inserted or retrieved.
+
+**Fix:** Use `decimal.Decimal` for exact numeric values:
+
+```python
+from decimal import Decimal
+
+# CORRECT — preserves precision
+cur.execute("INSERT INTO products (price) VALUES (?)", (Decimal("19.99"),))
+
+# RISKY — float has inherent precision issues
+cur.execute("INSERT INTO products (price) VALUES (?)", (19.99,))
+```
+
+---
+
+### NULL Handling
+
+**Inserting NULL:**
+
+```python
+cur.execute("INSERT INTO users (name, email) VALUES (?, ?)", ("Alice", None))
+```
+
+**Checking for NULL in results:**
+
+```python
+cur.execute("SELECT email FROM users")
+row = cur.fetchone()
+if row[0] is None:
+    print("Email is NULL")
+```
+
+---
+
+### Boolean Values
+
+**CUBRID has no native BOOLEAN type.** Use `SMALLINT` (0/1):
+
+```python
+# Insert boolean-like values
+cur.execute("INSERT INTO settings (is_active) VALUES (?)", (True,))   # Stored as 1
+cur.execute("INSERT INTO settings (is_active) VALUES (?)", (False,))  # Stored as 0
+
+# Read boolean-like values
+cur.execute("SELECT is_active FROM settings")
+row = cur.fetchone()
+is_active = bool(row[0])  # Convert SMALLINT back to bool
+```
+
+---
+
+### Unicode / NCHAR Encoding
+
+**CUBRID supports Unicode** through `NCHAR` and `NCHAR VARYING` types. pycubrid handles UTF-8 encoding transparently:
+
+```python
+# Unicode strings work directly
+cur.execute("INSERT INTO users (name) VALUES (?)", ("김영선",))
+cur.execute("INSERT INTO users (name) VALUES (?)", ("日本語テスト",))
+
+cur.execute("SELECT name FROM users")
+for row in cur:
+    print(row[0])  # Prints correctly: 김영선, 日本語テスト
+```
+
+---
+
+## LOB (CLOB/BLOB) Issues
+
+### LOB Columns Return a Dict, Not Data
+
+**Symptom:** Fetching a CLOB/BLOB column returns a dictionary instead of the actual data.
+
+```python
+cur.execute("SELECT clob_col FROM my_table")
+row = cur.fetchone()
+print(row[0])
+# {'lob_type': 24, 'lob_length': 1234, 'file_locator': '...', 'packed_lob_handle': b'...'}
+```
+
+**This is expected behavior.** CUBRID's CAS protocol returns LOB metadata, not the LOB content inline. To read LOB content, you need to use the LOB handle separately.
+
+**Workaround — insert and retrieve as regular strings/bytes:**
+
+```python
+# Insert string directly into CLOB column
+cur.execute("INSERT INTO docs (content) VALUES (?)", ("Large text content here...",))
+conn.commit()
+
+# For small LOBs, the data may be returned inline
+# For large LOBs, you get the metadata dict
+```
+
+---
+
+### Cannot Pass Lob Object as Parameter
+
+**Symptom:**
+
+```
+ProgrammingError: Cannot convert parameter of type Lob
+```
+
+**`Lob` objects cannot be used as query parameters.** Insert strings/bytes directly:
+
+```python
+# WRONG — Lob objects cannot be passed as parameters
+lob = conn.create_lob(24)  # CLOB
+lob.write(b"data")
+cur.execute("INSERT INTO docs (content) VALUES (?)", (lob,))  # ERROR!
+
+# CORRECT — pass string directly
+cur.execute("INSERT INTO docs (content) VALUES (?)", ("Large text content",))
+
+# CORRECT — pass bytes for BLOB
+cur.execute("INSERT INTO docs (binary_data) VALUES (?)", (b"\x89PNG\r\n...",))
+```
+
+---
+
+### LOB Size Limits
+
+CUBRID LOB size limits depend on the server configuration. The default maximum is typically sufficient for most use cases, but extremely large objects may need server-side configuration adjustments.
+
+For files larger than a few megabytes, consider:
+
+1. Storing file paths in the database instead of file content
+2. Breaking large content into chunks
+3. Using CUBRID's file storage configuration options
+
+---
+
+## Cursor Issues
+
+### InterfaceError: Cursor is Closed
+
+**Symptom:**
+
+```
+InterfaceError: Cursor is closed
+```
+
+**Causes:**
+
+1. **Explicitly closed cursor** — you called `cur.close()` then tried to use it again
+2. **Connection closed** — closing a connection closes all its cursors
+3. **Context manager exited** — `with conn.cursor() as cur:` closes the cursor on exit
+
+**Fix:** Create a new cursor:
+
+```python
+cur = conn.cursor()
+cur.execute("SELECT 1")
+```
+
+---
+
+### fetchone() Returns None Unexpectedly
+
+**Possible causes:**
+
+1. **No rows in result set** — the query returned 0 rows
+2. **Already consumed** — previous `fetchone()` or `fetchall()` consumed all rows
+3. **Non-SELECT statement** — `INSERT`, `UPDATE`, `DELETE` don't produce rows
+
+```python
+cur.execute("SELECT * FROM users")
+row1 = cur.fetchone()  # First row or None
+row2 = cur.fetchone()  # Second row or None
+# ... continues until None (no more rows)
+```
+
+**To re-read results**, execute the query again:
+
+```python
+cur.execute("SELECT * FROM users")
+all_rows = cur.fetchall()  # Get all at once
+# cur.fetchone() would now return None — results already consumed
+```
+
+---
+
+### rowcount Is -1 After SELECT
+
+**This is correct PEP 249 behavior.** `rowcount` is only meaningful for INSERT, UPDATE, DELETE statements:
+
+```python
+cur.execute("SELECT * FROM users")
+print(cur.rowcount)  # -1 (undefined for SELECT)
+
+cur.execute("UPDATE users SET name = 'Bob' WHERE id = 1")
+print(cur.rowcount)  # 1 (one row affected)
+
+cur.execute("DELETE FROM users WHERE id > 100")
+print(cur.rowcount)  # Number of deleted rows
+```
+
+---
+
+### executemany() Performance
+
+**For bulk inserts**, `executemany()` executes each parameter set individually. For better performance with many rows, use `executemany_batch()`:
+
+```python
+# Standard executemany — one statement per parameter set
+data = [("Alice", 30), ("Bob", 25), ("Charlie", 35)]
+cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
+
+# executemany_batch — sends multiple statements in one request
+sql_list = [
+    "INSERT INTO users (name, age) VALUES ('Alice', 30)",
+    "INSERT INTO users (name, age) VALUES ('Bob', 25)",
+    "INSERT INTO users (name, age) VALUES ('Charlie', 35)",
+]
+cur.executemany_batch(sql_list)
+```
+
+**Performance comparison:**
+
+| Method | Round Trips | Best For |
+|---|---|---|
+| `execute()` in loop | N | Few rows |
+| `executemany()` | N | Parameterized inserts |
+| `executemany_batch()` | 1 | Many distinct SQL statements |
+
+---
+
+## Prepared Statement Issues
+
+### execute(sql, params) Pattern
+
+**Correct pattern:**
+
+```python
+sql = "SELECT * FROM users WHERE department = ?"
+
+# Execute with SQL + parameters
+cur.execute(sql, ("Engineering",))
+engineers = cur.fetchall()
+
+cur.execute(sql, ("Marketing",))
+marketers = cur.fetchall()
+```
+
+**Key points:**
+
+- Always pass the SQL string as the first argument to `execute()`
+- Pass parameter values in the second argument
+- Each call uses CAS `PREPARE_AND_EXECUTE`; no separate prepare step is needed
+
+---
+
+### Mixing Parameterized and Direct Execution
+
+**You can safely mix parameterized and direct SQL execution on one cursor:**
+
+```python
+cur.execute("SELECT * FROM users WHERE id = ?", (1,))
+
+cur.execute("SELECT * FROM departments")
+
+cur.execute("SELECT * FROM users WHERE id = ?", (2,))
+```
+
+**Best practice:** Keep SQL explicit at each call site:
+
+```python
+sql = "SELECT * FROM users WHERE id = ?"
+
+cur.execute(sql, (1,))
+cur.execute(sql, (2,))
+cur.execute("SELECT COUNT(*) FROM users")
+```
+
+---
+
+## Docker Issues
+
+### Container Starts but Cannot Connect
+
+**Check 1: Container is actually running:**
+
+```bash
+docker compose ps
+# Should show "running" status
+```
+
+**Check 2: Wait for initialization** — CUBRID takes a few seconds to start:
+
+```bash
+docker compose up -d
+sleep 10  # Wait for full initialization
+
+# Test connection
+python3 -c "
+import pycubrid
+conn = pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba')
+print('Connected!')
+print('Version:', conn.get_server_version())
+conn.close()
+"
+```
+
+**Check 3: Port mapping is correct:**
+
+```bash
+docker compose ps
+# Verify 33000->33000/tcp is shown
+```
+
+---
+
+### Database Not Found
+
+**Symptom:**
+
+```
+OperationalError: ... database 'mydb' not found
+```
+
+**The Docker image creates only the database specified in `CUBRID_DB`:**
+
+```yaml
+# docker-compose.yml
+services:
+  cubrid:
+    image: cubrid/cubrid:11.2
+    environment:
+      CUBRID_DB: testdb  # Only this database is created
+```
+
+**Fix:** Either:
+1. Set `CUBRID_DB` to match your connection's database name
+2. Create the database manually inside the container:
+
+   ```bash
+   docker compose exec cubrid cubrid createdb mydb
+   docker compose exec cubrid cubrid server start mydb
+   ```
+
+---
+
+### Container Health Check
+
+**Add a health check to your docker-compose.yml:**
+
+```yaml
+services:
+  cubrid:
+    image: cubrid/cubrid:11.2
+    container_name: cubrid-test
+    ports:
+      - "33000:33000"
+    environment:
+      CUBRID_DB: testdb
+    healthcheck:
+      test: ["CMD", "cubrid", "broker", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+```
+
+**Wait for health check in tests:**
+
+```bash
+docker compose up -d --wait
+# Proceeds only after health check passes
+```
+
+---
+
+## SQLAlchemy Integration Issues
+
+### Wrong Connection URL Format
+
+**Correct URL format for pycubrid:**
+
+```python
+# pycubrid driver
+engine = create_engine("cubrid+pycubrid://dba@localhost:33000/testdb")
+
+# With password
+engine = create_engine("cubrid+pycubrid://dba:password@localhost:33000/testdb")
+```
+
+**Common mistakes:**
+
+```python
+# WRONG — missing driver specification (defaults to C-extension driver)
+engine = create_engine("cubrid://dba@localhost:33000/testdb")
+
+# WRONG — wrong port format
+engine = create_engine("cubrid+pycubrid://dba@localhost/testdb?port=33000")
+
+# WRONG — wrong scheme
+engine = create_engine("pycubrid://dba@localhost:33000/testdb")
+```
+
+---
+
+### Autocommit Conflicts
+
+**Symptom:** Data is committed even though you haven't called `session.commit()`.
+
+**Cause:** The CUBRID server default is `autocommit=True`. SQLAlchemy's pycubrid dialect sets `autocommit=False` on each new connection, but if the dialect is misconfigured, the server default takes effect.
+
+**Fix:** Ensure you're using `cubrid+pycubrid://` in the connection URL, which loads the correct dialect that manages autocommit properly.
+
+---
+
+### Connection Pool Exhaustion
+
+**Symptom:**
+
+```
+TimeoutError: QueuePool limit of size 5 overflow 10 reached
+```
+
+**Fix:** Tune the connection pool:
+
+```python
+from sqlalchemy import create_engine
+
+engine = create_engine(
+    "cubrid+pycubrid://dba@localhost:33000/testdb",
+    pool_size=10,        # Maximum persistent connections
+    max_overflow=20,     # Additional connections beyond pool_size
+    pool_timeout=30,     # Seconds to wait for available connection
+    pool_pre_ping=True,  # Test connections before use
+    pool_recycle=1800,   # Recycle connections every 30 minutes
+)
+```
+
+**Ensure connections are returned to the pool:**
+
+```python
+# CORRECT — context manager returns connection
+with engine.connect() as conn:
+    result = conn.execute(text("SELECT 1"))
+
+# WRONG — connection never returned
+conn = engine.connect()
+result = conn.execute(text("SELECT 1"))
+# conn.close() is never called!
+```
+
+---
+
+## Performance Issues
+
+### Slow Queries
+
+**Diagnostic steps:**
+
+1. **Check query execution time** in your application code:
+
+   ```python
+   import time
+
+   start = time.perf_counter()
+   cur.execute("SELECT * FROM large_table WHERE status = ?", ("active",))
+   rows = cur.fetchall()
+   elapsed = time.perf_counter() - start
+   print(f"Query took {elapsed:.3f}s, returned {len(rows)} rows")
+   ```
+
+2. **Add indexes** for frequently queried columns:
+
+   ```sql
+   CREATE INDEX idx_status ON large_table (status);
+   ```
+
+3. **Use `LIMIT`** to restrict result set size:
+
+   ```python
+   cur.execute("SELECT * FROM large_table LIMIT 100")
+   ```
+
+---
+
+### High Memory Usage
+
+**Symptom:** Python process consumes excessive memory with large result sets.
+
+**Cause:** `fetchall()` loads all rows into memory at once.
+
+**Fix:** Use `fetchone()` or `fetchmany()` for large result sets:
+
+```python
+# WRONG — loads all 1 million rows into memory
+cur.execute("SELECT * FROM large_table")
+rows = cur.fetchall()  # 1M rows in memory!
+
+# CORRECT — process one row at a time
+cur.execute("SELECT * FROM large_table")
+for row in cur:  # Iterator protocol — fetches in batches
+    process(row)
+
+# ALSO CORRECT — fetch in chunks
+cur.execute("SELECT * FROM large_table")
+while True:
+    batch = cur.fetchmany(1000)
+    if not batch:
+        break
+    for row in batch:
+        process(row)
+```
+
+---
+
+### Connection Overhead
+
+**Symptom:** Opening connections is slow.
+
+**Cause:** Each `pycubrid.connect()` performs a TCP handshake + CAS broker handshake + database open (3+ round trips).
+
+**Fix for applications:** Use SQLAlchemy connection pooling:
+
+```python
+from sqlalchemy import create_engine
+
+# Connection pool reuses existing connections
+engine = create_engine(
+    "cubrid+pycubrid://dba@localhost:33000/testdb",
+    pool_size=5,
+    pool_pre_ping=True,
+)
+```
+
+**Fix for scripts:** Reuse a single connection instead of opening/closing repeatedly.
+
+---
+
+## Debugging Techniques
+
+### Enable Verbose Logging
+
+**pycubrid itself does not have built-in logging**, but you can debug at the Python level:
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+
+# Check connection state
+print(f"Server version: {conn.get_server_version()}")
+print(f"Autocommit: {conn.autocommit}")
+
+# Check cursor state after query
+cur = conn.cursor()
+cur.execute("SELECT * FROM users")
+print(f"Description: {cur.description}")
+print(f"Row count: {cur.rowcount}")
+```
+
+### Inspect Server Version
+
+```python
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+version = conn.get_server_version()
+print(f"CUBRID version: {version}")  # e.g., "11.2.0.0378"
+conn.close()
+```
+
+### Test Connection Script
+
+Save this as `test_connection.py` for quick verification:
+
+```python
+#!/usr/bin/env python3
+"""Quick pycubrid connection test."""
+import sys
+import pycubrid
+
+try:
+    conn = pycubrid.connect(
+        host="localhost",
+        port=33000,
+        database="testdb",
+        user="dba",
+    )
+    print(f"✅ Connected to CUBRID {conn.get_server_version()}")
+
+    cur = conn.cursor()
+    cur.execute("SELECT 1 + 1")
+    result = cur.fetchone()
+    print(f"✅ Query result: {result[0]}")
+
+    cur.execute("SELECT COUNT(*) FROM db_class")
+    count = cur.fetchone()[0]
+    print(f"✅ System tables: {count}")
+
+    cur.close()
+    conn.close()
+    print("✅ All checks passed")
+
+except pycubrid.OperationalError as e:
+    print(f"❌ Connection failed: {e}")
+    sys.exit(1)
+except pycubrid.ProgrammingError as e:
+    print(f"❌ Query failed: {e}")
+    sys.exit(1)
+```
+
+### SQLAlchemy Debug Logging
+
+```python
+import logging
+
+logging.basicConfig()
+logging.getLogger("sqlalchemy.engine").setLevel(logging.DEBUG)
+
+engine = create_engine("cubrid+pycubrid://dba@localhost:33000/testdb", echo=True)
+```
+
+This shows all SQL statements, parameters, and execution times.
+
+---
+
+*See also: [Connection Guide](CONNECTION.md) · [API Reference](API_REFERENCE.md) · [Examples](EXAMPLES.md) · [Development](DEVELOPMENT.md)*
+
+============================================================
+File: faq.md
+============================================================
+
+# Frequently Asked Questions
+
+Common pycubrid usage questions with practical answers.
+
+---
+
+??? "How do I connect to a remote CUBRID server?"
+    Use the remote host and broker port directly in `connect()`.
+
+    ```python
+    from __future__ import annotations
+
+    import pycubrid
+
+    conn = pycubrid.connect(
+        host="db.example.com",
+        port=33000,
+        database="production",
+        user="app_user",
+        password="secret",
+        connect_timeout=15.0,
+    )
+    ```
+
+    !!! warning
+        If your deployment uses broker-to-CAS port redirection, ensure network rules allow the redirected CAS port(s).
+
+??? "What Python versions are supported?"
+    pycubrid follows its package support matrix and CI-tested versions.
+
+    !!! note
+        Check the latest compatibility table in [Support Matrix](SUPPORT_MATRIX.md).
+
+??? "How do I handle LOB data?"
+    For most applications, pass `str`/`bytes` directly in parameterized SQL.
+
+    ```python
+    cur.execute(
+        "INSERT INTO docs (title, content) VALUES (?, ?)",
+        ["Guide", "Large CLOB text..."],
+    )
+    ```
+
+    For advanced control, use `conn.create_lob(...)` and the returned `Lob` object.
+
+    !!! tip
+        Read LOB metadata and lifecycle details in [Examples](EXAMPLES.md#lob-handling).
+
+??? "How do I use connection pooling?"
+    pycubrid itself does not ship a built-in pool. Recommended options:
+
+    1. SQLAlchemy engine pooling (`pool_size`, `max_overflow`, `pool_pre_ping`)
+    2. A lightweight application-level queue-based pool for simple scripts
+
+    ```python
+    from sqlalchemy import create_engine
+
+    engine = create_engine(
+        "cubrid+pycubrid://dba@localhost:33000/testdb",
+        pool_size=5,
+        pool_pre_ping=True,
+    )
+    ```
+
+??? "What character encodings are supported?"
+    pycubrid supports standard CUBRID character types and Python `str` values.
+
+    !!! note
+        For multilingual text workloads (NCHAR/VARNCHAR), verify your database collation and server/client charset settings together.
+
+??? "How do I handle errors properly?"
+    Catch specific DB-API exceptions first (`IntegrityError`, `ProgrammingError`, `OperationalError`) and fall back to `Error`.
+
+    ```python
+    import pycubrid
+
+    try:
+        cur.execute("INSERT INTO users (email) VALUES (?)", ["duplicate@example.com"])
+        conn.commit()
+    except pycubrid.IntegrityError:
+        conn.rollback()
+        raise
+    except pycubrid.Error:
+        conn.rollback()
+        raise
+    ```
+
+    See [Troubleshooting](TROUBLESHOOTING.md) for categorized error diagnosis.
+
+============================================================
+File: SUPPORT_MATRIX.md
+============================================================
+
+# Support Matrix
+
+Compatibility and feature support for pycubrid releases.
+
+---
+
+## Version Compatibility
+
+### Python
+
+| Python Version | Status |
+|---|---|
+| 3.10 | ✅ Supported |
+| 3.11 | ✅ Supported |
+| 3.12 | ✅ Supported |
+| 3.13 | ✅ Supported |
+| < 3.10 | ❌ Not supported |
+
+### CUBRID Server
+
+| CUBRID Version | Status | Notes |
+|---|---|---|
+| 11.4 | ✅ Supported | Latest stable |
+| 11.2 | ✅ Supported | |
+| 11.0 | ✅ Supported | |
+| 10.2 | ✅ Supported | Minimum tested version |
+| < 10.2 | ❌ Not supported | CAS protocol v7 required (since 10.0) |
+
+---
+
+## Feature Support
+
+### PEP 249 (DB-API 2.0)
+
+| Feature | Status | Notes |
+|---|---|---|
+| `apilevel` | ✅ `"2.0"` | |
+| `threadsafety` | ✅ `1` | Threads may share the module, not connections |
+| `paramstyle` | ✅ `"qmark"` | `?` parameter markers |
+| `connect()` | ✅ | Module-level constructor |
+| `Connection` | ✅ | Full lifecycle: commit, rollback, close, autocommit |
+| `Cursor` | ✅ | execute, executemany, fetch*, callproc, description, rowcount |
+| Exception hierarchy | ✅ | All 10 PEP 249 exception classes |
+| Type objects | ✅ | STRING, BINARY, NUMBER, DATETIME, ROWID |
+| Type constructors | ✅ | Date, Time, Timestamp, *FromTicks, Binary |
+| Context managers | ✅ | Both Connection and Cursor |
+
+### Data Types
+
+| CUBRID Type | Python Type | Status |
+|---|---|---|
+| INTEGER, BIGINT, SMALLINT, SHORT | `int` | ✅ |
+| FLOAT, DOUBLE, MONETARY | `float` | ✅ |
+| NUMERIC, DECIMAL | `decimal.Decimal` | ✅ |
+| CHAR, VARCHAR, NCHAR, NVARCHAR, STRING | `str` | ✅ |
+| DATE | `datetime.date` | ✅ |
+| TIME | `datetime.time` | ✅ |
+| DATETIME, TIMESTAMP | `datetime.datetime` | ✅ |
+| BIT, VARBIT | `bytes` | ✅ |
+| BLOB | `bytes` | ✅ |
+| CLOB | `str` | ✅ |
+| SET, MULTISET, SEQUENCE | `bytes` | ⚠️ Raw wire format (see below) |
+| NULL | `None` | ✅ |
+
+### Driver Features
+
+| Feature | Status | Notes |
+|---|---|---|
+| Pure Python | ✅ | No C extensions or native libraries required |
+| CAS protocol v7 | ✅ | Binary protocol over TCP/IP |
+| Autocommit control | ✅ | `Connection.autocommit` property |
+| LOB support | ✅ | BLOB and CLOB via `Connection.create_lob()` |
+| Batch execution | ✅ | `Cursor.executemany()` with `BatchExecutePacket` |
+| CAS reconnection | ✅ | Automatic reconnect on broker `INACTIVE` status |
+| Schema introspection | ✅ | `Connection.get_schema_info()` |
+| Server version | ✅ | `Connection.get_server_version()` |
+| Connection timeout | ✅ | `connect_timeout` parameter |
+| Connection pooling | ❌ | Use SQLAlchemy or external pool (see [Connection Guide](CONNECTION.md#connection-pooling)) |
+| Async/await | ❌ | Not supported — CUBRID has no async wire protocol |
+| JSON type | ❌ | CUBRID supports JSON since 10.2, but driver returns raw bytes |
+
+---
+
+## Collection Types (1.0 Contract)
+
+CUBRID collection types (`SET`, `MULTISET`, `SEQUENCE`) are returned as **raw bytes** in their CAS wire format. The driver does not decode collection contents.
+
+This is a deliberate design decision for the 1.0 release:
+- The CAS wire format for collection payloads is not publicly documented
+- Decoding would require reverse-engineering the binary format
+- Applications needing structured collection data should use normalized tables or JSON-encoded strings
+
+See [Type System → Collection Types](TYPES.md#collection-types) for details.
+
+---
+
+## Test Coverage
+
+| Metric | Value |
+|---|---|
+| Offline tests | 471 |
+| Integration tests | 41 |
+| Line coverage | 99.88% |
+| Coverage threshold | 95% (CI-enforced) |
+
+---
+
+*See also: [Connection Guide](CONNECTION.md) · [Type System](TYPES.md) · [API Reference](API_REFERENCE.md)*
+
+============================================================
+File: DEVELOPMENT.md
+============================================================
+
+# Development Guide
+
+Everything you need to set up, test, and contribute to pycubrid.
+
+---
+
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Project Structure](#project-structure)
+- [Running Tests](#running-tests)
+  - [Offline Tests](#offline-tests)
+  - [Integration Tests](#integration-tests)
+  - [Code Coverage](#code-coverage)
+- [Docker Setup](#docker-setup)
+- [Code Style](#code-style)
+- [Makefile Commands](#makefile-commands)
+- [CI/CD](#cicd)
+- [Architecture Overview](#architecture-overview)
+- [Adding a New Packet Type](#adding-a-new-packet-type)
+- [Adding a New Data Type](#adding-a-new-data-type)
+- [Release Process](#release-process)
+
+---
+
+## Prerequisites
+
+| Requirement   | Version  | Notes |
+|---------------|----------|-------|
+| Python        | 3.10+    | Uses `X | Y` union syntax, `match` statements |
+| Docker        | Latest   | Only for integration tests |
+| CUBRID Server | 10.2–11.4 | Via Docker or local install |
+
+---
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/cubrid-labs/pycubrid.git
+cd pycubrid
+
+# Install in development mode with dev dependencies
+pip install -e ".[dev]"
+
+# Or use the Makefile
+make install
+```
+
+### Dev Dependencies
+
+| Package     | Purpose |
+|-------------|---------|
+| `pytest`    | Test framework |
+| `pytest-cov`| Coverage reporting |
+| `ruff`      | Linter and formatter |
+
+---
+
+## Project Structure
+
+```mermaid
+graph TD
+    root[pycubrid/]
+
+    pkg[pycubrid/ - Main package (9 modules)]
+    tests[tests/ - Test suite]
+    docs[docs/ - Documentation]
+    pyproject[pyproject.toml - Package configuration]
+    makefile[Makefile - Development commands]
+    compose[docker-compose.yml - CUBRID container setup]
+    changelog[CHANGELOG.md - Release history]
+    contributing[CONTRIBUTING.md - Contribution guidelines]
+    license[LICENSE - MIT license]
+    readme[README.md - Project overview]
+
+    root --> pkg
+    root --> tests
+    root --> docs
+    root --> pyproject
+    root --> makefile
+    root --> compose
+    root --> changelog
+    root --> contributing
+    root --> license
+    root --> readme
+
+    pkg --> init[__init__.py - Public API, PEP 249 module attributes]
+    pkg --> connection[connection.py - Connection class (TCP, CAS handshake)]
+    pkg --> cursor[cursor.py - Cursor class (execute, fetch, iterate)]
+    pkg --> types[types.py - PEP 249 type objects and constructors]
+    pkg --> exceptions[exceptions.py - Full PEP 249 exception hierarchy]
+    pkg --> constants[constants.py - CAS protocol enums (41 function codes, 27+ types)]
+    pkg --> protocol[protocol.py - 18 packet classes (serialize/deserialize)]
+    pkg --> packet[packet.py - PacketWriter + PacketReader primitives]
+    pkg --> lob[lob.py - LOB (BLOB/CLOB) support]
+    pkg --> typed[py.typed - PEP 561 marker]
+
+    tests --> conftest[conftest.py - Shared fixtures (mock connection, mock socket)]
+    tests --> test_connection[test_connection.py - Connection lifecycle tests]
+    tests --> test_cursor[test_cursor.py - Cursor operations tests]
+    tests --> test_types[test_types.py - Type object tests]
+    tests --> test_exceptions[test_exceptions.py - Exception hierarchy tests]
+    tests --> test_constants[test_constants.py - Constants enumeration tests]
+    tests --> test_protocol[test_protocol.py - Packet serialization/deserialization tests]
+    tests --> test_packet[test_packet.py - PacketWriter/PacketReader tests]
+    tests --> test_lob[test_lob.py - LOB tests]
+    tests --> test_pep249[test_pep249.py - PEP 249 compliance tests]
+    tests --> test_integration[test_integration.py - Live DB integration tests (requires Docker)]
+    tests --> test_suite[test_suite.py - Extended test suite]
+
+    docs --> doc_connection[CONNECTION.md - Connection guide]
+    docs --> doc_types[TYPES.md - Type system reference]
+    docs --> doc_api[API_REFERENCE.md - Complete API documentation]
+    docs --> doc_protocol[PROTOCOL.md - CAS protocol reference]
+    docs --> doc_dev[DEVELOPMENT.md - This file]
+    docs --> doc_examples[EXAMPLES.md - Usage examples]
+```
+
+---
+
+## Running Tests
+
+### Offline Tests
+
+Most tests are **offline** — they mock the CUBRID connection and test packet serialization, cursor logic, type mapping, and exception handling without a database.
+
+```bash
+# Run all offline tests with coverage
+pytest tests/ -v --ignore=tests/test_integration.py \
+  --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
+
+# Or use the Makefile
+make test
+```
+
+### Integration Tests
+
+Integration tests require a running CUBRID instance. Use Docker:
+
+```bash
+# Start CUBRID
+docker compose up -d
+
+# Set connection URL
+export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
+
+# Run integration tests
+pytest tests/test_integration.py -v
+
+# Cleanup
+docker compose down -v
+```
+
+### Code Coverage
+
+Current test metrics:
+
+| Metric | Value |
+|--------|-------|
+| Offline tests | 471 |
+| Integration tests | 41 |
+| Statement coverage | 99.88% |
+| Statements | 1,134 |
+| Missed | 1 |
+| CI threshold | 95% |
+
+```bash
+# Generate HTML coverage report
+pytest tests/ --ignore=tests/test_integration.py \
+  --cov=pycubrid --cov-report=html
+
+# Open in browser
+open htmlcov/index.html
+```
+
+---
+
+## Docker Setup
+
+### docker-compose.yml
+
+```yaml
+services:
+  cubrid:
+    image: cubrid/cubrid:11.2
+    container_name: cubrid-test
+    ports:
+      - "33000:33000"
+    environment:
+      CUBRID_DB: testdb
+```
+
+### Commands
+
+```bash
+# Start with default CUBRID 11.2
+docker compose up -d
+
+# Start with specific version
+CUBRID_VERSION=11.4 docker compose up -d
+
+# Check container status
+docker compose ps
+
+# View logs
+docker compose logs -f cubrid
+
+# Stop and cleanup
+docker compose down -v
+```
+
+### Connection Details
+
+| Parameter | Value |
+|-----------|-------|
+| Host | `localhost` |
+| Port | `33000` |
+| Database | `testdb` |
+| User | `dba` |
+| Password | (empty) |
+
+---
+
+## Code Style
+
+### Ruff Configuration
+
+```toml
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+```
+
+### Conventions
+
+- **Imports**: `from __future__ import annotations` in every module
+- **Type hints**: Full typing; PEP 561 compliant (`py.typed`)
+- **super()**: Always `super().__init__()`, never `super(ClassName, self)`
+- **Line length**: 100 characters
+- **Docstrings**: Google-style for all public methods and classes
+- **Naming**:
+  - Classes: `PascalCase` (e.g., `PacketWriter`, `ColumnMetaData`)
+  - Private methods: `_underscore_prefix` (e.g., `_parse_byte`, `_write_int`)
+  - Constants: `UPPER_SNAKE_CASE` (e.g., `CAS_INFO`, `DATA_LENGTH`)
+
+### Linting
+
+```bash
+# Check for issues
+make lint
+
+# Auto-fix
+make format
+
+# Or manually
+ruff check pycubrid/ tests/
+ruff format pycubrid/ tests/
+```
+
+### Anti-Patterns (Never Do)
+
+- No f-string interpolation in SQL queries (SQL injection risk)
+- No `super(ClassName, self)` — use `super()` only
+- No Python 2 constructs
+- No empty `except` blocks (except in cleanup paths like `close()`)
+- No type suppression (`# type: ignore` without explanation)
+
+---
+
+## Makefile Commands
+
+| Command | Description |
+|---------|-------------|
+| `make install` | Install in dev mode with all dependencies |
+| `make test` | Run offline tests with coverage |
+| `make lint` | Run ruff check + format check |
+| `make format` | Auto-fix lint and formatting issues |
+| `make integration` | Docker → integration tests → cleanup |
+| `make clean` | Remove build artifacts |
+
+---
+
+## CI/CD
+
+### GitHub Actions Workflows
+
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.13) + integration |
+| `python-publish.yml` | GitHub Release | Build and publish to PyPI |
+
+### CI Matrix
+
+- **Offline**: Python 3.10, 3.11, 3.12, 3.13
+- **Integration**: Python {3.10, 3.12} × CUBRID {11.2, 11.4}
+
+---
+
+## Architecture Overview
+
+```mermaid
+graph TD
+    user[User Code] --> init[__init__.py - Module API connect/types/exceptions]
+    init --> connection[connection.py - TCP socket, CAS handshake, session]
+    connection --> cursor[cursor.py - SQL execution, parameter binding, fetch]
+    cursor --> protocol[protocol.py - 18 packet classes serialize/deserialize]
+    protocol --> packet[packet.py - PacketWriter + PacketReader binary I/O]
+    packet --> constants[constants.py - CAS function codes, data types, enums]
+
+    types[types.py - PEP 249 types] --> cursor
+    exceptions[exceptions.py - PEP 249 errors] --> connection
+    lob[lob.py - LOB objects] --> connection
+```
+
+### Data Flow
+
+1. **User** calls `cursor.execute("SELECT ...")`
+2. **Cursor** binds parameters, creates `PrepareAndExecutePacket`
+3. **Connection** calls `_send_and_receive(packet)`
+4. **PacketWriter** serializes the request with protocol header
+5. **Socket** sends bytes to CAS server
+6. **Socket** receives response bytes
+7. **PacketReader** deserializes the response
+8. **Packet** parses column metadata and row data
+9. **Cursor** stores rows for `fetchone()`/`fetchall()`
+
+---
+
+## Adding a New Packet Type
+
+To add a new CAS function:
+
+1. **Add the function code** to `CASFunctionCode` in `constants.py`:
+
+   ```python
+   class CASFunctionCode(IntEnum):
+       # ... existing codes ...
+       MY_NEW_FUNCTION = 42
+   ```
+
+2. **Create the packet class** in `protocol.py`:
+
+   ```python
+   class MyNewPacket:
+       """Description (FC=42)."""
+
+       def __init__(self, arg1: int) -> None:
+           self.arg1 = arg1
+           self.result: str = ""
+
+       def write(self, cas_info: bytes) -> bytes:
+           writer = PacketWriter()
+           writer._write_byte(CASFunctionCode.MY_NEW_FUNCTION)
+           writer.add_int(self.arg1)
+           payload = writer.to_bytes()
+           header = build_protocol_header(len(payload), cas_info)
+           return header + payload
+
+       def parse(self, data: bytes) -> None:
+           reader = PacketReader(data)
+           _ = reader._parse_bytes(DataSize.CAS_INFO)
+           response_code = reader._parse_int()
+           if response_code < 0:
+               remaining = len(data) - 8
+               _raise_error(reader, remaining)
+           # Parse result-specific data
+           self.result = reader._parse_null_terminated_string(response_code)
+   ```
+
+3. **Add tests** in `tests/test_protocol.py`:
+
+   ```python
+   def test_my_new_packet_write():
+       packet = MyNewPacket(arg1=42)
+       data = packet.write(b"\x00\x00\x00\x00")
+       assert len(data) > 8  # Header + payload
+   ```
+
+---
+
+## Adding a New Data Type
+
+To support a new CUBRID data type:
+
+1. **Add the type code** to `CUBRIDDataType` in `constants.py`
+2. **Add the reader** in `_read_value()` in `protocol.py`
+3. **Add the writer** in `PacketWriter` in `packet.py` (if needed)
+4. **Add tests** for both reading and writing
+
+---
+
+## Release Process
+
+1. Update version in `pyproject.toml` and `pycubrid/__init__.py`
+2. Add changelog entry in `CHANGELOG.md`
+3. Commit: `git commit -m "chore: bump version to X.Y.Z"`
+4. Tag: `git tag vX.Y.Z`
+5. Push: `git push origin main --tags`
+6. Create GitHub release: `gh release create vX.Y.Z`
+7. PyPI publish triggers automatically from the release workflow
+
+============================================================
+File: PRD.md
+============================================================
+
+# PRD: pycubrid — Pure Python DB-API 2.0 Driver for CUBRID
+
+## 1. Overview
+
+**Project**: pycubrid
+**Current Version**: 0.5.0
+**Status**: Production-ready
+**Repository**: [github.com/cubrid-labs/pycubrid](https://github.com/cubrid-labs/pycubrid)
+**License**: MIT
+
+### 1.1 Problem Statement
+
+CUBRID's existing Python driver (`CUBRIDdb`) is a C-extension module with significant
+limitations:
+
+- Requires C compiler and CUBRID C libraries to install
+- Platform compatibility issues (fails on many Linux distributions, macOS ARM)
+- No official wheels — users must compile from source
+- Not PEP 249 compliant — missing standard exception hierarchy, type objects
+- No type hints, no PEP 561 marker
+- Abandoned maintenance — last meaningful update years ago
+
+Modern Python developers expect:
+
+- `pip install` that just works — no C build dependencies
+- Full PEP 249 (DB-API 2.0) compliance
+- Type annotations for IDE support
+- Context managers for resource cleanup
+- Comprehensive test coverage
+
+### 1.2 What Was Built
+
+A complete pure Python implementation of the CUBRID CAS protocol:
+
+- **Full PEP 249 (DB-API 2.0) compliance** — standard exception hierarchy, type objects, cursor interface
+- **Pure Python** — no C extensions, no compilation, works everywhere Python runs
+- **Direct CAS protocol** — speaks CUBRID's binary protocol natively over TCP
+- **471 offline tests** with **99.88% code coverage**
+- **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis
+- **LOB support** — CLOB and BLOB handling via `create_lob()`
+- **Prepared statements** — server-side statement preparation and execution
+- **Batch operations** — `executemany()` and `executemany_batch()` for bulk inserts
+- **CI/CD** — Python 3.10–3.13 × CUBRID 11.2–11.4 matrix
+
+### 1.3 Success Criteria — Status
+
+| Criterion | Target | Achieved |
+|---|---|---|
+| Pure Python (no C extensions) | ✅ | ✅ `pip install pycubrid` |
+| PEP 249 (DB-API 2.0) compliant | ✅ | ✅ Full API compliance |
+| Offline tests (no live DB) | ✅ | ✅ 471 tests, 99.88% coverage |
+| LOB (CLOB/BLOB) support | ✅ | ✅ `create_lob()`, read/write |
+| Prepared statements | ✅ | ✅ `cursor.execute(sql, params)` — uses CAS `PREPARE_AND_EXECUTE` |
+| CI/CD with version matrix | ✅ | ✅ Py 3.10–3.13 × CUBRID 11.2–11.4 |
+| Publishable to PyPI | ✅ | ✅ Release workflow on tag |
+| ≥ 95% code coverage | ✅ | ✅ 99.88% (CI-enforced) |
+| Comprehensive documentation | ✅ | ✅ 6 guide files + README |
+| PEP 561 typed package | ✅ | ✅ `py.typed` marker |
+
+---
+
+## 2. Technical Architecture
+
+### 2.1 Module Structure
+
+```mermaid
+graph TD
+    root[pycubrid/ - 10 modules]
+    init[__init__.py - Public API connect(), types, exceptions, __version__]
+    connection[connection.py - Connection class connect/commit/rollback/cursor/LOB]
+    cursor[cursor.py - Cursor class execute/fetch/executemany/callproc/iterator]
+    types[types.py - DB-API 2.0 type objects and constructors]
+    exceptions[exceptions.py - PEP 249 exception hierarchy]
+    constants[constants.py - CAS function codes, data types, protocol constants]
+    protocol[protocol.py - CAS wire protocol packet classes (18 packet types)]
+    packet[packet.py - Low-level packet reader/writer]
+    lob[lob.py - LOB support]
+    typed[py.typed - PEP 561 marker]
+
+    root --> init
+    root --> connection
+    root --> cursor
+    root --> types
+    root --> exceptions
+    root --> constants
+    root --> protocol
+    root --> packet
+    root --> lob
+    root --> typed
+```
+
+### 2.2 Dependency Matrix
+
+| Package | Version | Purpose |
+|---|---|---|
+| Python | ≥ 3.10 | Runtime |
+| pytest | ≥ 7.0 | Testing (dev) |
+| ruff | ≥ 0.4 | Lint + format (dev) |
+
+**Zero runtime dependencies** — pycubrid uses only the Python standard library.
+
+### 2.3 PEP 249 Compliance
+
+| Attribute | Value |
+|---|---|
+| `apilevel` | `"2.0"` |
+| `threadsafety` | `1` (connections cannot be shared between threads) |
+| `paramstyle` | `"qmark"` (positional parameters `?`) |
+
+Full standard exception hierarchy: `Warning`, `Error`, `InterfaceError`, `DatabaseError`,
+`OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError`
+
+Standard type objects: `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
+
+Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`,
+`DateFromTicks()`, `TimeFromTicks()`, `TimestampFromTicks()`
+
+---
+
+## 3. Implemented Features
+
+### 3.1 Connection Management
+
+- `connect()` factory function with keyword arguments
+- Auto-commit control via `connection.autocommit` property
+- Context manager support (`with` statement)
+- Server version detection via `connection.get_server_version()`
+- `connection.close()` for explicit cleanup
+
+### 3.2 Cursor Operations
+
+- `execute(sql, params?)` — execute with optional parameters
+- `executemany(sql, seq_of_params)` — batch execute
+- `executemany_batch(sql, seq_of_params)` — optimized batch insert
+- `fetchone()` / `fetchmany(size)` / `fetchall()` — result retrieval
+- `execute(sql, params)` — parameterized queries via CAS `PREPARE_AND_EXECUTE`
+- `callproc(procname, params)` — stored procedure calls
+- Iterator protocol — `for row in cursor`
+- Context manager — `with conn.cursor() as cur`
+- `description` attribute — column metadata after execute
+
+### 3.3 LOB Support
+
+- `connection.create_lob(lob_type)` — create CLOB (type=24) or BLOB (type=23)
+- Read/write large text and binary data
+- Insert strings/bytes directly into CLOB/BLOB columns
+
+### 3.4 Schema Introspection
+
+- `connection.get_schema_info()` — tables, columns, indexes, constraints
+
+### 3.5 CAS Protocol
+
+Direct implementation of CUBRID's Client Application Server (CAS) binary protocol:
+
+- 18 packet types covering all database operations
+- Two-step connection: broker handshake → CAS session
+- Big-endian binary codec for all data types
+- Server-side cursor with lazy fetch for large result sets
+
+---
+
+## 4. Test Coverage
+
+### 4.1 Test Matrix
+
+| Test File | Tests | Coverage Area |
+|---|---|---|
+| `test_connection.py` | ~80 | Connection, authentication, auto-commit, context manager |
+| `test_cursor.py` | ~100 | Execute, fetch, executemany, callproc, iterator, description |
+| `test_types.py` | ~50 | Type objects, constructors, date/time conversion |
+| `test_exceptions.py` | ~30 | Exception hierarchy, error codes |
+| `test_protocol.py` | ~80 | Packet building, parsing, CAS function codes |
+| `test_packet.py` | ~50 | Binary reader/writer, data type encoding |
+| `test_lob.py` | ~30 | LOB creation, read, write |
+| `test_constants.py` | ~20 | Protocol constants, data type codes |
+| `test_integration.py` | 41 | Live DB tests (Docker) |
+| **Total** | **471 offline + 41 integration** | **99.88% coverage** |
+
+### 4.2 CI Matrix
+
+| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 |
+|---|:---:|:---:|:---:|:---:|
+| **Offline Tests** | ✅ | ✅ | ✅ | ✅ |
+| **CUBRID 11.4** | ✅ | — | ✅ | — |
+| **CUBRID 11.2** | ✅ | — | ✅ | — |
+
+---
+
+## 5. Known Limitations
+
+Limitations imposed by CUBRID or design choices:
+
+| Feature | Status | Reason |
+|---|---|---|
+| Async support | ❌ | CAS protocol is synchronous; would need asyncio wrapper |
+| Connection pooling | ❌ | Not in scope; use SQLAlchemy's pool or external pooler |
+| Thread safety level 2+ | ❌ | CUBRID CAS sessions are connection-bound |
+| LOB streaming | ⚠️ | LOB data loaded fully into memory |
+| Timezone-aware types | ⚠️ | CUBRID stores naive datetimes |
+| CUBRID 10.x | ⚠️ | Tested on 11.x; 10.x may work but not in CI |
+
+---
+
+## 6. Documentation
+
+| Document | Content |
+|---|---|
+| [`README.md`](../README.md) | Landing page with Quick Start |
+| [`docs/CONNECTION.md`](CONNECTION.md) | Connection strings, configuration |
+| [`docs/TYPES.md`](TYPES.md) | Type mapping, CUBRID-specific types |
+| [`docs/API_REFERENCE.md`](API_REFERENCE.md) | Complete API documentation |
+| [`docs/PROTOCOL.md`](PROTOCOL.md) | CAS wire protocol reference |
+| [`docs/DEVELOPMENT.md`](DEVELOPMENT.md) | Dev setup, testing, Docker, CI/CD |
+| [`docs/EXAMPLES.md`](EXAMPLES.md) | Practical usage examples |
+| [`CHANGELOG.md`](../CHANGELOG.md) | Release history |
+| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Contribution guidelines |
+
+---
+
+## 7. Roadmap
+
+### v0.6.0 — Performance & Reliability
+
+| Item | Description | Priority |
+|---|---|---|
+| Connection retry logic | Auto-reconnect on transient network failures | High |
+| Batch execute optimization | Reduce round-trips for `executemany()` | Medium |
+| LOB streaming | Stream large LOBs without loading fully into memory | Medium |
+| Statement cache | Cache prepared statements for repeated queries | Low |
+
+### v1.0.0 — Stable Release
+
+| Item | Description | Priority |
+|---|---|---|
+| API freeze | Stabilize public API, no breaking changes | High |
+| CUBRID 10.x validation | Test and document compatibility with 10.x series | Medium |
+| Performance benchmarks | Benchmark vs CUBRIDdb C-extension driver | Low |
+| asyncio wrapper | Optional async interface wrapping the sync protocol | Low |
+
+---
+
+## 8. Architecture Decisions
+
+### 8.1 Why Pure Python (no C extensions)
+
+The C-extension driver (`CUBRIDdb`) required users to have CUBRID C libraries installed,
+which was a significant barrier — especially on macOS, ARM Linux, and containerized
+environments. A pure Python implementation eliminates all build dependencies and
+makes `pip install pycubrid` work everywhere.
+
+### 8.2 Why Direct CAS Protocol
+
+Rather than wrapping the C library or using ODBC, pycubrid implements CUBRID's CAS
+(Client Application Server) binary protocol directly over TCP. This provides:
+
+- Zero native dependencies
+- Full control over connection lifecycle
+- Ability to implement features the C driver lacks (e.g., proper LOB handling)
+
+### 8.3 Why PEP 249 Strict Compliance
+
+DB-API 2.0 is the standard Python database interface. Strict compliance means:
+
+- Any code written for `sqlite3`, `psycopg2`, or `mysql-connector` works with minimal
+  changes
+- SQLAlchemy and other ORMs can use pycubrid as a drop-in driver
+- Standard exception handling patterns work out of the box
+
+---
+
+## 9. Ecosystem Integration
+
+pycubrid is the foundational driver in the cubrid-labs Python ecosystem:
+
+```mermaid
+graph TD
+    pycubrid[pycubrid (DB-API 2.0 driver)]
+    sqlalchemy[sqlalchemy-cubrid (SQLAlchemy 2.0 dialect)]
+    cookbook[cubrid-cookbook (runnable examples)]
+    fastapi[FastAPI examples]
+    django[Django examples]
+    flask[Flask examples]
+    pandas[Pandas examples]
+    streamlit[Streamlit examples]
+    celery[Celery examples]
+
+    pycubrid --> sqlalchemy
+    sqlalchemy --> cookbook
+    cookbook --> fastapi
+    cookbook --> django
+    cookbook --> flask
+    cookbook --> pandas
+    cookbook --> streamlit
+    cookbook --> celery
+```
+
+---
+
+## 10. Example-first Design Philosophy
+
+### Why Example-first
+
+CUBRID's ecosystem is small compared to PostgreSQL or MySQL. For a small-ecosystem
+project, the entry barrier must be minimized — users should be able to copy-paste
+working code within 30 seconds of reading the documentation.
+
+> Because the ecosystem is still small, the project provides extensive examples
+> and cookbook-style documentation to lower the adoption barrier.
+
+### Hello World
+
+```bash
+pip install pycubrid
+```
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(
+    host="localhost",
+    port=33000,
+    database="demodb",
+    user="dba",
+    password="",
+)
+
+cur = conn.cursor()
+cur.execute("SELECT 1 + 1")
+print(cur.fetchone())  # (2,)
+
+cur.close()
+conn.close()
+```
+
+This code connects to a CUBRID database, runs a query, and prints the result.
+No ORM setup, no configuration files, no boilerplate.
+
+### AI Agent Discoverability
+
+Modern developers increasingly rely on AI coding assistants — Claude Code, OpenCode,
+Cursor, GitHub Copilot, Devin, and others. These agents read README files, PRDs,
+documentation, and example code to decide which libraries to recommend.
+
+**More examples in documentation = higher probability of AI recommendation.**
+
+By embedding working code directly in the PRD, README, and docs, we ensure that
+AI agents can discover, learn, and recommend pycubrid accurately.
+
+### Cookbook Integration
+
+The [cubrid-cookbook](https://github.com/cubrid-labs/cubrid-cookbook) repository provides
+production-ready, runnable examples for pycubrid:
+
+| Example | Description |
+|---|---|
+| `01_connect.py` | Basic connection and query |
+| `02_crud.py` | Create, read, update, delete operations |
+| `03_transactions.py` | Transaction management with commit/rollback |
+| `04_prepared.py` | Prepared statements for repeated queries |
+| `05_error_handling.py` | Error handling with PEP 249 exception hierarchy |
+| `06_lob.py` | LOB (CLOB/BLOB) operations |
+
+### Inspiration from Successful Projects
+
+Projects that succeeded partly through example-heavy documentation:
+
+| Project | What They Did |
+|---|---|
+| **FastAPI** | Every endpoint documented with runnable examples; became the fastest-growing Python web framework |
+| **LangChain** | Cookbook-first approach drove explosive adoption in the AI space |
+| **SQLAlchemy** | Extensive ORM cookbook and tutorial; de facto Python ORM for 15+ years |
+| **Pandas** | "10 Minutes to pandas" and cookbook lowered entry barrier for data science |
+
+pycubrid follows the same philosophy: **examples are not supplementary — they are the primary documentation.**
+
+---
+
+*Last updated: March 2026 · pycubrid v0.5.0*
