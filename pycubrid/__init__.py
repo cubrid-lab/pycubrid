@@ -36,7 +36,7 @@ from pycubrid.lob import Lob
 if TYPE_CHECKING:
     from pycubrid.connection import Connection
 
-__version__ = "0.7.0"
+__version__ = "1.0.0"
 
 # PEP 249 module-level attributes
 apilevel = "2.0"

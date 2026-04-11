@@ -339,6 +339,7 @@ class PrepareAndExecutePacket:
         self.auto_commit = auto_commit
         self.protocol_version = protocol_version
 
+        self.response_code: int = 0
         self.query_handle: int = 0
         self.statement_type: int = 0
         self.bind_count: int = 0
@@ -422,6 +423,7 @@ class PreparePacket:
         self.sql = sql
         self.auto_commit = auto_commit
 
+        self.response_code: int = 0
         self.query_handle: int = 0
         self.statement_type: int = 0
         self.bind_count: int = 0
