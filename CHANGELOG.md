@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.0] - 2026-04-11
+
+### Stability Guarantee
+
+This release marks the first stable version of pycubrid. The public API is frozen:
+breaking changes will only occur in major version bumps (2.0+).
+
+### Supported Environments
+
+- **Python**: 3.10, 3.11, 3.12, 3.13
+- **CUBRID**: 11.2, 11.4
+- **Protocol**: CAS wire protocol version 7 (since CUBRID 10.0.0)
+
+### Fixed
+- Resolve all mypy errors: explicit `str` return types in `get_server_version`
+  and `get_last_insert_id` (`connection.py`)
+- Resolve all pyright errors: initialize `response_code` in `PrepareAndExecutePacket`
+  and `PreparePacket.__init__` (`protocol.py`); guard `_CursorClass` optional call (`connection.py`)
+
+### Changed
+- Development Status classifier updated from "Beta" to "Production/Stable"
+- Version bumped to 1.0.0
+
 ## [0.7.0] - 2026-04-04
 
 ### Added
