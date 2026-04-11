@@ -177,7 +177,9 @@ class Connection:
         global _CursorClass  # noqa: PLW0603
         if _CursorClass is None:
             _CursorClass = getattr(import_module("pycubrid.cursor"), "Cursor")
-        cursor = _CursorClass(self)
+        cls = _CursorClass
+        assert cls is not None
+        cursor = cls(self)
         self._cursors.add(cursor)
         return cursor
 
@@ -205,13 +207,15 @@ class Connection:
         """Return the server engine version string."""
         self._ensure_connected()
         packet = self._send_and_receive(GetEngineVersionPacket(auto_commit=self._autocommit))
-        return packet.engine_version
+        version: str = packet.engine_version
+        return version
 
     def get_last_insert_id(self) -> str:
         """Return last inserted auto-increment value as string."""
         self._ensure_connected()
         packet = self._send_and_receive(GetLastInsertIdPacket())
-        return packet.last_insert_id
+        result: str = packet.last_insert_id
+        return result
 
     def create_lob(self, lob_type: int) -> Any:
         """Create a new LOB object on the server."""
