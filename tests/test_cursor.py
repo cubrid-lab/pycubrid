@@ -14,6 +14,7 @@ from pycubrid.protocol import (
     CloseQueryPacket,
     ColumnMetaData,
     FetchPacket,
+    GetLastInsertIdPacket,
     PrepareAndExecutePacket,
     ResultInfo,
 )
@@ -125,28 +126,16 @@ def test_execute_closes_existing_query_handle(cursor: Cursor, mock_connection: M
 def test_execute_insert_sets_rowcount_and_lastrowid(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    call_count = 0
-
     def send(packet: object) -> object:
-        nonlocal call_count
         if isinstance(packet, PrepareAndExecutePacket):
-            call_count += 1
-            if call_count == 1:
-                # Main INSERT packet
-                _set_prepare_packet(
-                    packet,
-                    stmt_type=CUBRIDStatementType.INSERT,
-                    result_count=3,
-                    with_columns=False,
-                )
-            else:
-                # SELECT LAST_INSERT_ID() packet
-                packet.query_handle = 2
-                packet.statement_type = CUBRIDStatementType.SELECT
-                packet.columns = []
-                packet.total_tuple_count = 1
-                packet.rows = [(55,)]
-                packet.result_infos = []
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.INSERT,
+                result_count=3,
+                with_columns=False,
+            )
+        elif isinstance(packet, GetLastInsertIdPacket):
+            packet.last_insert_id = "55"
         return packet
 
     mock_connection._send_and_receive.side_effect = send
@@ -159,17 +148,11 @@ def test_execute_insert_sets_rowcount_and_lastrowid(
 def test_execute_insert_lastrowid_failure_is_ignored(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    call_count = 0
-
     def send(packet: object) -> object:
-        nonlocal call_count
         if isinstance(packet, PrepareAndExecutePacket):
-            call_count += 1
-            if call_count == 1:
-                _set_prepare_packet(packet, stmt_type=CUBRIDStatementType.INSERT, result_count=1)
-            else:
-                # SELECT LAST_INSERT_ID() fails
-                raise RuntimeError("no id")
+            _set_prepare_packet(packet, stmt_type=CUBRIDStatementType.INSERT, result_count=1)
+        elif isinstance(packet, GetLastInsertIdPacket):
+            raise RuntimeError("no id")
         return packet
 
     mock_connection._send_and_receive.side_effect = send

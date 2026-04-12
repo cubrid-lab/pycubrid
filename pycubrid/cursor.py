@@ -14,6 +14,7 @@ from .protocol import (
     CloseQueryPacket,
     ColumnMetaData,
     FetchPacket,
+    GetLastInsertIdPacket,
     PrepareAndExecutePacket,
 )
 
@@ -127,16 +128,10 @@ class Cursor:
 
         if packet.statement_type == CUBRIDStatementType.INSERT:
             try:
-                lid_packet = PrepareAndExecutePacket(
-                    sql="SELECT LAST_INSERT_ID()",
-                    auto_commit=self._connection.autocommit,
-                )
+                lid_packet = GetLastInsertIdPacket()
                 self._connection._send_and_receive(lid_packet)
-                if lid_packet.rows and lid_packet.rows[0][0] is not None:
-                    val = lid_packet.rows[0][0]
-                    self._lastrowid = int(val) if val else None
-                if lid_packet.query_handle:
-                    self._connection._send_and_receive(CloseQueryPacket(lid_packet.query_handle))
+                if lid_packet.last_insert_id:
+                    self._lastrowid = int(lid_packet.last_insert_id)
             except Exception:
                 self._lastrowid = None
 

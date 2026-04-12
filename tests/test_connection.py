@@ -18,7 +18,9 @@ def build_handshake_response(port: int = 0) -> bytes:
     return struct.pack(">i", port)
 
 
-def build_open_db_response(cas_info: bytes = b"\x01\x01\x02\x03", session_id: int = 1234) -> bytes:
+def build_open_db_response(
+    cas_info: bytes | bytearray = b"\x01\x01\x02\x03", session_id: int = 1234
+) -> bytes:
     body = cas_info + struct.pack(">i", 0)
     body += b"\x00" * 8
     body += struct.pack(">i", session_id)
@@ -26,22 +28,25 @@ def build_open_db_response(cas_info: bytes = b"\x01\x01\x02\x03", session_id: in
     return data_length + body
 
 
-def build_simple_ok_response(cas_info: bytes = b"\x01\x01\x02\x03") -> bytes:
+def build_simple_ok_response(cas_info: bytes | bytearray = b"\x01\x01\x02\x03") -> bytes:
     body = cas_info + struct.pack(">i", 0)
     return struct.pack(">i", len(body) - 4) + body
 
 
-def build_server_version_response(version: str, cas_info: bytes = b"\x01\x01\x02\x03") -> bytes:
+def build_server_version_response(
+    version: str, cas_info: bytes | bytearray = b"\x01\x01\x02\x03"
+) -> bytes:
     payload = version.encode("utf-8") + b"\x00"
     body = cas_info + struct.pack(">i", len(payload)) + payload
     return struct.pack(">i", len(body) - 4) + body
 
 
 def build_last_insert_id_response(
-    last_insert_id: str, cas_info: bytes = b"\x01\x01\x02\x03"
+    last_insert_id: str, cas_info: bytes | bytearray = b"\x01\x01\x02\x03"
 ) -> bytes:
-    payload = last_insert_id.encode("utf-8") + b"\x00"
-    body = cas_info + struct.pack(">i", len(payload)) + payload
+    value_bytes = last_insert_id.encode("utf-8") + b"\x00"
+    value_payload = b"\x83\x07" + value_bytes
+    body = cas_info + struct.pack(">i", 0) + struct.pack(">i", len(value_payload)) + value_payload
     return struct.pack(">i", len(body) - 4) + body
 
 

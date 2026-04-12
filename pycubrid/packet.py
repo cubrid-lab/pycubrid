@@ -32,9 +32,13 @@ def parse_protocol_header(data: bytes) -> tuple[int, bytes]:
     return data_length, cas_info
 
 
+_HEADER_SIZE = DataSize.DATA_LENGTH + DataSize.CAS_INFO
+
+
 class PacketWriter:
-    def __init__(self) -> None:
-        self._buffer: bytearray = bytearray()
+    def __init__(self, *, reserve_header: bool = True) -> None:
+        self._header_size: int = _HEADER_SIZE if reserve_header else 0
+        self._buffer: bytearray = bytearray(self._header_size)
 
     def add_byte(self, value: int) -> None:
         """Write a length-prefixed byte value."""
@@ -164,12 +168,16 @@ class PacketWriter:
             self._write_filler(length - len(fixed), filler)
 
     def to_bytes(self) -> bytes:
-        """Return all bytes currently written."""
+        return bytes(self._buffer[self._header_size :])
+
+    def finalize(self, cas_info: bytes | bytearray) -> bytes:
+        payload_len = len(self._buffer) - _HEADER_SIZE
+        struct.pack_into(">i", self._buffer, 0, payload_len)
+        self._buffer[4:8] = cas_info
         return bytes(self._buffer)
 
     def __len__(self) -> int:
-        """Return current buffer size."""
-        return len(self._buffer)
+        return len(self._buffer) - self._header_size
 
 
 class PacketReader:
@@ -215,6 +223,9 @@ class PacketReader:
         self._offset = end
         return bytes(self._buffer[start:end])
 
+    def _skip_bytes(self, count: int) -> None:
+        self._offset += count
+
     def _parse_null_terminated_string(self, length: int) -> str:
         if length <= 0:
             return ""
@@ -222,10 +233,9 @@ class PacketReader:
         start = self._offset
         end = start + length
         self._offset = end
-        view = self._buffer[start:end]
-        if view[-1] == 0:
-            view = view[:-1]
-        return bytes(view).decode("utf-8")
+        if self._buffer[end - 1] == 0:
+            return bytes(self._buffer[start : end - 1]).decode("utf-8")
+        return bytes(self._buffer[start:end]).decode("utf-8")
 
     def _parse_date(self, size: int = 0) -> datetime.date:
         year, month, day = _STRUCT_3H.unpack_from(self._buffer, self._offset)
