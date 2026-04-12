@@ -35,6 +35,7 @@ from pycubrid.lob import Lob
 
 if TYPE_CHECKING:
     from pycubrid.connection import Connection
+    from pycubrid.timing import TimingStats
 
 __version__ = "1.0.0"
 
@@ -79,6 +80,14 @@ def connect(
     )
 
 
+def __getattr__(name: str) -> Any:
+    if name == "TimingStats":
+        from pycubrid.timing import TimingStats
+
+        return TimingStats
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "__version__",
     "apilevel",
@@ -112,4 +121,5 @@ __all__ = [
     "TimestampFromTicks",
     "Binary",
     "Lob",
+    "TimingStats",
 ]

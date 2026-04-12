@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import struct
+import time
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,8 @@ from .protocol import (
 
 if TYPE_CHECKING:
     from typing import Any as Cursor
+
+    from .timing import TimingStats
 
 _CursorClass: type | None = None
 
@@ -56,6 +59,21 @@ class Connection:
         self._password = password
         self._connect_timeout = kwargs.get("connect_timeout")
 
+        self._timing: TimingStats | None = None
+        _enable_timing = kwargs.get("enable_timing")
+        if _enable_timing is None:
+            import os
+
+            _enable_timing = os.environ.get("PYCUBRID_ENABLE_TIMING", "").lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+        if _enable_timing:
+            from .timing import TimingStats as _TimingStats
+
+            self._timing = _TimingStats()
+
         self._socket: socket.socket | None = None
         self._connected = False
         self._cas_info: bytes = b"\x00\x00\x00\x00"
@@ -73,6 +91,10 @@ class Connection:
         if self._connected:
             return
 
+        _timing = self._timing
+        _start = 0
+        if _timing is not None:
+            _start = time.perf_counter_ns()
         try:
             handshake_socket = self._create_socket(self._host, self._port)
             client_info_packet = ClientInfoExchangePacket()
@@ -106,11 +128,19 @@ class Connection:
         except OSError as exc:
             self._safe_close_socket()
             raise OperationalError("failed to connect to CUBRID broker") from exc
+        finally:
+            if _timing is not None:
+                _timing.record_connect(time.perf_counter_ns() - _start)
 
     def close(self) -> None:
         """Close the connection and all tracked cursors."""
         if not self._connected:
             return
+
+        _timing = self._timing
+        _start = 0
+        if _timing is not None:
+            _start = time.perf_counter_ns()
 
         for cursor in list(self._cursors):
             try:
@@ -127,6 +157,8 @@ class Connection:
         finally:
             self._safe_close_socket()
             self._connected = False
+            if _timing is not None:
+                _timing.record_close(time.perf_counter_ns() - _start)
 
     def commit(self) -> None:
         """Commit the current transaction."""
@@ -202,6 +234,11 @@ class Connection:
         )
         self._send_and_receive(CommitPacket())
         self._autocommit = enabled
+
+    @property
+    def timing_stats(self) -> TimingStats | None:
+        """Return the timing statistics object, or ``None`` if timing is disabled."""
+        return self._timing
 
     def get_server_version(self) -> str:
         """Return the server engine version string."""
