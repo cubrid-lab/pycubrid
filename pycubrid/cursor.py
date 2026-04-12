@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
@@ -40,6 +41,7 @@ class Cursor:
         self._statement_type: int = 0
         self._total_tuple_count: int = 0
         self._lastrowid: int | None = None
+        self._timing = connection._timing
         self._connection._cursors.add(self)
 
     @property
@@ -91,6 +93,11 @@ class Cursor:
         self._check_closed()
         self._connection._ensure_connected()
 
+        _timing = self._timing
+        _start = 0
+        if _timing is not None:
+            _start = time.perf_counter_ns()
+
         if self._query_handle is not None:
             self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
             self._query_handle = None
@@ -132,6 +139,9 @@ class Cursor:
                     self._connection._send_and_receive(CloseQueryPacket(lid_packet.query_handle))
             except Exception:
                 self._lastrowid = None
+
+        if _timing is not None:
+            _timing.record_execute(time.perf_counter_ns() - _start)
 
         return self
 
@@ -318,6 +328,11 @@ class Cursor:
         if self._row_index >= self._total_tuple_count:
             return False
 
+        _timing = self._timing
+        _start = 0
+        if _timing is not None:
+            _start = time.perf_counter_ns()
+
         packet = FetchPacket(
             self._query_handle,
             self._row_index,
@@ -326,6 +341,10 @@ class Cursor:
             statement_type=self._statement_type,
         )
         self._connection._send_and_receive(packet)
+
+        if _timing is not None:
+            _timing.record_fetch(time.perf_counter_ns() - _start)
+
         if not packet.rows:
             return False
 
