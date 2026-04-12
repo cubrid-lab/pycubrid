@@ -1347,15 +1347,19 @@ class TestGetLastInsertIdPacket:
 
     def test_parse_success(self) -> None:
         pkt = GetLastInsertIdPacket()
-        id_str = b"42\x00"
-        response = DEFAULT_CAS_INFO + struct.pack(">i", len(id_str)) + id_str
+        value_payload = b"\x83\x07" + b"42\x00"
+        response = (
+            DEFAULT_CAS_INFO
+            + struct.pack(">i", 0)
+            + struct.pack(">i", len(value_payload))
+            + value_payload
+        )
         pkt.parse(response)
         assert pkt.last_insert_id == "42"
 
     def test_parse_zero_response_code(self) -> None:
-        """responseCode=0 means no last insert id."""
         pkt = GetLastInsertIdPacket()
-        response = _build_success_response(DEFAULT_CAS_INFO, 0)
+        response = DEFAULT_CAS_INFO + struct.pack(">i", 0) + struct.pack(">i", -1)
         pkt.parse(response)
         assert pkt.last_insert_id == ""
 

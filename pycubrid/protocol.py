@@ -891,8 +891,10 @@ class GetLastInsertIdPacket:
         if response_code < 0:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
-        if response_code > 0:
-            self.last_insert_id = reader._parse_null_terminated_string(response_code)
+        value_size = reader._parse_int()
+        if value_size > 2:
+            reader._skip_bytes(2)
+            self.last_insert_id = reader._parse_null_terminated_string(value_size - 2)
 
 
 class GetDbParameterPacket:

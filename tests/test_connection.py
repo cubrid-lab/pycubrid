@@ -44,8 +44,9 @@ def build_server_version_response(
 def build_last_insert_id_response(
     last_insert_id: str, cas_info: bytes | bytearray = b"\x01\x01\x02\x03"
 ) -> bytes:
-    payload = last_insert_id.encode("utf-8") + b"\x00"
-    body = cas_info + struct.pack(">i", len(payload)) + payload
+    value_bytes = last_insert_id.encode("utf-8") + b"\x00"
+    value_payload = b"\x83\x07" + value_bytes
+    body = cas_info + struct.pack(">i", 0) + struct.pack(">i", len(value_payload)) + value_payload
     return struct.pack(">i", len(body) - 4) + body
 
 
