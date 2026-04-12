@@ -30,7 +30,7 @@ from .packet import PacketReader, PacketWriter, build_protocol_header
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(slots=True)
 class ColumnMetaData:
     """Metadata for a single result column."""
 
@@ -51,7 +51,7 @@ class ColumnMetaData:
     is_shared: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class ResultInfo:
     """Result info for each executed statement."""
 
