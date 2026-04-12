@@ -195,6 +195,7 @@ def _parse_row_data(
     _parse_int = reader._parse_int
     _parse_bytes = reader._parse_bytes
     _parse_byte = reader._parse_byte
+    _skip_bytes = reader._skip_bytes
     _null_type = CUBRIDDataType.NULL
     _oid_size = DataSize.OID
     _get = _TYPE_METHOD_NAMES.get
@@ -210,7 +211,7 @@ def _parse_row_data(
 
     for _ in range(tuple_count):
         _parse_int()
-        _parse_bytes(_oid_size)
+        _skip_bytes(_oid_size)
         row: list[Any] = [None] * ncols
         if col_readers is not None:
             for i in range(ncols):
@@ -377,7 +378,7 @@ class PrepareAndExecutePacket:
         ``data`` starts after the 4-byte DATA_LENGTH prefix.
         """
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)  # cas_info
+        reader._skip_bytes(DataSize.CAS_INFO)
         self.response_code = reader._parse_int()
         if self.response_code < 0:
             remaining = len(data) - 8
@@ -444,7 +445,7 @@ class PreparePacket:
     def parse(self, data: bytes) -> None:
         """Parse the prepare response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         self.response_code = reader._parse_int()
         if self.response_code < 0:
             remaining = len(data) - 8
@@ -506,7 +507,7 @@ class ExecutePacket:
         if columns is not None:
             self.columns = columns
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -576,7 +577,7 @@ class FetchPacket:
     ) -> None:
         """Parse the fetch response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -607,7 +608,7 @@ class CommitPacket:
     def parse(self, data: bytes) -> None:
         """Parse the commit response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -629,7 +630,7 @@ class RollbackPacket:
     def parse(self, data: bytes) -> None:
         """Parse the rollback response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -650,7 +651,7 @@ class CloseDatabasePacket:
     def parse(self, data: bytes) -> None:
         """Parse the close database response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -675,7 +676,7 @@ class CloseQueryPacket:
     def parse(self, data: bytes) -> None:
         """Parse the close query response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -701,7 +702,7 @@ class GetEngineVersionPacket:
     def parse(self, data: bytes) -> None:
         """Parse the get engine version response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -741,7 +742,7 @@ class GetSchemaPacket:
     def parse(self, data: bytes) -> None:
         """Parse the get schema response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -781,7 +782,7 @@ class BatchExecutePacket:
     def parse(self, data: bytes) -> None:
         """Parse the batch execute response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -825,7 +826,7 @@ class LOBNewPacket:
     def parse(self, data: bytes) -> None:
         """Parse the LOB new response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -856,7 +857,7 @@ class LOBWritePacket:
     def parse(self, data: bytes) -> None:
         """Parse the LOB write response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -888,7 +889,7 @@ class LOBReadPacket:
     def parse(self, data: bytes) -> None:
         """Parse the LOB read response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -915,7 +916,7 @@ class GetLastInsertIdPacket:
     def parse(self, data: bytes) -> None:
         """Parse the get last insert ID response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -943,7 +944,7 @@ class GetDbParameterPacket:
     def parse(self, data: bytes) -> None:
         """Parse the get db parameter response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -971,7 +972,7 @@ class SetDbParameterPacket:
     def parse(self, data: bytes) -> None:
         """Parse the set db parameter response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
