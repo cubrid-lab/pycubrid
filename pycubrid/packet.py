@@ -32,6 +32,9 @@ def parse_protocol_header(data: bytes) -> tuple[int, bytes]:
     return data_length, cas_info
 
 
+_HEADER_SIZE = DataSize.DATA_LENGTH + DataSize.CAS_INFO
+
+
 class PacketWriter:
     def __init__(self) -> None:
         self._buffer: bytearray = bytearray()
@@ -214,6 +217,9 @@ class PacketReader:
         end = start + count
         self._offset = end
         return bytes(self._buffer[start:end])
+
+    def _skip_bytes(self, count: int) -> None:
+        self._offset += count
 
     def _parse_null_terminated_string(self, length: int) -> str:
         if length <= 0:
