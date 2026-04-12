@@ -279,7 +279,7 @@ class ClientInfoExchangePacket:
         buf.extend(b"\x00\x00\x00")
         return bytes(buf)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the handshake response (4-byte int)."""
         self.new_connection_port = struct.unpack(">i", data[:4])[0]
 
@@ -306,7 +306,7 @@ class OpenDatabasePacket:
         writer._write_filler(20)  # reserved
         return writer.to_bytes()
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the open database response.
 
         ``data`` starts after the 4-byte DATA_LENGTH prefix, so it begins
@@ -372,7 +372,7 @@ class PrepareAndExecutePacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the prepare-and-execute response.
 
         ``data`` starts after the 4-byte DATA_LENGTH prefix.
@@ -442,7 +442,7 @@ class PreparePacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the prepare response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -502,7 +502,7 @@ class ExecutePacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes, columns: list[ColumnMetaData] | None = None) -> None:
+    def parse(self, data: bytes | bytearray, columns: list[ColumnMetaData] | None = None) -> None:
         """Parse the execute response."""
         if columns is not None:
             self.columns = columns
@@ -571,7 +571,7 @@ class FetchPacket:
 
     def parse(
         self,
-        data: bytes,
+        data: bytes | bytearray,
         columns: list[ColumnMetaData] | None = None,
         statement_type: int | None = None,
     ) -> None:
@@ -605,7 +605,7 @@ class CommitPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the commit response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -627,7 +627,7 @@ class RollbackPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the rollback response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -648,7 +648,7 @@ class CloseDatabasePacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the close database response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -673,7 +673,7 @@ class CloseQueryPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the close query response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -699,7 +699,7 @@ class GetEngineVersionPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the get engine version response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -739,7 +739,7 @@ class GetSchemaPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the get schema response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -779,7 +779,7 @@ class BatchExecutePacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the batch execute response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -823,7 +823,7 @@ class LOBNewPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB new response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -854,7 +854,7 @@ class LOBWritePacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB write response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -886,7 +886,7 @@ class LOBReadPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB read response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -913,7 +913,7 @@ class GetLastInsertIdPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the get last insert ID response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -941,7 +941,7 @@ class GetDbParameterPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the get db parameter response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
@@ -969,7 +969,7 @@ class SetDbParameterPacket:
         header = build_protocol_header(len(payload), cas_info)
         return header + payload
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the set db parameter response."""
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
