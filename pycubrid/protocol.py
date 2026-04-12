@@ -884,7 +884,13 @@ class GetLastInsertIdPacket:
         return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
-        """Parse the get last insert ID response."""
+        """Parse the get last insert ID response.
+
+        The CAS protocol encodes dbval with a variable-length type header:
+        - If the first type byte has bit 7 set (``& 0x80``), the header is
+          2 bytes (e.g. ``0x83 0x07`` for CCI_U_TYPE_NUMERIC).
+        - Otherwise the header is 1 byte (legacy single-byte type).
+        """
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
@@ -892,9 +898,14 @@ class GetLastInsertIdPacket:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
         value_size = reader._parse_int()
-        if value_size > 2:
-            reader._skip_bytes(2)
-            self.last_insert_id = reader._parse_null_terminated_string(value_size - 2)
+        if value_size > 0:
+            type_byte = reader._parse_byte()
+            type_header_size = 2 if (type_byte & 0x80) else 1
+            if type_header_size == 2:
+                reader._skip_bytes(1)  # consume second type byte
+            remaining = value_size - type_header_size
+            if remaining > 0:
+                self.last_insert_id = reader._parse_null_terminated_string(remaining)
 
 
 class GetDbParameterPacket:

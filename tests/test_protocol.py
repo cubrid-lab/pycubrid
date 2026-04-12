@@ -1345,7 +1345,7 @@ class TestGetLastInsertIdPacket:
         payload = data[8:]
         assert payload[0] == CASFunctionCode.GET_LAST_INSERT_ID
 
-    def test_parse_success(self) -> None:
+    def test_parse_2byte_type_header(self) -> None:
         pkt = GetLastInsertIdPacket()
         value_payload = b"\x83\x07" + b"42\x00"
         response = (
@@ -1357,11 +1357,35 @@ class TestGetLastInsertIdPacket:
         pkt.parse(response)
         assert pkt.last_insert_id == "42"
 
-    def test_parse_zero_response_code(self) -> None:
+    def test_parse_1byte_type_header(self) -> None:
+        pkt = GetLastInsertIdPacket()
+        value_payload = b"\x07" + b"42\x00"
+        response = (
+            DEFAULT_CAS_INFO
+            + struct.pack(">i", 0)
+            + struct.pack(">i", len(value_payload))
+            + value_payload
+        )
+        pkt.parse(response)
+        assert pkt.last_insert_id == "42"
+
+    def test_parse_null_value(self) -> None:
         pkt = GetLastInsertIdPacket()
         response = DEFAULT_CAS_INFO + struct.pack(">i", 0) + struct.pack(">i", -1)
         pkt.parse(response)
         assert pkt.last_insert_id == ""
+
+    def test_parse_bytearray_response(self) -> None:
+        pkt = GetLastInsertIdPacket()
+        value_payload = b"\x83\x07" + b"99\x00"
+        response = bytearray(
+            DEFAULT_CAS_INFO
+            + struct.pack(">i", 0)
+            + struct.pack(">i", len(value_payload))
+            + value_payload
+        )
+        pkt.parse(response)
+        assert pkt.last_insert_id == "99"
 
     def test_parse_error(self) -> None:
         pkt = GetLastInsertIdPacket()
