@@ -76,7 +76,7 @@ class Connection:
 
         self._socket: socket.socket | None = None
         self._connected = False
-        self._cas_info: bytes = b"\x00\x00\x00\x00"
+        self._cas_info: bytes | bytearray = b"\x00\x00\x00\x00"
         self._session_id = 0
         self._autocommit = False
         self._cursors: set[Cursor] = set()
@@ -333,7 +333,7 @@ class Connection:
             self._connected = False
             raise OperationalError("socket communication failed") from exc
 
-    def _recv_exact(self, sock: socket.socket, size: int) -> bytes:
+    def _recv_exact(self, sock: socket.socket, size: int) -> bytearray:
         """Receive exactly ``size`` bytes from the socket."""
         buf = bytearray(size)
         view = memoryview(buf)
@@ -343,7 +343,7 @@ class Connection:
             if n == 0:
                 raise OperationalError("connection lost during receive")
             pos += n
-        return bytes(buf)
+        return buf
 
     def _ensure_connected(self) -> None:
         """Raise ``InterfaceError`` when called on a closed connection."""

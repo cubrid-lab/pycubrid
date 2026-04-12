@@ -22,7 +22,7 @@ from .constants import (
     DataSize,
 )
 from .exceptions import DatabaseError, IntegrityError, ProgrammingError
-from .packet import PacketReader, PacketWriter, build_protocol_header
+from .packet import PacketReader, PacketWriter
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ from .packet import PacketReader, PacketWriter, build_protocol_header
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(slots=True)
 class ColumnMetaData:
     """Metadata for a single result column."""
 
@@ -51,7 +51,7 @@ class ColumnMetaData:
     is_shared: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class ResultInfo:
     """Result info for each executed statement."""
 
@@ -195,6 +195,7 @@ def _parse_row_data(
     _parse_int = reader._parse_int
     _parse_bytes = reader._parse_bytes
     _parse_byte = reader._parse_byte
+    _skip_bytes = reader._skip_bytes
     _null_type = CUBRIDDataType.NULL
     _oid_size = DataSize.OID
     _get = _TYPE_METHOD_NAMES.get
@@ -210,7 +211,7 @@ def _parse_row_data(
 
     for _ in range(tuple_count):
         _parse_int()
-        _parse_bytes(_oid_size)
+        _skip_bytes(_oid_size)
         row: list[Any] = [None] * ncols
         if col_readers is not None:
             for i in range(ncols):
@@ -278,7 +279,7 @@ class ClientInfoExchangePacket:
         buf.extend(b"\x00\x00\x00")
         return bytes(buf)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the handshake response (4-byte int)."""
         self.new_connection_port = struct.unpack(">i", data[:4])[0]
 
@@ -297,7 +298,7 @@ class OpenDatabasePacket:
 
     def write(self) -> bytes:
         """Serialize the open database packet (628 bytes, no header)."""
-        writer = PacketWriter()
+        writer = PacketWriter(reserve_header=False)
         writer._write_fixed_length_string(self.database, 32)
         writer._write_fixed_length_string(self.user, 32)
         writer._write_fixed_length_string(self.password, 32)
@@ -305,7 +306,7 @@ class OpenDatabasePacket:
         writer._write_filler(20)  # reserved
         return writer.to_bytes()
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the open database response.
 
         ``data`` starts after the 4-byte DATA_LENGTH prefix, so it begins
@@ -367,17 +368,15 @@ class PrepareAndExecutePacket:
         writer._write_int(0)  # cache time sec
         writer._write_int(0)  # cache time usec
         writer.add_int(0)  # query timeout
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the prepare-and-execute response.
 
         ``data`` starts after the 4-byte DATA_LENGTH prefix.
         """
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)  # cas_info
+        reader._skip_bytes(DataSize.CAS_INFO)
         self.response_code = reader._parse_int()
         if self.response_code < 0:
             remaining = len(data) - 8
@@ -437,14 +436,12 @@ class PreparePacket:
         writer._write_null_terminated_string(self.sql)
         writer.add_byte(CCIPrepareOption.NORMAL)
         writer.add_byte(1 if self.auto_commit else 0)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the prepare response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         self.response_code = reader._parse_int()
         if self.response_code < 0:
             remaining = len(data) - 8
@@ -497,16 +494,14 @@ class ExecutePacket:
         writer.add_byte(1)  # forward only
         writer.add_cache_time()
         writer.add_int(0)  # query timeout
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes, columns: list[ColumnMetaData] | None = None) -> None:
+    def parse(self, data: bytes | bytearray, columns: list[ColumnMetaData] | None = None) -> None:
         """Parse the execute response."""
         if columns is not None:
             self.columns = columns
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -564,19 +559,17 @@ class FetchPacket:
         writer.add_int(self.fetch_size)
         writer.add_byte(0)  # case sensitive
         writer.add_int(0)  # resultset index
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(
         self,
-        data: bytes,
+        data: bytes | bytearray,
         columns: list[ColumnMetaData] | None = None,
         statement_type: int | None = None,
     ) -> None:
         """Parse the fetch response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -600,14 +593,12 @@ class CommitPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.END_TRAN)
         writer.add_byte(CCITransactionType.COMMIT)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the commit response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -622,14 +613,12 @@ class RollbackPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.END_TRAN)
         writer.add_byte(CCITransactionType.ROLLBACK)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the rollback response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -643,14 +632,12 @@ class CloseDatabasePacket:
         """Serialize the close database request."""
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.CON_CLOSE)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the close database response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -668,14 +655,12 @@ class CloseQueryPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.CLOSE_REQ_HANDLE)
         writer.add_int(self.query_handle)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the close query response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -694,14 +679,12 @@ class GetEngineVersionPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.GET_DB_VERSION)
         writer.add_byte(1 if self.auto_commit else 0)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the get engine version response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -734,14 +717,12 @@ class GetSchemaPacket:
         writer.add_int(self.schema_type)
         writer._write_null_terminated_string(self.table_name)
         writer.add_byte(self.pattern_match_flag)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the get schema response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -774,14 +755,12 @@ class BatchExecutePacket:
             writer.add_int(0)  # timeout
         for sql in self.sql_list:
             writer._write_null_terminated_string(sql)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the batch execute response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -818,14 +797,12 @@ class LOBNewPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.LOB_NEW)
         writer.add_int(self.lob_type)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB new response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -849,14 +826,12 @@ class LOBWritePacket:
         writer.add_bytes(self.packed_lob_handle)
         writer.add_long(self.offset)
         writer.add_bytes(self.data)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB write response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -881,14 +856,12 @@ class LOBReadPacket:
         writer.add_bytes(self.packed_lob_handle)
         writer.add_long(self.offset)
         writer.add_int(self.length)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB read response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -908,20 +881,31 @@ class GetLastInsertIdPacket:
         """Serialize the get last insert ID request."""
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.GET_LAST_INSERT_ID)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
-        """Parse the get last insert ID response."""
+    def parse(self, data: bytes | bytearray) -> None:
+        """Parse the get last insert ID response.
+
+        The CAS protocol encodes dbval with a variable-length type header:
+        - If the first type byte has bit 7 set (``& 0x80``), the header is
+          2 bytes (e.g. ``0x83 0x07`` for CCI_U_TYPE_NUMERIC).
+        - Otherwise the header is 1 byte (legacy single-byte type).
+        """
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
-        if response_code > 0:
-            self.last_insert_id = reader._parse_null_terminated_string(response_code)
+        value_size = reader._parse_int()
+        if value_size > 0:
+            type_byte = reader._parse_byte()
+            type_header_size = 2 if (type_byte & 0x80) else 1
+            if type_header_size == 2:
+                reader._skip_bytes(1)  # consume second type byte
+            remaining = value_size - type_header_size
+            if remaining > 0:
+                self.last_insert_id = reader._parse_null_terminated_string(remaining)
 
 
 class GetDbParameterPacket:
@@ -936,14 +920,12 @@ class GetDbParameterPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.GET_DB_PARAMETER)
         writer.add_int(self.parameter)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the get db parameter response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
@@ -964,14 +946,12 @@ class SetDbParameterPacket:
         writer._write_byte(CASFunctionCode.SET_DB_PARAMETER)
         writer.add_int(self.parameter)
         writer.add_int(self.value)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
-    def parse(self, data: bytes) -> None:
+    def parse(self, data: bytes | bytearray) -> None:
         """Parse the set db parameter response."""
         reader = PacketReader(data)
-        _ = reader._parse_bytes(DataSize.CAS_INFO)
+        reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
