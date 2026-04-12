@@ -22,7 +22,7 @@ from .constants import (
     DataSize,
 )
 from .exceptions import DatabaseError, IntegrityError, ProgrammingError
-from .packet import PacketReader, PacketWriter, build_protocol_header
+from .packet import PacketReader, PacketWriter
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +298,7 @@ class OpenDatabasePacket:
 
     def write(self) -> bytes:
         """Serialize the open database packet (628 bytes, no header)."""
-        writer = PacketWriter()
+        writer = PacketWriter(reserve_header=False)
         writer._write_fixed_length_string(self.database, 32)
         writer._write_fixed_length_string(self.user, 32)
         writer._write_fixed_length_string(self.password, 32)
@@ -368,9 +368,7 @@ class PrepareAndExecutePacket:
         writer._write_int(0)  # cache time sec
         writer._write_int(0)  # cache time usec
         writer.add_int(0)  # query timeout
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the prepare-and-execute response.
@@ -438,9 +436,7 @@ class PreparePacket:
         writer._write_null_terminated_string(self.sql)
         writer.add_byte(CCIPrepareOption.NORMAL)
         writer.add_byte(1 if self.auto_commit else 0)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the prepare response."""
@@ -498,9 +494,7 @@ class ExecutePacket:
         writer.add_byte(1)  # forward only
         writer.add_cache_time()
         writer.add_int(0)  # query timeout
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray, columns: list[ColumnMetaData] | None = None) -> None:
         """Parse the execute response."""
@@ -565,9 +559,7 @@ class FetchPacket:
         writer.add_int(self.fetch_size)
         writer.add_byte(0)  # case sensitive
         writer.add_int(0)  # resultset index
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(
         self,
@@ -601,9 +593,7 @@ class CommitPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.END_TRAN)
         writer.add_byte(CCITransactionType.COMMIT)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the commit response."""
@@ -623,9 +613,7 @@ class RollbackPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.END_TRAN)
         writer.add_byte(CCITransactionType.ROLLBACK)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the rollback response."""
@@ -644,9 +632,7 @@ class CloseDatabasePacket:
         """Serialize the close database request."""
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.CON_CLOSE)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close database response."""
@@ -669,9 +655,7 @@ class CloseQueryPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.CLOSE_REQ_HANDLE)
         writer.add_int(self.query_handle)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close query response."""
@@ -695,9 +679,7 @@ class GetEngineVersionPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.GET_DB_VERSION)
         writer.add_byte(1 if self.auto_commit else 0)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get engine version response."""
@@ -735,9 +717,7 @@ class GetSchemaPacket:
         writer.add_int(self.schema_type)
         writer._write_null_terminated_string(self.table_name)
         writer.add_byte(self.pattern_match_flag)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get schema response."""
@@ -775,9 +755,7 @@ class BatchExecutePacket:
             writer.add_int(0)  # timeout
         for sql in self.sql_list:
             writer._write_null_terminated_string(sql)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the batch execute response."""
@@ -819,9 +797,7 @@ class LOBNewPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.LOB_NEW)
         writer.add_int(self.lob_type)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB new response."""
@@ -850,9 +826,7 @@ class LOBWritePacket:
         writer.add_bytes(self.packed_lob_handle)
         writer.add_long(self.offset)
         writer.add_bytes(self.data)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB write response."""
@@ -882,9 +856,7 @@ class LOBReadPacket:
         writer.add_bytes(self.packed_lob_handle)
         writer.add_long(self.offset)
         writer.add_int(self.length)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB read response."""
@@ -909,9 +881,7 @@ class GetLastInsertIdPacket:
         """Serialize the get last insert ID request."""
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.GET_LAST_INSERT_ID)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get last insert ID response."""
@@ -937,9 +907,7 @@ class GetDbParameterPacket:
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.GET_DB_PARAMETER)
         writer.add_int(self.parameter)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get db parameter response."""
@@ -965,9 +933,7 @@ class SetDbParameterPacket:
         writer._write_byte(CASFunctionCode.SET_DB_PARAMETER)
         writer.add_int(self.parameter)
         writer.add_int(self.value)
-        payload = writer.to_bytes()
-        header = build_protocol_header(len(payload), cas_info)
-        return header + payload
+        return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the set db parameter response."""

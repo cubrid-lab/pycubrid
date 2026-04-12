@@ -36,8 +36,9 @@ _HEADER_SIZE = DataSize.DATA_LENGTH + DataSize.CAS_INFO
 
 
 class PacketWriter:
-    def __init__(self) -> None:
-        self._buffer: bytearray = bytearray()
+    def __init__(self, *, reserve_header: bool = True) -> None:
+        self._header_size: int = _HEADER_SIZE if reserve_header else 0
+        self._buffer: bytearray = bytearray(self._header_size)
 
     def add_byte(self, value: int) -> None:
         """Write a length-prefixed byte value."""
@@ -167,12 +168,16 @@ class PacketWriter:
             self._write_filler(length - len(fixed), filler)
 
     def to_bytes(self) -> bytes:
-        """Return all bytes currently written."""
+        return bytes(self._buffer[self._header_size :])
+
+    def finalize(self, cas_info: bytes | bytearray) -> bytes:
+        payload_len = len(self._buffer) - _HEADER_SIZE
+        struct.pack_into(">i", self._buffer, 0, payload_len)
+        self._buffer[4:8] = cas_info
         return bytes(self._buffer)
 
     def __len__(self) -> int:
-        """Return current buffer size."""
-        return len(self._buffer)
+        return len(self._buffer) - self._header_size
 
 
 class PacketReader:
