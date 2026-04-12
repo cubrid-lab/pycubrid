@@ -228,10 +228,9 @@ class PacketReader:
         start = self._offset
         end = start + length
         self._offset = end
-        view = self._buffer[start:end]
-        if view[-1] == 0:
-            view = view[:-1]
-        return bytes(view).decode("utf-8")
+        if self._buffer[end - 1] == 0:
+            return bytes(self._buffer[start : end - 1]).decode("utf-8")
+        return bytes(self._buffer[start:end]).decode("utf-8")
 
     def _parse_date(self, size: int = 0) -> datetime.date:
         year, month, day = _STRUCT_3H.unpack_from(self._buffer, self._offset)
