@@ -145,6 +145,23 @@ All non-trivial work across cubrid-labs repositories MUST follow this 4-phase cy
 
 Skipping any phase requires explicit justification. Trivial changes (typos, single-line fixes) may skip phases 1 and 4.
 
+## Release Process
+
+Version is tracked in TWO files — both MUST be updated together:
+- `pyproject.toml` → `version = "x.y.z"`
+- `pycubrid/__init__.py` → `__version__ = "x.y.z"`
+
+Steps:
+1. `make release VERSION=x.y.z` (bumps both files, validates consistency)
+2. Add changelog entry in `CHANGELOG.md`
+3. Commit: `release: vx.y.z — <summary>`
+4. Tag: `git tag vx.y.z`
+5. Push with tags: `git push origin main --tags`
+6. Create GitHub release: `gh release create vx.y.z --title "..."`
+7. PyPI publish triggers automatically from tag push (`.github/workflows/publish-pypi.yml`)
+
+**CI enforces version consistency** — `pyproject.toml` version must match `__init__.py` `__version__` on every PR.
+
 ## Test Structure
 
 ```mermaid
