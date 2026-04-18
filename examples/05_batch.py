@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Batch insert example with executemany."""
+
+from __future__ import annotations
 
 import os
 from typing import cast

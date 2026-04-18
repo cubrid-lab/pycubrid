@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Basic connection and query example for pycubrid."""
+
+from __future__ import annotations
 
 import os
 from typing import cast

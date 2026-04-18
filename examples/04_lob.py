@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """LOB write/read examples using direct values and Lob handles."""
+
+from __future__ import annotations
 
 import os
 from typing import cast

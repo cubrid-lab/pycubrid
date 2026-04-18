@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import socket
 import struct
 import time
@@ -25,6 +26,8 @@ from pycubrid.protocol import (
 if TYPE_CHECKING:
     from pycubrid.aio.cursor import AsyncCursor
     from pycubrid.timing import TimingStats
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class AsyncConnection:
@@ -143,15 +146,19 @@ class AsyncConnection:
         for cursor in list(self._cursors):
             try:
                 await cursor.close()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                _LOGGER.debug(
+                    "Suppressed error while closing cursor during shutdown", exc_info=True
+                )
             finally:
                 self._cursors.discard(cursor)
 
         try:
             await self._send_and_receive(CloseDatabasePacket())
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 - best-effort cleanup
+            _LOGGER.debug(
+                "Suppressed error sending CloseDatabasePacket during shutdown", exc_info=True
+            )
         finally:
             self._safe_close_socket()
             self._connected = False

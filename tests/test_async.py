@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import asyncio
+import datetime
 import struct
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -422,3 +423,475 @@ class TestAsyncCursorBindParameters:
         cur = AsyncCursor(conn)
         with pytest.raises(Exception, match="wrong number"):
             cur._bind_parameters("SELECT ?", [1, 2])
+
+
+def _make_mock_conn(autocommit: bool = False) -> MagicMock:
+    conn = MagicMock()
+    conn._timing = None
+    conn._cursors = set()
+    conn._ensure_connected = MagicMock()
+    conn._send_and_receive = AsyncMock()
+    conn._protocol_version = 1
+    conn.autocommit = autocommit
+    return conn
+
+
+class TestAsyncCursorLastrowid:
+    def test_lastrowid_default_none(self) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        assert cur.lastrowid is None
+
+
+class TestAsyncCursorCloseWithHandle:
+    @pytest.mark.asyncio
+    async def test_close_with_query_handle_sends_close_packet(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+        cur._query_handle = 42
+        await cur.close()
+        assert cur._closed is True
+        assert cur._query_handle is None
+        conn._send_and_receive.assert_awaited()
+
+
+class TestAsyncCursorExecute:
+    @pytest.mark.asyncio
+    async def test_execute_select_populates_state(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.query_handle = 7
+            packet.statement_type = CUBRIDStatementType.SELECT
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        result = await cur.execute("SELECT 1")
+        assert result is cur
+        assert cur._query_handle == 7
+        assert cur._rowcount == -1
+
+    @pytest.mark.asyncio
+    async def test_execute_with_parameters(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.query_handle = 1
+            packet.statement_type = CUBRIDStatementType.SELECT
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.execute("SELECT * FROM t WHERE id = ?", [42])
+        assert cur._query_handle == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_dml_uses_result_infos(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        info = MagicMock()
+        info.result_count = 3
+
+        async def fake_send(packet):
+            packet.query_handle = 2
+            packet.statement_type = CUBRIDStatementType.UPDATE
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = [info]
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.execute("UPDATE t SET x = 1")
+        assert cur._rowcount == 3
+
+    @pytest.mark.asyncio
+    async def test_execute_dml_no_result_infos(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.query_handle = 3
+            packet.statement_type = CUBRIDStatementType.DELETE
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.execute("DELETE FROM t")
+        assert cur._rowcount == -1
+
+    @pytest.mark.asyncio
+    async def test_execute_insert_fetches_lastrowid(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        call_count = {"n": 0}
+
+        async def fake_send(packet):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                packet.query_handle = 4
+                packet.statement_type = CUBRIDStatementType.INSERT
+                packet.columns = []
+                packet.total_tuple_count = 0
+                packet.rows = []
+                packet.result_infos = []
+            else:
+                packet.last_insert_id = b"99"
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.execute("INSERT INTO t VALUES (1)")
+        assert cur._lastrowid == 99
+
+    @pytest.mark.asyncio
+    async def test_execute_insert_lastrowid_failure_is_silent(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        call_count = {"n": 0}
+
+        async def fake_send(packet):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                packet.query_handle = 5
+                packet.statement_type = CUBRIDStatementType.INSERT
+                packet.columns = []
+                packet.total_tuple_count = 0
+                packet.rows = []
+                packet.result_infos = []
+            else:
+                raise RuntimeError("boom")
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.execute("INSERT INTO t VALUES (1)")
+        assert cur._lastrowid is None
+
+    @pytest.mark.asyncio
+    async def test_execute_closes_existing_query_handle(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+        cur._query_handle = 99
+
+        async def fake_send(packet):
+            if hasattr(packet, "query_handle") and packet.query_handle == 99:
+                return
+            packet.query_handle = 1
+            packet.statement_type = CUBRIDStatementType.SELECT
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.execute("SELECT 1")
+        assert cur._query_handle == 1
+
+
+class TestAsyncCursorExecutemany:
+    @pytest.mark.asyncio
+    async def test_executemany_empty_returns_self(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+        result = await cur.executemany("INSERT INTO t VALUES (?)", [])
+        assert result is cur
+
+    @pytest.mark.asyncio
+    async def test_executemany_select_loops(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.query_handle = 1
+            packet.statement_type = CUBRIDStatementType.SELECT
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        result = await cur.executemany("SELECT ? FROM t", [[1], [2]])
+        assert result is cur
+
+    @pytest.mark.asyncio
+    async def test_executemany_batch_uses_batch_packet(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.results = [(0, 1), (0, 1)]
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        result = await cur.executemany("INSERT INTO t VALUES (?)", [[1], [2]])
+        assert result is cur
+        assert cur._rowcount == 2
+
+
+class TestAsyncCursorExecutemanyBatch:
+    @pytest.mark.asyncio
+    async def test_executemany_batch_with_results(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.results = [(0, 5), (0, 3)]
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        results = await cur.executemany_batch(["INSERT 1", "INSERT 2"])
+        assert results == [(0, 5), (0, 3)]
+        assert cur._rowcount == 8
+
+    @pytest.mark.asyncio
+    async def test_executemany_batch_empty_results(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.results = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        results = await cur.executemany_batch(["NOOP"])
+        assert results == []
+        assert cur._rowcount == 0
+
+    @pytest.mark.asyncio
+    async def test_executemany_batch_uses_explicit_autocommit(self) -> None:
+        conn = _make_mock_conn(autocommit=False)
+        cur = AsyncCursor(conn)
+
+        captured = {}
+
+        async def fake_send(packet):
+            captured["auto_commit"] = packet.auto_commit
+            packet.results = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.executemany_batch(["INSERT 1"], auto_commit=True)
+        assert captured["auto_commit"] is True
+
+
+class TestAsyncCursorFetchMore:
+    @pytest.mark.asyncio
+    async def test_fetchmany_triggers_fetch_more(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+        cur._description = (("id", 1, None, None, 0, 0, False),)
+        cur._rows = [(1,)]
+        cur._row_index = 0
+        cur._query_handle = 1
+        cur._total_tuple_count = 3
+
+        async def fake_send(packet):
+            packet.rows = [(2,), (3,)]
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        rows = await cur.fetchmany(3)
+        assert rows == [(1,), (2,), (3,)]
+
+    @pytest.mark.asyncio
+    async def test_fetch_more_rows_no_handle_returns_false(self) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        cur._query_handle = None
+        assert await cur._fetch_more_rows() is False
+
+    @pytest.mark.asyncio
+    async def test_fetch_more_rows_index_at_end_returns_false(self) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        cur._query_handle = 1
+        cur._row_index = 5
+        cur._total_tuple_count = 5
+        assert await cur._fetch_more_rows() is False
+
+    @pytest.mark.asyncio
+    async def test_fetch_more_rows_empty_packet_returns_false(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+        cur._query_handle = 1
+        cur._row_index = 0
+        cur._total_tuple_count = 10
+
+        async def fake_send(packet):
+            packet.rows = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        assert await cur._fetch_more_rows() is False
+
+
+class TestAsyncCursorAnextReturnsRow:
+    @pytest.mark.asyncio
+    async def test_anext_returns_row(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+        cur._description = (("id", 1, None, None, 0, 0, False),)
+        cur._rows = [(7,)]
+        cur._row_index = 0
+        cur._query_handle = None
+        cur._total_tuple_count = 1
+        row = await cur.__anext__()
+        assert row == (7,)
+
+
+class TestAsyncCursorMisc:
+    def test_setinputsizes_noop(self) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        assert cur.setinputsizes([1, 2, 3]) is None
+
+    def test_setoutputsize_noop(self) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        assert cur.setoutputsize(100, 0) is None
+
+    @pytest.mark.asyncio
+    async def test_callproc_with_params(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        captured = {}
+
+        async def fake_send(packet):
+            captured["sql"] = getattr(packet, "sql", None)
+            packet.query_handle = 1
+            packet.statement_type = CUBRIDStatementType.SELECT
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        result = await cur.callproc("myproc", [1, "x"])
+        assert result == [1, "x"]
+        assert "CALL myproc(" in captured["sql"]
+
+    @pytest.mark.asyncio
+    async def test_callproc_no_params(self) -> None:
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        captured = {}
+
+        async def fake_send(packet):
+            captured["sql"] = getattr(packet, "sql", None)
+            packet.query_handle = 1
+            packet.statement_type = CUBRIDStatementType.SELECT
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.callproc("myproc")
+        assert captured["sql"] == "CALL myproc()"
+
+
+class TestAsyncCursorBindParametersExtra:
+    def test_bind_with_mapping(self) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        result = cur._bind_parameters("SELECT ? FROM t WHERE x = ?", {"a": 1, "b": 2})
+        assert result == "SELECT 1 FROM t WHERE x = 2"
+
+    def test_bind_rejects_string(self) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        with pytest.raises(Exception, match="must be a sequence or mapping"):
+            cur._bind_parameters("SELECT ?", "abc")
+
+
+class TestAsyncCursorFormatParameter:
+    def _cur(self) -> AsyncCursor:
+        return AsyncCursor(_make_mock_conn())
+
+    def test_none(self) -> None:
+        assert self._cur()._format_parameter(None) == "NULL"
+
+    def test_bool_true(self) -> None:
+        assert self._cur()._format_parameter(True) == "1"
+
+    def test_bool_false(self) -> None:
+        assert self._cur()._format_parameter(False) == "0"
+
+    def test_string_escapes_quote(self) -> None:
+        assert self._cur()._format_parameter("a'b") == "'a''b'"
+
+    def test_bytes(self) -> None:
+        assert self._cur()._format_parameter(b"\xab\xcd") == "X'abcd'"
+
+    def test_datetime(self) -> None:
+        dt = datetime.datetime(2026, 4, 18, 12, 34, 56, 789000)
+        assert self._cur()._format_parameter(dt) == "DATETIME'2026-04-18 12:34:56.789'"
+
+    def test_date(self) -> None:
+        assert self._cur()._format_parameter(datetime.date(2026, 4, 18)) == "DATE'2026-04-18'"
+
+    def test_time(self) -> None:
+        assert self._cur()._format_parameter(datetime.time(12, 34, 56)) == "TIME'12:34:56'"
+
+    def test_decimal(self) -> None:
+        assert self._cur()._format_parameter(Decimal("3.14")) == "3.14"
+
+    def test_int(self) -> None:
+        assert self._cur()._format_parameter(42) == "42"
+
+    def test_float(self) -> None:
+        assert self._cur()._format_parameter(2.5) == "2.5"
+
+    def test_unsupported_raises(self) -> None:
+        with pytest.raises(Exception, match="unsupported parameter type"):
+            self._cur()._format_parameter(object())
+
+
+class TestAsyncCursorBuildDescription:
+    def test_empty_columns_returns_none(self) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        assert cur._build_description([]) is None
+
+
+class TestAsyncConnectModule:
+    @pytest.mark.asyncio
+    async def test_connect_module_function(self) -> None:
+        import pycubrid.aio as aio_mod
+
+        with patch.object(aio_mod, "AsyncConnection") as mock_cls:
+            instance = MagicMock()
+            instance.connect = AsyncMock()
+            instance.set_autocommit = AsyncMock()
+            mock_cls.return_value = instance
+            result = await aio_mod.connect(host="h", port=1, database="d", user="u", password="p")
+            assert result is instance
+            instance.connect.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_connect_module_function_with_autocommit(self) -> None:
+        import pycubrid.aio as aio_mod
+
+        with patch.object(aio_mod, "AsyncConnection") as mock_cls:
+            instance = MagicMock()
+            instance.connect = AsyncMock()
+            instance.set_autocommit = AsyncMock()
+            mock_cls.return_value = instance
+            await aio_mod.connect(autocommit=True)
+            instance.set_autocommit.assert_awaited_with(True)

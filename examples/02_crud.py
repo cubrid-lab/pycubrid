@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Create, read, update, and delete rows with pycubrid."""
+
+from __future__ import annotations
 
 import os
 from typing import cast
