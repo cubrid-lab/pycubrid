@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import socket
 import struct
 import time
 from typing import TYPE_CHECKING, Any
+
+_LOGGER = logging.getLogger(__name__)
 
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import InterfaceError, OperationalError
@@ -143,15 +146,19 @@ class AsyncConnection:
         for cursor in list(self._cursors):
             try:
                 await cursor.close()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                _LOGGER.debug(
+                    "Suppressed error while closing cursor during shutdown", exc_info=True
+                )
             finally:
                 self._cursors.discard(cursor)
 
         try:
             await self._send_and_receive(CloseDatabasePacket())
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 - best-effort cleanup
+            _LOGGER.debug(
+                "Suppressed error sending CloseDatabasePacket during shutdown", exc_info=True
+            )
         finally:
             self._safe_close_socket()
             self._connected = False
