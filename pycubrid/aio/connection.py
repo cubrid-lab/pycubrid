@@ -9,8 +9,6 @@ import struct
 import time
 from typing import TYPE_CHECKING, Any
 
-_LOGGER = logging.getLogger(__name__)
-
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import InterfaceError, OperationalError
 from pycubrid.protocol import (
@@ -28,6 +26,8 @@ from pycubrid.protocol import (
 if TYPE_CHECKING:
     from pycubrid.aio.cursor import AsyncCursor
     from pycubrid.timing import TimingStats
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class AsyncConnection:
