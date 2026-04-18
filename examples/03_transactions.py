@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Transaction patterns: explicit commit and rollback handling."""
+
+from __future__ import annotations
 
 import os
 from typing import cast
@@ -31,7 +31,9 @@ def main() -> None:
         conn.commit()
 
         try:
-            _ = cur.execute("INSERT INTO example_ledger (message) VALUES (?)", ["start transaction"])
+            _ = cur.execute(
+                "INSERT INTO example_ledger (message) VALUES (?)", ["start transaction"]
+            )
             _ = cur.execute("INSERT INTO example_ledger (message) VALUES (?)", ["commit path"])
             conn.commit()
             print("Commit path succeeded")
