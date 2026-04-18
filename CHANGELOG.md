@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Native asyncio support** via `pycubrid.aio` module
+  - `pycubrid.aio.connect()` — async connection factory
+  - `AsyncConnection` — async context manager, commit, rollback, cursor creation
+  - `AsyncCursor` — async execute, fetch (one/many/all), iterate, executemany
+  - Uses `loop.sock_*` non-blocking socket I/O — reuses existing protocol/packet layers
+- 30 new async offline tests (`tests/test_async.py`)
+
 ## [1.0.0] - 2026-04-11
 
 ### Stability Guarantee

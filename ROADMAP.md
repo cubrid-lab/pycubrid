@@ -28,3 +28,10 @@
 ## Compatibility
 
 Python 3.10+, CUBRID 10.2–11.4
+
+## Completed
+
+### Async Support (v1.1.0)
+- Native asyncio API via `pycubrid.aio` module
+- `AsyncConnection` and `AsyncCursor` with full async/await support
+- Non-blocking socket I/O using `loop.sock_*`

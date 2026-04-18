@@ -26,7 +26,8 @@ Korean public-sector and enterprise applications. The existing C-extension drive
 
 - **Pure Python implementation** — no C build dependencies, install with `pip install` only
 - **Full PEP 249 (DB-API 2.0) compliance** — standard exception hierarchy, type objects, cursor interface
-- **471 offline tests** with **99%+ code coverage** — no database required to run them
+- **501 offline tests** with **99%+ code coverage** — no database required to run them
+- **Native asyncio support** — async/await API via `pycubrid.aio` for high-concurrency applications
 - **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis support
 - **Direct CUBRID CAS protocol** implementation — no additional middleware required
 - **LOB (CLOB/BLOB) support** — handle large text and binary data
@@ -81,6 +82,25 @@ with pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba
             print(row)
 ```
 
+### Async
+
+```python
+import asyncio
+import pycubrid.aio
+
+async def main():
+    conn = await pycubrid.aio.connect(
+        host="localhost", port=33000, database="testdb", user="dba"
+    )
+    cur = await conn.cursor()
+    await cur.execute("SELECT 1 + 1")
+    print(await cur.fetchone())  # (2,)
+    await cur.close()
+    await conn.close()
+
+asyncio.run(main())
+```
+
 ### Parameter Binding
 
 ```python
@@ -129,6 +149,7 @@ marketers = cur.fetchall()
 - **Server version detection** — `connection.get_server_version()` returns version string (e.g., `"11.2.0.0378"`)
 - **Iterator protocol** — iterate over cursor results with `for row in cursor`
 - **Context managers** — `with` statements for both connections and cursors
+- **Async support** — `pycubrid.aio.connect()` with `AsyncConnection` and `AsyncCursor` for asyncio event loops
 
 ## Supported CUBRID Versions
 
@@ -215,6 +236,8 @@ graph TD
     root --> packet
     root --> lob
     root --> typed
+    root --> aio
+    aio[aio/ - AsyncConnection, AsyncCursor, async connect()]
 ```
 
 ## FAQ
@@ -253,6 +276,10 @@ pycubrid has `threadsafety = 1`, meaning connections cannot be shared between th
 ### What CUBRID versions are supported?
 
 CUBRID 10.2, 11.0, 11.2, and 11.4 are tested in CI.
+
+### Does pycubrid support async/await?
+
+Yes. Use `pycubrid.aio.connect()` for native asyncio support. The async API mirrors the sync API — `AsyncConnection` and `AsyncCursor` provide the same methods with `await`.
 
 
 ## Related Projects
