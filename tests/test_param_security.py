@@ -117,3 +117,42 @@ class TestFormatParameterTypes:
     def test_unsupported_type(self, cursor: object) -> None:
         with pytest.raises(ProgrammingError, match="unsupported parameter type"):
             cursor._format_parameter(object())
+
+    def test_float_nan_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(float("nan"))
+
+    def test_float_inf_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(float("inf"))
+
+    def test_float_neg_inf_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(float("-inf"))
+
+    def test_bytearray_hex(self, cursor: object) -> None:
+        assert cursor._format_parameter(bytearray(b"\xca\xfe")) == "X'cafe'"
+
+    def test_datetime_tz_iana(self, cursor: object) -> None:
+        from zoneinfo import ZoneInfo
+
+        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=ZoneInfo("Asia/Seoul"))
+        result = cursor._format_parameter(dt)
+        assert result == "DATETIMETZ'2026-01-15 10:30:00.123 Asia/Seoul'"
+
+    def test_datetime_tz_utc(self, cursor: object) -> None:
+        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
+        result = cursor._format_parameter(dt)
+        assert result == "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'"
+
+    def test_datetime_tz_fixed_offset(self, cursor: object) -> None:
+        tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, tzinfo=tz)
+        result = cursor._format_parameter(dt)
+        assert result == "DATETIMETZ'2026-01-15 10:30:00.000 +05:30'"
+
+    def test_datetime_tz_negative_offset(self, cursor: object) -> None:
+        tz = datetime.timezone(datetime.timedelta(hours=-5))
+        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, tzinfo=tz)
+        result = cursor._format_parameter(dt)
+        assert result == "DATETIMETZ'2026-01-15 10:30:00.000 -05:00'"

@@ -332,6 +332,7 @@ class AsyncCursor:
 
     def _format_parameter(self, value: Any) -> str:
         import datetime
+        import math
         from decimal import Decimal
 
         if value is None:
@@ -342,10 +343,27 @@ class AsyncCursor:
             return self._escape_string(
                 value, no_backslash_escapes=self._connection._no_backslash_escapes
             )
-        if isinstance(value, bytes):
+        if isinstance(value, (bytes, bytearray)):
             return "X'%s'" % value.hex()
         if isinstance(value, datetime.datetime):
             milliseconds = value.microsecond // 1000
+            if value.tzinfo is not None and value.utcoffset() is not None:
+                tz_key = getattr(value.tzinfo, "key", None)
+                if tz_key:
+                    tz_str = tz_key
+                else:
+                    offset = value.utcoffset()
+                    assert offset is not None
+                    total_seconds = int(offset.total_seconds())
+                    sign = "+" if total_seconds >= 0 else "-"
+                    hours, remainder = divmod(abs(total_seconds), 3600)
+                    minutes = remainder // 60
+                    tz_str = "%s%02d:%02d" % (sign, hours, minutes)
+                return "DATETIMETZ'%s.%03d %s'" % (
+                    value.strftime("%Y-%m-%d %H:%M:%S"),
+                    milliseconds,
+                    tz_str,
+                )
             return "DATETIME'%s.%03d'" % (
                 value.strftime("%Y-%m-%d %H:%M:%S"),
                 milliseconds,
@@ -357,6 +375,8 @@ class AsyncCursor:
         if isinstance(value, Decimal):
             return str(value)
         if isinstance(value, (int, float)):
+            if math.isnan(value) or math.isinf(value):
+                raise ProgrammingError("nan and inf are not supported by CUBRID")
             return str(value)
         raise ProgrammingError("unsupported parameter type")
 

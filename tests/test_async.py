@@ -892,6 +892,27 @@ class TestAsyncCursorFormatParameter:
         with pytest.raises(Exception, match="unsupported parameter type"):
             self._cur()._format_parameter(object())
 
+    def test_float_nan_raises(self) -> None:
+        with pytest.raises(Exception, match="nan and inf"):
+            self._cur()._format_parameter(float("nan"))
+
+    def test_float_inf_raises(self) -> None:
+        with pytest.raises(Exception, match="nan and inf"):
+            self._cur()._format_parameter(float("inf"))
+
+    def test_bytearray(self) -> None:
+        assert self._cur()._format_parameter(bytearray(b"\xca\xfe")) == "X'cafe'"
+
+    def test_datetime_tz_iana(self) -> None:
+        from zoneinfo import ZoneInfo
+
+        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=ZoneInfo("Asia/Seoul"))
+        assert self._cur()._format_parameter(dt) == "DATETIMETZ'2026-01-15 10:30:00.123 Asia/Seoul'"
+
+    def test_datetime_tz_utc(self) -> None:
+        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
+        assert self._cur()._format_parameter(dt) == "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'"
+
 
 class TestAsyncCursorBuildDescription:
     def test_empty_columns_returns_none(self) -> None:

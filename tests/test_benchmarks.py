@@ -23,7 +23,7 @@ except ImportError:
 
 CUBRID_HOST = os.getenv("CUBRID_HOST", "localhost")
 CUBRID_PORT = int(os.getenv("CUBRID_PORT", "33000"))
-CUBRID_DB = os.getenv("CUBRID_DB", "demodb")
+CUBRID_DB = os.getenv("CUBRID_DB", "testdb")
 
 pytestmark = [
     pytest.mark.skipif(
