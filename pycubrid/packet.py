@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import struct
 from decimal import Decimal
 from typing import Any
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # pyright: ignore[reportMissingImports]
+
 from .constants import CUBRIDDataType, DataSize
+
+_LOGGER = logging.getLogger(__name__)
 
 # Pre-compiled struct objects — avoids format-string parsing on every call.
 _STRUCT_SHORT = struct.Struct(">h")
@@ -35,6 +43,42 @@ def parse_protocol_header(data: bytes) -> tuple[int, bytes]:
 
 
 _HEADER_SIZE = DataSize.DATA_LENGTH + DataSize.CAS_INFO
+
+
+def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
+    """Attach timezone info to a naive datetime from a CUBRID TZ string.
+
+    Handles IANA region names (``Asia/Seoul``), UTC offsets in forms
+    ``±HH``, ``±HH:MM``, ``±HH:MM:SS``, and region names followed by
+    optional abbreviation tokens (e.g. ``Asia/Seoul KST``).
+
+    Raises ``ValueError`` if the timezone token cannot be resolved so
+    callers are aware of data loss rather than silently returning a
+    naive datetime.
+    """
+    import re
+
+    tz_str = tz_str.strip()
+    if not tz_str:
+        return dt
+
+    timezone_token = tz_str.split()[0] if " " in tz_str else tz_str
+
+    # Match ±HH, ±HH:MM, or ±HH:MM:SS offset forms
+    offset_match = re.match(r"^([+-])(\d{2})(?::(\d{2}))?(?::(\d{2}))?$", timezone_token)
+    if offset_match:
+        sign = 1 if offset_match.group(1) == "+" else -1
+        hours = int(offset_match.group(2))
+        minutes = int(offset_match.group(3) or "0")
+        seconds = int(offset_match.group(4) or "0")
+        offset = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds) * sign
+        return dt.replace(tzinfo=datetime.timezone(offset))
+
+    try:
+        return dt.replace(tzinfo=ZoneInfo(timezone_token))
+    except KeyError:
+        _LOGGER.warning("Unknown timezone token %r; returning naive datetime", timezone_token)
+        raise ValueError(f"Unrecognized CUBRID timezone: {timezone_token!r}")
 
 
 class PacketWriter:
@@ -291,6 +335,23 @@ class PacketReader:
         y, mo, d, h, mi, s = _STRUCT_6H.unpack_from(self._buffer, self._offset)
         self._offset += 12
         return datetime.datetime(y, mo, d, h, mi, s, 0)
+
+    def _parse_timestamptz(self, size: int) -> datetime.datetime:
+        y, mo, d, h, mi, s, ms = _STRUCT_7H.unpack_from(self._buffer, self._offset)
+        self._offset += 14
+        tz_bytes_len = size - 14
+        if tz_bytes_len > 0:
+            tz_str = self._parse_null_terminated_string(tz_bytes_len)
+        else:
+            tz_str = ""
+        dt = datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        try:
+            return _attach_timezone(dt, tz_str)
+        except ValueError:
+            return dt
+
+    def _parse_datetimetz(self, size: int) -> datetime.datetime:
+        return self._parse_timestamptz(size)
 
     def _parse_numeric(self, size: int) -> Decimal:
         value = self._parse_null_terminated_string(size)

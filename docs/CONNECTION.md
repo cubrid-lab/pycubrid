@@ -444,7 +444,7 @@ with engine.connect() as conn:
     print(result.scalar())
 ```
 
-All SQLAlchemy features — ORM, Core, Alembic migrations, schema reflection — work transparently with the pycubrid driver.
+SQLAlchemy features — ORM, Core, Alembic migrations, schema reflection — are accessible through the pycubrid driver when used with sqlalchemy-cubrid.
 
 ---
 

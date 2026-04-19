@@ -1,6 +1,6 @@
 # pycubrid
 
-**Pure Python DB-API 2.0 driver for the CUBRID database** — no C extensions, no compilation, PEP 249 compliant database connector.
+**Pure Python DB-API 2.0 driver for the CUBRID database** — no C extensions, no compilation, implements the PEP 249 (DB-API 2.0) interface.
 
 [🇰🇷 한국어](docs/README.ko.md) · [🇺🇸 English](README.md) · [🇨🇳 中文](docs/README.zh.md) · [🇮🇳 हिन्दी](docs/README.hi.md) · [🇩🇪 Deutsch](docs/README.de.md) · [🇷🇺 Русский](docs/README.ru.md)
 
@@ -16,6 +16,8 @@
 
 ---
 
+> **Status: Beta.** The core public API follows semantic versioning; minor releases may add features and bug fixes while the project remains under active development.
+
 ## Why pycubrid?
 
 CUBRID is a high-performance open-source relational database, widely adopted in
@@ -25,7 +27,7 @@ Korean public-sector and enterprise applications. The existing C-extension drive
 **pycubrid** solves these problems:
 
 - **Pure Python implementation** — no C build dependencies, install with `pip install` only
-- **Full PEP 249 (DB-API 2.0) compliance** — standard exception hierarchy, type objects, cursor interface
+- **Implements PEP 249 (DB-API 2.0)** — standard exception hierarchy, type objects, cursor interface
 - **666 offline tests** with **97%+ code coverage** — no database required to run them
 - **Native asyncio support** — async/await API via `pycubrid.aio` for high-concurrency applications
 - **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis support
@@ -176,7 +178,7 @@ with engine.connect() as conn:
     print(result.scalar())
 ```
 
-All SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) work transparently with the pycubrid driver.
+SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are accessible through the pycubrid driver when used with sqlalchemy-cubrid.
 
 ## Documentation
 

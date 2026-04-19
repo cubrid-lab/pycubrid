@@ -43,6 +43,7 @@ class Connection:
         autocommit: bool = False,
         decode_collections: bool = False,
         json_deserializer: Any = None,
+        fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
         """Initialize and connect to a CUBRID broker.
@@ -62,9 +63,11 @@ class Connection:
         self._user = user
         self._password = password
         self._connect_timeout = kwargs.get("connect_timeout")
+        self._read_timeout = kwargs.get("read_timeout")
         self._decode_collections = decode_collections
         self._json_deserializer = json_deserializer
         self._no_backslash_escapes = kwargs.get("no_backslash_escapes", False)
+        self._fetch_size = fetch_size
         if self._json_deserializer is not None and not callable(self._json_deserializer):
             raise TypeError("json_deserializer must be callable or None")
         if self._json_deserializer is json.loads:
@@ -284,13 +287,13 @@ class Connection:
                     self._invalidate_query_handles()
                     self.connect()
                     return True
-                except Exception:
+                except (OSError, OperationalError, InterfaceError):
                     return False
             return False
         try:
             packet = self._send_and_receive(CheckCasPacket())
             return packet.response_code >= 0
-        except Exception:
+        except (InterfaceError, OperationalError, OSError, struct.error):
             if reconnect:
                 try:
                     self._safe_close_socket()
@@ -298,7 +301,7 @@ class Connection:
                     self._invalidate_query_handles()
                     self.connect()
                     return True
-                except Exception:
+                except (OSError, OperationalError, InterfaceError):
                     return False
             return False
 
@@ -342,12 +345,16 @@ class Connection:
             self.close()
 
     def _create_socket(self, host: str, port: int) -> socket.socket:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = socket.create_connection(
+            (host, port),
+            timeout=self._connect_timeout,
+        )
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        if self._connect_timeout is not None:
-            sock.settimeout(self._connect_timeout)
-        sock.connect((host, port))
+        if self._read_timeout is not None:
+            sock.settimeout(self._read_timeout)
+        elif self._connect_timeout is not None:
+            sock.settimeout(None)
         return sock
 
     def _send_and_receive(self, packet: Any) -> Any:

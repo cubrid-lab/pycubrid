@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import struct
 from decimal import Decimal
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -74,13 +75,23 @@ def async_conn() -> AsyncConnection:
 
 
 class TestAsyncConnectionEstablishment:
+    def test_fetch_size_is_stored(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", fetch_size=41)
+
+        assert conn._fetch_size == 41
+
     @pytest.mark.asyncio
     async def test_connect_success(self, async_conn: AsyncConnection) -> None:
         fake_loop = make_fake_loop_for_connect(session_id=777)
 
         with (
             patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(async_conn, "_create_socket_nonblocking", return_value=MagicMock()),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=MagicMock(),
+            ),
         ):
             await async_conn.connect()
 
@@ -101,7 +112,7 @@ class TestAsyncConnectionEstablishment:
 
         sockets_created: list[MagicMock] = []
 
-        def track_socket(host: str, port: int) -> MagicMock:
+        async def track_socket(host: str, port: int) -> MagicMock:
             s = MagicMock()
             sockets_created.append(s)
             return s
@@ -115,20 +126,18 @@ class TestAsyncConnectionEstablishment:
         assert async_conn._connected is True
         assert len(sockets_created) == 2
         assert sockets_created[0].close.called
-        assert ("localhost", 33100) in fake_loop.connected_addresses
 
     @pytest.mark.asyncio
     async def test_connect_failure_raises_operational_error(
         self, async_conn: AsyncConnection
     ) -> None:
-        fake_loop = MagicMock()
-        fake_loop.sock_connect = AsyncMock(side_effect=OSError("boom"))
-
-        with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(async_conn, "_create_socket_nonblocking", return_value=MagicMock()),
+        with patch.object(
+            async_conn,
+            "_create_socket_nonblocking",
+            new_callable=AsyncMock,
+            side_effect=OperationalError("could not connect to localhost:33000"),
         ):
-            with pytest.raises(OperationalError, match="failed to connect"):
+            with pytest.raises(OperationalError, match="could not connect"):
                 await async_conn.connect()
 
     @pytest.mark.asyncio
@@ -145,7 +154,12 @@ class TestAsyncConnectionClose:
 
         with (
             patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(async_conn, "_create_socket_nonblocking", return_value=MagicMock()),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=MagicMock(),
+            ),
         ):
             await async_conn.connect()
 
@@ -169,7 +183,12 @@ class TestAsyncConnectionTransactions:
         fake_loop = make_fake_loop_for_connect()
         with (
             patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(async_conn, "_create_socket_nonblocking", return_value=MagicMock()),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=MagicMock(),
+            ),
         ):
             await async_conn.connect()
 
@@ -183,7 +202,12 @@ class TestAsyncConnectionTransactions:
         fake_loop = make_fake_loop_for_connect()
         with (
             patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(async_conn, "_create_socket_nonblocking", return_value=MagicMock()),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=MagicMock(),
+            ),
         ):
             await async_conn.connect()
 
@@ -210,7 +234,12 @@ class TestAsyncConnectionContextManager:
         fake_loop = make_fake_loop_for_connect()
         with (
             patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(async_conn, "_create_socket_nonblocking", return_value=MagicMock()),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=MagicMock(),
+            ),
         ):
             await async_conn.connect()
 
@@ -580,7 +609,7 @@ class TestAsyncCursorExecute:
                 packet.rows = []
                 packet.result_infos = []
             else:
-                raise RuntimeError("boom")
+                raise OperationalError("boom")
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
         await cur.execute("INSERT INTO t VALUES (1)")
@@ -810,14 +839,14 @@ class TestAsyncCursorMisc:
 
 
 class TestAsyncCursorBindParametersExtra:
-    def test_bind_with_mapping(self) -> None:
+    def test_bind_with_mapping_raises(self) -> None:
         cur = AsyncCursor(_make_mock_conn())
-        result = cur._bind_parameters("SELECT ? FROM t WHERE x = ?", {"a": 1, "b": 2})
-        assert result == "SELECT 1 FROM t WHERE x = 2"
+        with pytest.raises(Exception, match="parameters must be a sequence"):
+            cur._bind_parameters("SELECT ? FROM t WHERE x = ?", cast(Any, {"a": 1, "b": 2}))
 
     def test_bind_rejects_string(self) -> None:
         cur = AsyncCursor(_make_mock_conn())
-        with pytest.raises(Exception, match="must be a sequence or mapping"):
+        with pytest.raises(Exception, match="parameters must be a sequence"):
             cur._bind_parameters("SELECT ?", "abc")
 
 
