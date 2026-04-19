@@ -13,6 +13,8 @@ async def connect(
     database: str = "",
     user: str = "dba",
     password: str = "",  # nosec B107 — PEP 249 default empty password
+    decode_collections: bool = False,
+    json_deserializer: Any = None,
     **kwargs: Any,
 ) -> AsyncConnection:
     """Create a new async database connection.
@@ -36,6 +38,8 @@ async def connect(
         database=database,
         user=user,
         password=password,
+        decode_collections=decode_collections,
+        json_deserializer=json_deserializer,
         **kwargs,
     )
     await conn.connect()

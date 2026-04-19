@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import Any, Sequence
 
 from pycubrid.constants import CUBRIDStatementType
-from pycubrid.exceptions import InterfaceError, ProgrammingError
+from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
 from pycubrid.protocol import (
     BatchExecutePacket,
     CloseQueryPacket,
@@ -16,16 +16,13 @@ from pycubrid.protocol import (
     PrepareAndExecutePacket,
 )
 
-if TYPE_CHECKING:
-    from pycubrid.aio.connection import AsyncConnection
-
 DescriptionItem = tuple[str, int, None, None, int, int, bool]
 
 
 class AsyncCursor:
     """Async database cursor implementing a DB-API 2.0–like interface."""
 
-    def __init__(self, connection: AsyncConnection) -> None:
+    def __init__(self, connection: Any) -> None:
         self._connection = connection
         self._closed = False
         self._description: tuple[DescriptionItem, ...] | None = None
@@ -38,8 +35,8 @@ class AsyncCursor:
         self._statement_type: int = 0
         self._total_tuple_count: int = 0
         self._lastrowid: int | None = None
+        self._fetch_size: int = connection._fetch_size
         self._timing = connection._timing
-        self._connection._cursors.add(self)
 
     @property
     def description(self) -> tuple[DescriptionItem, ...] | None:
@@ -66,19 +63,21 @@ class AsyncCursor:
     async def close(self) -> None:
         if self._closed:
             return
-
-        if self._query_handle is not None:
-            self._connection._ensure_connected()
-            await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+        try:
+            if self._query_handle is not None:
+                self._connection._ensure_connected()
+                await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+        except (InterfaceError, OperationalError, OSError):
+            pass
+        finally:
             self._query_handle = None
-
-        self._closed = True
-        self._connection._cursors.discard(self)
+            self._closed = True
+            self._connection._cursors.discard(self)
 
     async def execute(
         self,
         operation: str,
-        parameters: Sequence[Any] | Mapping[str, Any] | None = None,
+        parameters: Sequence[Any] | None = None,
     ) -> AsyncCursor:
         self._check_closed()
         self._connection._ensure_connected()
@@ -96,7 +95,13 @@ class AsyncCursor:
         if parameters is not None:
             sql = self._bind_parameters(operation, parameters)
 
-        packet = PrepareAndExecutePacket(sql=sql, auto_commit=self._connection.autocommit)
+        packet = PrepareAndExecutePacket(
+            sql=sql,
+            auto_commit=self._connection.autocommit,
+            protocol_version=self._connection._protocol_version,
+            decode_collections=self._connection._decode_collections,
+            json_deserializer=self._connection._json_deserializer,
+        )
         await self._connection._send_and_receive(packet)
 
         self._query_handle = packet.query_handle
@@ -121,7 +126,7 @@ class AsyncCursor:
                 await self._connection._send_and_receive(lid_packet)
                 if lid_packet.last_insert_id:
                     self._lastrowid = int(lid_packet.last_insert_id)
-            except Exception:
+            except (InterfaceError, OperationalError, OSError, TypeError, ValueError):
                 self._lastrowid = None
 
         if _timing is not None:
@@ -132,7 +137,7 @@ class AsyncCursor:
     async def executemany(
         self,
         operation: str,
-        seq_of_parameters: Sequence[Sequence[Any] | Mapping[str, Any]],
+        seq_of_parameters: Sequence[Sequence[Any]],
     ) -> AsyncCursor:
         self._check_closed()
         if not seq_of_parameters:
@@ -160,6 +165,7 @@ class AsyncCursor:
 
         if auto_commit is None:
             auto_commit = self._connection.autocommit
+        assert auto_commit is not None
 
         packet = BatchExecutePacket(
             sql_list=sql_list,
@@ -241,6 +247,10 @@ class AsyncCursor:
         await self.execute(sql, parameters)
         return parameters
 
+    async def nextset(self) -> None:
+        self._check_closed()
+        return None
+
     def __aiter__(self) -> AsyncCursor:
         return self
 
@@ -282,9 +292,11 @@ class AsyncCursor:
         packet = FetchPacket(
             self._query_handle,
             self._row_index,
-            fetch_size=100,
+            fetch_size=self._fetch_size,
             columns=self._columns,
             statement_type=self._statement_type,
+            decode_collections=self._connection._decode_collections,
+            json_deserializer=self._connection._json_deserializer,
         )
         await self._connection._send_and_receive(packet)
 
@@ -300,16 +312,12 @@ class AsyncCursor:
     def _bind_parameters(
         self,
         operation: str,
-        parameters: Sequence[Any] | Mapping[str, Any],
+        parameters: Sequence[Any],
     ) -> str:
-        if isinstance(parameters, Mapping):
-            values = list(parameters.values())
-        elif isinstance(parameters, Sequence) and not isinstance(
-            parameters, (str, bytes, bytearray)
-        ):
+        if isinstance(parameters, Sequence) and not isinstance(parameters, (str, bytes, bytearray)):
             values = list(parameters)
         else:
-            raise ProgrammingError("parameters must be a sequence or mapping")
+            raise ProgrammingError("parameters must be a sequence")
 
         parts = operation.split("?")
         placeholder_count = len(parts) - 1
@@ -331,7 +339,9 @@ class AsyncCursor:
         if isinstance(value, bool):
             return "1" if value else "0"
         if isinstance(value, str):
-            return "'%s'" % value.replace("'", "''")
+            return self._escape_string(
+                value, no_backslash_escapes=self._connection._no_backslash_escapes
+            )
         if isinstance(value, bytes):
             return "X'%s'" % value.hex()
         if isinstance(value, datetime.datetime):
@@ -349,6 +359,18 @@ class AsyncCursor:
         if isinstance(value, (int, float)):
             return str(value)
         raise ProgrammingError("unsupported parameter type")
+
+    @staticmethod
+    def _escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
+        if "\x00" in value:
+            raise ProgrammingError("string parameter contains null byte")
+        if no_backslash_escapes:
+            return "'%s'" % value.replace("'", "''")
+        escaped = value.replace("\\", "\\\\").replace("'", "''")
+        for ch in ("\r", "\n", "\x1a"):
+            if ch in escaped:
+                escaped = escaped.replace(ch, "\\" + ch)
+        return "'%s'" % escaped
 
     def _build_description(
         self, columns: list[ColumnMetaData]

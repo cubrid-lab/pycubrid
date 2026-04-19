@@ -5,10 +5,10 @@ from __future__ import annotations
 import datetime
 import time
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 from .constants import CUBRIDStatementType
-from .exceptions import InterfaceError, ProgrammingError
+from .exceptions import InterfaceError, OperationalError, ProgrammingError
 from .protocol import (
     BatchExecutePacket,
     CloseQueryPacket,
@@ -42,8 +42,8 @@ class Cursor:
         self._statement_type: int = 0
         self._total_tuple_count: int = 0
         self._lastrowid: int | None = None
+        self._fetch_size: int = connection._fetch_size
         self._timing = connection._timing
-        self._connection._cursors.add(self)
 
     @property
     def description(self) -> tuple[DescriptionItem, ...] | None:
@@ -76,19 +76,21 @@ class Cursor:
         """Close the cursor and release the active query handle if present."""
         if self._closed:
             return
-
-        if self._query_handle is not None:
-            self._connection._ensure_connected()
-            self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+        try:
+            if self._query_handle is not None:
+                self._connection._ensure_connected()
+                self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+        except (InterfaceError, OperationalError, OSError):
+            pass
+        finally:
             self._query_handle = None
-
-        self._closed = True
-        self._connection._cursors.discard(self)
+            self._closed = True
+            self._connection._cursors.discard(self)
 
     def execute(
         self,
         operation: str,
-        parameters: Sequence[Any] | Mapping[str, Any] | None = None,
+        parameters: Sequence[Any] | None = None,
     ) -> Cursor:
         """Prepare and execute a SQL statement."""
         self._check_closed()
@@ -138,7 +140,7 @@ class Cursor:
                 self._connection._send_and_receive(lid_packet)
                 if lid_packet.last_insert_id:
                     self._lastrowid = int(lid_packet.last_insert_id)
-            except Exception:
+            except (InterfaceError, OperationalError, OSError, TypeError, ValueError):
                 self._lastrowid = None
 
         if _timing is not None:
@@ -149,7 +151,7 @@ class Cursor:
     def executemany(
         self,
         operation: str,
-        seq_of_parameters: Sequence[Sequence[Any] | Mapping[str, Any]],
+        seq_of_parameters: Sequence[Sequence[Any]],
     ) -> Cursor:
         """Execute the same operation repeatedly with multiple parameter sets.
 
@@ -178,7 +180,7 @@ class Cursor:
     def _executemany_loop(
         self,
         operation: str,
-        seq_of_parameters: Sequence[Sequence[Any] | Mapping[str, Any]],
+        seq_of_parameters: Sequence[Sequence[Any]],
     ) -> Cursor:
         """Fallback per-row execution loop (used for SELECT in executemany)."""
         total_rowcount = 0
@@ -293,6 +295,10 @@ class Cursor:
         self.execute(sql, parameters)
         return parameters
 
+    def nextset(self) -> None:
+        self._check_closed()
+        return None
+
     def __iter__(self) -> Cursor:
         """Return the cursor itself as an iterator over rows."""
         return self
@@ -337,7 +343,7 @@ class Cursor:
         packet = FetchPacket(
             self._query_handle,
             self._row_index,
-            fetch_size=100,
+            fetch_size=self._fetch_size,
             columns=self._columns,
             statement_type=self._statement_type,
             decode_collections=self._connection._decode_collections,
@@ -357,16 +363,12 @@ class Cursor:
     def _bind_parameters(
         self,
         operation: str,
-        parameters: Sequence[Any] | Mapping[str, Any],
+        parameters: Sequence[Any],
     ) -> str:
-        if isinstance(parameters, Mapping):
-            values = list(parameters.values())
-        elif isinstance(parameters, Sequence) and not isinstance(
-            parameters, (str, bytes, bytearray)
-        ):
+        if isinstance(parameters, Sequence) and not isinstance(parameters, (str, bytes, bytearray)):
             values = list(parameters)
         else:
-            raise ProgrammingError("parameters must be a sequence or mapping")
+            raise ProgrammingError("parameters must be a sequence")
 
         parts = operation.split("?")
         placeholder_count = len(parts) - 1

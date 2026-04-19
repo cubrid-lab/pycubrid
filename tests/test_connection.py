@@ -71,13 +71,13 @@ def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
 def socket_queue(monkeypatch: pytest.MonkeyPatch) -> list[MagicMock]:
     queue: list[MagicMock] = []
 
-    def fake_socket(*args: object, **kwargs: object) -> MagicMock:
+    def fake_create_connection(*args: object, **kwargs: object) -> MagicMock:
         del args, kwargs
         if not queue:
             raise AssertionError("socket queue is empty")
         return queue.pop(0)
 
-    monkeypatch.setattr("socket.socket", fake_socket)
+    monkeypatch.setattr("socket.create_connection", fake_create_connection)
     return queue
 
 
@@ -122,7 +122,7 @@ class TestConnectionEstablishment:
         assert conn._connected is True
         assert conn._session_id == 777
         assert conn._cas_info == b"\x01\x01\x02\x03"
-        assert sock.connect.call_args[0][0] == ("localhost", 33000)
+        assert sock.setsockopt.call_count == 2
 
     def test_connect_with_port_redirection(self, socket_queue: list[MagicMock]) -> None:
         first_sock = make_socket([build_handshake_response(33100)])
@@ -134,11 +134,11 @@ class TestConnectionEstablishment:
 
         assert conn._connected is True
         assert first_sock.close.called
-        assert second_sock.connect.call_args[0][0] == ("localhost", 33100)
+        assert second_sock.setsockopt.call_count == 2
 
     def test_connect_failure_raises_operational_error(self, socket_queue: list[MagicMock]) -> None:
         sock = MagicMock()
-        sock.connect.side_effect = OSError("boom")
+        sock.setsockopt.side_effect = OSError("boom")
         socket_queue.append(sock)
 
         with pytest.raises(OperationalError, match="failed to connect"):
@@ -151,7 +151,26 @@ class TestConnectionEstablishment:
 
         Connection("localhost", 33000, "testdb", "dba", "", connect_timeout=1.5)
 
-        sock.settimeout.assert_called_once_with(1.5)
+        sock.settimeout.assert_called_once_with(None)
+
+    def test_read_timeout_applied(self, socket_queue: list[MagicMock]) -> None:
+        open_db = build_open_db_response()
+        sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
+        socket_queue.append(sock)
+
+        conn = Connection("localhost", 33000, "testdb", "dba", "", read_timeout=5.0)
+
+        assert conn._read_timeout == 5.0
+        sock.settimeout.assert_called_once_with(5.0)
+
+    def test_fetch_size_is_stored(self, socket_queue: list[MagicMock]) -> None:
+        open_db = build_open_db_response()
+        sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
+        socket_queue.append(sock)
+
+        conn = Connection("localhost", 33000, "testdb", "dba", "", fetch_size=37)
+
+        assert conn._fetch_size == 37
 
     def test_connect_no_op_when_already_connected(self, socket_queue: list[MagicMock]) -> None:
         conn, _ = make_connected_connection(socket_queue)

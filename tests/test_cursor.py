@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import datetime
 from decimal import Decimal
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.cursor import Cursor
-from pycubrid.exceptions import InterfaceError, ProgrammingError
+from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
 from pycubrid.protocol import (
     BatchExecutePacket,
     CloseQueryPacket,
@@ -72,7 +73,7 @@ def test_constructor_initial_state(mock_connection: MagicMock) -> None:
     assert cur.arraysize == 1
     assert cur.lastrowid is None
     assert cur._query_handle is None
-    assert cur in mock_connection._cursors
+    assert cur not in mock_connection._cursors
 
 
 def test_arraysize_setter_and_validation(cursor: Cursor) -> None:
@@ -153,7 +154,7 @@ def test_execute_insert_lastrowid_failure_is_ignored(
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(packet, stmt_type=CUBRIDStatementType.INSERT, result_count=1)
         elif isinstance(packet, GetLastInsertIdPacket):
-            raise RuntimeError("no id")
+            raise OperationalError("no id")
         return packet
 
     mock_connection._send_and_receive.side_effect = send
@@ -214,20 +215,9 @@ def test_execute_binds_sequence_parameters_all_supported_types(
     ]
 
 
-def test_execute_binds_mapping_parameters(cursor: Cursor, mock_connection: MagicMock) -> None:
-    captured_sql: list[str] = []
-
-    def send(packet: object) -> object:
-        if isinstance(packet, PrepareAndExecutePacket):
-            captured_sql.append(packet.sql)
-            _set_prepare_packet(
-                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
-            )
-        return packet
-
-    mock_connection._send_and_receive.side_effect = send
-    cursor.execute("SELECT ?, ?", {"a": 1, "b": "x"})
-    assert captured_sql == ["SELECT 1, 'x'"]
+def test_execute_rejects_mapping_parameters(cursor: Cursor) -> None:
+    with pytest.raises(ProgrammingError, match="parameters must be a sequence"):
+        cursor.execute("SELECT ?", cast(Any, {"a": 1}))
 
 
 def test_execute_parameter_count_mismatch_raises(cursor: Cursor) -> None:
@@ -236,7 +226,7 @@ def test_execute_parameter_count_mismatch_raises(cursor: Cursor) -> None:
 
 
 def test_execute_unsupported_parameter_container_raises(cursor: Cursor) -> None:
-    with pytest.raises(ProgrammingError, match="sequence or mapping"):
+    with pytest.raises(ProgrammingError, match="parameters must be a sequence"):
         cursor.execute("SELECT ?", "x")
 
 

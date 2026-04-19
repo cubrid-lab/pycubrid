@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import socket
 import struct
@@ -24,7 +25,6 @@ from pycubrid.protocol import (
 )
 
 if TYPE_CHECKING:
-    from pycubrid.aio.cursor import AsyncCursor
     from pycubrid.timing import TimingStats
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class AsyncConnection:
         database: str,
         user: str,
         password: str,
+        fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
         self._host = host
@@ -51,6 +52,15 @@ class AsyncConnection:
         self._user = user
         self._password = password
         self._connect_timeout = kwargs.get("connect_timeout")
+        self._read_timeout = kwargs.get("read_timeout")
+        self._fetch_size = fetch_size
+        self._decode_collections: bool = kwargs.get("decode_collections", False)
+        self._json_deserializer: Any = kwargs.get("json_deserializer", None)
+        self._no_backslash_escapes: bool = kwargs.get("no_backslash_escapes", False)
+        if self._json_deserializer is not None and not callable(self._json_deserializer):
+            raise TypeError("json_deserializer must be callable or None")
+        if self._json_deserializer is json.loads:
+            self._json_deserializer = json.loads
 
         self._timing: TimingStats | None = None
         _enable_timing = kwargs.get("enable_timing")
@@ -72,7 +82,7 @@ class AsyncConnection:
         self._cas_info: bytes | bytearray = b"\x00\x00\x00\x00"
         self._session_id = 0
         self._autocommit = False
-        self._cursors: set[AsyncCursor] = set()
+        self._cursors: set[Any] = set()
         self._protocol_version: int = 1
 
     async def connect(self) -> None:
@@ -87,8 +97,7 @@ class AsyncConnection:
         try:
             loop = asyncio.get_running_loop()
 
-            handshake_socket = self._create_socket_nonblocking(self._host, self._port)
-            await loop.sock_connect(handshake_socket, (self._host, self._port))
+            handshake_socket = await self._create_socket_nonblocking(self._host, self._port)
 
             client_info_packet = ClientInfoExchangePacket()
             await loop.sock_sendall(handshake_socket, client_info_packet.write())
@@ -97,12 +106,8 @@ class AsyncConnection:
 
             if client_info_packet.new_connection_port > 0:
                 handshake_socket.close()
-                self._socket = self._create_socket_nonblocking(
+                self._socket = await self._create_socket_nonblocking(
                     self._host, client_info_packet.new_connection_port
-                )
-                await loop.sock_connect(
-                    self._socket,
-                    (self._host, client_info_packet.new_connection_port),
                 )
             else:
                 self._socket = handshake_socket
@@ -177,7 +182,7 @@ class AsyncConnection:
         await self._send_and_receive(RollbackPacket())
         self._invalidate_query_handles()
 
-    def cursor(self) -> AsyncCursor:
+    def cursor(self) -> Any:
         """Create and return a new async cursor bound to this connection."""
         self._ensure_connected()
         from pycubrid.aio.cursor import AsyncCursor
@@ -249,12 +254,30 @@ class AsyncConnection:
 
     # -- internal I/O --------------------------------------------------------
 
-    def _create_socket_nonblocking(self, host: str, port: int) -> socket.socket:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        sock.setblocking(False)
-        return sock
+    async def _create_socket_nonblocking(self, host: str, port: int) -> socket.socket:
+        infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not infos:
+            raise OperationalError(f"could not resolve address: {host}:{port}")
+
+        last_exc: Exception | None = None
+        for af, socktype, proto, _canonname, sa in infos:
+            sock = socket.socket(af, socktype, proto)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            sock.setblocking(False)
+            try:
+                loop = asyncio.get_running_loop()
+                coro = loop.sock_connect(sock, sa)
+                if self._connect_timeout is not None:
+                    await asyncio.wait_for(coro, timeout=self._connect_timeout)
+                else:
+                    await coro
+                return sock
+            except (OSError, asyncio.TimeoutError) as exc:
+                last_exc = exc
+                sock.close()
+
+        raise OperationalError(f"could not connect to {host}:{port}") from last_exc
 
     async def _send_and_receive(self, packet: Any) -> Any:
         await self._check_reconnect()
@@ -263,24 +286,32 @@ class AsyncConnection:
 
         loop = asyncio.get_running_loop()
         try:
-            request_data = packet.write(self._cas_info)
-            await loop.sock_sendall(self._socket, request_data)
-
-            data_length_bytes = await self._recv_exact_async(
-                loop, self._socket, DataSize.DATA_LENGTH
-            )
-            data_length = struct.unpack(">i", data_length_bytes)[0]
-            response_body = await self._recv_exact_async(
-                loop, self._socket, data_length + DataSize.CAS_INFO
-            )
-
-            self._cas_info = response_body[: DataSize.CAS_INFO]
-            packet.parse(response_body)
-            return packet
+            coro = self._do_send_and_receive(loop, packet)
+            if self._read_timeout is not None:
+                return await asyncio.wait_for(coro, timeout=self._read_timeout)
+            return await coro
+        except asyncio.TimeoutError:
+            self._safe_close_socket()
+            self._connected = False
+            raise OperationalError("read timeout") from None
         except OSError as exc:
             self._safe_close_socket()
             self._connected = False
             raise OperationalError("socket communication failed") from exc
+
+    async def _do_send_and_receive(self, loop: asyncio.AbstractEventLoop, packet: Any) -> Any:
+        request_data = packet.write(self._cas_info)
+        await loop.sock_sendall(self._socket, request_data)
+
+        data_length_bytes = await self._recv_exact_async(loop, self._socket, DataSize.DATA_LENGTH)
+        data_length = struct.unpack(">i", data_length_bytes)[0]
+        response_body = await self._recv_exact_async(
+            loop, self._socket, data_length + DataSize.CAS_INFO
+        )
+
+        self._cas_info = response_body[: DataSize.CAS_INFO]
+        packet.parse(response_body)
+        return packet
 
     async def _recv_exact_async(
         self,
