@@ -334,11 +334,11 @@ class TestCASProtocol:
         assert CASProtocol.PROTO_INDICATOR == 0x40
 
     def test_version(self) -> None:
-        assert CASProtocol.VERSION == 7
+        assert CASProtocol.VERSION == 8
 
     def test_cas_version(self) -> None:
-        assert CASProtocol.CAS_VERSION == 0x40 | 7
-        assert CASProtocol.CAS_VERSION == 0x47
+        assert CASProtocol.CAS_VERSION == 0x40 | 8
+        assert CASProtocol.CAS_VERSION == 0x48
 
 
 # ---------------------------------------------------------------------------

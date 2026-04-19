@@ -107,7 +107,13 @@ class Cursor:
         if parameters is not None:
             sql = self._bind_parameters(operation, parameters)
 
-        packet = PrepareAndExecutePacket(sql=sql, auto_commit=self._connection.autocommit)
+        packet = PrepareAndExecutePacket(
+            sql=sql,
+            auto_commit=self._connection.autocommit,
+            protocol_version=self._connection._protocol_version,
+            decode_collections=self._connection._decode_collections,
+            json_deserializer=self._connection._json_deserializer,
+        )
         self._connection._send_and_receive(packet)
 
         self._query_handle = packet.query_handle
@@ -334,6 +340,8 @@ class Cursor:
             fetch_size=100,
             columns=self._columns,
             statement_type=self._statement_type,
+            decode_collections=self._connection._decode_collections,
+            json_deserializer=self._connection._json_deserializer,
         )
         self._connection._send_and_receive(packet)
 
@@ -377,7 +385,9 @@ class Cursor:
         if isinstance(value, bool):
             return "1" if value else "0"
         if isinstance(value, str):
-            return "'%s'" % value.replace("'", "''")
+            return self._escape_string(
+                value, no_backslash_escapes=self._connection._no_backslash_escapes
+            )
         if isinstance(value, bytes):
             return "X'%s'" % value.hex()
         if isinstance(value, datetime.datetime):
@@ -392,6 +402,18 @@ class Cursor:
         if isinstance(value, (int, float)):
             return str(value)
         raise ProgrammingError("unsupported parameter type")
+
+    @staticmethod
+    def _escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
+        if "\x00" in value:
+            raise ProgrammingError("string parameter contains null byte")
+        if no_backslash_escapes:
+            return "'%s'" % value.replace("'", "''")
+        escaped = value.replace("\\", "\\\\").replace("'", "''")
+        for ch in ("\r", "\n", "\x1a"):
+            if ch in escaped:
+                escaped = escaped.replace(ch, "\\" + ch)
+        return "'%s'" % escaped
 
     def _build_description(
         self, columns: list[ColumnMetaData]

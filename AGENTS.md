@@ -9,9 +9,9 @@ It communicates with CUBRID via the CAS wire protocol over TCP/IP, requiring no 
 or native CCI library.
 
 - **Language**: Python 3.10+
-- **Protocol**: CUBRID CAS binary protocol (version 7, since CUBRID 10.0.0)
+- **Protocol**: CUBRID CAS binary protocol (version 8, since CUBRID 10.2+)
 - **License**: MIT
-- **Version**: 0.6.0
+- **Version**: 1.1.0
 
 ## Architecture
 

@@ -79,6 +79,7 @@ _TIMESTAMPTZ = 29
 _TIMESTAMPLTZ = 30
 _DATETIMETZ = 31
 _DATETIMELTZ = 32
+_JSON = 34
 
 # ---------------------------------------------------------------------------
 # PEP 249 Type Objects
@@ -86,9 +87,9 @@ _DATETIMELTZ = 32
 
 STRING = DBAPIType(
     "STRING",
-    frozenset({_CHAR, _STRING, _NCHAR, _VARNCHAR, _ENUM, _CLOB}),
+    frozenset({_CHAR, _STRING, _NCHAR, _VARNCHAR, _ENUM, _CLOB, _JSON}),
 )
-"""Describes string-based columns (CHAR, VARCHAR, NCHAR, VARNCHAR, ENUM, CLOB)."""
+"""Describes string-based columns (CHAR, VARCHAR, NCHAR, VARNCHAR, ENUM, CLOB, JSON)."""
 
 BINARY = DBAPIType(
     "BINARY",

@@ -27,6 +27,34 @@ CUBRID_ERROR_CODES: dict[int, str] = {
     -21003: "Connection refused",
 }
 
+# Standard SQLSTATE codes mapped from CUBRID CAS error codes.
+# Uses ISO/ANSI SQL standard states for interoperability.
+CAS_ERROR_TO_SQLSTATE: dict[int, str] = {
+    -1: "HY000",  # General DBMS error
+    -2: "HY000",  # Internal error
+    -3: "HY001",  # Memory allocation error
+    -4: "08S01",  # Communication link failure
+    -6: "25000",  # Invalid transaction state
+    -7: "22023",  # Invalid parameter value
+    -8: "22018",  # Invalid character value for cast
+    -9: "07009",  # Invalid descriptor index
+    -10: "07001",  # Wrong number of parameters
+    -11: "24000",  # Invalid cursor state
+    -12: "25000",  # Invalid transaction state
+    -14: "24000",  # Invalid cursor position
+    -394: "42S22",  # Column not found
+    -493: "42S02",  # Table not found
+    -494: "42000",  # Syntax error
+    -670: "23000",  # Integrity constraint violation (unique)
+    -671: "23000",  # Integrity constraint violation (FK)
+    -21001: "28000",  # Invalid authorization
+    -21003: "08004",  # Connection rejected
+}
+
 
 def get_error_description(code: int) -> str | None:
     return CUBRID_ERROR_CODES.get(code)
+
+
+def get_sqlstate(code: int) -> str | None:
+    return CAS_ERROR_TO_SQLSTATE.get(code)

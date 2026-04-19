@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import socket
 import struct
 import time
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from .constants import CCIDbParam, DataSize
 from .exceptions import InterfaceError, OperationalError
 from .protocol import (
+    CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
     CommitPacket,
@@ -39,6 +41,8 @@ class Connection:
         user: str,
         password: str,
         autocommit: bool = False,
+        decode_collections: bool = False,
+        json_deserializer: Any = None,
         **kwargs: Any,
     ) -> None:
         """Initialize and connect to a CUBRID broker.
@@ -58,6 +62,13 @@ class Connection:
         self._user = user
         self._password = password
         self._connect_timeout = kwargs.get("connect_timeout")
+        self._decode_collections = decode_collections
+        self._json_deserializer = json_deserializer
+        self._no_backslash_escapes = kwargs.get("no_backslash_escapes", False)
+        if self._json_deserializer is not None and not callable(self._json_deserializer):
+            raise TypeError("json_deserializer must be callable or None")
+        if self._json_deserializer is json.loads:
+            self._json_deserializer = json.loads
 
         self._timing: TimingStats | None = None
         _enable_timing = kwargs.get("enable_timing")
@@ -253,6 +264,43 @@ class Connection:
         packet = self._send_and_receive(GetLastInsertIdPacket())
         result: str = packet.last_insert_id
         return result
+
+    def ping(self, reconnect: bool = True) -> bool:
+        """Check if the CAS broker connection is alive.
+
+        Uses the native ``CHECK_CAS`` function code (FC=32) which
+        performs a lightweight network-level ping without executing SQL.
+
+        Args:
+            reconnect: If ``True`` and the connection is dead, attempt
+                to reconnect before returning ``False``.
+
+        Returns:
+            ``True`` if the connection is alive, ``False`` otherwise.
+        """
+        if not self._connected:
+            if reconnect:
+                try:
+                    self._invalidate_query_handles()
+                    self.connect()
+                    return True
+                except Exception:
+                    return False
+            return False
+        try:
+            packet = self._send_and_receive(CheckCasPacket())
+            return packet.response_code >= 0
+        except Exception:
+            if reconnect:
+                try:
+                    self._safe_close_socket()
+                    self._connected = False
+                    self._invalidate_query_handles()
+                    self.connect()
+                    return True
+                except Exception:
+                    return False
+            return False
 
     def create_lob(self, lob_type: int) -> Any:
         """Create a new LOB object on the server."""
