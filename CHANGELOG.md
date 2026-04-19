@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Native `Connection.ping()`** using CHECK_CAS (FC=32) — lightweight CAS-level health check without SQL execution (#70)
+- **`errno`/`sqlstate` on `DatabaseError`** — all protocol errors now populate structured error metadata with standard SQLSTATE codes (#71)
+- **JSON type decoding** — opt-in `json_deserializer` parameter on `connect()`, CAS protocol bumped to v8, `CUBRIDDataType.JSON = 34` (#72)
+- **Collection type decoding** — opt-in `decode_collections` parameter on `connect()`, SET → frozenset, MULTISET → list, SEQUENCE → list (#73)
+- **SQLSTATE mapping table** (`error_codes.CAS_ERROR_TO_SQLSTATE`) for 19 common CUBRID error codes
+
+### Security
+- **Hardened parameter binding** — escape backslashes, reject null bytes, escape control characters (\r, \n, \x1a) in client-side SQL interpolation (#74)
+
+### Changed
+- CAS protocol version bumped from 7 to 8 (enables native JSON type recognition)
+
 ## [1.1.0] - 2026-04-18
 
 ### Added
@@ -25,7 +40,7 @@ breaking changes will only occur in major version bumps (2.0+).
 
 - **Python**: 3.10, 3.11, 3.12, 3.13
 - **CUBRID**: 11.2, 11.4
-- **Protocol**: CAS wire protocol version 7 (since CUBRID 10.0.0)
+- **Protocol**: CAS wire protocol version 8 (since CUBRID 10.2+)
 
 ### Fixed
 - Resolve all mypy errors: explicit `str` return types in `get_server_version`

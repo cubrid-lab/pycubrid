@@ -103,6 +103,7 @@ class CUBRIDDataType(IntEnum):
     TIMESTAMPLTZ = 30
     DATETIMETZ = 31
     DATETIMELTZ = 32
+    JSON = 34
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +389,7 @@ class CASProtocol:
     MAGIC_STRING: str = "CUBRK"
     CLIENT_JDBC: int = 3
     PROTO_INDICATOR: int = 0x40
-    VERSION: int = 7
+    VERSION: int = 8
     CAS_VERSION: int = PROTO_INDICATOR | VERSION
 
 

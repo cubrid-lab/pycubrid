@@ -356,6 +356,7 @@ class TestCursorTiming:
         conn._cas_info = b"\x01\x01\x02\x03"
         conn._cursors = set()
         conn._ensure_connected = MagicMock()
+        conn._no_backslash_escapes = False
         conn._timing = TimingStats()
 
         def send_and_receive(packet: object) -> object:
@@ -372,6 +373,7 @@ class TestCursorTiming:
         conn._cas_info = b"\x01\x01\x02\x03"
         conn._cursors = set()
         conn._ensure_connected = MagicMock()
+        conn._no_backslash_escapes = False
         conn._timing = None
 
         def send_and_receive(packet: object) -> object:

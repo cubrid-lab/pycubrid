@@ -28,6 +28,7 @@ def mock_connection() -> MagicMock:
     conn._cas_info = b"\x01\x01\x02\x03"
     conn._cursors = set()
     conn._ensure_connected = MagicMock()
+    conn._no_backslash_escapes = False
 
     def send_and_receive(packet: object) -> object:
         return packet

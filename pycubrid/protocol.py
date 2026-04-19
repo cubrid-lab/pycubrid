@@ -21,6 +21,7 @@ from .constants import (
     CUBRIDStatementType,
     DataSize,
 )
+from .error_codes import get_sqlstate
 from .exceptions import DatabaseError, IntegrityError, ProgrammingError
 from .packet import PacketReader, PacketWriter
 
@@ -70,14 +71,21 @@ class ResultInfo:
 def _raise_error(reader: PacketReader, response_length: int) -> None:
     """Parse an error response and raise the appropriate DB-API exception."""
     error_code, error_message = reader.read_error(response_length)
+    sqlstate = get_sqlstate(error_code)
     msg_lower = error_message.lower()
     if any(
         kw in msg_lower for kw in ("unique", "duplicate", "foreign key", "constraint violation")
     ):
-        raise IntegrityError(msg=error_message, code=error_code)
+        raise IntegrityError(
+            msg=error_message, code=error_code, errno=error_code, sqlstate=sqlstate or "23000"
+        )
     if any(kw in msg_lower for kw in ("syntax", "unknown class", "does not exist", "not found")):
-        raise ProgrammingError(msg=error_message, code=error_code)
-    raise DatabaseError(msg=error_message, code=error_code)
+        raise ProgrammingError(
+            msg=error_message, code=error_code, errno=error_code, sqlstate=sqlstate or "42000"
+        )
+    raise DatabaseError(
+        msg=error_message, code=error_code, errno=error_code, sqlstate=sqlstate or "HY000"
+    )
 
 
 def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[ColumnMetaData]:
@@ -142,6 +150,7 @@ _TYPE_METHOD_NAMES: dict[int, str] = {
     CUBRIDDataType.NCHAR: "_parse_null_terminated_string",
     CUBRIDDataType.VARNCHAR: "_parse_null_terminated_string",
     CUBRIDDataType.ENUM: "_parse_null_terminated_string",
+    CUBRIDDataType.JSON: "_parse_json",
     CUBRIDDataType.SHORT: "_parse_short",
     CUBRIDDataType.INT: "_parse_int",
     CUBRIDDataType.BIGINT: "_parse_long",
@@ -156,9 +165,9 @@ _TYPE_METHOD_NAMES: dict[int, str] = {
     CUBRIDDataType.OBJECT: "_parse_object",
     CUBRIDDataType.BIT: "_parse_bytes",
     CUBRIDDataType.VARBIT: "_parse_bytes",
-    CUBRIDDataType.SET: "_parse_bytes",
-    CUBRIDDataType.MULTISET: "_parse_bytes",
-    CUBRIDDataType.SEQUENCE: "_parse_bytes",
+    CUBRIDDataType.SET: "_parse_collection",
+    CUBRIDDataType.MULTISET: "_parse_collection",
+    CUBRIDDataType.SEQUENCE: "_parse_collection",
     CUBRIDDataType.BLOB: "read_blob",
     CUBRIDDataType.CLOB: "read_clob",
 }
@@ -171,10 +180,24 @@ def _resolve_reader(reader: PacketReader, col_type: int) -> Any:
     return reader._parse_bytes
 
 
+def _convert_collection_value(column_type: int, value: Any) -> Any:
+    if not isinstance(value, list):
+        return value
+    if column_type == CUBRIDDataType.SET:
+        try:
+            return frozenset(value)
+        except TypeError:
+            # Unhashable elements (e.g. dicts from JSON) — return as tuple.
+            return tuple(value)
+    if column_type in (CUBRIDDataType.MULTISET, CUBRIDDataType.SEQUENCE):
+        return value
+    return value
+
+
 def _read_value(reader: PacketReader, column_type: int, size: int) -> Any:
     if column_type == CUBRIDDataType.NULL:
         return None
-    return _resolve_reader(reader, column_type)(size)
+    return _convert_collection_value(column_type, _resolve_reader(reader, column_type)(size))
 
 
 def _parse_row_data(
@@ -217,7 +240,7 @@ def _parse_row_data(
             for i in range(ncols):
                 size = _parse_int()
                 if size > 0:
-                    row[i] = col_readers[i](size)
+                    row[i] = _convert_collection_value(col_types[i], col_readers[i](size))
         else:
             for i in range(ncols):
                 size = _parse_int()
@@ -231,7 +254,7 @@ def _parse_row_data(
                         continue
                 method_name = _get(ct)
                 if method_name is not None:
-                    row[i] = _getattr(reader, method_name)(size)
+                    row[i] = _convert_collection_value(ct, _getattr(reader, method_name)(size))
                 else:
                     row[i] = _parse_bytes(size)
         _rows_append(tuple(row))
@@ -335,10 +358,14 @@ class PrepareAndExecutePacket:
         sql: str,
         auto_commit: bool = False,
         protocol_version: int = CASProtocol.VERSION,
+        decode_collections: bool = False,
+        json_deserializer: Any = None,
     ) -> None:
         self.sql = sql
         self.auto_commit = auto_commit
         self.protocol_version = protocol_version
+        self.decode_collections = decode_collections
+        self.json_deserializer = json_deserializer
 
         self.response_code: int = 0
         self.query_handle: int = 0
@@ -375,7 +402,11 @@ class PrepareAndExecutePacket:
 
         ``data`` starts after the 4-byte DATA_LENGTH prefix.
         """
-        reader = PacketReader(data)
+        reader = PacketReader(
+            data,
+            decode_collections=self.decode_collections,
+            json_deserializer=self.json_deserializer,
+        )
         reader._skip_bytes(DataSize.CAS_INFO)
         self.response_code = reader._parse_int()
         if self.response_code < 0:
@@ -465,11 +496,15 @@ class ExecutePacket:
         statement_type: int,
         auto_commit: bool = False,
         protocol_version: int = CASProtocol.VERSION,
+        decode_collections: bool = False,
+        json_deserializer: Any = None,
     ) -> None:
         self.query_handle = query_handle
         self.statement_type = statement_type
         self.auto_commit = auto_commit
         self.protocol_version = protocol_version
+        self.decode_collections = decode_collections
+        self.json_deserializer = json_deserializer
 
         self.total_tuple_count: int = 0
         self.result_count: int = 0
@@ -500,7 +535,11 @@ class ExecutePacket:
         """Parse the execute response."""
         if columns is not None:
             self.columns = columns
-        reader = PacketReader(data)
+        reader = PacketReader(
+            data,
+            decode_collections=self.decode_collections,
+            json_deserializer=self.json_deserializer,
+        )
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -540,12 +579,16 @@ class FetchPacket:
         fetch_size: int = 100,
         columns: list[ColumnMetaData] | None = None,
         statement_type: int = CUBRIDStatementType.SELECT,
+        decode_collections: bool = False,
+        json_deserializer: Any = None,
     ) -> None:
         self.query_handle = query_handle
         self.current_tuple_count = current_tuple_count
         self.fetch_size = fetch_size
         self._columns = columns
         self._statement_type = statement_type
+        self.decode_collections = decode_collections
+        self.json_deserializer = json_deserializer
 
         self.tuple_count: int = 0
         self.rows: list[tuple[Any, ...]] = []
@@ -568,7 +611,11 @@ class FetchPacket:
         statement_type: int | None = None,
     ) -> None:
         """Parse the fetch response."""
-        reader = PacketReader(data)
+        reader = PacketReader(
+            data,
+            decode_collections=self.decode_collections,
+            json_deserializer=self.json_deserializer,
+        )
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -931,6 +978,39 @@ class GetDbParameterPacket:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
         self.value = reader._parse_int()
+
+
+class CheckCasPacket:
+    """Ping/health check the CAS broker connection (FC=32).
+
+    Uses the lightweight ``CHECK_CAS`` function code which verifies
+    CAS-to-DB server connectivity without executing SQL.  The official
+    JDBC driver uses the same mechanism in ``UConnection.check_cas()``.
+    """
+
+    def __init__(self) -> None:
+        self.response_code: int = 0
+
+    def write(self, cas_info: bytes) -> bytes:
+        """Serialize the check CAS request (function code only, no args)."""
+        writer = PacketWriter()
+        writer._write_byte(CASFunctionCode.CHECK_CAS)
+        return writer.finalize(cas_info)
+
+    def parse(self, data: bytes | bytearray) -> None:
+        """Parse the check CAS response.
+
+        ``response_code >= 0`` means the connection is alive.
+        ``response_code < 0`` means the CAS-to-DB link is broken.
+        """
+        reader = PacketReader(data)
+        reader._skip_bytes(DataSize.CAS_INFO)
+        # CHECK_CAS success may return an empty body (no int) or a zero int.
+        # Accept both: empty body → 0 (alive), otherwise parse the int.
+        if reader.bytes_remaining() >= DataSize.INT:
+            self.response_code = reader._parse_int()
+        else:
+            self.response_code = 0
 
 
 class SetDbParameterPacket:

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import datetime
+import json
 import struct
 from decimal import Decimal
+from typing import Any
 
 from .constants import CUBRIDDataType, DataSize
 
@@ -180,12 +182,45 @@ class PacketWriter:
         return len(self._buffer) - self._header_size
 
 
-class PacketReader:
-    __slots__ = ("_buffer", "_offset")
+_COLLECTION_ELEMENT_METHOD_NAMES: dict[int, str] = {
+    CUBRIDDataType.CHAR: "_parse_null_terminated_string",
+    CUBRIDDataType.STRING: "_parse_null_terminated_string",
+    CUBRIDDataType.NCHAR: "_parse_null_terminated_string",
+    CUBRIDDataType.VARNCHAR: "_parse_null_terminated_string",
+    CUBRIDDataType.ENUM: "_parse_null_terminated_string",
+    CUBRIDDataType.SHORT: "_parse_short",
+    CUBRIDDataType.INT: "_parse_int",
+    CUBRIDDataType.BIGINT: "_parse_long",
+    CUBRIDDataType.FLOAT: "_parse_float",
+    CUBRIDDataType.DOUBLE: "_parse_double",
+    CUBRIDDataType.MONETARY: "_parse_double",
+    CUBRIDDataType.NUMERIC: "_parse_numeric",
+    CUBRIDDataType.DATE: "_parse_date",
+    CUBRIDDataType.TIME: "_parse_time",
+    CUBRIDDataType.DATETIME: "_parse_datetime",
+    CUBRIDDataType.TIMESTAMP: "_parse_timestamp",
+    CUBRIDDataType.OBJECT: "_parse_object",
+    CUBRIDDataType.BIT: "_parse_bytes",
+    CUBRIDDataType.VARBIT: "_parse_bytes",
+    CUBRIDDataType.BLOB: "read_blob",
+    CUBRIDDataType.CLOB: "read_clob",
+}
 
-    def __init__(self, data: bytes | bytearray) -> None:
+
+class PacketReader:
+    __slots__ = ("_buffer", "_offset", "_decode_collections", "_json_deserializer")
+
+    def __init__(
+        self,
+        data: bytes | bytearray,
+        *,
+        decode_collections: bool = False,
+        json_deserializer: Any = None,
+    ) -> None:
         self._buffer: memoryview = memoryview(data)
         self._offset: int = 0
+        self._decode_collections: bool = decode_collections
+        self._json_deserializer: Any = json_deserializer
 
     def _parse_byte(self) -> int:
         value = self._buffer[self._offset]
@@ -260,6 +295,44 @@ class PacketReader:
     def _parse_numeric(self, size: int) -> Decimal:
         value = self._parse_null_terminated_string(size)
         return Decimal(value)
+
+    def _parse_json(self, size: int) -> Any:
+        value = self._parse_null_terminated_string(size)
+        if self._json_deserializer is None:
+            return value
+        if self._json_deserializer is json.loads:
+            return json.loads(value)
+        return self._json_deserializer(value)
+
+    def _parse_collection(self, size: int) -> object:
+        if not self._decode_collections:
+            return self._parse_bytes(size)
+
+        start_offset = self._offset
+        element_type = self._parse_byte()
+        element_count = self._parse_int()
+        if element_type in (
+            CUBRIDDataType.SET,
+            CUBRIDDataType.MULTISET,
+            CUBRIDDataType.SEQUENCE,
+        ):
+            self._offset = start_offset
+            return self._parse_bytes(size)
+
+        method_name = _COLLECTION_ELEMENT_METHOD_NAMES.get(element_type)
+        if method_name is None:
+            self._offset = start_offset
+            return self._parse_bytes(size)
+
+        parser = getattr(self, method_name)
+        values: list[object] = []
+        for _ in range(element_count):
+            element_size = self._parse_int()
+            if element_size <= 0:
+                values.append(None)
+                continue
+            values.append(parser(element_size))
+        return values
 
     def _parse_object(self, size: int = 0) -> str:
         page = self._parse_int()
