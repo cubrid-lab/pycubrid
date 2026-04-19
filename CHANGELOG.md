@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [1.2.0] - 2026-04-19
 
 ### Added
 - **Native `Connection.ping()`** using CHECK_CAS (FC=32) — lightweight CAS-level health check without SQL execution (#70)
@@ -12,12 +12,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **JSON type decoding** — opt-in `json_deserializer` parameter on `connect()`, CAS protocol bumped to v8, `CUBRIDDataType.JSON = 34` (#72)
 - **Collection type decoding** — opt-in `decode_collections` parameter on `connect()`, SET → frozenset, MULTISET → list, SEQUENCE → list (#73)
 - **SQLSTATE mapping table** (`error_codes.CAS_ERROR_TO_SQLSTATE`) for 19 common CUBRID error codes
+- **Async cursor parity** — sync and async cursors now share identical `_escape_string` and parameter binding logic (#76, #77)
+- **Timezone datetime parsing** — `DATETIMETZ`/`TIMESTAMPTZ` wire format decoding with IANA timezone keys (#78)
+- **`cursor.nextset()`** for PEP 249 completeness (#79)
+- **Configurable `fetch_size`** — pass `fetch_size=N` to `connect()` instead of hardcoded 100 (#81)
+- **Async `read_timeout`** — `asyncio.wait_for` wrapping in `_send_and_receive` (#82)
+- **Async dual-stack address fallback** — `getaddrinfo` iteration for IPv4/IPv6 in `_create_socket_nonblocking` (#83)
+- **`_format_parameter()` hardening** — reject `float('nan')`/`float('inf')` with `ProgrammingError`, `DATETIMETZ` literals for tz-aware datetime (IANA key preferred, UTC offset fallback), `bytearray` support alongside `bytes` (#74)
 
 ### Security
 - **Hardened parameter binding** — escape backslashes, reject null bytes, escape control characters (\r, \n, \x1a) in client-side SQL interpolation (#74)
 
+### Fixed
+- **Cursor registration dedup** — cursors no longer self-register in `__init__`; only `Connection.cursor()` registers (#76)
+- **`Cursor.close()` best-effort** — narrowed exception handling to `InterfaceError`/`OperationalError`/`OSError` only (#80)
+- **Sync `read_timeout`** — uses `socket.create_connection` for proper timeout enforcement
+- **Sync IPv6 dual-stack** — `create_connection` handles address fallback automatically
+- **Unreachable return removed** — dead `DATETIMETZ` return path in `_format_parameter()` cleaned up
+- **Test isolation** — `_CursorClass` global cache no longer leaks between unit/integration tests
+- **Benchmark `demodb` default** — changed to `testdb` matching Docker fixture
+
 ### Changed
 - CAS protocol version bumped from 7 to 8 (enables native JSON type recognition)
+- **BREAKING**: `_bind_parameters()` now only accepts `Sequence` (tuple/list) — `Mapping` (dict) parameter style removed. Use positional `?` parameters only.
 
 ## [1.1.0] - 2026-04-18
 
