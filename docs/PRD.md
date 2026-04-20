@@ -3,7 +3,7 @@
 ## 1. Overview
 
 **Project**: pycubrid
-**Current Version**: 0.5.0
+**Current Version**: 1.3.0
 **Status**: Production-ready
 **Repository**: [github.com/cubrid-labs/pycubrid](https://github.com/cubrid-labs/pycubrid)
 **License**: MIT
@@ -35,12 +35,12 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 - **Full PEP 249 (DB-API 2.0) compliance** — standard exception hierarchy, type objects, cursor interface
 - **Pure Python** — no C extensions, no compilation, works everywhere Python runs
 - **Direct CAS protocol** — speaks CUBRID's binary protocol natively over TCP
-- **471 offline tests** with **99.88% code coverage**
+- **770 offline tests / 811 total** with **97.29% code coverage**
 - **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis
 - **LOB support** — CLOB and BLOB handling via `create_lob()`
 - **Prepared statements** — server-side statement preparation and execution
 - **Batch operations** — `executemany()` and `executemany_batch()` for bulk inserts
-- **CI/CD** — Python 3.10–3.13 × CUBRID 11.2–11.4 matrix
+- **CI/CD** — Python 3.10–3.14 offline matrix plus anchored integration coverage on CUBRID 10.2–11.4
 
 ### 1.3 Success Criteria — Status
 
@@ -48,12 +48,12 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 |---|---|---|
 | Pure Python (no C extensions) | ✅ | ✅ `pip install pycubrid` |
 | PEP 249 (DB-API 2.0) compliant | ✅ | ✅ Full API compliance |
-| Offline tests (no live DB) | ✅ | ✅ 471 tests, 99.88% coverage |
+| Offline tests (no live DB) | ✅ | ✅ 770 tests, 97.29% coverage |
 | LOB (CLOB/BLOB) support | ✅ | ✅ `create_lob()`, read/write |
 | Prepared statements | ✅ | ✅ `cursor.execute(sql, params)` — uses CAS `PREPARE_AND_EXECUTE` |
-| CI/CD with version matrix | ✅ | ✅ Py 3.10–3.13 × CUBRID 11.2–11.4 |
+| CI/CD with version matrix | ✅ | ✅ Py 3.10–3.14 offline + anchored integration coverage for CUBRID 10.2–11.4 |
 | Publishable to PyPI | ✅ | ✅ Release workflow on tag |
-| ≥ 95% code coverage | ✅ | ✅ 99.88% (CI-enforced) |
+| ≥ 95% code coverage | ✅ | ✅ 97.29% (CI-enforced) |
 | Comprehensive documentation | ✅ | ✅ 6 guide files + README |
 | PEP 561 typed package | ✅ | ✅ `py.typed` marker |
 
@@ -126,6 +126,8 @@ Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`,
 - Context manager support (`with` statement)
 - Server version detection via `connection.get_server_version()`
 - `connection.close()` for explicit cleanup
+- `connection.ping()` for native CAS health checks
+- Async connection API via `pycubrid.aio.connect()`
 
 ### 3.2 Cursor Operations
 
@@ -135,6 +137,7 @@ Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`,
 - `fetchone()` / `fetchmany(size)` / `fetchall()` — result retrieval
 - `execute(sql, params)` — parameterized queries via CAS `PREPARE_AND_EXECUTE`
 - `callproc(procname, params)` — stored procedure calls
+- `nextset()` — DB-API compatibility method (returns `None`)
 - Iterator protocol — `for row in cursor`
 - Context manager — `with conn.cursor() as cur`
 - `description` attribute — column metadata after execute
@@ -149,7 +152,13 @@ Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`,
 
 - `connection.get_schema_info()` — tables, columns, indexes, constraints
 
-### 3.5 CAS Protocol
+### 3.5 Async API (shipped in 1.1.0)
+
+- `pycubrid.aio.connect()` — async module-level constructor
+- `AsyncConnection` — `connect`, `commit`, `rollback`, `close`, `cursor`, `set_autocommit`
+- `AsyncCursor` — async `execute`, `executemany`, `fetchone`, `fetchmany`, `fetchall`, `nextset`
+
+### 3.6 CAS Protocol
 
 Direct implementation of CUBRID's Client Application Server (CAS) binary protocol:
 
@@ -175,15 +184,17 @@ Direct implementation of CUBRID's Client Application Server (CAS) binary protoco
 | `test_lob.py` | ~30 | LOB creation, read, write |
 | `test_constants.py` | ~20 | Protocol constants, data type codes |
 | `test_integration.py` | 41 | Live DB tests (Docker) |
-| **Total** | **471 offline + 41 integration** | **99.88% coverage** |
+| **Total** | **770 offline + 41 integration** | **97.29% coverage** |
 
 ### 4.2 CI Matrix
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 |
-|---|:---:|:---:|:---:|:---:|
-| **Offline Tests** | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | — | ✅ | — |
-| **CUBRID 11.2** | ✅ | — | ✅ | — |
+| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Offline Tests** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **CUBRID 11.4** | ✅ | — | — | — | ✅ |
+| **CUBRID 11.2** | ✅ | — | — | — | ✅ |
+| **CUBRID 11.0** | ✅ | — | — | — | ✅ |
+| **CUBRID 10.2** | ✅ | — | — | — | ✅ |
 
 ---
 
@@ -193,12 +204,12 @@ Limitations imposed by CUBRID or design choices:
 
 | Feature | Status | Reason |
 |---|---|---|
-| Async support | ❌ | CAS protocol is synchronous; would need asyncio wrapper |
+| Async TLS | ❌ | Async connections currently reject `ssl`; use sync TLS or async plaintext |
 | Connection pooling | ❌ | Not in scope; use SQLAlchemy's pool or external pooler |
 | Thread safety level 2+ | ❌ | CUBRID CAS sessions are connection-bound |
 | LOB streaming | ⚠️ | LOB data loaded fully into memory |
-| Timezone-aware types | ⚠️ | CUBRID stores naive datetimes |
-| CUBRID 10.x | ⚠️ | Tested on 11.x; 10.x may work but not in CI |
+| Timezone-aware parsing | ⚠️ | Supported for TZ types; behavior depends on server-supplied zone tokens |
+| Async LOB helper | ⚠️ | No dedicated async `Lob` helper yet |
 
 ---
 
@@ -220,23 +231,23 @@ Limitations imposed by CUBRID or design choices:
 
 ## 7. Roadmap
 
-### v0.6.0 — Performance & Reliability
+### Delivered Milestones
+
+| Release | Highlights |
+|---|---|
+| 1.0.0 | Stable sync DB-API surface, LOB support, schema APIs, test/CI baseline |
+| 1.1.0 | Native `pycubrid.aio` async API shipped |
+| 1.2.0 | `ping()`, JSON decoding, collection decoding, `nextset()`, richer errors |
+| 1.3.0 | Sync TLS support, refreshed CI/docs baseline |
+
+### Forward-looking Priorities
 
 | Item | Description | Priority |
 |---|---|---|
-| Connection retry logic | Auto-reconnect on transient network failures | High |
-| Batch execute optimization | Reduce round-trips for `executemany()` | Medium |
-| LOB streaming | Stream large LOBs without loading fully into memory | Medium |
-| Statement cache | Cache prepared statements for repeated queries | Low |
-
-### v1.0.0 — Stable Release
-
-| Item | Description | Priority |
-|---|---|---|
-| API freeze | Stabilize public API, no breaking changes | High |
-| CUBRID 10.x validation | Test and document compatibility with 10.x series | Medium |
-| Performance benchmarks | Benchmark vs CUBRIDdb C-extension driver | Low |
-| asyncio wrapper | Optional async interface wrapping the sync protocol | Low |
+| Async TLS support | Evaluate safe asyncio-compatible TLS transport support | High |
+| LOB ergonomics | Higher-level helpers for reading fetched LOB handles | Medium |
+| Statement caching | Reuse prepared statements for repeated workloads | Medium |
+| CUBRID 12.x validation | Expand CI and docs for newer server versions | Medium |
 
 ---
 
@@ -376,4 +387,4 @@ pycubrid follows the same philosophy: **examples are not supplementary — they 
 
 ---
 
-*Last updated: March 2026 · pycubrid v0.5.0*
+*Last updated: April 2026 · pycubrid v1.3.0 (async API available since v1.1.0)*

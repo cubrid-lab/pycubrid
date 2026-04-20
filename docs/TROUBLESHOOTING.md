@@ -1120,10 +1120,14 @@ engine = create_engine(
 
 ### Enable Verbose Logging
 
-**pycubrid itself does not have built-in logging**, but you can debug at the Python level:
+pycubrid includes **opt-in DEBUG logging** in `pycubrid.connection`, `pycubrid.cursor`,
+`pycubrid.lob`, and the async modules. Enable it through Python's logging configuration:
 
 ```python
+import logging
 import pycubrid
+
+logging.basicConfig(level=logging.DEBUG)
 
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
 
@@ -1137,6 +1141,8 @@ cur.execute("SELECT * FROM users")
 print(f"Description: {cur.description}")
 print(f"Row count: {cur.rowcount}")
 ```
+
+The driver's debug logs intentionally avoid printing bound parameter values.
 
 ### Inspect Server Version
 

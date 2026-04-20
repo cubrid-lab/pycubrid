@@ -4,7 +4,7 @@
 
 - **Pure Python**: Zero system dependencies, no C extensions or CCI library required, runs anywhere Python runs.
 - **Full PEP 249 Compliance**: Implements the Python Database API Specification v2.0 for maximum compatibility.
-- **CAS Binary Protocol v7**: Specifically designed for CUBRID 10.0+ using the version 7 binary protocol.
+- **CAS Binary Protocol v8**: Targets the current CUBRID CAS protocol version used by pycubrid.
 - **Single-connection Synchronous Model**: Reliable, blocking I/O model suitable for standard application integration.
 - **PEP 561 Typed**: Fully type-hinted for modern IDE support and static analysis.
 
@@ -173,7 +173,7 @@ flowchart TD
 ## Key Design Decisions
 
 - **Pure Python over C extension**: Zero system dependencies ensure the driver runs anywhere Python is available, simplifying deployment and avoiding cross-compilation issues.
-- **CAS protocol v7**: By targeting minimum CUBRID 10.0.0, the codebase remains clean and avoids complex backward compatibility logic for deprecated protocol versions.
+- **CAS protocol v8**: The driver targets the current broker protocol, including JSON-aware parsing paths and modern feature support, without carrying compatibility code for legacy protocol revisions.
 - **`qmark` paramstyle**: Using question mark placeholders (`?`) directly matches the expectations of the CAS wire protocol, minimizing the need for complex client-side parameter parsing.
 - **Dict-based type dispatch**: Utilizing the `_TYPE_READERS` dictionary provides O(1) lookup performance, ensuring high-speed result parsing compared to iterative conditional checks.
 - **Opaque collection types**: Returning SET, MULTISET, and SEQUENCE types as raw `bytes` avoids the performance overhead and complexity of recursive parsing for features that are rarely used in standard applications.

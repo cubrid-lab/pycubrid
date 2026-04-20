@@ -258,10 +258,6 @@ cur = conn.cursor()
 # Positional parameters (list or tuple)
 cur.execute("SELECT * FROM cookbook_users WHERE name = ? AND age > ?", ["Alice", 25])
 
-# Dict parameters (values used in order)
-cur.execute("SELECT * FROM cookbook_users WHERE name = ? AND age > ?",
-            {"name": "Alice", "age": 25})
-
 # Supported types
 import datetime
 from decimal import Decimal
@@ -286,11 +282,11 @@ cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
 | Parameter shape | Example | Notes |
 |---|---|---|
 | `list` / `tuple` | `cur.execute(sql, ["Alice", 25])` | Recommended for positional clarity |
-| `dict` (mapping) | `cur.execute(sql, {"name": "Alice", "age": 25})` | Values are used in mapping order |
 | `None` | `cur.execute(sql, [None])` | Encoded as SQL `NULL` |
 
 !!! danger
-    Passing a scalar instead of sequence/mapping (for example `params="Alice"`) raises `ProgrammingError`.
+    Passing a scalar or mapping instead of a non-string sequence (for example `params="Alice"`
+    or `params={"name": "Alice"}`) raises `ProgrammingError`.
 
 ---
 

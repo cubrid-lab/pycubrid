@@ -7,7 +7,7 @@ Get from `pip install` to a working CRUD script with explicit transaction handli
 ## Prerequisites
 
 - CUBRID server and broker are running
-- Python 3.9+
+- Python 3.10+
 - Access to a target database (for example, `testdb`)
 
 !!! note
