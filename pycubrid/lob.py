@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
@@ -10,6 +11,9 @@ class _ConnectionLike(Protocol):
     def _ensure_connected(self) -> None: ...
 
     def _send_and_receive(self, packet: Any) -> Any: ...
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Lob:
@@ -29,6 +33,7 @@ class Lob:
         connection._ensure_connected()
         packet = LOBNewPacket(lob_type)
         connection._send_and_receive(packet)
+        _LOGGER.debug("LOB created: type=%d handle=%d bytes", lob_type, len(packet.lob_handle))
         return cls(connection, lob_type, packet.lob_handle)
 
     def write(self, data: bytes, offset: int = 0) -> int:
@@ -36,6 +41,7 @@ class Lob:
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
         self._connection._send_and_receive(packet)
+        _LOGGER.debug("LOB write: offset=%d size=%d", offset, len(data))
         return len(data)
 
     def read(self, length: int, offset: int = 0) -> bytes:
@@ -43,6 +49,9 @@ class Lob:
         self._connection._ensure_connected()
         packet = LOBReadPacket(self._lob_handle, offset, length)
         self._connection._send_and_receive(packet)
+        _LOGGER.debug(
+            "LOB read: offset=%d requested=%d got=%d", offset, length, len(packet.lob_data)
+        )
         return packet.lob_data
 
     @property

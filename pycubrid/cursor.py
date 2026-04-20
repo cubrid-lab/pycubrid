@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Sequence
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
 
 
 DescriptionItem = tuple[str, int, None, None, int, int, bool]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Cursor:
@@ -76,6 +79,7 @@ class Cursor:
         """Close the cursor and release the active query handle if present."""
         if self._closed:
             return
+        _LOGGER.debug("cursor.close (handle=%s)", self._query_handle)
         try:
             if self._query_handle is not None:
                 self._connection._ensure_connected()
@@ -117,6 +121,13 @@ class Cursor:
             json_deserializer=self._connection._json_deserializer,
         )
         self._connection._send_and_receive(packet)
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "execute: type=%d cols=%d rows=%d",
+                packet.statement_type,
+                packet.column_count,
+                packet.total_tuple_count,
+            )
 
         self._query_handle = packet.query_handle
         self._statement_type = packet.statement_type
@@ -174,6 +185,7 @@ class Cursor:
 
         # --- DML batch path: render + single RPC --------------------------
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
+        _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
         self.executemany_batch(sql_list)
         return self
 
@@ -358,6 +370,13 @@ class Cursor:
             return False
 
         self._rows.extend(packet.rows)
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "fetch: got %d rows (total=%d/%d)",
+                len(packet.rows),
+                len(self._rows),
+                self._total_tuple_count,
+            )
         return True
 
     def _bind_parameters(
