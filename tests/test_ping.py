@@ -23,13 +23,13 @@ from .test_connection import (
 def socket_queue(monkeypatch: pytest.MonkeyPatch) -> list[MagicMock]:
     queue: list[MagicMock] = []
 
-    def fake_socket(*args: object, **kwargs: object) -> MagicMock:
+    def fake_create_connection(*args: object, **kwargs: object) -> MagicMock:
         del args, kwargs
         if not queue:
             raise AssertionError("socket queue is empty")
         return queue.pop(0)
 
-    monkeypatch.setattr("socket.socket", fake_socket)
+    monkeypatch.setattr("socket.create_connection", fake_create_connection)
     return queue
 
 
@@ -120,10 +120,21 @@ class TestConnectionPing:
         sock.sendall.side_effect = OSError("broken pipe")
         assert conn.ping(reconnect=False) is False
 
-    def test_ping_reconnect_also_fails(self, socket_queue: list[MagicMock]) -> None:
+    def test_ping_reconnect_also_fails(
+        self,
+        socket_queue: list[MagicMock],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         conn, sock = make_connected_connection(socket_queue)
         sock.sendall.side_effect = OSError("broken pipe")
-        fail_sock = MagicMock()
-        fail_sock.connect.side_effect = OSError("still broken")
-        socket_queue.append(fail_sock)
+
+        original = socket_queue.pop
+
+        def fake_create_connection(*args: object, **kwargs: object) -> MagicMock:
+            del args, kwargs
+            if socket_queue:
+                return original(0)
+            raise OSError("still broken")
+
+        monkeypatch.setattr("socket.create_connection", fake_create_connection)
         assert conn.ping(reconnect=True) is False
