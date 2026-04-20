@@ -162,6 +162,22 @@ Steps:
 
 **CI enforces version consistency** — `pyproject.toml` version must match `__init__.py` `__version__` on every PR.
 
+## CI Matrix
+
+### Workflows
+
+| File | Trigger | Purpose |
+|---|---|---|
+| `.github/workflows/ci.yml` | Push to main, PRs | Lint + offline tests (Py 3.10–3.14) + regular integration matrix |
+| `.github/workflows/integration-full.yml` | Nightly (03:00 UTC), tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
+| `.github/workflows/publish-pypi.yml` | Tag push (`v*`) | Build and publish to PyPI |
+
+### Matrix Shape
+
+- **Offline (every PR/push)**: Python 3.10, 3.11, 3.12, 3.13, 3.14
+- **Integration (every PR/push)**: Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} — 8 jobs
+- **Integration full (nightly + tag push + dispatch)**: Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} — 20 jobs
+
 ## Test Structure
 
 ```mermaid
