@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import socket
 import struct
 import time
@@ -28,6 +29,8 @@ if TYPE_CHECKING:
     from .timing import TimingStats
 
 _CursorClass: type | None = None
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Connection:
@@ -139,7 +142,20 @@ class Connection:
             self._session_id = open_db_packet.session_id
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._connected = True
+            _LOGGER.debug(
+                "Connected to %s:%d/%s (protocol_version=%d)",
+                self._host,
+                self._port,
+                self._database,
+                self._protocol_version,
+            )
         except OSError as exc:
+            _LOGGER.debug(
+                "Connection failed to %s:%d/%s",
+                self._host,
+                self._port,
+                self._database,
+            )
             self._safe_close_socket()
             raise OperationalError("failed to connect to CUBRID broker") from exc
         finally:
@@ -150,6 +166,8 @@ class Connection:
         """Close the connection and all tracked cursors."""
         if not self._connected:
             return
+
+        _LOGGER.debug("Closing connection to %s:%d/%s", self._host, self._port, self._database)
 
         _timing = self._timing
         _start = 0
@@ -177,12 +195,14 @@ class Connection:
     def commit(self) -> None:
         """Commit the current transaction."""
         self._ensure_connected()
+        _LOGGER.debug("commit")
         self._send_and_receive(CommitPacket())
         self._invalidate_query_handles()
 
     def rollback(self) -> None:
         """Roll back the current transaction."""
         self._ensure_connected()
+        _LOGGER.debug("rollback")
         self._send_and_receive(RollbackPacket())
         self._invalidate_query_handles()
 
@@ -215,6 +235,7 @@ class Connection:
             self._safe_close_socket()
             self._connected = False
             self._invalidate_query_handles()
+            _LOGGER.debug("CAS inactive, reconnecting to %s:%d", self._host, self._port)
             self.connect()
 
     def cursor(self) -> Cursor:
@@ -248,6 +269,7 @@ class Connection:
         )
         self._send_and_receive(CommitPacket())
         self._autocommit = enabled
+        _LOGGER.debug("autocommit=%s", enabled)
 
     @property
     def timing_stats(self) -> TimingStats | None:
@@ -285,6 +307,7 @@ class Connection:
             if reconnect:
                 try:
                     self._invalidate_query_handles()
+                    _LOGGER.debug("ping: reconnecting")
                     self.connect()
                     return True
                 except (OSError, OperationalError, InterfaceError):
@@ -299,6 +322,7 @@ class Connection:
                     self._safe_close_socket()
                     self._connected = False
                     self._invalidate_query_handles()
+                    _LOGGER.debug("ping: reconnecting")
                     self.connect()
                     return True
                 except (OSError, OperationalError, InterfaceError):
@@ -373,6 +397,8 @@ class Connection:
         try:
             request_data = packet.write(self._cas_info)
             self._socket.sendall(request_data)
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug("send: %d bytes", len(request_data))
 
             data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
             data_length = struct.unpack(">i", data_length_bytes)[0]
@@ -382,6 +408,8 @@ class Connection:
             self._cas_info = response_body[: DataSize.CAS_INFO]
 
             packet.parse(response_body)
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug("recv: %d bytes", data_length + DataSize.CAS_INFO)
             return packet
         except OSError as exc:
             self._safe_close_socket()
