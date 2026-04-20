@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import socket
+import ssl as ssl_module
 import struct
 import time
 from importlib import import_module
@@ -33,6 +34,23 @@ _CursorClass: type | None = None
 _LOGGER = logging.getLogger(__name__)
 
 
+def resolve_ssl_context(
+    ssl_param: bool | ssl_module.SSLContext | None,
+) -> ssl_module.SSLContext | None:
+    if ssl_param is None:
+        return None
+    if isinstance(ssl_param, bool):
+        if ssl_param:
+            return ssl_module.create_default_context()
+        return None
+    if isinstance(ssl_param, ssl_module.SSLContext):
+        return ssl_param
+    raise ValueError(f"ssl must be bool, ssl.SSLContext, or None, got {type(ssl_param)}")
+
+
+_resolve_ssl_context = resolve_ssl_context
+
+
 class Connection:
     """PEP 249 DB-API connection for the CUBRID CAS protocol."""
 
@@ -46,6 +64,7 @@ class Connection:
         autocommit: bool = False,
         decode_collections: bool = False,
         json_deserializer: Any = None,
+        ssl: bool | ssl_module.SSLContext | None = None,
         fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
@@ -69,6 +88,7 @@ class Connection:
         self._read_timeout = kwargs.get("read_timeout")
         self._decode_collections = decode_collections
         self._json_deserializer = json_deserializer
+        self._ssl_context = resolve_ssl_context(ssl)
         self._no_backslash_escapes = kwargs.get("no_backslash_escapes", False)
         self._fetch_size = fetch_size
         if self._json_deserializer is not None and not callable(self._json_deserializer):
@@ -379,6 +399,13 @@ class Connection:
             sock.settimeout(self._read_timeout)
         elif self._connect_timeout is not None:
             sock.settimeout(None)
+        ssl_context = getattr(self, "_ssl_context", None)
+        if ssl_context is not None:
+            try:
+                sock = ssl_context.wrap_socket(sock, server_hostname=host)
+            except Exception:
+                sock.close()
+                raise
         return sock
 
     def _send_and_receive(self, packet: Any) -> Any:

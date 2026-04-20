@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ssl as ssl_module
 from typing import Any
 
 from pycubrid.aio.connection import AsyncConnection
@@ -15,6 +16,7 @@ async def connect(
     password: str = "",  # nosec B107 — PEP 249 default empty password
     decode_collections: bool = False,
     json_deserializer: Any = None,
+    ssl: bool | ssl_module.SSLContext | None = None,
     **kwargs: Any,
 ) -> AsyncConnection:
     """Create a new async database connection.
@@ -32,16 +34,20 @@ async def connect(
         A connected :class:`AsyncConnection` instance.
     """
     autocommit = kwargs.pop("autocommit", False)
-    conn = AsyncConnection(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-        decode_collections=decode_collections,
-        json_deserializer=json_deserializer,
+    connection_kwargs: dict[str, Any] = {
+        "host": host,
+        "port": port,
+        "database": database,
+        "user": user,
+        "password": password,
+        "decode_collections": decode_collections,
+        "json_deserializer": json_deserializer,
         **kwargs,
-    )
+    }
+    if ssl is not None:
+        connection_kwargs["ssl"] = ssl
+
+    conn = AsyncConnection(**connection_kwargs)
     await conn.connect()
     if autocommit:
         await conn.set_autocommit(True)

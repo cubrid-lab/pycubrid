@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ssl as ssl_module
 from typing import TYPE_CHECKING, Any
 
 from pycubrid.error_codes import get_error_description
@@ -53,6 +54,7 @@ def connect(
     password: str = "",  # nosec B107 — PEP 249 default empty password
     decode_collections: bool = False,
     json_deserializer: Any = None,
+    ssl: bool | ssl_module.SSLContext | None = None,
     **kwargs: Any,
 ) -> Connection:
     """Create a new database connection.
@@ -72,15 +74,21 @@ def connect(
     """
     from pycubrid.connection import Connection
 
-    return Connection(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-        decode_collections=decode_collections,
-        json_deserializer=json_deserializer,
+    connection_kwargs: dict[str, Any] = {
+        "host": host,
+        "port": port,
+        "database": database,
+        "user": user,
+        "password": password,
+        "decode_collections": decode_collections,
+        "json_deserializer": json_deserializer,
         **kwargs,
+    }
+    if ssl is not None:
+        connection_kwargs["ssl"] = ssl
+
+    return Connection(
+        **connection_kwargs,
     )
 
 
