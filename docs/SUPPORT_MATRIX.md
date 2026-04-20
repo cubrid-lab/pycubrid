@@ -27,7 +27,7 @@ Compatibility and feature support for pycubrid releases.
 | 11.2 | ✅ Supported | |
 | 11.0 | ✅ Supported | |
 | 10.2 | ✅ Supported | Minimum tested version |
-| < 10.2 | ❌ Not supported | CAS protocol v7 required (since 10.0) |
+| < 10.2 | ❌ Not supported | Current driver targets CAS protocol v8 |
 
 ### CI Matrix
 
@@ -106,7 +106,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `PYCUBRID_ENABLE_TIMING` env var | ✅ | 1.0.0 | Truthy: `1`, `true`, `yes` (case-insensitive) |
 | `Connection.timing_stats` | ✅ | 1.0.0 | Returns `TimingStats` or `None` |
 | `TimingStats` (connect / execute / fetch / close) | ✅ | 1.0.0 | Nanosecond precision, thread-safe |
-| Diagnostic logging (`logging.getLogger("pycubrid.*")`) | ✅ | unreleased | Comprehensive logging across core modules |
+| DEBUG logging (`pycubrid.connection`, `pycubrid.cursor`, `pycubrid.lob`, `pycubrid.aio.*`) | ✅ | 1.x | Driver emits opt-in debug logs for connection, cursor, LOB, and async operations |
 
 ### Data Types
 
@@ -121,14 +121,14 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | DATETIME, TIMESTAMP | `datetime.datetime` | ✅ | Naive (no tzinfo) |
 | DATETIMETZ, TIMESTAMPTZ | `datetime.datetime` (tz-aware) | ✅ | Since 1.2.0 (#78) — IANA timezone keys |
 | BIT, VARBIT | `bytes` | ✅ | |
-| BLOB | `bytes` | ✅ | |
-| CLOB | `str` | ✅ | |
+| BLOB | `dict` | ✅ | LOB handle dict with `lob_type`, `lob_length`, `file_locator`, `packed_lob_handle`[^lob] |
+| CLOB | `dict` | ✅ | LOB handle dict with `lob_type`, `lob_length`, `file_locator`, `packed_lob_handle`[^lob] |
 | JSON | `Any` (via deserializer) | ✅ | Since 1.2.0 (#72) — opt-in `json_deserializer=` on `connect()`; CAS protocol v8 |
 | SET | `frozenset` | ✅ | Since 1.2.0 (#73) — opt-in `decode_collections=True` on `connect()` |
 | MULTISET | `list` | ✅ | Since 1.2.0 (#73) — opt-in `decode_collections=True` |
 | SEQUENCE | `list` | ✅ | Since 1.2.0 (#73) — opt-in `decode_collections=True` |
 | Collections (default, `decode_collections=False`) | `bytes` | ⚠️ | Raw CAS wire format for backward compatibility |
-| OBJECT (OID) | `bytes` | ⚠️ | Raw OID; no high-level OID API |
+| OBJECT (OID) | `str` | ⚠️ | Decoded as `OID:@page|slot|volume`; no high-level OID API |
 | NULL | `None` | ✅ | |
 
 ### Statement / Cursor
@@ -144,7 +144,6 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `cursor.description` | ✅ | 1.0.0 | PEP 249 7-tuple |
 | `cursor.rowcount` | ✅ | 1.0.0 | |
 | `cursor.lastrowid` | ✅ | 1.0.0 | |
-| `cursor.nextset()` | ✅ | 1.2.0 (#79) | |
 
 ### LOB
 
@@ -184,7 +183,8 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 
 | Metric | Value |
 |---|---|
-| Offline tests | 811 |
+| Offline tests | 770 |
+| Total tests | 811 |
 | Integration jobs (PR / push) | 8 (Python {3.10, 3.14} × CUBRID 4 versions) |
 | Integration jobs (nightly + tag + dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
@@ -192,5 +192,9 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Coverage threshold | 95% (CI-enforced) |
 
 ---
+
+[^lob]: Fetching a LOB column returns a handle dictionary, not the content itself. Use
+`pycubrid.lob.Lob` with `packed_lob_handle` to read bytes, or insert `str`/`bytes` directly
+when writing CLOB/BLOB values.
 
 *See also: [Connection Guide](CONNECTION.md) · [Type System](TYPES.md) · [API Reference](API_REFERENCE.md) · [Performance Guide](PERFORMANCE.md) · [Changelog](../CHANGELOG.md)*

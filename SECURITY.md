@@ -6,8 +6,8 @@ The following versions of pycubrid are currently supported for security updates:
 
 | Version | Status |
 |---------|--------|
-| 0.5.x   | ✅ Supported |
-| < 0.5   | ❌ Not Supported |
+| 1.3.x   | ✅ Supported |
+| < 1.3   | ❌ Not Supported |
 
 Security patches will be applied to supported versions only. Users are strongly encouraged to upgrade to the latest version.
 

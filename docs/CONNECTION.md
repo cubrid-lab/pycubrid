@@ -78,11 +78,17 @@ pycubrid.connect(
 
 ### Keyword Arguments
 
-| Kwarg             | Type    | Default | Description                           |
-|-------------------|---------|---------|---------------------------------------|
-| `connect_timeout` | `float` | `None`  | Socket connection timeout in seconds  |
-| `autocommit`      | `bool`  | `False` | Enable immediate commit per statement |
-| `ssl`             | `bool \| ssl.SSLContext \| None` | `None` | Opt-in TLS for broker connections |
+| Kwarg | Type | Default | Description |
+|---|---|---|---|
+| `connect_timeout` | `float` | `None` | Socket connection timeout in seconds |
+| `read_timeout` | `float` | `None` | Socket read timeout in seconds |
+| `fetch_size` | `int` | `100` | Server-side fetch batch size |
+| `decode_collections` | `bool` | `False` | Decode collection columns instead of returning raw wire bytes |
+| `json_deserializer` | `Callable[[str], Any] \| None` | `None` | Decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `enable_timing` | `bool \| None` | `None` | Enable driver timing stats, or fall back to `PYCUBRID_ENABLE_TIMING` |
+| `no_backslash_escapes` | `bool` | `False` | Escape strings using doubled quotes only, without backslash escapes |
+| `autocommit` | `bool` | `False` | Enable immediate commit per statement |
+| `ssl` | `bool \| ssl.SSLContext \| None` | `None` | Opt-in TLS for broker connections |
 
 ### Common Connection Profiles
 
@@ -248,12 +254,12 @@ conn.autocommit = True
 
 ### Details
 
-| Property           | Description                                              |
-|--------------------|----------------------------------------------------------|
-| Default value      | `False`                                                  |
-| Getter             | Returns current autocommit state                         |
-| Setter (`= True`)  | Sends `SetDbParameterPacket` + `CommitPacket` to server  |
-| Setter (`= False`) | Sends `SetDbParameterPacket` to server                   |
+| Property | Description |
+|---|---|
+| Default value | `False` |
+| Getter | Returns current autocommit state |
+| Setter (`= True`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
+| Setter (`= False`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
 
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
@@ -275,28 +281,30 @@ conn.autocommit = True
 | `get_server_version()`              | `str`         | Return the CUBRID server version string          |
 | `get_last_insert_id()`              | `str`         | Return the last auto-increment ID                |
 | `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
-| `get_schema_info(schema_type, ...)` | `list`        | Query schema metadata from the server            |
+| `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | Query schema metadata from the server |
 
 ### LOB Creation
 
 ```python
 # Create a CLOB (Character Large Object)
 clob = conn.create_lob(24)  # 24 = CLOB
-clob.write("Large text content...")
+clob.write(b"Large text content...")
 
 # Create a BLOB (Binary Large Object)
 blob = conn.create_lob(23)  # 23 = BLOB
 blob.write(b"\x89PNG\r\n...")
 ```
 
-> **Tip**: For simple inserts, pass strings or bytes directly as query parameters instead of
-> creating LOB objects explicitly. See [Examples](EXAMPLES.md) for details.
+> **Tip**: `Lob.write()` accepts `bytes` only. For ordinary CLOB inserts, prefer direct SQL
+> parameter binding with `str`; for BLOB inserts, pass `bytes` directly. See [Examples](EXAMPLES.md)
+> for details.
 
 ### Schema Information
 
 ```python
 # Get schema information (schema_type constants from CUBRID docs)
-tables = conn.get_schema_info(schema_type=1)  # Tables
+packet = conn.get_schema_info(schema_type=1)  # Tables
+print(packet.tuple_count)
 ```
 
 ---

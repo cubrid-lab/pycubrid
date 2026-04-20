@@ -112,13 +112,13 @@ The connection flow has three phases:
 sequenceDiagram
     participant Client
     participant Broker
-    Client->>Broker: ClientInfoExchange raw 10B ("CUBRK", CLIENT_JDBC=3, CAS_VER=0x47, padding)
+    Client->>Broker: ClientInfoExchange raw 10B ("CUBRK", CLIENT_JDBC=3, CAS_VER=0x48, padding)
     Broker-->>Client: New Connection Port (4B int32, big-endian)
 ```
 
 - **Magic string**: `"CUBRK"` (5 ASCII bytes)
 - **Client type**: `CLIENT_JDBC = 3` (pycubrid identifies as a JDBC-compatible client)
-- **CAS version**: `PROTO_INDICATOR(0x40) | VERSION(7) = 0x47`
+- **CAS version**: `PROTO_INDICATOR(0x40) | VERSION(8) = 0x48`
 - **New port**: If > 0, disconnect from broker and reconnect to this port. If 0, reuse current socket.
 
 ### Phase 2: Open Database
@@ -582,8 +582,8 @@ class CASProtocol:
     MAGIC_STRING = "CUBRK"    # Handshake magic
     CLIENT_JDBC = 3           # Client type identifier
     PROTO_INDICATOR = 0x40    # Protocol indicator bit
-    VERSION = 7               # Protocol version
-    CAS_VERSION = 0x47        # Combined version byte
+    VERSION = 8               # Protocol version
+    CAS_VERSION = 0x48        # Combined version byte
 ```
 
 ### Wire Data Sizes

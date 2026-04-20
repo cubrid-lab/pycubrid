@@ -29,7 +29,7 @@ pycubrid implements the DB-API 2.0 (PEP 249) type system with:
 
 - **5 type objects** — `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
 - **7 constructors** — `Date`, `Time`, `Timestamp`, `DateFromTicks`, `TimeFromTicks`, `TimestampFromTicks`, `Binary`
-- **27+ CCI data type codes** — mapping CUBRID wire types to Python types
+- **27+ CCI data type codes** — mapping CUBRID wire types to Python types, including JSON and collection support
 
 Type objects enable comparison with `cursor.description` type codes:
 
@@ -103,6 +103,7 @@ from pycubrid import STRING
 | VARNCHAR | 4 | `NCHAR VARYING(n)` |
 | ENUM | 25 | `ENUM` |
 | CLOB | 24 | `CLOB` |
+| JSON | 34 | `JSON` |
 
 ### BINARY
 
@@ -238,6 +239,7 @@ These integer codes are used on the CAS wire protocol and appear in `cursor.desc
 | `BLOB` | 23 | `BLOB` | BINARY |
 | `CLOB` | 24 | `CLOB` | STRING |
 | `ENUM` | 25 | `ENUM` | STRING |
+| `JSON` | 34 | `JSON` | STRING |
 | `TIMESTAMPTZ` | 29 | `TIMESTAMPTZ` | DATETIME |
 | `TIMESTAMPLTZ` | 30 | `TIMESTAMPLTZ` | DATETIME |
 | `DATETIMETZ` | 31 | `DATETIMETZ` | DATETIME |
@@ -274,7 +276,8 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
-| `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` | Raw bytes (not decoded) |
+| `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set |
+| `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
 | `OBJECT` (OID) | 19 | `str` | Format: `"OID:@page\|slot\|volume"` |
 | `BLOB` | 23 | `dict` | LOB handle (see below) |
 | `CLOB` | 24 | `dict` | LOB handle (see below) |
@@ -329,15 +332,35 @@ print(content)  # b'Hello, CLOB!'
 
 ## Collection Types
 
-CUBRID's collection types (`SET`, `MULTISET`, `SEQUENCE`) are returned as raw `bytes` by pycubrid. The driver does not decode collection contents — they are returned in their wire format.
+CUBRID's collection types (`SET`, `MULTISET`, `SEQUENCE`) default to raw `bytes` for backward
+compatibility. When `decode_collections=True` is passed to `connect()` or `pycubrid.aio.connect()`,
+pycubrid decodes supported collection payloads into Python containers.
 
-| CUBRID Type | CCI Code | Python Return Type |
-|---|---|---|
-| `SET` | 16 | `bytes` |
-| `MULTISET` | 17 | `bytes` |
-| `SEQUENCE` | 18 | `bytes` |
+| CUBRID Type | CCI Code | `decode_collections=False` | `decode_collections=True` |
+|---|---|---|---|
+| `SET` | 16 | `bytes` | `frozenset` when hashable, otherwise `tuple` |
+| `MULTISET` | 17 | `bytes` | `list` |
+| `SEQUENCE` | 18 | `bytes` | `list` |
 
-> **Note**: Collection types are a CUBRID-specific feature. If you need structured collection data, consider using normalized tables or JSON-encoded strings.
+Notes:
+
+- Nested collection payloads remain raw `bytes`.
+- Unknown collection element types fall back to raw `bytes`.
+- `SET` values are normalized to a `frozenset` when every decoded element is hashable.
+  If a set contains unhashable elements (for example decoded JSON objects), pycubrid returns
+  a `tuple` to preserve the contents without raising.
+
+### JSON Columns
+
+JSON columns use CUBRID type code `34`.
+
+| Connection option | Fetch result |
+|---|---|
+| default (`json_deserializer=None`) | raw JSON `str` |
+| `json_deserializer=json.loads` | decoded Python object |
+| `json_deserializer=custom_callable` | return value of the callable |
+
+This opt-in behavior keeps fetches allocation-light when applications prefer to defer JSON parsing.
 
 ---
 
