@@ -82,6 +82,7 @@ pycubrid.connect(
 |-------------------|---------|---------|---------------------------------------|
 | `connect_timeout` | `float` | `None`  | Socket connection timeout in seconds  |
 | `autocommit`      | `bool`  | `False` | Enable immediate commit per statement |
+| `ssl`             | `bool \| ssl.SSLContext \| None` | `None` | Opt-in TLS for broker connections |
 
 ### Common Connection Profiles
 
@@ -149,6 +150,33 @@ conn = pycubrid.connect(
 
 !!! note
     If you run behind firewalls or load balancers, set `connect_timeout` explicitly and monitor for broker redirection failures.
+
+### SSL/TLS
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(
+    host="db.example.com",
+    port=33000,
+    database="production",
+    user="app_user",
+    password="secret",
+    ssl=True,
+)
+```
+
+- `ssl=True` creates a verified default `ssl.SSLContext` using system trust roots.
+- `ssl=your_ssl_context` uses your custom context directly, which is useful for self-signed or private CA certificates.
+- `ssl=None` or `ssl=False` disables TLS and preserves the previous plaintext behavior.
+
+!!! warning
+    SSL/TLS is currently supported for **sync connections only**. Async connections
+    (`pycubrid.aio.connect()`) do not yet support TLS and will raise `NotSupportedError`
+    if `ssl` is passed. This limitation will be addressed in a future release.
+
+!!! note
+    CUBRID broker TLS must be enabled on the server side (`SSL=ON` in `cubrid_broker.conf`) before TLS connections can succeed.
 
 ---
 
@@ -467,6 +495,29 @@ For connection pooling, use one of:
 - **External pooling libraries** (e.g., `sqlalchemy.pool`, `DBUtils`)
 
 See [Troubleshooting](TROUBLESHOOTING.md) for pool tuning guidance.
+
+---
+
+## Character Encoding
+
+pycubrid operates exclusively in **UTF-8** encoding. This matches CUBRID's internal
+character set — the server stores and returns string data as UTF-8.
+
+There is no `charset` connection parameter. All string encoding/decoding in the
+wire protocol uses UTF-8 unconditionally:
+
+- Python `str` values are encoded to UTF-8 bytes before sending to the server
+- Byte responses from the server are decoded as UTF-8 to produce Python `str` values
+
+This is intentional and covers all CUBRID string types (`VARCHAR`, `CHAR`, `STRING`,
+`CLOB`). If your application deals with non-UTF-8 data, encode/decode at the
+application layer before passing values to pycubrid.
+
+!!! note
+    CUBRID's default charset is `utf8` (set at database creation). All modern CUBRID
+    installations use UTF-8. Legacy databases created with `iso88591` charset may
+    produce garbled strings for non-ASCII data, since pycubrid always decodes bytes
+    as UTF-8.
 
 ---
 
