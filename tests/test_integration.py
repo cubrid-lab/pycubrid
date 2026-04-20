@@ -109,7 +109,8 @@ class TestConnection:
         version = conn.get_server_version()
         assert isinstance(version, str)
         assert version
-        assert "11" in version
+        major = version.split(".", 1)[0]
+        assert major.isdigit() and int(major) >= 10
 
     def test_commit(self, conn: Connection) -> None:
         conn.commit()
