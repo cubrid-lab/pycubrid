@@ -156,8 +156,10 @@ marketers = cur.fetchall()
 
 ## Supported CUBRID Versions
 
-The project targets CUBRID 11.x series and is validated in CI against:
+The project targets CUBRID 10.x and 11.x and is validated in CI against:
 
+- 10.2
+- 11.0
 - 11.2
 - 11.4
 
@@ -195,11 +197,16 @@ SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are acces
 
 ## Compatibility
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 |
-|---|:---:|:---:|:---:|:---:|
-| **Offline Tests** | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | -- | ✅ | -- |
-| **CUBRID 11.2** | ✅ | -- | ✅ | -- |
+| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Offline Tests** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **CUBRID 11.4** | ✅ | -- | -- | -- | ✅ |
+| **CUBRID 11.2** | ✅ | -- | -- | -- | ✅ |
+| **CUBRID 11.0** | ✅ | -- | -- | -- | ✅ |
+| **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
+
+CI runs the matrix above on every PR/push (Python 3.10 + 3.14 anchors × all CUBRID versions).
+The full **5 × 4** Python × CUBRID matrix runs nightly, on tagged releases, and on demand via `workflow_dispatch`.
 
 ## Architecture
 
@@ -266,7 +273,7 @@ Yes. Install `pip install "sqlalchemy-cubrid[pycubrid]"` and use the connection 
 
 ### What Python versions are supported?
 
-Python 3.10, 3.11, 3.12, and 3.13.
+Python 3.10, 3.11, 3.12, 3.13, and 3.14.
 
 ### Does pycubrid support LOBs (CLOB/BLOB)?
 

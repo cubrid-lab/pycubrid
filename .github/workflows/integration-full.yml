@@ -1,0 +1,80 @@
+name: Integration Full Matrix
+
+# Full Python x CUBRID compatibility validation.
+# Regular CI runs {3.10, 3.14} x all CUBRID versions on every PR/push.
+# This workflow runs the full 5x4 matrix on a nightly schedule, on demand
+# (workflow_dispatch), and before tagged releases.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: integration-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration-full:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        cubrid-version: ["10.2", "11.0", "11.2", "11.4"]
+    services:
+      cubrid:
+        image: cubrid/cubrid:${{ matrix.cubrid-version }}
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33000:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Wait for CUBRID readiness
+        run: |
+          for i in $(seq 1 30); do
+            if python -c "
+          from pycubrid import connect
+          try:
+              conn = connect('CUBRID:localhost:33000:testdb:::', user='dba', password='')
+              cur = conn.cursor()
+              cur.execute('SELECT 1')
+              cur.close()
+              conn.close()
+              print('CUBRID ready')
+              exit(0)
+          except Exception as e:
+              print(f'Not ready: {e}')
+              exit(1)
+          "; then
+              break
+            fi
+            echo "Waiting for CUBRID... (attempt $i/30)"
+            sleep 5
+          done
+      - name: Run integration tests
+        env:
+          CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+        run: |
+          if [ -f tests/test_integration.py ]; then
+            python -m pytest tests/test_integration.py -v --tb=short
+          else
+            echo "tests/test_integration.py not present yet; skipping integration suite."
+          fi
