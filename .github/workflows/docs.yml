@@ -25,7 +25,7 @@ jobs:
       - run: pip install mkdocs-material pymdown-extensions
       - run: python scripts/generate_llms_full.py
       - run: mkdocs build --strict
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
