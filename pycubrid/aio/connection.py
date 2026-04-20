@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import socket
+import ssl as ssl_module
 import struct
 import time
 from typing import TYPE_CHECKING, Any
@@ -43,6 +44,7 @@ class AsyncConnection:
         database: str,
         user: str,
         password: str,
+        ssl: bool | ssl_module.SSLContext | None = None,
         fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
@@ -54,6 +56,15 @@ class AsyncConnection:
         self._connect_timeout = kwargs.get("connect_timeout")
         self._read_timeout = kwargs.get("read_timeout")
         self._fetch_size = fetch_size
+        if ssl is not None and ssl is not False:
+            from pycubrid.exceptions import NotSupportedError
+
+            raise NotSupportedError(
+                "SSL/TLS is not yet supported for async connections. "
+                "Use the sync pycubrid.connect(ssl=...) interface for TLS, "
+                "or use async without encryption."
+            )
+        self._ssl_context: ssl_module.SSLContext | None = None
         self._decode_collections: bool = kwargs.get("decode_collections", False)
         self._json_deserializer: Any = kwargs.get("json_deserializer", None)
         self._no_backslash_escapes: bool = kwargs.get("no_backslash_escapes", False)
@@ -300,14 +311,15 @@ class AsyncConnection:
             raise OperationalError("socket communication failed") from exc
 
     async def _do_send_and_receive(self, loop: asyncio.AbstractEventLoop, packet: Any) -> Any:
+        sock = self._socket
+        if sock is None:
+            raise InterfaceError("connection is closed")
         request_data = packet.write(self._cas_info)
-        await loop.sock_sendall(self._socket, request_data)
+        await loop.sock_sendall(sock, request_data)
 
-        data_length_bytes = await self._recv_exact_async(loop, self._socket, DataSize.DATA_LENGTH)
+        data_length_bytes = await self._recv_exact_async(loop, sock, DataSize.DATA_LENGTH)
         data_length = struct.unpack(">i", data_length_bytes)[0]
-        response_body = await self._recv_exact_async(
-            loop, self._socket, data_length + DataSize.CAS_INFO
-        )
+        response_body = await self._recv_exact_async(loop, sock, data_length + DataSize.CAS_INFO)
 
         self._cas_info = response_body[: DataSize.CAS_INFO]
         packet.parse(response_body)
