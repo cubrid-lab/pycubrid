@@ -23,6 +23,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [Factory Method](#lob-factory-method)
   - [Methods](#lob-methods)
   - [Properties](#lob-properties)
+- [TimingStats Class](#timingstats-class)
 - [Exception Hierarchy](#exception-hierarchy)
   - [Warning](#warning)
   - [Error](#error)
@@ -135,6 +136,17 @@ class Connection:
 ```
 
 > **Note:** Do not instantiate `Connection` directly. Use `pycubrid.connect()` instead.
+
+**Selected `**kwargs`:**
+
+| Name | Type | Default | Description |
+|---|---|---|---|
+| `enable_timing` | `bool \| None` | `None` | Enable optional driver-level timing instrumentation for `connect`, `execute`, `fetch`, and `close` operations. When `None`, falls back to the `PYCUBRID_ENABLE_TIMING` environment variable (truthy values: `1`, `true`, `yes`, case-insensitive). When disabled, the timing module is not imported and `connection.timing_stats` is `None` (zero overhead). See [Timing & Profiling Hooks](PERFORMANCE.md#timing--profiling-hooks). |
+| `ssl` | `bool \| ssl.SSLContext \| None` | `None` | TLS configuration for sync connections. See [Connection guide](CONNECTION.md). |
+| `read_timeout` | `float \| None` | `None` | Socket read timeout in seconds. |
+| `fetch_size` | `int` | `100` | Server-side fetch batch size. |
+| `json_deserializer` | `Callable[[str], Any] \| None` | `None` | Opt-in JSON column decoder. |
+| `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections. |
 
 ### Connection Methods
 
@@ -336,6 +348,43 @@ print(conn.autocommit)  # False
 conn.autocommit = True
 # Statements now auto-commit
 ```
+
+---
+
+#### `timing_stats`
+
+```python
+@property
+def timing_stats(self) -> TimingStats | None
+```
+
+Return the per-connection [`TimingStats`](#timingstats-class) accumulator when the connection
+was opened with `enable_timing=True` (or with `PYCUBRID_ENABLE_TIMING` set). Returns `None`
+when timing is disabled — in which case the timing module is never imported and the hot
+path incurs no overhead.
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(database="testdb", enable_timing=True)
+cur = conn.cursor()
+cur.execute("SELECT 1")
+cur.fetchall()
+
+stats = conn.timing_stats
+assert stats is not None
+print(stats)
+# TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
+#             execute=1 calls, 0.987ms total, 0.987ms avg,
+#             fetch=1 calls, 0.123ms total, 0.123ms avg,
+#             close=0 calls)
+
+print(stats.execute_count, stats.execute_total_ns)  # 1 987000
+
+stats.reset()  # clear all counters
+```
+
+See [Timing & Profiling Hooks](PERFORMANCE.md#timing--profiling-hooks) for the full guide.
 
 ---
 
@@ -778,6 +827,62 @@ lob_info = row[0]
 ```python
 cur.execute("INSERT INTO my_table (clob_col) VALUES (?)", ["large text content"])
 ```
+
+---
+
+## TimingStats Class
+
+`pycubrid.timing.TimingStats` — also re-exported as `pycubrid.TimingStats`.
+
+Per-connection accumulator for optional driver-level timing instrumentation. Instances are
+created automatically when a connection is opened with `enable_timing=True` (or with
+`PYCUBRID_ENABLE_TIMING` set) and are exposed via [`Connection.timing_stats`](#timing_stats).
+
+> **When to use:** quick in-process diagnosis of where wall-clock time is going (connect vs
+> execute vs fetch vs close) without reaching for cProfile or external profilers. For deep
+> hot-path analysis, prefer the standalone profiling scripts in
+> [Performance Investigation](PERFORMANCE.md#performance-investigation).
+
+### Counters
+
+All counters are plain `int` attributes. Durations are nanoseconds captured via
+`time.perf_counter_ns()`. Updates are serialised by an internal `threading.Lock` so the
+object is safe to read from a thread other than the one driving the connection.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `connect_count` / `connect_total_ns` | `int` | Total number of `Connection.connect()` calls and cumulative elapsed time. Recorded even on failure. |
+| `execute_count` / `execute_total_ns` | `int` | `Cursor.execute()` and `executemany()` calls and cumulative elapsed time. |
+| `fetch_count`   / `fetch_total_ns`   | `int` | `fetchone()` / `fetchmany()` / `fetchall()` calls combined and cumulative elapsed time. |
+| `close_count`   / `close_total_ns`   | `int` | `Connection.close()` calls and cumulative elapsed time. |
+
+### Methods
+
+#### `reset()`
+
+```python
+def reset(self) -> None
+```
+
+Reset every counter to zero atomically. Useful for measuring a specific code section after
+a warm-up phase.
+
+#### `__repr__()`
+
+Returns a human-readable summary, e.g.:
+
+```
+TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
+            execute=10 calls, 4.200ms total, 0.420ms avg,
+            fetch=10 calls, 1.500ms total, 0.150ms avg,
+            close=0 calls)
+```
+
+### Async parity
+
+`pycubrid.aio.AsyncConnection` accepts the same `enable_timing` keyword and exposes the
+same `timing_stats` property with identical semantics. Async durations include event-loop
+scheduling latency — treat them as end-to-end client-side latency, not pure server time.
 
 ---
 

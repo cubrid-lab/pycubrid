@@ -11,6 +11,7 @@ This guide summarizes benchmark behavior for `pycubrid` and shows practical tuni
 - [Performance Characteristics](#performance-characteristics)
 - [Optimization Tips](#optimization-tips)
 - [Performance Investigation](#performance-investigation)
+- [Timing & Profiling Hooks](#timing--profiling-hooks)
 - [Running Benchmarks](#running-benchmarks)
 
 ---
@@ -181,6 +182,111 @@ snakeviz profile_output.prof
 
 snakeviz opens an interactive flame graph in the browser, making it easy to drill into
 nested call stacks.
+
+---
+
+## Timing & Profiling Hooks
+
+For lightweight in-process diagnosis you can opt into the driver's built-in timing
+instrumentation instead of running the cProfile-based scripts above. Hooks are **off by
+default** — when disabled the timing module is never imported and the hot path runs
+unchanged.
+
+### When to use which
+
+| Use case | Tool |
+|---|---|
+| "Where is wall-clock time going across `connect` / `execute` / `fetch` / `close` in my application?" | `enable_timing=True` (this section) |
+| "Which Python frames inside `cursor.execute` are hot?" | `scripts/profile_execute.py` (cProfile) |
+| "How does pycubrid compare to PyMySQL on a controlled workload?" | [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark) |
+
+### Enabling
+
+Pass the `enable_timing=True` keyword to `pycubrid.connect()`:
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(
+    host="localhost", port=33000, database="testdb", user="dba",
+    enable_timing=True,
+)
+```
+
+Or set the environment variable so timing is enabled for every connection in a process —
+useful in benchmark harnesses and CI jobs:
+
+```bash
+export PYCUBRID_ENABLE_TIMING=1   # also accepts true / yes (case-insensitive)
+python my_workload.py
+```
+
+The explicit keyword always wins over the environment variable. Async connections support
+the same keyword on `pycubrid.aio.connect()`.
+
+### Reading the stats
+
+```python
+cur = conn.cursor()
+cur.executemany(
+    "INSERT INTO bench (n) VALUES (?)",
+    [(i,) for i in range(1000)],
+)
+cur.execute("SELECT n FROM bench")
+cur.fetchall()
+
+stats = conn.timing_stats
+print(stats)
+# TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
+#             execute=2 calls, 18.700ms total, 9.350ms avg,
+#             fetch=1 calls, 4.200ms total, 4.200ms avg,
+#             close=0 calls)
+
+# Programmatic access (nanoseconds, ints):
+exec_avg_ms = stats.execute_total_ns / stats.execute_count / 1_000_000
+print(f"average execute: {exec_avg_ms:.3f} ms")
+
+# Reset between phases
+stats.reset()
+```
+
+`Connection.timing_stats` is `None` when timing is disabled, so guard accordingly:
+
+```python
+if conn.timing_stats is not None:
+    print(conn.timing_stats)
+```
+
+### Categories and granularity
+
+| Category | What it covers |
+|---|---|
+| `connect` | TCP socket setup + CAS broker handshake + database open. Recorded even on failure. |
+| `execute` | `Cursor.execute()` and `executemany()` — wraps prepare-and-execute round-trip. |
+| `fetch` | `fetchone()` / `fetchmany()` / `fetchall()` combined. |
+| `close` | `Connection.close()` — `CloseDatabasePacket` round-trip + socket teardown. |
+
+All cursors created from a connection report into the same `TimingStats`. Stats are
+**per-connection**, cumulative since the last `reset()`.
+
+### Overhead and thread-safety
+
+- **Disabled** — the timing module is not imported; per-call cost is a single attribute
+  read (`self._timing is None`).
+- **Enabled** — two `time.perf_counter_ns()` calls plus a lock-protected accumulator
+  update per hook (~hundreds of nanoseconds).
+- The `threading.Lock` inside `TimingStats` lets a monitoring thread safely read counters
+  while a worker thread drives the connection. The connection itself remains
+  `threadsafety = 1` (one connection per thread).
+
+### Limitations
+
+- Async timings include event-loop scheduling latency; treat them as client-side
+  end-to-end latency, not pure server time.
+- Counters are cumulative only — there is no per-statement history. If you need
+  per-statement breakdowns, run the cProfile-based scripts in
+  [Performance Investigation](#performance-investigation).
+- `ping()` and `commit()` / `rollback()` are not currently timed.
 
 ---
 
