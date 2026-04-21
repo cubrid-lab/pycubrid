@@ -671,8 +671,7 @@ print(row[0])
 cur.execute("INSERT INTO docs (content) VALUES (?)", ("Large text content here...",))
 conn.commit()
 
-# For small LOBs, the data may be returned inline
-# For large LOBs, you get the metadata dict
+# Fetches return the metadata dict for CLOB/BLOB columns; use the packed handle to read content
 ```
 
 ---

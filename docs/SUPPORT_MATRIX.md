@@ -89,8 +89,8 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 
 | Feature | Status | Since | Notes |
 |---|---|---|---|
-| `pycubrid.aio.connect()` | ✅ | 1.1.0 | `AsyncConnection` mirrors sync API |
-| `AsyncCursor` execute / fetch / executemany / callproc | ✅ | 1.1.0 | Identical signatures with `await` |
+| `pycubrid.aio.connect()` | ✅ | 1.1.0 | Similar async surface; `AsyncConnection` does not expose sync-only `ping()` or `create_lob()` |
+| `AsyncCursor` execute / fetch / executemany / callproc | ✅ | 1.1.0 | Sync-like cursor APIs with `await`; connection autocommit changes use `set_autocommit()` rather than a property setter |
 | `AsyncConnection.commit()` / `rollback()` / `close()` | ✅ | 1.1.0 | |
 | Async context managers | ✅ | 1.1.0 | `async with` for both connection and cursor |
 | Async `read_timeout` | ✅ | 1.2.0 (#82) | |
@@ -136,7 +136,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Feature | Status | Since | Notes |
 |---|---|---|---|
 | `cursor.execute(sql, params)` | ✅ | 1.0.0 | Server-side `PREPARE_AND_EXECUTE` |
-| `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | Per-row execute |
+| `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | Batches non-SELECT DML via `BatchExecutePacket`; only SELECT falls back to the per-row loop |
 | `cursor.executemany_batch(sql, seq)` | ✅ | 1.0.0 | Single round-trip `BatchExecutePacket` |
 | `cursor.callproc(name, params)` | ✅ | 1.0.0 | Stored procedure invocation |
 | `cursor.fetchone() / fetchmany() / fetchall()` | ✅ | 1.0.0 | |
