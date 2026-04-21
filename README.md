@@ -7,11 +7,11 @@
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
 [![python version](https://img.shields.io/pypi/pyversions/pycubrid)](https://www.python.org)
-[![ci workflow](https://github.com/cubrid-labs/pycubrid/actions/workflows/ci.yml/badge.svg)](https://github.com/cubrid-labs/pycubrid/actions/workflows/ci.yml)
-[![integration-full workflow](https://github.com/cubrid-labs/pycubrid/actions/workflows/integration-full.yml/badge.svg)](https://github.com/cubrid-labs/pycubrid/actions/workflows/integration-full.yml)
-[![coverage](https://codecov.io/gh/cubrid-labs/pycubrid/branch/main/graph/badge.svg)](https://codecov.io/gh/cubrid-labs/pycubrid)
-[![license](https://img.shields.io/github/license/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid/blob/main/LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid)
+[![ci workflow](https://github.com/cubrid-lab/pycubrid/actions/workflows/ci.yml/badge.svg)](https://github.com/cubrid-lab/pycubrid/actions/workflows/ci.yml)
+[![integration-full workflow](https://github.com/cubrid-lab/pycubrid/actions/workflows/integration-full.yml/badge.svg)](https://github.com/cubrid-lab/pycubrid/actions/workflows/integration-full.yml)
+[![coverage](https://codecov.io/gh/cubrid-lab/pycubrid/branch/main/graph/badge.svg)](https://codecov.io/gh/cubrid-lab/pycubrid)
+[![license](https://img.shields.io/github/license/cubrid-lab/pycubrid)](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/cubrid-lab/pycubrid)](https://github.com/cubrid-lab/pycubrid)
 [![docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://cubrid-labs.github.io/pycubrid/)
 <!-- BADGES:END -->
 
