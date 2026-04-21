@@ -187,6 +187,24 @@ conn = pycubrid.connect(
 !!! note
     CUBRID broker TLS must be enabled on the server side (`SSL=ON` in `cubrid_broker.conf`) before TLS connections can succeed.
 
+### Async Health Checks
+
+Async connections expose the same lightweight native health check as sync connections:
+
+```python
+import pycubrid.aio
+
+conn = await pycubrid.aio.connect(database="testdb")
+
+alive = await conn.ping(reconnect=False)
+if not alive:
+    await conn.ping(reconnect=True)
+```
+
+- `await conn.ping(reconnect=False)` always issues the native `CHECK_CAS` round-trip when the socket is open, but suppresses the implicit broker-handoff reconnect that fires on a normal post-commit `CAS_INFO=INACTIVE` state. Returns `False` only if the socket is closed or `CHECK_CAS` itself fails — making it safe for SQLAlchemy's `pool_pre_ping`.
+- `await conn.ping(reconnect=True)` attempts close + reconnect on socket/protocol failure before returning `False`.
+- The async implementation uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and does not execute SQL.
+
 ---
 
 ## Context Manager Protocol

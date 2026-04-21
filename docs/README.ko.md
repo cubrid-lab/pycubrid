@@ -290,7 +290,7 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 
 ### pycubrid는 async/await를 지원하나요?
 
-예. 네이티브 asyncio 지원을 위해 `pycubrid.aio.connect()`를 사용하세요. async API의 표면은 sync API와 비슷하지만 완전히 동일하지는 않습니다. `AsyncConnection`에는 sync 전용 `ping()`과 `create_lob()`가 없고, 자동 커밋 변경도 속성 setter 대신 `await conn.set_autocommit(...)`를 사용합니다.
+예. 네이티브 asyncio 지원을 위해 `pycubrid.aio.connect()`를 사용하세요. async API의 표면은 sync API와 비슷합니다. `await conn.ping(reconnect=...)`로 sync `Connection.ping()`과 동일한 네이티브 `CHECK_CAS` 헬스 체크를 수행할 수 있고, `create_lob()`만 여전히 sync 전용이며, 자동 커밋 변경은 속성 setter 대신 `await conn.set_autocommit(...)`를 사용합니다.
 
 
 ## 관련 프로젝트

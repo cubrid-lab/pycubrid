@@ -291,7 +291,7 @@ CUBRID 10.2, 11.0, 11.2 und 11.4 werden in CI getestet.
 
 ### Unterstützt pycubrid async/await?
 
-Ja. Verwenden Sie `pycubrid.aio.connect()` für native asyncio-Unterstützung. Die Async-Oberfläche ist der Sync-API ähnlich, aber nicht vollständig identisch: `AsyncConnection` stellt die nur synchronen Methoden `ping()` und `create_lob()` nicht bereit, und Änderungen am Auto-Commit erfolgen mit `await conn.set_autocommit(...)` statt über einen Property-Setter.
+Ja. Verwenden Sie `pycubrid.aio.connect()` für native asyncio-Unterstützung. Die Async-Oberfläche ist der Sync-API ähnlich: Mit `await conn.ping(reconnect=...)` steht derselbe native `CHECK_CAS`-Health-Check wie bei `Connection.ping()` zur Verfügung, `create_lob()` bleibt weiterhin nur synchron verfügbar, und Änderungen am Auto-Commit erfolgen mit `await conn.set_autocommit(...)` statt über einen Property-Setter.
 
 
 ## Verwandte Projekte

@@ -15,6 +15,7 @@ from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import InterfaceError, OperationalError
 from pycubrid.protocol import (
     ClientInfoExchangePacket,
+    CheckCasPacket,
     CloseDatabasePacket,
     CommitPacket,
     GetEngineVersionPacket,
@@ -234,6 +235,33 @@ class AsyncConnection:
         packet = await self._send_and_receive(GetLastInsertIdPacket())
         return packet.last_insert_id
 
+    async def ping(self, reconnect: bool = True) -> bool:
+        if not self._connected:
+            if not reconnect:
+                return False
+            try:
+                self._invalidate_query_handles()
+                _LOGGER.debug("ping: reconnecting")
+                await self.connect()
+                return True
+            except (OSError, OperationalError, InterfaceError):
+                return False
+        try:
+            packet = await self._send_and_receive(CheckCasPacket(), allow_reconnect=reconnect)
+            return packet.response_code >= 0
+        except (InterfaceError, OperationalError, struct.error):
+            if not reconnect:
+                return False
+            try:
+                self._safe_close_socket()
+                self._connected = False
+                self._invalidate_query_handles()
+                _LOGGER.debug("ping: reconnecting")
+                await self.connect()
+                return True
+            except (OSError, OperationalError, InterfaceError):
+                return False
+
     async def get_schema_info(
         self,
         schema_type: int,
@@ -290,8 +318,8 @@ class AsyncConnection:
 
         raise OperationalError(f"could not connect to {host}:{port}") from last_exc
 
-    async def _send_and_receive(self, packet: Any) -> Any:
-        await self._check_reconnect()
+    async def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
+        await self._check_reconnect(allow_reconnect=allow_reconnect)
         if self._socket is None:
             raise InterfaceError("connection is closed")
 
@@ -342,8 +370,10 @@ class AsyncConnection:
             pos += n
         return buf
 
-    async def _check_reconnect(self) -> None:
+    async def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
         self._ensure_connected()
+        if not allow_reconnect:
+            return
         if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._socket is not None:
             self._safe_close_socket()
             self._connected = False

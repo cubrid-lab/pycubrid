@@ -89,7 +89,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 
 | Feature | Status | Since | Notes |
 |---|---|---|---|
-| `pycubrid.aio.connect()` | ✅ | 1.1.0 | Similar async surface; `AsyncConnection` does not expose sync-only `ping()` or `create_lob()` |
+| `pycubrid.aio.connect()` | ✅ | 1.1.0 | Similar async surface; `AsyncConnection.ping()` added in 1.3.2 (native `CHECK_CAS` FC=32). `create_lob()` remains sync-only. |
 | `AsyncCursor` execute / fetch / executemany / callproc | ✅ | 1.1.0 | Sync-like cursor APIs with `await`; connection autocommit changes use `set_autocommit()` rather than a property setter |
 | `AsyncConnection.commit()` / `rollback()` / `close()` | ✅ | 1.1.0 | |
 | Async context managers | ✅ | 1.1.0 | `async with` for both connection and cursor |

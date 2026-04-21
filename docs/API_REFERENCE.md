@@ -166,7 +166,7 @@ Create and open an async connection.
 - Returns a connected `AsyncConnection`.
 - Accepts the same collection / JSON decoding kwargs as `pycubrid.connect()`.
 - Supports `autocommit=True` via `await conn.set_autocommit(True)` during construction.
-- Provides a similar async surface to the sync API, but does **not** expose sync-only helpers such as `ping()` or `create_lob()`, and auto-commit changes go through `await conn.set_autocommit(...)` instead of a property setter.
+- Provides a similar async surface to the sync API, including `await conn.ping(reconnect=...)`; `create_lob()` remains sync-only, and auto-commit changes go through `await conn.set_autocommit(...)` instead of a property setter.
 - Async TLS is not yet supported; passing `ssl=True` or an `SSLContext` raises `NotSupportedError`.
 
 ```python
@@ -858,12 +858,13 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 | `commit()` | `async def commit(self) -> None` | Commit current transaction |
 | `rollback()` | `async def rollback(self) -> None` | Roll back current transaction |
 | `close()` | `async def close(self) -> None` | Close connection and tracked cursors |
+| `ping()` | `async def ping(self, reconnect: bool = True) -> bool` | Native `CHECK_CAS` health check with optional reconnect |
 | `get_server_version()` | `async def get_server_version(self) -> str` | Fetch engine version |
 | `get_last_insert_id()` | `async def get_last_insert_id(self) -> str` | Fetch last AUTO_INCREMENT value |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | Returns the parsed packet object |
 | `set_autocommit()` | `async def set_autocommit(self, value: bool) -> None` | Sends `SetDbParameterPacket` and `CommitPacket` |
 
-`AsyncConnection` does **not** expose sync-only `ping()` or `create_lob()` methods.
+`AsyncConnection` exposes async `ping()` parity with sync `Connection.ping()`. `create_lob()` remains sync-only.
 
 ```python
 async with await pycubrid.aio.connect(database="testdb") as conn:
@@ -877,6 +878,24 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 
 `AsyncConnection.autocommit` is read-only; use `await conn.set_autocommit(True)` to change it.
 Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
+
+### `ping(reconnect=True)`
+
+```python
+async def ping(self, reconnect: bool = True) -> bool
+```
+
+Perform a lightweight native `CHECK_CAS` health check without executing SQL.
+
+- Returns `True` when the CAS connection is alive.
+- Always issues the native `CHECK_CAS` round-trip when the socket is open, regardless of the broker's transaction status (`CAS_INFO`).
+- When `reconnect=False`, suppresses the implicit broker-handoff reconnect that normally fires on `CAS_INFO=INACTIVE`; returns `False` only if the socket is closed or `CHECK_CAS` itself fails.
+- When `reconnect=True`, attempts close + reconnect on socket/protocol failure before returning `False`.
+
+```python
+if not await conn.ping(reconnect=False):
+    await conn.ping(reconnect=True)
+```
 
 ---
 
