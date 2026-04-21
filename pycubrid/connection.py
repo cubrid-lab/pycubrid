@@ -240,7 +240,7 @@ class Connection:
     _CAS_INFO_STATUS_INACTIVE: int = 0
     _CAS_INFO_STATUS_ACTIVE: int = 1
 
-    def _check_reconnect(self) -> None:
+    def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
         """Reconnect to the broker when the CAS has been released.
 
         The CUBRID broker sets the first byte of CAS_INFO to ``INACTIVE``
@@ -251,6 +251,8 @@ class Connection:
         query works without the caller having to manage reconnection.
         """
         self._ensure_connected()
+        if not allow_reconnect:
+            return
         if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._socket is not None:
             self._safe_close_socket()
             self._connected = False
@@ -324,30 +326,30 @@ class Connection:
             ``True`` if the connection is alive, ``False`` otherwise.
         """
         if not self._connected:
-            if reconnect:
-                try:
-                    self._invalidate_query_handles()
-                    _LOGGER.debug("ping: reconnecting")
-                    self.connect()
-                    return True
-                except (OSError, OperationalError, InterfaceError):
-                    return False
-            return False
+            if not reconnect:
+                return False
+            try:
+                self._invalidate_query_handles()
+                _LOGGER.debug("ping: reconnecting")
+                self.connect()
+                return True
+            except (OSError, OperationalError, InterfaceError):
+                return False
         try:
-            packet = self._send_and_receive(CheckCasPacket())
+            packet = self._send_and_receive(CheckCasPacket(), allow_reconnect=reconnect)
             return packet.response_code >= 0
         except (InterfaceError, OperationalError, OSError, struct.error):
-            if reconnect:
-                try:
-                    self._safe_close_socket()
-                    self._connected = False
-                    self._invalidate_query_handles()
-                    _LOGGER.debug("ping: reconnecting")
-                    self.connect()
-                    return True
-                except (OSError, OperationalError, InterfaceError):
-                    return False
-            return False
+            if not reconnect:
+                return False
+            try:
+                self._safe_close_socket()
+                self._connected = False
+                self._invalidate_query_handles()
+                _LOGGER.debug("ping: reconnecting")
+                self.connect()
+                return True
+            except (OSError, OperationalError, InterfaceError):
+                return False
 
     def create_lob(self, lob_type: int) -> Any:
         """Create a new LOB object on the server."""
@@ -408,7 +410,7 @@ class Connection:
                 raise
         return sock
 
-    def _send_and_receive(self, packet: Any) -> Any:
+    def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
         """Send a framed CAS request and parse the framed response into ``packet``.
 
         After each response the CAS_INFO status byte is checked.  When the
@@ -417,7 +419,7 @@ class Connection:
         the *next* request — matching the behaviour of the official CUBRID
         JDBC driver (``UClientSideConnection.checkReconnect``).
         """
-        self._check_reconnect()
+        self._check_reconnect(allow_reconnect=allow_reconnect)
         if self._socket is None:
             raise InterfaceError("connection is closed")
 

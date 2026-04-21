@@ -291,7 +291,7 @@ Python 3.10, 3.11, 3.12, 3.13 и 3.14.
 
 ### Поддерживает ли pycubrid async/await?
 
-Да. Используйте `pycubrid.aio.connect()` для нативной поддержки asyncio. Поверхность async API похожа на sync API, но не полностью её повторяет: `AsyncConnection` не предоставляет sync-only `ping()` и `create_lob()`, а изменение автокоммита выполняется через `await conn.set_autocommit(...)`, а не через setter свойства.
+Да. Используйте `pycubrid.aio.connect()` для нативной поддержки asyncio. Поверхность async API похожа на sync API: `await conn.ping(reconnect=...)` выполняет тот же нативный health-check `CHECK_CAS`, что и sync `Connection.ping()`, `create_lob()` по-прежнему остаётся только sync-методом, а изменение автокоммита выполняется через `await conn.set_autocommit(...)`, а не через setter свойства.
 
 
 ## Связанные проекты

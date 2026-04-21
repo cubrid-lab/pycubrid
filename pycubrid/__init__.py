@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from pycubrid.connection import Connection
     from pycubrid.timing import TimingStats
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 
 # PEP 249 module-level attributes
 apilevel = "2.0"
