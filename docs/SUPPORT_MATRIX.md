@@ -137,7 +137,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 |---|---|---|---|
 | `cursor.execute(sql, params)` | ✅ | 1.0.0 | Server-side `PREPARE_AND_EXECUTE` |
 | `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | Batches non-SELECT DML via `BatchExecutePacket`; only SELECT falls back to the per-row loop |
-| `cursor.executemany_batch(sql, seq)` | ✅ | 1.0.0 | Single round-trip `BatchExecutePacket` |
+| `cursor.executemany_batch(sql_list, auto_commit=None)` | ✅ | 1.0.0 | Single round-trip `BatchExecutePacket` |
 | `cursor.callproc(name, params)` | ✅ | 1.0.0 | Stored procedure invocation |
 | `cursor.fetchone() / fetchmany() / fetchall()` | ✅ | 1.0.0 | |
 | Iterator protocol (`for row in cursor`) | ✅ | 1.0.0 | |

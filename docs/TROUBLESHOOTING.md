@@ -782,10 +782,10 @@ print(cur.rowcount)  # Number of deleted rows
 
 ### executemany() Performance
 
-**For bulk inserts**, `executemany()` executes each parameter set individually. For better performance with many rows, use `executemany_batch()`:
+**For bulk inserts and other non-SELECT DML**, `executemany()` does **not** execute each parameter set as a separate round trip. It renders each bound statement and sends the full batch in one `BatchExecutePacket`. Only `SELECT` statements fall back to the per-parameter loop to preserve result-set semantics. Use `executemany_batch()` when you already have distinct SQL strings and want to send them in one batch request:
 
 ```python
-# Standard executemany — one statement per parameter set
+# Standard executemany — non-SELECT DML batches into one request
 data = [("Alice", 30), ("Bob", 25), ("Charlie", 35)]
 cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 
@@ -803,7 +803,8 @@ cur.executemany_batch(sql_list)
 | Method | Round Trips | Best For |
 |---|---|---|
 | `execute()` in loop | N | Few rows |
-| `executemany()` | N | Parameterized inserts |
+| `executemany()` for INSERT/UPDATE/DELETE | 1 | Parameterized bulk DML |
+| `executemany()` for SELECT | N | Repeated SELECTs with separate parameter sets |
 | `executemany_batch()` | 1 | Many distinct SQL statements |
 
 ---
