@@ -56,25 +56,31 @@ pip install -e ".[dev]"
 ## Connection Function
 
 ```python
-pycubrid.connect(
-    host="localhost",
-    port=33000,
-    database="",
-    user="dba",
-    password="",
-    **kwargs,
+def connect(
+    host: str = "localhost",
+    port: int = 33000,
+    database: str = "",
+    user: str = "dba",
+    password: str = "",
+    decode_collections: bool = False,
+    json_deserializer: Any = None,
+    ssl: bool | ssl_module.SSLContext | None = None,
+    **kwargs: Any,
 ) -> Connection
 ```
 
 ### Parameters
 
-| Parameter   | Type  | Default       | Description                              |
-|-------------|-------|---------------|------------------------------------------|
-| `host`      | `str` | `"localhost"` | CUBRID server hostname or IP address     |
-| `port`      | `int` | `33000`       | CUBRID broker port                       |
-| `database`  | `str` | `""`          | Database name *(required)*               |
-| `user`      | `str` | `"dba"`       | Database username                        |
-| `password`  | `str` | `""`          | Database password                        |
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `host` | `str` | `"localhost"` | CUBRID server hostname or IP address |
+| `port` | `int` | `33000` | CUBRID broker port |
+| `database` | `str` | `""` | Database name *(required)* |
+| `user` | `str` | `"dba"` | Database username |
+| `password` | `str` | `""` | Database password |
+| `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
+| `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync broker connections |
 
 ### Keyword Arguments
 
@@ -83,12 +89,9 @@ pycubrid.connect(
 | `connect_timeout` | `float` | `None` | Socket connection timeout in seconds |
 | `read_timeout` | `float` | `None` | Socket read timeout in seconds |
 | `fetch_size` | `int` | `100` | Server-side fetch batch size |
-| `decode_collections` | `bool` | `False` | Decode collection columns instead of returning raw wire bytes |
-| `json_deserializer` | `Callable[[str], Any] \| None` | `None` | Decode JSON columns on fetch; when unset JSON is returned as `str` |
 | `enable_timing` | `bool \| None` | `None` | Enable driver timing stats, or fall back to `PYCUBRID_ENABLE_TIMING` |
 | `no_backslash_escapes` | `bool` | `False` | Escape strings using doubled quotes only, without backslash escapes |
 | `autocommit` | `bool` | `False` | Enable immediate commit per statement |
-| `ssl` | `bool \| ssl.SSLContext \| None` | `None` | Opt-in TLS for broker connections |
 
 ### Common Connection Profiles
 
@@ -373,7 +376,7 @@ print(version)  # e.g., "11.2.0.0374"
 conn.close()
 ```
 
-The `get_server_version()` method sends a `GetDbVersionPacket` to the server and returns the version as a string.
+The `get_server_version()` method sends a `GetEngineVersionPacket` to the server and returns the version as a string.
 
 ---
 

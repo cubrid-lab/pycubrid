@@ -8,15 +8,21 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
 
 - [Module-Level Attributes](#module-level-attributes)
 - [Module-Level Constructor](#module-level-constructor)
+  - [`pycubrid.connect()`](#pycubridconnect)
+  - [`decode_collections`](#decode_collections)
+  - [`json_deserializer`](#json-columns)
 - [Async Module Constructor](#async-module-constructor)
+  - [`pycubrid.aio.connect()`](#pycubridaioconnect)
 - [Connection Class](#connection-class)
   - [Constructor](#connection-constructor)
   - [Methods](#connection-methods)
+    - [`ping()`](#pingreconnecttrue)
   - [Properties](#connection-properties)
   - [Context Manager](#connection-context-manager)
 - [Cursor Class](#cursor-class)
   - [Constructor](#cursor-constructor)
   - [Methods](#cursor-methods)
+    - [`nextset()`](#nextset)
   - [Properties](#cursor-properties)
   - [Iterator Protocol](#iterator-protocol)
   - [Context Manager](#cursor-context-manager)
@@ -76,6 +82,9 @@ def connect(
     database: str = "",
     user: str = "dba",
     password: str = "",
+    decode_collections: bool = False,
+    json_deserializer: Any = None,
+    ssl: bool | ssl_module.SSLContext | None = None,
     **kwargs: Any,
 ) -> Connection
 ```
@@ -84,14 +93,32 @@ Create a new database connection.
 
 **Parameters:**
 
-| Parameter  | Type  | Default       | Description |
-|------------|-------|---------------|-------------|
-| `host`     | `str` | `"localhost"` | CUBRID server hostname or IP address |
-| `port`     | `int` | `33000`       | CUBRID broker port |
-| `database` | `str` | `""`          | Database name |
-| `user`     | `str` | `"dba"`       | Database user |
-| `password` | `str` | `""`          | Database password |
-| `**kwargs` | `Any` | —             | Additional parameters (e.g., `connect_timeout`) |
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `host` | `str` | `"localhost"` | CUBRID server hostname or IP address |
+| `port` | `int` | `33000` | CUBRID broker port |
+| `database` | `str` | `""` | Database name |
+| `user` | `str` | `"dba"` | Database user |
+| `password` | `str` | `""` | Database password |
+| `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
+| `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync broker connections |
+| `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit` |
+
+#### `decode_collections`
+
+When `False` (the default), collection columns are returned as raw CAS wire `bytes` for backward
+compatibility. When `True`, pycubrid decodes supported `SET`, `MULTISET`, and `SEQUENCE` payloads
+into Python containers.
+
+#### JSON Columns
+
+`json_deserializer` controls JSON column decoding on fetch:
+
+| Setting | Result |
+|---|---|
+| `None` (default) | Return JSON columns as `str` |
+| `callable` | Pass the raw JSON string to the callable and return its result |
 
 **Returns:** A new `Connection` instance.
 
@@ -129,7 +156,7 @@ async def connect(
     password: str = "",
     decode_collections: bool = False,
     json_deserializer: Any = None,
-    ssl: bool | ssl.SSLContext | None = None,
+    ssl: bool | ssl_module.SSLContext | None = None,
     **kwargs: Any,
 ) -> AsyncConnection
 ```
@@ -139,6 +166,7 @@ Create and open an async connection.
 - Returns a connected `AsyncConnection`.
 - Accepts the same collection / JSON decoding kwargs as `pycubrid.connect()`.
 - Supports `autocommit=True` via `await conn.set_autocommit(True)` during construction.
+- Provides a similar async surface to the sync API, but does **not** expose sync-only helpers such as `ping()` or `create_lob()`, and auto-commit changes go through `await conn.set_autocommit(...)` instead of a property setter.
 - Async TLS is not yet supported; passing `ssl=True` or an `SSLContext` raises `NotSupportedError`.
 
 ```python
@@ -820,7 +848,7 @@ with conn.cursor() as cur:
 
 `pycubrid.aio.connection.AsyncConnection`
 
-Async counterpart to `Connection` for use with `asyncio`.
+Async counterpart to `Connection` for use with `asyncio`, with a similar surface rather than full method-for-method parity.
 
 ### Selected Methods
 
@@ -834,6 +862,8 @@ Async counterpart to `Connection` for use with `asyncio`.
 | `get_last_insert_id()` | `async def get_last_insert_id(self) -> str` | Fetch last AUTO_INCREMENT value |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | Returns the parsed packet object |
 | `set_autocommit()` | `async def set_autocommit(self, value: bool) -> None` | Sends `SetDbParameterPacket` and `CommitPacket` |
+
+`AsyncConnection` does **not** expose sync-only `ping()` or `create_lob()` methods.
 
 ```python
 async with await pycubrid.aio.connect(database="testdb") as conn:

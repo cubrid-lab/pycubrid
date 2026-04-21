@@ -7,6 +7,7 @@ Complete reference for pycubrid's PEP 249 type objects, constructors, and CUBRID
 ## Table of Contents
 
 - [Overview](#overview)
+- [Declared SQL Types vs Fetch/Description Types](#declared-sql-types-vs-fetchdescription-types)
 - [DBAPIType Class](#dbapitype-class)
 - [PEP 249 Type Objects](#pep-249-type-objects)
   - [STRING](#string)
@@ -16,10 +17,26 @@ Complete reference for pycubrid's PEP 249 type objects, constructors, and CUBRID
   - [ROWID](#rowid)
 - [PEP 249 Constructors](#pep-249-constructors)
 - [CUBRID CCI_U_TYPE Codes](#cubrid-cci_u_type-codes)
-- [Type Conversion Table](#type-conversion-table)
+- [Fetch Conversion Table](#fetch-conversion-table)
 - [LOB Type Handling](#lob-type-handling)
 - [Collection Types](#collection-types)
+  - [JSON Columns](#json-columns)
+  - [`decode_collections`](#decode_collections)
 - [Usage Examples](#usage-examples)
+
+---
+
+## Declared SQL Types vs Fetch/Description Types
+
+This guide separates two different views of type information:
+
+- **Declared SQL types** are the column types you define in DDL and bind in SQL, such as
+  `VARCHAR`, `JSON`, `SET`, `BLOB`, or `TIMESTAMPTZ`.
+- **Fetch/description types** are the `CUBRIDDataType` integer codes exposed through
+  `cursor.description[n][1]` and the Python objects pycubrid returns after decoding wire data.
+
+The PEP 249 type-object sections below group declared SQL types into the standard DB-API families.
+Later sections list the raw `CUBRIDDataType` codes and the exact Python values returned on fetch.
 
 ---
 
@@ -256,7 +273,7 @@ print(CUBRIDDataType.VARCHAR)   # AttributeError — use CUBRIDDataType.STRING (
 
 ---
 
-## Type Conversion Table
+## Fetch Conversion Table
 
 How pycubrid converts CUBRID wire types to Python objects when fetching results:
 
@@ -361,6 +378,16 @@ JSON columns use CUBRID type code `34`.
 | `json_deserializer=custom_callable` | return value of the callable |
 
 This opt-in behavior keeps fetches allocation-light when applications prefer to defer JSON parsing.
+
+### `decode_collections`
+
+`decode_collections` is a connection-level switch on both `pycubrid.connect()` and
+`pycubrid.aio.connect()`.
+
+| Setting | Result |
+|---|---|
+| `False` (default) | Return collection payloads as raw CAS wire `bytes` |
+| `True` | Decode supported `SET`, `MULTISET`, and `SEQUENCE` payloads into Python containers |
 
 ---
 

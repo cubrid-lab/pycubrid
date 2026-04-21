@@ -24,7 +24,7 @@ sequenceDiagram
     rect rgb(230, 245, 255)
       note over pycubrid, CAS: Phase 1 — Broker Handshake
       pycubrid->>Broker: TCP connect to port 33000
-      pycubrid->>Broker: ClientInfoExchange ("CUBRK" + CLIENT_JDBC=3 + v7)
+      pycubrid->>Broker: ClientInfoExchange ("CUBRK" + CLIENT_JDBC=3 + v8)
       Broker-->>pycubrid: New CAS port (4B int32)
       pycubrid->>CAS: TCP reconnect to CAS port
     end
