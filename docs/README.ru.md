@@ -7,12 +7,12 @@
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
 [![python version](https://img.shields.io/pypi/pyversions/pycubrid)](https://www.python.org)
-[![ci workflow](https://github.com/cubrid-labs/pycubrid/actions/workflows/ci.yml/badge.svg)](https://github.com/cubrid-labs/pycubrid/actions/workflows/ci.yml)
-[![integration-full workflow](https://github.com/cubrid-labs/pycubrid/actions/workflows/integration-full.yml/badge.svg)](https://github.com/cubrid-labs/pycubrid/actions/workflows/integration-full.yml)
-[![coverage](https://codecov.io/gh/cubrid-labs/pycubrid/branch/main/graph/badge.svg)](https://codecov.io/gh/cubrid-labs/pycubrid)
-[![license](https://img.shields.io/github/license/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid/blob/main/LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid)
-[![docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://cubrid-labs.github.io/pycubrid/)
+[![ci workflow](https://github.com/cubrid-lab/pycubrid/actions/workflows/ci.yml/badge.svg)](https://github.com/cubrid-lab/pycubrid/actions/workflows/ci.yml)
+[![integration-full workflow](https://github.com/cubrid-lab/pycubrid/actions/workflows/integration-full.yml/badge.svg)](https://github.com/cubrid-lab/pycubrid/actions/workflows/integration-full.yml)
+[![coverage](https://codecov.io/gh/cubrid-lab/pycubrid/branch/main/graph/badge.svg)](https://codecov.io/gh/cubrid-lab/pycubrid)
+[![license](https://img.shields.io/github/license/cubrid-lab/pycubrid)](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/cubrid-lab/pycubrid)](https://github.com/cubrid-lab/pycubrid)
+[![docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://cubrid-lab.github.io/pycubrid/)
 <!-- BADGES:END -->
 
 ---
@@ -167,7 +167,7 @@ marketers = cur.fetchall()
 
 ## Интеграция с SQLAlchemy
 
-pycubrid работает как драйвер для [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid) — диалекта SQLAlchemy 2.0 для CUBRID:
+pycubrid работает как драйвер для [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — диалекта SQLAlchemy 2.0 для CUBRID:
 
 ```bash
 pip install "sqlalchemy-cubrid[pycubrid]"
@@ -296,15 +296,15 @@ Python 3.10, 3.11, 3.12, 3.13 и 3.14.
 
 ## Связанные проекты
 
-- [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid) — диалект SQLAlchemy 2.0 для CUBRID
-- [cubrid-python-cookbook](https://github.com/cubrid-labs/cubrid-python-cookbook) — готовые к продакшену примеры Python для CUBRID
+- [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — диалект SQLAlchemy 2.0 для CUBRID
+- [cubrid-python-cookbook](https://github.com/cubrid-lab/cubrid-python-cookbook) — готовые к продакшену примеры Python для CUBRID
 
 
 ## Дорожная карта
 
 См. [`ROADMAP.md`](../ROADMAP.md), чтобы узнать о направлении проекта и следующих этапах.
 
-Для обзора по всей экосистеме см. [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-labs/.github/blob/main/ROADMAP.md) и [Project Board](https://github.com/orgs/cubrid-labs/projects/2).
+Для обзора по всей экосистеме см. [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md) и [Project Board](https://github.com/orgs/cubrid-lab/projects/2).
 
 ## Участие в проекте
 

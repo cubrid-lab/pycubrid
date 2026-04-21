@@ -8,7 +8,7 @@ on:
 jobs:
   stale-issues:
     runs-on: ubuntu-latest
-    if: github.repository == 'cubrid-labs/pycubrid'
+    if: github.repository == 'cubrid-lab/pycubrid'
     steps:
       - name: Stale issues and PRs
         uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10

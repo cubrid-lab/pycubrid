@@ -83,7 +83,7 @@ graph TD
 ### Setup
 
 ```bash
-git clone https://github.com/cubrid-labs/pycubrid.git
+git clone https://github.com/cubrid-lab/pycubrid.git
 cd pycubrid
 make install          # pip install -e ".[dev]"
 ```
@@ -134,9 +134,9 @@ pytest tests/test_integration.py -v
 - No Python 2 constructs
 - No empty `except` blocks
 
-## Development Workflow (cubrid-labs org standard)
+## Development Workflow (cubrid-lab org standard)
 
-All non-trivial work across cubrid-labs repositories MUST follow this 4-phase cycle:
+All non-trivial work across cubrid-lab repositories MUST follow this 4-phase cycle:
 
 1. **Oracle Design Review** — Consult Oracle before implementation to validate architecture, API surface, and approach. Raise concerns early.
 2. **Implementation** — Build the feature/fix with tests. Follow existing codebase patterns.
@@ -256,7 +256,7 @@ Types: `feat`, `fix`, `docs`, `chore`, `ci`, `style`, `test`, `refactor`
 ## Project Context — Performance Loop System
 
 > This repo is the **primary optimization target** of the Performance Loop.
-> Board: [CUBRID Ecosystem Roadmap](https://github.com/orgs/cubrid-labs/projects/2)
+> Board: [CUBRID Ecosystem Roadmap](https://github.com/orgs/cubrid-lab/projects/2)
 
 ### Role
 

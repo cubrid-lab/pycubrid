@@ -6,18 +6,18 @@ pycubrid is a pure Python driver that communicates with CUBRID database servers 
 
 ## Docs
 
-- [Quick Start](https://cubrid-labs.github.io/pycubrid/quickstart/): Connect to CUBRID in 5 minutes with installation, basic connection, and CRUD examples
-- [Connection Guide](https://cubrid-labs.github.io/pycubrid/CONNECTION/): Connection parameters, authentication, connection string format, and connection management
-- [API Reference](https://cubrid-labs.github.io/pycubrid/API_REFERENCE/): Complete API documentation for connect(), Connection, Cursor, LOB, types, and exceptions
-- [Type Mapping](https://cubrid-labs.github.io/pycubrid/TYPES/): CUBRID SQL types to Python type mapping, type constructors, and DBAPIType
-- [Examples](https://cubrid-labs.github.io/pycubrid/EXAMPLES/): Practical code examples for common database operations
+- [Quick Start](https://cubrid-lab.github.io/pycubrid/quickstart/): Connect to CUBRID in 5 minutes with installation, basic connection, and CRUD examples
+- [Connection Guide](https://cubrid-lab.github.io/pycubrid/CONNECTION/): Connection parameters, authentication, connection string format, and connection management
+- [API Reference](https://cubrid-lab.github.io/pycubrid/API_REFERENCE/): Complete API documentation for connect(), Connection, Cursor, LOB, types, and exceptions
+- [Type Mapping](https://cubrid-lab.github.io/pycubrid/TYPES/): CUBRID SQL types to Python type mapping, type constructors, and DBAPIType
+- [Examples](https://cubrid-lab.github.io/pycubrid/EXAMPLES/): Practical code examples for common database operations
 
 ## Optional
 
-- [Protocol](https://cubrid-labs.github.io/pycubrid/PROTOCOL/): CAS protocol implementation details
-- [Architecture](https://cubrid-labs.github.io/pycubrid/ARCHITECTURE/): Internal architecture and module structure
-- [Performance](https://cubrid-labs.github.io/pycubrid/PERFORMANCE/): Performance optimization tips
-- [Troubleshooting](https://cubrid-labs.github.io/pycubrid/TROUBLESHOOTING/): Common issues and solutions
-- [FAQ](https://cubrid-labs.github.io/pycubrid/faq/): Frequently asked questions
-- [Support Matrix](https://cubrid-labs.github.io/pycubrid/SUPPORT_MATRIX/): Python and CUBRID version compatibility
-- [Development](https://cubrid-labs.github.io/pycubrid/DEVELOPMENT/): Development setup and contributing
+- [Protocol](https://cubrid-lab.github.io/pycubrid/PROTOCOL/): CAS protocol implementation details
+- [Architecture](https://cubrid-lab.github.io/pycubrid/ARCHITECTURE/): Internal architecture and module structure
+- [Performance](https://cubrid-lab.github.io/pycubrid/PERFORMANCE/): Performance optimization tips
+- [Troubleshooting](https://cubrid-lab.github.io/pycubrid/TROUBLESHOOTING/): Common issues and solutions
+- [FAQ](https://cubrid-lab.github.io/pycubrid/faq/): Frequently asked questions
+- [Support Matrix](https://cubrid-lab.github.io/pycubrid/SUPPORT_MATRIX/): Python and CUBRID version compatibility
+- [Development](https://cubrid-lab.github.io/pycubrid/DEVELOPMENT/): Development setup and contributing

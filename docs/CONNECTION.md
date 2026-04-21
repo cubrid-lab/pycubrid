@@ -46,7 +46,7 @@ pip install pycubrid
 ### From Source
 
 ```bash
-git clone https://github.com/cubrid-labs/pycubrid.git
+git clone https://github.com/cubrid-lab/pycubrid.git
 cd pycubrid
 pip install -e ".[dev]"
 ```
@@ -485,7 +485,7 @@ docker compose down -v
 
 ## SQLAlchemy Integration
 
-pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid):
+pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid):
 
 ```bash
 pip install "sqlalchemy-cubrid[pycubrid]"

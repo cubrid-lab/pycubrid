@@ -41,7 +41,7 @@ flowchart TD
 
 ## Benchmark Results
 
-Source: [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
+Source: [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)
 
 Environment: Intel Core i5-9400F @ 2.90GHz, 6 cores, Linux x86_64, Docker containers.
 
@@ -90,7 +90,7 @@ flowchart TD
 
 ## Performance Investigation
 
-Use this workflow when [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
+Use this workflow when [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)
 detects a measurable gap or regression. The goal is to reproduce, profile, fix, and verify —
 without hardcoding thresholds that age badly.
 
@@ -198,7 +198,7 @@ unchanged.
 |---|---|
 | "Where is wall-clock time going across `connect` / `execute` / `fetch` / `close` in my application?" | `enable_timing=True` (this section) |
 | "Which Python frames inside `cursor.execute` are hot?" | `scripts/profile_execute.py` (cProfile) |
-| "How does pycubrid compare to PyMySQL on a controlled workload?" | [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark) |
+| "How does pycubrid compare to PyMySQL on a controlled workload?" | [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark) |
 
 ### Enabling
 
@@ -292,7 +292,7 @@ All cursors created from a connection report into the same `TimingStats`. Stats 
 
 ## Running Benchmarks
 
-1. Clone the benchmark suite: `git clone https://github.com/cubrid-labs/cubrid-benchmark`.
+1. Clone the benchmark suite: `git clone https://github.com/cubrid-lab/cubrid-benchmark`.
 2. Start benchmark containers and databases as documented in that repository.
 3. Run the Python benchmark scenario (`pycubrid` vs `PyMySQL`) with the provided runner.
 4. Execute multiple rounds (the published run used 10000 rows x 5 rounds).

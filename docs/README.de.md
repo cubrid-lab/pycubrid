@@ -7,12 +7,12 @@
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
 [![python version](https://img.shields.io/pypi/pyversions/pycubrid)](https://www.python.org)
-[![ci workflow](https://github.com/cubrid-labs/pycubrid/actions/workflows/ci.yml/badge.svg)](https://github.com/cubrid-labs/pycubrid/actions/workflows/ci.yml)
-[![integration-full workflow](https://github.com/cubrid-labs/pycubrid/actions/workflows/integration-full.yml/badge.svg)](https://github.com/cubrid-labs/pycubrid/actions/workflows/integration-full.yml)
-[![coverage](https://codecov.io/gh/cubrid-labs/pycubrid/branch/main/graph/badge.svg)](https://codecov.io/gh/cubrid-labs/pycubrid)
-[![license](https://img.shields.io/github/license/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid/blob/main/LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/cubrid-labs/pycubrid)](https://github.com/cubrid-labs/pycubrid)
-[![docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://cubrid-labs.github.io/pycubrid/)
+[![ci workflow](https://github.com/cubrid-lab/pycubrid/actions/workflows/ci.yml/badge.svg)](https://github.com/cubrid-lab/pycubrid/actions/workflows/ci.yml)
+[![integration-full workflow](https://github.com/cubrid-lab/pycubrid/actions/workflows/integration-full.yml/badge.svg)](https://github.com/cubrid-lab/pycubrid/actions/workflows/integration-full.yml)
+[![coverage](https://codecov.io/gh/cubrid-lab/pycubrid/branch/main/graph/badge.svg)](https://codecov.io/gh/cubrid-lab/pycubrid)
+[![license](https://img.shields.io/github/license/cubrid-lab/pycubrid)](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/cubrid-lab/pycubrid)](https://github.com/cubrid-lab/pycubrid)
+[![docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://cubrid-lab.github.io/pycubrid/)
 <!-- BADGES:END -->
 
 ---
@@ -167,7 +167,7 @@ Das Projekt richtet sich an CUBRID 10.x und 11.x und wird in CI gegen folgende V
 
 ## SQLAlchemy-Integration
 
-pycubrid funktioniert als Treiber für [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid) — den SQLAlchemy-2.0-Dialekt für CUBRID:
+pycubrid funktioniert als Treiber für [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — den SQLAlchemy-2.0-Dialekt für CUBRID:
 
 ```bash
 pip install "sqlalchemy-cubrid[pycubrid]"
@@ -296,15 +296,15 @@ Ja. Verwenden Sie `pycubrid.aio.connect()` für native asyncio-Unterstützung. D
 
 ## Verwandte Projekte
 
-- [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid) — SQLAlchemy-2.0-Dialekt für CUBRID
-- [cubrid-python-cookbook](https://github.com/cubrid-labs/cubrid-python-cookbook) — Produktionsreife Python-Beispiele für CUBRID
+- [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — SQLAlchemy-2.0-Dialekt für CUBRID
+- [cubrid-python-cookbook](https://github.com/cubrid-lab/cubrid-python-cookbook) — Produktionsreife Python-Beispiele für CUBRID
 
 
 ## Roadmap
 
 Siehe [`ROADMAP.md`](../ROADMAP.md) für die Ausrichtung des Projekts und die nächsten Meilensteine.
 
-Für die Ökosystem-Perspektive siehe die [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-labs/.github/blob/main/ROADMAP.md) und das [Project Board](https://github.com/orgs/cubrid-labs/projects/2).
+Für die Ökosystem-Perspektive siehe die [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md) und das [Project Board](https://github.com/orgs/cubrid-lab/projects/2).
 
 ## Mitwirken
 

@@ -38,7 +38,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 
 ```bash
 # Clone the repository
-git clone https://github.com/cubrid-labs/pycubrid.git
+git clone https://github.com/cubrid-lab/pycubrid.git
 cd pycubrid
 
 # Install in development mode with dev dependencies
