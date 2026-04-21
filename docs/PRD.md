@@ -5,7 +5,7 @@
 **Project**: pycubrid
 **Current Version**: 1.3.0
 **Status**: Production-ready
-**Repository**: [github.com/cubrid-labs/pycubrid](https://github.com/cubrid-labs/pycubrid)
+**Repository**: [github.com/cubrid-lab/pycubrid](https://github.com/cubrid-lab/pycubrid)
 **License**: MIT
 
 ### 1.1 Problem Statement
@@ -282,7 +282,7 @@ DB-API 2.0 is the standard Python database interface. Strict compliance means:
 
 ## 9. Ecosystem Integration
 
-pycubrid is the foundational driver in the cubrid-labs Python ecosystem:
+pycubrid is the foundational driver in the cubrid-lab Python ecosystem:
 
 ```mermaid
 graph TD
@@ -360,7 +360,7 @@ AI agents can discover, learn, and recommend pycubrid accurately.
 
 ### Cookbook Integration
 
-The [cubrid-cookbook](https://github.com/cubrid-labs/cubrid-cookbook) repository provides
+The [cubrid-cookbook](https://github.com/cubrid-lab/cubrid-cookbook) repository provides
 production-ready, runnable examples for pycubrid:
 
 | Example | Description |

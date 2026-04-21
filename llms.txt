@@ -16,33 +16,33 @@ Key facts:
 
 ## Docs
 
-- [Connection Guide](https://github.com/cubrid-labs/pycubrid/blob/main/docs/CONNECTION.md): Connection strings, URL format, configuration, connection pooling
-- [Type Mapping](https://github.com/cubrid-labs/pycubrid/blob/main/docs/TYPES.md): Full type mapping between Python and CUBRID types
-- [API Reference](https://github.com/cubrid-labs/pycubrid/blob/main/docs/API_REFERENCE.md): Complete API documentation — modules, classes, functions
-- [Protocol Reference](https://github.com/cubrid-labs/pycubrid/blob/main/docs/PROTOCOL.md): CAS wire protocol specification
-- [Examples](https://github.com/cubrid-labs/pycubrid/blob/main/docs/EXAMPLES.md): Practical usage examples with code
-- [Development Guide](https://github.com/cubrid-labs/pycubrid/blob/main/docs/DEVELOPMENT.md): Dev setup, testing, Docker, coverage, CI/CD
+- [Connection Guide](https://github.com/cubrid-lab/pycubrid/blob/main/docs/CONNECTION.md): Connection strings, URL format, configuration, connection pooling
+- [Type Mapping](https://github.com/cubrid-lab/pycubrid/blob/main/docs/TYPES.md): Full type mapping between Python and CUBRID types
+- [API Reference](https://github.com/cubrid-lab/pycubrid/blob/main/docs/API_REFERENCE.md): Complete API documentation — modules, classes, functions
+- [Protocol Reference](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PROTOCOL.md): CAS wire protocol specification
+- [Examples](https://github.com/cubrid-lab/pycubrid/blob/main/docs/EXAMPLES.md): Practical usage examples with code
+- [Development Guide](https://github.com/cubrid-lab/pycubrid/blob/main/docs/DEVELOPMENT.md): Dev setup, testing, Docker, coverage, CI/CD
 
 ## Examples
 
-- [Quick Start](https://github.com/cubrid-labs/pycubrid/blob/main/README.md#quick-start): Basic connection, context manager, parameter binding, prepared statements
-- [CUBRID Cookbook — pycubrid](https://github.com/cubrid-labs/cubrid-cookbook/tree/main/python/pycubrid): 6 production-ready examples — connect, CRUD, transactions, prepared statements, error handling, LOBs
+- [Quick Start](https://github.com/cubrid-lab/pycubrid/blob/main/README.md#quick-start): Basic connection, context manager, parameter binding, prepared statements
+- [CUBRID Cookbook — pycubrid](https://github.com/cubrid-lab/cubrid-cookbook/tree/main/python/pycubrid): 6 production-ready examples — connect, CRUD, transactions, prepared statements, error handling, LOBs
 
 ## API Reference
 
-- [Source — __init__.py](https://github.com/cubrid-labs/pycubrid/blob/main/pycubrid/__init__.py): Public API — connect(), types, exceptions, __version__
-- [Source — connection.py](https://github.com/cubrid-labs/pycubrid/blob/main/pycubrid/connection.py): Connection class — connect, commit, rollback, cursor, LOB
-- [Source — cursor.py](https://github.com/cubrid-labs/pycubrid/blob/main/pycubrid/cursor.py): Cursor class — execute, fetch, prepare, callproc, iterator
-- [Source — types.py](https://github.com/cubrid-labs/pycubrid/blob/main/pycubrid/types.py): DB-API 2.0 type objects and constructors
-- [Source — exceptions.py](https://github.com/cubrid-labs/pycubrid/blob/main/pycubrid/exceptions.py): PEP 249 exception hierarchy
+- [Source — __init__.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py): Public API — connect(), types, exceptions, __version__
+- [Source — connection.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/connection.py): Connection class — connect, commit, rollback, cursor, LOB
+- [Source — cursor.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/cursor.py): Cursor class — execute, fetch, prepare, callproc, iterator
+- [Source — types.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/types.py): DB-API 2.0 type objects and constructors
+- [Source — exceptions.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/exceptions.py): PEP 249 exception hierarchy
 
 ## Ecosystem
 
-- [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid): SQLAlchemy 2.0 dialect for CUBRID (uses pycubrid as driver)
-- [cubrid-cookbook](https://github.com/cubrid-labs/cubrid-cookbook): Production-ready examples across Python, Node.js, and Go
+- [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid): SQLAlchemy 2.0 dialect for CUBRID (uses pycubrid as driver)
+- [cubrid-cookbook](https://github.com/cubrid-lab/cubrid-cookbook): Production-ready examples across Python, Node.js, and Go
 - [CUBRID](https://www.cubrid.org/): The CUBRID database
 
 ## Optional
 
-- [Product Requirements](https://github.com/cubrid-labs/pycubrid/blob/main/docs/PRD.md): Product requirements document with Example-first Design Philosophy
-- [Contributing Guide](https://github.com/cubrid-labs/pycubrid/blob/main/CONTRIBUTING.md): Contribution guidelines
+- [Product Requirements](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PRD.md): Product requirements document with Example-first Design Philosophy
+- [Contributing Guide](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md): Contribution guidelines

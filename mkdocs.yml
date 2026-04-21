@@ -1,8 +1,8 @@
 site_name: pycubrid
 site_description: Pure Python DB-API 2.0 driver for CUBRID database
-site_author: cubrid-labs
-site_url: https://cubrid-labs.github.io/pycubrid/
-repo_url: https://github.com/cubrid-labs/pycubrid
+site_author: cubrid-lab
+site_url: https://cubrid-lab.github.io/pycubrid/
+repo_url: https://github.com/cubrid-lab/pycubrid
 edit_uri: edit/main/docs/
 
 theme:
@@ -44,8 +44,8 @@ nav:
       - Troubleshooting: TROUBLESHOOTING.md
   - Development: DEVELOPMENT.md
   - FAQ: faq.md
-  - Changelog: https://github.com/cubrid-labs/pycubrid/blob/main/CHANGELOG.md
-  - Contributing: https://github.com/cubrid-labs/pycubrid/blob/main/CONTRIBUTING.md
+  - Changelog: https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md
+  - Contributing: https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md
 
 markdown_extensions:
   - admonition
@@ -77,7 +77,7 @@ validation:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/cubrid-labs/pycubrid
+      link: https://github.com/cubrid-lab/pycubrid
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/pycubrid/
 

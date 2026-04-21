@@ -35,7 +35,7 @@ conn.close()
 
 ## Project links
 
-- [GitHub](https://github.com/cubrid-labs/pycubrid)
+- [GitHub](https://github.com/cubrid-lab/pycubrid)
 - [PyPI](https://pypi.org/project/pycubrid/)
-- [Changelog](https://github.com/cubrid-labs/pycubrid/blob/main/CHANGELOG.md)
-- [Contributing](https://github.com/cubrid-labs/pycubrid/blob/main/CONTRIBUTING.md)
+- [Changelog](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)
+- [Contributing](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md)

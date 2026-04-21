@@ -46,10 +46,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/cubrid-labs/pycubrid"
-Repository = "https://github.com/cubrid-labs/pycubrid"
-Documentation = "https://github.com/cubrid-labs/pycubrid/tree/main/docs"
-Issues = "https://github.com/cubrid-labs/pycubrid/issues"
+Homepage = "https://github.com/cubrid-lab/pycubrid"
+Repository = "https://github.com/cubrid-lab/pycubrid"
+Documentation = "https://github.com/cubrid-lab/pycubrid/tree/main/docs"
+Issues = "https://github.com/cubrid-lab/pycubrid/issues"
 
 [tool.setuptools]
 packages = ["pycubrid", "pycubrid.aio"]

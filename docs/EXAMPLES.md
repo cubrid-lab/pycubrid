@@ -594,7 +594,7 @@ except pycubrid.InterfaceError as e:
 
 ## SQLAlchemy Integration
 
-pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid):
+pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid):
 
 ```python
 from sqlalchemy import create_engine, text, Column, Integer, String

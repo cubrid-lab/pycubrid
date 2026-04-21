@@ -15,7 +15,7 @@ body:
       label: Benchmark Source
       description: Link to the cubrid-benchmark run or report that triggered this investigation
       placeholder: |
-        https://github.com/cubrid-labs/cubrid-benchmark/actions/runs/...
+        https://github.com/cubrid-lab/cubrid-benchmark/actions/runs/...
         or paste the relevant benchmark output table
     validations:
       required: true

@@ -39,10 +39,10 @@ conn.close()
 
 ## Project links
 
-- [GitHub](https://github.com/cubrid-labs/pycubrid)
+- [GitHub](https://github.com/cubrid-lab/pycubrid)
 - [PyPI](https://pypi.org/project/pycubrid/)
-- [Changelog](https://github.com/cubrid-labs/pycubrid/blob/main/CHANGELOG.md)
-- [Contributing](https://github.com/cubrid-labs/pycubrid/blob/main/CONTRIBUTING.md)
+- [Changelog](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)
+- [Contributing](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md)
 
 ============================================================
 File: quickstart.md
@@ -246,7 +246,7 @@ pip install pycubrid
 ### From Source
 
 ```bash
-git clone https://github.com/cubrid-labs/pycubrid.git
+git clone https://github.com/cubrid-lab/pycubrid.git
 cd pycubrid
 pip install -e ".[dev]"
 ```
@@ -628,7 +628,7 @@ docker compose down -v
 
 ## SQLAlchemy Integration
 
-pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid):
+pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid):
 
 ```bash
 pip install "sqlalchemy-cubrid[pycubrid]"
@@ -2693,7 +2693,7 @@ except pycubrid.InterfaceError as e:
 
 ## SQLAlchemy Integration
 
-pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-labs/sqlalchemy-cubrid):
+pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid):
 
 ```python
 from sqlalchemy import create_engine, text, Column, Integer, String
@@ -3692,7 +3692,7 @@ flowchart TD
 
 ## Benchmark Results
 
-Source: [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
+Source: [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)
 
 Environment: Intel Core i5-9400F @ 2.90GHz, 6 cores, Linux x86_64, Docker containers.
 
@@ -3741,7 +3741,7 @@ flowchart TD
 
 ## Performance Investigation
 
-Use this workflow when [cubrid-benchmark](https://github.com/cubrid-labs/cubrid-benchmark)
+Use this workflow when [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)
 detects a measurable gap or regression. The goal is to reproduce, profile, fix, and verify —
 without hardcoding thresholds that age badly.
 
@@ -3838,7 +3838,7 @@ nested call stacks.
 
 ## Running Benchmarks
 
-1. Clone the benchmark suite: `git clone https://github.com/cubrid-labs/cubrid-benchmark`.
+1. Clone the benchmark suite: `git clone https://github.com/cubrid-lab/cubrid-benchmark`.
 2. Start benchmark containers and databases as documented in that repository.
 3. Run the Python benchmark scenario (`pycubrid` vs `PyMySQL`) with the provided runner.
 4. Execute multiple rounds (the published run used 10000 rows x 5 rounds).
@@ -5306,7 +5306,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 
 ```bash
 # Clone the repository
-git clone https://github.com/cubrid-labs/pycubrid.git
+git clone https://github.com/cubrid-lab/pycubrid.git
 cd pycubrid
 
 # Install in development mode with dev dependencies
