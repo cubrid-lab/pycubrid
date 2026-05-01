@@ -68,10 +68,92 @@ class ResultInfo:
 # ---------------------------------------------------------------------------
 
 
+
+
+# Common CUBRID reserved words that cause confusion
+_CUBRID_RESERVED_WORDS = frozenset({
+    "absolute", "action", "add", "after", "all", "allocate", "alter", "and", "any",
+    "are", "as", "asc", "assertion", "at", "attach", "attribute", "avg", "before",
+    "between", "bit", "boolean", "both", "breadth", "by", "call", "cascade",
+    "case", "cast", "catalog", "change", "char", "character", "check", "class",
+    "clob", "close", "coalesce", "collate", "column", "commit", "connect",
+    "connection", "constraint", "continue", "convert", "corresponding", "count",
+    "create", "cross", "current", "current_date", "current_time", "current_timestamp",
+    "current_user", "cursor", "cycle", "data", "database", "date", "datetime",
+    "day", "deallocate", "dec", "decimal", "declare", "default", "deferrable",
+    "deferred", "delete", "depth", "desc", "describe", "descriptor", "diagnostics",
+    "difference", "disconnect", "distinct", "do", "domain", "double", "drop",
+    "duplicate", "each", "else", "elseif", "end", "equals", "escape", "evaluate",
+    "except", "exception", "exec", "execute", "exists", "external", "extract",
+    "false", "fetch", "file", "first", "float", "for", "foreign", "found", "from",
+    "full", "function", "general", "get", "global", "go", "goto", "grant", "group",
+    "having", "hour", "identity", "if", "ignore", "immediate", "in", "index",
+    "indicator", "inherit", "initially", "inner", "inout", "input", "insert",
+    "int", "integer", "intersect", "intersection", "interval", "into", "is",
+    "isolation", "join", "key", "language", "last", "leading", "leave", "left",
+    "less", "level", "like", "limit", "list", "local", "loop", "lower", "match",
+    "max", "method", "min", "minute", "module", "month", "multiset", "names",
+    "national", "natural", "nchar", "next", "no", "none", "not", "null", "nullif",
+    "numeric", "object", "octet_length", "of", "off", "on", "only", "open",
+    "operation", "option", "or", "order", "out", "outer", "output", "overlaps",
+    "pad", "parameter", "partial", "position", "precision", "preserve",
+    "primary", "prior", "private", "privileges", "procedure", "protected",
+    "read", "real", "recursive", "ref", "references", "referencing", "relative",
+    "rename", "replace", "resignal", "restrict", "return", "returns", "revoke",
+    "right", "role", "rollback", "rollup", "routine", "row", "rows", "savepoint",
+    "schema", "scope", "scroll", "search", "second", "section", "select",
+    "sequence", "session", "session_user", "set", "seteq", "signal", "size",
+    "smallint", "some", "space", "specific", "sql", "sqlcode", "sqlerror",
+    "sqlexception", "sqlstate", "sqlwarning", "statistics", "string", "structure",
+    "subset", "subtype", "sum", "superclass", "supersede", "sys_connect_by_path",
+    "system_user", "table", "temporary", "test", "then", "there", "time",
+    "timestamp", "timezone_hour", "timezone_minute", "to", "trailing",
+    "transaction", "translate", "translation", "trigger", "trim", "true",
+    "truncate", "under", "union", "unique", "unknown", "update", "upper", "usage",
+    "use", "user", "using", "value", "values", "varchar", "variable", "varying",
+    "view", "virtual", "visible", "wait", "when", "whenever", "where", "while",
+    "with", "without", "work", "write", "year", "zone",
+})
+
+
+def _add_error_hints(error_message: str) -> str:
+    """Append helpful hints for common CUBRID error patterns."""
+    msg_lower = error_message.lower()
+
+    # Hint for CARDINALITY() server bug
+    if "cardinality" in msg_lower and ("undefined" in msg_lower or "not found" in msg_lower or "does not exist" in msg_lower):
+        error_message += (
+            " [Hint: CARDINALITY() has a known bug in CUBRID 11.x and may not work. "
+            "Use a subquery with COUNT(*) on TABLE(column) instead. "
+            "See: https://github.com/cubrid-lab/.github/issues/3]"
+        )
+        return error_message
+
+    # Hint for reserved word syntax errors
+    if "syntax" in msg_lower and "unexpected" in msg_lower:
+        import re
+        # Extract the token after "unexpected" — that's the problematic identifier
+        match = re.search(r"unexpected\s+'(\w+)'", error_message)
+        if match:
+            token = match.group(1)
+            if token.lower() in _CUBRID_RESERVED_WORDS:
+                error_message += (
+                    f" [Hint: '{token}' is a CUBRID reserved word. "
+                    f"Use double-quotes around the identifier or rename it. "
+                    f"See: https://github.com/cubrid-lab/.github/issues/5]"
+                )
+
+    return error_message
+    return error_message
+
 def _raise_error(reader: PacketReader, response_length: int) -> None:
-    """Parse an error response and raise the appropriate DB-API exception."""
+    """Parse an error response and raise the appropriate DB-API exception.
+
+    Adds helpful hints for common CUBRID pitfalls (reserved words, unsupported functions).
+    """
     error_code, error_message = reader.read_error(response_length)
     sqlstate = get_sqlstate(error_code)
+    error_message = _add_error_hints(error_message)
     msg_lower = error_message.lower()
     if any(
         kw in msg_lower for kw in ("unique", "duplicate", "foreign key", "constraint violation")
