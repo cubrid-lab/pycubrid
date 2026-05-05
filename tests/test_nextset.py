@@ -7,7 +7,7 @@ import pytest
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.cursor import Cursor
-from pycubrid.exceptions import InterfaceError
+from pycubrid.exceptions import InterfaceError, NotSupportedError
 from pycubrid.protocol import FetchPacket
 
 
@@ -24,10 +24,11 @@ def _make_sync_connection(*, fetch_size: int = 100) -> MagicMock:
     return conn
 
 
-def test_cursor_nextset_returns_none() -> None:
+def test_cursor_nextset_raises_not_supported() -> None:
     cursor = Cursor(_make_sync_connection())
 
-    assert cursor.nextset() is None
+    with pytest.raises(NotSupportedError, match="multiple result sets"):
+        cursor.nextset()
 
 
 def test_cursor_nextset_on_closed_cursor_raises() -> None:
@@ -57,12 +58,13 @@ def test_cursor_uses_configured_fetch_size() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_cursor_nextset_returns_none() -> None:
+async def test_async_cursor_nextset_raises_not_supported() -> None:
     connection = AsyncConnection("localhost", 33000, "db", "dba", "", fetch_size=64)
     connection._connected = True
     cursor = AsyncCursor(connection)
 
-    assert await cursor.nextset() is None
+    with pytest.raises(NotSupportedError, match="multiple result sets"):
+        await cursor.nextset()
 
 
 @pytest.mark.asyncio

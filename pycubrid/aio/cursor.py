@@ -16,6 +16,7 @@ from pycubrid.protocol import (
     GetLastInsertIdPacket,
     PrepareAndExecutePacket,
 )
+from pycubrid.cursor import _DML_BATCH_VERBS, _extract_first_keyword
 
 DescriptionItem = tuple[str, int, None, None, int, int, bool]
 
@@ -137,7 +138,8 @@ class AsyncCursor:
                 await self._connection._send_and_receive(lid_packet)
                 if lid_packet.last_insert_id:
                     self._lastrowid = int(lid_packet.last_insert_id)
-            except (InterfaceError, OperationalError, OSError, TypeError, ValueError):
+            except (InterfaceError, OperationalError, OSError, TypeError, ValueError) as exc:
+                _LOGGER.debug("lastrowid retrieval failed: %s", exc)
                 self._lastrowid = None
 
         if _timing is not None:
@@ -154,12 +156,19 @@ class AsyncCursor:
         if not seq_of_parameters:
             return self
 
-        stripped = operation.lstrip()
-        is_select = stripped[:6].upper().startswith("SELECT")
+        first_word = _extract_first_keyword(operation)
+        is_dml = first_word in _DML_BATCH_VERBS
 
-        if is_select:
+        if not is_dml:
+            total_rowcount = 0
+            has_non_select = False
             for params in seq_of_parameters:
                 await self.execute(operation, params)
+                if self._statement_type != CUBRIDStatementType.SELECT and self._rowcount >= 0:
+                    total_rowcount += self._rowcount
+                    has_non_select = True
+            if has_non_select:
+                self._rowcount = total_rowcount
             return self
 
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
@@ -260,8 +269,11 @@ class AsyncCursor:
         return parameters
 
     async def nextset(self) -> None:
+        """Not supported — CUBRID does not have multiple result sets."""
         self._check_closed()
-        return None
+        from pycubrid.exceptions import NotSupportedError
+
+        raise NotSupportedError("CUBRID does not support multiple result sets")
 
     def __aiter__(self) -> AsyncCursor:
         return self

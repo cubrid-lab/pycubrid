@@ -14,8 +14,8 @@ jobs:
     name: Version consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12"
       - name: Check pyproject.toml matches __init__.py
@@ -71,9 +71,38 @@ jobs:
         env:
           CODECOV_RETRIES: 3
 
+  packaging-smoke-test:
+    runs-on: ubuntu-latest
+    needs: [offline-tests]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+      - name: Install build tool
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+      - name: Build sdist and wheel
+        run: python -m build
+      - name: Smoke test wheel install
+        run: |
+          python -m venv /tmp/test-wheel
+          /tmp/test-wheel/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/test-wheel/bin/python -c "import pycubrid; print(pycubrid.__version__)"
+          /tmp/test-wheel/bin/python -c "import pycubrid.aio; print('async OK')"
+          /tmp/test-wheel/bin/python -c "from pycubrid import connect, Date, Time, Timestamp, Binary; print('public API OK')"
+      - name: Smoke test sdist install
+        run: |
+          python -m venv /tmp/test-sdist
+          /tmp/test-sdist/bin/pip install dist/*.tar.gz
+          cd /tmp
+          /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
+
   integration-tests:
     runs-on: ubuntu-latest
-    needs: [lint, offline-tests]
+    needs: [lint, offline-tests, packaging-smoke-test]
     strategy:
       fail-fast: false
       matrix:
@@ -127,8 +156,4 @@ jobs:
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
         run: |
-          if [ -f tests/test_integration.py ]; then
-            python -m pytest tests/test_integration.py -v --tb=short
-          else
-            echo "tests/test_integration.py not present yet; skipping integration suite."
-          fi
+          python -m pytest tests/test_integration.py -v --tb=short

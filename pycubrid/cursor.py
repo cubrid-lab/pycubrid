@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 import time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Sequence
@@ -26,6 +27,21 @@ if TYPE_CHECKING:
 DescriptionItem = tuple[str, int, None, None, int, int, bool]
 
 _LOGGER = logging.getLogger(__name__)
+
+# DML verbs eligible for batch execution in executemany().
+_DML_BATCH_VERBS = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE"})
+
+# Regex to strip leading SQL comments (block /* ... */ and line -- ... to EOL/EOF).
+
+_RE_LEADING_COMMENTS = re.compile(r"^(\s*(/\*.*?\*/|--[^\n]*(\n|$)))*\s*", re.DOTALL)
+
+
+def _extract_first_keyword(sql: str) -> str:
+    """Extract the first SQL keyword, skipping leading comments and whitespace."""
+    stripped = _RE_LEADING_COMMENTS.sub("", sql)
+    if not stripped:
+        return ""
+    return stripped.split(None, 1)[0].upper()
 
 
 class Cursor:
@@ -151,7 +167,8 @@ class Cursor:
                 self._connection._send_and_receive(lid_packet)
                 if lid_packet.last_insert_id:
                     self._lastrowid = int(lid_packet.last_insert_id)
-            except (InterfaceError, OperationalError, OSError, TypeError, ValueError):
+            except (InterfaceError, OperationalError, OSError, TypeError, ValueError) as exc:
+                _LOGGER.debug("lastrowid retrieval failed: %s", exc)
                 self._lastrowid = None
 
         if _timing is not None:
@@ -176,11 +193,11 @@ class Cursor:
         if not seq_of_parameters:
             return self
 
-        # Heuristic: detect SELECT to decide on batch path.
-        stripped = operation.lstrip()
-        is_select = stripped[:6].upper().startswith("SELECT")
+        # Use DML whitelist: only batch for known DML verbs.
+        first_word = _extract_first_keyword(operation)
+        is_dml = first_word in _DML_BATCH_VERBS
 
-        if is_select:
+        if not is_dml:
             return self._executemany_loop(operation, seq_of_parameters)
 
         # --- DML batch path: render + single RPC --------------------------
@@ -308,8 +325,11 @@ class Cursor:
         return parameters
 
     def nextset(self) -> None:
+        """Not supported — CUBRID does not have multiple result sets."""
         self._check_closed()
-        return None
+        from .exceptions import NotSupportedError
+
+        raise NotSupportedError("CUBRID does not support multiple result sets")
 
     def __iter__(self) -> Cursor:
         """Return the cursor itself as an iterator over rows."""
