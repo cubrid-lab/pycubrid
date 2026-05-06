@@ -44,6 +44,79 @@ def _extract_first_keyword(sql: str) -> str:
     return stripped.split(None, 1)[0].upper()
 
 
+def _split_on_placeholders(sql: str) -> list[str]:
+    """Split SQL on unquoted, uncommented `?` placeholders.
+
+    Tracks four states to skip `?` inside:
+    - Single-quoted strings (handles doubled '' escapes)
+    - Double-quoted identifiers
+    - Line comments (-- ... to EOL)
+    - Block comments (/* ... */)
+
+    Returns a list of N+1 parts where N is the number of real placeholders.
+    """
+    parts: list[str] = []
+    start = 0
+    i = 0
+    n = len(sql)
+
+    while i < n:
+        c = sql[i]
+
+        if c == "'":
+            # Single-quoted string: advance past closing quote
+            i += 1
+            while i < n:
+                if sql[i] == "'":
+                    i += 1
+                    if i < n and sql[i] == "'":
+                        # Doubled quote escape ''
+                        i += 1
+                    else:
+                        break
+                else:
+                    i += 1
+
+        elif c == '"':
+            # Double-quoted identifier: advance past closing quote
+            i += 1
+            while i < n:
+                if sql[i] == '"':
+                    i += 1
+                    if i < n and sql[i] == '"':
+                        i += 1
+                    else:
+                        break
+                else:
+                    i += 1
+
+        elif c == '-' and i + 1 < n and sql[i + 1] == '-':
+            # Line comment: skip to end of line
+            i += 2
+            while i < n and sql[i] != '\n':
+                i += 1
+
+        elif c == '/' and i + 1 < n and sql[i + 1] == '*':
+            # Block comment: skip to */
+            i += 2
+            while i < n:
+                if sql[i] == '*' and i + 1 < n and sql[i + 1] == '/':
+                    i += 2
+                    break
+                i += 1
+
+        elif c == '?':
+            # Real placeholder found
+            parts.append(sql[start:i])
+            i += 1
+            start = i
+
+        else:
+            i += 1
+
+    parts.append(sql[start:])
+    return parts
+
 class Cursor:
     """Database cursor implementing the DB-API 2.0 cursor interface."""
 
@@ -409,7 +482,7 @@ class Cursor:
         else:
             raise ProgrammingError("parameters must be a sequence")
 
-        parts = operation.split("?")
+        parts = _split_on_placeholders(operation)
         placeholder_count = len(parts) - 1
         if placeholder_count != len(values):
             raise ProgrammingError("wrong number of parameters")

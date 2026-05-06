@@ -16,7 +16,7 @@ from pycubrid.protocol import (
     GetLastInsertIdPacket,
     PrepareAndExecutePacket,
 )
-from pycubrid.cursor import _DML_BATCH_VERBS, _extract_first_keyword
+from pycubrid.cursor import _DML_BATCH_VERBS, _extract_first_keyword, _split_on_placeholders
 
 DescriptionItem = tuple[str, int, None, None, int, int, bool]
 
@@ -350,7 +350,7 @@ class AsyncCursor:
         else:
             raise ProgrammingError("parameters must be a sequence")
 
-        parts = operation.split("?")
+        parts = _split_on_placeholders(operation)
         placeholder_count = len(parts) - 1
         if placeholder_count != len(values):
             raise ProgrammingError("wrong number of parameters")
