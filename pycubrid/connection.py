@@ -132,6 +132,7 @@ class Connection:
         _start = 0
         if _timing is not None:
             _start = time.perf_counter_ns()
+        handshake_socket: socket.socket | None = None
         try:
             handshake_socket = self._create_socket(self._host, self._port)
             client_info_packet = ClientInfoExchangePacket()
@@ -141,11 +142,13 @@ class Connection:
 
             if client_info_packet.new_connection_port > 0:
                 handshake_socket.close()
+                handshake_socket = None
                 self._socket = self._create_socket(
                     self._host, client_info_packet.new_connection_port
                 )
             else:
                 self._socket = handshake_socket
+                handshake_socket = None  # ownership transferred
 
             open_db_packet = OpenDatabasePacket(
                 database=self._database,
@@ -169,16 +172,22 @@ class Connection:
                 self._database,
                 self._protocol_version,
             )
-        except OSError as exc:
+        except (OSError, ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
             _LOGGER.debug(
                 "Connection failed to %s:%d/%s",
                 self._host,
                 self._port,
                 self._database,
             )
-            self._safe_close_socket()
             raise OperationalError("failed to connect to CUBRID broker") from exc
         finally:
+            if handshake_socket is not None:
+                try:
+                    handshake_socket.close()
+                except OSError:
+                    pass
+            if not self._connected:
+                self._safe_close_socket()
             if _timing is not None:
                 _timing.record_connect(time.perf_counter_ns() - _start)
 

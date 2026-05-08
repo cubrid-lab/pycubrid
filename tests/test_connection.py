@@ -536,3 +536,67 @@ class TestSendAndReceiveFraming:
         assert result is packet
         assert packet.parsed_data == body
         assert sock.sendall.call_args_list[-1].args[0] == b"REQ"
+
+
+class TestConnectSocketLeak:
+    """Regression tests for #122: socket leak on non-OSError during connect."""
+
+    def test_handshake_parse_valueerror_closes_socket(self, socket_queue: list[MagicMock]) -> None:
+        """If handshake parse raises ValueError, handshake socket must be closed."""
+        sock = make_socket([build_handshake_response()])
+        socket_queue.append(sock)
+
+        with patch(
+            "pycubrid.protocol.ClientInfoExchangePacket.parse",
+            side_effect=ValueError("bad handshake"),
+        ):
+            with pytest.raises(OperationalError, match="failed to connect"):
+                Connection("localhost", 33000, "testdb", "dba", "")
+
+        sock.close.assert_called()
+
+    def test_open_db_parse_struct_error_closes_socket(self, socket_queue: list[MagicMock]) -> None:
+        """If open_db parse raises struct.error, connection socket must be closed."""
+        open_db = build_open_db_response()
+        sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
+        socket_queue.append(sock)
+
+        with patch(
+            "pycubrid.protocol.OpenDatabasePacket.parse",
+            side_effect=struct.error("bad packet"),
+        ):
+            with pytest.raises(OperationalError, match="failed to connect"):
+                Connection("localhost", 33000, "testdb", "dba", "")
+
+        sock.close.assert_called()
+
+    def test_open_db_parse_index_error_closes_socket(self, socket_queue: list[MagicMock]) -> None:
+        """If open_db parse raises IndexError (truncated broker info), socket must be closed."""
+        open_db = build_open_db_response()
+        sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
+        socket_queue.append(sock)
+
+        with patch(
+            "pycubrid.protocol.OpenDatabasePacket.parse",
+            side_effect=IndexError("broker info truncated"),
+        ):
+            with pytest.raises(OperationalError, match="failed to connect"):
+                Connection("localhost", 33000, "testdb", "dba", "")
+
+        sock.close.assert_called()
+
+    def test_handshake_parse_unicode_error_closes_socket(
+        self, socket_queue: list[MagicMock]
+    ) -> None:
+        """If handshake parse raises UnicodeDecodeError, socket must be closed."""
+        sock = make_socket([build_handshake_response()])
+        socket_queue.append(sock)
+
+        with patch(
+            "pycubrid.protocol.ClientInfoExchangePacket.parse",
+            side_effect=UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid"),
+        ):
+            with pytest.raises(OperationalError, match="failed to connect"):
+                Connection("localhost", 33000, "testdb", "dba", "")
+
+        sock.close.assert_called()

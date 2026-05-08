@@ -106,6 +106,7 @@ class AsyncConnection:
         _start = 0
         if _timing is not None:
             _start = time.perf_counter_ns()
+        handshake_socket: socket.socket | None = None
         try:
             loop = asyncio.get_running_loop()
 
@@ -118,11 +119,13 @@ class AsyncConnection:
 
             if client_info_packet.new_connection_port > 0:
                 handshake_socket.close()
+                handshake_socket = None
                 self._socket = await self._create_socket_nonblocking(
                     self._host, client_info_packet.new_connection_port
                 )
             else:
                 self._socket = handshake_socket
+                handshake_socket = None  # ownership transferred
 
             open_db_packet = OpenDatabasePacket(
                 database=self._database,
@@ -143,10 +146,16 @@ class AsyncConnection:
             self._session_id = open_db_packet.session_id
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._connected = True
-        except OSError as exc:
-            self._safe_close_socket()
+        except (OSError, ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
             raise OperationalError("failed to connect to CUBRID broker") from exc
         finally:
+            if handshake_socket is not None:
+                try:
+                    handshake_socket.close()
+                except OSError:
+                    pass
+            if not self._connected:
+                self._safe_close_socket()
             if _timing is not None:
                 _timing.record_connect(time.perf_counter_ns() - _start)
 

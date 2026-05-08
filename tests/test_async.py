@@ -945,3 +945,123 @@ class TestAsyncConnectModule:
             mock_cls.return_value = instance
             await aio_mod.connect(autocommit=True)
             instance.set_autocommit.assert_awaited_with(True)
+
+
+class TestAsyncConnectSocketLeak:
+    """Regression tests for #122: async socket leak on non-OSError during connect."""
+
+    @pytest.mark.asyncio
+    async def test_handshake_parse_valueerror_closes_socket(
+        self, async_conn: AsyncConnection
+    ) -> None:
+        """If handshake parse raises ValueError, handshake socket must be closed."""
+        fake_loop = FakeLoop([build_handshake_response()])
+        mock_sock = MagicMock()
+
+        with (
+            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=mock_sock,
+            ),
+            patch(
+                "pycubrid.protocol.ClientInfoExchangePacket.parse",
+                side_effect=ValueError("bad handshake"),
+            ),
+        ):
+            with pytest.raises(OperationalError, match="failed to connect"):
+                await async_conn.connect()
+
+        mock_sock.close.assert_called()
+        assert async_conn._connected is False
+        assert async_conn._socket is None
+
+    @pytest.mark.asyncio
+    async def test_open_db_parse_struct_error_closes_socket(
+        self, async_conn: AsyncConnection
+    ) -> None:
+        """If open_db parse raises struct.error, connection socket must be closed."""
+        open_db = build_open_db_response()
+        fake_loop = FakeLoop([build_handshake_response(), open_db[:4], open_db[4:]])
+        mock_sock = MagicMock()
+
+        with (
+            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=mock_sock,
+            ),
+            patch(
+                "pycubrid.protocol.OpenDatabasePacket.parse",
+                side_effect=struct.error("bad packet"),
+            ),
+        ):
+            with pytest.raises(OperationalError, match="failed to connect"):
+                await async_conn.connect()
+
+        mock_sock.close.assert_called()
+        assert async_conn._connected is False
+        mock_sock.close.assert_called()
+        assert async_conn._connected is False
+        assert async_conn._socket is None
+
+    @pytest.mark.asyncio
+    async def test_open_db_parse_index_error_closes_socket(
+        self, async_conn: AsyncConnection
+    ) -> None:
+        """If open_db parse raises IndexError (truncated broker info), socket must be closed."""
+        open_db = build_open_db_response()
+        fake_loop = FakeLoop([build_handshake_response(), open_db[:4], open_db[4:]])
+        mock_sock = MagicMock()
+
+        with (
+            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=mock_sock,
+            ),
+            patch(
+                "pycubrid.protocol.OpenDatabasePacket.parse",
+                side_effect=IndexError("broker info truncated"),
+            ),
+        ):
+            with pytest.raises(OperationalError, match="failed to connect"):
+                await async_conn.connect()
+
+        mock_sock.close.assert_called()
+        assert async_conn._connected is False
+        assert async_conn._socket is None
+
+    @pytest.mark.asyncio
+    async def test_handshake_parse_unicode_error_closes_socket(
+        self, async_conn: AsyncConnection
+    ) -> None:
+        """If handshake parse raises UnicodeDecodeError, socket must be closed."""
+        fake_loop = FakeLoop([build_handshake_response()])
+        mock_sock = MagicMock()
+
+        with (
+            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
+            patch.object(
+                async_conn,
+                "_create_socket_nonblocking",
+                new_callable=AsyncMock,
+                return_value=mock_sock,
+            ),
+            patch(
+                "pycubrid.protocol.ClientInfoExchangePacket.parse",
+                side_effect=UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid"),
+            ),
+        ):
+            with pytest.raises(OperationalError, match="failed to connect"):
+                await async_conn.connect()
+
+        mock_sock.close.assert_called()
+        assert async_conn._connected is False
+        assert async_conn._socket is None
