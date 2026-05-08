@@ -405,7 +405,7 @@ class Connection:
         if ssl_context is not None:
             try:
                 sock = ssl_context.wrap_socket(sock, server_hostname=host)
-            except Exception:
+            except (OSError, ssl_module.SSLError):
                 sock.close()
                 raise
         return sock
