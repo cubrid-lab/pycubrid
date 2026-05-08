@@ -116,18 +116,14 @@ class TestParityBasicTypes:
         table = _table_name()
         rows = [(1, "hello", 1.5), (2, "world", 2.5), (3, None, None)]
         sync_result = _sync_scenario(table + "_s", rows)
-        async_result = asyncio.get_event_loop().run_until_complete(
-            _async_scenario(table + "_a", rows)
-        )
+        async_result = asyncio.run(_async_scenario(table + "_a", rows))
         assert sync_result == async_result
 
     def test_null_handling(self):
         table = _table_name()
         rows = [(1, None, None), (2, "", 0.0)]
         sync_result = _sync_scenario(table + "_s", rows)
-        async_result = asyncio.get_event_loop().run_until_complete(
-            _async_scenario(table + "_a", rows)
-        )
+        async_result = asyncio.run(_async_scenario(table + "_a", rows))
         assert sync_result == async_result
 
     def test_large_string(self):
@@ -135,9 +131,7 @@ class TestParityBasicTypes:
         big = "x" * 1000
         rows = [(1, big, 3.14)]
         sync_result = _sync_scenario(table + "_s", rows)
-        async_result = asyncio.get_event_loop().run_until_complete(
-            _async_scenario(table + "_a", rows)
-        )
+        async_result = asyncio.run(_async_scenario(table + "_a", rows))
         assert sync_result == async_result
 
 
@@ -148,9 +142,7 @@ class TestParityExecutemany:
         table = _table_name()
         rows = [(i, f"row_{i}", float(i) * 1.1) for i in range(50)]
         sync_result = _sync_scenario(table + "_s", rows)
-        async_result = asyncio.get_event_loop().run_until_complete(
-            _async_scenario(table + "_a", rows)
-        )
+        async_result = asyncio.run(_async_scenario(table + "_a", rows))
         assert sync_result == async_result
 
 
@@ -204,7 +196,7 @@ class TestParityTransactions:
             await c.close()
             return result
 
-        async_result = asyncio.get_event_loop().run_until_complete(_async_rollback())
+        async_result = asyncio.run(_async_rollback())
         assert sync_result == async_result == []
 
 
@@ -257,7 +249,7 @@ class TestParityFetchMethods:
             await c.close()
             return b1, b2, rest
 
-        ab1, ab2, arest = asyncio.get_event_loop().run_until_complete(_async_fetchmany())
+        ab1, ab2, arest = asyncio.run(_async_fetchmany())
         assert sync_batch1 == ab1
         assert sync_batch2 == ab2
         assert sync_rest == arest
