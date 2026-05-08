@@ -375,6 +375,23 @@ def test_executemany_accumulates_non_select_rowcount(
     assert cursor.rowcount == 6
 
 
+def test_executemany_comment_prefixed_dml_uses_batch(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """Comment-prefixed DML (e.g. /* hint */ INSERT) still takes the batch path."""
+
+    def send(packet: object) -> object:
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = [(0, 1), (0, 1)]
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.executemany("/* optimizer hint */ INSERT INTO t (v) VALUES (?)", [[1], [2]])
+    assert cursor.rowcount == 2
+    sent_packet = mock_connection._send_and_receive.call_args.args[0]
+    assert isinstance(sent_packet, BatchExecutePacket)
+
+
 def test_executemany_select_keeps_rowcount_negative(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:

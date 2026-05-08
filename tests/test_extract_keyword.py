@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from pycubrid.cursor import _DML_BATCH_VERBS, _extract_first_keyword
 
