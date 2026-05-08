@@ -70,6 +70,18 @@ class AsyncCursor:
             raise ProgrammingError("arraysize must be greater than zero")
         self._arraysize = value
 
+    @property
+    def fetch_size(self) -> int:
+        """Return the server-side fetch batch size for this cursor."""
+        return self._fetch_size
+
+    @fetch_size.setter
+    def fetch_size(self, value: int) -> None:
+        """Set the server-side fetch batch size for this cursor."""
+        if type(value) is not int or value < 1:
+            raise ProgrammingError("fetch_size must be an integer >= 1")
+        self._fetch_size = value
+
     async def close(self) -> None:
         if self._closed:
             return

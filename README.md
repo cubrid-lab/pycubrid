@@ -155,6 +155,7 @@ marketers = cur.fetchall()
 - **Iterator protocol** — iterate over cursor results with `for row in cursor`
 - **Context managers** — `with` statements for both connections and cursors
 - **Async support** — `pycubrid.aio.connect()` with `AsyncConnection` and `AsyncCursor` for asyncio event loops
+- **Per-cursor fetch size** — `cursor.fetch_size` property to tune server-side fetch batch size per cursor
 
 ## Supported CUBRID Versions
 

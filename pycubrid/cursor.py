@@ -85,6 +85,26 @@ class Cursor:
             raise ProgrammingError("arraysize must be greater than zero")
         self._arraysize = value
 
+    @property
+    def fetch_size(self) -> int:
+        """Return the server-side fetch batch size for this cursor.
+
+        This controls how many rows are requested from the CAS broker per
+        network round-trip.  Defaults to the connection-level setting.
+        """
+        return self._fetch_size
+
+    @fetch_size.setter
+    def fetch_size(self, value: int) -> None:
+        """Set the server-side fetch batch size for this cursor.
+
+        Args:
+            value: Number of rows per server fetch (must be >= 1).
+        """
+        if type(value) is not int or value < 1:
+            raise ProgrammingError("fetch_size must be an integer >= 1")
+        self._fetch_size = value
+
     def close(self) -> None:
         """Close the cursor and release the active query handle if present."""
         if self._closed:
