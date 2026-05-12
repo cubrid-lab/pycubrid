@@ -237,12 +237,14 @@ class AsyncConnection:
     async def get_server_version(self) -> str:
         self._ensure_connected()
         packet = await self._send_and_receive(GetEngineVersionPacket(auto_commit=self._autocommit))
-        return str(packet.engine_version)
+        version: str = packet.engine_version
+        return version
 
     async def get_last_insert_id(self) -> str:
         self._ensure_connected()
         packet = await self._send_and_receive(GetLastInsertIdPacket())
-        return str(packet.last_insert_id)
+        last_id: str = packet.last_insert_id
+        return last_id
 
     async def ping(self, reconnect: bool = True) -> bool:
         if not self._connected:
