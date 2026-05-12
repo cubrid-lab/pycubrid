@@ -38,7 +38,7 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 - **770 offline tests / 811 total** with **97.29% code coverage**
 - **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis
 - **LOB support** — CLOB and BLOB handling via `create_lob()`
-- **Prepared statements** — server-side statement preparation and execution
+- **Prepared statements** — server-side statement preparation and execution *(planned; current implementation uses driver-side parameter binding)*
 - **Batch operations** — `executemany()` and `executemany_batch()` for bulk inserts
 - **CI/CD** — Python 3.10–3.14 offline matrix plus anchored integration coverage on CUBRID 10.2–11.4
 

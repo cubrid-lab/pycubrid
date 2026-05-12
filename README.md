@@ -270,6 +270,8 @@ conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="d
 
 Question mark (`qmark`) style: `cursor.execute("SELECT * FROM users WHERE id = ?", (1,))`
 
+Parameters are bound **driver-side** — pycubrid escapes and interpolates values into the SQL string locally before sending the final query to the server. This is **not** server-side prepared statement binding. The escaping logic is type-aware (strings, bytes, dates, decimals, None → NULL) and safe against SQL injection when used correctly via `?` placeholders. Never use f-strings or `%` formatting to build SQL.
+
 ### Does pycubrid work with SQLAlchemy?
 
 Yes. Install `pip install "sqlalchemy-cubrid[pycubrid]"` and use the connection URL `cubrid+pycubrid://dba@localhost:33000/testdb`.

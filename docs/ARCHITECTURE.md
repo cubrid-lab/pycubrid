@@ -174,7 +174,7 @@ flowchart TD
 
 - **Pure Python over C extension**: Zero system dependencies ensure the driver runs anywhere Python is available, simplifying deployment and avoiding cross-compilation issues.
 - **CAS protocol v8**: The driver targets the current broker protocol, including JSON-aware parsing paths and modern feature support, without carrying compatibility code for legacy protocol revisions.
-- **`qmark` paramstyle**: Using question mark placeholders (`?`) directly matches the expectations of the CAS wire protocol, minimizing the need for complex client-side parameter parsing.
+- **`qmark` paramstyle with driver-side binding**: Parameters use `?` placeholders. The driver escapes and interpolates values locally (type-aware escaping for strings, bytes, dates, decimals, None → NULL) before sending the final SQL to the CAS broker. This is not server-side prepared statement binding — the broker receives a complete SQL string. This design avoids a protocol round-trip for PREPARE and simplifies the implementation while maintaining injection safety through strict type-dispatch escaping.
 - **Dict-based type dispatch**: Utilizing the `_TYPE_READERS` dictionary provides O(1) lookup performance, ensuring high-speed result parsing compared to iterative conditional checks.
 - **Opaque collection types**: Returning SET, MULTISET, and SEQUENCE types as raw `bytes` avoids the performance overhead and complexity of recursive parsing for features that are rarely used in standard applications.
 - **Identify as JDBC client**: Sending `CLIENT_JDBC=3` during handshake ensures the CAS treats pycubrid with the same stability and feature set as the official JDBC driver.
