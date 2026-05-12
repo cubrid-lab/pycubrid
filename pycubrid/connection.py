@@ -346,7 +346,7 @@ class Connection:
                 return False
         try:
             packet = self._send_and_receive(CheckCasPacket(), allow_reconnect=reconnect)
-            return packet.response_code >= 0
+            return bool(packet.response_code >= 0)
         except (InterfaceError, OperationalError, OSError, struct.error):
             if not reconnect:
                 return False

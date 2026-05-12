@@ -68,10 +68,6 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
-[[tool.mypy.overrides]]
-module = "tests.*"
-ignore_errors = true
-
 [tool.bandit]
 exclude_dirs = ["tests"]
 skips = ["B101"]

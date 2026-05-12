@@ -237,12 +237,12 @@ class AsyncConnection:
     async def get_server_version(self) -> str:
         self._ensure_connected()
         packet = await self._send_and_receive(GetEngineVersionPacket(auto_commit=self._autocommit))
-        return packet.engine_version
+        return str(packet.engine_version)
 
     async def get_last_insert_id(self) -> str:
         self._ensure_connected()
         packet = await self._send_and_receive(GetLastInsertIdPacket())
-        return packet.last_insert_id
+        return str(packet.last_insert_id)
 
     async def ping(self, reconnect: bool = True) -> bool:
         if not self._connected:
@@ -257,7 +257,7 @@ class AsyncConnection:
                 return False
         try:
             packet = await self._send_and_receive(CheckCasPacket(), allow_reconnect=reconnect)
-            return packet.response_code >= 0
+            return bool(packet.response_code >= 0)
         except (InterfaceError, OperationalError, struct.error):
             if not reconnect:
                 return False

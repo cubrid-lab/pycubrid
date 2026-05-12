@@ -32,13 +32,14 @@ class DBAPIType:
             return other in self.values
         if isinstance(other, DBAPIType):
             return self.values == other.values
-        return NotImplemented
+        return NotImplemented  # noqa: PYI034
 
     def __ne__(self, other: object) -> bool:
-        result = self.__eq__(other)
-        if result is NotImplemented:
-            return result
-        return not result
+        if isinstance(other, int):
+            return other not in self.values
+        if isinstance(other, DBAPIType):
+            return self.values != other.values
+        return NotImplemented  # noqa: PYI034
 
     def __hash__(self) -> int:
         return hash(self.values)

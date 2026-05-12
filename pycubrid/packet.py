@@ -10,7 +10,7 @@ from typing import Any
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
-    from backports.zoneinfo import ZoneInfo  # pyright: ignore[reportMissingImports]
+    from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef,import-untyped]
 
 from .constants import CUBRIDDataType, DataSize
 
