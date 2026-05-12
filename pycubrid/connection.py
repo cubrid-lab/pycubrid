@@ -91,6 +91,8 @@ class Connection:
         self._ssl_context = resolve_ssl_context(ssl)
         self._no_backslash_escapes = kwargs.get("no_backslash_escapes", False)
         self._fetch_size = fetch_size
+        if type(fetch_size) is not int or fetch_size < 1:
+            raise ValueError("fetch_size must be an integer >= 1")
         if self._json_deserializer is not None and not callable(self._json_deserializer):
             raise TypeError("json_deserializer must be callable or None")
         if self._json_deserializer is json.loads:

@@ -57,6 +57,8 @@ class AsyncConnection:
         self._connect_timeout = kwargs.get("connect_timeout")
         self._read_timeout = kwargs.get("read_timeout")
         self._fetch_size = fetch_size
+        if type(fetch_size) is not int or fetch_size < 1:
+            raise ValueError("fetch_size must be an integer >= 1")
         if ssl is not None and ssl is not False:
             from pycubrid.exceptions import NotSupportedError
 

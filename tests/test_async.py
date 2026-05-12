@@ -80,6 +80,14 @@ class TestAsyncConnectionEstablishment:
 
         assert conn._fetch_size == 41
 
+    def test_fetch_size_rejects_invalid(self) -> None:
+        with pytest.raises(ValueError, match="fetch_size must be an integer >= 1"):
+            AsyncConnection("localhost", 33000, "testdb", "dba", "", fetch_size=0)
+        with pytest.raises(ValueError, match="fetch_size must be an integer >= 1"):
+            AsyncConnection("localhost", 33000, "testdb", "dba", "", fetch_size=-1)
+        with pytest.raises(ValueError, match="fetch_size must be an integer >= 1"):
+            AsyncConnection("localhost", 33000, "testdb", "dba", "", fetch_size=True)  # type: ignore[arg-type]
+
     @pytest.mark.asyncio
     async def test_connect_success(self, async_conn: AsyncConnection) -> None:
         fake_loop = make_fake_loop_for_connect(session_id=777)

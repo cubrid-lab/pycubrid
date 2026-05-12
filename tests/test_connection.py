@@ -175,6 +175,14 @@ class TestConnectionEstablishment:
 
         assert conn._fetch_size == 37
 
+    def test_connect_rejects_invalid_fetch_size(self) -> None:
+        with pytest.raises(ValueError, match="fetch_size must be an integer >= 1"):
+            Connection("localhost", 33000, "testdb", "dba", "", fetch_size=0)
+        with pytest.raises(ValueError, match="fetch_size must be an integer >= 1"):
+            Connection("localhost", 33000, "testdb", "dba", "", fetch_size=-1)
+        with pytest.raises(ValueError, match="fetch_size must be an integer >= 1"):
+            Connection("localhost", 33000, "testdb", "dba", "", fetch_size=True)  # type: ignore[arg-type]
+
     def test_connect_no_op_when_already_connected(self, socket_queue: list[MagicMock]) -> None:
         conn, _ = make_connected_connection(socket_queue)
         conn.connect()
