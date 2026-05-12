@@ -57,21 +57,19 @@ def make_connected_connection() -> tuple[Connection, MagicMock]:
     return conn, sock
 
 
-class FakeLoop:
-    def __init__(self, recv_chunks: list[bytes] | None = None) -> None:
-        self._recv_chunks = list(recv_chunks or [])
-        self.sock_connect = AsyncMock()
-        self.sock_sendall = AsyncMock()
-
-    async def sock_recv_into(self, _sock: MagicMock, buffer: memoryview) -> int:
-        if not self._recv_chunks:
-            return 0
-        chunk = self._recv_chunks.pop(0)
-        size = min(len(chunk), len(buffer))
-        buffer[:size] = chunk[:size]
-        if size < len(chunk):
-            self._recv_chunks.insert(0, chunk[size:])
-        return size
+def make_mock_stream_pair(
+    read_chunks: list[bytes] | None = None,
+) -> tuple[MagicMock, MagicMock, MagicMock]:
+    reader = MagicMock(spec=asyncio.StreamReader)
+    reader.readexactly = AsyncMock(side_effect=list(read_chunks or []))
+    writer = MagicMock(spec=asyncio.StreamWriter)
+    writer.drain = AsyncMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+    writer.transport = MagicMock()
+    mock_socket = MagicMock()
+    writer.transport.get_extra_info.return_value = mock_socket
+    return reader, writer, mock_socket
 
 
 async def raise_timeout_and_close_coro(coro: object, timeout: float | None = None) -> None:
@@ -198,86 +196,79 @@ class TestAsyncConnectionNetworkEdgeCases:
     @pytest.mark.asyncio
     async def test_asyncio_timeout_error_during_connect_raises_operational_error(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", connect_timeout=0.5)
-        sock = MagicMock()
-        loop = FakeLoop()
+        open_connection = AsyncMock(side_effect=raise_timeout_and_close_coro)
 
         with (
-            patch(
-                "pycubrid.aio.connection.socket.getaddrinfo",
-                return_value=[(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("localhost", 33000))],
-            ),
-            patch("pycubrid.aio.connection.socket.socket", return_value=sock),
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=loop),
             patch(
                 "pycubrid.aio.connection.asyncio.wait_for",
                 new=AsyncMock(side_effect=raise_timeout_and_close_coro),
             ),
+            patch("pycubrid.aio.connection.asyncio.open_connection", new=open_connection),
         ):
             with pytest.raises(OperationalError, match="could not connect"):
-                await conn._create_socket_nonblocking("localhost", 33000)
+                await conn._open_connection("localhost", 33000)
 
-        sock.close.assert_called_once()
+        open_connection.assert_called_once_with("localhost", 33000, ssl=None)
 
     @pytest.mark.asyncio
     async def test_connection_reset_error_during_async_recv_raises_operational_error(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = True
-        conn._socket = MagicMock()
         conn._cas_info = b"\x01\x01\x02\x03"
-        loop = FakeLoop()
-        loop.sock_recv_into = AsyncMock(side_effect=ConnectionResetError("reset during recv"))
+        reader, writer, _ = make_mock_stream_pair()
+        reader.readexactly = AsyncMock(side_effect=ConnectionResetError("reset during recv"))
+        conn._reader = reader
+        conn._writer = writer
 
-        with patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=loop):
-            with pytest.raises(OperationalError, match="socket communication failed"):
-                await conn._send_and_receive(CommitPacket())
+        with pytest.raises(OperationalError, match="socket communication failed"):
+            await conn._send_and_receive(CommitPacket())
 
         assert conn._connected is False
-        assert conn._socket is None
+        assert conn._writer is None
 
     @pytest.mark.asyncio
     async def test_partial_async_read_zero_bytes_raises_operational_error(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = True
-        conn._socket = MagicMock()
         conn._cas_info = b"\x01\x01\x02\x03"
-        loop = FakeLoop()
-        loop.sock_recv_into = AsyncMock(return_value=0)
+        reader, writer, _ = make_mock_stream_pair()
+        reader.readexactly = AsyncMock(
+            side_effect=asyncio.IncompleteReadError(partial=b"", expected=4)
+        )
+        conn._reader = reader
+        conn._writer = writer
 
-        with patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=loop):
-            with pytest.raises(OperationalError, match="connection lost during receive"):
-                await conn._send_and_receive(CommitPacket())
+        with pytest.raises(OperationalError, match="connection lost during receive"):
+            await conn._send_and_receive(CommitPacket())
 
     @pytest.mark.asyncio
     async def test_async_read_timeout_during_query_raises_operational_error(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.5)
         conn._connected = True
-        conn._socket = MagicMock()
         conn._cas_info = b"\x01\x01\x02\x03"
+        conn._reader, conn._writer, _ = make_mock_stream_pair()
 
-        with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=FakeLoop()),
-            patch(
-                "pycubrid.aio.connection.asyncio.wait_for",
-                new=AsyncMock(side_effect=raise_timeout_and_close_coro),
-            ),
+        with patch(
+            "pycubrid.aio.connection.asyncio.wait_for",
+            new=AsyncMock(side_effect=raise_timeout_and_close_coro),
         ):
             with pytest.raises(OperationalError, match="read timeout"):
                 await conn._send_and_receive(CommitPacket())
 
         assert conn._connected is False
-        assert conn._socket is None
+        assert conn._writer is None
 
     @pytest.mark.asyncio
     async def test_partial_async_read_fewer_bytes_than_expected_is_retried(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = True
-        conn._socket = MagicMock()
         conn._cas_info = b"\x01\x01\x02\x03"
         frame = build_simple_ok_response(b"\x01\x01\x02\x03")
-        loop = FakeLoop([frame[:2], frame[2:4], frame[4:6], frame[6:]])
+        reader, writer, _ = make_mock_stream_pair([frame[:4], frame[4:]])
+        conn._reader = reader
+        conn._writer = writer
 
-        with patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=loop):
-            packet = await conn._send_and_receive(CommitPacket())
+        packet = await conn._send_and_receive(CommitPacket())
 
         assert packet is not None
-        assert loop.sock_sendall.await_count == 1
+        assert writer.write.call_count == 1

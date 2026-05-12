@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import ssl as ssl_module
 from typing import cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from pycubrid.connection import Connection, resolve_ssl_context
-from pycubrid.exceptions import NotSupportedError
 
 
 def test_resolve_ssl_context_true_creates_default_context() -> None:
@@ -73,19 +72,19 @@ def test_connection_does_not_wrap_socket_when_ssl_disabled() -> None:
     assert result is raw_sock
 
 
-def test_async_connection_rejects_ssl_parameter() -> None:
+def test_async_connection_resolves_ssl_true_to_context() -> None:
     from pycubrid.aio.connection import AsyncConnection
 
-    with pytest.raises(NotSupportedError, match="SSL/TLS is not yet supported for async"):
-        AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=True)
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=True)
+    assert isinstance(conn._ssl_context, ssl_module.SSLContext)
 
 
-def test_async_connection_rejects_ssl_context_parameter() -> None:
+def test_async_connection_accepts_ssl_context_parameter() -> None:
     from pycubrid.aio.connection import AsyncConnection
 
     ctx = ssl_module.create_default_context()
-    with pytest.raises(NotSupportedError, match="SSL/TLS is not yet supported for async"):
-        AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=ctx)
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=ctx)
+    assert conn._ssl_context is ctx
 
 
 def test_async_connection_accepts_ssl_false() -> None:
@@ -100,3 +99,37 @@ def test_async_connection_accepts_ssl_none() -> None:
 
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=None)
     assert conn._ssl_context is None
+
+
+@pytest.mark.asyncio
+async def test_async_connection_close_streams_clears_reader_writer() -> None:
+    from pycubrid.aio.connection import AsyncConnection
+
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+    mock_writer = MagicMock()
+    mock_writer.close = MagicMock()
+    mock_writer.wait_closed = AsyncMock()
+    mock_reader = MagicMock()
+    conn._writer = mock_writer
+    conn._reader = mock_reader
+
+    await conn._close_streams()
+
+    assert conn._writer is None
+    assert conn._reader is None
+    mock_writer.close.assert_called_once()
+    mock_writer.wait_closed.assert_awaited_once()
+
+
+def test_async_connection_safe_close_socket_delegates_to_close_streams_sync() -> None:
+    from pycubrid.aio.connection import AsyncConnection
+
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+    mock_writer = MagicMock()
+    conn._writer = mock_writer
+    conn._reader = MagicMock()
+
+    conn._safe_close_socket()
+
+    assert conn._writer is None
+    assert conn._reader is None

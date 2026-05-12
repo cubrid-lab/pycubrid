@@ -167,64 +167,59 @@ def test_async_connection_stores_read_timeout() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_create_socket_nonblocking_uses_getaddrinfo() -> None:
+async def test_async_open_connection_uses_asyncio_open_connection() -> None:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
-    sock = MagicMock(spec=socket.socket)
-    infos = [(socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("::1", 33000, 0, 0))]
-    fake_loop = MagicMock()
-    fake_loop.sock_connect = AsyncMock()
+    reader = AsyncMock(spec=asyncio.StreamReader)
+    writer = MagicMock(spec=asyncio.StreamWriter)
+    writer.transport = MagicMock()
+    sock = MagicMock()
+    writer.transport.get_extra_info.return_value = sock
 
     with (
-        patch("socket.getaddrinfo", return_value=infos) as getaddrinfo,
-        patch("socket.socket", return_value=sock) as socket_ctor,
-        patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
+        patch(
+            "pycubrid.aio.connection.asyncio.open_connection",
+            new=AsyncMock(return_value=(reader, writer)),
+        ) as open_connection,
     ):
-        result = await conn._create_socket_nonblocking("localhost", 33000)
+        result = await conn._open_connection("localhost", 33000)
 
-    assert result is sock
-    getaddrinfo.assert_called_once_with("localhost", 33000, socket.AF_UNSPEC, socket.SOCK_STREAM)
-    socket_ctor.assert_called_once_with(socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-    sock.setblocking.assert_called_once_with(False)
+    assert result == (reader, writer)
+    open_connection.assert_awaited_once_with("localhost", 33000, ssl=None)
+    sock.setsockopt.assert_any_call(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    sock.setsockopt.assert_any_call(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
 
 @pytest.mark.asyncio
-async def test_async_dual_stack_fallback() -> None:
+async def test_async_open_connection_uses_wait_for_with_timeout() -> None:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
-    sock_v4 = MagicMock(spec=socket.socket)
-    infos = [
-        (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("::1", 33000, 0, 0)),
-        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 33000)),
-    ]
-    sockets = iter([MagicMock(spec=socket.socket), sock_v4])
-    fake_loop = MagicMock()
-    call_count = 0
-
-    async def fail_first_connect(sock: Any, addr: Any) -> None:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            raise OSError("ipv6 unreachable")
-
-    fake_loop.sock_connect = fail_first_connect
+    conn._connect_timeout = 1.25
+    reader = AsyncMock(spec=asyncio.StreamReader)
+    writer = MagicMock(spec=asyncio.StreamWriter)
+    writer.transport = MagicMock()
+    writer.transport.get_extra_info.return_value = None
+    open_connection = AsyncMock(return_value=(reader, writer))
+    wait_for = AsyncMock(return_value=(reader, writer))
 
     with (
-        patch("socket.getaddrinfo", return_value=infos),
-        patch("socket.socket", side_effect=sockets),
-        patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
+        patch("pycubrid.aio.connection.asyncio.open_connection", new=open_connection),
+        patch("pycubrid.aio.connection.asyncio.wait_for", new=wait_for),
     ):
-        result = await conn._create_socket_nonblocking("localhost", 33000)
+        result = await conn._open_connection("localhost", 33000)
 
-    assert result is sock_v4
+    assert result == (reader, writer)
+    wait_for.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_async_read_timeout_raises_operational_error() -> None:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.001)
     conn._connected = True
-    conn._socket = MagicMock(spec=socket.socket)
+    conn._reader = AsyncMock(spec=asyncio.StreamReader)
+    conn._writer = MagicMock(spec=asyncio.StreamWriter)
     conn._cas_info = b"\x01\x00\x00\x00"
 
-    async def slow_send_receive(loop: Any, packet: Any) -> Any:
+    async def slow_send_receive(packet: Any) -> Any:
+        del packet
         await asyncio.sleep(10)
 
     with (

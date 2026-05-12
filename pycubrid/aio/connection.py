@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 import ssl as ssl_module
 import struct
 import time
 from typing import Any
 
-from pycubrid._connection_common import ConnectionCommonMixin
+from pycubrid._connection_common import ConnectionCommonMixin, resolve_ssl_context
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import InterfaceError, OperationalError
 from pycubrid.protocol import (
@@ -43,15 +42,7 @@ class AsyncConnection(ConnectionCommonMixin):
         fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
-        if ssl is not None and ssl is not False:
-            from pycubrid.exceptions import NotSupportedError
-
-            raise NotSupportedError(
-                "SSL/TLS is not yet supported for async connections. "
-                "Use the sync pycubrid.connect(ssl=...) interface for TLS, "
-                "or use async without encryption."
-            )
-        self._ssl_context: ssl_module.SSLContext | None = None
+        self._ssl_context = resolve_ssl_context(ssl)
         self._init_common_state(
             host=host,
             port=port,
@@ -66,6 +57,8 @@ class AsyncConnection(ConnectionCommonMixin):
             no_backslash_escapes=kwargs.get("no_backslash_escapes", False),
             enable_timing=kwargs.get("enable_timing"),
         )
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
 
     async def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database."""
@@ -76,58 +69,72 @@ class AsyncConnection(ConnectionCommonMixin):
         _start = 0
         if _timing is not None:
             _start = time.perf_counter_ns()
-        handshake_socket: socket.socket | None = None
+        hs_writer: asyncio.StreamWriter | None = None
         try:
-            loop = asyncio.get_running_loop()
+            hs_reader, hs_writer = await self._open_connection(self._host, self._port)
 
-            handshake_socket = await self._create_socket_nonblocking(self._host, self._port)
-
-            client_info_packet = ClientInfoExchangePacket()
-            await loop.sock_sendall(handshake_socket, client_info_packet.write())
-            handshake_response = await self._recv_exact_async(loop, handshake_socket, DataSize.INT)
-            client_info_packet.parse(handshake_response)
-
-            if client_info_packet.new_connection_port > 0:
-                handshake_socket.close()
-                handshake_socket = None
-                self._socket = await self._create_socket_nonblocking(
-                    self._host, client_info_packet.new_connection_port
-                )
+            coro = self._do_connect_handshake(hs_reader, hs_writer)
+            if self._read_timeout is not None:
+                await asyncio.wait_for(coro, timeout=self._read_timeout)
             else:
-                self._socket = handshake_socket
-                handshake_socket = None  # ownership transferred
+                await coro
+            hs_writer = None  # ownership transferred to self or closed
 
-            open_db_packet = OpenDatabasePacket(
-                database=self._database,
-                user=self._user,
-                password=self._password,
-            )
-            await loop.sock_sendall(self._socket, open_db_packet.write())
-            data_length_bytes = await self._recv_exact_async(
-                loop, self._socket, DataSize.DATA_LENGTH
-            )
-            data_length = struct.unpack(">i", data_length_bytes)[0]
-            response_body = await self._recv_exact_async(
-                loop, self._socket, data_length + DataSize.CAS_INFO
-            )
-            open_db_packet.parse(response_body)
-
-            self._cas_info = open_db_packet.cas_info
-            self._session_id = open_db_packet.session_id
-            self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._connected = True
+        except asyncio.TimeoutError:
+            raise OperationalError("read timeout during connect handshake") from None
         except (OSError, ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
             raise OperationalError("failed to connect to CUBRID broker") from exc
         finally:
-            if handshake_socket is not None:
+            if hs_writer is not None and hs_writer is not self._writer:
                 try:
-                    handshake_socket.close()
+                    hs_writer.close()
+                    await self._writer_wait_closed(hs_writer)
                 except OSError:
                     pass
             if not self._connected:
-                self._safe_close_socket()
+                await self._close_streams()
             if _timing is not None:
                 _timing.record_connect(time.perf_counter_ns() - _start)
+
+    async def _do_connect_handshake(
+        self,
+        hs_reader: asyncio.StreamReader,
+        hs_writer: asyncio.StreamWriter,
+    ) -> None:
+        """Run broker handshake, optional redirect, and OPEN_DB exchange."""
+        client_info_packet = ClientInfoExchangePacket()
+        hs_writer.write(client_info_packet.write())
+        await hs_writer.drain()
+        handshake_response = await self._recv_exact(hs_reader, DataSize.INT)
+        client_info_packet.parse(handshake_response)
+
+        if client_info_packet.new_connection_port > 0:
+            hs_writer.close()
+            await self._writer_wait_closed(hs_writer)
+            self._reader, self._writer = await self._open_connection(
+                self._host, client_info_packet.new_connection_port
+            )
+        else:
+            self._reader = hs_reader
+            self._writer = hs_writer
+
+        open_db_packet = OpenDatabasePacket(
+            database=self._database,
+            user=self._user,
+            password=self._password,
+        )
+        assert self._writer is not None
+        self._writer.write(open_db_packet.write())
+        await self._writer.drain()
+        data_length_bytes = await self._recv_exact(self._reader, DataSize.DATA_LENGTH)
+        data_length = struct.unpack(">i", data_length_bytes)[0]
+        response_body = await self._recv_exact(self._reader, data_length + DataSize.CAS_INFO)
+        open_db_packet.parse(response_body)
+
+        self._cas_info = open_db_packet.cas_info
+        self._session_id = open_db_packet.session_id
+        self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
 
     async def close(self) -> None:
         """Close the connection and all tracked cursors."""
@@ -156,7 +163,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 "Suppressed error sending CloseDatabasePacket during shutdown", exc_info=True
             )
         finally:
-            self._safe_close_socket()
+            await self._close_streams()
             self._connected = False
             if _timing is not None:
                 _timing.record_close(time.perf_counter_ns() - _start)
@@ -230,7 +237,9 @@ class AsyncConnection(ConnectionCommonMixin):
             if not reconnect:
                 return False
             try:
-                self._drop_connection()
+                await self._close_streams()
+                self._connected = False
+                self._invalidate_query_handles()
                 _LOGGER.debug("ping: reconnecting")
                 await self.connect()
                 return True
@@ -268,87 +277,118 @@ class AsyncConnection(ConnectionCommonMixin):
 
     # -- internal I/O --------------------------------------------------------
 
-    async def _create_socket_nonblocking(self, host: str, port: int) -> socket.socket:
-        infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        if not infos:
-            raise OperationalError(f"could not resolve address: {host}:{port}")
+    async def _open_connection(
+        self, host: str, port: int
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        try:
+            coro = asyncio.open_connection(
+                host,
+                port,
+                ssl=self._ssl_context,
+            )
+            if self._connect_timeout is not None:
+                reader, writer = await asyncio.wait_for(coro, timeout=self._connect_timeout)
+            else:
+                reader, writer = await coro
 
-        last_exc: Exception | None = None
-        for af, socktype, proto, _canonname, sa in infos:
-            sock = socket.socket(af, socktype, proto)
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            sock.setblocking(False)
-            try:
-                loop = asyncio.get_running_loop()
-                coro = loop.sock_connect(sock, sa)
-                if self._connect_timeout is not None:
-                    await asyncio.wait_for(coro, timeout=self._connect_timeout)
-                else:
-                    await coro
-                return sock
-            except (OSError, asyncio.TimeoutError) as exc:
-                last_exc = exc
-                sock.close()
+            sock = writer.transport.get_extra_info("socket")
+            if sock is not None:
+                import socket as _socket_mod
 
-        raise OperationalError(f"could not connect to {host}:{port}") from last_exc
+                sock.setsockopt(_socket_mod.IPPROTO_TCP, _socket_mod.TCP_NODELAY, 1)
+                sock.setsockopt(_socket_mod.SOL_SOCKET, _socket_mod.SO_KEEPALIVE, 1)
+
+            return reader, writer
+        except (OSError, asyncio.TimeoutError) as exc:
+            raise OperationalError(f"could not connect to {host}:{port}") from exc
 
     async def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
         await self._check_reconnect(allow_reconnect=allow_reconnect)
-        if self._socket is None:
+        if self._writer is None or self._reader is None:
             raise InterfaceError("connection is closed")
 
-        loop = asyncio.get_running_loop()
         try:
-            coro = self._do_send_and_receive(loop, packet)
+            coro = self._do_send_and_receive(packet)
             if self._read_timeout is not None:
                 return await asyncio.wait_for(coro, timeout=self._read_timeout)
             return await coro
         except asyncio.TimeoutError:
-            self._safe_close_socket()
+            self._close_streams_sync()
             self._connected = False
             raise OperationalError("read timeout") from None
         except OSError as exc:
-            self._safe_close_socket()
+            self._close_streams_sync()
             self._connected = False
             raise OperationalError("socket communication failed") from exc
 
-    async def _do_send_and_receive(self, loop: asyncio.AbstractEventLoop, packet: Any) -> Any:
-        sock = self._socket
-        if sock is None:
+    async def _do_send_and_receive(self, packet: Any) -> Any:
+        writer = self._writer
+        reader = self._reader
+        if writer is None or reader is None:
             raise InterfaceError("connection is closed")
         request_data = packet.write(self._cas_info)
-        await loop.sock_sendall(sock, request_data)
+        writer.write(request_data)
+        await writer.drain()
 
-        data_length_bytes = await self._recv_exact_async(loop, sock, DataSize.DATA_LENGTH)
+        data_length_bytes = await self._recv_exact(reader, DataSize.DATA_LENGTH)
         data_length = struct.unpack(">i", data_length_bytes)[0]
-        response_body = await self._recv_exact_async(loop, sock, data_length + DataSize.CAS_INFO)
+        response_body = await self._recv_exact(reader, data_length + DataSize.CAS_INFO)
 
         self._cas_info = response_body[: DataSize.CAS_INFO]
         packet.parse(response_body)
         return packet
 
-    async def _recv_exact_async(
+    async def _recv_exact(
         self,
-        loop: asyncio.AbstractEventLoop,
-        sock: socket.socket,
+        reader: asyncio.StreamReader,
         size: int,
-    ) -> bytearray:
-        """Receive exactly *size* bytes from a non-blocking socket."""
-        buf = bytearray(size)
-        view = memoryview(buf)
-        pos = 0
-        while pos < size:
-            n = await loop.sock_recv_into(sock, view[pos:])
-            if n == 0:
-                raise OperationalError("connection lost during receive")
-            pos += n
-        return buf
+    ) -> bytes:
+        """Receive exactly *size* bytes from the stream."""
+        try:
+            return await reader.readexactly(size)
+        except asyncio.IncompleteReadError as exc:
+            raise OperationalError("connection lost during receive") from exc
 
     async def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
         self._ensure_connected()
         if not allow_reconnect:
             return
-        if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._socket is not None:
-            self._drop_connection()
+        if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._writer is not None:
+            await self._close_streams()
+            self._connected = False
+            self._invalidate_query_handles()
             await self.connect()
+
+    async def _close_streams(self) -> None:
+        """Close the stream writer, await TLS shutdown, and clear references."""
+        if self._writer is not None:
+            try:
+                self._writer.close()
+                await self._writer.wait_closed()
+            except OSError:
+                pass
+            finally:
+                self._writer = None
+                self._reader = None
+
+    def _close_streams_sync(self) -> None:
+        """Sync fallback for _close_streams (used by mixin's _safe_close_socket)."""
+        if self._writer is not None:
+            try:
+                self._writer.close()
+            except OSError:
+                pass
+            finally:
+                self._writer = None
+                self._reader = None
+
+    def _safe_close_socket(self) -> None:
+        """Override mixin to close streams instead of raw socket."""
+        self._close_streams_sync()
+
+    @staticmethod
+    async def _writer_wait_closed(writer: asyncio.StreamWriter) -> None:
+        try:
+            await writer.wait_closed()
+        except OSError:
+            pass

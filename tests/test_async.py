@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import struct
 from decimal import Decimal
@@ -32,41 +33,24 @@ def build_simple_ok_response(cas_info: bytes | bytearray = b"\x01\x01\x02\x03") 
     return struct.pack(">i", len(body) - 4) + body
 
 
-class FakeLoop:
-    """Fake event loop that feeds pre-built byte sequences for socket operations."""
-
-    def __init__(self, recv_chunks: list[bytes]) -> None:
-        self._recv_chunks = list(recv_chunks)
-        self._recv_index = 0
-        self.sent_data: list[bytes] = []
-        self.connected_addresses: list[tuple[str, int]] = []
-
-    async def sock_connect(self, sock: MagicMock, address: tuple[str, int]) -> None:
-        self.connected_addresses.append(address)
-
-    async def sock_sendall(self, sock: MagicMock, data: bytes) -> None:
-        self.sent_data.append(data)
-
-    async def sock_recv_into(self, sock: MagicMock, buffer: memoryview) -> int:
-        if self._recv_index >= len(self._recv_chunks):
-            return 0
-        chunk = self._recv_chunks[self._recv_index]
-        self._recv_index += 1
-        n = len(chunk)
-        buffer[:n] = chunk
-        return n
+def make_mock_stream_pair(
+    read_chunks: list[bytes],
+) -> tuple[MagicMock, MagicMock, MagicMock]:
+    reader = MagicMock(spec=asyncio.StreamReader)
+    reader.readexactly = AsyncMock(side_effect=list(read_chunks))
+    writer = MagicMock(spec=asyncio.StreamWriter)
+    writer.drain = AsyncMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+    writer.transport = MagicMock()
+    mock_socket = MagicMock()
+    writer.transport.get_extra_info.return_value = mock_socket
+    return reader, writer, mock_socket
 
 
-def make_fake_loop_for_connect(session_id: int = 1234) -> FakeLoop:
-    """Build a FakeLoop that provides handshake + open_db responses."""
+def make_streams_for_connect(session_id: int = 1234) -> tuple[MagicMock, MagicMock, MagicMock]:
     open_db = build_open_db_response(session_id=session_id)
-    return FakeLoop(
-        [
-            build_handshake_response(),
-            open_db[:4],
-            open_db[4:],
-        ]
-    )
+    return make_mock_stream_pair([build_handshake_response(), open_db[:4], open_db[4:]])
 
 
 @pytest.fixture
@@ -90,17 +74,9 @@ class TestAsyncConnectionEstablishment:
 
     @pytest.mark.asyncio
     async def test_connect_success(self, async_conn: AsyncConnection) -> None:
-        fake_loop = make_fake_loop_for_connect(session_id=777)
+        reader, writer, _ = make_streams_for_connect(session_id=777)
 
-        with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=MagicMock(),
-            ),
-        ):
+        with patch.object(async_conn, "_open_connection", return_value=(reader, writer)):
             await async_conn.connect()
 
         assert async_conn._connected is True
@@ -109,31 +85,21 @@ class TestAsyncConnectionEstablishment:
 
     @pytest.mark.asyncio
     async def test_connect_with_port_redirection(self, async_conn: AsyncConnection) -> None:
+        first_reader, first_writer, _ = make_mock_stream_pair([build_handshake_response(33100)])
         open_db = build_open_db_response()
-        fake_loop = FakeLoop(
-            [
-                build_handshake_response(33100),
-                open_db[:4],
-                open_db[4:],
-            ]
-        )
+        second_reader, second_writer, _ = make_mock_stream_pair([open_db[:4], open_db[4:]])
 
-        sockets_created: list[MagicMock] = []
-
-        async def track_socket(host: str, port: int) -> MagicMock:
-            s = MagicMock()
-            sockets_created.append(s)
-            return s
-
-        with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(async_conn, "_create_socket_nonblocking", side_effect=track_socket),
-        ):
+        with patch.object(
+            async_conn,
+            "_open_connection",
+            side_effect=[(first_reader, first_writer), (second_reader, second_writer)],
+        ) as open_connection:
             await async_conn.connect()
 
         assert async_conn._connected is True
-        assert len(sockets_created) == 2
-        assert sockets_created[0].close.called
+        assert open_connection.await_count == 2
+        first_writer.close.assert_called_once_with()
+        first_writer.wait_closed.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_connect_failure_raises_operational_error(
@@ -141,7 +107,7 @@ class TestAsyncConnectionEstablishment:
     ) -> None:
         with patch.object(
             async_conn,
-            "_create_socket_nonblocking",
+            "_open_connection",
             new_callable=AsyncMock,
             side_effect=OperationalError("could not connect to localhost:33000"),
         ):
@@ -158,26 +124,17 @@ class TestAsyncConnectionEstablishment:
 class TestAsyncConnectionClose:
     @pytest.mark.asyncio
     async def test_close_disconnects(self, async_conn: AsyncConnection) -> None:
-        fake_loop = make_fake_loop_for_connect()
+        reader, writer, _ = make_streams_for_connect()
 
-        with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=MagicMock(),
-            ),
-        ):
+        with patch.object(async_conn, "_open_connection", return_value=(reader, writer)):
             await async_conn.connect()
 
         ok_resp = build_simple_ok_response()
-        close_loop = FakeLoop([ok_resp[:4], ok_resp[4:]])
-        with patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=close_loop):
-            await async_conn.close()
+        reader.readexactly = AsyncMock(side_effect=[ok_resp[:4], ok_resp[4:]])
+        await async_conn.close()
 
         assert async_conn._connected is False
-        assert async_conn._socket is None
+        assert async_conn._writer is None
 
     @pytest.mark.asyncio
     async def test_close_noop_when_not_connected(self, async_conn: AsyncConnection) -> None:
@@ -188,41 +145,23 @@ class TestAsyncConnectionClose:
 class TestAsyncConnectionTransactions:
     @pytest.mark.asyncio
     async def test_commit(self, async_conn: AsyncConnection) -> None:
-        fake_loop = make_fake_loop_for_connect()
-        with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=MagicMock(),
-            ),
-        ):
+        reader, writer, _ = make_streams_for_connect()
+        with patch.object(async_conn, "_open_connection", return_value=(reader, writer)):
             await async_conn.connect()
 
         ok_resp = build_simple_ok_response()
-        commit_loop = FakeLoop([ok_resp[:4], ok_resp[4:]])
-        with patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=commit_loop):
-            await async_conn.commit()
+        reader.readexactly = AsyncMock(side_effect=[ok_resp[:4], ok_resp[4:]])
+        await async_conn.commit()
 
     @pytest.mark.asyncio
     async def test_rollback(self, async_conn: AsyncConnection) -> None:
-        fake_loop = make_fake_loop_for_connect()
-        with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=MagicMock(),
-            ),
-        ):
+        reader, writer, _ = make_streams_for_connect()
+        with patch.object(async_conn, "_open_connection", return_value=(reader, writer)):
             await async_conn.connect()
 
         ok_resp = build_simple_ok_response()
-        rb_loop = FakeLoop([ok_resp[:4], ok_resp[4:]])
-        with patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=rb_loop):
-            await async_conn.rollback()
+        reader.readexactly = AsyncMock(side_effect=[ok_resp[:4], ok_resp[4:]])
+        await async_conn.rollback()
 
     @pytest.mark.asyncio
     async def test_commit_on_closed_raises(self, async_conn: AsyncConnection) -> None:
@@ -239,23 +178,14 @@ class TestAsyncConnectionContextManager:
 
     @pytest.mark.asyncio
     async def test_aexit_commits_on_success(self, async_conn: AsyncConnection) -> None:
-        fake_loop = make_fake_loop_for_connect()
-        with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=MagicMock(),
-            ),
-        ):
+        reader, writer, _ = make_streams_for_connect()
+        with patch.object(async_conn, "_open_connection", return_value=(reader, writer)):
             await async_conn.connect()
 
         ok1 = build_simple_ok_response()
         ok2 = build_simple_ok_response()
-        exit_loop = FakeLoop([ok1[:4], ok1[4:], ok2[:4], ok2[4:]])
-        with patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=exit_loop):
-            await async_conn.__aexit__(None, None, None)
+        reader.readexactly = AsyncMock(side_effect=[ok1[:4], ok1[4:], ok2[:4], ok2[4:]])
+        await async_conn.__aexit__(None, None, None)
 
         assert async_conn._connected is False
 
@@ -962,18 +892,10 @@ class TestAsyncConnectSocketLeak:
     async def test_handshake_parse_valueerror_closes_socket(
         self, async_conn: AsyncConnection
     ) -> None:
-        """If handshake parse raises ValueError, handshake socket must be closed."""
-        fake_loop = FakeLoop([build_handshake_response()])
-        mock_sock = MagicMock()
+        reader, writer, _ = make_mock_stream_pair([build_handshake_response()])
 
         with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=mock_sock,
-            ),
+            patch.object(async_conn, "_open_connection", return_value=(reader, writer)),
             patch(
                 "pycubrid.protocol.ClientInfoExchangePacket.parse",
                 side_effect=ValueError("bad handshake"),
@@ -982,27 +904,18 @@ class TestAsyncConnectSocketLeak:
             with pytest.raises(OperationalError, match="failed to connect"):
                 await async_conn.connect()
 
-        mock_sock.close.assert_called()
+        writer.close.assert_called_once_with()
         assert async_conn._connected is False
-        assert async_conn._socket is None
+        assert async_conn._writer is None
 
     @pytest.mark.asyncio
     async def test_open_db_parse_struct_error_closes_socket(
         self, async_conn: AsyncConnection
     ) -> None:
-        """If open_db parse raises struct.error, connection socket must be closed."""
-        open_db = build_open_db_response()
-        fake_loop = FakeLoop([build_handshake_response(), open_db[:4], open_db[4:]])
-        mock_sock = MagicMock()
+        reader, writer, _ = make_streams_for_connect()
 
         with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=mock_sock,
-            ),
+            patch.object(async_conn, "_open_connection", return_value=(reader, writer)),
             patch(
                 "pycubrid.protocol.OpenDatabasePacket.parse",
                 side_effect=struct.error("bad packet"),
@@ -1011,29 +924,18 @@ class TestAsyncConnectSocketLeak:
             with pytest.raises(OperationalError, match="failed to connect"):
                 await async_conn.connect()
 
-        mock_sock.close.assert_called()
+        writer.close.assert_called_once_with()
         assert async_conn._connected is False
-        mock_sock.close.assert_called()
-        assert async_conn._connected is False
-        assert async_conn._socket is None
+        assert async_conn._writer is None
 
     @pytest.mark.asyncio
     async def test_open_db_parse_index_error_closes_socket(
         self, async_conn: AsyncConnection
     ) -> None:
-        """If open_db parse raises IndexError (truncated broker info), socket must be closed."""
-        open_db = build_open_db_response()
-        fake_loop = FakeLoop([build_handshake_response(), open_db[:4], open_db[4:]])
-        mock_sock = MagicMock()
+        reader, writer, _ = make_streams_for_connect()
 
         with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=mock_sock,
-            ),
+            patch.object(async_conn, "_open_connection", return_value=(reader, writer)),
             patch(
                 "pycubrid.protocol.OpenDatabasePacket.parse",
                 side_effect=IndexError("broker info truncated"),
@@ -1042,26 +944,18 @@ class TestAsyncConnectSocketLeak:
             with pytest.raises(OperationalError, match="failed to connect"):
                 await async_conn.connect()
 
-        mock_sock.close.assert_called()
+        writer.close.assert_called_once_with()
         assert async_conn._connected is False
-        assert async_conn._socket is None
+        assert async_conn._writer is None
 
     @pytest.mark.asyncio
     async def test_handshake_parse_unicode_error_closes_socket(
         self, async_conn: AsyncConnection
     ) -> None:
-        """If handshake parse raises UnicodeDecodeError, socket must be closed."""
-        fake_loop = FakeLoop([build_handshake_response()])
-        mock_sock = MagicMock()
+        reader, writer, _ = make_mock_stream_pair([build_handshake_response()])
 
         with (
-            patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
-            patch.object(
-                async_conn,
-                "_create_socket_nonblocking",
-                new_callable=AsyncMock,
-                return_value=mock_sock,
-            ),
+            patch.object(async_conn, "_open_connection", return_value=(reader, writer)),
             patch(
                 "pycubrid.protocol.ClientInfoExchangePacket.parse",
                 side_effect=UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid"),
@@ -1070,6 +964,6 @@ class TestAsyncConnectSocketLeak:
             with pytest.raises(OperationalError, match="failed to connect"):
                 await async_conn.connect()
 
-        mock_sock.close.assert_called()
+        writer.close.assert_called_once_with()
         assert async_conn._connected is False
-        assert async_conn._socket is None
+        assert async_conn._writer is None
