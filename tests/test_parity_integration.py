@@ -253,3 +253,194 @@ class TestParityFetchMethods:
         assert sync_batch1 == ab1
         assert sync_batch2 == ab2
         assert sync_rest == arest
+
+
+class TestParityBytes:
+    """Verify bytes/BLOB round-trip parity."""
+
+    def test_blob_round_trip(self):
+        table = _table_name()
+        blob_data = bytes(range(256)) * 4
+
+        conn = pycubrid.connect(
+            host=TEST_HOST, port=TEST_PORT, database=TEST_DB, user=TEST_USER, password=TEST_PASSWORD
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute(f"CREATE TABLE {table} (id INT, payload BIT VARYING(8192))")
+        cur.execute(f"INSERT INTO {table} (id, payload) VALUES (?, ?)", (1, blob_data))
+        cur.execute(f"SELECT payload FROM {table} WHERE id = 1")
+        sync_result = cur.fetchone()
+        cur.execute(f"DROP TABLE {table}")
+        conn.close()
+
+        async def _async_blob():
+            c = await pycubrid.aio.connect(
+                host=TEST_HOST,
+                port=TEST_PORT,
+                database=TEST_DB,
+                user=TEST_USER,
+                password=TEST_PASSWORD,
+            )
+            await c.set_autocommit(True)
+            cr = c.cursor()
+            await cr.execute(f"DROP TABLE IF EXISTS {table}")
+            await cr.execute(f"CREATE TABLE {table} (id INT, payload BIT VARYING(8192))")
+            await cr.execute(f"INSERT INTO {table} (id, payload) VALUES (?, ?)", (1, blob_data))
+            await cr.execute(f"SELECT payload FROM {table} WHERE id = 1")
+            result = await cr.fetchone()
+            await cr.execute(f"DROP TABLE {table}")
+            await c.close()
+            return result
+
+        async_result = asyncio.run(_async_blob())
+        assert sync_result == async_result
+
+
+class TestParityDatetime:
+    """Verify datetime types round-trip parity."""
+
+    def test_datetime_round_trip(self):
+        import datetime
+
+        table = _table_name()
+        dt = datetime.datetime(2025, 6, 15, 10, 30, 45)
+        d = datetime.date(2025, 6, 15)
+        t = datetime.time(10, 30, 45)
+
+        conn = pycubrid.connect(
+            host=TEST_HOST, port=TEST_PORT, database=TEST_DB, user=TEST_USER, password=TEST_PASSWORD
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute(f"CREATE TABLE {table} (id INT, dt DATETIME, d DATE, t TIME)")
+        cur.execute(f"INSERT INTO {table} VALUES (?, ?, ?, ?)", (1, dt, d, t))
+        cur.execute(f"SELECT dt, d, t FROM {table} WHERE id = 1")
+        sync_result = cur.fetchone()
+        cur.execute(f"DROP TABLE {table}")
+        conn.close()
+
+        async def _async_dt():
+            c = await pycubrid.aio.connect(
+                host=TEST_HOST,
+                port=TEST_PORT,
+                database=TEST_DB,
+                user=TEST_USER,
+                password=TEST_PASSWORD,
+            )
+            await c.set_autocommit(True)
+            cr = c.cursor()
+            await cr.execute(f"DROP TABLE IF EXISTS {table}")
+            await cr.execute(f"CREATE TABLE {table} (id INT, dt DATETIME, d DATE, t TIME)")
+            await cr.execute(f"INSERT INTO {table} VALUES (?, ?, ?, ?)", (1, dt, d, t))
+            await cr.execute(f"SELECT dt, d, t FROM {table} WHERE id = 1")
+            result = await cr.fetchone()
+            await cr.execute(f"DROP TABLE {table}")
+            await c.close()
+            return result
+
+        async_result = asyncio.run(_async_dt())
+        assert sync_result == async_result
+
+
+class TestParityFetchSize:
+    """Verify large fetch_size produces identical results."""
+
+    def test_large_fetch_size(self):
+        table = _table_name()
+        rows = [(i, f"row_{i}", float(i)) for i in range(200)]
+
+        conn = pycubrid.connect(
+            host=TEST_HOST,
+            port=TEST_PORT,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+            fetch_size=500,
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute(f"CREATE TABLE {table} (id INT, name VARCHAR(100), val DOUBLE)")
+        cur.executemany(f"INSERT INTO {table} (id, name, val) VALUES (?, ?, ?)", rows)
+        cur.execute(f"SELECT id, name, val FROM {table} ORDER BY id")
+        sync_result = cur.fetchall()
+        cur.execute(f"DROP TABLE {table}")
+        conn.close()
+
+        async def _async_large_fetch():
+            c = await pycubrid.aio.connect(
+                host=TEST_HOST,
+                port=TEST_PORT,
+                database=TEST_DB,
+                user=TEST_USER,
+                password=TEST_PASSWORD,
+                fetch_size=500,
+            )
+            await c.set_autocommit(True)
+            cr = c.cursor()
+            await cr.execute(f"DROP TABLE IF EXISTS {table}")
+            await cr.execute(f"CREATE TABLE {table} (id INT, name VARCHAR(100), val DOUBLE)")
+            await cr.executemany(f"INSERT INTO {table} (id, name, val) VALUES (?, ?, ?)", rows)
+            await cr.execute(f"SELECT id, name, val FROM {table} ORDER BY id")
+            result = await cr.fetchall()
+            await cr.execute(f"DROP TABLE {table}")
+            await c.close()
+            return result
+
+        async_result = asyncio.run(_async_large_fetch())
+        assert sync_result == async_result
+        assert len(sync_result) == 200
+
+
+class TestParityJsonDeserializer:
+    """Verify JSON deserialization parity."""
+
+    def test_json_column(self):
+        import json
+
+        table = _table_name()
+        data = {"key": "value", "number": 42, "nested": [1, 2, 3]}
+
+        conn = pycubrid.connect(
+            host=TEST_HOST,
+            port=TEST_PORT,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+            json_deserializer=json.loads,
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute(f"CREATE TABLE {table} (id INT, payload JSON)")
+        cur.execute(f"INSERT INTO {table} VALUES (?, ?)", (1, json.dumps(data)))
+        cur.execute(f"SELECT payload FROM {table} WHERE id = 1")
+        sync_result = cur.fetchone()
+        cur.execute(f"DROP TABLE {table}")
+        conn.close()
+
+        async def _async_json():
+            c = await pycubrid.aio.connect(
+                host=TEST_HOST,
+                port=TEST_PORT,
+                database=TEST_DB,
+                user=TEST_USER,
+                password=TEST_PASSWORD,
+                json_deserializer=json.loads,
+            )
+            await c.set_autocommit(True)
+            cr = c.cursor()
+            await cr.execute(f"DROP TABLE IF EXISTS {table}")
+            await cr.execute(f"CREATE TABLE {table} (id INT, payload JSON)")
+            await cr.execute(f"INSERT INTO {table} VALUES (?, ?)", (1, json.dumps(data)))
+            await cr.execute(f"SELECT payload FROM {table} WHERE id = 1")
+            result = await cr.fetchone()
+            await cr.execute(f"DROP TABLE {table}")
+            await c.close()
+            return result
+
+        async_result = asyncio.run(_async_json())
+        assert sync_result == async_result
