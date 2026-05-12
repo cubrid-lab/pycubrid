@@ -58,11 +58,14 @@ class AsyncConnection:
         self._read_timeout = kwargs.get("read_timeout")
         self._fetch_size = fetch_size
         if ssl is not None and ssl is not False:
-            from pycubrid.connection import resolve_ssl_context
+            from pycubrid.exceptions import NotSupportedError
 
-            self._ssl_context = resolve_ssl_context(ssl)
-        else:
-            self._ssl_context = None
+            raise NotSupportedError(
+                "SSL/TLS is not yet supported for async connections. "
+                "Use the sync pycubrid.connect(ssl=...) interface for TLS, "
+                "or use async without encryption."
+            )
+        self._ssl_context: ssl_module.SSLContext | None = None
         self._decode_collections: bool = kwargs.get("decode_collections", False)
         self._json_deserializer: Any = kwargs.get("json_deserializer", None)
         self._no_backslash_escapes: bool = kwargs.get("no_backslash_escapes", False)
@@ -123,21 +126,6 @@ class AsyncConnection:
             else:
                 self._socket = handshake_socket
                 handshake_socket = None  # ownership transferred
-
-            # TLS upgrade (before any application-level exchange)
-            if self._ssl_context is not None:
-                host = self._host
-                ctx = self._ssl_context
-                raw_sock = self._socket
-                try:
-                    self._socket = await loop.run_in_executor(
-                        None,
-                        lambda: ctx.wrap_socket(raw_sock, server_hostname=host),
-                    )
-                    self._socket.setblocking(False)
-                except (OSError, ssl_module.SSLError):
-                    self._safe_close_socket()
-                    raise
 
             open_db_packet = OpenDatabasePacket(
                 database=self._database,

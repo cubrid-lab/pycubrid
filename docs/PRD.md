@@ -244,7 +244,7 @@ Limitations imposed by CUBRID or design choices:
 
 | Item | Description | Priority |
 |---|---|---|
-| Async TLS support | ✅ Implemented — `ssl=True` or custom `ssl.SSLContext` on `aio.connect()` | High |
+| Async TLS support | Evaluate safe asyncio-compatible TLS transport support | High |
 | LOB ergonomics | Higher-level helpers for reading fetched LOB handles | Medium |
 | Statement caching | Reuse prepared statements for repeated workloads | Medium |
 | CUBRID 12.x validation | Expand CI and docs for newer server versions | Medium |
