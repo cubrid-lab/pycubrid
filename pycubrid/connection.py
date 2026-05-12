@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import socket
 import ssl as ssl_module
@@ -9,6 +8,7 @@ import time
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
+from ._connection_common import ConnectionCommonMixin, resolve_ssl_context
 from .constants import CCIDbParam, DataSize
 from .exceptions import InterfaceError, OperationalError
 from .protocol import (
@@ -27,31 +27,15 @@ from .protocol import (
 if TYPE_CHECKING:
     from typing import Any as Cursor
 
-    from .timing import TimingStats
-
 _CursorClass: type | None = None
 
 _LOGGER = logging.getLogger(__name__)
 
-
-def resolve_ssl_context(
-    ssl_param: bool | ssl_module.SSLContext | None,
-) -> ssl_module.SSLContext | None:
-    if ssl_param is None:
-        return None
-    if isinstance(ssl_param, bool):
-        if ssl_param:
-            return ssl_module.create_default_context()
-        return None
-    if isinstance(ssl_param, ssl_module.SSLContext):
-        return ssl_param
-    raise ValueError(f"ssl must be bool, ssl.SSLContext, or None, got {type(ssl_param)}")
-
-
+# Re-export for backwards compatibility.
 _resolve_ssl_context = resolve_ssl_context
 
 
-class Connection:
+class Connection(ConnectionCommonMixin):
     """PEP 249 DB-API connection for the CUBRID CAS protocol."""
 
     def __init__(
@@ -68,58 +52,21 @@ class Connection:
         fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
-        """Initialize and connect to a CUBRID broker.
-
-        Args:
-            host: CUBRID broker host.
-            port: CUBRID broker port.
-            database: Database name.
-            user: Database user name.
-            password: Database password.
-            autocommit: Initial auto-commit mode.
-            **kwargs: Optional connection parameters.
-        """
-        self._host = host
-        self._port = port
-        self._database = database
-        self._user = user
-        self._password = password
-        self._connect_timeout = kwargs.get("connect_timeout")
-        self._read_timeout = kwargs.get("read_timeout")
-        self._decode_collections = decode_collections
-        self._json_deserializer = json_deserializer
         self._ssl_context = resolve_ssl_context(ssl)
-        self._no_backslash_escapes = kwargs.get("no_backslash_escapes", False)
-        self._fetch_size = fetch_size
-        if type(fetch_size) is not int or fetch_size < 1:
-            raise ValueError("fetch_size must be an integer >= 1")
-        if self._json_deserializer is not None and not callable(self._json_deserializer):
-            raise TypeError("json_deserializer must be callable or None")
-        if self._json_deserializer is json.loads:
-            self._json_deserializer = json.loads
-
-        self._timing: TimingStats | None = None
-        _enable_timing = kwargs.get("enable_timing")
-        if _enable_timing is None:
-            import os
-
-            _enable_timing = os.environ.get("PYCUBRID_ENABLE_TIMING", "").lower() in (
-                "1",
-                "true",
-                "yes",
-            )
-        if _enable_timing:
-            from .timing import TimingStats as _TimingStats
-
-            self._timing = _TimingStats()
-
-        self._socket: socket.socket | None = None
-        self._connected = False
-        self._cas_info: bytes | bytearray = b"\x00\x00\x00\x00"
-        self._session_id = 0
-        self._autocommit = False
-        self._cursors: set[Cursor] = set()
-        self._protocol_version: int = 1
+        self._init_common_state(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            fetch_size=fetch_size,
+            connect_timeout=kwargs.get("connect_timeout"),
+            read_timeout=kwargs.get("read_timeout"),
+            decode_collections=decode_collections,
+            json_deserializer=json_deserializer,
+            no_backslash_escapes=kwargs.get("no_backslash_escapes", False),
+            enable_timing=kwargs.get("enable_timing"),
+        )
 
         self.connect()
         if autocommit:
@@ -237,20 +184,6 @@ class Connection:
         self._send_and_receive(RollbackPacket())
         self._invalidate_query_handles()
 
-    def _invalidate_query_handles(self) -> None:
-        """Invalidate all cursor query handles.
-
-        After commit/rollback the CUBRID broker may reset the CAS
-        connection, making previous query handles stale.  Clearing them
-        prevents cursors from sending CloseQueryPacket on a dead socket.
-        """
-        for cursor in self._cursors:
-            cursor._query_handle = None
-
-    # -- CAS_INFO status constants (matches JDBC UConnection) ----------------
-    _CAS_INFO_STATUS_INACTIVE: int = 0
-    _CAS_INFO_STATUS_ACTIVE: int = 1
-
     def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
         """Reconnect to the broker when the CAS has been released.
 
@@ -265,9 +198,7 @@ class Connection:
         if not allow_reconnect:
             return
         if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._socket is not None:
-            self._safe_close_socket()
-            self._connected = False
-            self._invalidate_query_handles()
+            self._drop_connection()
             _LOGGER.debug("CAS inactive, reconnecting to %s:%d", self._host, self._port)
             self.connect()
 
@@ -303,11 +234,6 @@ class Connection:
         self._send_and_receive(CommitPacket())
         self._autocommit = enabled
         _LOGGER.debug("autocommit=%s", enabled)
-
-    @property
-    def timing_stats(self) -> TimingStats | None:
-        """Return the timing statistics object, or ``None`` if timing is disabled."""
-        return self._timing
 
     def get_server_version(self) -> str:
         """Return the server engine version string."""
@@ -353,9 +279,7 @@ class Connection:
             if not reconnect:
                 return False
             try:
-                self._safe_close_socket()
-                self._connected = False
-                self._invalidate_query_handles()
+                self._drop_connection()
                 _LOGGER.debug("ping: reconnecting")
                 self.connect()
                 return True
@@ -467,19 +391,3 @@ class Connection:
                 raise OperationalError("connection lost during receive")
             pos += n
         return buf
-
-    def _ensure_connected(self) -> None:
-        """Raise ``InterfaceError`` when called on a closed connection."""
-        if not self._connected:
-            raise InterfaceError("connection is closed")
-
-    def _check_closed(self) -> None:
-        """Alias for ``_ensure_connected`` used by DB-API call sites."""
-        self._ensure_connected()
-
-    def _safe_close_socket(self) -> None:
-        if self._socket is not None:
-            try:
-                self._socket.close()
-            finally:
-                self._socket = None

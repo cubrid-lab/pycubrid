@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import socket
 import ssl as ssl_module
 import struct
 import time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from pycubrid._connection_common import ConnectionCommonMixin
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import InterfaceError, OperationalError
 from pycubrid.protocol import (
-    ClientInfoExchangePacket,
     CheckCasPacket,
+    ClientInfoExchangePacket,
     CloseDatabasePacket,
     CommitPacket,
     GetEngineVersionPacket,
@@ -26,17 +26,11 @@ from pycubrid.protocol import (
     SetDbParameterPacket,
 )
 
-if TYPE_CHECKING:
-    from pycubrid.timing import TimingStats
-
 _LOGGER = logging.getLogger(__name__)
 
 
-class AsyncConnection:
+class AsyncConnection(ConnectionCommonMixin):
     """Async connection to a CUBRID broker via the CAS protocol."""
-
-    _CAS_INFO_STATUS_INACTIVE: int = 0
-    _CAS_INFO_STATUS_ACTIVE: int = 1
 
     def __init__(
         self,
@@ -49,16 +43,6 @@ class AsyncConnection:
         fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
-        self._host = host
-        self._port = port
-        self._database = database
-        self._user = user
-        self._password = password
-        self._connect_timeout = kwargs.get("connect_timeout")
-        self._read_timeout = kwargs.get("read_timeout")
-        self._fetch_size = fetch_size
-        if type(fetch_size) is not int or fetch_size < 1:
-            raise ValueError("fetch_size must be an integer >= 1")
         if ssl is not None and ssl is not False:
             from pycubrid.exceptions import NotSupportedError
 
@@ -68,36 +52,20 @@ class AsyncConnection:
                 "or use async without encryption."
             )
         self._ssl_context: ssl_module.SSLContext | None = None
-        self._decode_collections: bool = kwargs.get("decode_collections", False)
-        self._json_deserializer: Any = kwargs.get("json_deserializer", None)
-        self._no_backslash_escapes: bool = kwargs.get("no_backslash_escapes", False)
-        if self._json_deserializer is not None and not callable(self._json_deserializer):
-            raise TypeError("json_deserializer must be callable or None")
-        if self._json_deserializer is json.loads:
-            self._json_deserializer = json.loads
-
-        self._timing: TimingStats | None = None
-        _enable_timing = kwargs.get("enable_timing")
-        if _enable_timing is None:
-            import os
-
-            _enable_timing = os.environ.get("PYCUBRID_ENABLE_TIMING", "").lower() in (
-                "1",
-                "true",
-                "yes",
-            )
-        if _enable_timing:
-            from pycubrid.timing import TimingStats as _TimingStats
-
-            self._timing = _TimingStats()
-
-        self._socket: socket.socket | None = None
-        self._connected = False
-        self._cas_info: bytes | bytearray = b"\x00\x00\x00\x00"
-        self._session_id = 0
-        self._autocommit = False
-        self._cursors: set[Any] = set()
-        self._protocol_version: int = 1
+        self._init_common_state(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            fetch_size=fetch_size,
+            connect_timeout=kwargs.get("connect_timeout"),
+            read_timeout=kwargs.get("read_timeout"),
+            decode_collections=kwargs.get("decode_collections", False),
+            json_deserializer=kwargs.get("json_deserializer"),
+            no_backslash_escapes=kwargs.get("no_backslash_escapes", False),
+            enable_timing=kwargs.get("enable_timing"),
+        )
 
     async def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database."""
@@ -232,10 +200,6 @@ class AsyncConnection:
         await self._send_and_receive(CommitPacket())
         self._autocommit = enabled
 
-    @property
-    def timing_stats(self) -> TimingStats | None:
-        return self._timing
-
     async def get_server_version(self) -> str:
         self._ensure_connected()
         packet = await self._send_and_receive(GetEngineVersionPacket(auto_commit=self._autocommit))
@@ -266,9 +230,7 @@ class AsyncConnection:
             if not reconnect:
                 return False
             try:
-                self._safe_close_socket()
-                self._connected = False
-                self._invalidate_query_handles()
+                self._drop_connection()
                 _LOGGER.debug("ping: reconnecting")
                 await self.connect()
                 return True
@@ -388,22 +350,5 @@ class AsyncConnection:
         if not allow_reconnect:
             return
         if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._socket is not None:
-            self._safe_close_socket()
-            self._connected = False
-            self._invalidate_query_handles()
+            self._drop_connection()
             await self.connect()
-
-    def _invalidate_query_handles(self) -> None:
-        for cursor in self._cursors:
-            cursor._query_handle = None
-
-    def _ensure_connected(self) -> None:
-        if not self._connected:
-            raise InterfaceError("connection is closed")
-
-    def _safe_close_socket(self) -> None:
-        if self._socket is not None:
-            try:
-                self._socket.close()
-            finally:
-                self._socket = None
