@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pycubrid.connection import Connection, resolve_ssl_context
-from pycubrid.exceptions import NotSupportedError
 
 
 def test_resolve_ssl_context_true_creates_default_context() -> None:
@@ -73,19 +72,19 @@ def test_connection_does_not_wrap_socket_when_ssl_disabled() -> None:
     assert result is raw_sock
 
 
-def test_async_connection_rejects_ssl_parameter() -> None:
+def test_async_connection_accepts_ssl_true() -> None:
     from pycubrid.aio.connection import AsyncConnection
 
-    with pytest.raises(NotSupportedError, match="SSL/TLS is not yet supported for async"):
-        AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=True)
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=True)
+    assert conn._ssl_context is not None
 
 
-def test_async_connection_rejects_ssl_context_parameter() -> None:
+def test_async_connection_accepts_ssl_context_parameter() -> None:
     from pycubrid.aio.connection import AsyncConnection
 
     ctx = ssl_module.create_default_context()
-    with pytest.raises(NotSupportedError, match="SSL/TLS is not yet supported for async"):
-        AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=ctx)
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", ssl=ctx)
+    assert conn._ssl_context is ctx
 
 
 def test_async_connection_accepts_ssl_false() -> None:
