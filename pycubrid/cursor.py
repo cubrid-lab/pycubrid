@@ -8,13 +8,10 @@ from typing import TYPE_CHECKING, Any, Sequence
 
 from .constants import CUBRIDStatementType
 from ._cursor_common import (
+    CursorParamsMixin,
     DescriptionItem,
     DML_BATCH_VERBS,
-    bind_parameters,
-    build_description,
-    escape_string,
     extract_first_keyword,
-    format_parameter,
     split_on_placeholders,
 )
 from .exceptions import InterfaceError, OperationalError, ProgrammingError
@@ -38,7 +35,7 @@ _split_on_placeholders = split_on_placeholders
 _LOGGER = logging.getLogger(__name__)
 
 
-class Cursor:
+class Cursor(CursorParamsMixin):
     """Database cursor implementing the DB-API 2.0 cursor interface."""
 
     def __init__(self, connection: Connection) -> None:
@@ -412,26 +409,3 @@ class Cursor:
                 self._total_tuple_count,
             )
         return True
-
-    def _bind_parameters(
-        self,
-        operation: str,
-        parameters: Sequence[Any],
-    ) -> str:
-        return bind_parameters(
-            operation,
-            parameters,
-            no_backslash_escapes=self._connection._no_backslash_escapes,
-        )
-
-    def _format_parameter(self, value: Any) -> str:
-        return format_parameter(value, no_backslash_escapes=self._connection._no_backslash_escapes)
-
-    @staticmethod
-    def _escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
-        return escape_string(value, no_backslash_escapes=no_backslash_escapes)
-
-    def _build_description(
-        self, columns: list[ColumnMetaData]
-    ) -> tuple[DescriptionItem, ...] | None:
-        return build_description(columns)

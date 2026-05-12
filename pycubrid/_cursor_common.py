@@ -229,3 +229,42 @@ def build_description(
         )
         for column in columns
     )
+
+
+# ---- mixin for cursor parameter helpers ------------------------------------
+
+
+class CursorParamsMixin:
+    """Mixin providing parameter binding/formatting wrappers for cursors.
+
+    Both ``Cursor`` and ``AsyncCursor`` share identical forwarding methods
+    to the module-level helpers above.  This mixin eliminates that duplication.
+
+    Requires ``self._connection._no_backslash_escapes`` on the host class.
+    """
+
+    _connection: Any
+
+    def _bind_parameters(
+        self,
+        operation: str,
+        parameters: Sequence[Any],
+    ) -> str:
+        return bind_parameters(
+            operation,
+            parameters,
+            no_backslash_escapes=self._connection._no_backslash_escapes,
+        )
+
+    def _format_parameter(self, value: Any) -> str:
+        return format_parameter(value, no_backslash_escapes=self._connection._no_backslash_escapes)
+
+    @staticmethod
+    def _escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
+        return escape_string(value, no_backslash_escapes=no_backslash_escapes)
+
+    def _build_description(
+        self,
+        columns: list[ColumnMetaData],
+    ) -> tuple[DescriptionItem, ...] | None:
+        return build_description(columns)

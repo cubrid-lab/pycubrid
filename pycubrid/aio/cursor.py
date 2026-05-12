@@ -7,13 +7,10 @@ import time
 from typing import Any, Sequence
 
 from pycubrid._cursor_common import (
+    CursorParamsMixin,
     DescriptionItem,
     DML_BATCH_VERBS,
-    bind_parameters,
-    build_description,
-    escape_string,
     extract_first_keyword,
-    format_parameter,
 )
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
@@ -29,7 +26,7 @@ from pycubrid.protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class AsyncCursor:
+class AsyncCursor(CursorParamsMixin):
     """Async database cursor implementing a DB-API 2.0–like interface."""
 
     def __init__(self, connection: Any) -> None:
@@ -357,26 +354,3 @@ class AsyncCursor:
                 self._total_tuple_count,
             )
         return True
-
-    def _bind_parameters(
-        self,
-        operation: str,
-        parameters: Sequence[Any],
-    ) -> str:
-        return bind_parameters(
-            operation,
-            parameters,
-            no_backslash_escapes=self._connection._no_backslash_escapes,
-        )
-
-    def _format_parameter(self, value: Any) -> str:
-        return format_parameter(value, no_backslash_escapes=self._connection._no_backslash_escapes)
-
-    @staticmethod
-    def _escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
-        return escape_string(value, no_backslash_escapes=no_backslash_escapes)
-
-    def _build_description(
-        self, columns: list[ColumnMetaData]
-    ) -> tuple[DescriptionItem, ...] | None:
-        return build_description(columns)
