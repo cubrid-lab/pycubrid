@@ -865,6 +865,8 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 | `set_autocommit()` | `async def set_autocommit(self, value: bool) -> None` | Sends `SetDbParameterPacket` and `CommitPacket` |
 
 `AsyncConnection` exposes async `ping()` parity with sync `Connection.ping()`. `create_lob()` remains sync-only.
+Concurrent awaiters on the same `AsyncConnection` are serialized with a per-connection
+`asyncio.Lock`, so shared use is safe but requests still execute one at a time.
 
 ```python
 async with await pycubrid.aio.connect(database="testdb") as conn:

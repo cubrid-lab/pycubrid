@@ -59,9 +59,14 @@ class AsyncConnection(ConnectionCommonMixin):
         )
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
+        self._lock = asyncio.Lock()
 
     async def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database."""
+        async with self._lock:
+            await self._connect_locked()
+
+    async def _connect_locked(self) -> None:
         if self._connected:
             return
 
@@ -156,17 +161,21 @@ class AsyncConnection(ConnectionCommonMixin):
             finally:
                 self._cursors.discard(cursor)
 
-        try:
-            await self._send_and_receive(CloseDatabasePacket())
-        except Exception:  # noqa: BLE001 - best-effort cleanup
-            _LOGGER.debug(
-                "Suppressed error sending CloseDatabasePacket during shutdown", exc_info=True
-            )
-        finally:
-            await self._close_streams()
-            self._connected = False
-            if _timing is not None:
-                _timing.record_close(time.perf_counter_ns() - _start)
+        async with self._lock:
+            try:
+                if self._connected:
+                    await self._send_and_receive_locked(
+                        CloseDatabasePacket(), allow_reconnect=False
+                    )
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                _LOGGER.debug(
+                    "Suppressed error sending CloseDatabasePacket during shutdown", exc_info=True
+                )
+            finally:
+                await self._close_streams()
+                self._connected = False
+                if _timing is not None:
+                    _timing.record_close(time.perf_counter_ns() - _start)
 
     async def commit(self) -> None:
         """Commit the current transaction."""
@@ -237,10 +246,11 @@ class AsyncConnection(ConnectionCommonMixin):
             if not reconnect:
                 return False
             try:
-                await self._close_streams()
-                self._connected = False
-                self._invalidate_query_handles()
                 _LOGGER.debug("ping: reconnecting")
+                async with self._lock:
+                    await self._close_streams()
+                    self._connected = False
+                    self._invalidate_query_handles()
                 await self.connect()
                 return True
             except (OSError, OperationalError, InterfaceError):
@@ -303,7 +313,11 @@ class AsyncConnection(ConnectionCommonMixin):
             raise OperationalError(f"could not connect to {host}:{port}") from exc
 
     async def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
-        await self._check_reconnect(allow_reconnect=allow_reconnect)
+        async with self._lock:
+            return await self._send_and_receive_locked(packet, allow_reconnect=allow_reconnect)
+
+    async def _send_and_receive_locked(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
+        await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
         if self._writer is None or self._reader is None:
             raise InterfaceError("connection is closed")
 
@@ -313,11 +327,11 @@ class AsyncConnection(ConnectionCommonMixin):
                 return await asyncio.wait_for(coro, timeout=self._read_timeout)
             return await coro
         except asyncio.TimeoutError:
-            self._close_streams_sync()
+            await self._close_streams()
             self._connected = False
             raise OperationalError("read timeout") from None
         except OSError as exc:
-            self._close_streams_sync()
+            await self._close_streams()
             self._connected = False
             raise OperationalError("socket communication failed") from exc
 
@@ -335,7 +349,12 @@ class AsyncConnection(ConnectionCommonMixin):
         response_body = await self._recv_exact(reader, data_length + DataSize.CAS_INFO)
 
         self._cas_info = response_body[: DataSize.CAS_INFO]
-        packet.parse(response_body)
+        try:
+            packet.parse(response_body)
+        except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
+            await self._close_streams()
+            self._connected = False
+            raise OperationalError("malformed response from broker") from exc
         return packet
 
     async def _recv_exact(
@@ -350,6 +369,10 @@ class AsyncConnection(ConnectionCommonMixin):
             raise OperationalError("connection lost during receive") from exc
 
     async def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
+        async with self._lock:
+            await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+
+    async def _check_reconnect_locked(self, *, allow_reconnect: bool = True) -> None:
         self._ensure_connected()
         if not allow_reconnect:
             return
@@ -357,7 +380,14 @@ class AsyncConnection(ConnectionCommonMixin):
             await self._close_streams()
             self._connected = False
             self._invalidate_query_handles()
-            await self.connect()
+            await self._invoke_connect_locked()
+
+    async def _invoke_connect_locked(self) -> None:
+        connect_method = self.connect
+        if getattr(connect_method, "__func__", None) is AsyncConnection.connect:
+            await self._connect_locked()
+            return
+        await connect_method()
 
     async def _close_streams(self) -> None:
         """Close the stream writer, await TLS shutdown, and clear references."""
