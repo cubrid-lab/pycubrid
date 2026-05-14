@@ -34,7 +34,9 @@ def resolve_ssl_context(
         return None
     if isinstance(ssl_param, bool):
         if ssl_param:
-            return ssl_module.create_default_context()
+            ctx = ssl_module.create_default_context()
+            ctx.minimum_version = ssl_module.TLSVersion.TLSv1_2
+            return ctx
         return None
     if isinstance(ssl_param, ssl_module.SSLContext):
         return ssl_param

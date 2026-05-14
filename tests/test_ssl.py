@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pycubrid.connection import Connection, resolve_ssl_context
+from pycubrid._connection_common import resolve_ssl_context
+from pycubrid.connection import Connection
 
 
 def test_resolve_ssl_context_true_creates_default_context() -> None:
@@ -18,6 +19,8 @@ def test_resolve_ssl_context_true_creates_default_context() -> None:
         result = resolve_ssl_context(True)
 
     assert result is context
+    assert result is not None
+    assert result.minimum_version >= ssl_module.TLSVersion.TLSv1_2
     create_ctx.assert_called_once_with()
 
 
@@ -28,8 +31,10 @@ def test_resolve_ssl_context_false_and_none_disable_tls() -> None:
 
 def test_resolve_ssl_context_custom_context_is_reused() -> None:
     context = ssl_module.create_default_context()
+    context.minimum_version = ssl_module.TLSVersion.TLSv1
 
     assert resolve_ssl_context(context) is context
+    assert context.minimum_version == ssl_module.TLSVersion.TLSv1
 
 
 def test_resolve_ssl_context_invalid_value_raises_value_error() -> None:
