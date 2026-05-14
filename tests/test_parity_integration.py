@@ -1,446 +1,236 @@
-"""Sync/async parity integration tests for pycubrid.
-
-Runs identical scenarios through both the sync and async APIs to verify
-they produce identical results. Requires a running CUBRID instance.
-
-Set CUBRID_TEST_HOST / CUBRID_TEST_PORT env vars or use defaults.
-"""
-
 from __future__ import annotations
 
-import asyncio
+import datetime
+import json
 import os
-import uuid
+from collections.abc import Callable
+from typing import cast
 
 import pytest
 
 import pycubrid
 import pycubrid.aio
-
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
-
-
-def _can_connect() -> bool:
-    try:
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-        )
-        conn.close()
-        return True
-    except Exception:
-        return False
-
+from tests._parity_helpers import (
+    ADAPTERS,
+    ParityAdapter,
+    autocommit_transitions,
+    can_connect,
+    close_cursor_then_connection,
+    connect_kwargs,
+    executemany_batch_semantics,
+    fetchmany_round_trip,
+    insert_identity_values,
+    ping_after_drop,
+    reconnect_after_inactive_cas,
+    rollback_rows,
+    select_round_trip,
+)
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
 ]
 
-
-def _table_name() -> str:
-    return f"cookbook_parity_{uuid.uuid4().hex[:8]}"
+approx = cast(Callable[..., object], getattr(pytest, "approx"))
 
 
-# ---------------------------------------------------------------------------
-# Sync helpers
-# ---------------------------------------------------------------------------
-
-
-def _sync_scenario(table: str, rows: list[tuple]) -> list:
-    """Insert rows and select them back via sync API."""
-    conn = pycubrid.connect(
-        host=TEST_HOST,
-        port=TEST_PORT,
-        database=TEST_DB,
-        user=TEST_USER,
-        password=TEST_PASSWORD,
-    )
-    conn.autocommit = False
-    try:
-        cur = conn.cursor()
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute(f"CREATE TABLE {table} (id INT, name VARCHAR(200), val DOUBLE)")
-        cur.executemany(f"INSERT INTO {table} (id, name, val) VALUES (?, ?, ?)", rows)
-        conn.commit()
-        cur.execute(f"SELECT id, name, val FROM {table} ORDER BY id")
-        result = cur.fetchall()
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
-        conn.commit()
-        return result
-    finally:
-        conn.close()
-
-
-async def _async_scenario(table: str, rows: list[tuple]) -> list:
-    """Insert rows and select them back via async API."""
-    conn = await pycubrid.aio.connect(
-        host=TEST_HOST,
-        port=TEST_PORT,
-        database=TEST_DB,
-        user=TEST_USER,
-        password=TEST_PASSWORD,
-    )
-    await conn.set_autocommit(False)
-    try:
-        cur = conn.cursor()
-        await cur.execute(f"DROP TABLE IF EXISTS {table}")
-        await cur.execute(f"CREATE TABLE {table} (id INT, name VARCHAR(200), val DOUBLE)")
-        await cur.executemany(f"INSERT INTO {table} (id, name, val) VALUES (?, ?, ?)", rows)
-        await conn.commit()
-        await cur.execute(f"SELECT id, name, val FROM {table} ORDER BY id")
-        result = await cur.fetchall()
-        await cur.execute(f"DROP TABLE IF EXISTS {table}")
-        await conn.commit()
-        return result
-    finally:
-        await conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+@pytest.fixture(params=ADAPTERS, ids=[adapter.kind for adapter in ADAPTERS])
+def adapter(request: pytest.FixtureRequest) -> ParityAdapter:
+    return cast(ParityAdapter, request.param)
 
 
 class TestParityBasicTypes:
-    """Verify sync and async return identical results for basic types."""
-
-    def test_integers_and_strings(self):
-        table = _table_name()
+    @pytest.mark.asyncio
+    async def test_integers_and_strings(self, adapter: ParityAdapter) -> None:
         rows = [(1, "hello", 1.5), (2, "world", 2.5), (3, None, None)]
-        sync_result = _sync_scenario(table + "_s", rows)
-        async_result = asyncio.run(_async_scenario(table + "_a", rows))
-        assert sync_result == async_result
+        result = await select_round_trip(adapter, rows, table_prefix="basic")
+        assert result == [(1, "hello", 1.5), (2, "world", 2.5), (3, None, None)]
 
-    def test_null_handling(self):
-        table = _table_name()
+    @pytest.mark.asyncio
+    async def test_null_handling(self, adapter: ParityAdapter) -> None:
         rows = [(1, None, None), (2, "", 0.0)]
-        sync_result = _sync_scenario(table + "_s", rows)
-        async_result = asyncio.run(_async_scenario(table + "_a", rows))
-        assert sync_result == async_result
+        result = await select_round_trip(adapter, rows, table_prefix="nulls")
+        assert result == [(1, None, None), (2, "", 0.0)]
 
-    def test_large_string(self):
-        table = _table_name()
+    @pytest.mark.asyncio
+    async def test_large_string(self, adapter: ParityAdapter) -> None:
         big = "x" * 1000
-        rows = [(1, big, 3.14)]
-        sync_result = _sync_scenario(table + "_s", rows)
-        async_result = asyncio.run(_async_scenario(table + "_a", rows))
-        assert sync_result == async_result
+        result = await select_round_trip(
+            adapter,
+            [(1, big, 3.14)],
+            table_prefix="large",
+            table_definition="(id INT, name VARCHAR(4096), val DOUBLE)",
+        )
+        assert result == [(1, big, 3.14)]
 
 
 class TestParityExecutemany:
-    """Verify executemany produces same results via sync/async."""
-
-    def test_batch_insert(self):
-        table = _table_name()
-        rows = [(i, f"row_{i}", float(i) * 1.1) for i in range(50)]
-        sync_result = _sync_scenario(table + "_s", rows)
-        async_result = asyncio.run(_async_scenario(table + "_a", rows))
-        assert sync_result == async_result
+    @pytest.mark.asyncio
+    async def test_batch_insert(self, adapter: ParityAdapter) -> None:
+        rows = [(index, "row_%d" % index, float(index) * 1.1) for index in range(50)]
+        result = await select_round_trip(adapter, rows, table_prefix="batch_insert")
+        assert len(result) == len(rows)
+        for actual, expected in zip(result, rows, strict=True):
+            assert actual[:2] == expected[:2]
+            # DOUBLE round-trips can normalize the final binary float bits.
+            assert actual[2] == approx(expected[2], abs=1e-12)
 
 
 class TestParityTransactions:
-    """Verify transaction rollback semantics are identical."""
-
-    def test_rollback_discards_inserts(self):
-        table = _table_name()
-
-        # Sync: insert then rollback
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-        )
-        conn.autocommit = False
-        cur = conn.cursor()
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute(f"CREATE TABLE {table} (id INT)")
-        conn.commit()
-        cur.execute(f"INSERT INTO {table} (id) VALUES (?)", (999,))
-        conn.rollback()
-        cur.execute(f"SELECT id FROM {table}")
-        sync_result = cur.fetchall()
-        cur.execute(f"DROP TABLE {table}")
-        conn.commit()
-        conn.close()
-
-        # Async: same scenario
-        async def _async_rollback():
-            c = await pycubrid.aio.connect(
-                host=TEST_HOST,
-                port=TEST_PORT,
-                database=TEST_DB,
-                user=TEST_USER,
-                password=TEST_PASSWORD,
-            )
-            await c.set_autocommit(False)
-            cr = c.cursor()
-            await cr.execute(f"DROP TABLE IF EXISTS {table}")
-            await cr.execute(f"CREATE TABLE {table} (id INT)")
-            await c.commit()
-            await cr.execute(f"INSERT INTO {table} (id) VALUES (?)", (999,))
-            await c.rollback()
-            await cr.execute(f"SELECT id FROM {table}")
-            result = await cr.fetchall()
-            await cr.execute(f"DROP TABLE {table}")
-            await c.commit()
-            await c.close()
-            return result
-
-        async_result = asyncio.run(_async_rollback())
-        assert sync_result == async_result == []
+    @pytest.mark.asyncio
+    async def test_rollback_discards_inserts(self, adapter: ParityAdapter) -> None:
+        assert await rollback_rows(adapter) == []
 
 
 class TestParityFetchMethods:
-    """Verify fetchone/fetchmany/fetchall parity."""
-
-    def test_fetchmany_parity(self):
-        table = _table_name()
-        rows = [(i, f"item_{i}", float(i)) for i in range(10)]
-
-        # Sync
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-        )
-        conn.autocommit = True
-        cur = conn.cursor()
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute(f"CREATE TABLE {table} (id INT, name VARCHAR(100), val DOUBLE)")
-        cur.executemany(f"INSERT INTO {table} (id, name, val) VALUES (?, ?, ?)", rows)
-        cur.execute(f"SELECT id, name, val FROM {table} ORDER BY id")
-        sync_batch1 = cur.fetchmany(3)
-        sync_batch2 = cur.fetchmany(3)
-        sync_rest = cur.fetchall()
-        cur.execute(f"DROP TABLE {table}")
-        conn.close()
-
-        # Async
-        async def _async_fetchmany():
-            c = await pycubrid.aio.connect(
-                host=TEST_HOST,
-                port=TEST_PORT,
-                database=TEST_DB,
-                user=TEST_USER,
-                password=TEST_PASSWORD,
-            )
-            await c.set_autocommit(True)
-            cr = c.cursor()
-            await cr.execute(f"DROP TABLE IF EXISTS {table}")
-            await cr.execute(f"CREATE TABLE {table} (id INT, name VARCHAR(100), val DOUBLE)")
-            await cr.executemany(f"INSERT INTO {table} (id, name, val) VALUES (?, ?, ?)", rows)
-            await cr.execute(f"SELECT id, name, val FROM {table} ORDER BY id")
-            b1 = await cr.fetchmany(3)
-            b2 = await cr.fetchmany(3)
-            rest = await cr.fetchall()
-            await cr.execute(f"DROP TABLE {table}")
-            await c.close()
-            return b1, b2, rest
-
-        ab1, ab2, arest = asyncio.run(_async_fetchmany())
-        assert sync_batch1 == ab1
-        assert sync_batch2 == ab2
-        assert sync_rest == arest
+    @pytest.mark.asyncio
+    async def test_fetchmany_parity(self, adapter: ParityAdapter) -> None:
+        batch_one, batch_two, remaining = await fetchmany_round_trip(adapter)
+        assert batch_one == [(0, "item_0", 0.0), (1, "item_1", 1.0), (2, "item_2", 2.0)]
+        assert batch_two == [(3, "item_3", 3.0), (4, "item_4", 4.0), (5, "item_5", 5.0)]
+        assert remaining == [
+            (6, "item_6", 6.0),
+            (7, "item_7", 7.0),
+            (8, "item_8", 8.0),
+            (9, "item_9", 9.0),
+        ]
 
 
 class TestParityBytes:
-    """Verify bytes/BLOB round-trip parity."""
-
-    def test_blob_round_trip(self):
-        table = _table_name()
-        blob_data = bytes(range(256)) * 4
-
-        conn = pycubrid.connect(
-            host=TEST_HOST, port=TEST_PORT, database=TEST_DB, user=TEST_USER, password=TEST_PASSWORD
+    @pytest.mark.asyncio
+    async def test_blob_round_trip(self, adapter: ParityAdapter) -> None:
+        payload = bytes(range(256)) * 4
+        result = await select_round_trip(
+            adapter,
+            [(1, payload)],
+            table_prefix="blob",
+            table_definition="(id INT, payload BIT VARYING(8192))",
+            insert_sql="INSERT INTO {table} (id, payload) VALUES (?, ?)",
+            select_sql="SELECT payload FROM {table} WHERE id = 1",
+            autocommit=True,
         )
-        conn.autocommit = True
-        cur = conn.cursor()
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute(f"CREATE TABLE {table} (id INT, payload BIT VARYING(8192))")
-        cur.execute(f"INSERT INTO {table} (id, payload) VALUES (?, ?)", (1, blob_data))
-        cur.execute(f"SELECT payload FROM {table} WHERE id = 1")
-        sync_result = cur.fetchone()
-        cur.execute(f"DROP TABLE {table}")
-        conn.close()
+        assert result == [(payload,)]
 
-        async def _async_blob():
-            c = await pycubrid.aio.connect(
-                host=TEST_HOST,
-                port=TEST_PORT,
-                database=TEST_DB,
-                user=TEST_USER,
-                password=TEST_PASSWORD,
-            )
-            await c.set_autocommit(True)
-            cr = c.cursor()
-            await cr.execute(f"DROP TABLE IF EXISTS {table}")
-            await cr.execute(f"CREATE TABLE {table} (id INT, payload BIT VARYING(8192))")
-            await cr.execute(f"INSERT INTO {table} (id, payload) VALUES (?, ?)", (1, blob_data))
-            await cr.execute(f"SELECT payload FROM {table} WHERE id = 1")
-            result = await cr.fetchone()
-            await cr.execute(f"DROP TABLE {table}")
-            await c.close()
-            return result
-
-        async_result = asyncio.run(_async_blob())
-        assert sync_result == async_result
-
-
-class TestParityDatetime:
-    """Verify datetime types round-trip parity."""
-
-    def test_datetime_round_trip(self):
-        import datetime
-
-        table = _table_name()
-        dt = datetime.datetime(2025, 6, 15, 10, 30, 45)
-        d = datetime.date(2025, 6, 15)
-        t = datetime.time(10, 30, 45)
-
-        conn = pycubrid.connect(
-            host=TEST_HOST, port=TEST_PORT, database=TEST_DB, user=TEST_USER, password=TEST_PASSWORD
+    @pytest.mark.asyncio
+    async def test_datetime_round_trip(self, adapter: ParityAdapter) -> None:
+        value = datetime.datetime(2025, 6, 15, 10, 30, 45)
+        result = await select_round_trip(
+            adapter,
+            [(1, value, datetime.date(2025, 6, 15), datetime.time(10, 30, 45))],
+            table_prefix="datetime",
+            table_definition="(id INT, dt DATETIME, d DATE, t TIME)",
+            insert_sql="INSERT INTO {table} VALUES (?, ?, ?, ?)",
+            select_sql="SELECT dt, d, t FROM {table} WHERE id = 1",
+            autocommit=True,
         )
-        conn.autocommit = True
-        cur = conn.cursor()
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute(f"CREATE TABLE {table} (id INT, dt DATETIME, d DATE, t TIME)")
-        cur.execute(f"INSERT INTO {table} VALUES (?, ?, ?, ?)", (1, dt, d, t))
-        cur.execute(f"SELECT dt, d, t FROM {table} WHERE id = 1")
-        sync_result = cur.fetchone()
-        cur.execute(f"DROP TABLE {table}")
-        conn.close()
+        assert result == [(value, datetime.date(2025, 6, 15), datetime.time(10, 30, 45))]
 
-        async def _async_dt():
-            c = await pycubrid.aio.connect(
-                host=TEST_HOST,
-                port=TEST_PORT,
-                database=TEST_DB,
-                user=TEST_USER,
-                password=TEST_PASSWORD,
-            )
-            await c.set_autocommit(True)
-            cr = c.cursor()
-            await cr.execute(f"DROP TABLE IF EXISTS {table}")
-            await cr.execute(f"CREATE TABLE {table} (id INT, dt DATETIME, d DATE, t TIME)")
-            await cr.execute(f"INSERT INTO {table} VALUES (?, ?, ?, ?)", (1, dt, d, t))
-            await cr.execute(f"SELECT dt, d, t FROM {table} WHERE id = 1")
-            result = await cr.fetchone()
-            await cr.execute(f"DROP TABLE {table}")
-            await c.close()
-            return result
-
-        async_result = asyncio.run(_async_dt())
-        assert sync_result == async_result
-
-
-class TestParityFetchSize:
-    """Verify large fetch_size produces identical results."""
-
-    def test_large_fetch_size(self):
-        table = _table_name()
-        rows = [(i, f"row_{i}", float(i)) for i in range(200)]
-
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
+    @pytest.mark.asyncio
+    async def test_large_fetch_size(self, adapter: ParityAdapter) -> None:
+        rows = [(index, "row_%d" % index, float(index)) for index in range(200)]
+        result = await select_round_trip(
+            adapter,
+            rows,
+            table_prefix="fetch_size",
+            autocommit=True,
             fetch_size=500,
         )
-        conn.autocommit = True
-        cur = conn.cursor()
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute(f"CREATE TABLE {table} (id INT, name VARCHAR(100), val DOUBLE)")
-        cur.executemany(f"INSERT INTO {table} (id, name, val) VALUES (?, ?, ?)", rows)
-        cur.execute(f"SELECT id, name, val FROM {table} ORDER BY id")
-        sync_result = cur.fetchall()
-        cur.execute(f"DROP TABLE {table}")
-        conn.close()
+        assert result == rows
 
-        async def _async_large_fetch():
-            c = await pycubrid.aio.connect(
-                host=TEST_HOST,
-                port=TEST_PORT,
-                database=TEST_DB,
-                user=TEST_USER,
-                password=TEST_PASSWORD,
-                fetch_size=500,
-            )
-            await c.set_autocommit(True)
-            cr = c.cursor()
-            await cr.execute(f"DROP TABLE IF EXISTS {table}")
-            await cr.execute(f"CREATE TABLE {table} (id INT, name VARCHAR(100), val DOUBLE)")
-            await cr.executemany(f"INSERT INTO {table} (id, name, val) VALUES (?, ?, ?)", rows)
-            await cr.execute(f"SELECT id, name, val FROM {table} ORDER BY id")
-            result = await cr.fetchall()
-            await cr.execute(f"DROP TABLE {table}")
-            await c.close()
-            return result
-
-        async_result = asyncio.run(_async_large_fetch())
-        assert sync_result == async_result
-        assert len(sync_result) == 200
-
-
-class TestParityJsonDeserializer:
-    """Verify JSON deserialization parity."""
-
-    def test_json_column(self):
-        import json
-
-        table = _table_name()
-        data = {"key": "value", "number": 42, "nested": [1, 2, 3]}
-
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
+    @pytest.mark.asyncio
+    async def test_json_column(self, adapter: ParityAdapter) -> None:
+        payload = {"key": "value", "number": 42, "nested": [1, 2, 3]}
+        result = await select_round_trip(
+            adapter,
+            [(1, json.dumps(payload))],
+            table_prefix="json",
+            table_definition="(id INT, payload JSON)",
+            insert_sql="INSERT INTO {table} VALUES (?, ?)",
+            select_sql="SELECT payload FROM {table} WHERE id = 1",
+            autocommit=True,
             json_deserializer=json.loads,
         )
-        conn.autocommit = True
-        cur = conn.cursor()
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute(f"CREATE TABLE {table} (id INT, payload JSON)")
-        cur.execute(f"INSERT INTO {table} VALUES (?, ?)", (1, json.dumps(data)))
-        cur.execute(f"SELECT payload FROM {table} WHERE id = 1")
-        sync_result = cur.fetchone()
-        cur.execute(f"DROP TABLE {table}")
-        conn.close()
+        assert result == [(payload,)]
 
-        async def _async_json():
-            c = await pycubrid.aio.connect(
-                host=TEST_HOST,
-                port=TEST_PORT,
-                database=TEST_DB,
-                user=TEST_USER,
-                password=TEST_PASSWORD,
-                json_deserializer=json.loads,
-            )
-            await c.set_autocommit(True)
-            cr = c.cursor()
-            await cr.execute(f"DROP TABLE IF EXISTS {table}")
-            await cr.execute(f"CREATE TABLE {table} (id INT, payload JSON)")
-            await cr.execute(f"INSERT INTO {table} VALUES (?, ?)", (1, json.dumps(data)))
-            await cr.execute(f"SELECT payload FROM {table} WHERE id = 1")
-            result = await cr.fetchone()
-            await cr.execute(f"DROP TABLE {table}")
-            await c.close()
-            return result
 
-        async_result = asyncio.run(_async_json())
-        assert sync_result == async_result
+class TestParityConnectionLifecycle:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reconnect", [False, True], ids=["no-reconnect", "reconnect"])
+    async def test_ping_healthy_connection(
+        self,
+        adapter: ParityAdapter,
+        reconnect: bool,
+    ) -> None:
+        conn = await adapter.connect()
+        try:
+            assert await adapter.ping(conn, reconnect=reconnect) is True
+        finally:
+            await adapter.close_connection(conn)
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        not os.getenv("CUBRID_TEST_URL"),
+        reason="Set CUBRID_TEST_URL to run broker drop parity scenarios",
+    )
+    @pytest.mark.parametrize("reconnect", [False, True], ids=["no-reconnect", "reconnect"])
+    async def test_ping_after_transport_drop(
+        self,
+        adapter: ParityAdapter,
+        reconnect: bool,
+    ) -> None:
+        ping_result, row = await ping_after_drop(adapter, reconnect=reconnect)
+        assert ping_result is reconnect
+        expected_row = (1,) if reconnect else None
+        assert row == expected_row
+
+    @pytest.mark.asyncio
+    async def test_reconnect_after_inactive_cas(self, adapter: ParityAdapter) -> None:
+        reconnected, row, version = await reconnect_after_inactive_cas(adapter)
+        assert reconnected is True
+        assert row == (1,)
+        assert version
+
+    @pytest.mark.asyncio
+    async def test_autocommit_transitions(self, adapter: ParityAdapter) -> None:
+        assert await autocommit_transitions(adapter) == (False, True, False)
+
+    @pytest.mark.asyncio
+    async def test_lastrowid_and_last_insert_id(self, adapter: ParityAdapter) -> None:
+        lastrowid, last_insert_id = await insert_identity_values(adapter)
+        assert isinstance(lastrowid, int)
+        assert lastrowid is not None and lastrowid > 0
+        assert last_insert_id == str(lastrowid)
+
+    @pytest.mark.asyncio
+    async def test_get_server_version(self, adapter: ParityAdapter) -> None:
+        conn = await adapter.connect()
+        try:
+            version = await adapter.get_server_version(conn)
+        finally:
+            await adapter.close_connection(conn)
+        assert isinstance(version, str)
+        assert version
+        assert version.split(".", 1)[0].isdigit()
+
+    @pytest.mark.asyncio
+    async def test_executemany_batch_rowcount_semantics(self, adapter: ParityAdapter) -> None:
+        results, rowcount, count_row = await executemany_batch_semantics(adapter)
+        assert len(results) == 3
+        assert rowcount == sum(count for _, count in results)
+        assert count_row == (2,)
+
+    @pytest.mark.asyncio
+    async def test_cursor_close_then_connection_close(self, adapter: ParityAdapter) -> None:
+        assert await close_cursor_then_connection(adapter) == (True, True)
+
+    @pytest.mark.asyncio
+    async def test_async_connection_has_no_create_lob_method(self) -> None:
+        sync_conn = pycubrid.connect(**connect_kwargs())
+        async_conn = await pycubrid.aio.connect(**connect_kwargs())
+        try:
+            assert callable(sync_conn.create_lob)
+            with pytest.raises(AttributeError, match="create_lob"):
+                getattr(async_conn, "create_lob")()
+        finally:
+            sync_conn.close()
+            await async_conn.close()
