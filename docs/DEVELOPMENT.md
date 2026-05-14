@@ -153,6 +153,39 @@ pytest tests/test_integration.py -v
 docker compose down -v
 ```
 
+#### Async TLS integration tests
+
+`tests/test_aio_ssl_integration.py` adds async TLS coverage for `pycubrid.aio`.
+The repository's default `docker-compose.yml` starts a plaintext broker only, so
+these tests are skipped unless you point them at a separate TLS-enabled broker.
+
+Export the normal integration variables plus these TLS overrides as needed:
+
+```bash
+export CUBRID_TLS_TEST_HOST=localhost
+export CUBRID_TLS_TEST_PORT=33001
+export CUBRID_TLS_TEST_DB=testdb
+export CUBRID_TLS_TEST_USER=dba
+export CUBRID_TLS_TEST_PASSWORD=
+
+# Optional: private CA bundle for ssl.SSLContext/load_verify_locations().
+export CUBRID_TLS_TEST_CA_FILE="$PWD/certs/ca.pem"
+
+# Optional: alternate reachable host/IP for hostname-mismatch coverage.
+export CUBRID_TLS_TEST_MISMATCH_HOST=127.0.0.1
+
+# If test_aio_ssl_connect_default_context uses a private CA, also point the
+# process default trust store at that CA before running pytest.
+export SSL_CERT_FILE="$CUBRID_TLS_TEST_CA_FILE"
+```
+
+Broker-side TLS must already be enabled (`SSL=ON` in `cubrid_broker.conf`) and
+the broker certificate must match `CUBRID_TLS_TEST_HOST`. Then run:
+
+```bash
+pytest tests/test_aio_ssl_integration.py -v
+```
+
 ### Code Coverage
 
 Current test metrics:

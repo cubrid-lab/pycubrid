@@ -6,21 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Security
-- **Default TLS context now requires TLSv1.2+** — `resolve_ssl_context(True)` sets
-  `SSLContext.minimum_version = TLSVersion.TLSv1_2` to block legacy TLS downgrade
-  risk and resolve CodeQL alert #144.
-
-### Fixed
-- **Async connection I/O serialization** — `AsyncConnection` now guards request/response,
-  reconnect, handshake stream assignment, and close lifecycle state with a per-connection
-  `asyncio.Lock`, preventing protocol corruption when multiple coroutines share one connection (#137)
-- **Async cleanup on timeout and malformed responses** — async request failures now await
-  stream shutdown, including TLS `wait_closed()`, and malformed broker frames force
-  disconnect + `OperationalError` before the connection can be reused (#138)
-
 ### Tests
 - **Sync/async lifecycle parity coverage expanded** — integration parity tests now share adapter-driven scenarios and cover connection lifecycle APIs including `ping()`, CAS-inactive reconnect, auto-commit transitions, insert identity helpers, batch rowcount semantics, close ordering, and the explicit `AsyncConnection` `create_lob` `AttributeError` contract (closes #140)
+- **Async TLS integration coverage** — added `tests/test_aio_ssl_integration.py` with
+  live async TLS success/failure/reconnect/shutdown coverage gated behind an
+  explicitly configured TLS-enabled broker
 
 ### Validated
 - **Native `Connection.ping()` causally validated at application layer** — Tier 2 ORM benchmark in [cubrid-benchmark `2026-04-22_native-ping-hotpath`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/orm-overhead/runs/2026-04-22_native-ping-hotpath) (paired same-version A/B vs forced `SELECT 1`, 7 trials, bootstrap 95% CI) confirms native CHECK_CAS ping is **+279.9% throughput** on raw ping_only [+278.0, +283.9] and **+587.8% on SQLAlchemy `checkout_only`** [+581.8, +603.8] with `pool_pre_ping=True`. Performance Loop ping propagation gap closed.

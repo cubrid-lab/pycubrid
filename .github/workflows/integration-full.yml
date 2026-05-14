@@ -73,8 +73,4 @@ jobs:
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
         run: |
-          if [ -f tests/test_integration.py ]; then
-            python -m pytest tests/test_integration.py -v --tb=short
-          else
-            echo "tests/test_integration.py not present yet; skipping integration suite."
-          fi
+          python -m pytest tests/test_*integration*.py -v --tb=short
