@@ -204,7 +204,7 @@ Limitations imposed by CUBRID or design choices:
 
 | Feature | Status | Reason |
 |---|---|---|
-| Async TLS | ❌ | Async connections currently reject `ssl`; use sync TLS or async plaintext |
+| Async TLS | ✅ | Implemented in v1.4.0; uses `asyncio.open_connection(ssl=...)`. Default context requires TLS 1.2 minimum. |
 | Connection pooling | ❌ | Not in scope; use SQLAlchemy's pool or external pooler |
 | Thread safety level 2+ | ❌ | CUBRID CAS sessions are connection-bound |
 | LOB streaming | ⚠️ | LOB data loaded fully into memory |
@@ -244,7 +244,6 @@ Limitations imposed by CUBRID or design choices:
 
 | Item | Description | Priority |
 |---|---|---|
-| Async TLS support | Evaluate safe asyncio-compatible TLS transport support | High |
 | LOB ergonomics | Higher-level helpers for reading fetched LOB handles | Medium |
 | Statement caching | Reuse prepared statements for repeated workloads | Medium |
 | CUBRID 12.x validation | Expand CI and docs for newer server versions | Medium |

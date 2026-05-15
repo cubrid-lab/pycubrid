@@ -176,13 +176,31 @@ conn = pycubrid.connect(
 ```
 
 - `ssl=True` creates a verified default `ssl.SSLContext` using system trust roots.
+- When `ssl=True`, pycubrid sets `SSLContext.minimum_version = ssl.TLSVersion.TLSv1_2` on the default context for both sync and async connections.
 - `ssl=your_ssl_context` uses your custom context directly, which is useful for self-signed or private CA certificates.
 - `ssl=None` or `ssl=False` disables TLS and preserves the previous plaintext behavior.
 
-!!! warning
-    SSL/TLS is currently supported for **sync connections only**. Async connections
-    (`pycubrid.aio.connect()`) do not yet support TLS and will raise `NotSupportedError`
-    if `ssl` is passed. This limitation will be addressed in a future release.
+Both `pycubrid.connect()` and `pycubrid.aio.connect()` accept the same `ssl` values:
+
+- `ssl=True` for the default verified context with a TLS 1.2 minimum.
+- `ssl=False` or `ssl=None` for plaintext.
+- `ssl=your_ssl_context` for a custom `ssl.SSLContext`.
+
+Async TLS uses `asyncio.open_connection(..., ssl=...)` internally, and async shutdown awaits
+`writer.wait_closed()` so TLS sessions close cleanly.
+
+```python
+import pycubrid.aio
+
+conn = await pycubrid.aio.connect(
+    host="db.example.com",
+    port=33000,
+    database="production",
+    user="app_user",
+    password="secret",
+    ssl=True,
+)
+```
 
 !!! note
     CUBRID broker TLS must be enabled on the server side (`SSL=ON` in `cubrid_broker.conf`) before TLS connections can succeed.

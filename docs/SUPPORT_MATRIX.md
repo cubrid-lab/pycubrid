@@ -83,7 +83,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Sync TLS — `ssl=True` (verified context) | ✅ | 1.3.0 (#85) | Default secure context |
 | Sync TLS — `ssl=ssl.SSLContext(...)` | ✅ | 1.3.0 (#85) | Custom context |
 | Sync TLS — `ssl=False` / `None` | ✅ | 1.3.0 | Plaintext (default) |
-| Async TLS | ❌ | — | `asyncio.loop.sock_*` rejects `SSLSocket`; raises `NotSupportedError`. Use sync interface for TLS or async without encryption. |
+| Async TLS | ✅ | 1.4.0 | Uses `asyncio.open_connection(ssl=...)` (#136); default context enforces TLS 1.2 minimum (#145). |
 
 ### Async (`pycubrid.aio`)
 
@@ -96,7 +96,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Async `read_timeout` | ✅ | 1.2.0 (#82) | |
 | Async dual-stack fallback | ✅ | 1.2.0 (#83) | |
 | Async parameter binding parity | ✅ | 1.2.0 (#76, #77) | Shares `_escape_string` with sync |
-| Async TLS | ❌ | — | See TLS section above |
+| Async TLS | ✅ | 1.4.0 | Uses `asyncio.open_connection(ssl=...)` (#136); default context enforces TLS 1.2 minimum (#145). |
 
 ### Driver-Level Diagnostics
 

@@ -30,7 +30,7 @@ Korean public-sector and enterprise applications. The existing C-extension drive
 - **Pure Python implementation** — no C build dependencies, install with `pip install` only
 - **Implements PEP 249 (DB-API 2.0)** — standard exception hierarchy, type objects, cursor interface
 - **800+ offline tests** with **97%+ code coverage** — most tests run without a database
-- **TLS/SSL for sync connections** — opt-in `ssl=True` (verified context) or custom `ssl.SSLContext` on `connect()`
+- **TLS/SSL for sync and async connections** — opt-in `ssl=True` (verified context, TLS 1.2 minimum) or custom `ssl.SSLContext` on `connect()` and `pycubrid.aio.connect()`
 - **Native asyncio support** — async/await API via `pycubrid.aio` for high-concurrency applications
 - **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis support
 - **Direct CUBRID CAS protocol** implementation — no additional middleware required

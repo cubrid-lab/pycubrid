@@ -31,7 +31,7 @@ Probleme bei der Plattformkompatibilität.
 - **Reine Python-Implementierung** — keine C-Build-Abhängigkeiten, Installation nur mit `pip install`
 - **Implementiert PEP 249 (DB-API 2.0)** — Standard-Ausnahmehierarchie, Typobjekte und Cursor-Schnittstelle
 - **770 Offline-Tests / 811 insgesamt** mit **97,29 % Codeabdeckung** — die meisten Tests laufen ohne Datenbank
-- **TLS/SSL für synchrone Verbindungen** — optional `ssl=True` (verifizierter Kontext) oder ein benutzerdefiniertes `ssl.SSLContext` bei `connect()`
+- **TLS/SSL für synchrone und asynchrone Verbindungen** — optional `ssl=True` (verifizierter Kontext, TLS 1.2 Minimum) oder ein benutzerdefiniertes `ssl.SSLContext` bei `connect()` und `pycubrid.aio.connect()`
 - **Native asyncio-Unterstützung** — Async/Await-API über `pycubrid.aio` für Anwendungen mit hoher Parallelität
 - **PEP-561-typisiertes Paket** — `py.typed`-Marker für moderne IDEs und statische Analysewerkzeuge
 - **Direkte Implementierung des CUBRID-CAS-Protokolls** — keine zusätzliche Middleware erforderlich

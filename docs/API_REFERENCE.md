@@ -102,7 +102,7 @@ Create a new database connection.
 | `password` | `str` | `""` | Database password |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
-| `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync broker connections |
+| `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync and async broker connections; `True` uses the default verified context with a TLS 1.2 minimum |
 | `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit` |
 
 #### `decode_collections`
@@ -167,7 +167,7 @@ Create and open an async connection.
 - Accepts the same collection / JSON decoding kwargs as `pycubrid.connect()`.
 - Supports `autocommit=True` via `await conn.set_autocommit(True)` during construction.
 - Provides a similar async surface to the sync API, including `await conn.ping(reconnect=...)`; `create_lob()` remains sync-only, and auto-commit changes go through `await conn.set_autocommit(...)` instead of a property setter.
-- Async TLS is not yet supported; passing `ssl=True` or an `SSLContext` raises `NotSupportedError`.
+- Accepts the same `ssl` parameter as `pycubrid.connect()`: `True`, `False`/`None`, or a custom `SSLContext`; when `True`, the default verified context enforces a TLS 1.2 minimum.
 
 ```python
 import asyncio
@@ -215,7 +215,7 @@ class Connection:
 | Name | Type | Default | Description |
 |---|---|---|---|
 | `enable_timing` | `bool \| None` | `None` | Enable optional driver-level timing instrumentation for `connect`, `execute`, `fetch`, and `close` operations. When `None`, falls back to the `PYCUBRID_ENABLE_TIMING` environment variable (truthy values: `1`, `true`, `yes`, case-insensitive). When disabled, the timing module is not imported and `connection.timing_stats` is `None` (zero overhead). See [Timing & Profiling Hooks](PERFORMANCE.md#timing--profiling-hooks). |
-| `ssl` | `bool \| ssl.SSLContext \| None` | `None` | TLS configuration for sync connections. See [Connection guide](CONNECTION.md). |
+| `ssl` | `bool \| ssl.SSLContext \| None` | `None` | TLS configuration shared by sync and async connections. `True` uses the default verified context with `minimum_version = TLSv1_2`; see [Connection guide](CONNECTION.md). |
 | `read_timeout` | `float \| None` | `None` | Socket read timeout in seconds. |
 | `fetch_size` | `int` | `100` | Server-side fetch batch size. |
 | `json_deserializer` | `Callable[[str], Any] \| None` | `None` | Opt-in JSON column decoder. |
