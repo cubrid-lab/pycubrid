@@ -640,13 +640,15 @@ def _parse_result_infos(reader: PacketReader, result_count: int) -> list[ResultI
 class ClientInfoExchangePacket:
     """Initial handshake packet (no DATA_LENGTH/CAS_INFO framing)."""
 
-    def __init__(self) -> None:
+    def __init__(self, use_ssl: bool = False) -> None:
         self.new_connection_port: int = 0
+        self._use_ssl = use_ssl
 
     def write(self) -> bytes:
         """Serialize the handshake packet (10 bytes, no protocol header)."""
         buf = bytearray()
-        buf.extend(CASProtocol.MAGIC_STRING.encode("ascii"))
+        magic = CASProtocol.MAGIC_STRING_SSL if self._use_ssl else CASProtocol.MAGIC_STRING
+        buf.extend(magic.encode("ascii"))
         buf.append(CASProtocol.CLIENT_JDBC)
         buf.append(CASProtocol.CAS_VERSION)
         buf.extend(b"\x00\x00\x00")

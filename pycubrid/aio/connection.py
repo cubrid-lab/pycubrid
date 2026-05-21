@@ -107,22 +107,34 @@ class AsyncConnection(ConnectionCommonMixin):
         hs_reader: asyncio.StreamReader,
         hs_writer: asyncio.StreamWriter,
     ) -> None:
-        """Run broker handshake, optional redirect, and OPEN_DB exchange."""
-        client_info_packet = ClientInfoExchangePacket()
+        """Run broker handshake, optional redirect, TLS upgrade, and OPEN_DB exchange."""
+        use_ssl = self._ssl_context is not None
+        client_info_packet = ClientInfoExchangePacket(use_ssl=use_ssl)
         hs_writer.write(client_info_packet.write())
         await hs_writer.drain()
         handshake_response = await self._recv_exact(hs_reader, DataSize.INT)
         client_info_packet.parse(handshake_response)
 
+        if client_info_packet.new_connection_port < 0:
+            raise OperationalError(
+                f"CUBRID broker rejected handshake with status "
+                f"{client_info_packet.new_connection_port} (ssl={use_ssl})"
+            )
+
         if client_info_packet.new_connection_port > 0:
             hs_writer.close()
             await self._writer_wait_closed(hs_writer)
+            # See sync connect(): CUBRID redirects the client to a fresh
+            # CAS worker port without expecting a second handshake.
             self._reader, self._writer = await self._open_connection(
                 self._host, client_info_packet.new_connection_port
             )
         else:
             self._reader = hs_reader
             self._writer = hs_writer
+
+        if use_ssl:
+            await self._upgrade_to_tls()
 
         open_db_packet = OpenDatabasePacket(
             database=self._database,
@@ -140,6 +152,36 @@ class AsyncConnection(ConnectionCommonMixin):
         self._cas_info = open_db_packet.cas_info
         self._session_id = open_db_packet.session_id
         self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
+
+    async def _upgrade_to_tls(self) -> None:
+        """Upgrade the active stream from plaintext to TLS via ``loop.start_tls``.
+
+        Uses ``loop.start_tls`` rather than ``StreamWriter.start_tls`` for
+        Python 3.10 compatibility (the latter is 3.11+).  The new SSL
+        transport is rebound onto the existing ``StreamReader``/
+        ``StreamWriter`` via their private ``_transport`` attribute because
+        the public alternatives (``StreamReader.set_transport`` + rebuilt
+        ``StreamWriter``) desynchronise the shared ``StreamReaderProtocol``
+        state and break subsequent reads after the upgrade.
+        """
+        ssl_context = self._ssl_context
+        assert ssl_context is not None
+        assert self._writer is not None
+        assert self._reader is not None
+
+        loop = asyncio.get_running_loop()
+        old_transport = self._writer.transport
+        protocol = old_transport.get_protocol()
+        new_transport = await loop.start_tls(
+            old_transport,
+            protocol,
+            ssl_context,
+            server_hostname=self._host,
+        )
+        if new_transport is None:
+            raise OperationalError("TLS upgrade returned no transport")
+        self._writer._transport = new_transport  # type: ignore[attr-defined]
+        self._reader._transport = new_transport  # type: ignore[attr-defined]
 
     async def close(self) -> None:
         """Close the connection and all tracked cursors."""
@@ -291,11 +333,7 @@ class AsyncConnection(ConnectionCommonMixin):
         self, host: str, port: int
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         try:
-            coro = asyncio.open_connection(
-                host,
-                port,
-                ssl=self._ssl_context,
-            )
+            coro = asyncio.open_connection(host, port)
             if self._connect_timeout is not None:
                 reader, writer = await asyncio.wait_for(coro, timeout=self._connect_timeout)
             else:

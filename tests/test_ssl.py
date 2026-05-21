@@ -8,6 +8,7 @@ import pytest
 
 from pycubrid._connection_common import resolve_ssl_context
 from pycubrid.connection import Connection
+from pycubrid.protocol import ClientInfoExchangePacket
 
 
 def test_resolve_ssl_context_true_creates_default_context() -> None:
@@ -44,23 +45,44 @@ def test_resolve_ssl_context_invalid_value_raises_value_error() -> None:
         _ = resolve_ssl_context(bad_value)
 
 
-def test_connection_wraps_socket_when_ssl_enabled() -> None:
+def test_connection_create_socket_never_wraps_ssl() -> None:
     conn = Connection.__new__(Connection)
     conn._connect_timeout = None
     conn._read_timeout = None
     conn._ssl_context = MagicMock()
 
     raw_sock = MagicMock()
-    wrapped_sock = MagicMock()
-    conn._ssl_context.wrap_socket.return_value = wrapped_sock
 
     with patch("pycubrid.connection.socket.create_connection", return_value=raw_sock):
         result = Connection._create_socket(conn, "db.example.com", 33000)
+
+    assert result is raw_sock
+    conn._ssl_context.wrap_socket.assert_not_called()
+
+
+def test_connection_wrap_ssl_wraps_with_server_hostname() -> None:
+    conn = Connection.__new__(Connection)
+    conn._ssl_context = MagicMock()
+    raw_sock = MagicMock()
+    wrapped_sock = MagicMock()
+    conn._ssl_context.wrap_socket.return_value = wrapped_sock
+
+    result = Connection._wrap_ssl(conn, raw_sock, "db.example.com")
 
     assert result is wrapped_sock
     conn._ssl_context.wrap_socket.assert_called_once_with(
         raw_sock, server_hostname="db.example.com"
     )
+
+
+def test_connection_wrap_ssl_noop_when_disabled() -> None:
+    conn = Connection.__new__(Connection)
+    conn._ssl_context = None
+    raw_sock = MagicMock()
+
+    result = Connection._wrap_ssl(conn, raw_sock, "db.example.com")
+
+    assert result is raw_sock
 
 
 def test_connection_does_not_wrap_socket_when_ssl_disabled() -> None:
@@ -138,3 +160,56 @@ def test_async_connection_safe_close_socket_delegates_to_close_streams_sync() ->
 
     assert conn._writer is None
     assert conn._reader is None
+
+
+def test_client_info_packet_plain_magic_is_cubrk() -> None:
+    pkt = ClientInfoExchangePacket()
+    assert pkt.write()[:5] == b"CUBRK"
+
+
+def test_client_info_packet_ssl_magic_is_cubrs() -> None:
+    pkt = ClientInfoExchangePacket(use_ssl=True)
+    assert pkt.write()[:5] == b"CUBRS"
+
+
+def test_client_info_packet_explicit_false_is_cubrk() -> None:
+    pkt = ClientInfoExchangePacket(use_ssl=False)
+    assert pkt.write()[:5] == b"CUBRK"
+
+
+def test_connect_rejects_negative_handshake_status() -> None:
+    import struct
+
+    from pycubrid.exceptions import OperationalError
+    from tests.test_connection import make_socket
+
+    bad_sock = make_socket([struct.pack(">i", -22)])
+
+    with (
+        patch("pycubrid.connection.socket.create_connection", return_value=bad_sock),
+        pytest.raises(OperationalError, match="broker rejected handshake with status -22"),
+    ):
+        Connection("localhost", 33000, "testdb", "dba", "", ssl=False)
+
+
+def test_connect_redirect_sends_no_second_handshake() -> None:
+    """Regression guard: per CUBRID JDBC the redirected CAS worker does not
+    re-handshake.  Re-introducing a second handshake here would break
+    plaintext redirected deployments."""
+    import struct
+
+    from tests.test_connection import build_open_db_response, make_socket
+
+    first_sock = make_socket([struct.pack(">i", 33100)])
+    open_db = build_open_db_response()
+    second_sock = make_socket([open_db[:4], open_db[4:]])
+
+    with patch(
+        "pycubrid.connection.socket.create_connection",
+        side_effect=[first_sock, second_sock],
+    ):
+        Connection("localhost", 33000, "testdb", "dba", "", ssl=False)
+
+    sent_bytes = b"".join(call.args[0] for call in second_sock.sendall.call_args_list)
+    assert b"CUBRK" not in sent_bytes
+    assert b"CUBRS" not in sent_bytes

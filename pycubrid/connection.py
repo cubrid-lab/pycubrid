@@ -83,21 +83,38 @@ class Connection(ConnectionCommonMixin):
             _start = time.perf_counter_ns()
         handshake_socket: socket.socket | None = None
         try:
+            use_ssl = self._ssl_context is not None
             handshake_socket = self._create_socket(self._host, self._port)
-            client_info_packet = ClientInfoExchangePacket()
+            client_info_packet = ClientInfoExchangePacket(use_ssl=use_ssl)
             handshake_socket.sendall(client_info_packet.write())
             handshake_response = self._recv_exact(handshake_socket, DataSize.INT)
             client_info_packet.parse(handshake_response)
 
+            # Negative status from the broker indicates rejection (e.g. SSL
+            # disabled on broker but CUBRS sent, or vice versa).  Fail fast
+            # before any TLS upgrade or OPEN_DB so callers see a clear error.
+            if client_info_packet.new_connection_port < 0:
+                raise OperationalError(
+                    f"CUBRID broker rejected handshake with status "
+                    f"{client_info_packet.new_connection_port} (ssl={use_ssl})"
+                )
+
             if client_info_packet.new_connection_port > 0:
                 handshake_socket.close()
                 handshake_socket = None
+                # Per CUBRID JDBC BrokerHandler.connectBroker, the redirected
+                # CAS worker does NOT expect a second CUBRK/CUBRS handshake —
+                # the client reconnects to the new port and proceeds directly
+                # to the TLS upgrade (if SSL) followed by OPEN_DATABASE.
                 self._socket = self._create_socket(
                     self._host, client_info_packet.new_connection_port
                 )
             else:
                 self._socket = handshake_socket
                 handshake_socket = None  # ownership transferred
+
+            if use_ssl:
+                self._socket = self._wrap_ssl(self._socket, self._host)
 
             open_db_packet = OpenDatabasePacket(
                 database=self._database,
@@ -115,11 +132,12 @@ class Connection(ConnectionCommonMixin):
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._connected = True
             _LOGGER.debug(
-                "Connected to %s:%d/%s (protocol_version=%d)",
+                "Connected to %s:%d/%s (protocol_version=%d, tls=%s)",
                 self._host,
                 self._port,
                 self._database,
                 self._protocol_version,
+                use_ssl,
             )
         except (OSError, ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
             _LOGGER.debug(
@@ -336,14 +354,27 @@ class Connection(ConnectionCommonMixin):
             sock.settimeout(self._read_timeout)
         elif self._connect_timeout is not None:
             sock.settimeout(None)
-        ssl_context = getattr(self, "_ssl_context", None)
-        if ssl_context is not None:
-            try:
-                sock = ssl_context.wrap_socket(sock, server_hostname=host)
-            except (OSError, ssl_module.SSLError):
-                sock.close()
-                raise
         return sock
+
+    def _wrap_ssl(self, sock: socket.socket, host: str) -> socket.socket:
+        """Upgrade a plaintext CAS socket to TLS after the CUBRS handshake.
+
+        CUBRID uses STARTTLS-style negotiation: the 10-byte handshake with
+        the ``CUBRS`` magic is sent in plaintext, and only on a ``0`` reply
+        is the same socket wrapped in TLS.  Wrapping earlier (TLS from
+        byte 0) is rejected by the broker.
+        """
+        ssl_context = self._ssl_context
+        if ssl_context is None:
+            return sock
+        try:
+            return ssl_context.wrap_socket(sock, server_hostname=host)
+        except (OSError, ssl_module.SSLError):
+            try:
+                sock.close()
+            except OSError:
+                pass
+            raise
 
     def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
         """Send a framed CAS request and parse the framed response into ``packet``.

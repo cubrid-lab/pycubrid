@@ -387,6 +387,12 @@ class CASProtocol:
     """CAS protocol constants."""
 
     MAGIC_STRING: str = "CUBRK"
+    # Magic string sent during the initial handshake when the client requests
+    # an SSL/TLS-encrypted connection.  The broker reads this magic in plain
+    # text first, replies with a 4-byte status (0 == OK, negative == error),
+    # and only then does both sides upgrade the socket to TLS.  This matches
+    # CUBRID JDBC's ``BrokerHandler.connectBroker(useSSL=true)`` flow.
+    MAGIC_STRING_SSL: str = "CUBRS"
     CLIENT_JDBC: int = 3
     PROTO_INDICATOR: int = 0x40
     VERSION: int = 8

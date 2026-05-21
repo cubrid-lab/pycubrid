@@ -184,7 +184,7 @@ async def test_async_open_connection_uses_asyncio_open_connection() -> None:
         result = await conn._open_connection("localhost", 33000)
 
     assert result == (reader, writer)
-    open_connection.assert_awaited_once_with("localhost", 33000, ssl=None)
+    open_connection.assert_awaited_once_with("localhost", 33000)
     sock.setsockopt.assert_any_call(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     sock.setsockopt.assert_any_call(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 

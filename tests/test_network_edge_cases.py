@@ -208,7 +208,7 @@ class TestAsyncConnectionNetworkEdgeCases:
             with pytest.raises(OperationalError, match="could not connect"):
                 await conn._open_connection("localhost", 33000)
 
-        open_connection.assert_called_once_with("localhost", 33000, ssl=None)
+        open_connection.assert_called_once_with("localhost", 33000)
 
     @pytest.mark.asyncio
     async def test_connection_reset_error_during_async_recv_raises_operational_error(self) -> None:
