@@ -74,3 +74,156 @@ jobs:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
         run: |
           python -m pytest tests/test_*integration*.py -v --tb=short
+
+  integration-tls:
+    # Provision a CUBRID broker with SSL=ON so tests/test_aio_ssl_integration.py
+    # is exercised in CI instead of silently skipping (closes #147).  Uses a
+    # manually-managed container rather than a service so we can flip the
+    # broker config and extract the self-signed certificate before the
+    # tests run.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+        cubrid-version: ["11.4"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Start CUBRID broker with SSL=ON
+        run: |
+          set -euxo pipefail
+          # Generate a self-signed cert valid for `localhost` (the test host)
+          # so that the test fixture's verified SSLContext accepts the broker
+          # without disabling hostname checks.  The default cert shipped in
+          # the cubrid image has CN=www.cubrid.org and would fail hostname
+          # verification, causing every TLS test to silently skip.
+          mkdir -p "$RUNNER_TEMP/tls"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout "$RUNNER_TEMP/tls/cas_ssl_cert.key" \
+            -out "$RUNNER_TEMP/tls/cas_ssl_cert.crt" \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost"
+          chmod 600 "$RUNNER_TEMP/tls/cas_ssl_cert.key"
+
+          docker run -d --rm --name cubrid-tls \
+            -e CUBRID_DB=testdb \
+            -p 33000:33000 \
+            cubrid/cubrid:${{ matrix.cubrid-version }}
+          # Wait for the default broker to come up before reconfiguring it.
+          for i in $(seq 1 40); do
+            if docker exec cubrid-tls bash -lc "cubrid broker status BROKER1 >/dev/null 2>&1"; then
+              echo "BROKER1 reachable"
+              break
+            fi
+            echo "Waiting for BROKER1... (attempt $i/40)"
+            sleep 3
+          done
+          # Replace the default broker cert with our localhost-valid cert
+          # so the Python test fixture can verify the connection cleanly.
+          docker cp "$RUNNER_TEMP/tls/cas_ssl_cert.crt" cubrid-tls:/home/cubrid/CUBRID/conf/cas_ssl_cert.crt
+          docker cp "$RUNNER_TEMP/tls/cas_ssl_cert.key" cubrid-tls:/home/cubrid/CUBRID/conf/cas_ssl_cert.key
+          docker exec cubrid-tls bash -lc "chown cubrid:cubrid /home/cubrid/CUBRID/conf/cas_ssl_cert.* && chmod 600 /home/cubrid/CUBRID/conf/cas_ssl_cert.key"
+          # Flip SSL=OFF -> SSL=ON for BROKER1 and restart the broker so
+          # the CAS workers reload the new TLS setting and the new cert.
+          docker exec cubrid-tls bash -lc "
+            set -eux
+            conf=\$CUBRID/conf/cubrid_broker.conf
+            sed -i '/^\[%BROKER1\]/,/^\[/ s/^\s*SSL\s*=\s*OFF/SSL=ON/' \$conf
+            grep -A2 '^\[%BROKER1\]' \$conf | head -20
+            cubrid broker restart
+            cubrid server start testdb || cubrid server start cubdb || true
+          "
+          cp "$RUNNER_TEMP/tls/cas_ssl_cert.crt" "$RUNNER_TEMP/cas_ssl_cert.crt"
+          ls -l "$RUNNER_TEMP/cas_ssl_cert.crt"
+      - name: Probe TLS broker readiness
+        env:
+          CUBRID_TLS_TEST_CA_FILE: ${{ runner.temp }}/cas_ssl_cert.crt
+        run: |
+          set -euxo pipefail
+          # Probe the broker with a real TLS handshake.  Fail loudly if the
+          # broker is not actually serving TLS — this is the whole point
+          # of the job, so a silent skip would defeat the purpose.
+          for i in $(seq 1 30); do
+            if python - <<'PY'
+          import os, ssl, sys
+          import pycubrid
+          ctx = ssl.create_default_context(cafile=os.environ["CUBRID_TLS_TEST_CA_FILE"])
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+          try:
+              conn = pycubrid.connect(
+                  host="localhost", port=33000,
+                  database="testdb", user="dba", password="",
+                  ssl=ctx, connect_timeout=5,
+              )
+              cur = conn.cursor(); cur.execute("SELECT 1"); cur.fetchone(); cur.close(); conn.close()
+              print("TLS broker ready")
+              sys.exit(0)
+          except Exception as exc:
+              print(f"Not ready yet: {exc}")
+              sys.exit(1)
+          PY
+            then
+              break
+            fi
+            echo "Waiting for TLS broker... (attempt $i/30)"
+            sleep 3
+          done
+          # Final mandatory check — if this fails, the job must fail.
+          python - <<'PY'
+          import os, ssl, pycubrid
+          ctx = ssl.create_default_context(cafile=os.environ["CUBRID_TLS_TEST_CA_FILE"])
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+          conn = pycubrid.connect(host="localhost", port=33000, database="testdb",
+                                   user="dba", password="", ssl=ctx)
+          conn.close()
+          print("Final TLS probe OK")
+          PY
+      - name: Run async TLS integration tests
+        timeout-minutes: 5
+        env:
+          CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+          CUBRID_TEST_HOST: localhost
+          CUBRID_TEST_PORT: "33000"
+          CUBRID_TEST_DB: testdb
+          CUBRID_TEST_USER: dba
+          CUBRID_TEST_PASSWORD: ""
+          CUBRID_TLS_TEST_HOST: localhost
+          CUBRID_TLS_TEST_PORT: "33000"
+          CUBRID_TLS_TEST_DB: testdb
+          CUBRID_TLS_TEST_USER: dba
+          CUBRID_TLS_TEST_PASSWORD: ""
+          CUBRID_TLS_TEST_CA_FILE: ${{ runner.temp }}/cas_ssl_cert.crt
+          CUBRID_TLS_TEST_MISMATCH_HOST: "127.0.0.1"
+          # Trust the self-signed broker cert via Python's default SSL context
+          # (used by `ssl=True`) so the default-context test runs instead of
+          # being silently skipped.
+          SSL_CERT_FILE: ${{ runner.temp }}/cas_ssl_cert.crt
+        run: |
+          set -euxo pipefail
+          # `-p no:cacheprovider` keeps the run isolated from prior caches
+          # in container layers.  We assert that broker-provisioning skips
+          # cannot pass silently: every test must either pass or be skipped
+          # for an explicit, version-pinned reason (the Python 3.10 entry
+          # for test_aio_ssl_handshake_failure is the only allowed skip).
+          python -m pytest tests/test_aio_ssl_integration.py -v --tb=short \
+            -o addopts="" -p no:cacheprovider \
+            --no-header --no-summary -rN 2>&1 | tee tls-run.log
+          unexpected_skips=$(grep -E " SKIPPED " tls-run.log \
+            | grep -v "test_aio_ssl_handshake_failure" || true)
+          if [ -n "$unexpected_skips" ]; then
+            echo "::error::TLS integration tests skipped unexpectedly — broker provisioning is incomplete"
+            echo "$unexpected_skips"
+            exit 1
+          fi
+      - name: Stop CUBRID TLS broker
+        if: always()
+        run: docker stop cubrid-tls || true

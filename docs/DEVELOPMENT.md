@@ -186,6 +186,24 @@ the broker certificate must match `CUBRID_TLS_TEST_HOST`. Then run:
 pytest tests/test_aio_ssl_integration.py -v
 ```
 
+##### Automated TLS coverage in CI
+
+You do not need to run the steps above locally for routine development —
+`.github/workflows/integration-full.yml` includes an `integration-tls` job
+(Python {3.10, 3.14} × CUBRID 11.4) that:
+
+1. Starts a CUBRID 11.4 container manually (so the broker config can be
+   patched after the container is up).
+2. Flips `SSL=OFF` → `SSL=ON` for `BROKER1` and restarts the broker.
+3. Copies the default self-signed broker certificate out of the container.
+4. Probes the broker with a real TLS handshake and fails the job loudly
+   if TLS is not actually serving — silent skips are explicitly rejected.
+5. Runs `tests/test_aio_ssl_integration.py` against the TLS broker with
+   the `CUBRID_TLS_TEST_*` env vars wired up automatically.
+
+This job runs on the same triggers as the rest of `integration-full`
+(nightly, on tag push, and via `workflow_dispatch`).
+
 ### Code Coverage
 
 Current test metrics:
