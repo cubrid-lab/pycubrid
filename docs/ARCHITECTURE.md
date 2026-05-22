@@ -24,9 +24,18 @@ sequenceDiagram
     rect rgb(230, 245, 255)
       note over pycubrid, CAS: Phase 1 — Broker Handshake
       pycubrid->>Broker: TCP connect to port 33000
-      pycubrid->>Broker: ClientInfoExchange ("CUBRK" + CLIENT_JDBC=3 + v8)
-      Broker-->>pycubrid: New CAS port (4B int32)
-      pycubrid->>CAS: TCP reconnect to CAS port
+      alt ssl truthy
+        pycubrid->>Broker: ClientInfoExchange ("CUBRS" + CLIENT_JDBC=3 + v8)
+      else plaintext
+        pycubrid->>Broker: ClientInfoExchange ("CUBRK" + CLIENT_JDBC=3 + v8)
+      end
+      Broker-->>pycubrid: status int32 (0 ok / >0 redirect port / <0 fail-fast)
+      opt status > 0 (redirect)
+        pycubrid->>CAS: TCP reconnect to redirected port (no rehandshake)
+      end
+      opt ssl truthy
+        pycubrid->>CAS: TLS upgrade (start_tls / wrap_socket)
+      end
     end
     rect rgb(230, 255, 230)
       note over pycubrid, DB: Phase 2 — Database Session

@@ -102,7 +102,7 @@ Create a new database connection.
 | `password` | `str` | `""` | Database password |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
-| `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync and async broker connections; `True` uses the default verified context with a TLS 1.2 minimum |
+| `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync and async broker connections; `True` uses the default verified context with a TLS 1.2 minimum. Connection uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake then TLS upgrade before `OPEN_DATABASE`. See [Connection guide](CONNECTION.md#ssltls). |
 | `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit` |
 
 #### `decode_collections`
@@ -167,7 +167,7 @@ Create and open an async connection.
 - Accepts the same collection / JSON decoding kwargs as `pycubrid.connect()`.
 - Supports `autocommit=True` via `await conn.set_autocommit(True)` during construction.
 - Provides a similar async surface to the sync API, including `await conn.ping(reconnect=...)`; `create_lob()` remains sync-only, and auto-commit changes go through `await conn.set_autocommit(...)` instead of a property setter.
-- Accepts the same `ssl` parameter as `pycubrid.connect()`: `True`, `False`/`None`, or a custom `SSLContext`; when `True`, the default verified context enforces a TLS 1.2 minimum.
+- Accepts the same `ssl` parameter as `pycubrid.connect()`: `True`, `False`/`None`, or a custom `SSLContext`; when `True`, the default verified context enforces a TLS 1.2 minimum. Async TLS uses CUBRID's STARTTLS-style upgrade — the `CUBRS` handshake is sent in plaintext, then the transport is upgraded via `asyncio.AbstractEventLoop.start_tls()` (bounded by `ssl_handshake_timeout`) before `OPEN_DATABASE`. See the [Connection guide](CONNECTION.md#ssltls) for full details and the Python 3.10 `start_tls()` cert-verify caveat ([#156](https://github.com/cubrid-lab/pycubrid/issues/156)).
 
 ```python
 import asyncio
