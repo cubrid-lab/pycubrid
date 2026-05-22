@@ -1,4 +1,4 @@
-.PHONY: help install lint format typecheck security check check-all test integration docker-up docker-down changelog clean clean-all doctor release
+.PHONY: help install lint format typecheck security check check-all test integration integration-tls docker-up docker-down changelog clean clean-all doctor release
 
 PYTEST = python3 -m pytest
 RUFF = ruff
@@ -45,6 +45,15 @@ integration: docker-up ## Run integration tests against CUBRID Docker
 	@sleep 10
 	CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb" \
 		$(PYTEST) $(TESTS)/test_integration.py -v
+	$(MAKE) docker-down
+
+integration-tls: docker-up ## Run async TLS integration tests (requires SSL=ON broker; see CONTRIBUTING.md)
+	@echo "Waiting for CUBRID to be ready..."
+	@sleep 10
+	@echo "NOTE: requires CUBRID_TLS_TEST_HOST/PORT/CA/DB/USER env vars and a broker with SSL=ON."
+	@echo "      For an automated equivalent including SSL=ON flip + cert extraction,"
+	@echo "      see the 'integration-tls' job in .github/workflows/integration-full.yml."
+	$(PYTEST) $(TESTS)/test_aio_ssl_integration.py -v
 	$(MAKE) docker-down
 
 docker-up: ## Start CUBRID Docker container
