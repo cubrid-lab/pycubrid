@@ -52,6 +52,8 @@ body:
         - CUBRID version: 11.2
         - pycubrid version: 0.6.0
         - Operating System: Linux/macOS/Windows
+        - Using TLS? (yes / no / custom ssl.SSLContext): no
+        - If TLS: sync (pycubrid.connect) or async (pycubrid.aio.connect)?
     validations:
       required: true
 

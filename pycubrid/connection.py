@@ -73,7 +73,33 @@ class Connection(ConnectionCommonMixin):
             self.autocommit = True
 
     def connect(self) -> None:
-        """Establish a TCP CAS session with broker handshake and open database."""
+        """Establish a TCP CAS session with broker handshake and open database.
+
+        Performs CUBRID's STARTTLS-style upgrade when ``ssl`` was supplied:
+
+        1. Open a plaintext TCP socket to ``(host, port)``.
+        2. Send the 10-byte ``ClientInfoExchange`` handshake. The magic string
+           is ``"CUBRS"`` when TLS is requested (``ssl=True`` / custom
+           ``SSLContext``) and ``"CUBRK"`` when not.
+        3. Read the broker status int32: ``0`` proceeds, ``> 0`` redirects to
+           a new CAS worker port (reconnect without re-handshaking), ``< 0``
+           raises :class:`OperationalError` immediately.
+        4. If TLS was requested, upgrade the live socket via
+           :func:`ssl.SSLContext.wrap_socket` *before* sending ``OPEN_DB``.
+        5. Send ``OPEN_DATABASE`` and parse the session response.
+
+        The ``ssl`` constructor argument accepts:
+
+        - ``None`` / ``False`` — plaintext (default)
+        - ``True`` — :func:`ssl.create_default_context` with
+          ``minimum_version = TLSv1_2`` (see :mod:`pycubrid._connection_common`)
+        - :class:`ssl.SSLContext` — caller-owned context used as-is
+
+        Sync TLS uses blocking :meth:`ssl.SSLContext.wrap_socket`, which
+        raises :class:`ssl.SSLCertVerificationError` synchronously on
+        verification failure (unlike the async path on Python 3.10 — see
+        `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_).
+        """
         if self._connected:
             return
 

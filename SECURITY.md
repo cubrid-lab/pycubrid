@@ -70,6 +70,43 @@ When using pycubrid, follow these security best practices:
 - Never hardcode credentials in your application code
 - Use environment variables or secure credential management systems
 
+## Transport Security (TLS)
+
+pycubrid supports TLS for both sync and async broker connections via the `ssl`
+parameter on `pycubrid.connect()` and `pycubrid.aio.connect()`. The broker
+must be configured with `SSL=ON` in `cubrid_broker.conf` for TLS to succeed.
+
+Recommended configurations, in order of preference:
+
+1. **`ssl=True` (verified default)** — uses `ssl.create_default_context()`
+   with the system trust store and `minimum_version = TLSv1_2` enforced for
+   both sync and async paths. Use this when the broker presents a certificate
+   chained to a publicly-trusted CA.
+2. **Custom `ssl.SSLContext` with pinned CA bundle** — for self-signed or
+   private-CA brokers, load the CA explicitly:
+
+   ```python
+   import ssl
+   ctx = ssl.create_default_context(cafile="/etc/ssl/cubrid-ca.pem")
+   ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+   pycubrid.connect(..., ssl=ctx)
+   ```
+
+3. **Never disable hostname/certificate verification** (`check_hostname=False`,
+   `verify_mode=CERT_NONE`) in production — that defeats the purpose of TLS
+   and is treated as a security issue under this policy.
+
+### Known Limitation
+
+On Python 3.10, `asyncio.loop.start_tls()` can hang on certificate-verify
+failures (CPython [gh-142352](https://github.com/python/cpython/issues/142352),
+fixed in 3.13/3.14). Tracked as
+[#156](https://github.com/cubrid-lab/pycubrid/issues/156). For production
+async TLS on Python 3.10, validate the certificate chain out-of-band or use
+the sync path. This is a CPython bug, not a pycubrid security issue, and is
+documented in detail in
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310).
+
 ## Disclosure Policy
 
 Once a security vulnerability is fixed:

@@ -13,7 +13,7 @@ authors = [
     {name = "Yeongseon Choe", email = "yeongseon.choe@gmail.com"},
     {name = "Gyeongjun Paik", email = "paikend@gmail.com"},
 ]
-keywords = ["CUBRID", "database", "driver", "DB-API", "PEP 249"]
+keywords = ["CUBRID", "database", "driver", "DB-API", "PEP 249", "tls", "ssl", "starttls", "asyncio"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",

@@ -7,6 +7,7 @@ Practical examples for using pycubrid — from basic CRUD to advanced features.
 ## Table of Contents
 
 - [Basic Connection](#basic-connection)
+- [TLS / SSL Connections](#tls--ssl-connections)
 - [CRUD Operations](#crud-operations)
   - [Create Table](#create-table)
   - [Insert Rows](#insert-rows)
@@ -63,6 +64,89 @@ conn.close()
 
 !!! tip
     Keep one connection open for related operations instead of repeatedly opening/closing per statement.
+
+---
+
+## TLS / SSL Connections
+
+CUBRID uses a STARTTLS-style upgrade: the driver opens a plaintext socket, exchanges
+the `CUBRS` handshake magic with the broker, then upgrades the live transport to TLS
+before sending `OPEN_DATABASE`. The same `ssl` parameter is accepted by both
+`pycubrid.connect()` and `pycubrid.aio.connect()`.
+
+### Sync — default verified context
+
+```python
+import pycubrid
+
+# ssl=True uses ssl.create_default_context() with minimum_version = TLSv1_2.
+conn = pycubrid.connect(
+    host="cubrid.example.com",
+    port=33000,
+    database="testdb",
+    user="dba",
+    password="secret",
+    ssl=True,
+)
+print(conn.get_server_version())
+conn.close()
+```
+
+### Sync — custom CA bundle
+
+```python
+import ssl
+import pycubrid
+
+ctx = ssl.create_default_context(cafile="/etc/ssl/my-ca.pem")
+ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+
+conn = pycubrid.connect(
+    host="cubrid.example.com",
+    port=33000,
+    database="testdb",
+    user="dba",
+    password="secret",
+    ssl=ctx,
+)
+conn.close()
+```
+
+### Async
+
+```python
+import asyncio
+import pycubrid.aio
+
+async def main() -> None:
+    conn = await pycubrid.aio.connect(
+        host="cubrid.example.com",
+        port=33000,
+        database="testdb",
+        user="dba",
+        password="secret",
+        ssl=True,
+    )
+    cur = conn.cursor()
+    await cur.execute("SELECT 1")
+    print(await cur.fetchone())
+    await cur.close()
+    await conn.close()
+
+asyncio.run(main())
+```
+
+!!! warning "Python 3.10 async TLS"
+    `loop.start_tls()` can hang on certificate-verify failures on Python 3.10
+    (CPython [gh-142352](https://github.com/python/cpython/issues/142352),
+    fixed in 3.13/3.14). For production async TLS on 3.10, validate the cert
+    chain out-of-band first, or use the sync path. See
+    [Troubleshooting](TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310)
+    and [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+
+!!! note
+    The broker must have `SSL=ON` in `cubrid_broker.conf` for TLS connections
+    to succeed. See [Connection guide](CONNECTION.md#ssltls) for full details.
 
 ---
 
