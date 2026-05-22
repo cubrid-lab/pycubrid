@@ -48,7 +48,9 @@ Key characteristics:
 - **Transport**: TCP (default port 33000 for the broker)
 - **Byte order**: Big-endian (network byte order)
 - **Framing**: 4-byte data length + 4-byte CAS info + payload
-- **Handshake**: Magic string `CUBRK` + client type + protocol version
+- **Handshake**: Magic string `CUBRK` (plaintext) or `CUBRS` (STARTTLS) + client type + protocol version
+- **TLS (optional)**: STARTTLS-style upgrade after the handshake using `start_tls()` /
+  `wrap_socket()` before `OPEN_DATABASE`
 - **Session**: Stateful — session ID maintained after `OpenDatabase`
 
 ---
@@ -104,7 +106,7 @@ The **open database packet** (`OpenDatabasePacket`) sends raw bytes (628 bytes) 
 
 ## Connection Handshake
 
-The connection flow has three phases:
+The connection flow has up to four phases (the TLS phase is optional):
 
 ### Phase 1: Client Info Exchange
 
@@ -112,14 +114,33 @@ The connection flow has three phases:
 sequenceDiagram
     participant Client
     participant Broker
-    Client->>Broker: ClientInfoExchange raw 10B ("CUBRK", CLIENT_JDBC=3, CAS_VER=0x48, padding)
-    Broker-->>Client: New Connection Port (4B int32, big-endian)
+    alt ssl requested
+        Client->>Broker: ClientInfoExchange raw 10B ("CUBRS", CLIENT_JDBC=3, CAS_VER=0x48, padding)
+    else plaintext
+        Client->>Broker: ClientInfoExchange raw 10B ("CUBRK", CLIENT_JDBC=3, CAS_VER=0x48, padding)
+    end
+    Broker-->>Client: status int32 (0 ok / >0 redirect port / <0 fail-fast)
 ```
 
-- **Magic string**: `"CUBRK"` (5 ASCII bytes)
+- **Magic string**: `"CUBRK"` (plaintext) or `"CUBRS"` (STARTTLS-requested) — 5 ASCII bytes
 - **Client type**: `CLIENT_JDBC = 3` (pycubrid identifies as a JDBC-compatible client)
 - **CAS version**: `PROTO_INDICATOR(0x40) | VERSION(8) = 0x48`
-- **New port**: If > 0, disconnect from broker and reconnect to this port. If 0, reuse current socket.
+- **Status int32**: signed big-endian
+    - `> 0` — redirect port: close socket, reconnect to `(host, status)`, **do not** repeat the
+      handshake (mirrors the JDBC `BrokerHandler.connectBroker` behavior)
+    - `< 0` — fail-fast: raise `OperationalError(status)`
+    - `== 0` — reuse the current socket (direct mode)
+
+### Phase 1.5: TLS Upgrade (optional)
+
+If `ssl` was truthy on the connect call, the live transport is upgraded **before** any
+`OPEN_DATABASE` bytes are written:
+
+- Sync driver: `ssl.SSLContext.wrap_socket(sock, server_hostname=host)`
+- Async driver: `loop.start_tls(transport, protocol, context, server_hostname=host,
+  ssl_handshake_timeout=...)`
+
+A failed handshake aborts the transport rather than leaking it.
 
 ### Phase 2: Open Database
 
@@ -579,11 +600,12 @@ pycubrid classifies errors automatically:
 
 ```python
 class CASProtocol:
-    MAGIC_STRING = "CUBRK"    # Handshake magic
-    CLIENT_JDBC = 3           # Client type identifier
-    PROTO_INDICATOR = 0x40    # Protocol indicator bit
-    VERSION = 8               # Protocol version
-    CAS_VERSION = 0x48        # Combined version byte
+    MAGIC_STRING = "CUBRK"      # Handshake magic (plaintext)
+    MAGIC_STRING_TLS = "CUBRS"  # Handshake magic (STARTTLS-requested)
+    CLIENT_JDBC = 3             # Client type identifier
+    PROTO_INDICATOR = 0x40      # Protocol indicator bit
+    VERSION = 8                 # Protocol version
+    CAS_VERSION = 0x48          # Combined version byte
 ```
 
 ### Wire Data Sizes

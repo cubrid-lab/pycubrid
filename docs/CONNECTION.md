@@ -186,8 +186,19 @@ Both `pycubrid.connect()` and `pycubrid.aio.connect()` accept the same `ssl` val
 - `ssl=False` or `ssl=None` for plaintext.
 - `ssl=your_ssl_context` for a custom `ssl.SSLContext`.
 
-Async TLS uses `asyncio.open_connection(..., ssl=...)` internally, and async shutdown awaits
-`writer.wait_closed()` so TLS sessions close cleanly.
+Async TLS uses CUBRID's STARTTLS-style upgrade: the connection opens in plaintext, sends the
+`CUBRS` handshake magic to negotiate TLS with the broker, then upgrades the live transport via
+`asyncio.AbstractEventLoop.start_tls()` (bounded by `ssl_handshake_timeout`) **before** the
+`OPEN_DATABASE` exchange. Async shutdown awaits `writer.wait_closed()` so TLS sessions close
+cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_socket()`.
+
+!!! warning "Python 3.10 async TLS limitation"
+    On Python 3.10, `asyncio.loop.start_tls()` may hang indefinitely when a TLS handshake fails
+    due to **certificate verification** errors (CPython
+    [gh-142352](https://github.com/python/cpython/issues/142352), fixed in 3.13/3.14). Other TLS
+    error paths — peer unresponsive, timeout — remain bounded by `ssl_handshake_timeout`. The
+    issue does not affect the sync driver. Tracked in
+    [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156).
 
 ```python
 import pycubrid.aio
@@ -359,9 +370,18 @@ sequenceDiagram
   participant CAS
 
   Client->>Broker: TCP connect
-  Client->>Broker: ClientInfoExchangePacket (CUBRK)
-  Broker-->>Client: New CAS port
-  Client->>CAS: Reconnect to CAS port
+  alt ssl requested
+    Client->>Broker: ClientInfoExchangePacket (CUBRS)
+  else plaintext
+    Client->>Broker: ClientInfoExchangePacket (CUBRK)
+  end
+  Broker-->>Client: status int32 (0 ok / >0 redirect / <0 error)
+  opt redirected (status > 0)
+    Client->>CAS: Reconnect to new port (no second handshake)
+  end
+  opt ssl requested
+    Client->>CAS: TLS upgrade (start_tls / wrap_socket)
+  end
   Client->>CAS: OpenDatabasePacket
   CAS-->>Client: Session ID
 ```
@@ -374,14 +394,23 @@ sequenceDiagram
   participant Broker as Broker:33000
   participant CAS as CAS Worker
 
-  App->>Driver: pycubrid.connect(...)
+  App->>Driver: pycubrid.connect(..., ssl=...)
   Driver->>Broker: TCP connect
-  Driver->>Broker: ClientInfoExchangePacket("CUBRK")
-  Broker-->>Driver: new_connection_port
-  alt redirected (port > 0)
-    Driver->>CAS: TCP reconnect to redirected port
-  else direct mode (port == 0)
+  alt ssl truthy
+    Driver->>Broker: ClientInfoExchangePacket("CUBRS")
+  else ssl falsy
+    Driver->>Broker: ClientInfoExchangePacket("CUBRK")
+  end
+  Broker-->>Driver: status int32
+  alt status < 0
+    Driver-->>App: OperationalError (fail-fast)
+  else status > 0 (redirected)
+    Driver->>CAS: TCP reconnect to redirected port (skip rehandshake)
+  else status == 0 (direct mode)
     Driver->>Broker: reuse existing socket
+  end
+  opt ssl truthy
+    Driver->>CAS: TLS upgrade via start_tls() / wrap_socket()
   end
   Driver->>CAS: OpenDatabasePacket(database, user, password)
   CAS-->>Driver: session_id + broker_info + cas_info
@@ -393,13 +422,21 @@ sequenceDiagram
 
 ### Step-by-Step
 
-1. **TCP Connect** — Open a socket to the broker (default port 33000)
-2. **Client Info Exchange** — Send the magic string `b"CUBRK"` with client type `CLIENT_JDBC=3` and protocol version bytes
-3. **Port Redirect** — The broker responds with a 4-byte big-endian integer:
-   - If `port > 0`: Disconnect from broker, reconnect to the new CAS port on the same host
-   - If `port == 0`: Reuse the existing connection (direct CAS mode)
-4. **Open Database** — Send database name, username, and password via `OpenDatabasePacket`
-5. **Session Established** — Server returns a session ID; the connection is ready
+1. **TCP Connect** — Open a socket to the broker (default port 33000).
+2. **Client Info Exchange** — Send a 10-byte handshake: magic string `b"CUBRS"` when `ssl` is
+   requested (STARTTLS) or `b"CUBRK"` for plaintext, plus client type `CLIENT_JDBC=3` and
+   protocol-version bytes.
+3. **Broker Status** — The broker responds with a 4-byte big-endian signed integer:
+    - `status < 0` — fail-fast: driver raises `OperationalError`
+    - `status > 0` — redirect: close socket, reconnect to the new CAS port on the same host,
+      **without** repeating the handshake (mirrors the official JDBC `BrokerHandler` behavior)
+    - `status == 0` — direct mode: reuse the existing socket
+4. **TLS Upgrade (optional)** — If `ssl` was truthy, upgrade the live transport to TLS *before*
+   any `OPEN_DATABASE` bytes are written. Async uses
+   `asyncio.AbstractEventLoop.start_tls(..., ssl_handshake_timeout=...)`; sync uses
+   `ssl.SSLContext.wrap_socket()`. Failed handshakes abort the transport rather than leaking it.
+5. **Open Database** — Send database name, username, and password via `OpenDatabasePacket`.
+6. **Session Established** — Server returns a session ID; the connection is ready.
 
 ---
 
