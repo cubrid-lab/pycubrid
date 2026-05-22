@@ -29,7 +29,33 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class AsyncConnection(ConnectionCommonMixin):
-    """Async connection to a CUBRID broker via the CAS protocol."""
+    """Async connection to a CUBRID broker via the CAS protocol.
+
+    Mirrors the sync :class:`pycubrid.Connection` surface using
+    :mod:`asyncio` streams. Supports the same ``ssl`` parameter
+    (``None`` / ``False`` / ``True`` / :class:`ssl.SSLContext`) and the
+    same STARTTLS-style upgrade flow as the sync driver — plaintext
+    ``CUBRS`` handshake, optional port redirect, then
+    :meth:`asyncio.AbstractEventLoop.start_tls` before ``OPEN_DATABASE``.
+
+    Differences vs sync :class:`pycubrid.Connection`:
+
+    - ``create_lob()`` is **not** available on async connections.
+    - Autocommit changes go through :meth:`set_autocommit` (coroutine)
+      rather than a property setter.
+    - :meth:`ping` (added in 1.3.2) performs native ``CHECK_CAS`` and
+      accepts ``reconnect=True/False`` to suppress broker-handoff
+      reconnect.
+
+    .. note::
+       On Python 3.10, :meth:`asyncio.AbstractEventLoop.start_tls` may hang
+       on certificate-verify failures (CPython
+       `gh-142352 <https://github.com/python/cpython/issues/142352>`_,
+       fixed in 3.13/3.14). Tracked as
+       `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_.
+       :attr:`_read_timeout` (passed as ``ssl_handshake_timeout``) bounds
+       *peer-unresponsive* hangs only, not the gh-142352 family.
+    """
 
     def __init__(
         self,
@@ -62,7 +88,19 @@ class AsyncConnection(ConnectionCommonMixin):
         self._lock = asyncio.Lock()
 
     async def connect(self) -> None:
-        """Establish a TCP CAS session with broker handshake and open database."""
+        """Establish a TCP CAS session with broker handshake and open database.
+
+        Runs :meth:`_do_connect_handshake` under the connection's
+        :class:`asyncio.Lock` so concurrent ``await conn.connect()`` calls
+        do not race. The handshake itself is bounded by ``read_timeout``
+        (passed to :func:`asyncio.wait_for`); a timeout surfaces as
+        :class:`OperationalError`.
+
+        See :class:`AsyncConnection` for the ``ssl`` parameter semantics
+        and the Python 3.10 caveat (`#156`_).
+
+        .. _#156: https://github.com/cubrid-lab/pycubrid/issues/156
+        """
         async with self._lock:
             await self._connect_locked()
 
@@ -107,7 +145,28 @@ class AsyncConnection(ConnectionCommonMixin):
         hs_reader: asyncio.StreamReader,
         hs_writer: asyncio.StreamWriter,
     ) -> None:
-        """Run broker handshake, optional redirect, TLS upgrade, and OPEN_DB exchange."""
+        """Run broker handshake, optional redirect, TLS upgrade, and OPEN_DB exchange.
+
+        Three-step STARTTLS-style flow, matching CUBRID JDBC's
+        ``BrokerHandler.connectBroker``:
+
+        1. **Plaintext handshake** — write the 10-byte
+           :class:`ClientInfoExchangePacket` with magic ``"CUBRS"`` (TLS
+           requested) or ``"CUBRK"`` (plaintext), then read the 4-byte
+           broker status. ``< 0`` raises :class:`OperationalError`
+           immediately; ``> 0`` closes the handshake stream and reopens
+           on the redirected CAS worker port **without** repeating the
+           handshake.
+        2. **Optional TLS upgrade** — when ``ssl`` was supplied, hand off
+           to :meth:`_upgrade_to_tls`, which calls
+           :meth:`asyncio.AbstractEventLoop.start_tls` with
+           ``ssl_handshake_timeout = read_timeout or 10.0`` so a stalled
+           handshake cannot block the event loop indefinitely.
+        3. **OPEN_DATABASE** — send :class:`OpenDatabasePacket` over the
+           (now possibly TLS-wrapped) stream and parse the session
+           response (``cas_info``, ``response_code``, ``broker_info``,
+           ``session_id``).
+        """
         use_ssl = self._ssl_context is not None
         client_info_packet = ClientInfoExchangePacket(use_ssl=use_ssl)
         hs_writer.write(client_info_packet.write())
