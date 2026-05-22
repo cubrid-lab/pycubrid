@@ -601,7 +601,7 @@ pycubrid classifies errors automatically:
 ```python
 class CASProtocol:
     MAGIC_STRING = "CUBRK"      # Handshake magic (plaintext)
-    MAGIC_STRING_TLS = "CUBRS"  # Handshake magic (STARTTLS-requested)
+    MAGIC_STRING_SSL = "CUBRS"  # Handshake magic (STARTTLS-requested)
     CLIENT_JDBC = 3             # Client type identifier
     PROTO_INDICATOR = 0x40      # Protocol indicator bit
     VERSION = 8                 # Protocol version
