@@ -204,7 +204,7 @@ Limitations imposed by CUBRID or design choices:
 
 | Feature | Status | Reason |
 |---|---|---|
-| Async TLS | ✅ | Implemented in v1.4.0; uses `asyncio.open_connection(ssl=...)`. Default context requires TLS 1.2 minimum. |
+| Async TLS | ✅ | Implemented in v1.4.0; uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake then `loop.start_tls()` (with `ssl_handshake_timeout`) before `OPEN_DATABASE` (#154). Default context requires TLS 1.2 minimum. Python 3.10 has a known `start_tls()` hang on cert-verify failures (#156). |
 | Connection pooling | ❌ | Not in scope; use SQLAlchemy's pool or external pooler |
 | Thread safety level 2+ | ❌ | CUBRID CAS sessions are connection-bound |
 | LOB streaming | ⚠️ | LOB data loaded fully into memory |

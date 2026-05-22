@@ -45,6 +45,6 @@ Python 3.10+, CUBRID 10.2–11.4
 
 ### TLS & Transport (v1.3.0 / v1.4.0)
 - Sync TLS via `ssl=True` or custom `ssl.SSLContext` (v1.3.0)
-- Async TLS via `pycubrid.aio.connect(ssl=...)` using `asyncio.open_connection(ssl=...)` (v1.4.0)
+- Async TLS via `pycubrid.aio.connect(ssl=...)` using CUBRID's STARTTLS-style upgrade (plaintext `CUBRS` handshake → `loop.start_tls()`; v1.4.0, corrected in #154)
 - Default TLS context enforces TLS 1.2 minimum (v1.4.0)
 - Expanded Python 3.14 / CUBRID 10.2–11.4 CI coverage

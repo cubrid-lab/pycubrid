@@ -194,12 +194,22 @@ You do not need to run the steps above locally for routine development —
 
 1. Starts a CUBRID 11.4 container manually (so the broker config can be
    patched after the container is up).
-2. Flips `SSL=OFF` → `SSL=ON` for `BROKER1` and restarts the broker.
-3. Copies the default self-signed broker certificate out of the container.
+2. Generates a fresh self-signed certificate (`CN=localhost`, `SAN=DNS:localhost`),
+   injects it into the container as `cas_ssl_cert.{crt,key}`, then flips
+   `SSL=OFF` → `SSL=ON` for `BROKER1` and restarts the broker so the new
+   cert is picked up.
+3. Exports the generated CA bundle to the Python test fixture via
+   `CUBRID_TLS_TEST_CA_FILE` and `SSL_CERT_FILE`.
 4. Probes the broker with a real TLS handshake and fails the job loudly
    if TLS is not actually serving — silent skips are explicitly rejected.
 5. Runs `tests/test_aio_ssl_integration.py` against the TLS broker with
    the `CUBRID_TLS_TEST_*` env vars wired up automatically.
+
+> **Python 3.10 note**: One async TLS test (`test_aio_ssl_handshake_failure`)
+> is version-pinned to skip on Python 3.10 due to a CPython
+> [gh-142352](https://github.com/python/cpython/issues/142352) hang in
+> `asyncio.loop.start_tls()` on cert-verify failure (fixed in 3.13/3.14).
+> Tracked in [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
 
 This job runs on the same triggers as the rest of `integration-full`
 (nightly, on tag push, and via `workflow_dispatch`).
