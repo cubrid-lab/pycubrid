@@ -42,7 +42,7 @@ sequenceDiagram
       pycubrid->>CAS: OpenDatabase (db, user, password — 628B raw)
       CAS->>DB: Authenticate + open session
       DB-->>CAS: Session established
-      CAS-->>pycubrid: CAS Info (4B) + Session ID (4B) + Broker Info (8B)
+      CAS-->>pycubrid: CAS Info (4B) + response_code (4B) + Broker Info (8B) + Session ID (4B)
     end
     pycubrid-->>App: Connection object
 ```
@@ -87,12 +87,21 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Connection
+    participant Broker
     participant CAS
-    
+
     Connection->>Connection: _check_reconnect() inspects CAS_INFO[0]
     alt CAS status == INACTIVE
-      Connection->>CAS: ClientInfoExchange
-      CAS-->>Connection: New port
+      Connection->>Connection: _drop_connection()
+      Connection->>Connection: self.connect() (full re-handshake to broker)
+      Connection->>Broker: ClientInfoExchange ("CUBRK"/"CUBRS")
+      Broker-->>Connection: status int32 (0 / >0 redirect / <0 fail)
+      opt status > 0 (redirect)
+        Connection->>CAS: TCP reconnect to redirected port (no rehandshake)
+      end
+      opt ssl truthy
+        Connection->>CAS: TLS upgrade (start_tls / wrap_socket)
+      end
       Connection->>CAS: OpenDatabase
       CAS-->>Connection: New session
       note over Connection: Session restored transparently

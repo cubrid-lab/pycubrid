@@ -30,7 +30,7 @@ CUBRID는 고성능 오픈소스 관계형 데이터베이스로, 한국 공공�
 - **순수 Python 구현** — C 빌드 의존성 없이 `pip install`만으로 설치
 - **PEP 249(DB-API 2.0) 구현** — 표준 예외 계층, 타입 객체, 커서 인터페이스 제공
 - **오프라인 테스트 770개 / 전체 811개**, **코드 커버리지 97.29%** — 대부분의 테스트를 데이터베이스 없이 실행 가능
-- **동기/비동기 연결용 TLS/SSL 지원** — `connect()`와 `pycubrid.aio.connect()`에서 `ssl=True`(검증된 컨텍스트, TLS 1.2 최소 버전) 또는 사용자 지정 `ssl.SSLContext` 선택 가능
+- **동기/비동기 연결용 TLS/SSL 지원** — `connect()`와 `pycubrid.aio.connect()`에서 `ssl=True`(검증된 컨텍스트, TLS 1.2 최소 버전) 또는 사용자 지정 `ssl.SSLContext` 선택 가능. **참고**: Python 3.10에서는 인증서 검증 실패 시 비동기 TLS가 멈출 수 있습니다(CPython [gh-142352](https://github.com/python/cpython/issues/142352), 3.13/3.14에서 수정됨). [Troubleshooting](TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310) 및 [#156](https://github.com/cubrid-lab/pycubrid/issues/156) 참조.
 - **네이티브 asyncio 지원** — 고동시성 애플리케이션을 위한 `pycubrid.aio` 기반 async/await API
 - **PEP 561 타입 패키지** — `py.typed` 마커로 최신 IDE 및 정적 분석 도구 지원
 - **CUBRID CAS 프로토콜 직접 구현** — 별도 미들웨어 불필요

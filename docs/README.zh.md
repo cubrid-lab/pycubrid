@@ -29,7 +29,7 @@ CUBRID 是一款高性能开源关系型数据库，在韩国公共部门和企�
 - **纯 Python 实现** — 无需 C 构建依赖，只需 `pip install`
 - **实现 PEP 249（DB-API 2.0）** — 标准异常层级、类型对象和游标接口
 - **770 个离线测试 / 811 个总测试**，**97.29% 代码覆盖率** — 大多数测试无需数据库即可运行
-- **同步/异步连接均支持 TLS/SSL** — 在 `connect()` 和 `pycubrid.aio.connect()` 中可选 `ssl=True`（已验证上下文，最低 TLS 1.2）或自定义 `ssl.SSLContext`
+- **同步/异步连接均支持 TLS/SSL** — 在 `connect()` 和 `pycubrid.aio.connect()` 中可选 `ssl=True`（已验证上下文，最低 TLS 1.2）或自定义 `ssl.SSLContext`。**注意**：在 Python 3.10 上，证书验证失败时异步 TLS 可能挂起（CPython [gh-142352](https://github.com/python/cpython/issues/142352)，已在 3.13/3.14 修复）。参见 [Troubleshooting](TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310) 和 [#156](https://github.com/cubrid-lab/pycubrid/issues/156)。
 - **原生 asyncio 支持** — 通过 `pycubrid.aio` 提供 async/await API，适用于高并发应用
 - **PEP 561 类型化包** — `py.typed` 标记支持现代 IDE 和静态分析工具
 - **直接实现 CUBRID CAS 协议** — 无需额外中间件

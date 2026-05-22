@@ -30,7 +30,7 @@ CUBRID एक उच्च-प्रदर्शन ओपन-सोर्स �
 - **शुद्ध Python कार्यान्वयन** — कोई C build dependency नहीं, केवल `pip install` से इंस्टॉल
 - **PEP 249 (DB-API 2.0) लागू करता है** — मानक exception hierarchy, type objects, और cursor interface
 - **770 ऑफ़लाइन टेस्ट / कुल 811** के साथ **97.29% code coverage** — अधिकांश टेस्ट डेटाबेस के बिना चलते हैं
-- **सिंक और एसिंक कनेक्शन दोनों के लिए TLS/SSL** — `connect()` और `pycubrid.aio.connect()` पर वैकल्पिक `ssl=True` (verified context, TLS 1.2 minimum) या कस्टम `ssl.SSLContext`
+- **सिंक और एसिंक कनेक्शन दोनों के लिए TLS/SSL** — `connect()` और `pycubrid.aio.connect()` पर वैकल्पिक `ssl=True` (verified context, TLS 1.2 minimum) या कस्टम `ssl.SSLContext`। **नोट**: Python 3.10 पर, सर्टिफिकेट-वेरीफाई विफलताओं पर एसिंक TLS हैंग हो सकता है (CPython [gh-142352](https://github.com/python/cpython/issues/142352), 3.13/3.14 में फिक्स)। देखें [Troubleshooting](TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310) और [#156](https://github.com/cubrid-lab/pycubrid/issues/156)।
 - **नेटिव asyncio सपोर्ट** — उच्च-concurrency अनुप्रयोगों के लिए `pycubrid.aio` के जरिए async/await API
 - **PEP 561 typed package** — आधुनिक IDE और static analysis support के लिए `py.typed` marker
 - **CUBRID CAS protocol का सीधा implementation** — किसी अतिरिक्त middleware की आवश्यकता नहीं

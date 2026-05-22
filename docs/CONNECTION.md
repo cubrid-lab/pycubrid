@@ -413,7 +413,7 @@ sequenceDiagram
     Driver->>CAS: TLS upgrade via start_tls() / wrap_socket()
   end
   Driver->>CAS: OpenDatabasePacket(database, user, password)
-  CAS-->>Driver: session_id + broker_info + cas_info
+  CAS-->>Driver: cas_info + response_code + broker_info + session_id
   Driver-->>App: connected Connection object
 ```
 

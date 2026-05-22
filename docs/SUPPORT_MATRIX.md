@@ -80,8 +80,8 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 
 | Feature | Status | Since | Notes |
 |---|---|---|---|
-| Sync TLS — `ssl=True` (verified context) | ✅ | 1.3.0 (#85) | Default secure context |
-| Sync TLS — `ssl=ssl.SSLContext(...)` | ✅ | 1.3.0 (#85) | Custom context |
+| Sync TLS — `ssl=True` (verified context) | ✅ | 1.3.0 (#85) | Default secure context; enforces TLS 1.2 minimum (#145) |
+| Sync TLS — `ssl=ssl.SSLContext(...)` | ✅ | 1.3.0 (#85) | Custom context (caller controls minimum TLS version) |
 | Sync TLS — `ssl=False` / `None` | ✅ | 1.3.0 | Plaintext (default) |
 | Async TLS | ✅ | 1.4.0 | STARTTLS-style upgrade: plaintext `CUBRS` handshake then `loop.start_tls()` (`ssl_handshake_timeout` bounded) before `OPEN_DATABASE` (#136, #154). Default context enforces TLS 1.2 minimum (#145). Python 3.10 has a known `start_tls()` hang on cert-verify failures (CPython gh-142352) — tracked as #156. |
 
