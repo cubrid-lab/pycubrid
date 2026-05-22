@@ -69,14 +69,14 @@ graph TD
 
 1. **ClientInfoExchange**: Send 10 bytes (NO header) — magic `"CUBRS"` when `ssl` is requested (STARTTLS) or `"CUBRK"` plaintext, plus client type + version. Broker replies a 4-byte int32: `0`=ok, `<0`=fail-fast (`OperationalError`), `>0`=redirect port (reconnect on the new port WITHOUT repeating the handshake).
 2. **TLS upgrade (optional)**: If `ssl` was truthy, upgrade the live transport via `loop.start_tls()` (async) or `ssl.SSLContext.wrap_socket()` (sync) before `OPEN_DATABASE`.
-3. **OpenDatabase**: Send db/user/password (628 bytes payload with header)
+3. **OpenDatabase**: Send db/user/password (628 bytes payload, no header — `PacketWriter(reserve_header=False)`)
 4. **PrepareAndExecute / Prepare+Execute → Fetch → CloseQuery → EndTran → CloseDatabase**
 
 ### Key Constants
 
 - Magic string: `"CUBRK"` (plaintext) or `"CUBRS"` (STARTTLS-requested)
 - Client type: `CAS_CLIENT_JDBC = 3`
-- Protocol version: `7` (since CUBRID 10.0.0)
+- Protocol version: `8` (since CUBRID 10.2)
 - Byte order: Big-endian throughout
 
 ## Development
