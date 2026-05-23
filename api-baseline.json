@@ -40,7 +40,6 @@
       "Binary": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -64,7 +63,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -97,7 +95,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -110,7 +107,6 @@
           "__str__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -133,7 +129,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -166,7 +161,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -179,7 +173,6 @@
           "__str__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -195,7 +188,6 @@
       "Date": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -218,7 +210,6 @@
       "DateFromTicks": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -236,7 +227,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -259,7 +249,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -282,7 +271,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -315,7 +303,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -328,7 +315,6 @@
           "__str__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -351,7 +337,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -374,7 +359,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -397,7 +381,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -430,7 +413,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -443,7 +425,6 @@
           "__str__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -464,7 +445,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -492,7 +472,6 @@
           "create": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -515,7 +494,6 @@
           "read": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -538,7 +516,6 @@
           "write": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -578,7 +555,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -611,7 +587,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -624,7 +599,6 @@
           "__str__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -647,7 +621,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -680,7 +653,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -693,7 +665,6 @@
           "__str__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -716,7 +687,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -749,7 +719,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -762,7 +731,6 @@
           "__str__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -786,7 +754,6 @@
       "Time": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -809,7 +776,6 @@
       "TimeFromTicks": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -822,7 +788,6 @@
       "Timestamp": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -860,7 +825,6 @@
       "TimestampFromTicks": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -887,7 +851,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -900,7 +863,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -913,7 +875,6 @@
           "record_close": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -931,7 +892,6 @@
           "record_connect": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -949,7 +909,6 @@
           "record_execute": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -967,7 +926,6 @@
           "record_fetch": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -985,7 +943,6 @@
           "reset": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1006,7 +963,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1029,7 +985,6 @@
           "__repr__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1055,7 +1010,6 @@
       "connect": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": true,
@@ -1108,7 +1062,6 @@
       "get_error_description": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1146,7 +1099,6 @@
           "__aenter__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1159,7 +1111,6 @@
           "__aexit__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1177,7 +1128,6 @@
           "__init__": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1230,7 +1180,6 @@
           "close": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1243,7 +1192,6 @@
           "commit": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1256,7 +1204,6 @@
           "connect": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1269,7 +1216,6 @@
           "cursor": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1282,7 +1228,6 @@
           "get_last_insert_id": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1295,7 +1240,6 @@
           "get_schema_info": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1323,7 +1267,6 @@
           "get_server_version": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1336,7 +1279,6 @@
           "ping": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1354,7 +1296,6 @@
           "rollback": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1367,7 +1308,6 @@
           "set_autocommit": {
             "kind": "callable",
             "signature": {
-              "has_return_annotation": true,
               "params": [
                 {
                   "has_default": false,
@@ -1391,7 +1331,6 @@
       "connect": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": true,
@@ -1453,7 +1392,6 @@
       "__aenter__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1466,7 +1404,6 @@
       "__aexit__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1484,7 +1421,6 @@
       "__init__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1537,7 +1473,6 @@
       "close": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1550,7 +1485,6 @@
       "commit": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1563,7 +1497,6 @@
       "connect": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1576,7 +1509,6 @@
       "cursor": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1589,7 +1521,6 @@
       "get_last_insert_id": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1602,7 +1533,6 @@
       "get_schema_info": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1630,7 +1560,6 @@
       "get_server_version": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1643,7 +1572,6 @@
       "ping": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1661,7 +1589,6 @@
       "rollback": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1674,7 +1601,6 @@
       "set_autocommit": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1705,7 +1631,6 @@
       "__aenter__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1718,7 +1643,6 @@
       "__aexit__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1736,7 +1660,6 @@
       "__aiter__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1749,7 +1672,6 @@
       "__anext__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1762,7 +1684,6 @@
       "__init__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1780,7 +1701,6 @@
       "callproc": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1803,7 +1723,6 @@
       "close": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1816,7 +1735,6 @@
       "execute": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1839,7 +1757,6 @@
       "executemany": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1862,7 +1779,6 @@
       "executemany_batch": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1885,7 +1801,6 @@
       "fetchall": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1898,7 +1813,6 @@
       "fetchmany": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1916,7 +1830,6 @@
       "fetchone": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1929,7 +1842,6 @@
       "nextset": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1942,7 +1854,6 @@
       "setinputsizes": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1960,7 +1871,6 @@
       "setoutputsize": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -1999,7 +1909,6 @@
       "__enter__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2012,7 +1921,6 @@
       "__exit__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2030,7 +1938,6 @@
       "__init__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2098,7 +2005,6 @@
       "close": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2111,7 +2017,6 @@
       "commit": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2124,7 +2029,6 @@
       "connect": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2137,7 +2041,6 @@
       "create_lob": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2155,7 +2058,6 @@
       "cursor": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2168,7 +2070,6 @@
       "get_last_insert_id": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2181,7 +2082,6 @@
       "get_schema_info": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2209,7 +2109,6 @@
       "get_server_version": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2222,7 +2121,6 @@
       "ping": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2240,7 +2138,6 @@
       "rollback": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2266,7 +2163,6 @@
       "__enter__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2279,7 +2175,6 @@
       "__exit__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2297,7 +2192,6 @@
       "__init__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2315,7 +2209,6 @@
       "__iter__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2328,7 +2221,6 @@
       "__next__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2341,7 +2233,6 @@
       "callproc": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2364,7 +2255,6 @@
       "close": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2377,7 +2267,6 @@
       "execute": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2400,7 +2289,6 @@
       "executemany": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2423,7 +2311,6 @@
       "executemany_batch": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2446,7 +2333,6 @@
       "fetchall": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2459,7 +2345,6 @@
       "fetchmany": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2477,7 +2362,6 @@
       "fetchone": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2490,7 +2374,6 @@
       "nextset": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2503,7 +2386,6 @@
       "setinputsizes": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2521,7 +2403,6 @@
       "setoutputsize": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2558,7 +2439,6 @@
       "__init__": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2586,7 +2466,6 @@
       "create": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2609,7 +2488,6 @@
       "read": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,
@@ -2632,7 +2510,6 @@
       "write": {
         "kind": "callable",
         "signature": {
-          "has_return_annotation": true,
           "params": [
             {
               "has_default": false,

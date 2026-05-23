@@ -101,8 +101,9 @@ SCALAR_VALUE_TYPES: tuple[type, ...] = (str, int, float, bool, type(None))
 def _signature_to_dict(sig: inspect.Signature) -> dict[str, Any]:
     """Serialize an ``inspect.Signature`` into a stable, JSON-friendly dict.
 
-    Only structural information is captured. Annotations are excluded by
-    design — see module docstring.
+    Only structural information is captured. Type annotations (both parameter
+    and return) are excluded by design — see module docstring and
+    ``RELEASE_POLICY.md`` §4 "Out of Scope".
     """
     params: list[dict[str, Any]] = []
     for param in sig.parameters.values():
@@ -113,10 +114,7 @@ def _signature_to_dict(sig: inspect.Signature) -> dict[str, Any]:
                 "has_default": param.default is not inspect.Parameter.empty,
             }
         )
-    return {
-        "params": params,
-        "has_return_annotation": sig.return_annotation is not inspect.Signature.empty,
-    }
+    return {"params": params}
 
 
 def _describe_callable(obj: Any) -> dict[str, Any]:

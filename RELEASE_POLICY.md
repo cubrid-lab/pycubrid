@@ -27,7 +27,7 @@ The **public API** of pycubrid is exactly the union of:
 4. For each public class, every public attribute (name not starting with `_`),
    every public method, and the user-facing dunder allow-list:
    `__init__`, `__enter__`, `__exit__`, `__aenter__`, `__aexit__`, `__iter__`,
-   `__aiter__`, `__next__`, `__anext__`.
+   `__aiter__`, `__next__`, `__anext__`, `__repr__`, `__str__`.
 
 The exact, machine-checkable definition is encoded in `scripts/check_public_api.py`
 and serialized as `api-baseline.json` at the repository root.
