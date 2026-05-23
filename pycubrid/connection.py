@@ -334,6 +334,10 @@ class Connection(ConnectionCommonMixin):
 
         Returns:
             ``True`` if the connection is alive, ``False`` otherwise.
+
+        Contract: reconnect+session-restore is attempted **at most once**
+        per ``ping()`` call. A restore failure tears the connection down
+        and returns ``False`` rather than retrying.
         """
         if not self._connected:
             if not reconnect:
@@ -346,8 +350,17 @@ class Connection(ConnectionCommonMixin):
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
+        # Preflight: if CAS is inactive, do the transparent reconnect+restore
+        # exactly once.  We then send CheckCasPacket with allow_reconnect=False
+        # so a restore failure (caught here) cannot trigger a second attempt
+        # via _send_and_receive -> _check_reconnect.
+        if reconnect:
+            try:
+                self._check_reconnect(allow_reconnect=True)
+            except (OSError, OperationalError, InterfaceError):
+                return False
         try:
-            packet = self._send_and_receive(CheckCasPacket(), allow_reconnect=reconnect)
+            packet = self._send_and_receive(CheckCasPacket(), allow_reconnect=False)
             return bool(packet.response_code >= 0)
         except (InterfaceError, OperationalError, OSError, struct.error):
             if not reconnect:
@@ -355,7 +368,7 @@ class Connection(ConnectionCommonMixin):
             try:
                 self._drop_connection()
                 self._invalidate_query_handles_for_reconnect()
-                _LOGGER.debug("ping: reconnecting")
+                _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
                 self.connect()
                 self._restore_session_state()
                 return True

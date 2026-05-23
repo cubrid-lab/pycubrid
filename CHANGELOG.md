@@ -38,7 +38,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the broker default to avoid spurious round-trips. The same restoration runs
   on the ``ping(reconnect=True)`` recovery path. Restore failures tear down
   the connection and chain the underlying transport error via PEP 3134
-  ``__cause__`` so callers can diagnose them (PR #3 Item 1).
+  ``__cause__`` so callers can diagnose them. Both sync ``Connection.ping()``
+  and async ``AsyncConnection.ping()`` attempt the reconnect+restore at most
+  **once per call** — the preflight ``_check_reconnect`` runs first and the
+  ``CHECK_CAS`` request is sent with ``allow_reconnect=False`` so a restore
+  failure cannot trigger a second attempt via ``_send_and_receive`` (PR #3
+  Item 1).
 - **Mid-fetch reconnect raises ``OperationalError``** — When the broker
   releases the CAS worker while a cursor still has rows pending on the
   server, the server-side query handle is no longer valid. Cursors now mark

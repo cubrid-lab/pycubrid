@@ -311,7 +311,7 @@ OperationalError: ... (during connection handshake)
 
 **Symptom**: `await pycubrid.aio.connect(..., ssl=True)` (or `ssl=<SSLContext>`) hangs indefinitely instead of raising. The coroutine never returns and no exception is raised. Often surfaces as a test timeout or a stuck request handler under Python 3.10.
 
-**Cause**: CPython bug a known CPython asyncio TLS handshake bug on Python 3.10 — on Python 3.10, `asyncio.AbstractEventLoop.start_tls()` can hang on certificate-verify failures (expired/untrusted CA, hostname mismatch, broker presenting an unexpected cert) instead of raising `ssl.SSLCertVerificationError`. pycubrid uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake, then `loop.start_tls()` — so this CPython bug surfaces as a dead-hang on the upgrade step. The bug is fixed in Python 3.13 and 3.14. Tracked in pycubrid as [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+**Cause**: A known CPython asyncio TLS handshake bug on Python 3.10 — `asyncio.AbstractEventLoop.start_tls()` can hang on certificate-verify failures (expired/untrusted CA, hostname mismatch, broker presenting an unexpected cert) instead of raising `ssl.SSLCertVerificationError`. pycubrid uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake, then `loop.start_tls()` — so this CPython bug surfaces as a dead-hang on the upgrade step. The bug is fixed in Python 3.13 and 3.14. Tracked in pycubrid as [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
 
 **Quick checks**:
 
