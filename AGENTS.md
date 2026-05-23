@@ -218,6 +218,7 @@ graph TD
     docs[docs/]
     connection[CONNECTION.md - Connection strings, URL format, configuration]
     types[TYPES.md - Full type mapping, CUBRID-specific types]
+    binding[PARAMETER_BINDING.md - Driver-side literal binding contract: per-type SQL mapping, escaping, non-guarantees]
     api[API_REFERENCE.md - Complete API documentation]
     protocol[PROTOCOL.md - CAS wire protocol reference]
     development[DEVELOPMENT.md - Dev setup, testing, Docker, coverage, CI/CD]
@@ -230,6 +231,7 @@ graph TD
 
     docs --> connection
     docs --> types
+    docs --> binding
     docs --> api
     docs --> protocol
     docs --> development

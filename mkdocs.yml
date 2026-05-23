@@ -36,6 +36,7 @@ nav:
   - Reference:
       - API Reference: API_REFERENCE.md
       - Type Mapping: TYPES.md
+      - Parameter Binding: PARAMETER_BINDING.md
       - Protocol: PROTOCOL.md
   - Architecture: ARCHITECTURE.md
   - Operations:

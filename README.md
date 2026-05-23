@@ -192,6 +192,7 @@ SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are acces
 |---|---|
 | [Connection](docs/CONNECTION.md) | Connection strings, URL format, configuration |
 | [Type Mapping](docs/TYPES.md) | Full type mapping, CUBRID-specific types, collection types |
+| [Parameter Binding](docs/PARAMETER_BINDING.md) | Driver-side literal-binding contract: per-type SQL mapping, escaping rules, non-guarantees |
 | [API Reference](docs/API_REFERENCE.md) | Complete API documentation — modules, classes, functions |
 | [Protocol](docs/PROTOCOL.md) | CAS wire protocol reference |
 | [Development](docs/DEVELOPMENT.md) | Dev setup, testing, Docker, coverage, CI/CD |
@@ -270,7 +271,7 @@ conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="d
 
 Question mark (`qmark`) style: `cursor.execute("SELECT * FROM users WHERE id = ?", (1,))`
 
-Parameters are bound **driver-side** — pycubrid escapes and interpolates values into the SQL string locally before sending the final query to the server. This is **not** server-side prepared statement binding. The escaping logic is type-aware (strings, bytes, dates, decimals, None → NULL) and safe against SQL injection when used correctly via `?` placeholders. Never use f-strings or `%` formatting to build SQL.
+Parameters are bound **driver-side** — pycubrid escapes and interpolates values into the SQL string locally before sending the final query to the server. This is **not** server-side prepared statement binding. The escaping logic is type-aware (strings, bytes, dates, decimals, None → NULL) and safe against SQL injection when used correctly via `?` placeholders. **Never use f-strings or `%` formatting to inject untrusted parameter *values* into SQL** — always pass them through `?` placeholders. Using f-strings to assemble the SQL *structure itself* from trusted inputs (for example, expanding an `IN`-clause with `','.join('?' * len(ids))`) is fine. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md) for the full 1.x contract — per-type mapping, escaping modes, and explicit non-guarantees.
 
 ### Does pycubrid work with SQLAlchemy?
 

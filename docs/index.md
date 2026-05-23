@@ -31,6 +31,7 @@ conn.close()
 
 - [Getting Started](CONNECTION.md)
 - [User Guide](TYPES.md)
+- [Parameter Binding Contract](PARAMETER_BINDING.md)
 - [API Reference](API_REFERENCE.md)
 
 ## Project links
