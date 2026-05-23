@@ -66,9 +66,10 @@ SQL text per execute. See
   `str`/`bytes`/`bytearray`. Mappings are rejected with
   `ProgrammingError("parameters must be a sequence")`
   (`pycubrid/_cursor_common.py:194-197`).
-- A placeholder count mismatch raises
-  `ProgrammingError("wrong number of parameters")`
-  (`pycubrid/_cursor_common.py:199-203`).
+- A placeholder count mismatch raises `ProgrammingError`
+  (`pycubrid/_cursor_common.py:199-203`). The exact message text is
+  informative; see
+  [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 
 ---
 
@@ -77,6 +78,11 @@ SQL text per execute. See
 The following table is the **authoritative type-to-literal mapping** for 1.x.
 Every row cites the implementing line in `pycubrid/_cursor_common.py` and the
 test that pins the behavior.
+
+> The **exception class** raised for each error case (e.g. `ProgrammingError`)
+> is part of the contract; the **message text** shown in the table is
+> illustrative only and may be refined within 1.x. See
+> [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 
 | Python type | SQL literal | Implementation | Pinned by |
 |---|---|---|---|
@@ -171,8 +177,8 @@ comments. Specifically the tokenizer recognizes and skips:
 - Block comments (`/* ... */`).
 
 A `?` inside any of the above is part of the SQL text and is **not** treated as
-a placeholder. This is pinned by `tests/test_split_placeholders.py` (all 153
-lines).
+a placeholder. This is pinned by `tests/test_split_placeholders.py` in its
+entirety.
 
 The replacement step concatenates segments and rendered literals
 (`pycubrid/_cursor_common.py:204-208`); it never performs a naïve
@@ -188,7 +194,9 @@ For DML verbs (`INSERT`, `UPDATE`, `DELETE`, `MERGE`), `executemany`:
 1. Calls `_bind_parameters(sql, params)` once per parameter row, producing one
    fully-rendered SQL string per row.
 2. Sends the list of rendered SQL strings in a single `BatchExecutePacket`
-   (`pycubrid/cursor.py:214-218`, `pycubrid/aio/cursor.py:189-191`).
+   (`pycubrid/cursor.py:252-257`, `pycubrid/aio/cursor.py:206-211`), dispatched
+   from `executemany` via `executemany_batch`
+   (`pycubrid/cursor.py:217`, `pycubrid/aio/cursor.py:191`).
 
 For non-DML statements, `executemany` falls back to a per-row `execute` loop
 (`pycubrid/cursor.py:220-238`, `pycubrid/aio/cursor.py:176-187`).
