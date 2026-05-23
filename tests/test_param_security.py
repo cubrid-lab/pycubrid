@@ -62,6 +62,17 @@ class TestEscapeString:
         assert result.startswith("'")
         assert result.endswith("'")
 
+    def test_unicode_non_bmp_passthrough(self, cursor: object) -> None:
+        # Pins the PARAMETER_BINDING contract claim that non-BMP code points
+        # (here U+1F389 PARTY POPPER and U+1F1F0 U+1F1F7 KR flag, encoded as
+        # a surrogate pair in UTF-16) pass through unchanged.
+        text = "tada \U0001f389 flag \U0001f1f0\U0001f1f7"
+        result = cursor._format_parameter(text)
+        assert "\U0001f389" in result
+        assert "\U0001f1f0\U0001f1f7" in result
+        assert result.startswith("'")
+        assert result.endswith("'")
+
     def test_backslash_then_quote(self, cursor: object) -> None:
         result = cursor._format_parameter("test\\'end")
         assert "\\\\'" in result
