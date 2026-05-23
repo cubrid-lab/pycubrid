@@ -229,8 +229,13 @@ async def test_async_redirect_during_tls_connect_skips_second_handshake() -> Non
     async def fake_upgrade() -> None:
         return None
 
+    async def fake_probe(*, effective_port: int, followed_redirect: bool) -> None:
+        del effective_port, followed_redirect
+        return None
+
     with (
         patch.object(conn, "_open_connection", side_effect=fake_open_connection),
+        patch.object(conn, "_maybe_probe_tls_verification", side_effect=fake_probe),
         patch.object(conn, "_upgrade_to_tls", side_effect=fake_upgrade) as upgrade_mock,
     ):
         await conn.connect()
