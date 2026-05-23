@@ -68,7 +68,7 @@ pytest tests/test_aio_ssl_integration.py -v
 ```
 
 The `test_aio_ssl_handshake_failure` test is auto-skipped on Python 3.10 due
-to CPython [gh-142352](https://github.com/python/cpython/issues/142352) — run
+to a known CPython asyncio TLS handshake bug on Python 3.10 — run
 the suite on 3.11+ to cover the negative path.
 
 ## Code Style

@@ -54,6 +54,7 @@ class Cursor(CursorParamsMixin):
         self._lastrowid: int | None = None
         self._fetch_size: int = connection._fetch_size
         self._timing = connection._timing
+        self._invalidated_by_reconnect: bool = False
 
     @property
     def description(self) -> tuple[DescriptionItem, ...] | None:
@@ -116,6 +117,7 @@ class Cursor(CursorParamsMixin):
         finally:
             self._query_handle = None
             self._closed = True
+            self._invalidated_by_reconnect = False
             self._connection._cursors.discard(self)
 
     def execute(
@@ -135,6 +137,7 @@ class Cursor(CursorParamsMixin):
         if self._query_handle is not None:
             self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
             self._query_handle = None
+        self._invalidated_by_reconnect = False
 
         sql = operation
         if parameters is not None:
@@ -373,6 +376,11 @@ class Cursor(CursorParamsMixin):
 
     def _fetch_more_rows(self) -> bool:
         if self._query_handle is None:
+            if self._invalidated_by_reconnect and self._row_index < self._total_tuple_count:
+                raise OperationalError(
+                    "result set lost due to broker reconnect mid-fetch; "
+                    "re-execute the query to continue"
+                )
             return False
 
         if self._row_index >= self._total_tuple_count:
