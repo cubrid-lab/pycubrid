@@ -49,8 +49,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = ROOT / "api-baseline.json"
 
-# Modules whose public surface is tracked. Order matters only for the JSON
-# top-level key order; both modules are checked together.
+# Modules whose public surface is tracked. Both modules are checked together;
+# the JSON file is written with sort_keys=True so on-disk order is alphabetical
+# regardless of the order declared here.
 TRACKED_MODULES = ("pycubrid", "pycubrid.aio")
 
 # Classes that are not listed in any ``__all__`` but are part of the de facto
@@ -91,11 +92,21 @@ TRACKED_DUNDERS = frozenset(
 # baseline is not affected by upstream CPython surface drift.
 OWN_MODULE_PREFIX = "pycubrid"
 
-# JSON-serializable scalar types whose *value* (not just type) is captured for
-# module-level public attributes. This lets us protect contract constants like
-# ``paramstyle="qmark"``, ``apilevel="2.0"``, and ``threadsafety=1`` against
-# silent semantic changes.
+# JSON-serializable scalar types whose *value* is captured for module-level
+# public attributes — but only when the attribute name is in
+# ``VALUE_TRACKED_ATTRIBUTES`` below. Other scalar attributes are recorded by
+# type only (matching how non-scalar attributes are recorded).
 SCALAR_VALUE_TYPES: tuple[type, ...] = (str, int, float, bool, type(None))
+
+# Module-level scalar attributes whose *value* is part of the 1.x contract and
+# therefore captured into the baseline. Limited to PEP 249 contract constants
+# whose semantic meaning depends on the literal value; bumping any of these
+# requires the same explicit review as any other surface change. Crucially,
+# ``__version__`` is NOT in this set: bumping the version is the routine
+# release-engineering action gated separately by ``scripts/check_version.py``,
+# so capturing it here would force a redundant baseline regeneration on every
+# version bump.
+VALUE_TRACKED_ATTRIBUTES: frozenset[str] = frozenset({"paramstyle", "apilevel", "threadsafety"})
 
 
 def _signature_to_dict(sig: inspect.Signature) -> dict[str, Any]:
@@ -103,7 +114,7 @@ def _signature_to_dict(sig: inspect.Signature) -> dict[str, Any]:
 
     Only structural information is captured. Type annotations (both parameter
     and return) are excluded by design — see module docstring and
-    ``RELEASE_POLICY.md`` §4 "Out of Scope".
+    ``RELEASE_POLICY.md`` §1 "Out of Scope".
     """
     params: list[dict[str, Any]] = []
     for param in sig.parameters.values():
@@ -206,12 +217,10 @@ def _describe_class(cls: type) -> dict[str, Any]:
     }
 
 
-def _describe_attribute(value: Any) -> dict[str, Any]:
+def _describe_attribute(name: str, value: Any) -> dict[str, Any]:
     type_name = type(value).__name__
     entry: dict[str, Any] = {"kind": "attribute", "type": type_name}
-    if isinstance(value, SCALAR_VALUE_TYPES) and not isinstance(value, bool):
-        entry["value"] = value
-    elif isinstance(value, bool):
+    if name in VALUE_TRACKED_ATTRIBUTES and isinstance(value, SCALAR_VALUE_TYPES):
         entry["value"] = value
     return entry
 
@@ -248,7 +257,7 @@ def extract_surface(module_name: str) -> dict[str, Any]:
         elif callable(value):
             entries[name] = _describe_callable(value)
         else:
-            entries[name] = _describe_attribute(value)
+            entries[name] = _describe_attribute(name, value)
 
     return {
         "__all__": sorted(public_names),

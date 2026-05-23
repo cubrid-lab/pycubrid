@@ -128,23 +128,24 @@ def test_non_pycubrid_member_is_filtered(api_module):
     )
 
 
-def test_scalar_module_attribute_value_is_captured(api_module):
-    described = api_module._describe_attribute("qmark")
+def test_value_tracked_module_attribute_value_is_captured(api_module):
+    described = api_module._describe_attribute("paramstyle", "qmark")
     assert described == {"kind": "attribute", "type": "str", "value": "qmark"}
 
 
-def test_int_attribute_value_is_captured(api_module):
-    described = api_module._describe_attribute(1)
+def test_value_tracked_int_attribute_value_is_captured(api_module):
+    described = api_module._describe_attribute("threadsafety", 1)
     assert described["value"] == 1
 
 
-def test_bool_attribute_value_is_captured(api_module):
-    described = api_module._describe_attribute(True)
-    assert described["value"] is True
+def test_untracked_scalar_attribute_value_is_not_captured(api_module):
+    described = api_module._describe_attribute("__version__", "9.9.9")
+    assert "value" not in described
+    assert described == {"kind": "attribute", "type": "str"}
 
 
 def test_non_scalar_attribute_value_is_not_captured(api_module):
-    described = api_module._describe_attribute(object())
+    described = api_module._describe_attribute("connect", object())
     assert "value" not in described
 
 

@@ -999,8 +999,7 @@
       },
       "__version__": {
         "kind": "attribute",
-        "type": "str",
-        "value": "1.4.0"
+        "type": "str"
       },
       "apilevel": {
         "kind": "attribute",

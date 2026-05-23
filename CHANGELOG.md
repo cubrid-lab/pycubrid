@@ -14,12 +14,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the committed `api-baseline.json`; any change to the public surface
   (functions, classes, methods, parameters of `pycubrid.connect`,
   `pycubrid.aio.connect`, `Connection`, `Cursor`, `AsyncConnection`,
-  `AsyncCursor`, `Lob`, exception classes, and type objects) fails CI unless
-  the developer regenerates the baseline in the same change, surfacing the
-  surface diff for explicit human review. The 1.2.0 minor-release breaking
-  change (removal of `Mapping` parameter style from `_bind_parameters`) is
-  acknowledged in `RELEASE_POLICY.md` §4 as a historical violation rather
-  than silently rewritten; the new gate exists to prevent any recurrence.
+  `AsyncCursor`, `Lob`, exception classes, and the PEP 249 contract constants
+  `paramstyle`/`apilevel`/`threadsafety` whose literal values are part of the
+  contract) fails CI unless the developer regenerates the baseline in the same
+  change, surfacing the surface diff for explicit human review. Type objects
+  (e.g. `STRING`, `BINARY`) are tracked by their presence and type name only —
+  identity-level changes are intentionally **not** flagged, per
+  `RELEASE_POLICY.md` §2 "What the gate does *not* detect". The 1.2.0
+  minor-release breaking change (removal of `Mapping` parameter style from
+  `_bind_parameters`) is acknowledged in `RELEASE_POLICY.md` §4 as a historical
+  violation rather than silently rewritten; the new gate exists to prevent any
+  recurrence.
   README status line updated from "Beta" to "Stable (1.x)" across English
   and all five translated READMEs to align with the 1.0.0 declaration and the
   `Production/Stable` PyPI classifier already shipped since 1.0.0.
