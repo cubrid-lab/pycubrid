@@ -350,23 +350,21 @@ class AsyncConnection(ConnectionCommonMixin):
     async def ping(self, reconnect: bool = True) -> bool:
         """Contract: reconnect+session-restore is attempted at most once per
         call.  A restore failure tears the connection down and returns
-        ``False`` rather than retrying."""
+        ``False`` rather than retrying.  Reconnect and restore run under a
+        single hold of ``self._lock`` so a concurrent task cannot observe
+        an un-restored session between the two operations."""
         if not self._connected:
             if not reconnect:
                 return False
             try:
                 self._invalidate_query_handles_for_reconnect()
                 _LOGGER.debug("ping: reconnecting")
-                await self.connect()
                 async with self._lock:
+                    await self._invoke_connect_locked()
                     await self._restore_session_state_locked()
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
-        # Preflight: do the transparent CAS-inactive reconnect exactly once
-        # before sending CHECK_CAS.  Passing allow_reconnect=False below
-        # prevents _send_and_receive_locked -> _check_reconnect_locked from
-        # firing a second reconnect after a restore failure surfaces here.
         if reconnect:
             try:
                 await self._check_reconnect(allow_reconnect=True)
@@ -384,8 +382,7 @@ class AsyncConnection(ConnectionCommonMixin):
                     await self._close_streams()
                     self._connected = False
                     self._invalidate_query_handles_for_reconnect()
-                await self.connect()
-                async with self._lock:
+                    await self._invoke_connect_locked()
                     await self._restore_session_state_locked()
                 return True
             except (OSError, OperationalError, InterfaceError):

@@ -386,13 +386,12 @@ class TestSessionStateRestoreOnReconnect:
             conn._connected = True
 
         conn.connect = MagicMock(side_effect=reconnect)
-        send_after_reconnect = MagicMock()
-        original_send_and_receive = conn._send_and_receive
+        restore = MagicMock(wraps=conn._restore_session_state)
+        conn._restore_session_state = restore  # type: ignore[method-assign]
 
         conn._send_and_receive(CommitPacket())
 
-        del original_send_and_receive
-        del send_after_reconnect
+        restore.assert_called_once()
         assert reconnect_sock.sendall.call_count == 1
 
     def test_restore_failure_tears_down_connection_with_cause(self) -> None:
@@ -636,7 +635,51 @@ class TestPingSingleAttemptContract:
 
 
 class TestAsyncPositiveRestoreOnReconnect:
-    """Positive: async _check_reconnect actually re-emits SetDbParameter (PR #3 Item 1 fix-up)."""
+    """Positive: async _check_reconnect actually re-emits SetDbParameter (PR #3 Item 1 fix-up).
+
+    Also covers the Copilot race-condition report (PR #167 review):
+    ``ping()`` must hold ``_lock`` continuously across connect+restore so a
+    concurrent task cannot observe an un-restored session.
+    """
+
+    @pytest.mark.asyncio
+    async def test_async_ping_holds_lock_across_reconnect_and_restore(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn._connected = False
+        conn._autocommit = True
+        conn._autocommit_explicitly_set = True
+
+        connect_started = asyncio.Event()
+        restore_order: list[str] = []
+
+        async def fake_invoke_connect_locked() -> None:
+            assert conn._lock.locked(), "connect must run under _lock"
+            connect_started.set()
+            await asyncio.sleep(0)
+            conn._connected = True
+            restore_order.append("connect")
+
+        async def fake_restore_locked() -> None:
+            assert conn._lock.locked(), "restore must run under same _lock hold"
+            restore_order.append("restore")
+
+        conn._invoke_connect_locked = fake_invoke_connect_locked  # type: ignore[method-assign]
+        conn._restore_session_state_locked = fake_restore_locked  # type: ignore[method-assign]
+
+        async def concurrent_lock_grabber() -> str:
+            await connect_started.wait()
+            await conn._lock.acquire()
+            try:
+                return "grabbed"
+            finally:
+                conn._lock.release()
+
+        grabber = asyncio.create_task(concurrent_lock_grabber())
+        result = await conn.ping(reconnect=True)
+        await asyncio.wait_for(grabber, timeout=1.0)
+
+        assert result is True
+        assert restore_order == ["connect", "restore"]
 
     @pytest.mark.asyncio
     async def test_async_check_reconnect_invokes_restore_when_explicit(self) -> None:
