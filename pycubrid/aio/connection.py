@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 import ssl as ssl_module
 import struct
+import sys
 import time
 from typing import Any
 
@@ -48,12 +50,15 @@ class AsyncConnection(ConnectionCommonMixin):
       reconnect.
 
     .. note::
-       On Python 3.10, :meth:`asyncio.AbstractEventLoop.start_tls` may hang
-       on certificate-verify failures (a known CPython async-TLS handshake
-       bug on 3.10, not observed on 3.13/3.14). Tracked as
-       `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_.
-       :attr:`_read_timeout` (passed as ``ssl_handshake_timeout``) bounds
-       *peer-unresponsive* hangs only, not the 3.10-specific bug.
+       On Python 3.10, :meth:`asyncio.AbstractEventLoop.start_tls` has a
+       known CPython bug (fixed in 3.13/3.14) that causes it to hang on
+       certificate-verify failures instead of raising. As of #156, an
+       automatic preflight :meth:`ssl.SSLContext.wrap_socket` probe runs
+       on Python 3.10 immediately before :meth:`_upgrade_to_tls` to
+       surface verification failures as :class:`OperationalError`,
+       matching the 3.11+ behavior. The probe is a no-op on Python
+       3.11+. See :meth:`_maybe_probe_tls_verification` for the
+       contract.
     """
 
     def __init__(
@@ -192,6 +197,14 @@ class AsyncConnection(ConnectionCommonMixin):
             self._writer = hs_writer
 
         if use_ssl:
+            await self._maybe_probe_tls_verification(
+                effective_port=(
+                    client_info_packet.new_connection_port
+                    if client_info_packet.new_connection_port > 0
+                    else self._port
+                ),
+                followed_redirect=client_info_packet.new_connection_port > 0,
+            )
             await self._upgrade_to_tls()
 
         open_db_packet = OpenDatabasePacket(
@@ -258,6 +271,129 @@ class AsyncConnection(ConnectionCommonMixin):
             raise OperationalError("TLS upgrade returned no transport")
         self._writer._transport = new_transport  # type: ignore[attr-defined]
         self._reader._transport = new_transport  # type: ignore[attr-defined]
+
+    async def _maybe_probe_tls_verification(
+        self, *, effective_port: int, followed_redirect: bool
+    ) -> None:
+        """Py3.10-only preflight TLS verify probe via :func:`run_in_executor`.
+
+        Works around the known CPython 3.10 ``asyncio`` bug (gh-142352 family,
+        fixed in 3.13/3.14) where :meth:`asyncio.AbstractEventLoop.start_tls`
+        hangs indefinitely on TLS-handshake-internal verification failures
+        (wrong CN, missing SAN, untrusted CA) instead of raising
+        :class:`ssl.SSLCertVerificationError`. ``ssl_handshake_timeout``
+        does **not** bound this hang because the peer responds normally and
+        the failure happens inside CPython's TLS state machine.
+
+        The probe opens a **separate** TCP socket to the same effective
+        endpoint, replays the CUBRS broker handshake when needed
+        (no-redirect path only — redirected CAS workers go straight to TLS
+        on any incoming connection), then performs a synchronous
+        :meth:`ssl.SSLContext.wrap_socket` using the **same** ``SSLContext``
+        object and ``server_hostname=self._host`` as the real upgrade. Any
+        :class:`ssl.SSLError` raised propagates as :class:`OSError`
+        (``SSLError`` is an ``OSError`` subclass) into
+        :meth:`_connect_locked`'s ``except`` clause, which wraps it as
+        :class:`OperationalError` — matching the 3.11+ failure surface.
+
+        The probe is a no-op on Python 3.11+, where ``start_tls`` already
+        surfaces verification failures promptly. On the no-redirect path,
+        the broker is contacted twice (probe + real handshake); on the
+        redirect path, the redirected worker is contacted twice. This is
+        accepted as the cost of working around the upstream 3.10 bug and
+        is best-effort against cert rotation between probe and real
+        upgrade.
+        """
+        if sys.version_info[:2] != (3, 10):
+            return
+        ssl_context = self._ssl_context
+        assert ssl_context is not None
+
+        connect_timeout = (
+            float(self._connect_timeout) if self._connect_timeout is not None else None
+        )
+        handshake_timeout = float(self._read_timeout) if self._read_timeout is not None else 10.0
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            self._probe_tls_verification_sync,
+            self._host,
+            effective_port,
+            ssl_context,
+            not followed_redirect,
+            connect_timeout,
+            handshake_timeout,
+        )
+
+    @staticmethod
+    def _probe_tls_verification_sync(
+        host: str,
+        port: int,
+        ssl_context: ssl_module.SSLContext,
+        needs_handshake_replay: bool,
+        connect_timeout: float | None,
+        handshake_timeout: float,
+    ) -> None:
+        """Synchronous TLS verification probe — runs in the default executor.
+
+        Raises :class:`ssl.SSLError` (an :class:`OSError` subclass) on
+        verification failure, :class:`OSError` on connect/IO errors.
+        Both surface as :class:`OperationalError` via the caller chain.
+        """
+        sock: socket.socket | None = socket.create_connection((host, port), timeout=connect_timeout)
+        try:
+            assert sock is not None
+            sock.settimeout(handshake_timeout)
+            if needs_handshake_replay:
+                # Replay the plaintext CUBRS handshake so the broker
+                # routes us identically to the real connection. If the
+                # broker redirects, follow the redirect on a fresh socket
+                # — the worker port is in TLS-expect mode and skips the
+                # second handshake (matches the redirect logic above in
+                # `_do_connect_handshake`).
+                client_info = ClientInfoExchangePacket(use_ssl=True)
+                sock.sendall(client_info.write())
+                response = AsyncConnection._recv_exact_sync(sock, DataSize.INT)
+                client_info.parse(response)
+                if client_info.new_connection_port < 0:
+                    # Broker rejected at handshake — not a TLS verification
+                    # issue; let the real handshake surface the rejection.
+                    return
+                if client_info.new_connection_port > 0:
+                    sock.close()
+                    sock = socket.create_connection(
+                        (host, client_info.new_connection_port), timeout=connect_timeout
+                    )
+                    sock.settimeout(handshake_timeout)
+            ssock = ssl_context.wrap_socket(sock, server_hostname=host)
+            sock = None  # ownership transferred to ssock
+            try:
+                # Handshake happens implicitly in wrap_socket on a blocking
+                # socket; closing immediately suffices to validate the cert.
+                try:
+                    ssock.unwrap()
+                except OSError:
+                    # Best-effort TLS shutdown; verification already passed.
+                    pass
+            finally:
+                ssock.close()
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _recv_exact_sync(sock: socket.socket, size: int) -> bytes:
+        """Receive exactly *size* bytes from a blocking socket or raise OSError."""
+        buf = bytearray()
+        while len(buf) < size:
+            chunk = sock.recv(size - len(buf))
+            if not chunk:
+                raise OSError("connection closed during TLS preflight probe")
+            buf.extend(chunk)
+        return bytes(buf)
 
     async def close(self) -> None:
         """Close the connection and all tracked cursors."""

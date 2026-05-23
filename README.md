@@ -30,7 +30,7 @@ Korean public-sector and enterprise applications. The existing C-extension drive
 - **Pure Python implementation** — no C build dependencies, install with `pip install` only
 - **Implements PEP 249 (DB-API 2.0)** — standard exception hierarchy, type objects, cursor interface
 - **800+ offline tests** with **97%+ code coverage** — most tests run without a database
-- **TLS/SSL for sync and async connections** — opt-in `ssl=True` (verified context, TLS 1.2 minimum) or custom `ssl.SSLContext` on `connect()` and `pycubrid.aio.connect()`. **Note**: On Python 3.10, async TLS may hang on certificate-verify failures (a known CPython asyncio TLS handshake bug on Python 3.10, fixed in 3.13/3.14) — see [Troubleshooting](docs/TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310) and [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+- **TLS/SSL for sync and async connections** — opt-in `ssl=True` (verified context, TLS 1.2 minimum) or custom `ssl.SSLContext` on `connect()` and `pycubrid.aio.connect()`. On Python 3.10 the async path automatically runs a preflight TLS verification probe to work around a known CPython asyncio bug (fixed in 3.13/3.14) where `loop.start_tls()` would otherwise hang on cert-verify failures — see [Troubleshooting](docs/TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310) and [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
 - **Native asyncio support** — async/await API via `pycubrid.aio` for high-concurrency applications
 - **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis support
 - **Direct CUBRID CAS protocol** implementation — no additional middleware required
