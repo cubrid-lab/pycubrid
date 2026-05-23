@@ -193,12 +193,17 @@ Async TLS uses CUBRID's STARTTLS-style upgrade: the connection opens in plaintex
 `OPEN_DATABASE` exchange. Async shutdown awaits `writer.wait_closed()` so TLS sessions close
 cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_socket()`.
 
-!!! warning "Python 3.10 async TLS limitation"
-    On Python 3.10, `asyncio.loop.start_tls()` may hang indefinitely when a TLS handshake fails
-    due to **certificate verification** errors (a known CPython asyncio TLS handshake bug on
-    Python 3.10, fixed in 3.13/3.14). Other TLS error paths — peer unresponsive, timeout —
-    remain bounded by `ssl_handshake_timeout`. The issue does not affect the sync driver.
-    Tracked in [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+!!! note "Python 3.10 async TLS preflight probe"
+    Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
+    that causes it to hang indefinitely on **certificate verification** failures instead of
+    raising. As of [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156), the
+    async driver runs an automatic preflight `ssl.SSLContext.wrap_socket()` probe on Python
+    3.10 immediately before `loop.start_tls()`, using the same `SSLContext` and
+    `server_hostname=host`. Verification failures now raise `OperationalError` (chained from
+    `ssl.SSLError`) within the connect timeout, matching the 3.11+ behavior. The probe is a
+    no-op on Python 3.11+ and adds one extra TCP round-trip per connect on 3.10 only. Other
+    TLS error paths (peer unresponsive, timeout) remain bounded by `ssl_handshake_timeout`.
+    The issue does not affect the sync driver.
 
 ```python
 import pycubrid.aio

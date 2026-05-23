@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import ssl as ssl_module
 import struct
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -243,3 +244,283 @@ async def test_async_redirect_during_tls_connect_skips_second_handshake() -> Non
 
     upgrade_mock.assert_awaited_once()
     assert conn._connected is True
+
+
+@pytest.mark.asyncio
+async def test_probe_tls_verification_is_noop_on_py311_plus() -> None:
+    """The Py3.10-only preflight probe must not run on 3.11+ — those
+    versions raise :class:`ssl.SSLCertVerificationError` promptly from
+    :meth:`asyncio.AbstractEventLoop.start_tls`. A misfire here would
+    add an extra TCP round-trip per connect on the entire supported
+    matrix."""
+    conn, _reader, _writer = _make_pre_tls_async_connection()
+    fake_version = (3, 11, 0, "final", 0)
+
+    with (
+        patch("pycubrid.aio.connection.sys.version_info", fake_version),
+        patch.object(AsyncConnection, "_probe_tls_verification_sync") as sync_probe,
+    ):
+        await conn._maybe_probe_tls_verification(effective_port=33000, followed_redirect=False)
+
+    sync_probe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_probe_tls_verification_runs_in_executor_on_py310() -> None:
+    """On Python 3.10 the probe must execute the synchronous
+    :meth:`_probe_tls_verification_sync` helper via
+    :meth:`asyncio.AbstractEventLoop.run_in_executor`, forwarding the
+    effective post-redirect port, the configured ``SSLContext``, the
+    ``needs_handshake_replay`` flag (inverse of ``followed_redirect``),
+    and the resolved timeouts. Drift here would either re-introduce the
+    3.10 hang or bypass cert verification on the workaround path."""
+    conn, _reader, _writer = _make_pre_tls_async_connection(read_timeout=3.5)
+    conn._connect_timeout = 2.0
+
+    fake_loop = MagicMock(name="loop")
+    fake_loop.run_in_executor = AsyncMock(return_value=None)
+    fake_version = (3, 10, 9, "final", 0)
+
+    with (
+        patch("pycubrid.aio.connection.sys.version_info", fake_version),
+        patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
+    ):
+        await conn._maybe_probe_tls_verification(effective_port=33100, followed_redirect=True)
+
+    fake_loop.run_in_executor.assert_awaited_once()
+    args = fake_loop.run_in_executor.await_args.args
+    assert args[0] is None, "default executor must be used"
+    assert args[1] is AsyncConnection._probe_tls_verification_sync
+    assert args[2] == "broker.example.com"
+    assert args[3] == 33100
+    assert args[4] is conn._ssl_context
+    assert args[5] is False, "followed_redirect=True implies no handshake replay"
+    assert args[6] == 2.0
+    assert args[7] == 3.5
+
+
+@pytest.mark.asyncio
+async def test_probe_tls_verification_marks_replay_when_no_redirect() -> None:
+    """The replay flag must be the inverse of ``followed_redirect`` so the
+    sync probe replays the CUBRS handshake exactly when the real
+    connection did. Mis-flagging it would either skip the handshake on
+    broker-only paths (causing the broker to reject the raw TLS bytes)
+    or replay on already-redirected worker ports (which expect TLS
+    immediately)."""
+    conn, _reader, _writer = _make_pre_tls_async_connection()
+    fake_loop = MagicMock(name="loop")
+    fake_loop.run_in_executor = AsyncMock(return_value=None)
+    fake_version = (3, 10, 12, "final", 0)
+
+    with (
+        patch("pycubrid.aio.connection.sys.version_info", fake_version),
+        patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop),
+    ):
+        await conn._maybe_probe_tls_verification(effective_port=33000, followed_redirect=False)
+
+    args = fake_loop.run_in_executor.await_args.args
+    assert args[5] is True, "no-redirect path must replay the CUBRS handshake"
+
+
+@pytest.mark.asyncio
+async def test_handshake_invokes_probe_before_upgrade_on_py310() -> None:
+    """End-to-end gating: on Python 3.10, ``_do_connect_handshake`` must
+    invoke the preflight probe **after** redirect resolution and
+    **before** ``_upgrade_to_tls``. If the order inverts, the probe
+    cannot save us from the upstream hang because ``start_tls`` will
+    already be in flight."""
+    reader, writer = _make_stream_pair([_build_handshake_response(port=0), b"", b""])
+    open_db_frame = _build_open_db_response()
+    reader.readexactly = AsyncMock(
+        side_effect=[_build_handshake_response(port=0), open_db_frame[:4], open_db_frame[4:]]
+    )
+
+    ctx = ssl_module.create_default_context()
+    conn = AsyncConnection("broker", 33000, "testdb", "dba", "", ssl=ctx, read_timeout=2.0)
+
+    call_order: list[str] = []
+
+    async def fake_probe(*, effective_port: int, followed_redirect: bool) -> None:
+        del effective_port, followed_redirect
+        call_order.append("probe")
+
+    async def fake_upgrade() -> None:
+        call_order.append("upgrade")
+
+    async def fake_open(host: str, port: int) -> tuple[MagicMock, MagicMock]:
+        del host, port
+        return reader, writer
+
+    fake_version = (3, 10, 9, "final", 0)
+    with (
+        patch("pycubrid.aio.connection.sys.version_info", fake_version),
+        patch.object(conn, "_open_connection", side_effect=fake_open),
+        patch.object(conn, "_maybe_probe_tls_verification", side_effect=fake_probe),
+        patch.object(conn, "_upgrade_to_tls", side_effect=fake_upgrade),
+    ):
+        await conn.connect()
+
+    assert call_order == ["probe", "upgrade"]
+
+
+def test_recv_exact_sync_returns_bytes_and_raises_on_eof() -> None:
+    """Defensive read helper used by the preflight probe: a clean EOF
+    mid-read must raise :class:`OSError` so the outer probe surfaces it
+    as ``OperationalError`` rather than silently returning a short
+    buffer that the broker handshake parser would then mis-decode."""
+    full = struct.pack(">i", 1234)
+    sock = MagicMock(spec=["recv"])
+    sock.recv = MagicMock(side_effect=[full[:2], full[2:]])
+    assert AsyncConnection._recv_exact_sync(sock, 4) == full
+
+    sock_eof = MagicMock(spec=["recv"])
+    sock_eof.recv = MagicMock(side_effect=[b"\x00", b""])
+    with pytest.raises(OSError, match="connection closed"):
+        AsyncConnection._recv_exact_sync(sock_eof, 4)
+
+
+@pytest.mark.skipif(
+    sys.version_info[:2] == (99, 99),
+    reason="probe replay logic is version-agnostic; static-method coverage runs everywhere",
+)
+def test_probe_sync_replays_handshake_and_wraps_socket(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On the no-redirect path the sync probe must (1) replay the
+    plaintext ``CUBRS`` handshake, (2) when the broker returns 0 (no
+    redirect), proceed straight to :meth:`ssl.SSLContext.wrap_socket`
+    on the same socket. Skipping step 1 would have the broker reject
+    raw TLS bytes; skipping step 2 would defeat the verification probe
+    entirely."""
+    raw_sock = MagicMock(name="raw_sock")
+    raw_sock.recv = MagicMock(side_effect=[struct.pack(">i", 0)])
+    monkeypatch.setattr(
+        "pycubrid.aio.connection.socket.create_connection", MagicMock(return_value=raw_sock)
+    )
+
+    ssock = MagicMock(name="ssock")
+    ctx = MagicMock(spec=ssl_module.SSLContext)
+    ctx.wrap_socket = MagicMock(return_value=ssock)
+
+    AsyncConnection._probe_tls_verification_sync(
+        "broker.example.com",
+        33000,
+        ctx,
+        True,
+        2.0,
+        5.0,
+    )
+
+    ctx.wrap_socket.assert_called_once_with(raw_sock, server_hostname="broker.example.com")
+    ssock.close.assert_called_once_with()
+    raw_sock.sendall.assert_called_once()
+    sent = raw_sock.sendall.call_args.args[0]
+    assert b"CUBRS" in sent, "TLS-requested handshake replay must use CUBRS magic"
+
+
+def test_probe_sync_no_replay_when_followed_redirect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the real connection already followed a broker redirect, the
+    probe must skip the CUBRS handshake replay and call wrap_socket on
+    the already-TLS-expecting worker port directly."""
+    raw_sock = MagicMock(name="raw_sock")
+    monkeypatch.setattr(
+        "pycubrid.aio.connection.socket.create_connection", MagicMock(return_value=raw_sock)
+    )
+
+    ssock = MagicMock(name="ssock")
+    ctx = MagicMock(spec=ssl_module.SSLContext)
+    ctx.wrap_socket = MagicMock(return_value=ssock)
+
+    AsyncConnection._probe_tls_verification_sync(
+        "broker.example.com",
+        33100,
+        ctx,
+        False,
+        2.0,
+        5.0,
+    )
+
+    raw_sock.sendall.assert_not_called()
+    ctx.wrap_socket.assert_called_once_with(raw_sock, server_hostname="broker.example.com")
+
+
+def test_probe_sync_follows_broker_redirect_during_replay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If the broker returns ``new_connection_port > 0`` during the
+    replay, the probe must close the first socket, reconnect to the
+    redirected worker port, and wrap **that** socket. Otherwise it
+    would TLS-wrap the broker port that just told it to go elsewhere."""
+    first_sock = MagicMock(name="first_sock")
+    first_sock.recv = MagicMock(side_effect=[struct.pack(">i", 33101)])
+    second_sock = MagicMock(name="second_sock")
+    create = MagicMock(side_effect=[first_sock, second_sock])
+    monkeypatch.setattr("pycubrid.aio.connection.socket.create_connection", create)
+
+    ssock = MagicMock(name="ssock")
+    ctx = MagicMock(spec=ssl_module.SSLContext)
+    ctx.wrap_socket = MagicMock(return_value=ssock)
+
+    AsyncConnection._probe_tls_verification_sync(
+        "broker.example.com",
+        33000,
+        ctx,
+        True,
+        2.0,
+        5.0,
+    )
+
+    assert create.call_args_list[0].args[0] == ("broker.example.com", 33000)
+    assert create.call_args_list[1].args[0] == ("broker.example.com", 33101)
+    first_sock.close.assert_called_once_with()
+    ctx.wrap_socket.assert_called_once_with(second_sock, server_hostname="broker.example.com")
+
+
+def test_probe_sync_returns_on_broker_negative_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If the broker rejects the handshake (``new_connection_port < 0``)
+    the probe must return cleanly without attempting wrap_socket — the
+    rejection is a non-TLS problem and must be surfaced by the real
+    handshake, not by the probe."""
+    raw_sock = MagicMock(name="raw_sock")
+    raw_sock.recv = MagicMock(side_effect=[struct.pack(">i", -42)])
+    monkeypatch.setattr(
+        "pycubrid.aio.connection.socket.create_connection", MagicMock(return_value=raw_sock)
+    )
+
+    ctx = MagicMock(spec=ssl_module.SSLContext)
+    ctx.wrap_socket = MagicMock()
+
+    AsyncConnection._probe_tls_verification_sync(
+        "broker.example.com",
+        33000,
+        ctx,
+        True,
+        2.0,
+        5.0,
+    )
+
+    ctx.wrap_socket.assert_not_called()
+    raw_sock.close.assert_called_once_with()
+
+
+def test_probe_sync_propagates_ssl_verification_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cert verification failure inside ``wrap_socket`` must propagate as
+    ``ssl.SSLError`` so the caller chain wraps it as
+    ``OperationalError`` — the entire point of the workaround."""
+    raw_sock = MagicMock(name="raw_sock")
+    monkeypatch.setattr(
+        "pycubrid.aio.connection.socket.create_connection", MagicMock(return_value=raw_sock)
+    )
+
+    boom = ssl_module.SSLError("CERTIFICATE_VERIFY_FAILED")
+    ctx = MagicMock(spec=ssl_module.SSLContext)
+    ctx.wrap_socket = MagicMock(side_effect=boom)
+
+    with pytest.raises(ssl_module.SSLError) as excinfo:
+        AsyncConnection._probe_tls_verification_sync(
+            "broker.example.com",
+            33100,
+            ctx,
+            False,
+            2.0,
+            5.0,
+        )
+
+    assert excinfo.value is boom
+    raw_sock.close.assert_called_once_with()
