@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Documentation
 - **TLS/handshake documentation aligned with implementation** — corrected `AGENTS.md` protocol version (8/10.2) and OpenDatabase payload framing, fixed OpenDatabase response field order across `CONNECTION.md`/`ARCHITECTURE.md`, rewrote the CAS reconnection diagram to reflect actual `connect()` re-entry through the broker, corrected the `MAGIC_STRING_SSL` constant name in `PROTOCOL.md`, surfaced TLS 1.2 minimum on sync rows in `SUPPORT_MATRIX.md`, added a new "Async TLS Handshake Hangs on Python 3.10" troubleshooting section, and added the Python 3.10 async TLS caveat to `README.md` and all five translations (#160, #163)
 - **TLS docs polish** — added TLS examples to `EXAMPLES.md`, an SSL/TLS TOC entry to `CONNECTION.md`, a Transport Security section to `SECURITY.md`, local TLS integration-test instructions to `CONTRIBUTING.md`, expanded `Connection.connect`/`AsyncConnection`/`_do_connect_handshake` docstrings with the STARTTLS flow, added a TLS field to the bug-report issue template, expanded `pyproject.toml` keywords, and added a `make integration-tls` target. Resolves remaining items from the TLS Phase 4 audit (#161, #162)
-- **Async TLS handshake hang on Python 3.10 documented as a known limitation** — CPython [gh-142352](https://github.com/python/cpython/issues/142352) causes `loop.start_tls()` to hang on cert-verify failures on 3.10 only (fixed in 3.13/3.14); pycubrid documents the workaround and skips the negative-path test on 3.10 (#156)
+- **Async TLS handshake hang on Python 3.10 documented as a known limitation** — a known CPython asyncio TLS handshake bug on Python 3.10 causes `loop.start_tls()` to hang on cert-verify failures on 3.10 only (fixed in 3.13/3.14); pycubrid documents the workaround and skips the negative-path test on 3.10 (#156)
 
 ### Tests
 - **Sync/async lifecycle parity coverage expanded** — integration parity tests now share adapter-driven scenarios and cover connection lifecycle APIs including `ping()`, CAS-inactive reconnect, auto-commit transitions, insert identity helpers, batch rowcount semantics, close ordering, and the explicit `AsyncConnection` `create_lob` `AttributeError` contract (closes #140)
@@ -25,6 +25,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validated
 - **Native `Connection.ping()` causally validated at application layer** — Tier 2 ORM benchmark in [cubrid-benchmark `2026-04-22_native-ping-hotpath`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/orm-overhead/runs/2026-04-22_native-ping-hotpath) (paired same-version A/B vs forced `SELECT 1`, 7 trials, bootstrap 95% CI) confirms native CHECK_CAS ping is **+279.9% throughput** on raw ping_only [+278.0, +283.9] and **+587.8% on SQLAlchemy `checkout_only`** [+581.8, +603.8] with `pool_pre_ping=True`. Performance Loop ping propagation gap closed.
+
+## [Unreleased]
+
+### Added
+- **Session state restoration on transparent reconnect** — When the broker
+  signals ``CAS_INFO_STATUS_INACTIVE`` and pycubrid reconnects transparently
+  (matching JDBC's ``UClientSideConnection.checkReconnect``), any session
+  setting the caller has **explicitly** set on the connection (currently
+  ``autocommit``) is now re-emitted on the new CAS worker via
+  ``SetDbParameterPacket``. Settings the caller has never touched are left at
+  the broker default to avoid spurious round-trips. The same restoration runs
+  on the ``ping(reconnect=True)`` recovery path. Restore failures tear down
+  the connection and chain the underlying transport error via PEP 3134
+  ``__cause__`` so callers can diagnose them (PR #3 Item 1).
+- **Mid-fetch reconnect raises ``OperationalError``** — When the broker
+  releases the CAS worker while a cursor still has rows pending on the
+  server, the server-side query handle is no longer valid. Cursors now mark
+  themselves as reconnect-invalidated and ``fetchone``/``fetchmany``/
+  ``fetchall`` raise :class:`OperationalError` (``result set lost due to
+  broker reconnect mid-fetch``) once the buffered rows are exhausted, instead
+  of silently returning a truncated result set. Rows already buffered in the
+  cursor remain accessible. ``execute()`` and ``close()`` reset the
+  invalidation flag (PR #3 Item 2).
+
+### Fixed
+- **PEP 3134 ``__cause__`` preserved on async transport timeouts** —
+  ``AsyncConnection._connect_locked`` (handshake timeout) and
+  ``AsyncConnection._send_and_receive_locked`` (read timeout) now use
+  ``raise OperationalError(...) from exc`` instead of ``from None``, so the
+  underlying ``asyncio.TimeoutError`` is preserved on the chained exception
+  for diagnostic tooling (PR #3 Item 3).
+
+### Documentation
+- **Reconnect contract documented in ``docs/CONNECTION.md``** — added a
+  "Session-state restoration on transparent reconnect" section listing which
+  settings are restored and which are not, plus a correction to the
+  ``autocommit`` default note: pycubrid sends ``auto_commit`` per-statement
+  on every ``PrepareAndExecute``, so the broker's own ``CUBRID_AUTO_COMMIT``
+  setting is effectively overridden by the driver-side value.
+- **Cursor mid-reconnect behaviour documented in ``docs/API_REFERENCE.md``** —
+  ``fetchone``/``fetchmany``/``fetchall`` now document the
+  :class:`OperationalError` raised when a transparent reconnect invalidates
+  a partially-consumed result set.
+- **Python 3.10 async-TLS caveat citation normalized** — the upstream issue
+  reference (``gh-142352``) was removed from ``README.md``, all five README
+  translations (``docs/README.{ko,zh,hi,de,ru}.md``), ``SECURITY.md``,
+  ``CHANGELOG.md``, ``CONTRIBUTING.md``, ``docs/CONNECTION.md``,
+  ``docs/TROUBLESHOOTING.md``, ``docs/DEVELOPMENT.md``, ``docs/EXAMPLES.md``,
+  ``docs/SUPPORT_MATRIX.md``, ``tests/test_aio_ssl_integration.py``, and
+  ``pycubrid/aio/connection.py`` because that issue describes a different
+  ``start_tls()`` regression on 3.13/3.14/3.15 (PROXY-protocol buffered-data
+  loss), not the 3.10 cert-verify hang pycubrid observes. The caveat is now
+  described as a "known CPython async-TLS handshake bug on Python 3.10"
+  tracked as pycubrid #156.
+
+### Tests
+- **12 new tests in ``tests/test_network_edge_cases.py``** — four new test
+  classes covering: ``__cause__`` chaining on sync/async transport timeouts,
+  explicit/unset session-state restore on reconnect (sync + async),
+  restore-failure tear-down, mid-fetch ``OperationalError`` (sync + async),
+  ``execute``/``close`` resetting the invalidation flag, and
+  ``CancelledError`` propagation in ``AsyncConnection._close_streams``. Total
+  offline tests: 858.
 
 ## [1.4.0] - 2026-05-13
 

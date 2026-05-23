@@ -49,12 +49,11 @@ class AsyncConnection(ConnectionCommonMixin):
 
     .. note::
        On Python 3.10, :meth:`asyncio.AbstractEventLoop.start_tls` may hang
-       on certificate-verify failures (CPython
-       `gh-142352 <https://github.com/python/cpython/issues/142352>`_,
-       fixed in 3.13/3.14). Tracked as
+       on certificate-verify failures (a known CPython async-TLS handshake
+       bug on 3.10, not observed on 3.13/3.14). Tracked as
        `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_.
        :attr:`_read_timeout` (passed as ``ssl_handshake_timeout``) bounds
-       *peer-unresponsive* hangs only, not the gh-142352 family.
+       *peer-unresponsive* hangs only, not the 3.10-specific bug.
     """
 
     def __init__(
@@ -124,8 +123,8 @@ class AsyncConnection(ConnectionCommonMixin):
             hs_writer = None  # ownership transferred to self or closed
 
             self._connected = True
-        except asyncio.TimeoutError:
-            raise OperationalError("read timeout during connect handshake") from None
+        except asyncio.TimeoutError as exc:
+            raise OperationalError("read timeout during connect handshake") from exc
         except (OSError, ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
             raise OperationalError("failed to connect to CUBRID broker") from exc
         finally:
@@ -229,7 +228,7 @@ class AsyncConnection(ConnectionCommonMixin):
         reconnect starts cleanly instead of leaking a half-upgraded SSL
         transport.  Note: this bounds peer-unresponsive hangs only.
         Python 3.10 has separate known issues with hangs during
-        TLS-handshake-internal failures (CPython gh-142352 family, fixed
+        TLS-handshake-internal failures (the known CPython 3.10 async-TLS handshake bug, fixed
         in 3.13/3.14) that this kwarg does not address.
         """
         ssl_context = self._ssl_context
@@ -334,6 +333,7 @@ class AsyncConnection(ConnectionCommonMixin):
         )
         await self._send_and_receive(CommitPacket())
         self._autocommit = enabled
+        self._autocommit_explicitly_set = True
 
     async def get_server_version(self) -> str:
         self._ensure_connected()
@@ -352,9 +352,11 @@ class AsyncConnection(ConnectionCommonMixin):
             if not reconnect:
                 return False
             try:
-                self._invalidate_query_handles()
+                self._invalidate_query_handles_for_reconnect()
                 _LOGGER.debug("ping: reconnecting")
                 await self.connect()
+                async with self._lock:
+                    await self._restore_session_state_locked()
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
@@ -369,8 +371,10 @@ class AsyncConnection(ConnectionCommonMixin):
                 async with self._lock:
                     await self._close_streams()
                     self._connected = False
-                    self._invalidate_query_handles()
+                    self._invalidate_query_handles_for_reconnect()
                 await self.connect()
+                async with self._lock:
+                    await self._restore_session_state_locked()
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
@@ -441,10 +445,10 @@ class AsyncConnection(ConnectionCommonMixin):
             if self._read_timeout is not None:
                 return await asyncio.wait_for(coro, timeout=self._read_timeout)
             return await coro
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             await self._close_streams()
             self._connected = False
-            raise OperationalError("read timeout") from None
+            raise OperationalError("read timeout") from exc
         except OSError as exc:
             await self._close_streams()
             self._connected = False
@@ -494,8 +498,31 @@ class AsyncConnection(ConnectionCommonMixin):
         if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._writer is not None:
             await self._close_streams()
             self._connected = False
-            self._invalidate_query_handles()
+            self._invalidate_query_handles_for_reconnect()
             await self._invoke_connect_locked()
+            await self._restore_session_state_locked()
+
+    async def _restore_session_state_locked(self) -> None:
+        """Re-emit explicit session settings after a transparent reconnect.
+
+        Must be called while ``self._lock`` is held.  Uses
+        ``_send_and_receive_locked`` with ``allow_reconnect=False`` to
+        avoid both the public lock (deadlock) and a recursive reconnect.
+        """
+        if not self._autocommit_explicitly_set:
+            return
+        try:
+            await self._send_and_receive_locked(
+                SetDbParameterPacket(
+                    parameter=CCIDbParam.AUTO_COMMIT,
+                    value=1 if self._autocommit else 0,
+                ),
+                allow_reconnect=False,
+            )
+        except (OperationalError, InterfaceError, OSError) as exc:
+            await self._close_streams()
+            self._connected = False
+            raise OperationalError("failed to restore session state after reconnect") from exc
 
     async def _invoke_connect_locked(self) -> None:
         connect_method = self.connect

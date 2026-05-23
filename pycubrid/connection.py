@@ -243,8 +243,36 @@ class Connection(ConnectionCommonMixin):
             return
         if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._socket is not None:
             self._drop_connection()
+            self._invalidate_query_handles_for_reconnect()
             _LOGGER.debug("CAS inactive, reconnecting to %s:%d", self._host, self._port)
             self.connect()
+            self._restore_session_state()
+
+    def _restore_session_state(self) -> None:
+        """Re-emit session-level settings after a transparent reconnect.
+
+        Re-applies any session state that the caller has explicitly set
+        on this connection (currently only ``autocommit``).  Settings the
+        caller has never touched are left at the broker default to
+        avoid spurious round-trips on reconnect.
+
+        On failure the connection is torn down and the original cause is
+        chained via ``raise ... from exc`` so the caller can diagnose
+        the restore failure.
+        """
+        if not self._autocommit_explicitly_set:
+            return
+        try:
+            self._send_and_receive(
+                SetDbParameterPacket(
+                    parameter=CCIDbParam.AUTO_COMMIT,
+                    value=1 if self._autocommit else 0,
+                ),
+                allow_reconnect=False,
+            )
+        except (OperationalError, InterfaceError, OSError) as exc:
+            self._drop_connection()
+            raise OperationalError("failed to restore session state after reconnect") from exc
 
     def cursor(self) -> Cursor:
         """Create and return a new cursor bound to this connection."""
@@ -277,6 +305,7 @@ class Connection(ConnectionCommonMixin):
         )
         self._send_and_receive(CommitPacket())
         self._autocommit = enabled
+        self._autocommit_explicitly_set = True
         _LOGGER.debug("autocommit=%s", enabled)
 
     def get_server_version(self) -> str:
@@ -310,9 +339,10 @@ class Connection(ConnectionCommonMixin):
             if not reconnect:
                 return False
             try:
-                self._invalidate_query_handles()
+                self._invalidate_query_handles_for_reconnect()
                 _LOGGER.debug("ping: reconnecting")
                 self.connect()
+                self._restore_session_state()
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
@@ -324,8 +354,10 @@ class Connection(ConnectionCommonMixin):
                 return False
             try:
                 self._drop_connection()
+                self._invalidate_query_handles_for_reconnect()
                 _LOGGER.debug("ping: reconnecting")
                 self.connect()
+                self._restore_session_state()
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False

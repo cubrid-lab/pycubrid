@@ -147,7 +147,7 @@ async def test_aio_ssl_connect_custom_context() -> None:
     sys.version_info < (3, 11),
     reason=(
         "Python 3.10 loop.start_tls() can hang on TLS cert verification failure "
-        "(CPython gh-142352 family, fixed in 3.13/3.14 only). Tracked as "
+        "(the known CPython 3.10 async-TLS handshake bug, fixed in 3.13/3.14 only). Tracked as "
         "https://github.com/cubrid-lab/pycubrid/issues/156; the upgrade path "
         "itself is exercised by the other tests in this module."
     ),

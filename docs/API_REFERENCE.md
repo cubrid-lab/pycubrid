@@ -656,6 +656,15 @@ if row:
     name, age = row
 ```
 
+> **Note on transparent reconnect**: If the CUBRID broker releases the CAS worker
+> mid-iteration (``KEEP_CONNECTION=AUTO``) and pycubrid reconnects transparently,
+> any rows already buffered in the cursor remain accessible. Once the buffer is
+> exhausted, subsequent ``fetchone``/``fetchmany``/``fetchall`` calls raise
+> :class:`OperationalError` with the message ``result set lost due to broker
+> reconnect mid-fetch`` because the server-side cursor handle is no longer valid.
+> Re-execute the query to continue. ``execute()`` and ``close()`` reset the
+> invalidation flag.
+
 ---
 
 #### `fetchmany(size)`

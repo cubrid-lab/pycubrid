@@ -311,12 +311,12 @@ OperationalError: ... (during connection handshake)
 
 **Symptom**: `await pycubrid.aio.connect(..., ssl=True)` (or `ssl=<SSLContext>`) hangs indefinitely instead of raising. The coroutine never returns and no exception is raised. Often surfaces as a test timeout or a stuck request handler under Python 3.10.
 
-**Cause**: CPython bug [gh-142352](https://github.com/python/cpython/issues/142352) — on Python 3.10, `asyncio.AbstractEventLoop.start_tls()` can hang on certificate-verify failures (expired/untrusted CA, hostname mismatch, broker presenting an unexpected cert) instead of raising `ssl.SSLCertVerificationError`. pycubrid uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake, then `loop.start_tls()` — so this CPython bug surfaces as a dead-hang on the upgrade step. The bug is fixed in Python 3.13 and 3.14. Tracked in pycubrid as [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+**Cause**: CPython bug a known CPython asyncio TLS handshake bug on Python 3.10 — on Python 3.10, `asyncio.AbstractEventLoop.start_tls()` can hang on certificate-verify failures (expired/untrusted CA, hostname mismatch, broker presenting an unexpected cert) instead of raising `ssl.SSLCertVerificationError`. pycubrid uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake, then `loop.start_tls()` — so this CPython bug surfaces as a dead-hang on the upgrade step. The bug is fixed in Python 3.13 and 3.14. Tracked in pycubrid as [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
 
 **Quick checks**:
 
 1. **Confirm it's TLS, not the TCP connect**: try `ssl=False` against the same broker. If that succeeds quickly, the hang is in the TLS upgrade.
-2. **Confirm it's Python 3.10-specific**: try the same code on Python 3.13 or 3.14. If it raises promptly there, you've hit gh-142352.
+2. **Confirm it's Python 3.10-specific**: try the same code on Python 3.13 or 3.14. If it raises promptly there, you've hit the 3.10-only async-TLS handshake bug.
 3. **Try the sync path**: `pycubrid.connect(..., ssl=True)` uses `ssl.SSLContext.wrap_socket()` (blocking) which is not affected and will raise `ssl.SSLCertVerificationError` immediately, telling you exactly which cert check failed.
 4. **Enable debug logging**: `logging.getLogger("pycubrid").setLevel(logging.DEBUG)` and look for the last log line before the hang — typically the plaintext `CUBRS` exchange completes and then nothing follows.
 
@@ -328,7 +328,7 @@ OperationalError: ... (during connection handshake)
 - **Pass a custom `ssl.SSLContext`** with the correct CA bundle loaded (`context.load_verify_locations(cafile=...)`) rather than relying on the system trust store, eliminating the most common verify failure.
 - **Bound the upgrade with `ssl_handshake_timeout`**: pycubrid already wraps `start_tls()` in a timeout, so the hang will eventually surface as `asyncio.TimeoutError` — tune the timeout via your application's connect timeout if you cannot upgrade Python.
 
-**Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That confirms gh-142352.
+**Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That is the signature of the 3.10-only async-TLS handshake bug.
 
 ---
 

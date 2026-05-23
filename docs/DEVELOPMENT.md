@@ -207,7 +207,7 @@ You do not need to run the steps above locally for routine development —
 
 > **Python 3.10 note**: One async TLS test (`test_aio_ssl_handshake_failure`)
 > is version-pinned to skip on Python 3.10 due to a CPython
-> [gh-142352](https://github.com/python/cpython/issues/142352) hang in
+> a known CPython asyncio TLS handshake bug on Python 3.10 hang in
 > `asyncio.loop.start_tls()` on cert-verify failure (fixed in 3.13/3.14).
 > Tracked in [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
 

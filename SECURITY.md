@@ -99,7 +99,7 @@ Recommended configurations, in order of preference:
 ### Known Limitation
 
 On Python 3.10, `asyncio.loop.start_tls()` can hang on certificate-verify
-failures (CPython [gh-142352](https://github.com/python/cpython/issues/142352),
+failures (a known CPython asyncio TLS handshake bug on Python 3.10,
 fixed in 3.13/3.14). Tracked as
 [#156](https://github.com/cubrid-lab/pycubrid/issues/156). For production
 async TLS on Python 3.10, validate the certificate chain out-of-band or use

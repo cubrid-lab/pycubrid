@@ -272,3 +272,281 @@ class TestAsyncConnectionNetworkEdgeCases:
 
         assert packet is not None
         assert writer.write.call_count == 1
+
+
+class TestExceptionCausePreservation:
+    """PEP 3134 ``__cause__`` chaining for transport timeouts (PR #3 Item 3)."""
+
+    def test_sync_socket_timeout_preserves_cause(self) -> None:
+        conn, sock = make_connected_connection()
+        original = socket.timeout("timed out")
+        sock.recv_into.side_effect = original
+
+        with pytest.raises(OperationalError) as excinfo:
+            conn._send_and_receive(CommitPacket())
+
+        assert excinfo.value.__cause__ is original
+
+    @pytest.mark.asyncio
+    async def test_async_connect_handshake_timeout_preserves_cause(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.5)
+        reader, writer, _ = make_mock_stream_pair()
+        conn._open_connection = AsyncMock(return_value=(reader, writer))  # type: ignore[method-assign]
+
+        async def _raise_timeout(*_args: object, **_kwargs: object) -> None:
+            raise asyncio.TimeoutError
+
+        with patch(
+            "pycubrid.aio.connection.asyncio.wait_for",
+            new=AsyncMock(side_effect=_raise_timeout),
+        ):
+            with pytest.raises(OperationalError) as excinfo:
+                await conn._connect_locked()
+
+        assert isinstance(excinfo.value.__cause__, asyncio.TimeoutError)
+
+    @pytest.mark.asyncio
+    async def test_async_read_timeout_preserves_cause(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.5)
+        conn._connected = True
+        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._reader, conn._writer, _ = make_mock_stream_pair()
+
+        async def _raise_timeout(coro: object, timeout: float | None = None) -> None:
+            del timeout
+            close = getattr(coro, "close", None)
+            if callable(close):
+                close()
+            raise asyncio.TimeoutError
+
+        with patch(
+            "pycubrid.aio.connection.asyncio.wait_for",
+            new=AsyncMock(side_effect=_raise_timeout),
+        ):
+            with pytest.raises(OperationalError) as excinfo:
+                await conn._send_and_receive(CommitPacket())
+
+        assert isinstance(excinfo.value.__cause__, asyncio.TimeoutError)
+
+
+class TestSessionStateRestoreOnReconnect:
+    """Explicit session state is re-emitted after transparent reconnect (PR #3 Item 1)."""
+
+    def test_explicit_autocommit_is_restored_after_reconnect(self) -> None:
+        conn, sock = make_connected_connection()
+        ok = build_simple_ok_response(b"\x01\x01\x02\x03")
+        sock.recv_into.side_effect = make_socket_from_chunks(
+            [ok[:4], ok[4:], ok[:4], ok[4:]]
+        ).recv_into.side_effect
+        conn.autocommit = True
+        assert conn._autocommit_explicitly_set is True
+
+        inactive_frame = build_simple_ok_response(b"\x00\x01\x02\x03")
+        sock.recv_into.side_effect = make_socket_from_chunks(
+            [inactive_frame[:4], inactive_frame[4:]]
+        ).recv_into.side_effect
+        conn._send_and_receive(CommitPacket())
+
+        reconnect_sock = make_socket_from_chunks([ok[:4], ok[4:], ok[:4], ok[4:]])
+
+        def reconnect() -> None:
+            conn._socket = reconnect_sock
+            conn._cas_info = b"\x01\x01\x02\x03"
+            conn._connected = True
+
+        conn.connect = MagicMock(side_effect=reconnect)
+        restore = MagicMock(wraps=conn._restore_session_state)
+        conn._restore_session_state = restore  # type: ignore[method-assign]
+
+        conn._send_and_receive(CommitPacket())
+
+        restore.assert_called_once()
+        assert reconnect_sock.sendall.called
+
+    def test_unset_autocommit_is_not_restored(self) -> None:
+        conn, sock = make_connected_connection()
+        assert conn._autocommit_explicitly_set is False
+        ok = build_simple_ok_response(b"\x01\x01\x02\x03")
+        inactive = build_simple_ok_response(b"\x00\x01\x02\x03")
+        sock.recv_into.side_effect = make_socket_from_chunks(
+            [inactive[:4], inactive[4:]]
+        ).recv_into.side_effect
+        conn._send_and_receive(CommitPacket())
+
+        reconnect_sock = make_socket_from_chunks([ok[:4], ok[4:]])
+
+        def reconnect() -> None:
+            conn._socket = reconnect_sock
+            conn._cas_info = b"\x01\x01\x02\x03"
+            conn._connected = True
+
+        conn.connect = MagicMock(side_effect=reconnect)
+        send_after_reconnect = MagicMock()
+        original_send_and_receive = conn._send_and_receive
+
+        conn._send_and_receive(CommitPacket())
+
+        del original_send_and_receive
+        del send_after_reconnect
+        assert reconnect_sock.sendall.call_count == 1
+
+    def test_restore_failure_tears_down_connection_with_cause(self) -> None:
+        conn, _ = make_connected_connection()
+        conn._autocommit = True
+        conn._autocommit_explicitly_set = True
+        original = OperationalError("broker rejected SET")
+
+        def _fail(*_args: object, **_kwargs: object) -> None:
+            raise original
+
+        conn._send_and_receive = _fail  # type: ignore[method-assign]
+
+        with pytest.raises(OperationalError) as excinfo:
+            conn._restore_session_state()
+
+        assert excinfo.value.__cause__ is original
+        assert conn._connected is False
+
+    @pytest.mark.asyncio
+    async def test_async_explicit_autocommit_is_tracked(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn._connected = True
+        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._reader, conn._writer, _ = make_mock_stream_pair()
+        conn._send_and_receive = AsyncMock(return_value=MagicMock())  # type: ignore[method-assign]
+
+        await conn.set_autocommit(True)
+
+        assert conn._autocommit_explicitly_set is True
+        assert conn._autocommit is True
+
+    @pytest.mark.asyncio
+    async def test_async_restore_skipped_when_not_explicit(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn._send_and_receive_locked = AsyncMock()  # type: ignore[method-assign]
+        assert conn._autocommit_explicitly_set is False
+
+        await conn._restore_session_state_locked()
+
+        conn._send_and_receive_locked.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_async_restore_failure_tears_down_with_cause(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn._connected = True
+        conn._reader, conn._writer, _ = make_mock_stream_pair()
+        conn._autocommit = True
+        conn._autocommit_explicitly_set = True
+        original = OperationalError("broker rejected SET")
+        conn._send_and_receive_locked = AsyncMock(side_effect=original)  # type: ignore[method-assign]
+
+        with pytest.raises(OperationalError) as excinfo:
+            await conn._restore_session_state_locked()
+
+        assert excinfo.value.__cause__ is original
+        assert conn._connected is False
+        assert conn._writer is None
+
+
+class TestMidFetchReconnect:
+    """Cursor raises OperationalError when result set is lost mid-fetch (PR #3 Item 2)."""
+
+    def test_buffered_rows_remain_accessible_after_reconnect(self) -> None:
+        conn, _ = make_connected_connection()
+        cursor = conn.cursor()
+        cursor._description = (("col", 0, None, None, None, None, None),)
+        cursor._rows = [(1,), (2,), (3,)]
+        cursor._row_index = 0
+        cursor._total_tuple_count = 10
+        cursor._query_handle = 42
+
+        conn._invalidate_query_handles_for_reconnect()
+
+        assert cursor.fetchone() == (1,)
+        assert cursor.fetchone() == (2,)
+        assert cursor.fetchone() == (3,)
+
+    def test_fetch_after_buffer_exhaustion_raises_operational_error(self) -> None:
+        conn, _ = make_connected_connection()
+        cursor = conn.cursor()
+        cursor._description = (("col", 0, None, None, None, None, None),)
+        cursor._rows = [(1,)]
+        cursor._row_index = 0
+        cursor._total_tuple_count = 5
+        cursor._query_handle = 42
+
+        conn._invalidate_query_handles_for_reconnect()
+
+        assert cursor.fetchone() == (1,)
+        with pytest.raises(OperationalError, match="result set lost"):
+            cursor.fetchone()
+
+    def test_execute_resets_invalidated_flag(self) -> None:
+        conn, _ = make_connected_connection()
+        cursor = conn.cursor()
+        cursor._invalidated_by_reconnect = True
+        cursor._query_handle = None
+
+        cursor._connection._send_and_receive = MagicMock(  # type: ignore[method-assign]
+            return_value=MagicMock(
+                query_handle=99,
+                statement_type=0,
+                columns=[],
+                total_tuple_count=0,
+                rows=[],
+                column_count=0,
+                result_infos=[],
+            )
+        )
+        cursor.execute("SELECT 1")
+
+        assert cursor._invalidated_by_reconnect is False
+
+    def test_close_resets_invalidated_flag(self) -> None:
+        conn, _ = make_connected_connection()
+        cursor = conn.cursor()
+        cursor._invalidated_by_reconnect = True
+        cursor._query_handle = None
+
+        cursor.close()
+
+        assert cursor._invalidated_by_reconnect is False
+
+    @pytest.mark.asyncio
+    async def test_async_fetch_after_buffer_exhaustion_raises(self) -> None:
+        from pycubrid.aio.cursor import AsyncCursor
+
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn._connected = True
+        conn._cursors = set()
+        cursor = AsyncCursor(conn)
+        conn._cursors.add(cursor)
+        cursor._description = (("col", 0, None, None, None, None, None),)
+        cursor._rows = [(1,)]
+        cursor._row_index = 0
+        cursor._total_tuple_count = 5
+        cursor._query_handle = 42
+
+        conn._invalidate_query_handles_for_reconnect()
+
+        assert await cursor.fetchone() == (1,)
+        with pytest.raises(OperationalError, match="result set lost"):
+            await cursor.fetchone()
+
+
+class TestCloseStreamsCancelledError:
+    """``_close_streams`` propagates CancelledError without leaking refs (PR #3 Item 5)."""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_propagates_and_clears_refs(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        _, writer, _ = make_mock_stream_pair()
+        writer.wait_closed = AsyncMock(side_effect=asyncio.CancelledError())
+        conn._writer = writer
+        conn._reader = MagicMock(spec=asyncio.StreamReader)
+
+        with pytest.raises(asyncio.CancelledError):
+            await conn._close_streams()
+
+        assert conn._writer is None
+        assert conn._reader is None

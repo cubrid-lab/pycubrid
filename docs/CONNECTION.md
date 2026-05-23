@@ -196,7 +196,7 @@ cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_
 !!! warning "Python 3.10 async TLS limitation"
     On Python 3.10, `asyncio.loop.start_tls()` may hang indefinitely when a TLS handshake fails
     due to **certificate verification** errors (CPython
-    [gh-142352](https://github.com/python/cpython/issues/142352), fixed in 3.13/3.14). Other TLS
+    a known CPython asyncio TLS handshake bug on Python 3.10, fixed in 3.13/3.14). Other TLS
     error paths — peer unresponsive, timeout — remain bounded by `ssl_handshake_timeout`. The
     issue does not affect the sync driver. Tracked in
     [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156).
@@ -315,9 +315,32 @@ conn.autocommit = True
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
 >
-> The CUBRID server default is `autocommit=True`, but pycubrid `Connection` defaults to
-> `autocommit=False` for explicit transaction control. Pass `autocommit=True` to `connect()`
-> to enable.
+> pycubrid's `Connection` defaults to `autocommit=False` for explicit transaction control
+> and sends this value as the per-statement ``auto_commit`` flag on every
+> ``PrepareAndExecute`` packet, so the broker's own ``CUBRID_AUTO_COMMIT`` setting is
+> effectively overridden by what the driver reports. Pass ``autocommit=True`` to ``connect()``
+> (or set ``connection.autocommit = True`` after connecting) to enable.
+
+### Session-state restoration on transparent reconnect
+
+The CUBRID broker may close a CAS worker between requests when
+``KEEP_CONNECTION=AUTO`` (the default). pycubrid follows JDBC's
+``UClientSideConnection.checkReconnect`` and reconnects transparently
+on the next request when the broker signals ``CAS_INFO_STATUS_INACTIVE``.
+
+To preserve PEP 249 semantics across that reconnect, pycubrid restores
+session-level settings the caller has **explicitly** set:
+
+| Setting | Restored on reconnect? |
+|---|---|
+| ``autocommit`` (set via ``connection.autocommit = ...`` / ``await conn.set_autocommit(...)``) | Yes — the same value is re-emitted via ``SetDbParameterPacket`` |
+| ``autocommit`` left at the connect-time default | No — the broker default is used |
+
+Settings the caller has never touched are intentionally **not**
+re-emitted on reconnect to avoid spurious round-trips. If the restore
+itself fails, the connection is torn down and the underlying transport
+error is preserved via PEP 3134 ``__cause__`` so callers can diagnose
+the failure.
 
 ---
 
