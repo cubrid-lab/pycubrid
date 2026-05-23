@@ -195,11 +195,10 @@ cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_
 
 !!! warning "Python 3.10 async TLS limitation"
     On Python 3.10, `asyncio.loop.start_tls()` may hang indefinitely when a TLS handshake fails
-    due to **certificate verification** errors (CPython
-    a known CPython asyncio TLS handshake bug on Python 3.10, fixed in 3.13/3.14). Other TLS
-    error paths — peer unresponsive, timeout — remain bounded by `ssl_handshake_timeout`. The
-    issue does not affect the sync driver. Tracked in
-    [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+    due to **certificate verification** errors (a known CPython asyncio TLS handshake bug on
+    Python 3.10, fixed in 3.13/3.14). Other TLS error paths — peer unresponsive, timeout —
+    remain bounded by `ssl_handshake_timeout`. The issue does not affect the sync driver.
+    Tracked in [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156).
 
 ```python
 import pycubrid.aio

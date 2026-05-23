@@ -258,7 +258,11 @@ class Connection(ConnectionCommonMixin):
 
         On failure the connection is torn down and the original cause is
         chained via ``raise ... from exc`` so the caller can diagnose
-        the restore failure.
+        the restore failure. **Any** exception raised by
+        ``_send_and_receive`` — including parse-layer errors such as
+        ``ValueError``, ``struct.error``, ``IndexError``, or
+        ``UnicodeDecodeError`` — is treated as a restore failure so the
+        connection is never left in a half-restored state.
         """
         if not self._autocommit_explicitly_set:
             return
@@ -270,7 +274,7 @@ class Connection(ConnectionCommonMixin):
                 ),
                 allow_reconnect=False,
             )
-        except (OperationalError, InterfaceError, OSError) as exc:
+        except Exception as exc:
             self._drop_connection()
             raise OperationalError("failed to restore session state after reconnect") from exc
 

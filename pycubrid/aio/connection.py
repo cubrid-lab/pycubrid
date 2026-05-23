@@ -517,6 +517,15 @@ class AsyncConnection(ConnectionCommonMixin):
         Must be called while ``self._lock`` is held.  Uses
         ``_send_and_receive_locked`` with ``allow_reconnect=False`` to
         avoid both the public lock (deadlock) and a recursive reconnect.
+
+        **Any** exception raised by ``_send_and_receive_locked`` — including
+        parse-layer errors such as ``ValueError``, ``struct.error``,
+        ``IndexError``, or ``UnicodeDecodeError`` — is treated as a restore
+        failure: the streams are closed, the connection is marked
+        disconnected, and ``OperationalError`` is raised with the original
+        cause chained via ``from exc``. This guarantees the connection is
+        never left in a half-restored state, matching the sync
+        ``Connection._restore_session_state`` contract.
         """
         if not self._autocommit_explicitly_set:
             return
@@ -528,7 +537,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 ),
                 allow_reconnect=False,
             )
-        except (OperationalError, InterfaceError, OSError) as exc:
+        except Exception as exc:
             await self._close_streams()
             self._connected = False
             raise OperationalError("failed to restore session state after reconnect") from exc

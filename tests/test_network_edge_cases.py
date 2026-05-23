@@ -411,6 +411,37 @@ class TestSessionStateRestoreOnReconnect:
         assert excinfo.value.__cause__ is original
         assert conn._connected is False
 
+    @pytest.mark.parametrize(
+        "parse_error",
+        [
+            struct.error("unpack requires more data"),
+            ValueError("malformed value"),
+            IndexError("buffer overrun"),
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        ],
+        ids=["struct_error", "value_error", "index_error", "unicode_decode_error"],
+    )
+    def test_restore_failure_wraps_parse_layer_exceptions(self, parse_error: Exception) -> None:
+        # Pins the contract that parse-layer errors raised by
+        # _send_and_receive (which would otherwise leak past the original
+        # narrow OperationalError/InterfaceError/OSError catch) are also
+        # caught and converted to OperationalError, leaving the connection
+        # cleanly torn down. Closes Copilot review on PR #167.
+        conn, _ = make_connected_connection()
+        conn._autocommit = True
+        conn._autocommit_explicitly_set = True
+
+        def _fail(*_args: object, **_kwargs: object) -> None:
+            raise parse_error
+
+        conn._send_and_receive = _fail  # type: ignore[method-assign]
+
+        with pytest.raises(OperationalError) as excinfo:
+            conn._restore_session_state()
+
+        assert excinfo.value.__cause__ is parse_error
+        assert conn._connected is False
+
     @pytest.mark.asyncio
     async def test_async_explicit_autocommit_is_tracked(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
@@ -448,6 +479,39 @@ class TestSessionStateRestoreOnReconnect:
             await conn._restore_session_state_locked()
 
         assert excinfo.value.__cause__ is original
+        assert conn._connected is False
+        assert conn._writer is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "parse_error",
+        [
+            struct.error("unpack requires more data"),
+            ValueError("malformed value"),
+            IndexError("buffer overrun"),
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        ],
+        ids=["struct_error", "value_error", "index_error", "unicode_decode_error"],
+    )
+    async def test_async_restore_failure_wraps_parse_layer_exceptions(
+        self, parse_error: Exception
+    ) -> None:
+        # Pins the async contract that parse-layer errors raised by
+        # _send_and_receive_locked (which would otherwise leak past the
+        # original narrow OperationalError/InterfaceError/OSError catch) are
+        # also caught and converted to OperationalError, leaving the
+        # connection cleanly torn down. Closes Copilot review on PR #167.
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn._connected = True
+        conn._reader, conn._writer, _ = make_mock_stream_pair()
+        conn._autocommit = True
+        conn._autocommit_explicitly_set = True
+        conn._send_and_receive_locked = AsyncMock(side_effect=parse_error)  # type: ignore[method-assign]
+
+        with pytest.raises(OperationalError) as excinfo:
+            await conn._restore_session_state_locked()
+
+        assert excinfo.value.__cause__ is parse_error
         assert conn._connected is False
         assert conn._writer is None
 
