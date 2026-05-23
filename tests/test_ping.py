@@ -115,7 +115,7 @@ class TestConnectionPing:
     def test_ping_inactive_cas_info_with_reconnect(self, socket_queue: list[MagicMock]) -> None:
         conn, sock = make_connected_connection(socket_queue)
         conn._cas_info = b"\x00\x01\x02\x03"
-        conn._invalidate_query_handles = MagicMock()
+        conn._invalidate_query_handles_for_reconnect = MagicMock()
 
         open_db = build_open_db_response()
         ok_resp = build_simple_ok_response()
@@ -133,7 +133,7 @@ class TestConnectionPing:
         assert conn.ping(reconnect=True) is True
         assert conn._connected is True
         assert sock.close.called
-        conn._invalidate_query_handles.assert_called_once_with()
+        conn._invalidate_query_handles_for_reconnect.assert_called_once_with()
 
     def test_send_and_receive_skips_reconnect_when_disallowed(
         self,

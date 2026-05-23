@@ -110,6 +110,7 @@ class ConnectionCommonMixin:
         self._cas_info: bytes | bytearray = b"\x00\x00\x00\x00"
         self._session_id = 0
         self._autocommit = False
+        self._autocommit_explicitly_set = False
         self._cursors: set[Any] = set()
         self._protocol_version: int = 1
 
@@ -123,6 +124,18 @@ class ConnectionCommonMixin:
         """
         for cursor in self._cursors:
             cursor._query_handle = None
+
+    def _invalidate_query_handles_for_reconnect(self) -> None:
+        """Invalidate query handles and mark cursors as reconnect-invalidated.
+
+        Distinct from :meth:`_invalidate_query_handles` so that mid-fetch
+        callers can detect a transparent reconnect (and raise
+        :class:`OperationalError`) without altering the commit/rollback
+        invalidation semantics that PEP 249 callers already depend on.
+        """
+        for cursor in self._cursors:
+            cursor._query_handle = None
+            cursor._invalidated_by_reconnect = True
 
     def _ensure_connected(self) -> None:
         """Raise ``InterfaceError`` when called on a closed connection."""

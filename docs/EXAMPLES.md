@@ -138,7 +138,7 @@ asyncio.run(main())
 
 !!! warning "Python 3.10 async TLS"
     `loop.start_tls()` can hang on certificate-verify failures on Python 3.10
-    (CPython [gh-142352](https://github.com/python/cpython/issues/142352),
+    (a known CPython asyncio TLS handshake bug on Python 3.10,
     fixed in 3.13/3.14). For production async TLS on 3.10, validate the cert
     chain out-of-band first, or use the sync path. See
     [Troubleshooting](TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310)

@@ -21,7 +21,7 @@ def make_async_connection() -> tuple[AsyncConnection, MagicMock, MagicMock]:
     writer.wait_closed = AsyncMock()
     conn._reader = reader
     conn._writer = writer
-    conn._invalidate_query_handles = MagicMock()
+    conn._invalidate_query_handles_for_reconnect = MagicMock()
     return conn, reader, writer
 
 
@@ -58,7 +58,7 @@ class TestAsyncConnectionPing:
         conn._writer = None
         conn.connect = AsyncMock(side_effect=lambda: setattr(conn, "_connected", True))
         invalidate = MagicMock()
-        conn._invalidate_query_handles = invalidate
+        conn._invalidate_query_handles_for_reconnect = invalidate
 
         assert await conn.ping(reconnect=True) is True
         assert conn._connected is True
@@ -82,7 +82,7 @@ class TestAsyncConnectionPing:
         conn, _, writer = make_async_connection()
         conn._cas_info = b"\x00\x01\x02\x03"
         invalidate = MagicMock()
-        conn._invalidate_query_handles = invalidate
+        conn._invalidate_query_handles_for_reconnect = invalidate
         conn._do_send_and_receive = AsyncMock(return_value=SimpleNamespace(response_code=0))
 
         async def fake_connect() -> None:
