@@ -1,0 +1,2661 @@
+{
+  "pycubrid": {
+    "__all__": [
+      "BINARY",
+      "Binary",
+      "DATETIME",
+      "DataError",
+      "DatabaseError",
+      "Date",
+      "DateFromTicks",
+      "Error",
+      "IntegrityError",
+      "InterfaceError",
+      "InternalError",
+      "Lob",
+      "NUMBER",
+      "NotSupportedError",
+      "OperationalError",
+      "ProgrammingError",
+      "ROWID",
+      "STRING",
+      "Time",
+      "TimeFromTicks",
+      "Timestamp",
+      "TimestampFromTicks",
+      "TimingStats",
+      "Warning",
+      "__version__",
+      "apilevel",
+      "connect",
+      "get_error_description",
+      "paramstyle",
+      "threadsafety"
+    ],
+    "entries": {
+      "BINARY": {
+        "kind": "attribute",
+        "type": "DBAPIType"
+      },
+      "Binary": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "value"
+            }
+          ]
+        }
+      },
+      "DATETIME": {
+        "kind": "attribute",
+        "type": "DBAPIType"
+      },
+      "DataError": {
+        "bases": [
+          "pycubrid.exceptions.DatabaseError"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__str__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "DatabaseError": {
+        "bases": [
+          "pycubrid.exceptions.Error"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__str__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "Date": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "year"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "month"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "day"
+            }
+          ]
+        }
+      },
+      "DateFromTicks": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "ticks"
+            }
+          ]
+        }
+      },
+      "Error": {
+        "bases": [],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "IntegrityError": {
+        "bases": [
+          "pycubrid.exceptions.DatabaseError"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__str__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "InterfaceError": {
+        "bases": [
+          "pycubrid.exceptions.Error"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "InternalError": {
+        "bases": [
+          "pycubrid.exceptions.DatabaseError"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__str__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "Lob": {
+        "bases": [],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "connection"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "lob_type"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "lob_handle"
+                }
+              ]
+            }
+          },
+          "create": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "cls"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "connection"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "lob_type"
+                }
+              ]
+            }
+          },
+          "read": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "length"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "offset"
+                }
+              ]
+            }
+          },
+          "write": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "data"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "offset"
+                }
+              ]
+            }
+          }
+        },
+        "properties": [
+          "lob_handle",
+          "lob_type"
+        ]
+      },
+      "NUMBER": {
+        "kind": "attribute",
+        "type": "DBAPIType"
+      },
+      "NotSupportedError": {
+        "bases": [
+          "pycubrid.exceptions.DatabaseError"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__str__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "OperationalError": {
+        "bases": [
+          "pycubrid.exceptions.DatabaseError"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__str__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "ProgrammingError": {
+        "bases": [
+          "pycubrid.exceptions.DatabaseError"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__str__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "ROWID": {
+        "kind": "attribute",
+        "type": "DBAPIType"
+      },
+      "STRING": {
+        "kind": "attribute",
+        "type": "DBAPIType"
+      },
+      "Time": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "hour"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "minute"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "second"
+            }
+          ]
+        }
+      },
+      "TimeFromTicks": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "ticks"
+            }
+          ]
+        }
+      },
+      "Timestamp": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "year"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "month"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "day"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "hour"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "minute"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "second"
+            }
+          ]
+        }
+      },
+      "TimestampFromTicks": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "ticks"
+            }
+          ]
+        }
+      },
+      "TimingStats": {
+        "bases": [],
+        "class_vars": [
+          "close_count",
+          "close_total_ns",
+          "connect_count",
+          "connect_total_ns",
+          "execute_count",
+          "execute_total_ns",
+          "fetch_count",
+          "fetch_total_ns"
+        ],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "record_close": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "elapsed_ns"
+                }
+              ]
+            }
+          },
+          "record_connect": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "elapsed_ns"
+                }
+              ]
+            }
+          },
+          "record_execute": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "elapsed_ns"
+                }
+              ]
+            }
+          },
+          "record_fetch": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "elapsed_ns"
+                }
+              ]
+            }
+          },
+          "reset": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "Warning": {
+        "bases": [],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "__version__": {
+        "kind": "attribute",
+        "type": "str",
+        "value": "1.4.0"
+      },
+      "apilevel": {
+        "kind": "attribute",
+        "type": "str",
+        "value": "2.0"
+      },
+      "connect": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "host"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "port"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "database"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "user"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "password"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "decode_collections"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "json_deserializer"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "ssl"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_KEYWORD",
+              "name": "kwargs"
+            }
+          ]
+        }
+      },
+      "get_error_description": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            }
+          ]
+        }
+      },
+      "paramstyle": {
+        "kind": "attribute",
+        "type": "str",
+        "value": "qmark"
+      },
+      "threadsafety": {
+        "kind": "attribute",
+        "type": "int",
+        "value": 1
+      }
+    }
+  },
+  "pycubrid.aio": {
+    "__all__": [
+      "AsyncConnection",
+      "connect"
+    ],
+    "entries": {
+      "AsyncConnection": {
+        "bases": [
+          "pycubrid._connection_common.ConnectionCommonMixin"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__aenter__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__aexit__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "VAR_POSITIONAL",
+                  "name": "args"
+                }
+              ]
+            }
+          },
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "host"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "port"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "database"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "user"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "password"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "ssl"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "fetch_size"
+                },
+                {
+                  "has_default": false,
+                  "kind": "VAR_KEYWORD",
+                  "name": "kwargs"
+                }
+              ]
+            }
+          },
+          "close": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "commit": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "connect": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "cursor": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "get_last_insert_id": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "get_schema_info": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "schema_type"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "table_name"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "pattern_match_flag"
+                }
+              ]
+            }
+          },
+          "get_server_version": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "ping": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "reconnect"
+                }
+              ]
+            }
+          },
+          "rollback": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "set_autocommit": {
+            "kind": "callable",
+            "signature": {
+              "has_return_annotation": true,
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "value"
+                }
+              ]
+            }
+          }
+        },
+        "properties": [
+          "autocommit",
+          "timing_stats"
+        ]
+      },
+      "connect": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "host"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "port"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "database"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "user"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "password"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "decode_collections"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "json_deserializer"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "ssl"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_KEYWORD",
+              "name": "kwargs"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "pycubrid.aio.connection.AsyncConnection": {
+    "bases": [
+      "pycubrid._connection_common.ConnectionCommonMixin"
+    ],
+    "class_vars": [],
+    "kind": "class",
+    "methods": {
+      "__aenter__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "__aexit__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_POSITIONAL",
+              "name": "args"
+            }
+          ]
+        }
+      },
+      "__init__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "host"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "port"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "database"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "user"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "password"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "ssl"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "fetch_size"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_KEYWORD",
+              "name": "kwargs"
+            }
+          ]
+        }
+      },
+      "close": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "commit": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "connect": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "cursor": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "get_last_insert_id": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "get_schema_info": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "schema_type"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "table_name"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "pattern_match_flag"
+            }
+          ]
+        }
+      },
+      "get_server_version": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "ping": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "reconnect"
+            }
+          ]
+        }
+      },
+      "rollback": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "set_autocommit": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "value"
+            }
+          ]
+        }
+      }
+    },
+    "properties": [
+      "autocommit",
+      "timing_stats"
+    ]
+  },
+  "pycubrid.aio.cursor.AsyncCursor": {
+    "bases": [
+      "pycubrid._cursor_common.CursorParamsMixin"
+    ],
+    "class_vars": [],
+    "kind": "class",
+    "methods": {
+      "__aenter__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "__aexit__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_POSITIONAL",
+              "name": "args"
+            }
+          ]
+        }
+      },
+      "__aiter__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "__anext__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "__init__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "connection"
+            }
+          ]
+        }
+      },
+      "callproc": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "procname"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "parameters"
+            }
+          ]
+        }
+      },
+      "close": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "execute": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "operation"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "parameters"
+            }
+          ]
+        }
+      },
+      "executemany": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "operation"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "seq_of_parameters"
+            }
+          ]
+        }
+      },
+      "executemany_batch": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sql_list"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "auto_commit"
+            }
+          ]
+        }
+      },
+      "fetchall": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "fetchmany": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "size"
+            }
+          ]
+        }
+      },
+      "fetchone": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "nextset": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "setinputsizes": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sizes"
+            }
+          ]
+        }
+      },
+      "setoutputsize": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "size"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "column"
+            }
+          ]
+        }
+      }
+    },
+    "properties": [
+      "arraysize",
+      "description",
+      "fetch_size",
+      "lastrowid",
+      "rowcount"
+    ]
+  },
+  "pycubrid.connection.Connection": {
+    "bases": [
+      "pycubrid._connection_common.ConnectionCommonMixin"
+    ],
+    "class_vars": [],
+    "kind": "class",
+    "methods": {
+      "__enter__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "__exit__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_POSITIONAL",
+              "name": "args"
+            }
+          ]
+        }
+      },
+      "__init__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "host"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "port"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "database"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "user"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "password"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "autocommit"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "decode_collections"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "json_deserializer"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "ssl"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "fetch_size"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_KEYWORD",
+              "name": "kwargs"
+            }
+          ]
+        }
+      },
+      "close": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "commit": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "connect": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "create_lob": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "lob_type"
+            }
+          ]
+        }
+      },
+      "cursor": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "get_last_insert_id": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "get_schema_info": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "schema_type"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "table_name"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "pattern_match_flag"
+            }
+          ]
+        }
+      },
+      "get_server_version": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "ping": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "reconnect"
+            }
+          ]
+        }
+      },
+      "rollback": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      }
+    },
+    "properties": [
+      "autocommit",
+      "timing_stats"
+    ]
+  },
+  "pycubrid.cursor.Cursor": {
+    "bases": [
+      "pycubrid._cursor_common.CursorParamsMixin"
+    ],
+    "class_vars": [],
+    "kind": "class",
+    "methods": {
+      "__enter__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "__exit__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_POSITIONAL",
+              "name": "args"
+            }
+          ]
+        }
+      },
+      "__init__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "connection"
+            }
+          ]
+        }
+      },
+      "__iter__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "__next__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "callproc": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "procname"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "parameters"
+            }
+          ]
+        }
+      },
+      "close": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "execute": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "operation"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "parameters"
+            }
+          ]
+        }
+      },
+      "executemany": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "operation"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "seq_of_parameters"
+            }
+          ]
+        }
+      },
+      "executemany_batch": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sql_list"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "auto_commit"
+            }
+          ]
+        }
+      },
+      "fetchall": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "fetchmany": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "size"
+            }
+          ]
+        }
+      },
+      "fetchone": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "nextset": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "setinputsizes": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sizes"
+            }
+          ]
+        }
+      },
+      "setoutputsize": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "size"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "column"
+            }
+          ]
+        }
+      }
+    },
+    "properties": [
+      "arraysize",
+      "description",
+      "fetch_size",
+      "lastrowid",
+      "rowcount"
+    ]
+  },
+  "pycubrid.lob.Lob": {
+    "bases": [],
+    "class_vars": [],
+    "kind": "class",
+    "methods": {
+      "__init__": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "connection"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "lob_type"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "lob_handle"
+            }
+          ]
+        }
+      },
+      "create": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "cls"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "connection"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "lob_type"
+            }
+          ]
+        }
+      },
+      "read": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "length"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "offset"
+            }
+          ]
+        }
+      },
+      "write": {
+        "kind": "callable",
+        "signature": {
+          "has_return_annotation": true,
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "data"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "offset"
+            }
+          ]
+        }
+      }
+    },
+    "properties": [
+      "lob_handle",
+      "lob_type"
+    ]
+  }
+}

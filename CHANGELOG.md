@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Policy
+- **`RELEASE_POLICY.md` added; public API surface is now CI-gated.** The
+  project's previously implicit 1.x semantic-versioning contract is now an
+  explicit, machine-checkable document at the repository root. The CI workflow
+  gains a `compat-check` job that runs `scripts/check_public_api.py` against
+  the committed `api-baseline.json`; any change to the public surface
+  (functions, classes, methods, parameters of `pycubrid.connect`,
+  `pycubrid.aio.connect`, `Connection`, `Cursor`, `AsyncConnection`,
+  `AsyncCursor`, `Lob`, exception classes, and type objects) fails CI unless
+  the developer regenerates the baseline in the same change, surfacing the
+  surface diff for explicit human review. The 1.2.0 minor-release breaking
+  change (removal of `Mapping` parameter style from `_bind_parameters`) is
+  acknowledged in `RELEASE_POLICY.md` §4 as a historical violation rather
+  than silently rewritten; the new gate exists to prevent any recurrence.
+  README status line updated from "Beta" to "Stable (1.x)" across English
+  and all five translated READMEs to align with the 1.0.0 declaration and the
+  `Production/Stable` PyPI classifier already shipped since 1.0.0.
+
 ### CI
 - **Automated `SSL=ON` CUBRID broker provisioning** — `integration-full.yml` now includes an `integration-tls` job (Python {3.10, 3.14} × CUBRID 11.4) that starts a manually-managed CUBRID container, flips `BROKER1 SSL=OFF` → `SSL=ON`, extracts the broker's self-signed certificate, probes the TLS handshake, and runs `tests/test_aio_ssl_integration.py` with `CUBRID_TLS_TEST_*` env vars wired up. The job fails loudly if any TLS test is skipped, ensuring the live TLS path is exercised on every nightly/tag-push run instead of silently skipping (closes #147, #155)
 
