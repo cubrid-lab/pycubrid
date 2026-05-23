@@ -15,7 +15,7 @@ authors = [
 ]
 keywords = ["CUBRID", "database", "driver", "DB-API", "PEP 249", "tls", "ssl", "starttls", "asyncio"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",

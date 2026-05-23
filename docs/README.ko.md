@@ -17,7 +17,7 @@
 
 ---
 
-> **상태: Beta.** 핵심 공개 API는 시맨틱 버저닝을 따르며, 프로젝트가 활발히 개발되는 동안 마이너 릴리스에는 기능 추가와 버그 수정이 포함될 수 있습니다.
+> **상태: Stable (1.x).** 공개 API는 [시맨틱 버저닝](../RELEASE_POLICY.md)을 따릅니다. 마이너 릴리스는 하위 호환 기능 추가, 패치 릴리스는 버그 수정만 포함하며, 호환성 파괴 변경은 다음 메이저 버전(2.0+)에서만 허용되고 [`api-baseline.json`](../api-baseline.json)에 대한 자동 `compat-check` CI 잡으로 게이트됩니다. 활발한 개발은 계속됩니다 — 전체 계약은 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)를 참고하세요.
 
 ## 왜 pycubrid인가?
 

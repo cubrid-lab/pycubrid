@@ -17,7 +17,7 @@
 
 ---
 
-> **状态：Beta。** 核心公共 API 遵循语义化版本控制；在项目仍处于积极开发阶段时，次版本发布可能会增加新功能和错误修复。
+> **状态：Stable（1.x）。** 公共 API 遵循[语义化版本控制](../RELEASE_POLICY.md)：次版本发布添加向后兼容的功能，补丁发布仅修复 bug；破坏性变更保留到下一个主版本（2.0+），并由针对 [`api-baseline.json`](../api-baseline.json) 的自动化 `compat-check` CI 作业进行门控。开发持续进行 — 完整契约请参见 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)。
 
 ## 为什么选择 pycubrid？
 

@@ -17,7 +17,7 @@
 
 ---
 
-> **स्थिति: Beta.** मुख्य सार्वजनिक API semantic versioning का पालन करता है; जब तक परियोजना सक्रिय विकास में है, minor releases में नई सुविधाएँ और बग फिक्स शामिल हो सकते हैं।
+> **स्थिति: Stable (1.x).** सार्वजनिक API [semantic versioning](../RELEASE_POLICY.md) का पालन करता है: minor releases पिछड़े-संगत (backward-compatible) सुविधाएँ जोड़ते हैं और patch releases केवल बग फिक्स देते हैं; ब्रेकिंग बदलाव अगले major version (2.0+) के लिए सुरक्षित हैं और [`api-baseline.json`](../api-baseline.json) के विरुद्ध स्वचालित `compat-check` CI जॉब द्वारा सुरक्षित किए जाते हैं। सक्रिय विकास जारी है — पूर्ण अनुबंध के लिए [`RELEASE_POLICY.md`](../RELEASE_POLICY.md) देखें।
 
 ## pycubrid क्यों?
 
