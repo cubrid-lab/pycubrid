@@ -63,9 +63,10 @@ SQL text per execute. See
 - Placeholders are positional `?`. There are **no** named, numeric, or
   pyformat placeholders.
 - The `parameters` argument to `execute()` must be a `Sequence` other than
-  `str`/`bytes`/`bytearray`. Mappings are rejected with
-  `ProgrammingError("parameters must be a sequence")`
-  (`pycubrid/_cursor_common.py:194-197`).
+  `str`/`bytes`/`bytearray`. Mappings are rejected with `ProgrammingError`
+  (`pycubrid/_cursor_common.py:194-197`). The exact message text is
+  informative; see
+  [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 - A placeholder count mismatch raises `ProgrammingError`
   (`pycubrid/_cursor_common.py:199-203`). The exact message text is
   informative; see
@@ -86,18 +87,18 @@ test that pins the behavior.
 
 | Python type | SQL literal | Implementation | Pinned by |
 |---|---|---|---|
-| `None` | `NULL` | `_cursor_common.py:143-144` | `tests/test_param_security.py:84-86` |
-| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:87-91` |
-| `int` | `str(value)` (decimal digits) | `_cursor_common.py:177-180` | `tests/test_param_security.py:96-98` |
-| `float` | `str(value)`; `nan`/`inf`/`-inf` raise `ProgrammingError("nan and inf are not supported by CUBRID")` | `_cursor_common.py:177-180` | `tests/test_param_security.py:121-131` |
-| `decimal.Decimal` | `str(value)` (unquoted) | `_cursor_common.py:175-176` | `tests/test_param_security.py:102-104` |
-| `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) raises `ProgrammingError("string parameter contains null byte")` | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-67` |
-| `bytes`, `bytearray` | `X'<hex>'` (lowercase hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:93-95, 133-134` |
-| `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — microseconds truncated to milliseconds (`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:113-116` |
-| `datetime.datetime` (tz-aware) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset | `_cursor_common.py:151-169` | `tests/test_param_security.py:136-158` |
-| `datetime.date` | `DATE'YYYY-MM-DD'` | `_cursor_common.py:171-172` | `tests/test_param_security.py:105-107` |
-| `datetime.time` | `TIME'HH:MM:SS'` — microseconds dropped | `_cursor_common.py:173-174` | `tests/test_param_security.py:109-111` |
-| anything else | `ProgrammingError("unsupported parameter type")` | `_cursor_common.py:181` | `tests/test_param_security.py:117-119`; `tests/test_cursor.py:233-235` |
+| `None` | `NULL` | `_cursor_common.py:143-144` | `tests/test_param_security.py:95-97` |
+| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
+| `int` | `str(value)` (decimal digits) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
+| `float` | `str(value)`; `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
+| `decimal.Decimal` | `str(value)` (unquoted) | `_cursor_common.py:175-176` | `tests/test_param_security.py:113-115` |
+| `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) raises `ProgrammingError` (current message: `"string parameter contains null byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-78` |
+| `bytes`, `bytearray` | `X'<hex>'` (lowercase hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
+| `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — microseconds truncated to milliseconds (`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
+| `datetime.datetime` (tz-aware) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset | `_cursor_common.py:151-169` | `tests/test_param_security.py:147-169` |
+| `datetime.date` | `DATE'YYYY-MM-DD'` | `_cursor_common.py:171-172` | `tests/test_param_security.py:116-118` |
+| `datetime.time` | `TIME'HH:MM:SS'` — microseconds dropped | `_cursor_common.py:173-174` | `tests/test_param_security.py:120-122` |
+| anything else | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:181` | `tests/test_param_security.py:128-130`; `tests/test_cursor.py:233-235` |
 
 ### Explicitly unsupported as a bound value
 
@@ -126,13 +127,15 @@ String escaping is performed by `escape_string`
 In every mode:
 
 - The literal is wrapped in single quotes.
-- NUL (`U+0000`) in the input raises `ProgrammingError("string parameter
-  contains null byte")` (`pycubrid/_cursor_common.py:130-131`). This is
-  unconditional and applies in both modes.
+- NUL (`U+0000`) in the input raises `ProgrammingError`
+  (`pycubrid/_cursor_common.py:130-131`). This is unconditional and applies
+  in both modes. The exact message text is informative; see
+  [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 - Single quotes are doubled (`'` → `''`).
-- Unicode code points (including non-BMP and surrogate-pair-encoded
-  characters) are passed through unchanged
-  (`tests/test_param_security.py:59-63`).
+- Unicode code points (including non-BMP characters that UTF-16 would encode
+  as a surrogate pair) are passed through unchanged
+  (`tests/test_param_security.py::TestEscapeString::test_unicode_passthrough`,
+  `::test_unicode_non_bmp_passthrough`).
 
 ### Default mode
 
