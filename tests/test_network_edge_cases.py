@@ -143,6 +143,54 @@ class TestConnectionNetworkEdgeCases:
         assert packet is not None
         assert partial_sock.recv_into.call_count == 4
 
+    @pytest.mark.parametrize(
+        "parse_error",
+        [
+            ValueError("bad frame"),
+            struct.error("unpack requires more bytes"),
+            IndexError("truncated body"),
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        ],
+        ids=["ValueError", "struct.error", "IndexError", "UnicodeDecodeError"],
+    )
+    def test_malformed_response_raises_operational_error_and_disconnects(
+        self, parse_error: Exception
+    ) -> None:
+        """Parse-layer failures must tear the connection down (parity with #138)."""
+        conn, _ = make_connected_connection()
+        frame = build_simple_ok_response(conn._cas_info)
+        conn._socket = make_socket_from_chunks([frame[:4], frame[4:]])
+
+        with patch("pycubrid.protocol.CommitPacket.parse", side_effect=parse_error):
+            with pytest.raises(OperationalError, match="malformed response from broker") as excinfo:
+                conn._send_and_receive(CommitPacket())
+
+        assert excinfo.value.__cause__ is parse_error
+        assert conn._connected is False
+        assert conn._socket is None
+
+    def test_malformed_response_then_ping_reconnects(self) -> None:
+        """After a malformed-response teardown, ping(reconnect=True) recovers."""
+        conn, _ = make_connected_connection()
+        frame = build_simple_ok_response(conn._cas_info)
+        conn._socket = make_socket_from_chunks([frame[:4], frame[4:]])
+
+        with patch("pycubrid.protocol.CommitPacket.parse", side_effect=ValueError("bad frame")):
+            with pytest.raises(OperationalError, match="malformed response from broker"):
+                conn._send_and_receive(CommitPacket())
+
+        assert conn._connected is False
+
+        def reconnect() -> None:
+            conn._socket = MagicMock()
+            conn._connected = True
+
+        conn.connect = MagicMock(side_effect=reconnect)  # type: ignore[method-assign]
+
+        assert conn.ping(reconnect=True) is True
+        conn.connect.assert_called_once_with()
+        assert conn._connected is True
+
     def test_cas_info_inactive_triggers_reconnect_on_next_request(self) -> None:
         conn, sock = make_connected_connection()
         inactive_frame = build_simple_ok_response(b"\x00\x01\x02\x03")
