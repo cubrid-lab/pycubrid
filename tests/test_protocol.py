@@ -1293,6 +1293,14 @@ class TestLOBWritePacket:
         pkt = LOBWritePacket(b"", 0, b"")
         response = _build_success_response(DEFAULT_CAS_INFO, 0)
         pkt.parse(response)
+        assert pkt.bytes_written == 0
+
+    def test_parse_success_extracts_bytes_written(self) -> None:
+        """response_code doubles as bytes_written per CAS protocol."""
+        pkt = LOBWritePacket(b"", 0, b"hello")
+        response = _build_success_response(DEFAULT_CAS_INFO, 5)
+        pkt.parse(response)
+        assert pkt.bytes_written == 5
 
     def test_parse_error(self) -> None:
         pkt = LOBWritePacket(b"", 0, b"")
