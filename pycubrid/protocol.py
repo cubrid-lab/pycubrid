@@ -21,8 +21,16 @@ from .constants import (
     CUBRIDStatementType,
     DataSize,
 )
-from .error_codes import get_sqlstate
-from .exceptions import DatabaseError, IntegrityError, ProgrammingError
+from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE, get_sqlstate
+from .exceptions import (
+    DatabaseError,
+    DataError,
+    InterfaceError,
+    IntegrityError,
+    InternalError,
+    OperationalError,
+    ProgrammingError,
+)
 from .packet import PacketReader, PacketWriter
 
 
@@ -407,30 +415,66 @@ def _add_error_hints(error_message: str) -> str:
                 )
 
     return error_message
-    return error_message
+
+
+# Exception class lookup for CAS-code-based dispatch in _raise_error().
+_EXCEPTION_CLASSES = {
+    "DatabaseError": DatabaseError,
+    "DataError": DataError,
+    "InterfaceError": InterfaceError,
+    "IntegrityError": IntegrityError,
+    "InternalError": InternalError,
+    "OperationalError": OperationalError,
+    "ProgrammingError": ProgrammingError,
+}
+
+
+def _classify_by_text(error_message: str) -> str:
+    """Classify an error by message text — fallback for CAS code -1 (ER_DBMS).
+
+    CAS wraps many server-engine errors with the generic code -1 and only the
+    message for differentiation. This heuristic preserves backward
+    compatibility for those passthrough errors.
+    """
+    msg_lower = error_message.lower()
+    if any(
+        kw in msg_lower for kw in ("unique", "duplicate", "foreign key", "constraint violation")
+    ):
+        return "IntegrityError"
+    if any(kw in msg_lower for kw in ("syntax", "unknown class", "does not exist", "not found")):
+        return "ProgrammingError"
+    return "DatabaseError"
 
 
 def _raise_error(reader: PacketReader, response_length: int) -> None:
     """Parse an error response and raise the appropriate DB-API exception.
 
-    Adds helpful hints for common CUBRID pitfalls (reserved words, unsupported functions).
+    Dispatches primarily by CAS error code (deterministic, stable across
+    CUBRID versions). Falls back to text heuristics ONLY for code -1
+    (ER_DBMS), where CAS wraps server-engine errors with a generic code and
+    only the message is informative.
     """
     error_code, error_message = reader.read_error(response_length)
     sqlstate = get_sqlstate(error_code)
     error_message = _add_error_hints(error_message)
-    msg_lower = error_message.lower()
-    if any(
-        kw in msg_lower for kw in ("unique", "duplicate", "foreign key", "constraint violation")
-    ):
-        raise IntegrityError(
-            msg=error_message, code=error_code, errno=error_code, sqlstate=sqlstate or "23000"
-        )
-    if any(kw in msg_lower for kw in ("syntax", "unknown class", "does not exist", "not found")):
-        raise ProgrammingError(
-            msg=error_message, code=error_code, errno=error_code, sqlstate=sqlstate or "42000"
-        )
-    raise DatabaseError(
-        msg=error_message, code=error_code, errno=error_code, sqlstate=sqlstate or "HY000"
+
+    # Primary dispatch: CAS error code → exception class
+    exc_name = CAS_ERROR_TO_EXCEPTION.get(error_code)
+
+    # Fallback: ER_DBMS (-1) uses text classification (CAS passthrough)
+    if exc_name is None and error_code == -1:
+        exc_name = _classify_by_text(error_message)
+
+    # Unmapped code → generic DatabaseError
+    if exc_name is None:
+        exc_name = "DatabaseError"
+
+    exc_class = _EXCEPTION_CLASSES[exc_name]
+    raise exc_class(
+        msg=error_message,
+        code=error_code,
+        errno=error_code,
+        sqlstate=sqlstate or _DEFAULT_SQLSTATE.get(exc_name, "HY000"),
     )
 
 
@@ -1217,6 +1261,7 @@ class LOBWritePacket:
         self.packed_lob_handle = packed_lob_handle
         self.offset = offset
         self.data = data
+        self.bytes_written: int = 0
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the LOB write request."""
@@ -1228,13 +1273,17 @@ class LOBWritePacket:
         return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
-        """Parse the LOB write response."""
+        """Parse the LOB write response.
+
+        On success, ``response_code`` doubles as ``bytes_written`` per CAS protocol.
+        """
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
+        self.bytes_written = response_code
 
 
 class LOBReadPacket:

@@ -50,7 +50,7 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 | PEP 249 (DB-API 2.0) compliant | ✅ | ✅ Full API compliance |
 | Offline tests (no live DB) | ✅ | ✅ 770 tests, 97.29% coverage |
 | LOB (CLOB/BLOB) support | ✅ | ✅ `create_lob()`, read/write |
-| Prepared statements | ✅ | ✅ `cursor.execute(sql, params)` — uses CAS `PREPARE_AND_EXECUTE` |
+| Prepared statements | ✅ | ✅ `cursor.execute(sql, params)` — driver-side parameter binding via `?` placeholders (see [PARAMETER_BINDING.md](PARAMETER_BINDING.md)) |
 | CI/CD with version matrix | ✅ | ✅ Py 3.10–3.14 offline + anchored integration coverage for CUBRID 10.2–11.4 |
 | Publishable to PyPI | ✅ | ✅ Release workflow on tag |
 | ≥ 95% code coverage | ✅ | ✅ 97.29% (CI-enforced) |
@@ -135,7 +135,7 @@ Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`,
 - `executemany(sql, seq_of_params)` — batch execute
 - `executemany_batch(sql, seq_of_params)` — optimized batch insert
 - `fetchone()` / `fetchmany(size)` / `fetchall()` — result retrieval
-- `execute(sql, params)` — parameterized queries via CAS `PREPARE_AND_EXECUTE`
+- `execute(sql, params)` — qmark-style parameterized queries bound CLIENT-SIDE; SQL is fully rendered before being sent to CAS (see [PARAMETER_BINDING.md](PARAMETER_BINDING.md))
 - `callproc(procname, params)` — stored procedure calls
 - `nextset()` — DB-API compatibility method (returns `None`)
 - Iterator protocol — `for row in cursor`
@@ -367,7 +367,7 @@ production-ready, runnable examples for pycubrid:
 | `01_connect.py` | Basic connection and query |
 | `02_crud.py` | Create, read, update, delete operations |
 | `03_transactions.py` | Transaction management with commit/rollback |
-| `04_prepared.py` | Prepared statements for repeated queries |
+| `04_prepared.py` | Parameterized queries (driver-side binding) for repeated execution |
 | `05_error_handling.py` | Error handling with PEP 249 exception hierarchy |
 | `06_lob.py` | LOB (CLOB/BLOB) operations |
 

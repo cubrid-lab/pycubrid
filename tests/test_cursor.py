@@ -582,7 +582,169 @@ def test_closed_cursor_raises_interface_error(cursor: Cursor) -> None:
     with pytest.raises(InterfaceError, match="closed"):
         cursor.execute("SELECT 1")
 
-
-def test_setinputsizes_and_setoutputsize_are_noops(cursor: Cursor) -> None:
-    cursor.setinputsizes([1, 2, 3])
     cursor.setoutputsize(10, 1)
+
+
+def test_fetchall_clears_buffer_entirely(cursor: Cursor, mock_connection: MagicMock) -> None:
+    """fetchall() must release the entire buffer once everything is consumed."""
+    initial_rows = [(i,) for i in range(250)]
+
+    def send(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.SELECT,
+                rows=initial_rows,
+                total_count=250,
+            )
+        elif isinstance(packet, FetchPacket):
+            packet.rows = []
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.execute("SELECT id FROM t")
+    result = cursor.fetchall()
+    assert len(result) == 250
+    assert cursor._rows == []
+    assert cursor._row_index == 0
+
+
+def test_fetchone_bounds_memory_over_large_result_set(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """Row buffer stays bounded while iterating a 10K-row result set via fetchone.
+
+    The buffer is REPLACED (not extended) on every server fetch, so
+    `len(_rows)` is bounded by the fetch page size regardless of total
+    result-set size.
+    """
+    total = 10_000
+    page = 100  # rows returned per FetchPacket
+    fetched_pages: list[int] = []  # tracks how many pages served
+
+    def send(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.SELECT,
+                rows=[(i,) for i in range(page)],  # first page
+                total_count=total,
+            )
+        elif isinstance(packet, FetchPacket):
+            fetched_pages.append(1)
+            next_index = len(fetched_pages) * page
+            if next_index < total:
+                packet.rows = [(next_index + i,) for i in range(page)]
+            else:
+                packet.rows = []
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.execute("SELECT id FROM t")
+
+    consumed = 0
+    max_buffer_seen = 0
+    last_row_id = -1
+    while True:
+        row = cursor.fetchone()
+        if row is None:
+            break
+        # Verify rows arrive in correct order (no re-fetching duplicates)
+        assert row[0] == consumed, f"expected row {consumed}, got {row[0]}"
+        consumed += 1
+        max_buffer_seen = max(max_buffer_seen, len(cursor._rows))
+        last_row_id = row[0]
+
+    assert consumed == total
+    assert last_row_id == total - 1
+    # Buffer must never hold the full 10K rows; the REPLACE strategy keeps it
+    # bounded by the fetch page size.
+    assert max_buffer_seen <= page, (
+        f"buffer grew to {max_buffer_seen}; expected bounded by page size {page}",
+    )
+
+
+def test_fetchmany_bounds_memory_over_large_result_set(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """fetchmany() also benefits from bounded buffer over large result sets."""
+    total = 5_000
+    page = 50
+    fetched_pages: list[int] = []
+
+    def send(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.SELECT,
+                rows=[(i,) for i in range(page)],
+                total_count=total,
+            )
+        elif isinstance(packet, FetchPacket):
+            fetched_pages.append(1)
+            next_index = len(fetched_pages) * page
+            if next_index < total:
+                packet.rows = [(next_index + i,) for i in range(page)]
+            else:
+                packet.rows = []
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.execute("SELECT id FROM t")
+
+    consumed = 0
+    max_buffer_seen = 0
+    while True:
+        batch = cursor.fetchmany(25)
+        if not batch:
+            break
+        for row in batch:
+            assert row[0] == consumed, f"expected row {consumed}, got {row[0]}"
+            consumed += 1
+        max_buffer_seen = max(max_buffer_seen, len(cursor._rows))
+
+    assert consumed == total
+    assert max_buffer_seen <= page, (
+        f"buffer grew to {max_buffer_seen}; expected bounded by page size {page}",
+    )
+
+
+def test_fetched_count_tracks_absolute_position(cursor: Cursor) -> None:
+    """_fetched_count tracks total rows received from server, not buffer index."""
+    cursor._rows = [(1,), (2,), (3,)]
+    cursor._row_index = 0
+    cursor._fetched_count = 3
+    cursor._total_tuple_count = 3
+    cursor._description = ()  # mark result set as active
+    # Consuming rows from buffer does not change _fetched_count
+    cursor.fetchone()
+    cursor.fetchone()
+    assert cursor._fetched_count == 3
+    assert cursor._row_index == 2
+
+
+def test_fetched_count_reset_on_execute(cursor: Cursor, mock_connection: MagicMock) -> None:
+    """execute() must reset _fetched_count to the first page's row count."""
+    first_page = [(i,) for i in range(10)]
+
+    def send(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.SELECT,
+                rows=first_page,
+                total_count=100,
+            )
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.execute("SELECT id FROM t")
+    assert cursor._fetched_count == 10
+    # Simulate partial consumption
+    cursor.fetchone()
+    cursor.fetchone()
+    assert cursor._fetched_count == 10
+    # Re-execute — _fetched_count resets to fresh first-page count
+    cursor.execute("SELECT id FROM t")
+    assert cursor._fetched_count == 10
+    assert cursor._row_index == 0

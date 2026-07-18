@@ -297,7 +297,7 @@ Ja. Verwenden Sie `pycubrid.aio.connect()` für native asyncio-Unterstützung. D
 ## Verwandte Projekte
 
 - [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — SQLAlchemy-2.0-Dialekt für CUBRID
-- [cubrid-python-cookbook](https://github.com/cubrid-lab/cubrid-python-cookbook) — Produktionsreife Python-Beispiele für CUBRID
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — Produktionsreife Python-Beispiele für CUBRID
 
 
 ## Roadmap
