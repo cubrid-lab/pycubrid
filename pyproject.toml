@@ -43,6 +43,7 @@ dev = [
     "bandit[toml]==1.9.4",
     "pre-commit",
     "tox",
+    "hypothesis>=6.0",
 ]
 
 [project.urls]
