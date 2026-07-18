@@ -217,6 +217,7 @@ class AsyncConnection(ConnectionCommonMixin):
         await self._writer.drain()
         data_length_bytes = await self._recv_exact(self._reader, DataSize.DATA_LENGTH)
         data_length = struct.unpack(">i", data_length_bytes)[0]
+        self._validate_data_length(data_length)
         response_body = await self._recv_exact(self._reader, data_length + DataSize.CAS_INFO)
         open_db_packet.parse(response_body)
 
@@ -610,6 +611,7 @@ class AsyncConnection(ConnectionCommonMixin):
 
         data_length_bytes = await self._recv_exact(reader, DataSize.DATA_LENGTH)
         data_length = struct.unpack(">i", data_length_bytes)[0]
+        self._validate_data_length(data_length)
         response_body = await self._recv_exact(reader, data_length + DataSize.CAS_INFO)
 
         self._cas_info = response_body[: DataSize.CAS_INFO]
@@ -620,6 +622,21 @@ class AsyncConnection(ConnectionCommonMixin):
             self._connected = False
             raise OperationalError("malformed response from broker") from exc
         return packet
+
+    @staticmethod
+    def _validate_data_length(data_length: int) -> None:
+        """Validate the DATA_LENGTH header from the broker.
+
+        Raises OperationalError for negative or oversized values to prevent
+        ValueError on allocation or unbounded memory usage (issue #188).
+        """
+        if data_length < 0:
+            raise OperationalError(f"invalid DATA_LENGTH from broker: {data_length} (negative)")
+        if data_length > DataSize.MAX_PACKET_SIZE:
+            raise OperationalError(
+                f"invalid DATA_LENGTH from broker: {data_length} "
+                f"(exceeds max {DataSize.MAX_PACKET_SIZE})"
+            )
 
     async def _recv_exact(
         self,

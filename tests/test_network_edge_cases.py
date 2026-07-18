@@ -9,6 +9,7 @@ import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
+from pycubrid.constants import DataSize
 from pycubrid.exceptions import OperationalError
 from pycubrid.protocol import CommitPacket
 
@@ -190,6 +191,38 @@ class TestConnectionNetworkEdgeCases:
             Connection("localhost", 33000, "testdb", "dba", "", read_timeout=4.5)
 
         sock.settimeout.assert_called_once_with(4.5)
+
+
+class TestDataLengthValidation:
+    """Tests for DATA_LENGTH bounds checking (issue #188)."""
+
+    def test_negative_data_length_raises_operational_error(self) -> None:
+        """A negative DATA_LENGTH from the broker must raise OperationalError, not ValueError."""
+        with pytest.raises(OperationalError, match="negative"):
+            Connection._validate_data_length(-1)
+
+    def test_oversized_data_length_raises_operational_error(self) -> None:
+        """An oversized DATA_LENGTH must raise OperationalError, not allocate unbounded memory."""
+        with pytest.raises(OperationalError, match="exceeds max"):
+            Connection._validate_data_length(DataSize.MAX_PACKET_SIZE + 1)
+
+    def test_zero_data_length_is_accepted(self) -> None:
+        """Zero is a valid DATA_LENGTH (empty response body)."""
+        Connection._validate_data_length(0)  # should not raise
+
+    def test_max_packet_size_is_accepted(self) -> None:
+        """The exact boundary value should be accepted."""
+        Connection._validate_data_length(DataSize.MAX_PACKET_SIZE)  # should not raise
+
+    def test_async_negative_data_length_raises_operational_error(self) -> None:
+        """Async connection must also validate DATA_LENGTH (#188)."""
+        with pytest.raises(OperationalError, match="negative"):
+            AsyncConnection._validate_data_length(-1)
+
+    def test_async_oversized_data_length_raises_operational_error(self) -> None:
+        """Async connection must reject oversized DATA_LENGTH (#188)."""
+        with pytest.raises(OperationalError, match="exceeds max"):
+            AsyncConnection._validate_data_length(DataSize.MAX_PACKET_SIZE + 1)
 
 
 class TestAsyncConnectionNetworkEdgeCases:
