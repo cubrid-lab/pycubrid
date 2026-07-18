@@ -16,6 +16,8 @@ def mock_connection() -> MagicMock:
     connection._ensure_connected = MagicMock()
 
     def send_and_receive(packet: object) -> object:
+        if isinstance(packet, LOBWritePacket):
+            packet.bytes_written = len(packet.data)
         return packet
 
     connection._send_and_receive = MagicMock(side_effect=send_and_receive)
@@ -87,6 +89,32 @@ def test_write_propagates_connection_closed_error(mock_connection: MagicMock) ->
 
     with pytest.raises(InterfaceError, match="connection is closed"):
         lob.write(b"x")
+
+
+def test_write_raises_on_partial_write(mock_connection: MagicMock) -> None:
+    """Server writing fewer bytes than requested raises OperationalError."""
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+
+    def partial_write(packet: object) -> object:
+        if isinstance(packet, LOBWritePacket):
+            packet.bytes_written = 2  # Only 2 of 5 bytes written
+        return packet
+
+    mock_connection._send_and_receive.side_effect = partial_write
+
+    with pytest.raises(OperationalError, match="LOB write truncated"):
+        lob.write(b"hello")
+
+
+def test_write_raises_on_zero_bytes_written(mock_connection: MagicMock) -> None:
+    """Server writing zero bytes raises OperationalError with count."""
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+
+    # Override fixture: don't set bytes_written (stays 0 from __init__)
+    mock_connection._send_and_receive.side_effect = lambda packet: packet
+
+    with pytest.raises(OperationalError, match="wrote 0 of 5 bytes"):
+        lob.write(b"hello")
 
 
 def test_read_sends_lob_read_packet_and_returns_data(mock_connection: MagicMock) -> None:

@@ -4,6 +4,7 @@ import logging
 from typing import Any, Protocol
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
+from .exceptions import OperationalError
 from .protocol import LOBNewPacket, LOBReadPacket, LOBWritePacket
 
 
@@ -37,10 +38,18 @@ class Lob:
         return cls(connection, lob_type, packet.lob_handle)
 
     def write(self, data: bytes, offset: int = 0) -> int:
-        """Write bytes to the LOB starting from ``offset``."""
+        """Write bytes to the LOB starting from ``offset``.
+
+        Raises ``OperationalError`` if the server writes fewer bytes than
+        requested (e.g. disk full, quota exceeded).
+        """
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
         self._connection._send_and_receive(packet)
+        if packet.bytes_written != len(data):
+            raise OperationalError(
+                f"LOB write truncated: wrote {packet.bytes_written} of {len(data)} bytes"
+            )
         _LOGGER.debug("LOB write: offset=%d size=%d", offset, len(data))
         return len(data)
 

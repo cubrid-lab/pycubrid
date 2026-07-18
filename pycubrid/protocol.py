@@ -1217,6 +1217,7 @@ class LOBWritePacket:
         self.packed_lob_handle = packed_lob_handle
         self.offset = offset
         self.data = data
+        self.bytes_written: int = 0
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the LOB write request."""
@@ -1228,13 +1229,17 @@ class LOBWritePacket:
         return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
-        """Parse the LOB write response."""
+        """Parse the LOB write response.
+
+        On success, ``response_code`` doubles as ``bytes_written`` per CAS protocol.
+        """
         reader = PacketReader(data)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
+        self.bytes_written = response_code
 
 
 class LOBReadPacket:

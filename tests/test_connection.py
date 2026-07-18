@@ -491,6 +491,32 @@ class TestErrorHandling:
         assert conn._connected is False
         assert conn._socket is None
 
+    def test_send_and_receive_converts_parse_error_to_operational_error(
+        self,
+        socket_queue: list[MagicMock],
+    ) -> None:
+        """Parse errors (struct.error, ValueError, etc.) become OperationalError."""
+        conn, sock = make_connected_connection(socket_queue)
+
+        # Provide valid framing data for the recv path
+        body = conn._cas_info + struct.pack(">i", 0)
+        frame = struct.pack(">i", len(body) - 4) + body
+        sock.recv.side_effect = list(sock.recv.side_effect) + [
+            frame[:4],
+            frame[4:8],
+            frame[8:],
+        ]
+
+        with patch(
+            "pycubrid.protocol.CommitPacket.parse",
+            side_effect=struct.error("malformed packet header"),
+        ):
+            with pytest.raises(OperationalError, match="malformed response from broker"):
+                conn.commit()
+
+        assert conn._connected is False
+        assert conn._socket is None
+
     def test_send_and_receive_raises_interface_error_when_socket_none(
         self,
         socket_queue: list[MagicMock],
