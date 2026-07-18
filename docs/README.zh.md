@@ -295,7 +295,7 @@ CUBRID 10.2、11.0、11.2 和 11.4 已在 CI 中测试。
 ## 相关项目
 
 - [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — 面向 CUBRID 的 SQLAlchemy 2.0 方言
-- [cubrid-python-cookbook](https://github.com/cubrid-lab/cubrid-python-cookbook) — 面向 CUBRID 的生产级 Python 示例
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — 面向 CUBRID 的生产级 Python 示例
 
 
 ## 路线图
