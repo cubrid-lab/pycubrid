@@ -208,6 +208,7 @@ SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are acces
 | **CUBRID 11.2** | ✅ | -- | -- | -- | ✅ |
 | **CUBRID 11.0** | ✅ | -- | -- | -- | ✅ |
 | **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
+> **Legend**: `✅` = executed and passing in PR CI. `--` = not executed in PR CI; verified in the nightly / release full matrix (Python 3.10–3.14 × CUBRID 10.2–11.4).
 
 CI runs the matrix above on every PR/push (Python 3.10 + 3.14 anchors × all CUBRID versions).
 The full **5 × 4** Python × CUBRID matrix runs nightly, on tagged releases, and on demand via `workflow_dispatch`.
@@ -301,7 +302,7 @@ Yes. Use `pycubrid.aio.connect()` for native asyncio support. The async surface 
 ## Related Projects
 
 - [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — SQLAlchemy 2.0 dialect for CUBRID
-- [cubrid-python-cookbook](https://github.com/cubrid-lab/cubrid-python-cookbook) — Production-ready Python examples for CUBRID
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — Production-ready Python examples for CUBRID
 
 
 ## Roadmap
