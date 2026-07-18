@@ -19,7 +19,14 @@ from pycubrid.constants import (
     CUBRIDStatementType,
     DataSize,
 )
-from pycubrid.exceptions import DatabaseError, IntegrityError, ProgrammingError
+from pycubrid.exceptions import (
+    DatabaseError,
+    DataError,
+    IntegrityError,
+    InternalError,
+    OperationalError,
+    ProgrammingError,
+)
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -250,6 +257,85 @@ class TestRaiseError:
         reader = PacketReader(error_body)
         with pytest.raises(ProgrammingError, match="Unknown class"):
             _raise_error(reader, len(error_body))
+
+
+class TestRaiseErrorCodeDispatch:
+    """Tests for CAS-code-based dispatch in _raise_error.
+
+    Verifies that specific CAS error codes dispatch to the correct PEP 249
+    exception class regardless of message text.
+    """
+
+    def test_code_minus4_dispatches_operational_error(self) -> None:
+        # Communication error — text is irrelevant
+        error_body = struct.pack(">i", -4) + b"nonsense message\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(OperationalError, match="nonsense"):
+            _raise_error(reader, len(error_body))
+
+    def test_code_minus8_dispatches_data_error(self) -> None:
+        # Type conversion error
+        error_body = struct.pack(">i", -8) + b"conversion failed\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(DataError, match="conversion"):
+            _raise_error(reader, len(error_body))
+
+    def test_code_minus9_unmapped_falls_to_database_error(self) -> None:
+        # Invalid bind index — not in mapping table, falls to DatabaseError
+        error_body = struct.pack(">i", -9) + b"bad index\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(DatabaseError, match="bad index"):
+            _raise_error(reader, len(error_body))
+
+    def test_code_minus2_dispatches_internal_error(self) -> None:
+        # Internal server error
+        error_body = struct.pack(">i", -2) + b"boom\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(InternalError, match="boom"):
+            _raise_error(reader, len(error_body))
+
+    def test_unknown_code_dispatches_database_error(self) -> None:
+        # Code not in mapping table — should fall through to DatabaseError
+        error_body = struct.pack(">i", -9999) + b"weird unknown error\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(DatabaseError, match="weird"):
+            _raise_error(reader, len(error_body))
+
+    def test_code_minus1_uses_text_fallback_for_unique(self) -> None:
+        # ER_DBMS (-1) with unique-violation text → IntegrityError via fallback
+        error_body = struct.pack(">i", -1) + b"unique constraint failed\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(IntegrityError, match="unique"):
+            _raise_error(reader, len(error_body))
+
+    def test_code_minus1_text_fallback_defaults_to_database_error(self) -> None:
+        # ER_DBMS (-1) with unrecognized text → DatabaseError
+        error_body = struct.pack(">i", -1) + b"some weird server error\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(DatabaseError, match="weird"):
+            _raise_error(reader, len(error_body))
+
+    def test_code_minus1_syntax_text_still_programming_error(self) -> None:
+        # Backward-compat: -1 + syntax text → ProgrammingError
+        error_body = struct.pack(">i", -1) + b"syntax error at line 1\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(ProgrammingError, match="syntax"):
+            _raise_error(reader, len(error_body))
+
+    def test_dispatch_includes_sqlstate(self) -> None:
+        # Known code (-670) should set SQLSTATE from the mapping
+        error_body = struct.pack(">i", -670) + b"Unique constraint violation\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(IntegrityError) as exc_info:
+            _raise_error(reader, len(error_body))
+        assert exc_info.value.sqlstate == "23000"
+
+    def test_unknown_code_has_default_sqlstate(self) -> None:
+        error_body = struct.pack(">i", -9999) + b"mystery\x00"
+        reader = PacketReader(error_body)
+        with pytest.raises(DatabaseError) as exc_info:
+            _raise_error(reader, len(error_body))
+        assert exc_info.value.sqlstate == "HY000"
 
 
 class TestParseColumnMetadata:
