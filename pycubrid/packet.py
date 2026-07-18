@@ -363,6 +363,10 @@ class PacketReader:
         return self._json_deserializer(value)
 
     def _parse_collection(self, size: int) -> object:
+        # ``element_count`` below is bounded by ``size`` (validated upstream by
+        # ``_validate_data_length`` to max 256 MB). A malicious ``element_count``
+        # cannot cause unbounded iteration: once ``_offset`` exceeds the buffer,
+        # ``_parse_int()`` raises ``struct.error``. See Oracle review (GAP-3).
         if not self._decode_collections:
             return self._parse_bytes(size)
 
