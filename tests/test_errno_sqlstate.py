@@ -116,6 +116,7 @@ class TestDatabaseErrorReprStr:
 
     def test_str_no_errno_no_sqlstate(self) -> None:
         err = DatabaseError(msg="plain error")
+        assert str(err) == "plain error"
 
 
 class TestErrorMappingConsistency:
@@ -131,7 +132,6 @@ class TestErrorMappingConsistency:
 
     def test_exception_names_are_valid(self) -> None:
         from pycubrid.error_codes import CAS_ERROR_TO_EXCEPTION
-        from pycubrid.exceptions import DatabaseError
 
         valid = {
             "DatabaseError",
