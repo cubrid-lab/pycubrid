@@ -39,6 +39,7 @@ class AsyncCursor(CursorParamsMixin):
         self._columns: list[ColumnMetaData] = []
         self._rows: list[tuple[Any, ...]] = []
         self._row_index: int = 0
+        self._fetched_count: int = 0  # total rows fetched from server (absolute position)
         self._statement_type: int = 0
         self._total_tuple_count: int = 0
         self._lastrowid: int | None = None
@@ -141,6 +142,7 @@ class AsyncCursor(CursorParamsMixin):
         self._total_tuple_count = packet.total_tuple_count
         self._rows = list(packet.rows)
         self._row_index = 0
+        self._fetched_count = len(packet.rows)
         self._lastrowid = None
 
         if packet.statement_type == CUBRIDStatementType.SELECT:
@@ -216,6 +218,7 @@ class AsyncCursor(CursorParamsMixin):
         self._description = None
         self._rows = []
         self._row_index = 0
+        self._fetched_count = 0
         self._query_handle = None
 
         if packet.results:
@@ -269,7 +272,11 @@ class AsyncCursor(CursorParamsMixin):
                 rows.extend(self._rows[self._row_index :])
                 self._row_index = len(self._rows)
             if not await self._fetch_more_rows():
-                return rows
+                break
+        # All rows consumed — release the buffer to free memory.
+        self._rows = []
+        self._row_index = 0
+        return rows
 
     def setinputsizes(self, sizes: Any) -> None:
         _ = sizes
@@ -322,13 +329,13 @@ class AsyncCursor(CursorParamsMixin):
 
     async def _fetch_more_rows(self) -> bool:
         if self._query_handle is None:
-            if self._invalidated_by_reconnect and self._row_index < self._total_tuple_count:
+            if self._invalidated_by_reconnect and self._fetched_count < self._total_tuple_count:
                 raise OperationalError(
                     "result set lost due to broker reconnect mid-fetch; "
                     "re-execute the query to continue"
                 )
             return False
-        if self._row_index >= self._total_tuple_count:
+        if self._fetched_count >= self._total_tuple_count:
             return False
 
         _timing = self._timing
@@ -338,7 +345,7 @@ class AsyncCursor(CursorParamsMixin):
 
         packet = FetchPacket(
             self._query_handle,
-            self._row_index,
+            self._fetched_count,
             fetch_size=self._fetch_size,
             columns=self._columns,
             statement_type=self._statement_type,
@@ -353,12 +360,18 @@ class AsyncCursor(CursorParamsMixin):
         if not packet.rows:
             return False
 
-        self._rows.extend(packet.rows)
+        # Replace the buffer entirely instead of extending.
+        # _fetch_more_rows is only called when all buffered rows have been
+        # consumed (verified in fetchone/fetchmany/fetchall), so replacing
+        # is safe and keeps memory bounded by the fetch page size.
+        self._rows = list(packet.rows)
+        self._row_index = 0
+        self._fetched_count += len(packet.rows)
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
-                "fetch: got %d rows (total=%d/%d)",
+                "fetch: got %d rows (fetched=%d/%d)",
                 len(packet.rows),
-                len(self._rows),
+                self._fetched_count,
                 self._total_tuple_count,
             )
         return True
