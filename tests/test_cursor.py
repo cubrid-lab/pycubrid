@@ -496,6 +496,59 @@ def test_executemany_batch_closed_cursor_raises(cursor: Cursor) -> None:
         cursor.executemany_batch(["SELECT 1"])
 
 
+def test_executemany_batch_raises_on_partial_failure(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """Batch execute must raise when a statement in the batch fails (#186)."""
+    from pycubrid.exceptions import IntegrityError
+
+    def send(packet: object) -> object:
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = [(0, 1)]  # first statement succeeded
+            packet.errors = [{"code": -670, "message": "unique constraint violation"}]
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+
+    with pytest.raises(IntegrityError, match="unique constraint"):
+        cursor.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
+
+
+def test_executemany_batch_error_uses_cas_code_dispatch(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """Batch errors dispatch to the correct PEP 249 class via CAS code (#186)."""
+    from pycubrid.exceptions import ProgrammingError
+
+    def send(packet: object) -> object:
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = []
+            packet.errors = [{"code": -494, "message": "syntax error near 'SELCT'"}]
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+
+    with pytest.raises(ProgrammingError, match="syntax error"):
+        cursor.executemany_batch(["SELCT 1"])
+
+
+def test_executemany_batch_no_errors_still_works(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """Ensure the error check doesn't affect the normal happy path (#186)."""
+
+    def send(packet: object) -> object:
+        if isinstance(packet, BatchExecutePacket):
+            packet.results = [(0, 5), (0, 3)]
+            packet.errors = []
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    result = cursor.executemany_batch(["INSERT 1", "INSERT 2"])
+    assert result == [(0, 5), (0, 3)]
+    assert cursor.rowcount == 8
+
+
 def test_close_sends_close_query_and_removes_cursor(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
