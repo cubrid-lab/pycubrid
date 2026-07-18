@@ -32,6 +32,7 @@ from pycubrid.protocol import (
     BatchExecutePacket,
     ClientInfoExchangePacket,
     CloseQueryPacket,
+    CheckCasPacket,
     CloseDatabasePacket,
     ColumnMetaData,
     CommitPacket,
@@ -1533,6 +1534,104 @@ class TestSetDbParameterPacket:
         response = _build_error_response(DEFAULT_CAS_INFO, -1, "set error")
         with pytest.raises(DatabaseError, match="set error"):
             pkt.parse(response)
+
+
+class TestCheckCasPacket:
+    """Tests for CheckCasPacket.
+
+    CheckCasPacket is UNIQUE among all packet classes: it does NOT call
+    ``_raise_error()`` on a negative response_code. Instead, the caller
+    (``connection.ping()``) checks ``response_code >= 0`` and returns a
+    boolean. This is intentional — health checks should not raise.
+
+    It also has a unique empty-body branch: the broker may return only
+    CAS_INFO with no response_code int on success, which must be treated
+    as ``response_code=0`` (alive).
+    """
+
+    def test_write(self) -> None:
+        pkt = CheckCasPacket()
+        data = pkt.write(DEFAULT_CAS_INFO)
+        payload = data[8:]
+        assert payload[0] == CASFunctionCode.CHECK_CAS
+
+    def test_parse_success_with_response_code(self) -> None:
+        """Normal CHECK_CAS success returns a non-negative response code."""
+        pkt = CheckCasPacket()
+        response = _build_success_response(DEFAULT_CAS_INFO, 0)
+        pkt.parse(response)
+        assert pkt.response_code == 0
+        assert pkt.response_code >= 0  # alive
+
+    def test_parse_success_with_positive_code(self) -> None:
+        """Some brokers return a positive code on CHECK_CAS success."""
+        pkt = CheckCasPacket()
+        response = _build_success_response(DEFAULT_CAS_INFO, 1)
+        pkt.parse(response)
+        assert pkt.response_code == 1
+        assert pkt.response_code >= 0  # alive
+
+    def test_parse_empty_body_treated_as_alive(self) -> None:
+        """Empty body (only CAS_INFO, no int) means the connection is alive.
+
+        This is the unique branch that no other packet has. It exists because
+        some CAS broker versions return an empty CHECK_CAS body on success.
+        If this branch breaks, connection.ping() silently fails.
+        """
+        pkt = CheckCasPacket()
+        # Only CAS_INFO bytes, no response_code int follows.
+        response = DEFAULT_CAS_INFO
+        pkt.parse(response)
+        assert pkt.response_code == 0
+        assert pkt.response_code >= 0  # alive
+
+    def test_parse_negative_response_code_does_not_raise(self) -> None:
+        """CheckCasPacket does NOT raise on negative response_code.
+
+        Unlike every other packet, CheckCasPacket intentionally does NOT
+        call ``_raise_error()`` when ``response_code < 0``. The caller
+        (``connection.ping()``) checks ``response_code >= 0`` and returns
+        a boolean. This is the documented health-check contract.
+
+        This test guards against someone accidentally adding a
+        ``if response_code < 0: _raise_error(...)`` call, which would
+        break ``ping()`` semantics.
+        """
+        pkt = CheckCasPacket()
+        response = _build_success_response(DEFAULT_CAS_INFO, -1)
+        # Must NOT raise — ping() relies on this.
+        pkt.parse(response)
+        assert pkt.response_code == -1
+        assert pkt.response_code < 0  # dead
+
+    def test_parse_strongly_negative_code_does_not_raise(self) -> None:
+        """Strongly negative codes (e.g. -2000) also do not raise.
+
+        The CAS broker sends specific negative codes for different failure
+        modes. Regardless of the magnitude, parse() must not raise.
+        """
+        pkt = CheckCasPacket()
+        response = _build_success_response(DEFAULT_CAS_INFO, -2000)
+        pkt.parse(response)
+        assert pkt.response_code == -2000
+
+    def test_parse_exactly_four_bytes_after_cas_info(self) -> None:
+        """Boundary: exactly DataSize.INT (4) bytes remaining triggers parse."""
+        pkt = CheckCasPacket()
+        response = DEFAULT_CAS_INFO + struct.pack(">i", 0)  # exactly 4 bytes
+        pkt.parse(response)
+        assert pkt.response_code == 0
+
+    def test_parse_three_bytes_after_cas_info_treated_as_empty(self) -> None:
+        """Boundary: fewer than DataSize.INT (4) bytes triggers empty-body path.
+
+        This guards the ``bytes_remaining() >= DataSize.INT`` check.
+        """
+        pkt = CheckCasPacket()
+        # 3 bytes after CAS_INFO: fewer than INT (4), so empty-body path.
+        response = DEFAULT_CAS_INFO + b"\x00\x00\x00"
+        pkt.parse(response)
+        assert pkt.response_code == 0
 
 
 # ---------------------------------------------------------------------------
