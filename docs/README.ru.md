@@ -297,7 +297,7 @@ Python 3.10, 3.11, 3.12, 3.13 и 3.14.
 ## Связанные проекты
 
 - [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — диалект SQLAlchemy 2.0 для CUBRID
-- [cubrid-python-cookbook](https://github.com/cubrid-lab/cubrid-python-cookbook) — готовые к продакшену примеры Python для CUBRID
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — готовые к продакшену примеры Python для CUBRID
 
 
 ## Дорожная карта

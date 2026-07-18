@@ -296,7 +296,7 @@ CUBRID 10.2, 11.0, 11.2, और 11.4 CI में टेस्ट किए ज�
 ## संबंधित परियोजनाएँ
 
 - [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — CUBRID के लिए SQLAlchemy 2.0 dialect
-- [cubrid-python-cookbook](https://github.com/cubrid-lab/cubrid-python-cookbook) — CUBRID के लिए production-ready Python उदाहरण
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — CUBRID के लिए production-ready Python उदाहरण
 
 
 ## रोडमैप

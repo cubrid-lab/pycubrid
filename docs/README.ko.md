@@ -296,7 +296,7 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 ## 관련 프로젝트
 
 - [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — CUBRID용 SQLAlchemy 2.0 방언
-- [cubrid-python-cookbook](https://github.com/cubrid-lab/cubrid-python-cookbook) — CUBRID를 위한 프로덕션용 Python 예제
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — CUBRID를 위한 프로덕션용 Python 예제
 
 
 ## 로드맵
