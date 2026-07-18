@@ -367,7 +367,7 @@ production-ready, runnable examples for pycubrid:
 | `01_connect.py` | Basic connection and query |
 | `02_crud.py` | Create, read, update, delete operations |
 | `03_transactions.py` | Transaction management with commit/rollback |
-| `04_prepared.py` | Prepared statements for repeated queries |
+| `04_prepared.py` | Parameterized queries (driver-side binding) for repeated execution |
 | `05_error_handling.py` | Error handling with PEP 249 exception hierarchy |
 | `06_lob.py` | LOB (CLOB/BLOB) operations |
 
