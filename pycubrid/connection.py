@@ -477,7 +477,12 @@ class Connection(ConnectionCommonMixin):
             # Update CAS_INFO from the response (first 4 bytes).
             self._cas_info = response_body[: DataSize.CAS_INFO]
 
-            packet.parse(response_body)
+            try:
+                packet.parse(response_body)
+            except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
+                self._safe_close_socket()
+                self._connected = False
+                raise OperationalError("malformed response from broker") from exc
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("recv: %d bytes", data_length + DataSize.CAS_INFO)
             return packet
