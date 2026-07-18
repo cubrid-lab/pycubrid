@@ -14,7 +14,8 @@ from ._cursor_common import (
     extract_first_keyword,
     split_on_placeholders,
 )
-from .exceptions import InterfaceError, OperationalError, ProgrammingError
+from .exceptions import DatabaseError, InterfaceError, OperationalError, ProgrammingError
+from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE
 from .protocol import (
     BatchExecutePacket,
     CloseQueryPacket,
@@ -33,6 +34,36 @@ _extract_first_keyword = extract_first_keyword
 _split_on_placeholders = split_on_placeholders
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _raise_batch_error(err: dict[str, Any]) -> None:
+    """Raise the appropriate PEP 249 exception for a batch statement failure.
+
+    Uses CAS error code dispatch (same mapping as protocol._raise_error)
+    to select the correct exception class. Falls back to DatabaseError
+    for unknown codes.
+    """
+    code = err.get("code", -1)
+    message = err.get("message", "batch execute statement failed")
+    exc_name = CAS_ERROR_TO_EXCEPTION.get(code, "DatabaseError")
+    sqlstate = _DEFAULT_SQLSTATE.get(exc_name, "HY000")
+    # Import here to avoid circular import at module load time.
+    from .exceptions import (
+        DataError,
+        IntegrityError,
+        InternalError,
+    )
+
+    exc_map = {
+        "DataError": DataError,
+        "IntegrityError": IntegrityError,
+        "InternalError": InternalError,
+        "OperationalError": OperationalError,
+        "ProgrammingError": ProgrammingError,
+        "DatabaseError": DatabaseError,
+    }
+    exc_cls = exc_map.get(exc_name, DatabaseError)
+    raise exc_cls(message, sqlstate)
 
 
 class Cursor(CursorParamsMixin):
@@ -260,6 +291,13 @@ class Cursor(CursorParamsMixin):
             protocol_version=self._connection._protocol_version,
         )
         self._connection._send_and_receive(packet)
+
+        # Raise on per-statement batch failures (issue #186).
+        # The batch protocol returns partial results alongside per-statement
+        # errors; previously the errors were silently swallowed.
+        if packet.errors:
+            err = packet.errors[0]
+            _raise_batch_error(err)
 
         self._description = None
         self._rows = []

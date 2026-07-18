@@ -659,6 +659,40 @@ class TestAsyncCursorExecutemanyBatch:
         await cur.executemany_batch(["INSERT 1"], auto_commit=True)
         assert captured["auto_commit"] is True
 
+    @pytest.mark.asyncio
+    async def test_executemany_batch_raises_on_partial_failure(self) -> None:
+        """Batch execute must raise when a statement fails (#186)."""
+        from pycubrid.exceptions import IntegrityError
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.results = [(0, 1)]
+            packet.errors = [{"code": -670, "message": "unique constraint violation"}]
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+
+        with pytest.raises(IntegrityError, match="unique constraint"):
+            await cur.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
+
+    @pytest.mark.asyncio
+    async def test_executemany_batch_error_dispatches_operational_error(self) -> None:
+        """Batch errors with operational CAS codes dispatch to OperationalError (#186)."""
+        from pycubrid.exceptions import OperationalError as AsyncOperationalError
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        async def fake_send(packet):
+            packet.results = []
+            packet.errors = [{"code": -11, "message": "handle is closed"}]
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+
+        with pytest.raises(AsyncOperationalError, match="handle is closed"):
+            await cur.executemany_batch(["SELECT 1"])
+
 
 class TestAsyncCursorFetchMore:
     @pytest.mark.asyncio
