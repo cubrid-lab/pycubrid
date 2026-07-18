@@ -49,6 +49,47 @@ CAS_ERROR_TO_SQLSTATE: dict[int, str] = {
     -671: "23000",  # Integrity constraint violation (FK)
     -21001: "28000",  # Invalid authorization
     -21003: "08004",  # Connection rejected
+    -13: "HY000",  # No shard available
+    -15: "HY000",  # Statement pooling error
+}
+
+# CAS error code → PEP 249 exception class name.
+# Used by protocol._raise_error() for deterministic dispatch;
+# text heuristics are only used as a fallback for code -1 (ER_DBMS).
+CAS_ERROR_TO_EXCEPTION: dict[int, str] = {
+    # IntegrityError (SQLSTATE 23xxx) — constraint violations
+    -670: "IntegrityError",  # Unique constraint violation
+    -671: "IntegrityError",  # Foreign key constraint violation
+    # ProgrammingError (SQLSTATE 42xxx) — SQL/object errors
+    -394: "ProgrammingError",  # Column not found
+    -493: "ProgrammingError",  # Table not found
+    -494: "ProgrammingError",  # Syntax error
+    -21001: "ProgrammingError",  # Authentication failed (config/credentials)
+    # OperationalError (SQLSTATE 08xxx, 25xxx) — connection/state/resource
+    -3: "OperationalError",  # Out of memory
+    -4: "OperationalError",  # Communication error
+    -6: "OperationalError",  # Invalid transaction type
+    -11: "OperationalError",  # Handle is closed
+    -12: "OperationalError",  # Invalid isolation level
+    -13: "OperationalError",  # No shard available
+    -15: "OperationalError",  # Statement pooling error
+    -21003: "OperationalError",  # Connection refused
+    # InternalError — server-internal fault
+    -2: "InternalError",  # Internal error
+    # DataError (SQLSTATE 22xxx) — bad data values
+    -7: "DataError",  # Invalid string parameter
+    -8: "DataError",  # Type conversion error
+}
+
+# Default SQLSTATE when CAS_ERROR_TO_SQLSTATE has no entry for a code.
+_DEFAULT_SQLSTATE: dict[str, str] = {
+    "IntegrityError": "23000",
+    "ProgrammingError": "42000",
+    "OperationalError": "HY000",
+    "InternalError": "HY000",
+    "DataError": "22000",
+    "InterfaceError": "HY000",
+    "DatabaseError": "HY000",
 }
 
 

@@ -117,3 +117,51 @@ class TestDatabaseErrorReprStr:
     def test_str_no_errno_no_sqlstate(self) -> None:
         err = DatabaseError(msg="plain error")
         assert str(err) == "plain error"
+
+
+class TestErrorMappingConsistency:
+    """Verify CAS_ERROR_TO_EXCEPTION and CAS_ERROR_TO_SQLSTATE are consistent."""
+
+    def test_all_exception_codes_have_sqlstate(self) -> None:
+        from pycubrid.error_codes import CAS_ERROR_TO_EXCEPTION, CAS_ERROR_TO_SQLSTATE
+
+        missing = [c for c in CAS_ERROR_TO_EXCEPTION if c not in CAS_ERROR_TO_SQLSTATE]
+        assert not missing, (
+            f"Codes in CAS_ERROR_TO_EXCEPTION missing from CAS_ERROR_TO_SQLSTATE: {missing}"
+        )
+
+    def test_exception_names_are_valid(self) -> None:
+        from pycubrid.error_codes import CAS_ERROR_TO_EXCEPTION
+
+        valid = {
+            "DatabaseError",
+            "DataError",
+            "IntegrityError",
+            "InternalError",
+            "OperationalError",
+            "ProgrammingError",
+        }
+        invalid = [v for v in CAS_ERROR_TO_EXCEPTION.values() if v not in valid]
+        assert not invalid, f"Invalid exception names in CAS_ERROR_TO_EXCEPTION: {invalid}"
+
+    def test_all_exception_subclasses_database_error(self) -> None:
+        from pycubrid.error_codes import CAS_ERROR_TO_EXCEPTION
+        from pycubrid.exceptions import (
+            DatabaseError,
+            DataError,
+            IntegrityError,
+            InternalError,
+            OperationalError,
+            ProgrammingError,
+        )
+
+        for name in CAS_ERROR_TO_EXCEPTION.values():
+            cls = {
+                "DatabaseError": DatabaseError,
+                "DataError": DataError,
+                "IntegrityError": IntegrityError,
+                "InternalError": InternalError,
+                "OperationalError": OperationalError,
+                "ProgrammingError": ProgrammingError,
+            }[name]
+            assert issubclass(cls, DatabaseError), f"{name} must subclass DatabaseError"
