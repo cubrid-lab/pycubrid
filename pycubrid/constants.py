@@ -430,8 +430,6 @@ class DataSize:
     #: negative or oversized DATA_LENGTH values from a malformed / hostile
     #: broker response (issue #188).
     MAX_PACKET_SIZE: int = 268_435_456
-    DATA_LENGTH: int = 4
-    CAS_INFO: int = 4
 
 
 # ---------------------------------------------------------------------------
