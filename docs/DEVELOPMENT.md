@@ -64,7 +64,7 @@ make install
 graph TD
     root[pycubrid/]
 
-    pkg[pycubrid/ - Main package (9 modules)]
+    pkg["pycubrid/ - Main package (9 modules)"]
     tests[tests/ - Test suite]
     docs[docs/ - Documentation]
     pyproject[pyproject.toml - Package configuration]
@@ -87,17 +87,17 @@ graph TD
     root --> readme
 
     pkg --> init[__init__.py - Public API, PEP 249 module attributes]
-    pkg --> connection[connection.py - Connection class (TCP, CAS handshake)]
-    pkg --> cursor[cursor.py - Cursor class (execute, fetch, iterate)]
+    pkg --> connection["connection.py - Connection class (TCP, CAS handshake)"]
+    pkg --> cursor["cursor.py - Cursor class (execute, fetch, iterate)"]
     pkg --> types[types.py - PEP 249 type objects and constructors]
     pkg --> exceptions[exceptions.py - Full PEP 249 exception hierarchy]
-    pkg --> constants[constants.py - CAS protocol enums (41 function codes, 27+ types)]
-    pkg --> protocol[protocol.py - 18 packet classes (serialize/deserialize)]
+    pkg --> constants["constants.py - CAS protocol enums (41 function codes, 27+ types)"]
+    pkg --> protocol["protocol.py - 18 packet classes (serialize/deserialize)"]
     pkg --> packet[packet.py - PacketWriter + PacketReader primitives]
-    pkg --> lob[lob.py - LOB (BLOB/CLOB) support]
+    pkg --> lob["lob.py - LOB (BLOB/CLOB) support"]
     pkg --> typed[py.typed - PEP 561 marker]
 
-    tests --> conftest[conftest.py - Shared fixtures (mock connection, mock socket)]
+    tests --> conftest["conftest.py - Shared fixtures (mock connection, mock socket)"]
     tests --> test_connection[test_connection.py - Connection lifecycle tests]
     tests --> test_cursor[test_cursor.py - Cursor operations tests]
     tests --> test_types[test_types.py - Type object tests]
@@ -107,7 +107,7 @@ graph TD
     tests --> test_packet[test_packet.py - PacketWriter/PacketReader tests]
     tests --> test_lob[test_lob.py - LOB tests]
     tests --> test_pep249[test_pep249.py - PEP 249 compliance tests]
-    tests --> test_integration[test_integration.py - Live DB integration tests (requires Docker)]
+    tests --> test_integration["test_integration.py - Live DB integration tests (requires Docker)"]
     tests --> test_suite[test_suite.py - Extended test suite]
 
     docs --> doc_connection[CONNECTION.md - Connection guide]
