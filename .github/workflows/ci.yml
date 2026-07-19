@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tls: ${{ steps.filter.outputs.tls }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
@@ -26,6 +27,18 @@ jobs:
               - 'pycubrid/connection.py'
               - 'pycubrid/_connection_common.py'
               - '.github/workflows/**'
+            docs:
+              - '**/*.md'
+              - 'docs/**'
+
+  doc-lint:
+    name: Documentation lint
+    needs: detect-changes
+    if: needs.detect-changes.outputs.docs == 'true'
+    uses: cubrid-lab/.github/.github/workflows/doc-lint.yml@main
+    with:
+      exclude: "node_modules/,vendor/"
+      fail-on-issue: false  # advisory mode during initial rollout
 
   version-check:
     name: Version consistency
