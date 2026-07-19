@@ -14,15 +14,13 @@ Hypothesis settings:
 
 from __future__ import annotations
 
-import datetime
 import struct
 import sys
-from decimal import Decimal
 
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from pycubrid.constants import CUBRIDDataType, DataSize
+from pycubrid.constants import DataSize
 from pycubrid.packet import PacketReader, PacketWriter
 
 
