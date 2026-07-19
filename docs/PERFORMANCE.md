@@ -25,7 +25,7 @@ flowchart LR
     App[Python Application] --> Driver[pycubrid\nPure Python DBAPI2]
     Driver --> CAS[CAS Binary Protocol over TCP]
     CAS --> Broker[CUBRID Broker / CAS]
-    Broker --> Server[(CUBRID Server)]
+    Broker --> Server["(CUBRID Server)"]
 ```
 
 ```mermaid
@@ -106,7 +106,7 @@ without hardcoding thresholds that age badly.
 flowchart TD
     Detect[cubrid-benchmark detects gap] --> Issue[File a Performance issue\nusing the issue template]
     Issue --> Profile[Run profiling scripts\nto isolate the hot path]
-    Profile --> Optimize[Apply targeted fix\n(see Optimization Tips)]
+    Profile --> Optimize["Apply targeted fix\n(see Optimization Tips)"]
     Optimize --> Verify[Re-run profiling scripts\nand cubrid-benchmark]
     Verify --> Close[Attach results to issue\nand close]
 ```

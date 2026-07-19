@@ -17,13 +17,13 @@ or native CCI library.
 
 ```mermaid
 graph TD
-    root[pycubrid/ - Main package (9 modules)]
-    init[__init__.py - Public API, PEP 249 globals, connect(), exports]
-    exceptions[exceptions.py - Full PEP 249 exception hierarchy (10 classes)]
+    root["pycubrid/ - Main package (9 modules)"]
+    init["__init__.py - Public API, PEP 249 globals, connect(), exports"]
+    exceptions["exceptions.py - Full PEP 249 exception hierarchy (10 classes)"]
     types[types.py - PEP 249 type objects and constructors]
     constants[constants.py - CAS protocol constants]
     packet[packet.py - PacketReader/PacketWriter binary serialization]
-    protocol[protocol.py - CAS protocol packets (18 packet classes)]
+    protocol["protocol.py - CAS protocol packets (18 packet classes)"]
     connection[connection.py - PEP 249 Connection class]
     cursor[cursor.py - PEP 249 Cursor class]
     lob[lob.py - LOB support]
@@ -194,7 +194,7 @@ graph TD
     test_cursor[test_cursor.py - Cursor class]
     test_lob[test_lob.py - LOB support]
     test_init[test_init.py - Module-level API tests]
-    test_integration[test_integration.py - Live DB tests (requires Docker)]
+    test_integration["test_integration.py - Live DB tests (requires Docker)"]
     test_pep249[test_pep249.py - Full PEP 249 compliance]
 
     tests --> conftest
@@ -218,7 +218,7 @@ graph TD
     docs[docs/]
     connection[CONNECTION.md - Connection strings, URL format, configuration]
     types[TYPES.md - Full type mapping, CUBRID-specific types]
-    binding[PARAMETER_BINDING.md - Driver-side literal binding contract: per-type SQL mapping, escaping, non-guarantees]
+    binding["PARAMETER_BINDING.md - Driver-side literal binding contract: per-type SQL mapping, escaping, non-guarantees"]
     api[API_REFERENCE.md - Complete API documentation]
     protocol[PROTOCOL.md - CAS wire protocol reference]
     development[DEVELOPMENT.md - Dev setup, testing, Docker, coverage, CI/CD]

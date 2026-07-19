@@ -226,13 +226,13 @@ graph TD
 ```mermaid
 graph TD
     root[pycubrid/]
-    init[__init__.py - Public API connect(), types, exceptions, __version__]
+    init["__init__.py - Public API connect(), types, exceptions, __version__"]
     connection[connection.py - Connection class connect/commit/rollback/cursor/LOB]
     cursor[cursor.py - Cursor class execute/fetch/executemany/callproc/iterator]
     types[types.py - DB-API 2.0 type objects and constructors]
     exceptions[exceptions.py - PEP 249 exception hierarchy]
     constants[constants.py - CAS function codes, data types, protocol constants]
-    protocol[protocol.py - CAS wire protocol packet classes (18 packet types)]
+    protocol["protocol.py - CAS wire protocol packet classes (18 packet types)"]
     packet[packet.py - Low-level packet reader/writer]
     lob[lob.py - LOB support]
     typed[py.typed - PEP 561 marker]
@@ -248,7 +248,7 @@ graph TD
     root --> lob
     root --> typed
     root --> aio
-    aio[aio/ - AsyncConnection, AsyncCursor, async connect()]
+    aio["aio/ - AsyncConnection, AsyncCursor, async connect()"]
 ```
 
 ## FAQ

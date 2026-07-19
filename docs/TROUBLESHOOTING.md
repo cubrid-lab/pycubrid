@@ -61,7 +61,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
 
 ```mermaid
 flowchart TD
-    A[Start: pycubrid error observed] --> B{Connection established?}
+    A["Start: pycubrid error observed"] --> B{Connection established?}
     B -->|No| C[Check broker status and port reachability]
     C --> D{Authentication error?}
     D -->|Yes| E[Verify user/password and database]
