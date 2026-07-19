@@ -59,7 +59,7 @@ Key characteristics:
 
 ```mermaid
 graph LR
-    client[Client (pycubrid)] -- TCP port 33000 --> broker[Broker]
+    client["Client (pycubrid)"] -- TCP port 33000 --> broker[Broker]
     broker --> cas[CAS Process]
     cas --> db[CUBRID Database]
 ```
@@ -77,8 +77,8 @@ All packets after the initial handshake use the following frame format:
 
 ```mermaid
 graph LR
-    data[Data Length (4B) big-endian int32] --> casinfo[CAS Info (4B) session state]
-    casinfo --> payload[Payload (variable) function-specific]
+    data["Data Length (4B) big-endian int32"] --> casinfo["CAS Info (4B) session state"]
+    casinfo --> payload["Payload (variable) function-specific"]
 ```
 
 | Field       | Size    | Description |
@@ -581,7 +581,7 @@ When `response_code < 0`, the response contains an error:
 
 ```mermaid
 graph LR
-    code[Error Code (4B int)] --> message[Error Message (null-terminated string)]
+    code["Error Code (4B int)"] --> message["Error Message (null-terminated string)"]
 ```
 
 pycubrid classifies errors automatically:
