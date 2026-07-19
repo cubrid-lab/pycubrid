@@ -39,7 +39,7 @@ dev = [
     "pytest-asyncio>=0.21",
     "pytest-cov",
     "ruff==0.15.22",
-    "mypy==2.1.0",
+    "mypy==2.3.0",
     "bandit[toml]==1.9.4",
     "pre-commit",
     "tox",
