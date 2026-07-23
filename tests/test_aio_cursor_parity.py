@@ -60,6 +60,9 @@ async def test_async_connect_threads_decode_collection_and_json_kwargs() -> None
         )
 
     assert result is mock_connection
+    # autocommit now flows straight through to AsyncConnection's own
+    # constructor (applied inside connect()) instead of the factory calling
+    # set_autocommit() separately — see AsyncConnection.__init__/connect().
     connection_class.assert_called_once_with(
         host="localhost",
         port=33000,
@@ -68,9 +71,9 @@ async def test_async_connect_threads_decode_collection_and_json_kwargs() -> None
         password="",
         decode_collections=True,
         json_deserializer=json.loads,
+        autocommit=True,
     )
     mock_connection.connect.assert_awaited_once_with()
-    mock_connection.set_autocommit.assert_awaited_once_with(True)
 
 
 @pytest.mark.asyncio

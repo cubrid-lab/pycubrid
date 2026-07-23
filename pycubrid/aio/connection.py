@@ -13,7 +13,7 @@ from typing import Any
 
 from pycubrid._connection_common import ConnectionCommonMixin, resolve_ssl_context
 from pycubrid.constants import CCIDbParam, DataSize
-from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.exceptions import DataError, InterfaceError, OperationalError
 from pycubrid.protocol import (
     CheckCasPacket,
     ClientInfoExchangePacket,
@@ -70,6 +70,8 @@ class AsyncConnection(ConnectionCommonMixin):
         password: str,
         ssl: bool | ssl_module.SSLContext | None = None,
         fetch_size: int = 100,
+        *,
+        autocommit: bool = False,
         **kwargs: Any,
     ) -> None:
         self._ssl_context = resolve_ssl_context(ssl)
@@ -90,6 +92,9 @@ class AsyncConnection(ConnectionCommonMixin):
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
+        # Applied in connect() (can't await a live SET_DB_PARAMETER round-trip
+        # here — __init__ isn't a coroutine). See connect() below.
+        self._pending_autocommit = autocommit
 
     async def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.
@@ -105,8 +110,14 @@ class AsyncConnection(ConnectionCommonMixin):
 
         .. _#156: https://github.com/cubrid-lab/pycubrid/issues/156
         """
+        was_connected = self._connected
         async with self._lock:
             await self._connect_locked()
+        # set_autocommit() takes self._lock itself, so it must run after the
+        # lock above is released — and only on the connecting edge, so a
+        # later no-op connect() (already connected) can't re-send it.
+        if not was_connected and self._pending_autocommit:
+            await self.set_autocommit(True)
 
     async def _connect_locked(self) -> None:
         if self._connected:
@@ -611,7 +622,10 @@ class AsyncConnection(ConnectionCommonMixin):
         reader = self._reader
         if writer is None or reader is None:
             raise InterfaceError("connection is closed")
-        request_data = packet.write(self._cas_info)
+        try:
+            request_data = packet.write(self._cas_info)
+        except struct.error as exc:
+            raise DataError("parameter value too large to serialize into CAS request") from exc
         writer.write(request_data)
         await writer.drain()
 
