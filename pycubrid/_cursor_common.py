@@ -174,6 +174,8 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = False) -> str:
     if isinstance(value, datetime.time):
         return "TIME'%s'" % value.strftime("%H:%M:%S")
     if isinstance(value, Decimal):
+        if value.is_nan() or value.is_infinite():
+            raise ProgrammingError("nan and inf are not supported by CUBRID")
         return str(value)
     if isinstance(value, (int, float)):
         if math.isnan(value) or math.isinf(value):

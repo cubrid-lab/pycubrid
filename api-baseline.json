@@ -1169,6 +1169,11 @@
                   "name": "fetch_size"
                 },
                 {
+                  "has_default": true,
+                  "kind": "KEYWORD_ONLY",
+                  "name": "autocommit"
+                },
+                {
                   "has_default": false,
                   "kind": "VAR_KEYWORD",
                   "name": "kwargs"
@@ -1460,6 +1465,11 @@
               "has_default": true,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "fetch_size"
+            },
+            {
+              "has_default": true,
+              "kind": "KEYWORD_ONLY",
+              "name": "autocommit"
             },
             {
               "has_default": false,

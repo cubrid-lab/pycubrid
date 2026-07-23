@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from ._connection_common import ConnectionCommonMixin, resolve_ssl_context
 from .constants import CCIDbParam, DataSize
-from .exceptions import InterfaceError, OperationalError
+from .exceptions import DataError, InterfaceError, OperationalError
 from .protocol import (
     CheckCasPacket,
     ClientInfoExchangePacket,
@@ -466,7 +466,10 @@ class Connection(ConnectionCommonMixin):
             raise InterfaceError("connection is closed")
 
         try:
-            request_data = packet.write(self._cas_info)
+            try:
+                request_data = packet.write(self._cas_info)
+            except struct.error as exc:
+                raise DataError("parameter value too large to serialize into CAS request") from exc
             self._socket.sendall(request_data)
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("send: %d bytes", len(request_data))

@@ -141,6 +141,18 @@ class TestFormatParameterTypes:
         with pytest.raises(ProgrammingError, match="nan and inf"):
             cursor._format_parameter(float("-inf"))
 
+    def test_decimal_nan_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(Decimal("NaN"))
+
+    def test_decimal_inf_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(Decimal("Infinity"))
+
+    def test_decimal_neg_inf_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(Decimal("-Infinity"))
+
     def test_bytearray_hex(self, cursor: object) -> None:
         assert cursor._format_parameter(bytearray(b"\xca\xfe")) == "X'cafe'"
 
