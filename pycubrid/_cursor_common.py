@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Sequence
 
 from .exceptions import ProgrammingError
+from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE
 
 if TYPE_CHECKING:
     from .protocol import ColumnMetaData
@@ -268,3 +269,35 @@ class CursorParamsMixin:
         columns: list[ColumnMetaData],
     ) -> tuple[DescriptionItem, ...] | None:
         return build_description(columns)
+
+
+def _raise_batch_error(err: dict[str, Any]) -> None:
+    """Raise the appropriate PEP 249 exception for a batch statement failure.
+
+    Uses CAS error code dispatch (same mapping as protocol._raise_error)
+    to select the correct exception class. Falls back to DatabaseError
+    for unknown codes.
+    """
+    code = err.get("code", -1)
+    message = err.get("message", "batch execute statement failed")
+    exc_name = CAS_ERROR_TO_EXCEPTION.get(code, "DatabaseError")
+    sqlstate = _DEFAULT_SQLSTATE.get(exc_name, "HY000")
+    # Import here to avoid circular import at module load time.
+    from .exceptions import (
+        DataError,
+        IntegrityError,
+        InternalError,
+        DatabaseError,
+        OperationalError,
+    )
+
+    exc_map = {
+        "DataError": DataError,
+        "IntegrityError": IntegrityError,
+        "InternalError": InternalError,
+        "OperationalError": OperationalError,
+        "ProgrammingError": ProgrammingError,
+        "DatabaseError": DatabaseError,
+    }
+    exc_cls = exc_map.get(exc_name, DatabaseError)
+    raise exc_cls(message, code=code, sqlstate=sqlstate)

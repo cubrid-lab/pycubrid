@@ -269,26 +269,31 @@ class PacketReader:
         return value
 
     def _parse_short(self, size: int = 0) -> int:
+        """Parse a 2-byte short. ``size`` is ignored (uniform dispatch signature)."""
         value: int = _STRUCT_SHORT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.SHORT
         return value
 
     def _parse_int(self, size: int = 0) -> int:
+        """Parse a 4-byte int. ``size`` is ignored (uniform dispatch signature)."""
         value: int = _STRUCT_INT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.INT
         return value
 
     def _parse_long(self, size: int = 0) -> int:
+        """Parse an 8-byte long. ``size`` is ignored (uniform dispatch signature)."""
         value: int = _STRUCT_LONG.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.LONG
         return value
 
     def _parse_float(self, size: int = 0) -> float:
+        """Parse a 4-byte float. ``size`` is ignored (uniform dispatch signature)."""
         value: float = _STRUCT_FLOAT.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.FLOAT
         return value
 
     def _parse_double(self, size: int = 0) -> float:
+        """Parse an 8-byte double. ``size`` is ignored (uniform dispatch signature)."""
         value: float = _STRUCT_DOUBLE.unpack_from(self._buffer, self._offset)[0]
         self._offset += DataSize.DOUBLE
         return value
