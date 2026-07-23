@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Any, Sequence
 
@@ -12,10 +13,11 @@ from ._cursor_common import (
     DescriptionItem,
     DML_BATCH_VERBS,
     extract_first_keyword,
+    _raise_batch_error,
     split_on_placeholders,
 )
-from .exceptions import DatabaseError, InterfaceError, OperationalError, ProgrammingError
-from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE
+from .exceptions import InterfaceError, OperationalError, ProgrammingError
+
 from .protocol import (
     BatchExecutePacket,
     CloseQueryPacket,
@@ -35,35 +37,8 @@ _split_on_placeholders = split_on_placeholders
 
 _LOGGER = logging.getLogger(__name__)
 
-
-def _raise_batch_error(err: dict[str, Any]) -> None:
-    """Raise the appropriate PEP 249 exception for a batch statement failure.
-
-    Uses CAS error code dispatch (same mapping as protocol._raise_error)
-    to select the correct exception class. Falls back to DatabaseError
-    for unknown codes.
-    """
-    code = err.get("code", -1)
-    message = err.get("message", "batch execute statement failed")
-    exc_name = CAS_ERROR_TO_EXCEPTION.get(code, "DatabaseError")
-    sqlstate = _DEFAULT_SQLSTATE.get(exc_name, "HY000")
-    # Import here to avoid circular import at module load time.
-    from .exceptions import (
-        DataError,
-        IntegrityError,
-        InternalError,
-    )
-
-    exc_map = {
-        "DataError": DataError,
-        "IntegrityError": IntegrityError,
-        "InternalError": InternalError,
-        "OperationalError": OperationalError,
-        "ProgrammingError": ProgrammingError,
-        "DatabaseError": DatabaseError,
-    }
-    exc_cls = exc_map.get(exc_name, DatabaseError)
-    raise exc_cls(message, code=code, sqlstate=sqlstate)
+# Identifier validation for stored procedure names (prevents SQL injection in callproc).
+_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
 
 
 class Cursor(CursorParamsMixin):
@@ -375,6 +350,8 @@ class Cursor(CursorParamsMixin):
 
     def callproc(self, procname: str, parameters: Sequence[Any] = ()) -> Sequence[Any]:
         """Call a stored procedure and return the original parameters."""
+        if not _IDENTIFIER_RE.match(procname):
+            raise ProgrammingError(f"Invalid stored procedure name: {procname!r}")
         placeholders = ", ".join(["?"] * len(parameters))
         if placeholders:
             sql = "CALL %s(%s)" % (procname, placeholders)

@@ -421,7 +421,7 @@ class DataSize:
     DATE: int = 14
     TIME: int = 14
     DATETIME: int = 14
-    TIMESTAMP: int = 14
+    TIMESTAMP: int = 12  # year(2)+month(2)+day(2)+hour(2)+min(2)+sec(2) = 12 bytes
     RESULTSET: int = 4
     DATA_LENGTH: int = 4
     CAS_INFO: int = 4

@@ -493,21 +493,6 @@ class Connection(ConnectionCommonMixin):
             self._connected = False
             raise OperationalError("socket communication failed") from exc
 
-    @staticmethod
-    def _validate_data_length(data_length: int) -> None:
-        """Validate the DATA_LENGTH header from the broker.
-
-        Raises OperationalError for negative or oversized values to prevent
-        ValueError on allocation or unbounded memory usage (issue #188).
-        """
-        if data_length < 0:
-            raise OperationalError(f"invalid DATA_LENGTH from broker: {data_length} (negative)")
-        if data_length > DataSize.MAX_PACKET_SIZE:
-            raise OperationalError(
-                f"invalid DATA_LENGTH from broker: {data_length} "
-                f"(exceeds max {DataSize.MAX_PACKET_SIZE})"
-            )
-
     def _recv_exact(self, sock: socket.socket, size: int) -> bytearray:
         """Receive exactly ``size`` bytes from the socket."""
         buf = bytearray(size)

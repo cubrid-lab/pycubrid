@@ -212,7 +212,8 @@ class AsyncConnection(ConnectionCommonMixin):
             user=self._user,
             password=self._password,
         )
-        assert self._writer is not None
+        if self._writer is None:
+            raise InterfaceError("Connection not established: writer is None")
         self._writer.write(open_db_packet.write())
         await self._writer.drain()
         data_length_bytes = await self._recv_exact(self._reader, DataSize.DATA_LENGTH)
@@ -246,9 +247,12 @@ class AsyncConnection(ConnectionCommonMixin):
         in 3.13/3.14) that this kwarg does not address.
         """
         ssl_context = self._ssl_context
-        assert ssl_context is not None
-        assert self._writer is not None
-        assert self._reader is not None
+        if ssl_context is None:
+            raise InterfaceError("SSL context not configured")
+        if self._writer is None:
+            raise InterfaceError("Connection not established: writer is None")
+        if self._reader is None:
+            raise InterfaceError("Connection not established: reader is None")
 
         loop = asyncio.get_running_loop()
         old_transport = self._writer.transport
@@ -308,7 +312,8 @@ class AsyncConnection(ConnectionCommonMixin):
         if sys.version_info[:2] != (3, 10):
             return
         ssl_context = self._ssl_context
-        assert ssl_context is not None
+        if ssl_context is None:
+            raise InterfaceError("SSL context not configured")
 
         connect_timeout = (
             float(self._connect_timeout) if self._connect_timeout is not None else None
@@ -343,7 +348,8 @@ class AsyncConnection(ConnectionCommonMixin):
         """
         sock: socket.socket | None = socket.create_connection((host, port), timeout=connect_timeout)
         try:
-            assert sock is not None
+            if sock is None:
+                raise OperationalError("Failed to create socket connection")
             sock.settimeout(handshake_timeout)
             if needs_handshake_replay:
                 # Replay the plaintext CUBRS handshake so the broker
@@ -510,7 +516,7 @@ class AsyncConnection(ConnectionCommonMixin):
         try:
             packet = await self._send_and_receive(CheckCasPacket(), allow_reconnect=False)
             return bool(packet.response_code >= 0)
-        except (InterfaceError, OperationalError, struct.error):
+        except (OSError, InterfaceError, OperationalError, struct.error):
             if not reconnect:
                 return False
             try:
@@ -622,21 +628,6 @@ class AsyncConnection(ConnectionCommonMixin):
             self._connected = False
             raise OperationalError("malformed response from broker") from exc
         return packet
-
-    @staticmethod
-    def _validate_data_length(data_length: int) -> None:
-        """Validate the DATA_LENGTH header from the broker.
-
-        Raises OperationalError for negative or oversized values to prevent
-        ValueError on allocation or unbounded memory usage (issue #188).
-        """
-        if data_length < 0:
-            raise OperationalError(f"invalid DATA_LENGTH from broker: {data_length} (negative)")
-        if data_length > DataSize.MAX_PACKET_SIZE:
-            raise OperationalError(
-                f"invalid DATA_LENGTH from broker: {data_length} "
-                f"(exceeds max {DataSize.MAX_PACKET_SIZE})"
-            )
 
     async def _recv_exact(
         self,
