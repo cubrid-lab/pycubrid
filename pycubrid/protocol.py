@@ -583,8 +583,8 @@ def _convert_collection_value(column_type: int, value: Any) -> Any:
         except TypeError:
             # Unhashable elements (e.g. dicts from JSON) — return as tuple.
             return tuple(value)
-    if column_type in (CUBRIDDataType.MULTISET, CUBRIDDataType.SEQUENCE):
-        return value
+    # MULTISET and SEQUENCE are returned as-is (already list).
+    # No other collection types need post-processing.
     return value
 
 
@@ -716,7 +716,11 @@ class OpenDatabasePacket:
         self.session_id: int = 0
 
     def write(self) -> bytes:
-        """Serialize the open database packet (628 bytes, no header)."""
+        """Serialize the open database packet.
+
+        Wire format: database(32) + user(32) + password(32) + extended_info(512)
+        + reserved(20) = 628 bytes (no header).
+        """
         writer = PacketWriter(reserve_header=False)
         writer._write_fixed_length_string(self.database, 32)
         writer._write_fixed_length_string(self.user, 32)

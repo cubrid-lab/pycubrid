@@ -11,14 +11,15 @@ concrete sync/async classes.
 
 from __future__ import annotations
 
-import json
+
 import logging
 import os
 import socket
 import ssl as ssl_module
 from typing import TYPE_CHECKING, Any
 
-from .exceptions import InterfaceError
+from .constants import DataSize
+from .exceptions import InterfaceError, OperationalError
 
 if TYPE_CHECKING:
     from .timing import TimingStats
@@ -88,8 +89,7 @@ class ConnectionCommonMixin:
 
         if self._json_deserializer is not None and not callable(self._json_deserializer):
             raise TypeError("json_deserializer must be callable or None")
-        if self._json_deserializer is json.loads:
-            self._json_deserializer = json.loads
+        # Note: json_deserializer is used as-is (issue #220 — removed no-op assignment).
 
         # Timing support
         self._timing: TimingStats | None = None
@@ -166,3 +166,18 @@ class ConnectionCommonMixin:
     def timing_stats(self) -> TimingStats | None:
         """Return the timing statistics object, or ``None`` if timing is disabled."""
         return self._timing
+
+    @staticmethod
+    def _validate_data_length(data_length: int) -> None:
+        """Validate the DATA_LENGTH header from the broker.
+
+        Raises OperationalError for negative or oversized values to prevent
+        ValueError on allocation or unbounded memory usage (issue #188).
+        """
+        if data_length < 0:
+            raise OperationalError(f"invalid DATA_LENGTH from broker: {data_length} (negative)")
+        if data_length > DataSize.MAX_PACKET_SIZE:
+            raise OperationalError(
+                f"invalid DATA_LENGTH from broker: {data_length} "
+                f"(exceeds max {DataSize.MAX_PACKET_SIZE})"
+            )
