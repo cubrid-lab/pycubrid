@@ -110,14 +110,16 @@ class AsyncConnection(ConnectionCommonMixin):
 
         .. _#156: https://github.com/cubrid-lab/pycubrid/issues/156
         """
-        was_connected = self._connected
         async with self._lock:
+            # Read the connecting edge *inside* the lock so two concurrent
+            # connect() calls can't both see "not connected" and both apply
+            # autocommit (PR #226 review). Apply it in the same lock hold via
+            # _send_and_receive_locked so no query on another task can slip
+            # between the handshake and the SET_DB_PARAMETER round-trip.
+            did_connect = not self._connected
             await self._connect_locked()
-        # set_autocommit() takes self._lock itself, so it must run after the
-        # lock above is released — and only on the connecting edge, so a
-        # later no-op connect() (already connected) can't re-send it.
-        if not was_connected and self._pending_autocommit:
-            await self.set_autocommit(True)
+            if did_connect and self._pending_autocommit:
+                await self._apply_pending_autocommit_locked()
 
     async def _connect_locked(self) -> None:
         if self._connected:
@@ -154,6 +156,44 @@ class AsyncConnection(ConnectionCommonMixin):
                 await self._close_streams()
             if _timing is not None:
                 _timing.record_connect(time.perf_counter_ns() - _start)
+
+    async def _apply_pending_autocommit_locked(self) -> None:
+        """Apply the constructor's ``autocommit=True`` the first time
+        ``connect()`` succeeds.  Must be called while ``self._lock`` is held,
+        in the same hold that performed the connect.  Uses
+        ``_send_and_receive_locked`` directly (like
+        ``_restore_session_state_locked``) rather than the public
+        ``set_autocommit`` — the latter would re-acquire ``self._lock`` and
+        deadlock, and releasing the lock first would let a query on another
+        task interleave before the SET_DB_PARAMETER round-trip completes
+        (torn autocommit state).
+
+        This bootstraps the explicit-autocommit state (``_autocommit`` +
+        ``_autocommit_explicitly_set``), after which the normal reconnect
+        restore machinery (``_restore_session_state_locked``) takes over — so
+        it is intentionally driven only from the public ``connect()`` path,
+        not the internal ``ping``/reconnect path, to avoid re-emitting on top
+        of restore.
+
+        ``self._pending_autocommit`` is cleared only on success, so a
+        transient failure leaves it set for the next ``connect()`` attempt to
+        retry, and — once cleared — a later reconnect will never re-apply the
+        constructor's original intent over an explicit ``set_autocommit(False)``
+        the caller made in between.
+        """
+        try:
+            await self._send_and_receive_locked(
+                SetDbParameterPacket(parameter=CCIDbParam.AUTO_COMMIT, value=1),
+                allow_reconnect=False,
+            )
+            await self._send_and_receive_locked(CommitPacket(), allow_reconnect=False)
+        except Exception as exc:
+            await self._close_streams()
+            self._connected = False
+            raise OperationalError("failed to apply autocommit after connect") from exc
+        self._autocommit = True
+        self._autocommit_explicitly_set = True
+        self._pending_autocommit = False
 
     async def _do_connect_handshake(
         self,
