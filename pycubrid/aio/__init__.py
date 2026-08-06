@@ -33,7 +33,6 @@ async def connect(
     Returns:
         A connected :class:`AsyncConnection` instance.
     """
-    autocommit = kwargs.pop("autocommit", False)
     connection_kwargs: dict[str, Any] = {
         "host": host,
         "port": port,
@@ -49,8 +48,6 @@ async def connect(
 
     conn = AsyncConnection(**connection_kwargs)
     await conn.connect()
-    if autocommit:
-        await conn.set_autocommit(True)
     return conn
 
 

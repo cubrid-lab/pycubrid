@@ -73,8 +73,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
-      - name: Install ruff
-        run: pip install ruff
+      - name: Install pinned ruff from pyproject.toml
+        run: pip install -e ".[dev]"
       - name: Ruff check
         run: ruff check pycubrid/ tests/
       - name: Ruff format check
