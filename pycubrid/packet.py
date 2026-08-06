@@ -4,7 +4,7 @@ import datetime
 import json
 import logging
 import struct
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from zoneinfo import ZoneInfo
@@ -357,7 +357,10 @@ class PacketReader:
 
     def _parse_numeric(self, size: int) -> Decimal:
         value = self._parse_null_terminated_string(size)
-        return Decimal(value)
+        try:
+            return Decimal(value)
+        except InvalidOperation as exc:
+            raise ValueError(f"malformed NUMERIC value: {value!r}") from exc
 
     def _parse_json(self, size: int) -> Any:
         value = self._parse_null_terminated_string(size)
