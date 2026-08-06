@@ -40,16 +40,6 @@ jobs:
       exclude: "node_modules/,vendor/"
       fail-on-issue: false  # advisory mode during initial rollout
 
-  version-check:
-    name: Version consistency
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: "3.12"
-      - name: Check pyproject.toml matches __init__.py
-        run: python scripts/check_version.py
 
   compat-check:
     name: Public API compatibility
@@ -349,12 +339,11 @@ jobs:
   ci-gate:
     name: CI Gate (all checks must pass)
     if: always()
-    needs: [version-check, lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, compat-check, integration-tls]
+    needs: [lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, compat-check, integration-tls]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
         env:
-          R_VERSION_CHECK: ${{ needs.version-check.result }}
           R_LINT: ${{ needs.lint.result }}
           R_TYPECHECK: ${{ needs.typecheck.result }}
           R_OFFLINE: ${{ needs.offline-tests.result }}
@@ -365,7 +354,7 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
-          for var in R_VERSION_CHECK R_LINT R_TYPECHECK R_OFFLINE R_PACKAGING R_INTEGRATION R_COMPAT; do
+          for var in R_LINT R_TYPECHECK R_OFFLINE R_PACKAGING R_INTEGRATION R_COMPAT; do
             if [[ "${!var}" != "success" ]]; then
               echo "::error::Required job ${var#R_} result: ${!var}"
               fail=1

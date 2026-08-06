@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycubrid"
-version = "1.6.2"
+dynamic = ["version"]
 description = "Pure Python DB-API 2.0 driver for CUBRID database"
 readme = "README.md"
 license = "MIT"
@@ -55,6 +55,9 @@ Issues = "https://github.com/cubrid-lab/pycubrid/issues"
 [tool.setuptools]
 packages = ["pycubrid", "pycubrid.aio"]
 include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "pycubrid.__version__"}
 
 [tool.ruff]
 line-length = 100
