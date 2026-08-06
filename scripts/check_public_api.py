@@ -103,7 +103,7 @@ SCALAR_VALUE_TYPES: tuple[type, ...] = (str, int, float, bool, type(None))
 # whose semantic meaning depends on the literal value; bumping any of these
 # requires the same explicit review as any other surface change. Crucially,
 # ``__version__`` is NOT in this set: bumping the version is the routine
-# release-engineering action gated separately by ``scripts/check_version.py``,
+# release-engineering action that no longer requires a separate CI gate
 # so capturing it here would force a redundant baseline regeneration on every
 # version bump.
 VALUE_TRACKED_ATTRIBUTES: frozenset[str] = frozenset({"paramstyle", "apilevel", "threadsafety"})
