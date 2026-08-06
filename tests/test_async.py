@@ -908,15 +908,28 @@ class TestAsyncConnectModule:
 
     @pytest.mark.asyncio
     async def test_connect_module_function_with_autocommit(self) -> None:
+        """``autocommit`` now flows straight into AsyncConnection's own
+        constructor (which applies it inside connect()) instead of the
+        factory calling set_autocommit() separately afterwards — so a user
+        constructing AsyncConnection directly gets the same behavior."""
         import pycubrid.aio as aio_mod
 
         with patch.object(aio_mod, "AsyncConnection") as mock_cls:
             instance = MagicMock()
             instance.connect = AsyncMock()
-            instance.set_autocommit = AsyncMock()
             mock_cls.return_value = instance
             await aio_mod.connect(autocommit=True)
-            instance.set_autocommit.assert_awaited_with(True)
+            mock_cls.assert_called_once_with(
+                host="localhost",
+                port=33000,
+                database="",
+                user="dba",
+                password="",
+                decode_collections=False,
+                json_deserializer=None,
+                autocommit=True,
+            )
+            instance.connect.assert_awaited()
 
 
 class TestAsyncConnectSocketLeak:

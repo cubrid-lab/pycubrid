@@ -10,7 +10,7 @@ import pytest
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
 from pycubrid.constants import DataSize
-from pycubrid.exceptions import OperationalError
+from pycubrid.exceptions import DataError, OperationalError
 from pycubrid.protocol import CommitPacket
 
 
@@ -223,6 +223,49 @@ class TestDataLengthValidation:
         """Async connection must reject oversized DATA_LENGTH (#188)."""
         with pytest.raises(OperationalError, match="exceeds max"):
             AsyncConnection._validate_data_length(DataSize.MAX_PACKET_SIZE + 1)
+
+
+class TestWritePathSerializationErrors:
+    """packet.write() overflow must surface as DataError, not a raw struct.error.
+
+    Mirrors the existing parse-side hardening (malformed broker response ->
+    OperationalError, #187/#201): an oversized outbound value (e.g. a huge
+    LOB write or executemany batch) blows up struct.pack's int32 range check
+    before anything is sent, so it must not leak past the PEP 249 exception
+    contract, and — unlike a parse failure — the socket is still perfectly
+    usable since nothing went over the wire yet.
+    """
+
+    def test_sync_write_overflow_raises_data_error(self) -> None:
+        conn, sock = make_connected_connection()
+        sock.sendall.reset_mock()  # clear the handshake's own sendall() calls
+        packet = MagicMock()
+        packet.write.side_effect = struct.error(
+            "'i' format requires -2147483648 <= number <= 2147483647"
+        )
+
+        with pytest.raises(DataError, match="too large"):
+            conn._send_and_receive(packet)
+
+        assert sock.sendall.called is False
+        assert conn._connected is True
+
+    @pytest.mark.asyncio
+    async def test_async_write_overflow_raises_data_error(self) -> None:
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn._connected = True
+        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._reader, conn._writer, _ = make_mock_stream_pair()
+        packet = MagicMock()
+        packet.write.side_effect = struct.error(
+            "'i' format requires -2147483648 <= number <= 2147483647"
+        )
+
+        with pytest.raises(DataError, match="too large"):
+            await conn._send_and_receive(packet)
+
+        assert conn._writer.write.called is False
+        assert conn._connected is True
 
 
 class TestAsyncConnectionNetworkEdgeCases:
@@ -777,6 +820,152 @@ class TestAsyncPositiveRestoreOnReconnect:
 
         assert result is True
         assert restore_order == ["connect", "restore"]
+
+    @pytest.mark.asyncio
+    async def test_async_connection_constructor_autocommit_is_applied_on_connect(self) -> None:
+        """Regression: constructing AsyncConnection(..., autocommit=True)
+        directly (bypassing the pycubrid.aio.connect() factory) used to
+        silently drop the flag — **kwargs swallowed it with no error and no
+        effect. connect() must now apply it itself, atomically under the
+        connect lock (PR #226 review: not via the public set_autocommit(),
+        which would release-then-reacquire the lock)."""
+        from pycubrid.protocol import CommitPacket, SetDbParameterPacket
+
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", autocommit=True)
+        sends: list[object] = []
+
+        async def fake_connect_locked() -> None:
+            conn._connected = True
+
+        async def fake_send_locked(packet: object, *, allow_reconnect: bool = True) -> object:
+            del allow_reconnect
+            sends.append(packet)
+            return MagicMock()
+
+        conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
+        conn._send_and_receive_locked = fake_send_locked  # type: ignore[method-assign]
+
+        await conn.connect()
+
+        assert len(sends) == 2
+        assert isinstance(sends[0], SetDbParameterPacket)
+        assert sends[0].value == 1
+        assert isinstance(sends[1], CommitPacket)
+        assert conn._autocommit is True
+        assert conn._autocommit_explicitly_set is True
+        assert conn._pending_autocommit is False
+
+    @pytest.mark.asyncio
+    async def test_async_connection_constructor_autocommit_not_reapplied_on_second_connect(
+        self,
+    ) -> None:
+        """A second (no-op) connect() call on an already-connected instance
+        must not re-send SET_DB_PARAMETER."""
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", autocommit=True)
+        sends: list[object] = []
+
+        async def fake_connect_locked() -> None:
+            conn._connected = True
+
+        async def fake_send_locked(packet: object, *, allow_reconnect: bool = True) -> object:
+            del allow_reconnect
+            sends.append(packet)
+            return MagicMock()
+
+        conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
+        conn._send_and_receive_locked = fake_send_locked  # type: ignore[method-assign]
+
+        await conn.connect()
+        assert len(sends) == 2
+
+        await conn.connect()  # already connected: must be a pure no-op
+
+        assert len(sends) == 2
+
+    @pytest.mark.asyncio
+    async def test_async_connection_concurrent_connect_applies_autocommit_once(self) -> None:
+        """Regression for PR #226 review (yeongseon + Copilot): computing
+        ``was_connected`` before acquiring the lock let two concurrent
+        connect() calls both observe 'not yet connected' and both send
+        SET_DB_PARAMETER. i_connected is now read and consumed entirely
+        inside one lock hold, so only the caller that actually performs the
+        connect applies autocommit."""
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", autocommit=True)
+        sends: list[object] = []
+
+        async def fake_connect_locked() -> None:
+            await asyncio.sleep(0)  # give a concurrent connect() a chance to interleave
+            conn._connected = True
+
+        async def fake_send_locked(packet: object, *, allow_reconnect: bool = True) -> object:
+            del allow_reconnect
+            sends.append(packet)
+            await asyncio.sleep(0)
+            return MagicMock()
+
+        conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
+        conn._send_and_receive_locked = fake_send_locked  # type: ignore[method-assign]
+
+        await asyncio.gather(conn.connect(), conn.connect())
+
+        from pycubrid.protocol import SetDbParameterPacket
+
+        set_param_sends = [p for p in sends if isinstance(p, SetDbParameterPacket)]
+        assert len(set_param_sends) == 1
+
+    @pytest.mark.asyncio
+    async def test_async_apply_pending_autocommit_failure_leaves_pending_for_retry(self) -> None:
+        """A transient failure while applying the constructor's autocommit
+        must not silently drop the user's intent — _pending_autocommit stays
+        set so the next connect() attempt retries it."""
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", autocommit=True)
+
+        async def fake_connect_locked() -> None:
+            conn._connected = True
+
+        conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
+        conn._send_and_receive_locked = AsyncMock(  # type: ignore[method-assign]
+            side_effect=OperationalError("broker rejected SET")
+        )
+        conn._close_streams = AsyncMock()  # type: ignore[method-assign]
+
+        with pytest.raises(OperationalError, match="failed to apply autocommit"):
+            await conn.connect()
+
+        assert conn._pending_autocommit is True
+        assert conn._connected is False
+
+    @pytest.mark.asyncio
+    async def test_async_reconnect_does_not_override_explicit_autocommit_false(self) -> None:
+        """Regression (Copilot review on PR #226): once the constructor's
+        pending autocommit has been applied and cleared, a later reconnect
+        must not resurrect it over an explicit set_autocommit(False) made in
+        between."""
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", autocommit=True)
+        sends: list[object] = []
+
+        async def fake_connect_locked() -> None:
+            conn._connected = True
+
+        async def fake_send_locked(packet: object, *, allow_reconnect: bool = True) -> object:
+            del allow_reconnect
+            sends.append(packet)
+            return MagicMock()
+
+        conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
+        conn._send_and_receive_locked = fake_send_locked  # type: ignore[method-assign]
+
+        await conn.connect()
+        assert conn._autocommit is True
+
+        conn._autocommit = False  # e.g. via an explicit await conn.set_autocommit(False)
+        sends.clear()
+        conn._connected = False  # simulate close() + reconnect
+
+        await conn.connect()
+
+        assert sends == []
+        assert conn._autocommit is False
 
     @pytest.mark.asyncio
     async def test_async_check_reconnect_invokes_restore_when_explicit(self) -> None:

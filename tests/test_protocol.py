@@ -1752,3 +1752,42 @@ class TestUnicodeStrings:
         data = pkt.write(DEFAULT_CAS_INFO)
         payload = data[8:]
         assert payload[0] == CASFunctionCode.EXECUTE_BATCH
+
+
+class TestParseNumericHardening:
+    """_parse_numeric must surface malformed input as ValueError, not InvalidOperation (#231).
+
+    The malformed-response handlers in Connection/AsyncConnection catch
+    ``(ValueError, struct.error, IndexError, UnicodeDecodeError)``. An uncaught
+    ``decimal.InvalidOperation`` (an ``ArithmeticError``, not a ``ValueError``)
+    would bypass socket teardown and leave the connection in a desynced state.
+    """
+
+    def test_empty_numeric_field_raises_valueerror(self) -> None:
+        # Lone null byte -> _parse_null_terminated_string returns "" -> Decimal("") raises
+        reader = PacketReader(b"\x00")
+        with pytest.raises(ValueError, match="malformed NUMERIC"):
+            reader._parse_numeric(1)
+
+    def test_non_numeric_field_raises_valueerror(self) -> None:
+        reader = PacketReader(b"12x\x00")
+        with pytest.raises(ValueError, match="malformed NUMERIC"):
+            reader._parse_numeric(4)
+
+    def test_valid_numeric_value_unaffected(self) -> None:
+        reader = PacketReader(b"123.45\x00")
+        result = reader._parse_numeric(7)
+        assert result == Decimal("123.45")
+
+    def test_integer_numeric_value_unaffected(self) -> None:
+        reader = PacketReader(b"42\x00")
+        result = reader._parse_numeric(3)
+        assert result == Decimal("42")
+
+    def test_cause_chain_preserved(self) -> None:
+        from decimal import InvalidOperation
+
+        reader = PacketReader(b"\x00")
+        with pytest.raises(ValueError) as excinfo:
+            reader._parse_numeric(1)
+        assert isinstance(excinfo.value.__cause__, InvalidOperation)
