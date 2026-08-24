@@ -68,7 +68,7 @@ class ConnectionCommonMixin:
         read_timeout: float | None = None,
         decode_collections: bool = False,
         json_deserializer: Any = None,
-        no_backslash_escapes: bool = False,
+        no_backslash_escapes: bool | None = None,
         enable_timing: bool | None = None,
     ) -> None:
         """Initialise attributes common to sync and async connections."""
@@ -81,7 +81,7 @@ class ConnectionCommonMixin:
         self._read_timeout = read_timeout
         self._decode_collections = decode_collections
         self._json_deserializer = json_deserializer
-        self._no_backslash_escapes = no_backslash_escapes
+        self._no_backslash_escapes: bool | None = no_backslash_escapes
 
         if type(fetch_size) is not int or fetch_size < 1:
             raise ValueError("fetch_size must be an integer >= 1")

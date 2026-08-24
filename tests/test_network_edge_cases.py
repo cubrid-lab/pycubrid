@@ -831,7 +831,9 @@ class TestAsyncPositiveRestoreOnReconnect:
         which would release-then-reacquire the lock)."""
         from pycubrid.protocol import CommitPacket, SetDbParameterPacket
 
-        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", autocommit=True)
+        conn = AsyncConnection(
+            "localhost", 33000, "testdb", "dba", "", autocommit=True, no_backslash_escapes=False
+        )
         sends: list[object] = []
 
         async def fake_connect_locked() -> None:
@@ -861,7 +863,9 @@ class TestAsyncPositiveRestoreOnReconnect:
     ) -> None:
         """A second (no-op) connect() call on an already-connected instance
         must not re-send SET_DB_PARAMETER."""
-        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", autocommit=True)
+        conn = AsyncConnection(
+            "localhost", 33000, "testdb", "dba", "", autocommit=True, no_backslash_escapes=False
+        )
         sends: list[object] = []
 
         async def fake_connect_locked() -> None:

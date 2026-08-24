@@ -17,8 +17,9 @@ change to the rules below is a contract change governed by
 - [Placeholder Style](#placeholder-style)
 - [Type Mapping (Guarantees)](#type-mapping-guarantees)
 - [String Escaping](#string-escaping)
-  - [Default mode](#default-mode)
-  - [`no_backslash_escapes` mode](#no_backslash_escapes-mode)
+  - [Escape-mode negotiation](#escape-mode-negotiation)
+  - [Literal mode](#literal-mode-no_backslash_escapestrue)
+  - [Escape-processing mode](#escape-processing-mode-no_backslash_escapesfalse)
 - [Placeholder Tokenizer](#placeholder-tokenizer)
 - [`executemany`](#executemany)
 - [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits)
@@ -119,10 +120,12 @@ test that pins the behavior.
 ## String Escaping
 
 String escaping is performed by `escape_string`
-(`pycubrid/_cursor_common.py:124-138`). The behavior depends on the
+(`pycubrid/_cursor_common.py`). The behavior depends on the
 `no_backslash_escapes` connection flag
-(`pycubrid/_connection_common.py:57-87`, set via
-`pycubrid.connect(..., no_backslash_escapes=True)`).
+(`pycubrid/_connection_common.py`). By default the flag is **auto-negotiated**
+from the live server at connect time (see
+[Escape-mode negotiation](#escape-mode-negotiation)); pass it explicitly to
+`pycubrid.connect(..., no_backslash_escapes=True|False)` to override detection.
 
 In every mode:
 
@@ -137,9 +140,51 @@ In every mode:
   (`tests/test_param_security.py::TestEscapeString::test_unicode_passthrough`,
   `::test_unicode_non_bmp_passthrough`).
 
-### Default mode
+### Escape-mode negotiation
 
-`no_backslash_escapes=False` (the default):
+CUBRID's `no_backslash_escapes` **system parameter defaults to `yes`** — a
+backslash is an ordinary literal character, not an escape marker
+([CUBRID manual, literal.rst](https://github.com/CUBRID/cubrid-manual/blob/master/en/sql/literal.rst):
+*"An escape using a backslash can be used if you set no_backslash_escapes in
+cubrid.conf as no. But this default value is yes."*). If the driver blindly
+doubled backslashes against such a server, `C:\temp\file` would be stored as
+`C:\\temp\\file` — silent data corruption (issue #255).
+
+To stay correct against whatever the server is actually configured for, when
+`no_backslash_escapes` is **not** passed to `connect()`, the driver probes the
+live server once at connect time with `SELECT CHAR_LENGTH('\\')` (the SQL
+literal `'\\'`, two backslash characters):
+
+- result `2` → the server left both backslashes intact → **literal mode**, so
+  the driver pins `no_backslash_escapes=True` (does NOT double backslashes).
+- result `1` → the server unescaped the pair → **escape-processing mode**, so
+  the driver pins `no_backslash_escapes=False`.
+- any other value or a probe error → falls back to `no_backslash_escapes=False`
+  (legacy behavior) and logs a warning, so detection never breaks `connect()`.
+
+Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
+entirely. Negotiation happens once per physical connection and is preserved
+across transparent reconnects.
+
+### Literal mode (`no_backslash_escapes=True`)
+
+This is what auto-negotiation selects against a stock CUBRID server
+(`no_backslash_escapes=yes`):
+
+1. Single quotes are doubled (`'` → `''`).
+2. Backslashes and control characters are **left untouched** (the server
+   treats them as ordinary characters, so they round-trip byte-for-byte).
+3. NUL rejection still applies.
+4. The result is wrapped in single quotes.
+
+Pinned by `tests/test_aio_cursor_parity.py:99-105`,
+`tests/test_backslash_negotiation.py`, and the live round-trip suite
+`tests/test_integration.py::TestBackslashRoundTrip`.
+
+### Escape-processing mode (`no_backslash_escapes=False`)
+
+Selected when the server runs `no_backslash_escapes=no`, or when pinned
+explicitly. The driver doubles backslashes so the server unescapes them back:
 
 1. Backslashes are doubled (`\` → `\\`).
 2. Single quotes are doubled (`'` → `''`).
@@ -149,20 +194,6 @@ In every mode:
 
 Pinned by `tests/test_param_security.py:27-55` and
 `tests/test_aio_cursor_parity.py:87-96`.
-
-### `no_backslash_escapes` mode
-
-When the connection is created with `no_backslash_escapes=True`:
-
-1. Single quotes are doubled (`'` → `''`).
-2. Backslashes and control characters are **left untouched**.
-3. NUL rejection still applies.
-4. The result is wrapped in single quotes.
-
-Pinned by `tests/test_aio_cursor_parity.py:99-105`.
-
-This mode exists for compatibility with CUBRID server configurations where the
-server itself does not treat `\` as a string-escape character.
 
 ---
 
