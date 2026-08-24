@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Backslash-escape mode is now auto-negotiated from the server, fixing silent string corruption (#255)** — CUBRID's `no_backslash_escapes` system parameter defaults to `yes` (a backslash is an ordinary literal character), but pycubrid defaulted its client-side flag to `False` and unconditionally doubled backslashes. Against a stock server this silently corrupted data: `C:\temp\file` (12 chars) was stored as `C:\\temp\\file` (14 chars), and `regex \d+` became `regex \\d+`. `Connection`/`AsyncConnection` now probe the live server once at connect time with `SELECT CHAR_LENGTH('\\')` when `no_backslash_escapes` is not passed explicitly: a result of `2` selects literal mode (`True`, no doubling), `1` selects escape-processing mode (`False`), and any other value or probe error falls back to the legacy `False` with a logged warning so detection never breaks `connect()`. Passing `no_backslash_escapes=True|False` explicitly skips the probe. LIKE metacharacters (`%`, `_`) were never escaped and remain untouched. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md#escape-mode-negotiation).
+
+### Changed
+- **Ruff lint rule selection now declared explicitly (#247)** — `pyproject.toml` configured ruff but never set `[tool.ruff.lint] select`, so `ruff check` inherited ruff's implicit defaults. Ruff expanded that default set in 0.16 (59 → 413 rules against this repo's config), which is why #245 (`0.15.22 → 0.16.1`) failed lint with 237 errors in untouched code. Pinning the ruff *version* in #236 stopped unpinned installs from drifting, but could not survive the bump itself — the rule set is now pinned too, via `select = ["E4", "E7", "E9", "F"]`, which is exactly what ruff selected by default through 0.15.x (same 59 rules under both versions).
+
 ## [1.6.2] - 2026-08-06
 
 ### Fixed

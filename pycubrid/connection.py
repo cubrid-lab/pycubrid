@@ -64,13 +64,65 @@ class Connection(ConnectionCommonMixin):
             read_timeout=kwargs.get("read_timeout"),
             decode_collections=decode_collections,
             json_deserializer=json_deserializer,
-            no_backslash_escapes=kwargs.get("no_backslash_escapes", False),
+            no_backslash_escapes=kwargs.get("no_backslash_escapes", None),
             enable_timing=kwargs.get("enable_timing"),
         )
 
         self.connect()
+        self._negotiate_backslash_escapes()
         if autocommit:
             self.autocommit = True
+
+    def _negotiate_backslash_escapes(self) -> None:
+        """Detect the server's backslash-escape mode when not pinned.
+
+        CUBRID's ``no_backslash_escapes`` system parameter defaults to
+        ``yes``: a backslash is an ordinary literal character, not an
+        escape marker.  When the caller has not set ``no_backslash_escapes``
+        explicitly, probe the live server with ``SELECT CHAR_LENGTH('\\')``
+        (the SQL literal ``'\\'`` — two backslash characters):
+
+        * result ``2`` — literal mode (the server default); the driver must
+          NOT double backslashes, so ``self._no_backslash_escapes`` is
+          ``True``.
+        * result ``1`` — the server unescaped the pair, i.e. backslash-escape
+          processing is on, so ``self._no_backslash_escapes`` is ``False``.
+        * any other value or any error — fall back to the legacy ``False``
+          and warn, so a detection failure never breaks ``connect()``.
+        """
+        if self._no_backslash_escapes is not None:
+            return
+        try:
+            cursor = self.cursor()
+            try:
+                cursor.execute("SELECT CHAR_LENGTH('\\\\')")
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
+        except Exception as exc:  # noqa: BLE001 — detection must never break connect
+            self._no_backslash_escapes = False
+            _LOGGER.warning(
+                "Failed to detect CUBRID backslash-escape mode (%s); "
+                "falling back to no_backslash_escapes=False (legacy "
+                "behaviour). Pass no_backslash_escapes explicitly to "
+                "silence this warning.",
+                exc,
+            )
+            return
+        length = row[0] if row else None
+        if length == 2:
+            self._no_backslash_escapes = True
+        elif length == 1:
+            self._no_backslash_escapes = False
+        else:
+            self._no_backslash_escapes = False
+            _LOGGER.warning(
+                "Could not detect CUBRID backslash-escape mode "
+                "(CHAR_LENGTH probe returned %r); falling back to "
+                "no_backslash_escapes=False (legacy behaviour). Pass "
+                "no_backslash_escapes explicitly to silence this warning.",
+                length,
+            )
 
     def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.
