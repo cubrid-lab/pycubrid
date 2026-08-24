@@ -455,3 +455,68 @@ class TestErrorHandling:
                 )
         finally:
             _drop_table(cursor, table_name)
+
+
+class TestBackslashRoundTrip:
+    """Round-trip integrity for string literals (issue #255).
+
+    On a stock CUBRID server (``no_backslash_escapes=yes``) a backslash is an
+    ordinary character.  These tests prove the auto-negotiated driver stores
+    and reads back each value byte-for-byte, and that ``%``/``_`` (LIKE
+    metacharacters, not string-literal escapes) are never mangled.
+    """
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            r"C:\temp\file",
+            "line1\nline2",
+            "tab\there",
+            "carriage\rreturn",
+            "50% off",
+            "a_b_c",
+            "don't",
+            r"back\slash and 'quote'",
+            r"regex \d+ pattern",
+            "plain unicode \ud55c\uad6d\uc5b4",
+        ],
+    )
+    def test_string_round_trip(self, cursor: Cursor, value: str) -> None:
+        table_name = _table_name("bslash")
+        try:
+            cursor.execute("CREATE TABLE %s (v VARCHAR(200))" % table_name)
+            cursor.execute("INSERT INTO %s (v) VALUES (?)" % table_name, (value,))
+            cursor.execute("SELECT v FROM %s" % table_name)
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[0] == value
+        finally:
+            _drop_table(cursor, table_name)
+
+    def test_negotiated_mode_is_literal(self) -> None:
+        connection = pycubrid.connect(
+            host=TEST_HOST,
+            port=TEST_PORT,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+        )
+        try:
+            # Stock CUBRID defaults to no_backslash_escapes=yes -> literal mode.
+            assert connection._no_backslash_escapes is True
+        finally:
+            connection.close()
+
+    def test_explicit_override_is_respected(self) -> None:
+        connection = pycubrid.connect(
+            host=TEST_HOST,
+            port=TEST_PORT,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+            no_backslash_escapes=False,
+        )
+        try:
+            assert connection._no_backslash_escapes is False
+        finally:
+            connection.close()
