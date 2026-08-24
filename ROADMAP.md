@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Last updated**: 2026-05-15
+> **Last updated**: 2026-08-24
 >
 > This roadmap reflects current priorities. For the ecosystem-wide view, see the
 > [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
@@ -11,13 +11,16 @@
 - 🗂️ [Org Project Board](https://github.com/orgs/cubrid-lab/projects/2)
 - 🌐 [Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md)
 
-## Current Baseline — v1.4.0
+## Current Baseline — v1.6.2
 
 - Stable sync DB-API surface
 - Native asyncio API (`pycubrid.aio`) shipped in v1.1.0
 - JSON / collection decoding, `ping()`, and `nextset()` shipped in v1.2.0
 - Sync TLS shipped in v1.3.0
 - Async TLS and TLS 1.2 minimum baseline shipped in v1.4.0
+- 1.x release policy with an automated `compat-check` CI gate against `api-baseline.json` shipped in v1.5.0
+- Python 3.10 async-TLS preflight verification probe shipped in v1.5.0
+- Python 3.14 support validated in CI as of the current v1.6.2 baseline
 
 ## Future
 
