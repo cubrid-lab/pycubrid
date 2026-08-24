@@ -316,8 +316,12 @@ class TestCursorAndAutocommit:
         )
         socket_queue.append(sock)
 
-        conn = Connection("localhost", 33000, "testdb", "dba", "", autocommit=True)
+        conn = Connection(
+            "localhost", 33000, "testdb", "dba", "", autocommit=True, no_backslash_escapes=False
+        )
 
+        # escape-mode negotiation is skipped via the explicit override so the
+        # mocked frame queue stays focused on the autocommit round-trip.
         assert conn.autocommit is True
 
 
