@@ -13,14 +13,12 @@
 
 ## Current Baseline — v1.6.2
 
-- Stable sync DB-API surface
-- Native asyncio API (`pycubrid.aio`) shipped in v1.1.0
-- JSON / collection decoding, `ping()`, and `nextset()` shipped in v1.2.0
-- Sync TLS shipped in v1.3.0
-- Async TLS and TLS 1.2 minimum baseline shipped in v1.4.0
-- 1.x release policy with an automated `compat-check` CI gate against `api-baseline.json` shipped in v1.5.0
-- Python 3.10 async-TLS preflight verification probe shipped in v1.5.0
-- Python 3.14 support validated in CI as of the current v1.6.2 baseline
+- Stable sync DB-API 2.0 surface plus native asyncio API (`pycubrid.aio`)
+- JSON / collection decoding, `ping()`, `nextset()`, and sync + async TLS (TLS 1.2 minimum)
+- 1.x release policy enforced by an automated `compat-check` CI gate against `api-baseline.json`
+- Supported runtimes: Python 3.10–3.14, CUBRID 10.2–11.4
+
+_See **Completed** for the per-release milestone history._
 
 ## Future
 
@@ -33,6 +31,11 @@
 Python 3.10+, CUBRID 10.2–11.4
 
 ## Completed
+
+### Release Policy & Runtime Coverage (v1.5.0 / v1.6.2)
+- 1.x release policy with an automated `compat-check` CI gate against `api-baseline.json` (v1.5.0)
+- Python 3.10 async-TLS preflight verification probe (v1.5.0)
+- Python 3.14 support validated in CI (v1.6.2 baseline)
 
 ### Type Safety & Protocol (v1.2.0)
 - Native `Connection.ping()` via CHECK_CAS (FC=32)
