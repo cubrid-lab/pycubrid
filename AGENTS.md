@@ -243,6 +243,14 @@ graph TD
     docs --> ru
 ```
 
+## Documentation definition of done
+
+Any change that affects public behavior, compatibility, installation, configuration, APIs, supported versions, error handling, or SQL behavior MUST update the matching documentation in the **same PR**. At minimum keep in sync: `CHANGELOG.md`, the relevant files under `docs/` (e.g. `PARAMETER_BINDING.md`), and the `RELEASE_POLICY.md` behavior/release classification.
+
+If no documentation change is needed, state the reason explicitly in the PR body as `Docs: not needed - <reason>` or apply the `docs-not-needed` label. This is enforced by the `docs-sync` CI check.
+
+Do not mark work complete until code, tests, and documentation are consistent.
+
 ## Commit Convention
 
 ```
