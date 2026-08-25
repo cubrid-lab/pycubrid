@@ -231,3 +231,37 @@ class TestAsyncBindParity:
 
         result = cur._bind_parameters("SELECT * FROM t WHERE name = 'what?' AND id = ?", [42])
         assert result == "SELECT * FROM t WHERE name = 'what?' AND id = 42"
+
+
+class TestEscapeModeResolution:
+    """Verify the None-guard on the negotiated escape mode (#267)."""
+
+    def _make_cursor(self, escape_mode):
+        from unittest.mock import MagicMock
+        from pycubrid.cursor import Cursor
+
+        conn = MagicMock()
+        conn._no_backslash_escapes = escape_mode
+        conn._decode_collections = False
+        conn._json_deserializer = None
+        conn._fetch_size = 100
+        conn._timing = None
+        return Cursor(conn)
+
+    def test_bind_raises_when_escape_mode_unnegotiated(self):
+        from pycubrid.exceptions import InterfaceError
+
+        cur = self._make_cursor(None)
+        with pytest.raises(InterfaceError):
+            cur._bind_parameters("SELECT ?", [1])
+
+    def test_format_parameter_raises_when_escape_mode_unnegotiated(self):
+        from pycubrid.exceptions import InterfaceError
+
+        cur = self._make_cursor(None)
+        with pytest.raises(InterfaceError):
+            cur._format_parameter("x")
+
+    def test_resolve_returns_concrete_bool(self):
+        assert self._make_cursor(True)._resolve_escape_mode() is True
+        assert self._make_cursor(False)._resolve_escape_mode() is False
