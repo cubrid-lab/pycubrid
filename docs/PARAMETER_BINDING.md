@@ -93,7 +93,7 @@ test that pins the behavior.
 | `int` | `str(value)` (decimal digits) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
 | `float` | `str(value)`; `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
 | `decimal.Decimal` | `str(value)` (unquoted) | `_cursor_common.py:175-176` | `tests/test_param_security.py:113-115` |
-| `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) raises `ProgrammingError` (current message: `"string parameter contains null byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-78` |
+| `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
 | `bytes`, `bytearray` | `X'<hex>'` (lowercase hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
 | `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — microseconds truncated to milliseconds (`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
 | `datetime.datetime` (tz-aware) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset | `_cursor_common.py:151-169` | `tests/test_param_security.py:147-169` |
@@ -159,8 +159,10 @@ literal `'\\'`, two backslash characters):
   the driver pins `no_backslash_escapes=True` (does NOT double backslashes).
 - result `1` → the server unescaped the pair → **escape-processing mode**, so
   the driver pins `no_backslash_escapes=False`.
-- any other value or a probe error → falls back to `no_backslash_escapes=False`
-  (legacy behavior) and logs a warning, so detection never breaks `connect()`.
+- any other value or a probe error → raises `OperationalError`. The driver
+  refuses to guess the escape mode, because a wrong value silently corrupts
+  string escaping (and can enable SQL injection). Pass `no_backslash_escapes`
+  explicitly to skip detection when the probe cannot run.
 
 Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
 entirely. Negotiation happens once per physical connection and is preserved
@@ -188,9 +190,10 @@ explicitly. The driver doubles backslashes so the server unescapes them back:
 
 1. Backslashes are doubled (`\` → `\\`).
 2. Single quotes are doubled (`'` → `''`).
-3. `\r`, `\n`, and `\x1a` (Ctrl-Z) are each prefixed with a backslash
-   (`\n` → `\\n`, etc.).
-4. The result is wrapped in single quotes.
+3. `\r` and `\n` are each prefixed with a backslash (`\n` → `\\n`, etc.).
+4. `\x1a` (Ctrl-Z) has no safe CUBRID literal escape and raises
+   `ProgrammingError` in **both** escape modes (see [String Escaping](#string-escaping)).
+5. The result is wrapped in single quotes.
 
 Pinned by `tests/test_param_security.py:27-55` and
 `tests/test_aio_cursor_parity.py:87-96`.

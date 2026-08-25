@@ -13,7 +13,7 @@ from typing import Any
 
 from pycubrid._connection_common import ConnectionCommonMixin, resolve_ssl_context
 from pycubrid.constants import CCIDbParam, DataSize
-from pycubrid.exceptions import DataError, InterfaceError, OperationalError
+from pycubrid.exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
 from pycubrid.protocol import (
     CheckCasPacket,
     ClientInfoExchangePacket,
@@ -42,7 +42,8 @@ class AsyncConnection(ConnectionCommonMixin):
 
     Differences vs sync :class:`pycubrid.Connection`:
 
-    - ``create_lob()`` is **not** available on async connections.
+    - ``create_lob()`` raises :class:`~pycubrid.exceptions.NotSupportedError`;
+      async LOB support is not implemented.
     - Autocommit changes go through :meth:`set_autocommit` (coroutine)
       rather than a property setter.
     - :meth:`ping` (added in 1.3.2) performs native ``CHECK_CAS`` and
@@ -95,6 +96,17 @@ class AsyncConnection(ConnectionCommonMixin):
         # Applied in connect() (can't await a live SET_DB_PARAMETER round-trip
         # here — __init__ isn't a coroutine). See connect() below.
         self._pending_autocommit = autocommit
+        # Setup readiness gate (issue #264): serialize first-time setup
+        # (connect -> negotiate escapes -> apply autocommit) against public
+        # operations without holding the non-reentrant _lock across the
+        # cursor-based negotiation probe. Public _send_and_receive waits on
+        # _setup_done; the task performing setup bypasses the wait so its own
+        # probe query does not deadlock.
+        self._setup_lock = asyncio.Lock()
+        self._setup_done = asyncio.Event()
+        self._setup_done.set()
+        self._setup_owner: asyncio.Task[Any] | None = None
+        self._setup_error: BaseException | None = None
 
     async def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.
@@ -110,21 +122,40 @@ class AsyncConnection(ConnectionCommonMixin):
 
         .. _#156: https://github.com/cubrid-lab/pycubrid/issues/156
         """
-        async with self._lock:
-            # Read the connecting edge *inside* the lock so two concurrent
-            # connect() calls can't both see "not connected" and both apply
-            # autocommit (PR #226 review). Apply it in the same lock hold via
-            # _send_and_receive_locked so no query on another task can slip
-            # between the handshake and the SET_DB_PARAMETER round-trip.
-            did_connect = not self._connected
-            await self._connect_locked()
-            if did_connect and self._pending_autocommit:
-                await self._apply_pending_autocommit_locked()
-        # Negotiate the backslash-escape mode outside the lock: it issues a
-        # regular query round-trip via a cursor, and the guard keeps it to a
-        # single probe across transparent reconnects.
-        if self._no_backslash_escapes is None:
-            await self._negotiate_backslash_escapes()
+        async with self._setup_lock:
+            current = asyncio.current_task()
+            self._setup_owner = current
+            self._setup_error = None
+            self._setup_done.clear()
+            try:
+                # Read the connecting edge and run the handshake under _lock so
+                # two concurrent connect() calls can't both see "not connected"
+                # and both drive setup (PR #226 review).
+                async with self._lock:
+                    did_connect = not self._connected
+                    await self._connect_locked()
+
+                # Match the sync driver's setup order exactly: negotiate the
+                # backslash-escape mode BEFORE applying pending autocommit.
+                # The probe is a read-only SELECT issued via a cursor; it runs
+                # without holding _lock (the cursor acquires it) but is fenced
+                # from other tasks by the setup gate, and the guard keeps it to
+                # a single probe across transparent reconnects.
+                if did_connect and self._no_backslash_escapes is None:
+                    await self._negotiate_backslash_escapes()
+
+                # Apply the constructor's autocommit in its own _lock hold via
+                # _send_and_receive_locked so no query on another task can slip
+                # between the handshake and the SET_DB_PARAMETER round-trip.
+                async with self._lock:
+                    if did_connect and self._pending_autocommit:
+                        await self._apply_pending_autocommit_locked()
+            except BaseException as exc:
+                self._setup_error = exc
+                raise
+            finally:
+                self._setup_owner = None
+                self._setup_done.set()
 
     async def _negotiate_backslash_escapes(self) -> None:
         """Async counterpart of
@@ -132,8 +163,9 @@ class AsyncConnection(ConnectionCommonMixin):
 
         Probes the live server with ``SELECT CHAR_LENGTH('\\')`` and pins
         ``self._no_backslash_escapes`` to ``True`` (literal mode, the CUBRID
-        default), ``False`` (backslash-escape processing on), or the legacy
-        ``False`` with a warning if detection fails.
+        default) or ``False`` (backslash-escape processing on). A detection
+        failure raises :class:`OperationalError` rather than guessing, since
+        a wrong mode silently corrupts string escaping.
         """
         if self._no_backslash_escapes is not None:
             return
@@ -144,29 +176,23 @@ class AsyncConnection(ConnectionCommonMixin):
                 row = await cursor.fetchone()
             finally:
                 await cursor.close()
-        except Exception as exc:  # noqa: BLE001 — detection must never break connect
-            self._no_backslash_escapes = False
-            _LOGGER.warning(
-                "Failed to detect CUBRID backslash-escape mode (%s); "
-                "falling back to no_backslash_escapes=False (legacy "
-                "behaviour). Pass no_backslash_escapes explicitly to "
-                "silence this warning.",
-                exc,
-            )
-            return
+        except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
+            raise OperationalError(
+                "Failed to detect CUBRID backslash-escape mode; refusing to "
+                "guess because a wrong mode silently corrupts string escaping. "
+                "Pass no_backslash_escapes explicitly to skip detection."
+            ) from exc
         length = row[0] if row else None
         if length == 2:
             self._no_backslash_escapes = True
         elif length == 1:
             self._no_backslash_escapes = False
         else:
-            self._no_backslash_escapes = False
-            _LOGGER.warning(
+            raise OperationalError(
                 "Could not detect CUBRID backslash-escape mode "
-                "(CHAR_LENGTH probe returned %r); falling back to "
-                "no_backslash_escapes=False (legacy behaviour). Pass "
-                "no_backslash_escapes explicitly to silence this warning.",
-                length,
+                f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
+                "because a wrong mode silently corrupts string escaping. Pass "
+                "no_backslash_escapes explicitly to skip detection."
             )
 
     async def _connect_locked(self) -> None:
@@ -630,6 +656,20 @@ class AsyncConnection(ConnectionCommonMixin):
             except (OSError, OperationalError, InterfaceError):
                 return False
 
+    def create_lob(self, lob_type: int) -> Any:
+        """Reject LOB creation on async connections.
+
+        Async LOB support is not implemented: :class:`~pycubrid.Lob` drives its
+        connection synchronously, so it cannot operate over an
+        :class:`AsyncConnection`. This method exists to make the unsupported
+        behavior fail loudly and discoverably instead of raising
+        ``AttributeError``.
+        """
+        raise NotSupportedError(
+            "LOB operations are not supported on async connections; "
+            "async LOB support is not implemented"
+        )
+
     async def get_schema_info(
         self,
         schema_type: int,
@@ -682,7 +722,25 @@ class AsyncConnection(ConnectionCommonMixin):
         except (OSError, asyncio.TimeoutError) as exc:
             raise OperationalError(f"could not connect to {host}:{port}") from exc
 
+    async def _wait_for_setup_if_needed(self) -> None:
+        """Block public operations until first-time setup finishes (#264).
+
+        While ``connect()`` runs its ``connect -> negotiate -> autocommit``
+        sequence, ``_setup_done`` is cleared so a query on another task cannot
+        execute before the backslash-escape mode is pinned. The task that owns
+        setup bypasses the wait so its own cursor-based probe does not deadlock
+        against itself. If setup failed, the recorded error is re-raised here
+        so waiters do not proceed against a half-initialized connection.
+        """
+        if self._setup_owner is asyncio.current_task():
+            return
+        if not self._setup_done.is_set():
+            await self._setup_done.wait()
+            if self._setup_error is not None:
+                raise self._setup_error
+
     async def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
+        await self._wait_for_setup_if_needed()
         async with self._lock:
             return await self._send_and_receive_locked(packet, allow_reconnect=allow_reconnect)
 

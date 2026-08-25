@@ -39,6 +39,20 @@ class TestExtractFirstKeyword:
     def test_mixed_comments(self):
         assert _extract_first_keyword("/* block */ -- line\nMERGE INTO t") == "MERGE"
 
+    def test_cpp_line_comment(self):
+        """CUBRID C++-style // line comment before the statement."""
+        assert _extract_first_keyword("// hint\nINSERT INTO t") == "INSERT"
+
+    def test_multiple_cpp_line_comments(self):
+        assert _extract_first_keyword("// c1\n// c2\nUPDATE t SET x=1") == "UPDATE"
+
+    def test_cpp_comment_no_trailing_newline(self):
+        """C++-style comment at EOF without trailing newline."""
+        assert _extract_first_keyword("// only comment") == ""
+
+    def test_mixed_all_comment_styles(self):
+        assert _extract_first_keyword("/* block */ -- ansi\n// cpp\nDELETE FROM t") == "DELETE"
+
     def test_empty_string(self):
         assert _extract_first_keyword("") == ""
 

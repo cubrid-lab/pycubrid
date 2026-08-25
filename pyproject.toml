@@ -49,7 +49,8 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/cubrid-lab/pycubrid"
 Repository = "https://github.com/cubrid-lab/pycubrid"
-Documentation = "https://github.com/cubrid-lab/pycubrid/tree/main/docs"
+Documentation = "https://cubrid-lab.github.io/pycubrid/"
+Changelog = "https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md"
 Issues = "https://github.com/cubrid-lab/pycubrid/issues"
 
 [tool.setuptools]

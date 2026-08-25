@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import logging
-from typing import Any, Protocol
+from types import TracebackType
+from typing import Any, Literal, Protocol
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
-from .exceptions import OperationalError
+from .exceptions import InterfaceError, NotSupportedError, OperationalError
 from .protocol import LOBNewPacket, LOBReadPacket, LOBWritePacket
 
 
@@ -17,20 +19,46 @@ class _ConnectionLike(Protocol):
 _LOGGER = logging.getLogger(__name__)
 
 
+def _reject_async_connection(connection: _ConnectionLike) -> None:
+    """Reject async connections, which ``Lob`` cannot drive.
+
+    ``Lob`` calls ``_send_and_receive`` synchronously. An ``AsyncConnection``
+    implements it as a coroutine, so a ``Lob`` bound to one would silently
+    produce un-awaited coroutines. Async LOB support is not implemented; fail
+    fast with a clear error instead.
+    """
+    if inspect.iscoroutinefunction(connection._send_and_receive):
+        raise NotSupportedError(
+            "LOB operations are not supported on async connections; "
+            "async LOB support is not implemented"
+        )
+
+
 class Lob:
-    """Represents a CUBRID Large Object (BLOB or CLOB)."""
+    """Represents a CUBRID Large Object (BLOB or CLOB).
+
+    Lifecycle: LOB handles are connection/session-scoped. The CUBRID CAS wire
+    protocol exposes no release/free opcode, so server-side resources are
+    reclaimed only when the owning connection/session closes. :meth:`close`
+    (and context-manager use) performs a purely client-side invalidation of
+    this Python object; it issues no network request. Operating on a closed
+    LOB raises :class:`InterfaceError`.
+    """
 
     def __init__(self, connection: _ConnectionLike, lob_type: int, lob_handle: bytes = b"") -> None:
         """Initialize a LOB object bound to a connection."""
+        _reject_async_connection(connection)
         if lob_type not in (CCI_U_TYPE.BLOB, CCI_U_TYPE.CLOB):
             raise ValueError("lob_type must be CCI_U_TYPE.BLOB or CCI_U_TYPE.CLOB")
         self._connection = connection
         self._lob_type = lob_type
         self._lob_handle = lob_handle
+        self._closed = False
 
     @classmethod
     def create(cls, connection: _ConnectionLike, lob_type: int) -> Lob:
         """Create a new LOB object on the server."""
+        _reject_async_connection(connection)
         connection._ensure_connected()
         packet = LOBNewPacket(lob_type)
         connection._send_and_receive(packet)
@@ -43,6 +71,9 @@ class Lob:
         Raises ``OperationalError`` if the server writes fewer bytes than
         requested (e.g. disk full, quota exceeded).
         """
+        self._check_open()
+        if offset < 0:
+            raise InterfaceError(f"offset must be non-negative, got {offset}")
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
         self._connection._send_and_receive(packet)
@@ -55,9 +86,17 @@ class Lob:
 
     def read(self, length: int, offset: int = 0) -> bytes:
         """Read up to ``length`` bytes from the LOB starting from ``offset``."""
+        self._check_open()
+        if offset < 0:
+            raise InterfaceError(f"offset must be non-negative, got {offset}")
+        if length < 0:
+            raise InterfaceError(f"length must be non-negative, got {length}")
         self._connection._ensure_connected()
         packet = LOBReadPacket(self._lob_handle, offset, length)
         self._connection._send_and_receive(packet)
+        if len(packet.lob_data) > length:
+            got = len(packet.lob_data)
+            raise OperationalError(f"LOB read returned {got} bytes exceeding requested {length}")
         _LOGGER.debug(
             "LOB read: offset=%d requested=%d got=%d", offset, length, len(packet.lob_data)
         )
@@ -72,3 +111,32 @@ class Lob:
     def lob_type(self) -> int:
         """Return the LOB type code."""
         return self._lob_type
+
+    def _check_open(self) -> None:
+        """Raise ``InterfaceError`` if this LOB has been closed."""
+        if self._closed:
+            raise InterfaceError("LOB is closed")
+
+    def close(self) -> None:
+        """Invalidate this LOB object (client-side only).
+
+        This performs no network I/O: the CUBRID CAS protocol has no LOB-release
+        opcode. Server-side LOB resources are connection/session-scoped and are
+        reclaimed when the owning connection/session closes. After ``close``,
+        :meth:`read`/:meth:`write` raise :class:`InterfaceError`. Idempotent.
+        """
+        self._closed = True
+
+    def __enter__(self) -> Lob:
+        """Enter the runtime context and return this LOB."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> Literal[False]:
+        """Close the LOB on context-manager exit without suppressing exceptions."""
+        self.close()
+        return False

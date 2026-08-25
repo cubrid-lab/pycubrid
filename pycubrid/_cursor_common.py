@@ -14,9 +14,9 @@ import datetime
 import math
 import re
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 
-from .exceptions import ProgrammingError
+from .exceptions import InterfaceError, ProgrammingError
 from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE
 
 if TYPE_CHECKING:
@@ -29,8 +29,10 @@ DescriptionItem = tuple[str, int, None, None, int, int, bool]
 # DML verbs eligible for batch execution in executemany().
 DML_BATCH_VERBS = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE"})
 
-# Regex to strip leading SQL comments (block /* ... */ and line -- ... to EOL/EOF).
-_RE_LEADING_COMMENTS = re.compile(r"^(\s*(/\*.*?\*/|--[^\n]*(\n|$)))*\s*", re.DOTALL)
+# Regex to strip leading SQL comments: block /* ... */, ANSI line -- ... , and
+# CUBRID C++-style line // ... (each to EOL/EOF).  Kept consistent with the
+# comment styles skipped by split_on_placeholders().
+_RE_LEADING_COMMENTS = re.compile(r"^(\s*(/\*.*?\*/|--[^\n]*(\n|$)|//[^\n]*(\n|$)))*\s*", re.DOTALL)
 
 
 # ---- SQL parsing -----------------------------------------------------------
@@ -44,17 +46,32 @@ def extract_first_keyword(sql: str) -> str:
     return stripped.split(None, 1)[0].upper()
 
 
-def split_on_placeholders(sql: str) -> list[str]:
+def split_on_placeholders(sql: str, *, no_backslash_escapes: bool = True) -> list[str]:
     """Split SQL on unquoted, uncommented ``?`` placeholders.
 
-    Tracks four states to skip ``?`` inside:
-    - Single-quoted strings (handles doubled ``''`` escapes)
-    - Double-quoted identifiers
-    - Line comments (``-- ...`` to EOL)
-    - Block comments (``/* ... */``)
+    Tracks CUBRID lexical contexts to skip ``?`` inside:
+
+    - Single-quoted strings (``'...'``): always honours doubled ``''``
+      escapes.  When ``no_backslash_escapes`` is ``False`` (CUBRID system
+      parameter ``no_backslash_escapes=no``), a backslash additionally
+      escapes the following character, so ``\'`` does not terminate the
+      literal and ``\\`` is a literal backslash.  When ``True`` (the
+      CUBRID default) a backslash is an ordinary character.
+    - Double-quoted identifiers (``"..."``): honours doubled ``""``.
+    - Backtick identifiers (`` `...` ``) and bracket identifiers
+      (``[...]``): the first closing delimiter terminates (CUBRID does
+      not document an escape for these).
+    - Line comments (``-- ...`` and ``// ...`` to EOL).
+    - Block comments (``/* ... */``).
 
     Returns a list of *N + 1* parts where *N* is the number of real
     placeholders.
+
+    .. note::
+       Double quotes are treated as identifier delimiters, which is
+       correct for CUBRID's default ``ansi_quotes=yes``.  Under
+       ``ansi_quotes=no`` double quotes delimit *strings*; pycubrid does
+       not track that parameter, so such SQL is not specially handled.
     """
     parts: list[str] = []
     start = 0
@@ -68,6 +85,10 @@ def split_on_placeholders(sql: str) -> list[str]:
             # Single-quoted string: advance past closing quote
             i += 1
             while i < n:
+                if not no_backslash_escapes and sql[i] == "\\":
+                    # Backslash escapes the next char (or ends at EOF)
+                    i += 2
+                    continue
                 if sql[i] == "'":
                     i += 1
                     if i < n and sql[i] == "'":
@@ -91,8 +112,30 @@ def split_on_placeholders(sql: str) -> list[str]:
                 else:
                     i += 1
 
+        elif c == "`":
+            # Backtick identifier: first closing backtick terminates
+            i += 1
+            while i < n and sql[i] != "`":
+                i += 1
+            if i < n:
+                i += 1
+
+        elif c == "[":
+            # Bracket identifier: first closing bracket terminates
+            i += 1
+            while i < n and sql[i] != "]":
+                i += 1
+            if i < n:
+                i += 1
+
         elif c == "-" and i + 1 < n and sql[i + 1] == "-":
             # Line comment: skip to end of line
+            i += 2
+            while i < n and sql[i] != "\n":
+                i += 1
+
+        elif c == "/" and i + 1 < n and sql[i + 1] == "/":
+            # C++-style line comment: skip to end of line
             i += 2
             while i < n and sql[i] != "\n":
                 i += 1
@@ -126,14 +169,19 @@ def escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
     """Escape a string value for safe inclusion in a SQL literal.
 
     Raises :class:`ProgrammingError` if the string contains a null byte
-    (``\\x00``), which CUBRID does not support in string parameters.
+    (``\\x00``) or a Ctrl-Z byte (``\\x1a``). CUBRID does not support the
+    null byte in string parameters, and CUBRID's SQL grammar defines no safe
+    literal escape for ``\\x1a`` (there is no MySQL-style ``\\Z``), so it is
+    rejected rather than emitted as a raw control byte.
     """
     if "\x00" in value:
         raise ProgrammingError("string parameter contains null byte")
+    if "\x1a" in value:
+        raise ProgrammingError("string parameter contains Ctrl-Z (0x1A) byte")
     if no_backslash_escapes:
         return "'%s'" % value.replace("'", "''")
     escaped = value.replace("\\", "\\\\").replace("'", "''")
-    for ch in ("\r", "\n", "\x1a"):
+    for ch in ("\r", "\n"):
         if ch in escaped:
             escaped = escaped.replace(ch, "\\" + ch)
     return "'%s'" % escaped
@@ -199,7 +247,7 @@ def bind_parameters(
     else:
         raise ProgrammingError("parameters must be a sequence")
 
-    parts = split_on_placeholders(operation)
+    parts = split_on_placeholders(operation, no_backslash_escapes=no_backslash_escapes)
     placeholder_count = len(parts) - 1
     if placeholder_count != len(values):
         raise ProgrammingError("wrong number of parameters")
@@ -237,16 +285,41 @@ def build_description(
 # ---- mixin for cursor parameter helpers ------------------------------------
 
 
-class CursorParamsMixin:
+class _EscapeModeSource(Protocol):
+    """Structural type for the subset of the connection the mixin reads."""
+
+    @property
+    def _no_backslash_escapes(self) -> bool | None: ...
+
+
+_ConnT = TypeVar("_ConnT", bound=_EscapeModeSource)
+
+
+class CursorParamsMixin(Generic[_ConnT]):
     """Mixin providing parameter binding/formatting wrappers for cursors.
 
     Both ``Cursor`` and ``AsyncCursor`` share identical forwarding methods
     to the module-level helpers above.  This mixin eliminates that duplication.
 
-    Requires ``self._connection._no_backslash_escapes`` on the host class.
+    Parameterised over the concrete connection type so each cursor keeps its
+    own (sync vs async) connection API while sharing this escape-mode logic.
     """
 
-    _connection: Any
+    _connection: _ConnT
+
+    def _resolve_escape_mode(self) -> bool:
+        """Return the negotiated backslash-escape mode as a concrete bool.
+
+        ``Connection._no_backslash_escapes`` is ``None`` until it is
+        negotiated once at connect time; by the time any statement is
+        bound it must be a concrete bool.  Guard the invariant so a
+        premature call surfaces as :class:`InterfaceError` instead of
+        silently mis-escaping.
+        """
+        mode = self._connection._no_backslash_escapes
+        if mode is None:
+            raise InterfaceError("connection escape mode not negotiated")
+        return mode
 
     def _bind_parameters(
         self,
@@ -256,11 +329,11 @@ class CursorParamsMixin:
         return bind_parameters(
             operation,
             parameters,
-            no_backslash_escapes=self._connection._no_backslash_escapes,
+            no_backslash_escapes=self._resolve_escape_mode(),
         )
 
     def _format_parameter(self, value: Any) -> str:
-        return format_parameter(value, no_backslash_escapes=self._connection._no_backslash_escapes)
+        return format_parameter(value, no_backslash_escapes=self._resolve_escape_mode())
 
     @staticmethod
     def _escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:

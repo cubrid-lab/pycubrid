@@ -78,6 +78,86 @@ class TestSplitOnPlaceholders:
         assert len(parts) == 1  # ? is inside comment, no placeholder
 
 
+class TestDialectAwareTokenizer:
+    """Verify CUBRID dialect additions: backslash escapes, // comments,
+    backtick and bracket identifiers."""
+
+    # --- backslash escapes in single-quoted strings ---------------------
+
+    def test_backslash_escaped_quote_no_backslash_escapes_off(self):
+        # no_backslash_escapes=no -> \' does NOT terminate the string,
+        # so the ? stays inside the literal (1 real placeholder).
+        sql = r"SELECT * FROM t WHERE name = 'a\'? b' AND id = ?"
+        parts = _split_on_placeholders(sql, no_backslash_escapes=False)
+        assert len(parts) == 2
+        assert "?" in parts[0]  # the quoted ? is retained in part 0
+
+    def test_backslash_escaped_quote_no_backslash_escapes_on(self):
+        # no_backslash_escapes=yes (default) -> backslash is ordinary, the
+        # first ' after it terminates the string, exposing the next ? .
+        sql = r"SELECT 'x\' , ?, ?"
+        parts = _split_on_placeholders(sql, no_backslash_escapes=True)
+        assert len(parts) == 3  # both ? are real placeholders
+
+    def test_default_is_no_backslash_escapes_on(self):
+        # Standalone default must preserve legacy behaviour (backslash
+        # ordinary), matching CUBRID's default no_backslash_escapes=yes.
+        sql = r"SELECT 'x\' , ?, ?"
+        assert _split_on_placeholders(sql) == _split_on_placeholders(sql, no_backslash_escapes=True)
+
+    def test_double_backslash_then_quote(self):
+        # \\ is a literal backslash, so the following ' terminates.
+        sql = r"SELECT '\\' , ?"
+        parts = _split_on_placeholders(sql, no_backslash_escapes=False)
+        assert len(parts) == 2
+
+    def test_trailing_backslash_at_eof_is_lenient(self):
+        parts = _split_on_placeholders("SELECT 'oops\\", no_backslash_escapes=False)
+        assert len(parts) == 1  # unterminated, no crash, no placeholder
+
+    def test_doubling_still_works_with_escapes_on(self):
+        # '' doubling stays valid even when backslash escapes are active.
+        sql = "SELECT 'it''s a q?' AND id = ?"
+        parts = _split_on_placeholders(sql, no_backslash_escapes=False)
+        assert len(parts) == 2
+        assert "it''s a q?" in parts[0]
+
+    # --- // line comments -----------------------------------------------
+
+    def test_question_in_cpp_line_comment(self):
+        parts = _split_on_placeholders("// why?\nSELECT * FROM t WHERE id = ?")
+        assert len(parts) == 2
+        assert "why?" in parts[0]
+
+    # --- backtick identifiers -------------------------------------------
+
+    def test_question_in_backtick_identifier(self):
+        parts = _split_on_placeholders("SELECT `col?` FROM t WHERE id = ?")
+        assert len(parts) == 2
+        assert "col?" in parts[0]
+
+    def test_unterminated_backtick_is_lenient(self):
+        parts = _split_on_placeholders("SELECT `col? FROM t")
+        assert len(parts) == 1
+
+    # --- bracket identifiers --------------------------------------------
+
+    def test_question_in_bracket_identifier(self):
+        parts = _split_on_placeholders("SELECT [col?] FROM t WHERE id = ?")
+        assert len(parts) == 2
+        assert "col?" in parts[0]
+
+    def test_unterminated_bracket_is_lenient(self):
+        parts = _split_on_placeholders("SELECT [col? FROM t")
+        assert len(parts) == 1
+
+    # --- signature / compatibility --------------------------------------
+
+    def test_keyword_only_param(self):
+        with pytest.raises(TypeError):
+            _split_on_placeholders("SELECT ?", False)  # type: ignore[misc]
+
+
 class TestBindParametersIntegration:
     """End-to-end _bind_parameters tests through Cursor path."""
 
@@ -151,3 +231,37 @@ class TestAsyncBindParity:
 
         result = cur._bind_parameters("SELECT * FROM t WHERE name = 'what?' AND id = ?", [42])
         assert result == "SELECT * FROM t WHERE name = 'what?' AND id = 42"
+
+
+class TestEscapeModeResolution:
+    """Verify the None-guard on the negotiated escape mode (#267)."""
+
+    def _make_cursor(self, escape_mode):
+        from unittest.mock import MagicMock
+        from pycubrid.cursor import Cursor
+
+        conn = MagicMock()
+        conn._no_backslash_escapes = escape_mode
+        conn._decode_collections = False
+        conn._json_deserializer = None
+        conn._fetch_size = 100
+        conn._timing = None
+        return Cursor(conn)
+
+    def test_bind_raises_when_escape_mode_unnegotiated(self):
+        from pycubrid.exceptions import InterfaceError
+
+        cur = self._make_cursor(None)
+        with pytest.raises(InterfaceError):
+            cur._bind_parameters("SELECT ?", [1])
+
+    def test_format_parameter_raises_when_escape_mode_unnegotiated(self):
+        from pycubrid.exceptions import InterfaceError
+
+        cur = self._make_cursor(None)
+        with pytest.raises(InterfaceError):
+            cur._format_parameter("x")
+
+    def test_resolve_returns_concrete_bool(self):
+        assert self._make_cursor(True)._resolve_escape_mode() is True
+        assert self._make_cursor(False)._resolve_escape_mode() is False

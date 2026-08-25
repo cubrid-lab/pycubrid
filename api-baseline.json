@@ -442,6 +442,45 @@
         "class_vars": [],
         "kind": "class",
         "methods": {
+          "__enter__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__exit__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "exc_type"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "exc_val"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "exc_tb"
+                }
+              ]
+            }
+          },
           "__init__": {
             "kind": "callable",
             "signature": {
@@ -465,6 +504,18 @@
                   "has_default": true,
                   "kind": "POSITIONAL_OR_KEYWORD",
                   "name": "lob_handle"
+                }
+              ]
+            }
+          },
+          "close": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
                 }
               ]
             }
@@ -1217,6 +1268,23 @@
               ]
             }
           },
+          "create_lob": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "lob_type"
+                }
+              ]
+            }
+          },
           "cursor": {
             "kind": "callable",
             "signature": {
@@ -1511,6 +1579,23 @@
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "self"
+            }
+          ]
+        }
+      },
+      "create_lob": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "lob_type"
             }
           ]
         }
@@ -2445,6 +2530,45 @@
     "class_vars": [],
     "kind": "class",
     "methods": {
+      "__enter__": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "__exit__": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "exc_type"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "exc_val"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "exc_tb"
+            }
+          ]
+        }
+      },
       "__init__": {
         "kind": "callable",
         "signature": {
@@ -2468,6 +2592,18 @@
               "has_default": true,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "lob_handle"
+            }
+          ]
+        }
+      },
+      "close": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
             }
           ]
         }

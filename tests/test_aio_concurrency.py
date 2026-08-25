@@ -260,3 +260,109 @@ async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> 
 
     assert all(results)
     assert conn.subclass_connect_calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_setup_gate_orders_negotiate_before_autocommit_and_fences_queries() -> None:
+    """Regression for #264: async setup runs connect -> negotiate -> autocommit
+    (matching the sync driver), the negotiation probe (same task) bypasses the
+    setup gate without deadlocking, and a concurrent public query is fenced
+    until the backslash-escape mode is pinned.
+    """
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+    conn._pending_autocommit = True
+
+    events: list[str] = []
+    negotiate_started = asyncio.Event()
+    release_negotiate = asyncio.Event()
+
+    async def fake_connect_locked() -> None:
+        events.append("connect")
+        conn._connected = True
+
+    async def fake_negotiate() -> None:
+        if conn._no_backslash_escapes is not None:
+            return
+        events.append("negotiate:start")
+        negotiate_started.set()
+        # The owning task's own probe must bypass the setup gate (no deadlock).
+        await conn._send_and_receive("probe")
+        await release_negotiate.wait()
+        conn._no_backslash_escapes = False
+        events.append("negotiate:end")
+
+    async def fake_apply_autocommit() -> None:
+        # Ordering guarantee: escape mode is pinned before autocommit is applied.
+        assert conn._no_backslash_escapes is not None
+        events.append("autocommit")
+        conn._pending_autocommit = False
+
+    async def fake_send_locked(packet: Any, *, allow_reconnect: bool = True) -> Any:
+        events.append(f"{packet}-send")
+        return packet
+
+    conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
+    conn._negotiate_backslash_escapes = fake_negotiate  # type: ignore[method-assign]
+    conn._apply_pending_autocommit_locked = fake_apply_autocommit  # type: ignore[method-assign]
+    conn._send_and_receive_locked = fake_send_locked  # type: ignore[method-assign]
+
+    connect_task = asyncio.create_task(conn.connect())
+    await negotiate_started.wait()
+
+    # A concurrent public query must not slip past the setup gate while the
+    # escape mode is still unpinned.
+    query_task = asyncio.create_task(conn._send_and_receive("query"))
+    await asyncio.sleep(0)
+    assert not query_task.done(), "query must be fenced until setup completes"
+    assert "query-send" not in events
+
+    release_negotiate.set()
+    await connect_task
+    await query_task
+
+    assert events == [
+        "connect",
+        "negotiate:start",
+        "probe-send",
+        "negotiate:end",
+        "autocommit",
+        "query-send",
+    ]
+    assert conn._no_backslash_escapes is not None
+
+
+@pytest.mark.asyncio
+async def test_setup_gate_propagates_setup_failure_to_waiters() -> None:
+    """Regression for #264: if setup fails, a task waiting on the setup gate
+    wakes and receives the setup error instead of hanging or running against a
+    half-initialized connection.
+    """
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+
+    negotiate_started = asyncio.Event()
+    release_negotiate = asyncio.Event()
+
+    async def fake_connect_locked() -> None:
+        conn._connected = True
+
+    async def fake_negotiate() -> None:
+        negotiate_started.set()
+        await release_negotiate.wait()
+        raise OperationalError("probe failed")
+
+    conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
+    conn._negotiate_backslash_escapes = fake_negotiate  # type: ignore[method-assign]
+
+    connect_task = asyncio.create_task(conn.connect())
+    await negotiate_started.wait()
+
+    query_task = asyncio.create_task(conn._send_and_receive("query"))
+    await asyncio.sleep(0)
+    assert not query_task.done()
+
+    release_negotiate.set()
+
+    with pytest.raises(OperationalError, match="probe failed"):
+        await connect_task
+    with pytest.raises(OperationalError, match="probe failed"):
+        await query_task
