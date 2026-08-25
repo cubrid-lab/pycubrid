@@ -9,13 +9,13 @@ behaviour, avoiding the silent doubling of backslashes.
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
+from pycubrid.exceptions import OperationalError
 
 
 def _make_sync_conn(
@@ -46,32 +46,23 @@ class TestSyncNegotiation:
         conn._negotiate_backslash_escapes()
         assert conn._no_backslash_escapes is False
 
-    def test_probe_unexpected_falls_back_false_with_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_probe_unexpected_raises(self) -> None:
         conn, _ = _make_sync_conn((7,))
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(OperationalError, match="backslash-escape"):
             conn._negotiate_backslash_escapes()
-        assert conn._no_backslash_escapes is False
-        assert any("backslash-escape" in r.message for r in caplog.records)
+        assert conn._no_backslash_escapes is None
 
-    def test_probe_none_row_falls_back_false_with_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_probe_none_row_raises(self) -> None:
         conn, _ = _make_sync_conn(None)
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(OperationalError, match="backslash-escape"):
             conn._negotiate_backslash_escapes()
-        assert conn._no_backslash_escapes is False
-        assert any("backslash-escape" in r.message for r in caplog.records)
+        assert conn._no_backslash_escapes is None
 
-    def test_execute_error_falls_back_false_with_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_execute_error_raises(self) -> None:
         conn, _ = _make_sync_conn(None, raise_on_execute=True)
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(OperationalError, match="backslash-escape"):
             conn._negotiate_backslash_escapes()
-        assert conn._no_backslash_escapes is False
-        assert any("backslash-escape" in r.message for r in caplog.records)
+        assert conn._no_backslash_escapes is None
 
     def test_explicit_true_is_not_overridden(self) -> None:
         conn, cur = _make_sync_conn((1,), preset=True)
@@ -120,10 +111,18 @@ class TestAsyncNegotiation:
         assert conn._no_backslash_escapes is False
 
     @pytest.mark.asyncio
-    async def test_execute_error_falls_back_false(self) -> None:
+    async def test_execute_error_raises(self) -> None:
         conn, _ = _make_async_conn(None, raise_on_execute=True)
-        await conn._negotiate_backslash_escapes()
-        assert conn._no_backslash_escapes is False
+        with pytest.raises(OperationalError, match="backslash-escape"):
+            await conn._negotiate_backslash_escapes()
+        assert conn._no_backslash_escapes is None
+
+    @pytest.mark.asyncio
+    async def test_probe_unexpected_raises(self) -> None:
+        conn, _ = _make_async_conn((7,))
+        with pytest.raises(OperationalError, match="backslash-escape"):
+            await conn._negotiate_backslash_escapes()
+        assert conn._no_backslash_escapes is None
 
     @pytest.mark.asyncio
     async def test_explicit_setting_is_not_overridden(self) -> None:

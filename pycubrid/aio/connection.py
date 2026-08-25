@@ -132,8 +132,9 @@ class AsyncConnection(ConnectionCommonMixin):
 
         Probes the live server with ``SELECT CHAR_LENGTH('\\')`` and pins
         ``self._no_backslash_escapes`` to ``True`` (literal mode, the CUBRID
-        default), ``False`` (backslash-escape processing on), or the legacy
-        ``False`` with a warning if detection fails.
+        default) or ``False`` (backslash-escape processing on). A detection
+        failure raises :class:`OperationalError` rather than guessing, since
+        a wrong mode silently corrupts string escaping.
         """
         if self._no_backslash_escapes is not None:
             return
@@ -144,29 +145,23 @@ class AsyncConnection(ConnectionCommonMixin):
                 row = await cursor.fetchone()
             finally:
                 await cursor.close()
-        except Exception as exc:  # noqa: BLE001 — detection must never break connect
-            self._no_backslash_escapes = False
-            _LOGGER.warning(
-                "Failed to detect CUBRID backslash-escape mode (%s); "
-                "falling back to no_backslash_escapes=False (legacy "
-                "behaviour). Pass no_backslash_escapes explicitly to "
-                "silence this warning.",
-                exc,
-            )
-            return
+        except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
+            raise OperationalError(
+                "Failed to detect CUBRID backslash-escape mode; refusing to "
+                "guess because a wrong mode silently corrupts string escaping. "
+                "Pass no_backslash_escapes explicitly to skip detection."
+            ) from exc
         length = row[0] if row else None
         if length == 2:
             self._no_backslash_escapes = True
         elif length == 1:
             self._no_backslash_escapes = False
         else:
-            self._no_backslash_escapes = False
-            _LOGGER.warning(
+            raise OperationalError(
                 "Could not detect CUBRID backslash-escape mode "
-                "(CHAR_LENGTH probe returned %r); falling back to "
-                "no_backslash_escapes=False (legacy behaviour). Pass "
-                "no_backslash_escapes explicitly to silence this warning.",
-                length,
+                f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
+                "because a wrong mode silently corrupts string escaping. Pass "
+                "no_backslash_escapes explicitly to skip detection."
             )
 
     async def _connect_locked(self) -> None:
