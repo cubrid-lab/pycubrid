@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from pycubrid.constants import CUBRIDDataType
-from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.exceptions import InterfaceError, NotSupportedError, OperationalError
 from pycubrid.lob import Lob
 from pycubrid.protocol import LOBNewPacket, LOBReadPacket, LOBWritePacket
 
@@ -237,3 +237,37 @@ def test_context_manager_does_not_suppress_exceptions(mock_connection: MagicMock
         with Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle") as lob:
             assert lob is not None
             raise ValueError("boom")
+
+
+class _AsyncConnectionStub:
+    """Stub with an async ``_send_and_receive`` to emulate ``AsyncConnection``.
+
+    Tracks calls so tests can assert no packet is sent before the guard fires.
+    """
+
+    def __init__(self) -> None:
+        self.ensure_connected_calls = 0
+        self.send_calls = 0
+
+    def _ensure_connected(self) -> None:
+        self.ensure_connected_calls += 1
+
+    async def _send_and_receive(self, packet: object) -> object:
+        self.send_calls += 1
+        return packet
+
+
+def test_init_rejects_async_connection() -> None:
+    conn = _AsyncConnectionStub()
+    with pytest.raises(NotSupportedError, match="not supported on async connections"):
+        Lob(conn, CUBRIDDataType.BLOB, b"lob-handle")
+    assert conn.send_calls == 0
+
+
+def test_create_rejects_async_connection_before_sending() -> None:
+    conn = _AsyncConnectionStub()
+    with pytest.raises(NotSupportedError, match="not supported on async connections"):
+        Lob.create(conn, CUBRIDDataType.CLOB)
+    # Guard must fire before any connection interaction (no un-awaited coroutine).
+    assert conn.ensure_connected_calls == 0
+    assert conn.send_calls == 0

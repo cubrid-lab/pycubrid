@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import logging
 from types import TracebackType
 from typing import Any, Literal, Protocol
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
-from .exceptions import InterfaceError, OperationalError
+from .exceptions import InterfaceError, NotSupportedError, OperationalError
 from .protocol import LOBNewPacket, LOBReadPacket, LOBWritePacket
 
 
@@ -16,6 +17,21 @@ class _ConnectionLike(Protocol):
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _reject_async_connection(connection: _ConnectionLike) -> None:
+    """Reject async connections, which ``Lob`` cannot drive.
+
+    ``Lob`` calls ``_send_and_receive`` synchronously. An ``AsyncConnection``
+    implements it as a coroutine, so a ``Lob`` bound to one would silently
+    produce un-awaited coroutines. Async LOB support is not implemented; fail
+    fast with a clear error instead.
+    """
+    if inspect.iscoroutinefunction(connection._send_and_receive):
+        raise NotSupportedError(
+            "LOB operations are not supported on async connections; "
+            "async LOB support is not implemented"
+        )
 
 
 class Lob:
@@ -31,6 +47,7 @@ class Lob:
 
     def __init__(self, connection: _ConnectionLike, lob_type: int, lob_handle: bytes = b"") -> None:
         """Initialize a LOB object bound to a connection."""
+        _reject_async_connection(connection)
         if lob_type not in (CCI_U_TYPE.BLOB, CCI_U_TYPE.CLOB):
             raise ValueError("lob_type must be CCI_U_TYPE.BLOB or CCI_U_TYPE.CLOB")
         self._connection = connection
@@ -41,6 +58,7 @@ class Lob:
     @classmethod
     def create(cls, connection: _ConnectionLike, lob_type: int) -> Lob:
         """Create a new LOB object on the server."""
+        _reject_async_connection(connection)
         connection._ensure_connected()
         packet = LOBNewPacket(lob_type)
         connection._send_and_receive(packet)

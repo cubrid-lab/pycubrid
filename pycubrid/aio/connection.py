@@ -13,7 +13,7 @@ from typing import Any
 
 from pycubrid._connection_common import ConnectionCommonMixin, resolve_ssl_context
 from pycubrid.constants import CCIDbParam, DataSize
-from pycubrid.exceptions import DataError, InterfaceError, OperationalError
+from pycubrid.exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
 from pycubrid.protocol import (
     CheckCasPacket,
     ClientInfoExchangePacket,
@@ -42,7 +42,8 @@ class AsyncConnection(ConnectionCommonMixin):
 
     Differences vs sync :class:`pycubrid.Connection`:
 
-    - ``create_lob()`` is **not** available on async connections.
+    - ``create_lob()`` raises :class:`~pycubrid.exceptions.NotSupportedError`;
+      async LOB support is not implemented.
     - Autocommit changes go through :meth:`set_autocommit` (coroutine)
       rather than a property setter.
     - :meth:`ping` (added in 1.3.2) performs native ``CHECK_CAS`` and
@@ -654,6 +655,20 @@ class AsyncConnection(ConnectionCommonMixin):
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
+
+    def create_lob(self, lob_type: int) -> Any:
+        """Reject LOB creation on async connections.
+
+        Async LOB support is not implemented: :class:`~pycubrid.Lob` drives its
+        connection synchronously, so it cannot operate over an
+        :class:`AsyncConnection`. This method exists to make the unsupported
+        behavior fail loudly and discoverably instead of raising
+        ``AttributeError``.
+        """
+        raise NotSupportedError(
+            "LOB operations are not supported on async connections; "
+            "async LOB support is not implemented"
+        )
 
     async def get_schema_info(
         self,
