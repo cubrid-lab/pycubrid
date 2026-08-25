@@ -44,17 +44,32 @@ def extract_first_keyword(sql: str) -> str:
     return stripped.split(None, 1)[0].upper()
 
 
-def split_on_placeholders(sql: str) -> list[str]:
+def split_on_placeholders(sql: str, *, no_backslash_escapes: bool = True) -> list[str]:
     """Split SQL on unquoted, uncommented ``?`` placeholders.
 
-    Tracks four states to skip ``?`` inside:
-    - Single-quoted strings (handles doubled ``''`` escapes)
-    - Double-quoted identifiers
-    - Line comments (``-- ...`` to EOL)
-    - Block comments (``/* ... */``)
+    Tracks CUBRID lexical contexts to skip ``?`` inside:
+
+    - Single-quoted strings (``'...'``): always honours doubled ``''``
+      escapes.  When ``no_backslash_escapes`` is ``False`` (CUBRID system
+      parameter ``no_backslash_escapes=no``), a backslash additionally
+      escapes the following character, so ``\'`` does not terminate the
+      literal and ``\\`` is a literal backslash.  When ``True`` (the
+      CUBRID default) a backslash is an ordinary character.
+    - Double-quoted identifiers (``"..."``): honours doubled ``""``.
+    - Backtick identifiers (`` `...` ``) and bracket identifiers
+      (``[...]``): the first closing delimiter terminates (CUBRID does
+      not document an escape for these).
+    - Line comments (``-- ...`` and ``// ...`` to EOL).
+    - Block comments (``/* ... */``).
 
     Returns a list of *N + 1* parts where *N* is the number of real
     placeholders.
+
+    .. note::
+       Double quotes are treated as identifier delimiters, which is
+       correct for CUBRID's default ``ansi_quotes=yes``.  Under
+       ``ansi_quotes=no`` double quotes delimit *strings*; pycubrid does
+       not track that parameter, so such SQL is not specially handled.
     """
     parts: list[str] = []
     start = 0
@@ -68,6 +83,10 @@ def split_on_placeholders(sql: str) -> list[str]:
             # Single-quoted string: advance past closing quote
             i += 1
             while i < n:
+                if not no_backslash_escapes and sql[i] == "\\":
+                    # Backslash escapes the next char (or ends at EOF)
+                    i += 2
+                    continue
                 if sql[i] == "'":
                     i += 1
                     if i < n and sql[i] == "'":
@@ -91,8 +110,30 @@ def split_on_placeholders(sql: str) -> list[str]:
                 else:
                     i += 1
 
+        elif c == "`":
+            # Backtick identifier: first closing backtick terminates
+            i += 1
+            while i < n and sql[i] != "`":
+                i += 1
+            if i < n:
+                i += 1
+
+        elif c == "[":
+            # Bracket identifier: first closing bracket terminates
+            i += 1
+            while i < n and sql[i] != "]":
+                i += 1
+            if i < n:
+                i += 1
+
         elif c == "-" and i + 1 < n and sql[i + 1] == "-":
             # Line comment: skip to end of line
+            i += 2
+            while i < n and sql[i] != "\n":
+                i += 1
+
+        elif c == "/" and i + 1 < n and sql[i + 1] == "/":
+            # C++-style line comment: skip to end of line
             i += 2
             while i < n and sql[i] != "\n":
                 i += 1
@@ -199,7 +240,7 @@ def bind_parameters(
     else:
         raise ProgrammingError("parameters must be a sequence")
 
-    parts = split_on_placeholders(operation)
+    parts = split_on_placeholders(operation, no_backslash_escapes=no_backslash_escapes)
     placeholder_count = len(parts) - 1
     if placeholder_count != len(values):
         raise ProgrammingError("wrong number of parameters")
