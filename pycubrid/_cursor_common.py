@@ -29,8 +29,10 @@ DescriptionItem = tuple[str, int, None, None, int, int, bool]
 # DML verbs eligible for batch execution in executemany().
 DML_BATCH_VERBS = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE"})
 
-# Regex to strip leading SQL comments (block /* ... */ and line -- ... to EOL/EOF).
-_RE_LEADING_COMMENTS = re.compile(r"^(\s*(/\*.*?\*/|--[^\n]*(\n|$)))*\s*", re.DOTALL)
+# Regex to strip leading SQL comments: block /* ... */, ANSI line -- ... , and
+# CUBRID C++-style line // ... (each to EOL/EOF).  Kept consistent with the
+# comment styles skipped by split_on_placeholders().
+_RE_LEADING_COMMENTS = re.compile(r"^(\s*(/\*.*?\*/|--[^\n]*(\n|$)|//[^\n]*(\n|$)))*\s*", re.DOTALL)
 
 
 # ---- SQL parsing -----------------------------------------------------------
