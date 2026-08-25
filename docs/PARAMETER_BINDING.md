@@ -159,8 +159,10 @@ literal `'\\'`, two backslash characters):
   the driver pins `no_backslash_escapes=True` (does NOT double backslashes).
 - result `1` → the server unescaped the pair → **escape-processing mode**, so
   the driver pins `no_backslash_escapes=False`.
-- any other value or a probe error → falls back to `no_backslash_escapes=False`
-  (legacy behavior) and logs a warning, so detection never breaks `connect()`.
+- any other value or a probe error → raises `OperationalError`. The driver
+  refuses to guess the escape mode, because a wrong value silently corrupts
+  string escaping (and can enable SQL injection). Pass `no_backslash_escapes`
+  explicitly to skip detection when the probe cannot run.
 
 Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
 entirely. Negotiation happens once per physical connection and is preserved

@@ -87,8 +87,11 @@ class Connection(ConnectionCommonMixin):
           ``True``.
         * result ``1`` — the server unescaped the pair, i.e. backslash-escape
           processing is on, so ``self._no_backslash_escapes`` is ``False``.
-        * any other value or any error — fall back to the legacy ``False``
-          and warn, so a detection failure never breaks ``connect()``.
+        * any other value or any error — raise :class:`OperationalError`.
+          Guessing the escape mode is unsafe: a wrong value silently
+          corrupts string escaping (and can enable SQL injection), so a
+          detection failure fails loud rather than falling back. Pass
+          ``no_backslash_escapes`` explicitly to skip the probe entirely.
         """
         if self._no_backslash_escapes is not None:
             return
@@ -99,29 +102,23 @@ class Connection(ConnectionCommonMixin):
                 row = cursor.fetchone()
             finally:
                 cursor.close()
-        except Exception as exc:  # noqa: BLE001 — detection must never break connect
-            self._no_backslash_escapes = False
-            _LOGGER.warning(
-                "Failed to detect CUBRID backslash-escape mode (%s); "
-                "falling back to no_backslash_escapes=False (legacy "
-                "behaviour). Pass no_backslash_escapes explicitly to "
-                "silence this warning.",
-                exc,
-            )
-            return
+        except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
+            raise OperationalError(
+                "Failed to detect CUBRID backslash-escape mode; refusing to "
+                "guess because a wrong mode silently corrupts string escaping. "
+                "Pass no_backslash_escapes explicitly to skip detection."
+            ) from exc
         length = row[0] if row else None
         if length == 2:
             self._no_backslash_escapes = True
         elif length == 1:
             self._no_backslash_escapes = False
         else:
-            self._no_backslash_escapes = False
-            _LOGGER.warning(
+            raise OperationalError(
                 "Could not detect CUBRID backslash-escape mode "
-                "(CHAR_LENGTH probe returned %r); falling back to "
-                "no_backslash_escapes=False (legacy behaviour). Pass "
-                "no_backslash_escapes explicitly to silence this warning.",
-                length,
+                f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
+                "because a wrong mode silently corrupts string escaping. Pass "
+                "no_backslash_escapes explicitly to skip detection."
             )
 
     def connect(self) -> None:
