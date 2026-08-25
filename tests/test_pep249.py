@@ -82,3 +82,33 @@ class TestConstructors:
     def test_binary(self) -> None:
         binary_value = pycubrid.Binary(b"hello")
         assert binary_value is not None
+
+
+_EXCEPTION_NAMES = (
+    "Warning",
+    "Error",
+    "InterfaceError",
+    "DatabaseError",
+    "DataError",
+    "OperationalError",
+    "IntegrityError",
+    "InternalError",
+    "ProgrammingError",
+    "NotSupportedError",
+)
+
+
+class TestConnectionExceptionAttributes:
+    """PEP 249 optional extension: exception classes exposed on Connection."""
+
+    def test_sync_connection_class_has_exception_attributes(self) -> None:
+        from pycubrid.connection import Connection
+
+        for name in _EXCEPTION_NAMES:
+            assert getattr(Connection, name) is getattr(pycubrid, name), name
+
+    def test_async_connection_class_has_exception_attributes(self) -> None:
+        from pycubrid.aio.connection import AsyncConnection
+
+        for name in _EXCEPTION_NAMES:
+            assert getattr(AsyncConnection, name) is getattr(pycubrid, name), name
