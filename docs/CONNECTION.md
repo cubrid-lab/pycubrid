@@ -255,7 +255,7 @@ with pycubrid.connect(
     user="dba",
 ) as conn:
     cur = conn.cursor()
-    cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ("Alice",))
+    cur.execute("INSERT INTO users (name) VALUES (?)", ("Alice",))
     # Connection commits automatically on success
 # Connection is closed automatically after exiting the block
 ```
