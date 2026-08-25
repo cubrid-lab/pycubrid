@@ -167,14 +167,19 @@ def escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
     """Escape a string value for safe inclusion in a SQL literal.
 
     Raises :class:`ProgrammingError` if the string contains a null byte
-    (``\\x00``), which CUBRID does not support in string parameters.
+    (``\\x00``) or a Ctrl-Z byte (``\\x1a``). CUBRID does not support the
+    null byte in string parameters, and CUBRID's SQL grammar defines no safe
+    literal escape for ``\\x1a`` (there is no MySQL-style ``\\Z``), so it is
+    rejected rather than emitted as a raw control byte.
     """
     if "\x00" in value:
         raise ProgrammingError("string parameter contains null byte")
+    if "\x1a" in value:
+        raise ProgrammingError("string parameter contains Ctrl-Z (0x1A) byte")
     if no_backslash_escapes:
         return "'%s'" % value.replace("'", "''")
     escaped = value.replace("\\", "\\\\").replace("'", "''")
-    for ch in ("\r", "\n", "\x1a"):
+    for ch in ("\r", "\n"):
         if ch in escaped:
             escaped = escaped.replace(ch, "\\" + ch)
     return "'%s'" % escaped
