@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 from pycubrid._cursor_common import (
     CursorParamsMixin,
@@ -32,10 +32,20 @@ _LOGGER = logging.getLogger(__name__)
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
 
 
-class AsyncCursor(CursorParamsMixin):
+if TYPE_CHECKING:
+    from pycubrid.aio.connection import AsyncConnection
+
+    _AsyncCursorBase = CursorParamsMixin[AsyncConnection]
+else:
+    _AsyncCursorBase = CursorParamsMixin
+
+
+class AsyncCursor(_AsyncCursorBase):
     """Async database cursor implementing a DB-API 2.0–like interface."""
 
-    def __init__(self, connection: Any) -> None:
+    _connection: AsyncConnection
+
+    def __init__(self, connection: AsyncConnection) -> None:
         self._connection = connection
         self._closed = False
         self._description: tuple[DescriptionItem, ...] | None = None

@@ -14,9 +14,9 @@ import datetime
 import math
 import re
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 
-from .exceptions import ProgrammingError
+from .exceptions import InterfaceError, ProgrammingError
 from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE
 
 if TYPE_CHECKING:
@@ -278,16 +278,41 @@ def build_description(
 # ---- mixin for cursor parameter helpers ------------------------------------
 
 
-class CursorParamsMixin:
+class _EscapeModeSource(Protocol):
+    """Structural type for the subset of the connection the mixin reads."""
+
+    @property
+    def _no_backslash_escapes(self) -> bool | None: ...
+
+
+_ConnT = TypeVar("_ConnT", bound=_EscapeModeSource)
+
+
+class CursorParamsMixin(Generic[_ConnT]):
     """Mixin providing parameter binding/formatting wrappers for cursors.
 
     Both ``Cursor`` and ``AsyncCursor`` share identical forwarding methods
     to the module-level helpers above.  This mixin eliminates that duplication.
 
-    Requires ``self._connection._no_backslash_escapes`` on the host class.
+    Parameterised over the concrete connection type so each cursor keeps its
+    own (sync vs async) connection API while sharing this escape-mode logic.
     """
 
-    _connection: Any
+    _connection: _ConnT
+
+    def _resolve_escape_mode(self) -> bool:
+        """Return the negotiated backslash-escape mode as a concrete bool.
+
+        ``Connection._no_backslash_escapes`` is ``None`` until it is
+        negotiated once at connect time; by the time any statement is
+        bound it must be a concrete bool.  Guard the invariant so a
+        premature call surfaces as :class:`InterfaceError` instead of
+        silently mis-escaping.
+        """
+        mode = self._connection._no_backslash_escapes
+        if mode is None:
+            raise InterfaceError("connection escape mode not negotiated")
+        return mode
 
     def _bind_parameters(
         self,
@@ -297,11 +322,11 @@ class CursorParamsMixin:
         return bind_parameters(
             operation,
             parameters,
-            no_backslash_escapes=self._connection._no_backslash_escapes,
+            no_backslash_escapes=self._resolve_escape_mode(),
         )
 
     def _format_parameter(self, value: Any) -> str:
-        return format_parameter(value, no_backslash_escapes=self._connection._no_backslash_escapes)
+        return format_parameter(value, no_backslash_escapes=self._resolve_escape_mode())
 
     @staticmethod
     def _escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:

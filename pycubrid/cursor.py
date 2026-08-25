@@ -30,6 +30,10 @@ from .protocol import (
 if TYPE_CHECKING:
     from .connection import Connection
 
+    _CursorBase = CursorParamsMixin[Connection]
+else:
+    _CursorBase = CursorParamsMixin
+
 # Backward-compatible aliases for external imports.
 _DML_BATCH_VERBS = DML_BATCH_VERBS
 _extract_first_keyword = extract_first_keyword
@@ -41,8 +45,10 @@ _LOGGER = logging.getLogger(__name__)
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
 
 
-class Cursor(CursorParamsMixin):
+class Cursor(_CursorBase):
     """Database cursor implementing the DB-API 2.0 cursor interface."""
+
+    _connection: Connection
 
     def __init__(self, connection: Connection) -> None:
         """Initialize a cursor bound to a connection."""
