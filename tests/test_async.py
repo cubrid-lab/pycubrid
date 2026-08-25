@@ -64,6 +64,13 @@ class TestAsyncConnectionEstablishment:
 
         assert conn._fetch_size == 41
 
+    def test_create_lob_raises_not_supported(self, async_conn: AsyncConnection) -> None:
+        from pycubrid.constants import CUBRIDDataType
+        from pycubrid.exceptions import NotSupportedError
+
+        with pytest.raises(NotSupportedError, match="not supported on async connections"):
+            async_conn.create_lob(CUBRIDDataType.BLOB)
+
     def test_fetch_size_rejects_invalid(self) -> None:
         with pytest.raises(ValueError, match="fetch_size must be an integer >= 1"):
             AsyncConnection("localhost", 33000, "testdb", "dba", "", fetch_size=0)

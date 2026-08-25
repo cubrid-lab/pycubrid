@@ -10,6 +10,8 @@ import pytest
 
 import pycubrid
 import pycubrid.aio
+from pycubrid.constants import CUBRIDDataType
+from pycubrid.exceptions import NotSupportedError
 from tests._parity_helpers import (
     ADAPTERS,
     ParityAdapter,
@@ -224,13 +226,13 @@ class TestParityConnectionLifecycle:
         assert await close_cursor_then_connection(adapter) == (True, True)
 
     @pytest.mark.asyncio
-    async def test_async_connection_has_no_create_lob_method(self) -> None:
+    async def test_async_connection_create_lob_raises_not_supported(self) -> None:
         sync_conn = pycubrid.connect(**connect_kwargs())
         async_conn = await pycubrid.aio.connect(**connect_kwargs())
         try:
             assert callable(sync_conn.create_lob)
-            with pytest.raises(AttributeError, match="create_lob"):
-                getattr(async_conn, "create_lob")()
+            with pytest.raises(NotSupportedError, match="not supported on async connections"):
+                async_conn.create_lob(CUBRIDDataType.BLOB)
         finally:
             sync_conn.close()
             await async_conn.close()
