@@ -17,9 +17,11 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     negotiation now fails loud on an unreadable probe (issue #263), so pin the
     flag to its legacy default here instead of probing the exhausted socket.
     The dedicated ``test_backslash_negotiation.py`` module opts out to exercise
-    the real probe.
+    the real probe, and ``test_integration.py`` opts out because it negotiates
+    against a live CUBRID server.
     """
-    if "test_backslash_negotiation" in str(request.fspath):
+    fspath = str(request.fspath)
+    if "test_backslash_negotiation" in fspath or "test_integration" in fspath:
         return
 
     def _pin_sync(self: Connection) -> None:
