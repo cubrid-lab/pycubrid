@@ -96,7 +96,20 @@ def test_escape_string_backslash_and_quote() -> None:
 def test_escape_string_control_characters() -> None:
     cursor = AsyncCursor(make_connection())
 
-    assert cursor._format_parameter("line1\rline2\nend\x1a") == "'line1\\\rline2\\\nend\\\x1a'"
+    assert cursor._format_parameter("line1\rline2\nend") == "'line1\\\rline2\\\nend'"
+
+
+def test_escape_string_ctrl_z_rejected() -> None:
+    # 0x1A has no safe CUBRID literal escape and is rejected in both modes.
+    cursor = AsyncCursor(make_connection())
+    with pytest.raises(ProgrammingError, match="Ctrl-Z"):
+        cursor._format_parameter("data\x1amore")
+
+    connection = make_connection()
+    connection._no_backslash_escapes = True
+    cursor = AsyncCursor(connection)
+    with pytest.raises(ProgrammingError, match="Ctrl-Z"):
+        cursor._format_parameter("data\x1amore")
 
 
 def test_escape_string_no_backslash_escapes_mode() -> None:
@@ -104,7 +117,7 @@ def test_escape_string_no_backslash_escapes_mode() -> None:
     connection._no_backslash_escapes = True
     cursor = AsyncCursor(connection)
 
-    assert cursor._format_parameter("O'Reilly\\path\r\n\x1a") == "'O''Reilly\\path\r\n\x1a'"
+    assert cursor._format_parameter("O'Reilly\\path\r\n") == "'O''Reilly\\path\r\n'"
 
 
 @pytest.mark.asyncio

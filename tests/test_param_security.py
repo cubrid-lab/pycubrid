@@ -44,9 +44,12 @@ class TestEscapeString:
         result = cursor._format_parameter("line1\nline2")
         assert "\\n" in result or "\\\n" in result
 
-    def test_ctrl_z_escaped(self, cursor: object) -> None:
-        result = cursor._format_parameter("data\x1amore")
-        assert "\\\x1a" in result
+    def test_ctrl_z_rejected(self, cursor: object) -> None:
+        # CUBRID's SQL grammar defines no safe literal escape for 0x1A
+        # (no MySQL-style \Z), so it is rejected like the null byte rather
+        # than emitted as a raw control byte.
+        with pytest.raises(ProgrammingError, match="Ctrl-Z"):
+            cursor._format_parameter("data\x1amore")
 
     def test_combined_escaping(self, cursor: object) -> None:
         result = cursor._format_parameter("O'Reilly\\path\nnewline")
@@ -110,6 +113,12 @@ class TestFormatParameterTypes:
     def test_float(self, cursor: object) -> None:
         assert cursor._format_parameter(3.14) == "3.14"
 
+    def test_float_large_scientific_notation(self, cursor: object) -> None:
+        # CUBRID accepts scientific/exponential notation in numeric literals
+        # (an approximate number written with E is parsed as DOUBLE), so
+        # str()'s exponent form is a valid literal and is emitted as-is.
+        assert cursor._format_parameter(1e20) == "1e+20"
+
     def test_decimal(self, cursor: object) -> None:
         assert cursor._format_parameter(Decimal("99.99")) == "99.99"
 
@@ -119,6 +128,12 @@ class TestFormatParameterTypes:
 
     def test_time(self, cursor: object) -> None:
         result = cursor._format_parameter(datetime.time(13, 45, 30))
+        assert result == "TIME'13:45:30'"
+
+    def test_time_microseconds_truncated(self, cursor: object) -> None:
+        # CUBRID TIME has second resolution (literal grammar allows only
+        # 'HH:MI:SS'), so sub-second precision is intentionally dropped.
+        result = cursor._format_parameter(datetime.time(13, 45, 30, 123456))
         assert result == "TIME'13:45:30'"
 
     def test_datetime(self, cursor: object) -> None:
