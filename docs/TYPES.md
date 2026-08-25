@@ -55,7 +55,7 @@ import pycubrid
 
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb")
 cur = conn.cursor()
-cur.execute("SELECT name, age, created_at FROM cookbook_users")
+cur.execute("SELECT name, age, created_at FROM users")
 
 for col in cur.description:
     col_name = col[0]
@@ -400,7 +400,7 @@ import pycubrid
 
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb")
 cur = conn.cursor()
-cur.execute("SELECT * FROM cookbook_users LIMIT 1")
+cur.execute("SELECT * FROM users LIMIT 1")
 
 for col in cur.description:
     name, type_code, _, _, precision, scale, nullable = col

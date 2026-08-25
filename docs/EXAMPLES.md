@@ -170,7 +170,7 @@ conn = pycubrid.connect(database="testdb")
 cur = conn.cursor()
 
 cur.execute("""
-    CREATE TABLE IF NOT EXISTS cookbook_users (
+    CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(200) UNIQUE,
@@ -192,7 +192,7 @@ cur = conn.cursor()
 
 # Single insert
 cur.execute(
-    "INSERT INTO cookbook_users (name, email, age) VALUES (?, ?, ?)",
+    "INSERT INTO users (name, email, age) VALUES (?, ?, ?)",
     ["Alice", "alice@example.com", 30],
 )
 print(f"Inserted ID: {cur.lastrowid}")
@@ -204,7 +204,7 @@ users = [
     ["Dave", "dave@example.com", 35],
 ]
 cur.executemany(
-    "INSERT INTO cookbook_users (name, email, age) VALUES (?, ?, ?)",
+    "INSERT INTO users (name, email, age) VALUES (?, ?, ?)",
     users,
 )
 print(f"Inserted {cur.rowcount} rows")
@@ -224,12 +224,12 @@ conn = pycubrid.connect(database="testdb")
 cur = conn.cursor()
 
 # All rows
-cur.execute("SELECT id, name, email, age FROM cookbook_users ORDER BY id")
+cur.execute("SELECT id, name, email, age FROM users ORDER BY id")
 for row in cur.fetchall():
     print(f"  {row[0]}: {row[1]} ({row[2]}) age={row[3]}")
 
 # Filtered query
-cur.execute("SELECT name, age FROM cookbook_users WHERE age > ?", [27])
+cur.execute("SELECT name, age FROM users WHERE age > ?", [27])
 print(f"\nUsers older than 27:")
 for name, age in cur:
     print(f"  {name}: {age}")
@@ -245,7 +245,7 @@ conn = pycubrid.connect(database="testdb")
 cur = conn.cursor()
 
 cur.execute(
-    "UPDATE cookbook_users SET age = ? WHERE name = ?",
+    "UPDATE users SET age = ? WHERE name = ?",
     [31, "Alice"],
 )
 print(f"Updated {cur.rowcount} row(s)")
@@ -261,7 +261,7 @@ conn.close()
 conn = pycubrid.connect(database="testdb")
 cur = conn.cursor()
 
-cur.execute("DELETE FROM cookbook_users WHERE name = ?", ["Dave"])
+cur.execute("DELETE FROM users WHERE name = ?", ["Dave"])
 print(f"Deleted {cur.rowcount} row(s)")
 
 conn.commit()
@@ -280,9 +280,9 @@ conn = pycubrid.connect(database="testdb")
 cur = conn.cursor()
 
 try:
-    cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
+    cur.execute("INSERT INTO users (name, email) VALUES (?, ?)",
                 ["Eve", "eve@example.com"])
-    cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
+    cur.execute("INSERT INTO users (name, email) VALUES (?, ?)",
                 ["Frank", "frank@example.com"])
     conn.commit()
     print("Transaction committed")
@@ -301,7 +301,7 @@ The connection context manager auto-commits on success and auto-rolls back on ex
 ```python
 with pycubrid.connect(database="testdb") as conn:
     cur = conn.cursor()
-    cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
+    cur.execute("INSERT INTO users (name, email) VALUES (?, ?)",
                 ["Grace", "grace@example.com"])
     # Auto-commits when exiting the `with` block without exception
     # Auto-rollbacks if an exception is raised
@@ -318,12 +318,12 @@ conn = pycubrid.connect(database="testdb", autocommit=True)
 cur = conn.cursor()
 
 # Each statement commits immediately — no explicit commit needed
-cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ["Heidi"])
-cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ["Ivan"])
+cur.execute("INSERT INTO users (name) VALUES (?)", ["Heidi"])
+cur.execute("INSERT INTO users (name) VALUES (?)", ["Ivan"])
 
 # Can also toggle dynamically
 conn.autocommit = False
-cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ["Judy"])
+cur.execute("INSERT INTO users (name) VALUES (?)", ["Judy"])
 conn.commit()  # Manual commit required now
 
 cur.close()
@@ -340,7 +340,7 @@ pycubrid uses `qmark` parameter style — `?` placeholders:
 cur = conn.cursor()
 
 # Positional parameters (list or tuple)
-cur.execute("SELECT * FROM cookbook_users WHERE name = ? AND age > ?", ["Alice", 25])
+cur.execute("SELECT * FROM users WHERE name = ? AND age > ?", ["Alice", 25])
 
 # Supported types
 import datetime
@@ -357,7 +357,7 @@ cur.execute("""
 ])
 
 # None maps to NULL
-cur.execute("INSERT INTO cookbook_users (name, email) VALUES (?, ?)",
+cur.execute("INSERT INTO users (name, email) VALUES (?, ?)",
             ["Nobody", None])
 ```
 
@@ -389,7 +389,7 @@ users = [
     ("Carol", 28),
 ]
 cur.executemany(
-    "INSERT INTO cookbook_users (name, age) VALUES (?, ?)",
+    "INSERT INTO users (name, age) VALUES (?, ?)",
     users,
 )
 print(f"Inserted {cur.rowcount} rows")  # 3
@@ -404,9 +404,9 @@ Execute **different** SQL statements in a single server round-trip:
 cur = conn.cursor()
 
 results = cur.executemany_batch([
-    "INSERT INTO cookbook_users (name, age) VALUES ('Xena', 40)",
-    "INSERT INTO cookbook_users (name, age) VALUES ('Yuri', 22)",
-    "UPDATE cookbook_users SET age = 26 WHERE name = 'Bob'",
+    "INSERT INTO users (name, age) VALUES ('Xena', 40)",
+    "INSERT INTO users (name, age) VALUES ('Yuri', 22)",
+    "UPDATE users SET age = 26 WHERE name = 'Bob'",
 ])
 
 for stmt_type, count in results:
@@ -421,7 +421,7 @@ conn.commit()
 
 ```python
 cur = conn.cursor()
-cur.execute("SELECT id, name FROM cookbook_users ORDER BY id")
+cur.execute("SELECT id, name FROM users ORDER BY id")
 
 # fetchone — one row at a time
 row = cur.fetchone()
@@ -442,7 +442,7 @@ Control the default batch size for `fetchmany()`:
 
 ```python
 cur.arraysize = 50
-cur.execute("SELECT * FROM cookbook_users")
+cur.execute("SELECT * FROM users")
 batch = cur.fetchmany()  # Fetches up to 50 rows
 ```
 
@@ -452,7 +452,7 @@ batch = cur.fetchmany()  # Fetches up to 50 rows
 
 ```python
 cur = conn.cursor()
-cur.execute("SELECT name, age FROM cookbook_users")
+cur.execute("SELECT name, age FROM users")
 
 for name, age in cur:
     print(f"{name} is {age} years old")
@@ -464,7 +464,7 @@ for name, age in cur:
 
 ```python
 cur = conn.cursor()
-cur.execute("SELECT id, name, email, age FROM cookbook_users")
+cur.execute("SELECT id, name, email, age FROM users")
 
 print("Columns:")
 for col in cur.description:
@@ -550,11 +550,11 @@ packet = conn.get_schema_info(CCISchemaType.CLASS)
 print(f"Found {packet.tuple_count} tables")
 
 # List columns of a specific table
-packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="cookbook_users")
+packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="users")
 print(f"Table has {packet.tuple_count} columns")
 
 # Get primary key info
-packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="cookbook_users")
+packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="users")
 print(f"Primary key entries: {packet.tuple_count}")
 ```
 
@@ -643,8 +643,8 @@ conn = pycubrid.connect(database="testdb")
 cur = conn.cursor()
 
 try:
-    cur.execute("INSERT INTO cookbook_users (email) VALUES (?)", ["duplicate@example.com"])
-    cur.execute("INSERT INTO cookbook_users (email) VALUES (?)", ["duplicate@example.com"])
+    cur.execute("INSERT INTO users (email) VALUES (?)", ["duplicate@example.com"])
+    cur.execute("INSERT INTO users (email) VALUES (?)", ["duplicate@example.com"])
     conn.commit()
 except pycubrid.IntegrityError as e:
     print(f"Duplicate key: {e.msg}")
@@ -748,7 +748,7 @@ pool = ConnectionPool(size=3, database="testdb")
 conn = pool.get()
 try:
     cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM cookbook_users")
+    cur.execute("SELECT COUNT(*) FROM users")
     print(cur.fetchone())
     cur.close()
 finally:

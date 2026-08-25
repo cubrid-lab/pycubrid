@@ -78,11 +78,11 @@ import pycubrid
 
 with pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba") as conn:
     with conn.cursor() as cur:
-        cur.execute("CREATE TABLE IF NOT EXISTS cookbook_users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100))")
-        cur.execute("INSERT INTO cookbook_users (name) VALUES (?)", ("Alice",))
+        cur.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100))")
+        cur.execute("INSERT INTO users (name) VALUES (?)", ("Alice",))
         conn.commit()
 
-        cur.execute("SELECT * FROM cookbook_users")
+        cur.execute("SELECT * FROM users")
         for row in cur:
             print(row)
 ```
