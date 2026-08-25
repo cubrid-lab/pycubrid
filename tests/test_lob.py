@@ -153,3 +153,87 @@ def test_read_propagates_server_error(mock_connection: MagicMock) -> None:
 
     with pytest.raises(OperationalError, match="read failed"):
         lob.read(3)
+
+
+def test_read_raises_when_server_returns_more_than_requested(
+    mock_connection: MagicMock,
+) -> None:
+    """Overlong server response is a protocol violation -> OperationalError."""
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+
+    def send_and_receive(packet: object) -> object:
+        if isinstance(packet, LOBReadPacket):
+            packet.bytes_read = 6
+            packet.lob_data = b"toolong"[:6] + b"X"  # 7 bytes for a 5-byte request
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send_and_receive
+
+    with pytest.raises(OperationalError, match="exceeding requested 5"):
+        lob.read(5)
+
+
+@pytest.mark.parametrize("offset", [-1, -100])
+def test_read_rejects_negative_offset(mock_connection: MagicMock, offset: int) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    with pytest.raises(InterfaceError, match="offset must be non-negative"):
+        lob.read(10, offset=offset)
+    mock_connection._send_and_receive.assert_not_called()
+
+
+def test_read_rejects_negative_length(mock_connection: MagicMock) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    with pytest.raises(InterfaceError, match="length must be non-negative"):
+        lob.read(-1)
+    mock_connection._send_and_receive.assert_not_called()
+
+
+def test_write_rejects_negative_offset(mock_connection: MagicMock) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    with pytest.raises(InterfaceError, match="offset must be non-negative"):
+        lob.write(b"x", offset=-1)
+    mock_connection._send_and_receive.assert_not_called()
+
+
+def test_close_is_idempotent_and_network_free(mock_connection: MagicMock) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    lob.close()
+    lob.close()  # idempotent, no error
+    mock_connection._send_and_receive.assert_not_called()
+
+
+def test_read_after_close_raises(mock_connection: MagicMock) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    lob.close()
+    with pytest.raises(InterfaceError, match="LOB is closed"):
+        lob.read(10)
+    mock_connection._send_and_receive.assert_not_called()
+
+
+def test_write_after_close_raises(mock_connection: MagicMock) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    lob.close()
+    with pytest.raises(InterfaceError, match="LOB is closed"):
+        lob.write(b"data")
+    mock_connection._send_and_receive.assert_not_called()
+
+
+def test_properties_remain_readable_after_close(mock_connection: MagicMock) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.CLOB, b"lob-handle")
+    lob.close()
+    assert lob.lob_type == CUBRIDDataType.CLOB
+    assert lob.lob_handle == b"lob-handle"
+
+
+def test_context_manager_closes_on_exit(mock_connection: MagicMock) -> None:
+    with Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle") as lob:
+        assert lob.lob_handle == b"lob-handle"
+    with pytest.raises(InterfaceError, match="LOB is closed"):
+        lob.read(10)
+
+
+def test_context_manager_does_not_suppress_exceptions(mock_connection: MagicMock) -> None:
+    with pytest.raises(ValueError, match="boom"):
+        with Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle") as lob:
+            assert lob is not None
+            raise ValueError("boom")
