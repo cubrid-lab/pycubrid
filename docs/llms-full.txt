@@ -35,6 +35,7 @@ conn.close()
 
 - [Getting Started](CONNECTION.md)
 - [User Guide](TYPES.md)
+- [Parameter Binding Contract](PARAMETER_BINDING.md)
 - [API Reference](API_REFERENCE.md)
 
 ## Project links
@@ -57,7 +58,7 @@ Get from `pip install` to a working CRUD script with explicit transaction handli
 ## Prerequisites
 
 - CUBRID server and broker are running
-- Python 3.9+
+- Python 3.10+
 - Access to a target database (for example, `testdb`)
 
 !!! note
@@ -210,6 +211,7 @@ This guide covers how to install pycubrid, connect to a CUBRID database, and und
 - [Installation](#installation)
 - [Connection Function](#connection-function)
 - [Connection Examples](#connection-examples)
+  - [SSL/TLS](#ssltls)
 - [Context Manager Protocol](#context-manager-protocol)
 - [Autocommit Mode](#autocommit-mode)
 - [Connection Methods](#connection-methods)
@@ -256,32 +258,42 @@ pip install -e ".[dev]"
 ## Connection Function
 
 ```python
-pycubrid.connect(
-    host="localhost",
-    port=33000,
-    database="",
-    user="dba",
-    password="",
-    **kwargs,
+def connect(
+    host: str = "localhost",
+    port: int = 33000,
+    database: str = "",
+    user: str = "dba",
+    password: str = "",
+    decode_collections: bool = False,
+    json_deserializer: Any = None,
+    ssl: bool | ssl_module.SSLContext | None = None,
+    **kwargs: Any,
 ) -> Connection
 ```
 
 ### Parameters
 
-| Parameter   | Type  | Default       | Description                              |
-|-------------|-------|---------------|------------------------------------------|
-| `host`      | `str` | `"localhost"` | CUBRID server hostname or IP address     |
-| `port`      | `int` | `33000`       | CUBRID broker port                       |
-| `database`  | `str` | `""`          | Database name *(required)*               |
-| `user`      | `str` | `"dba"`       | Database username                        |
-| `password`  | `str` | `""`          | Database password                        |
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `host` | `str` | `"localhost"` | CUBRID server hostname or IP address |
+| `port` | `int` | `33000` | CUBRID broker port |
+| `database` | `str` | `""` | Database name *(required)* |
+| `user` | `str` | `"dba"` | Database username |
+| `password` | `str` | `""` | Database password |
+| `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
+| `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync broker connections |
 
 ### Keyword Arguments
 
-| Kwarg             | Type    | Default | Description                           |
-|-------------------|---------|---------|---------------------------------------|
-| `connect_timeout` | `float` | `None`  | Socket connection timeout in seconds  |
-| `autocommit`      | `bool`  | `False` | Enable immediate commit per statement |
+| Kwarg | Type | Default | Description |
+|---|---|---|---|
+| `connect_timeout` | `float` | `None` | Socket connection timeout in seconds |
+| `read_timeout` | `float` | `None` | Socket read timeout in seconds |
+| `fetch_size` | `int` | `100` | Server-side fetch batch size |
+| `enable_timing` | `bool \| None` | `None` | Enable driver timing stats, or fall back to `PYCUBRID_ENABLE_TIMING` |
+| `no_backslash_escapes` | `bool` | `False` | Escape strings using doubled quotes only, without backslash escapes |
+| `autocommit` | `bool` | `False` | Enable immediate commit per statement |
 
 ### Common Connection Profiles
 
@@ -349,6 +361,84 @@ conn = pycubrid.connect(
 
 !!! note
     If you run behind firewalls or load balancers, set `connect_timeout` explicitly and monitor for broker redirection failures.
+
+### SSL/TLS
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(
+    host="db.example.com",
+    port=33000,
+    database="production",
+    user="app_user",
+    password="secret",
+    ssl=True,
+)
+```
+
+- `ssl=True` creates a verified default `ssl.SSLContext` using system trust roots.
+- When `ssl=True`, pycubrid sets `SSLContext.minimum_version = ssl.TLSVersion.TLSv1_2` on the default context for both sync and async connections.
+- `ssl=your_ssl_context` uses your custom context directly, which is useful for self-signed or private CA certificates.
+- `ssl=None` or `ssl=False` disables TLS and preserves the previous plaintext behavior.
+
+Both `pycubrid.connect()` and `pycubrid.aio.connect()` accept the same `ssl` values:
+
+- `ssl=True` for the default verified context with a TLS 1.2 minimum.
+- `ssl=False` or `ssl=None` for plaintext.
+- `ssl=your_ssl_context` for a custom `ssl.SSLContext`.
+
+Async TLS uses CUBRID's STARTTLS-style upgrade: the connection opens in plaintext, sends the
+`CUBRS` handshake magic to negotiate TLS with the broker, then upgrades the live transport via
+`asyncio.AbstractEventLoop.start_tls()` (bounded by `ssl_handshake_timeout`) **before** the
+`OPEN_DATABASE` exchange. Async shutdown awaits `writer.wait_closed()` so TLS sessions close
+cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_socket()`.
+
+!!! note "Python 3.10 async TLS preflight probe"
+    Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
+    that causes it to hang indefinitely on **certificate verification** failures instead of
+    raising. As of [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156), the
+    async driver runs an automatic preflight `ssl.SSLContext.wrap_socket()` probe on Python
+    3.10 immediately before `loop.start_tls()`, using the same `SSLContext` and
+    `server_hostname=host`. Verification failures now raise `OperationalError` (chained from
+    `ssl.SSLError`) within the connect timeout, matching the 3.11+ behavior. The probe is a
+    no-op on Python 3.11+ and adds one extra TCP round-trip per connect on 3.10 only. Other
+    TLS error paths (peer unresponsive, timeout) remain bounded by `ssl_handshake_timeout`.
+    The issue does not affect the sync driver.
+
+```python
+import pycubrid.aio
+
+conn = await pycubrid.aio.connect(
+    host="db.example.com",
+    port=33000,
+    database="production",
+    user="app_user",
+    password="secret",
+    ssl=True,
+)
+```
+
+!!! note
+    CUBRID broker TLS must be enabled on the server side (`SSL=ON` in `cubrid_broker.conf`) before TLS connections can succeed.
+
+### Async Health Checks
+
+Async connections expose the same lightweight native health check as sync connections:
+
+```python
+import pycubrid.aio
+
+conn = await pycubrid.aio.connect(database="testdb")
+
+alive = await conn.ping(reconnect=False)
+if not alive:
+    await conn.ping(reconnect=True)
+```
+
+- `await conn.ping(reconnect=False)` always issues the native `CHECK_CAS` round-trip when the socket is open, but suppresses the implicit broker-handoff reconnect that fires on a normal post-commit `CAS_INFO=INACTIVE` state. Returns `False` only if the socket is closed or `CHECK_CAS` itself fails — making it safe for SQLAlchemy's `pool_pre_ping`.
+- `await conn.ping(reconnect=True)` attempts close + reconnect on socket/protocol failure before returning `False`.
+- The async implementation uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and does not execute SQL.
 
 ---
 
@@ -420,19 +510,42 @@ conn.autocommit = True
 
 ### Details
 
-| Property           | Description                                              |
-|--------------------|----------------------------------------------------------|
-| Default value      | `False`                                                  |
-| Getter             | Returns current autocommit state                         |
-| Setter (`= True`)  | Sends `SetDbParameterPacket` + `CommitPacket` to server  |
-| Setter (`= False`) | Sends `SetDbParameterPacket` to server                   |
+| Property | Description |
+|---|---|
+| Default value | `False` |
+| Getter | Returns current autocommit state |
+| Setter (`= True`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
+| Setter (`= False`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
 
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
 >
-> The CUBRID server default is `autocommit=True`, but pycubrid `Connection` defaults to
-> `autocommit=False` for explicit transaction control. Pass `autocommit=True` to `connect()`
-> to enable.
+> pycubrid's `Connection` defaults to `autocommit=False` for explicit transaction control
+> and sends this value as the per-statement ``auto_commit`` flag on every
+> ``PrepareAndExecute`` packet, so the broker's own ``CUBRID_AUTO_COMMIT`` setting is
+> effectively overridden by what the driver reports. Pass ``autocommit=True`` to ``connect()``
+> (or set ``connection.autocommit = True`` after connecting) to enable.
+
+### Session-state restoration on transparent reconnect
+
+The CUBRID broker may close a CAS worker between requests when
+``KEEP_CONNECTION=AUTO`` (the default). pycubrid follows JDBC's
+``UClientSideConnection.checkReconnect`` and reconnects transparently
+on the next request when the broker signals ``CAS_INFO_STATUS_INACTIVE``.
+
+To preserve PEP 249 semantics across that reconnect, pycubrid restores
+session-level settings the caller has **explicitly** set:
+
+| Setting | Restored on reconnect? |
+|---|---|
+| ``autocommit`` (set via ``connection.autocommit = ...`` / ``await conn.set_autocommit(...)``) | Yes — the same value is re-emitted via ``SetDbParameterPacket`` |
+| ``autocommit`` left at the connect-time default | No — the broker default is used |
+
+Settings the caller has never touched are intentionally **not**
+re-emitted on reconnect to avoid spurious round-trips. If the restore
+itself fails, the connection is torn down and the underlying transport
+error is preserved via PEP 3134 ``__cause__`` so callers can diagnose
+the failure.
 
 ---
 
@@ -447,28 +560,30 @@ conn.autocommit = True
 | `get_server_version()`              | `str`         | Return the CUBRID server version string          |
 | `get_last_insert_id()`              | `str`         | Return the last auto-increment ID                |
 | `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
-| `get_schema_info(schema_type, ...)` | `list`        | Query schema metadata from the server            |
+| `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | Query schema metadata from the server |
 
 ### LOB Creation
 
 ```python
 # Create a CLOB (Character Large Object)
 clob = conn.create_lob(24)  # 24 = CLOB
-clob.write("Large text content...")
+clob.write(b"Large text content...")
 
 # Create a BLOB (Binary Large Object)
 blob = conn.create_lob(23)  # 23 = BLOB
 blob.write(b"\x89PNG\r\n...")
 ```
 
-> **Tip**: For simple inserts, pass strings or bytes directly as query parameters instead of
-> creating LOB objects explicitly. See [Examples](EXAMPLES.md) for details.
+> **Tip**: `Lob.write()` accepts `bytes` only. For ordinary CLOB inserts, prefer direct SQL
+> parameter binding with `str`; for BLOB inserts, pass `bytes` directly. See [Examples](EXAMPLES.md)
+> for details.
 
 ### Schema Information
 
 ```python
 # Get schema information (schema_type constants from CUBRID docs)
-tables = conn.get_schema_info(schema_type=1)  # Tables
+packet = conn.get_schema_info(schema_type=1)  # Tables
+print(packet.tuple_count)
 ```
 
 ---
@@ -484,9 +599,18 @@ sequenceDiagram
   participant CAS
 
   Client->>Broker: TCP connect
-  Client->>Broker: ClientInfoExchangePacket (CUBRK)
-  Broker-->>Client: New CAS port
-  Client->>CAS: Reconnect to CAS port
+  alt ssl requested
+    Client->>Broker: ClientInfoExchangePacket (CUBRS)
+  else plaintext
+    Client->>Broker: ClientInfoExchangePacket (CUBRK)
+  end
+  Broker-->>Client: status int32 (0 ok / >0 redirect / <0 error)
+  opt redirected (status > 0)
+    Client->>CAS: Reconnect to new port (no second handshake)
+  end
+  opt ssl requested
+    Client->>CAS: TLS upgrade (start_tls / wrap_socket)
+  end
   Client->>CAS: OpenDatabasePacket
   CAS-->>Client: Session ID
 ```
@@ -499,17 +623,26 @@ sequenceDiagram
   participant Broker as Broker:33000
   participant CAS as CAS Worker
 
-  App->>Driver: pycubrid.connect(...)
+  App->>Driver: pycubrid.connect(..., ssl=...)
   Driver->>Broker: TCP connect
-  Driver->>Broker: ClientInfoExchangePacket("CUBRK")
-  Broker-->>Driver: new_connection_port
-  alt redirected (port > 0)
-    Driver->>CAS: TCP reconnect to redirected port
-  else direct mode (port == 0)
+  alt ssl truthy
+    Driver->>Broker: ClientInfoExchangePacket("CUBRS")
+  else ssl falsy
+    Driver->>Broker: ClientInfoExchangePacket("CUBRK")
+  end
+  Broker-->>Driver: status int32
+  alt status < 0
+    Driver-->>App: OperationalError (fail-fast)
+  else status > 0 (redirected)
+    Driver->>CAS: TCP reconnect to redirected port (skip rehandshake)
+  else status == 0 (direct mode)
     Driver->>Broker: reuse existing socket
   end
+  opt ssl truthy
+    Driver->>CAS: TLS upgrade via start_tls() / wrap_socket()
+  end
   Driver->>CAS: OpenDatabasePacket(database, user, password)
-  CAS-->>Driver: session_id + broker_info + cas_info
+  CAS-->>Driver: cas_info + response_code + broker_info + session_id
   Driver-->>App: connected Connection object
 ```
 
@@ -518,13 +651,21 @@ sequenceDiagram
 
 ### Step-by-Step
 
-1. **TCP Connect** — Open a socket to the broker (default port 33000)
-2. **Client Info Exchange** — Send the magic string `b"CUBRK"` with client type `CLIENT_JDBC=3` and protocol version bytes
-3. **Port Redirect** — The broker responds with a 4-byte big-endian integer:
-   - If `port > 0`: Disconnect from broker, reconnect to the new CAS port on the same host
-   - If `port == 0`: Reuse the existing connection (direct CAS mode)
-4. **Open Database** — Send database name, username, and password via `OpenDatabasePacket`
-5. **Session Established** — Server returns a session ID; the connection is ready
+1. **TCP Connect** — Open a socket to the broker (default port 33000).
+2. **Client Info Exchange** — Send a 10-byte handshake: magic string `b"CUBRS"` when `ssl` is
+   requested (STARTTLS) or `b"CUBRK"` for plaintext, plus client type `CLIENT_JDBC=3` and
+   protocol-version bytes.
+3. **Broker Status** — The broker responds with a 4-byte big-endian signed integer:
+    - `status < 0` — fail-fast: driver raises `OperationalError`
+    - `status > 0` — redirect: close socket, reconnect to the new CAS port on the same host,
+      **without** repeating the handshake (mirrors the official JDBC `BrokerHandler` behavior)
+    - `status == 0` — direct mode: reuse the existing socket
+4. **TLS Upgrade (optional)** — If `ssl` was truthy, upgrade the live transport to TLS *before*
+   any `OPEN_DATABASE` bytes are written. Async uses
+   `asyncio.AbstractEventLoop.start_tls(..., ssl_handshake_timeout=...)`; sync uses
+   `ssl.SSLContext.wrap_socket()`. Failed handshakes abort the transport rather than leaking it.
+5. **Open Database** — Send database name, username, and password via `OpenDatabasePacket`.
+6. **Session Established** — Server returns a session ID; the connection is ready.
 
 ---
 
@@ -537,7 +678,7 @@ print(version)  # e.g., "11.2.0.0374"
 conn.close()
 ```
 
-The `get_server_version()` method sends a `GetDbVersionPacket` to the server and returns the version as a string.
+The `get_server_version()` method sends a `GetEngineVersionPacket` to the server and returns the version as a string.
 
 ---
 
@@ -644,7 +785,7 @@ with engine.connect() as conn:
     print(result.scalar())
 ```
 
-All SQLAlchemy features — ORM, Core, Alembic migrations, schema reflection — work transparently with the pycubrid driver.
+SQLAlchemy features — ORM, Core, Alembic migrations, schema reflection — are accessible through the pycubrid driver when used with sqlalchemy-cubrid.
 
 ---
 
@@ -670,6 +811,29 @@ See [Troubleshooting](TROUBLESHOOTING.md) for pool tuning guidance.
 
 ---
 
+## Character Encoding
+
+pycubrid operates exclusively in **UTF-8** encoding. This matches CUBRID's internal
+character set — the server stores and returns string data as UTF-8.
+
+There is no `charset` connection parameter. All string encoding/decoding in the
+wire protocol uses UTF-8 unconditionally:
+
+- Python `str` values are encoded to UTF-8 bytes before sending to the server
+- Byte responses from the server are decoded as UTF-8 to produce Python `str` values
+
+This is intentional and covers all CUBRID string types (`VARCHAR`, `CHAR`, `STRING`,
+`CLOB`). If your application deals with non-UTF-8 data, encode/decode at the
+application layer before passing values to pycubrid.
+
+!!! note
+    CUBRID's default charset is `utf8` (set at database creation). All modern CUBRID
+    installations use UTF-8. Legacy databases created with `iso88591` charset may
+    produce garbled strings for non-ASCII data, since pycubrid always decodes bytes
+    as UTF-8.
+
+---
+
 *See also: [Type System](TYPES.md) · [API Reference](API_REFERENCE.md) · [Examples](EXAMPLES.md)*
 
 ============================================================
@@ -686,21 +850,31 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
 
 - [Module-Level Attributes](#module-level-attributes)
 - [Module-Level Constructor](#module-level-constructor)
+  - [`pycubrid.connect()`](#pycubridconnect)
+  - [`decode_collections`](#decode_collections)
+  - [`json_deserializer`](#json-columns)
+- [Async Module Constructor](#async-module-constructor)
+  - [`pycubrid.aio.connect()`](#pycubridaioconnect)
 - [Connection Class](#connection-class)
   - [Constructor](#connection-constructor)
   - [Methods](#connection-methods)
+    - [`ping()`](#pingreconnecttrue)
   - [Properties](#connection-properties)
   - [Context Manager](#connection-context-manager)
 - [Cursor Class](#cursor-class)
   - [Constructor](#cursor-constructor)
   - [Methods](#cursor-methods)
+    - [`nextset()`](#nextset)
   - [Properties](#cursor-properties)
   - [Iterator Protocol](#iterator-protocol)
   - [Context Manager](#cursor-context-manager)
+- [AsyncConnection Class](#asyncconnection-class)
+- [AsyncCursor Class](#asynccursor-class)
 - [Lob Class](#lob-class)
   - [Factory Method](#lob-factory-method)
   - [Methods](#lob-methods)
   - [Properties](#lob-properties)
+- [TimingStats Class](#timingstats-class)
 - [Exception Hierarchy](#exception-hierarchy)
   - [Warning](#warning)
   - [Error](#error)
@@ -726,7 +900,7 @@ These attributes are defined at the module level as required by PEP 249.
 | `apilevel`     | `"2.0"`   | DB-API specification version |
 | `threadsafety` | `1`       | Threads may share the module but not connections |
 | `paramstyle`   | `"qmark"` | Question mark parameter style: `WHERE name = ?` |
-| `__version__`  | `"0.6.0"` | Package version string |
+| `__version__`  | `"1.3.0"` | Package version string |
 
 ```python
 import pycubrid
@@ -734,7 +908,7 @@ import pycubrid
 print(pycubrid.apilevel)      # "2.0"
 print(pycubrid.threadsafety)  # 1
 print(pycubrid.paramstyle)    # "qmark"
-print(pycubrid.__version__)   # "0.6.0"
+print(pycubrid.__version__)   # "1.3.0"
 ```
 
 ---
@@ -750,6 +924,9 @@ def connect(
     database: str = "",
     user: str = "dba",
     password: str = "",
+    decode_collections: bool = False,
+    json_deserializer: Any = None,
+    ssl: bool | ssl_module.SSLContext | None = None,
     **kwargs: Any,
 ) -> Connection
 ```
@@ -758,14 +935,32 @@ Create a new database connection.
 
 **Parameters:**
 
-| Parameter  | Type  | Default       | Description |
-|------------|-------|---------------|-------------|
-| `host`     | `str` | `"localhost"` | CUBRID server hostname or IP address |
-| `port`     | `int` | `33000`       | CUBRID broker port |
-| `database` | `str` | `""`          | Database name |
-| `user`     | `str` | `"dba"`       | Database user |
-| `password` | `str` | `""`          | Database password |
-| `**kwargs` | `Any` | —             | Additional parameters (e.g., `connect_timeout`) |
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `host` | `str` | `"localhost"` | CUBRID server hostname or IP address |
+| `port` | `int` | `33000` | CUBRID broker port |
+| `database` | `str` | `""` | Database name |
+| `user` | `str` | `"dba"` | Database user |
+| `password` | `str` | `""` | Database password |
+| `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
+| `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync and async broker connections; `True` uses the default verified context with a TLS 1.2 minimum. Connection uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake then TLS upgrade before `OPEN_DATABASE`. See [Connection guide](CONNECTION.md#ssltls). |
+| `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit` |
+
+#### `decode_collections`
+
+When `False` (the default), collection columns are returned as raw CAS wire `bytes` for backward
+compatibility. When `True`, pycubrid decodes supported `SET`, `MULTISET`, and `SEQUENCE` payloads
+into Python containers.
+
+#### JSON Columns
+
+`json_deserializer` controls JSON column decoding on fetch:
+
+| Setting | Result |
+|---|---|
+| `None` (default) | Return JSON columns as `str` |
+| `callable` | Pass the raw JSON string to the callable and return its result |
 
 **Returns:** A new `Connection` instance.
 
@@ -786,6 +981,49 @@ conn = pycubrid.connect(
     password="secret",
     connect_timeout=5.0,
 )
+```
+
+---
+
+## Async Module Constructor
+
+### `pycubrid.aio.connect()`
+
+```python
+async def connect(
+    host: str = "localhost",
+    port: int = 33000,
+    database: str = "",
+    user: str = "dba",
+    password: str = "",
+    decode_collections: bool = False,
+    json_deserializer: Any = None,
+    ssl: bool | ssl_module.SSLContext | None = None,
+    **kwargs: Any,
+) -> AsyncConnection
+```
+
+Create and open an async connection.
+
+- Returns a connected `AsyncConnection`.
+- Accepts the same collection / JSON decoding kwargs as `pycubrid.connect()`.
+- Supports `autocommit=True`, applied automatically once the connection is established. `AsyncConnection` itself now accepts `autocommit` directly too (as a keyword-only constructor argument), so constructing it without going through this factory no longer silently drops the flag.
+- Provides a similar async surface to the sync API, including `await conn.ping(reconnect=...)`; `create_lob()` remains sync-only, and auto-commit changes go through `await conn.set_autocommit(...)` instead of a property setter.
+- Accepts the same `ssl` parameter as `pycubrid.connect()`: `True`, `False`/`None`, or a custom `SSLContext`; when `True`, the default verified context enforces a TLS 1.2 minimum. Async TLS uses CUBRID's STARTTLS-style upgrade — the `CUBRS` handshake is sent in plaintext, then the transport is upgraded via `asyncio.AbstractEventLoop.start_tls()` (bounded by `ssl_handshake_timeout`) before `OPEN_DATABASE`. See the [Connection guide](CONNECTION.md#ssltls) for full details and the Python 3.10 `start_tls()` cert-verify caveat ([#156](https://github.com/cubrid-lab/pycubrid/issues/156)).
+
+```python
+import asyncio
+import pycubrid.aio
+
+async def main() -> None:
+    conn = await pycubrid.aio.connect(database="testdb")
+    cur = conn.cursor()
+    await cur.execute("SELECT 1")
+    print(await cur.fetchone())
+    await cur.close()
+    await conn.close()
+
+asyncio.run(main())
 ```
 
 ---
@@ -813,6 +1051,17 @@ class Connection:
 ```
 
 > **Note:** Do not instantiate `Connection` directly. Use `pycubrid.connect()` instead.
+
+**Selected `**kwargs`:**
+
+| Name | Type | Default | Description |
+|---|---|---|---|
+| `enable_timing` | `bool \| None` | `None` | Enable optional driver-level timing instrumentation for `connect`, `execute`, `fetch`, and `close` operations. When `None`, falls back to the `PYCUBRID_ENABLE_TIMING` environment variable (truthy values: `1`, `true`, `yes`, case-insensitive). When disabled, the timing module is not imported and `connection.timing_stats` is `None` (zero overhead). See [Timing & Profiling Hooks](PERFORMANCE.md#timing--profiling-hooks). |
+| `ssl` | `bool \| ssl.SSLContext \| None` | `None` | TLS configuration shared by sync and async connections. `True` uses the default verified context with `minimum_version = TLSv1_2`; see [Connection guide](CONNECTION.md). |
+| `read_timeout` | `float \| None` | `None` | Socket read timeout in seconds. |
+| `fetch_size` | `int` | `100` | Server-side fetch batch size. |
+| `json_deserializer` | `Callable[[str], Any] \| None` | `None` | Opt-in JSON column decoder. |
+| `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections. |
 
 ### Connection Methods
 
@@ -922,6 +1171,24 @@ print(conn.get_last_insert_id())  # "1"
 
 ---
 
+#### `ping(reconnect=True)`
+
+```python
+def ping(self, reconnect: bool = True) -> bool
+```
+
+Perform a lightweight `CHECK_CAS` health check without executing SQL.
+
+- Returns `True` when the CAS connection is alive.
+- When `reconnect=True`, attempts reconnection before returning `False`.
+
+```python
+if not conn.ping():
+    raise RuntimeError("database connection is unavailable")
+```
+
+---
+
 #### `create_lob(lob_type)`
 
 ```python
@@ -1017,6 +1284,43 @@ conn.autocommit = True
 
 ---
 
+#### `timing_stats`
+
+```python
+@property
+def timing_stats(self) -> TimingStats | None
+```
+
+Return the per-connection [`TimingStats`](#timingstats-class) accumulator when the connection
+was opened with `enable_timing=True` (or with `PYCUBRID_ENABLE_TIMING` set). Returns `None`
+when timing is disabled — in which case the timing module is never imported and the hot
+path incurs no overhead.
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(database="testdb", enable_timing=True)
+cur = conn.cursor()
+cur.execute("SELECT 1")
+cur.fetchall()
+
+stats = conn.timing_stats
+assert stats is not None
+print(stats)
+# TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
+#             execute=1 calls, 0.987ms total, 0.987ms avg,
+#             fetch=1 calls, 0.123ms total, 0.123ms avg,
+#             close=0 calls)
+
+print(stats.execute_count, stats.execute_total_ns)  # 1 987000
+
+stats.reset()  # clear all counters
+```
+
+See [Timing & Profiling Hooks](PERFORMANCE.md#timing--profiling-hooks) for the full guide.
+
+---
+
 ### Connection Context Manager
 
 `Connection` implements the context manager protocol (`__enter__` / `__exit__`).
@@ -1058,7 +1362,7 @@ class Cursor:
 def execute(
     self,
     operation: str,
-    parameters: Sequence[Any] | Mapping[str, Any] | None = None,
+    parameters: Sequence[Any] | None = None,
 ) -> Cursor
 ```
 
@@ -1069,7 +1373,7 @@ Prepare and execute a SQL statement.
 | Parameter    | Type | Description |
 |--------------|------|-------------|
 | `operation`  | `str` | SQL statement with optional `?` placeholders |
-| `parameters` | `Sequence` or `Mapping` or `None` | Parameter values to bind |
+| `parameters` | `Sequence` or `None` | Non-string positional parameter values to bind |
 
 **Returns:** The cursor itself (for chaining).
 
@@ -1087,6 +1391,9 @@ cur.execute("SELECT * FROM users WHERE age > ?", [21])
 # INSERT with parameters
 cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 ```
+
+> **Important:** mappings such as `dict` are not supported for parameter binding. Passing a
+> mapping raises `ProgrammingError("parameters must be a sequence")`.
 
 **Supported parameter types:**
 
@@ -1110,16 +1417,33 @@ cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 def executemany(
     self,
     operation: str,
-    seq_of_parameters: Sequence[Sequence[Any] | Mapping[str, Any]],
+    seq_of_parameters: Sequence[Sequence[Any]],
 ) -> Cursor
 ```
 
-Execute the same SQL statement repeatedly with different parameter sets. For non-SELECT statements, `rowcount` is set to the cumulative total of affected rows.
+Execute the same SQL statement repeatedly with different parameter sets. Each element must be a
+non-string sequence. For non-SELECT statements, `rowcount` is set to the cumulative total of
+affected rows.
 
 ```python
 data = [("alice", 30), ("bob", 25), ("carol", 28)]
 cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 print(cur.rowcount)  # 3
+```
+
+---
+
+#### `nextset()`
+
+```python
+def nextset(self) -> None
+```
+
+DB-API compatibility method. pycubrid does not expose multiple server result sets through this
+interface, so `nextset()` always returns `None` after checking that the cursor is still open.
+
+```python
+assert cur.nextset() is None
 ```
 
 ---
@@ -1173,6 +1497,15 @@ row = cur.fetchone()
 if row:
     name, age = row
 ```
+
+> **Note on transparent reconnect**: If the CUBRID broker releases the CAS worker
+> mid-iteration (``KEEP_CONNECTION=AUTO``) and pycubrid reconnects transparently,
+> any rows already buffered in the cursor remain accessible. Once the buffer is
+> exhausted, subsequent ``fetchone``/``fetchmany``/``fetchall`` calls raise
+> :class:`OperationalError` with the message ``result set lost due to broker
+> reconnect mid-fetch`` because the server-side cursor handle is no longer valid.
+> Re-execute the query to continue. ``execute()`` and ``close()`` reset the
+> invalidation flag.
 
 ---
 
@@ -1362,6 +1695,95 @@ with conn.cursor() as cur:
 
 ---
 
+## AsyncConnection Class
+
+`pycubrid.aio.connection.AsyncConnection`
+
+Async counterpart to `Connection` for use with `asyncio`, with a similar surface rather than full method-for-method parity.
+
+### Selected Methods
+
+| Method | Signature | Notes |
+|---|---|---|
+| `cursor()` | `def cursor(self) -> AsyncCursor` | Returns an async cursor immediately; do **not** await it |
+| `commit()` | `async def commit(self) -> None` | Commit current transaction |
+| `rollback()` | `async def rollback(self) -> None` | Roll back current transaction |
+| `close()` | `async def close(self) -> None` | Close connection and tracked cursors |
+| `ping()` | `async def ping(self, reconnect: bool = True) -> bool` | Native `CHECK_CAS` health check with optional reconnect |
+| `get_server_version()` | `async def get_server_version(self) -> str` | Fetch engine version |
+| `get_last_insert_id()` | `async def get_last_insert_id(self) -> str` | Fetch last AUTO_INCREMENT value |
+| `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | Returns the parsed packet object |
+| `set_autocommit()` | `async def set_autocommit(self, value: bool) -> None` | Sends `SetDbParameterPacket` and `CommitPacket` |
+
+`AsyncConnection` exposes async `ping()` parity with sync `Connection.ping()`. `create_lob()` remains sync-only.
+Concurrent awaiters on the same `AsyncConnection` are serialized with a per-connection
+`asyncio.Lock`, so shared use is safe but requests still execute one at a time.
+
+`AsyncConnection.__init__` accepts a keyword-only `autocommit: bool = False` argument, applied
+automatically the first time `await conn.connect()` completes — the same effect as
+`await conn.set_autocommit(True)`, but usable when constructing `AsyncConnection` directly
+instead of through the `pycubrid.aio.connect()` factory.
+
+```python
+async with await pycubrid.aio.connect(database="testdb") as conn:
+    cur = conn.cursor()
+    await cur.execute("INSERT INTO logs (msg) VALUES (?)", ["ok"])
+    await conn.set_autocommit(True)
+    await cur.close()
+```
+
+### `set_autocommit(value)`
+
+`AsyncConnection.autocommit` is read-only; use `await conn.set_autocommit(True)` to change it.
+Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
+
+### `ping(reconnect=True)`
+
+```python
+async def ping(self, reconnect: bool = True) -> bool
+```
+
+Perform a lightweight native `CHECK_CAS` health check without executing SQL.
+
+- Returns `True` when the CAS connection is alive.
+- Always issues the native `CHECK_CAS` round-trip when the socket is open, regardless of the broker's transaction status (`CAS_INFO`).
+- When `reconnect=False`, suppresses the implicit broker-handoff reconnect that normally fires on `CAS_INFO=INACTIVE`; returns `False` only if the socket is closed or `CHECK_CAS` itself fails.
+- When `reconnect=True`, attempts close + reconnect on socket/protocol failure before returning `False`.
+
+```python
+if not await conn.ping(reconnect=False):
+    await conn.ping(reconnect=True)
+```
+
+---
+
+## AsyncCursor Class
+
+`pycubrid.aio.cursor.AsyncCursor`
+
+Async counterpart to `Cursor`.
+
+### Selected Methods
+
+| Method | Signature | Notes |
+|---|---|---|
+| `execute()` | `async def execute(self, operation: str, parameters: Sequence[Any] \| None = None) -> AsyncCursor` | Sequence-only parameter binding, same rules as sync cursor |
+| `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]]) -> AsyncCursor` | Batch path for non-SELECT statements |
+| `fetchone()` | `async def fetchone(self) -> tuple[Any, ...] \| None` | Returns one row or `None` |
+| `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | Uses `arraysize` by default |
+| `fetchall()` | `async def fetchall(self) -> list[tuple[Any, ...]]` | Returns remaining rows |
+| `nextset()` | `async def nextset(self) -> None` | DB-API compatibility method; always returns `None` |
+| `close()` | `async def close(self) -> None` | Releases active query handle |
+
+```python
+cur = conn.cursor()          # not awaitable
+await cur.execute("SELECT * FROM users WHERE age > ?", [21])
+rows = await cur.fetchall()
+assert await cur.nextset() is None
+```
+
+---
+
 ## Lob Class
 
 `pycubrid.lob.Lob`
@@ -1456,6 +1878,62 @@ lob_info = row[0]
 ```python
 cur.execute("INSERT INTO my_table (clob_col) VALUES (?)", ["large text content"])
 ```
+
+---
+
+## TimingStats Class
+
+`pycubrid.timing.TimingStats` — also re-exported as `pycubrid.TimingStats`.
+
+Per-connection accumulator for optional driver-level timing instrumentation. Instances are
+created automatically when a connection is opened with `enable_timing=True` (or with
+`PYCUBRID_ENABLE_TIMING` set) and are exposed via [`Connection.timing_stats`](#timing_stats).
+
+> **When to use:** quick in-process diagnosis of where wall-clock time is going (connect vs
+> execute vs fetch vs close) without reaching for cProfile or external profilers. For deep
+> hot-path analysis, prefer the standalone profiling scripts in
+> [Performance Investigation](PERFORMANCE.md#performance-investigation).
+
+### Counters
+
+All counters are plain `int` attributes. Durations are nanoseconds captured via
+`time.perf_counter_ns()`. Updates are serialised by an internal `threading.Lock` so the
+object is safe to read from a thread other than the one driving the connection.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `connect_count` / `connect_total_ns` | `int` | Total number of `Connection.connect()` calls and cumulative elapsed time. Recorded even on failure. |
+| `execute_count` / `execute_total_ns` | `int` | `Cursor.execute()` and `executemany()` calls and cumulative elapsed time. |
+| `fetch_count`   / `fetch_total_ns`   | `int` | `fetchone()` / `fetchmany()` / `fetchall()` calls combined and cumulative elapsed time. |
+| `close_count`   / `close_total_ns`   | `int` | `Connection.close()` calls and cumulative elapsed time. |
+
+### Methods
+
+#### `reset()`
+
+```python
+def reset(self) -> None
+```
+
+Reset every counter to zero atomically. Useful for measuring a specific code section after
+a warm-up phase.
+
+#### `__repr__()`
+
+Returns a human-readable summary, e.g.:
+
+```
+TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
+            execute=10 calls, 4.200ms total, 0.420ms avg,
+            fetch=10 calls, 1.500ms total, 0.150ms avg,
+            close=0 calls)
+```
+
+### Async parity
+
+`pycubrid.aio.AsyncConnection` accepts the same `enable_timing` keyword and exposes the
+same `timing_stats` property with identical semantics. Async durations include event-loop
+scheduling latency — treat them as end-to-end client-side latency, not pure server time.
 
 ---
 
@@ -1620,7 +2098,7 @@ PEP 249 type objects for comparing `cursor.description` type codes:
 
 | Type Object | Description | Matching CUBRID types |
 |-------------|-------------|----------------------|
-| `STRING`    | String types | `CHAR`, `STRING`, `NCHAR`, `VARNCHAR` |
+| `STRING`    | String types | `CHAR`, `STRING`, `NCHAR`, `VARNCHAR`, `ENUM`, `CLOB`, `JSON` |
 | `BINARY`    | Binary types | `BIT`, `VARBIT`, `BLOB` |
 | `NUMBER`    | Numeric types | `SHORT`, `INT`, `BIGINT`, `FLOAT`, `DOUBLE`, `NUMERIC`, `MONETARY` |
 | `DATETIME`  | Date/time types | `DATE`, `TIME`, `DATETIME`, `TIMESTAMP` |
@@ -1674,6 +2152,7 @@ Complete reference for pycubrid's PEP 249 type objects, constructors, and CUBRID
 ## Table of Contents
 
 - [Overview](#overview)
+- [Declared SQL Types vs Fetch/Description Types](#declared-sql-types-vs-fetchdescription-types)
 - [DBAPIType Class](#dbapitype-class)
 - [PEP 249 Type Objects](#pep-249-type-objects)
   - [STRING](#string)
@@ -1683,10 +2162,26 @@ Complete reference for pycubrid's PEP 249 type objects, constructors, and CUBRID
   - [ROWID](#rowid)
 - [PEP 249 Constructors](#pep-249-constructors)
 - [CUBRID CCI_U_TYPE Codes](#cubrid-cci_u_type-codes)
-- [Type Conversion Table](#type-conversion-table)
+- [Fetch Conversion Table](#fetch-conversion-table)
 - [LOB Type Handling](#lob-type-handling)
 - [Collection Types](#collection-types)
+  - [JSON Columns](#json-columns)
+  - [`decode_collections`](#decode_collections)
 - [Usage Examples](#usage-examples)
+
+---
+
+## Declared SQL Types vs Fetch/Description Types
+
+This guide separates two different views of type information:
+
+- **Declared SQL types** are the column types you define in DDL and bind in SQL, such as
+  `VARCHAR`, `JSON`, `SET`, `BLOB`, or `TIMESTAMPTZ`.
+- **Fetch/description types** are the `CUBRIDDataType` integer codes exposed through
+  `cursor.description[n][1]` and the Python objects pycubrid returns after decoding wire data.
+
+The PEP 249 type-object sections below group declared SQL types into the standard DB-API families.
+Later sections list the raw `CUBRIDDataType` codes and the exact Python values returned on fetch.
 
 ---
 
@@ -1696,7 +2191,7 @@ pycubrid implements the DB-API 2.0 (PEP 249) type system with:
 
 - **5 type objects** — `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
 - **7 constructors** — `Date`, `Time`, `Timestamp`, `DateFromTicks`, `TimeFromTicks`, `TimestampFromTicks`, `Binary`
-- **27+ CCI data type codes** — mapping CUBRID wire types to Python types
+- **27+ CCI data type codes** — mapping CUBRID wire types to Python types, including JSON and collection support
 
 Type objects enable comparison with `cursor.description` type codes:
 
@@ -1770,6 +2265,7 @@ from pycubrid import STRING
 | VARNCHAR | 4 | `NCHAR VARYING(n)` |
 | ENUM | 25 | `ENUM` |
 | CLOB | 24 | `CLOB` |
+| JSON | 34 | `JSON` |
 
 ### BINARY
 
@@ -1905,6 +2401,7 @@ These integer codes are used on the CAS wire protocol and appear in `cursor.desc
 | `BLOB` | 23 | `BLOB` | BINARY |
 | `CLOB` | 24 | `CLOB` | STRING |
 | `ENUM` | 25 | `ENUM` | STRING |
+| `JSON` | 34 | `JSON` | STRING |
 | `TIMESTAMPTZ` | 29 | `TIMESTAMPTZ` | DATETIME |
 | `TIMESTAMPLTZ` | 30 | `TIMESTAMPLTZ` | DATETIME |
 | `DATETIMETZ` | 31 | `DATETIMETZ` | DATETIME |
@@ -1921,7 +2418,7 @@ print(CUBRIDDataType.VARCHAR)   # AttributeError — use CUBRIDDataType.STRING (
 
 ---
 
-## Type Conversion Table
+## Fetch Conversion Table
 
 How pycubrid converts CUBRID wire types to Python objects when fetching results:
 
@@ -1941,7 +2438,8 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
-| `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` | Raw bytes (not decoded) |
+| `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set |
+| `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
 | `OBJECT` (OID) | 19 | `str` | Format: `"OID:@page\|slot\|volume"` |
 | `BLOB` | 23 | `dict` | LOB handle (see below) |
 | `CLOB` | 24 | `dict` | LOB handle (see below) |
@@ -1996,15 +2494,45 @@ print(content)  # b'Hello, CLOB!'
 
 ## Collection Types
 
-CUBRID's collection types (`SET`, `MULTISET`, `SEQUENCE`) are returned as raw `bytes` by pycubrid. The driver does not decode collection contents — they are returned in their wire format.
+CUBRID's collection types (`SET`, `MULTISET`, `SEQUENCE`) default to raw `bytes` for backward
+compatibility. When `decode_collections=True` is passed to `connect()` or `pycubrid.aio.connect()`,
+pycubrid decodes supported collection payloads into Python containers.
 
-| CUBRID Type | CCI Code | Python Return Type |
-|---|---|---|
-| `SET` | 16 | `bytes` |
-| `MULTISET` | 17 | `bytes` |
-| `SEQUENCE` | 18 | `bytes` |
+| CUBRID Type | CCI Code | `decode_collections=False` | `decode_collections=True` |
+|---|---|---|---|
+| `SET` | 16 | `bytes` | `frozenset` when hashable, otherwise `tuple` |
+| `MULTISET` | 17 | `bytes` | `list` |
+| `SEQUENCE` | 18 | `bytes` | `list` |
 
-> **Note**: Collection types are a CUBRID-specific feature. If you need structured collection data, consider using normalized tables or JSON-encoded strings.
+Notes:
+
+- Nested collection payloads remain raw `bytes`.
+- Unknown collection element types fall back to raw `bytes`.
+- `SET` values are normalized to a `frozenset` when every decoded element is hashable.
+  If a set contains unhashable elements (for example decoded JSON objects), pycubrid returns
+  a `tuple` to preserve the contents without raising.
+
+### JSON Columns
+
+JSON columns use CUBRID type code `34`.
+
+| Connection option | Fetch result |
+|---|---|
+| default (`json_deserializer=None`) | raw JSON `str` |
+| `json_deserializer=json.loads` | decoded Python object |
+| `json_deserializer=custom_callable` | return value of the callable |
+
+This opt-in behavior keeps fetches allocation-light when applications prefer to defer JSON parsing.
+
+### `decode_collections`
+
+`decode_collections` is a connection-level switch on both `pycubrid.connect()` and
+`pycubrid.aio.connect()`.
+
+| Setting | Result |
+|---|---|
+| `False` (default) | Return collection payloads as raw CAS wire `bytes` |
+| `True` | Decode supported `SET`, `MULTISET`, and `SEQUENCE` payloads into Python containers |
 
 ---
 
@@ -2102,6 +2630,7 @@ Practical examples for using pycubrid — from basic CRUD to advanced features.
 ## Table of Contents
 
 - [Basic Connection](#basic-connection)
+- [TLS / SSL Connections](#tls--ssl-connections)
 - [CRUD Operations](#crud-operations)
   - [Create Table](#create-table)
   - [Insert Rows](#insert-rows)
@@ -2158,6 +2687,89 @@ conn.close()
 
 !!! tip
     Keep one connection open for related operations instead of repeatedly opening/closing per statement.
+
+---
+
+## TLS / SSL Connections
+
+CUBRID uses a STARTTLS-style upgrade: the driver opens a plaintext socket, exchanges
+the `CUBRS` handshake magic with the broker, then upgrades the live transport to TLS
+before sending `OPEN_DATABASE`. The same `ssl` parameter is accepted by both
+`pycubrid.connect()` and `pycubrid.aio.connect()`.
+
+### Sync — default verified context
+
+```python
+import pycubrid
+
+# ssl=True uses ssl.create_default_context() with minimum_version = TLSv1_2.
+conn = pycubrid.connect(
+    host="cubrid.example.com",
+    port=33000,
+    database="testdb",
+    user="dba",
+    password="secret",
+    ssl=True,
+)
+print(conn.get_server_version())
+conn.close()
+```
+
+### Sync — custom CA bundle
+
+```python
+import ssl
+import pycubrid
+
+ctx = ssl.create_default_context(cafile="/etc/ssl/my-ca.pem")
+ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+
+conn = pycubrid.connect(
+    host="cubrid.example.com",
+    port=33000,
+    database="testdb",
+    user="dba",
+    password="secret",
+    ssl=ctx,
+)
+conn.close()
+```
+
+### Async
+
+```python
+import asyncio
+import pycubrid.aio
+
+async def main() -> None:
+    conn = await pycubrid.aio.connect(
+        host="cubrid.example.com",
+        port=33000,
+        database="testdb",
+        user="dba",
+        password="secret",
+        ssl=True,
+    )
+    cur = conn.cursor()
+    await cur.execute("SELECT 1")
+    print(await cur.fetchone())
+    await cur.close()
+    await conn.close()
+
+asyncio.run(main())
+```
+
+!!! warning "Python 3.10 async TLS"
+    `loop.start_tls()` can hang on certificate-verify failures on Python 3.10
+    (a known CPython asyncio TLS handshake bug on Python 3.10,
+    fixed in 3.13/3.14). For production async TLS on 3.10, validate the cert
+    chain out-of-band first, or use the sync path. See
+    [Troubleshooting](TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310)
+    and [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+
+!!! note
+    The broker must have `SSL=ON` in `cubrid_broker.conf` for TLS connections
+    to succeed. See [Connection guide](CONNECTION.md#ssltls) for full details.
 
 ---
 
@@ -2353,10 +2965,6 @@ cur = conn.cursor()
 # Positional parameters (list or tuple)
 cur.execute("SELECT * FROM users WHERE name = ? AND age > ?", ["Alice", 25])
 
-# Dict parameters (values used in order)
-cur.execute("SELECT * FROM users WHERE name = ? AND age > ?",
-            {"name": "Alice", "age": 25})
-
 # Supported types
 import datetime
 from decimal import Decimal
@@ -2381,11 +2989,11 @@ cur.execute("INSERT INTO users (name, email) VALUES (?, ?)",
 | Parameter shape | Example | Notes |
 |---|---|---|
 | `list` / `tuple` | `cur.execute(sql, ["Alice", 25])` | Recommended for positional clarity |
-| `dict` (mapping) | `cur.execute(sql, {"name": "Alice", "age": 25})` | Values are used in mapping order |
 | `None` | `cur.execute(sql, [None])` | Encoded as SQL `NULL` |
 
 !!! danger
-    Passing a scalar instead of sequence/mapping (for example `params="Alice"`) raises `ProgrammingError`.
+    Passing a scalar or mapping instead of a non-string sequence (for example `params="Alice"`
+    or `params={"name": "Alice"}`) raises `ProgrammingError`.
 
 ---
 
@@ -2839,7 +3447,9 @@ Key characteristics:
 - **Transport**: TCP (default port 33000 for the broker)
 - **Byte order**: Big-endian (network byte order)
 - **Framing**: 4-byte data length + 4-byte CAS info + payload
-- **Handshake**: Magic string `CUBRK` + client type + protocol version
+- **Handshake**: Magic string `CUBRK` (plaintext) or `CUBRS` (STARTTLS) + client type + protocol version
+- **TLS (optional)**: STARTTLS-style upgrade after the handshake using `start_tls()` /
+  `wrap_socket()` before `OPEN_DATABASE`
 - **Session**: Stateful — session ID maintained after `OpenDatabase`
 
 ---
@@ -2848,7 +3458,7 @@ Key characteristics:
 
 ```mermaid
 graph LR
-    client[Client (pycubrid)] -- TCP port 33000 --> broker[Broker]
+    client["Client (pycubrid)"] -- TCP port 33000 --> broker[Broker]
     broker --> cas[CAS Process]
     cas --> db[CUBRID Database]
 ```
@@ -2866,8 +3476,8 @@ All packets after the initial handshake use the following frame format:
 
 ```mermaid
 graph LR
-    data[Data Length (4B) big-endian int32] --> casinfo[CAS Info (4B) session state]
-    casinfo --> payload[Payload (variable) function-specific]
+    data["Data Length (4B) big-endian int32"] --> casinfo["CAS Info (4B) session state"]
+    casinfo --> payload["Payload (variable) function-specific"]
 ```
 
 | Field       | Size    | Description |
@@ -2895,7 +3505,7 @@ The **open database packet** (`OpenDatabasePacket`) sends raw bytes (628 bytes) 
 
 ## Connection Handshake
 
-The connection flow has three phases:
+The connection flow has up to four phases (the TLS phase is optional):
 
 ### Phase 1: Client Info Exchange
 
@@ -2903,14 +3513,33 @@ The connection flow has three phases:
 sequenceDiagram
     participant Client
     participant Broker
-    Client->>Broker: ClientInfoExchange raw 10B ("CUBRK", CLIENT_JDBC=3, CAS_VER=0x47, padding)
-    Broker-->>Client: New Connection Port (4B int32, big-endian)
+    alt ssl requested
+        Client->>Broker: ClientInfoExchange raw 10B ("CUBRS", CLIENT_JDBC=3, CAS_VER=0x48, padding)
+    else plaintext
+        Client->>Broker: ClientInfoExchange raw 10B ("CUBRK", CLIENT_JDBC=3, CAS_VER=0x48, padding)
+    end
+    Broker-->>Client: status int32 (0 ok / >0 redirect port / <0 fail-fast)
 ```
 
-- **Magic string**: `"CUBRK"` (5 ASCII bytes)
+- **Magic string**: `"CUBRK"` (plaintext) or `"CUBRS"` (STARTTLS-requested) — 5 ASCII bytes
 - **Client type**: `CLIENT_JDBC = 3` (pycubrid identifies as a JDBC-compatible client)
-- **CAS version**: `PROTO_INDICATOR(0x40) | VERSION(7) = 0x47`
-- **New port**: If > 0, disconnect from broker and reconnect to this port. If 0, reuse current socket.
+- **CAS version**: `PROTO_INDICATOR(0x40) | VERSION(8) = 0x48`
+- **Status int32**: signed big-endian
+    - `> 0` — redirect port: close socket, reconnect to `(host, status)`, **do not** repeat the
+      handshake (mirrors the JDBC `BrokerHandler.connectBroker` behavior)
+    - `< 0` — fail-fast: raise `OperationalError(status)`
+    - `== 0` — reuse the current socket (direct mode)
+
+### Phase 1.5: TLS Upgrade (optional)
+
+If `ssl` was truthy on the connect call, the live transport is upgraded **before** any
+`OPEN_DATABASE` bytes are written:
+
+- Sync driver: `ssl.SSLContext.wrap_socket(sock, server_hostname=host)`
+- Async driver: `loop.start_tls(transport, protocol, context, server_hostname=host,
+  ssl_handshake_timeout=...)`
+
+A failed handshake aborts the transport rather than leaking it.
 
 ### Phase 2: Open Database
 
@@ -3351,7 +3980,7 @@ When `response_code < 0`, the response contains an error:
 
 ```mermaid
 graph LR
-    code[Error Code (4B int)] --> message[Error Message (null-terminated string)]
+    code["Error Code (4B int)"] --> message["Error Message (null-terminated string)"]
 ```
 
 pycubrid classifies errors automatically:
@@ -3370,11 +3999,12 @@ pycubrid classifies errors automatically:
 
 ```python
 class CASProtocol:
-    MAGIC_STRING = "CUBRK"    # Handshake magic
-    CLIENT_JDBC = 3           # Client type identifier
-    PROTO_INDICATOR = 0x40    # Protocol indicator bit
-    VERSION = 7               # Protocol version
-    CAS_VERSION = 0x47        # Combined version byte
+    MAGIC_STRING = "CUBRK"      # Handshake magic (plaintext)
+    MAGIC_STRING_SSL = "CUBRS"  # Handshake magic (STARTTLS-requested)
+    CLIENT_JDBC = 3             # Client type identifier
+    PROTO_INDICATOR = 0x40      # Protocol indicator bit
+    VERSION = 8                 # Protocol version
+    CAS_VERSION = 0x48          # Combined version byte
 ```
 
 ### Wire Data Sizes
@@ -3415,12 +4045,14 @@ class DataSize:
 
 | Code | Name |
 |------|------|
-| 0x01 | `COMMIT_CLASS_UNCOMMIT_INSTANCE` (default) |
+| 0x01 | `COMMIT_CLASS_UNCOMMIT_INSTANCE` (legacy pre-MVCC) |
 | 0x02 | `COMMIT_CLASS_COMMIT_INSTANCE` |
-| 0x03 | `REP_CLASS_UNCOMMIT_INSTANCE` |
-| 0x04 | `REP_CLASS_COMMIT_INSTANCE` |
+| 0x03 | `REP_CLASS_UNCOMMIT_INSTANCE` (legacy pre-MVCC) |
+| 0x04 | `REP_CLASS_COMMIT_INSTANCE` (READ COMMITTED, **server default**) |
 | 0x05 | `REP_CLASS_REP_INSTANCE` |
 | 0x06 | `SERIALIZABLE` |
+
+> On CUBRID's MVCC engine (10.0+) only levels `0x04`/`0x05`/`0x06` are accepted; the lower codes `0x01`-`0x03` are legacy pre-MVCC levels. CUBRID's server default isolation level is **READ COMMITTED** (`0x04`).
 
 ============================================================
 File: ARCHITECTURE.md
@@ -3432,7 +4064,7 @@ File: ARCHITECTURE.md
 
 - **Pure Python**: Zero system dependencies, no C extensions or CCI library required, runs anywhere Python runs.
 - **Full PEP 249 Compliance**: Implements the Python Database API Specification v2.0 for maximum compatibility.
-- **CAS Binary Protocol v7**: Specifically designed for CUBRID 10.0+ using the version 7 binary protocol.
+- **CAS Binary Protocol v8**: Targets the current CUBRID CAS protocol version used by pycubrid.
 - **Single-connection Synchronous Model**: Reliable, blocking I/O model suitable for standard application integration.
 - **PEP 561 Typed**: Fully type-hinted for modern IDE support and static analysis.
 
@@ -3452,16 +4084,25 @@ sequenceDiagram
     rect rgb(230, 245, 255)
       note over pycubrid, CAS: Phase 1 — Broker Handshake
       pycubrid->>Broker: TCP connect to port 33000
-      pycubrid->>Broker: ClientInfoExchange ("CUBRK" + CLIENT_JDBC=3 + v7)
-      Broker-->>pycubrid: New CAS port (4B int32)
-      pycubrid->>CAS: TCP reconnect to CAS port
+      alt ssl truthy
+        pycubrid->>Broker: ClientInfoExchange ("CUBRS" + CLIENT_JDBC=3 + v8)
+      else plaintext
+        pycubrid->>Broker: ClientInfoExchange ("CUBRK" + CLIENT_JDBC=3 + v8)
+      end
+      Broker-->>pycubrid: status int32 (0 ok / >0 redirect port / <0 fail-fast)
+      opt status > 0 (redirect)
+        pycubrid->>CAS: TCP reconnect to redirected port (no rehandshake)
+      end
+      opt ssl truthy
+        pycubrid->>CAS: TLS upgrade (start_tls / wrap_socket)
+      end
     end
     rect rgb(230, 255, 230)
       note over pycubrid, DB: Phase 2 — Database Session
       pycubrid->>CAS: OpenDatabase (db, user, password — 628B raw)
       CAS->>DB: Authenticate + open session
       DB-->>CAS: Session established
-      CAS-->>pycubrid: CAS Info (4B) + Session ID (4B) + Broker Info (8B)
+      CAS-->>pycubrid: CAS Info (4B) + response_code (4B) + Broker Info (8B) + Session ID (4B)
     end
     pycubrid-->>App: Connection object
 ```
@@ -3506,12 +4147,21 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Connection
+    participant Broker
     participant CAS
-    
+
     Connection->>Connection: _check_reconnect() inspects CAS_INFO[0]
     alt CAS status == INACTIVE
-      Connection->>CAS: ClientInfoExchange
-      CAS-->>Connection: New port
+      Connection->>Connection: _drop_connection()
+      Connection->>Connection: self.connect() (full re-handshake to broker)
+      Connection->>Broker: ClientInfoExchange ("CUBRK"/"CUBRS")
+      Broker-->>Connection: status int32 (0 / >0 redirect / <0 fail)
+      opt status > 0 (redirect)
+        Connection->>CAS: TCP reconnect to redirected port (no rehandshake)
+      end
+      opt ssl truthy
+        Connection->>CAS: TLS upgrade (start_tls / wrap_socket)
+      end
       Connection->>CAS: OpenDatabase
       CAS-->>Connection: New session
       note over Connection: Session restored transparently
@@ -3601,8 +4251,8 @@ flowchart TD
 ## Key Design Decisions
 
 - **Pure Python over C extension**: Zero system dependencies ensure the driver runs anywhere Python is available, simplifying deployment and avoiding cross-compilation issues.
-- **CAS protocol v7**: By targeting minimum CUBRID 10.0.0, the codebase remains clean and avoids complex backward compatibility logic for deprecated protocol versions.
-- **`qmark` paramstyle**: Using question mark placeholders (`?`) directly matches the expectations of the CAS wire protocol, minimizing the need for complex client-side parameter parsing.
+- **CAS protocol v8**: The driver targets the current broker protocol, including JSON-aware parsing paths and modern feature support, without carrying compatibility code for legacy protocol revisions.
+- **`qmark` paramstyle with driver-side binding**: Parameters use `?` placeholders. The driver escapes and interpolates values locally (type-aware escaping for strings, bytes, dates, decimals, None → NULL) before sending the final SQL to the CAS broker. This is not server-side prepared statement binding — the broker receives a complete SQL string. This design avoids a protocol round-trip for PREPARE and simplifies the implementation while maintaining injection safety through strict type-dispatch escaping.
 - **Dict-based type dispatch**: Utilizing the `_TYPE_READERS` dictionary provides O(1) lookup performance, ensuring high-speed result parsing compared to iterative conditional checks.
 - **Opaque collection types**: Returning SET, MULTISET, and SEQUENCE types as raw `bytes` avoids the performance overhead and complexity of recursive parsing for features that are rarely used in standard applications.
 - **Identify as JDBC client**: Sending `CLIENT_JDBC=3` during handshake ensures the CAS treats pycubrid with the same stability and feature set as the official JDBC driver.
@@ -3663,6 +4313,7 @@ This guide summarizes benchmark behavior for `pycubrid` and shows practical tuni
 - [Performance Characteristics](#performance-characteristics)
 - [Optimization Tips](#optimization-tips)
 - [Performance Investigation](#performance-investigation)
+- [Timing & Profiling Hooks](#timing--profiling-hooks)
 - [Running Benchmarks](#running-benchmarks)
 
 ---
@@ -3676,7 +4327,7 @@ flowchart LR
     App[Python Application] --> Driver[pycubrid\nPure Python DBAPI2]
     Driver --> CAS[CAS Binary Protocol over TCP]
     CAS --> Broker[CUBRID Broker / CAS]
-    Broker --> Server[(CUBRID Server)]
+    Broker --> Server["(CUBRID Server)"]
 ```
 
 ```mermaid
@@ -3757,7 +4408,7 @@ without hardcoding thresholds that age badly.
 flowchart TD
     Detect[cubrid-benchmark detects gap] --> Issue[File a Performance issue\nusing the issue template]
     Issue --> Profile[Run profiling scripts\nto isolate the hot path]
-    Profile --> Optimize[Apply targeted fix\n(see Optimization Tips)]
+    Profile --> Optimize["Apply targeted fix\n(see Optimization Tips)"]
     Optimize --> Verify[Re-run profiling scripts\nand cubrid-benchmark]
     Verify --> Close[Attach results to issue\nand close]
 ```
@@ -3836,6 +4487,111 @@ nested call stacks.
 
 ---
 
+## Timing & Profiling Hooks
+
+For lightweight in-process diagnosis you can opt into the driver's built-in timing
+instrumentation instead of running the cProfile-based scripts above. Hooks are **off by
+default** — when disabled the timing module is never imported and the hot path runs
+unchanged.
+
+### When to use which
+
+| Use case | Tool |
+|---|---|
+| "Where is wall-clock time going across `connect` / `execute` / `fetch` / `close` in my application?" | `enable_timing=True` (this section) |
+| "Which Python frames inside `cursor.execute` are hot?" | `scripts/profile_execute.py` (cProfile) |
+| "How does pycubrid compare to PyMySQL on a controlled workload?" | [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark) |
+
+### Enabling
+
+Pass the `enable_timing=True` keyword to `pycubrid.connect()`:
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(
+    host="localhost", port=33000, database="testdb", user="dba",
+    enable_timing=True,
+)
+```
+
+Or set the environment variable so timing is enabled for every connection in a process —
+useful in benchmark harnesses and CI jobs:
+
+```bash
+export PYCUBRID_ENABLE_TIMING=1   # also accepts true / yes (case-insensitive)
+python my_workload.py
+```
+
+The explicit keyword always wins over the environment variable. Async connections support
+the same keyword on `pycubrid.aio.connect()`.
+
+### Reading the stats
+
+```python
+cur = conn.cursor()
+cur.executemany(
+    "INSERT INTO bench (n) VALUES (?)",
+    [(i,) for i in range(1000)],
+)
+cur.execute("SELECT n FROM bench")
+cur.fetchall()
+
+stats = conn.timing_stats
+print(stats)
+# TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
+#             execute=2 calls, 18.700ms total, 9.350ms avg,
+#             fetch=1 calls, 4.200ms total, 4.200ms avg,
+#             close=0 calls)
+
+# Programmatic access (nanoseconds, ints):
+exec_avg_ms = stats.execute_total_ns / stats.execute_count / 1_000_000
+print(f"average execute: {exec_avg_ms:.3f} ms")
+
+# Reset between phases
+stats.reset()
+```
+
+`Connection.timing_stats` is `None` when timing is disabled, so guard accordingly:
+
+```python
+if conn.timing_stats is not None:
+    print(conn.timing_stats)
+```
+
+### Categories and granularity
+
+| Category | What it covers |
+|---|---|
+| `connect` | TCP socket setup + CAS broker handshake + database open. Recorded even on failure. |
+| `execute` | `Cursor.execute()` and `executemany()` — wraps prepare-and-execute round-trip. |
+| `fetch` | `fetchone()` / `fetchmany()` / `fetchall()` combined. |
+| `close` | `Connection.close()` — `CloseDatabasePacket` round-trip + socket teardown. |
+
+All cursors created from a connection report into the same `TimingStats`. Stats are
+**per-connection**, cumulative since the last `reset()`.
+
+### Overhead and thread-safety
+
+- **Disabled** — the timing module is not imported; per-call cost is a single attribute
+  read (`self._timing is None`).
+- **Enabled** — two `time.perf_counter_ns()` calls plus a lock-protected accumulator
+  update per hook (~hundreds of nanoseconds).
+- The `threading.Lock` inside `TimingStats` lets a monitoring thread safely read counters
+  while a worker thread drives the connection. The connection itself remains
+  `threadsafety = 1` (one connection per thread).
+
+### Limitations
+
+- Async timings include event-loop scheduling latency; treat them as client-side
+  end-to-end latency, not pure server time.
+- Counters are cumulative only — there is no per-statement history. If you need
+  per-statement breakdowns, run the cProfile-based scripts in
+  [Performance Investigation](#performance-investigation).
+- `ping()` and `commit()` / `rollback()` are not currently timed.
+
+---
+
 ## Running Benchmarks
 
 1. Clone the benchmark suite: `git clone https://github.com/cubrid-lab/cubrid-benchmark`.
@@ -3864,6 +4620,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [TimeoutError or socket.timeout](#timeouterror-or-sockettimeout)
   - [Connection Closed Unexpectedly](#connection-closed-unexpectedly)
   - [Broker Port Redirect Failure](#broker-port-redirect-failure)
+  - [Async TLS Handshake Hangs on Python 3.10](#async-tls-handshake-hangs-on-python-310)
 - [Query Issues](#query-issues)
   - [ProgrammingError: SQL Syntax](#programmingerror-sql-syntax)
   - [Parameter Binding Errors](#parameter-binding-errors)
@@ -3912,7 +4669,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
 
 ```mermaid
 flowchart TD
-    A[Start: pycubrid error observed] --> B{Connection established?}
+    A["Start: pycubrid error observed"] --> B{Connection established?}
     B -->|No| C[Check broker status and port reachability]
     C --> D{Authentication error?}
     D -->|Yes| E[Verify user/password and database]
@@ -4154,7 +4911,41 @@ OperationalError: ... (during connection handshake)
          CUBRID_DB: testdb
    ```
 
-   The default Docker image is configured correctly for single-port access. If you see this error with Docker, check that you're not overriding broker configuration.
+    The default Docker image is configured correctly for single-port access. If you see this error with Docker, check that you're not overriding broker configuration.
+
+---
+
+### Async TLS Handshake Hangs on Python 3.10
+
+> **As of pycubrid 1.x (post-#156)** an automatic preflight TLS verification probe runs on Python 3.10 immediately before `loop.start_tls()`. Verification failures now surface as `OperationalError` (chained from `ssl.SSLError`) within the connect timeout, matching the 3.11+ behavior. If you are still seeing a hang on a recent pycubrid release, please file an issue with a reproducer.
+
+**Symptom** (pre-workaround / older releases): `await pycubrid.aio.connect(..., ssl=True)` (or `ssl=<SSLContext>`) hangs indefinitely instead of raising. The coroutine never returns and no exception is raised. Often surfaces as a test timeout or a stuck request handler under Python 3.10.
+
+**Cause**: A known CPython asyncio TLS handshake bug on Python 3.10 — `asyncio.AbstractEventLoop.start_tls()` can hang on certificate-verify failures (expired/untrusted CA, hostname mismatch, broker presenting an unexpected cert) instead of raising `ssl.SSLCertVerificationError`. pycubrid uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake, then `loop.start_tls()` — so this CPython bug surfaced as a dead-hang on the upgrade step. The bug is fixed in Python 3.13 and 3.14. Tracked in pycubrid as [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+
+**How pycubrid works around it**: on Python 3.10, `AsyncConnection` runs a sync `ssl.SSLContext.wrap_socket()` preflight probe via `loop.run_in_executor()` against the same effective endpoint (using the **same** `SSLContext` and `server_hostname=self._host`) just before the real `loop.start_tls()`. The probe surfaces verification failures synchronously and propagates `ssl.SSLError` → `OperationalError`. Net cost: one extra TCP round-trip per connect on Python 3.10 only.
+
+**Caveats**:
+
+- The probe is **best-effort against cert rotation** between probe and real upgrade (a small but real race).
+- Probe failure modes other than TLS verification (broker reject, connection reset) intentionally fall through to the real handshake so the real connect path can produce the canonical error.
+- Upgrading to Python 3.13+ remains the recommended long-term fix.
+
+**Quick checks** (if you still see a hang):
+
+1. **Confirm it's TLS, not the TCP connect**: try `ssl=False` against the same broker. If that succeeds quickly, the hang is in the TLS upgrade.
+2. **Confirm it's Python 3.10-specific**: try the same code on Python 3.13 or 3.14. If it raises promptly there, you've hit the 3.10-only async-TLS handshake bug — and you should be on a pycubrid release that includes the preflight probe.
+3. **Try the sync path**: `pycubrid.connect(..., ssl=True)` uses `ssl.SSLContext.wrap_socket()` (blocking) which is not affected and will raise `ssl.SSLCertVerificationError` immediately, telling you exactly which cert check failed.
+4. **Enable debug logging**: `logging.getLogger("pycubrid").setLevel(logging.DEBUG)` and look for the last log line before the hang.
+
+**Workarounds** (any one is sufficient):
+
+- **Upgrade Python to 3.13 or 3.14** (preferred — fixes the root cause).
+- **Upgrade pycubrid** to a release that includes the #156 preflight probe.
+- **Use the sync API** for connection establishment on 3.10 if you only need TLS to validate the broker, then proceed with sync code paths.
+- **Pass a custom `ssl.SSLContext`** with the correct CA bundle loaded (`context.load_verify_locations(cafile=...)`) rather than relying on the system trust store, eliminating the most common verify failure.
+
+**Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That is the signature of the 3.10-only async-TLS handshake bug.
 
 ---
 
@@ -4523,8 +5314,7 @@ print(row[0])
 cur.execute("INSERT INTO docs (content) VALUES (?)", ("Large text content here...",))
 conn.commit()
 
-# For small LOBs, the data may be returned inline
-# For large LOBs, you get the metadata dict
+# Fetches return the metadata dict for CLOB/BLOB columns; use the packed handle to read content
 ```
 
 ---
@@ -4635,10 +5425,10 @@ print(cur.rowcount)  # Number of deleted rows
 
 ### executemany() Performance
 
-**For bulk inserts**, `executemany()` executes each parameter set individually. For better performance with many rows, use `executemany_batch()`:
+**For bulk inserts and other non-SELECT DML**, `executemany()` does **not** execute each parameter set as a separate round trip. It renders each bound statement and sends the full batch in one `BatchExecutePacket`. Only `SELECT` statements fall back to the per-parameter loop to preserve result-set semantics. Use `executemany_batch()` when you already have distinct SQL strings and want to send them in one batch request:
 
 ```python
-# Standard executemany — one statement per parameter set
+# Standard executemany — non-SELECT DML batches into one request
 data = [("Alice", 30), ("Bob", 25), ("Charlie", 35)]
 cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 
@@ -4656,7 +5446,8 @@ cur.executemany_batch(sql_list)
 | Method | Round Trips | Best For |
 |---|---|---|
 | `execute()` in loop | N | Few rows |
-| `executemany()` | N | Parameterized inserts |
+| `executemany()` for INSERT/UPDATE/DELETE | 1 | Parameterized bulk DML |
+| `executemany()` for SELECT | N | Repeated SELECTs with separate parameter sets |
 | `executemany_batch()` | 1 | Many distinct SQL statements |
 
 ---
@@ -4972,10 +5763,14 @@ engine = create_engine(
 
 ### Enable Verbose Logging
 
-**pycubrid itself does not have built-in logging**, but you can debug at the Python level:
+pycubrid includes **opt-in DEBUG logging** in `pycubrid.connection`, `pycubrid.cursor`,
+`pycubrid.lob`, and the async modules. Enable it through Python's logging configuration:
 
 ```python
+import logging
 import pycubrid
+
+logging.basicConfig(level=logging.DEBUG)
 
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
 
@@ -4989,6 +5784,8 @@ cur.execute("SELECT * FROM users")
 print(f"Description: {cur.description}")
 print(f"Row count: {cur.rowcount}")
 ```
+
+The driver's debug logs intentionally avoid printing bound parameter values.
 
 ### Inspect Server Version
 
@@ -5157,6 +5954,8 @@ File: SUPPORT_MATRIX.md
 
 Compatibility and feature support for pycubrid releases.
 
+> **Reference:** Current version `1.3.0`. For per-release detail see [`CHANGELOG.md`](../CHANGELOG.md).
+
 ---
 
 ## Version Compatibility
@@ -5169,6 +5968,7 @@ Compatibility and feature support for pycubrid releases.
 | 3.11 | ✅ Supported |
 | 3.12 | ✅ Supported |
 | 3.13 | ✅ Supported |
+| 3.14 | ✅ Supported |
 | < 3.10 | ❌ Not supported |
 
 ### CUBRID Server
@@ -5179,7 +5979,16 @@ Compatibility and feature support for pycubrid releases.
 | 11.2 | ✅ Supported | |
 | 11.0 | ✅ Supported | |
 | 10.2 | ✅ Supported | Minimum tested version |
-| < 10.2 | ❌ Not supported | CAS protocol v7 required (since 10.0) |
+| < 10.2 | ❌ Not supported | Current driver targets CAS protocol v8 |
+
+### CI Matrix
+
+| Dimension | PR / push | Nightly + tag + dispatch |
+|---|---|---|
+| Offline tests | Python 3.10, 3.11, 3.12, 3.13, 3.14 | Same |
+| Integration tests | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8 jobs | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20 jobs |
+
+The 5 × 4 full integration matrix is run by `.github/workflows/integration-full.yml` on a nightly schedule, on tagged releases, and on demand via `workflow_dispatch`.
 
 ---
 
@@ -5195,57 +6004,130 @@ Compatibility and feature support for pycubrid releases.
 | `connect()` | ✅ | Module-level constructor |
 | `Connection` | ✅ | Full lifecycle: commit, rollback, close, autocommit |
 | `Cursor` | ✅ | execute, executemany, fetch*, callproc, description, rowcount |
+| `Cursor.nextset()` | ✅ | Since 1.2.0 (#79) |
 | Exception hierarchy | ✅ | All 10 PEP 249 exception classes |
+| `errno` / `sqlstate` on `DatabaseError` | ✅ | Since 1.2.0 (#71) — 19 SQLSTATE mappings |
 | Type objects | ✅ | STRING, BINARY, NUMBER, DATETIME, ROWID |
 | Type constructors | ✅ | Date, Time, Timestamp, *FromTicks, Binary |
 | Context managers | ✅ | Both Connection and Cursor |
 
+### Connection Features
+
+| Feature | Status | Since | Notes |
+|---|---|---|---|
+| `connect_timeout` | ✅ | 1.0.0 | Connect-phase timeout (seconds) |
+| `read_timeout` (sync) | ✅ | 1.2.0 (#81) | Per-recv socket timeout |
+| `read_timeout` (async) | ✅ | 1.2.0 (#82) | `asyncio.wait_for` wrapping |
+| `fetch_size` | ✅ | 1.2.0 (#81) | Configurable result batch size (default 100) |
+| `autocommit` property | ✅ | 1.0.0 | Get/set on `Connection` |
+| `Connection.ping()` | ✅ | 1.2.0 (#70) | Native CHECK_CAS health check, no SQL needed |
+| `get_server_version()` | ✅ | 1.0.0 | Returns version string (e.g. `"11.2.0.0378"`) |
+| `get_last_insert_id()` | ✅ | 1.0.0 | After AUTO_INCREMENT INSERT |
+| Schema introspection | ✅ | 1.0.0 | `Connection.get_schema_info()` |
+| Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
+| Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
+| CAS reconnection | ✅ | 1.0.0 | Auto-reconnect on broker `INACTIVE` status |
+
+### TLS / SSL
+
+| Feature | Status | Since | Notes |
+|---|---|---|---|
+| Sync TLS — `ssl=True` (verified context) | ✅ | 1.3.0 (#85) | Default secure context; enforces TLS 1.2 minimum (#145) |
+| Sync TLS — `ssl=ssl.SSLContext(...)` | ✅ | 1.3.0 (#85) | Custom context (caller controls minimum TLS version) |
+| Sync TLS — `ssl=False` / `None` | ✅ | 1.3.0 | Plaintext (default) |
+| Async TLS | ✅ | 1.4.0 | STARTTLS-style upgrade: plaintext `CUBRS` handshake then `loop.start_tls()` (`ssl_handshake_timeout` bounded) before `OPEN_DATABASE` (#136, #154). Default context enforces TLS 1.2 minimum (#145). Python 3.10 has a known `start_tls()` hang on cert-verify failures (a known CPython async-TLS handshake bug on 3.10) — tracked as #156. |
+
+### Async (`pycubrid.aio`)
+
+| Feature | Status | Since | Notes |
+|---|---|---|---|
+| `pycubrid.aio.connect()` | ✅ | 1.1.0 | Similar async surface; `AsyncConnection.ping()` added in 1.3.2 (native `CHECK_CAS` FC=32). `create_lob()` remains sync-only. |
+| `AsyncCursor` execute / fetch / executemany / callproc | ✅ | 1.1.0 | Sync-like cursor APIs with `await`; connection autocommit changes use `set_autocommit()` rather than a property setter |
+| `AsyncConnection.commit()` / `rollback()` / `close()` | ✅ | 1.1.0 | |
+| Async context managers | ✅ | 1.1.0 | `async with` for both connection and cursor |
+| Async `read_timeout` | ✅ | 1.2.0 (#82) | |
+| Async dual-stack fallback | ✅ | 1.2.0 (#83) | |
+| Async parameter binding parity | ✅ | 1.2.0 (#76, #77) | Shares `_escape_string` with sync |
+| Async TLS | ✅ | 1.4.0 | STARTTLS-style upgrade: plaintext `CUBRS` handshake then `loop.start_tls()` (`ssl_handshake_timeout` bounded) before `OPEN_DATABASE` (#136, #154). Default context enforces TLS 1.2 minimum (#145). Python 3.10 has a known `start_tls()` hang on cert-verify failures (a known CPython async-TLS handshake bug on 3.10) — tracked as #156. |
+
+### Driver-Level Diagnostics
+
+| Feature | Status | Since | Notes |
+|---|---|---|---|
+| Optional timing hooks (`enable_timing=True`) | ✅ | 1.0.0 (#54) | Off by default; zero overhead when disabled — see [PERFORMANCE.md](PERFORMANCE.md#timing--profiling-hooks) |
+| `PYCUBRID_ENABLE_TIMING` env var | ✅ | 1.0.0 | Truthy: `1`, `true`, `yes` (case-insensitive) |
+| `Connection.timing_stats` | ✅ | 1.0.0 | Returns `TimingStats` or `None` |
+| `TimingStats` (connect / execute / fetch / close) | ✅ | 1.0.0 | Nanosecond precision, thread-safe |
+| DEBUG logging (`pycubrid.connection`, `pycubrid.cursor`, `pycubrid.lob`, `pycubrid.aio.*`) | ✅ | 1.x | Driver emits opt-in debug logs for connection, cursor, LOB, and async operations |
+
 ### Data Types
 
-| CUBRID Type | Python Type | Status |
-|---|---|---|
-| INTEGER, BIGINT, SMALLINT, SHORT | `int` | ✅ |
-| FLOAT, DOUBLE, MONETARY | `float` | ✅ |
-| NUMERIC, DECIMAL | `decimal.Decimal` | ✅ |
-| CHAR, VARCHAR, NCHAR, NVARCHAR, STRING | `str` | ✅ |
-| DATE | `datetime.date` | ✅ |
-| TIME | `datetime.time` | ✅ |
-| DATETIME, TIMESTAMP | `datetime.datetime` | ✅ |
-| BIT, VARBIT | `bytes` | ✅ |
-| BLOB | `bytes` | ✅ |
-| CLOB | `str` | ✅ |
-| SET, MULTISET, SEQUENCE | `bytes` | ⚠️ Raw wire format (see below) |
-| NULL | `None` | ✅ |
+| CUBRID Type | Python Type | Status | Notes |
+|---|---|---|---|
+| INTEGER, BIGINT, SMALLINT, SHORT | `int` | ✅ | |
+| FLOAT, DOUBLE, MONETARY | `float` | ✅ | |
+| NUMERIC, DECIMAL | `decimal.Decimal` | ✅ | |
+| CHAR, VARCHAR, NCHAR, NVARCHAR, STRING | `str` | ✅ | |
+| DATE | `datetime.date` | ✅ | |
+| TIME | `datetime.time` | ✅ | |
+| DATETIME, TIMESTAMP | `datetime.datetime` | ✅ | Naive (no tzinfo) |
+| DATETIMETZ, TIMESTAMPTZ | `datetime.datetime` (tz-aware) | ✅ | Since 1.2.0 (#78) — IANA timezone keys |
+| BIT, VARBIT | `bytes` | ✅ | |
+| BLOB | `dict` | ✅ | LOB handle dict with `lob_type`, `lob_length`, `file_locator`, `packed_lob_handle`[^lob] |
+| CLOB | `dict` | ✅ | LOB handle dict with `lob_type`, `lob_length`, `file_locator`, `packed_lob_handle`[^lob] |
+| JSON | `Any` (via deserializer) | ✅ | Since 1.2.0 (#72) — opt-in `json_deserializer=` on `connect()`; CAS protocol v8 |
+| SET | `frozenset` | ✅ | Since 1.2.0 (#73) — opt-in `decode_collections=True` on `connect()` |
+| MULTISET | `list` | ✅ | Since 1.2.0 (#73) — opt-in `decode_collections=True` |
+| SEQUENCE | `list` | ✅ | Since 1.2.0 (#73) — opt-in `decode_collections=True` |
+| Collections (default, `decode_collections=False`) | `bytes` | ⚠️ | Raw CAS wire format for backward compatibility |
+| OBJECT (OID) | `str` | ⚠️ | Decoded as `OID:@page|slot|volume`; no high-level OID API |
+| NULL | `None` | ✅ | |
 
-### Driver Features
+### Statement / Cursor
 
-| Feature | Status | Notes |
-|---|---|---|
-| Pure Python | ✅ | No C extensions or native libraries required |
-| CAS protocol v7 | ✅ | Binary protocol over TCP/IP |
-| Autocommit control | ✅ | `Connection.autocommit` property |
-| LOB support | ✅ | BLOB and CLOB via `Connection.create_lob()` |
-| Batch execution | ✅ | `Cursor.executemany()` with `BatchExecutePacket` |
-| CAS reconnection | ✅ | Automatic reconnect on broker `INACTIVE` status |
-| Schema introspection | ✅ | `Connection.get_schema_info()` |
-| Server version | ✅ | `Connection.get_server_version()` |
-| Connection timeout | ✅ | `connect_timeout` parameter |
-| Connection pooling | ❌ | Use SQLAlchemy or external pool (see [Connection Guide](CONNECTION.md#connection-pooling)) |
-| Async/await | ❌ | Not supported — CUBRID has no async wire protocol |
-| JSON type | ❌ | CUBRID supports JSON since 10.2, but driver returns raw bytes |
+| Feature | Status | Since | Notes |
+|---|---|---|---|
+| `cursor.execute(sql, params)` | ✅ | 1.0.0 | Server-side `PREPARE_AND_EXECUTE` |
+| `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | Batches non-SELECT DML via `BatchExecutePacket`; only SELECT falls back to the per-row loop |
+| `cursor.executemany_batch(sql_list, auto_commit=None)` | ✅ | 1.0.0 | Single round-trip `BatchExecutePacket` |
+| `cursor.callproc(name, params)` | ✅ | 1.0.0 | Stored procedure invocation |
+| `cursor.fetchone() / fetchmany() / fetchall()` | ✅ | 1.0.0 | |
+| Iterator protocol (`for row in cursor`) | ✅ | 1.0.0 | |
+| `cursor.description` | ✅ | 1.0.0 | PEP 249 7-tuple |
+| `cursor.rowcount` | ✅ | 1.0.0 | |
+| `cursor.lastrowid` | ✅ | 1.0.0 | |
+
+### LOB
+
+| Feature | Status | Since | Notes |
+|---|---|---|---|
+| `Connection.create_lob(BLOB)` | ✅ | 1.0.0 | |
+| `Connection.create_lob(CLOB)` | ✅ | 1.0.0 | |
+| LOB read/write | ✅ | 1.0.0 | |
+| Insert `bytes`/`str` directly into BLOB/CLOB columns | ✅ | 1.0.0 | Recommended over `Lob` parameter binding (which is not supported) |
+
+### Performance Optimisations
+
+| Feature | Status | Since | Notes |
+|---|---|---|---|
+| `socket.recv_into` zero-copy receives | ✅ | 1.0.0 | |
+| `TCP_NODELAY` enabled | ✅ | 1.0.0 | |
+| Cursor class cache | ✅ | 1.0.0 | |
+| Pre-compiled `struct` packers | ✅ | 1.0.0 | |
+| Type-dispatch table for fetch | ✅ | 1.0.0 | |
+| Slice-based fetch | ✅ | 1.0.0 | |
+| Batch executemany (`BatchExecutePacket`) | ✅ | 1.0.0 | |
 
 ---
 
-## Collection Types (1.0 Contract)
+## Operational
 
-CUBRID collection types (`SET`, `MULTISET`, `SEQUENCE`) are returned as **raw bytes** in their CAS wire format. The driver does not decode collection contents.
-
-This is a deliberate design decision for the 1.0 release:
-- The CAS wire format for collection payloads is not publicly documented
-- Decoding would require reverse-engineering the binary format
-- Applications needing structured collection data should use normalized tables or JSON-encoded strings
-
-See [Type System → Collection Types](TYPES.md#collection-types) for details.
+| Concern | Status | Notes |
+|---|---|---|
+| Pure Python (no C extensions) | ✅ | `pip install pycubrid` only |
+| PEP 561 typed package | ✅ | `py.typed` shipped |
+| Connection pooling | ❌ | Not built-in. Use SQLAlchemy `QueuePool` or external pool — see [Connection Guide](CONNECTION.md#connection-pooling) |
+| External profiling library dependency | ❌ | Only `time.perf_counter_ns` from stdlib |
 
 ---
 
@@ -5253,14 +6135,21 @@ See [Type System → Collection Types](TYPES.md#collection-types) for details.
 
 | Metric | Value |
 |---|---|
-| Offline tests | 471 |
-| Integration tests | 41 |
-| Line coverage | 99.88% |
+| Offline tests | 770 |
+| Total tests | 811 |
+| Integration jobs (PR / push) | 8 (Python {3.10, 3.14} × CUBRID 4 versions) |
+| Integration jobs (nightly + tag + dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
+| Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
+| Reconnect / network edge cases | 17 tests covering reset, timeout, broken pipe, partial reads |
 | Coverage threshold | 95% (CI-enforced) |
 
 ---
 
-*See also: [Connection Guide](CONNECTION.md) · [Type System](TYPES.md) · [API Reference](API_REFERENCE.md)*
+[^lob]: Fetching a LOB column returns a handle dictionary, not the content itself. Use
+`pycubrid.lob.Lob` with `packed_lob_handle` to read bytes, or insert `str`/`bytes` directly
+when writing CLOB/BLOB values.
+
+*See also: [Connection Guide](CONNECTION.md) · [Type System](TYPES.md) · [API Reference](API_REFERENCE.md) · [Performance Guide](PERFORMANCE.md) · [Changelog](../CHANGELOG.md)*
 
 ============================================================
 File: DEVELOPMENT.md
@@ -5332,7 +6221,7 @@ make install
 graph TD
     root[pycubrid/]
 
-    pkg[pycubrid/ - Main package (9 modules)]
+    pkg["pycubrid/ - Main package (9 modules)"]
     tests[tests/ - Test suite]
     docs[docs/ - Documentation]
     pyproject[pyproject.toml - Package configuration]
@@ -5355,17 +6244,17 @@ graph TD
     root --> readme
 
     pkg --> init[__init__.py - Public API, PEP 249 module attributes]
-    pkg --> connection[connection.py - Connection class (TCP, CAS handshake)]
-    pkg --> cursor[cursor.py - Cursor class (execute, fetch, iterate)]
+    pkg --> connection["connection.py - Connection class (TCP, CAS handshake)"]
+    pkg --> cursor["cursor.py - Cursor class (execute, fetch, iterate)"]
     pkg --> types[types.py - PEP 249 type objects and constructors]
     pkg --> exceptions[exceptions.py - Full PEP 249 exception hierarchy]
-    pkg --> constants[constants.py - CAS protocol enums (41 function codes, 27+ types)]
-    pkg --> protocol[protocol.py - 18 packet classes (serialize/deserialize)]
+    pkg --> constants["constants.py - CAS protocol enums (41 function codes, 27+ types)"]
+    pkg --> protocol["protocol.py - 18 packet classes (serialize/deserialize)"]
     pkg --> packet[packet.py - PacketWriter + PacketReader primitives]
-    pkg --> lob[lob.py - LOB (BLOB/CLOB) support]
+    pkg --> lob["lob.py - LOB (BLOB/CLOB) support"]
     pkg --> typed[py.typed - PEP 561 marker]
 
-    tests --> conftest[conftest.py - Shared fixtures (mock connection, mock socket)]
+    tests --> conftest["conftest.py - Shared fixtures (mock connection, mock socket)"]
     tests --> test_connection[test_connection.py - Connection lifecycle tests]
     tests --> test_cursor[test_cursor.py - Cursor operations tests]
     tests --> test_types[test_types.py - Type object tests]
@@ -5375,7 +6264,7 @@ graph TD
     tests --> test_packet[test_packet.py - PacketWriter/PacketReader tests]
     tests --> test_lob[test_lob.py - LOB tests]
     tests --> test_pep249[test_pep249.py - PEP 249 compliance tests]
-    tests --> test_integration[test_integration.py - Live DB integration tests (requires Docker)]
+    tests --> test_integration["test_integration.py - Live DB integration tests (requires Docker)"]
     tests --> test_suite[test_suite.py - Extended test suite]
 
     docs --> doc_connection[CONNECTION.md - Connection guide]
@@ -5420,6 +6309,67 @@ pytest tests/test_integration.py -v
 # Cleanup
 docker compose down -v
 ```
+
+#### Async TLS integration tests
+
+`tests/test_aio_ssl_integration.py` adds async TLS coverage for `pycubrid.aio`.
+The repository's default `docker-compose.yml` starts a plaintext broker only, so
+these tests are skipped unless you point them at a separate TLS-enabled broker.
+
+Export the normal integration variables plus these TLS overrides as needed:
+
+```bash
+export CUBRID_TLS_TEST_HOST=localhost
+export CUBRID_TLS_TEST_PORT=33001
+export CUBRID_TLS_TEST_DB=testdb
+export CUBRID_TLS_TEST_USER=dba
+export CUBRID_TLS_TEST_PASSWORD=
+
+# Optional: private CA bundle for ssl.SSLContext/load_verify_locations().
+export CUBRID_TLS_TEST_CA_FILE="$PWD/certs/ca.pem"
+
+# Optional: alternate reachable host/IP for hostname-mismatch coverage.
+export CUBRID_TLS_TEST_MISMATCH_HOST=127.0.0.1
+
+# If test_aio_ssl_connect_default_context uses a private CA, also point the
+# process default trust store at that CA before running pytest.
+export SSL_CERT_FILE="$CUBRID_TLS_TEST_CA_FILE"
+```
+
+Broker-side TLS must already be enabled (`SSL=ON` in `cubrid_broker.conf`) and
+the broker certificate must match `CUBRID_TLS_TEST_HOST`. Then run:
+
+```bash
+pytest tests/test_aio_ssl_integration.py -v
+```
+
+##### Automated TLS coverage in CI
+
+You do not need to run the steps above locally for routine development —
+`.github/workflows/integration-full.yml` includes an `integration-tls` job
+(Python {3.10, 3.14} × CUBRID 11.4) that:
+
+1. Starts a CUBRID 11.4 container manually (so the broker config can be
+   patched after the container is up).
+2. Generates a fresh self-signed certificate (`CN=localhost`, `SAN=DNS:localhost`),
+   injects it into the container as `cas_ssl_cert.{crt,key}`, then flips
+   `SSL=OFF` → `SSL=ON` for `BROKER1` and restarts the broker so the new
+   cert is picked up.
+3. Exports the generated CA bundle to the Python test fixture via
+   `CUBRID_TLS_TEST_CA_FILE` and `SSL_CERT_FILE`.
+4. Probes the broker with a real TLS handshake and fails the job loudly
+   if TLS is not actually serving — silent skips are explicitly rejected.
+5. Runs `tests/test_aio_ssl_integration.py` against the TLS broker with
+   the `CUBRID_TLS_TEST_*` env vars wired up automatically.
+
+> **Python 3.10 note**: One async TLS test (`test_aio_ssl_handshake_failure`)
+> is version-pinned to skip on Python 3.10 due to a known CPython asyncio
+> TLS handshake bug — `asyncio.loop.start_tls()` hangs on cert-verify
+> failures on Python 3.10 (fixed in 3.13/3.14).
+> Tracked in [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+
+This job runs on the same triggers as the rest of `integration-full`
+(nightly, on tag push, and via `workflow_dispatch`).
 
 ### Code Coverage
 
@@ -5668,3 +6618,367 @@ To support a new CUBRID data type:
 5. Push: `git push origin main --tags`
 6. Create GitHub release: `gh release create vX.Y.Z`
 7. PyPI publish triggers automatically from the release workflow
+
+============================================================
+File: PARAMETER_BINDING.md
+============================================================
+
+# Parameter Binding
+
+The driver-side parameter-binding contract for pycubrid 1.x.
+
+This document is the **authoritative specification** for how pycubrid converts
+Python values into SQL literals before sending them to CUBRID. Every claim in
+this document is backed by a citation to the implementation
+(`pycubrid/_cursor_common.py`) and to a unit test that pins the behavior. Any
+change to the rules below is a contract change governed by
+[`RELEASE_POLICY.md`](../RELEASE_POLICY.md).
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Placeholder Style](#placeholder-style)
+- [Type Mapping (Guarantees)](#type-mapping-guarantees)
+- [String Escaping](#string-escaping)
+  - [Escape-mode negotiation](#escape-mode-negotiation)
+  - [Literal mode](#literal-mode-no_backslash_escapestrue)
+  - [Escape-processing mode](#escape-processing-mode-no_backslash_escapesfalse)
+- [Placeholder Tokenizer](#placeholder-tokenizer)
+- [`executemany`](#executemany)
+- [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits)
+- [Compatibility Policy (1.x)](#compatibility-policy-1x)
+- [Pinned Tests](#pinned-tests)
+- [References](#references)
+
+---
+
+## Overview
+
+pycubrid performs **driver-side literal binding**. When you call
+`cursor.execute(sql, parameters)`, the driver:
+
+1. Tokenizes `sql` into segments split on unquoted, uncommented `?` placeholders
+   (`split_on_placeholders`, `pycubrid/_cursor_common.py:46-119`).
+2. Validates that the number of placeholders matches `len(parameters)`
+   (`pycubrid/_cursor_common.py:199-203`).
+3. Converts each Python value to a SQL literal string via `format_parameter`
+   (`pycubrid/_cursor_common.py:141-181`).
+4. Concatenates the segments and the rendered literals into a single SQL string
+   (`pycubrid/_cursor_common.py:204-208`).
+5. Sends the fully-rendered SQL to CUBRID via `PrepareAndExecutePacket`
+   (`pycubrid/cursor.py:139-150`, `pycubrid/aio/cursor.py:114-117`).
+
+The binding implementation is **shared verbatim** between the synchronous
+(`Cursor`) and asynchronous (`AsyncCursor`) paths via `CursorParamsMixin`
+(`pycubrid/_cursor_common.py:237-257`). There is no behavioral divergence
+between sync and async binding; parity is enforced by
+`tests/test_aio_cursor_parity.py` and `tests/test_split_placeholders.py`.
+
+**This is not server-side prepared-statement binding.** pycubrid does not send
+parameter values as a separate typed payload; the broker receives a complete
+SQL text per execute. See
+[Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
+
+---
+
+## Placeholder Style
+
+- `paramstyle = "qmark"` (`pycubrid/__init__.py:46`), per PEP 249.
+- Placeholders are positional `?`. There are **no** named, numeric, or
+  pyformat placeholders.
+- The `parameters` argument to `execute()` must be a `Sequence` other than
+  `str`/`bytes`/`bytearray`. Mappings are rejected with `ProgrammingError`
+  (`pycubrid/_cursor_common.py:194-197`). The exact message text is
+  informative; see
+  [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
+- A placeholder count mismatch raises `ProgrammingError`
+  (`pycubrid/_cursor_common.py:199-203`). The exact message text is
+  informative; see
+  [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
+
+---
+
+## Type Mapping (Guarantees)
+
+The following table is the **authoritative type-to-literal mapping** for 1.x.
+Every row cites the implementing line in `pycubrid/_cursor_common.py` and the
+test that pins the behavior.
+
+> The **exception class** raised for each error case (e.g. `ProgrammingError`)
+> is part of the contract; the **message text** shown in the table is
+> illustrative only and may be refined within 1.x. See
+> [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
+
+| Python type | SQL literal | Implementation | Pinned by |
+|---|---|---|---|
+| `None` | `NULL` | `_cursor_common.py:143-144` | `tests/test_param_security.py:95-97` |
+| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
+| `int` | `str(value)` (decimal digits) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
+| `float` | `str(value)`; `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
+| `decimal.Decimal` | `str(value)` (unquoted) | `_cursor_common.py:175-176` | `tests/test_param_security.py:113-115` |
+| `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
+| `bytes`, `bytearray` | `X'<hex>'` (lowercase hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
+| `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — microseconds truncated to milliseconds (`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
+| `datetime.datetime` (tz-aware) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset | `_cursor_common.py:151-169` | `tests/test_param_security.py:147-169` |
+| `datetime.date` | `DATE'YYYY-MM-DD'` | `_cursor_common.py:171-172` | `tests/test_param_security.py:116-118` |
+| `datetime.time` | `TIME'HH:MM:SS'` — microseconds dropped | `_cursor_common.py:173-174` | `tests/test_param_security.py:120-122` |
+| anything else | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:181` | `tests/test_param_security.py:128-130`; `tests/test_cursor.py:233-235` |
+
+### Explicitly unsupported as a bound value
+
+- `datetime.timedelta` — no branch; raises `ProgrammingError("unsupported parameter type")`.
+- `pycubrid.Lob` — `Lob` instances are not converted to SQL literals. Insert
+  raw `bytes` for `BLOB`/`BIT`-typed columns; for large object workflows use
+  `Connection.create_lob()` plus the LOB write API
+  (`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
+- Collections (`list`, `tuple`, `set`, `dict`) as a single bound value — no
+  branch; raises `ProgrammingError("unsupported parameter type")`. There is
+  **no automatic `IN (?, ?, ?)` expansion**; expand placeholders explicitly in
+  the SQL.
+- Arbitrary Python objects — raises
+  `ProgrammingError("unsupported parameter type")`.
+
+---
+
+## String Escaping
+
+String escaping is performed by `escape_string`
+(`pycubrid/_cursor_common.py`). The behavior depends on the
+`no_backslash_escapes` connection flag
+(`pycubrid/_connection_common.py`). By default the flag is **auto-negotiated**
+from the live server at connect time (see
+[Escape-mode negotiation](#escape-mode-negotiation)); pass it explicitly to
+`pycubrid.connect(..., no_backslash_escapes=True|False)` to override detection.
+
+In every mode:
+
+- The literal is wrapped in single quotes.
+- NUL (`U+0000`) in the input raises `ProgrammingError`
+  (`pycubrid/_cursor_common.py:130-131`). This is unconditional and applies
+  in both modes. The exact message text is informative; see
+  [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
+- Single quotes are doubled (`'` → `''`).
+- Unicode code points (including non-BMP characters that UTF-16 would encode
+  as a surrogate pair) are passed through unchanged
+  (`tests/test_param_security.py::TestEscapeString::test_unicode_passthrough`,
+  `::test_unicode_non_bmp_passthrough`).
+
+### Escape-mode negotiation
+
+CUBRID's `no_backslash_escapes` **system parameter defaults to `yes`** — a
+backslash is an ordinary literal character, not an escape marker
+([CUBRID manual, literal.rst](https://github.com/CUBRID/cubrid-manual/blob/master/en/sql/literal.rst):
+*"An escape using a backslash can be used if you set no_backslash_escapes in
+cubrid.conf as no. But this default value is yes."*). If the driver blindly
+doubled backslashes against such a server, `C:\temp\file` would be stored as
+`C:\\temp\\file` — silent data corruption (issue #255).
+
+To stay correct against whatever the server is actually configured for, when
+`no_backslash_escapes` is **not** passed to `connect()`, the driver probes the
+live server once at connect time with `SELECT CHAR_LENGTH('\\')` (the SQL
+literal `'\\'`, two backslash characters):
+
+- result `2` → the server left both backslashes intact → **literal mode**, so
+  the driver pins `no_backslash_escapes=True` (does NOT double backslashes).
+- result `1` → the server unescaped the pair → **escape-processing mode**, so
+  the driver pins `no_backslash_escapes=False`.
+- any other value or a probe error → raises `OperationalError`. The driver
+  refuses to guess the escape mode, because a wrong value silently corrupts
+  string escaping (and can enable SQL injection). Pass `no_backslash_escapes`
+  explicitly to skip detection when the probe cannot run.
+
+Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
+entirely. Negotiation happens once per physical connection and is preserved
+across transparent reconnects.
+
+### Literal mode (`no_backslash_escapes=True`)
+
+This is what auto-negotiation selects against a stock CUBRID server
+(`no_backslash_escapes=yes`):
+
+1. Single quotes are doubled (`'` → `''`).
+2. Backslashes and control characters are **left untouched** (the server
+   treats them as ordinary characters, so they round-trip byte-for-byte).
+3. NUL rejection still applies.
+4. The result is wrapped in single quotes.
+
+Pinned by `tests/test_aio_cursor_parity.py:99-105`,
+`tests/test_backslash_negotiation.py`, and the live round-trip suite
+`tests/test_integration.py::TestBackslashRoundTrip`.
+
+### Escape-processing mode (`no_backslash_escapes=False`)
+
+Selected when the server runs `no_backslash_escapes=no`, or when pinned
+explicitly. The driver doubles backslashes so the server unescapes them back:
+
+1. Backslashes are doubled (`\` → `\\`).
+2. Single quotes are doubled (`'` → `''`).
+3. `\r` and `\n` are each prefixed with a backslash (`\n` → `\\n`, etc.).
+4. `\x1a` (Ctrl-Z) has no safe CUBRID literal escape and raises
+   `ProgrammingError` in **both** escape modes (see [String Escaping](#string-escaping)).
+5. The result is wrapped in single quotes.
+
+Pinned by `tests/test_param_security.py:27-55` and
+`tests/test_aio_cursor_parity.py:87-96`.
+
+---
+
+## Placeholder Tokenizer
+
+`split_on_placeholders` (`pycubrid/_cursor_common.py:46-119`) parses the SQL
+text and returns segments split only on `?` characters that appear in
+**executable SQL** — never inside string literals, identifier quotes, or
+comments. Specifically the tokenizer recognizes and skips:
+
+- Single-quoted string literals (`'...'`), including doubled-quote escapes
+  (`''`).
+- Double-quoted identifiers (`"..."`), including doubled-quote escapes (`""`).
+- Line comments (`-- ... <EOL>`).
+- Block comments (`/* ... */`).
+
+A `?` inside any of the above is part of the SQL text and is **not** treated as
+a placeholder. This is pinned by `tests/test_split_placeholders.py` in its
+entirety.
+
+The replacement step concatenates segments and rendered literals
+(`pycubrid/_cursor_common.py:204-208`); it never performs a naïve
+`str.replace("?", ...)`, so a literal `?` in the rendered value of one
+parameter cannot inadvertently consume the next placeholder.
+
+---
+
+## `executemany`
+
+For DML verbs (`INSERT`, `UPDATE`, `DELETE`, `MERGE`), `executemany`:
+
+1. Calls `_bind_parameters(sql, params)` once per parameter row, producing one
+   fully-rendered SQL string per row.
+2. Sends the list of rendered SQL strings in a single `BatchExecutePacket`
+   (`pycubrid/cursor.py:252-257`, `pycubrid/aio/cursor.py:206-211`), dispatched
+   from `executemany` via `executemany_batch`
+   (`pycubrid/cursor.py:217`, `pycubrid/aio/cursor.py:191`).
+
+For non-DML statements, `executemany` falls back to a per-row `execute` loop
+(`pycubrid/cursor.py:220-238`, `pycubrid/aio/cursor.py:176-187`).
+
+Each row is bound independently with the same type-mapping rules above.
+
+---
+
+## Non-Guarantees and Explicit Limits
+
+The following behaviors are **explicitly outside the contract** and may change
+without a major version bump. They are listed so that callers do not depend on
+them implicitly.
+
+- **No server-side prepared-statement binding.** The driver renders parameters
+  into SQL text on the client. CUBRID receives a complete SQL string per
+  `execute`. There is no separate typed parameter payload and no client-side
+  statement-handle cache. Performance characteristics, query-plan caching, and
+  log output reflect this design.
+- **Identifiers are not escaped.** Code paths that interpolate identifiers
+  (notably `Cursor.callproc`, `pycubrid/cursor.py:328-336`) embed the
+  identifier into the SQL text without quoting. Application code must validate
+  any identifier it accepts from untrusted input. Parameter binding (`?`)
+  applies only to **values**, never to identifiers.
+- **Type-object identity at the binding layer.** PEP 249 type objects
+  (`STRING`, `BINARY`, etc.) describe `cursor.description`; they are not
+  consulted during parameter binding.
+- **Server-side type coercion is not normalized.** The driver renders a SQL
+  literal; CUBRID then coerces the literal to the target column type per its
+  own rules. The driver does not adjust precision, scale, or charset to match
+  the destination column.
+- **No driver-enforced length limits.** Strings, byte buffers, and rendered
+  SQL are bounded only by Python memory and CUBRID server limits.
+- **No automatic `IN`-clause expansion.** A `list`/`tuple`/`set` passed as a
+  single bound value raises `ProgrammingError`. Expand placeholders in the SQL
+  text yourself (e.g.,
+  `f"... WHERE id IN ({','.join('?' * len(ids))})"` with `params=tuple(ids)`).
+- **Exception messages.** The exact text of `ProgrammingError` messages
+  ("unsupported parameter type", "wrong number of parameters", "string
+  parameter contains null byte", "nan and inf are not supported by CUBRID",
+  "parameters must be a sequence") is not part of the contract. The
+  **exception class** is; the **message text** may be refined.
+- **Behavioral subtleties not listed above.** Anything not enumerated in
+  [Type Mapping](#type-mapping-guarantees) or [String Escaping](#string-escaping)
+  is not a guarantee. The public-API surface gate
+  (`scripts/check_public_api.py`) does not detect behavioral drift; it only
+  detects structural surface changes. See
+  [`RELEASE_POLICY.md`](../RELEASE_POLICY.md) §"What the gate does *not*
+  detect".
+
+---
+
+## Compatibility Policy (1.x)
+
+Within the 1.x line, the following changes are governed by
+[`RELEASE_POLICY.md`](../RELEASE_POLICY.md):
+
+### Allowed in a minor (`1.y` → `1.y+1`) release
+
+- Adding support for a new Python type (e.g., `uuid.UUID`,
+  `datetime.timedelta`) — additive only, with a new row added to the
+  [Type Mapping](#type-mapping-guarantees) table.
+- Improving an exception **message** while keeping the exception **class**
+  unchanged.
+- Internal refactoring of `escape_string`, `format_parameter`, or
+  `split_on_placeholders` that does not change the produced SQL literal or the
+  raised exception class for any input already covered above.
+- Adding new connection flags that modify binding behavior, provided the
+  default value preserves the rules in this document.
+
+### Requires a major (`1.y` → `2.0`) release
+
+- Removing or renaming any row in the
+  [Type Mapping](#type-mapping-guarantees) table.
+- Changing the SQL literal produced for any input already in the table (for
+  example: switching `bytes` from `X'<hex>'` to another representation,
+  changing the default `datetime` precision, or changing the tz suffix
+  format).
+- Tightening or loosening NUL / NaN / Inf rejection.
+- Changing the default value of `no_backslash_escapes`.
+- Changing the `paramstyle` from `"qmark"`.
+- Changing the rejection of `Mapping` parameters (i.e., reintroducing or
+  removing named-parameter support).
+
+### Deprecation flow
+
+Behaviors slated for removal in a future major release are first marked
+**deprecated** in `CHANGELOG.md > ### Deprecated`, with a documented
+replacement and a migration window of at least one minor release before the
+major-version removal.
+
+---
+
+## Pinned Tests
+
+The following test modules pin the behavior documented above. CI failures in
+any of these are contract regressions:
+
+- `tests/test_param_security.py` — per-type formatting, NUL rejection,
+  NaN/Inf rejection, datetime tz rendering, Decimal handling, bytes hex
+  rendering.
+- `tests/test_split_placeholders.py` — placeholder tokenizer behavior across
+  quoted strings, quoted identifiers, line comments, block comments, and
+  integration with `_bind_parameters`.
+- `tests/test_cursor.py` (lines 183-235) — end-to-end binding of a
+  multi-type parameter sequence, placeholder-count validation, and
+  `Mapping`/`str` parameter rejection.
+- `tests/test_aio_cursor_parity.py` (lines 76-105) — sync/async parity for
+  NUL rejection, default escaping, and `no_backslash_escapes` mode.
+
+Together these tests provide the executable specification of this contract.
+
+---
+
+## References
+
+- Implementation: [`pycubrid/_cursor_common.py`](../pycubrid/_cursor_common.py)
+- Sync entry points: [`pycubrid/cursor.py`](../pycubrid/cursor.py)
+- Async entry points: [`pycubrid/aio/cursor.py`](../pycubrid/aio/cursor.py)
+- Connection flag: [`pycubrid/_connection_common.py`](../pycubrid/_connection_common.py)
+- Release policy: [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)
+- Type system (fetch / description side): [`docs/TYPES.md`](TYPES.md)
+- API reference: [`docs/API_REFERENCE.md`](API_REFERENCE.md)
