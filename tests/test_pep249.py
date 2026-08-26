@@ -112,3 +112,19 @@ class TestConnectionExceptionAttributes:
 
         for name in _EXCEPTION_NAMES:
             assert getattr(AsyncConnection, name) is getattr(pycubrid, name), name
+
+    def test_sync_connection_instance_has_exception_attributes(self) -> None:
+        from pycubrid.connection import Connection
+
+        # Use __new__ to get an instance without opening a real connection.
+        conn = Connection.__new__(Connection)
+        for name in _EXCEPTION_NAMES:
+            assert getattr(conn, name) is getattr(pycubrid, name), name
+
+    def test_async_connection_instance_has_exception_attributes(self) -> None:
+        from pycubrid.aio.connection import AsyncConnection
+
+        # Use __new__ to get an instance without opening a real connection.
+        conn = AsyncConnection.__new__(AsyncConnection)
+        for name in _EXCEPTION_NAMES:
+            assert getattr(conn, name) is getattr(pycubrid, name), name
