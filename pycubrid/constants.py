@@ -269,7 +269,14 @@ class CCIDbParam(IntEnum):
 
 
 class CUBRIDIsolationLevel(IntEnum):
-    """CUBRID isolation level codes (dual-granularity model)."""
+    """CUBRID isolation level codes (dual-granularity model).
+
+    Note: CUBRID's MVCC engine (10.0+) only accepts the three levels
+    ``REP_CLASS_COMMIT_INSTANCE`` (READ COMMITTED, 0x04),
+    ``REP_CLASS_REP_INSTANCE`` (REPEATABLE READ, 0x05) and
+    ``SERIALIZABLE`` (0x06); the lower codes 0x01-0x03 are legacy pre-MVCC
+    levels retained here only for protocol/back-compat reference.
+    """
 
     UNKNOWN = 0x00
     COMMIT_CLASS_UNCOMMIT_INSTANCE = 0x01
@@ -278,7 +285,8 @@ class CUBRIDIsolationLevel(IntEnum):
     REP_CLASS_COMMIT_INSTANCE = 0x04
     REP_CLASS_REP_INSTANCE = 0x05
     SERIALIZABLE = 0x06
-    DEFAULT = 0x01
+    # CUBRID's server default isolation level is READ COMMITTED (0x04).
+    DEFAULT = 0x04
 
 
 # ---------------------------------------------------------------------------

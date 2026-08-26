@@ -310,7 +310,9 @@ class TestCUBRIDIsolationLevel:
         assert CUBRIDIsolationLevel.SERIALIZABLE == 0x06
 
     def test_default(self) -> None:
-        assert CUBRIDIsolationLevel.DEFAULT == 0x01
+        # CUBRID's server default isolation level is READ COMMITTED (0x04).
+        assert CUBRIDIsolationLevel.DEFAULT == 0x04
+        assert CUBRIDIsolationLevel.DEFAULT == CUBRIDIsolationLevel.REP_CLASS_COMMIT_INSTANCE
 
     def test_rep_class_rep_instance(self) -> None:
         assert CUBRIDIsolationLevel.REP_CLASS_REP_INSTANCE == 0x05
