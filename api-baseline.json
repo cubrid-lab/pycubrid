@@ -1146,6 +1146,246 @@
         "class_vars": [],
         "kind": "class",
         "methods": {
+          "DataError": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "DatabaseError": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "Error": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                }
+              ]
+            }
+          },
+          "IntegrityError": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "InterfaceError": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                }
+              ]
+            }
+          },
+          "InternalError": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "NotSupportedError": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "OperationalError": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "ProgrammingError": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "errno"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sqlstate"
+                }
+              ]
+            }
+          },
+          "Warning": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "msg"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "code"
+                }
+              ]
+            }
+          },
           "__aenter__": {
             "kind": "callable",
             "signature": {
@@ -1461,6 +1701,246 @@
     "class_vars": [],
     "kind": "class",
     "methods": {
+      "DataError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "DatabaseError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "Error": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            }
+          ]
+        }
+      },
+      "IntegrityError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "InterfaceError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            }
+          ]
+        }
+      },
+      "InternalError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "NotSupportedError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "OperationalError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "ProgrammingError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "Warning": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            }
+          ]
+        }
+      },
       "__aenter__": {
         "kind": "callable",
         "signature": {
@@ -2000,6 +2480,246 @@
     "class_vars": [],
     "kind": "class",
     "methods": {
+      "DataError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "DatabaseError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "Error": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            }
+          ]
+        }
+      },
+      "IntegrityError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "InterfaceError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            }
+          ]
+        }
+      },
+      "InternalError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "NotSupportedError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "OperationalError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "ProgrammingError": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "errno"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sqlstate"
+            }
+          ]
+        }
+      },
+      "Warning": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "msg"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "code"
+            }
+          ]
+        }
+      },
       "__enter__": {
         "kind": "callable",
         "signature": {

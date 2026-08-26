@@ -19,7 +19,18 @@ import ssl as ssl_module
 from typing import TYPE_CHECKING, Any
 
 from .constants import DataSize
-from .exceptions import InterfaceError, OperationalError
+from .exceptions import (
+    DatabaseError,
+    DataError,
+    Error,
+    IntegrityError,
+    InterfaceError,
+    InternalError,
+    NotSupportedError,
+    OperationalError,
+    ProgrammingError,
+    Warning,
+)
 
 if TYPE_CHECKING:
     from .timing import TimingStats
@@ -54,6 +65,22 @@ class ConnectionCommonMixin:
     # -- CAS_INFO status constants (matches JDBC UConnection) ----------------
     _CAS_INFO_STATUS_INACTIVE: int = 0
     _CAS_INFO_STATUS_ACTIVE: int = 1
+
+    # -- DB-API 2.0 exception classes exposed on Connection instances -------
+    # PEP 249 optional extension: exception classes are accessible as
+    # attributes on Connection objects (and instances), so callers can handle
+    # errors without importing the module. Identity is preserved, e.g.
+    # ``conn.IntegrityError is pycubrid.IntegrityError``.
+    Warning = Warning
+    Error = Error
+    InterfaceError = InterfaceError
+    DatabaseError = DatabaseError
+    DataError = DataError
+    OperationalError = OperationalError
+    IntegrityError = IntegrityError
+    InternalError = InternalError
+    ProgrammingError = ProgrammingError
+    NotSupportedError = NotSupportedError
 
     def _init_common_state(
         self,

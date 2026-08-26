@@ -137,7 +137,7 @@ marketers = cur.fetchall()
 | `threadsafety` | `1` (connections cannot be shared between threads) |
 | `paramstyle` | `"qmark"` (positional parameters `?`) |
 
-- Full standard exception hierarchy: `Warning`, `Error`, `InterfaceError`, `DatabaseError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError`
+- Full standard exception hierarchy: `Warning`, `Error`, `InterfaceError`, `DatabaseError`, `DataError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError` — also exposed as attributes on `Connection`/`AsyncConnection` (PEP 249 optional extension), e.g. `conn.IntegrityError is pycubrid.IntegrityError`
 - Standard type objects: `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
 - Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`, `DateFromTicks()`, `TimeFromTicks()`, `TimestampFromTicks()`
 - `nextset()` raises `NotSupportedError` (CUBRID does not support multiple result sets)
