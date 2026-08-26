@@ -646,9 +646,11 @@ class DataSize:
 
 | Code | Name |
 |------|------|
-| 0x01 | `COMMIT_CLASS_UNCOMMIT_INSTANCE` (default) |
+| 0x01 | `COMMIT_CLASS_UNCOMMIT_INSTANCE` (legacy pre-MVCC) |
 | 0x02 | `COMMIT_CLASS_COMMIT_INSTANCE` |
-| 0x03 | `REP_CLASS_UNCOMMIT_INSTANCE` |
-| 0x04 | `REP_CLASS_COMMIT_INSTANCE` |
+| 0x03 | `REP_CLASS_UNCOMMIT_INSTANCE` (legacy pre-MVCC) |
+| 0x04 | `REP_CLASS_COMMIT_INSTANCE` (READ COMMITTED, **server default**) |
 | 0x05 | `REP_CLASS_REP_INSTANCE` |
 | 0x06 | `SERIALIZABLE` |
+
+> On CUBRID's MVCC engine (10.0+) only levels `0x04`/`0x05`/`0x06` are accepted; the lower codes `0x01`-`0x03` are legacy pre-MVCC levels. CUBRID's server default isolation level is **READ COMMITTED** (`0x04`).
