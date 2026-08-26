@@ -231,9 +231,9 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = False) -> str:
         return str(value)
     if isinstance(value, (list, tuple, set, frozenset, dict)):
         raise ProgrammingError(
-            "cannot bind a collection (list/tuple/set/dict) as a single "
-            "parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand "
-            "the placeholders explicitly in the SQL"
+            "cannot bind a collection (list/tuple/set/frozenset/dict) as a "
+            "single parameter; pycubrid does not auto-expand IN (?, ?, ...) — "
+            "expand the placeholders explicitly in the SQL"
         )
     raise ProgrammingError("unsupported parameter type")
 

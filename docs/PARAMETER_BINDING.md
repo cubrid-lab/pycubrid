@@ -110,10 +110,9 @@ test that pins the behavior.
   (`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
 - Collections (`list`, `tuple`, `set`, `frozenset`, `dict`) as a single bound
   value — raise `ProgrammingError` with an actionable message (current text:
-  `"cannot bind a collection (list/tuple/set/dict) as a single parameter; "
-  `pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders "
-  `explicitly in the SQL"`). There is **no automatic `IN (?, ?, ?)`
-  expansion**; expand placeholders explicitly in the SQL.
+  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL`).
+  There is **no automatic `IN (?, ?, ?)`** expansion; expand placeholders
+  explicitly in the SQL.
 - Arbitrary Python objects — raises
   `ProgrammingError("unsupported parameter type")`.
 
