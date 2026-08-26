@@ -144,6 +144,11 @@ class TestFormatParameterTypes:
         with pytest.raises(ProgrammingError, match="unsupported parameter type"):
             cursor._format_parameter(object())
 
+    @pytest.mark.parametrize("value", [[1, 2], (1, 2), {1, 2}, frozenset({1, 2}), {"a": 1}])
+    def test_collection_raises_actionable_message(self, cursor: object, value: object) -> None:
+        with pytest.raises(ProgrammingError, match="cannot bind a collection"):
+            cursor._format_parameter(value)
+
     def test_float_nan_raises(self, cursor: object) -> None:
         with pytest.raises(ProgrammingError, match="nan and inf"):
             cursor._format_parameter(float("nan"))
