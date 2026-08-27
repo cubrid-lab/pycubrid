@@ -1,0 +1,22 @@
+pycubrid
+Copyright (c) 2025 Yeongseon Choe
+
+This product is licensed under the MIT License (see LICENSE).
+
+--------------------------------------------------------------------------------
+Acknowledgment of reference implementation
+--------------------------------------------------------------------------------
+
+During pycubrid's initial development, the following third-party project was
+consulted as a reference implementation to understand CUBRID's CAS (Common
+Application Server) wire protocol -- its packet structure and function codes:
+
+  node-cubrid -- Node.js driver for CUBRID
+    Repository:  https://github.com/CUBRID/node-cubrid
+    Copyright:   (c) 2008-2012 Search Solution Corporation
+    License:     BSD-3-Clause
+                 (the LICENSE file also embeds MIT-licensed portions derived
+                  from node-mysql, (c) 2012 Felix Geisendoerfer and contributors)
+
+pycubrid is an independent pure-Python implementation. This NOTICE records the
+reference relationship as an acknowledgment.
