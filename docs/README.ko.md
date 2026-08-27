@@ -313,6 +313,11 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 
 취약점은 이메일로 제보해 주세요 — 자세한 내용은 [SECURITY.md](../SECURITY.md)를 참고하세요. 보안 관련 사항은 공개 이슈로 등록하지 마세요.
 
+## 감사의 말
+
+pycubrid 초기 개발 당시, CUBRID의 공식 Node.js 드라이버인 [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause)를 참고 구현으로 삼아 CUBRID의 CAS(Common Application Server) 와이어 프로토콜 — 패킷 구조와 함수 코드 — 를 이해하는 데 활용했습니다. pycubrid는 독립적인 순수 Python 구현이며, 자세한 내용은 [NOTICE](../NOTICE)를 참고하세요.
+
+
 ## 라이선스
 
 MIT — [LICENSE](../LICENSE) 참조.

@@ -319,6 +319,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [docs/DEVELOPMENT.md](
 
 Report vulnerabilities via email — see [SECURITY.md](SECURITY.md). Do not open public issues for security concerns.
 
+## Acknowledgments
+
+During pycubrid's initial development, the official CUBRID Node.js driver — [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause) — was consulted as a reference implementation to understand CUBRID's CAS (Common Application Server) wire protocol: its packet structure and function codes. pycubrid is an independent pure-Python implementation; see [NOTICE](NOTICE) for details.
+
+
 ## Disclaimer
 
 > This project is part of [CUBRID Lab](https://github.com/cubrid-lab), an independent open-source initiative for CUBRID developer tooling, and is not affiliated with, sponsored by, or endorsed by CUBRID Corporation or the official CUBRID project.
