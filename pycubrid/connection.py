@@ -120,6 +120,12 @@ class Connection(ConnectionCommonMixin):
                 "because a wrong mode silently corrupts string escaping. Pass "
                 "no_backslash_escapes explicitly to skip detection."
             )
+        # The probe SELECT runs in the default manual-commit mode, which opens
+        # a driver-owned transaction before the caller's autocommit setting is
+        # applied. Roll it back so a freshly opened connection is handed back
+        # with clean transaction state (e.g. SQLAlchemy setting isolation_level
+        # on a new pooled connection can be rejected mid-transaction).
+        self.rollback()
 
     def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.

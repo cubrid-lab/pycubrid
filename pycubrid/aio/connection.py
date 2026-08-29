@@ -194,6 +194,12 @@ class AsyncConnection(ConnectionCommonMixin):
                 "because a wrong mode silently corrupts string escaping. Pass "
                 "no_backslash_escapes explicitly to skip detection."
             )
+        # The probe SELECT runs in the default manual-commit mode, which opens
+        # a driver-owned transaction before the caller's autocommit setting is
+        # applied. Roll it back so a freshly opened connection is handed back
+        # with clean transaction state. Safe during setup: this task owns the
+        # setup gate, so rollback() bypasses _wait_for_setup_if_needed().
+        await self.rollback()
 
     async def _connect_locked(self) -> None:
         if self._connected:
