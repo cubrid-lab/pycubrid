@@ -53,18 +53,21 @@ class TestSyncNegotiation:
         with pytest.raises(OperationalError, match="backslash-escape"):
             conn._negotiate_backslash_escapes()
         assert conn._no_backslash_escapes is None
+        conn.rollback.assert_called_once()  # probe tx discarded even on failure
 
     def test_probe_none_row_raises(self) -> None:
         conn, _ = _make_sync_conn(None)
         with pytest.raises(OperationalError, match="backslash-escape"):
             conn._negotiate_backslash_escapes()
         assert conn._no_backslash_escapes is None
+        conn.rollback.assert_called_once()  # probe tx discarded even on failure
 
     def test_execute_error_raises(self) -> None:
         conn, _ = _make_sync_conn(None, raise_on_execute=True)
         with pytest.raises(OperationalError, match="backslash-escape"):
             conn._negotiate_backslash_escapes()
         assert conn._no_backslash_escapes is None
+        conn.rollback.assert_called_once()  # probe tx discarded even on error
 
     def test_explicit_true_is_not_overridden(self) -> None:
         conn, cur = _make_sync_conn((1,), preset=True)
@@ -121,6 +124,7 @@ class TestAsyncNegotiation:
         with pytest.raises(OperationalError, match="backslash-escape"):
             await conn._negotiate_backslash_escapes()
         assert conn._no_backslash_escapes is None
+        conn.rollback.assert_awaited_once()  # probe tx discarded even on error
 
     @pytest.mark.asyncio
     async def test_probe_unexpected_raises(self) -> None:
@@ -128,6 +132,7 @@ class TestAsyncNegotiation:
         with pytest.raises(OperationalError, match="backslash-escape"):
             await conn._negotiate_backslash_escapes()
         assert conn._no_backslash_escapes is None
+        conn.rollback.assert_awaited_once()  # probe tx discarded even on failure
 
     @pytest.mark.asyncio
     async def test_explicit_setting_is_not_overridden(self) -> None:

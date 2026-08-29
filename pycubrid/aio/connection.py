@@ -169,37 +169,45 @@ class AsyncConnection(ConnectionCommonMixin):
         """
         if self._no_backslash_escapes is not None:
             return
-        try:
-            cursor = self.cursor()
-            try:
-                await cursor.execute("SELECT CHAR_LENGTH('\\\\')")
-                row = await cursor.fetchone()
-            finally:
-                await cursor.close()
-        except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
-            raise OperationalError(
-                "Failed to detect CUBRID backslash-escape mode; refusing to "
-                "guess because a wrong mode silently corrupts string escaping. "
-                "Pass no_backslash_escapes explicitly to skip detection."
-            ) from exc
-        length = row[0] if row else None
-        if length == 2:
-            self._no_backslash_escapes = True
-        elif length == 1:
-            self._no_backslash_escapes = False
-        else:
-            raise OperationalError(
-                "Could not detect CUBRID backslash-escape mode "
-                f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
-                "because a wrong mode silently corrupts string escaping. Pass "
-                "no_backslash_escapes explicitly to skip detection."
-            )
         # The probe SELECT runs in the default manual-commit mode, which opens
-        # a driver-owned transaction before the caller's autocommit setting is
-        # applied. Roll it back so a freshly opened connection is handed back
-        # with clean transaction state. Safe during setup: this task owns the
-        # setup gate, so rollback() bypasses _wait_for_setup_if_needed().
-        await self.rollback()
+        # a driver-owned transaction before the constructor's autocommit
+        # setting is applied. Roll it back on *every* exit path (success,
+        # unexpected result, or probe error) so a freshly opened connection is
+        # handed back with clean transaction state. Safe during setup: this
+        # task owns the setup gate, so rollback() bypasses
+        # _wait_for_setup_if_needed(). Passing no_backslash_escapes explicitly
+        # skips the probe entirely (early return above) and opens no tx.
+        try:
+            try:
+                cursor = self.cursor()
+                try:
+                    await cursor.execute("SELECT CHAR_LENGTH('\\\\')")
+                    row = await cursor.fetchone()
+                finally:
+                    await cursor.close()
+            except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
+                raise OperationalError(
+                    "Failed to detect CUBRID backslash-escape mode; refusing to "
+                    "guess because a wrong mode silently corrupts string escaping. "
+                    "Pass no_backslash_escapes explicitly to skip detection."
+                ) from exc
+            length = row[0] if row else None
+            if length == 2:
+                self._no_backslash_escapes = True
+            elif length == 1:
+                self._no_backslash_escapes = False
+            else:
+                raise OperationalError(
+                    "Could not detect CUBRID backslash-escape mode "
+                    f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
+                    "because a wrong mode silently corrupts string escaping. Pass "
+                    "no_backslash_escapes explicitly to skip detection."
+                )
+        finally:
+            try:
+                await self.rollback()
+            except Exception:  # nosec B110 — best-effort probe-transaction rollback
+                pass
 
     async def _connect_locked(self) -> None:
         if self._connected:
