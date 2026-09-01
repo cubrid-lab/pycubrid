@@ -165,7 +165,7 @@ def split_on_placeholders(sql: str, *, no_backslash_escapes: bool = True) -> lis
 # ---- parameter formatting --------------------------------------------------
 
 
-def escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
+def escape_string(value: str, *, no_backslash_escapes: bool = True) -> str:
     """Escape a string value for safe inclusion in a SQL literal.
 
     Raises :class:`ProgrammingError` if the string contains a null byte
@@ -173,6 +173,15 @@ def escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
     null byte in string parameters, and CUBRID's SQL grammar defines no safe
     literal escape for ``\\x1a`` (there is no MySQL-style ``\\Z``), so it is
     rejected rather than emitted as a raw control byte.
+
+    ``no_backslash_escapes`` defaults to ``True`` to match CUBRID's server
+    default (``no_backslash_escapes=yes``, i.e. a backslash is an ordinary
+    literal character) and to stay consistent with the other public escaping
+    helpers in this module (``format_parameter``, ``bind_parameters``,
+    ``split_on_placeholders``). Callers that know the server runs with
+    backslash-escape processing on should pass ``no_backslash_escapes=False``;
+    internal driver paths always pass the connection's negotiated value
+    explicitly.
     """
     if "\x00" in value:
         raise ProgrammingError("string parameter contains null byte")
@@ -187,7 +196,7 @@ def escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
     return "'%s'" % escaped
 
 
-def format_parameter(value: Any, *, no_backslash_escapes: bool = False) -> str:
+def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
     """Format a single Python value as a CUBRID SQL literal string."""
     if value is None:
         return "NULL"
@@ -242,7 +251,7 @@ def bind_parameters(
     operation: str,
     parameters: Sequence[Any],
     *,
-    no_backslash_escapes: bool = False,
+    no_backslash_escapes: bool = True,
 ) -> str:
     """Bind *parameters* into *operation* by replacing ``?`` placeholders.
 
@@ -342,7 +351,7 @@ class CursorParamsMixin(Generic[_ConnT]):
         return format_parameter(value, no_backslash_escapes=self._resolve_escape_mode())
 
     @staticmethod
-    def _escape_string(value: str, *, no_backslash_escapes: bool = False) -> str:
+    def _escape_string(value: str, *, no_backslash_escapes: bool = True) -> str:
         return escape_string(value, no_backslash_escapes=no_backslash_escapes)
 
     def _build_description(
