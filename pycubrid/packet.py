@@ -339,21 +339,36 @@ class PacketReader:
         return datetime.datetime(y, mo, d, h, mi, s, 0)
 
     def _parse_timestamptz(self, size: int) -> datetime.datetime:
+        # TIMESTAMPTZ / TIMESTAMPLTZ are second-precision: 6 shorts (12 bytes,
+        # no millisecond field) followed by the timezone string. Reading the
+        # 7-short / 14-byte DATETIMETZ layout here over-read the first 2 bytes
+        # of the timezone string as ``ms`` and then overflowed ``ms * 1000``
+        # (raising "microsecond must be in 0..999999"), which surfaced as
+        # "malformed response from broker" (#289).
+        y, mo, d, h, mi, s = _STRUCT_6H.unpack_from(self._buffer, self._offset)
+        self._offset += 12
+        dt = datetime.datetime(y, mo, d, h, mi, s, 0)
+        return self._attach_timezone_suffix(dt, size - 12)
+
+    def _parse_datetimetz(self, size: int) -> datetime.datetime:
+        # DATETIMETZ / DATETIMELTZ carry a millisecond field: 7 shorts
+        # (14 bytes) followed by the timezone string.
         y, mo, d, h, mi, s, ms = _STRUCT_7H.unpack_from(self._buffer, self._offset)
         self._offset += 14
-        tz_bytes_len = size - 14
+        dt = datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        return self._attach_timezone_suffix(dt, size - 14)
+
+    def _attach_timezone_suffix(
+        self, dt: datetime.datetime, tz_bytes_len: int
+    ) -> datetime.datetime:
         if tz_bytes_len > 0:
             tz_str = self._parse_null_terminated_string(tz_bytes_len)
         else:
             tz_str = ""
-        dt = datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
         try:
             return _attach_timezone(dt, tz_str)
         except ValueError:
             return dt
-
-    def _parse_datetimetz(self, size: int) -> datetime.datetime:
-        return self._parse_timestamptz(size)
 
     def _parse_numeric(self, size: int) -> Decimal:
         value = self._parse_null_terminated_string(size)
