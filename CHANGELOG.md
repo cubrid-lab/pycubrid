@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-02
+
 ### Documentation
 - **Added an Acknowledgments section and a `NOTICE` file crediting the CUBRID Node.js driver ([node-cubrid](https://github.com/CUBRID/node-cubrid), © 2008–2012 Search Solution Corporation, BSD-3-Clause)** — during pycubrid's initial development, node-cubrid was consulted as a reference implementation to understand CUBRID's CAS wire protocol (packet structure and function codes). This is recorded as an acknowledgment in `README.md`, `docs/README.ko.md`, and the new `NOTICE` file. Documentation only; no code or runtime behavior change.
 
