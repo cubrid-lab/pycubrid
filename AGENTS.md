@@ -148,20 +148,19 @@ Skipping any phase requires explicit justification. Trivial changes (typos, sing
 
 ## Release Process
 
-Version is tracked in TWO files — both MUST be updated together:
-- `pyproject.toml` → `version = "x.y.z"`
-- `pycubrid/__init__.py` → `__version__ = "x.y.z"`
+Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`.
+`pyproject.toml` derives it dynamically (`dynamic = ["version"]` + `version = {attr = "pycubrid.__version__"}`),
+so there is only one place to bump.
 
 Steps:
-1. `make release VERSION=x.y.z` (bumps both files, validates consistency)
-2. Add changelog entry in `CHANGELOG.md`
+1. `make release VERSION=x.y.z` (bumps `__init__.py`, validates)
+2. Add a dated changelog entry in `CHANGELOG.md` (`## [x.y.z] - YYYY-MM-DD`)
 3. Commit: `release: vx.y.z — <summary>`
-4. Tag: `git tag vx.y.z`
-5. Push with tags: `git push origin main --tags`
-6. Create GitHub release: `gh release create vx.y.z --title "..."`
-7. PyPI publish triggers automatically from tag push (`.github/workflows/publish-pypi.yml`)
-
-**CI enforces version consistency** — `pyproject.toml` version must match `__init__.py` `__version__` on every PR.
+4. Open a PR and merge to `main`
+5. Create a GitHub Release on the merged commit: `gh release create vx.y.z --title "..."`
+6. Publishing the GitHub Release triggers `.github/workflows/publish-pypi.yml`,
+   which rebuilds, verifies (tag == version, dated CHANGELOG, tag on main, smoke tests),
+   and publishes to PyPI via Trusted Publisher (OIDC).
 
 ## CI Matrix
 
@@ -171,7 +170,7 @@ Steps:
 |---|---|---|
 | `.github/workflows/ci.yml` | Push to main, PRs | Lint + offline tests (Py 3.10–3.14) + regular integration matrix |
 | `.github/workflows/integration-full.yml` | Nightly (03:00 UTC), tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
-| `.github/workflows/publish-pypi.yml` | Tag push (`v*`) | Build and publish to PyPI |
+| `.github/workflows/publish-pypi.yml` | GitHub Release published | Build, verify, and publish to PyPI |
 
 ### Matrix Shape
 
