@@ -129,11 +129,31 @@ class Connection(ConnectionCommonMixin):
                     "because a wrong mode silently corrupts string escaping. Pass "
                     "no_backslash_escapes explicitly to skip detection."
                 )
+        except BaseException:
+            probe_failed = True
+            raise
+        else:
+            probe_failed = False
         finally:
             try:
                 self.rollback()
-            except Exception:  # nosec B110 — best-effort probe-transaction rollback
-                pass
+            except Exception as rollback_exc:  # noqa: BLE001
+                # Rolling back the probe transaction failed, so it may still be
+                # open and the connection is in an unknown transaction state.
+                # Close it so it can never be handed back to a pool, then surface
+                # the failure — unless a probe error is already propagating, in
+                # which case that original error is preserved.
+                try:
+                    self.close()
+                except Exception:  # nosec B110 — best-effort close after rollback failure
+                    pass
+                if not probe_failed:
+                    raise OperationalError(
+                        "Failed to roll back the CUBRID backslash-escape probe "
+                        "transaction; the connection may be in an unknown "
+                        "transaction state and has been closed. Pass "
+                        "no_backslash_escapes explicitly to skip detection."
+                    ) from rollback_exc
 
     def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.
