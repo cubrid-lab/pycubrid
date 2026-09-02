@@ -510,6 +510,8 @@ Available parameters (`CCIDbParam`):
 | `_parse_time()` | `datetime.time` | 3 shorts (hour, minute, second) |
 | `_parse_datetime()` | `datetime.datetime` | 7 shorts (y,m,d,h,m,s,ms) |
 | `_parse_timestamp()` | `datetime.datetime` | 6 shorts (y,m,d,h,m,s) |
+| `_parse_timestamptz()` | `datetime.datetime` | 6 shorts (y,m,d,h,m,s) + timezone string; second precision (`TIMESTAMPTZ`/`TIMESTAMPLTZ`) |
+| `_parse_datetimetz()` | `datetime.datetime` | 7 shorts (y,m,d,h,m,s,ms) + timezone string; millisecond precision (`DATETIMETZ`/`DATETIMELTZ`) |
 | `_parse_numeric(size)` | `Decimal` | Null-terminated string → Decimal |
 | `_parse_object()` | `str` | OID string (`"OID:@page|slot|volume"`) |
 | `read_blob(size)` | `dict` | BLOB handle info |

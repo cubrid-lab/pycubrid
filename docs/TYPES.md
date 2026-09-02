@@ -290,8 +290,8 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `TIME` | 14 | `datetime.time` | Time of day |
 | `TIMESTAMP` | 15 | `datetime.datetime` | Date + time (microsecond = 0) |
 | `DATETIME` | 22 | `datetime.datetime` | Date + time + millisecond |
-| `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps |
-| `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes |
+| `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps (second precision, microsecond = 0) |
+| `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes (millisecond precision) |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
 | `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
