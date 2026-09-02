@@ -95,31 +95,65 @@ class Connection(ConnectionCommonMixin):
         """
         if self._no_backslash_escapes is not None:
             return
+        # From here the probe SELECT runs in the default manual-commit mode,
+        # which opens a driver-owned transaction before the constructor's
+        # autocommit setting is applied. Roll it back on *every* exit path
+        # (success, unexpected result, or probe error) so a freshly opened
+        # connection is handed back with clean transaction state (e.g.
+        # SQLAlchemy setting isolation_level on a new pooled connection can be
+        # rejected mid-transaction). Passing no_backslash_escapes explicitly
+        # skips the probe entirely (early return above) and opens no tx.
         try:
-            cursor = self.cursor()
             try:
-                cursor.execute("SELECT CHAR_LENGTH('\\\\')")
-                row = cursor.fetchone()
-            finally:
-                cursor.close()
-        except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
-            raise OperationalError(
-                "Failed to detect CUBRID backslash-escape mode; refusing to "
-                "guess because a wrong mode silently corrupts string escaping. "
-                "Pass no_backslash_escapes explicitly to skip detection."
-            ) from exc
-        length = row[0] if row else None
-        if length == 2:
-            self._no_backslash_escapes = True
-        elif length == 1:
-            self._no_backslash_escapes = False
+                cursor = self.cursor()
+                try:
+                    cursor.execute("SELECT CHAR_LENGTH('\\\\')")
+                    row = cursor.fetchone()
+                finally:
+                    cursor.close()
+            except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
+                raise OperationalError(
+                    "Failed to detect CUBRID backslash-escape mode; refusing to "
+                    "guess because a wrong mode silently corrupts string escaping. "
+                    "Pass no_backslash_escapes explicitly to skip detection."
+                ) from exc
+            length = row[0] if row else None
+            if length == 2:
+                self._no_backslash_escapes = True
+            elif length == 1:
+                self._no_backslash_escapes = False
+            else:
+                raise OperationalError(
+                    "Could not detect CUBRID backslash-escape mode "
+                    f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
+                    "because a wrong mode silently corrupts string escaping. Pass "
+                    "no_backslash_escapes explicitly to skip detection."
+                )
+        except BaseException:
+            probe_failed = True
+            raise
         else:
-            raise OperationalError(
-                "Could not detect CUBRID backslash-escape mode "
-                f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
-                "because a wrong mode silently corrupts string escaping. Pass "
-                "no_backslash_escapes explicitly to skip detection."
-            )
+            probe_failed = False
+        finally:
+            try:
+                self.rollback()
+            except Exception as rollback_exc:  # noqa: BLE001
+                # Rolling back the probe transaction failed, so it may still be
+                # open and the connection is in an unknown transaction state.
+                # Close it so it can never be handed back to a pool, then surface
+                # the failure — unless a probe error is already propagating, in
+                # which case that original error is preserved.
+                try:
+                    self.close()
+                except Exception:  # nosec B110 — best-effort close after rollback failure
+                    pass
+                if not probe_failed:
+                    raise OperationalError(
+                        "Failed to roll back the CUBRID backslash-escape probe "
+                        "transaction; the connection may be in an unknown "
+                        "transaction state and has been closed. Pass "
+                        "no_backslash_escapes explicitly to skip detection."
+                    ) from rollback_exc
 
     def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.
