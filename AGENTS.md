@@ -157,10 +157,18 @@ Steps:
 2. Add a dated changelog entry in `CHANGELOG.md` (`## [x.y.z] - YYYY-MM-DD`)
 3. Commit: `release: vx.y.z — <summary>`
 4. Open a PR and merge to `main`
-5. Create a GitHub Release on the merged commit: `gh release create vx.y.z --title "..."`
-6. Publishing the GitHub Release triggers `.github/workflows/publish-pypi.yml`,
+5. Push the tag on the merged commit: `git tag vx.y.z <merged-sha> && git push origin vx.y.z`
+6. The tag push triggers `.github/workflows/create-release.yml`, which extracts the
+   `## [x.y.z] - YYYY-MM-DD` section from `CHANGELOG.md` (fail-closed — no fallback)
+   and creates the GitHub Release titled `vx.y.z` with that body, after verifying the
+   tag is an ancestor of `origin/main`.
+7. Publishing the GitHub Release triggers `.github/workflows/publish-pypi.yml`,
    which rebuilds, verifies (tag == version, dated CHANGELOG, tag on main, smoke tests),
    and publishes to PyPI via Trusted Publisher (OIDC).
+
+Release notes are never hand-written: `CHANGELOG.md` is the single source of truth and
+`scripts/extract_release_notes.py` renders the Release body. To re-create a release body,
+re-run `create-release.yml` via `workflow_dispatch` with `update_existing: true`.
 
 ## CI Matrix
 
