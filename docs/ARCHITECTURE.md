@@ -235,3 +235,18 @@ Lob, get_error_description
 - [Type System](TYPES.md)
 - [API Reference](API_REFERENCE.md)
 - [Support Matrix](SUPPORT_MATRIX.md)
+
+## CUBRID Server License Relationship
+
+pycubrid speaks the CAS wire protocol and is an independent, pure-Python client
+implementation. It contains no CUBRID server source and links no server
+libraries, so it is not a derivative work of the server under any license regime.
+
+The CUBRID server engine is distributed under Apache License 2.0, with official
+APIs/connectors under BSD (upstream `COPYING`, http://www.cubrid.org/cubrid).
+An earlier GPL v2+ regime no longer applies — and even under it, a wire-protocol
+client over TCP was unaffected. No copyleft obligations reach this codebase.
+
+The `cubrid/cubrid` Docker images (10.2-11.4) are used in CI strictly to run
+integration tests against a live server; they are not distributed with pycubrid.
+

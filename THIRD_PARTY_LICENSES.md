@@ -3,6 +3,13 @@
 This file lists the third-party open-source software involved in building and testing **pycubrid**.
 
 **pycubrid has ZERO runtime dependencies** (`[project] dependencies = []`) — `pip install pycubrid` installs nothing else. The table below covers the development/testing toolchain only (`pip install -e ".[dev]"`), none of which ships in the wheel.
+> **CUBRID server license, for the record.** The CUBRID server engine is
+> distributed under Apache License 2.0 and the official APIs/connectors under
+> BSD (upstream `COPYING`, http://www.cubrid.org/cubrid) — the frequently cited
+> GPL v2+ no longer applies. This project is an independent wire-protocol client
+> that neither includes nor links any CUBRID server code; the `cubrid/cubrid`
+> Docker image is used for CI verification only.
+
 All listed dependencies are distributed under permissive licenses (MIT, BSD-2/3-Clause, Apache-2.0, ISC, PSF, MPL-2.0). No dependency is copyleft/GPL, and none conflicts with this project's MIT license. MPL-2.0 packages appear in the development toolchain only and are not distributed with the package.
 
 ## Development / test-only dependencies (not distributed)
