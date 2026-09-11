@@ -51,6 +51,7 @@ nav:
           - 지원 매트릭스: ko/SUPPORT_MATRIX.md
           - 아키텍처: ko/ARCHITECTURE.md
           - 성능 가이드: ko/PERFORMANCE.md
+          - 개발 가이드: ko/DEVELOPMENT.md
       - FAQ: faq.md
       - Translations:
           - 한국어: README.ko.md

@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **create-release.yml: dropped `--target` from `gh release create`** — with an already-pushed tag (the normal tag-push trigger) `--verify-tag` already guarantees the tag exists, and passing `target_commitish` for an existing tag makes the Releases API return `422 Validation Failed`, so the first tag-triggered run of this workflow always failed. Verified live by the v0.4.0 tag attempt in cubrid-mcp-server.
 
 ### Documentation
+- **한국어 문서 페이지 — 배치 3 (Project 축, #317)** — DEVELOPMENT(개발 가이드) 번역 추가. TROUBLESHOOTING만 남음.
 - **한국어 문서 페이지 — 배치 3 (Reference/Ops 축 1차, #317)** — SUPPORT_MATRIX·ARCHITECTURE·PERFORMANCE 번역 추가. TROUBLESHOOTING·DEVELOPMENT는 후속.
 - **한국어 문서 페이지 — 배치 2 완결 (#317)** — API 참조(최대 문서, 1,298줄) 번역 추가로 Usage 축 전체(4페이지) 완성.
 - **한국어 문서 페이지 — 배치 2 (Usage 축 2차, #317)** — CAS 프로토콜 참조 번역 추가. Usage 축 마지막(API_REFERENCE)은 후속 배치.
