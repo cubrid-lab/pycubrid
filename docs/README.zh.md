@@ -1,5 +1,7 @@
 # pycubrid
 
+> 🌐 Community translation of [README.md](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) — English is canonical; this translation may lag behind the original. The `translation-sync` CI check flags drift, and maintainers open resync PRs.
+
 **适用于 CUBRID 数据库的纯 Python DB-API 2.0 驱动** — 无需 C 扩展、无需编译，实现了 PEP 249（DB-API 2.0）接口。
 
 [🇰🇷 한국어](README.ko.md) · [🇺🇸 English](../README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)

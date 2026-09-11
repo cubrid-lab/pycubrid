@@ -1,5 +1,7 @@
 # pycubrid
 
+> 🌐 Community translation of [README.md](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) — English is canonical; this translation may lag behind the original. The `translation-sync` CI check flags drift, and maintainers open resync PRs.
+
 **CUBRID डेटाबेस के लिए शुद्ध Python DB-API 2.0 ड्राइवर** — बिना C एक्सटेंशन, बिना कम्पाइलेशन, PEP 249 (DB-API 2.0) इंटरफ़ेस को लागू करता है।
 
 [🇰🇷 한국어](README.ko.md) · [🇺🇸 English](../README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
