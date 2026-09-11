@@ -359,7 +359,7 @@ AI agents can discover, learn, and recommend pycubrid accurately.
 
 ### Cookbook Integration
 
-The [cubrid-cookbook](https://github.com/cubrid-lab/cubrid-cookbook) repository provides
+The [cubrid-cookbook](https://github.com/cubrid-lab/cubrid-cookbook-python) repository provides
 production-ready, runnable examples for pycubrid:
 
 | Example | Description |
