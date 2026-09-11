@@ -1,5 +1,7 @@
 # pycubrid
 
+> 🌐 Translated from [README.md](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) — keep this translation in sync with the original in the same PR (enforced by the `translation-sync` CI check; use the `translations-deferred` label to defer).
+
 **CUBRID 데이터베이스를 위한 순수 Python DB-API 2.0 드라이버** — C 확장 없이, 컴파일 없이, PEP 249(DB-API 2.0) 인터페이스를 구현합니다.
 
 [🇰🇷 한국어](README.ko.md) · [🇺🇸 English](../README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
