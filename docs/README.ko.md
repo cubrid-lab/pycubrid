@@ -303,7 +303,7 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 
 이 프로젝트의 방향과 다음 마일스톤은 [`ROADMAP.md`](../ROADMAP.md)를 참고하세요.
 
-생태계 전체 관점은 [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md)과 [프로젝트 보드](https://github.com/orgs/cubrid-lab/projects/2)를 참고하세요.
+생태계 전체 관점은 [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.m를 참고하세요.
 
 ## 기여하기
 
