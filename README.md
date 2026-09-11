@@ -309,7 +309,7 @@ Yes. Use `pycubrid.aio.connect()` for native asyncio support. The async surface 
 
 See [`ROADMAP.md`](ROADMAP.md) for this project's direction and next milestones.
 
-For the ecosystem-wide view, see the [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md) and [Project Board](https://github.com/orgs/cubrid-lab/projects/2).
+For the ecosystem-wide view, see the [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
 
 ## Contributing
 

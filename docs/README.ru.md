@@ -304,7 +304,7 @@ Python 3.10, 3.11, 3.12, 3.13 и 3.14.
 
 См. [`ROADMAP.md`](../ROADMAP.md), чтобы узнать о направлении проекта и следующих этапах.
 
-Для обзора по всей экосистеме см. [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md) и [Project Board](https://github.com/orgs/cubrid-lab/projects/2).
+Для обзора по всей экосистеме см. [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
 
 ## Участие в проекте
 
