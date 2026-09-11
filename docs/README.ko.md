@@ -1,6 +1,6 @@
 # pycubrid
 
-> 🌐 Translated from [README.md](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) — keep this translation in sync with the original in the same PR (enforced by the `translation-sync` CI check; use the `translations-deferred` label to defer).
+> 🌐 Translated from [README.md](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) — 한국어는 심사 기간 동안 동기화가 **필수**입니다: README.md가 바뀌면 같은 PR에서 이 파일도 업데이트하세요 (`translation-sync` CI 검사, 보류 시 `translations-deferred` 라벨). English is canonical.
 
 **CUBRID 데이터베이스를 위한 순수 Python DB-API 2.0 드라이버** — C 확장 없이, 컴파일 없이, PEP 249(DB-API 2.0) 인터페이스를 구현합니다.
 
