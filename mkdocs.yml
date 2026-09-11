@@ -13,6 +13,7 @@ theme:
     - navigation.expand
     - content.code.copy
     - search.highlight
+    - search.suggest
   palette:
     - scheme: default
       primary: blue
@@ -33,20 +34,28 @@ nav:
       - Quick Start: quickstart.md
       - Connection Guide: CONNECTION.md
       - Examples: EXAMPLES.md
-  - Reference:
+  - Usage:
       - API Reference: API_REFERENCE.md
       - Type Mapping: TYPES.md
       - Parameter Binding: PARAMETER_BINDING.md
       - Protocol: PROTOCOL.md
-  - Architecture: ARCHITECTURE.md
+  - Reference:
+      - Architecture: ARCHITECTURE.md
+      - Support Matrix: SUPPORT_MATRIX.md
   - Operations:
       - Performance: PERFORMANCE.md
-      - Support Matrix: SUPPORT_MATRIX.md
       - Troubleshooting: TROUBLESHOOTING.md
-  - Development: DEVELOPMENT.md
-  - FAQ: faq.md
-  - Changelog: https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md
-  - Contributing: https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md
+  - Project:
+      - Development: DEVELOPMENT.md
+      - FAQ: faq.md
+      - Translations:
+          - 한국어: README.ko.md
+          - Deutsch: README.de.md
+          - हिन्दी: README.hi.md
+          - Русский: README.ru.md
+          - 中文: README.zh.md
+      - Changelog: https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md
+      - Contributing: https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md
 
 markdown_extensions:
   - admonition
@@ -54,17 +63,18 @@ markdown_extensions:
       permalink: true
       toc_depth: 3
   - tables
+  - attr_list
+  - md_in_html
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: pymdownx.superfences.fence_div_format
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
-  - pymdownx.inlinehilite
 
 plugins:
   - search
@@ -79,9 +89,3 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/cubrid-lab/pycubrid
-    - icon: fontawesome/brands/python
-      link: https://pypi.org/project/pycubrid/
-
-extra_javascript:
-  - https://unpkg.com/mermaid@11/dist/mermaid.min.js
-  - javascripts/mermaid-init.js
