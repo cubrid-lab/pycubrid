@@ -45,6 +45,8 @@ nav:
   - Operations:
       - Performance: PERFORMANCE.md
       - Troubleshooting: TROUBLESHOOTING.md
+      - 한국어:
+          - 문제 해결: ko/TROUBLESHOOTING.md
   - Project:
       - Development: DEVELOPMENT.md
       - 한국어 참고:
