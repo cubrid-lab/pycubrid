@@ -50,6 +50,11 @@ nav:
       - FAQ: faq.md
       - Translations:
           - 한국어: README.ko.md
+          - 한국어 문서:
+              - 빠른 시작: ko/quickstart.md
+              - 연결 가이드: ko/CONNECTION.md
+              - 사용 예제: ko/EXAMPLES.md
+              - 자주 묻는 질문: ko/faq.md
           - Deutsch: README.de.md
           - हिन्दी: README.hi.md
           - Русский: README.ru.md
