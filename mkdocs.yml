@@ -47,6 +47,10 @@ nav:
       - Troubleshooting: TROUBLESHOOTING.md
   - Project:
       - Development: DEVELOPMENT.md
+      - 한국어 참고:
+          - 지원 매트릭스: ko/SUPPORT_MATRIX.md
+          - 아키텍처: ko/ARCHITECTURE.md
+          - 성능 가이드: ko/PERFORMANCE.md
       - FAQ: faq.md
       - Translations:
           - 한국어: README.ko.md
