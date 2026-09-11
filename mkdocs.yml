@@ -57,6 +57,7 @@ nav:
               - 자주 묻는 질문: ko/faq.md
               - 파라미터 바인딩: ko/PARAMETER_BINDING.md
               - 타입 시스템: ko/TYPES.md
+              - CAS 프로토콜: ko/PROTOCOL.md
           - Deutsch: README.de.md
           - हिन्दी: README.hi.md
           - Русский: README.ru.md
