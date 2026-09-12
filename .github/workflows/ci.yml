@@ -85,11 +85,16 @@ jobs:
         run: mypy pycubrid/ --strict
 
   offline-tests:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        exclude:
+          # Windows + 3.14 has a known CI runner issue; exclude until resolved
+          - os: windows-latest
+            python-version: "3.14"
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
