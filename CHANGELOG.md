@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **create-release.yml: dropped `--target` from `gh release create`** — with an already-pushed tag (the normal tag-push trigger) `--verify-tag` already guarantees the tag exists, and passing `target_commitish` for an existing tag makes the Releases API return `422 Validation Failed`, so the first tag-triggered run of this workflow always failed. Verified live by the v0.4.0 tag attempt in cubrid-mcp-server.
 
 ### Documentation
+- **Demo GIF embedded in README** — auto-generated terminal demo showing pip install → connect → query → zero dependencies. Rendered from `demos/pycubrid-demo.json` via `demos/render_gif.py`.
 - **한국어 문서 페이지 — 배치 3 완결 (#317)** — TROUBLESHOOTING(1,246줄) 번역으로 13페이지 전체 완성. #317의 배치 작업 종료.
 - **한국어 문서 페이지 — 배치 3 (Project 축, #317)** — DEVELOPMENT(개발 가이드) 번역 추가. TROUBLESHOOTING만 남음.
 - **한국어 문서 페이지 — 배치 3 (Reference/Ops 축 1차, #317)** — SUPPORT_MATRIX·ARCHITECTURE·PERFORMANCE 번역 추가. TROUBLESHOOTING·DEVELOPMENT는 후속.

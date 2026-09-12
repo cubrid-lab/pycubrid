@@ -41,6 +41,8 @@ Korean public-sector and enterprise applications. The existing C-extension drive
 - Python 3.10+
 - CUBRID database server 10.2+ (CI validates 10.2, 11.0, 11.2, 11.4)
 
+<img src="docs/demo.gif" alt="pycubrid in action" width="100%"/>
+
 ## Installation
 
 ```bash
