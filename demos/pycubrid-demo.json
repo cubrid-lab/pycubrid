@@ -1,0 +1,30 @@
+{
+  "title": "pycubrid demo",
+  "width": 1200,
+  "height": 600,
+  "steps": [
+    {"type": "type", "text": "pip install pycubrid", "speed": 40},
+    {"type": "enter"},
+    {"type": "output", "text": "Successfully installed pycubrid-1.7.0"},
+    {"type": "sleep", "ms": 1500},
+    {"type": "type", "text": "python3", "speed": 60},
+    {"type": "enter"},
+    {"type": "sleep", "ms": 500},
+    {"type": "python", "code": "import pycubrid", "result": ""},
+    {"type": "sleep", "ms": 500},
+    {"type": "python", "code": "conn = pycubrid.connect(host=\"localhost\", database=\"testdb\", user=\"dba\")", "result": ""},
+    {"type": "sleep", "ms": 800},
+    {"type": "python", "code": "print(f\"Connected: {conn.get_server_version()}\")", "result": "Connected: 11.4.0.0374"},
+    {"type": "sleep", "ms": 1000},
+    {"type": "python", "code": "cur = conn.cursor()", "result": ""},
+    {"type": "sleep", "ms": 300},
+    {"type": "python", "code": "cur.execute(\"SELECT 1 + 1 AS answer\")", "result": ""},
+    {"type": "sleep", "ms": 300},
+    {"type": "python", "code": "print(cur.fetchone())", "result": "(2,)"},
+    {"type": "sleep", "ms": 1000},
+    {"type": "python", "code": "print(\"Dependencies: 0 — pure Python\")", "result": "Dependencies: 0 — pure Python"},
+    {"type": "sleep", "ms": 1500},
+    {"type": "python", "code": "cur.close(); conn.close()", "result": ""},
+    {"type": "sleep", "ms": 1000}
+  ]
+}
