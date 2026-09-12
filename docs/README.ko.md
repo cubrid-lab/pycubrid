@@ -43,6 +43,8 @@ CUBRID는 고성능 오픈소스 관계형 데이터베이스로, 한국 공공�
 - Python 3.10+
 - CUBRID 데이터베이스 서버 10.2+
 
+<img src="https://github.com/cubrid-lab/pycubrid/raw/main/docs/demo.gif" alt="pycubrid 데모" width="100%"/>
+
 ## 설치
 
 ```bash
