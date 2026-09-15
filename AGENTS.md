@@ -158,13 +158,18 @@ Steps:
 3. Commit: `release: vx.y.z — <summary>`
 4. Open a PR and merge to `main`
 5. Push the tag on the merged commit: `git tag vx.y.z <merged-sha> && git push origin vx.y.z`
-6. The tag push triggers `.github/workflows/create-release.yml`, which extracts the
+6. The tag push triggers `.github/workflows/integration-full.yml`, which runs the **full
+   5×4 Python × CUBRID compatibility matrix** on the release commit. PR CI only runs a
+   reduced 2-cell matrix, so this tag run is the authoritative full-compatibility check.
+7. The tag push also triggers `.github/workflows/create-release.yml`, which extracts the
    `## [x.y.z] - YYYY-MM-DD` section from `CHANGELOG.md` (fail-closed — no fallback)
    and creates the GitHub Release titled `vx.y.z` with that body, after verifying the
    tag is an ancestor of `origin/main`.
-7. Publishing the GitHub Release triggers `.github/workflows/publish-pypi.yml`,
-   which rebuilds, verifies (tag == version, dated CHANGELOG, tag on main, smoke tests),
-   and publishes to PyPI via Trusted Publisher (OIDC).
+8. Publishing the GitHub Release triggers `.github/workflows/publish-pypi.yml`,
+   which rebuilds, verifies (tag == version, dated CHANGELOG, tag on main, smoke tests,
+   **and that a successful `integration-full.yml` run exists for the release commit** —
+   PyPI publish is blocked until the full matrix passes), and publishes to PyPI via
+   Trusted Publisher (OIDC).
 
 Release notes are never hand-written: `CHANGELOG.md` is the single source of truth and
 `scripts/extract_release_notes.py` renders the Release body. To re-create a release body,

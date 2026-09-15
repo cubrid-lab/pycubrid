@@ -16,6 +16,7 @@ jobs:
     outputs:
       tls: ${{ steps.filter.outputs.tls }}
       docs: ${{ steps.filter.outputs.docs }}
+      code: ${{ steps.filter.outputs.code }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -30,6 +31,11 @@ jobs:
             docs:
               - '**/*.md'
               - 'docs/**'
+            code:
+              - 'pycubrid/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - '.github/workflows/**'
 
   doc-lint:
     name: Documentation lint
@@ -155,12 +161,19 @@ jobs:
 
   integration-tests:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, offline-tests, packaging-smoke-test]
+    needs: [detect-changes, lint, typecheck, offline-tests, packaging-smoke-test]
+    if: needs.detect-changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.14"]
-        cubrid-version: ["10.2", "11.0", "11.2", "11.4"]
+        # Reduced PR matrix: newest (3.14 x 11.4) + oldest (3.10 x 10.2)
+        # supported combinations. The full 5x4 matrix runs nightly / on tags
+        # via integration-full.yml.
+        include:
+          - python-version: "3.14"
+            cubrid-version: "11.4"
+          - python-version: "3.10"
+            cubrid-version: "10.2"
     services:
       cubrid:
         image: cubrid/cubrid:${{ matrix.cubrid-version }}
@@ -357,12 +370,18 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
-          for var in R_LINT R_TYPECHECK R_OFFLINE R_PACKAGING R_INTEGRATION R_COMPAT; do
+          for var in R_LINT R_TYPECHECK R_OFFLINE R_PACKAGING R_COMPAT; do
             if [[ "${!var}" != "success" ]]; then
               echo "::error::Required job ${var#R_} result: ${!var}"
               fail=1
             fi
           done
+          # integration-tests is path-gated on code changes; `skipped` is
+          # acceptable for docs-only PRs, but failure/cancelled must fail.
+          if [[ "$R_INTEGRATION" != "success" && "$R_INTEGRATION" != "skipped" ]]; then
+            echo "::error::integration-tests result: $R_INTEGRATION"
+            fail=1
+          fi
           # integration-tls is path-gated (issue #159); `skipped` is acceptable
           # when no TLS-relevant files changed, but any other non-success state
           # (failure, cancelled) must fail the gate.
