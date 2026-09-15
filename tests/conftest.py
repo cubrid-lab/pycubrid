@@ -2,10 +2,38 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
+
+
+def _cubrid_is_configured() -> bool:
+    """True when the environment points at a CUBRID test server.
+
+    A live integration run is expected whenever CUBRID_TEST_URL or the
+    per-field CUBRID_TEST_HOST override is set; otherwise a local `pytest`
+    without any DB config just skips the integration-marked tests.
+    """
+    return bool(os.getenv("CUBRID_TEST_URL") or os.getenv("CUBRID_TEST_HOST"))
+
+
+@pytest.fixture(autouse=True)
+def _require_cubrid_for_integration(request: pytest.FixtureRequest) -> None:
+    """Gate integration-marked tests on a configured, reachable CUBRID.
+
+    Classification lives entirely in the ``integration`` marker. When no DB is
+    configured the test skips (so a bare `pytest` stays green locally); when a
+    DB *is* configured but unreachable it must not silently skip — that would
+    hide a broken CI service — so the individual test's own connection attempt
+    is left to fail loudly.
+    """
+    if request.node.get_closest_marker("integration") is None:
+        return
+    if not _cubrid_is_configured():
+        pytest.skip("requires a live CUBRID server (set CUBRID_TEST_URL or run `make integration`)")
 
 
 @pytest.fixture(autouse=True)
