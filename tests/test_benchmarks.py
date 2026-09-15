@@ -26,7 +26,6 @@ CUBRID_PORT = int(os.getenv("CUBRID_PORT", "33000"))
 CUBRID_DB = os.getenv("CUBRID_DB", "testdb")
 
 pytestmark = [
-    pytest.mark.integration,
     pytest.mark.skipif(
         not os.getenv("CUBRID_TEST_URL"),
         reason="Set CUBRID_TEST_URL to run benchmarks",
