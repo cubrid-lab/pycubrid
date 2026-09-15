@@ -138,7 +138,23 @@ jobs:
             sed -i '/^\[%BROKER1\]/,/^\[/ s/^\s*SSL\s*=\s*OFF/SSL=ON/' \$conf
             grep -A2 '^\[%BROKER1\]' \$conf | head -20
             cubrid broker restart
-            cubrid server start testdb || cubrid server start cubdb || true
+            # Start the database and fail loudly if it never comes up. The old
+            # 'start testdb || start cubdb || true' hid a provisioning race
+            # (#330): a failed start became exit 0 and the symptom surfaced two
+            # minutes later in the readiness probe. Retry the real DB and verify
+            # it is actually running.
+            for i in \$(seq 1 30); do
+              if cubrid server status testdb 2>/dev/null | grep -q 'Server testdb'; then
+                echo 'testdb server is up'; break
+              fi
+              cubrid server start testdb || true
+              sleep 3
+            done
+            cubrid server status testdb | grep -q 'Server testdb' || {
+              echo '::error::testdb server failed to start under SSL=ON'
+              cubrid server status || true
+              exit 1
+            }
           "
           cp "$RUNNER_TEMP/tls/cas_ssl_cert.crt" "$RUNNER_TEMP/cas_ssl_cert.crt"
           ls -l "$RUNNER_TEMP/cas_ssl_cert.crt"
@@ -225,6 +241,9 @@ jobs:
             echo "$unexpected_skips"
             exit 1
           fi
+      - name: Capture TLS broker logs on failure
+        if: failure()
+        run: docker logs cubrid-tls || true
       - name: Stop CUBRID TLS broker
         if: always()
         run: docker stop cubrid-tls || true
