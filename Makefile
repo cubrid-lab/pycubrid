@@ -35,17 +35,24 @@ check-all: check security ## Run lint + typecheck + security
 
 test: ## Run offline tests with coverage (no DB required)
 	$(PYTEST) $(TESTS)/ -v \
-		--ignore=$(TESTS)/test_integration.py \
+		-m "not integration" \
 		--cov=$(SRC) \
 		--cov-report=term-missing \
 		--cov-fail-under=95
 
-integration: docker-up ## Run integration tests against CUBRID Docker
+integration: docker-up ## Run integration tests against a Docker CUBRID
 	@echo "Waiting for CUBRID to be ready..."
 	@sleep 10
 	CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb" \
-		$(PYTEST) $(TESTS)/test_integration.py -v
+		$(PYTEST) $(TESTS)/ -m integration -v
 	$(MAKE) docker-down
+
+integration-local: ## Run integration tests against an already-running CUBRID (set CUBRID_TEST_URL or CUBRID_TEST_HOST; no Docker)
+	@if [ -z "$$CUBRID_TEST_URL" ] && [ -z "$$CUBRID_TEST_HOST" ]; then \
+		echo "ERROR: set CUBRID_TEST_URL (e.g. cubrid://dba@127.0.0.1:33000/testdb) or CUBRID_TEST_HOST for a running CUBRID"; \
+		exit 1; \
+	fi
+	$(PYTEST) $(TESTS)/ -m integration -v
 
 integration-tls: docker-up ## Run async TLS integration tests (requires SSL=ON broker; see CONTRIBUTING.md)
 	@echo "Waiting for CUBRID to be ready..."

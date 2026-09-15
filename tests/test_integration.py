@@ -57,7 +57,10 @@ def _create_basic_table(cur: Cursor, table_name: str) -> None:
     )
 
 
-pytestmark = pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
+]
 
 
 @pytest.fixture

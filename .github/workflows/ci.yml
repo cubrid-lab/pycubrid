@@ -112,8 +112,7 @@ jobs:
         shell: bash
         run: |
           python -m pytest tests/ \
-            --ignore=tests/test_integration.py \
-            --ignore=tests/test_parity_integration.py \
+            -m "not integration" \
             -v --tb=short \
             --cov=pycubrid \
             --cov-report=term-missing \
@@ -222,7 +221,7 @@ jobs:
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
         run: |
-          python -m pytest tests/test_*integration*.py -v --tb=short
+          python -m pytest tests/ -m integration -v --tb=short
 
   integration-tls:
     # Per-PR TLS lane (issue #159) — gated on changes to TLS-relevant code

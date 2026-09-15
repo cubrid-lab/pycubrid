@@ -41,7 +41,10 @@ def _can_connect() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
+]
 
 
 def _table() -> str:

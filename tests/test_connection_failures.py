@@ -10,7 +10,9 @@ Covers the three production-critical connection error paths:
    with a ``DatabaseError`` (``User "..." is invalid``).
 
 All cases use a short ``connect_timeout`` so the suite stays well under the
-30-second budget, and the credential case skips when no CUBRID is available.
+30-second budget. Only the credential case is marked ``integration``; the
+shared conftest guard skips it when no CUBRID is configured, so the two
+network-failure tests still run in the offline suite.
 """
 
 from __future__ import annotations
@@ -36,21 +38,6 @@ UNREACHABLE_HOST = "192.0.2.1"
 # A port in the IANA dynamic range with nothing listening on localhost, so the
 # OS refuses the connection immediately.
 CLOSED_PORT = 59999
-
-
-def _can_connect() -> bool:
-    try:
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-        )
-        conn.close()
-        return True
-    except Exception:
-        return False
 
 
 def test_unreachable_host_times_out() -> None:
@@ -83,7 +70,7 @@ def test_closed_port_is_refused() -> None:
     assert elapsed < 15, f"refused connect took {elapsed:.1f}s"
 
 
-@pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available")
+@pytest.mark.integration
 def test_wrong_credentials_rejected() -> None:
     with pytest.raises(DatabaseError):
         pycubrid.connect(
