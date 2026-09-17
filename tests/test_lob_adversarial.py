@@ -68,7 +68,8 @@ class TestLobRoundTrip:
     def test_write_read_full(self, conn: pycubrid.Connection, size: int) -> None:
         data = bytes((i * 7 + 3) & 0xFF for i in range(size))
         lob = conn.create_lob(CUBRIDDataType.BLOB)
-        assert lob.write(data) == len(data)
+        written = lob.write(data)
+        assert written == len(data)
         assert lob.read(size) == data
 
     @given(size=st.integers(min_value=16, max_value=4096))
@@ -127,7 +128,8 @@ class TestLobErrorEdges:
     def test_zero_length_read_is_dbapi_error_not_raw(self) -> None:
         # A zero-length read aborts the transaction server-side on CUBRID 11.2;
         # it must surface as a DB-API error, never a raw exception. Uses its own
-        # connection because the abort invalidates the session.
+        # connection and closes it explicitly (not via `with`, whose __exit__
+        # commits — which would fail on the deliberately-aborted transaction).
         c = _connect()
         c.autocommit = True
         try:
@@ -136,7 +138,10 @@ class TestLobErrorEdges:
             with pytest.raises(DBAPIError):
                 lob.read(0)
         finally:
-            c.close()
+            try:
+                c.close()
+            except DBAPIError:
+                pass  # the aborted transaction may also fault this close
 
 
 class TestLargeLob:
@@ -147,7 +152,8 @@ class TestLargeLob:
         size = 256 * 1024
         data = bytes((i * 131 + 7) & 0xFF for i in range(size))
         lob = conn.create_lob(CUBRIDDataType.BLOB)
-        assert lob.write(data) == size
+        written = lob.write(data)
+        assert written == size
 
         buf = b""
         offset = 0

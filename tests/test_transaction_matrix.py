@@ -61,17 +61,14 @@ async def _aconnect() -> pycubrid.aio.AsyncConnection:
 
 def _rows_visible_from_new_conn(table: str) -> int:
     """Row count as seen by a separate, autocommit connection."""
-    observer = _connect()
-    observer.autocommit = True
-    try:
+    with _connect() as observer:
+        observer.autocommit = True
         cur = observer.cursor()
         cur.execute("SELECT COUNT(*) FROM %s" % table)
         row = cur.fetchone()
         cur.close()
         assert row is not None
         return int(row[0])
-    finally:
-        observer.close()
 
 
 @pytest.fixture()
@@ -94,42 +91,32 @@ def table() -> str:
 
 class TestSyncTransactionContract:
     def test_default_is_not_autocommit(self, table: str) -> None:
-        conn = _connect()
-        try:
+        with _connect() as conn:
             assert conn.autocommit is False
             cur = conn.cursor()
             cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
             cur.close()
             # Uncommitted: invisible to a separate connection.
             assert _rows_visible_from_new_conn(table) == 0
-        finally:
-            conn.close()
 
     def test_commit_makes_visible(self, table: str) -> None:
-        conn = _connect()
-        try:
+        with _connect() as conn:
             cur = conn.cursor()
             cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
             conn.commit()
             cur.close()
             assert _rows_visible_from_new_conn(table) == 1
-        finally:
-            conn.close()
 
     def test_rollback_discards(self, table: str) -> None:
-        conn = _connect()
-        try:
+        with _connect() as conn:
             cur = conn.cursor()
             cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
             conn.rollback()
             cur.close()
             assert _rows_visible_from_new_conn(table) == 0
-        finally:
-            conn.close()
 
     def test_failed_statement_does_not_commit_prior_work(self, table: str) -> None:
-        conn = _connect()
-        try:
+        with _connect() as conn:
             cur = conn.cursor()
             cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
             # Duplicate PK -> IntegrityError; must not commit the prior INSERT.
@@ -138,12 +125,9 @@ class TestSyncTransactionContract:
             conn.rollback()
             cur.close()
             assert _rows_visible_from_new_conn(table) == 0
-        finally:
-            conn.close()
 
     def test_autocommit_toggle_flushes_and_self_commits(self, table: str) -> None:
-        conn = _connect()
-        try:
+        with _connect() as conn:
             cur = conn.cursor()
             cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
             # Turning autocommit ON flushes the open transaction (row 1 commits).
@@ -153,8 +137,6 @@ class TestSyncTransactionContract:
             cur.execute("INSERT INTO %s (id) VALUES (2)" % table)
             assert _rows_visible_from_new_conn(table) == 2
             cur.close()
-        finally:
-            conn.close()
 
 
 def _run_async_scenario(scenario: str, table: str) -> int:
@@ -203,28 +185,29 @@ class TestSyncAsyncTransactionParity:
     def test_sync_and_async_agree(self, scenario: str) -> None:
         sync_table = _tbl()
         async_table = _tbl()
-        setup = _connect()
-        setup.autocommit = True
-        cur = setup.cursor()
-        cur.execute("CREATE TABLE %s (id INT PRIMARY KEY)" % sync_table)
-        cur.execute("CREATE TABLE %s (id INT PRIMARY KEY)" % async_table)
-        cur.close()
-        try:
-            sync_val = self._run_sync_scenario(scenario, sync_table)
-            async_val = _run_async_scenario(scenario, async_table)
-            assert sync_val == async_val
-        finally:
+        with _connect() as setup:
+            setup.autocommit = True
             cur = setup.cursor()
-            for t in (sync_table, async_table):
-                try:
-                    cur.execute("DROP TABLE IF EXISTS %s" % t)
-                except DBAPIError:
-                    pass  # best-effort teardown
+            cur.execute("CREATE TABLE %s (id INT PRIMARY KEY)" % sync_table)
+            cur.execute("CREATE TABLE %s (id INT PRIMARY KEY)" % async_table)
             cur.close()
-            setup.close()
+            try:
+                sync_val = self._run_sync_scenario(scenario, sync_table)
+                async_val = _run_async_scenario(scenario, async_table)
+                assert sync_val == async_val
+            finally:
+                cur = setup.cursor()
+                for t in (sync_table, async_table):
+                    try:
+                        cur.execute("DROP TABLE IF EXISTS %s" % t)
+                    except DBAPIError:
+                        pass  # best-effort teardown
+                cur.close()
 
     @staticmethod
     def _run_sync_scenario(scenario: str, table: str) -> int:
+        # Explicit close, not `with`: Connection.__exit__ commits on exit, which
+        # would make the "uncommitted" scenario commit and diverge from async.
         conn = _connect()
         try:
             cur = conn.cursor()

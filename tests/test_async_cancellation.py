@@ -74,7 +74,7 @@ class TestCancelDuringExecute:
             await asyncio.sleep(0)
             task.cancel()
             with pytest.raises((asyncio.CancelledError, DBAPIError)):
-                await task
+                _ = await task
             # The lock must have been released: a fresh op proceeds or errors cleanly.
             await asyncio.wait_for(_assert_usable_or_closed(conn), timeout=10.0)
         finally:
@@ -91,7 +91,7 @@ class TestCancelDuringExecute:
                 try:
                     await task
                 except (asyncio.CancelledError, DBAPIError):
-                    pass
+                    pass  # both outcomes (cancelled or clean error) are acceptable
             await asyncio.wait_for(_assert_usable_or_closed(conn), timeout=10.0)
         finally:
             await conn.close()
@@ -106,7 +106,7 @@ class TestCancelDuringClose:
         try:
             await task
         except (asyncio.CancelledError, DBAPIError):
-            pass
+            pass  # both outcomes (cancelled or clean error) are acceptable
         # Whether the cancel won or lost, a second close must be safe/idempotent.
         await asyncio.wait_for(conn.close(), timeout=10.0)
 
