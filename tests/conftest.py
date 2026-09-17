@@ -67,6 +67,12 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
         "test_property_live_values",
         "test_connection_state_machine",
         "test_metamorphic_parity",
+        "test_transaction_matrix",
+        "test_type_contract",
+        "test_batch_semantics",
+        "test_lob_adversarial",
+        "test_async_cancellation",
+        "test_cubriddb_differential",
     )
     if any(name in fspath for name in _live_optouts):
         return
