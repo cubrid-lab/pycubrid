@@ -159,7 +159,11 @@ class FaultBroker:
                 self._drain_handshake(client)
                 if self._answer_handshake:
                     client.sendall(struct.pack(">i", self._handshake_status))
-                    self._drain_open_db(client)
+                    # Only a success status (0) makes the client proceed to
+                    # OPEN_DB on this socket; on failure (<0) or redirect (>0) it
+                    # will not, so draining would block until the timeout.
+                    if self._handshake_status == 0:
+                        self._drain_open_db(client)
                 try:
                     self._fault(client)
                 except OSError:

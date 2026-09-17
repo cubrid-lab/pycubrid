@@ -25,7 +25,13 @@ from .helpers.fault_broker import ALL_FAULTS, run_fault_broker
 
 _TIMEOUT = 5.0
 
-# Faults that corrupt the transport so connect() MUST fail with a DB-API error.
+# Transport-corrupting faults: connect() MUST fail with a DB-API error. Two
+# entries are excluded because they yield a structurally valid OPEN_DB response
+# (extra_trailing_bytes appends unread junk; garbage_body happens to decode to a
+# non-negative response_code with enough bytes for broker_info + session), so
+# they legitimately connect — see test_well_framed_response_connects. _connect
+# passes no_backslash_escapes explicitly to skip the post-OPEN_DB probe, so the
+# outcome is deterministic and independent of the autouse pin fixture.
 _ERROR_FAULTS = sorted(set(ALL_FAULTS) - {"extra_trailing_bytes", "garbage_body"})
 
 
@@ -38,6 +44,7 @@ def _connect(port: int) -> pycubrid.Connection:
         password="",
         connect_timeout=_TIMEOUT,
         read_timeout=_TIMEOUT,
+        no_backslash_escapes=True,
     )
 
 
@@ -57,11 +64,13 @@ def test_connect_fault_raises_dbapi_error(fault_name: str) -> None:
 
 @pytest.mark.parametrize("fault_name", ["extra_trailing_bytes", "garbage_body"])
 def test_well_framed_response_connects(fault_name: str) -> None:
-    """A well-framed response (even with junk trailing/body) parses and connects.
+    """A structurally valid OPEN_DB response connects, even with junk.
 
-    Extra trailing bytes are never read, and a zero response-code body parses as
-    a valid-enough OPEN_DB. These must NOT be treated as faults; the connection
-    succeeds and closes cleanly.
+    extra_trailing_bytes appends bytes that are never read (the driver reads
+    exactly DATA_LENGTH + CAS_INFO); garbage_body decodes to a non-negative
+    response_code with enough bytes for broker_info + session. With the escape
+    probe skipped (no_backslash_escapes passed) these deterministically connect,
+    so they are excluded from _ERROR_FAULTS rather than treated as faults.
     """
     fault = ALL_FAULTS[fault_name]
     with run_fault_broker(fault) as port:
