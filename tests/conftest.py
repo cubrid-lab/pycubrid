@@ -13,12 +13,18 @@ from pycubrid.connection import Connection
 # Hypothesis profiles for the bug-hunt suites. "dev"/"pr" keep CI fast and
 # deterministic; "nightly" widens exploration. Select with the env var
 # HYPOTHESIS_PROFILE (defaults to "pr"). Per-test @settings still override the
-# profile's max_examples where a test pins its own budget.
-settings.register_profile("pr", max_examples=50, deadline=None)
+# profile's max_examples where a test pins its own budget. All profiles set
+# print_blob=True so a failing example prints a @reproduce_failure blob and
+# persists in Hypothesis's .hypothesis/ database for one-command replay (#359).
+settings.register_profile("pr", max_examples=50, deadline=None, print_blob=True)
 settings.register_profile(
-    "dev", max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+    "dev",
+    max_examples=25,
+    deadline=None,
+    print_blob=True,
+    suppress_health_check=[HealthCheck.too_slow],
 )
-settings.register_profile("nightly", max_examples=1000, deadline=None)
+settings.register_profile("nightly", max_examples=1000, deadline=None, print_blob=True)
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "pr"))
 
 
@@ -75,6 +81,8 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
         "test_cubriddb_differential",
         "test_resource_leaks",
         "test_pep249_runtime",
+        "test_soak",
+        "test_chaos",
     )
     if any(name in fspath for name in _live_optouts):
         return
