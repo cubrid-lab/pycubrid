@@ -34,7 +34,10 @@ from pycubrid.exceptions import Error as DBAPIError
 
 from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
 
-pytestmark = pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+]
 
 # Only these exception types are an acceptable failure mode for a value the
 # driver cannot represent. Anything else (struct.error, UnicodeDecodeError,
