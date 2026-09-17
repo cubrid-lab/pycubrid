@@ -85,22 +85,41 @@ class Lob:
         return len(data)
 
     def read(self, length: int, offset: int = 0) -> bytes:
-        """Read up to ``length`` bytes from the LOB starting from ``offset``."""
+        """Read up to ``length`` bytes from the LOB starting from ``offset``.
+
+        The CUBRID broker caps a single ``LOB_READ`` response at a fixed size
+        (~80 KB), so a naive one-shot request silently returns a short buffer
+        for large reads. This loops, advancing the offset by the bytes the
+        broker actually returned, until ``length`` bytes are collected or the
+        broker signals end-of-LOB by returning zero bytes.
+        """
         self._check_open()
         if offset < 0:
             raise InterfaceError(f"offset must be non-negative, got {offset}")
         if length < 0:
             raise InterfaceError(f"length must be non-negative, got {length}")
         self._connection._ensure_connected()
-        packet = LOBReadPacket(self._lob_handle, offset, length)
-        self._connection._send_and_receive(packet)
-        if len(packet.lob_data) > length:
+
+        chunks: list[bytes] = []
+        remaining = length
+        cursor = offset
+        while remaining > 0:
+            packet = LOBReadPacket(self._lob_handle, cursor, remaining)
+            self._connection._send_and_receive(packet)
             got = len(packet.lob_data)
-            raise OperationalError(f"LOB read returned {got} bytes exceeding requested {length}")
-        _LOGGER.debug(
-            "LOB read: offset=%d requested=%d got=%d", offset, length, len(packet.lob_data)
-        )
-        return packet.lob_data
+            if got > remaining:
+                raise OperationalError(
+                    f"LOB read returned {got} bytes exceeding requested {remaining}"
+                )
+            if got == 0:
+                break  # end of LOB
+            chunks.append(packet.lob_data)
+            remaining -= got
+            cursor += got
+
+        result = b"".join(chunks)
+        _LOGGER.debug("LOB read: offset=%d requested=%d got=%d", offset, length, len(result))
+        return result
 
     @property
     def lob_handle(self) -> bytes:

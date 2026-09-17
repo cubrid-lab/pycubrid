@@ -30,7 +30,7 @@ from hypothesis import given, settings, strategies as st
 
 import pycubrid
 from pycubrid.constants import CUBRIDDataType
-from pycubrid.exceptions import Error as DBAPIError, InterfaceError
+from pycubrid.exceptions import InterfaceError
 
 from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
 
@@ -149,30 +149,26 @@ class TestLobErrorEdges:
         with pytest.raises(InterfaceError):
             lob.write(b"x")
 
-    def test_zero_length_read_is_dbapi_error_not_raw(self) -> None:
-        # A zero-length read aborts the transaction server-side on CUBRID 11.2;
-        # it must surface as a DB-API error, never a raw exception. Uses its own
-        # connection and closes it explicitly (not via `with`, whose __exit__
-        # commits — which would fail on the deliberately-aborted transaction).
-        c = _connect()
-        c.autocommit = True
-        try:
-            lob = c.create_lob(CUBRIDDataType.BLOB)
-            lob.write(b"abcd")
-            with pytest.raises(DBAPIError):
-                lob.read(0)
-        finally:
-            try:
-                c.close()
-            except DBAPIError:
-                pass  # the aborted transaction may also fault this close
+    def test_zero_length_read_returns_empty_without_server_round_trip(
+        self, conn: pycubrid.Connection
+    ) -> None:
+        # After the #362 read-loop fix, read(0) short-circuits (remaining == 0)
+        # and returns b"" with no LOB_READ request, so it no longer triggers the
+        # server-side transaction abort the old one-shot read caused.
+        lob = conn.create_lob(CUBRIDDataType.BLOB)
+        lob.write(b"abcd")
+        assert lob.read(0) == b""
+        # The connection stays usable (no abort).
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        assert cur.fetchone() == (1,)
+        cur.close()
 
 
 class TestLargeLob:
-    def test_large_blob_stored_fully_via_chunked_read(self, conn: pycubrid.Connection) -> None:
-        # A single Lob.read caps at 81908 bytes (issue #362), so a LOB larger
-        # than that must be read by looping with explicit offsets to recover the
-        # full payload.
+    def test_large_blob_via_chunked_read(self, conn: pycubrid.Connection) -> None:
+        # Reading a large LOB in explicit-offset chunks reassembles the full
+        # payload; a chunk read never returns more than requested.
         size = 256 * 1024
         data = bytes((i * 131 + 7) & 0xFF for i in range(size))
         lob = conn.create_lob(CUBRIDDataType.BLOB)
@@ -185,18 +181,15 @@ class TestLargeLob:
             chunk = lob.read(65536, offset=offset)
             if not chunk:
                 break
+            assert len(chunk) <= 65536
             buf += chunk
             offset += len(chunk)
         assert buf == data
 
-    @pytest.mark.xfail(
-        reason="issue #362: single Lob.read(n) caps at 81908 bytes",
-        strict=True,
-    )
     def test_single_large_read_returns_full_length(self, conn: pycubrid.Connection) -> None:
-        # Regression guard for #362: a single read of the whole LOB must return
-        # every byte. Passes once the read loop is fixed.
-        size = 200_000
+        # Regression guard for #362: a single read of the whole LOB returns every
+        # byte, because Lob.read loops past the broker's per-response size cap.
+        size = 256 * 1024
         data = bytes((i * 131 + 7) & 0xFF for i in range(size))
         lob = conn.create_lob(CUBRIDDataType.BLOB)
         lob.write(data)
