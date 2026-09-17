@@ -33,7 +33,10 @@ from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_
 
 CUBRIDdb = pytest.importorskip("CUBRIDdb", reason="official CUBRIDdb C-extension not installed")
 
-pytestmark = pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+]
 
 
 def _py_conn() -> pycubrid.Connection:

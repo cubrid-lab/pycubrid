@@ -31,6 +31,7 @@ from pycubrid.exceptions import Error as DBAPIError
 from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
 
 pytestmark = [
+    pytest.mark.integration,
     pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
     pytest.mark.asyncio,
 ]
@@ -73,8 +74,10 @@ class TestCancelDuringExecute:
             # Cancel almost immediately to race the in-flight await.
             await asyncio.sleep(0)
             task.cancel()
-            with pytest.raises((asyncio.CancelledError, DBAPIError)):
-                _ = await task
+            try:
+                await task
+            except (asyncio.CancelledError, DBAPIError):
+                pass  # cancelled or clean error; a fast completion is also valid
             # The lock must have been released: a fresh op proceeds or errors cleanly.
             await asyncio.wait_for(_assert_usable_or_closed(conn), timeout=10.0)
         finally:
@@ -157,8 +160,12 @@ class TestConcurrentLifecycle:
 
             results = await asyncio.gather(*(run_query() for _ in range(8)), return_exceptions=True)
             for r in results:
-                if isinstance(r, BaseException) and not isinstance(r, DBAPIError):
+                if isinstance(r, BaseException):
+                    if isinstance(r, DBAPIError):
+                        continue  # a serialized execute may cleanly fail; not a leak
                     raise AssertionError(f"parallel executes leaked {type(r).__name__}: {r!r}")
+                # Non-exception results must be the correct, un-garbled row.
+                assert r == (1,), f"serialization corrupted a result: {r!r}"
         finally:
             await conn.close()
 
