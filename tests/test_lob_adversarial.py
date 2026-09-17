@@ -34,7 +34,10 @@ from pycubrid.exceptions import Error as DBAPIError, InterfaceError
 
 from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
 
-pytestmark = pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+]
 
 _CHUNK = 4096  # a representative chunk boundary for boundary sizing
 
@@ -57,7 +60,14 @@ def conn() -> pycubrid.Connection:
     c.close()
 
 
+# Both LOB kinds store/return raw bytes; a CLOB additionally interprets them as
+# UTF-8 text, so ASCII-range byte payloads round-trip identically through both.
+_LOB_TYPES = [CUBRIDDataType.BLOB, CUBRIDDataType.CLOB]
+_LOB_IDS = ["blob", "clob"]
+
+
 class TestLobRoundTrip:
+    @pytest.mark.parametrize("lob_type", _LOB_TYPES, ids=_LOB_IDS)
     @given(
         size=st.one_of(
             st.sampled_from([1, 2, _CHUNK - 1, _CHUNK, _CHUNK + 1, _CHUNK * 3]),
@@ -65,38 +75,51 @@ class TestLobRoundTrip:
         )
     )
     @settings(deadline=None, max_examples=20)
-    def test_write_read_full(self, conn: pycubrid.Connection, size: int) -> None:
-        data = bytes((i * 7 + 3) & 0xFF for i in range(size))
-        lob = conn.create_lob(CUBRIDDataType.BLOB)
+    def test_write_read_full(self, conn: pycubrid.Connection, lob_type: int, size: int) -> None:
+        # ASCII-range bytes so the payload is valid CLOB (UTF-8) text too.
+        data = bytes((i * 7 + 3) & 0x7F for i in range(size))
+        lob = conn.create_lob(lob_type)
         written = lob.write(data)
         assert written == len(data)
         assert lob.read(size) == data
 
+    @pytest.mark.parametrize("lob_type", _LOB_TYPES, ids=_LOB_IDS)
     @given(size=st.integers(min_value=16, max_value=4096))
     @settings(deadline=None, max_examples=15)
-    def test_read_never_exceeds_requested(self, conn: pycubrid.Connection, size: int) -> None:
-        data = bytes(range(size % 256)) * (size // max(size % 256, 1) + 1)
-        data = data[:size]
-        lob = conn.create_lob(CUBRIDDataType.BLOB)
+    def test_read_never_exceeds_requested(
+        self, conn: pycubrid.Connection, lob_type: int, size: int
+    ) -> None:
+        data = bytes((i * 7 + 3) & 0x7F for i in range(size))
+        lob = conn.create_lob(lob_type)
         lob.write(data)
         # Requesting fewer bytes than stored never returns more than requested.
         assert len(lob.read(8)) <= 8
         # Over-reading past the end caps at the stored length.
         assert len(lob.read(size + 10_000)) == size
 
+    @pytest.mark.parametrize("lob_type", _LOB_TYPES, ids=_LOB_IDS)
     @given(
         size=st.integers(min_value=8, max_value=2048),
         data=st.data(),
     )
     @settings(deadline=None, max_examples=15)
-    def test_offset_reads(self, conn: pycubrid.Connection, size: int, data: st.DataObject) -> None:
-        payload = bytes((i * 3) & 0xFF for i in range(size))
-        lob = conn.create_lob(CUBRIDDataType.BLOB)
+    def test_offset_reads(
+        self, conn: pycubrid.Connection, lob_type: int, size: int, data: st.DataObject
+    ) -> None:
+        payload = bytes((i * 3) & 0x7F for i in range(size))
+        lob = conn.create_lob(lob_type)
         lob.write(payload)
         offset = data.draw(st.integers(min_value=0, max_value=size - 1))
         length = data.draw(st.integers(min_value=1, max_value=size))
         chunk = lob.read(length, offset=offset)
         assert chunk == payload[offset : offset + length]
+
+    def test_unicode_clob_round_trip(self, conn: pycubrid.Connection) -> None:
+        # A CLOB stores UTF-8 bytes; multibyte/CJK text must round-trip intact.
+        text = ("가나다 CLOB ☃ 漢字 " * 200).encode("utf-8")
+        lob = conn.create_lob(CUBRIDDataType.CLOB)
+        assert lob.write(text) == len(text)
+        assert lob.read(len(text)) == text
 
 
 class TestLobErrorEdges:

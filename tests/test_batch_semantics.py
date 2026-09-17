@@ -32,7 +32,10 @@ from pycubrid.exceptions import Error as DBAPIError
 
 from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
 
-pytestmark = pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+]
 
 
 def _connect() -> pycubrid.Connection:
@@ -137,6 +140,29 @@ class TestBatchFailure:
             # Pre-seed the PK that the batch's fail_pos row will collide with.
             cur.execute("INSERT INTO %s (id) VALUES (?)" % table, (fail_pos,))
             batch = [(i,) for i in range(size)]  # row at fail_pos duplicates the seed
+            with pytest.raises(DBAPIError):
+                cur.executemany("INSERT INTO %s (id) VALUES (?)" % table, batch)
+            cur.close()
+        finally:
+            _drop_table(conn, table)
+
+    @given(
+        seed_ids=st.lists(
+            st.integers(min_value=0, max_value=19), min_size=2, max_size=6, unique=True
+        )
+    )
+    @settings(deadline=None, max_examples=15)
+    def test_multiple_failing_rows_are_never_silent(
+        self, conn: pycubrid.Connection, seed_ids: list[int]
+    ) -> None:
+        # Pre-seed several PKs so the batch collides on more than one row,
+        # exercising a multi-error batch response (not just a single error).
+        table = _make_table(conn)
+        try:
+            cur = conn.cursor()
+            for sid in seed_ids:
+                cur.execute("INSERT INTO %s (id) VALUES (?)" % table, (sid,))
+            batch = [(i,) for i in range(20)]  # rows at every seed_id collide
             with pytest.raises(DBAPIError):
                 cur.executemany("INSERT INTO %s (id) VALUES (?)" % table, batch)
             cur.close()
