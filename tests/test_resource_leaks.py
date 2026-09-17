@@ -41,6 +41,7 @@ def _fd_count() -> int:
         return len(os.listdir("/proc/self/fd"))
     except OSError:
         pytest.skip("cannot count file descriptors on this platform")
+        raise  # unreachable; pytest.skip raises, but satisfies the type checker
 
 
 def _connect() -> pycubrid.Connection:
@@ -83,8 +84,7 @@ class TestSyncResourceLifecycle:
         )
 
     def test_cursor_execute_cycles_do_not_leak_fds(self) -> None:
-        conn = _connect()
-        try:
+        with _connect() as conn:
             for _ in range(10):
                 cur = conn.cursor()
                 cur.execute("SELECT 1")
@@ -103,8 +103,6 @@ class TestSyncResourceLifecycle:
             assert _fd_count() <= baseline + _FD_TOLERANCE, (
                 f"fd count grew from {baseline} after 500 cursor cycles"
             )
-        finally:
-            conn.close()
 
     def test_failed_connect_does_not_leak_fds(self) -> None:
         # Connecting to a closed port must not leak a socket per failed attempt.

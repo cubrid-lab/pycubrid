@@ -13,10 +13,10 @@ Asserted contract:
 * ``read(-1)`` / negative offset raise :class:`InterfaceError`;
 * operating on a closed LOB raises :class:`InterfaceError`.
 
-Empirically grounded on CUBRID 11.2: a zero-length ``read(0)`` triggers a
-server-side transaction abort, so it is exercised as an explicit error case
-(must surface as a DB-API error, not a raw exception) rather than as a
-success case.
+Since the #362 read-loop fix, a zero-length ``read(0)`` short-circuits and
+returns ``b""`` with no server round-trip (it no longer issues a ``LOB_READ``
+request, so it cannot trigger the server-side transaction abort the old
+one-shot read caused).
 
 Skipped when no CUBRID server is reachable.
 """

@@ -164,12 +164,9 @@ class TestSyncConnectionContract:
             c.cursor()
 
     def test_exception_classes_exposed_on_connection(self) -> None:
-        c = _connect()
-        try:
+        with _connect() as c:
             for name in _EXC_NAMES:
                 assert getattr(c, name) is getattr(pycubrid, name), name
-        finally:
-            c.close()
 
 
 class TestAsyncCursorContract:
@@ -232,9 +229,8 @@ class TestSyncAsyncContractParity:
         table = _tbl()
 
         def sync_rowcount() -> int:
-            c = _connect()
-            c.autocommit = True
-            try:
+            with _connect() as c:
+                c.autocommit = True
                 cur = c.cursor()
                 cur.execute("CREATE TABLE %s (id INT)" % table)
                 cur.execute("INSERT INTO %s VALUES (1), (2), (3)" % table)
@@ -242,8 +238,6 @@ class TestSyncAsyncContractParity:
                 cur.execute("DROP TABLE %s" % table)
                 cur.close()
                 return rc
-            finally:
-                c.close()
 
         async def async_rowcount() -> int:
             atable = _tbl()
