@@ -104,7 +104,7 @@ def _run_sync(table: str, ops: list[Op]) -> tuple[list[StepResult], list[tuple[o
             conn.commit()
             cur2.close()
         except DBAPIError:
-            pass
+            pass  # best-effort table drop in cleanup; ignore if conn is broken
         conn.close()
 
 
@@ -158,7 +158,7 @@ async def _run_async(
             await conn.commit()
             await cur2.close()
         except DBAPIError:
-            pass
+            pass  # best-effort table drop in cleanup; ignore if conn is broken
         await conn.close()
 
 

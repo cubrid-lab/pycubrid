@@ -175,7 +175,7 @@ class ConnectionLifecycle(RuleBasedStateMachine):
             try:
                 self.cursor.close()
             except DBAPIError:
-                pass
+                pass  # best-effort cleanup; a broken cursor is fine to drop
         if self.conn is not None:
             try:
                 cur = self.conn.cursor()
@@ -183,11 +183,11 @@ class ConnectionLifecycle(RuleBasedStateMachine):
                 self.conn.commit()
                 cur.close()
             except DBAPIError:
-                pass
+                pass  # best-effort table drop; ignore if the conn is unusable
             try:
                 self.conn.close()
             except DBAPIError:
-                pass
+                pass  # best-effort close; nothing to recover in teardown
 
 
 ConnectionLifecycle.TestCase.settings = settings(

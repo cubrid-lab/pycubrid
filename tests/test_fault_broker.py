@@ -80,8 +80,8 @@ def test_connect_fault_is_bounded_time(fault_name: str) -> None:  # noqa: D401
         start = time.monotonic()
         try:
             _connect(port)
-        except BaseException:  # noqa: BLE001 - only measuring wall time here
-            pass
+        except Exception:  # noqa: BLE001 - only measuring wall time; any failure is fine
+            pass  # the assertion below only checks the attempt returned promptly
         elapsed = time.monotonic() - start
         assert elapsed < _TIMEOUT * 2
 
@@ -117,7 +117,7 @@ def test_broker_socket_is_closed_after_use() -> None:
         try:
             probe.connect(("127.0.0.1", port))
         except OSError:
-            pass
+            pass  # broker may have already faulted/closed; only probing reachability
         finally:
             probe.close()
 

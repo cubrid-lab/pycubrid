@@ -163,9 +163,9 @@ class FaultBroker:
                 try:
                     self._fault(client)
                 except OSError:
-                    pass
+                    pass  # fault handlers may close the socket; that is expected
         except OSError:
-            pass
+            pass  # accept/handshake teardown races are benign for a test broker
 
     def _drain_handshake(self, client: socket.socket) -> None:
         remaining = _HANDSHAKE_LEN
@@ -181,13 +181,13 @@ class FaultBroker:
         try:
             client.recv(628)
         except OSError:
-            pass
+            pass  # client may have already closed; nothing to drain
 
     def stop(self) -> None:
         try:
             self._server.close()
         except OSError:
-            pass
+            pass  # listener may already be closed on teardown
 
 
 @contextmanager
