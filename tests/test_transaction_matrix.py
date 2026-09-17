@@ -32,7 +32,10 @@ from pycubrid.exceptions import Error as DBAPIError
 
 from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
 
-pytestmark = pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+]
 
 
 def _tbl() -> str:
@@ -154,6 +157,14 @@ def _run_async_scenario(scenario: str, table: str) -> int:
                 await conn.rollback()
             elif scenario == "uncommitted":
                 await cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
+            elif scenario == "failed":
+                # A failed statement must not commit prior uncommitted work.
+                await cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
+                try:
+                    await cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
+                except DBAPIError:
+                    pass  # duplicate PK is expected; the prior row stays uncommitted
+                await conn.rollback()
             elif scenario == "toggle":
                 await cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
                 await conn.set_autocommit(True)
@@ -181,7 +192,7 @@ class TestAsyncTransactionContract:
 
 
 class TestSyncAsyncTransactionParity:
-    @pytest.mark.parametrize("scenario", ["uncommitted", "commit", "rollback", "toggle"])
+    @pytest.mark.parametrize("scenario", ["uncommitted", "commit", "rollback", "failed", "toggle"])
     def test_sync_and_async_agree(self, scenario: str) -> None:
         sync_table = _tbl()
         async_table = _tbl()
@@ -219,6 +230,13 @@ class TestSyncAsyncTransactionParity:
                 conn.rollback()
             elif scenario == "uncommitted":
                 cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
+            elif scenario == "failed":
+                cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
+                try:
+                    cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
+                except DBAPIError:
+                    pass  # duplicate PK is expected; the prior row stays uncommitted
+                conn.rollback()
             elif scenario == "toggle":
                 cur.execute("INSERT INTO %s (id) VALUES (1)" % table)
                 conn.autocommit = True

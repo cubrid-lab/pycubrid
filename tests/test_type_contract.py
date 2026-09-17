@@ -40,7 +40,10 @@ from pycubrid.exceptions import Error as DBAPIError
 
 from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
 
-pytestmark = pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+]
 
 
 @dataclass(frozen=True)
@@ -52,12 +55,11 @@ class TypeCase:
     value: object  # bound via ? when literal is None
     literal: str | None  # SQL literal insert when the type cannot be bound
     expected_type: type
-    expected: object
+    expected: object  # compared with ==, unless it is TYPE_ONLY
+    type_only: bool = False  # LOB locators are not value-comparable; check type only
 
 
-def _dt(*a: int) -> datetime.datetime:
-    return datetime.datetime(*a)  # type: ignore[arg-type]
-
+_KST = datetime.timezone(datetime.timedelta(hours=9))
 
 CASES: list[TypeCase] = [
     TypeCase("short", "SHORT", 123, None, int, 123),
@@ -79,24 +81,44 @@ CASES: list[TypeCase] = [
     TypeCase(
         "datetime",
         "DATETIME",
-        _dt(2024, 1, 15, 13, 30, 45),
+        datetime.datetime(2024, 1, 15, 13, 30, 45),
         None,
         datetime.datetime,
-        _dt(2024, 1, 15, 13, 30, 45),
+        datetime.datetime(2024, 1, 15, 13, 30, 45),
     ),
     TypeCase(
         "timestamp",
         "TIMESTAMP",
-        _dt(2024, 1, 15, 13, 30, 45),
+        datetime.datetime(2024, 1, 15, 13, 30, 45),
         None,
         datetime.datetime,
-        _dt(2024, 1, 15, 13, 30, 45),
+        datetime.datetime(2024, 1, 15, 13, 30, 45),
+    ),
+    TypeCase(
+        "timestamptz",
+        "TIMESTAMPTZ",
+        None,
+        "TIMESTAMPTZ'2024-01-15 13:30:45 +09:00'",
+        datetime.datetime,
+        datetime.datetime(2024, 1, 15, 13, 30, 45, tzinfo=_KST),
+    ),
+    TypeCase(
+        "datetimetz",
+        "DATETIMETZ",
+        None,
+        "DATETIMETZ'2024-01-15 13:30:45.123 +09:00'",
+        datetime.datetime,
+        datetime.datetime(2024, 1, 15, 13, 30, 45, 123000, tzinfo=_KST),
     ),
     TypeCase("bit", "BIT(8)", None, "B'10101010'", bytes, b"\xaa"),
     TypeCase("bit_varying", "BIT VARYING(16)", None, "B'1010'", bytes, b"\xa0"),
     TypeCase("json", "JSON", None, "'{\"a\": 1}'", str, '{"a":1}'),
     TypeCase("enum", "ENUM('a','b','c')", "b", None, str, "b"),
     TypeCase("null_integer", "INTEGER", None, None, type(None), None),
+    # BLOB/CLOB result columns decode to a LOB-locator dict, not raw bytes/str;
+    # the locator is session-specific and not value-comparable, so pin the type.
+    TypeCase("blob", "BLOB", None, "CHAR_TO_BLOB('deadbeef')", dict, None, type_only=True),
+    TypeCase("clob", "CLOB", None, "CHAR_TO_CLOB('hello clob')", dict, None, type_only=True),
 ]
 
 
@@ -187,7 +209,8 @@ class TestTypeContractSync:
         assert type(result) is case.expected_type, (
             f"{case.name}: expected {case.expected_type.__name__}, got {type(result).__name__}"
         )
-        assert result == case.expected, f"{case.name}: value mismatch"
+        if not case.type_only:
+            assert result == case.expected, f"{case.name}: value mismatch"
 
 
 class TestTypeContractAsync:
@@ -197,7 +220,8 @@ class TestTypeContractAsync:
         assert type(result) is case.expected_type, (
             f"{case.name}: expected {case.expected_type.__name__}, got {type(result).__name__}"
         )
-        assert result == case.expected, f"{case.name}: value mismatch"
+        if not case.type_only:
+            assert result == case.expected, f"{case.name}: value mismatch"
 
 
 class TestTypeContractParity:
@@ -206,7 +230,8 @@ class TestTypeContractParity:
         sync_val = _roundtrip_sync(conn, case)
         async_val = asyncio.run(_roundtrip_async(case))
         assert type(sync_val) is type(async_val)
-        assert sync_val == async_val
+        if not case.type_only:
+            assert sync_val == async_val
 
 
 if __name__ == "__main__":
