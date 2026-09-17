@@ -103,3 +103,46 @@ When filing an issue, include:
 - CUBRID server version
 - Minimal reproduction snippet
 - Full traceback or error output
+
+## Bug Discovery → Regression Workflow
+
+pycubrid runs an adversarial "Bug Hunt" test layer (property fuzzing,
+protocol fuzzing, state machines, metamorphic parity, fault injection,
+differential, mutation, resource/soak). Every defect surfaced by any of
+these — or by manual review or downstream dogfooding — MUST follow this
+cycle before the fix lands:
+
+```
+Bug
+ → Minimal reproduction
+ → GitHub Issue (label: bug + area:)
+ → Failing regression test (committed FIRST, red)
+ → Fix
+ → Permanent regression contract (the test is now green and kept)
+```
+
+Rules:
+
+1. **No bug fix without a regression test** unless it is technically
+   impossible to write one; if impossible, say so explicitly in the PR.
+2. **`xfail` requires a linked issue.** Use `@pytest.mark.xfail(strict=True,
+   reason="issue #NNN: ...")` for a known-but-unfixed defect so the guard
+   flips to a hard failure (XPASS) the moment the bug is fixed, forcing the
+   `xfail` marker to be removed in the fixing PR.
+3. **No blanket `|| true`** or bare `except: pass` to hide failures in test
+   or CI code.
+4. **An unexpected `XPASS` is a signal**, not noise: the referenced bug is
+   fixed — remove the `xfail` and assert the correct behavior in the same PR.
+5. **Classify known limitations** as driver / server / upstream so a reader
+   can tell whether the divergence is pycubrid's responsibility. Documented
+   server-behavior and implementation-difference divergences are pinned in
+   the relevant test (e.g. the CUBRIDdb differential suite) rather than left
+   as silent skips.
+
+Worked example: issue #362 (`Lob.read` silent truncation) was found by the
+LOB adversarial suite, filed with a minimal repro, guarded by a strict
+`xfail` regression test, then fixed — the `xfail` became a passing assertion
+in the fixing PR.
+
+See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) §7 for where behavior-change
+classifications are recorded.
