@@ -118,7 +118,8 @@ class TestLobRoundTrip:
         # A CLOB stores UTF-8 bytes; multibyte/CJK text must round-trip intact.
         text = ("가나다 CLOB ☃ 漢字 " * 200).encode("utf-8")
         lob = conn.create_lob(CUBRIDDataType.CLOB)
-        assert lob.write(text) == len(text)
+        written = lob.write(text)
+        assert written == len(text)
         assert lob.read(len(text)) == text
 
 
