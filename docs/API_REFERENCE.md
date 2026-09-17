@@ -992,6 +992,12 @@ def read(self, length: int, offset: int = 0) -> bytes
 
 Read up to `length` bytes from the LOB starting from `offset`.
 
+The read is issued in as many round-trips as the broker requires: CUBRID caps a
+single `LOB_READ` response at a fixed size, so `read()` loops internally,
+advancing the offset by the bytes returned, until `length` bytes are collected
+or the end of the LOB is reached. `read(0)` returns `b""` without a server
+round-trip.
+
 **Returns:** The read bytes.
 
 ---
