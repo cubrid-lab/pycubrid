@@ -24,6 +24,7 @@ import asyncio
 import socket
 import sys
 import uuid
+from contextlib import closing
 
 import pytest
 
@@ -71,15 +72,14 @@ def _drop_socket(conn: pycubrid.Connection) -> None:
     try:
         sock.shutdown(socket.SHUT_RDWR)
     except OSError:
-        pass
+        pass  # socket may already be half-closed; the close() below still runs
     sock.close()
     conn._socket = None
 
 
 class TestSyncTransportChaos:
     def test_request_after_transport_drop_fails_clearly(self) -> None:
-        conn = _connect()
-        try:
+        with closing(_connect()) as conn:
             cur = conn.cursor()
             cur.execute("SELECT 1")
             assert cur.fetchone() == (1,)
@@ -89,8 +89,6 @@ class TestSyncTransportChaos:
             with pytest.raises(DBAPIError):
                 cur.execute("SELECT 1")
             cur.close()
-        finally:
-            conn.close()
 
     def test_buffered_result_intact_after_drop(self) -> None:
         # pycubrid materializes a result set it can fetch in the initial exchange
@@ -98,36 +96,31 @@ class TestSyncTransportChaos:
         # must not corrupt the already-buffered rows: they read back correctly,
         # and only an operation that needs the (now-dead) server raises.
         table = _tbl()
-        setup = _connect()
-        setup.autocommit = True
-        cur = setup.cursor()
-        cur.execute("CREATE TABLE %s (id INT PRIMARY KEY)" % table)
-        cur.executemany("INSERT INTO %s VALUES (?)" % table, [(i,) for i in range(50)])
-        cur.close()
-        try:
-            conn = _connect()
-            try:
-                c = conn.cursor()
-                c.execute("SELECT id FROM %s ORDER BY id" % table)
-                _drop_socket(conn)
-                # Already-buffered rows read back intact (no corruption/garble).
-                rows = c.fetchall()
-                assert [r[0] for r in rows] == list(range(50))
-                # A new statement needs the dead server and must raise cleanly.
-                with pytest.raises(DBAPIError):
-                    c.execute("SELECT 1")
-                c.close()
-            finally:
-                conn.close()
-        finally:
+        with closing(_connect()) as setup:
+            setup.autocommit = True
             cur = setup.cursor()
-            cur.execute("DROP TABLE IF EXISTS %s" % table)
+            cur.execute("CREATE TABLE %s (id INT PRIMARY KEY)" % table)
+            cur.executemany("INSERT INTO %s VALUES (?)" % table, [(i,) for i in range(50)])
             cur.close()
-            setup.close()
+            try:
+                with closing(_connect()) as conn:
+                    c = conn.cursor()
+                    c.execute("SELECT id FROM %s ORDER BY id" % table)
+                    _drop_socket(conn)
+                    # Already-buffered rows read back intact (no corruption/garble).
+                    rows = c.fetchall()
+                    assert [r[0] for r in rows] == list(range(50))
+                    # A new statement needs the dead server and must raise cleanly.
+                    with pytest.raises(DBAPIError):
+                        c.execute("SELECT 1")
+                    c.close()
+            finally:
+                cur = setup.cursor()
+                cur.execute("DROP TABLE IF EXISTS %s" % table)
+                cur.close()
 
     def test_connection_state_deterministic_after_drop(self) -> None:
-        conn = _connect()
-        try:
+        with closing(_connect()) as conn:
             cur = conn.cursor()
             cur.execute("SELECT 1")
             cur.fetchall()
@@ -135,54 +128,42 @@ class TestSyncTransportChaos:
             with pytest.raises(DBAPIError):
                 cur.execute("SELECT 1")
             # A fresh connection is unaffected and works normally.
-            fresh = _connect()
-            try:
+            with closing(_connect()) as fresh:
                 fcur = fresh.cursor()
                 fcur.execute("SELECT 1")
                 assert fcur.fetchone() == (1,)
                 fcur.close()
-            finally:
-                fresh.close()
-        finally:
-            conn.close()
 
     def test_transaction_not_silently_replayed_after_drop(self) -> None:
         table = _tbl()
-        setup = _connect()
-        setup.autocommit = True
-        scur = setup.cursor()
-        scur.execute("CREATE TABLE %s (id INT PRIMARY KEY)" % table)
-        scur.close()
-        try:
-            conn = _connect()
-            conn.autocommit = False
-            try:
-                cur = conn.cursor()
-                cur.execute("INSERT INTO %s VALUES (1)" % table)  # uncommitted
-                _drop_socket(conn)  # broker vanishes with the txn open
-                # The uncommitted INSERT must NOT be silently replayed/committed
-                # on any transparent reconnect.
-                with pytest.raises(DBAPIError):
-                    cur.execute("SELECT 1")
-                cur.close()
-            finally:
-                conn.close()
-            # Verify from an independent connection: the row never landed.
-            check = _connect()
-            check.autocommit = True
-            try:
-                ccur = check.cursor()
-                ccur.execute("SELECT COUNT(*) FROM %s" % table)
-                row = ccur.fetchone()
-                assert row is not None and row[0] == 0
-                ccur.close()
-            finally:
-                check.close()
-        finally:
+        with closing(_connect()) as setup:
+            setup.autocommit = True
             scur = setup.cursor()
-            scur.execute("DROP TABLE IF EXISTS %s" % table)
+            scur.execute("CREATE TABLE %s (id INT PRIMARY KEY)" % table)
             scur.close()
-            setup.close()
+            try:
+                with closing(_connect()) as conn:
+                    conn.autocommit = False
+                    cur = conn.cursor()
+                    cur.execute("INSERT INTO %s VALUES (1)" % table)  # uncommitted
+                    _drop_socket(conn)  # broker vanishes with the txn open
+                    # The uncommitted INSERT must NOT be silently replayed/committed
+                    # on any transparent reconnect.
+                    with pytest.raises(DBAPIError):
+                        cur.execute("SELECT 1")
+                    cur.close()
+                # Verify from an independent connection: the row never landed.
+                with closing(_connect()) as check:
+                    check.autocommit = True
+                    ccur = check.cursor()
+                    ccur.execute("SELECT COUNT(*) FROM %s" % table)
+                    row = ccur.fetchone()
+                    assert row is not None and row[0] == 0
+                    ccur.close()
+            finally:
+                scur = setup.cursor()
+                scur.execute("DROP TABLE IF EXISTS %s" % table)
+                scur.close()
 
 
 class TestAsyncTransportChaos:
