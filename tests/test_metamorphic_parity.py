@@ -73,9 +73,30 @@ class StepResult:
     """The observable outcome of one workload step."""
 
     raised: str | None
+    errno: int | None
+    sqlstate: str | None
     rows: tuple[tuple[object, ...], ...] | None
     rowcount: int
     lastrowid: int | None
+
+
+def _ok(
+    rows: tuple[tuple[object, ...], ...] | None, rowcount: int, lastrowid: int | None
+) -> StepResult:
+    return StepResult(None, None, None, rows, rowcount, lastrowid)
+
+
+def _err(exc: DBAPIError) -> StepResult:
+    # Capture the server error class AND its errno/sqlstate so parity can catch
+    # cases where sync and async raise the same class with different details.
+    return StepResult(
+        type(exc).__name__,
+        getattr(exc, "errno", None),
+        getattr(exc, "sqlstate", None),
+        None,
+        -1,
+        None,
+    )
 
 
 def _run_sync(table: str, ops: list[Op]) -> tuple[list[StepResult], list[tuple[object, ...]]]:
@@ -120,14 +141,14 @@ def _apply_sync(
             cur.execute("DELETE FROM %s WHERE id = ?" % table, (op.key,))
         elif op.kind == "select":
             cur.execute("SELECT id, v FROM %s ORDER BY id" % table)
-            return StepResult(None, tuple(cur.fetchall()), cur.rowcount, cur.lastrowid)
+            return _ok(tuple(cur.fetchall()), cur.rowcount, cur.lastrowid)
         elif op.kind == "commit":
             conn.commit()
         elif op.kind == "rollback":
             conn.rollback()
     except DBAPIError as exc:
-        return StepResult(type(exc).__name__, None, -1, None)
-    return StepResult(None, None, cur.rowcount, cur.lastrowid)
+        return _err(exc)
+    return _ok(None, cur.rowcount, cur.lastrowid)
 
 
 async def _run_async(
@@ -180,14 +201,14 @@ async def _apply_async(
         elif op.kind == "select":
             await cur.execute("SELECT id, v FROM %s ORDER BY id" % table)
             rows = tuple(await cur.fetchall())
-            return StepResult(None, rows, cur.rowcount, cur.lastrowid)
+            return _ok(rows, cur.rowcount, cur.lastrowid)
         elif op.kind == "commit":
             await conn.commit()
         elif op.kind == "rollback":
             await conn.rollback()
     except DBAPIError as exc:
-        return StepResult(type(exc).__name__, None, -1, None)
-    return StepResult(None, None, cur.rowcount, cur.lastrowid)
+        return _err(exc)
+    return _ok(None, cur.rowcount, cur.lastrowid)
 
 
 class TestMetamorphicParity:
@@ -205,6 +226,11 @@ class TestMetamorphicParity:
             assert s.raised == a.raised, (
                 f"step {i} ({ops[i].kind}): sync raised {s.raised!r}, "
                 f"async raised {a.raised!r} — unclassified sync/async divergence"
+            )
+            assert (s.errno, s.sqlstate) == (a.errno, a.sqlstate), (
+                f"step {i} ({ops[i].kind}): sync error detail "
+                f"(errno={s.errno!r}, sqlstate={s.sqlstate!r}) != async "
+                f"(errno={a.errno!r}, sqlstate={a.sqlstate!r})"
             )
             assert s.rows == a.rows, f"step {i} ({ops[i].kind}): row mismatch"
             assert s.rowcount == a.rowcount, f"step {i} ({ops[i].kind}): rowcount mismatch"
