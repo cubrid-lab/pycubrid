@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import gc
+import json
 import os
 import random
 import sys
@@ -31,7 +32,8 @@ import pytest
 
 import pycubrid
 import pycubrid.aio
-from pycubrid.exceptions import Error as DBAPIError
+from pycubrid.constants import CUBRIDDataType
+from pycubrid.exceptions import Error as DBAPIError, IntegrityError
 
 from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
 
@@ -41,6 +43,10 @@ pytestmark = [
 ]
 
 _SOAK_SECONDS = float(os.environ.get("SOAK_SECONDS", "5"))
+# Per-operation timeout so a broker that accepts a connection then stalls cannot
+# block a single call forever; this makes the SOAK_SECONDS loop bound and the
+# no-deadlock guarantee real rather than aspirational.
+_OP_TIMEOUT = 30.0
 
 
 def _fd_count() -> int:
@@ -58,6 +64,8 @@ def _connect() -> pycubrid.Connection:
         database=TEST_DB,
         user=TEST_USER,
         password=TEST_PASSWORD,
+        connect_timeout=_OP_TIMEOUT,
+        read_timeout=_OP_TIMEOUT,
     )
 
 
@@ -68,6 +76,8 @@ async def _aconnect() -> pycubrid.aio.AsyncConnection:
         database=TEST_DB,
         user=TEST_USER,
         password=TEST_PASSWORD,
+        connect_timeout=_OP_TIMEOUT,
+        read_timeout=_OP_TIMEOUT,
     )
 
 
@@ -88,7 +98,7 @@ class TestSyncSoak:
             cur = conn.cursor()
             cur.execute(
                 "CREATE TABLE %s (id INT PRIMARY KEY, s VARCHAR(200), n NUMERIC(12,4), "
-                "t DATETIME)" % table
+                "t DATETIME, j JSON)" % table
             )
             conn.commit()
 
@@ -122,12 +132,14 @@ class TestSyncSoak:
         table: str,
         rng: random.Random,
     ) -> None:
-        kind = rng.choice(["insert", "select", "update", "delete", "commit", "rollback", "ping"])
+        kind = rng.choice(
+            ["insert", "select", "update", "delete", "commit", "rollback", "ping", "json", "lob"]
+        )
         key = rng.randint(0, 200)
         try:
             if kind == "insert":
                 cur.execute(
-                    "INSERT INTO %s (id, s, n, t) VALUES (?, ?, ?, ?)" % table,
+                    "INSERT INTO %s (id, s, n, t, j) VALUES (?, ?, ?, ?, ?)" % table,
                     (
                         key,
                         rng.choice(_SAMPLE_STRINGS),
@@ -135,6 +147,7 @@ class TestSyncSoak:
                         datetime.datetime(
                             2024, 1, 1 + rng.randint(0, 27), rng.randint(0, 23), 0, 0
                         ),
+                        json.dumps({"k": rng.randint(0, 100), "s": rng.choice(_SAMPLE_STRINGS)}),
                     ),
                 )
             elif kind == "select":
@@ -144,6 +157,18 @@ class TestSyncSoak:
                 # Protocol-desync guard: every row is a 3-tuple as declared.
                 for r in rows:
                     assert len(r) == 3
+            elif kind == "json":
+                # Exercise the JSON decode path on read-back.
+                cur.execute("SELECT j FROM %s WHERE j IS NOT NULL ORDER BY id" % table)
+                for (val,) in cur.fetchmany(5):
+                    if val is not None:
+                        assert isinstance(val, str)
+            elif kind == "lob":
+                # Exercise LOB create/write/read round-trip.
+                lob = conn.create_lob(CUBRIDDataType.BLOB)
+                payload = bytes(rng.randint(0, 255) for _ in range(rng.randint(1, 512)))
+                lob.write(payload)
+                assert lob.read(len(payload)) == payload
             elif kind == "update":
                 cur.execute(
                     "UPDATE %s SET s = ? WHERE id = ?" % table, (rng.choice(_SAMPLE_STRINGS), key)
@@ -156,9 +181,11 @@ class TestSyncSoak:
                 conn.rollback()
             elif kind == "ping":
                 assert isinstance(conn.ping(reconnect=True), bool)
-        except DBAPIError:
-            # A duplicate PK or similar is an expected DB-API error; roll back so
-            # the transaction stays usable and keep soaking.
+        except IntegrityError:
+            # A duplicate PK is the only expected error (random keys collide);
+            # roll back so the transaction stays usable and keep soaking. Any
+            # other DB-API error (Operational/Data/Programming) is a real soak
+            # failure and propagates.
             conn.rollback()
 
     @staticmethod
