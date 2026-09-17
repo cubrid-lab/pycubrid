@@ -1,4 +1,4 @@
-.PHONY: help install lint format typecheck security check check-all test integration integration-tls docker-up docker-down changelog clean clean-all doctor release
+.PHONY: help install lint format typecheck security check check-all test mutation integration integration-tls docker-up docker-down changelog clean clean-all doctor release
 
 PYTEST = python3 -m pytest
 RUFF = ruff
@@ -39,6 +39,10 @@ test: ## Run offline tests with coverage (no DB required)
 		--cov=$(SRC) \
 		--cov-report=term-missing \
 		--cov-fail-under=95
+
+mutation: ## Run mutation testing on the driver core (pip install -e ".[mutation]")
+	mutmut run
+	mutmut results
 
 integration: docker-up ## Run integration tests against a Docker CUBRID
 	@echo "Waiting for CUBRID to be ready..."

@@ -135,6 +135,21 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 make test
 ```
 
+### Mutation Testing
+
+Line coverage proves code *runs*; mutation testing proves the tests *catch wrong
+behavior*. The driver core (packet/protocol serialization, cursor/connection
+lifecycle, LOB I/O) is configured under `[tool.mutmut]` in `pyproject.toml`, run
+against the offline suite:
+
+```bash
+pip install -e ".[mutation]"
+make mutation          # mutmut run && mutmut results
+```
+
+Focus on meaningful surviving mutants (a flipped comparison or dropped cleanup
+that no test kills), not the raw score.
+
 ### Integration Tests
 
 Integration tests require a running CUBRID instance. Use Docker:
