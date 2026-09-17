@@ -129,7 +129,7 @@ class _LiveDB:
             try:
                 cur.execute("DROP TABLE IF EXISTS %s" % table)
             except DBAPIError:
-                pass
+                pass  # best-effort table drop; ignore if the conn is unusable
             cur.close()
 
     def close(self) -> None:
@@ -159,7 +159,7 @@ async def _roundtrip_async(column_ddl: str, value: object) -> object:
         try:
             await cur.execute("DROP TABLE IF EXISTS %s" % table)
         except DBAPIError:
-            pass
+            pass  # best-effort table drop; ignore if the conn is unusable
         await cur.close()
         await conn.close()
 
