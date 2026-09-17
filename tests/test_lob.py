@@ -120,21 +120,30 @@ def test_write_raises_on_zero_bytes_written(mock_connection: MagicMock) -> None:
 def test_read_sends_lob_read_packet_and_returns_data(mock_connection: MagicMock) -> None:
     lob = Lob(mock_connection, CUBRIDDataType.CLOB, b"lob-handle")
 
+    calls: list[int] = []
+
     def send_and_receive(packet: object) -> object:
         if isinstance(packet, LOBReadPacket):
-            packet.bytes_read = 4
-            packet.lob_data = b"data"
+            # First response returns the data; a subsequent response signals EOF
+            # (zero bytes) so the read loop terminates.
+            if not calls:
+                packet.bytes_read = 4
+                packet.lob_data = b"data"
+            else:
+                packet.bytes_read = 0
+                packet.lob_data = b""
+            calls.append(1)
         return packet
 
     mock_connection._send_and_receive.side_effect = send_and_receive
 
     data = lob.read(10, offset=7)
 
-    sent_packet = mock_connection._send_and_receive.call_args.args[0]
-    assert isinstance(sent_packet, LOBReadPacket)
-    assert sent_packet.packed_lob_handle == b"lob-handle"
-    assert sent_packet.offset == 7
-    assert sent_packet.length == 10
+    first_packet = mock_connection._send_and_receive.call_args_list[0].args[0]
+    assert isinstance(first_packet, LOBReadPacket)
+    assert first_packet.packed_lob_handle == b"lob-handle"
+    assert first_packet.offset == 7
+    assert first_packet.length == 10
     assert data == b"data"
     mock_connection._ensure_connected.assert_called_once()
 
@@ -145,6 +154,32 @@ def test_read_returns_empty_bytes_when_server_returns_no_data(mock_connection: M
     data = lob.read(128)
 
     assert data == b""
+
+
+def test_read_loops_over_capped_responses(mock_connection: MagicMock) -> None:
+    # Regression guard for #362: the broker caps each LOB_READ response at a
+    # fixed size, so read() must issue successive requests (advancing the
+    # offset by the bytes returned) until the full length is collected.
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    full = bytes((i * 7) & 0xFF for i in range(250))
+    cap = 100
+    requests: list[tuple[int, int]] = []
+
+    def send_and_receive(packet: object) -> object:
+        if isinstance(packet, LOBReadPacket):
+            requests.append((packet.offset, packet.length))
+            chunk = full[packet.offset : packet.offset + min(packet.length, cap)]
+            packet.bytes_read = len(chunk)
+            packet.lob_data = chunk
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send_and_receive
+
+    data = lob.read(len(full))
+
+    assert data == full
+    # Three round-trips: 100 + 100 + 50 bytes, each advancing the offset.
+    assert requests == [(0, 250), (100, 150), (200, 50)]
 
 
 def test_read_propagates_server_error(mock_connection: MagicMock) -> None:

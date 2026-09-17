@@ -196,6 +196,18 @@ updated in the same pull request or as an immediate follow-up:
 
 Code without a corresponding documentation update is considered incomplete.
 
+### Behavior-change classifications
+
+Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
+the documented release contract stays complete alongside `CHANGELOG.md`:
+
+- **`Lob.read(n)` now returns the full requested length (#362)** — PATCH /
+  backward-compatible bug fix. The public signature is unchanged; the method
+  previously under-returned (silently capped at ~81908 bytes) and now loops to
+  satisfy the request, and `read(0)` returns `b""` without a server round-trip.
+  Callers that already worked receive strictly more-correct data; no caller
+  relying on the documented "read up to `length` bytes" contract is broken.
+
 ## 8. How to Update the Baseline
 
 The baseline is intentionally checked into the repository so that surface

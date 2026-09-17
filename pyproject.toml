@@ -45,6 +45,9 @@ dev = [
     "tox",
     "hypothesis>=6.0",
 ]
+mutation = [
+    "mutmut>=3.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/cubrid-lab/pycubrid"
@@ -100,3 +103,12 @@ markers = [
     "integration: requires a live CUBRID server",
     "benchmark: performance benchmark (requires a live CUBRID server)",
 ]
+
+[tool.mutmut]
+# Mutation testing scopes the driver core — the modules where a wrong constant,
+# flipped comparison, or dropped cleanup silently corrupts data or leaks
+# resources. The offline suite is the test command (no DB), so mutants are
+# killed by the property/protocol/state-machine tests, not live integration.
+paths_to_mutate = "pycubrid/packet.py,pycubrid/protocol.py,pycubrid/_cursor_common.py,pycubrid/_connection_common.py,pycubrid/cursor.py,pycubrid/connection.py,pycubrid/lob.py,pycubrid/aio/connection.py,pycubrid/aio/cursor.py"
+tests_dir = "tests/"
+runner = "python -m pytest -x -q -m 'not integration' -p no:cacheprovider"
