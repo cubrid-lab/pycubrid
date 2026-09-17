@@ -1,0 +1,269 @@
+name: Bug Hunt (nightly)
+
+# Adversarial Bug Hunt layer (epic #336). Runs the integration-marked property
+# fuzzing, protocol fuzzing, state-machine, metamorphic, fault-injection,
+# differential, resource-leak and PEP 249 runtime suites under the WIDE
+# Hypothesis profile against a live CUBRID broker, plus mutation testing of the
+# driver core. Nightly + on demand only; PR CI keeps the fast profile.
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: bug-hunt-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  property-and-fault:
+    name: property / protocol / state-machine / fault (nightly profile)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cubrid-version: ["10.2", "11.4"]
+    services:
+      cubrid:
+        image: cubrid/cubrid:${{ matrix.cubrid-version }}
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33000:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    env:
+      HYPOTHESIS_PROFILE: nightly
+      CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+      CUBRID_TEST_HOST: localhost
+      CUBRID_TEST_PORT: "33000"
+      CUBRID_TEST_DB: testdb
+      CUBRID_TEST_USER: dba
+      CUBRID_TEST_PASSWORD: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Wait for CUBRID readiness
+        run: |
+          for i in $(seq 1 30); do
+            if python -c "
+          import pycubrid
+          try:
+              conn = pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba', password='')
+              cur = conn.cursor(); cur.execute('SELECT 1'); cur.close(); conn.close()
+              print('CUBRID ready'); exit(0)
+          except Exception as e:
+              print(f'Not ready: {e}'); exit(1)
+          "; then
+              break
+            fi
+            echo "Waiting for CUBRID... (attempt $i/30)"
+            sleep 5
+          done
+      - name: Run the bug-hunt integration suites (wide Hypothesis profile)
+        run: |
+          python -m pytest tests/ -m integration -v --tb=short \
+            tests/test_property_live_values.py \
+            tests/test_protocol_fuzz.py \
+            tests/test_fault_broker.py \
+            tests/test_connection_state_machine.py \
+            tests/test_metamorphic_parity.py \
+            tests/test_transaction_matrix.py \
+            tests/test_type_contract.py \
+            tests/test_batch_semantics.py \
+            tests/test_lob_adversarial.py \
+            tests/test_async_cancellation.py \
+            tests/test_cubriddb_differential.py \
+            tests/test_resource_leaks.py \
+            tests/test_pep249_runtime.py \
+            tests/test_property_placeholders.py
+      - name: Collect Hypothesis repro artifacts on failure
+        if: failure()
+        run: |
+          python scripts/collect_repro.py
+      - name: Upload repro artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: bug-hunt-repro-${{ matrix.cubrid-version }}
+          path: |
+            bug-hunt-repro/
+            .hypothesis/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  mutation:
+    name: mutation testing (driver core, offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - name: Install pycubrid with mutation extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,mutation]"
+      - name: Run mutation testing
+        run: |
+          mutmut run || true
+          mutmut results || true
+      - name: Upload mutation results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mutation-cache
+          path: .mutmut-cache
+          if-no-files-found: ignore
+          retention-days: 14
+
+  perf-trend:
+    name: benchmark trend detection
+    runs-on: ubuntu-latest
+    services:
+      cubrid:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33000:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    env:
+      CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+      CUBRID_TEST_HOST: localhost
+      CUBRID_TEST_PORT: "33000"
+      CUBRID_TEST_DB: testdb
+      CUBRID_TEST_USER: dba
+      CUBRID_TEST_PASSWORD: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Wait for CUBRID readiness
+        run: |
+          for i in $(seq 1 30); do
+            if python -c "
+          import pycubrid
+          try:
+              conn = pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba', password='')
+              cur = conn.cursor(); cur.execute('SELECT 1'); cur.close(); conn.close()
+              print('CUBRID ready'); exit(0)
+          except Exception as e:
+              print(f'Not ready: {e}'); exit(1)
+          "; then
+              break
+            fi
+            echo "Waiting for CUBRID... (attempt $i/30)"
+            sleep 5
+          done
+      - name: Run benchmarks to JSON
+        run: |
+          python -m pytest tests/test_benchmarks.py --benchmark-enable \
+            --benchmark-json=current-bench.json -q || true
+      - name: Restore benchmark baseline
+        id: baseline
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+        with:
+          path: baseline-bench.json
+          key: bench-baseline-${{ github.ref_name }}
+      - name: Compare against baseline (trend, non-blocking)
+        run: |
+          if [ -f baseline-bench.json ]; then
+            python scripts/bench_regression.py \
+              --baseline baseline-bench.json --current current-bench.json || true
+          else
+            echo "No baseline yet; seeding it from this run."
+          fi
+          cp current-bench.json baseline-bench.json
+      - name: Upload benchmark JSON
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: benchmark-json
+          path: current-bench.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  downstream-corpus:
+    name: downstream dogfood (sqlalchemy-cubrid)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      cubrid:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33000:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - name: Check out sqlalchemy-cubrid
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          repository: cubrid-lab/sqlalchemy-cubrid
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - name: Install downstream against pycubrid @ this ref
+        run: |
+          python -m pip install --upgrade pip
+          # Dogfood: force the pycubrid under test (this workflow's ref) rather
+          # than the released pin, then install the downstream + its test deps.
+          pip install -e ".[pycubrid]"
+          pip install "pycubrid @ git+https://github.com/${{ github.repository }}.git@${{ github.sha }}"
+          pip install pytest
+      - name: Wait for CUBRID readiness
+        run: |
+          for i in $(seq 1 30); do
+            if python -c "
+          import pycubrid
+          try:
+              conn = pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba', password='')
+              cur = conn.cursor(); cur.execute('SELECT 1'); cur.close(); conn.close()
+              print('CUBRID ready'); exit(0)
+          except Exception as e:
+              print(f'Not ready: {e}'); exit(1)
+          "; then
+              break
+            fi
+            sleep 5
+          done
+      - name: Run downstream test suite
+        env:
+          CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+          CUBRID_TEST_HOST: localhost
+          CUBRID_TEST_PORT: "33000"
+          CUBRID_TEST_DB: testdb
+          CUBRID_TEST_USER: dba
+          CUBRID_TEST_PASSWORD: ""
+        run: |
+          python -m pytest test/ -v --tb=short || \
+            python -m pytest tests/ -v --tb=short
