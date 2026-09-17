@@ -5,9 +5,21 @@ from __future__ import annotations
 import os
 
 import pytest
+from hypothesis import HealthCheck, settings
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
+
+# Hypothesis profiles for the bug-hunt suites. "dev"/"pr" keep CI fast and
+# deterministic; "nightly" widens exploration. Select with the env var
+# HYPOTHESIS_PROFILE (defaults to "pr"). Per-test @settings still override the
+# profile's max_examples where a test pins its own budget.
+settings.register_profile("pr", max_examples=50, deadline=None)
+settings.register_profile(
+    "dev", max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+)
+settings.register_profile("nightly", max_examples=1000, deadline=None)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "pr"))
 
 
 def _cubrid_is_configured() -> bool:
@@ -49,7 +61,14 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     against a live CUBRID server.
     """
     fspath = str(request.fspath)
-    if "test_backslash_negotiation" in fspath or "test_integration" in fspath:
+    _live_optouts = (
+        "test_backslash_negotiation",
+        "test_integration",
+        "test_property_live_values",
+        "test_connection_state_machine",
+        "test_metamorphic_parity",
+    )
+    if any(name in fspath for name in _live_optouts):
         return
 
     def _pin_sync(self: Connection) -> None:
