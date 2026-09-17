@@ -40,7 +40,7 @@ test: ## Run offline tests with coverage (no DB required)
 		--cov-report=term-missing \
 		--cov-fail-under=95
 
-mutation: ## Run mutation testing on the driver core (pip install -e ".[mutation]")
+mutation: ## Run mutation testing on the driver core (pip install -e ".[dev,mutation]")
 	mutmut run
 	mutmut results
 

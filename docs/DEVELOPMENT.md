@@ -143,7 +143,7 @@ lifecycle, LOB I/O) is configured under `[tool.mutmut]` in `pyproject.toml`, run
 against the offline suite:
 
 ```bash
-pip install -e ".[mutation]"
+pip install -e ".[dev,mutation]"
 make mutation          # mutmut run && mutmut results
 ```
 
