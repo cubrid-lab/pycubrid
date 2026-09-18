@@ -92,8 +92,8 @@ class Cursor(_CursorBase):
     @arraysize.setter
     def arraysize(self, value: int) -> None:
         """Set the default number of rows for fetchmany."""
-        if value < 1:
-            raise ProgrammingError("arraysize must be greater than zero")
+        if type(value) is not int or value < 1:
+            raise ProgrammingError("arraysize must be a positive integer")
         self._arraysize = value
 
     @property
