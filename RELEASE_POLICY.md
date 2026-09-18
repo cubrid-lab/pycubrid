@@ -201,6 +201,10 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
+  backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
+  `execute()` by releasing a previous result-set handle before starting another operation.
+
 - **`Lob.read(n)` now returns the full requested length (#362)** — PATCH /
   backward-compatible bug fix. The public signature is unchanged; the method
   previously under-returned (silently capped at ~81908 bytes) and now loops to
