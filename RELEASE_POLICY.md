@@ -201,6 +201,11 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Large integer parameter formatting no longer raises `OverflowError` (#368)** —
+  PATCH / backward-compatible bug fix. Integers are rendered directly as decimal
+  strings, restoring the documented binding contract without float conversion.
+  Float NaN/infinity rejection, boolean formatting, and public signatures are unchanged.
+
 - **`Lob.read(n)` now returns the full requested length (#362)** — PATCH /
   backward-compatible bug fix. The public signature is unchanged; the method
   previously under-returned (silently capped at ~81908 bytes) and now loops to
