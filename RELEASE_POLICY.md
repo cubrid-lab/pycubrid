@@ -217,6 +217,22 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   Callers that already worked receive strictly more-correct data; no caller
   relying on the documented "read up to `length` bytes" contract is broken.
 
+- **Unknown connection options now emit `UnknownConnectionOptionWarning`
+  (#377)** — MINOR / additive. Adds one `__all__` entry
+  (`UnknownConnectionOptionWarning`) and no required parameter, so the surface
+  change is purely additive (§2). The behavior change is confined to keywords
+  that were previously *silently discarded*: they are still discarded, they now
+  additionally warn. No supported option changes meaning, and no previously
+  working call starts failing under the default warning filters.
+
+  Rejecting unknown options with a `TypeError` was considered and deliberately
+  deferred: it would break wrapper layers that forward keywords (connection
+  pools, ORM dialects such as `sqlalchemy-cubrid`) and therefore qualifies as a
+  breaking change under §3 — it may only land on a major version, via an issue
+  tagged `breaking-change` with a migration path. Until then, callers who want
+  that strictness opt in per-process with
+  `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)`.
+
 ## 8. How to Update the Baseline
 
 The baseline is intentionally checked into the repository so that surface

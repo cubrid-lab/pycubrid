@@ -44,6 +44,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [InternalError](#internalerror)
   - [ProgrammingError](#programmingerror)
   - [NotSupportedError](#notsupportederror)
+  - [UnknownConnectionOptionWarning](#unknownconnectionoptionwarning)
 - [Type Objects](#type-objects)
 - [Type Constructors](#type-constructors)
 
@@ -103,7 +104,17 @@ Create a new database connection.
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync and async broker connections; `True` uses the default verified context with a TLS 1.2 minimum. Connection uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake then TLS upgrade before `OPEN_DATABASE`. See [Connection guide](CONNECTION.md#ssltls). |
-| `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit` |
+| `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit`. An unrecognised keyword is ignored but reported — see [Unknown Options](#unknown-options) |
+
+#### Unknown Options
+
+A keyword that is not a supported connection option is ignored, but emits an
+`UnknownConnectionOptionWarning` naming it (with a spelling suggestion when one
+is close), so a typo such as `read_timout=30` is not swallowed silently. The
+same applies to `pycubrid.aio.connect()` and to direct `Connection(...)` /
+`AsyncConnection(...)` construction. See
+[Unknown Options](CONNECTION.md#unknown-options) for how to escalate the warning
+to an error or silence it.
 
 #### `decode_collections`
 
@@ -1241,6 +1252,36 @@ class NotSupportedError(DatabaseError)
 ```
 
 Raised when an unsupported method or API is called.
+
+---
+
+### UnknownConnectionOptionWarning
+
+```python
+class UnknownConnectionOptionWarning(UserWarning)
+```
+
+A Python **warning category**, not a PEP 249 exception — it sits outside the
+hierarchy above and is deliberately distinct from `pycubrid.Warning` (the
+PEP 249 database warning, which is raised).
+
+Emitted when a connection constructor receives a keyword it does not recognise.
+The keyword is still ignored, but the warning names it — with a spelling
+suggestion when one is close — so a typo such as `read_timout=30` is not
+swallowed silently.
+
+```python
+import warnings
+import pycubrid
+
+# Strict: an unknown connection option becomes an error.
+warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+
+# Lenient: silence it (e.g. in a wrapper that forwards arbitrary kwargs).
+warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+```
+
+See [Unknown Options](CONNECTION.md#unknown-options).
 
 ---
 

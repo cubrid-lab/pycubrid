@@ -94,6 +94,45 @@ def connect(
 | `no_backslash_escapes` | `bool` | `False` | Escape strings using doubled quotes only, without backslash escapes |
 | `autocommit` | `bool` | `False` | Enable immediate commit per statement |
 
+### Unknown Options
+
+Any keyword outside the two tables above is **not** a supported connection
+option. pycubrid ignores it, but reports it through the
+`pycubrid.UnknownConnectionOptionWarning` category so that a typo is not
+swallowed silently:
+
+```python
+import pycubrid
+
+pycubrid.connect(host="localhost", database="demodb", read_timout=30)
+# UnknownConnectionOptionWarning: Unknown connection option ignored by pycubrid:
+# 'read_timout' (did you mean 'read_timeout'?). Supported options: autocommit,
+# connect_timeout, database, decode_collections, enable_timing, fetch_size,
+# host, json_deserializer, no_backslash_escapes, password, port, read_timeout,
+# ssl, user.
+```
+
+The warning is emitted before any socket work, so a mis-spelled option is
+reported even when the connection itself then fails. It applies equally to
+`pycubrid.connect()`, `pycubrid.aio.connect()`, and direct `Connection(...)` /
+`AsyncConnection(...)` construction.
+
+A warning — rather than a `TypeError` — is the default because wrapper layers
+(connection pools, ORM dialects) legitimately forward extra keywords, and
+rejecting them outright would break those callers. Use the standard `warnings`
+machinery to pick the strictness you want:
+
+```python
+import warnings
+import pycubrid
+
+# Strict: turn an unknown option into an error.
+warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+
+# Lenient: silence it entirely (e.g. inside a wrapper that forwards kwargs).
+warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+```
+
 ### Common Connection Profiles
 
 | Profile | host | port | user | password | autocommit | Use case |

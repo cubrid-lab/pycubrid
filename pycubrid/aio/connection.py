@@ -11,7 +11,11 @@ import sys
 import time
 from typing import Any
 
-from pycubrid._connection_common import ConnectionCommonMixin, resolve_ssl_context
+from pycubrid._connection_common import (
+    ConnectionCommonMixin,
+    resolve_ssl_context,
+    warn_unknown_connection_options,
+)
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
 from pycubrid.protocol import (
@@ -75,6 +79,9 @@ class AsyncConnection(ConnectionCommonMixin):
         autocommit: bool = False,
         **kwargs: Any,
     ) -> None:
+        # Report typo'd/unsupported options before any socket work, so a
+        # mis-spelled option is surfaced even when the connection then fails.
+        warn_unknown_connection_options(kwargs)
         self._ssl_context = resolve_ssl_context(ssl)
         self._init_common_state(
             host=host,

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Unknown connection options are now surfaced instead of silently ignored (#377)** — `Connection.__init__`/`AsyncConnection.__init__` read a fixed set of options out of `**kwargs` and discarded everything else without a word, so a typo such as `read_timout=30` or `connectTimeout=5` was accepted, had no effect, and gave the caller no signal. Any keyword outside the supported set now emits a new `pycubrid.UnknownConnectionOptionWarning` (a `UserWarning` subclass, **not** part of the PEP 249 exception hierarchy) naming the offending option, suggesting the closest supported spelling when there is one, and listing the full supported set. Known options behave exactly as before, and the warning is emitted before any socket work so a mis-spelled option is reported even when the connection then fails. It covers `pycubrid.connect()`, `pycubrid.aio.connect()`, and direct `Connection(...)`/`AsyncConnection(...)` construction, and points at the caller's own line rather than pycubrid's internals.
+
+  A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Callers choose their own strictness with the standard `warnings` machinery — `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to reject unknown options, `"ignore"` to silence them. Additive surface change (`api-baseline.json` regenerated).
+
 ### Fixed
 - **Batch execution closes an existing query handle (#374)** — `executemany_batch()` now releases an active server-side query handle before sending a batch request, matching `execute()` and preventing the prior result-set handle from leaking. Sync and async cursors keep the same behavior.
 - Format very large integer parameters as decimal strings without converting them to floats, avoiding `OverflowError`. Float NaN/infinity rejection and boolean formatting are unchanged. (#368)
