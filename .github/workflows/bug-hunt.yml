@@ -160,7 +160,7 @@ jobs:
       # key via restore-keys — that way each night compares against yesterday and
       # then persists a new baseline entry under today's key.
       - name: Restore benchmark baseline
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: baseline-bench.json
           key: bench-baseline-${{ github.ref_name }}-${{ github.run_id }}
