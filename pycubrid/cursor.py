@@ -195,6 +195,7 @@ class Cursor(_CursorBase):
                 self._connection._send_and_receive(lid_packet)
                 if lid_packet.last_insert_id:
                     self._lastrowid = int(lid_packet.last_insert_id)
+                    self._connection._last_insert_id = self._lastrowid
             except (InterfaceError, OperationalError, OSError, TypeError, ValueError) as exc:
                 _LOGGER.debug("lastrowid retrieval failed: %s", exc)
                 self._lastrowid = None

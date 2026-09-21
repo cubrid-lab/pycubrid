@@ -17,7 +17,6 @@ from .protocol import (
     CloseDatabasePacket,
     CommitPacket,
     GetEngineVersionPacket,
-    GetLastInsertIdPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
     RollbackPacket,
@@ -403,12 +402,23 @@ class Connection(ConnectionCommonMixin):
         version: str = packet.engine_version
         return version
 
-    def get_last_insert_id(self) -> str:
-        """Return last inserted auto-increment value as string."""
+    def get_last_insert_id(self) -> int | None:
+        """Return the last auto-increment id generated on this connection.
+
+        Reflects the id captured when a cursor on this connection last
+        executed a successful INSERT (the same value that cursor exposes
+        via ``lastrowid``), rather than querying the broker live. A
+        live query returns an ambiguous empty string once a ``commit()``
+        happens in between, since CUBRID's broker clears its own
+        session-scoped last-insert-id state on commit; the cached value
+        here is unaffected by that.
+
+        Returns:
+            The last inserted id, or ``None`` if no cursor on this
+            connection has executed a successful INSERT yet.
+        """
         self._ensure_connected()
-        packet = self._send_and_receive(GetLastInsertIdPacket())
-        result: str = packet.last_insert_id
-        return result
+        return self._last_insert_id
 
     def ping(self, reconnect: bool = True) -> bool:
         """Check if the CAS broker connection is alive.
