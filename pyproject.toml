@@ -39,7 +39,7 @@ dev = [
     "pytest-asyncio>=0.21",
     "pytest-cov",
     "pytest-benchmark>=4.0",
-    "ruff==0.16.7",
+    "ruff==0.16.8",
     "mypy==2.3.1",
     "bandit[toml]==1.9.4",
     "pre-commit",
