@@ -117,7 +117,7 @@ class ParityAdapter:
     async def get_server_version(self, _conn: Connection | AsyncConnection) -> str:
         raise NotImplementedError
 
-    async def get_last_insert_id(self, _conn: Connection | AsyncConnection) -> str:
+    async def get_last_insert_id(self, _conn: Connection | AsyncConnection) -> int | None:
         raise NotImplementedError
 
     async def execute(
@@ -214,7 +214,7 @@ class SyncParityAdapter(ParityAdapter):
         assert isinstance(conn, Connection)
         return conn.get_server_version()
 
-    async def get_last_insert_id(self, conn: Connection | AsyncConnection) -> str:
+    async def get_last_insert_id(self, conn: Connection | AsyncConnection) -> int | None:
         assert isinstance(conn, Connection)
         return conn.get_last_insert_id()
 
@@ -320,7 +320,7 @@ class AsyncParityAdapter(ParityAdapter):
         assert isinstance(conn, AsyncConnection)
         return await conn.get_server_version()
 
-    async def get_last_insert_id(self, conn: Connection | AsyncConnection) -> str:
+    async def get_last_insert_id(self, conn: Connection | AsyncConnection) -> int | None:
         assert isinstance(conn, AsyncConnection)
         return await conn.get_last_insert_id()
 
@@ -532,7 +532,7 @@ async def autocommit_transitions(adapter: ParityAdapter) -> tuple[bool, bool, bo
         await adapter.close_connection(conn)
 
 
-async def insert_identity_values(adapter: ParityAdapter) -> tuple[int | None, str]:
+async def insert_identity_values(adapter: ParityAdapter) -> tuple[int | None, int | None]:
     table = table_name("identity")
     conn = await adapter.connect()
     await adapter.set_autocommit(conn, False)

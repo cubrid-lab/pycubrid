@@ -357,7 +357,7 @@ the failure.
 | `rollback()`                        | `None`        | Roll back the current transaction                |
 | `close()`                           | `None`        | Close the connection and free resources           |
 | `get_server_version()`              | `str`         | Return the CUBRID server version string          |
-| `get_last_insert_id()`              | `str`         | Return the last auto-increment ID                |
+| `get_last_insert_id()`              | `int \| None` | Return the last auto-increment ID, or `None`     |
 | `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | Query schema metadata from the server |
 

@@ -145,6 +145,42 @@ def test_execute_insert_sets_rowcount_and_lastrowid(
     assert cursor.rowcount == 3
     assert cursor.lastrowid == 55
     assert cursor.description is None
+    assert mock_connection._last_insert_id == 55
+
+
+def test_execute_select_after_insert_does_not_clear_connection_last_insert_id(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """A later SELECT resets the cursor's own lastrowid but must not touch the
+    connection-level cache that `Connection.get_last_insert_id()` reads."""
+
+    def send(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.INSERT,
+                result_count=1,
+                with_columns=False,
+            )
+        elif isinstance(packet, GetLastInsertIdPacket):
+            packet.last_insert_id = "7"
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.execute("INSERT INTO t VALUES (1)")
+    assert mock_connection._last_insert_id == 7
+
+    def send_select(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
+            )
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send_select
+    cursor.execute("SELECT id FROM t")
+    assert cursor.lastrowid is None
+    assert mock_connection._last_insert_id == 7
 
 
 def test_execute_insert_lastrowid_failure_is_ignored(

@@ -201,7 +201,7 @@ class TestParityConnectionLifecycle:
         lastrowid, last_insert_id = await insert_identity_values(adapter)
         assert isinstance(lastrowid, int)
         assert lastrowid is not None and lastrowid > 0
-        assert last_insert_id == str(lastrowid)
+        assert last_insert_id == lastrowid
 
     @pytest.mark.asyncio
     async def test_get_server_version(self, adapter: ParityAdapter) -> None:
