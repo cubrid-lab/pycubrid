@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **`Connection.get_last_insert_id()` / `AsyncConnection.get_last_insert_id()` no longer return an ambiguous empty string after `commit()` (#381)** — the method queried the CUBRID broker's session-scoped last-insert-id state live on every call, but the broker clears that state on `commit()`/`rollback()`, so a call made after committing an INSERT returned `''` — indistinguishable from "no INSERT has run" and a predictable `ValueError` for callers doing `int(conn.get_last_insert_id())`. Both methods now return the id captured by the most recently executed cursor's `lastrowid` at `execute()` time (mirroring that cursor's own value, so it survives an intervening `commit()`), or `None` if no cursor on the connection has executed a successful INSERT yet. The return type changes from `str` to `int | None` to match `cursor.lastrowid` and make "no value" unambiguous; per `RELEASE_POLICY.md` §1, refining a public method's return type annotation is not a breaking-API change.
+
 ## [1.7.1] - 2026-09-18
 
 ### Fixed

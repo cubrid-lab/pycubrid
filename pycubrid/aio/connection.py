@@ -20,7 +20,6 @@ from pycubrid.protocol import (
     CloseDatabasePacket,
     CommitPacket,
     GetEngineVersionPacket,
-    GetLastInsertIdPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
     RollbackPacket,
@@ -643,11 +642,21 @@ class AsyncConnection(ConnectionCommonMixin):
         version: str = packet.engine_version
         return version
 
-    async def get_last_insert_id(self) -> str:
+    async def get_last_insert_id(self) -> int | None:
+        """Return the last auto-increment id generated on this connection.
+
+        Reflects the id captured when a cursor on this connection last
+        executed a successful INSERT (the same value that cursor exposes
+        via ``lastrowid``), rather than querying the broker live — see
+        ``Connection.get_last_insert_id`` for why a live query is ambiguous
+        after an intervening ``commit()``.
+
+        Returns:
+            The last inserted id, or ``None`` if no cursor on this
+            connection has executed a successful INSERT yet.
+        """
         self._ensure_connected()
-        packet = await self._send_and_receive(GetLastInsertIdPacket())
-        last_id: str = packet.last_insert_id
-        return last_id
+        return self._last_insert_id
 
     async def ping(self, reconnect: bool = True) -> bool:
         """Contract: reconnect+session-restore is attempted at most once per
