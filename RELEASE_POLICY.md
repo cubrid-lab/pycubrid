@@ -201,6 +201,10 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
+  backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
+  `execute()` by releasing a previous result-set handle before starting another operation.
+
 - **Large integer parameter formatting no longer raises `OverflowError` (#368)** —
   PATCH / backward-compatible bug fix. Integers are rendered directly as decimal
   strings, restoring the documented binding contract without float conversion.

@@ -12,6 +12,7 @@ import pytest
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.protocol import BatchExecutePacket, CloseQueryPacket
 
 
 def build_handshake_response(port: int = 0) -> bytes:
@@ -637,6 +638,24 @@ class TestAsyncCursorExecutemanyBatch:
         results = await cur.executemany_batch(["INSERT 1", "INSERT 2"])
         assert results == [(0, 5), (0, 3)]
         assert cur._rowcount == 8
+
+    @pytest.mark.asyncio
+    async def test_executemany_batch_closes_existing_query_handle(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+        cur._query_handle = 99
+
+        async def fake_send(packet):
+            if isinstance(packet, BatchExecutePacket):
+                packet.results = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.executemany_batch(["INSERT 1"])
+
+        packets = [call.args[0] for call in conn._send_and_receive.call_args_list]
+        assert isinstance(packets[0], CloseQueryPacket)
+        assert packets[0].query_handle == 99
+        assert isinstance(packets[1], BatchExecutePacket)
 
     @pytest.mark.asyncio
     async def test_executemany_batch_empty_results(self) -> None:

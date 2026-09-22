@@ -429,6 +429,19 @@ def test_executemany_batch_executes_multiple_sql(
     assert cursor.rowcount == 3
 
 
+def test_executemany_batch_closes_existing_query_handle(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    cursor._query_handle = 99
+
+    cursor.executemany_batch(["INSERT INTO t VALUES (1)"])
+
+    packets = [call.args[0] for call in mock_connection._send_and_receive.call_args_list]
+    assert isinstance(packets[0], CloseQueryPacket)
+    assert packets[0].query_handle == 99
+    assert isinstance(packets[1], BatchExecutePacket)
+
+
 def test_executemany_batch_auto_commit_override(cursor: Cursor, mock_connection: MagicMock) -> None:
     cursor.executemany_batch(["DELETE FROM t"], auto_commit=True)
 
