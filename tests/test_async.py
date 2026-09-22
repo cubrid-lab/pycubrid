@@ -11,7 +11,7 @@ import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
-from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
 
 
 def build_handshake_response(port: int = 0) -> bytes:
@@ -240,8 +240,17 @@ class TestAsyncCursorProperties:
         conn._timing = None
         conn._cursors = set()
         cur = AsyncCursor(conn)
-        with pytest.raises(Exception, match="greater than zero"):
+        with pytest.raises(ProgrammingError, match="arraysize"):
             cur.arraysize = 0
+
+    @pytest.mark.parametrize("value", [1.5, True, False])
+    def test_arraysize_rejects_non_integer_values(self, value: object) -> None:
+        conn = MagicMock()
+        conn._timing = None
+        conn._cursors = set()
+        cur = AsyncCursor(conn)
+        with pytest.raises(ProgrammingError, match="arraysize"):
+            cur.arraysize = value  # type: ignore[assignment]
 
 
 class TestAsyncCursorClose:
