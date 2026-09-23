@@ -24,22 +24,7 @@ TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
 TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
 
 
-def _can_connect() -> bool:
-    try:
-        c = pycubrid.connect(
-            host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-            user=TEST_USER, password=TEST_PASSWORD,
-        )
-        c.close()
-        return True
-    except Exception:
-        return False
-
-
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
-]
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture

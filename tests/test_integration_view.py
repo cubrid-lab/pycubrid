@@ -22,22 +22,7 @@ TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
 TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
 
 
-def _can_connect() -> bool:
-    try:
-        c = pycubrid.connect(
-            host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-            user=TEST_USER, password=TEST_PASSWORD,
-        )
-        c.close()
-        return True
-    except Exception:
-        return False
-
-
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
-]
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
@@ -77,6 +62,12 @@ class TestViewOperations:
                 % (view, table)
             )
             cursor.execute("SELECT * FROM %s ORDER BY qty" % view)
+            # Verify cursor.description exposes view column metadata
+            assert cursor.description is not None
+            assert len(cursor.description) == 3
+            assert cursor.description[0][0] == "qty"
+            assert cursor.description[1][0] == "price"
+            assert cursor.description[2][0] == "total"
             rows = cursor.fetchall()
             assert len(rows) == 2
             assert rows[0][2] == 150  # 10 * 15
