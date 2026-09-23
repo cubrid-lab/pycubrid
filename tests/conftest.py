@@ -83,6 +83,7 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
         "test_pep249_runtime",
         "test_soak",
         "test_chaos",
+        "test_integration_description",
     )
     if any(name in fspath for name in _live_optouts):
         return
