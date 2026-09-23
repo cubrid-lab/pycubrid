@@ -234,7 +234,9 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
         if value.is_nan() or value.is_infinite():
             raise ProgrammingError("nan and inf are not supported by CUBRID")
         return str(value)
-    if isinstance(value, (int, float)):
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
         if math.isnan(value) or math.isinf(value):
             raise ProgrammingError("nan and inf are not supported by CUBRID")
         return str(value)

@@ -101,6 +101,13 @@ test that pins the behavior.
 | `datetime.time` | `TIME'HH:MM:SS'` — microseconds dropped | `_cursor_common.py:173-174` | `tests/test_param_security.py:120-122` |
 | anything else | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:181` | `tests/test_param_security.py:128-130`; `tests/test_cursor.py:233-235` |
 
+Integers are converted directly to decimal strings without conversion to `float`,
+including values such as `10**1000` and `-(10**1000)` that exceed the float range.
+This formatting behavior does not guarantee that CUBRID can store the value;
+server numeric limits and Python's integer-to-string conversion limits still apply.
+Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_large_int`
+and `::test_bind_large_int`.
+
 ### Explicitly unsupported as a bound value
 
 - `datetime.timedelta` — no branch; raises `ProgrammingError("unsupported parameter type")`.
