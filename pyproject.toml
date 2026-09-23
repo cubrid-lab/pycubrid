@@ -102,6 +102,7 @@ addopts = "--tb native -v -r fxX --maxfail=25 -p no:warnings"
 python_files = "tests/*test_*.py"
 markers = [
     "integration: requires a live CUBRID server",
+    "slow: long-running tests (soak, stress, chaos) excluded from the standard full matrix",
     "benchmark: performance benchmark (requires a live CUBRID server)",
 ]
 
