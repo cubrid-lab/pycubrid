@@ -43,6 +43,7 @@ def _can_connect() -> bool:
 
 pytestmark = [
     pytest.mark.integration,
+    pytest.mark.slow,
     pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
 ]
 
