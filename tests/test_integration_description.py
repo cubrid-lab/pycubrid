@@ -28,26 +28,11 @@ TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
 TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
 
 
-def _can_connect() -> bool:
-    try:
-        c = pycubrid.connect(
-            host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-            user=TEST_USER, password=TEST_PASSWORD,
-        )
-        c.close()
-        return True
-    except Exception:
-        return False
-
-
 def _table_name() -> str:
     return "pycubrid_desc_%s" % uuid.uuid4().hex[:8]
 
 
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
-]
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
@@ -90,7 +75,8 @@ def desc_table(cursor: Cursor) -> Generator[str, None, None]:
         "c_string STRING,"
         "c_set SET(INT),"
         "c_multiset MULTISET(INT),"
-        "c_sequence SEQUENCE(INT)"
+        "c_sequence SEQUENCE(INT),"
+        "c_notnull INT NOT NULL DEFAULT 0"
         ")" % table
     )
     yield table
@@ -111,6 +97,21 @@ class TestDescriptionStructure:
         cursor.execute("CREATE TABLE %s (id INT)" % table)
         assert cursor.description is None
         cursor.execute("DROP TABLE IF EXISTS %s" % table)
+
+    def test_display_size_and_internal_size_are_none(
+        self, cursor: Cursor, desc_table: str
+    ) -> None:
+        """pycubrid returns None for display_size and internal_size.
+
+        CUBRIDdb returns 0 for both. This is a known divergence — PEP 249
+        permits None for columns where the value is not applicable.
+        """
+        cursor.execute("SELECT c_int FROM %s" % desc_table)
+        assert cursor.description is not None
+        display_size = cursor.description[0][2]
+        internal_size = cursor.description[0][3]
+        assert display_size is None, "pycubrid returns None for display_size (CUBRIDdb: 0)"
+        assert internal_size is None, "pycubrid returns None for internal_size (CUBRIDdb: 0)"
 
 
 # Official CUBRIDdb type_code expectations from tests3/test_description.py.
@@ -188,11 +189,19 @@ class TestDescriptionPrecisionScale:
         precision = cursor.description[0][4]
         assert precision == 4
 
-    def test_nullable(self, cursor: Cursor, desc_table: str) -> None:
+
+class TestDescriptionNullable:
+    """Validate null_ok (index 6) for both nullable and NOT NULL columns."""
+
+    def test_nullable_column(self, cursor: Cursor, desc_table: str) -> None:
         cursor.execute("SELECT c_int FROM %s" % desc_table)
         assert cursor.description is not None
-        null_ok = cursor.description[0][6]
-        assert null_ok == 1  # all columns in the test table are nullable
+        assert cursor.description[0][6] == 1
+
+    def test_not_null_column(self, cursor: Cursor, desc_table: str) -> None:
+        cursor.execute("SELECT c_notnull FROM %s" % desc_table)
+        assert cursor.description is not None
+        assert cursor.description[0][6] == 0
 
 
 class TestDescriptionEnum:
