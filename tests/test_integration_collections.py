@@ -174,8 +174,7 @@ class TestCollectionCRUD:
 
 class TestCollectionDecodeFlag:
     def test_decode_collections_false(self) -> None:
-        conn = _connect(decode_collections=False)
-        try:
+        with _connect(decode_collections=False) as conn:
             cur = conn.cursor()
             table = _tbl()
             try:
@@ -189,5 +188,3 @@ class TestCollectionDecodeFlag:
             finally:
                 cur.execute("DROP TABLE IF EXISTS %s" % table)
                 cur.close()
-        finally:
-            conn.close()
