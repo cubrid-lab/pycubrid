@@ -24,6 +24,7 @@
       "Timestamp",
       "TimestampFromTicks",
       "TimingStats",
+      "UnknownConnectionOptionWarning",
       "Warning",
       "__version__",
       "apilevel",
@@ -1004,6 +1005,13 @@
             }
           }
         },
+        "properties": []
+      },
+      "UnknownConnectionOptionWarning": {
+        "bases": [],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {},
         "properties": []
       },
       "Warning": {

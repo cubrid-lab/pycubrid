@@ -27,8 +27,12 @@ async def connect(
         database: Database name.
         user: Database user (default ``"dba"``).
         password: Database password (default ``""``).
-        **kwargs: Additional connection parameters
-            (``autocommit``, ``connect_timeout``).
+        **kwargs: Additional connection parameters (``autocommit``,
+            ``fetch_size``, ``connect_timeout``, ``read_timeout``,
+            ``no_backslash_escapes``, ``enable_timing``). An unrecognised
+            keyword is ignored, but reports an
+            :class:`~pycubrid.exceptions.UnknownConnectionOptionWarning`
+            so that a typo is not swallowed silently.
 
     Returns:
         A connected :class:`AsyncConnection` instance.

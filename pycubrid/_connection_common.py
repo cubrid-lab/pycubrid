@@ -12,10 +12,13 @@ concrete sync/async classes.
 from __future__ import annotations
 
 
+import difflib
 import logging
 import os
 import socket
 import ssl as ssl_module
+import sys
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from .constants import DataSize
@@ -29,6 +32,7 @@ from .exceptions import (
     NotSupportedError,
     OperationalError,
     ProgrammingError,
+    UnknownConnectionOptionWarning,
     Warning,
 )
 
@@ -36,6 +40,90 @@ if TYPE_CHECKING:
     from .timing import TimingStats
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# Every public connection option accepted by ``pycubrid.connect``,
+# ``pycubrid.aio.connect``, ``Connection.__init__`` and
+# ``AsyncConnection.__init__``. The two constructors name a different subset
+# explicitly and read the rest out of ``**kwargs``, so the union is kept here
+# once and checked against the live signatures by
+# ``tests/test_unknown_options.py``. Anything reaching a constructor's
+# ``**kwargs`` that is not in this set is a typo (or an option this driver does
+# not implement) and is surfaced rather than silently dropped — issue #377.
+KNOWN_CONNECTION_OPTIONS: frozenset[str] = frozenset(
+    {
+        "host",
+        "port",
+        "database",
+        "user",
+        "password",
+        "ssl",
+        "autocommit",
+        "fetch_size",
+        "decode_collections",
+        "json_deserializer",
+        "connect_timeout",
+        "read_timeout",
+        "no_backslash_escapes",
+        "enable_timing",
+    }
+)
+
+_PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _caller_stacklevel() -> int:
+    """Return the ``warnings.warn`` stacklevel of the nearest non-pycubrid frame.
+
+    No fixed stacklevel can point at user code here: a connection is built
+    either directly (``Connection(...)``) or through one frame of
+    ``pycubrid.connect()`` / ``pycubrid.aio.connect()``. Walking outwards until
+    a frame's file leaves the package directory makes the warning attach to the
+    caller's own line in both cases, which is the whole point of reporting it.
+
+    Level 1 is the caller of this helper (the frame that calls
+    :func:`warnings.warn`), so counting starts there.
+    """
+    frame = sys._getframe(1) if hasattr(sys, "_getframe") else None
+    level = 1
+    while frame is not None and frame.f_code.co_filename.startswith(_PACKAGE_ROOT + os.sep):
+        frame = frame.f_back
+        level += 1
+    return level
+
+
+def warn_unknown_connection_options(kwargs: dict[str, Any]) -> None:
+    """Warn about connection keywords pycubrid does not recognise.
+
+    Called from the sync and async connection constructors with whatever landed
+    in their ``**kwargs``. Known options are left untouched; unknown ones are
+    reported once, with a spelling suggestion when one is close enough, through
+    :class:`~pycubrid.exceptions.UnknownConnectionOptionWarning`.
+    """
+    unknown = sorted(key for key in kwargs if key not in KNOWN_CONNECTION_OPTIONS)
+    if not unknown:
+        return
+
+    known = sorted(KNOWN_CONNECTION_OPTIONS)
+    fragments: list[str] = []
+    for name in unknown:
+        matches = difflib.get_close_matches(name, known, n=1, cutoff=0.6)
+        if not matches:
+            # Retry case-insensitively so camelCase spellings such as
+            # ``connectTimeout`` still map onto ``connect_timeout``.
+            matches = difflib.get_close_matches(name.lower(), known, n=1, cutoff=0.6)
+        if matches:
+            fragments.append(f"{name!r} (did you mean {matches[0]!r}?)")
+        else:
+            fragments.append(repr(name))
+
+    plural = "s" if len(unknown) > 1 else ""
+    warnings.warn(
+        f"Unknown connection option{plural} ignored by pycubrid: "
+        f"{', '.join(fragments)}. Supported options: {', '.join(known)}.",
+        UnknownConnectionOptionWarning,
+        stacklevel=_caller_stacklevel(),
+    )
 
 
 def resolve_ssl_context(

@@ -8,7 +8,11 @@ import time
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
-from ._connection_common import ConnectionCommonMixin, resolve_ssl_context
+from ._connection_common import (
+    ConnectionCommonMixin,
+    resolve_ssl_context,
+    warn_unknown_connection_options,
+)
 from .constants import CCIDbParam, DataSize
 from .exceptions import DataError, InterfaceError, OperationalError
 from .protocol import (
@@ -52,6 +56,9 @@ class Connection(ConnectionCommonMixin):
         fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
+        # Report typo'd/unsupported options before any socket work, so a
+        # mis-spelled option is surfaced even when the connection then fails.
+        warn_unknown_connection_options(kwargs)
         self._ssl_context = resolve_ssl_context(ssl)
         self._init_common_state(
             host=host,

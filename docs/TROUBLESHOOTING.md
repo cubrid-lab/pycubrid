@@ -13,6 +13,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Connection Closed Unexpectedly](#connection-closed-unexpectedly)
   - [Broker Port Redirect Failure](#broker-port-redirect-failure)
   - [Async TLS Handshake Hangs on Python 3.10](#async-tls-handshake-hangs-on-python-310)
+  - [Connection Option Has No Effect](#connection-option-has-no-effect)
 - [Query Issues](#query-issues)
   - [ProgrammingError: SQL Syntax](#programmingerror-sql-syntax)
   - [Parameter Binding Errors](#parameter-binding-errors)
@@ -338,6 +339,62 @@ OperationalError: ... (during connection handshake)
 - **Pass a custom `ssl.SSLContext`** with the correct CA bundle loaded (`context.load_verify_locations(cafile=...)`) rather than relying on the system trust store, eliminating the most common verify failure.
 
 **Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That is the signature of the 3.10-only async-TLS handshake bug.
+
+---
+
+### Connection Option Has No Effect
+
+**Symptom:**
+
+A connection option is accepted but does nothing — the timeout never changes,
+timing stats stay empty, the fetch batch size is unchanged — and a warning like
+this appears:
+
+```
+UnknownConnectionOptionWarning: Unknown connection option ignored by pycubrid:
+'read_timout' (did you mean 'read_timeout'?). Supported options: autocommit,
+connect_timeout, database, decode_collections, enable_timing, fetch_size, host,
+json_deserializer, no_backslash_escapes, password, port, read_timeout, ssl, user.
+```
+
+**Cause:**
+
+The keyword is not a supported connection option, so it lands in `**kwargs` and
+is discarded. Usually a typo (`read_timout`), a camelCase spelling
+(`connectTimeout`), or an option borrowed from a different driver.
+
+**Fixes:**
+
+1. **Use the spelling the warning suggests**, or pick from the supported set it
+   lists. The full reference is in
+   [Connection Options](CONNECTION.md#keyword-arguments).
+
+2. **Catch typos automatically in development** by making the warning fatal:
+
+   ```python
+   import warnings
+   import pycubrid
+
+   warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+   ```
+
+   (Install this filter from Python. `python -W` and `PYTHONWARNINGS` are
+   parsed at interpreter startup, before site-packages is importable, so
+   `-W error::pycubrid.UnknownConnectionOptionWarning` is rejected with
+   `Invalid -W option ignored: invalid module name: 'pycubrid'` even when
+   pycubrid is installed. `python -W error::UserWarning` works, but it
+   escalates every `UserWarning`, not just this one.)
+
+3. **If a wrapper legitimately forwards extra keywords** (a connection pool or
+   an ORM dialect), silence the category instead of chasing each one:
+
+   ```python
+   warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+   ```
+
+> **Note:** If you see no warning at all, check that warnings are not globally
+> suppressed — `python -W default` restores the default display. Warnings are
+> also hidden by default in some test runners.
 
 ---
 

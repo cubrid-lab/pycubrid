@@ -16,6 +16,7 @@ from pycubrid.exceptions import (
     NotSupportedError,
     OperationalError,
     ProgrammingError,
+    UnknownConnectionOptionWarning,
     Warning,
 )
 from pycubrid.types import (
@@ -67,7 +68,13 @@ def connect(
         database: Database name.
         user: Database user (default ``"dba"``).
         password: Database password (default ``""``).
-        **kwargs: Additional connection parameters.
+        **kwargs: Additional connection parameters (``autocommit``,
+            ``fetch_size``, ``connect_timeout``, ``read_timeout``,
+            ``no_backslash_escapes``, ``enable_timing``). An unrecognised
+            keyword is ignored, but reports an
+            :class:`~pycubrid.exceptions.UnknownConnectionOptionWarning`
+            so that a typo such as ``read_timout=30`` is not swallowed
+            silently.
 
     Returns:
         A new :class:`~pycubrid.connection.Connection` instance.
@@ -117,6 +124,8 @@ __all__ = [
     "InternalError",
     "ProgrammingError",
     "NotSupportedError",
+    # Warning categories (not part of the PEP 249 exception hierarchy)
+    "UnknownConnectionOptionWarning",
     "get_error_description",
     # Type objects
     "STRING",
