@@ -73,7 +73,7 @@ jobs:
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
         run: |
-          python -m pytest tests/ -m "integration and not slow" -v --tb=short
+          python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short
 
   integration-tls:
     # Provision a CUBRID broker with SSL=ON so tests/test_aio_ssl_integration.py
