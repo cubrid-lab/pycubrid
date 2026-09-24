@@ -637,7 +637,7 @@ results = cur.executemany_batch([
 # statement_type 4 = CREATE_CLASS, 20 = INSERT
 ```
 
-> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249.
+> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249. If a batch reports a per-statement error, prior cursor result state is cleared before the database exception is raised.
 
 ---
 

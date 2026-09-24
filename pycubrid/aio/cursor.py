@@ -240,6 +240,8 @@ class AsyncCursor(_AsyncCursorBase):
         self._row_index = 0
         self._fetched_count = 0
         self._query_handle = None
+        self._rowcount = -1
+        self._lastrowid = None
 
         # Raise on per-statement batch failures (issue #186).
         if packet.errors:

@@ -531,6 +531,10 @@ def test_executemany_batch_raises_on_partial_failure(
 
     assert cursor.description is None
     assert cursor._rows == []
+    assert cursor.rowcount == -1
+    assert cursor.lastrowid is None
+    with pytest.raises(ProgrammingError):
+        cursor.fetchone()
 
 
 def test_executemany_batch_error_uses_cas_code_dispatch(
@@ -678,6 +682,10 @@ def test_fetchall_clears_buffer_entirely(cursor: Cursor, mock_connection: MagicM
     result = cursor.fetchall()
     assert len(result) == 250
     assert cursor._rows == []
+    assert cursor.rowcount == -1
+    assert cursor.lastrowid is None
+    with pytest.raises(ProgrammingError):
+        cursor.fetchone()
     assert cursor._row_index == 0
 
 

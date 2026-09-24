@@ -707,6 +707,10 @@ class TestAsyncCursorExecutemanyBatch:
 
         assert cur.description is None
         assert cur._rows == []
+        assert cur.rowcount == -1
+        assert cur.lastrowid is None
+        with pytest.raises(ProgrammingError):
+            await cur.fetchone()
 
     @pytest.mark.asyncio
     async def test_executemany_batch_error_dispatches_operational_error(self) -> None:
