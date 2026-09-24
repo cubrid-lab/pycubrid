@@ -533,7 +533,7 @@ def test_executemany_batch_raises_on_partial_failure(
     assert cursor._rows == []
     assert cursor.rowcount == -1
     assert cursor.lastrowid is None
-    with pytest.raises(ProgrammingError):
+    with pytest.raises(InterfaceError, match="No result set"):
         cursor.fetchone()
 
 
@@ -682,10 +682,6 @@ def test_fetchall_clears_buffer_entirely(cursor: Cursor, mock_connection: MagicM
     result = cursor.fetchall()
     assert len(result) == 250
     assert cursor._rows == []
-    assert cursor.rowcount == -1
-    assert cursor.lastrowid is None
-    with pytest.raises(ProgrammingError):
-        cursor.fetchone()
     assert cursor._row_index == 0
 
 

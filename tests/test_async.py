@@ -709,7 +709,7 @@ class TestAsyncCursorExecutemanyBatch:
         assert cur._rows == []
         assert cur.rowcount == -1
         assert cur.lastrowid is None
-        with pytest.raises(ProgrammingError):
+        with pytest.raises(InterfaceError, match="No result set"):
             await cur.fetchone()
 
     @pytest.mark.asyncio
