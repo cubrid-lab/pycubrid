@@ -699,8 +699,18 @@ class TestAsyncCursorExecutemanyBatch:
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
 
+        cur._description = (("stale", 1, None, None, 0, 0, False),)
+        cur._rows = [("stale",)]
+
         with pytest.raises(IntegrityError, match="unique constraint"):
             await cur.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
+
+        assert cur.description is None
+        assert cur._rows == []
+        assert cur.rowcount == -1
+        assert cur.lastrowid is None
+        with pytest.raises(InterfaceError, match="No result set"):
+            await cur.fetchone()
 
     @pytest.mark.asyncio
     async def test_executemany_batch_error_dispatches_operational_error(self) -> None:

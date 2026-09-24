@@ -235,16 +235,18 @@ class AsyncCursor(_AsyncCursorBase):
         )
         await self._connection._send_and_receive(packet)
 
-        # Raise on per-statement batch failures (issue #186).
-        if packet.errors:
-            err = packet.errors[0]
-            _raise_batch_error(err)
-
         self._description = None
         self._rows = []
         self._row_index = 0
         self._fetched_count = 0
         self._query_handle = None
+        self._rowcount = -1
+        self._lastrowid = None
+
+        # Raise on per-statement batch failures (issue #186).
+        if packet.errors:
+            err = packet.errors[0]
+            _raise_batch_error(err)
 
         if packet.results:
             self._rowcount = sum(count for _, count in packet.results)
