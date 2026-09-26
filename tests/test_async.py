@@ -11,7 +11,7 @@ import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
-from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
 from pycubrid.protocol import BatchExecutePacket, CloseQueryPacket
 
 
@@ -262,8 +262,19 @@ class TestAsyncCursorProperties:
         conn._timing = None
         conn._cursors = set()
         cur = AsyncCursor(conn)
-        with pytest.raises(Exception, match="greater than zero"):
+        with pytest.raises(ProgrammingError, match="arraysize"):
             cur.arraysize = 0
+
+    @pytest.mark.parametrize("value", [1.5, True, False, "2", None, -1])
+    def test_arraysize_rejects_non_integer_values(self, value: object) -> None:
+        conn = MagicMock()
+        conn._timing = None
+        conn._cursors = set()
+        cur = AsyncCursor(conn)
+        cur.arraysize = 3
+        with pytest.raises(ProgrammingError, match="arraysize"):
+            setattr(cur, "arraysize", value)
+        assert cur.arraysize == 3
 
 
 class TestAsyncCursorClose:

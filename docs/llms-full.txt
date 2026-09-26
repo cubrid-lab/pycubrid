@@ -1717,7 +1717,11 @@ def arraysize(self, value: int) -> None
 
 Default number of rows for `fetchmany()`. Defaults to `1`.
 
-**Raises:** `ProgrammingError` if set to a value less than 1.
+The value must be a positive integer. Booleans and floats are not accepted.
+This validation also applies to `AsyncCursor.arraysize`.
+
+**Raises:** `ProgrammingError` if the value is not a positive integer. An invalid
+assignment leaves the previous value unchanged.
 
 ---
 

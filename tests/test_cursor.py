@@ -83,6 +83,14 @@ def test_arraysize_setter_and_validation(cursor: Cursor) -> None:
         cursor.arraysize = 0
 
 
+@pytest.mark.parametrize("value", [1.5, True, False, "2", None, -1])
+def test_arraysize_rejects_non_integer_values(cursor: Cursor, value: object) -> None:
+    cursor.arraysize = 3
+    with pytest.raises(ProgrammingError, match="arraysize"):
+        setattr(cursor, "arraysize", value)
+    assert cursor.arraysize == 3
+
+
 def test_execute_select_sets_description_and_rowcount(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:

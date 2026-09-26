@@ -833,7 +833,11 @@ def arraysize(self, value: int) -> None
 
 `fetchmany()`의 기본 행 수. 기본값은 `1`입니다.
 
-**발생:** 1 미만 값으로 설정하면 `ProgrammingError`.
+값은 양의 정수여야 합니다. 불리언과 실수는 허용하지 않습니다.
+`AsyncCursor.arraysize`에도 같은 검증을 적용합니다.
+
+**발생:** 양의 정수가 아닌 값으로 설정하면 `ProgrammingError`.
+잘못된 값을 대입해도 이전 값은 변경되지 않습니다.
 
 ---
 
