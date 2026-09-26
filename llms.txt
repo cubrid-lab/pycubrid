@@ -9,7 +9,7 @@ Key facts:
 - Connect: `pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")`
 - Full exception hierarchy: `Warning`, `Error`, `InterfaceError`, `DatabaseError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError`
 - Standard type objects: `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
-- Features: prepared statements, batch operations (`executemany`), LOB support (CLOB/BLOB), schema introspection, context managers, iterator protocol
+- Features: parameterized queries, batch operations (`executemany`), LOB support (CLOB/BLOB), schema introspection, context managers, iterator protocol
 - PEP 561 typed package with `py.typed` marker
 - 471 offline tests, 99%+ code coverage
 - Install: `pip install pycubrid`
@@ -25,14 +25,14 @@ Key facts:
 
 ## Examples
 
-- [Quick Start](https://github.com/cubrid-lab/pycubrid/blob/main/README.md#quick-start): Basic connection, context manager, parameter binding, prepared statements
-- [CUBRID Cookbook — pycubrid](https://github.com/cubrid-lab/cubrid-cookbook/tree/main/python/pycubrid): 6 production-ready examples — connect, CRUD, transactions, prepared statements, error handling, LOBs
+- [Quick Start](https://github.com/cubrid-lab/pycubrid/blob/main/README.md#quick-start): Basic connection, context manager, parameter binding
+- [CUBRID Cookbook — pycubrid](https://github.com/cubrid-lab/cubrid-cookbook/tree/main/python/pycubrid): 6 production-ready examples — connect, CRUD, transactions, parameterized queries, error handling, LOBs
 
 ## API Reference
 
 - [Source — __init__.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py): Public API — connect(), types, exceptions, __version__
 - [Source — connection.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/connection.py): Connection class — connect, commit, rollback, cursor, LOB
-- [Source — cursor.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/cursor.py): Cursor class — execute, fetch, prepare, callproc, iterator
+- [Source — cursor.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/cursor.py): Cursor class — execute, fetch, callproc, iterator
 - [Source — types.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/types.py): DB-API 2.0 type objects and constructors
 - [Source — exceptions.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/exceptions.py): PEP 249 exception hierarchy
 
