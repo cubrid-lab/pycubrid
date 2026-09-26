@@ -275,8 +275,6 @@ class Cursor(_CursorBase):
             auto_commit=auto_commit,
             protocol_version=self._connection._protocol_version,
         )
-        self._connection._send_and_receive(packet)
-
         self._description = None
         self._rows = []
         self._row_index = 0
@@ -284,6 +282,9 @@ class Cursor(_CursorBase):
         self._query_handle = None
         self._rowcount = -1
         self._lastrowid = None
+
+        # A failed transport or response parse must not expose prior results.
+        self._connection._send_and_receive(packet)
 
         # Raise on per-statement batch failures (issue #186).
         # The batch protocol returns partial results alongside per-statement

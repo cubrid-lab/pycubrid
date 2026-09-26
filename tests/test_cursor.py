@@ -526,6 +526,9 @@ def test_executemany_batch_raises_on_partial_failure(
     cursor._description = (("stale", 1, None, None, 0, 0, False),)
     cursor._rows = [("stale",)]
 
+    cursor._rowcount = 10
+    cursor._lastrowid = 123
+
     with pytest.raises(IntegrityError, match="unique constraint"):
         cursor.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
 

@@ -201,7 +201,7 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
-- Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation.
+- Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
 
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches

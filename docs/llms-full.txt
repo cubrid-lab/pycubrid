@@ -45,6 +45,15 @@ conn.close()
 - [Changelog](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)
 - [Contributing](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md)
 
+## Ecosystem
+
+Part of the cubrid-lab Python ecosystem:
+
+- **pycubrid** — Pure-Python DB-API 2.0 driver for CUBRID (sync + native asyncio)
+- sqlalchemy-cubrid — SQLAlchemy 2.0–2.2 dialect + Alembic
+- cubrid-cookbook-python — 68 runnable examples and application templates
+- cubrid-mcp-server — MCP server — natural-language access for LLM clients
+
 ============================================================
 File: quickstart.md
 ============================================================
@@ -1479,7 +1488,7 @@ results = cur.executemany_batch([
 # statement_type 4 = CREATE_CLASS, 20 = INSERT
 ```
 
-> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249.
+> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249. Once the previous query handle is closed, prior cursor result state is cleared before the batch request. A failed batch, including transport or response-parse errors, leaves `description=None`, `rowcount=-1`, `lastrowid=None`, and no fetchable rows. A per-statement error still raises the appropriate database exception; successful partial results do not establish a final row count. If closing the previous handle fails, no batch is sent and the handle remains tracked.
 
 ---
 
@@ -1833,6 +1842,12 @@ def read(self, length: int, offset: int = 0) -> bytes
 ```
 
 Read up to `length` bytes from the LOB starting from `offset`.
+
+The read is issued in as many round-trips as the broker requires: CUBRID caps a
+single `LOB_READ` response at a fixed size, so `read()` loops internally,
+advancing the offset by the bytes returned, until `length` bytes are collected
+or the end of the LOB is reached. `read(0)` returns `b""` without a server
+round-trip.
 
 **Returns:** The read bytes.
 
@@ -2435,8 +2450,8 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `TIME` | 14 | `datetime.time` | Time of day |
 | `TIMESTAMP` | 15 | `datetime.datetime` | Date + time (microsecond = 0) |
 | `DATETIME` | 22 | `datetime.datetime` | Date + time + millisecond |
-| `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps |
-| `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes |
+| `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps (second precision, microsecond = 0) |
+| `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes (millisecond precision) |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
 | `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
@@ -3909,6 +3924,8 @@ Available parameters (`CCIDbParam`):
 | `_parse_time()` | `datetime.time` | 3 shorts (hour, minute, second) |
 | `_parse_datetime()` | `datetime.datetime` | 7 shorts (y,m,d,h,m,s,ms) |
 | `_parse_timestamp()` | `datetime.datetime` | 6 shorts (y,m,d,h,m,s) |
+| `_parse_timestamptz()` | `datetime.datetime` | 6 shorts (y,m,d,h,m,s) + timezone string; second precision (`TIMESTAMPTZ`/`TIMESTAMPLTZ`) |
+| `_parse_datetimetz()` | `datetime.datetime` | 7 shorts (y,m,d,h,m,s,ms) + timezone string; millisecond precision (`DATETIMETZ`/`DATETIMELTZ`) |
 | `_parse_numeric(size)` | `Decimal` | Null-terminated string → Decimal |
 | `_parse_object()` | `str` | OID string (`"OID:@page|slot|volume"`) |
 | `read_blob(size)` | `dict` | BLOB handle info |
@@ -4295,6 +4312,20 @@ Lob, get_error_description
 - [Type System](TYPES.md)
 - [API Reference](API_REFERENCE.md)
 - [Support Matrix](SUPPORT_MATRIX.md)
+
+## CUBRID Server License Relationship
+
+pycubrid speaks the CAS wire protocol and is an independent, pure-Python client
+implementation. It contains no CUBRID server source and links no server
+libraries, so it is not a derivative work of the server under any license regime.
+
+The CUBRID server engine is distributed under Apache License 2.0, with official
+APIs/connectors under BSD (upstream `COPYING`, http://www.cubrid.org/cubrid).
+An earlier GPL v2+ regime no longer applies — and even under it, a wire-protocol
+client over TCP was unaffected. No copyleft obligations reach this codebase.
+
+The `cubrid/cubrid` Docker images (10.2-11.4) are used in CI strictly to run
+integration tests against a live server; they are not distributed with pycubrid.
 
 ============================================================
 File: PERFORMANCE.md
@@ -6292,6 +6323,21 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 make test
 ```
 
+### Mutation Testing
+
+Line coverage proves code *runs*; mutation testing proves the tests *catch wrong
+behavior*. The driver core (packet/protocol serialization, cursor/connection
+lifecycle, LOB I/O) is configured under `[tool.mutmut]` in `pyproject.toml`, run
+against the offline suite:
+
+```bash
+pip install -e ".[dev,mutation]"
+make mutation          # mutmut run && mutmut results
+```
+
+Focus on meaningful surviving mutants (a flipped comparison or dropped cleanup
+that no test kills), not the raw score.
+
 ### Integration Tests
 
 Integration tests require a running CUBRID instance. Use Docker:
@@ -6726,6 +6772,13 @@ test that pins the behavior.
 | `datetime.time` | `TIME'HH:MM:SS'` — microseconds dropped | `_cursor_common.py:173-174` | `tests/test_param_security.py:120-122` |
 | anything else | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:181` | `tests/test_param_security.py:128-130`; `tests/test_cursor.py:233-235` |
 
+Integers are converted directly to decimal strings without conversion to `float`,
+including values such as `10**1000` and `-(10**1000)` that exceed the float range.
+This formatting behavior does not guarantee that CUBRID can store the value;
+server numeric limits and Python's integer-to-string conversion limits still apply.
+Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_large_int`
+and `::test_bind_large_int`.
+
 ### Explicitly unsupported as a bound value
 
 - `datetime.timedelta` — no branch; raises `ProgrammingError("unsupported parameter type")`.
@@ -6733,10 +6786,11 @@ test that pins the behavior.
   raw `bytes` for `BLOB`/`BIT`-typed columns; for large object workflows use
   `Connection.create_lob()` plus the LOB write API
   (`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
-- Collections (`list`, `tuple`, `set`, `dict`) as a single bound value — no
-  branch; raises `ProgrammingError("unsupported parameter type")`. There is
-  **no automatic `IN (?, ?, ?)` expansion**; expand placeholders explicitly in
-  the SQL.
+- Collections (`list`, `tuple`, `set`, `frozenset`, `dict`) as a single bound
+  value — raise `ProgrammingError` with an actionable message (current text:
+  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL`).
+  There is **no automatic `IN (?, ?, ?)`** expansion; expand placeholders
+  explicitly in the SQL.
 - Arbitrary Python objects — raises
   `ProgrammingError("unsupported parameter type")`.
 

@@ -702,6 +702,9 @@ class TestAsyncCursorExecutemanyBatch:
         cur._description = (("stale", 1, None, None, 0, 0, False),)
         cur._rows = [("stale",)]
 
+        cur._rowcount = 10
+        cur._lastrowid = 123
+
         with pytest.raises(IntegrityError, match="unique constraint"):
             await cur.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
 
