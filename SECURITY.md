@@ -6,8 +6,8 @@ The following versions of pycubrid are currently supported for security updates:
 
 | Version | Status |
 |---------|--------|
-| 1.3.x   | ✅ Supported |
-| < 1.3   | ❌ Not Supported |
+| 1.7.x   | ✅ Supported |
+| < 1.7   | ❌ Not Supported |
 
 Security patches will be applied to supported versions only. Users are strongly encouraged to upgrade to the latest version.
 
@@ -84,36 +84,3 @@ Recommended configurations, in order of preference:
    chained to a publicly-trusted CA.
 2. **Custom `ssl.SSLContext` with pinned CA bundle** — for self-signed or
    private-CA brokers, load the CA explicitly:
-
-   ```python
-   import ssl
-   ctx = ssl.create_default_context(cafile="/etc/ssl/cubrid-ca.pem")
-   ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-   pycubrid.connect(..., ssl=ctx)
-   ```
-
-3. **Never disable hostname/certificate verification** (`check_hostname=False`,
-   `verify_mode=CERT_NONE`) in production — that defeats the purpose of TLS
-   and is treated as a security issue under this policy.
-
-### Known Limitation
-
-On Python 3.10, `asyncio.loop.start_tls()` can hang on certificate-verify
-failures (a known CPython asyncio TLS handshake bug on Python 3.10,
-fixed in 3.13/3.14). Tracked as
-[#156](https://github.com/cubrid-lab/pycubrid/issues/156). For production
-async TLS on Python 3.10, validate the certificate chain out-of-band or use
-the sync path. This is a CPython bug, not a pycubrid security issue, and is
-documented in detail in
-[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310).
-
-## Disclosure Policy
-
-Once a security vulnerability is fixed:
-
-1. A security patch will be released
-2. The vulnerability will be disclosed in release notes
-3. An advisory may be published on GitHub Security Advisories
-4. Credit will be given to the reporter (if requested)
-
-We appreciate your responsible disclosure and help in keeping pycubrid secure.
