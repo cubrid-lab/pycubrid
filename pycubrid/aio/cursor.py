@@ -81,8 +81,8 @@ class AsyncCursor(_AsyncCursorBase):
 
     @arraysize.setter
     def arraysize(self, value: int) -> None:
-        if value < 1:
-            raise ProgrammingError("arraysize must be greater than zero")
+        if type(value) is not int or value < 1:
+            raise ProgrammingError("arraysize must be a positive integer")
         self._arraysize = value
 
     @property

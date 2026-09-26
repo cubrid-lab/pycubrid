@@ -201,6 +201,12 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
+  PATCH / backward-compatible bug fix. The public signatures are unchanged;
+  validation now enforces the documented positive-integer row-count contract,
+  including rejection of floats and booleans. Valid positive integers retain
+  their behavior, and invalid assignments leave the previous value unchanged.
+
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
   `execute()` by releasing a previous result-set handle before starting another operation.
