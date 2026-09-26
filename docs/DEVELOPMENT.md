@@ -360,6 +360,13 @@ ruff format pycubrid/ tests/
 
 ## CI/CD
 
+The regular and full integration workflows run `python scripts/wait_for_cubrid.py`
+before the tests. It connects using `CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`,
+`CUBRID_TEST_DB`, `CUBRID_TEST_USER`, and `CUBRID_TEST_PASSWORD` (defaults:
+`localhost:33000/testdb`, user `dba`, empty password), executes `SELECT 1`, and
+fails the job if no probe succeeds within 30 attempts with 5 seconds between
+attempts. Infrastructure failure therefore stops the test step.
+
 ### GitHub Actions Workflows
 
 | Workflow | Trigger | Description |

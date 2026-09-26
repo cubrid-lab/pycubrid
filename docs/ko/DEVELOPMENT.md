@@ -331,6 +331,14 @@ ruff format pycubrid/ tests/
 
 ## CI/CD
 
+일반 및 전체 통합 워크플로는 테스트 전에
+`python scripts/wait_for_cubrid.py`를 실행합니다. 이 스크립트는
+`CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`, `CUBRID_TEST_DB`,
+`CUBRID_TEST_USER`, `CUBRID_TEST_PASSWORD`로 접속합니다(기본값:
+`localhost:33000/testdb`, 사용자 `dba`, 빈 비밀번호).
+`SELECT 1` 확인을 5초 간격으로 최대 30회 시도하며, 모두 실패하면
+잡을 실패 처리해 테스트 단계가 실행되지 않습니다.
+
 ### GitHub Actions 워크플로
 
 | 워크플로 | 트리거 | 설명 |

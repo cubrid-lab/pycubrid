@@ -48,27 +48,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Wait for CUBRID readiness
-        run: |
-          for i in $(seq 1 30); do
-            if python -c "
-          from pycubrid import connect
-          try:
-              conn = connect('CUBRID:localhost:33000:testdb:::', user='dba', password='')
-              cur = conn.cursor()
-              cur.execute('SELECT 1')
-              cur.close()
-              conn.close()
-              print('CUBRID ready')
-              exit(0)
-          except Exception as e:
-              print(f'Not ready: {e}')
-              exit(1)
-          "; then
-              break
-            fi
-            echo "Waiting for CUBRID... (attempt $i/30)"
-            sleep 5
-          done
+        run: python scripts/wait_for_cubrid.py
       - name: Run integration tests
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
