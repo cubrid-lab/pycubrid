@@ -263,6 +263,10 @@ class Cursor(_CursorBase):
         self._check_closed()
         self._connection._ensure_connected()
 
+        if self._query_handle is not None:
+            self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+            self._query_handle = None
+
         if auto_commit is None:
             auto_commit = self._connection.autocommit
 

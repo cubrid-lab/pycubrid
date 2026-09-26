@@ -107,8 +107,21 @@ class TestFormatParameterTypes:
     def test_bytes_hex(self, cursor: object) -> None:
         assert cursor._format_parameter(b"\xde\xad") == "X'dead'"
 
-    def test_int(self, cursor: object) -> None:
-        assert cursor._format_parameter(42) == "42"
+    @pytest.mark.parametrize("value, expected", [(42, "42"), (0, "0"), (-42, "-42")])
+    def test_int(self, cursor: object, value: int, expected: str) -> None:
+        assert cursor._format_parameter(value) == expected
+
+    @pytest.mark.parametrize("sign", [1, -1], ids=["positive", "negative"])
+    def test_large_int(self, cursor: object, sign: int) -> None:
+        value = sign * 10**1000
+        expected = ("-" if sign < 0 else "") + "1" + "0" * 1000
+        assert cursor._format_parameter(value) == expected
+
+    @pytest.mark.parametrize("sign", [1, -1], ids=["positive", "negative"])
+    def test_bind_large_int(self, cursor: object, sign: int) -> None:
+        value = sign * 10**1000
+        expected = ("-" if sign < 0 else "") + "1" + "0" * 1000
+        assert cursor._bind_parameters("SELECT ?", (value,)) == "SELECT " + expected
 
     def test_float(self, cursor: object) -> None:
         assert cursor._format_parameter(3.14) == "3.14"
