@@ -201,6 +201,13 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Empty `executemany()` clears prior result state (#376)** — PATCH /
+  backward-compatible bug fix. Public signatures are unchanged. Empty input
+  executes no SQL, closes an active query handle, and leaves `rowcount=0`,
+  `description=None`, `lastrowid=None`, and no fetchable rows, matching the
+  existing empty-batch row-count convention. A failed query close preserves
+  the tracked handle and propagates its exception.
+
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
   `execute()` by releasing a previous result-set handle before starting another operation.

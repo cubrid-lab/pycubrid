@@ -190,6 +190,19 @@ class AsyncCursor(_AsyncCursorBase):
     ) -> AsyncCursor:
         self._check_closed()
         if not seq_of_parameters:
+            if self._query_handle is not None:
+                await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+                self._query_handle = None
+            self._description = None
+            self._columns = []
+            self._rows = []
+            self._row_index = 0
+            self._fetched_count = 0
+            self._statement_type = 0
+            self._total_tuple_count = 0
+            self._invalidated_by_reconnect = False
+            self._rowcount = 0
+            self._lastrowid = None
             return self
 
         first_word = extract_first_keyword(operation)
