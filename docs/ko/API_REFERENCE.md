@@ -315,16 +315,49 @@ print(conn.get_server_version())  # "11.2.0.0378"
 #### `get_last_insert_id()`
 
 ```python
-def get_last_insert_id(self) -> str
+def get_last_insert_id(self) -> str | None
 ```
 
-INSERT 문이 생성한 마지막 auto-increment 값을 문자열로 반환합니다.
+가장 최근 INSERT 이후 브로커가 보고한 식별자를 캐시에서 문자열로 반환하며,
+값이 없으면 `None`을 반환합니다. 별도 네트워크 요청은 없습니다. 해당 커서의
+`lastrowid`는 독립적인 `int | None` 스냅샷입니다. 다른 커서의 INSERT가 연결 캐시를
+갱신해도 이전 커서의 스냅샷은 바뀌지 않습니다.
+
+commit/rollback 및 INSERT가 아닌 문장은 관측한 값을 유지합니다. 새 INSERT 시도
+(실패 포함), 비어 있지 않은 `executemany_batch()`, 물리 연결 폐기/재접속 시 캐시가
+초기화됩니다. 식별자 조회 실패, 빈 응답 또는 잘못된 응답이면 `None`이 유지됩니다.
+빈 배치는 기존 값을 유지합니다.
+
+트랜잭션 종료 후 CAS가 해제되면 다음 요청에서 자동 재접속해 연결 캐시가 초기화될
+수 있습니다. 이전 커서의 `lastrowid` 스냅샷은 물리 연결 변경 후에도 유지됩니다.
+
+이 값은 서버 응답이 INSERT로 분류한 커서 작업의 스냅샷이며, 이전의 실시간 브로커
+상태 조회를 대체합니다. `CALL`, 저장 프로시저 내부 INSERT 또는 커서 밖의 SQL은
+캐시를 갱신하지 않습니다. 프로시저가 삽입한 행의 ID는 프로시저에서 명시적으로
+반환하거나 해당 프로시저의 서버 측 규약에 따라 직접 조회하세요.
+
+AUTO_INCREMENT 컬럼이 없는 테이블의 INSERT에도 브로커가 이전 식별자를 보고할 수
+있으므로 반환값은 현재 문장이 식별자를 생성했다는 증거가 아닙니다. rollback 이후
+값이 유지되는 것도 해당 행이 존재한다는 뜻은 아닙니다.
 
 ```python
 cur.execute("INSERT INTO users (name) VALUES ('alice')")
 conn.commit()
 print(conn.get_last_insert_id())  # "1"
 ```
+
+마이그레이션: 이전의 값 없음 결과 `""`를 검사하던 `value == ""`는
+`value is None`으로 바꾸고, 정수 변환 전에 확인합니다. 정상 값의 문자열 타입과
+커서의 `int | None` 타입은 유지됩니다. 비동기 메서드에도 같은 규칙이 적용됩니다.
+
+```python
+value = conn.get_last_insert_id()
+new_id = int(value) if value is not None else None
+```
+
+빈 배치는 커서의 `lastrowid`를 `None`으로 초기화하지만 연결 캐시는 유지합니다.
+비어 있지 않은 배치를 시작하기 전에 기존 쿼리 종료가 실패하면 두 식별자 값은
+그대로 유지되며 예외가 전달됩니다.
 
 ---
 
@@ -864,7 +897,7 @@ with conn.cursor() as cur:
 | `close()` | `async def close(self) -> None` | 연결과 추적 중인 커서 종료 |
 | `ping()` | `async def ping(self, reconnect: bool = True) -> bool` | 네이티브 `CHECK_CAS` 헬스 체크 (선택적 재연결) |
 | `get_server_version()` | `async def get_server_version(self) -> str` | 엔진 버전 조회 |
-| `get_last_insert_id()` | `async def get_last_insert_id(self) -> str` | 마지막 AUTO_INCREMENT 값 조회 |
+| `get_last_insert_id()` | `async def get_last_insert_id(self) -> str \| None` | 캐시된 브로커 식별자 문자열 또는 `None` 반환 |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | 파싱된 패킷 객체 반환 |
 | `set_autocommit()` | `async def set_autocommit(self, value: bool) -> None` | `SetDbParameterPacket`과 `CommitPacket` 전송 |
 

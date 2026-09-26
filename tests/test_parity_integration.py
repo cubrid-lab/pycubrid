@@ -10,6 +10,7 @@ import pytest
 
 import pycubrid
 import pycubrid.aio
+from pycubrid.aio.connection import AsyncConnection
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import NotSupportedError
 from tests._parity_helpers import (
@@ -17,6 +18,7 @@ from tests._parity_helpers import (
     ParityAdapter,
     autocommit_transitions,
     can_connect,
+    cleanup_table,
     close_cursor_then_connection,
     connect_kwargs,
     executemany_batch_semantics,
@@ -26,6 +28,7 @@ from tests._parity_helpers import (
     reconnect_after_inactive_cas,
     rollback_rows,
     select_round_trip,
+    table_name,
 )
 
 pytestmark = [
@@ -202,6 +205,82 @@ class TestParityConnectionLifecycle:
         assert isinstance(lastrowid, int)
         assert lastrowid is not None and lastrowid > 0
         assert last_insert_id == str(lastrowid)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("rows", [1, 2])
+    @pytest.mark.parametrize("boundary", ["commit", "rollback"])
+    async def test_insert_identity_survives_transaction_boundary(
+        self, adapter: ParityAdapter, rows: int, boundary: str
+    ) -> None:
+        table = table_name("identity_boundary")
+        conn = await adapter.connect()
+        cur = adapter.cursor(conn)
+        observer = adapter.cursor(conn)
+        try:
+            assert await adapter.get_last_insert_id(conn) is None
+            await adapter.execute(cur, "CREATE TABLE %s (id INT AUTO_INCREMENT, v INT)" % table)
+            await adapter.commit(conn)
+            sql = "INSERT INTO %s (v) VALUES (10)" % table
+            if rows == 2:
+                sql += ", (20)"
+            await adapter.execute(cur, sql)
+            captured = adapter.lastrowid(cur)
+            assert captured == 1  # CUBRID reports the first identity for multi-row INSERT.
+            assert await adapter.get_last_insert_id(conn) == "1"
+            await adapter.execute(observer, "SELECT id FROM %s ORDER BY id" % table)
+            assert await adapter.fetchall(observer) == [(number,) for number in range(1, rows + 1)]
+            if boundary == "commit":
+                await adapter.commit(conn)
+            else:
+                await adapter.rollback(conn)
+            assert adapter.lastrowid(cur) == captured
+            assert await adapter.get_last_insert_id(conn) == "1"
+            transport = conn._writer if isinstance(conn, AsyncConnection) else conn._socket
+            await adapter.execute(observer, "SELECT COUNT(*) FROM %s" % table)
+            assert await adapter.fetchone(observer) == (rows if boundary == "commit" else 0,)
+            current = conn._writer if isinstance(conn, AsyncConnection) else conn._socket
+            # A released CAS can force a physical reconnect on the next SELECT.
+            assert await adapter.get_last_insert_id(conn) == ("1" if current is transport else None)
+            assert adapter.lastrowid(cur) == captured
+        finally:
+            try:
+                await cleanup_table(adapter, conn, table)
+            finally:
+                await adapter.close_connection(conn)
+
+    @pytest.mark.asyncio
+    async def test_non_auto_insert_preserves_broker_identity_semantics(
+        self, adapter: ParityAdapter
+    ) -> None:
+        auto_table = table_name("identity_auto")
+        plain_table = table_name("identity_plain")
+        conn = await adapter.connect()
+        cur = adapter.cursor(conn)
+        try:
+            await adapter.execute(
+                cur, "CREATE TABLE %s (id INT AUTO_INCREMENT, v INT)" % auto_table
+            )
+            await adapter.execute(cur, "CREATE TABLE %s (v INT)" % plain_table)
+            await adapter.commit(conn)
+            await adapter.execute(cur, "INSERT INTO %s VALUES (1)" % plain_table)
+            assert adapter.lastrowid(cur) is None
+            assert await adapter.get_last_insert_id(conn) is None
+            await adapter.execute(cur, "INSERT INTO %s (v) VALUES (1)" % auto_table)
+            assert await adapter.get_last_insert_id(conn) == "1"
+            await adapter.execute(cur, "INSERT INTO %s VALUES (2)" % plain_table)
+            # Existing broker behavior: no metadata distinguishes a retained id.
+            assert adapter.lastrowid(cur) == 1
+            assert await adapter.get_last_insert_id(conn) == "1"
+            await adapter.commit(conn)
+            await adapter.execute(cur, "INSERT INTO %s VALUES (3)" % plain_table)
+            assert adapter.lastrowid(cur) is None
+            assert await adapter.get_last_insert_id(conn) is None
+        finally:
+            try:
+                await cleanup_table(adapter, conn, auto_table)
+                await cleanup_table(adapter, conn, plain_table)
+            finally:
+                await adapter.close_connection(conn)
 
     @pytest.mark.asyncio
     async def test_get_server_version(self, adapter: ParityAdapter) -> None:

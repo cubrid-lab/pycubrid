@@ -121,6 +121,10 @@ class AsyncCursor(_AsyncCursorBase):
         self._check_closed()
         self._connection._ensure_connected()
 
+        if re.match(r"INSERT\b", extract_first_keyword(operation)):
+            self._connection._last_insert_id = None
+            self._lastrowid = None
+
         _timing = self._timing
         _start = 0
         if _timing is not None:
@@ -169,11 +173,13 @@ class AsyncCursor(_AsyncCursorBase):
             self._rowcount = -1
 
         if packet.statement_type == CUBRIDStatementType.INSERT:
+            self._connection._last_insert_id = None
             try:
                 lid_packet = GetLastInsertIdPacket()
                 await self._connection._send_and_receive(lid_packet)
                 if lid_packet.last_insert_id:
                     self._lastrowid = int(lid_packet.last_insert_id)
+                    self._connection._last_insert_id = lid_packet.last_insert_id
             except (InterfaceError, OperationalError, OSError, TypeError, ValueError) as exc:
                 _LOGGER.debug("lastrowid retrieval failed: %s", exc)
                 self._lastrowid = None
@@ -236,6 +242,9 @@ class AsyncCursor(_AsyncCursorBase):
         if self._query_handle is not None:
             await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
             self._query_handle = None
+
+        if sql_list:
+            self._connection._last_insert_id = None
 
         if auto_commit is None:
             auto_commit = self._connection.autocommit

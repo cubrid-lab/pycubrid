@@ -201,6 +201,19 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Cached broker insert identity survives transaction boundaries (#381)** — PATCH /
+  bug correction to the documented identity convenience method. Successful return
+  values remain `str`; unavailable identities now explicitly return `None` instead
+  of the ambiguous empty string. This is a runtime unavailable-result correction,
+  not merely an annotation refinement. Migration: replace `value == ""` with
+  `value is None` and guard `int(value)`; `cursor.lastrowid` stays `int | None`.
+  The cache is an observation of broker state, not proof that the latest INSERT
+  generated an identity or that a row exists after rollback. INSERT attempts,
+  nonempty batches, and physical connection changes invalidate it. No public
+  names or structural signatures change; the API baseline remains unchanged.
+  This cursor-INSERT snapshot does not observe CALL, stored-procedure INSERTs,
+  or out-of-band operations; callers must return/query those identities explicitly.
+
 - **Empty `executemany()` clears prior result state (#376)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged. Empty input
   executes no SQL, closes an active query handle, and leaves `rowcount=0`,
