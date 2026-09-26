@@ -664,7 +664,7 @@ results = cur.executemany_batch([
 # statement_type 4 = CREATE_CLASS, 20 = INSERT
 ```
 
-> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249.
+> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249. Once the previous query handle is closed, prior cursor result state is cleared before the batch request. A failed batch, including transport or response-parse errors, leaves `description=None`, `rowcount=-1`, `lastrowid=None`, and no fetchable rows. A per-statement error still raises the appropriate database exception; successful partial results do not establish a final row count. If closing the previous handle fails, no batch is sent and the handle remains tracked.
 
 ---
 

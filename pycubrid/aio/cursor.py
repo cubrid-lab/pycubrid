@@ -226,13 +226,12 @@ class AsyncCursor(_AsyncCursorBase):
         self._check_closed()
         self._connection._ensure_connected()
 
-        if sql_list:
-            self._connection._last_insert_id = None
-            self._lastrowid = None
-
         if self._query_handle is not None:
             await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
             self._query_handle = None
+
+        if sql_list:
+            self._connection._last_insert_id = None
 
         if auto_commit is None:
             auto_commit = self._connection.autocommit
@@ -243,18 +242,21 @@ class AsyncCursor(_AsyncCursorBase):
             auto_commit=auto_commit,
             protocol_version=self._connection._protocol_version,
         )
+        self._description = None
+        self._rows = []
+        self._row_index = 0
+        self._fetched_count = 0
+        self._query_handle = None
+        self._rowcount = -1
+        self._lastrowid = None
+
+        # A failed transport or response parse must not expose prior results.
         await self._connection._send_and_receive(packet)
 
         # Raise on per-statement batch failures (issue #186).
         if packet.errors:
             err = packet.errors[0]
             _raise_batch_error(err)
-
-        self._description = None
-        self._rows = []
-        self._row_index = 0
-        self._fetched_count = 0
-        self._query_handle = None
 
         if packet.results:
             self._rowcount = sum(count for _, count in packet.results)
