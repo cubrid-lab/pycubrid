@@ -201,6 +201,8 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
+
 - **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
   PATCH / backward-compatible bug fix. The public signatures are unchanged;
   validation now enforces the documented positive-integer row-count contract,
