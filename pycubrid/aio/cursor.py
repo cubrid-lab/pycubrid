@@ -81,8 +81,8 @@ class AsyncCursor(_AsyncCursorBase):
 
     @arraysize.setter
     def arraysize(self, value: int) -> None:
-        if value < 1:
-            raise ProgrammingError("arraysize must be greater than zero")
+        if type(value) is not int or value < 1:
+            raise ProgrammingError("arraysize must be a positive integer")
         self._arraysize = value
 
     @property
@@ -246,18 +246,21 @@ class AsyncCursor(_AsyncCursorBase):
             auto_commit=auto_commit,
             protocol_version=self._connection._protocol_version,
         )
+        self._description = None
+        self._rows = []
+        self._row_index = 0
+        self._fetched_count = 0
+        self._query_handle = None
+        self._rowcount = -1
+        self._lastrowid = None
+
+        # A failed transport or response parse must not expose prior results.
         await self._connection._send_and_receive(packet)
 
         # Raise on per-statement batch failures (issue #186).
         if packet.errors:
             err = packet.errors[0]
             _raise_batch_error(err)
-
-        self._description = None
-        self._rows = []
-        self._row_index = 0
-        self._fetched_count = 0
-        self._query_handle = None
 
         if packet.results:
             self._rowcount = sum(count for _, count in packet.results)

@@ -635,7 +635,7 @@ results = cur.executemany_batch([
 # statement_type 4 = CREATE_CLASS, 20 = INSERT
 ```
 
-> **참고:** `executemany_batch`는 pycubrid 확장이며 PEP 249의 일부가 아닙니다.
+> **참고:** `executemany_batch`는 pycubrid 확장이며 PEP 249의 일부가 아닙니다. 이전 쿼리 핸들을 닫은 뒤 배치 요청 전에 커서 결과 상태를 초기화합니다. 전송 또는 응답 파싱 오류를 포함한 배치 실패 시 `description=None`, `rowcount=-1`, `lastrowid=None`이며 이전 행을 가져올 수 없습니다. 문별 오류는 해당 데이터베이스 예외를 발생시키며 일부 성공 결과로 최종 행 수를 설정하지 않습니다. 이전 핸들 닫기가 실패하면 배치를 전송하지 않고 핸들을 계속 추적합니다.
 
 ---
 
@@ -815,7 +815,11 @@ def arraysize(self, value: int) -> None
 
 `fetchmany()`의 기본 행 수. 기본값은 `1`입니다.
 
-**발생:** 1 미만 값으로 설정하면 `ProgrammingError`.
+값은 양의 정수여야 합니다. 불리언과 실수는 허용하지 않습니다.
+`AsyncCursor.arraysize`에도 같은 검증을 적용합니다.
+
+**발생:** 양의 정수가 아닌 값으로 설정하면 `ProgrammingError`.
+잘못된 값을 대입해도 이전 값은 변경되지 않습니다.
 
 ---
 

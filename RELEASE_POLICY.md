@@ -208,6 +208,14 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   existing empty-batch row-count convention. A failed query close preserves
   the tracked handle and propagates its exception.
 
+- Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
+
+- **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
+  PATCH / backward-compatible bug fix. The public signatures are unchanged;
+  validation now enforces the documented positive-integer row-count contract,
+  including rejection of floats and booleans. Valid positive integers retain
+  their behavior, and invalid assignments leave the previous value unchanged.
+
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
   `execute()` by releasing a previous result-set handle before starting another operation.

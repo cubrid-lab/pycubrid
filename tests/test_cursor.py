@@ -83,6 +83,14 @@ def test_arraysize_setter_and_validation(cursor: Cursor) -> None:
         cursor.arraysize = 0
 
 
+@pytest.mark.parametrize("value", [1.5, True, False, "2", None, -1])
+def test_arraysize_rejects_non_integer_values(cursor: Cursor, value: object) -> None:
+    cursor.arraysize = 3
+    with pytest.raises(ProgrammingError, match="arraysize"):
+        setattr(cursor, "arraysize", value)
+    assert cursor.arraysize == 3
+
+
 def test_execute_select_sets_description_and_rowcount(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
@@ -523,8 +531,21 @@ def test_executemany_batch_raises_on_partial_failure(
 
     mock_connection._send_and_receive.side_effect = send
 
+    cursor._description = (("stale", 1, None, None, 0, 0, False),)
+    cursor._rows = [("stale",)]
+
+    cursor._rowcount = 10
+    cursor._lastrowid = 123
+
     with pytest.raises(IntegrityError, match="unique constraint"):
         cursor.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
+
+    assert cursor.description is None
+    assert cursor._rows == []
+    assert cursor.rowcount == -1
+    assert cursor.lastrowid is None
+    with pytest.raises(InterfaceError, match="No result set"):
+        cursor.fetchone()
 
 
 def test_executemany_batch_error_uses_cas_code_dispatch(
