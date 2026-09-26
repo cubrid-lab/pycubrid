@@ -211,6 +211,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   generated an identity or that a row exists after rollback. INSERT attempts,
   nonempty batches, and physical connection changes invalidate it. No public
   names or structural signatures change; the API baseline remains unchanged.
+  This cursor-INSERT snapshot does not observe CALL, stored-procedure INSERTs,
+  or out-of-band operations; callers must return/query those identities explicitly.
 
 - **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
   PATCH / backward-compatible bug fix. The public signatures are unchanged;

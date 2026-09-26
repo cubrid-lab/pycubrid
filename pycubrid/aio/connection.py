@@ -651,6 +651,8 @@ class AsyncConnection(ConnectionCommonMixin):
         preserve the observation. A non-auto-increment INSERT may still
         report an earlier broker identity; this is not proof the latest
         INSERT generated an identity or that a row exists after rollback.
+        Only cursor operations with an INSERT server response refresh this
+        snapshot; CALL, stored-procedure INSERTs, and out-of-band SQL do not.
 
         Returns:
             The captured id as a string, or ``None`` when unavailable.

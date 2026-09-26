@@ -376,6 +376,13 @@ connections follow the same contract. If the broker releases the CAS after a
 transaction boundary, the next request can reconnect automatically and clear the
 connection cache; the earlier cursor's `lastrowid` snapshot still remains available.
 
+The cache only refreshes for cursor operations with an INSERT server response.
+Unlike the previous live broker query, it does not observe `CALL`, stored-procedure
+INSERTs, or out-of-band SQL. Return the procedure's identity explicitly or query it
+using the procedure's server-side contract. An empty batch clears the cursor's
+`lastrowid` while retaining the connection cache; a failed prior-query close before
+a nonempty batch starts preserves both previous identity values.
+
 ### LOB Creation
 
 ```python

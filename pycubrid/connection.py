@@ -412,6 +412,8 @@ class Connection(ConnectionCommonMixin):
         does not prove that a row still exists or that the latest INSERT
         generated an identity. The broker may retain an earlier identity
         after an INSERT into a table without an auto-increment column.
+        Only cursor operations with an INSERT server response refresh this
+        snapshot; CALL, stored-procedure INSERTs, and out-of-band SQL do not.
 
         Returns:
             The captured id as a string, or ``None`` when unavailable.

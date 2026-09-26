@@ -333,6 +333,12 @@ If a transaction boundary releases the CAS, the next request can transparently
 reconnect and clear the connection cache. The earlier cursor's `lastrowid` snapshot
 remains available across that physical connection change.
 
+This is a snapshot of cursor operations whose server response identifies an
+INSERT, replacing the previous live broker-state query. It does not refresh for
+`CALL`, INSERTs performed inside stored procedures, or out-of-band SQL. If a
+procedure inserts rows, return its identity explicitly or query it according to
+the procedure's server-side contract; do not use this cached method to discover it.
+
 The broker may retain an earlier identity after an INSERT into a table without an
 AUTO_INCREMENT column. The reported ID does not prove the latest INSERT generated
 it, and retaining it after rollback does not prove a row exists.
@@ -353,6 +359,10 @@ new_id = int(value) if value is not None else None
 
 Successful values retain their existing string type; `cursor.lastrowid` remains
 `int | None`. The async method has the same semantics.
+
+When an empty batch resets the cursor's `lastrowid` to `None`, the connection cache
+remains unchanged. If closing a previous query fails before a nonempty batch can
+start, both previous identity values remain unchanged and the exception propagates.
 
 ---
 

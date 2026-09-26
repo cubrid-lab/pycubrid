@@ -12,7 +12,12 @@ from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
-from pycubrid.protocol import BatchExecutePacket, GetLastInsertIdPacket, PrepareAndExecutePacket
+from pycubrid.protocol import (
+    BatchExecutePacket,
+    CloseQueryPacket,
+    GetLastInsertIdPacket,
+    PrepareAndExecutePacket,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -179,7 +184,7 @@ async def test_nonempty_batch_clears_previous_identity(
     assert await _call(connection.get_last_insert_id()) is None
 
 
-async def test_empty_batch_preserves_identity(
+async def test_empty_batch_clears_cursor_snapshot_but_preserves_connection_identity(
     connection: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     connection._last_insert_id = "99"
@@ -187,8 +192,68 @@ async def test_empty_batch_preserves_identity(
     cur._lastrowid = 99
     _sender(connection, monkeypatch, lambda packet: packet)
     await _call(cur.executemany_batch([]))
+    assert cur.lastrowid is None
+    assert await _call(connection.get_last_insert_id()) == "99"
+
+
+@pytest.mark.parametrize("operation", ["INSERT INTO t VALUES (?)", "SELECT ?"])
+async def test_empty_executemany_preserves_connection_identity(
+    connection: Any, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    connection._last_insert_id = "99"
+    cur = connection.cursor()
+    cur._lastrowid = 99
+
+    def send(packet: Any) -> Any:
+        raise AssertionError("empty executemany must send no SQL")
+
+    _sender(connection, monkeypatch, send)
+    await _call(cur.executemany(operation, []))
+    assert cur.lastrowid is None
+    assert cur.rowcount == 0
+    assert await _call(connection.get_last_insert_id()) == "99"
+
+
+async def test_failed_query_close_preserves_both_identities_before_batch(
+    connection: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connection._last_insert_id = "99"
+    cur = connection.cursor()
+    cur._lastrowid = 99
+    cur._query_handle = 123
+    sent: list[Any] = []
+
+    def send(packet: Any) -> Any:
+        sent.append(packet)
+        assert isinstance(packet, CloseQueryPacket)
+        raise ProgrammingError("close failed")
+
+    _sender(connection, monkeypatch, send)
+    with pytest.raises(ProgrammingError, match="close failed"):
+        await _call(cur.executemany_batch(["INSERT INTO t VALUES (1)"]))
+    assert len(sent) == 1
+    assert cur._query_handle == 123
     assert cur.lastrowid == 99
     assert await _call(connection.get_last_insert_id()) == "99"
+
+
+@pytest.mark.parametrize("cached", [None, "99"])
+async def test_call_does_not_refresh_connection_snapshot(
+    connection: Any, monkeypatch: pytest.MonkeyPatch, cached: str | None
+) -> None:
+    connection._last_insert_id = cached
+    sent: list[Any] = []
+
+    def send(packet: Any) -> Any:
+        sent.append(packet)
+        assert isinstance(packet, PrepareAndExecutePacket)
+        packet.statement_type = CUBRIDStatementType.CALL
+        return packet
+
+    _sender(connection, monkeypatch, send)
+    await _call(connection.cursor().execute("CALL insert_procedure()"))
+    assert len(sent) == 1  # No eager identity RPC for an untracked CALL.
+    assert await _call(connection.get_last_insert_id()) == cached
 
 
 async def test_transport_discard_clears_connection_identity_only(connection: Any) -> None:
