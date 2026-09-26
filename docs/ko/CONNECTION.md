@@ -333,9 +333,22 @@ CUBRID 브로커는 ``KEEP_CONNECTION=AUTO``(기본값)일 때 요청 사이에 
 | `rollback()`                        | `None`        | 현재 트랜잭션 롤백                              |
 | `close()`                           | `None`        | 연결 종료 및 리소스 해제                          |
 | `get_server_version()`              | `str`         | CUBRID 서버 버전 문자열 반환                      |
-| `get_last_insert_id()`              | `str`         | 마지막 auto-increment ID 반환                     |
+| `get_last_insert_id()`              | `str \| None` | 캐시된 브로커 식별자 또는 `None` 반환              |
 | `create_lob(lob_type)`              | `Lob`         | 새 LOB 객체 생성 (CLOB=24, BLOB=23)              |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | 서버에서 스키마 메타데이터 조회            |
+
+`get_last_insert_id()`는 INSERT 이후 커서가 관측한 식별자를 추가 네트워크 요청 없이
+반환합니다. 정상 값은 문자열을 유지하며, 값이 없으면 이전의 모호한 `""` 대신
+`None`을 반환합니다. `value is None`으로 확인한 뒤 `int(value)`를 호출하세요.
+커서의 `lastrowid`는 독립적인 `int | None` 스냅샷입니다.
+
+commit/rollback 및 SELECT는 캐시된 관측값을 유지합니다. 새 INSERT 시도, 비어 있지
+않은 배치, 물리 연결 폐기/재접속은 캐시를 초기화합니다. 조회 실패, 빈 응답 또는
+잘못된 식별자는 `None`으로 남습니다. AUTO_INCREMENT가 없는 INSERT에도 브로커가
+이전 식별자를 보고할 수 있으므로 현재 문장이 생성한 ID 또는 rollback 이후 행의
+존재를 보장하는 값은 아닙니다. 동기/비동기 연결에 같은 규칙이 적용됩니다. 트랜잭션
+종료 후 브로커가 CAS를 해제하면 다음 요청에서 자동 재접속해 연결 캐시가 초기화될
+수 있습니다. 이전 커서의 `lastrowid` 스냅샷은 그대로 유지됩니다.
 
 ### LOB 생성
 

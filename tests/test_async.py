@@ -141,12 +141,12 @@ class TestAsyncConnectionLastInsertId:
         self, async_conn: AsyncConnection
     ) -> None:
         async_conn._connected = True
-        async_conn._last_insert_id = 42
+        async_conn._last_insert_id = "42"
         async_conn._send_and_receive = AsyncMock()
 
         last_id = await async_conn.get_last_insert_id()
 
-        assert last_id == 42
+        assert last_id == "42"
         async_conn._send_and_receive.assert_not_awaited()
 
 
@@ -551,12 +551,12 @@ class TestAsyncCursorExecute:
                 packet.rows = []
                 packet.result_infos = []
             else:
-                packet.last_insert_id = b"99"
+                packet.last_insert_id = "99"
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
         await cur.execute("INSERT INTO t VALUES (1)")
         assert cur._lastrowid == 99
-        assert conn._last_insert_id == 99
+        assert conn._last_insert_id == "99"
 
     @pytest.mark.asyncio
     async def test_select_after_insert_does_not_clear_connection_last_insert_id(self) -> None:
@@ -579,11 +579,11 @@ class TestAsyncCursorExecute:
                 packet.rows = []
                 packet.result_infos = []
             else:
-                packet.last_insert_id = b"7"
+                packet.last_insert_id = "7"
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send_insert)
         await cur.execute("INSERT INTO t VALUES (1)")
-        assert conn._last_insert_id == 7
+        assert conn._last_insert_id == "7"
 
         async def fake_send_select(packet):
             packet.query_handle = 7
@@ -596,7 +596,7 @@ class TestAsyncCursorExecute:
         conn._send_and_receive = AsyncMock(side_effect=fake_send_select)
         await cur.execute("SELECT id FROM t")
         assert cur.lastrowid is None
-        assert conn._last_insert_id == 7
+        assert conn._last_insert_id == "7"
 
     @pytest.mark.asyncio
     async def test_execute_insert_lastrowid_failure_is_silent(self) -> None:

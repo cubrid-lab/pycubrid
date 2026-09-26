@@ -145,7 +145,7 @@ def test_execute_insert_sets_rowcount_and_lastrowid(
     assert cursor.rowcount == 3
     assert cursor.lastrowid == 55
     assert cursor.description is None
-    assert mock_connection._last_insert_id == 55
+    assert mock_connection._last_insert_id == "55"
 
 
 def test_execute_select_after_insert_does_not_clear_connection_last_insert_id(
@@ -168,7 +168,7 @@ def test_execute_select_after_insert_does_not_clear_connection_last_insert_id(
 
     mock_connection._send_and_receive.side_effect = send
     cursor.execute("INSERT INTO t VALUES (1)")
-    assert mock_connection._last_insert_id == 7
+    assert mock_connection._last_insert_id == "7"
 
     def send_select(packet: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
@@ -180,7 +180,7 @@ def test_execute_select_after_insert_does_not_clear_connection_last_insert_id(
     mock_connection._send_and_receive.side_effect = send_select
     cursor.execute("SELECT id FROM t")
     assert cursor.lastrowid is None
-    assert mock_connection._last_insert_id == 7
+    assert mock_connection._last_insert_id == "7"
 
 
 def test_execute_insert_lastrowid_failure_is_ignored(

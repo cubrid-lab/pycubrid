@@ -232,6 +232,7 @@ class AsyncConnection(ConnectionCommonMixin):
         if self._connected:
             return
 
+        self._last_insert_id = None
         _timing = self._timing
         _start = 0
         if _timing is not None:
@@ -642,18 +643,19 @@ class AsyncConnection(ConnectionCommonMixin):
         version: str = packet.engine_version
         return version
 
-    async def get_last_insert_id(self) -> int | None:
-        """Return the last auto-increment id generated on this connection.
+    async def get_last_insert_id(self) -> str | None:
+        """Return the cached broker-reported auto-increment id as a string.
 
-        Reflects the id captured when a cursor on this connection last
-        executed a successful INSERT (the same value that cursor exposes
-        via ``lastrowid``), rather than querying the broker live — see
-        ``Connection.get_last_insert_id`` for why a live query is ambiguous
-        after an intervening ``commit()``.
+        Corresponds to the cursor's integer ``lastrowid`` snapshot, without
+        querying the broker here. Commit/rollback and non-INSERT statements
+        preserve the observation. A non-auto-increment INSERT may still
+        report an earlier broker identity; this is not proof the latest
+        INSERT generated an identity or that a row exists after rollback.
 
         Returns:
-            The last inserted id, or ``None`` if no cursor on this
-            connection has executed a successful INSERT yet.
+            The captured id as a string, or ``None`` when unavailable.
+            INSERT attempts, nonempty batches, and physical connection
+            changes clear the previous id; commit and rollback preserve it.
         """
         self._ensure_connected()
         return self._last_insert_id
@@ -898,6 +900,7 @@ class AsyncConnection(ConnectionCommonMixin):
 
     async def _close_streams(self) -> None:
         """Close the stream writer, await TLS shutdown, and clear references."""
+        self._last_insert_id = None
         if self._writer is not None:
             try:
                 self._writer.close()
@@ -910,6 +913,7 @@ class AsyncConnection(ConnectionCommonMixin):
 
     def _close_streams_sync(self) -> None:
         """Sync fallback for _close_streams (used by mixin's _safe_close_socket)."""
+        self._last_insert_id = None
         if self._writer is not None:
             try:
                 self._writer.close()

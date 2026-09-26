@@ -140,12 +140,12 @@ class ConnectionCommonMixin:
         self._autocommit_explicitly_set = False
         self._cursors: set[Any] = set()
         self._protocol_version: int = 1
-        # Id captured from the most recent successful INSERT executed by any
-        # cursor on this connection (mirrors that cursor's `lastrowid`).
+        # Broker identity captured after an INSERT by any cursor, as a string
+        # (the cursor keeps its own integer lastrowid snapshot).
         # `commit()`/`rollback()` clear the broker's own session-scoped
         # last-insert-id state, so this is cached here instead of queried
         # live — see get_last_insert_id().
-        self._last_insert_id: int | None = None
+        self._last_insert_id: str | None = None
 
     # -- Pure helpers (no I/O) -----------------------------------------------
 
@@ -181,6 +181,7 @@ class ConnectionCommonMixin:
 
     def _safe_close_socket(self) -> None:
         """Close the socket safely, ignoring any OS errors."""
+        self._last_insert_id = None
         if self._socket is not None:
             try:
                 self._socket.close()

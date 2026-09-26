@@ -185,6 +185,7 @@ class Connection(ConnectionCommonMixin):
         if self._connected:
             return
 
+        self._last_insert_id = None
         _timing = self._timing
         _start = 0
         if _timing is not None:
@@ -402,20 +403,20 @@ class Connection(ConnectionCommonMixin):
         version: str = packet.engine_version
         return version
 
-    def get_last_insert_id(self) -> int | None:
-        """Return the last auto-increment id generated on this connection.
+    def get_last_insert_id(self) -> str | None:
+        """Return the cached broker-reported auto-increment id as a string.
 
-        Reflects the id captured when a cursor on this connection last
-        executed a successful INSERT (the same value that cursor exposes
-        via ``lastrowid``), rather than querying the broker live. A
-        live query returns an ambiguous empty string once a ``commit()``
-        happens in between, since CUBRID's broker clears its own
-        session-scoped last-insert-id state on commit; the cached value
-        here is unaffected by that.
+        Captured after INSERT, corresponding to the cursor's integer
+        ``lastrowid`` snapshot, without querying the broker here. Commit,
+        rollback, and non-INSERT statements preserve this observation; it
+        does not prove that a row still exists or that the latest INSERT
+        generated an identity. The broker may retain an earlier identity
+        after an INSERT into a table without an auto-increment column.
 
         Returns:
-            The last inserted id, or ``None`` if no cursor on this
-            connection has executed a successful INSERT yet.
+            The captured id as a string, or ``None`` when unavailable.
+            A new INSERT attempt or nonempty batch clears the previous id,
+            as does discarding or replacing the physical connection.
         """
         self._ensure_connected()
         return self._last_insert_id

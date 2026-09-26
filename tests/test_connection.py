@@ -340,12 +340,12 @@ class TestMetadataMethods:
         """Reads the id a cursor cached on the connection at INSERT time — no
         broker query, so an ambiguous '' after a later commit() can't happen."""
         conn, sock = make_connected_connection(socket_queue)
-        conn._last_insert_id = 42
+        conn._last_insert_id = "42"
         calls_before = sock.recv.call_count
 
         last_id = conn.get_last_insert_id()
 
-        assert last_id == 42
+        assert last_id == "42"
         assert sock.recv.call_count == calls_before
 
 
