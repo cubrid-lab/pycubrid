@@ -214,20 +214,20 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   This cursor-INSERT snapshot does not observe CALL, stored-procedure INSERTs,
   or out-of-band operations; callers must return/query those identities explicitly.
 
-- **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
-  PATCH / backward-compatible bug fix. The public signatures are unchanged;
-  validation now enforces the documented positive-integer row-count contract,
-  including rejection of floats and booleans. Valid positive integers retain
-  their behavior, and invalid assignments leave the previous value unchanged.
-
-- Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
-
 - **Empty `executemany()` clears prior result state (#376)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged. Empty input
   executes no SQL, closes an active query handle, and leaves `rowcount=0`,
   `description=None`, `lastrowid=None`, and no fetchable rows, matching the
   existing empty-batch row-count convention. A failed query close preserves
   the tracked handle and propagates its exception.
+
+- Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
+
+- **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
+  PATCH / backward-compatible bug fix. The public signatures are unchanged;
+  validation now enforces the documented positive-integer row-count contract,
+  including rejection of floats and booleans. Valid positive integers retain
+  their behavior, and invalid assignments leave the previous value unchanged.
 
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
