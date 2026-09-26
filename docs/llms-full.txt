@@ -1476,6 +1476,13 @@ Execute the same SQL statement repeatedly with different parameter sets. Each el
 non-string sequence. For non-SELECT statements, `rowcount` is set to the cumulative total of
 affected rows.
 
+With an empty parameter list, `executemany(operation, [])` executes no SQL,
+closes any previous query handle, and resets the cursor to `description=None`,
+`rowcount=0`, `lastrowid=None`, with no fetchable rows. It returns the cursor.
+No request is sent when there is no active query handle. If closing the previous
+handle fails, the exception propagates and the handle remains tracked.
+The same contract applies to the async cursor.
+
 ```python
 data = [("alice", 30), ("bob", 25), ("carol", 28)]
 cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)

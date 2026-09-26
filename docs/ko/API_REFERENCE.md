@@ -600,6 +600,12 @@ def executemany(
 
 같은 SQL 문을 서로 다른 파라미터 세트로 반복 실행합니다. 각 원소는 비문자열 시퀀스여야 합니다. 비-SELECT 문의 경우 `rowcount`는 영향받은 행의 누적 합계로 설정됩니다.
 
+빈 파라미터 목록으로 `executemany(operation, [])`를 호출하면 SQL을 실행하지 않고
+이전 쿼리 핸들을 닫은 뒤 커서를 `description=None`, `rowcount=0`, `lastrowid=None`으로
+초기화합니다. 이전 행을 가져올 수 없으며 커서 자체를 반환합니다. 활성 쿼리 핸들이
+없으면 요청을 보내지 않습니다. 이전 핸들 닫기가 실패하면 예외가 전파되고 핸들을
+계속 추적합니다. 비동기 커서에도 같은 계약이 적용됩니다.
+
 ```python
 data = [("alice", 30), ("bob", 25), ("carol", 28)]
 cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)

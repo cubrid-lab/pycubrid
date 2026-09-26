@@ -220,6 +220,13 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
 
 - Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
 
+- **Empty `executemany()` clears prior result state (#376)** — PATCH /
+  backward-compatible bug fix. Public signatures are unchanged. Empty input
+  executes no SQL, closes an active query handle, and leaves `rowcount=0`,
+  `description=None`, `lastrowid=None`, and no fetchable rows, matching the
+  existing empty-batch row-count convention. A failed query close preserves
+  the tracked handle and propagates its exception.
+
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
   `execute()` by releasing a previous result-set handle before starting another operation.
