@@ -33,7 +33,8 @@ def test_empty_bytes_write_validates_without_sending(
     connection: MagicMock, lob_type: int, offset: int
 ) -> None:
     lob = Lob(connection, lob_type, b"opaque-handle")
-    assert lob.write(b"", offset=offset) == 0
+    written = lob.write(b"", offset=offset)
+    assert written == 0
     connection._ensure_connected.assert_called_once_with()
     connection._send_and_receive.assert_not_called()
     assert lob.lob_handle == b"opaque-handle"
@@ -42,7 +43,8 @@ def test_empty_bytes_write_validates_without_sending(
 
 def test_empty_bytes_preserves_bool_offset(connection: MagicMock) -> None:
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    assert lob.write(b"", offset=True) == 0
+    written = lob.write(b"", offset=True)
+    assert written == 0
     connection._send_and_receive.assert_not_called()
 
 
@@ -110,7 +112,8 @@ def test_empty_write_keeps_handle_serialization_rejection(connection: MagicMock)
 @pytest.mark.parametrize("data", [bytearray(), memoryview(b""), "", []])
 def test_other_falsey_data_keeps_existing_send_path(connection: MagicMock, data: object) -> None:
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    assert lob.write(data) == 0  # The simulated broker ACKs; the send path must not be shortcut.
+    written = lob.write(data)  # Simulated broker ACK: the send path must not be shortcut.
+    assert written == 0
     connection._send_and_receive.assert_called_once()
 
 
@@ -136,9 +139,11 @@ def test_nonempty_acknowledgement_checks_remain(connection: MagicMock, ack: int)
 
 def test_nonempty_after_empty_still_sends(connection: MagicMock) -> None:
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    assert lob.write(b"") == 0
+    empty_written = lob.write(b"")
+    assert empty_written == 0
     connection._send_and_receive.reset_mock()
-    assert lob.write(b"abc", offset=2) == 3
+    written = lob.write(b"abc", offset=2)
+    assert written == 3
     connection._send_and_receive.assert_called_once()
 
 
@@ -148,5 +153,6 @@ def test_nonempty_bytes_subclass_does_not_use_truthiness_shortcut(connection: Ma
             return False
 
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    assert lob.write(FalseyBytes(b"abc")) == 3
+    written = lob.write(FalseyBytes(b"abc"))
+    assert written == 3
     connection._send_and_receive.assert_called_once()
