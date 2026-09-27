@@ -9,7 +9,13 @@ import pytest
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType, DataSize
 from pycubrid.cursor import Cursor
 from pycubrid.packet import PacketReader
-from pycubrid.protocol import ColumnMetaData, FetchPacket, PrepareAndExecutePacket, _read_value
+from pycubrid.protocol import (
+    ColumnMetaData,
+    FetchPacket,
+    PrepareAndExecutePacket,
+    _parse_column_metadata,
+    _read_value,
+)
 
 
 DEFAULT_CAS_INFO = b"\x00\x01\x02\x03"
@@ -39,7 +45,10 @@ def _encode_string(value: str) -> bytes:
 def _build_column_metadata(column_type: int, name: str) -> bytes:
     encoded_name = name.encode("utf-8") + b"\x00"
     buf = bytearray()
-    buf.append(column_type)
+    if column_type > 0xFF:
+        buf.extend((0x80 | (column_type >> 8), column_type & 0xFF))
+    else:
+        buf.append(column_type)
     buf.extend(struct.pack(">h", 0))
     buf.extend(struct.pack(">i", 0))
     for _ in range(3):
@@ -144,6 +153,23 @@ def test_nested_collections_remain_raw_bytes() -> None:
     assert _read_value(reader, CUBRIDDataType.SEQUENCE, len(nested_payload)) == nested_payload
 
 
+@pytest.mark.parametrize(
+    "column_type,expected",
+    [
+        (CUBRIDDataType.SET, frozenset()),
+        (CUBRIDDataType.MULTISET, []),
+        (CUBRIDDataType.SEQUENCE, []),
+    ],
+)
+def test_empty_collection_with_null_element_type(column_type: int, expected: object) -> None:
+    # A real broker sends type NULL + count zero for an empty collection.
+    payload = _encode_collection(CUBRIDDataType.NULL, [])
+    assert _read_value(PacketReader(payload), column_type, len(payload)) == payload
+    reader = PacketReader(payload, decode_collections=True)
+    assert _read_value(reader, column_type, len(payload)) == expected
+    assert reader.bytes_remaining() == 0
+
+
 def test_prepare_and_execute_packet_decodes_collection_rows_when_enabled() -> None:
     set_payload = _encode_collection(CUBRIDDataType.INT, [_encode_int(1), _encode_int(2)])
     multiset_payload = _encode_collection(CUBRIDDataType.STRING, [_encode_string("x"), None])
@@ -163,6 +189,55 @@ def test_prepare_and_execute_packet_decodes_collection_rows_when_enabled() -> No
     packet.parse(response)
 
     assert packet.rows == [(frozenset({1, 2}), ["x", None], [9, 8])]
+
+
+@pytest.mark.parametrize("extended", [False, True])
+@pytest.mark.parametrize("decode", [False, True])
+@pytest.mark.parametrize(
+    "kind,column_type,values,expected",
+    [
+        (0x20, CUBRIDDataType.SET, [1, 2, 1], frozenset({1, 2})),
+        (0x40, CUBRIDDataType.MULTISET, [1, 1, 2], [1, 1, 2]),
+        (0x60, CUBRIDDataType.SEQUENCE, [9, 8, 9], [9, 8, 9]),
+    ],
+)
+def test_collection_kind_in_wire_metadata(
+    extended: bool,
+    decode: bool,
+    kind: int,
+    column_type: int,
+    values: list[int],
+    expected: object,
+) -> None:
+    # Legacy headers pack the element type into the low five bits. Modern
+    # headers carry it in a second byte; both retain the collection-kind bits.
+    wire_type = ((kind | 3) << 8 if extended else kind) | CUBRIDDataType.INT
+    payload = _encode_collection(CUBRIDDataType.INT, [_encode_int(v) for v in values])
+    response = _build_select_response(
+        [(wire_type, "items"), (CUBRIDDataType.INT, "scalar")],
+        [payload, _encode_int(42)],
+    )
+    packet = PrepareAndExecutePacket(
+        "SELECT items, scalar", protocol_version=7, decode_collections=decode
+    )
+    packet.parse(response)
+    assert packet.columns[0].column_type == column_type
+    assert packet.columns[1].column_type == CUBRIDDataType.INT
+    assert packet.rows == [(expected if decode else payload, 42)]
+    fetch = FetchPacket(packet.query_handle, 1, decode_collections=decode)
+    fetch.parse(
+        DEFAULT_CAS_INFO + struct.pack(">ii", 0, 1) + _build_row([payload, _encode_int(43)]),
+        packet.columns,
+        CUBRIDStatementType.SELECT,
+    )
+    assert fetch.rows == [(expected if decode else payload, 43)]
+
+
+@pytest.mark.parametrize("column_type", [CUBRIDDataType.DATETIMELTZ, CUBRIDDataType.JSON])
+def test_extended_scalar_type_is_not_masked(column_type: int) -> None:
+    reader = PacketReader(_build_column_metadata(0x0300 | column_type, "scalar"))
+    assert _parse_column_metadata(reader, 1)[0].column_type == column_type
+    assert reader.bytes_remaining() == 0
 
 
 def test_connect_passes_decode_collections_flag(monkeypatch: pytest.MonkeyPatch) -> None:

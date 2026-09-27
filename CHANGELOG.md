@@ -6,7 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Unknown connection options are now surfaced instead of silently ignored (#377)** — `Connection.__init__`/`AsyncConnection.__init__` read a fixed set of options out of `**kwargs` and discarded everything else without a word, so a typo such as `read_timout=30` or `connectTimeout=5` was accepted, had no effect, and gave the caller no signal. Any keyword outside the supported set now emits a new `pycubrid.UnknownConnectionOptionWarning` (a `UserWarning` subclass, **not** part of the PEP 249 exception hierarchy) naming the offending option, suggesting the closest supported spelling when there is one, and listing the full supported set. Known options behave exactly as before, and the warning is emitted before any socket work so a mis-spelled option is reported even when the connection then fails. It covers `pycubrid.connect()`, `pycubrid.aio.connect()`, and direct `Connection(...)`/`AsyncConnection(...)` construction, and points at the caller's own line rather than pycubrid's internals.
+
+  A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Callers choose their own strictness with the standard `warnings` machinery — `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to reject unknown options, `"ignore"` to silence them. Additive surface change (`api-baseline.json` regenerated).
+
+### Documentation
+- Acknowledge CUBRID/cubrid-python's reference test scenarios in the README, NOTICE and third-party provenance notes, with source links and explicit licensing-verification limits.
+- Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
+
 ### Fixed
+- Collection column metadata retains CAS collection-kind flags instead of treating the element type as the column type. SET/MULTISET/SEQUENCE, including empty collections with a NULL element-type header, return their documented containers with `decode_collections=True`, or raw bytes when disabled, in both sync and async queries. Real-header regressions cover initial and subsequent fetches. (#403, #410)
 - Development quality checks synchronize Ruff/Mypy hook revisions with the exact dev pins, reject installed-tool/configuration drift, and lint/format maintained scripts and demos through shared local/CI Make targets. The Mypy hook explicitly checks the package instead of running only stub installation. (#416)
 - Full integration validation selects current pytest markers instead of filename globs. Normal, TLS, and nightly slow lanes cover the declared integration inventory, including concurrency stress; unknown skips and missing workflow paths fail the lane audit. TLS provisioning runs broker commands as the service owner. (#397)
 - Integration CI now uses the shared CUBRID readiness probe with host/port connection fields and fails before running tests when all retries are exhausted. (#411)

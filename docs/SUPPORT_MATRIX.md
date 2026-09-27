@@ -75,6 +75,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
 | CAS reconnection | ✅ | 1.0.0 | Auto-reconnect on broker `INACTIVE` status |
+| Unknown-option reporting | ✅ | 1.8.0 (#377) | An unrecognised connection keyword is ignored but emits `UnknownConnectionOptionWarning` (with a spelling suggestion); escalate with `warnings.simplefilter("error", ...)` |
 
 ### TLS / SSL
 

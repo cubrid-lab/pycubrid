@@ -361,6 +361,9 @@ pycubrid decodes supported collection payloads into Python containers.
 
 Notes:
 
+- `cursor.description` reports the collection code (16, 17 or 18), not its element
+  type. Integer elements remain Python `int`; MULTISET preserves duplicates and
+  SEQUENCE preserves order. The same decoding rules apply to sync and async fetches.
 - Nested collection payloads remain raw `bytes`.
 - Unknown collection element types fall back to raw `bytes`.
 - `SET` values are normalized to a `frozenset` when every decoded element is hashable.

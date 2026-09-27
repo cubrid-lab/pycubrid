@@ -358,6 +358,9 @@ CUBRID의 컬렉션 타입(`SET`, `MULTISET`, `SEQUENCE`)은 하위 호환을 �
 
 참고:
 
+- `cursor.description`은 요소 타입이 아니라 컬렉션 코드(16, 17, 18)를 반환합니다.
+  정수 요소는 Python `int`를 유지하며 MULTISET은 중복, SEQUENCE는 순서를 보존합니다.
+  동기·비동기 fetch에 동일한 디코딩 규칙이 적용됩니다.
 - 중첩 컬렉션 페이로드는 raw `bytes`로 유지됩니다.
 - 알 수 없는 컬렉션 요소 타입은 raw `bytes`로 폴백됩니다.
 - `SET` 값은 모든 디코딩된 요소가 해시 가능하면 `frozenset`으로 정규화됩니다.
