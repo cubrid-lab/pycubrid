@@ -17,7 +17,7 @@ REPOSITORIES = {
     "ruff": "https://github.com/astral-sh/ruff-pre-commit",
     "mypy": "https://github.com/pre-commit/mirrors-mypy",
 }
-REQUIRED_PATHS = {"pycubrid", "tests", "scripts", "demos"}
+REQUIRED_PATHS = {"pycubrid", "tests", "scripts", "demos", "examples"}
 
 
 def declared_pins(root: Path) -> dict[str, str]:

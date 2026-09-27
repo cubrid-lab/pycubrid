@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
+import subprocess
 
 import pytest
 
@@ -45,7 +47,7 @@ def test_wrong_installed_version_fails(project: Path) -> None:
         check_environment(pins, lambda tool: "0.0.0" if tool == "ruff" else pins[tool])
 
 
-@pytest.mark.parametrize("directory", ["scripts", "demos"])
+@pytest.mark.parametrize("directory", ["scripts", "demos", "examples"])
 def test_removed_maintained_scope_fails(project: Path, directory: str) -> None:
     path = project / "Makefile"
     path.write_text(path.read_text().replace(f" {directory}", "", 1))
@@ -119,3 +121,17 @@ def test_cli_file_discovery_cannot_expand_to_markdown_or_drop_pyi(
     path.write_text(path.read_text().replace('include = ["*.py", "*.pyi"]', include))
     with pytest.raises(ValueError, match="explicitly Python/pyi-only"):
         check_configuration(project)
+
+
+def test_shared_scope_covers_every_tracked_python_file() -> None:
+    match = re.search(r"^LINT_PATHS = (.+)$", (ROOT / "Makefile").read_text(), re.MULTILINE)
+    assert match is not None
+    scope = set(match.group(1).split())
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "--", "*.py", "*.pyi"],
+        cwd=ROOT,
+        text=True,
+    ).splitlines()
+    assert tracked
+    uncovered = [name for name in tracked if Path(name).parts[0] not in scope]
+    assert not uncovered, f"tracked Python files lost from the shared hook/CLI scope: {uncovered}"
