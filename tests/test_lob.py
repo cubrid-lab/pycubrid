@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -208,25 +209,50 @@ def test_read_raises_when_server_returns_more_than_requested(
         lob.read(5)
 
 
-@pytest.mark.parametrize("offset", [-1, -100])
-def test_read_rejects_negative_offset(mock_connection: MagicMock, offset: int) -> None:
+@pytest.mark.parametrize("offset", [-1, -100, True, False, 1.5, "1", None])
+def test_read_rejects_invalid_offset(mock_connection: MagicMock, offset: object) -> None:
     lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
-    with pytest.raises(InterfaceError, match="offset must be non-negative"):
-        lob.read(10, offset=offset)
+    with pytest.raises(InterfaceError, match="offset must be a non-negative integer"):
+        lob.read(10, offset=cast(int, offset))
+    mock_connection._ensure_connected.assert_not_called()
     mock_connection._send_and_receive.assert_not_called()
 
 
-def test_read_rejects_negative_length(mock_connection: MagicMock) -> None:
+@pytest.mark.parametrize("length", [-1, True, False, 1.5, "1", None])
+def test_read_rejects_invalid_length(mock_connection: MagicMock, length: object) -> None:
     lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
-    with pytest.raises(InterfaceError, match="length must be non-negative"):
-        lob.read(-1)
+    with pytest.raises(InterfaceError, match="length must be a non-negative integer"):
+        lob.read(cast(int, length))
+    mock_connection._ensure_connected.assert_not_called()
     mock_connection._send_and_receive.assert_not_called()
 
 
-def test_write_rejects_negative_offset(mock_connection: MagicMock) -> None:
+@pytest.mark.parametrize("offset", [-1, True, False, 1.5, "1", None])
+def test_write_rejects_invalid_offset(mock_connection: MagicMock, offset: object) -> None:
     lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
-    with pytest.raises(InterfaceError, match="offset must be non-negative"):
-        lob.write(b"x", offset=-1)
+    with pytest.raises(InterfaceError, match="offset must be a non-negative integer"):
+        lob.write(b"x", offset=cast(int, offset))
+    mock_connection._ensure_connected.assert_not_called()
+    mock_connection._send_and_receive.assert_not_called()
+
+
+def test_zero_length_read_returns_empty_without_sending(mock_connection: MagicMock) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+
+    assert lob.read(0) == b""
+    mock_connection._ensure_connected.assert_called_once()
+    mock_connection._send_and_receive.assert_not_called()
+
+
+def test_closed_lob_precedes_invalid_arguments(mock_connection: MagicMock) -> None:
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    lob.close()
+
+    with pytest.raises(InterfaceError, match="LOB is closed"):
+        lob.read(cast(int, None))
+    with pytest.raises(InterfaceError, match="LOB is closed"):
+        lob.write(b"x", offset=cast(int, None))
+    mock_connection._ensure_connected.assert_not_called()
     mock_connection._send_and_receive.assert_not_called()
 
 
