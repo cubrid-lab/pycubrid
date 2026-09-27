@@ -3994,6 +3994,28 @@ No result attributes — raises an exception on error.
 | `query_handle` | `int` | Handle for fetching schema rows |
 | `tuple_count`  | `int` | Number of schema entries |
 
+**Private wire groundwork (#455), not an enabled getter fix:** the verified FC9
+request carries length-prefixed arguments in this order: schema type (`int`),
+first name/pattern (`string` or NULL), second name/pattern (`string` or NULL),
+flags (`byte`), then shard ID (`int`, protocol V5 and newer). NULL is a zero-length
+argument; an empty string contains its NUL terminator and is a different argument.
+Strings retain the driver's existing UTF-8 encoding.
+
+After the response handle and tuple count, the column count precedes condensed
+columns: type (one or two bytes), scale (`int16`), precision (`int32`), name length
+(`int32`) and name. Unlike ordinary SELECT metadata, this layout has no separate
+attribute/table names, nullability, default or constraint flags. The private
+decoder therefore exposes only type, scale, precision and name; it preserves the
+existing collection-kind normalization rather than inventing absent fields.
+
+These helpers are offline-tested and dormant. `GetSchemaPacket.write/parse` and
+both public `get_schema_info()` methods remain unchanged and incomplete. Enabling
+the request requires atomic handle ownership, row consumption and cleanup in #456;
+these fixtures do not certify a working live getter or native-driver parity.
+Source references: [CAS FC9 arguments](https://github.com/CUBRID/cubrid/blob/6b2bc75527c8bad94d9ad8aba961638efdfb3269/src/broker/cas_function.c#L1192),
+[CCI condensed columns](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_query_execute.c#L5285),
+and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63ae4b334fde81ce2c523642f1afd37f/src/jdbc/cubrid/jdbc/jci/UConnection.java#L516).
+
 ---
 
 ### BatchExecutePacket

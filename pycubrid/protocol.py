@@ -60,6 +60,16 @@ class ColumnMetaData:
     is_shared: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _SchemaColumn:
+    """Condensed schema metadata; the wire carries no SELECT constraint fields."""
+
+    column_type: int
+    scale: int
+    precision: int
+    name: str
+
+
 @dataclass(slots=True)
 class ResultInfo:
     """Result info for each executed statement."""
@@ -478,22 +488,40 @@ def _raise_error(reader: PacketReader, response_length: int) -> None:
     )
 
 
+def _parse_column_type(reader: PacketReader) -> int:
+    """Read either type layout while preserving its collection-kind flags."""
+    legacy_type = reader._parse_byte()
+    column_type = reader._parse_byte() if legacy_type & 0x80 else legacy_type
+    collection_kind = legacy_type & 0x60
+    if collection_kind:
+        column_type = (CUBRIDDataType.SET, CUBRIDDataType.MULTISET, CUBRIDDataType.SEQUENCE)[
+            (collection_kind >> 5) - 1
+        ]
+    return column_type
+
+
+def _parse_schema_column_metadata(reader: PacketReader, column_count: int) -> list[_SchemaColumn]:
+    """Decode compact FC9 columns without inventing ordinary SELECT fields."""
+    if column_count < 0:
+        raise ValueError("negative schema column count")
+    columns: list[_SchemaColumn] = []
+    for _ in range(column_count):
+        column_type = _parse_column_type(reader)
+        scale = reader._parse_short()
+        precision = reader._parse_int()
+        name_len = reader._parse_int()
+        if name_len < 0 or name_len > reader.bytes_remaining():
+            raise ValueError("invalid schema column name length")
+        name = reader._parse_null_terminated_string(name_len)
+        columns.append(_SchemaColumn(column_type, scale, precision, name))
+    return columns
+
+
 def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[ColumnMetaData]:
     """Parse column metadata entries from the reader."""
     columns: list[ColumnMetaData] = []
     for _ in range(column_count):
-        legacy_type = reader._parse_byte()
-        if legacy_type & 0x80:
-            column_type = reader._parse_byte()
-        else:
-            column_type = legacy_type
-        # Both wire layouts retain the collection kind in the first byte;
-        # the base/second-byte type describes its elements, not the column.
-        collection_kind = legacy_type & 0x60
-        if collection_kind:
-            column_type = (CUBRIDDataType.SET, CUBRIDDataType.MULTISET, CUBRIDDataType.SEQUENCE)[
-                (collection_kind >> 5) - 1
-            ]
+        column_type = _parse_column_type(reader)
         scale = reader._parse_short()
         precision = reader._parse_int()
 
@@ -1147,6 +1175,31 @@ class GetEngineVersionPacket:
         # response_code is 0 on success; version string follows
         version_len = len(data) - DataSize.CAS_INFO - DataSize.INT
         self.engine_version = reader._parse_null_terminated_string(version_len)
+
+
+def _write_schema_info_request(
+    cas_info: bytes,
+    schema_type: int,
+    arg1: str | None,
+    arg2: str | None,
+    flags: int,
+    *,
+    shard_id: int = 0,
+    protocol_version: int = CASProtocol.VERSION,
+) -> bytes:
+    """Stage the FC9 wire contract; production getters do not use this yet."""
+    writer = PacketWriter()
+    writer._write_byte(CASFunctionCode.SCHEMA_INFO)
+    writer.add_int(schema_type)
+    for argument in (arg1, arg2):
+        if argument is None:
+            writer.add_null()
+        else:
+            writer._write_null_terminated_string(argument)
+    writer.add_byte(flags)
+    if protocol_version >= 5:
+        writer.add_int(shard_id)
+    return writer.finalize(cas_info)
 
 
 class GetSchemaPacket:
