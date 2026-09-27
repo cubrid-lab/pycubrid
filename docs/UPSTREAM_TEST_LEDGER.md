@@ -27,6 +27,10 @@ Legacy declarations remain in the ledger. `duplicate_candidate_of` is a
 **name-only review hint**, pointing to a provisional newer source declaration;
 neither the hint nor its target establishes assertion equivalence or a canonical
 unique-scenario count. No declaration is removed because it looks duplicated.
+Each `duplicate_candidate` row must link to another declaration in this ledger;
+all other classifications leave `duplicate_candidate_of` empty. Each segment
+in a pipe-separated link must name a present declaration, never an assertion
+subcase; empty segments are invalid.
 
 Identifiers and independently paraphrased expectations reference upstream; no
 upstream test bodies are imported or copied. Keep the source acknowledgement and
@@ -87,12 +91,15 @@ python -m pytest tests/test_upstream_scenario_ledger.py
 ```
 
 The focused check uses the existing pytest collection mechanism without a server
-to reject broken node IDs, duplicate source IDs, missing ownership/gap reasons,
-unsupported/failed pass claims and unexplained skips. Synthetic validator inputs
-test those rejection rules; they are not stored as driver execution evidence.
+to reject broken node IDs, duplicate source IDs, malformed candidate links,
+missing ownership/gap reasons, unsupported/failed pass claims and unexplained
+skips. Synthetic validator inputs test those rejection rules; they are not
+stored as driver execution evidence.
 
-When assessing another declaration, preserve its source ID and candidate links,
-add explicit assertion subcases where necessary, and compare fixtures, arguments,
-types and exact expected values before supplying `local_nodes`. Keep execution
+When assessing another declaration, preserve its source ID. Keep candidate links
+only while its classification is `duplicate_candidate`; clear them if that
+classification changes. Add explicit assertion subcases where necessary, and
+compare fixtures, arguments, types and exact expected values before supplying
+`local_nodes`. Keep execution
 fields independent. This is test-accounting maintenance only: no driver behavior,
 support policy, compatibility facade, CI scheduler or new dependency changes.

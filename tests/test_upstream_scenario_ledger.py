@@ -24,7 +24,7 @@ IDENTITIES = ("verification_commit", "server", "python", "mode", "artifact")
 
 
 def _validate(rows: list[dict[str, str]], nodes: set[str]) -> None:
-    identifiers = {row["id"] for row in rows}
+    identifiers = {row["id"]: row for row in rows}
     if len(identifiers) != len(rows):
         raise ValueError("duplicate scenario id")
     for row in rows:
@@ -50,8 +50,18 @@ def _validate(rows: list[dict[str, str]], nodes: set[str]) -> None:
         if row["classification"] in {"unknown", "duplicate_candidate"}:
             if "#396" not in row["gap_issues"].split("|"):
                 raise ValueError("unassessed record needs the continuing parent tracker")
-        for candidate in filter(None, row["duplicate_candidate_of"].split("|")):
-            if candidate == row["id"] or candidate not in identifiers:
+        candidates = (
+            row["duplicate_candidate_of"].split("|") if row["duplicate_candidate_of"] else []
+        )
+        if bool(candidates) != (row["classification"] == "duplicate_candidate"):
+            raise ValueError("duplicate candidate reference/classification mismatch")
+        for candidate in candidates:
+            if (
+                not candidate
+                or candidate == row["id"]
+                or candidate not in identifiers
+                or identifiers[candidate]["kind"] != "declaration"
+            ):
                 raise ValueError("broken duplicate candidate reference")
         mapped = set(filter(None, row["local_nodes"].split("|")))
         related = set(filter(None, row["related_nodes"].split("|")))
@@ -192,6 +202,43 @@ def test_unassessed_gap_outlives_inventory_delivery(
     row = next(row for row in modified if row["classification"] == "unknown")
     row["gap_issues"] = "#437"
     with pytest.raises(ValueError, match="continuing parent tracker"):
+        _validate(modified, collected_nodes)
+
+
+@pytest.mark.parametrize("link", ["", "|"])
+def test_duplicate_candidate_requires_a_target(
+    ledger: list[dict[str, str]], collected_nodes: set[str], link: str
+) -> None:
+    modified = [dict(row) for row in ledger]
+    row = next(row for row in modified if row["classification"] == "duplicate_candidate")
+    row["duplicate_candidate_of"] = link
+    with pytest.raises(ValueError, match="duplicate candidate reference"):
+        _validate(modified, collected_nodes)
+
+
+def test_non_candidate_cannot_have_a_candidate_link(
+    ledger: list[dict[str, str]], collected_nodes: set[str]
+) -> None:
+    modified = [dict(row) for row in ledger]
+    candidate = next(row for row in modified if row["classification"] == "duplicate_candidate")
+    row = next(row for row in modified if row["classification"] == "unknown")
+    row["duplicate_candidate_of"] = candidate["id"]
+    with pytest.raises(ValueError, match="duplicate candidate reference"):
+        _validate(modified, collected_nodes)
+
+
+@pytest.mark.parametrize("target", ["assertion", "self", "out_of_ledger"])
+def test_duplicate_candidate_target_must_be_another_ledger_declaration(
+    ledger: list[dict[str, str]], collected_nodes: set[str], target: str
+) -> None:
+    modified = [dict(row) for row in ledger]
+    row = next(row for row in modified if row["classification"] == "duplicate_candidate")
+    row["duplicate_candidate_of"] = {
+        "assertion": next(item["id"] for item in modified if item["kind"] == "assertion"),
+        "self": row["id"],
+        "out_of_ledger": "tests3/not_in_ledger.py::test_missing",
+    }[target]
+    with pytest.raises(ValueError, match="broken duplicate candidate reference"):
         _validate(modified, collected_nodes)
 
 
