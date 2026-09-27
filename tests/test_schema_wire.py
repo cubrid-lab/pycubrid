@@ -172,10 +172,20 @@ def test_schema_column_zero_name_length() -> None:
     assert reader.bytes_remaining() == 0
 
 
-def test_existing_schema_packet_behavior_is_not_enabled_by_groundwork() -> None:
-    """Keep the incomplete production path unchanged until ownership lands atomically."""
-    packet = protocol.GetSchemaPacket(1, "%", 1)
-    payload = b"\x09" + struct.pack(">ii", 4, 1) + _string("%") + struct.pack(">iB", 1, 1)
-    assert packet.write(CAS_INFO) == struct.pack(">i", len(payload)) + CAS_INFO + payload
+def test_schema_packet_activates_corrected_request_and_condensed_columns() -> None:
+    """FC9 activation ships in the same slice as owning consumption/cleanup."""
+    packet = protocol.GetSchemaPacket(1, "%", 1, arg2="id%")
+    assert packet.write(CAS_INFO) == protocol._write_schema_info_request(
+        CAS_INFO, 1, "%", "id%", 1
+    )
     packet.parse(CAS_INFO + struct.pack(">iii", 17, 3, 1) + _column(b"\x08"))
     assert (packet.query_handle, packet.tuple_count) == (17, 3)
+    assert len(packet.columns) == 1
+    assert packet.columns[0].name == "column"
+
+
+@pytest.mark.parametrize("count", [-1, -10])
+def test_schema_packet_rejects_negative_row_count(count: int) -> None:
+    packet = protocol.GetSchemaPacket(1)
+    with pytest.raises(ValueError, match="tuple count"):
+        packet.parse(CAS_INFO + struct.pack(">iii", 17, count, 0))
