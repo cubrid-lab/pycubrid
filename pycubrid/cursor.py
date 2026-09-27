@@ -92,8 +92,8 @@ class Cursor(_CursorBase):
     @arraysize.setter
     def arraysize(self, value: int) -> None:
         """Set the default number of rows for fetchmany."""
-        if value < 1:
-            raise ProgrammingError("arraysize must be greater than zero")
+        if type(value) is not int or value < 1:
+            raise ProgrammingError("arraysize must be a positive integer")
         self._arraysize = value
 
     @property
@@ -141,6 +141,10 @@ class Cursor(_CursorBase):
         """Prepare and execute a SQL statement."""
         self._check_closed()
         self._connection._ensure_connected()
+
+        if re.match(r"INSERT\b", extract_first_keyword(operation)):
+            self._connection._last_insert_id = None
+            self._lastrowid = None
 
         _timing = self._timing
         _start = 0
@@ -190,11 +194,13 @@ class Cursor(_CursorBase):
             self._rowcount = -1
 
         if packet.statement_type == CUBRIDStatementType.INSERT:
+            self._connection._last_insert_id = None
             try:
                 lid_packet = GetLastInsertIdPacket()
                 self._connection._send_and_receive(lid_packet)
                 if lid_packet.last_insert_id:
                     self._lastrowid = int(lid_packet.last_insert_id)
+                    self._connection._last_insert_id = lid_packet.last_insert_id
             except (InterfaceError, OperationalError, OSError, TypeError, ValueError) as exc:
                 _LOGGER.debug("lastrowid retrieval failed: %s", exc)
                 self._lastrowid = None
@@ -219,6 +225,19 @@ class Cursor(_CursorBase):
         """
         self._check_closed()
         if not seq_of_parameters:
+            if self._query_handle is not None:
+                self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+                self._query_handle = None
+            self._description = None
+            self._columns = []
+            self._rows = []
+            self._row_index = 0
+            self._fetched_count = 0
+            self._statement_type = 0
+            self._total_tuple_count = 0
+            self._invalidated_by_reconnect = False
+            self._rowcount = 0
+            self._lastrowid = None
             return self
 
         # Use DML whitelist: only batch for known DML verbs.
@@ -267,6 +286,9 @@ class Cursor(_CursorBase):
             self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
             self._query_handle = None
 
+        if sql_list:
+            self._connection._last_insert_id = None
+
         if auto_commit is None:
             auto_commit = self._connection.autocommit
 
@@ -275,6 +297,15 @@ class Cursor(_CursorBase):
             auto_commit=auto_commit,
             protocol_version=self._connection._protocol_version,
         )
+        self._description = None
+        self._rows = []
+        self._row_index = 0
+        self._fetched_count = 0
+        self._query_handle = None
+        self._rowcount = -1
+        self._lastrowid = None
+
+        # A failed transport or response parse must not expose prior results.
         self._connection._send_and_receive(packet)
 
         # Raise on per-statement batch failures (issue #186).
@@ -283,12 +314,6 @@ class Cursor(_CursorBase):
         if packet.errors:
             err = packet.errors[0]
             _raise_batch_error(err)
-
-        self._description = None
-        self._rows = []
-        self._row_index = 0
-        self._fetched_count = 0
-        self._query_handle = None
 
         if packet.results:
             self._rowcount = sum(count for _, count in packet.results)
