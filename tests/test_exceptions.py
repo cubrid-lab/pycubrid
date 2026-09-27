@@ -168,7 +168,7 @@ class TestExceptionRepr:
 
     def test_database_error_repr_with_known_errno_description(self) -> None:
         r = repr(DatabaseError("original message", errno=-493))
-        assert r == "DatabaseError('original message', errno=-493, description='Table not found')"
+        assert r == "DatabaseError('original message', errno=-493, description='Syntax error')"
 
     def test_database_error_repr_with_unknown_errno_no_description(self) -> None:
         r = repr(DatabaseError("original message", errno=-99999))
@@ -184,7 +184,7 @@ class TestExceptionRepr:
 
     def test_database_error_str_with_known_errno_description(self) -> None:
         s = str(DatabaseError("original message", errno=-493))
-        assert s == "original message (errno=-493, description='Table not found')"
+        assert s == "original message (errno=-493, description='Syntax error')"
 
     @pytest.mark.parametrize(
         "exc_class",
@@ -202,12 +202,12 @@ class TestExceptionRepr:
     ) -> None:
         r = repr(exc_class("x", errno=-493))
         assert "errno=-493" in r
-        assert "description='Table not found'" in r
+        assert "description='Syntax error'" in r
 
 
 class TestErrorCodeLookup:
     def test_get_error_description_known(self) -> None:
-        assert get_error_description(-493) == "Table not found"
+        assert get_error_description(-493) == "Syntax error"
         assert get_error_description(-21003) == "Connection refused"
 
     def test_get_error_description_unknown(self) -> None:

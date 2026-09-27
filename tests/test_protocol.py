@@ -242,7 +242,7 @@ class TestRaiseError:
             _raise_error(reader, len(error_body))
 
     def test_raises_integrity_error_for_foreign_key(self) -> None:
-        error_body = struct.pack(">i", -671) + b"Foreign key constraint violation\x00"
+        error_body = struct.pack(">i", -922) + b"Foreign key constraint violation\x00"
         reader = PacketReader(error_body)
         with pytest.raises(IntegrityError, match="Foreign key constraint violation"):
             _raise_error(reader, len(error_body))
@@ -254,7 +254,7 @@ class TestRaiseError:
             _raise_error(reader, len(error_body))
 
     def test_raises_programming_error_for_unknown_class(self) -> None:
-        error_body = struct.pack(">i", -494) + b"Unknown class 'foo'\x00"
+        error_body = struct.pack(">i", -493) + b"Unknown class 'foo'\x00"
         reader = PacketReader(error_body)
         with pytest.raises(ProgrammingError, match="Unknown class"):
             _raise_error(reader, len(error_body))

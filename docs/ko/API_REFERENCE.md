@@ -1266,6 +1266,18 @@ pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 �
 보존합니다. 알 수 없는 코드는 제약조건 같은 메시지가 있어도 `DatabaseError`로
 유지합니다.
 
+네이티브 `-493` (`ER_PT_SYNTAX`)과 `-494` (`ER_PT_SEMANTIC`)는
+`ProgrammingError` / `42000`을 사용하며 설명은 각각 구문 오류와 의미 오류입니다.
+`-493`은 잘못된 SQL과 존재하지 않는 클래스 모두에서 반환될 수 있으므로 코드만으로
+테이블 부재 SQLSTATE를 판단할 수 없습니다. `-671` (`ER_CSS_RECV_OR_SEND`)은
+무결성 오류가 아닌 `OperationalError` / `08S01`입니다. SQLSTATE는 드라이버가
+네이티브 의미를 변환한 값입니다. 배치도 단일 문장과 동일한 알려진 코드 SQLSTATE
+조회 방식을 사용하며, 알 수 없는 코드는 기존 클래스 기본값을 유지합니다.
+
+사용자는 `-493`만으로 또는 생성된 설명 문자열로 테이블 부재를 판단하면 안 됩니다.
+관련 SQLAlchemy 리플렉션 수정은
+[sqlalchemy-cubrid #454](https://github.com/cubrid-lab/sqlalchemy-cubrid/issues/454)에서 추적합니다.
+
 네이티브 식별자는
 [공식 CCI 오류 헤더](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h)에
 정의돼 있습니다. 일반 DBMS 코드 `-1`의 프로토콜 오류 응답은 아래의 기존
