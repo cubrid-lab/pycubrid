@@ -487,6 +487,13 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
             column_type = reader._parse_byte()
         else:
             column_type = legacy_type
+        # Both wire layouts retain the collection kind in the first byte;
+        # the base/second-byte type describes its elements, not the column.
+        collection_kind = legacy_type & 0x60
+        if collection_kind:
+            column_type = (CUBRIDDataType.SET, CUBRIDDataType.MULTISET, CUBRIDDataType.SEQUENCE)[
+                (collection_kind >> 5) - 1
+            ]
         scale = reader._parse_short()
         precision = reader._parse_int()
 

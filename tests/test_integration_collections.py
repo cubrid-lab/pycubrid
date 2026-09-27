@@ -14,6 +14,7 @@ from collections.abc import Generator
 from typing import Any
 
 import pycubrid
+import pycubrid.aio
 import pytest
 from pycubrid.connection import Connection
 from pycubrid.cursor import Cursor
@@ -67,7 +68,10 @@ class TestCollectionCRUD:
             row = cursor.fetchone()
             assert row is not None
             # SET: no duplicates, order may vary
-            assert set(row[0]) == {1, 2, 3} or set(row[0]) == {"1", "2", "3"}
+            assert isinstance(row[0], frozenset)
+            assert row[0] == frozenset({1, 2, 3})
+            assert cursor.description is not None
+            assert cursor.description[0][1] == 16
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
@@ -80,8 +84,8 @@ class TestCollectionCRUD:
             row = cursor.fetchone()
             assert row is not None
             # MULTISET preserves duplicates
-            result = sorted(row[0])
-            assert len(result) == 3
+            assert isinstance(row[0], list)
+            assert sorted(row[0]) == [1, 1, 2]
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
@@ -95,6 +99,7 @@ class TestCollectionCRUD:
             assert row is not None
             # SEQUENCE (LIST) preserves order
             assert isinstance(row[0], list)
+            assert row[0] == [1, 2, 3]
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
@@ -107,7 +112,7 @@ class TestCollectionCRUD:
             row = cursor.fetchone()
             assert row is not None
             # Empty set
-            assert len(row[0]) == 0
+            assert row[0] == frozenset()
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
@@ -147,7 +152,7 @@ class TestCollectionCRUD:
             )
             cursor.execute("SELECT * FROM %s WHERE a SETEQ {'1'} ORDER BY 1" % table)
             rows = cursor.fetchall()
-            assert len(rows) == 1
+            assert rows == [(frozenset({1}), [1, 1], [1, 1])]
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
@@ -168,3 +173,30 @@ class TestCollectionDecodeFlag:
             finally:
                 cur.execute("DROP TABLE IF EXISTS %s" % table)
                 cur.close()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("decode", [False, True])
+    async def test_async_collection_decode(self, decode: bool) -> None:
+        conn = await pycubrid.aio.connect(
+            host=TEST_HOST,
+            port=TEST_PORT,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+            decode_collections=decode,
+        )
+        async with conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT CAST({1,2,1} AS SET(INT)), "
+                    "CAST({1,1,2} AS MULTISET(INT)), CAST({2,1,2} AS SEQUENCE(INT)), 42"
+                )
+                row = await cur.fetchone()
+                assert row is not None
+                assert cur.description is not None
+                assert [col[1] for col in cur.description] == [16, 17, 18, 8]
+                if decode:
+                    assert row == (frozenset({1, 2}), [1, 1, 2], [2, 1, 2], 42)
+                else:
+                    assert all(isinstance(value, bytes) for value in row[:3])
+                    assert row[3] == 42

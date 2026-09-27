@@ -38,7 +38,8 @@ def _encode_json(value: str) -> bytes:
 def _build_column_metadata(column_type: int, name: str) -> bytes:
     encoded_name = name.encode("utf-8") + b"\x00"
     buf = bytearray()
-    buf.append(column_type)
+    # JSON (34) cannot fit the legacy five-bit scalar type field.
+    buf.extend((0x80, column_type))
     buf.extend(struct.pack(">h", 0))
     buf.extend(struct.pack(">i", 0))
     for _ in range(3):
