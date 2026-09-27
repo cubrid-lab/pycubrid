@@ -201,6 +201,10 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Collection metadata decoding (#403, #410)** — PATCH / bug correction restoring
+  the documented collection types and opt-in decoding behavior. Default raw bytes,
+  public signatures and unsupported collection parameter binding are unchanged.
+
 - **Quality-tool pin and scope consistency (#416)** — PATCH / development and CI
   maintenance. Shared lint/format targets include maintained scripts/demos, and
   declared pins, hook revisions, installed versions, and scopes are checked together.

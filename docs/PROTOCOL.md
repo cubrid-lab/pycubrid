@@ -523,6 +523,12 @@ Available parameters (`CCIDbParam`):
 
 ## Data Types on the Wire
 
+Column metadata preserves the first type byte's `0x60` collection-kind bits:
+`0x20` is SET, `0x40` MULTISET and `0x60` SEQUENCE. With `0x80` set, a second
+byte carries the full scalar/element type (including codes above 31); otherwise
+the low five bits carry it. Collection row dispatch uses the collection kind,
+not that element type.
+
 Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:
 
 | Type Code | Name       | Wire Format |
