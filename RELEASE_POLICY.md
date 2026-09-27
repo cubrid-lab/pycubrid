@@ -96,6 +96,19 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
+### Planned explicit compatibility namespaces (#438)
+
+The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
+plans `pycubrid.compat.cubriddb` and `pycubrid.compat.native`; neither exists yet.
+This documentation-only decision changes no current API, default or support line.
+Future explicit APIs are **MINOR** additions only while ordinary behavior stays
+unchanged; documented ordinary bug corrections remain **PATCH**. Their foundation
+PR must declare explicit submodule exports, extend §1 and the existing API
+checker's tracked modules/returned classes, and regenerate the baseline together.
+Regenerating today's ordinary-only baseline alone cannot protect new namespaces.
+This design does not authorize a default replacement, 2.0 migration, new dependency,
+version/tag/PyPI publication or reinterpretation of an outstanding user choice.
+
 ### What the gate does *not* detect
 
 The `compat-check` CI gate captures the structural surface — names,
