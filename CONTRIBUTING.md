@@ -2,6 +2,9 @@
 
 Thank you for your interest in contributing to `pycubrid`.
 
+Write GitHub issues, PRs and comments in English; localized documentation remains
+welcome, and no specific translation tool is required.
+
 ## Development Setup
 
 ### Prerequisites

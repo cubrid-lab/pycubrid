@@ -262,6 +262,9 @@ graph TD
 
 ## Issue Labeling (cubrid-lab org standard)
 
+Write GitHub issues, PRs and comments in English; localized documentation remains
+welcome, and no specific translation tool is required.
+
 Maintainers or triagers assign exactly one
 `priority: <value>` label and exactly one `size: <value>` label for each new issue,
 alongside a type label (`bug`/`enhancement`/`documentation`/`chore`/`ci`/…) and an
