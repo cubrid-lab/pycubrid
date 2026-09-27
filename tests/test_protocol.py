@@ -116,8 +116,8 @@ def _build_column_metadata(
     tn_bytes = table_name.encode("utf-8") + b"\x00"
     buf.extend(struct.pack(">i", len(tn_bytes)))
     buf.extend(tn_bytes)
-    # nullable
-    buf.append(1 if is_nullable else 0)
+    # CAS sends a NOT NULL flag: zero is nullable, one is NOT NULL.
+    buf.append(0 if is_nullable else 1)
     # default_value
     if default_value:
         dv_bytes = default_value.encode("utf-8") + b"\x00"
@@ -341,6 +341,18 @@ class TestRaiseErrorCodeDispatch:
 
 class TestParseColumnMetadata:
     """Tests for _parse_column_metadata helper."""
+
+    @pytest.mark.parametrize("is_nullable", [False, True])
+    @pytest.mark.parametrize("two_byte_type", [False, True])
+    def test_non_null_wire_flag(self, is_nullable: bool, two_byte_type: bool) -> None:
+        data = _build_column_metadata(
+            column_type=CUBRIDDataType.INT,
+            is_nullable=is_nullable,
+            two_byte_type=two_byte_type,
+        )
+        reader = PacketReader(data)
+        assert _parse_column_metadata(reader, 1)[0].is_nullable is is_nullable
+        assert reader.bytes_remaining() == 0
 
     def test_single_column(self) -> None:
         data = _build_column_metadata(

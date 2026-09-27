@@ -832,6 +832,12 @@ Each item is a 7-tuple:
 | 5     | `scale`        | `int`  | Column scale |
 | 6     | `null_ok`      | `bool` | Whether the column is nullable |
 
+`null_ok` is `True` when the broker reports that the column permits NULL, and
+`False` for NOT NULL and primary-key columns. CAS transmits the inverse
+`is_non_null` flag; pycubrid converts it to the PEP 249 meaning in both sync and
+async cursors. Size fields remain `None`, and collection type codes remain
+16/17/18; this correction does not select a CUBRIDdb compatibility profile.
+
 ```python
 cur.execute("SELECT name, age FROM users")
 for col in cur.description:
@@ -1335,7 +1341,17 @@ See [Unknown Options](CONNECTION.md#unknown-options).
 
 ### Error Classification
 
-pycubrid automatically classifies server errors based on the error message:
+pycubrid primarily classifies server errors by their numeric error code, not by
+message wording. Native `-631` (`ER_NULL_CONSTRAINT_VIOLATION`) and `-922`
+(`ER_FK_INVALID`) raise `IntegrityError` with SQLSTATE `23000`, even when the
+message is localized. Single statements and per-statement batch failures preserve
+the original numeric value in both `code` and `errno`. Unknown codes remain
+`DatabaseError` rather than being classified from constraint-like message text.
+
+The native identifiers are defined in the
+[official CCI error header](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h).
+Protocol error responses with the generic DBMS code `-1` retain the existing
+message-based fallback below; per-statement batch dispatch remains code-based:
 
 | Keywords in error message | Exception raised |
 |---------------------------|-----------------|

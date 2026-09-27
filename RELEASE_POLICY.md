@@ -201,6 +201,18 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Native NOT NULL and foreign-key error classification (#390)** — PATCH /
+  correction to the documented PEP 249 integrity-error contract. Codes `-631`
+  and `-922` raise the existing `IntegrityError` with SQLSTATE `23000`, and
+  batch failures retain the original code in `errno` as single statements do.
+  Public names/signatures, transaction semantics, generic-code text fallback,
+  runtime dependencies and supported versions are unchanged.
+
+- **Description nullability (#431, #398)** — PATCH / bug correction. The broker's
+  non-null flag is inverted when deriving the documented PEP 249 `null_ok` value.
+  Public signatures, optional size fields, collection codes and default return
+  shapes are unchanged; this is not a new native-driver compatibility profile.
+
 - **Collection metadata decoding (#403, #410)** — PATCH / bug correction restoring
   the documented collection types and opt-in decoding behavior. Default raw bytes,
   public signatures and unsupported collection parameter binding are unchanged.

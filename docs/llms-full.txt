@@ -304,6 +304,45 @@ def connect(
 | `no_backslash_escapes` | `bool` | `False` | Escape strings using doubled quotes only, without backslash escapes |
 | `autocommit` | `bool` | `False` | Enable immediate commit per statement |
 
+### Unknown Options
+
+Any keyword outside the two tables above is **not** a supported connection
+option. pycubrid ignores it, but reports it through the
+`pycubrid.UnknownConnectionOptionWarning` category so that a typo is not
+swallowed silently:
+
+```python
+import pycubrid
+
+pycubrid.connect(host="localhost", database="demodb", read_timout=30)
+# UnknownConnectionOptionWarning: Unknown connection option ignored by pycubrid:
+# 'read_timout' (did you mean 'read_timeout'?). Supported options: autocommit,
+# connect_timeout, database, decode_collections, enable_timing, fetch_size,
+# host, json_deserializer, no_backslash_escapes, password, port, read_timeout,
+# ssl, user.
+```
+
+The warning is emitted before any socket work, so a mis-spelled option is
+reported even when the connection itself then fails. It applies equally to
+`pycubrid.connect()`, `pycubrid.aio.connect()`, and direct `Connection(...)` /
+`AsyncConnection(...)` construction.
+
+A warning — rather than a `TypeError` — is the default because wrapper layers
+(connection pools, ORM dialects) legitimately forward extra keywords, and
+rejecting them outright would break those callers. Use the standard `warnings`
+machinery to pick the strictness you want:
+
+```python
+import warnings
+import pycubrid
+
+# Strict: turn an unknown option into an error.
+warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+
+# Lenient: silence it entirely (e.g. inside a wrapper that forwards kwargs).
+warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+```
+
 ### Common Connection Profiles
 
 | Profile | host | port | user | password | autocommit | Use case |
@@ -917,6 +956,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [InternalError](#internalerror)
   - [ProgrammingError](#programmingerror)
   - [NotSupportedError](#notsupportederror)
+  - [UnknownConnectionOptionWarning](#unknownconnectionoptionwarning)
 - [Type Objects](#type-objects)
 - [Type Constructors](#type-constructors)
 
@@ -976,7 +1016,17 @@ Create a new database connection.
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync and async broker connections; `True` uses the default verified context with a TLS 1.2 minimum. Connection uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake then TLS upgrade before `OPEN_DATABASE`. See [Connection guide](CONNECTION.md#ssltls). |
-| `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit` |
+| `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit`. An unrecognised keyword is ignored but reported — see [Unknown Options](#unknown-options) |
+
+#### Unknown Options
+
+A keyword that is not a supported connection option is ignored, but emits an
+`UnknownConnectionOptionWarning` naming it (with a spelling suggestion when one
+is close), so a typo such as `read_timout=30` is not swallowed silently. The
+same applies to `pycubrid.aio.connect()` and to direct `Connection(...)` /
+`AsyncConnection(...)` construction. See
+[Unknown Options](CONNECTION.md#unknown-options) for how to escalate the warning
+to an error or silence it.
 
 #### `decode_collections`
 
@@ -1694,6 +1744,12 @@ Each item is a 7-tuple:
 | 5     | `scale`        | `int`  | Column scale |
 | 6     | `null_ok`      | `bool` | Whether the column is nullable |
 
+`null_ok` is `True` when the broker reports that the column permits NULL, and
+`False` for NOT NULL and primary-key columns. CAS transmits the inverse
+`is_non_null` flag; pycubrid converts it to the PEP 249 meaning in both sync and
+async cursors. Size fields remain `None`, and collection type codes remain
+16/17/18; this correction does not select a CUBRIDdb compatibility profile.
+
 ```python
 cur.execute("SELECT name, age FROM users")
 for col in cur.description:
@@ -2165,9 +2221,49 @@ Raised when an unsupported method or API is called.
 
 ---
 
+### UnknownConnectionOptionWarning
+
+```python
+class UnknownConnectionOptionWarning(UserWarning)
+```
+
+A Python **warning category**, not a PEP 249 exception — it sits outside the
+hierarchy above and is deliberately distinct from `pycubrid.Warning` (the
+PEP 249 database warning, which is raised).
+
+Emitted when a connection constructor receives a keyword it does not recognise.
+The keyword is still ignored, but the warning names it — with a spelling
+suggestion when one is close — so a typo such as `read_timout=30` is not
+swallowed silently.
+
+```python
+import warnings
+import pycubrid
+
+# Strict: an unknown connection option becomes an error.
+warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+
+# Lenient: silence it (e.g. in a wrapper that forwards arbitrary kwargs).
+warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+```
+
+See [Unknown Options](CONNECTION.md#unknown-options).
+
+---
+
 ### Error Classification
 
-pycubrid automatically classifies server errors based on the error message:
+pycubrid primarily classifies server errors by their numeric error code, not by
+message wording. Native `-631` (`ER_NULL_CONSTRAINT_VIOLATION`) and `-922`
+(`ER_FK_INVALID`) raise `IntegrityError` with SQLSTATE `23000`, even when the
+message is localized. Single statements and per-statement batch failures preserve
+the original numeric value in both `code` and `errno`. Unknown codes remain
+`DatabaseError` rather than being classified from constraint-like message text.
+
+The native identifiers are defined in the
+[official CCI error header](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h).
+Protocol error responses with the generic DBMS code `-1` retain the existing
+message-based fallback below; per-statement batch dispatch remains code-based:
 
 | Keywords in error message | Exception raised |
 |---------------------------|-----------------|
@@ -2591,6 +2687,12 @@ pycubrid decodes supported collection payloads into Python containers.
 
 Notes:
 
+- `cursor.description` reports the collection code (16, 17 or 18), not its element
+  type. Integer elements remain Python `int`; MULTISET preserves duplicates and
+  SEQUENCE preserves order. The same decoding rules apply to sync and async fetches.
+- The final description field, `null_ok`, uses the PEP 249 meaning: `True` for
+  nullable columns and `False` for NOT NULL/primary-key columns, not the inverse
+  CAS `is_non_null` flag.
 - Nested collection payloads remain raw `bytes`.
 - Unknown collection element types fall back to raw `bytes`.
 - `SET` values are normalized to a `frozenset` when every decoded element is hashable.
@@ -4007,6 +4109,12 @@ Available parameters (`CCIDbParam`):
 
 ## Data Types on the Wire
 
+Column metadata preserves the first type byte's `0x60` collection-kind bits:
+`0x20` is SET, `0x40` MULTISET and `0x60` SEQUENCE. With `0x80` set, a second
+byte carries the full scalar/element type (including codes above 31); otherwise
+the low five bits carry it. Collection row dispatch uses the collection kind,
+not that element type.
+
 Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:
 
 | Type Code | Name       | Wire Format |
@@ -4048,7 +4156,7 @@ class ColumnMetaData:
     name: str                # Column alias
     real_name: str           # Actual column name
     table_name: str          # Source table name
-    is_nullable: bool        # Allows NULL
+    is_nullable: bool        # Allows NULL (normalized from the inverse wire flag)
     default_value: str       # Default value expression
     is_auto_increment: bool  # AUTO_INCREMENT column
     is_unique_key: bool      # Part of unique index
@@ -4058,6 +4166,11 @@ class ColumnMetaData:
     is_foreign_key: bool     # Part of foreign key
     is_shared: bool          # Shared attribute
 ```
+
+The raw column-metadata byte is `is_non_null`: zero permits NULL and nonzero
+means NOT NULL (the broker normalizes it to 0/1). `PacketReader` supplies that
+byte to the metadata parser, which derives `is_nullable` and the public
+`cursor.description` `null_ok` field using `raw == 0`.
 
 ---
 
@@ -4722,6 +4835,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Connection Closed Unexpectedly](#connection-closed-unexpectedly)
   - [Broker Port Redirect Failure](#broker-port-redirect-failure)
   - [Async TLS Handshake Hangs on Python 3.10](#async-tls-handshake-hangs-on-python-310)
+  - [Connection Option Has No Effect](#connection-option-has-no-effect)
 - [Query Issues](#query-issues)
   - [ProgrammingError: SQL Syntax](#programmingerror-sql-syntax)
   - [Parameter Binding Errors](#parameter-binding-errors)
@@ -5047,6 +5161,62 @@ OperationalError: ... (during connection handshake)
 - **Pass a custom `ssl.SSLContext`** with the correct CA bundle loaded (`context.load_verify_locations(cafile=...)`) rather than relying on the system trust store, eliminating the most common verify failure.
 
 **Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That is the signature of the 3.10-only async-TLS handshake bug.
+
+---
+
+### Connection Option Has No Effect
+
+**Symptom:**
+
+A connection option is accepted but does nothing — the timeout never changes,
+timing stats stay empty, the fetch batch size is unchanged — and a warning like
+this appears:
+
+```
+UnknownConnectionOptionWarning: Unknown connection option ignored by pycubrid:
+'read_timout' (did you mean 'read_timeout'?). Supported options: autocommit,
+connect_timeout, database, decode_collections, enable_timing, fetch_size, host,
+json_deserializer, no_backslash_escapes, password, port, read_timeout, ssl, user.
+```
+
+**Cause:**
+
+The keyword is not a supported connection option, so it lands in `**kwargs` and
+is discarded. Usually a typo (`read_timout`), a camelCase spelling
+(`connectTimeout`), or an option borrowed from a different driver.
+
+**Fixes:**
+
+1. **Use the spelling the warning suggests**, or pick from the supported set it
+   lists. The full reference is in
+   [Connection Options](CONNECTION.md#keyword-arguments).
+
+2. **Catch typos automatically in development** by making the warning fatal:
+
+   ```python
+   import warnings
+   import pycubrid
+
+   warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+   ```
+
+   (Install this filter from Python. `python -W` and `PYTHONWARNINGS` are
+   parsed at interpreter startup, before site-packages is importable, so
+   `-W error::pycubrid.UnknownConnectionOptionWarning` is rejected with
+   `Invalid -W option ignored: invalid module name: 'pycubrid'` even when
+   pycubrid is installed. `python -W error::UserWarning` works, but it
+   escalates every `UserWarning`, not just this one.)
+
+3. **If a wrapper legitimately forwards extra keywords** (a connection pool or
+   an ORM dialect), silence the category instead of chasing each one:
+
+   ```python
+   warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+   ```
+
+> **Note:** If you see no warning at all, check that warnings are not globally
+> suppressed — `python -W default` restores the default display. Warnings are
+> also hidden by default in some test runners.
 
 ---
 
@@ -6128,6 +6298,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
 | CAS reconnection | ✅ | 1.0.0 | Auto-reconnect on broker `INACTIVE` status |
+| Unknown-option reporting | ✅ | 1.8.0 (#377) | An unrecognised connection keyword is ignored but emits `UnknownConnectionOptionWarning` (with a spelling suggestion); escalate with `warnings.simplefilter("error", ...)` |
 
 ### TLS / SSL
 
