@@ -221,7 +221,7 @@ async def test_cancel_during_schema_io_drops_session_without_second_rpc(operatio
 
     conn._send_and_receive_locked = blocked
     task = asyncio.create_task(invoke(conn, operation, 1 if operation == "get_schema_info" else packet))
-    await started.wait()
+    await asyncio.wait_for(started.wait(), timeout=1)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -263,7 +263,7 @@ async def test_transaction_waits_until_fetch_and_close_complete() -> None:
 
     conn._send_and_receive_locked = gated
     fetching = asyncio.create_task(conn.fetch_schema_info(packet))
-    await started.wait()
+    await asyncio.wait_for(started.wait(), timeout=1)
     committing = asyncio.create_task(conn.commit())
     await asyncio.sleep(0)
     assert not committing.done()
