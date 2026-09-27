@@ -153,6 +153,26 @@ classification and the final review record. Outside contributors provide ordinar
 motivation, code, tests and affected docs; internal Oracle/agent installation or
 access is not a prerequisite for proposing a contribution.
 
+## Agent PR scope and review guardrails
+
+- Before editing, record one acceptance contract, affected files, explicit non-goals
+  and the validation plan. Keep each PR to one independently reviewable change.
+  Separate contributor guidance, CI configuration and new validator behavior.
+- Triage AI findings against that contract, a supported-environment reproduction
+  and impact. AI severity is not authority to add capabilities or widen the contract;
+  obtain explicit maintainer direction or defer out-of-scope work to a separate issue.
+- Batch accepted fixes locally and run relevant checks before publishing a review
+  head. Deduplicate agent-initiated review requests by head SHA and review purpose.
+- Default to two published AI review rounds total per scoped PR/task: the initial
+  review and one corrective re-review. New commits do not reset this budget.
+  Further rounds or scope expansion require explicit maintainer direction.
+- If unresolved work needs another round at the limit, stop automatic revisions;
+  keep the PR Draft and report incomplete work, blockers and a proposed split.
+  Never merge with unresolved critical/security defects or failed required CI.
+- Maintain one editable, agent-owned English status comment. Avoid bot mentions in
+  routine updates, per-finding progress replies and repeated review requests.
+  Preserve contributor history; revisit external PRs only after an author-updated head SHA.
+
 ## Release Process
 
 Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`.
