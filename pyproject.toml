@@ -102,6 +102,8 @@ addopts = "--tb native -v -r fxX --maxfail=25 -p no:warnings"
 python_files = "tests/*test_*.py"
 markers = [
     "integration: requires a live CUBRID server",
+    "slow: long-running tests (soak, stress, chaos) excluded from the standard full matrix",
+    "tls: TLS-specific integration tests run in the dedicated integration-tls job",
     "benchmark: performance benchmark (requires a live CUBRID server)",
 ]
 

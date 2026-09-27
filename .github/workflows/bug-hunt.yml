@@ -63,23 +63,20 @@ jobs:
         run: python scripts/wait_for_cubrid.py
       - name: Run the bug-hunt integration suites (wide Hypothesis profile)
         run: |
-          python -m pytest tests/ -m integration -v --tb=short \
-            tests/test_property_live_values.py \
-            tests/test_protocol_fuzz.py \
-            tests/test_fault_broker.py \
-            tests/test_connection_state_machine.py \
-            tests/test_metamorphic_parity.py \
-            tests/test_transaction_matrix.py \
-            tests/test_type_contract.py \
-            tests/test_batch_semantics.py \
-            tests/test_lob_adversarial.py \
-            tests/test_async_cancellation.py \
-            tests/test_cubriddb_differential.py \
-            tests/test_resource_leaks.py \
-            tests/test_pep249_runtime.py \
-            tests/test_property_placeholders.py \
-            tests/test_chaos.py \
-            tests/test_soak.py
+          python scripts/check_integration_lanes.py
+          python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \
+            --junitxml=normal-results.xml
+          python scripts/check_integration_lanes.py --results normal-results.xml
+      - name: Run slow soak chaos and concurrency suites
+        timeout-minutes: 90
+        run: |
+          python -m pytest tests/ -m "integration and slow and not tls" -v --tb=short \
+            --junitxml=slow-results.xml
+          python scripts/check_integration_lanes.py --results slow-results.xml
+      - name: Run offline protocol fault and placeholder suites
+        run: |
+          python -m pytest tests/test_protocol_fuzz.py tests/test_fault_broker.py \
+            tests/test_property_placeholders.py -m "not integration" -v --tb=short
       - name: Collect repro artifacts on failure
         if: failure()
         run: python scripts/collect_repro.py
