@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import inspect
 import logging
+import struct
 from types import TracebackType
 from typing import Any, Literal, Protocol
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
-from .exceptions import InterfaceError, NotSupportedError, OperationalError
+from .exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
 from .protocol import LOBNewPacket, LOBReadPacket, LOBWritePacket
 
 
@@ -79,7 +80,11 @@ class Lob:
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
         if isinstance(data, bytes) and len(data) == 0:
-            packet.write(b"\x00" * 4)  # Preserve wire argument validation without broker I/O.
+            try:
+                packet.write(b"\x00" * 4)  # Validate without broker I/O.
+            except struct.error as exc:
+                # Match Connection's existing request-serialization boundary.
+                raise DataError("parameter value too large to serialize into CAS request") from exc
             return 0
         self._connection._send_and_receive(packet)
         if packet.bytes_written != len(data):
