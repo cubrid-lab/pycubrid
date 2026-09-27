@@ -201,7 +201,10 @@ jobs:
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
         run: |
-          python -m pytest tests/ -m integration -v --tb=short
+          python scripts/check_integration_lanes.py
+          python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \
+            --junitxml=normal-results.xml
+          python scripts/check_integration_lanes.py --results normal-results.xml
 
   integration-tls:
     # Per-PR TLS lane (issue #159) — gated on changes to TLS-relevant code
@@ -241,7 +244,7 @@ jobs:
             -p 33000:33000 \
             cubrid/cubrid:${{ matrix.cubrid-version }}
           for i in $(seq 1 40); do
-            if docker exec cubrid-tls bash -lc "cubrid broker status BROKER1 >/dev/null 2>&1"; then
+            if docker exec --user cubrid cubrid-tls bash -lc "cubrid broker status | grep -q '^% broker1'"; then
               echo "BROKER1 reachable"
               break
             fi
@@ -251,7 +254,7 @@ jobs:
           docker cp "$RUNNER_TEMP/tls/cas_ssl_cert.crt" cubrid-tls:/home/cubrid/CUBRID/conf/cas_ssl_cert.crt
           docker cp "$RUNNER_TEMP/tls/cas_ssl_cert.key" cubrid-tls:/home/cubrid/CUBRID/conf/cas_ssl_cert.key
           docker exec cubrid-tls bash -lc "chown cubrid:cubrid /home/cubrid/CUBRID/conf/cas_ssl_cert.* && chmod 600 /home/cubrid/CUBRID/conf/cas_ssl_cert.key"
-          docker exec cubrid-tls bash -lc "
+          docker exec --user cubrid cubrid-tls bash -lc "
             set -eux
             conf=\$CUBRID/conf/cubrid_broker.conf
             sed -i '/^\[%BROKER1\]/,/^\[/ s/^\s*SSL\s*=\s*OFF/SSL=ON/' \$conf
@@ -333,16 +336,11 @@ jobs:
           SSL_CERT_FILE: ${{ runner.temp }}/cas_ssl_cert.crt
         run: |
           set -euxo pipefail
-          python -m pytest tests/test_aio_ssl_integration.py -v --tb=short \
+          python -m pytest tests/ -m "integration and tls" -v --tb=short \
             -o addopts="" -p no:cacheprovider \
+            --junitxml=tls-results.xml \
             --no-header --no-summary -rN 2>&1 | tee tls-run.log
-          unexpected_skips=$(grep -E " SKIPPED " tls-run.log \
-            | grep -v "tests/test_aio_ssl_integration.py::test_aio_ssl_handshake_failure" || true)
-          if [ -n "$unexpected_skips" ]; then
-            echo "::error::TLS integration tests skipped unexpectedly — broker provisioning is incomplete"
-            echo "$unexpected_skips"
-            exit 1
-          fi
+          python scripts/check_integration_lanes.py --results tls-results.xml
       - name: Capture TLS broker logs on failure
         if: failure()
         run: docker logs cubrid-tls || true

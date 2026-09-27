@@ -201,6 +201,12 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Marker-based integration lane coverage (#397)** — PATCH / CI bug correction.
+  Normal, TLS, and slow workloads have executable workflow paths and a dynamic
+  collection/skip audit. Missing optional native-comparison dependencies and
+  unsupported `/proc` platforms are explicitly classified. No driver public API,
+  SQL behavior, dependency, or supported-version changes.
+
 - **Integration readiness gates fail closed (#411)** — PATCH / CI bug correction.
   Regular and full workflows reuse the bounded shared probe; failed SELECT or
   exhausted retries prevents the test step. Probe resources close on every exit.

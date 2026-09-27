@@ -196,7 +196,11 @@ pytest tests/test_aio_ssl_integration.py -v
 4. 실제 TLS 핸드셰이크로 브로커를 프로브하고, TLS가 실제로 서비스 중이 아니면 잡을 크게 실패시킴 — 조용한 스킵은 명시적으로 거부됨.
 5. `CUBRID_TLS_TEST_*` 환경 변수를 자동 연결해 TLS 브로커에 대해 `tests/test_aio_ssl_integration.py`를 실행.
 
-> **Python 3.10 참고**: 비동기 TLS 테스트 하나(`test_aio_ssl_handshake_failure`)는 알려진 CPython asyncio TLS 핸드셰이크 버그로 인해 Python 3.10에서 스킵하도록 버전이 고정되어 있습니다 — `asyncio.loop.start_tls()`가 3.10에서 인증서 검증 실패 시 멈춥니다 (3.13/3.14에서 수정). [#156](https://github.com/cubrid-lab/pycubrid/issues/156)으로 추적.
+> **Python 3.10 참고**: 드라이버의 인증서 검증 preflight가 알려진 비동기 TLS 검증
+> 문제를 처리합니다([#156](https://github.com/cubrid-lab/pycubrid/issues/156)). TLS 레인은
+> 호스트 이름 검증 실패를 포함해 선택된 모든 테스트가 실행되어야 하며, 브로커 설정
+> 누락으로 인한 스킵은 허용하지 않습니다. 브로커 상태 확인 및 재시작은 서비스 소유자
+> `cubrid`로 실행해 실제 브로커를 제어합니다.
 
 이 잡은 `integration-full`의 나머지와 같은 트리거(나이틀리, 태그 푸시, `workflow_dispatch`)로 실행됩니다.
 
@@ -342,6 +346,21 @@ ruff format pycubrid/ tests/
 `CUBRID_TEST_READ_TIMEOUT`으로 변경할 수 있습니다. 접속에 성공해도 `SELECT 1`이
 실패하면 준비되지 않은 것으로 처리합니다. 성공/실패 및 커서 정리 오류 시에도
 커서와 연결을 닫습니다.
+
+통합 테스트는 파일 이름이나 고정된 테스트 수 대신 pytest 마커로 레인을 배정합니다:
+
+| 레인 | 선택식 | 실행 워크플로 |
+|---|---|---|
+| 일반 | `integration and not slow and not tls` | PR/push CI, 전체 호환성 매트릭스, 나이틀리 bug hunt |
+| 장시간 | `integration and slow and not tls` | 나이틀리/수동 bug hunt의 soak, chaos, 동시성 stress |
+| TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
+
+`python scripts/check_integration_lanes.py`는 현재 마커 목록을 수집하고 각 레인의 실제
+워크플로 명령을 확인합니다. JUnit 검사(`--results FILE`)는 알려지지 않은 스킵,
+빈 실행 또는 전체 스킵을 실패 처리합니다. 선택적 CUBRIDdb 비교 드라이버 누락과
+`/proc`가 없는 플랫폼은 명시적으로 분류하지만, 브로커/TLS 설정 누락은 CI에서
+허용하는 스킵이 아닙니다. 나이틀리 bug hunt의 별도 오프라인 protocol, fault-broker,
+placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
 
 ### GitHub Actions 워크플로
 

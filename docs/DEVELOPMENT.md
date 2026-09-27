@@ -220,11 +220,12 @@ You do not need to run the steps above locally for routine development —
 5. Runs `tests/test_aio_ssl_integration.py` against the TLS broker with
    the `CUBRID_TLS_TEST_*` env vars wired up automatically.
 
-> **Python 3.10 note**: One async TLS test (`test_aio_ssl_handshake_failure`)
-> is version-pinned to skip on Python 3.10 due to a known CPython asyncio
-> TLS handshake bug — `asyncio.loop.start_tls()` hangs on cert-verify
-> failures on Python 3.10 (fixed in 3.13/3.14).
-> Tracked in [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+> **Python 3.10 note**: The driver uses a certificate-verification preflight to
+> handle the known CPython async TLS verification failure in 3.10
+> ([#156](https://github.com/cubrid-lab/pycubrid/issues/156)). The TLS lane now requires
+> every selected test to run, including hostname-verification failure; provisioning
+> skips cannot pass the job. Broker status/restart commands run as the `cubrid` service
+> owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
 (nightly, on tag push, and via `workflow_dispatch`).
@@ -370,6 +371,23 @@ Each connection and read has a five-second timeout, configurable through
 `CUBRID_TEST_CONNECT_TIMEOUT` and `CUBRID_TEST_READ_TIMEOUT`. A connected broker
 whose `SELECT 1` fails is not ready. The cursor and connection are closed on both
 success and failure, including cursor-cleanup errors.
+
+Integration tests are assigned by pytest markers, with no fixed test-count or
+filename-glob inventory:
+
+| Lane | Selection | Executable workflow path |
+|---|---|---|
+| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and nightly bug hunt |
+| Slow | `integration and slow and not tls` | Nightly/manual bug hunt: soak, chaos, and concurrency stress |
+| TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
+
+`python scripts/check_integration_lanes.py` collects the current marker inventory
+and checks that each lane has an executable workflow command. The JUnit audit
+(`--results FILE`) fails unknown skips or empty/all-skipped runs. Missing optional
+CUBRIDdb native-comparison dependencies and platforms without `/proc` have explicit
+skip categories; missing broker/TLS configuration is not an accepted CI skip.
+The nightly bug hunt also retains separate offline protocol, fault-broker, and
+placeholder checks under the wider Hypothesis profile.
 
 ### GitHub Actions Workflows
 
