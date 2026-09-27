@@ -201,6 +201,11 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Integration readiness gates fail closed (#411)** — PATCH / CI bug correction.
+  Regular and full workflows reuse the bounded shared probe; failed SELECT or
+  exhausted retries prevents the test step. Probe resources close on every exit.
+  No driver public API, SQL behavior, or supported-version changes.
+
 - **Cached broker insert identity survives transaction boundaries (#381)** — PATCH /
   bug correction to the documented identity convenience method. Successful return
   values remain `str`; unavailable identities now explicitly return `None` instead
