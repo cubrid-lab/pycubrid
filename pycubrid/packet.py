@@ -396,6 +396,8 @@ class PacketReader:
         start_offset = self._offset
         element_type = self._parse_byte()
         element_count = self._parse_int()
+        if element_type == CUBRIDDataType.NULL and element_count == 0:
+            return []
         if element_type in (
             CUBRIDDataType.SET,
             CUBRIDDataType.MULTISET,
