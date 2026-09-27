@@ -392,4 +392,4 @@ def _raise_batch_error(err: dict[str, Any]) -> None:
         "DatabaseError": DatabaseError,
     }
     exc_cls = exc_map.get(exc_name, DatabaseError)
-    raise exc_cls(message, code=code, sqlstate=sqlstate)
+    raise exc_cls(message, code=code, errno=code, sqlstate=sqlstate)
