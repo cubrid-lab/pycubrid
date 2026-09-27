@@ -72,6 +72,13 @@ pycubrid는 **드라이버 측 리터럴 바인딩**을 수행합니다. `cursor
 | `datetime.time` | `TIME'HH:MM:SS'` — 마이크로초 버림 | `_cursor_common.py:173-174` | `tests/test_param_security.py:120-122` |
 | 그 외 전부 | `ProgrammingError` (현재 메시지: `"unsupported parameter type"`) | `_cursor_common.py:181` | `tests/test_param_security.py:128-130`; `tests/test_cursor.py:233-235` |
 
+정수는 `float`로 변환하지 않고 바로 10진수 문자열로 변환합니다.
+`10**1000`과 `-(10**1000)`처럼 float 범위를 초과하는 값도 포함됩니다.
+이 포맷팅 동작이 CUBRID에서 해당 값을 저장할 수 있음을 보장하지는 않습니다.
+서버의 숫자 범위 제한과 Python의 정수-문자열 변환 제한은 여전히 적용됩니다.
+`tests/test_param_security.py::TestFormatParameterTypes::test_large_int`와
+`::test_bind_large_int`가 이 동작을 고정합니다.
+
 ### 바인딩 값으로 명시적으로 미지원
 
 - `datetime.timedelta` — 분기가 없음; `ProgrammingError("unsupported parameter type")` 발생.

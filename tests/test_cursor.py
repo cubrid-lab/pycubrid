@@ -83,6 +83,14 @@ def test_arraysize_setter_and_validation(cursor: Cursor) -> None:
         cursor.arraysize = 0
 
 
+@pytest.mark.parametrize("value", [1.5, True, False, "2", None, -1])
+def test_arraysize_rejects_non_integer_values(cursor: Cursor, value: object) -> None:
+    cursor.arraysize = 3
+    with pytest.raises(ProgrammingError, match="arraysize"):
+        setattr(cursor, "arraysize", value)
+    assert cursor.arraysize == 3
+
+
 def test_execute_select_sets_description_and_rowcount(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
@@ -145,6 +153,42 @@ def test_execute_insert_sets_rowcount_and_lastrowid(
     assert cursor.rowcount == 3
     assert cursor.lastrowid == 55
     assert cursor.description is None
+    assert mock_connection._last_insert_id == "55"
+
+
+def test_execute_select_after_insert_does_not_clear_connection_last_insert_id(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """A later SELECT resets the cursor's own lastrowid but must not touch the
+    connection-level cache that `Connection.get_last_insert_id()` reads."""
+
+    def send(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.INSERT,
+                result_count=1,
+                with_columns=False,
+            )
+        elif isinstance(packet, GetLastInsertIdPacket):
+            packet.last_insert_id = "7"
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.execute("INSERT INTO t VALUES (1)")
+    assert mock_connection._last_insert_id == "7"
+
+    def send_select(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
+            )
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send_select
+    cursor.execute("SELECT id FROM t")
+    assert cursor.lastrowid is None
+    assert mock_connection._last_insert_id == "7"
 
 
 def test_execute_insert_lastrowid_failure_is_ignored(
@@ -429,6 +473,19 @@ def test_executemany_batch_executes_multiple_sql(
     assert cursor.rowcount == 3
 
 
+def test_executemany_batch_closes_existing_query_handle(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    cursor._query_handle = 99
+
+    cursor.executemany_batch(["INSERT INTO t VALUES (1)"])
+
+    packets = [call.args[0] for call in mock_connection._send_and_receive.call_args_list]
+    assert isinstance(packets[0], CloseQueryPacket)
+    assert packets[0].query_handle == 99
+    assert isinstance(packets[1], BatchExecutePacket)
+
+
 def test_executemany_batch_auto_commit_override(cursor: Cursor, mock_connection: MagicMock) -> None:
     cursor.executemany_batch(["DELETE FROM t"], auto_commit=True)
 
@@ -510,8 +567,21 @@ def test_executemany_batch_raises_on_partial_failure(
 
     mock_connection._send_and_receive.side_effect = send
 
+    cursor._description = (("stale", 1, None, None, 0, 0, False),)
+    cursor._rows = [("stale",)]
+
+    cursor._rowcount = 10
+    cursor._lastrowid = 123
+
     with pytest.raises(IntegrityError, match="unique constraint"):
         cursor.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
+
+    assert cursor.description is None
+    assert cursor._rows == []
+    assert cursor.rowcount == -1
+    assert cursor.lastrowid is None
+    with pytest.raises(InterfaceError, match="No result set"):
+        cursor.fetchone()
 
 
 def test_executemany_batch_error_uses_cas_code_dispatch(

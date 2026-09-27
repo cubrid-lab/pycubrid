@@ -11,7 +11,8 @@ import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
-from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
+from pycubrid.protocol import BatchExecutePacket, CloseQueryPacket
 
 
 def build_handshake_response(port: int = 0) -> bytes:
@@ -128,6 +129,27 @@ class TestAsyncConnectionEstablishment:
         assert async_conn._connected is True
 
 
+class TestAsyncConnectionLastInsertId:
+    @pytest.mark.asyncio
+    async def test_returns_none_before_any_insert(self, async_conn: AsyncConnection) -> None:
+        async_conn._connected = True
+
+        assert await async_conn.get_last_insert_id() is None
+
+    @pytest.mark.asyncio
+    async def test_returns_cached_value_without_network_round_trip(
+        self, async_conn: AsyncConnection
+    ) -> None:
+        async_conn._connected = True
+        async_conn._last_insert_id = "42"
+        async_conn._send_and_receive = AsyncMock()
+
+        last_id = await async_conn.get_last_insert_id()
+
+        assert last_id == "42"
+        async_conn._send_and_receive.assert_not_awaited()
+
+
 class TestAsyncConnectionClose:
     @pytest.mark.asyncio
     async def test_close_disconnects(self, async_conn: AsyncConnection) -> None:
@@ -240,8 +262,19 @@ class TestAsyncCursorProperties:
         conn._timing = None
         conn._cursors = set()
         cur = AsyncCursor(conn)
-        with pytest.raises(Exception, match="greater than zero"):
+        with pytest.raises(ProgrammingError, match="arraysize"):
             cur.arraysize = 0
+
+    @pytest.mark.parametrize("value", [1.5, True, False, "2", None, -1])
+    def test_arraysize_rejects_non_integer_values(self, value: object) -> None:
+        conn = MagicMock()
+        conn._timing = None
+        conn._cursors = set()
+        cur = AsyncCursor(conn)
+        cur.arraysize = 3
+        with pytest.raises(ProgrammingError, match="arraysize"):
+            setattr(cur, "arraysize", value)
+        assert cur.arraysize == 3
 
 
 class TestAsyncCursorClose:
@@ -529,11 +562,52 @@ class TestAsyncCursorExecute:
                 packet.rows = []
                 packet.result_infos = []
             else:
-                packet.last_insert_id = b"99"
+                packet.last_insert_id = "99"
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
         await cur.execute("INSERT INTO t VALUES (1)")
         assert cur._lastrowid == 99
+        assert conn._last_insert_id == "99"
+
+    @pytest.mark.asyncio
+    async def test_select_after_insert_does_not_clear_connection_last_insert_id(self) -> None:
+        """A later SELECT resets the cursor's own lastrowid but must not touch
+        the connection-level cache that AsyncConnection.get_last_insert_id() reads."""
+        from pycubrid.constants import CUBRIDStatementType
+
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+
+        call_count = {"n": 0}
+
+        async def fake_send_insert(packet):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                packet.query_handle = 6
+                packet.statement_type = CUBRIDStatementType.INSERT
+                packet.columns = []
+                packet.total_tuple_count = 0
+                packet.rows = []
+                packet.result_infos = []
+            else:
+                packet.last_insert_id = "7"
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send_insert)
+        await cur.execute("INSERT INTO t VALUES (1)")
+        assert conn._last_insert_id == "7"
+
+        async def fake_send_select(packet):
+            packet.query_handle = 7
+            packet.statement_type = CUBRIDStatementType.SELECT
+            packet.columns = []
+            packet.total_tuple_count = 0
+            packet.rows = []
+            packet.result_infos = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send_select)
+        await cur.execute("SELECT id FROM t")
+        assert cur.lastrowid is None
+        assert conn._last_insert_id == "7"
 
     @pytest.mark.asyncio
     async def test_execute_insert_lastrowid_failure_is_silent(self) -> None:
@@ -639,6 +713,24 @@ class TestAsyncCursorExecutemanyBatch:
         assert cur._rowcount == 8
 
     @pytest.mark.asyncio
+    async def test_executemany_batch_closes_existing_query_handle(self) -> None:
+        conn = _make_mock_conn()
+        cur = AsyncCursor(conn)
+        cur._query_handle = 99
+
+        async def fake_send(packet):
+            if isinstance(packet, BatchExecutePacket):
+                packet.results = []
+
+        conn._send_and_receive = AsyncMock(side_effect=fake_send)
+        await cur.executemany_batch(["INSERT 1"])
+
+        packets = [call.args[0] for call in conn._send_and_receive.call_args_list]
+        assert isinstance(packets[0], CloseQueryPacket)
+        assert packets[0].query_handle == 99
+        assert isinstance(packets[1], BatchExecutePacket)
+
+    @pytest.mark.asyncio
     async def test_executemany_batch_empty_results(self) -> None:
         conn = _make_mock_conn()
         cur = AsyncCursor(conn)
@@ -680,8 +772,21 @@ class TestAsyncCursorExecutemanyBatch:
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
 
+        cur._description = (("stale", 1, None, None, 0, 0, False),)
+        cur._rows = [("stale",)]
+
+        cur._rowcount = 10
+        cur._lastrowid = 123
+
         with pytest.raises(IntegrityError, match="unique constraint"):
             await cur.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
+
+        assert cur.description is None
+        assert cur._rows == []
+        assert cur.rowcount == -1
+        assert cur.lastrowid is None
+        with pytest.raises(InterfaceError, match="No result set"):
+            await cur.fetchone()
 
     @pytest.mark.asyncio
     async def test_executemany_batch_error_dispatches_operational_error(self) -> None:
