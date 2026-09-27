@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Callers choose their own strictness with the standard `warnings` machinery — `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to reject unknown options, `"ignore"` to silence them. Additive surface change (`api-baseline.json` regenerated).
 
 ### Documentation
+- Stage private FC9 request/condensed-column helpers with offline wire fixtures (#455). Existing schema getters remain unchanged; this is groundwork for atomic handle ownership and row consumption, not a live getter fix or parity certification.
 - Acknowledge CUBRID/cubrid-python's reference test scenarios in the README, NOTICE and third-party provenance notes, with source links and explicit licensing-verification limits.
 - Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
 
