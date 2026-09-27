@@ -12,6 +12,19 @@ This file lists the third-party open-source software involved in building and te
 
 All listed dependencies are distributed under permissive licenses (MIT, BSD-2/3-Clause, Apache-2.0, ISC, PSF, MPL-2.0). No dependency is copyleft/GPL, and none conflicts with this project's MIT license. MPL-2.0 packages appear in the development toolchain only and are not distributed with the package.
 
+## Reference test suite
+
+We acknowledge the maintainers and contributors of [CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python). Its test scenarios informed pycubrid's SQL-feature and type/data regressions (#409, #410 and #433), adapted to pycubrid's APIs and documented differences. This is a reference relationship, not a runtime dependency or a claim of complete CUBRIDdb API parity.
+
+Reviewed upstream source snapshot: `e75ec36b2a92b8829a49a967a29a1fbb9d7c322b`:
+
+- [tests3/test_execute.py](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/tests3/test_execute.py) — INDEX, PARTITION, VIEW and TRIGGER scenarios.
+- [tests3/test_enum.py](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/tests3/test_enum.py) — ENUM insert, cast and update scenarios.
+- [tests3/test_set.py](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/tests3/test_set.py) — collection type/value scenarios.
+- [tests3/test_cubrid.py](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/tests3/test_cubrid.py) — collection and BLOB/CLOB value scenarios.
+
+At this snapshot, no top-level `LICENSE`/`COPYING` file or per-file license notice was found in these four tests. We do not infer a license for them from other CUBRID components. This acknowledgment records provenance; it does not establish permission to copy upstream source or relicense it. Confirm the applicable terms with upstream before any verbatim source reuse.
+
 ## Development / test-only dependencies (not distributed)
 
 | Name                     | Version | License                              | URL                                                                   |

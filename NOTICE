@@ -20,3 +20,23 @@ Application Server) wire protocol -- its packet structure and function codes:
 
 pycubrid is an independent pure-Python implementation. This NOTICE records the
 reference relationship as an acknowledgment.
+
+--------------------------------------------------------------------------------
+Acknowledgment of reference test scenarios
+--------------------------------------------------------------------------------
+
+We thank the maintainers and contributors of CUBRID/cubrid-python:
+  https://github.com/CUBRID/cubrid-python
+
+Its tests3 suite informed regression scenarios adapted to pycubrid's APIs and
+documented differences (PRs #409, #410 and #433):
+  tests3/test_execute.py -- INDEX, PARTITION, VIEW and TRIGGER
+  tests3/test_enum.py    -- ENUM insert, cast and update
+  tests3/test_set.py     -- collection types and values
+  tests3/test_cubrid.py  -- collection and BLOB/CLOB value scenarios
+
+Reference snapshot: e75ec36b2a92b8829a49a967a29a1fbb9d7c322b (develop).
+This is scenario provenance, not a runtime dependency, an endorsement, or a
+claim of full CUBRIDdb API parity. This acknowledgment does not relicense
+upstream material. Licensing verification limits are recorded at:
+  https://github.com/cubrid-lab/pycubrid/blob/main/THIRD_PARTY_LICENSES.md#reference-test-suite
