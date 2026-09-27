@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 
 from .exceptions import InterfaceError, ProgrammingError
-from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE
+from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE, get_sqlstate
 
 if TYPE_CHECKING:
     from .protocol import ColumnMetaData
@@ -373,7 +373,7 @@ def _raise_batch_error(err: dict[str, Any]) -> None:
     code = err.get("code", -1)
     message = err.get("message", "batch execute statement failed")
     exc_name = CAS_ERROR_TO_EXCEPTION.get(code, "DatabaseError")
-    sqlstate = _DEFAULT_SQLSTATE.get(exc_name, "HY000")
+    sqlstate = get_sqlstate(code) or _DEFAULT_SQLSTATE.get(exc_name, "HY000")
     # Import here to avoid circular import at module load time.
     from .exceptions import (
         DataError,
