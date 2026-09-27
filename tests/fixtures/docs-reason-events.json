@@ -1,0 +1,23 @@
+[
+  {"id": "no_body", "event": {"pull_request": {"body": null, "labels": []}}, "expected_docs_exemption": false},
+  {"id": "empty_body", "event": {"pull_request": {"body": "", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "empty_reason", "event": {"pull_request": {"body": "Docs: not needed -", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "whitespace_reason", "event": {"pull_request": {"body": "Docs: not needed - \t  \r\n", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "next_line_only", "event": {"pull_request": {"body": "Docs: not needed -\nTests only", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "placeholder", "event": {"pull_request": {"body": "Docs: not needed - <reason>", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "inline_template_text", "event": {"pull_request": {"body": "Use Docs: not needed - <reason> when applicable.", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "quoted_example", "event": {"pull_request": {"body": "> Docs: not needed - tests only", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "comment_example", "event": {"pull_request": {"body": "<!--\nDocs: not needed - tests only\n-->", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "fenced_example", "event": {"pull_request": {"body": "```text\nDocs: not needed - tests only\n```", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "tilde_fenced_example", "event": {"pull_request": {"body": "~~~text\nDocs: not needed - tests only\n~~~", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "translation_request_only", "event": {"pull_request": {"body": "Please handle the Korean translation in a maintainer follow-up because I cannot translate it.", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "translation_body_label_claim", "event": {"pull_request": {"body": "translations-deferred: approved\nPlease follow up the Korean translation.", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "populated_reason", "event": {"pull_request": {"body": "Docs: not needed - tests only; public behavior is unchanged", "labels": []}}, "expected_docs_exemption": true},
+  {"id": "populated_multiline_crlf", "event": {"pull_request": {"body": "## Summary\r\nTest fixture repair.\r\nDocs: not needed - only regression test data changed\r\n", "labels": []}}, "expected_docs_exemption": true},
+  {"id": "json_quotes_retained", "event": {"pull_request": {"body": "Docs: not needed - only the \"invalid-input\" test fixture changed", "labels": []}}, "expected_docs_exemption": true},
+  {"id": "docs_label_exception", "event": {"pull_request": {"body": "", "labels": [{"name": "docs-not-needed"}]}}, "expected_docs_exemption": true},
+  {"id": "translation_label_is_not_docs_exception", "event": {"pull_request": {"body": "", "labels": [{"name": "translations-deferred"}]}}, "expected_docs_exemption": false},
+  {"id": "unrelated_label", "event": {"pull_request": {"body": "", "labels": [{"name": "priority: high"}]}}, "expected_docs_exemption": false},
+  {"id": "comment_reopened_after_close", "event": {"pull_request": {"body": "<!-- first\n--> <!-- second\nDocs: not needed - hidden example\n-->", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "indented_code_is_not_fence", "event": {"pull_request": {"body": "    ```\nDocs: not needed - tests only", "labels": []}}, "expected_docs_exemption": true}
+]

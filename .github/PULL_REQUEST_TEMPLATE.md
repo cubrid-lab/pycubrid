@@ -22,11 +22,21 @@
 ## Checklist
 
 - [ ] My code follows the project's code style
-- [ ] I have run `make check` (lint + typecheck)
-- [ ] I have run `make test` and all tests pass
+- [ ] I have run `make check-all` and `make test`, or recorded checks not run and reasons below
 - [ ] I have added tests for new functionality (if applicable)
-- [ ] I have updated documentation for any behavior/API/version/config change (or set `Docs: not needed - <reason>` / applied the `docs-not-needed` label)
-- [ ] My changes do not introduce new warnings
+- [ ] I have updated affected behavior/API/version/config docs, or provided a genuine standalone docs-not-needed reason / requested the existing maintainer label exception
+- [ ] I have recorded missing translations and requested maintainer help if needed; this request does not authorize deferral
+- [ ] I have reported relevant warnings, limitations and remaining validation gaps
+
+<!-- Docs exceptions need real text after "Docs: not needed -" on a standalone paragraph line outside quotes/comments/fences. Leave a blank line after quoted material. Do not leave the template placeholder as a reason. Maintainers coordinate internal reviews, labels and approved translation follow-up. -->
+
+## Validation Evidence
+
+Commands actually run and results:
+
+Checks not run and reasons:
+
+Optional AI review (tool/findings; separate from executed tests):
 
 ## Related Issues
 

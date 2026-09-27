@@ -146,6 +146,11 @@ All non-trivial work across cubrid-lab repositories MUST follow this 4-phase cyc
 
 Skipping any phase requires explicit justification. Trivial changes (typos, single-line fixes) may skip phases 1 and 4.
 
+Maintainers coordinate Oracle/agent tooling, integration evidence, release
+classification and the final review record. Outside contributors provide ordinary
+motivation, code, tests and affected docs; internal Oracle/agent installation or
+access is not a prerequisite for proposing a contribution.
+
 ## Release Process
 
 Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`.
@@ -257,11 +262,13 @@ graph TD
 
 ## Issue Labeling (cubrid-lab org standard)
 
-When creating an issue in **any cubrid-lab repository**, assign exactly one
-`priority: <value>` label and exactly one `size: <value>` label at creation time,
+Maintainers or triagers assign exactly one
+`priority: <value>` label and exactly one `size: <value>` label for each new issue,
 alongside a type label (`bug`/`enhancement`/`documentation`/`chore`/`ci`/…) and an
 `area:` label when applicable. These must be GitHub labels, not just text in the
-issue title or body.
+issue title or body. Reporters describe urgency and effort without needing label
+permissions. Maintainer-created issues receive these labels at creation; permissionless
+reports receive them during initial maintainer triage.
 
 Use the following exact names, with **one space after the colon**:
 
@@ -270,7 +277,7 @@ Use the following exact names, with **one space after the colon**:
 
 Do not introduce variants such as `priority:high`, `priority-high`, `P1`, or
 `size:S`. Reuse the repository's canonical labels; if a required label is missing,
-create it with the exact name above before filing the issue. This policy governs
+maintainers create it with the exact name above before filing or triaging the issue. This policy governs
 new issue creation, not bulk renaming or relabeling existing issues unless
 explicitly requested.
 
@@ -288,7 +295,7 @@ helps contributors pick appropriately scoped work.
 Rules:
 
 1. **Size reflects effort, not importance** — a one-line fix for a critical bug is still `size: XS`.
-2. **Assign both `priority:` and `size:` when filing the issue.** If scope or impact
+2. **Maintainers assign both `priority:` and `size:` at creation/initial triage.** If scope or impact
    is uncertain, use a provisional estimate, explain the uncertainty in the body,
    and add `status: needs triage` (or the repo's equivalent). Refine the estimates
    during triage rather than omitting either required label.
@@ -300,11 +307,25 @@ Rules:
 
 Any change that affects public behavior, compatibility, installation, configuration, APIs, supported versions, error handling, or SQL behavior MUST update the matching documentation in the **same PR**. At minimum keep in sync: `CHANGELOG.md`, the relevant files under `docs/` (e.g. `PARAMETER_BINDING.md`), and the `RELEASE_POLICY.md` behavior/release classification.
 
-If no documentation change is needed, state the reason explicitly in the PR body as `Docs: not needed - <reason>` or apply the `docs-not-needed` label. This is enforced by the `docs-sync` CI check.
+If no documentation change is needed, provide a populated standalone paragraph line
+beginning `Docs: not needed -`, or obtain the existing maintainer `docs-not-needed`
+label exception. Empty reasons, `<reason>`, quotes, comments and fenced examples
+are rejected by docs-sync; separate the real marker from a quoted block with a blank
+line. This exception applies only to the docs gate.
+
+Contributors may request translation help in the PR body with missing language(s)
+and a reason. Only explicit maintainer approval through `translations-deferred`
+authorizes deferral; maintainers own the recorded follow-up. Korean synchronization
+remains required and other community translations remain advisory. Keep executed
+commands/results, checks not run with reasons, and optional AI review feedback distinct.
 
 Do not mark work complete until code, tests, and documentation are consistent.
 
 ## Commit Convention
+
+Preserve actual contributor authorship and existing credits. The following tool
+attribution applies to commits actually produced with that tool; it is not a
+required footer for outside contributors' commits.
 
 ```
 <type>: <description>

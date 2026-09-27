@@ -16,6 +16,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check docs-reason examples and event JSON regressions
+        run: |
+          python -m doctest scripts/check_docs_reason.py
+          python -m unittest discover -s tests -p test_docs_reason.py
+
       - name: Check behavior changes have docs updates
         # Dependency-only Dependabot PRs never carry doc changes; exempt them so
         # they can auto-merge. Guard on PR author (not actor) so reruns/follow-up
@@ -50,6 +55,7 @@ jobs:
           git fetch origin "$BASE_REF"
           python - <<'PY'
           import fnmatch, json, os, subprocess, sys
+          from scripts.check_docs_reason import has_docs_not_needed_reason
 
           base = f"origin/{os.environ['BASE_REF']}"
           changed = subprocess.check_output(
@@ -72,7 +78,7 @@ jobs:
           labels = {label["name"] for label in pr.get("labels", [])}
           body = pr.get("body") or ""
 
-          skipped = "docs-not-needed" in labels or "Docs: not needed -" in body
+          skipped = "docs-not-needed" in labels or has_docs_not_needed_reason(body)
           doc_changed = any(matches(p, doc_globs) for p in changed)
           relevant = [
               p for p in changed
