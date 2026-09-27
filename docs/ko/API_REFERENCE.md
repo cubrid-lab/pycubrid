@@ -1254,7 +1254,17 @@ class NotSupportedError(DatabaseError)
 
 ### 오류 분류
 
-pycubrid는 오류 메시지를 기반으로 서버 오류를 자동 분류합니다:
+pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 오류를 분류합니다.
+네이티브 `-631` (`ER_NULL_CONSTRAINT_VIOLATION`)과 `-922` (`ER_FK_INVALID`)는
+메시지 언어와 관계없이 SQLSTATE `23000`의 `IntegrityError`를 발생시킵니다.
+단일 문장과 배치의 개별 문장 오류는 원래 숫자 값을 `code`와 `errno`에 모두
+보존합니다. 알 수 없는 코드는 제약조건 같은 메시지가 있어도 `DatabaseError`로
+유지합니다.
+
+네이티브 식별자는
+[공식 CCI 오류 헤더](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h)에
+정의돼 있습니다. 일반 DBMS 코드 `-1`의 프로토콜 오류 응답은 아래의 기존
+메시지 기반 폴백을 유지하며, 배치의 개별 문장 오류는 코드로만 분류합니다:
 
 | 오류 메시지 키워드 | 발생하는 예외 |
 |---------------------------|-----------------|
