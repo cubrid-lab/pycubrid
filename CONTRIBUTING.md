@@ -76,16 +76,26 @@ the suite on 3.11+ to cover the negative path.
 This project uses Ruff for linting and formatting.
 
 ```bash
-ruff check pycubrid/ tests/
-ruff format --check pycubrid/ tests/
+make lint
 ```
 
 To auto-fix:
 
 ```bash
-ruff check --fix pycubrid/ tests/
-ruff format pycubrid/ tests/
+make format
 ```
+
+Activate the project development environment (`pip install -e ".[dev]"`) before
+running Make or pre-commit. `make tooling-check` verifies the installed Ruff/Mypy
+versions and hook revisions against the exact pins in `pyproject.toml`. Make and CI
+share `LINT_PATHS` (`pycubrid tests scripts demos`); package-only strict Mypy remains
+separate, and its pre-commit hook explicitly checks `pycubrid/`.
+
+When updating either tool, change its dev pin and matching hook revision in the
+same PR, reinstall `.[dev]`, then run `make check-all` and
+`pre-commit run --all-files`. The drift gate rejects missing/ambiguous pins,
+version mismatches, and narrowed scopes. Hook updates use this documented process;
+there is no additional Dependabot ecosystem configuration.
 
 ## Pull Request Guidelines
 

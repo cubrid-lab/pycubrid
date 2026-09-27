@@ -71,10 +71,8 @@ jobs:
           python-version: "3.12"
       - name: Install pinned ruff from pyproject.toml
         run: pip install -e ".[dev]"
-      - name: Ruff check
-        run: ruff check pycubrid/ tests/
-      - name: Ruff format check
-        run: ruff format --check pycubrid/ tests/
+      - name: Check tool consistency, lint, and format maintained Python
+        run: make lint
 
   typecheck:
     runs-on: ubuntu-latest
@@ -88,7 +86,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Mypy strict
-        run: mypy pycubrid/ --strict
+        run: make typecheck
 
   offline-tests:
     strategy:
