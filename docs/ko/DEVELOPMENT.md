@@ -373,6 +373,26 @@ Ruff/Mypy의 정확한 버전은 `pyproject.toml`에서 관리합니다. dev 핀
 허용하는 스킵이 아닙니다. 나이틀리 bug hunt의 별도 오프라인 protocol, fault-broker,
 placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
 
+### 문서 예외와 기여자 검증 기록
+
+문서 게이트는 따옴표 인용, HTML 주석, 코드 블록 밖의 독립된 물리적 소스 줄에 실제
+이유가 있는 `Docs: not needed -`만 인정합니다. 일반 설명 바로 옆 줄에 둘 수 있으며,
+별도 문단이나 빈 줄이 필수인 것은 아닙니다.
+앞의 공백은 0~3개까지 허용하며, 들여쓴 코드와 HTML 인용/pre/code 블록의 예시는
+예외 승인을 부여하지 않습니다.
+기존 `docs-not-needed` 라벨 예외는 별도로 유지됩니다. `make docs-reason-check`는
+헬퍼 doctest와 실제 이벤트 JSON 기반 워크플로 사례를 실행하며, `make check-all`과
+docs-sync CI에서도 이 검사를 실행합니다.
+
+기여자는 실제 실행한 명령/결과와 실행하지 않은 검사/이유를 기록하고, 선택적 AI
+리뷰는 별도로 구분합니다. 유지보수자는 내부 리뷰, 실제 이슈 라벨 및 명시적으로
+승인한 `translations-deferred` 후속 작업을 조율합니다. PR 본문의 번역 도움 요청은
+승인을 부여하지 않습니다. 한국어 README 동기화는 필수이며 다른 번역은 권고 수준입니다.
+
+공유 doc-lint와 CodeQL 호출은 `workflow_call` 입력을 확인한 검토된 커밋 SHA를
+사용합니다. 기존 권한, 권고 수준 롤아웃 및 필수 게이트는 유지됩니다. doc-lint가
+main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 자산까지 고정되지는 않습니다.
+
 ### GitHub Actions 워크플로
 
 | 워크플로 | 트리거 | 설명 |

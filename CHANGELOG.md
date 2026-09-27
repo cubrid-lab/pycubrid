@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+- Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
+
 ### Fixed
 - Development quality checks synchronize Ruff/Mypy hook revisions with the exact dev pins, reject installed-tool/configuration drift, and lint/format maintained scripts and demos through shared local/CI Make targets. The Mypy hook explicitly checks the package instead of running only stub installation. (#416)
 - Full integration validation selects current pytest markers instead of filename globs. Normal, TLS, and nightly slow lanes cover the declared integration inventory, including concurrency stress; unknown skips and missing workflow paths fail the lane audit. TLS provisioning runs broker commands as the service owner. (#397)
