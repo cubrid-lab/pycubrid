@@ -200,7 +200,7 @@ def test_current_batch_and_nonpositive_fetch_contracts_are_not_misclassified() -
     connection._cursors = set()
     connection._timing = None
     cursor = pycubrid.cursor.Cursor(connection)
-    cursor._description = (("value", 8, None, None, None, None, True),)
+    cursor._description = (("value", 8, None, None, 10, 0, True),)
     for size in (0, -1):
         assert cursor.fetchmany(size) == []
     connection._send_and_receive.assert_not_called()
