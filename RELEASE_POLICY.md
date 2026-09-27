@@ -223,6 +223,15 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   Public names/signatures, transaction semantics, generic-code text fallback,
   runtime dependencies and supported versions are unchanged.
 
+- **Native syntax/semantic/communication meanings (#391)** — PATCH / correction
+  of verified error-code metadata and classification. `-493` and `-494` remain
+  `ProgrammingError` with generic `42000`; `-671` becomes `OperationalError` /
+  `08S01`, not a foreign-key error. Batch errors reuse the existing known-code
+  SQLSTATE lookup, preserving unknown-code defaults and native identities.
+  Callers must not infer missing tables from generic parser codes; downstream
+  reflection is tracked separately in sqlalchemy-cubrid #454. No API signatures,
+  defaults, transaction semantics or dependencies change.
+
 - **Description nullability (#431, #398)** — PATCH / bug correction. The broker's
   non-null flag is inverted when deriving the documented PEP 249 `null_ok` value.
   Public signatures, optional size fields, collection codes and default return
