@@ -78,6 +78,8 @@ graph TD
 - Client type: `CAS_CLIENT_JDBC = 3`
 - Protocol version: `8` (since CUBRID 10.2)
 - Byte order: Big-endian throughout
+- Column nullability is transmitted as `is_non_null`: zero permits NULL,
+  nonzero means NOT NULL. Normalize it to `is_nullable` / DB-API `null_ok`.
 - Column metadata keeps first-byte collection flags (`0x60`) distinct from the
   scalar/element type; `0x80` marks a full second type byte, not a scalar-only column.
 

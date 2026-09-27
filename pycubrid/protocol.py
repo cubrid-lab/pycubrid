@@ -504,7 +504,8 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
         table_name_len = reader._parse_int()
         table_name = reader._parse_null_terminated_string(table_name_len)
 
-        is_nullable = reader._parse_byte() == 1
+        # CAS sends is_non_null: zero means the column accepts NULL.
+        is_nullable = reader._parse_byte() == 0
         default_len = reader._parse_int()
         default_value = reader._parse_null_terminated_string(default_len)
         is_auto_increment = reader._parse_byte() == 1

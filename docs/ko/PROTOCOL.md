@@ -567,7 +567,7 @@ class ColumnMetaData:
     name: str                # 컬럼 별칭
     real_name: str           # 실제 컬럼 이름
     table_name: str          # 출처 테이블 이름
-    is_nullable: bool        # NULL 허용
+    is_nullable: bool        # 반대 의미의 wire 플래그에서 변환한 NULL 허용 여부
     default_value: str       # 기본값 표현식
     is_auto_increment: bool  # AUTO_INCREMENT 컬럼
     is_unique_key: bool      # 유니크 인덱스의 일부
@@ -577,6 +577,11 @@ class ColumnMetaData:
     is_foreign_key: bool     # 외래 키의 일부
     is_shared: bool          # 공유 속성
 ```
+
+컬럼 메타데이터의 raw 바이트는 `is_non_null`입니다. 0은 NULL 허용, 0이 아닌 값은
+NOT NULL이며 브로커는 이를 0/1로 정규화합니다. 메타데이터 파서는 `PacketReader`가
+읽은 이 바이트에 `raw == 0`을 적용해 `is_nullable`과 공개
+`cursor.description`의 `null_ok` 값을 만듭니다.
 
 ---
 
