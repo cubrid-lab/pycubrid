@@ -47,6 +47,9 @@ def _validate(rows: list[dict[str, str]], nodes: set[str]) -> None:
             for field in ("owner", "family", "expected", "gap_issues", "gap_reason")
         ):
             raise ValueError("missing gap or ownership explanation")
+        if row["classification"] in {"unknown", "duplicate_candidate"}:
+            if "#396" not in row["gap_issues"].split("|"):
+                raise ValueError("unassessed record needs the continuing parent tracker")
         for candidate in filter(None, row["duplicate_candidate_of"].split("|")):
             if candidate == row["id"] or candidate not in identifiers:
                 raise ValueError("broken duplicate candidate reference")
@@ -176,3 +179,13 @@ def test_honest_failed_and_explained_skipped_observations_are_not_passes(
 def test_duplicate_ids_are_rejected(ledger: list[dict[str, str]]) -> None:
     with pytest.raises(ValueError, match="duplicate scenario id"):
         _validate([ledger[0], ledger[0]], set())
+
+
+def test_unassessed_gap_outlives_inventory_delivery(
+    ledger: list[dict[str, str]], collected_nodes: set[str]
+) -> None:
+    modified = [dict(row) for row in ledger]
+    row = next(row for row in modified if row["classification"] == "unknown")
+    row["gap_issues"] = "#437"
+    with pytest.raises(ValueError, match="continuing parent tracker"):
+        _validate(modified, collected_nodes)

@@ -48,8 +48,10 @@ Confirm applicable terms before any verbatim source reuse.
 `local_nodes` is reserved for assertion-equivalent mappings; `related_nodes` is
 not counted as equivalent. `local_revision` pins the inspected local source.
 Every row has an owner/family, expected behavior or explicit unknown, and a gap
-reason/issue. Family follow-up remains under #437 unless a capability issue is
-identified. Unsupported scenarios are not exclusions from parity work.
+reason/issue. #437 delivers this seed inventory; closing it does not complete
+unassessed declarations or candidate aliases. Ongoing family assessment remains
+under the open parent #396 or the named capability follow-ups; #437 is retained
+as delivery provenance. Unsupported scenarios are not exclusions from parity work.
 
 The initial review references the 41 collected local SQL/type/data nodes already
 merged at `7e0aad8fe83a37f324c1c9efea0ff68de15680f2`. Only eight exact assertion
