@@ -94,7 +94,7 @@ jobs:
               print("Behavior-relevant files changed without a matching docs/changelog update.")
               print("Update matching docs, request the maintainer docs-not-needed label exception,")
               print("or provide a populated standalone paragraph line outside quotes/comments/fences:")
-              print("  Docs: not needed - explain why this change has no documentation impact")
+              print("  Docs: not needed - only test fixtures changed")
               print("Replace the example explanation with your actual reason.")
               print("Separate the real reason from quoted material with a blank line.")
               print("\nRelevant files:")

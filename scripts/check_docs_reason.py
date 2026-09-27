@@ -112,6 +112,6 @@ def has_docs_not_needed_reason(body: str | None) -> bool:
         line = html.lines.get(number, "").lstrip(" ")
         if number in html.marker_lines and line.startswith(prefix):
             reason = line[len(prefix) :].strip()
-            if reason and reason != "<reason>":
+            if reason and "<reason>" not in reason:
                 return True
     return False

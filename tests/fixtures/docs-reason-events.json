@@ -5,6 +5,7 @@
   {"id": "whitespace_reason", "event": {"pull_request": {"body": "Docs: not needed - \t  \r\n", "labels": []}}, "expected_docs_exemption": false},
   {"id": "next_line_only", "event": {"pull_request": {"body": "Docs: not needed -\nTests only", "labels": []}}, "expected_docs_exemption": false},
   {"id": "placeholder", "event": {"pull_request": {"body": "Docs: not needed - <reason>", "labels": []}}, "expected_docs_exemption": false},
+  {"id": "embedded_placeholder", "event": {"pull_request": {"body": "Docs: not needed - <reason> because docs are unchanged", "labels": []}}, "expected_docs_exemption": false},
   {"id": "inline_template_text", "event": {"pull_request": {"body": "Use Docs: not needed - <reason> when applicable.", "labels": []}}, "expected_docs_exemption": false},
   {"id": "quoted_example", "event": {"pull_request": {"body": "> Docs: not needed - tests only", "labels": []}}, "expected_docs_exemption": false},
   {"id": "comment_example", "event": {"pull_request": {"body": "<!--\nDocs: not needed - tests only\n-->", "labels": []}}, "expected_docs_exemption": false},
