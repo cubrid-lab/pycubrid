@@ -88,11 +88,12 @@ release classification. These project tools are not an installation prerequisite
 for external contributions. Preserve contributor authorship; add tool attribution
 only when that tool actually produced a commit.
 
-If docs are unnecessary, put a real reason on a standalone paragraph line beginning
+If docs are unnecessary, put a real reason on a standalone physical source line beginning
 `Docs: not needed -`. Empty text, `<reason>`, quotations, comments and fenced examples
-do not grant an exemption. Leave a blank line after a quoted block before the real
-reason. The existing `docs-not-needed` label is a separate maintainer-controlled
-exception; neither docs exception bypasses code, security or release checks.
+do not grant an exemption. The line may be adjacent to ordinary prose; it does not
+need its own paragraph. The existing `docs-not-needed` label is a separate
+maintainer-controlled exception; neither docs exception bypasses code, security or
+release checks.
 Up to three leading spaces are allowed; tab/four-space code examples and raw HTML
 `blockquote`/`pre`/`code` blocks do not grant an exemption.
 

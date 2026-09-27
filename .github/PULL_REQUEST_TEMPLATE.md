@@ -28,7 +28,7 @@
 - [ ] I have recorded missing translations and requested maintainer help if needed; this request does not authorize deferral
 - [ ] I have reported relevant warnings, limitations and remaining validation gaps
 
-<!-- Docs exceptions need real text after "Docs: not needed -" on a standalone paragraph line outside quotes/comments/fences. Leave a blank line after quoted material. Do not leave the template placeholder as a reason. Maintainers coordinate internal reviews, labels and approved translation follow-up. -->
+<!-- Docs exceptions need real text after "Docs: not needed -" on a standalone physical source line outside quotes/comments/fences. The line may be adjacent to ordinary prose without its own paragraph. Do not leave the template placeholder as a reason. Maintainers coordinate internal reviews, labels and approved translation follow-up. -->
 
 ## Validation Evidence
 

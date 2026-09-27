@@ -307,11 +307,11 @@ Rules:
 
 Any change that affects public behavior, compatibility, installation, configuration, APIs, supported versions, error handling, or SQL behavior MUST update the matching documentation in the **same PR**. At minimum keep in sync: `CHANGELOG.md`, the relevant files under `docs/` (e.g. `PARAMETER_BINDING.md`), and the `RELEASE_POLICY.md` behavior/release classification.
 
-If no documentation change is needed, provide a populated standalone paragraph line
+If no documentation change is needed, provide a populated standalone physical source line
 beginning `Docs: not needed -`, or obtain the existing maintainer `docs-not-needed`
 label exception. Empty reasons, `<reason>`, quotes, comments and fenced examples
-are rejected by docs-sync; separate the real marker from a quoted block with a blank
-line. This exception applies only to the docs gate.
+are rejected by docs-sync. The line may be adjacent to ordinary prose without its
+own paragraph. This exception applies only to the docs gate.
 
 Contributors may request translation help in the PR body with missing language(s)
 and a reason. Only explicit maintainer approval through `translations-deferred`
