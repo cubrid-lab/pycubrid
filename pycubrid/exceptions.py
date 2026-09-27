@@ -13,6 +13,9 @@ Exception hierarchy::
             ├── InternalError
             ├── ProgrammingError
             └── NotSupportedError
+
+This module also defines :class:`UnknownConnectionOptionWarning`, which is a
+Python *warning category* rather than part of the PEP 249 hierarchy above.
 """
 
 from __future__ import annotations
@@ -163,4 +166,30 @@ class NotSupportedError(DatabaseError):
     support transactions or calling an API that is not supported by
     the database.
     Defined by PEP 249.
+    """
+
+
+class UnknownConnectionOptionWarning(UserWarning):
+    """Warning category for connection options pycubrid does not recognise.
+
+    This is a Python warning category (a :class:`UserWarning` subclass), not a
+    PEP 249 exception. It is deliberately distinct from :class:`Warning` above,
+    which is the PEP 249 *database* warning and is raised, never warned.
+
+    A connection constructor collects unrecognised keywords in ``**kwargs`` and
+    used to drop them silently, so a typo such as ``read_timout=30`` left the
+    option with no effect and gave the caller no signal (issue #377). Such
+    keywords are now reported through this category instead.
+
+    The default is a warning rather than a :class:`TypeError` because wrapper
+    layers (connection pools, ORM dialects) legitimately forward extra keywords,
+    and rejecting them outright would be a breaking change under
+    ``RELEASE_POLICY.md``. Callers who want strictness can opt in::
+
+        import warnings
+        import pycubrid
+
+        warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+
+    or silence it entirely with ``"ignore"`` in place of ``"error"``.
     """
