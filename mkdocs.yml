@@ -45,6 +45,7 @@ nav:
   - Reference:
       - Architecture: ARCHITECTURE.md
       - Support Matrix: SUPPORT_MATRIX.md
+      - Upstream Scenario Ledger: UPSTREAM_TEST_LEDGER.md
   - Operations:
       - Performance: PERFORMANCE.md
       - Troubleshooting: TROUBLESHOOTING.md
@@ -53,6 +54,7 @@ nav:
   - Project:
       - Development: DEVELOPMENT.md
       - 한국어 참고:
+          - 업스트림 시나리오 원장: ko/UPSTREAM_TEST_LEDGER.md
           - 지원 매트릭스: ko/SUPPORT_MATRIX.md
           - 아키텍처: ko/ARCHITECTURE.md
           - 성능 가이드: ko/PERFORMANCE.md
