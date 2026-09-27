@@ -88,6 +88,20 @@ class TestEnumInsertSelect:
 
 
 class TestEnumUpdate:
+    def test_update_from_enum_expression(self, cursor: Cursor, enum_table: str) -> None:
+        cursor.execute(
+            "UPDATE %s SET working_days = CAST(answers AS INT) + 1 "
+            "WHERE CAST(answers AS INT) < ?" % enum_table,
+            (3,),
+        )
+        assert cursor.rowcount == 2
+        cursor.execute("SELECT working_days, answers FROM %s ORDER BY id" % enum_table)
+        assert cursor.fetchall() == [
+            ("Tuesday", "Yes"),
+            ("Wednesday", "No"),
+            ("Wednesday", "Cancel"),
+        ]
+
     def test_update_all_to_first_value(self, cursor: Cursor, enum_table: str) -> None:
         cursor.execute("UPDATE %s SET answers = 1" % enum_table)
         assert cursor.rowcount == 3
