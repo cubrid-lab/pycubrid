@@ -175,7 +175,8 @@ def test_schema_column_zero_name_length() -> None:
 def test_schema_packet_activates_corrected_request_and_condensed_columns() -> None:
     """FC9 activation ships in the same slice as owning consumption/cleanup."""
     packet = protocol.GetSchemaPacket(1, "%", 1, arg2="id%")
-    assert packet.write(CAS_INFO) == protocol._write_schema_info_request(CAS_INFO, 1, "%", "id%", 1)
+    written = packet.write(CAS_INFO)
+    assert written == protocol._write_schema_info_request(CAS_INFO, 1, "%", "id%", 1)
     packet.parse(CAS_INFO + struct.pack(">iii", 17, 3, 1) + _column(b"\x08"))
     assert (packet.query_handle, packet.tuple_count) == (17, 3)
     assert len(packet.columns) == 1

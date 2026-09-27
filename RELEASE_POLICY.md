@@ -209,6 +209,12 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   reconnect, replay or implicitly commit; transaction boundaries close active
   schema handles. No holdability/native-profile choice or new dependencies.
   Initial CLASS/ATTRIBUTE coverage does not certify all schema types (#457).
+- **Empty bytes LOB writes avoid broker I/O (#394)** — PATCH / correction to the
+  documented bytes-written contract, matching the existing zero-length read
+  precedent. Open-LOB, negative-offset, connection and wire argument validation
+  still run before returning `0`; nonempty ACK checks and other data-type paths
+  retain existing behavior. No public signatures, strict argument policy (#449),
+  async LOB support, dependencies or supported versions change.
 
 - **Unfinished-result invalidation reports an error (#395)** — PATCH / correction
   of silent partial fetch success after a transaction boundary. A missing handle
