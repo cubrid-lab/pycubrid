@@ -1020,6 +1020,10 @@ def write(self, data: bytes, offset: int = 0) -> int
 
 `offset`부터 LOB에 바이트를 씁니다.
 
+`offset`은 음수가 아닌 Python `int`여야 합니다. `bool` 및 다른 타입은
+허용되지 않으며, 잘못된 offset은 연결 확인이나 패킷 전송 전에
+`InterfaceError`를 발생시킵니다.
+
 **반환:** 쓴 바이트 수.
 
 ---
@@ -1031,6 +1035,10 @@ def read(self, length: int, offset: int = 0) -> bytes
 ```
 
 `offset`부터 LOB에서 최대 `length`바이트를 읽습니다.
+
+`length`와 `offset`은 음수가 아닌 Python `int`여야 합니다. `bool` 및 다른
+타입은 허용되지 않으며, 잘못된 인수는 연결 확인이나 패킷 전송 전에
+`InterfaceError`를 발생시킵니다.
 
 **반환:** 읽은 바이트.
 

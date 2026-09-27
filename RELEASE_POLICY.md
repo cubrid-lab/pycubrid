@@ -295,6 +295,13 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   Callers that already worked receive strictly more-correct data; no caller
   relying on the documented "read up to `length` bytes" contract is broken.
 
+- **LOB numeric arguments reject non-integers (#449)** — Proposed PATCH /
+  backward-compatible bug correction for maintainer release classification.
+  `Lob.read()` requires concrete non-negative Python `int` values for `length`
+  and `offset`; `Lob.write()` applies the same rule to `offset`. Invalid values,
+  including booleans, raise `InterfaceError` before connection checks or packet
+  serialization. Signatures and valid argument behavior remain unchanged.
+
 - **Unknown connection options now emit `UnknownConnectionOptionWarning`
   (#377)** — MINOR / additive. Adds one `__all__` entry
   (`UnknownConnectionOptionWarning`) and no required parameter, so the surface

@@ -1056,6 +1056,10 @@ def write(self, data: bytes, offset: int = 0) -> int
 
 Write bytes to the LOB starting from `offset`.
 
+`offset` must be a non-negative Python `int`; booleans and other types are
+rejected. Invalid offsets raise `InterfaceError` before a connection check or
+packet send.
+
 **Returns:** Number of bytes written.
 
 ---
@@ -1073,6 +1077,10 @@ single `LOB_READ` response at a fixed size, so `read()` loops internally,
 advancing the offset by the bytes returned, until `length` bytes are collected
 or the end of the LOB is reached. `read(0)` returns `b""` without a server
 round-trip.
+
+`length` and `offset` must be non-negative Python `int` values; booleans and
+other types are rejected. Invalid arguments raise `InterfaceError` before a
+connection check or packet send.
 
 **Returns:** The read bytes.
 

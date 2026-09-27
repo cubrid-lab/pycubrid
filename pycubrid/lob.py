@@ -72,8 +72,8 @@ class Lob:
         requested (e.g. disk full, quota exceeded).
         """
         self._check_open()
-        if offset < 0:
-            raise InterfaceError(f"offset must be non-negative, got {offset}")
+        if type(offset) is not int or offset < 0:
+            raise InterfaceError("offset must be a non-negative integer")
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
         self._connection._send_and_receive(packet)
@@ -94,10 +94,10 @@ class Lob:
         broker signals end-of-LOB by returning zero bytes.
         """
         self._check_open()
-        if offset < 0:
-            raise InterfaceError(f"offset must be non-negative, got {offset}")
-        if length < 0:
-            raise InterfaceError(f"length must be non-negative, got {length}")
+        if type(offset) is not int or offset < 0:
+            raise InterfaceError("offset must be a non-negative integer")
+        if type(length) is not int or length < 0:
+            raise InterfaceError("length must be a non-negative integer")
         self._connection._ensure_connected()
 
         chunks: list[bytes] = []
