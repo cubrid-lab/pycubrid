@@ -366,6 +366,10 @@ before the tests. It connects using `CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`,
 `localhost:33000/testdb`, user `dba`, empty password), executes `SELECT 1`, and
 fails the job if no probe succeeds within 30 attempts with 5 seconds between
 attempts. Infrastructure failure therefore stops the test step.
+Each connection and read has a five-second timeout, configurable through
+`CUBRID_TEST_CONNECT_TIMEOUT` and `CUBRID_TEST_READ_TIMEOUT`. A connected broker
+whose `SELECT 1` fails is not ready. The cursor and connection are closed on both
+success and failure, including cursor-cleanup errors.
 
 ### GitHub Actions Workflows
 

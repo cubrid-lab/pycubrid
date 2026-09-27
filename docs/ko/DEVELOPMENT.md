@@ -338,6 +338,10 @@ ruff format pycubrid/ tests/
 `localhost:33000/testdb`, 사용자 `dba`, 빈 비밀번호).
 `SELECT 1` 확인을 5초 간격으로 최대 30회 시도하며, 모두 실패하면
 잡을 실패 처리해 테스트 단계가 실행되지 않습니다.
+연결 및 읽기 제한 시간은 각각 5초이며 `CUBRID_TEST_CONNECT_TIMEOUT`과
+`CUBRID_TEST_READ_TIMEOUT`으로 변경할 수 있습니다. 접속에 성공해도 `SELECT 1`이
+실패하면 준비되지 않은 것으로 처리합니다. 성공/실패 및 커서 정리 오류 시에도
+커서와 연결을 닫습니다.
 
 ### GitHub Actions 워크플로
 
