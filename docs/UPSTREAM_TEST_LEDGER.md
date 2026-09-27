@@ -1,6 +1,6 @@
 # Upstream scenario ledger
 
-The [scenario ledger](../tests/fixtures/upstream_scenarios.csv) is an initial
+The [scenario ledger](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/upstream_scenarios.csv) is an initial
 inventory for [#437](https://github.com/cubrid-lab/pycubrid/issues/437), under the
 [public-parity tracker](https://github.com/cubrid-lab/pycubrid/issues/396).
 It is not a functional-parity certificate or a Python 2 compatibility promise.
@@ -30,7 +30,7 @@ unique-scenario count. No declaration is removed because it looks duplicated.
 
 Identifiers and independently paraphrased expectations reference upstream; no
 upstream test bodies are imported or copied. Keep the source acknowledgement and
-[unresolved test-file licensing terms](../THIRD_PARTY_LICENSES.md#reference-test-suite).
+[unresolved test-file licensing terms](https://github.com/cubrid-lab/pycubrid/blob/main/THIRD_PARTY_LICENSES.md#reference-test-suite).
 Confirm applicable terms before any verbatim source reuse.
 
 ## Mapping is separate from execution
