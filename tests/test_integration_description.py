@@ -21,6 +21,8 @@ import pytest
 from pycubrid.connection import Connection
 from pycubrid.cursor import Cursor
 
+from ._parity_helpers import AsyncParityAdapter, ParityAdapter, SyncParityAdapter
+
 TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
 TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
 TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
@@ -79,7 +81,9 @@ def desc_table(cursor: Cursor) -> Generator[str, None, None]:
         "c_set SET(INT),"
         "c_multiset MULTISET(INT),"
         "c_sequence SEQUENCE(INT),"
-        "c_notnull INT NOT NULL DEFAULT 0"
+        "c_enum ENUM('a','b','c'),"
+        "c_notnull INT NOT NULL DEFAULT 0,"
+        "c_primary INT PRIMARY KEY"
         ")" % table
     )
     yield table
@@ -97,9 +101,13 @@ class TestDescriptionStructure:
 
     def test_ddl_clears_description(self, cursor: Cursor) -> None:
         table = _table_name()
-        cursor.execute("CREATE TABLE %s (id INT)" % table)
-        assert cursor.description is None
-        cursor.execute("DROP TABLE IF EXISTS %s" % table)
+        try:
+            cursor.execute("SELECT 1")
+            assert cursor.description is not None
+            cursor.execute("CREATE TABLE %s (id INT)" % table)
+            assert cursor.description is None
+        finally:
+            cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
     def test_display_size_and_internal_size_are_none(self, cursor: Cursor, desc_table: str) -> None:
         """pycubrid returns None for display_size and internal_size.
@@ -115,48 +123,54 @@ class TestDescriptionStructure:
         assert internal_size is None, "pycubrid returns None for internal_size (CUBRIDdb: 0)"
 
 
-# Official CUBRIDdb type_code expectations from tests3/test_description.py.
-# pycubrid uses raw CAS wire codes; divergences are noted.
-_OFFICIAL_TYPE_CODES = [
-    # (column_name, CAS wire code used by pycubrid)
-    ("c_int", 8),
-    ("c_short", 9),
-    ("c_bigint", 21),
-    ("c_numeric", 7),
-    ("c_float", 11),
-    ("c_double", 12),
-    ("c_monetary", 10),
-    ("c_date", 13),
-    ("c_time", 14),
-    ("c_datetime", 22),
-    ("c_timestamp", 15),
-    ("c_bit", 5),
-    ("c_varbit", 6),
-    ("c_char", 1),
-    ("c_varchar", 2),
-    ("c_string", 2),
-    # CUBRIDdb returns 32/64/96 for collections; pycubrid uses wire codes 16/17/18.
-    ("c_set", 16),
-    ("c_multiset", 17),
-    ("c_sequence", 18),
+# Measured on CUBRID 10.2/11.4 for these exact declarations. Preserve pycubrid's
+# None/None size fields and normalized collection codes, not CUBRIDdb's 0/0 and
+# 32/64/96. Full native-call compatibility is a separate design decision (#438).
+_DESCRIPTION_CASES = [
+    # name, type code, precision, scale, null_ok
+    ("c_int", 8, 10, 0, True),
+    ("c_short", 9, 5, 0, True),
+    ("c_bigint", 21, 19, 0, True),
+    ("c_numeric", 7, 15, 0, True),
+    ("c_float", 11, 7, 0, True),
+    ("c_double", 12, 15, 0, True),
+    ("c_monetary", 10, 15, 0, True),
+    ("c_date", 13, 10, 0, True),
+    ("c_time", 14, 8, 0, True),
+    ("c_datetime", 22, 23, 3, True),
+    ("c_timestamp", 15, 19, 0, True),
+    ("c_bit", 5, 8, 0, True),
+    ("c_varbit", 6, 8, 0, True),
+    ("c_char", 1, 4, 0, True),
+    ("c_varchar", 2, 4, 0, True),
+    ("c_string", 2, 1073741823, 0, True),
+    ("c_set", 16, 0, 0, True),
+    ("c_multiset", 17, 0, 0, True),
+    ("c_sequence", 18, 0, 0, True),
+    ("c_enum", 25, 0, 0, True),
+    ("c_notnull", 8, 10, 0, False),
+    ("c_primary", 8, 10, 0, False),
 ]
 
 
 class TestDescriptionTypeCode:
-    """Validate type_code (index 1) for each column type."""
+    """Validate every description field for each declared type."""
 
-    @pytest.mark.parametrize("col,expected_type_code", _OFFICIAL_TYPE_CODES)
-    def test_type_code(
-        self, cursor: Cursor, desc_table: str, col: str, expected_type_code: int
+    @pytest.mark.parametrize("col,type_code,precision,scale,null_ok", _DESCRIPTION_CASES)
+    def test_full_description(
+        self,
+        cursor: Cursor,
+        desc_table: str,
+        col: str,
+        type_code: int,
+        precision: int,
+        scale: int,
+        null_ok: bool,
     ) -> None:
         cursor.execute("SELECT %s FROM %s" % (col, desc_table))
         assert cursor.description is not None
-        actual = cursor.description[0][1]
-        assert actual == expected_type_code, "type_code mismatch for %s: got %r, expected %r" % (
-            col,
-            actual,
-            expected_type_code,
-        )
+        assert cursor.description == ((col, type_code, None, None, precision, scale, null_ok),)
+        assert cursor.description[0][6] is null_ok
 
     def test_column_name(self, cursor: Cursor, desc_table: str) -> None:
         cursor.execute("SELECT c_int, c_varchar FROM %s" % desc_table)
@@ -199,12 +213,12 @@ class TestDescriptionNullable:
     def test_nullable_column(self, cursor: Cursor, desc_table: str) -> None:
         cursor.execute("SELECT c_int FROM %s" % desc_table)
         assert cursor.description is not None
-        assert cursor.description[0][6] == 1
+        assert cursor.description[0][6] is True
 
     def test_not_null_column(self, cursor: Cursor, desc_table: str) -> None:
         cursor.execute("SELECT c_notnull FROM %s" % desc_table)
         assert cursor.description is not None
-        assert cursor.description[0][6] == 0
+        assert cursor.description[0][6] is False
 
 
 class TestDescriptionEnum:
@@ -219,3 +233,32 @@ class TestDescriptionEnum:
             assert cursor.description[0][1] == 25  # CUBRIDDataType.ENUM
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "adapter", [SyncParityAdapter(), AsyncParityAdapter()], ids=["sync", "async"]
+)
+async def test_nullability_parity(adapter: ParityAdapter) -> None:
+    conn = await adapter.connect()
+    cur = adapter.cursor(conn)
+    table = _table_name()
+    try:
+        await adapter.execute(
+            cur, "CREATE TABLE %s (optional INT, required INT NOT NULL, id INT PRIMARY KEY)" % table
+        )
+        await adapter.execute(cur, "SELECT optional, required, id FROM %s" % table)
+        assert cur.description == (
+            ("optional", 8, None, None, 10, 0, True),
+            ("required", 8, None, None, 10, 0, False),
+            ("id", 8, None, None, 10, 0, False),
+        )
+        assert [item[6] for item in cur.description] == [True, False, False]
+    finally:
+        try:
+            await adapter.execute(cur, "DROP TABLE IF EXISTS %s" % table)
+        finally:
+            try:
+                await adapter.close_cursor(cur)
+            finally:
+                await adapter.close_connection(conn)

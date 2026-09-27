@@ -801,6 +801,11 @@ def description(self) -> tuple[DescriptionItem, ...] | None
 | 5     | `scale`        | `int`  | 컬럼 스케일 |
 | 6     | `null_ok`      | `bool` | 컬럼의 NULL 허용 여부 |
 
+`null_ok`는 브로커가 NULL 허용을 보고하면 `True`, NOT NULL과 기본키 컬럼이면
+`False`입니다. CAS는 반대 의미의 `is_non_null` 플래그를 전송하며, pycubrid는
+동기·비동기 커서에서 이를 PEP 249 의미로 변환합니다. 크기 필드는 계속 `None`,
+컬렉션 타입 코드는 계속 16/17/18이며, 이 교정으로 CUBRIDdb 호환 프로필을 선택하지 않습니다.
+
 ```python
 cur.execute("SELECT name, age FROM users")
 for col in cur.description:
