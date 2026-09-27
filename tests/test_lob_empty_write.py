@@ -8,9 +8,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from pycubrid.constants import CUBRIDDataType
-from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.exceptions import DataError, InterfaceError, OperationalError
 from pycubrid.lob import Lob
 from pycubrid.protocol import LOBWritePacket
+from tests.test_network_edge_cases import make_connected_connection
 
 
 @pytest.fixture
@@ -76,9 +77,27 @@ def test_empty_write_keeps_signed64_serialization_rejection(
     connection: MagicMock, offset: object
 ) -> None:
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    with pytest.raises(struct.error):
+    with pytest.raises(DataError):
         lob.write(b"", offset=offset)
     connection._ensure_connected.assert_called_once_with()
+
+
+@pytest.mark.parametrize("data", [b"", b"x"], ids=["empty", "nonempty"])
+@pytest.mark.parametrize("offset", [0.5, 2**63])
+def test_real_connection_preserves_serialization_error_translation(
+    data: bytes, offset: object
+) -> None:
+    conn, sock = make_connected_connection()
+    conn._cas_info = b"\x01\x00\x00\x00"  # Active session: no reconnect before validation.
+    sock.sendall.reset_mock()
+    try:
+        lob = Lob(conn, CUBRIDDataType.BLOB, b"handle")
+        with pytest.raises(DataError, match="serialize into CAS request") as raised:
+            lob.write(data, offset=offset)
+        assert isinstance(raised.value.__cause__, struct.error)
+        sock.sendall.assert_not_called()
+    finally:
+        conn._drop_connection()
 
 
 def test_empty_write_keeps_handle_serialization_rejection(connection: MagicMock) -> None:
