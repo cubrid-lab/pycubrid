@@ -49,6 +49,6 @@ def has_docs_not_needed_reason(body: str | None) -> bool:
             comment = line.rfind("<!--") > line.rfind("-->")
         if not quoted and line.startswith(prefix):
             reason = re.sub(r"<!--.*?(?:-->|$)", "", line[len(prefix) :]).strip()
-            if reason and reason != "<reason>":
+            if reason and "<reason>" not in reason:
                 return True
     return False

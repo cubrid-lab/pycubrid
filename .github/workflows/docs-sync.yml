@@ -93,7 +93,7 @@ jobs:
               print("\nDocs-sync guard failed.")
               print("Behavior-relevant files changed without a matching docs/changelog update.")
               print("Either update docs, or add the `docs-not-needed` label / PR body marker:")
-              print("  Docs: not needed - <reason>")
+              print("  Docs: not needed - only test fixtures changed")
               print("\nRelevant files:")
               for p in relevant:
                   print(f"  {p}")
