@@ -374,6 +374,28 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 | `query_handle` | `int` | 스키마 행을 가져올 핸들 |
 | `tuple_count`  | `int` | 스키마 항목 수 |
 
+**비공개 와이어 기반 작업 (#455), getter 수정 활성화 아님:** 확인된 FC9 요청은
+길이 접두가 있는 인자를 스키마 타입(`int`), 첫 이름/패턴(`string` 또는 NULL),
+두 번째 이름/패턴(`string` 또는 NULL), 플래그(`byte`), 샤드 ID(`int`, 프로토콜
+V5 이상) 순서로 보냅니다. NULL은 길이 0인 인자이며, 빈 문자열은 NUL 종료자를
+포함하므로 서로 다른 인자입니다. 문자열은 드라이버의 기존 UTF-8 인코딩을 유지합니다.
+
+응답 핸들과 튜플 수 다음에는 컬럼 수와 축약 컬럼 정보가 옵니다. 각 컬럼은
+타입(1 또는 2바이트), scale(`int16`), precision(`int32`), 이름 길이(`int32`),
+이름만 포함합니다. 일반 SELECT 메타데이터와 달리 별도 속성/테이블 이름,
+NULL 허용 여부, 기본값, 제약 플래그는 없습니다. 따라서 비공개 디코더는
+타입·scale·precision·이름만 제공하고, 없는 필드를 만들어 내지 않으며 기존
+컬렉션 종류 정규화를 유지합니다.
+
+이 헬퍼들은 오프라인 테스트만 거쳤으며 실제 getter에서는 사용하지 않습니다.
+`GetSchemaPacket.write/parse`와 두 공개 `get_schema_info()` 메서드는 변경되지
+않았고 여전히 불완전합니다. 요청 활성화에는 #456에서 핸들 소유권, 행 소비,
+정리를 함께 구현해야 합니다. 이 fixture들은 실제 getter의 동작이나 네이티브
+드라이버와의 동등성을 인증하지 않습니다.
+참조 소스: [CAS FC9 인자](https://github.com/CUBRID/cubrid/blob/6b2bc75527c8bad94d9ad8aba961638efdfb3269/src/broker/cas_function.c#L1192),
+[CCI 축약 컬럼](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_query_execute.c#L5285),
+[JDBC 스키마 요청](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63ae4b334fde81ce2c523642f1afd37f/src/jdbc/cubrid/jdbc/jci/UConnection.java#L516).
+
 ---
 
 ### BatchExecutePacket
