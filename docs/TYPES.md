@@ -364,6 +364,9 @@ Notes:
 - `cursor.description` reports the collection code (16, 17 or 18), not its element
   type. Integer elements remain Python `int`; MULTISET preserves duplicates and
   SEQUENCE preserves order. The same decoding rules apply to sync and async fetches.
+- The final description field, `null_ok`, uses the PEP 249 meaning: `True` for
+  nullable columns and `False` for NOT NULL/primary-key columns, not the inverse
+  CAS `is_non_null` flag.
 - Nested collection payloads remain raw `bytes`.
 - Unknown collection element types fall back to raw `bytes`.
 - `SET` values are normalized to a `frozenset` when every decoded element is hashable.

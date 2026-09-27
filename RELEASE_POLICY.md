@@ -208,6 +208,11 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   Public names/signatures, transaction semantics, generic-code text fallback,
   runtime dependencies and supported versions are unchanged.
 
+- **Description nullability (#431, #398)** — PATCH / bug correction. The broker's
+  non-null flag is inverted when deriving the documented PEP 249 `null_ok` value.
+  Public signatures, optional size fields, collection codes and default return
+  shapes are unchanged; this is not a new native-driver compatibility profile.
+
 - **Collection metadata decoding (#403, #410)** — PATCH / bug correction restoring
   the documented collection types and opt-in decoding behavior. Default raw bytes,
   public signatures and unsupported collection parameter binding are unchanged.
