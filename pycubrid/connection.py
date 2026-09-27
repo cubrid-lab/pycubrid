@@ -21,7 +21,6 @@ from .protocol import (
     CloseDatabasePacket,
     CommitPacket,
     GetEngineVersionPacket,
-    GetLastInsertIdPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
     RollbackPacket,
@@ -193,6 +192,7 @@ class Connection(ConnectionCommonMixin):
         if self._connected:
             return
 
+        self._last_insert_id = None
         _timing = self._timing
         _start = 0
         if _timing is not None:
@@ -410,12 +410,25 @@ class Connection(ConnectionCommonMixin):
         version: str = packet.engine_version
         return version
 
-    def get_last_insert_id(self) -> str:
-        """Return last inserted auto-increment value as string."""
+    def get_last_insert_id(self) -> str | None:
+        """Return the cached broker-reported auto-increment id as a string.
+
+        Captured after INSERT, corresponding to the cursor's integer
+        ``lastrowid`` snapshot, without querying the broker here. Commit,
+        rollback, and non-INSERT statements preserve this observation; it
+        does not prove that a row still exists or that the latest INSERT
+        generated an identity. The broker may retain an earlier identity
+        after an INSERT into a table without an auto-increment column.
+        Only cursor operations with an INSERT server response refresh this
+        snapshot; CALL, stored-procedure INSERTs, and out-of-band SQL do not.
+
+        Returns:
+            The captured id as a string, or ``None`` when unavailable.
+            A new INSERT attempt or nonempty batch clears the previous id,
+            as does discarding or replacing the physical connection.
+        """
         self._ensure_connected()
-        packet = self._send_and_receive(GetLastInsertIdPacket())
-        result: str = packet.last_insert_id
-        return result
+        return self._last_insert_id
 
     def ping(self, reconnect: bool = True) -> bool:
         """Check if the CAS broker connection is alive.

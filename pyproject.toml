@@ -67,6 +67,8 @@ version = {attr = "pycubrid.__version__"}
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Keep CLI discovery aligned with the Python/pyi-only pre-commit hooks.
+include = ["*.py", "*.pyi"]
 
 [tool.ruff.lint]
 # Pin the rule set explicitly instead of inheriting ruff's implicit defaults.
@@ -102,6 +104,8 @@ addopts = "--tb native -v -r fxX --maxfail=25 -p no:warnings"
 python_files = "tests/*test_*.py"
 markers = [
     "integration: requires a live CUBRID server",
+    "slow: long-running tests (soak, stress, chaos) excluded from the standard full matrix",
+    "tls: TLS-specific integration tests run in the dedicated integration-tls job",
     "benchmark: performance benchmark (requires a live CUBRID server)",
 ]
 

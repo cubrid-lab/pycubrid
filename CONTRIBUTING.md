@@ -2,6 +2,9 @@
 
 Thank you for your interest in contributing to `pycubrid`.
 
+Write GitHub issues, PRs and comments in English; localized documentation remains
+welcome, and no specific translation tool is required.
+
 ## Development Setup
 
 ### Prerequisites
@@ -20,7 +23,6 @@ python3 -m venv venv
 source venv/bin/activate
 
 pip install -e ".[dev]"
-pip install pytest-cov
 ```
 
 ## Running Tests
@@ -28,8 +30,7 @@ pip install pytest-cov
 ### Offline tests
 
 ```bash
-pytest tests/ -v --ignore=tests/test_integration.py \
-  --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
+make test
 ```
 
 ### Integration tests
@@ -37,63 +38,83 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 ```bash
 docker compose up -d
 export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
-pytest tests/test_integration.py -v
+pytest tests/ -m "integration and not slow and not tls" -v
 docker compose down -v
 ```
 
 ### Async TLS integration tests (optional)
 
-`tests/test_aio_ssl_integration.py` exercises the live `loop.start_tls()`
-upgrade against a CUBRID broker with `SSL=ON`. CI runs this in the
-`integration-tls` job in `.github/workflows/integration-full.yml`; for
-local runs:
-
-```bash
-# Spin up a broker with SSL=ON (mirrors the CI job)
-make integration-tls
-
-# Or manually:
-docker compose up -d
-docker compose exec <broker-container> bash -c "sed -i 's/^SSL=OFF/SSL=ON/' \
-    \$CUBRID/conf/cubrid_broker.conf && cubrid broker restart"
-docker compose exec <broker-container> cat \
-    \$CUBRID/conf/cas_server_cert.pem > /tmp/cubrid-broker.pem
-
-export CUBRID_TLS_TEST_HOST=localhost
-export CUBRID_TLS_TEST_PORT=33000
-export CUBRID_TLS_TEST_CA=/tmp/cubrid-broker.pem
-export CUBRID_TLS_TEST_DB=testdb
-export CUBRID_TLS_TEST_USER=dba
-pytest tests/test_aio_ssl_integration.py -v
-```
-
-The `test_aio_ssl_handshake_failure` test is auto-skipped on Python 3.10 due
-to a known CPython asyncio TLS handshake bug on Python 3.10 — run
-the suite on 3.11+ to cover the negative path.
+The dedicated CI TLS lane selects `integration and tls` against an SSL-enabled
+broker. For local broker/certificate setup, follow the existing
+[async TLS instructions](docs/DEVELOPMENT.md#async-tls-integration-tests).
+Record live checks not run and their reason; maintainers coordinate missing
+broker/version coverage for connection or protocol changes.
 
 ## Code Style
 
 This project uses Ruff for linting and formatting.
 
 ```bash
-ruff check pycubrid/ tests/
-ruff format --check pycubrid/ tests/
+make lint
 ```
 
 To auto-fix:
 
 ```bash
-ruff check --fix pycubrid/ tests/
-ruff format pycubrid/ tests/
+make format
 ```
+
+Activate the project development environment (`pip install -e ".[dev]"`) before
+running Make or pre-commit. `make tooling-check` verifies the installed Ruff/Mypy
+versions and hook revisions against the exact pins in `pyproject.toml`. Make and CI
+share `LINT_PATHS` (`pycubrid tests scripts demos examples`) with explicit Python/pyi discovery
+and hook types, so Markdown is not reformatted; package-only strict Mypy remains
+separate, and its pre-commit hook explicitly checks `pycubrid/`.
+
+When updating either tool, change its dev pin and matching hook revision in the
+same PR, reinstall `.[dev]`, then run `make check-all` and
+`pre-commit run --all-files`. The drift gate rejects missing/ambiguous pins,
+version mismatches, and narrowed scopes. Hook updates use this documented process;
+there is no additional Dependabot ecosystem configuration.
 
 ## Pull Request Guidelines
 
 1. Keep changes focused and explain the motivation in the PR description.
 2. Add or update tests for behavior changes.
-3. Ensure lint and offline tests pass before submitting.
+3. Run `make check-all` and `make test`; report commands/results and checks not run.
 4. Run integration tests for connection/protocol-related updates.
 5. Update `CHANGELOG.md` for user-visible changes.
+
+Outside contributors provide motivation, implementation, tests and affected docs.
+Maintainers coordinate internal Oracle/agent reviews, integration coverage and
+release classification. These project tools are not an installation prerequisite
+for external contributions. Preserve contributor authorship; add tool attribution
+only when that tool actually produced a commit.
+
+If docs are unnecessary, put a real reason on a standalone physical source line beginning
+`Docs: not needed -`. Empty text, `<reason>`, quotations, comments and fenced examples
+do not grant an exemption. The line may be adjacent to ordinary prose; it does not
+need its own paragraph. The existing `docs-not-needed` label is a separate
+maintainer-controlled exception; neither docs exception bypasses code, security or
+release checks.
+Up to three leading spaces are allowed; tab/four-space code examples and raw HTML
+`blockquote`/`pre`/`code` blocks do not grant an exemption.
+
+For translation help, name the missing language(s) and explain the constraint in
+the PR body. That request does not authorize deferral. Maintainers explicitly approve
+the existing `translations-deferred` label and own the recorded follow-up. Korean
+README synchronization remains required; other translations remain advisory.
+
+When changing docs, regenerate `docs/llms-full.txt` with
+`python scripts/generate_llms_full.py` and run the existing site check
+`mkdocs build --strict` after installing its documented tooling
+(`mkdocs-material pymdown-extensions`). AI review feedback is separate from commands
+actually executed; report both accurately, including gaps and existing warnings.
+
+Maintainers update shared workflow callers through a reviewed upstream commit SHA:
+verify the target workflow and its `workflow_call` inputs at that commit, update
+callers together and run required checks. The shared doc-lint workflow still fetches
+main-based configuration/scanner assets, so caller pinning does not freeze those assets.
 
 ## Reporting Issues
 
@@ -103,6 +124,9 @@ When filing an issue, include:
 - CUBRID server version
 - Minimal reproduction snippet
 - Full traceback or error output
+
+Describe urgency and estimated effort. Maintainers or triagers assign the actual
+canonical `priority:`/`size:` GitHub labels; reporter label permissions are not required.
 
 ## Bug Discovery → Regression Workflow
 

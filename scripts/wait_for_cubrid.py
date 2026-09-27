@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Wait for a live CUBRID broker, failing after the retry budget (issue #354/#358).
 
-Used by the nightly bug-hunt workflow. The previous inline shell loop `break`-ed
+Used by the regular, full, and nightly bug-hunt workflows. The previous inline shell loop `break`-ed
 on success but exited 0 even after all probes failed, letting the integration
 suites (skipif-gated on ``can_connect``) skip silently and the job appear green
 without testing anything. This exits non-zero when the broker never becomes
@@ -9,6 +9,8 @@ ready, so an unavailable service is a clear infrastructure failure.
 
 Environment: ``CUBRID_TEST_HOST`` / ``CUBRID_TEST_PORT`` / ``CUBRID_TEST_DB`` /
 ``CUBRID_TEST_USER`` / ``CUBRID_TEST_PASSWORD`` (defaults localhost:33000/testdb/dba/"").
+``CUBRID_TEST_CONNECT_TIMEOUT`` / ``CUBRID_TEST_READ_TIMEOUT`` default to 5 seconds,
+so a broker that accepts TCP but stalls cannot leave a probe waiting indefinitely.
 
 Usage:
     python scripts/wait_for_cubrid.py [attempts] [sleep_seconds]
@@ -23,6 +25,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from contextlib import closing
 
 import pycubrid
 
@@ -35,16 +38,24 @@ def main(argv: list[str]) -> int:
     database = os.environ.get("CUBRID_TEST_DB", "testdb")
     user = os.environ.get("CUBRID_TEST_USER", "dba")
     password = os.environ.get("CUBRID_TEST_PASSWORD", "")
+    connect_timeout = float(os.environ.get("CUBRID_TEST_CONNECT_TIMEOUT", "5"))
+    read_timeout = float(os.environ.get("CUBRID_TEST_READ_TIMEOUT", "5"))
 
     for i in range(1, attempts + 1):
         try:
-            conn = pycubrid.connect(
-                host=host, port=port, database=database, user=user, password=password
-            )
-            cur = conn.cursor()
-            cur.execute("SELECT 1")
-            cur.close()
-            conn.close()
+            with closing(
+                pycubrid.connect(
+                    host=host,
+                    port=port,
+                    database=database,
+                    user=user,
+                    password=password,
+                    connect_timeout=connect_timeout,
+                    read_timeout=read_timeout,
+                )
+            ) as conn:
+                with closing(conn.cursor()) as cur:
+                    cur.execute("SELECT 1")
         except Exception as exc:  # noqa: BLE001 - readiness probe reports any failure
             print(f"[{i}/{attempts}] CUBRID not ready: {exc}")
             time.sleep(sleep_s)

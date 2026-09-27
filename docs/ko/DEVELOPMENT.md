@@ -196,7 +196,11 @@ pytest tests/test_aio_ssl_integration.py -v
 4. 실제 TLS 핸드셰이크로 브로커를 프로브하고, TLS가 실제로 서비스 중이 아니면 잡을 크게 실패시킴 — 조용한 스킵은 명시적으로 거부됨.
 5. `CUBRID_TLS_TEST_*` 환경 변수를 자동 연결해 TLS 브로커에 대해 `tests/test_aio_ssl_integration.py`를 실행.
 
-> **Python 3.10 참고**: 비동기 TLS 테스트 하나(`test_aio_ssl_handshake_failure`)는 알려진 CPython asyncio TLS 핸드셰이크 버그로 인해 Python 3.10에서 스킵하도록 버전이 고정되어 있습니다 — `asyncio.loop.start_tls()`가 3.10에서 인증서 검증 실패 시 멈춥니다 (3.13/3.14에서 수정). [#156](https://github.com/cubrid-lab/pycubrid/issues/156)으로 추적.
+> **Python 3.10 참고**: 드라이버의 인증서 검증 preflight가 알려진 비동기 TLS 검증
+> 문제를 처리합니다([#156](https://github.com/cubrid-lab/pycubrid/issues/156)). TLS 레인은
+> 호스트 이름 검증 실패를 포함해 선택된 모든 테스트가 실행되어야 하며, 브로커 설정
+> 누락으로 인한 스킵은 허용하지 않습니다. 브로커 상태 확인 및 재시작은 서비스 소유자
+> `cubrid`로 실행해 실제 브로커를 제어합니다.
 
 이 잡은 `integration-full`의 나머지와 같은 트리거(나이틀리, 태그 푸시, `workflow_dispatch`)로 실행됩니다.
 
@@ -301,10 +305,21 @@ make lint
 # 자동 수정
 make format
 
-# 또는 수동으로
-ruff check pycubrid/ tests/
-ruff format pycubrid/ tests/
+# 도구 버전과 현재 환경을 별도로 검사
+make tooling-check
 ```
+
+Make와 일반/정기 CI는 `Makefile`의 `LINT_PATHS` 목록을 공유합니다:
+`pycubrid tests scripts demos examples`. Ruff CLI와 훅은 명시적으로 Python/pyi만 검사하므로
+Markdown은 이 포맷 범위에 포함하지 않습니다. 훅에도 같은 관리 파일 범위를 적용하며,
+Mypy는 기존의 엄격한 패키지 전용 검사를 유지합니다. 검사는 현재 Python 환경의
+도구를 사용하므로 `.[dev]`를 설치하고 해당 환경을 활성화하세요.
+
+Ruff/Mypy의 정확한 버전은 `pyproject.toml`에서 관리합니다. dev 핀과
+`.pre-commit-config.yaml`의 대응 버전을 같은 PR에서 갱신하고 `.[dev]`를 다시
+설치한 뒤 `make check-all` 및 `pre-commit run --all-files`를 실행하세요.
+`make tooling-check`는 린트/포맷/타입 검사 전에 핀, 설치 버전, 훅 범위 및 CI 범위의
+불일치를 실패 처리합니다. 새 의존성이나 지원되지 않는 업데이트 생태계는 추가하지 않습니다.
 
 ### 안티패턴 (절대 금지)
 
@@ -330,6 +345,53 @@ ruff format pycubrid/ tests/
 ---
 
 ## CI/CD
+
+일반 및 전체 통합 워크플로는 테스트 전에
+`python scripts/wait_for_cubrid.py`를 실행합니다. 이 스크립트는
+`CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`, `CUBRID_TEST_DB`,
+`CUBRID_TEST_USER`, `CUBRID_TEST_PASSWORD`로 접속합니다(기본값:
+`localhost:33000/testdb`, 사용자 `dba`, 빈 비밀번호).
+`SELECT 1` 확인을 5초 간격으로 최대 30회 시도하며, 모두 실패하면
+잡을 실패 처리해 테스트 단계가 실행되지 않습니다.
+연결 및 읽기 제한 시간은 각각 5초이며 `CUBRID_TEST_CONNECT_TIMEOUT`과
+`CUBRID_TEST_READ_TIMEOUT`으로 변경할 수 있습니다. 접속에 성공해도 `SELECT 1`이
+실패하면 준비되지 않은 것으로 처리합니다. 성공/실패 및 커서 정리 오류 시에도
+커서와 연결을 닫습니다.
+
+통합 테스트는 파일 이름이나 고정된 테스트 수 대신 pytest 마커로 레인을 배정합니다:
+
+| 레인 | 선택식 | 실행 워크플로 |
+|---|---|---|
+| 일반 | `integration and not slow and not tls` | PR/push CI, 전체 호환성 매트릭스, 나이틀리 bug hunt |
+| 장시간 | `integration and slow and not tls` | 나이틀리/수동 bug hunt의 soak, chaos, 동시성 stress |
+| TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
+
+`python scripts/check_integration_lanes.py`는 현재 마커 목록을 수집하고 각 레인의 실제
+워크플로 명령을 확인합니다. JUnit 검사(`--results FILE`)는 알려지지 않은 스킵,
+빈 실행 또는 전체 스킵을 실패 처리합니다. 선택적 CUBRIDdb 비교 드라이버 누락과
+`/proc`가 없는 플랫폼은 명시적으로 분류하지만, 브로커/TLS 설정 누락은 CI에서
+허용하는 스킵이 아닙니다. 나이틀리 bug hunt의 별도 오프라인 protocol, fault-broker,
+placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
+
+### 문서 예외와 기여자 검증 기록
+
+문서 게이트는 따옴표 인용, HTML 주석, 코드 블록 밖의 독립된 물리적 소스 줄에 실제
+이유가 있는 `Docs: not needed -`만 인정합니다. 일반 설명 바로 옆 줄에 둘 수 있으며,
+별도 문단이나 빈 줄이 필수인 것은 아닙니다.
+앞의 공백은 0~3개까지 허용하며, 들여쓴 코드와 HTML 인용/pre/code 블록의 예시는
+예외 승인을 부여하지 않습니다.
+기존 `docs-not-needed` 라벨 예외는 별도로 유지됩니다. `make docs-reason-check`는
+헬퍼 doctest와 실제 이벤트 JSON 기반 워크플로 사례를 실행하며, `make check-all`과
+docs-sync CI에서도 이 검사를 실행합니다.
+
+기여자는 실제 실행한 명령/결과와 실행하지 않은 검사/이유를 기록하고, 선택적 AI
+리뷰는 별도로 구분합니다. 유지보수자는 내부 리뷰, 실제 이슈 라벨 및 명시적으로
+승인한 `translations-deferred` 후속 작업을 조율합니다. PR 본문의 번역 도움 요청은
+승인을 부여하지 않습니다. 한국어 README 동기화는 필수이며 다른 번역은 권고 수준입니다.
+
+공유 doc-lint와 CodeQL 호출은 `workflow_call` 입력을 확인한 검토된 커밋 SHA를
+사용합니다. 기존 권한, 권고 수준 롤아웃 및 필수 게이트는 유지됩니다. doc-lint가
+main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 자산까지 고정되지는 않습니다.
 
 ### GitHub Actions 워크플로
 

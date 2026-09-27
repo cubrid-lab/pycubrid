@@ -396,9 +396,31 @@ the failure.
 | `rollback()`                        | `None`        | Roll back the current transaction                |
 | `close()`                           | `None`        | Close the connection and free resources           |
 | `get_server_version()`              | `str`         | Return the CUBRID server version string          |
-| `get_last_insert_id()`              | `str`         | Return the last auto-increment ID                |
+| `get_last_insert_id()`              | `str \| None` | Return the cached broker identity, or `None`   |
 | `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | Query schema metadata from the server |
+
+`get_last_insert_id()` reads the identity captured by a cursor after INSERT without
+another network request. Successful values remain strings; unavailable values are
+`None` rather than the previous ambiguous `""`. Use `value is None` to detect
+unavailability and guard `int(value)` accordingly. The cursor's `lastrowid` remains
+an independent `int | None` snapshot.
+
+Commit/rollback and SELECT preserve the cached observation. A new INSERT attempt,
+nonempty batch, or physical connection discard/reconnect clears it; failed, empty,
+or malformed identity retrieval leaves it `None`. The broker may retain an earlier
+identity after a non-auto-increment INSERT, so a reported ID does not prove the
+latest statement generated it or that a row exists after rollback. Sync and async
+connections follow the same contract. If the broker releases the CAS after a
+transaction boundary, the next request can reconnect automatically and clear the
+connection cache; the earlier cursor's `lastrowid` snapshot still remains available.
+
+The cache only refreshes for cursor operations with an INSERT server response.
+Unlike the previous live broker query, it does not observe `CALL`, stored-procedure
+INSERTs, or out-of-band SQL. Return the procedure's identity explicitly or query it
+using the procedure's server-side contract. An empty batch clears the cursor's
+`lastrowid` while retaining the connection cache; a failed prior-query close before
+a nonempty batch starts preserves both previous identity values.
 
 ### LOB Creation
 

@@ -201,6 +201,51 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Quality-tool pin and scope consistency (#416)** — PATCH / development and CI
+  maintenance. Shared lint/format targets include maintained scripts/demos, and
+  declared pins, hook revisions, installed versions, and scopes are checked together.
+  Strict typechecking remains package-only; no driver behavior, public API, runtime
+  dependency, or supported-version changes.
+
+- **Marker-based integration lane coverage (#397)** — PATCH / CI bug correction.
+  Normal, TLS, and slow workloads have executable workflow paths and a dynamic
+  collection/skip audit. Missing optional native-comparison dependencies and
+  unsupported `/proc` platforms are explicitly classified. No driver public API,
+  SQL behavior, dependency, or supported-version changes.
+
+- **Integration readiness gates fail closed (#411)** — PATCH / CI bug correction.
+  Regular and full workflows reuse the bounded shared probe; failed SELECT or
+  exhausted retries prevents the test step. Probe resources close on every exit.
+  No driver public API, SQL behavior, or supported-version changes.
+
+- **Cached broker insert identity survives transaction boundaries (#381)** — PATCH /
+  bug correction to the documented identity convenience method. Successful return
+  values remain `str`; unavailable identities now explicitly return `None` instead
+  of the ambiguous empty string. This is a runtime unavailable-result correction,
+  not merely an annotation refinement. Migration: replace `value == ""` with
+  `value is None` and guard `int(value)`; `cursor.lastrowid` stays `int | None`.
+  The cache is an observation of broker state, not proof that the latest INSERT
+  generated an identity or that a row exists after rollback. INSERT attempts,
+  nonempty batches, and physical connection changes invalidate it. No public
+  names or structural signatures change; the API baseline remains unchanged.
+  This cursor-INSERT snapshot does not observe CALL, stored-procedure INSERTs,
+  or out-of-band operations; callers must return/query those identities explicitly.
+
+- **Empty `executemany()` clears prior result state (#376)** — PATCH /
+  backward-compatible bug fix. Public signatures are unchanged. Empty input
+  executes no SQL, closes an active query handle, and leaves `rowcount=0`,
+  `description=None`, `lastrowid=None`, and no fetchable rows, matching the
+  existing empty-batch row-count convention. A failed query close preserves
+  the tracked handle and propagates its exception.
+
+- Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
+
+- **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
+  PATCH / backward-compatible bug fix. The public signatures are unchanged;
+  validation now enforces the documented positive-integer row-count contract,
+  including rejection of floats and booleans. Valid positive integers retain
+  their behavior, and invalid assignments leave the previous value unchanged.
+
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
   `execute()` by releasing a previous result-set handle before starting another operation.
