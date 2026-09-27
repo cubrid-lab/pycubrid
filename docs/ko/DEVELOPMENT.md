@@ -310,7 +310,8 @@ make tooling-check
 ```
 
 Make와 일반/정기 CI는 `Makefile`의 `LINT_PATHS` 목록을 공유합니다:
-`pycubrid tests scripts demos`. Ruff 훅에도 같은 관리 파일 범위를 적용하며,
+`pycubrid tests scripts demos`. Ruff CLI와 훅은 명시적으로 Python/pyi만 검사하므로
+Markdown은 이 포맷 범위에 포함하지 않습니다. 훅에도 같은 관리 파일 범위를 적용하며,
 Mypy는 기존의 엄격한 패키지 전용 검사를 유지합니다. 검사는 현재 Python 환경의
 도구를 사용하므로 `.[dev]`를 설치하고 해당 환경을 활성화하세요.
 

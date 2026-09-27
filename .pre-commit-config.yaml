@@ -4,7 +4,7 @@ repos:
     hooks:
       - id: quality-tool-consistency
         name: quality-tool consistency
-        entry: python scripts/check_quality_tools.py
+        entry: python3 scripts/check_quality_tools.py
         language: system
         pass_filenames: false
         always_run: true
@@ -13,7 +13,9 @@ repos:
     rev: v0.16.8
     hooks:
       - id: ruff-format
+        types_or: [python, pyi]
       - id: ruff
+        types_or: [python, pyi]
         args: ["--fix"]
 
   - repo: https://github.com/pre-commit/mirrors-mypy

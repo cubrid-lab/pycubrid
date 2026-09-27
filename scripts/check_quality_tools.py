@@ -43,6 +43,12 @@ def declared_pins(root: Path) -> dict[str, str]:
 
 def check_configuration(root: Path = ROOT) -> dict[str, str]:
     pins = declared_pins(root)
+    config = (root / "pyproject.toml").read_text()
+    ruff = re.findall(r"^\[tool\.ruff\]\s*\n(.*?)(?=^\[|\Z)", config, re.MULTILINE | re.DOTALL)
+    if len(ruff) != 1 or not re.search(
+        r'^include = \["\*\.py", "\*\.pyi"\]\s*$', ruff[0], re.MULTILINE
+    ):
+        raise ValueError("Ruff CLI discovery must be explicitly Python/pyi-only")
     hooks = (root / ".pre-commit-config.yaml").read_text()
     blocks = re.findall(
         r"^  - repo: ([^\n]+)\n(.*?)(?=^  - repo:|\Z)", hooks, re.MULTILINE | re.DOTALL
@@ -58,6 +64,23 @@ def check_configuration(root: Path = ROOT) -> dict[str, str]:
             )
         if tool == "ruff" and re.search(r"^\s+files:", bodies[0], re.MULTILINE):
             raise ValueError("Ruff hook files override the shared lint scope")
+        if tool == "ruff":
+            hook_blocks = re.findall(
+                r"^      - id: (\S+)\n(.*?)(?=^      - id:|\Z)",
+                bodies[0],
+                re.MULTILINE | re.DOTALL,
+            )
+            ids = {hook_id for hook_id, _ in hook_blocks}
+            if (
+                len(hook_blocks) != 2
+                or "ruff-format" not in ids
+                or not ids.intersection({"ruff", "ruff-check"})
+            ):
+                raise ValueError("both Ruff check and format hooks are required")
+            for hook_id, body in hook_blocks:
+                scopes = re.findall(r"^        types_or: \[([^\]]+)\]\s*$", body, re.MULTILINE)
+                if len(scopes) != 1 or set(scopes[0].split(", ")) != {"python", "pyi"}:
+                    raise ValueError(f"{hook_id}: Ruff hook types must be exactly python and pyi")
         if tool == "mypy" and '"pycubrid/"' not in bodies[0]:
             raise ValueError("mypy hook must explicitly check the pycubrid/ package")
 
@@ -71,6 +94,10 @@ def check_configuration(root: Path = ROOT) -> dict[str, str]:
     hook_scopes = re.findall(r'^files: "\^\(([^()]+)\)/"\s*$', hooks, re.MULTILINE)
     if len(hook_scopes) != 1 or set(hook_scopes[0].split("|")) != paths:
         raise ValueError("pre-commit files scope does not match Makefile LINT_PATHS")
+    if not re.search(
+        r"^        entry: python3 scripts/check_quality_tools.py\s*$", hooks, re.MULTILINE
+    ):
+        raise ValueError("system guard must use python3 like the Makefile")
     for workflow in ("ci.yml", "maintenance.yml"):
         content = (root / ".github" / "workflows" / workflow).read_text()
         if not re.search(r"^\s+run: make lint\s*$", content, re.MULTILINE):

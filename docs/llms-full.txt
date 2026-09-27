@@ -6594,7 +6594,8 @@ make tooling-check
 ```
 
 Make and regular/maintenance CI share the `LINT_PATHS` list in `Makefile`:
-`pycubrid tests scripts demos`. Ruff hooks use the same maintained-file scope;
+`pycubrid tests scripts demos`. Ruff CLI discovery and hook types are explicitly
+Python/pyi-only; Markdown is outside this formatting contract. Hooks use the same maintained-file scope;
 Mypy remains strict and package-only. The tools run through the active Python
 environment, so install `.[dev]` and activate it before running checks.
 

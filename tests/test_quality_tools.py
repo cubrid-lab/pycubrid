@@ -94,3 +94,28 @@ def test_mypy_hook_cannot_omit_the_package_target(project: Path) -> None:
     path.write_text(path.read_text().replace('"pycubrid/"', '"another_package/"'))
     with pytest.raises(ValueError, match="explicitly check"):
         check_configuration(project)
+
+
+@pytest.mark.parametrize("types", ["types_or: [python, pyi, markdown]", "types_or: [python]"])
+def test_ruff_hook_type_drift_is_rejected(project: Path, types: str) -> None:
+    path = project / ".pre-commit-config.yaml"
+    path.write_text(path.read_text().replace("types_or: [python, pyi]", types, 1))
+    with pytest.raises(ValueError, match="types must be exactly"):
+        check_configuration(project)
+
+
+def test_system_guard_requires_python3(project: Path) -> None:
+    path = project / ".pre-commit-config.yaml"
+    path.write_text(path.read_text().replace("entry: python3", "entry: python"))
+    with pytest.raises(ValueError, match="must use python3"):
+        check_configuration(project)
+
+
+@pytest.mark.parametrize("include", ['include = ["*.py", "*.pyi", "*.md"]', 'include = ["*.py"]'])
+def test_cli_file_discovery_cannot_expand_to_markdown_or_drop_pyi(
+    project: Path, include: str
+) -> None:
+    path = project / "pyproject.toml"
+    path.write_text(path.read_text().replace('include = ["*.py", "*.pyi"]', include))
+    with pytest.raises(ValueError, match="explicitly Python/pyi-only"):
+        check_configuration(project)

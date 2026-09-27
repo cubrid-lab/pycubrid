@@ -67,6 +67,8 @@ version = {attr = "pycubrid.__version__"}
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Keep CLI discovery aligned with the Python/pyi-only pre-commit hooks.
+include = ["*.py", "*.pyi"]
 
 [tool.ruff.lint]
 # Pin the rule set explicitly instead of inheriting ruff's implicit defaults.

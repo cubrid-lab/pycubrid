@@ -88,7 +88,8 @@ make format
 Activate the project development environment (`pip install -e ".[dev]"`) before
 running Make or pre-commit. `make tooling-check` verifies the installed Ruff/Mypy
 versions and hook revisions against the exact pins in `pyproject.toml`. Make and CI
-share `LINT_PATHS` (`pycubrid tests scripts demos`); package-only strict Mypy remains
+share `LINT_PATHS` (`pycubrid tests scripts demos`) with explicit Python/pyi discovery
+and hook types, so Markdown is not reformatted; package-only strict Mypy remains
 separate, and its pre-commit hook explicitly checks `pycubrid/`.
 
 When updating either tool, change its dev pin and matching hook revision in the
