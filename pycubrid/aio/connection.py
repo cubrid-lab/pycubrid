@@ -901,7 +901,9 @@ class AsyncConnection(ConnectionCommonMixin):
             raise InterfaceError("connection is closed")
         if (
             self._schema_results
-            and isinstance(packet, (PrepareAndExecutePacket, BatchExecutePacket))
+            and isinstance(
+                packet, (PrepareAndExecutePacket, BatchExecutePacket, GetEngineVersionPacket)
+            )
             and packet.auto_commit
         ):
             await self._close_schema_results_locked()

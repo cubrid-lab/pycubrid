@@ -384,8 +384,8 @@ finally:
     conn.close_schema_info(packet)
 ```
 
-스키마 패킷은 원래 연결·세션이 소유합니다. autocommit 커서 작업을 포함한
-트랜잭션 경계 전에 fetch하거나
+스키마 패킷은 원래 연결·세션이 소유합니다. autocommit이 켜진 커서 작업과
+버전 조회를 포함한 트랜잭션 경계 전에 fetch하거나
 명시적으로 폐기하세요. 비동기는 같은 메서드에 `await`를 사용합니다.
 두 번째 필터·네 필드 컬럼·정리/오류 계약은 [API 참조](API_REFERENCE.md)를 참고하세요.
 

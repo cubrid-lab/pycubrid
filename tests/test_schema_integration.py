@@ -157,3 +157,48 @@ async def test_implicit_autocommit_retires_schema_before_cursor_work(
             cur.close()
         finally:
             cleanup.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_autocommit_version_lookup_retires_schema(asynchronous: bool) -> None:
+    config = dict(
+        host=os.environ.get("CUBRID_TEST_HOST", "127.0.0.1"),
+        port=int(os.environ.get("CUBRID_TEST_PORT", "33000")),
+        database=os.environ.get("CUBRID_TEST_DB", "testdb"),
+        user=os.environ.get("CUBRID_TEST_USER", "dba"),
+        password=os.environ.get("CUBRID_TEST_PASSWORD", ""),
+        no_backslash_escapes=True,
+        read_timeout=5,
+        connect_timeout=5,
+    )
+    name = "s456_version_" + uuid.uuid4().hex[:16]
+    conn = (
+        await pycubrid.aio.connect(**config, autocommit=True)
+        if asynchronous
+        else pycubrid.connect(**config, autocommit=True)
+    )
+    try:
+        cursor = await call(conn, "cursor")
+        await call(cursor, "execute", f"CREATE TABLE {name} (id INTEGER)")
+        packet = await call(conn, "get_schema_info", CCISchemaType.CLASS, name, 0)
+        assert packet.tuple_count == 1
+        version = await call(conn, "get_server_version")
+        assert version and isinstance(version, str)
+        with pytest.raises(InterfaceError, match="retired"):
+            await call(conn, "fetch_schema_info", packet)
+        other = await call(conn, "cursor")
+        await call(other, "execute", "SELECT 1")
+        assert await call(other, "fetchone") == (1,)
+        await call(other, "close")
+        await call(cursor, "close")
+    finally:
+        await call(conn, "close")
+        cleanup = pycubrid.connect(**config)
+        try:
+            cur = cleanup.cursor()
+            cur.execute(f"DROP TABLE IF EXISTS {name}")
+            cleanup.commit()
+            cur.close()
+        finally:
+            cleanup.close()

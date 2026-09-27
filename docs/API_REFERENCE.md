@@ -493,8 +493,10 @@ the raw packet's public fields cannot change the tracked handle or metadata.
 Commit/rollback first close active schema handles, then retire ownership. Cursor
 statements with effective autocommit do the same before sending SQL, including
 `executemany_batch(..., auto_commit=True)` on a manual-commit connection.
-Fetching such a retired packet raises `InterfaceError` locally before another RPC. Physical
-disconnect/reconnect and connection close also retire it; results cannot be replayed
+With connection autocommit enabled, `get_server_version()` also closes owned
+schema handles before its auto-committing version request.
+Fetching such a retired packet raises `InterfaceError` locally before another RPC.
+Physical disconnect/reconnect and connection close also retire it; results cannot be replayed
 in a replacement CAS session. FETCH/CLOSE never reconnect or implicitly commit.
 A failed schema creation or close discards its uncertain session; a FETCH error
 retains the original exception if cleanup also fails (the cleanup error is logged).

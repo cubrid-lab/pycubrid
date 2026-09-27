@@ -645,7 +645,9 @@ class Connection(ConnectionCommonMixin):
             raise InterfaceError("connection is closed")
         if (
             self._schema_results
-            and isinstance(packet, (PrepareAndExecutePacket, BatchExecutePacket))
+            and isinstance(
+                packet, (PrepareAndExecutePacket, BatchExecutePacket, GetEngineVersionPacket)
+            )
             and packet.auto_commit
         ):
             self._close_schema_results()
