@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
 import re
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -123,15 +124,91 @@ def test_cli_file_discovery_cannot_expand_to_markdown_or_drop_pyi(
         check_configuration(project)
 
 
-def test_shared_scope_covers_every_tracked_python_file() -> None:
+def _python_source_files(root: Path) -> list[str]:
+    if (root / ".git").exists():
+        try:
+            return subprocess.check_output(
+                ["git", "ls-files", "--", "*.py", "*.pyi"],
+                cwd=root,
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            ).splitlines()
+        except (OSError, subprocess.SubprocessError):
+            # Source inventory remains useful when Git cannot be invoked.
+            root = root.resolve()
+
+    generated = {
+        ".git",
+        ".venv",
+        "venv",
+        ".tox",
+        ".nox",
+        "build",
+        "dist",
+        "htmlcov",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".hypothesis",
+        ".omx",
+    }
+    sources = []
+    for directory, dirs, files in os.walk(root):
+        current = Path(directory)
+        dirs[:] = [
+            name
+            for name in dirs
+            if name not in generated
+            and not name.endswith(".egg-info")
+            and not (current / name / "pyvenv.cfg").is_file()
+        ]
+        sources.extend(
+            (current / name).relative_to(root).as_posix()
+            for name in files
+            if Path(name).suffix in {".py", ".pyi"}
+        )
+    return sorted(sources)
+
+
+def test_shared_scope_covers_every_source_python_file() -> None:
     match = re.search(r"^LINT_PATHS = (.+)$", (ROOT / "Makefile").read_text(), re.MULTILINE)
     assert match is not None
     scope = set(match.group(1).split())
-    tracked = subprocess.check_output(
-        ["git", "ls-files", "--", "*.py", "*.pyi"],
-        cwd=ROOT,
-        text=True,
-    ).splitlines()
+    tracked = _python_source_files(ROOT)
     assert tracked
     uncovered = [name for name in tracked if Path(name).parts[0] not in scope]
     assert not uncovered, f"tracked Python files lost from the shared hook/CLI scope: {uncovered}"
+
+
+def test_source_archive_inventory_prunes_generated_and_environment_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected = {
+        "examples/example.py",
+        "pycubrid/__init__.py",
+        "scripts/tool.pyi",
+        ".github/check.py",
+    }
+    ignored = {
+        ".venv/lib/dependency.py",
+        "build/generated.py",
+        "dist/generated.py",
+        "__pycache__/cached.py",
+        ".pytest_cache/cached.py",
+        "package.egg-info/generated.py",
+        "custom-environment/lib/dependency.py",
+    }
+    for name in expected | ignored:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("value = 1\n")
+    (tmp_path / "custom-environment" / "pyvenv.cfg").write_text("home = /unused\n")
+
+    def unavailable_git(*args: object, **kwargs: object) -> str:
+        raise AssertionError("archive without .git must not depend on Git")
+
+    monkeypatch.setattr(subprocess, "check_output", unavailable_git)
+    assert not (tmp_path / ".git").exists()
+    assert set(_python_source_files(tmp_path)) == expected
