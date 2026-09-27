@@ -1,6 +1,6 @@
 # Official driver API inventory
 
-The [machine-readable catalog](../tests/fixtures/official_api_inventory.json)
+The [machine-readable catalog](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_api_inventory.json)
 accounts for driver-declared public operations in the official
 [CUBRID/cubrid-python snapshot](https://github.com/CUBRID/cubrid-python/tree/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b).
 It records source references, signatures, defaults, return/error observations,
@@ -94,7 +94,7 @@ separate deliverables (#437/#446).
 
 We acknowledge the official driver's maintainers and contributors. Descriptions
 here are independently paraphrased from the pinned source; no upstream source
-or docstrings are copied wholesale. Existing [NOTICE](../NOTICE) and
-[third-party reference notes](../THIRD_PARTY_LICENSES.md#reference-test-suite)
+or docstrings are copied wholesale. Existing [NOTICE](https://github.com/cubrid-lab/pycubrid/blob/main/NOTICE) and
+[third-party reference notes](https://github.com/cubrid-lab/pycubrid/blob/main/THIRD_PARTY_LICENSES.md#reference-test-suite)
 remain authoritative for provenance and licensing limits. This catalog adds no
 license inference, runtime dependency, or permission to reuse upstream source.
