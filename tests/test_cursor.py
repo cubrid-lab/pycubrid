@@ -332,7 +332,7 @@ def test_fetchone_fetches_more_rows(cursor: Cursor, mock_connection: MagicMock) 
     assert cursor.fetchone() is None
 
 
-def test_fetchone_returns_none_when_query_handle_missing(
+def test_fetchone_raises_when_unfinished_query_handle_missing(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
     def send(packet: object) -> object:
@@ -346,7 +346,8 @@ def test_fetchone_returns_none_when_query_handle_missing(
     mock_connection._send_and_receive.side_effect = send
     cursor.execute("SELECT id FROM t")
     cursor._query_handle = None
-    assert cursor.fetchone() is None
+    with pytest.raises(InterfaceError, match="invalidated"):
+        cursor.fetchone()
 
 
 def test_fetchone_returns_none_when_fetch_packet_has_no_rows(

@@ -241,7 +241,9 @@ class ConnectionCommonMixin:
         """Invalidate all cursor query handles.
 
         After commit/rollback the CUBRID broker may reset the CAS
-        connection, making previous query handles stale.
+        connection, making previous query handles stale. Retain buffers and
+        delivered/advertised counts so cursors can consume cached rows and
+        distinguish a missing unfinished FETCH from normal EOF.
         """
         for cursor in self._cursors:
             cursor._query_handle = None
@@ -251,8 +253,8 @@ class ConnectionCommonMixin:
 
         Distinct from :meth:`_invalidate_query_handles` so that mid-fetch
         callers can detect a transparent reconnect (and raise
-        :class:`OperationalError`) without altering the commit/rollback
-        invalidation semantics that PEP 249 callers already depend on.
+        :class:`OperationalError`) rather than the generic invalidated-result
+        :class:`InterfaceError` at the next required server FETCH.
         """
         for cursor in self._cursors:
             cursor._query_handle = None

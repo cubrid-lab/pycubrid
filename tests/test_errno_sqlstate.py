@@ -31,7 +31,7 @@ class TestRaiseErrorErrnoSqlstate:
         assert exc_info.value.code == -670
 
     def test_programming_error_has_errno_and_sqlstate(self) -> None:
-        body = _build_error_body(-494, "Syntax error in SQL")
+        body = _build_error_body(-494, "Semantic error in SQL")
         reader = PacketReader(body)
         with pytest.raises(ProgrammingError) as exc_info:
             _raise_error(reader, len(body))
@@ -47,11 +47,11 @@ class TestRaiseErrorErrnoSqlstate:
         assert exc_info.value.sqlstate == "HY000"
 
     def test_foreign_key_integrity_error(self) -> None:
-        body = _build_error_body(-671, "Foreign key constraint violation")
+        body = _build_error_body(-922, "Foreign key constraint violation")
         reader = PacketReader(body)
         with pytest.raises(IntegrityError) as exc_info:
             _raise_error(reader, len(body))
-        assert exc_info.value.errno == -671
+        assert exc_info.value.errno == -922
         assert exc_info.value.sqlstate == "23000"
 
     def test_unknown_error_code_uses_default_sqlstate(self) -> None:
@@ -62,13 +62,13 @@ class TestRaiseErrorErrnoSqlstate:
         assert exc_info.value.errno == -99999
         assert exc_info.value.sqlstate == "HY000"
 
-    def test_table_not_found_programming_error(self) -> None:
+    def test_unknown_class_keeps_generic_native_syntax_category(self) -> None:
         body = _build_error_body(-493, "Table does not exist")
         reader = PacketReader(body)
         with pytest.raises(ProgrammingError) as exc_info:
             _raise_error(reader, len(body))
         assert exc_info.value.errno == -493
-        assert exc_info.value.sqlstate == "42S02"
+        assert exc_info.value.sqlstate == "42000"
 
     def test_communication_error_sqlstate(self) -> None:
         body = _build_error_body(-4, "Communication error with server")
