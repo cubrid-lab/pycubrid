@@ -52,7 +52,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
 | Result navigation and metadata | Absolute/relative seek and position are #444; 15-field result metadata is #445 with #398. Native next_result exists; the wrapper nextset stub and pycubrid's unsupported nextset do not supply that capability. |
 | Schema rows | #412 retains schema result-consumption/handle-cleanup work. A returned protocol packet is not the native schema-row return contract. |
-| Arbitrary SQL batch and option flags | Native per-statement error dictionaries, execute flags/query-plan options, and connection member setters have no matching public facade. These catalog gaps require focused follow-up under the #438 decision. |
+| Batch facade and option flags | `Cursor.executemany_batch(sql_list, auto_commit=None)` already batches arbitrary SQL. A connection-level facade and native per-statement error records differ from its tuple results/first-error raising. Execute flags/query-plan options and connection member setters require focused follow-up under #438. |
 
 ## Source discrepancies are not parity targets
 

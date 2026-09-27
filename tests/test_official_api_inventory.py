@@ -6,6 +6,7 @@ import inspect
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pycubrid
 import pycubrid.connection
@@ -184,3 +185,25 @@ def test_discrepancies_and_public_gaps_cannot_be_parity_passes() -> None:
     exclusions = CATALOG["exclusions"]
     assert any(row["surface"] == "_cubrid.cursor._set_charset_name" for row in exclusions)
     assert all(row["reason"] for row in exclusions)
+
+
+def test_current_batch_and_nonpositive_fetch_contracts_are_not_misclassified() -> None:
+    for namespace in ("CUBRIDdb.connections.Connection", "documented_cubrid.connection"):
+        row = OPERATIONS[f"{namespace}.batch_execute"]
+        assert row["pycubrid"]["target"] == "pycubrid.cursor.Cursor.executemany_batch"
+        assert row["pycubrid"]["relation"] == "different"
+    signature = inspect.signature(pycubrid.cursor.Cursor.executemany_batch)
+    assert "sql_list" in signature.parameters
+    assert signature.parameters["auto_commit"].default is None
+
+    connection = MagicMock()
+    connection._cursors = set()
+    connection._timing = None
+    cursor = pycubrid.cursor.Cursor(connection)
+    cursor._description = (("value", 8, None, None, None, None, True),)
+    for size in (0, -1):
+        assert cursor.fetchmany(size) == []
+    connection._send_and_receive.assert_not_called()
+    row = OPERATIONS["CUBRIDdb.cursors.BaseCursor.fetchmany"]
+    assert 371 in row["tracking"]
+    assert "nonpositive sizes" in row["pycubrid"]["note"]
