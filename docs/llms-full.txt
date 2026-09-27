@@ -6658,6 +6658,28 @@ skip categories; missing broker/TLS configuration is not an accepted CI skip.
 The nightly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
+### Documentation exceptions and contributor validation
+
+The docs gate accepts a populated `Docs: not needed -` reason on a standalone
+physical source line outside quotes, comments and code fences. It may be adjacent
+to ordinary prose without its own paragraph. The existing `docs-not-needed` label
+remains a separate exception.
+Markers may have zero to three leading spaces; indented code and raw HTML quote,
+preformatted or code blocks remain examples rather than authorizations.
+Run `make docs-reason-check` for helper doctests and real event-JSON workflow cases;
+these checks also run in `make check-all` and docs-sync CI.
+
+Contributors report actual commands/results and checks not run with reasons;
+optional AI review is recorded separately. Maintainers coordinate internal reviews,
+actual issue labels and explicitly approved `translations-deferred` follow-ups.
+Translation requests in a PR body do not grant approval. Korean README sync remains
+required; other community translations remain advisory.
+
+The shared doc-lint and CodeQL callers use reviewed commit SHAs with verified
+`workflow_call` inputs. Existing permissions, advisory rollout and required gates
+remain intact. The doc-lint workflow still downloads main-based config/scanner
+assets; pinning its caller is not a complete freeze of those assets.
+
 ### GitHub Actions Workflows
 
 | Workflow | Trigger | Description |
