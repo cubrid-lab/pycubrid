@@ -201,6 +201,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Unfinished-result invalidation reports an error (#395)** — PATCH / correction
+  of silent partial fetch success after a transaction boundary. A missing handle
+  with broker-delivered rows below the advertised total raises `InterfaceError`
+  at the next required FETCH. Cached rows and fully received/exhausted results
+  retain their behavior; reconnect-specific `OperationalError` is unchanged.
+  No new public surface, replay, holdability, transaction policy, dependency or
+  supported-version change is introduced.
+
 - **Collection metadata decoding (#403, #410)** — PATCH / bug correction restoring
   the documented collection types and opt-in decoding behavior. Default raw bytes,
   public signatures and unsupported collection parameter binding are unchanged.

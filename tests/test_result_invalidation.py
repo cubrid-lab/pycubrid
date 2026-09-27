@@ -12,7 +12,12 @@ from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.cursor import Cursor
 from pycubrid.exceptions import InterfaceError, OperationalError
-from pycubrid.protocol import CloseQueryPacket, CommitPacket, PrepareAndExecutePacket, RollbackPacket
+from pycubrid.protocol import (
+    CloseQueryPacket,
+    CommitPacket,
+    PrepareAndExecutePacket,
+    RollbackPacket,
+)
 from tests.test_cursor import _set_prepare_packet
 from tests.test_network_edge_cases import make_connected_connection
 

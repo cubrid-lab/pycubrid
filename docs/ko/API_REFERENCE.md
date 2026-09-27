@@ -689,6 +689,17 @@ if row:
 
 > **투명한 재연결에 관한 참고**: CUBRID 브로커가 반복 도중 CAS 워커를 회수하고(``KEEP_CONNECTION=AUTO``) pycubrid가 투명하게 재연결한 경우, 커서에 이미 버퍼된 행은 계속 접근 가능합니다. 버퍼가 소진되면 이후의 ``fetchone``/``fetchmany``/``fetchall`` 호출은 서버 측 커서 핸들이 더 이상 유효하지 않으므로 ``result set lost due to broker reconnect mid-fetch`` 메시지와 함께 :class:`OperationalError`를 발생시킵니다. 계속하려면 쿼리를 다시 실행하세요. ``execute()``와 ``close()``는 무효화 플래그를 리셋합니다.
 
+> **트랜잭션 경계 이후 fetch:** `commit()`과 `rollback()`은 쿼리 핸들을
+> 무효화하지만 이미 로컬 버퍼로 받은 행은 유지합니다. 캐시된 행은 읽을 수
+> 있으며, 전체 행을 받은 결과나 소진된 결과는 정상 EOF 동작을 유지합니다.
+> 미완료 결과가 무효화된 핸들로 추가 서버 FETCH를 요구하면 동기·비동기
+> `fetchone()`/`fetchmany()`/`fetchall()`은 조용히 EOF를 반환하는 대신
+> `InterfaceError`를 발생시킵니다. 이 경계를 넘는 `fetchmany()`·`fetchall()`은
+> 일부 행 리스트를 성공 결과로 반환하지 않지만, 오류 전에 로컬 행을 이미
+> 소비했을 수 있습니다. 계속하려면 새 쿼리를 명시적으로 실행하세요. SELECT의
+> 투명 재실행이나 holdable 결과를 보장하지 않으며, 재연결 무효화의 별도
+> `OperationalError`는 유지합니다.
+
 ---
 
 #### `fetchmany(size)`

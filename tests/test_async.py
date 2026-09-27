@@ -373,6 +373,7 @@ class TestAsyncCursorFetch:
         cur._row_index = 0
         cur._query_handle = None
         cur._total_tuple_count = 3
+        cur._fetched_count = 3
 
         rows = await cur.fetchall()
         assert rows == [(1,), (2,), (3,)]

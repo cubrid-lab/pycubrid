@@ -387,6 +387,11 @@ class AsyncCursor(_AsyncCursorBase):
                     "result set lost due to broker reconnect mid-fetch; "
                     "re-execute the query to continue"
                 )
+            if self._fetched_count < self._total_tuple_count:
+                raise InterfaceError(
+                    "result set invalidated before all rows were fetched; "
+                    "re-execute the query to continue"
+                )
             return False
         if self._fetched_count >= self._total_tuple_count:
             return False
