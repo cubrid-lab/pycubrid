@@ -832,6 +832,12 @@ Each item is a 7-tuple:
 | 5     | `scale`        | `int`  | Column scale |
 | 6     | `null_ok`      | `bool` | Whether the column is nullable |
 
+`null_ok` is `True` when the broker reports that the column permits NULL, and
+`False` for NOT NULL and primary-key columns. CAS transmits the inverse
+`is_non_null` flag; pycubrid converts it to the PEP 249 meaning in both sync and
+async cursors. Size fields remain `None`, and collection type codes remain
+16/17/18; this correction does not select a CUBRIDdb compatibility profile.
+
 ```python
 cur.execute("SELECT name, age FROM users")
 for col in cur.description:

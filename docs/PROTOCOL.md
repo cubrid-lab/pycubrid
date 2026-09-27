@@ -570,7 +570,7 @@ class ColumnMetaData:
     name: str                # Column alias
     real_name: str           # Actual column name
     table_name: str          # Source table name
-    is_nullable: bool        # Allows NULL
+    is_nullable: bool        # Allows NULL (normalized from the inverse wire flag)
     default_value: str       # Default value expression
     is_auto_increment: bool  # AUTO_INCREMENT column
     is_unique_key: bool      # Part of unique index
@@ -580,6 +580,11 @@ class ColumnMetaData:
     is_foreign_key: bool     # Part of foreign key
     is_shared: bool          # Shared attribute
 ```
+
+The raw column-metadata byte is `is_non_null`: zero permits NULL and nonzero
+means NOT NULL (the broker normalizes it to 0/1). `PacketReader` supplies that
+byte to the metadata parser, which derives `is_nullable` and the public
+`cursor.description` `null_ok` field using `raw == 0`.
 
 ---
 
