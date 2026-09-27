@@ -720,6 +720,17 @@ if row:
 > Re-execute the query to continue. ``execute()`` and ``close()`` reset the
 > invalidation flag.
 
+> **Transaction-boundary fetching:** `commit()` and `rollback()` invalidate
+> query handles, not rows already received into the local buffer. Cached rows
+> remain readable, and fully buffered or exhausted results retain normal EOF
+> behavior. If an unfinished result requires another server FETCH after its
+> handle was invalidated, sync and async `fetchone()`/`fetchmany()`/`fetchall()`
+> raise `InterfaceError` rather than silently reporting EOF. A `fetchmany()` or
+> `fetchall()` crossing that boundary does not return a successful partial list;
+> it may already have consumed local rows before raising. Execute a new query
+> explicitly to continue. There is no transparent SELECT replay or holdable-result
+> guarantee; reconnect invalidation retains its separate `OperationalError`.
+
 ---
 
 #### `fetchmany(size)`
@@ -1347,6 +1358,19 @@ message wording. Native `-631` (`ER_NULL_CONSTRAINT_VIOLATION`) and `-922`
 message is localized. Single statements and per-statement batch failures preserve
 the original numeric value in both `code` and `errno`. Unknown codes remain
 `DatabaseError` rather than being classified from constraint-like message text.
+
+Native `-493` (`ER_PT_SYNTAX`) and `-494` (`ER_PT_SEMANTIC`) use
+`ProgrammingError` / `42000`, with syntax and semantic descriptions respectively.
+`-493` can accompany either malformed SQL or an unknown class; the code alone
+does not establish a missing-table SQLSTATE. Native `-671`
+(`ER_CSS_RECV_OR_SEND`) uses `OperationalError` / `08S01`, not an integrity error.
+SQLSTATE values are driver translations of the native meanings. Batch dispatch
+uses the same known-code SQLSTATE lookup as single statements, retaining the
+class default for unknown codes.
+
+Consumers must not infer missing tables from `-493` alone or from generated
+description text. The corresponding SQLAlchemy reflection correction is tracked
+in [sqlalchemy-cubrid #454](https://github.com/cubrid-lab/sqlalchemy-cubrid/issues/454).
 
 The native identifiers are defined in the
 [official CCI error header](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h).

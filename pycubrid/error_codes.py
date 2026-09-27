@@ -19,11 +19,11 @@ CUBRID_ERROR_CODES: dict[int, str] = {
     -15: "Statement pooling error",
     -111: "Invalid operation",
     -394: "Column not found",
-    -493: "Table not found",
-    -494: "Syntax error",
+    -493: "Syntax error",
+    -494: "Semantic error",
     -631: "NOT NULL constraint violation",
     -670: "Unique constraint violation",
-    -671: "Foreign key constraint violation",
+    -671: "Communication error",
     -922: "Foreign key constraint violation",
     -21001: "Authentication failed",
     -21003: "Connection refused",
@@ -45,11 +45,11 @@ CAS_ERROR_TO_SQLSTATE: dict[int, str] = {
     -12: "25000",  # Invalid transaction state
     -14: "24000",  # Invalid cursor position
     -394: "42S22",  # Column not found
-    -493: "42S02",  # Table not found
-    -494: "42000",  # Syntax error
+    -493: "42000",  # ER_PT_SYNTAX: not a specific missing-table condition
+    -494: "42000",  # ER_PT_SEMANTIC
     -631: "23000",  # Integrity constraint violation (NOT NULL)
     -670: "23000",  # Integrity constraint violation (unique)
-    -671: "23000",  # Integrity constraint violation (FK)
+    -671: "08S01",  # ER_CSS_RECV_OR_SEND
     -922: "23000",  # Integrity constraint violation (FK)
     -21001: "28000",  # Invalid authorization
     -21003: "08004",  # Connection rejected
@@ -64,16 +64,16 @@ CAS_ERROR_TO_EXCEPTION: dict[int, str] = {
     # IntegrityError (SQLSTATE 23xxx) — constraint violations
     -631: "IntegrityError",  # ER_NULL_CONSTRAINT_VIOLATION
     -670: "IntegrityError",  # Unique constraint violation
-    -671: "IntegrityError",  # Foreign key constraint violation
     -922: "IntegrityError",  # ER_FK_INVALID
     # ProgrammingError (SQLSTATE 42xxx) — SQL/object errors
     -394: "ProgrammingError",  # Column not found
-    -493: "ProgrammingError",  # Table not found
-    -494: "ProgrammingError",  # Syntax error
+    -493: "ProgrammingError",  # ER_PT_SYNTAX
+    -494: "ProgrammingError",  # ER_PT_SEMANTIC
     -21001: "ProgrammingError",  # Authentication failed (config/credentials)
     # OperationalError (SQLSTATE 08xxx, 25xxx) — connection/state/resource
     -3: "OperationalError",  # Out of memory
     -4: "OperationalError",  # Communication error
+    -671: "OperationalError",  # ER_CSS_RECV_OR_SEND
     -6: "OperationalError",  # Invalid transaction type
     -11: "OperationalError",  # Handle is closed
     -12: "OperationalError",  # Invalid isolation level

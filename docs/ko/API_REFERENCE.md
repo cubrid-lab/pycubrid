@@ -689,6 +689,17 @@ if row:
 
 > **투명한 재연결에 관한 참고**: CUBRID 브로커가 반복 도중 CAS 워커를 회수하고(``KEEP_CONNECTION=AUTO``) pycubrid가 투명하게 재연결한 경우, 커서에 이미 버퍼된 행은 계속 접근 가능합니다. 버퍼가 소진되면 이후의 ``fetchone``/``fetchmany``/``fetchall`` 호출은 서버 측 커서 핸들이 더 이상 유효하지 않으므로 ``result set lost due to broker reconnect mid-fetch`` 메시지와 함께 :class:`OperationalError`를 발생시킵니다. 계속하려면 쿼리를 다시 실행하세요. ``execute()``와 ``close()``는 무효화 플래그를 리셋합니다.
 
+> **트랜잭션 경계 이후 fetch:** `commit()`과 `rollback()`은 쿼리 핸들을
+> 무효화하지만 이미 로컬 버퍼로 받은 행은 유지합니다. 캐시된 행은 읽을 수
+> 있으며, 전체 행을 받은 결과나 소진된 결과는 정상 EOF 동작을 유지합니다.
+> 미완료 결과가 무효화된 핸들로 추가 서버 FETCH를 요구하면 동기·비동기
+> `fetchone()`/`fetchmany()`/`fetchall()`은 조용히 EOF를 반환하는 대신
+> `InterfaceError`를 발생시킵니다. 이 경계를 넘는 `fetchmany()`·`fetchall()`은
+> 일부 행 리스트를 성공 결과로 반환하지 않지만, 오류 전에 로컬 행을 이미
+> 소비했을 수 있습니다. 계속하려면 새 쿼리를 명시적으로 실행하세요. SELECT의
+> 투명 재실행이나 holdable 결과를 보장하지 않으며, 재연결 무효화의 별도
+> `OperationalError`는 유지합니다.
+
 ---
 
 #### `fetchmany(size)`
@@ -1265,6 +1276,18 @@ pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 �
 단일 문장과 배치의 개별 문장 오류는 원래 숫자 값을 `code`와 `errno`에 모두
 보존합니다. 알 수 없는 코드는 제약조건 같은 메시지가 있어도 `DatabaseError`로
 유지합니다.
+
+네이티브 `-493` (`ER_PT_SYNTAX`)과 `-494` (`ER_PT_SEMANTIC`)는
+`ProgrammingError` / `42000`을 사용하며 설명은 각각 구문 오류와 의미 오류입니다.
+`-493`은 잘못된 SQL과 존재하지 않는 클래스 모두에서 반환될 수 있으므로 코드만으로
+테이블 부재 SQLSTATE를 판단할 수 없습니다. `-671` (`ER_CSS_RECV_OR_SEND`)은
+무결성 오류가 아닌 `OperationalError` / `08S01`입니다. SQLSTATE는 드라이버가
+네이티브 의미를 변환한 값입니다. 배치도 단일 문장과 동일한 알려진 코드 SQLSTATE
+조회 방식을 사용하며, 알 수 없는 코드는 기존 클래스 기본값을 유지합니다.
+
+사용자는 `-493`만으로 또는 생성된 설명 문자열로 테이블 부재를 판단하면 안 됩니다.
+관련 SQLAlchemy 리플렉션 수정은
+[sqlalchemy-cubrid #454](https://github.com/cubrid-lab/sqlalchemy-cubrid/issues/454)에서 추적합니다.
 
 네이티브 식별자는
 [공식 CCI 오류 헤더](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h)에
