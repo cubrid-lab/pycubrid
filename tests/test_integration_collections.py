@@ -30,8 +30,12 @@ pytestmark = pytest.mark.integration
 
 def _connect(**kwargs: Any) -> Connection:
     return pycubrid.connect(
-        host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-        user=TEST_USER, password=TEST_PASSWORD, **kwargs,
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
+        **kwargs,
     )
 
 
@@ -122,12 +126,8 @@ class TestCollectionCRUD:
     def test_mixed_columns(self, cursor: Cursor) -> None:
         table = _tbl()
         try:
-            cursor.execute(
-                "CREATE TABLE %s (id INT, tags SET(VARCHAR(20)))" % table
-            )
-            cursor.execute(
-                "INSERT INTO %s VALUES (1, {'alpha','beta','gamma'})" % table
-            )
+            cursor.execute("CREATE TABLE %s (id INT, tags SET(VARCHAR(20)))" % table)
+            cursor.execute("INSERT INTO %s VALUES (1, {'alpha','beta','gamma'})" % table)
             cursor.execute("SELECT id, tags FROM %s" % table)
             row = cursor.fetchone()
             assert row is not None
@@ -139,18 +139,13 @@ class TestCollectionCRUD:
     def test_collection_predicate(self, cursor: Cursor) -> None:
         table = _tbl()
         try:
-            cursor.execute(
-                "CREATE TABLE %s (a SET(INT), b MULTISET(INT), c SEQUENCE(INT))"
-                % table
-            )
+            cursor.execute("CREATE TABLE %s (a SET(INT), b MULTISET(INT), c SEQUENCE(INT))" % table)
             cursor.execute(
                 "INSERT INTO %s VALUES "
                 "({},{},{}),(NULL,NULL,NULL),({1,1},{1,1},{1,1}),"
                 "({1,2,3},{1,2,3},{1,2,3})" % table
             )
-            cursor.execute(
-                "SELECT * FROM %s WHERE a SETEQ {'1'} ORDER BY 1" % table
-            )
+            cursor.execute("SELECT * FROM %s WHERE a SETEQ {'1'} ORDER BY 1" % table)
             rows = cursor.fetchall()
             assert len(rows) == 1
         finally:

@@ -28,8 +28,11 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def conn() -> Generator[Connection, None, None]:
     c = pycubrid.connect(
-        host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-        user=TEST_USER, password=TEST_PASSWORD,
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
     )
     yield c
     c.close()
@@ -57,8 +60,7 @@ def enum_table(cursor: Cursor) -> Generator[str, None, None]:
         ")" % table
     )
     cursor.execute(
-        "INSERT INTO %s VALUES "
-        "(1, 1, 1), (2, 'Tuesday', 'No'), (3, 'Wednesday', 'Cancel')" % table
+        "INSERT INTO %s VALUES (1, 1, 1), (2, 'Tuesday', 'No'), (3, 'Wednesday', 'Cancel')" % table
     )
     yield table
     cursor.execute("DROP TABLE IF EXISTS %s" % table)
@@ -78,9 +80,7 @@ class TestEnumInsertSelect:
         assert rows == [(1, 1), (2, 2), (3, 3)]
 
     def test_select_enum_values(self, cursor: Cursor, enum_table: str) -> None:
-        cursor.execute(
-            "SELECT working_days, answers FROM %s ORDER BY id" % enum_table
-        )
+        cursor.execute("SELECT working_days, answers FROM %s ORDER BY id" % enum_table)
         rows = cursor.fetchall()
         assert rows[0] == ("Monday", "Yes")
         assert rows[1] == ("Tuesday", "No")
@@ -99,12 +99,9 @@ class TestEnumUpdate:
         table = _tbl()
         try:
             cursor.execute(
-                "CREATE TABLE %s (e1 ENUM('a','b','c'), e2 ENUM('Yes','No','Cancel'))"
-                % table
+                "CREATE TABLE %s (e1 ENUM('a','b','c'), e2 ENUM('Yes','No','Cancel'))" % table
             )
-            cursor.execute(
-                "INSERT INTO %s VALUES ('a','Yes'),('b','No'),('c','Cancel')" % table
-            )
+            cursor.execute("INSERT INTO %s VALUES ('a','Yes'),('b','No'),('c','Cancel')" % table)
             cursor.execute("UPDATE %s SET e1='b', e2='No'" % table)
             assert cursor.rowcount == 3
             cursor.execute("SELECT * FROM %s" % table)
