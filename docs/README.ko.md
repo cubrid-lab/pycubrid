@@ -321,6 +321,8 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 
 pycubrid 초기 개발 당시, CUBRID의 공식 Node.js 드라이버인 [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause)를 참고 구현으로 삼아 CUBRID의 CAS(Common Application Server) 와이어 프로토콜 — 패킷 구조와 함수 코드 — 를 이해하는 데 활용했습니다. pycubrid는 독립적인 순수 Python 구현이며, 자세한 내용은 [NOTICE](../NOTICE)를 참고하세요.
 
+[CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python)의 메인테이너와 기여자분들께도 감사드립니다. 이 프로젝트의 `tests3` 스위트는 #409, #410, #433에서 추가한 INDEX, PARTITION, VIEW, TRIGGER, 컬렉션, ENUM, LOB 왕복 회귀 시나리오의 참고 자료였습니다. 시나리오는 pycubrid의 API와 문서화된 차이에 맞게 적용했으며, CUBRIDdb API 전체의 동등성을 주장하지 않습니다. 참고한 파일은 [NOTICE](../NOTICE), 출처와 라이선스 확인의 한계는 [서드파티 문서](../THIRD_PARTY_LICENSES.md#reference-test-suite)를 확인하세요.
+
 
 ## 라이선스
 
