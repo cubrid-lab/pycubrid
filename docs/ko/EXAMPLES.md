@@ -537,18 +537,32 @@ print(data)  # b"Hello, CUBRID LOB!"
 ```python
 from pycubrid.constants import CCISchemaType
 
-# 모든 테이블 나열
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
-
-# 특정 테이블의 컬럼 나열
-packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="users")
-print(f"Table has {packet.tuple_count} columns")
-
-# 기본 키 정보 조회
-packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="users")
-print(f"Primary key entries: {packet.tuple_count}")
+# 모든 결과를 소비하거나 finally에서 명시적으로 폐기합니다.
+requests = [
+    (CCISchemaType.CLASS, "%", 1, None),       # 테이블과 뷰
+    (CCISchemaType.VCLASS, "%", 1, None),      # 뷰만
+    (CCISchemaType.ATTRIBUTE, "users", 2, "%"),  # 모든 컬럼: arg2 필요
+    (CCISchemaType.CONSTRAINT, "users", 0, None),
+    (CCISchemaType.PRIMARY_KEY, "users", 0, None),
+    (CCISchemaType.IMPORTED_KEYS, "orders", 0, None),
+    (CCISchemaType.EXPORTED_KEYS, "users", 0, None),
+]
+for schema_type, name, flags, arg2 in requests:
+    packet = conn.get_schema_info(schema_type, name, flags, arg2=arg2)
+    try:
+        names = [column.name for column in packet.columns]
+        for row in conn.fetch_schema_info(packet):
+            print(dict(zip(names, row)))
+    finally:
+        conn.close_schema_info(packet)  # 정상 소비 후에도 안전한 반복 종료입니다.
 ```
+
+정확한 컬럼 이름은 플래그 `0`과 `arg2="column_name"`을 사용하세요. 플래그 `2`는
+두 번째 인자를 패턴으로, `3`은 두 이름을 모두 패턴으로 해석합니다. ATTRIBUTE에서
+`arg2`를 생략하면 전체 컬럼 요청이 아닙니다. 반환된 owner 접두사를 유지하고,
+복합 키는 도착 순서 대신 PRIMARY_KEY의 `KEY_SEQ`를 사용하세요. CONSTRAINT는
+인덱스 계열 정보이며 전용 PK/FK 조회를 대신하지 않습니다.
+비동기 연결에서는 정리를 포함한 세 스키마 연산을 모두 await하세요.
 
 ---
 

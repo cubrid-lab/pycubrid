@@ -74,6 +74,7 @@ pycubrid 릴리스의 호환성과 기능 지원.
 | `get_server_version()` | ✅ | 1.0.0 | 버전 문자열 반환 (예: `"11.2.0.0378"`) |
 | `get_last_insert_id()` | ✅ | 1.0.0 | AUTO_INCREMENT INSERT 이후 |
 | 스키마 내성 | ✅ | 1.0.0 | `Connection.get_schema_info()` |
+| 소유한 스키마 행 | ✅ | Unreleased (#456) | sync/async `fetch_schema_info()` / `close_schema_info()`, 키워드 전용 두 번째 필터; #457은 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 네이티브 동등성이나 다른 코드를 인증하지 않음 |
 | 듀얼스택 주소 폴백 (동기) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 순회 |
 | 듀얼스택 주소 폴백 (비동기) | ✅ | 1.2.0 (#83) | 비동기 대응 |
 | CAS 재연결 | ✅ | 1.0.0 | 브로커 `INACTIVE` 상태에서 자동 재연결 |

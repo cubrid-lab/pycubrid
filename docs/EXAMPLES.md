@@ -545,18 +545,32 @@ print(data)  # b"Hello, CUBRID LOB!"
 ```python
 from pycubrid.constants import CCISchemaType
 
-# List all tables
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
-
-# List columns of a specific table
-packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="users")
-print(f"Table has {packet.tuple_count} columns")
-
-# Get primary key info
-packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="users")
-print(f"Primary key entries: {packet.tuple_count}")
+# Consume every result, or explicitly abandon it in finally.
+requests = [
+    (CCISchemaType.CLASS, "%", 1, None),       # Tables and views
+    (CCISchemaType.VCLASS, "%", 1, None),      # Views only
+    (CCISchemaType.ATTRIBUTE, "users", 2, "%"),  # All columns: arg2 is required
+    (CCISchemaType.CONSTRAINT, "users", 0, None),
+    (CCISchemaType.PRIMARY_KEY, "users", 0, None),
+    (CCISchemaType.IMPORTED_KEYS, "orders", 0, None),
+    (CCISchemaType.EXPORTED_KEYS, "users", 0, None),
+]
+for schema_type, name, flags, arg2 in requests:
+    packet = conn.get_schema_info(schema_type, name, flags, arg2=arg2)
+    try:
+        names = [column.name for column in packet.columns]
+        for row in conn.fetch_schema_info(packet):
+            print(dict(zip(names, row)))
+    finally:
+        conn.close_schema_info(packet)  # Idempotent after successful consumption.
 ```
+
+For an exact column, use flag `0` and `arg2="column_name"`; flag `2` makes the
+second argument a pattern, and flag `3` makes both names patterns. Omitting
+ATTRIBUTE `arg2` is not an all-columns request. Keep returned owner qualifiers;
+use PRIMARY_KEY `KEY_SEQ`, not arrival order, for composite keys. CONSTRAINT is
+index-family information, not a replacement for dedicated PK/FK queries.
+With an async connection, await all three schema operations, including cleanup.
 
 ---
 

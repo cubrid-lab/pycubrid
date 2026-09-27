@@ -1390,17 +1390,26 @@ print(rows)
 
 | Code | Name              | Description |
 |------|-------------------|-------------|
-| 1    | `CLASS`           | Tables |
+| 1    | `CLASS`           | Tables and views |
 | 2    | `VCLASS`          | Views |
 | 4    | `ATTRIBUTE`       | Columns |
-| 11   | `CONSTRAINT`      | Constraints |
+| 11   | `CONSTRAINT`      | Index-family entries |
 | 16   | `PRIMARY_KEY`     | Primary keys |
 | 17   | `IMPORTED_KEYS`   | Foreign keys (imported) |
 | 18   | `EXPORTED_KEYS`   | Foreign keys (exported) |
 
-The initial live ownership contract covers CLASS/ATTRIBUTE and pattern filters on
-CUBRID 10.2/11.4. Wider declared schema-type validation is tracked in #457; this
-is not certification of native-driver parity for every schema type.
+The owned-object live matrix (#457) verifies these seven types in both sync and
+async modes on CUBRID 10.2.18 and 11.4.6, including exact/pattern filters, empty
+results, composite keys and multi-FETCH ATTRIBUTE rows. Other `CCISchemaType`
+values and native-driver parity are not certified by this matrix.
+
+Interpret rows using `packet.columns` names. CLASS can include views (`TYPE=1`)
+as well as ordinary tables (`TYPE=2`). PRIMARY_KEY rows can arrive in attribute-name
+order: use `KEY_SEQ` for declared composite-key order. CONSTRAINT reports index
+families, not every primary/foreign key; use the dedicated key types for those
+relationships. Its page/key fields are not reliable index statistics. Owner-qualified
+names and broker-encoded ATTRIBUTE DOMAIN integers are retained as returned;
+do not assume names are always unqualified or DOMAIN equals a scalar type constant.
 
 #### `fetch_schema_info(packet)` and `close_schema_info(packet)`
 
@@ -3426,18 +3435,32 @@ print(data)  # b"Hello, CUBRID LOB!"
 ```python
 from pycubrid.constants import CCISchemaType
 
-# List all tables
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
-
-# List columns of a specific table
-packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="users")
-print(f"Table has {packet.tuple_count} columns")
-
-# Get primary key info
-packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="users")
-print(f"Primary key entries: {packet.tuple_count}")
+# Consume every result, or explicitly abandon it in finally.
+requests = [
+    (CCISchemaType.CLASS, "%", 1, None),       # Tables and views
+    (CCISchemaType.VCLASS, "%", 1, None),      # Views only
+    (CCISchemaType.ATTRIBUTE, "users", 2, "%"),  # All columns: arg2 is required
+    (CCISchemaType.CONSTRAINT, "users", 0, None),
+    (CCISchemaType.PRIMARY_KEY, "users", 0, None),
+    (CCISchemaType.IMPORTED_KEYS, "orders", 0, None),
+    (CCISchemaType.EXPORTED_KEYS, "users", 0, None),
+]
+for schema_type, name, flags, arg2 in requests:
+    packet = conn.get_schema_info(schema_type, name, flags, arg2=arg2)
+    try:
+        names = [column.name for column in packet.columns]
+        for row in conn.fetch_schema_info(packet):
+            print(dict(zip(names, row)))
+    finally:
+        conn.close_schema_info(packet)  # Idempotent after successful consumption.
 ```
+
+For an exact column, use flag `0` and `arg2="column_name"`; flag `2` makes the
+second argument a pattern, and flag `3` makes both names patterns. Omitting
+ATTRIBUTE `arg2` is not an all-columns request. Keep returned owner qualifiers;
+use PRIMARY_KEY `KEY_SEQ`, not arrival order, for composite keys. CONSTRAINT is
+index-family information, not a replacement for dedicated PK/FK queries.
+With an async connection, await all three schema operations, including cleanup.
 
 ---
 
@@ -6396,7 +6419,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `get_server_version()` | ✅ | 1.0.0 | Returns version string (e.g. `"11.2.0.0378"`) |
 | `get_last_insert_id()` | ✅ | 1.0.0 | After AUTO_INCREMENT INSERT |
 | Schema getter | ✅ | 1.0.0 | Raw `GetSchemaPacket`; original positional arguments retained |
-| Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only second filter; initial live CLASS/ATTRIBUTE on 10.2/11.4, broader matrix #457 |
+| Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only second filter; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
 | CAS reconnection | ✅ | 1.0.0 | Auto-reconnect on broker `INACTIVE` status |
