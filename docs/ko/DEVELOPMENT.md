@@ -377,6 +377,8 @@ placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
 
 문서 게이트는 따옴표 인용, HTML 주석, 코드 블록 밖의 독립된 줄에 실제 이유가 있는
 `Docs: not needed -`만 인정합니다. 인용문 뒤에는 빈 줄을 넣어 실제 마커를 구분하세요.
+앞의 공백은 0~3개까지 허용하며, 들여쓴 코드와 HTML 인용/pre/code 블록의 예시는
+예외 승인을 부여하지 않습니다.
 기존 `docs-not-needed` 라벨 예외는 별도로 유지됩니다. `make docs-reason-check`는
 헬퍼 doctest와 실제 이벤트 JSON 기반 워크플로 사례를 실행하며, `make check-all`과
 docs-sync CI에서도 이 검사를 실행합니다.

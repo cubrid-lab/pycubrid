@@ -405,6 +405,8 @@ placeholder checks under the wider Hypothesis profile.
 The docs gate accepts a populated standalone `Docs: not needed -` reason outside
 quotes, comments and code fences. Separate a real marker from quoted material with
 a blank line. The existing `docs-not-needed` label remains a separate exception.
+Markers may have zero to three leading spaces; indented code and raw HTML quote,
+preformatted or code blocks remain examples rather than authorizations.
 Run `make docs-reason-check` for helper doctests and real event-JSON workflow cases;
 these checks also run in `make check-all` and docs-sync CI.
 

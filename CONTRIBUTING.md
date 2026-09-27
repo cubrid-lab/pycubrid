@@ -93,6 +93,8 @@ If docs are unnecessary, put a real reason on a standalone paragraph line beginn
 do not grant an exemption. Leave a blank line after a quoted block before the real
 reason. The existing `docs-not-needed` label is a separate maintainer-controlled
 exception; neither docs exception bypasses code, security or release checks.
+Up to three leading spaces are allowed; tab/four-space code examples and raw HTML
+`blockquote`/`pre`/`code` blocks do not grant an exemption.
 
 For translation help, name the missing language(s) and explain the constraint in
 the PR body. That request does not authorize deferral. Maintainers explicitly approve

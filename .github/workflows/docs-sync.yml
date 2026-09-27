@@ -1,8 +1,8 @@
 name: docs-sync
 
 # Fails a PR when behavior-relevant source changes land without a matching
-# documentation/changelog update. Escape hatch: add the `docs-not-needed`
-# label OR put `Docs: not needed - <reason>` in the PR body.
+# documentation/changelog update. Existing maintainer `docs-not-needed` label
+# exceptions are retained; authors can provide a populated standalone docs reason.
 
 on:
   pull_request:
@@ -92,8 +92,11 @@ jobs:
           if relevant and not doc_changed and not skipped:
               print("\nDocs-sync guard failed.")
               print("Behavior-relevant files changed without a matching docs/changelog update.")
-              print("Either update docs, or add the `docs-not-needed` label / PR body marker:")
-              print("  Docs: not needed - <reason>")
+              print("Update matching docs, request the maintainer docs-not-needed label exception,")
+              print("or provide a populated standalone paragraph line outside quotes/comments/fences:")
+              print("  Docs: not needed - explain why this change has no documentation impact")
+              print("Replace the example explanation with your actual reason.")
+              print("Separate the real reason from quoted material with a blank line.")
               print("\nRelevant files:")
               for p in relevant:
                   print(f"  {p}")
