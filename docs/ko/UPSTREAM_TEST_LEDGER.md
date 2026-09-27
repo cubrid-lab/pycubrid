@@ -45,7 +45,7 @@
 | `assertion_equivalent` | 명명된 기대값만 검토된 로컬 assertion과 일치합니다. |
 | `unsupported` | 검토된 필수 기능이 없으며 기능 구현 백로그로 남습니다. |
 
-`local_nodes`는 assertion이 동등한 매핑에만 사용합니다. `related_nodes`는
+`local_nodes`는 assertion이 동등한 명시적 하위 사례 행에만 사용합니다. `related_nodes`는
 동등한 항목으로 세지 않습니다. `local_revision`은 검토한 로컬 소스를 고정합니다.
 모든 행에는 담당자·기능군, 기대 동작 또는 명시적 미확인 상태, 공백 이유·이슈가
 있습니다. #437은 이 초기 목록을 제공합니다. 이 이슈를 닫아도 미평가 선언이나
@@ -74,7 +74,8 @@
 나중에 실행 관찰 결과를 기록할 때는 `verification_commit`, 서버 버전,
 Python 버전, 모드, 결과, 불변 CI/JUnit 또는 보존된 결과물 참조를 기록하십시오.
 실패했거나 이유를 설명하고 건너뛴 정직한 결과에는 `observed`를 사용합니다.
-공백을 유지하고 이를 통과로 바꾸지 마십시오. `verified_pass`에는 동등한
+공백을 유지하고 이를 통과로 바꾸지 마십시오. 건너뛰지 않은 결과의 `skip_reason`은
+비워 두어야 합니다. `verified_pass`에는 동등한
 assertion 매핑, 통과 결과, 완전한 식별 정보가 필요합니다. 한 번의 관찰이 모든
 서버·모드를 인증하지는 않습니다. 기존 레인·JUnit 방식이 런타임 증거를 제공하며,
 [#446](https://github.com/cubrid-lab/pycubrid/issues/446)에서 이 작업을 추적합니다.

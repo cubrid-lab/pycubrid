@@ -59,6 +59,8 @@ def _validate(rows: list[dict[str, str]], nodes: set[str]) -> None:
             raise ValueError("broken local pytest node")
         if bool(mapped) != (row["classification"] == "assertion_equivalent"):
             raise ValueError("equivalent assertion requires mapped nodes only")
+        if mapped and row["kind"] != "assertion":
+            raise ValueError("mapped record requires an explicit assertion subcase")
         if mapped or related:
             if not re.fullmatch(r"[0-9a-f]{40}", row["local_revision"]):
                 raise ValueError("missing reviewed local revision")
@@ -75,6 +77,8 @@ def _validate(rows: list[dict[str, str]], nodes: set[str]) -> None:
                 raise ValueError("invalid execution result")
             if row["result"] == "skipped" and not row["skip_reason"].strip():
                 raise ValueError("unexplained skip")
+            if row["result"] != "skipped" and row["skip_reason"]:
+                raise ValueError("non-skipped result cannot have a skip reason")
             if status == "verified_pass" and (not mapped or row["result"] != "passed"):
                 raise ValueError("failed, skipped or unmapped record is not a verified pass")
         else:
@@ -188,4 +192,35 @@ def test_unassessed_gap_outlives_inventory_delivery(
     row = next(row for row in modified if row["classification"] == "unknown")
     row["gap_issues"] = "#437"
     with pytest.raises(ValueError, match="continuing parent tracker"):
+        _validate(modified, collected_nodes)
+
+
+def test_mapped_declaration_is_not_an_assertion_subcase(
+    ledger: list[dict[str, str]], collected_nodes: set[str]
+) -> None:
+    modified = [dict(row) for row in ledger]
+    mapped = next(row for row in modified if row["classification"] == "assertion_equivalent")
+    parent = next(row for row in modified if row["id"] == mapped["id"].split("#")[0])
+    parent.update(classification="assertion_equivalent", local_nodes=mapped["local_nodes"])
+    with pytest.raises(ValueError, match="explicit assertion subcase"):
+        _validate(modified, collected_nodes)
+
+
+@pytest.mark.parametrize("result", ["passed", "failed"])
+def test_non_skipped_observation_cannot_have_a_skip_reason(
+    ledger: list[dict[str, str]], collected_nodes: set[str], result: str
+) -> None:
+    modified = [dict(row) for row in ledger]
+    row = next(row for row in modified if row["classification"] == "assertion_equivalent")
+    row.update(
+        evidence_status="observed",
+        result=result,
+        skip_reason="synthetic skipped reason",
+        verification_commit="f" * 40,
+        server="unit-fixture",
+        python="unit-fixture",
+        mode="unit-fixture",
+        artifact="unit-fixture.xml",
+    )
+    with pytest.raises(ValueError, match="non-skipped result"):
         _validate(modified, collected_nodes)

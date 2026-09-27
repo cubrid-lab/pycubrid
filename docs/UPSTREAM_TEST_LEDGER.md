@@ -45,7 +45,7 @@ Confirm applicable terms before any verbatim source reuse.
 | `assertion_equivalent` | Only the named expectation matches a reviewed local assertion. |
 | `unsupported` | A reviewed required capability is absent and remains functional backlog. |
 
-`local_nodes` is reserved for assertion-equivalent mappings; `related_nodes` is
+`local_nodes` is reserved for explicit assertion-subcase rows with equivalent mappings; `related_nodes` is
 not counted as equivalent. `local_revision` pins the inspected local source.
 Every row has an owner/family, expected behavior or explicit unknown, and a gap
 reason/issue. #437 delivers this seed inventory; closing it does not complete
@@ -74,7 +74,8 @@ Mapping, test collection and a skipped integration test are not passing evidence
 For a later execution observation, record `verification_commit`, server version,
 Python version, mode, result and an immutable CI/JUnit or retained artifact
 reference. Use `observed` for honest failed or explained-skipped results; retain
-the gap and never relabel them as passes. `verified_pass` requires an equivalent
+the gap and never relabel them as passes. Non-skipped results must leave `skip_reason`
+empty. `verified_pass` requires an equivalent
 assertion mapping, a passing result and complete identities. One observation
 does not certify all servers/modes. Existing lane/JUnit mechanisms supply runtime
 evidence; [#446](https://github.com/cubrid-lab/pycubrid/issues/446) tracks that work.
