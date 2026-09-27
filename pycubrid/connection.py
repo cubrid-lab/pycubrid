@@ -397,6 +397,7 @@ class Connection(ConnectionCommonMixin):
         """Set auto-commit mode and flush transaction state on the server."""
         self._ensure_connected()
         enabled = bool(value)
+        self._close_schema_results()
         self._send_and_receive(
             SetDbParameterPacket(
                 parameter=CCIDbParam.AUTO_COMMIT,
@@ -510,6 +511,7 @@ class Connection(ConnectionCommonMixin):
             table_name=table_name,
             pattern_match_flag=pattern_match_flag,
             arg2=arg2,
+            protocol_version=self._protocol_version,
         )
         try:
             self._send_and_receive(packet)
@@ -550,7 +552,10 @@ class Connection(ConnectionCommonMixin):
                 ):
                     raise OperationalError("inconsistent schema FETCH row count")
                 rows.extend(fetched.rows)
-        except BaseException:
+        except BaseException as exc:
+            if not isinstance(exc, Exception):
+                self._drop_connection()
+                raise
             try:
                 self.close_schema_info(packet)
             except Exception:

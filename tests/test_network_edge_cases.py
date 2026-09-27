@@ -9,9 +9,9 @@ import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
-from pycubrid.constants import DataSize
+from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import DataError, OperationalError
-from pycubrid.protocol import CommitPacket
+from pycubrid.protocol import CommitPacket, SetDbParameterPacket
 
 
 def build_handshake_response(port: int = 0) -> bytes:
@@ -524,12 +524,17 @@ class TestSessionStateRestoreOnReconnect:
         conn._connected = True
         conn._cas_info = b"\x01\x01\x02\x03"
         conn._reader, conn._writer, _ = make_mock_stream_pair()
-        conn._send_and_receive = AsyncMock(return_value=MagicMock())  # type: ignore[method-assign]
-
-        await conn.set_autocommit(True)
+        sending = AsyncMock(return_value=MagicMock())
+        with patch.object(conn, "_send_and_receive_locked", sending):
+            await conn.set_autocommit(True)
 
         assert conn._autocommit_explicitly_set is True
         assert conn._autocommit is True
+        assert sending.await_count == 2
+        setting, committing = [call.args[0] for call in sending.await_args_list]
+        assert isinstance(setting, SetDbParameterPacket)
+        assert (setting.parameter, setting.value) == (CCIDbParam.AUTO_COMMIT, 1)
+        assert isinstance(committing, CommitPacket)
 
     @pytest.mark.asyncio
     async def test_async_restore_skipped_when_not_explicit(self) -> None:

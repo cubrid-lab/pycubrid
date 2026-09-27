@@ -642,17 +642,20 @@ class AsyncConnection(ConnectionCommonMixin):
 
     async def set_autocommit(self, value: bool) -> None:
         """Set auto-commit mode on the server."""
-        self._ensure_connected()
-        enabled = bool(value)
-        await self._send_and_receive(
-            SetDbParameterPacket(
-                parameter=CCIDbParam.AUTO_COMMIT,
-                value=1 if enabled else 0,
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            enabled = bool(value)
+            await self._close_schema_results_locked()
+            await self._send_and_receive_locked(
+                SetDbParameterPacket(
+                    parameter=CCIDbParam.AUTO_COMMIT,
+                    value=1 if enabled else 0,
+                )
             )
-        )
-        await self._send_and_receive(CommitPacket())
-        self._autocommit = enabled
-        self._autocommit_explicitly_set = True
+            await self._send_and_receive_locked(CommitPacket())
+            self._autocommit = enabled
+            self._autocommit_explicitly_set = True
 
     async def get_server_version(self) -> str:
         self._ensure_connected()
@@ -751,6 +754,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 table_name=table_name,
                 pattern_match_flag=pattern_match_flag,
                 arg2=arg2,
+                protocol_version=self._protocol_version,
             )
             try:
                 await self._send_and_receive_locked(packet)

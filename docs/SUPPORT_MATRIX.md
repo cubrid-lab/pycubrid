@@ -72,7 +72,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `get_server_version()` | ✅ | 1.0.0 | Returns version string (e.g. `"11.2.0.0378"`) |
 | `get_last_insert_id()` | ✅ | 1.0.0 | After AUTO_INCREMENT INSERT |
 | Schema getter | ✅ | 1.0.0 | Raw `GetSchemaPacket`; original positional arguments retained |
-| Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only second filter; initial live CLASS/ATTRIBUTE on 10.2/11.4, broader matrix #457 |
+| Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only second filter `arg2=None`; initial live CLASS/ATTRIBUTE on 10.2/11.4, broader matrix #457 |
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
 | CAS reconnection | ✅ | 1.0.0 | Auto-reconnect on broker `INACTIVE` status |

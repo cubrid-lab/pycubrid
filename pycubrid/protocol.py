@@ -1212,11 +1212,13 @@ class GetSchemaPacket:
         pattern_match_flag: int = 1,
         *,
         arg2: str | None = None,
+        protocol_version: int = CASProtocol.VERSION,
     ) -> None:
         self.schema_type = schema_type
         self.table_name = table_name
         self.pattern_match_flag = pattern_match_flag
         self.arg2 = arg2
+        self.protocol_version = protocol_version
 
         self.query_handle: int = 0
         self.tuple_count: int = 0
@@ -1226,7 +1228,12 @@ class GetSchemaPacket:
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the get schema request."""
         return _write_schema_info_request(
-            cas_info, self.schema_type, self.table_name, self.arg2, self.pattern_match_flag
+            cas_info,
+            self.schema_type,
+            self.table_name,
+            self.arg2,
+            self.pattern_match_flag,
+            protocol_version=self.protocol_version,
         )
 
     def parse(self, data: bytes | bytearray) -> None:

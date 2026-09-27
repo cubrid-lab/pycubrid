@@ -25,7 +25,9 @@ async def call(target: Any, name: str, *args: Any, **kwargs: Any) -> Any:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("asynchronous", [False, True])
-@pytest.mark.parametrize("boundary", ["fetch", "abandon", "commit", "rollback"])
+@pytest.mark.parametrize(
+    "boundary", ["fetch", "abandon", "commit", "rollback", "autocommit_false", "autocommit_true"]
+)
 async def test_owned_schema_rows_and_noncommitting_cleanup(
     asynchronous: bool, boundary: str
 ) -> None:
@@ -71,6 +73,12 @@ async def test_owned_schema_rows_and_noncommitting_cleanup(
             assert len(await call(conn, "fetch_schema_info", owned)) == 2
         elif boundary == "abandon":
             await call(conn, "close_schema_info", owned)
+        elif boundary.startswith("autocommit_"):
+            enabled = boundary == "autocommit_true"
+            if asynchronous:
+                await conn.set_autocommit(enabled)
+            else:
+                conn.autocommit = enabled
         else:
             await call(conn, boundary)
         await call(conn, "close_schema_info", owned)
@@ -78,7 +86,9 @@ async def test_owned_schema_rows_and_noncommitting_cleanup(
             await call(conn, "fetch_schema_info", owned)
         await call(conn, "rollback")
         await call(cursor, "execute", f"SELECT COUNT(*) FROM {name}")
-        assert await call(cursor, "fetchone") == (1 if boundary == "commit" else 0,)
+        assert await call(cursor, "fetchone") == (
+            1 if boundary == "commit" or boundary.startswith("autocommit_") else 0,
+        )
         await call(cursor, "execute", "SELECT 1")
         assert await call(cursor, "fetchone") == (1,)
     finally:

@@ -538,17 +538,26 @@ print(data)  # b"Hello, CUBRID LOB!"
 from pycubrid.constants import CCISchemaType
 
 # 모든 테이블 나열
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
+packet = conn.get_schema_info(CCISchemaType.CLASS, "%", 1)
+tables = conn.fetch_schema_info(packet)  # 모든 행을 읽고 결과를 닫습니다
+print(f"Found {len(tables)} tables")
 
 # 특정 테이블의 컬럼 나열
-packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="users")
-print(f"Table has {packet.tuple_count} columns")
+packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, "users", 2, arg2="%")
+columns = conn.fetch_schema_info(packet)
+print(f"Table has {len(columns)} columns")
 
-# 기본 키 정보 조회
-packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="users")
-print(f"Primary key entries: {packet.tuple_count}")
+# 표시된 개수만 필요한 경우 결과를 명시적으로 포기합니다
+packet = conn.get_schema_info(CCISchemaType.CLASS, "users", 0)
+try:
+    print(f"Matching tables: {packet.tuple_count}")
+finally:
+    conn.close_schema_info(packet)
 ```
+
+초기 실서버 검증 범위는 CUBRID10.2/11.4의 CLASS/ATTRIBUTE이며 더 넓은 스키마
+유형은 #457에서 추적합니다. Autocommit 변경은 기존 commit/flush 동작을 유지하면서
+END_TRAN 전에 활성 스키마 결과를 닫고 소유권을 종료합니다.
 
 ---
 
