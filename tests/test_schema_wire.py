@@ -176,6 +176,7 @@ def test_existing_schema_packet_behavior_is_not_enabled_by_groundwork() -> None:
     """Keep the incomplete production path unchanged until ownership lands atomically."""
     packet = protocol.GetSchemaPacket(1, "%", 1)
     payload = b"\x09" + struct.pack(">ii", 4, 1) + _string("%") + struct.pack(">iB", 1, 1)
-    assert packet.write(CAS_INFO) == struct.pack(">i", len(payload)) + CAS_INFO + payload
+    written = packet.write(CAS_INFO)
+    assert written == struct.pack(">i", len(payload)) + CAS_INFO + payload
     packet.parse(CAS_INFO + struct.pack(">iii", 17, 3, 1) + _column(b"\x08"))
     assert (packet.query_handle, packet.tuple_count) == (17, 3)
