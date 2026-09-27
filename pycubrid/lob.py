@@ -78,7 +78,7 @@ class Lob:
             raise InterfaceError(f"offset must be non-negative, got {offset}")
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
-        if isinstance(data, bytes) and not data:
+        if isinstance(data, bytes) and len(data) == 0:
             packet.write(b"\x00" * 4)  # Preserve wire argument validation without broker I/O.
             return 0
         self._connection._send_and_receive(packet)

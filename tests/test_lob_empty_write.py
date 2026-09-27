@@ -121,3 +121,13 @@ def test_nonempty_after_empty_still_sends(connection: MagicMock) -> None:
     connection._send_and_receive.reset_mock()
     assert lob.write(b"abc", offset=2) == 3
     connection._send_and_receive.assert_called_once()
+
+
+def test_nonempty_bytes_subclass_does_not_use_truthiness_shortcut(connection: MagicMock) -> None:
+    class FalseyBytes(bytes):
+        def __bool__(self) -> bool:
+            return False
+
+    lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
+    assert lob.write(FalseyBytes(b"abc")) == 3
+    connection._send_and_receive.assert_called_once()
