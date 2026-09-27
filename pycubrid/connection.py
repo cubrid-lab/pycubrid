@@ -19,7 +19,9 @@ from .protocol import (
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
+    CloseQueryPacket,
     CommitPacket,
+    FetchPacket,
     GetEngineVersionPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
@@ -296,6 +298,7 @@ class Connection(ConnectionCommonMixin):
                 self._cursors.discard(cursor)
 
         try:
+            self._close_schema_results()
             self._send_and_receive(CloseDatabasePacket())
         except Exception:  # nosec B110 — best-effort socket cleanup on close
             pass
@@ -309,6 +312,7 @@ class Connection(ConnectionCommonMixin):
         """Commit the current transaction."""
         self._ensure_connected()
         _LOGGER.debug("commit")
+        self._close_schema_results()
         self._send_and_receive(CommitPacket())
         self._invalidate_query_handles()
 
@@ -316,6 +320,7 @@ class Connection(ConnectionCommonMixin):
         """Roll back the current transaction."""
         self._ensure_connected()
         _LOGGER.debug("rollback")
+        self._close_schema_results()
         self._send_and_receive(RollbackPacket())
         self._invalidate_query_handles()
 
@@ -495,16 +500,80 @@ class Connection(ConnectionCommonMixin):
         schema_type: int,
         table_name: str = "",
         pattern_match_flag: int = 1,
-    ) -> Any:
-        """Query schema information from the server."""
+        *,
+        arg2: str | None = None,
+    ) -> GetSchemaPacket:
+        """Create an owned schema result; consume or explicitly close its packet."""
         self._ensure_connected()
         packet = GetSchemaPacket(
             schema_type=schema_type,
             table_name=table_name,
             pattern_match_flag=pattern_match_flag,
+            arg2=arg2,
         )
-        self._send_and_receive(packet)
+        try:
+            self._send_and_receive(packet)
+        except BaseException:
+            # A failed FC9 may already have allocated a handle whose metadata
+            # could not be parsed. Never reuse that uncertain CAS session.
+            self._drop_connection()
+            raise
+        self._register_schema_result(packet)
         return packet
+
+    def fetch_schema_info(self, packet: GetSchemaPacket) -> list[tuple[Any, ...]]:
+        """Eagerly read all schema rows and release their original CAS handle."""
+        result = self._active_schema_result(packet)
+        rows: list[tuple[Any, ...]] = []
+        try:
+            while len(rows) < result.count:
+                fetched = FetchPacket(
+                    result.handle,
+                    len(rows),
+                    self._fetch_size,
+                    columns=result.columns,
+                    decode_collections=self._decode_collections,
+                    json_deserializer=self._json_deserializer,
+                )
+                try:
+                    self._send_and_receive(fetched, allow_reconnect=False)
+                except OperationalError as exc:
+                    if exc.code == 0:
+                        # Driver-local framing/transport failures may leave an
+                        # unread reply. Native errors have a negative CAS code.
+                        self._drop_connection()
+                    raise
+                if (
+                    not fetched.rows
+                    or fetched.tuple_count != len(fetched.rows)
+                    or len(rows) + len(fetched.rows) > result.count
+                ):
+                    raise OperationalError("inconsistent schema FETCH row count")
+                rows.extend(fetched.rows)
+        except BaseException:
+            try:
+                self.close_schema_info(packet)
+            except Exception:
+                _LOGGER.warning("Failed to close schema result after FETCH failure", exc_info=True)
+            raise
+        self.close_schema_info(packet)
+        return rows
+
+    def close_schema_info(self, packet: GetSchemaPacket) -> None:
+        """Abandon an owned schema result; closing a retired result is a no-op."""
+        result = self._owned_schema_result(packet)
+        if result is None:
+            return
+        try:
+            self._send_and_receive(CloseQueryPacket(result.handle), allow_reconnect=False)
+        except BaseException:
+            self._drop_connection()
+            raise
+        self._schema_results.pop(packet, None)
+
+    def _close_schema_results(self) -> None:
+        for packet in list(self._schema_results):
+            self.close_schema_info(packet)
 
     def __enter__(self) -> Connection:
         """Enter context manager scope and return this connection."""

@@ -83,8 +83,9 @@ graph TD
 - Column metadata keeps first-byte collection flags (`0x60`) distinct from the
   scalar/element type; `0x80` marks a full second type byte, not a scalar-only column.
 - FC9 schema metadata is condensed: type, scale, precision and name only, without
-  SELECT constraint fields. Private #455 wire helpers are dormant; do not enable
-  them in the public getters without atomic handle ownership/consumption in #456.
+  SELECT constraint fields. Schema packets are owned by their original connection:
+  consume with fetch_schema_info or abandon with close_schema_info, never replay
+  their handles after transaction invalidation or physical-session replacement.
 
 ## Development
 

@@ -201,6 +201,15 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Owned schema rows (#456)** — MINOR / additive methods and optional keyword-only
+  `arg2=None`. The three existing getter positional arguments/defaults and raw
+  packet return/query_handle/tuple_count remain. Correct FC9 layout is activated
+  together with owning eager fetch and explicit abandonment, immutable original
+  handle metadata, and deterministic retirement. Schema FETCH/CLOSE do not
+  reconnect, replay or implicitly commit; transaction boundaries close active
+  schema handles. No holdability/native-profile choice or new dependencies.
+  Initial CLASS/ATTRIBUTE coverage does not certify all schema types (#457).
+
 - **Unfinished-result invalidation reports an error (#395)** — PATCH / correction
   of silent partial fetch success after a transaction boundary. A missing handle
   with broker-delivered rows below the advertised total raises `InterfaceError`

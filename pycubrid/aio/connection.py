@@ -22,7 +22,9 @@ from pycubrid.protocol import (
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
+    CloseQueryPacket,
     CommitPacket,
+    FetchPacket,
     GetEngineVersionPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
@@ -588,9 +590,11 @@ class AsyncConnection(ConnectionCommonMixin):
             finally:
                 self._cursors.discard(cursor)
 
+        await self._wait_for_setup_if_needed()
         async with self._lock:
             try:
                 if self._connected:
+                    await self._close_schema_results_locked()
                     await self._send_and_receive_locked(
                         CloseDatabasePacket(), allow_reconnect=False
                     )
@@ -606,15 +610,21 @@ class AsyncConnection(ConnectionCommonMixin):
 
     async def commit(self) -> None:
         """Commit the current transaction."""
-        self._ensure_connected()
-        await self._send_and_receive(CommitPacket())
-        self._invalidate_query_handles()
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            await self._close_schema_results_locked()
+            await self._send_and_receive_locked(CommitPacket())
+            self._invalidate_query_handles()
 
     async def rollback(self) -> None:
         """Roll back the current transaction."""
-        self._ensure_connected()
-        await self._send_and_receive(RollbackPacket())
-        self._invalidate_query_handles()
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            await self._close_schema_results_locked()
+            await self._send_and_receive_locked(RollbackPacket())
+            self._invalidate_query_handles()
 
     def cursor(self) -> Any:
         """Create and return a new async cursor bound to this connection."""
@@ -729,15 +739,96 @@ class AsyncConnection(ConnectionCommonMixin):
         schema_type: int,
         table_name: str = "",
         pattern_match_flag: int = 1,
-    ) -> Any:
-        self._ensure_connected()
-        packet = GetSchemaPacket(
-            schema_type=schema_type,
-            table_name=table_name,
-            pattern_match_flag=pattern_match_flag,
-        )
-        await self._send_and_receive(packet)
-        return packet
+        *,
+        arg2: str | None = None,
+    ) -> GetSchemaPacket:
+        """Create an owned schema result; consume or explicitly close its packet."""
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            packet = GetSchemaPacket(
+                schema_type=schema_type,
+                table_name=table_name,
+                pattern_match_flag=pattern_match_flag,
+                arg2=arg2,
+            )
+            try:
+                await self._send_and_receive_locked(packet)
+            except BaseException:
+                self._drop_connection()
+                raise
+            self._register_schema_result(packet)
+            return packet
+
+    async def fetch_schema_info(self, packet: GetSchemaPacket) -> list[tuple[Any, ...]]:
+        """Eagerly read schema rows and close within one connection-lock scope."""
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            result = self._active_schema_result(packet)
+            rows: list[tuple[Any, ...]] = []
+            try:
+                while len(rows) < result.count:
+                    fetched = FetchPacket(
+                        result.handle,
+                        len(rows),
+                        self._fetch_size,
+                        columns=result.columns,
+                        decode_collections=self._decode_collections,
+                        json_deserializer=self._json_deserializer,
+                    )
+                    try:
+                        await self._send_and_receive_locked(fetched, allow_reconnect=False)
+                    except OperationalError as exc:
+                        if exc.code == 0:
+                            # An unread/malformed frame is not a native error:
+                            # discard it instead of writing FC6 on this stream.
+                            self._drop_connection()
+                        raise
+                    if (
+                        not fetched.rows
+                        or fetched.tuple_count != len(fetched.rows)
+                        or len(rows) + len(fetched.rows) > result.count
+                    ):
+                        raise OperationalError("inconsistent schema FETCH row count")
+                    rows.extend(fetched.rows)
+            except asyncio.CancelledError:
+                # The response may still be unread: FC6 here would desynchronize
+                # the stream. Retire synchronously before propagating cancellation.
+                self._drop_connection()
+                raise
+            except BaseException:
+                try:
+                    await self._close_schema_info_locked(packet)
+                except Exception:
+                    _LOGGER.warning(
+                        "Failed to close schema result after FETCH failure", exc_info=True
+                    )
+                raise
+            await self._close_schema_info_locked(packet)
+            return rows
+
+    async def close_schema_info(self, packet: GetSchemaPacket) -> None:
+        """Abandon an owned result; a same-owner retired result is a no-op."""
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            await self._close_schema_info_locked(packet)
+
+    async def _close_schema_info_locked(self, packet: GetSchemaPacket) -> None:
+        result = self._owned_schema_result(packet)
+        if result is None:
+            return
+        try:
+            await self._send_and_receive_locked(
+                CloseQueryPacket(result.handle), allow_reconnect=False
+            )
+        except BaseException:
+            self._drop_connection()
+            raise
+        self._schema_results.pop(packet, None)
+
+    async def _close_schema_results_locked(self) -> None:
+        for packet in list(self._schema_results):
+            await self._close_schema_info_locked(packet)
 
     async def __aenter__(self) -> AsyncConnection:
         self._ensure_connected()
@@ -910,6 +1001,7 @@ class AsyncConnection(ConnectionCommonMixin):
     async def _close_streams(self) -> None:
         """Close the stream writer, await TLS shutdown, and clear references."""
         self._last_insert_id = None
+        self._schema_results.clear()
         if self._writer is not None:
             try:
                 self._writer.close()
@@ -923,6 +1015,7 @@ class AsyncConnection(ConnectionCommonMixin):
     def _close_streams_sync(self) -> None:
         """Sync fallback for _close_streams (used by mixin's _safe_close_socket)."""
         self._last_insert_id = None
+        self._schema_results.clear()
         if self._writer is not None:
             try:
                 self._writer.close()

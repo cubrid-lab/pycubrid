@@ -422,7 +422,7 @@ lob.write(b"Hello, CUBRID!")
 
 ---
 
-#### `get_schema_info(schema_type, table_name, pattern_match_flag)`
+#### `get_schema_info(schema_type, table_name="", pattern_match_flag=1, *, arg2=None)`
 
 ```python
 def get_schema_info(
@@ -430,10 +430,13 @@ def get_schema_info(
     schema_type: int,
     table_name: str = "",
     pattern_match_flag: int = 1,
+    *,
+    arg2: str | None = None,
 ) -> GetSchemaPacket
 ```
 
-Query schema information from the server.
+Create a schema result owned by this connection and its current CAS session.
+Consume it with `fetch_schema_info()` or abandon it with `close_schema_info()`.
 
 **Parameters:**
 
@@ -442,14 +445,23 @@ Query schema information from the server.
 | `schema_type`        | `int` | —       | Schema type code (see `CCISchemaType`) |
 | `table_name`         | `str` | `""`    | Table name filter |
 | `pattern_match_flag` | `int` | `1`     | Pattern match flag |
+| `arg2` | `str \| None` | `None` | Keyword-only second name/pattern, e.g. an ATTRIBUTE filter |
 
-**Returns:** A `GetSchemaPacket` with `query_handle` and `tuple_count` attributes.
+**Returns:** The raw `GetSchemaPacket`, retaining `query_handle`, `tuple_count` and
+`columns`. Each condensed column has only `column_type`, `scale`, `precision` and
+`name`; SELECT nullability/default/constraint metadata is not present in FC9.
+NULL (`None`) and the empty string are distinct wire arguments. For all ATTRIBUTE
+names use `arg2="%"` with flag `2`; NULL is not an all-attributes shortcut.
 
 ```python
 from pycubrid.constants import CCISchemaType
 
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
+packet = conn.get_schema_info(CCISchemaType.CLASS, "my_table", 0)
+try:
+    rows = conn.fetch_schema_info(packet)
+finally:
+    conn.close_schema_info(packet)  # Also safe after successful consumption.
+print(rows)
 ```
 
 **Available `CCISchemaType` values:**
@@ -463,6 +475,29 @@ print(f"Found {packet.tuple_count} tables")
 | 16   | `PRIMARY_KEY`     | Primary keys |
 | 17   | `IMPORTED_KEYS`   | Foreign keys (imported) |
 | 18   | `EXPORTED_KEYS`   | Foreign keys (exported) |
+
+The initial live ownership contract covers CLASS/ATTRIBUTE and pattern filters on
+CUBRID 10.2/11.4. Wider declared schema-type validation is tracked in #457; this
+is not certification of native-driver parity for every schema type.
+
+#### `fetch_schema_info(packet)` and `close_schema_info(packet)`
+
+`fetch_schema_info(packet) -> list[tuple[Any, ...]]` eagerly fetches exactly the
+advertised rows, then closes the original handle, including zero-row results.
+Premature EOF, inconsistent counts or cleanup failure raise instead of returning
+partial rows. `close_schema_info(packet) -> None` explicitly abandons the result;
+repeat closes of the same owner's retired packet are no-ops. Foreign/unowned
+packets and retired fetches raise `InterfaceError` before network I/O. Changing
+the raw packet's public fields cannot change the tracked handle or metadata.
+
+Commit/rollback first close active schema handles, then retire ownership. Physical
+disconnect/reconnect and connection close also retire it; results cannot be replayed
+in a replacement CAS session. FETCH/CLOSE never reconnect or implicitly commit.
+A failed schema creation or close discards its uncertain session; a FETCH error
+retains the original exception if cleanup also fails (the cleanup error is logged).
+Async methods use `await` and hold the connection lock through fetch/cleanup.
+Cancellation during schema I/O discards the session and re-raises cancellation;
+cancellation while merely waiting for the lock does not discard another task's session.
 
 ---
 
@@ -947,6 +982,8 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 | `get_server_version()` | `async def get_server_version(self) -> str` | Fetch engine version |
 | `get_last_insert_id()` | `async def get_last_insert_id(self) -> str \| None` | Cached broker identity as a string, or `None` |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | Returns the parsed packet object |
+| `fetch_schema_info()` | `async def fetch_schema_info(packet) -> list[tuple[Any, ...]]` | Eager rows, then original-handle cleanup |
+| `close_schema_info()` | `async def close_schema_info(packet) -> None` | Explicit, idempotent abandonment |
 | `set_autocommit()` | `async def set_autocommit(self, value: bool) -> None` | Sends `SetDbParameterPacket` and `CommitPacket` |
 
 `AsyncConnection` exposes async `ping()` parity with sync `Connection.ping()`. `create_lob()` remains sync-only.
