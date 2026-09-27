@@ -30,8 +30,11 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def conn() -> Generator[Connection, None, None]:
     c = pycubrid.connect(
-        host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-        user=TEST_USER, password=TEST_PASSWORD,
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
     )
     yield c
     c.close()
@@ -53,14 +56,10 @@ def index_tables(cursor: Cursor) -> Generator[tuple[str, str], None, None]:
     """Create two tables with indexes and sample data (mirrors official suite)."""
     t = _tbl()
     u = _tbl()
-    cursor.execute(
-        "CREATE TABLE %s (id INT PRIMARY KEY, val INT, fk INT, text VARCHAR(100))" % t
-    )
+    cursor.execute("CREATE TABLE %s (id INT, val INT, fk INT, text VARCHAR(100))" % t)
     cursor.execute("CREATE INDEX _t_id ON %s (id)" % t)
     cursor.execute("CREATE INDEX _t_val ON %s (val)" % t)
-    cursor.execute(
-        "CREATE TABLE %s (id INT PRIMARY KEY, text VARCHAR(100))" % u
-    )
+    cursor.execute("CREATE TABLE %s (id INT, text VARCHAR(100))" % u)
     cursor.execute("CREATE INDEX _u_id ON %s (id)" % u)
 
     # Seed data
@@ -68,9 +67,7 @@ def index_tables(cursor: Cursor) -> Generator[tuple[str, str], None, None]:
         "INSERT INTO %s (id, val, fk, text) VALUES (1, 10, 1, 'aa'),"
         "(2, 20, 1, 'bb'),(3, 30, 2, 'cc'),(4, 40, 2, 'dd')" % t
     )
-    cursor.execute(
-        "INSERT INTO %s (id, text) VALUES (1, 'xx'),(2, 'yy')" % u
-    )
+    cursor.execute("INSERT INTO %s (id, text) VALUES (1, 'xx'),(2, 'yy')" % u)
     yield t, u
     cursor.execute("DROP TABLE IF EXISTS %s" % t)
     cursor.execute("DROP TABLE IF EXISTS %s" % u)
@@ -88,9 +85,7 @@ class TestIndexHintSQL:
         self, cursor: Cursor, index_tables: tuple[str, str]
     ) -> None:
         t, _ = index_tables
-        cursor.execute(
-            "SELECT /*+ recompile */ * FROM %s USE INDEX (_t_id) WHERE id > 1" % t
-        )
+        cursor.execute("SELECT /*+ recompile */ * FROM %s USE INDEX (_t_id) WHERE id > 1" % t)
         rows = cursor.fetchall()
         assert len(rows) == 3
 
@@ -108,8 +103,7 @@ class TestIndexHintSQL:
         cursor.execute(
             "SELECT /*+ recompile */ COUNT(*) FROM %s FORCE INDEX (_t_val) "
             "INNER JOIN %s USE INDEX (_u_id) ON %s.fk = %s.id "
-            "WHERE RIGHT(%s.text, 2) < 'zz' AND %s.id < 100"
-            % (t, u, t, u, u, u)
+            "WHERE RIGHT(%s.text, 2) < 'zz' AND %s.id < 100" % (t, u, t, u, u, u)
         )
         row = cursor.fetchone()
         assert row is not None
@@ -122,20 +116,15 @@ class TestIndexHintSQL:
         cursor.execute(
             "SELECT /*+ recompile */ COUNT(*) FROM %s FORCE INDEX (_t_val) "
             "INNER JOIN (SELECT * FROM %s FORCE INDEX (_u_id) "
-            "WHERE RIGHT(text, 2) < 'zz') x ON %s.fk = x.id"
-            % (t, u, t)
+            "WHERE RIGHT(text, 2) < 'zz') x ON %s.fk = x.id" % (t, u, t)
         )
         row = cursor.fetchone()
         assert row is not None
         assert row[0] == 4
 
-    def test_update_with_use_index(
-        self, cursor: Cursor, index_tables: tuple[str, str]
-    ) -> None:
+    def test_update_with_use_index(self, cursor: Cursor, index_tables: tuple[str, str]) -> None:
         t, _ = index_tables
-        cursor.execute(
-            "UPDATE %s USE INDEX (_t_id, _t_val) SET val = 1000 WHERE id < 4" % t
-        )
+        cursor.execute("UPDATE %s USE INDEX (_t_id, _t_val) SET val = 1000 WHERE id < 4" % t)
         assert cursor.rowcount == 3
 
         cursor.execute("SELECT COUNT(*) FROM %s WHERE val = 1000" % t)

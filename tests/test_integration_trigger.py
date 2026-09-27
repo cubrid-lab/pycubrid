@@ -28,8 +28,11 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def conn() -> Generator[Connection, None, None]:
     c = pycubrid.connect(
-        host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-        user=TEST_USER, password=TEST_PASSWORD,
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
     )
     yield c
     c.close()
@@ -69,7 +72,11 @@ class TestTrigger:
             rows = cursor.fetchall()
             assert rows == [(1, "test")]
         finally:
-            cursor.execute("DROP TRIGGER IF EXISTS %s" % trigger_name)
+            # CUBRID has no DROP TRIGGER IF EXISTS; ignore a trigger that was never created.
+            try:
+                cursor.execute("DROP TRIGGER %s" % trigger_name)
+            except pycubrid.DatabaseError:
+                pass
             cursor.execute("DROP TABLE IF EXISTS %s" % source)
             cursor.execute("DROP TABLE IF EXISTS %s" % log)
 
@@ -90,6 +97,10 @@ class TestTrigger:
             cursor.execute("INSERT INTO %s (a, b) VALUES (1, 'x')" % source)
             assert cursor.rowcount == 1  # reports the INSERT into source, not log
         finally:
-            cursor.execute("DROP TRIGGER IF EXISTS %s" % trigger_name)
+            # CUBRID has no DROP TRIGGER IF EXISTS; ignore a trigger that was never created.
+            try:
+                cursor.execute("DROP TRIGGER %s" % trigger_name)
+            except pycubrid.DatabaseError:
+                pass
             cursor.execute("DROP TABLE IF EXISTS %s" % source)
             cursor.execute("DROP TABLE IF EXISTS %s" % log)

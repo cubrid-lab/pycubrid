@@ -28,8 +28,11 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def conn() -> Generator[Connection, None, None]:
     c = pycubrid.connect(
-        host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-        user=TEST_USER, password=TEST_PASSWORD,
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
     )
     yield c
     c.close()
