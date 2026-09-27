@@ -41,7 +41,7 @@ jobs:
     name: Documentation lint
     needs: detect-changes
     if: needs.detect-changes.outputs.docs == 'true'
-    uses: cubrid-lab/.github/.github/workflows/doc-lint.yml@main
+    uses: cubrid-lab/.github/.github/workflows/doc-lint.yml@f7d8c0f6c28392c10306f367de38b40f13eed4b7
     with:
       exclude: "node_modules/,vendor/"
       fail-on-issue: false  # advisory mode during initial rollout

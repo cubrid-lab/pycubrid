@@ -1,4 +1,4 @@
-.PHONY: help install tooling-check lint format typecheck security check check-all test mutation integration integration-tls docker-up docker-down changelog clean clean-all doctor release
+.PHONY: help install tooling-check lint format typecheck security docs-reason-check check check-all test mutation integration integration-tls docker-up docker-down changelog clean clean-all doctor release
 
 PYTHON = python3
 PYTEST = python3 -m pytest
@@ -36,7 +36,11 @@ security: ## Run security scans (bandit)
 
 check: lint typecheck ## Run lint + typecheck
 
-check-all: check security ## Run lint + typecheck + security
+docs-reason-check: ## Verify docs exemption examples and real event JSON regressions
+	$(PYTHON) -m doctest scripts/check_docs_reason.py
+	$(PYTHON) -m unittest discover -s tests -p test_docs_reason.py
+
+check-all: check security docs-reason-check ## Run lint + typecheck + security + docs-reason checks
 
 test: ## Run offline tests with coverage (no DB required)
 	$(PYTEST) $(TESTS)/ -v \
