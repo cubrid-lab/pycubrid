@@ -38,8 +38,11 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def conn() -> Generator[Connection, None, None]:
     c = pycubrid.connect(
-        host=TEST_HOST, port=TEST_PORT, database=TEST_DB,
-        user=TEST_USER, password=TEST_PASSWORD,
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
     )
     yield c
     c.close()
@@ -98,9 +101,7 @@ class TestDescriptionStructure:
         assert cursor.description is None
         cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
-    def test_display_size_and_internal_size_are_none(
-        self, cursor: Cursor, desc_table: str
-    ) -> None:
+    def test_display_size_and_internal_size_are_none(self, cursor: Cursor, desc_table: str) -> None:
         """pycubrid returns None for display_size and internal_size.
 
         CUBRIDdb returns 0 for both. This is a known divergence — PEP 249
@@ -151,8 +152,10 @@ class TestDescriptionTypeCode:
         cursor.execute("SELECT %s FROM %s" % (col, desc_table))
         assert cursor.description is not None
         actual = cursor.description[0][1]
-        assert actual == expected_type_code, (
-            "type_code mismatch for %s: got %r, expected %r" % (col, actual, expected_type_code)
+        assert actual == expected_type_code, "type_code mismatch for %s: got %r, expected %r" % (
+            col,
+            actual,
+            expected_type_code,
         )
 
     def test_column_name(self, cursor: Cursor, desc_table: str) -> None:
@@ -210,9 +213,7 @@ class TestDescriptionEnum:
     def test_enum_type_code(self, cursor: Cursor) -> None:
         table = _table_name()
         try:
-            cursor.execute(
-                "CREATE TABLE %s (e ENUM('a','b','c'))" % table
-            )
+            cursor.execute("CREATE TABLE %s (e ENUM('a','b','c'))" % table)
             cursor.execute("SELECT e FROM %s" % table)
             assert cursor.description is not None
             assert cursor.description[0][1] == 25  # CUBRIDDataType.ENUM
