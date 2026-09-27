@@ -107,7 +107,7 @@ PR must declare explicit submodule exports, extend §1 and the existing API
 checker's tracked modules/returned classes, and regenerate the baseline together.
 Regenerating today's ordinary-only baseline alone cannot protect new namespaces.
 This design does not authorize a default replacement, 2.0 migration, new dependency,
-version/tag/PyPI publication or reinterpretation of an outstanding user choice.
+version/tag/PyPI publication.
 
 ### What the gate does *not* detect
 

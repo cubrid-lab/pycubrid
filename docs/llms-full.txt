@@ -7460,8 +7460,8 @@ does not enumerate every inherited built-in method as a new driver operation.
 Maintainer-selected design, 2026-09-28: preserve ordinary pycubrid and plan separate
 `pycubrid.compat.cubriddb` (wrapper) and `pycubrid.compat.native` (native) namespaces.
 These are future targets, not importable modules or delivered capabilities. This
-reversible design is not an answer to the outstanding user/default-migration
-question, consent to a 2.0 replacement, or release authority. A global switch,
+reversible additive design does not authorize replacing 1.x defaults, adopting a
+2.0 replacement, or publishing a release. A global switch,
 shadowing `CUBRIDdb`/`_cubrid`, and overloading ordinary `Cursor.execute` are rejected:
 the wrapper and native execution shapes cannot be unified without changing meaning.
 Both surfaces must reuse the pure-Python transport, not introduce a second driver.
