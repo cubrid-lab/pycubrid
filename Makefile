@@ -1,11 +1,13 @@
-.PHONY: help install lint format typecheck security check check-all test mutation integration integration-tls docker-up docker-down changelog clean clean-all doctor release
+.PHONY: help install tooling-check lint format typecheck security check check-all test mutation integration integration-tls docker-up docker-down changelog clean clean-all doctor release
 
+PYTHON = python3
 PYTEST = python3 -m pytest
-RUFF = ruff
-MYPY = mypy
+RUFF = $(PYTHON) -m ruff
+MYPY = $(PYTHON) -m mypy
 BANDIT = bandit
 SRC = pycubrid
 TESTS = tests
+LINT_PATHS = pycubrid tests scripts demos examples
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -15,15 +17,18 @@ install: ## Install in development mode with all dependencies
 	pip install -e ".[dev]"
 	pre-commit install
 
-lint: ## Run linter and format checks
-	$(RUFF) check $(SRC)/ $(TESTS)/
-	$(RUFF) format --check $(SRC)/ $(TESTS)/
+tooling-check: ## Verify declared, hook, installed-tool, and quality-scope consistency
+	$(PYTHON) scripts/check_quality_tools.py
 
-format: ## Auto-fix lint issues and format code
-	$(RUFF) check --fix $(SRC)/ $(TESTS)/
-	$(RUFF) format $(SRC)/ $(TESTS)/
+lint: tooling-check ## Run linter and format checks for maintained Python files
+	$(RUFF) check $(LINT_PATHS)
+	$(RUFF) format --check $(LINT_PATHS)
 
-typecheck: ## Run mypy type checking
+format: tooling-check ## Auto-fix lint issues and format maintained Python files
+	$(RUFF) check --fix $(LINT_PATHS)
+	$(RUFF) format $(LINT_PATHS)
+
+typecheck: tooling-check ## Run mypy type checking
 	$(MYPY) $(SRC)/ --config-file=pyproject.toml
 
 security: ## Run security scans (bandit)

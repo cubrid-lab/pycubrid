@@ -331,10 +331,21 @@ make lint
 # Auto-fix
 make format
 
-# Or manually
-ruff check pycubrid/ tests/
-ruff format pycubrid/ tests/
+# Check tool pins and the active environment separately
+make tooling-check
 ```
+
+Make and regular/maintenance CI share the `LINT_PATHS` list in `Makefile`:
+`pycubrid tests scripts demos examples`. Ruff CLI discovery and hook types are explicitly
+Python/pyi-only; Markdown is outside this formatting contract. Hooks use the same maintained-file scope;
+Mypy remains strict and package-only. The tools run through the active Python
+environment, so install `.[dev]` and activate it before running checks.
+
+`pyproject.toml` owns the exact Ruff/Mypy versions. Update the dev pin and matching
+`.pre-commit-config.yaml` revision together, reinstall `.[dev]`, and run
+`make check-all` plus `pre-commit run --all-files`. `make tooling-check` rejects
+pin, installed-version, hook-scope, and CI-scope drift before lint/format/typecheck.
+No extra dependencies or unsupported dependency-update ecosystem are required.
 
 ### Anti-Patterns (Never Do)
 

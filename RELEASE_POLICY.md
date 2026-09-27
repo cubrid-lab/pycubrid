@@ -201,6 +201,12 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Quality-tool pin and scope consistency (#416)** — PATCH / development and CI
+  maintenance. Shared lint/format targets include maintained scripts/demos, and
+  declared pins, hook revisions, installed versions, and scopes are checked together.
+  Strict typechecking remains package-only; no driver behavior, public API, runtime
+  dependency, or supported-version changes.
+
 - **Marker-based integration lane coverage (#397)** — PATCH / CI bug correction.
   Normal, TLS, and slow workloads have executable workflow paths and a dynamic
   collection/skip audit. Missing optional native-comparison dependencies and

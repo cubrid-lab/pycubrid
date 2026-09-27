@@ -24,9 +24,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run lint checks
-        run: |
-          ruff check pycubrid/ tests/
-          ruff format --check pycubrid/ tests/
+        run: make lint
 
       - name: Run security scan
         run: |

@@ -305,10 +305,21 @@ make lint
 # 자동 수정
 make format
 
-# 또는 수동으로
-ruff check pycubrid/ tests/
-ruff format pycubrid/ tests/
+# 도구 버전과 현재 환경을 별도로 검사
+make tooling-check
 ```
+
+Make와 일반/정기 CI는 `Makefile`의 `LINT_PATHS` 목록을 공유합니다:
+`pycubrid tests scripts demos examples`. Ruff CLI와 훅은 명시적으로 Python/pyi만 검사하므로
+Markdown은 이 포맷 범위에 포함하지 않습니다. 훅에도 같은 관리 파일 범위를 적용하며,
+Mypy는 기존의 엄격한 패키지 전용 검사를 유지합니다. 검사는 현재 Python 환경의
+도구를 사용하므로 `.[dev]`를 설치하고 해당 환경을 활성화하세요.
+
+Ruff/Mypy의 정확한 버전은 `pyproject.toml`에서 관리합니다. dev 핀과
+`.pre-commit-config.yaml`의 대응 버전을 같은 PR에서 갱신하고 `.[dev]`를 다시
+설치한 뒤 `make check-all` 및 `pre-commit run --all-files`를 실행하세요.
+`make tooling-check`는 린트/포맷/타입 검사 전에 핀, 설치 버전, 훅 범위 및 CI 범위의
+불일치를 실패 처리합니다. 새 의존성이나 지원되지 않는 업데이트 생태계는 추가하지 않습니다.
 
 ### 안티패턴 (절대 금지)
 
