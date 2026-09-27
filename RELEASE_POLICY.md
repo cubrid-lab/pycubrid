@@ -201,6 +201,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Unfinished-result invalidation reports an error (#395)** — PATCH / correction
+  of silent partial fetch success after a transaction boundary. A missing handle
+  with broker-delivered rows below the advertised total raises `InterfaceError`
+  at the next required FETCH. Cached rows and fully received/exhausted results
+  retain their behavior; reconnect-specific `OperationalError` is unchanged.
+  No new public surface, replay, holdability, transaction policy, dependency or
+  supported-version change is introduced.
+
 - **Native NOT NULL and foreign-key error classification (#390)** — PATCH /
   correction to the documented PEP 249 integrity-error contract. Codes `-631`
   and `-922` raise the existing `IntegrityError` with SQLSTATE `23000`, and

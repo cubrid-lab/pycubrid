@@ -720,6 +720,17 @@ if row:
 > Re-execute the query to continue. ``execute()`` and ``close()`` reset the
 > invalidation flag.
 
+> **Transaction-boundary fetching:** `commit()` and `rollback()` invalidate
+> query handles, not rows already received into the local buffer. Cached rows
+> remain readable, and fully buffered or exhausted results retain normal EOF
+> behavior. If an unfinished result requires another server FETCH after its
+> handle was invalidated, sync and async `fetchone()`/`fetchmany()`/`fetchall()`
+> raise `InterfaceError` rather than silently reporting EOF. A `fetchmany()` or
+> `fetchall()` crossing that boundary does not return a successful partial list;
+> it may already have consumed local rows before raising. Execute a new query
+> explicitly to continue. There is no transparent SELECT replay or holdable-result
+> guarantee; reconnect invalidation retains its separate `OperationalError`.
+
 ---
 
 #### `fetchmany(size)`
