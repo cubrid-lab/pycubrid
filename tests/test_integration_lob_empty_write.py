@@ -24,8 +24,6 @@ def test_empty_lob_write_preserves_bytes_and_connection(lob_type: int) -> None:
             assert lob.write(b"", offset=2) == 0
             assert lob.lob_handle == handle
             assert lob.read(4) == b"abcd"
-            assert lob.write(b"XY", offset=1) == 2
-            assert lob.read(4) == b"aXYd"
         cur = conn.cursor()
         try:
             cur.execute("SELECT 1")

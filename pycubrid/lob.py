@@ -68,6 +68,8 @@ class Lob:
     def write(self, data: bytes, offset: int = 0) -> int:
         """Write bytes to the LOB starting from ``offset``.
 
+        Empty bytes return zero without broker I/O after the existing checks
+        and wire argument validation.
         Raises ``OperationalError`` if the server writes fewer bytes than
         requested (e.g. disk full, quota exceeded).
         """
@@ -76,6 +78,9 @@ class Lob:
             raise InterfaceError(f"offset must be non-negative, got {offset}")
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
+        if isinstance(data, bytes) and not data:
+            packet.write(b"\x00" * 4)  # Preserve wire argument validation without broker I/O.
+            return 0
         self._connection._send_and_receive(packet)
         if packet.bytes_written != len(data):
             raise OperationalError(

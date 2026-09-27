@@ -1056,6 +1056,12 @@ def write(self, data: bytes, offset: int = 0) -> int
 
 Write bytes to the LOB starting from `offset`.
 
+An empty `bytes` value returns `0` without a broker request after the same
+open-LOB, negative-offset and connected-connection checks. Existing wire
+argument validation still applies before this local return. The LOB's bytes
+and handle are unchanged; nonempty writes retain server-acknowledgement checks.
+This does not introduce a new offset/data-type policy or async LOB support.
+
 **Returns:** Number of bytes written.
 
 ---
