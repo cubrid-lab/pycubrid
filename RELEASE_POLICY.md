@@ -207,7 +207,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   together with owning eager fetch and explicit abandonment, immutable original
   handle metadata, and deterministic retirement. Schema FETCH/CLOSE do not
   reconnect, replay or implicitly commit; transaction boundaries close active
-  schema handles. No holdability/native-profile choice or new dependencies.
+  schema handles, including before auto-committing cursor/batch statements.
+  No holdability/native-profile choice or new dependencies.
   Initial CLASS/ATTRIBUTE coverage does not certify all schema types (#457).
 - **Empty bytes LOB writes avoid broker I/O (#394)** — PATCH / correction to the
   documented bytes-written contract, matching the existing zero-length read

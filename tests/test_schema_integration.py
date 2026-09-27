@@ -98,3 +98,62 @@ async def test_owned_schema_rows_and_noncommitting_cleanup(
             await call(conn, "commit")
         finally:
             await call(conn, "close")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("operation", ["execute", "batch_default", "batch_override"])
+async def test_implicit_autocommit_retires_schema_before_cursor_work(
+    asynchronous: bool, operation: str
+) -> None:
+    config = dict(
+        host=os.environ.get("CUBRID_TEST_HOST", "127.0.0.1"),
+        port=int(os.environ.get("CUBRID_TEST_PORT", "33000")),
+        database=os.environ.get("CUBRID_TEST_DB", "testdb"),
+        user=os.environ.get("CUBRID_TEST_USER", "dba"),
+        password=os.environ.get("CUBRID_TEST_PASSWORD", ""),
+        no_backslash_escapes=True,
+        read_timeout=5,
+        connect_timeout=5,
+    )
+    name = "s456_auto_" + uuid.uuid4().hex[:16]
+    automatic_connection = operation != "batch_override"
+    conn = (
+        await pycubrid.aio.connect(**config, autocommit=automatic_connection)
+        if asynchronous
+        else pycubrid.connect(**config, autocommit=automatic_connection)
+    )
+    try:
+        cursor = await call(conn, "cursor")
+        await call(cursor, "execute", f"CREATE TABLE {name} (id INTEGER)")
+        if not automatic_connection:
+            await call(conn, "commit")
+        packet = await call(conn, "get_schema_info", CCISchemaType.CLASS, name, 0)
+        assert packet.tuple_count == 1
+        if operation == "execute":
+            await call(cursor, "execute", f"UPDATE {name} SET id=id")
+        elif operation == "batch_default":
+            await call(cursor, "executemany_batch", [f"UPDATE {name} SET id=id"])
+        else:
+            await call(
+                cursor,
+                "executemany_batch",
+                [f"UPDATE {name} SET id=id"],
+                auto_commit=True,
+            )
+        with pytest.raises(InterfaceError, match="retired"):
+            await call(conn, "fetch_schema_info", packet)
+        other_cursor = await call(conn, "cursor")
+        await call(other_cursor, "execute", "SELECT 1")
+        assert await call(other_cursor, "fetchone") == (1,)
+        await call(other_cursor, "close")
+    finally:
+        await call(conn, "close")
+        cleanup = pycubrid.connect(**config)
+        try:
+            cur = cleanup.cursor()
+            cur.execute(f"DROP TABLE IF EXISTS {name}")
+            cleanup.commit()
+            cur.close()
+        finally:
+            cleanup.close()

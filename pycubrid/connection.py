@@ -16,6 +16,7 @@ from ._connection_common import (
 from .constants import CCIDbParam, DataSize
 from .exceptions import DataError, InterfaceError, OperationalError
 from .protocol import (
+    BatchExecutePacket,
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
@@ -25,6 +26,7 @@ from .protocol import (
     GetEngineVersionPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
+    PrepareAndExecutePacket,
     RollbackPacket,
     SetDbParameterPacket,
 )
@@ -641,6 +643,16 @@ class Connection(ConnectionCommonMixin):
         self._check_reconnect(allow_reconnect=allow_reconnect)
         if self._socket is None:
             raise InterfaceError("connection is closed")
+        if (
+            self._schema_results
+            and isinstance(packet, (PrepareAndExecutePacket, BatchExecutePacket))
+            and packet.auto_commit
+        ):
+            self._close_schema_results()
+            # FC6 may itself release the CAS. Recheck before the auto-committing RPC.
+            self._check_reconnect(allow_reconnect=allow_reconnect)
+            if self._socket is None:
+                raise InterfaceError("connection is closed")
 
         try:
             try:

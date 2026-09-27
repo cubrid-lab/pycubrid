@@ -473,7 +473,11 @@ print(rows)
 패킷·소유되지 않은 패킷·종료된 결과의 fetch는 I/O 전에 `InterfaceError`입니다.
 공개 패킷 필드를 변경해도 실제 추적 중인 핸들·메타데이터는 바뀌지 않습니다.
 
-commit/rollback은 활성 스키마 핸들을 먼저 닫고 소유권을 종료합니다. 물리 연결
+commit/rollback은 활성 스키마 핸들을 먼저 닫고 소유권을 종료합니다. 유효한
+autocommit이 적용되는 커서 문장도 SQL을 보내기 전에 같은 정리를 수행합니다.
+연결의 autocommit이 꺼져 있어도 `executemany_batch(..., auto_commit=True)`에
+같은 규칙이 적용됩니다. 종료된 패킷의 fetch는 추가 RPC 전에 로컬에서
+`InterfaceError`를 발생시킵니다. 물리 연결
 폐기/재접속 및 연결 종료도 소유권을 종료하며 다른 CAS 세션에서 재실행하지
 않습니다. FETCH/CLOSE는 자동 재접속·암묵적 커밋을 하지 않습니다. 스키마 생성·
 종료 실패는 불확실한 세션을 폐기합니다. FETCH와 정리가 모두 실패하면 원래

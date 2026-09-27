@@ -490,7 +490,10 @@ repeat closes of the same owner's retired packet are no-ops. Foreign/unowned
 packets and retired fetches raise `InterfaceError` before network I/O. Changing
 the raw packet's public fields cannot change the tracked handle or metadata.
 
-Commit/rollback first close active schema handles, then retire ownership. Physical
+Commit/rollback first close active schema handles, then retire ownership. Cursor
+statements with effective autocommit do the same before sending SQL, including
+`executemany_batch(..., auto_commit=True)` on a manual-commit connection.
+Fetching such a retired packet raises `InterfaceError` locally before another RPC. Physical
 disconnect/reconnect and connection close also retire it; results cannot be replayed
 in a replacement CAS session. FETCH/CLOSE never reconnect or implicitly commit.
 A failed schema creation or close discards its uncertain session; a FETCH error

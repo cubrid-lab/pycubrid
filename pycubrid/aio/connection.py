@@ -19,6 +19,7 @@ from pycubrid._connection_common import (
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
 from pycubrid.protocol import (
+    BatchExecutePacket,
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
@@ -28,6 +29,7 @@ from pycubrid.protocol import (
     GetEngineVersionPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
+    PrepareAndExecutePacket,
     RollbackPacket,
     SetDbParameterPacket,
 )
@@ -897,6 +899,16 @@ class AsyncConnection(ConnectionCommonMixin):
         await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
         if self._writer is None or self._reader is None:
             raise InterfaceError("connection is closed")
+        if (
+            self._schema_results
+            and isinstance(packet, (PrepareAndExecutePacket, BatchExecutePacket))
+            and packet.auto_commit
+        ):
+            await self._close_schema_results_locked()
+            # FC6 may itself release the CAS. Recheck before the auto-committing RPC.
+            await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+            if self._writer is None or self._reader is None:
+                raise InterfaceError("connection is closed")
 
         try:
             coro = self._do_send_and_receive(packet)
