@@ -7393,7 +7393,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 | Surface | Existing pycubrid path or outstanding work |
 | --- | --- |
 | Constructors, autocommit, threading | Native initialization enables autocommit; pycubrid defaults to manual commit and declares `threadsafety=1`. CCI URL/HA options, user defaults and wrapper constructor aliases require #438 decisions. |
-| Charset, dict cursors, converters | The official wrapper exposes these options. pycubrid has no equivalent configurable surface. Closed charset proposal #86 is historical context, not implemented support. UTF-8 defaults remain unchanged. |
+| Charset, dict cursors, converters | The official wrapper exposes these options. pycubrid has no equivalent configurable surface. Charset proposal #86 tracks the missing encoding option; documentation of UTF-8-only behavior is not implementation evidence. UTF-8 defaults remain unchanged. |
 | Prepare/typed binding | Public native prepare/bind/execute capability is absent even though packet classes exist: #418/#439; typed collection handles #440; LOB handles #441. |
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
 | Result navigation and metadata | Absolute/relative seek and position are #444; 15-field result metadata is #445 with #398. Native next_result exists; the wrapper nextset stub and pycubrid's unsupported nextset do not supply that capability. |
