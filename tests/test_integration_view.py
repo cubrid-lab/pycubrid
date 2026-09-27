@@ -86,8 +86,9 @@ class TestViewOperations:
             row = cursor.fetchone()
             assert row is not None
             # row[0] = view name, row[1] = view definition
-            assert view in row[0].lower() or view.lower() in row[0].lower()
+            assert row[0].lower().rsplit(".", 1)[-1] == view
             assert "select" in row[1].lower()
+            assert table in row[1].lower()
         finally:
             cursor.execute("DROP VIEW IF EXISTS %s" % view)
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
@@ -107,7 +108,13 @@ class TestViewOperations:
             cursor.execute("SELECT * FROM %s ORDER BY id" % view)
             rows = cursor.fetchall()
             # Original 3 rows + 2 from added query = 5
-            assert len(rows) == 5
+            assert rows == [
+                (1, "111-1111"),
+                (1, "111-1111"),
+                (2, "222-2222"),
+                (2, "222-2222"),
+                (3, "333-3333"),
+            ]
         finally:
             cursor.execute("DROP VIEW IF EXISTS %s" % view)
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
@@ -122,8 +129,11 @@ class TestViewOperations:
             # The server rejects this as a NOT NULL violation (errno -205) or, where the
             # base table uses REUSE_OID, as a non-updatable view (errno -494); neither
             # errno is classified as IntegrityError, so assert the common base class.
-            with pytest.raises(pycubrid.DatabaseError):
+            with pytest.raises(pycubrid.DatabaseError) as error:
                 cursor.execute("UPDATE %s SET phone = NULL" % view)
+            assert error.value.errno in (-205, -494)
+            cursor.execute("SELECT * FROM %s" % view)
+            assert cursor.fetchall() == [(1, "111-1111")]
         finally:
             cursor.execute("DROP VIEW IF EXISTS %s" % view)
             cursor.execute("DROP TABLE IF EXISTS %s" % table)

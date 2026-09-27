@@ -86,6 +86,7 @@ class TestPartitionTable:
             "(1, 'aaa', 'row1', '2024-01-01 09:00:00'),"
             "(5, 'ggg', 'row2', '2024-01-02 09:00:00')" % part_table
         )
+        assert cursor.rowcount == 2
         cursor.execute("SELECT COUNT(*) FROM %s" % part_table)
         assert cursor.fetchone() == (2,)
 

@@ -51,6 +51,7 @@ class TestTrigger:
         source = "pycubrid_src_%s" % uid
         log = "pycubrid_log_%s" % uid
         trigger_name = "pycubrid_trg_%s" % uid
+        trigger_created = False
         try:
             cursor.execute("CREATE TABLE %s (a INT, b STRING)" % log)
             cursor.execute("CREATE TABLE %s (a INT, b STRING)" % source)
@@ -59,6 +60,7 @@ class TestTrigger:
                 "EXECUTE INSERT INTO %s (a, b) VALUES (obj.a, TO_CHAR(obj.a))"
                 % (trigger_name, source, log)
             )
+            trigger_created = True
 
             cursor.execute("INSERT INTO %s (a, b) VALUES (1, 'test')" % source)
 
@@ -72,13 +74,12 @@ class TestTrigger:
             rows = cursor.fetchall()
             assert rows == [(1, "test")]
         finally:
-            # CUBRID has no DROP TRIGGER IF EXISTS; ignore a trigger that was never created.
             try:
-                cursor.execute("DROP TRIGGER %s" % trigger_name)
-            except pycubrid.DatabaseError:
-                pass
-            cursor.execute("DROP TABLE IF EXISTS %s" % source)
-            cursor.execute("DROP TABLE IF EXISTS %s" % log)
+                if trigger_created:
+                    cursor.execute("DROP TRIGGER %s" % trigger_name)
+            finally:
+                cursor.execute("DROP TABLE IF EXISTS %s" % source)
+                cursor.execute("DROP TABLE IF EXISTS %s" % log)
 
     def test_trigger_rowcount(self, cursor: Cursor) -> None:
         """INSERT that fires a trigger should report rowcount for the statement itself."""
@@ -86,6 +87,7 @@ class TestTrigger:
         source = "pycubrid_src_%s" % uid
         log = "pycubrid_log_%s" % uid
         trigger_name = "pycubrid_trg_%s" % uid
+        trigger_created = False
         try:
             cursor.execute("CREATE TABLE %s (a INT, b STRING)" % log)
             cursor.execute("CREATE TABLE %s (a INT, b STRING)" % source)
@@ -94,13 +96,13 @@ class TestTrigger:
                 "EXECUTE INSERT INTO %s (a, b) VALUES (obj.a, TO_CHAR(obj.a))"
                 % (trigger_name, source, log)
             )
+            trigger_created = True
             cursor.execute("INSERT INTO %s (a, b) VALUES (1, 'x')" % source)
             assert cursor.rowcount == 1  # reports the INSERT into source, not log
         finally:
-            # CUBRID has no DROP TRIGGER IF EXISTS; ignore a trigger that was never created.
             try:
-                cursor.execute("DROP TRIGGER %s" % trigger_name)
-            except pycubrid.DatabaseError:
-                pass
-            cursor.execute("DROP TABLE IF EXISTS %s" % source)
-            cursor.execute("DROP TABLE IF EXISTS %s" % log)
+                if trigger_created:
+                    cursor.execute("DROP TRIGGER %s" % trigger_name)
+            finally:
+                cursor.execute("DROP TABLE IF EXISTS %s" % source)
+                cursor.execute("DROP TABLE IF EXISTS %s" % log)

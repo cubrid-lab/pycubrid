@@ -85,7 +85,7 @@ class TestIndexHintSQL:
         self, cursor: Cursor, index_tables: tuple[str, str]
     ) -> None:
         t, _ = index_tables
-        cursor.execute("SELECT /*+ recompile */ * FROM %s USE INDEX (_t_id) WHERE id > 1" % t)
+        cursor.execute("SELECT /*+ recompile */ * FROM %s USE INDEX (_t_id) WHERE id > ?" % t, (1,))
         rows = cursor.fetchall()
         assert len(rows) == 3
 
@@ -140,6 +140,7 @@ class TestIndexHintSQL:
             "DELETE FROM %s USE INDEX (_t_id, _t_val) WHERE id = ?" % t,
             [(1,), (4,), (3,)],
         )
+        assert cursor.rowcount == 3
         cursor.execute("SELECT * FROM %s" % t)
         rows = cursor.fetchall()
         assert len(rows) == 1
