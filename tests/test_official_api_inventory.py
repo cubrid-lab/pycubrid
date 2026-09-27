@@ -26,6 +26,12 @@ def test_inventory_identity_and_records() -> None:
     assert CATALOG["upstream"]["revision"] == "e75ec36b2a92b8829a49a967a29a1fbb9d7c322b"
     assert CATALOG["upstream"]["runtime_module"] == "_cubrid"
     assert len(OPERATIONS) == len(CATALOG["operations"])
+    # These are accounting counts for the pinned upstream snapshot, not parity metrics.
+    assert len(OPERATIONS) == 190
+    assert {
+        namespace: sum(row["namespace"] == namespace for row in OPERATIONS.values())
+        for namespace in ("CUBRIDdb", "documented_cubrid")
+    } == {"CUBRIDdb": 98, "documented_cubrid": 92}
     assert {row["namespace"] for row in OPERATIONS.values()} == {
         "CUBRIDdb",
         "documented_cubrid",
