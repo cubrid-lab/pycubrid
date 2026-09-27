@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import inspect
 import logging
+import struct
 from types import TracebackType
 from typing import Any, Literal, Protocol
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
-from .exceptions import InterfaceError, NotSupportedError, OperationalError
+from .exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
 from .protocol import LOBNewPacket, LOBReadPacket, LOBWritePacket
 
 
@@ -68,6 +69,8 @@ class Lob:
     def write(self, data: bytes, offset: int = 0) -> int:
         """Write bytes to the LOB starting from ``offset``.
 
+        Empty bytes return zero without broker I/O after the existing checks
+        and wire argument validation.
         Raises ``OperationalError`` if the server writes fewer bytes than
         requested (e.g. disk full, quota exceeded).
         """
@@ -76,6 +79,13 @@ class Lob:
             raise InterfaceError(f"offset must be non-negative, got {offset}")
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
+        if isinstance(data, bytes) and len(data) == 0:
+            try:
+                packet.write(b"\x00" * 4)  # Validate without broker I/O.
+            except struct.error as exc:
+                # Match Connection's existing request-serialization boundary.
+                raise DataError("parameter value too large to serialize into CAS request") from exc
+            return 0
         self._connection._send_and_receive(packet)
         if packet.bytes_written != len(data):
             raise OperationalError(
