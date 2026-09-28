@@ -5371,10 +5371,10 @@ ConnectionRefusedError: [Errno 111] Connection refused
    docker compose ps
 
    # Wait for health check
-   docker compose up -d
-   sleep 5  # Wait for broker initialization
+   docker compose up -d --wait
 
-   # Verify with logs
+   # If the wait times out, inspect the service state and logs
+   docker compose ps
    docker compose logs cubrid | tail -20
    ```
 
@@ -6209,8 +6209,11 @@ docker compose ps
 **Check 2: Wait for initialization** — CUBRID takes a few seconds to start:
 
 ```bash
-docker compose up -d
-sleep 10  # Wait for full initialization
+docker compose up -d --wait
+
+# If the wait times out, inspect the service state and logs
+docker compose ps
+docker compose logs cubrid
 
 # Test connection
 python3 -c "
