@@ -102,14 +102,15 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465)
+### Staged explicit compatibility namespaces (#438, #465, #439)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-now includes construction-only `pycubrid.compat.cubriddb` and
-`pycubrid.compat.native` (#465). Only their implemented factories, connection
-objects, and close operations are public; no compatible cursor, prepared execution,
-threadsafety declaration or complete DB-API is promised. The foundation extends
-the existing checker and baseline for its explicit modules and returned classes.
+includes construction-only `pycubrid.compat.cubriddb` (#465) and the bounded
+sync prepared INT32/string/NULL cursor in `pycubrid.compat.native` (#439).
+Only their implemented factories, connection and cursor methods are public;
+no wrapper cursor, public async prepared API, threadsafety declaration or
+complete native/DB-API parity is promised. The checker and baseline cover
+both explicit modules and returned classes.
 These are **MINOR** additions while ordinary behavior stays unchanged;
 documented ordinary bug corrections remain **PATCH**. The staged work does not
 authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI

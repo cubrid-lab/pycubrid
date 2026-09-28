@@ -55,9 +55,11 @@ between sync and async binding; parity is enforced by
 parameter values as a separate typed payload; the broker receives a complete
 SQL text per execute. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
-The future **explicit**, sync-only compatibility prepared cursor is specified
-in the [#418 typed CAS design](PREPARED_BINDING_DESIGN.md); it is not an
-implemented alternative to this 1.x contract.
+The separate, **explicit sync-only** `pycubrid.compat.native` prepared cursor
+does send typed INT32, UTF-8 string and SQL NULL values through FC2/FC3. It is
+not a replacement for this ordinary 1.x contract; see its bounded
+[#418 typed CAS design](PREPARED_BINDING_DESIGN.md) and
+[API reference](API_REFERENCE.md#explicit-native-compatibility-subset).
 
 ---
 
@@ -274,11 +276,12 @@ The following behaviors are **explicitly outside the contract** and may change
 without a major version bump. They are listed so that callers do not depend on
 them implicitly.
 
-- **No server-side prepared-statement binding.** The driver renders parameters
-  into SQL text on the client. CUBRID receives a complete SQL string per
-  `execute`. There is no separate typed parameter payload and no client-side
-  statement-handle cache. Performance characteristics, query-plan caching, and
-  log output reflect this design.
+- **Ordinary sync/async cursors do not use server-side prepared binding.**
+  `pycubrid.Cursor` and `pycubrid.aio.AsyncCursor` render parameters into SQL
+  text on the client, so their `execute()` sends a complete SQL string without
+  a typed value payload or statement-handle cache. The separate, opt-in
+  `pycubrid.compat.native` sync cursor has a narrow typed scalar contract;
+  its performance and plan-cache effects are not claimed here.
 - **Identifiers are not escaped.** Code paths that interpolate identifiers
   (notably `Cursor.callproc`, `pycubrid/cursor.py:328-336`) embed the
   identifier into the SQL text without quoting. Application code must validate

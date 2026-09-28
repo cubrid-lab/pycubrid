@@ -196,10 +196,10 @@ sequenceDiagram
     end
 ```
 
-For future prepared owners, the synchronous transport also accepts a private
-physical-session generation expectation (#478). **Only internal calls that
-pass this opt-in value are fenced**; #439 must stamp every prepared FC2/FC3/FC6
-request. The transport checks the generation and socket identity before
+For the explicit sync `pycubrid.compat.native` prepared cursor, the synchronous
+transport accepts a private physical-session generation expectation (#478).
+**Only calls that pass this opt-in value are fenced**; the #439 owner stamps
+each FC2/FC3/FC6/FC8 request. The transport checks generation and socket identity before
 serialization, immediately before send and again around the response, under
 the same reentrant lock that covers connect, ping recovery, close and a whole
 request/response. A captured request socket is used for both send and receive,
@@ -207,8 +207,10 @@ so a reentrant replacement cannot redirect old FC3/FC6 bytes or read the new
 session's reply as success. A definitely pre-byte local validation failure
 keeps the session; an interrupted/partial prepared send or uncertain reply
 retires it without replay or a new-session FC6. A fully received broker SQL
-error retains the existing code-based DB-API mapping and a usable transport.
-This internal fence does **not** create a public prepared cursor or raise
+error retains the existing code-based DB-API mapping and a usable transport;
+the explicit compatibility cursor redacts broker-controlled error text while
+preserving its class, code, errno and SQLSTATE. The fence does **not** change
+ordinary FC41 calls or raise
 `threadsafety` above `1`; a long blocking request can delay ping on the same
 connection, and other ordinary multi-step cursor/schema lifecycles are not
 made generally thread-safe by this lock. Calling DB-API methods reentrantly

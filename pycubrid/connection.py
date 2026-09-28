@@ -81,6 +81,9 @@ class Connection(ConnectionCommonMixin):
             no_backslash_escapes=kwargs.get("no_backslash_escapes", None),
             enable_timing=kwargs.get("enable_timing"),
         )
+        # OPEN_DATABASE advertises this per physical broker session.  A
+        # prepared handle may be reused only on a measured pooling-on lane.
+        self._statement_pooling: int | None = None
 
         self.connect()
         if autocommit:
@@ -259,6 +262,7 @@ class Connection(ConnectionCommonMixin):
             self._cas_info = open_db_packet.cas_info
             self._session_id = open_db_packet.session_id
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
+            self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
             self._connected = True
             self._physical_generation += 1
             if not self._no_backslash_escapes_explicit:
@@ -339,6 +343,7 @@ class Connection(ConnectionCommonMixin):
         finally:
             self._safe_close_socket()
             self._connected = False
+            self._statement_pooling = None
             if _timing is not None:
                 _timing.record_close(time.perf_counter_ns() - _start)
 
@@ -346,6 +351,7 @@ class Connection(ConnectionCommonMixin):
         """Retire a physical session under the same lock as prepared sends."""
         with self._session_lock:
             super()._drop_connection()
+            self._statement_pooling = None
 
     def commit(self) -> None:
         """Commit the current transaction."""

@@ -2747,7 +2747,8 @@
   "pycubrid.compat.native": {
     "__all__": [
       "connect",
-      "connection"
+      "connection",
+      "cursor"
     ],
     "entries": {
       "connect": {
@@ -2815,6 +2816,162 @@
                 }
               ]
             }
+          },
+          "commit": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "cursor": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "rollback": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": []
+      },
+      "cursor": {
+        "bases": [],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "owner"
+                }
+              ]
+            }
+          },
+          "bind_param": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "index"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "value"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "bind_type"
+                }
+              ]
+            }
+          },
+          "close": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "execute": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "option"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "max_col_size"
+                }
+              ]
+            }
+          },
+          "fetch_row": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "how"
+                }
+              ]
+            }
+          },
+          "prepare": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "sql"
+                }
+              ]
+            }
           }
         },
         "properties": []
@@ -2861,6 +3018,162 @@
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "self"
+            }
+          ]
+        }
+      },
+      "commit": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "cursor": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "rollback": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      }
+    },
+    "properties": []
+  },
+  "pycubrid.compat.native.cursor": {
+    "bases": [],
+    "class_vars": [],
+    "kind": "class",
+    "methods": {
+      "__init__": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "owner"
+            }
+          ]
+        }
+      },
+      "bind_param": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "index"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "value"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_ONLY",
+              "name": "bind_type"
+            }
+          ]
+        }
+      },
+      "close": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "execute": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_ONLY",
+              "name": "option"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_ONLY",
+              "name": "max_col_size"
+            }
+          ]
+        }
+      },
+      "fetch_row": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_ONLY",
+              "name": "how"
+            }
+          ]
+        }
+      },
+      "prepare": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sql"
             }
           ]
         }
