@@ -722,8 +722,9 @@ class TestPingSingleAttemptContract:
 
     @pytest.mark.asyncio
     async def test_async_ping_check_cas_failure_restore_failure_attempts_once(self) -> None:
-        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", no_backslash_escapes=False)
         conn._connected = True
+        conn._physical_generation = 1
         conn._cas_info = b"\x00\x01\x02\x03"
         conn._reader, conn._writer, _ = make_mock_stream_pair()
         conn._autocommit = True
@@ -732,14 +733,12 @@ class TestPingSingleAttemptContract:
         connect_calls = 0
         restore_calls = 0
 
-        async def counting_connect() -> None:
+        async def counting_connect_locked() -> None:
             nonlocal connect_calls
             connect_calls += 1
             conn._connected = True
+            conn._physical_generation += 1
             conn._cas_info = b"\x01\x01\x02\x03"
-
-        async def fake_invoke_connect_locked() -> None:
-            await counting_connect()
 
         async def failing_restore() -> None:
             nonlocal restore_calls
@@ -747,8 +746,7 @@ class TestPingSingleAttemptContract:
             await conn._close_streams()
             raise OperationalError("restore SET failed")
 
-        conn.connect = counting_connect  # type: ignore[method-assign]
-        conn._invoke_connect_locked = fake_invoke_connect_locked  # type: ignore[method-assign]
+        conn._connect_locked = counting_connect_locked  # type: ignore[method-assign]
         conn._restore_session_state_locked = failing_restore  # type: ignore[method-assign]
         conn._close_streams = AsyncMock()  # type: ignore[method-assign]
         conn._send_and_receive_locked = AsyncMock(  # type: ignore[method-assign]
@@ -760,54 +758,80 @@ class TestPingSingleAttemptContract:
         assert result is False
         assert connect_calls == 1, f"expected 1 connect, got {connect_calls}"
         assert restore_calls == 1, f"expected 1 restore, got {restore_calls}"
+        assert conn._connected is False
 
 
 class TestAsyncPositiveRestoreOnReconnect:
-    """Positive: async _check_reconnect actually re-emits SetDbParameter (PR #3 Item 1 fix-up).
-
-    Also covers the Copilot race-condition report (PR #167 review):
-    ``ping()`` must hold ``_lock`` continuously across connect+restore so a
-    concurrent task cannot observe an un-restored session.
-    """
+    """Ping recovery restores session state before releasing the setup gate."""
 
     @pytest.mark.asyncio
-    async def test_async_ping_holds_lock_across_reconnect_and_restore(self) -> None:
+    async def test_async_ping_setup_gate_fences_query_through_probe_and_restore(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = False
+        conn._physical_generation = 1
         conn._autocommit = True
         conn._autocommit_explicitly_set = True
 
         connect_started = asyncio.Event()
-        restore_order: list[str] = []
+        probe_started = asyncio.Event()
+        restore_started = asyncio.Event()
+        release_connect = asyncio.Event()
+        release_probe = asyncio.Event()
+        release_restore = asyncio.Event()
+        order: list[str] = []
 
-        async def fake_invoke_connect_locked() -> None:
-            assert conn._lock.locked(), "connect must run under _lock"
+        async def fake_connect_locked() -> None:
+            assert conn._lock.locked()
             connect_started.set()
-            await asyncio.sleep(0)
+            await release_connect.wait()
+            conn._reader, conn._writer, _ = make_mock_stream_pair()
             conn._connected = True
-            restore_order.append("connect")
+            conn._physical_generation += 1
+            order.append("connect")
+
+        async def fake_probe() -> None:
+            assert not conn._lock.locked(), "probe runs outside _lock under setup gate"
+            probe_started.set()
+            await release_probe.wait()
+            conn._no_backslash_escapes = False
+            order.append("probe")
 
         async def fake_restore_locked() -> None:
-            assert conn._lock.locked(), "restore must run under same _lock hold"
-            restore_order.append("restore")
+            assert conn._lock.locked()
+            restore_started.set()
+            await release_restore.wait()
+            order.append("restore")
 
-        conn._invoke_connect_locked = fake_invoke_connect_locked  # type: ignore[method-assign]
+        async def fake_send(packet: object) -> object:
+            del packet
+            order.append("query")
+            return MagicMock()
+
+        conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
+        conn._negotiate_backslash_escapes = fake_probe  # type: ignore[method-assign]
         conn._restore_session_state_locked = fake_restore_locked  # type: ignore[method-assign]
+        conn._do_send_and_receive = fake_send  # type: ignore[method-assign]
 
-        async def concurrent_lock_grabber() -> str:
-            await connect_started.wait()
-            await conn._lock.acquire()
-            try:
-                return "grabbed"
-            finally:
-                conn._lock.release()
+        ping = asyncio.create_task(conn.ping(reconnect=True))
+        await asyncio.wait_for(connect_started.wait(), timeout=1.0)
+        query = asyncio.create_task(conn._send_and_receive(CommitPacket()))
+        await asyncio.sleep(0)
+        assert not query.done()
 
-        grabber = asyncio.create_task(concurrent_lock_grabber())
-        result = await conn.ping(reconnect=True)
-        await asyncio.wait_for(grabber, timeout=1.0)
+        release_connect.set()
+        await asyncio.wait_for(probe_started.wait(), timeout=1.0)
+        await asyncio.sleep(0)
+        assert not query.done()
 
-        assert result is True
-        assert restore_order == ["connect", "restore"]
+        release_probe.set()
+        await asyncio.wait_for(restore_started.wait(), timeout=1.0)
+        await asyncio.sleep(0)
+        assert not query.done()
+
+        release_restore.set()
+        assert await asyncio.wait_for(ping, timeout=1.0) is True
+        await asyncio.wait_for(query, timeout=1.0)
+        assert order == ["connect", "probe", "restore", "query"]
 
     @pytest.mark.asyncio
     async def test_async_connection_constructor_autocommit_is_applied_on_connect(self) -> None:
@@ -961,15 +985,17 @@ class TestAsyncPositiveRestoreOnReconnect:
 
     @pytest.mark.asyncio
     async def test_async_ping_reconnect_invokes_restore_when_explicit(self) -> None:
-        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", no_backslash_escapes=False)
         conn._connected = False  # The physical stream was lost.
+        conn._physical_generation = 1
         conn._autocommit = False
         conn._autocommit_explicitly_set = True
 
         sends: list[object] = []
 
-        async def fake_invoke_connect_locked() -> None:
+        async def fake_connect_locked() -> None:
             conn._connected = True
+            conn._physical_generation += 1
             conn._cas_info = b"\x01\x01\x02\x03"
 
         async def fake_send_locked(packet: object, *, allow_reconnect: bool = True) -> object:
@@ -977,7 +1003,7 @@ class TestAsyncPositiveRestoreOnReconnect:
             sends.append(packet)
             return MagicMock()
 
-        conn._invoke_connect_locked = fake_invoke_connect_locked  # type: ignore[method-assign]
+        conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
         conn._close_streams = AsyncMock()  # type: ignore[method-assign]
         conn._send_and_receive_locked = fake_send_locked  # type: ignore[method-assign]
 

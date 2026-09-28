@@ -69,6 +69,14 @@ graph TD
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
 session. Only explicit `ping(reconnect=True)` may recover a confirmed
 CAS/transport failure, and arbitrary SQL is never replayed automatically.
+With `no_backslash_escapes` unset, probe each newly opened physical session
+before binding against it; explicit `True`/`False` remains pinned. Healthy
+same-session ping does not probe. A failed probe makes direct connect raise or
+ping recovery return `False` after retiring the session. Async SQL already
+bound under a prior session generation must be rejected before send, not
+rebound or replayed. The CUBRID 10.2/11.4 manuals do not mark this setting
+as dynamically changeable; do not claim a per-session `SET` toggle or verified
+heterogeneous failover.
 
 ### Handshake Flow
 

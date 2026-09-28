@@ -134,6 +134,8 @@ String escaping is performed by `escape_string`
 from the live server at connect time (see
 [Escape-mode negotiation](#escape-mode-negotiation)); pass it explicitly to
 `pycubrid.connect(..., no_backslash_escapes=True|False)` to override detection.
+Automatic detection runs for each newly opened physical session, including
+explicit `ping(reconnect=True)` recovery, before parameterized SQL can use it.
 
 In every mode:
 
@@ -172,14 +174,22 @@ literal `'\\'`, two backslash characters):
   string escaping (and can enable SQL injection). Pass `no_backslash_escapes`
   explicitly to skip detection when the probe cannot run.
 
-Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
-entirely. Negotiation currently happens once per connection object; the chosen
-value is retained if an explicit `ping(reconnect=True)` recovers a failed
-transport. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect. Until
-[#471](https://github.com/cubrid-lab/pycubrid/issues/471) re-probes on recovery,
-do not reuse an automatically negotiated connection after failover to a target
-whose escape mode may differ. An explicit mode is safe only when every possible
-target is known to use that same mode.
+Passing `no_backslash_escapes=True` or `False` explicitly skips the probe and
+retains that choice across reconnections. Without an explicit value, a newly
+opened physical session is probed before use; a healthy same-session
+`ping()` does not re-probe. A failed probe prevents direct connection setup;
+during `ping(reconnect=True)`, it retires the replacement session and returns
+`False`. Neither path guesses a mode or replays interrupted SQL. In the async
+path, parameterized SQL bound before a session replacement is rejected before
+send if its session generation changed; the caller must deliberately retry
+the operation. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect.
+
+The [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) and
+[11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) CUBRID manuals
+do not classify `no_backslash_escapes` as dynamically changeable. This driver
+behavior does not imply support for a per-session `SET` toggle or prove
+heterogeneous failover between differently configured servers. An explicit
+mode should be used only when every possible target is known to match it.
 
 ### Literal mode (`no_backslash_escapes=True`)
 

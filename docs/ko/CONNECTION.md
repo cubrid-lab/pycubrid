@@ -93,7 +93,7 @@ def connect(
 | `read_timeout` | `float` | `None` | 소켓 읽기 타임아웃(초) |
 | `fetch_size` | `int` | `100` | 서버 측 가져오기 배치 크기 |
 | `enable_timing` | `bool \| None` | `None` | 드라이버 타이밍 통계 활성화, 또는 `PYCUBRID_ENABLE_TIMING`으로 폴백 |
-| `no_backslash_escapes` | `bool` | `False` | 백슬래시 이스케이프 없이 따옴표 doubling만으로 문자열 이스케이프 |
+| `no_backslash_escapes` | `bool \| None` | `None` (자동 감지) | 새 물리 세션마다 문자열 이스케이프 모드 감지; 명시적 `True`/`False`는 감지를 생략하고 복구 후에도 유지 |
 | `autocommit` | `bool` | `False` | 문장별 즉시 커밋 활성화 |
 
 ### 흔한 연결 프로파일
@@ -226,7 +226,8 @@ if not alive:
 
 - `await conn.ping(reconnect=False)`는 열린 소켓에서 네이티브 `CHECK_CAS` 왕복을 수행하며 재접속하지 않습니다. `CAS_INFO[0]=0`은 트랜잭션 종료 후의 OUT_TRAN 상태이지 세션 해제가 아니므로 이 동작에 영향을 주지 않습니다. 소켓이 닫혔거나 검사에 실패하면 `False`를 반환하므로 SQLAlchemy의 `pool_pre_ping`에 적합합니다.
 - `await conn.ping(reconnect=True)`는 기존 소켓을 먼저 검사하고, 이미 연결이 끊겼거나 `CHECK_CAS` 전송/프로토콜 오류가 발생했거나 음수 응답으로 CAS–DB 링크 장애가 확인되면 재접속을 한 번 시도합니다. 복구 실패는 `False`를 반환합니다. `reconnect=False`는 음수 응답에도 재접속하지 않고 `False`를 반환합니다.
-- 비동기 구현은 동기 `Connection.ping()`과 같은 네이티브 `CHECK_CAS` 함수 코드(`FC=32`)를 사용하며 SQL을 실행하지 않습니다.
+- 정상적인 동일 세션 ping은 이스케이프 모드를 다시 감지하지 않습니다. 새 물리 세션에서는 자동 모드를 사용한 경우 사용 전에 다시 감지하며, 명시적 `no_backslash_escapes=True` 또는 `False`는 유지합니다. 감지 실패 시 대체 세션을 폐기하고 ping은 `False`를 반환하며, 모드를 추측하거나 SQL을 재실행하지 않습니다.
+- 정상 세션의 비동기 검사는 동기 `Connection.ping()`과 같은 네이티브 `CHECK_CAS` 함수 코드(`FC=32`)를 사용하며 SQL을 실행하지 않습니다. 재연결 중에는 읽기 전용 이스케이프 모드 탐색 SELECT를 실행할 수 있습니다.
 
 ---
 
@@ -312,6 +313,13 @@ conn.autocommit = True
 ### 명시적 ping 복구 후 세션 상태 복원
 
 `CAS_INFO[0]=0`은 CAS 워커 해제가 아니라 트랜잭션 밖 상태인 OUT_TRAN을 뜻합니다. 정상적인 commit, rollback 및 autocommit 요청 후에도 같은 소켓과 세션에서 이 값이 나타날 수 있습니다. pycubrid는 이 상태만으로 재접속하지 않으며, 전송 실패 후 임의의 SQL 요청을 자동 재실행하지도 않습니다. 연결이 이미 끊겼거나 `CHECK_CAS` 검사 중 전송/프로토콜 오류가 발생했거나 음수 검사 응답으로 CAS–DB 링크 장애가 확인되면 명시적인 `ping(reconnect=True)`로 새 연결을 한 번 시도할 수 있습니다. `reconnect=False`는 음수 응답을 `False`로 보고하고 재접속하지 않습니다. 중단된 SQL을 재시도해도 안전한지는 호출자가 판단해야 합니다.
+
+자동 `no_backslash_escapes` 모드는 대체 물리 세션에서 상태 복원 전에 다시
+감지하며, 명시적으로 고른 모드는 유지합니다. 감지 실패 시 세션을 폐기하고
+`ping()`은 `False`를 반환합니다. 중단된 SQL은 재실행하지 않습니다. 비동기
+파라미터 SQL이 이전 세션 세대에서 바인딩되었다면 전송 전에 거부하므로
+재시도 여부는 호출자가 결정해야 합니다. 정상적인 동일 세션 ping은 감지하지
+않습니다. 세션 내 동적 설정 변경이나 이기종 페일오버 검증을 뜻하지 않습니다.
 
 복구가 성공하면 pycubrid는 호출자가 **명시적으로** 설정한 세션 수준 설정을 복원합니다:
 

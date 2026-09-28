@@ -310,13 +310,22 @@ async def test_out_tran_keeps_identity_until_physical_reconnect(
     if isinstance(connection, AsyncConnection):
         connection._writer = MagicMock()
         connection._writer.wait_closed = AsyncMock()
-        invoke = AsyncMock(side_effect=lambda: setattr(connection, "_connected", True))
+        connection._physical_generation = 1
+        reader, writer = MagicMock(), MagicMock()
+        writer.wait_closed = AsyncMock()
+        open_connection = AsyncMock(return_value=(reader, writer))
+
+        async def handshake(_reader: Any, _writer: Any) -> None:
+            connection._reader = _reader
+            connection._writer = _writer
+
         restore = AsyncMock()
-        monkeypatch.setattr(connection, "_invoke_connect_locked", invoke)
+        monkeypatch.setattr(connection, "_open_connection", open_connection)
+        monkeypatch.setattr(connection, "_do_connect_handshake", handshake)
         monkeypatch.setattr(connection, "_restore_session_state_locked", restore)
         await connection._check_reconnect_locked()
         assert connection._last_insert_id == "99"
-        invoke.assert_not_awaited()
+        open_connection.assert_not_awaited()
         restore.assert_not_awaited()
         await connection._close_streams()
         connection._connected = False
@@ -335,7 +344,8 @@ async def test_out_tran_keeps_identity_until_physical_reconnect(
     assert await _call(connection.ping(reconnect=True)) is True
     assert connection._last_insert_id is None
     if isinstance(connection, AsyncConnection):
-        invoke.assert_awaited_once()
+        open_connection.assert_awaited_once()
+        assert connection._physical_generation == 2
         restore.assert_awaited_once()
     else:
         connect.assert_called_once()

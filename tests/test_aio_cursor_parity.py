@@ -22,8 +22,10 @@ def make_connection() -> MagicMock:
     connection._decode_collections = False
     connection._json_deserializer = None
     connection._no_backslash_escapes = False
+    connection._physical_generation = 1
     connection._connected = True
     connection._ensure_connected = MagicMock()
+    connection._wait_for_setup_if_needed = AsyncMock()
     connection._send_and_receive = AsyncMock()
     return connection
 

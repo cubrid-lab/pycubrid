@@ -119,6 +119,7 @@ class AsyncCursor(_AsyncCursorBase):
         parameters: Sequence[Any] | None = None,
     ) -> AsyncCursor:
         self._check_closed()
+        await self._connection._wait_for_setup_if_needed()
         self._connection._ensure_connected()
 
         if re.match(r"INSERT\b", extract_first_keyword(operation)):
@@ -136,7 +137,9 @@ class AsyncCursor(_AsyncCursorBase):
         self._invalidated_by_reconnect = False
 
         sql = operation
+        expected_escape_generation = None
         if parameters is not None:
+            expected_escape_generation = self._connection._physical_generation
             sql = self._bind_parameters(operation, parameters)
 
         packet = PrepareAndExecutePacket(
@@ -146,7 +149,12 @@ class AsyncCursor(_AsyncCursorBase):
             decode_collections=self._connection._decode_collections,
             json_deserializer=self._connection._json_deserializer,
         )
-        await self._connection._send_and_receive(packet)
+        if expected_escape_generation is None:
+            await self._connection._send_and_receive(packet)
+        else:
+            await self._connection._send_and_receive(
+                packet, expected_escape_generation=expected_escape_generation
+            )
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
                 "execute: type=%d cols=%d rows=%d",
@@ -226,9 +234,14 @@ class AsyncCursor(_AsyncCursorBase):
                 self._rowcount = total_rowcount
             return self
 
+        await self._connection._wait_for_setup_if_needed()
+        self._connection._ensure_connected()
+        expected_escape_generation = self._connection._physical_generation
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
-        await self.executemany_batch(sql_list)
+        await self._executemany_batch(
+            sql_list, auto_commit=None, expected_escape_generation=expected_escape_generation
+        )
         return self
 
     async def executemany_batch(
@@ -236,7 +249,19 @@ class AsyncCursor(_AsyncCursorBase):
         sql_list: list[str],
         auto_commit: bool | None = None,
     ) -> list[tuple[int, int]]:
+        return await self._executemany_batch(
+            sql_list, auto_commit=auto_commit, expected_escape_generation=None
+        )
+
+    async def _executemany_batch(
+        self,
+        sql_list: list[str],
+        auto_commit: bool | None,
+        *,
+        expected_escape_generation: int | None,
+    ) -> list[tuple[int, int]]:
         self._check_closed()
+        await self._connection._wait_for_setup_if_needed()
         self._connection._ensure_connected()
 
         if self._query_handle is not None:
@@ -264,7 +289,12 @@ class AsyncCursor(_AsyncCursorBase):
         self._lastrowid = None
 
         # A failed transport or response parse must not expose prior results.
-        await self._connection._send_and_receive(packet)
+        if expected_escape_generation is None:
+            await self._connection._send_and_receive(packet)
+        else:
+            await self._connection._send_and_receive(
+                packet, expected_escape_generation=expected_escape_generation
+            )
 
         # Raise on per-statement batch failures (issue #186).
         if packet.errors:

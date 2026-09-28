@@ -399,7 +399,9 @@ new_id = int(value) if value is not None else None
 def ping(self, reconnect: bool = True) -> bool
 ```
 
-SQL 실행 없이 가벼운 `CHECK_CAS` 헬스 체크를 수행합니다.
+정상 세션에서는 SQL 없이 가벼운 `CHECK_CAS` 헬스 체크를 수행합니다.
+자동 모드의 재연결 중에는 애플리케이션 SQL을 받기 전에 읽기 전용
+이스케이프 모드 탐색 SELECT를 실행할 수 있습니다.
 
 - CAS 연결이 살아 있으면 `True`를 반환합니다. `CAS_INFO[0]=0`은 연결 해제가
   아니라 OUT_TRAN을 뜻하며 이 값만으로 재접속하지 않습니다.
@@ -411,6 +413,10 @@ SQL 실행 없이 가벼운 `CHECK_CAS` 헬스 체크를 수행합니다.
   `False`로 보고하고 재접속하지 않습니다. 복구 후에는 명시적으로 설정한
   autocommit만 복원합니다. 중단된 SQL은 자동 재실행하지 않으므로 재시도
   안전성은 호출자가 판단해야 합니다.
+  자동 `no_backslash_escapes` 모드는 새 물리 세션에서 사용 전에 다시 감지하며,
+  명시적 `True`/`False`는 유지됩니다. 정상적인 동일 세션 ping은 감지하지
+  않습니다. 감지 실패 시 대체 세션을 폐기하고 `False`를 반환하며, 모드를
+  추측하거나 SQL을 재실행하지 않습니다.
 
 ```python
 if not conn.ping():
@@ -1041,7 +1047,9 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 async def ping(self, reconnect: bool = True) -> bool
 ```
 
-SQL 실행 없이 가벼운 네이티브 `CHECK_CAS` 헬스 체크를 수행합니다.
+정상 세션에서는 SQL 없이 가벼운 네이티브 `CHECK_CAS` 헬스 체크를
+수행합니다. 재연결 중에는 읽기 전용 이스케이프 모드 탐색 SELECT를
+실행할 수 있습니다.
 
 - CAS 연결이 살아 있으면 `True` 반환.
 - 소켓이 열려 있으면 네이티브 `CHECK_CAS` 왕복을 수행합니다. `CAS_INFO[0]=0`은
@@ -1053,6 +1061,11 @@ SQL 실행 없이 가벼운 네이티브 `CHECK_CAS` 헬스 체크를 수행합�
   재접속을 한 번 시도합니다. `reconnect=False`는 음수 응답을 `False`로 보고하고
   재접속하지 않습니다. 명시적으로 설정한 autocommit만 복원하며 임의의
   SQL을 자동 재실행하지 않습니다.
+  자동 `no_backslash_escapes` 모드는 새 물리 세션마다 감지하지만 정상적인
+  동일 세션 검사에서는 감지하지 않습니다. 명시적 `True`/`False`는 유지됩니다.
+  감지 실패 시 대체 세션을 폐기하고 `False`를 반환합니다. 이전 세션 세대에서
+  바인딩한 비동기 파라미터 SQL은 전송 전에 거부하며, 자동 재바인딩·재실행
+  대신 호출자가 재시도 여부를 결정합니다.
 
 ```python
 if not await conn.ping(reconnect=False):

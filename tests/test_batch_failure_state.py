@@ -19,6 +19,8 @@ from pycubrid.protocol import BatchExecutePacket, CloseQueryPacket
 async def test_failed_batch_replaces_stale_state(asynchronous: bool, failure: str) -> None:
     conn = MagicMock()
     conn._no_backslash_escapes = False
+    conn._physical_generation = 1
+    conn._wait_for_setup_if_needed = AsyncMock()
     conn.autocommit = False
     cursor = AsyncCursor(conn) if asynchronous else Cursor(conn)
     cursor._description = (("id", 8, None, None, 10, 0, False),)
@@ -32,7 +34,7 @@ async def test_failed_batch_replaces_stale_state(asynchronous: bool, failure: st
     error = OperationalError("malformed response" if failure == "parse" else "connection lost")
     error.__cause__ = struct.error("truncated packet") if failure == "parse" else OSError("reset")
 
-    def send(packet: object) -> object:
+    def send(packet: object, **kwargs: object) -> object:
         if isinstance(packet, CloseQueryPacket):
             if failure == "close":
                 raise error
