@@ -6,6 +6,7 @@ import ssl as ssl_module
 import struct
 import time
 from importlib import import_module
+from threading import RLock
 from typing import TYPE_CHECKING, Any
 
 from ._connection_common import (
@@ -14,7 +15,7 @@ from ._connection_common import (
     warn_unknown_connection_options,
 )
 from .constants import CCIDbParam, DataSize
-from .exceptions import DataError, InterfaceError, OperationalError
+from .exceptions import DataError, Error, InterfaceError, OperationalError
 from .protocol import (
     BatchExecutePacket,
     CheckCasPacket,
@@ -59,6 +60,9 @@ class Connection(ConnectionCommonMixin):
         fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
+        # The first connect() runs during construction, and failure cleanup in
+        # compat.native may call _drop_connection() on this partial object.
+        self._session_lock = RLock()
         # Report typo'd/unsupported options before any socket work, so a
         # mis-spelled option is surfaced even when the connection then fails.
         warn_unknown_connection_options(kwargs)
@@ -193,6 +197,10 @@ class Connection(ConnectionCommonMixin):
         verification failure (unlike the async path on Python 3.10 — see
         `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_).
         """
+        with self._session_lock:
+            self._connect_locked()
+
+    def _connect_locked(self) -> None:
         if self._connected:
             return
 
@@ -301,6 +309,10 @@ class Connection(ConnectionCommonMixin):
 
     def close(self) -> None:
         """Close the connection and all tracked cursors."""
+        with self._session_lock:
+            self._close_locked()
+
+    def _close_locked(self) -> None:
         if not self._connected:
             return
 
@@ -329,6 +341,11 @@ class Connection(ConnectionCommonMixin):
             self._connected = False
             if _timing is not None:
                 _timing.record_close(time.perf_counter_ns() - _start)
+
+    def _drop_connection(self) -> None:
+        """Retire a physical session under the same lock as prepared sends."""
+        with self._session_lock:
+            super()._drop_connection()
 
     def commit(self) -> None:
         """Commit the current transaction."""
@@ -466,6 +483,10 @@ class Connection(ConnectionCommonMixin):
         per ``ping()`` call. A restore failure tears the connection down
         and returns ``False`` rather than retrying.
         """
+        with self._session_lock:
+            return self._ping_locked(reconnect)
+
+    def _ping_locked(self, reconnect: bool) -> bool:
         if not self._connected:
             if not reconnect:
                 return False
@@ -638,13 +659,34 @@ class Connection(ConnectionCommonMixin):
                 pass
             raise
 
-    def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
+    def _send_and_receive(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool = True,
+        expected_generation: int | None = None,
+    ) -> Any:
         """Send a framed CAS request and parse the framed response into ``packet``.
 
         CAS_INFO status 0 is OUT_TRAN, not a release signal. Keep the physical
         session after normal transaction boundaries; do not replay arbitrary
         requests on a different session after an uncertain transport failure.
         """
+        with self._session_lock:
+            return self._send_and_receive_locked(
+                packet,
+                allow_reconnect=allow_reconnect,
+                expected_generation=expected_generation,
+            )
+
+    def _send_and_receive_locked(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool,
+        expected_generation: int | None,
+    ) -> Any:
+        self._validate_prepared_generation(expected_generation)
         self._check_reconnect(allow_reconnect=allow_reconnect)
         if self._socket is None:
             raise InterfaceError("connection is closed")
@@ -661,42 +703,136 @@ class Connection(ConnectionCommonMixin):
             if self._socket is None:
                 raise InterfaceError("connection is closed")
 
+        request_socket = self._socket
+        attempted_send = False
+        response_complete = False
         try:
             try:
                 request_data = packet.write(self._cas_info)
             except struct.error as exc:
                 raise DataError("parameter value too large to serialize into CAS request") from exc
-            self._socket.sendall(request_data)
+            # RLock permits a same-thread packet.write() callback to reconnect.
+            # Re-check immediately before bytes can leave this socket.
+            self._validate_prepared_session(expected_generation, request_socket)
+            attempted_send = True
+            request_socket.sendall(request_data)
+            self._validate_prepared_session(expected_generation, request_socket)
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("send: %d bytes", len(request_data))
 
             try:
-                data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
+                data_length_bytes = self._recv_exact(request_socket, DataSize.DATA_LENGTH)
                 data_length = struct.unpack(">i", data_length_bytes)[0]
                 self._validate_data_length(data_length)
-                response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
+                response_body = self._recv_exact(request_socket, data_length + DataSize.CAS_INFO)
             except OperationalError:
                 # Incomplete framing leaves the next response boundary unknown.
                 # Server-reported packet.parse errors do not retire a valid CAS.
-                self._drop_connection()
+                if expected_generation is None:
+                    self._drop_connection()
                 raise
 
-            # Update CAS_INFO from the response (first 4 bytes).
-            self._cas_info = response_body[: DataSize.CAS_INFO]
+            self._validate_prepared_session(expected_generation, request_socket)
+            response_complete = True
+            response_cas_info = response_body[: DataSize.CAS_INFO]
+            if expected_generation is None:
+                self._cas_info = response_cas_info
 
             try:
                 packet.parse(response_body)
             except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
-                self._safe_close_socket()
-                self._connected = False
+                if expected_generation is None:
+                    self._safe_close_socket()
+                    self._connected = False
+                elif self._prepared_session_is_current(expected_generation, request_socket):
+                    self._discard_uncertain_prepared_session()
                 raise OperationalError("malformed response from broker") from exc
+            except Error as exc:
+                if expected_generation is None:
+                    raise
+                if getattr(exc, "_cas_server_error", False):
+                    self._validate_prepared_session(expected_generation, request_socket)
+                    self._cas_info = response_cas_info
+                    raise
+                if self._prepared_session_is_current(expected_generation, request_socket):
+                    self._discard_uncertain_prepared_session()
+                raise OperationalError("malformed response from broker") from exc
+            except Exception as exc:
+                if expected_generation is None:
+                    raise  # Preserve the ordinary parser's existing contract.
+                if self._prepared_session_is_current(expected_generation, request_socket):
+                    self._discard_uncertain_prepared_session()
+                raise OperationalError("malformed response from broker") from exc
+            self._validate_prepared_session(expected_generation, request_socket)
+            if expected_generation is not None:
+                self._cas_info = response_cas_info
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("recv: %d bytes", data_length + DataSize.CAS_INFO)
             return packet
         except OSError as exc:
-            self._safe_close_socket()
-            self._connected = False
+            if expected_generation is not None and not attempted_send:
+                raise  # Local pre-byte failure cannot corrupt the broker reply.
+            if expected_generation is None:
+                self._safe_close_socket()
+                self._connected = False
+            elif self._prepared_session_is_current(expected_generation, request_socket):
+                self._discard_uncertain_prepared_session()
             raise OperationalError("socket communication failed") from exc
+        # Fail closed for any BaseException subclass after an attempted send.
+        # codeql[py/catch-base-exception]
+        except BaseException as exc:
+            if (
+                expected_generation is not None
+                and attempted_send
+                and (not response_complete or not isinstance(exc, Exception))
+                and self._prepared_session_is_current(expected_generation, request_socket)
+            ):
+                self._discard_uncertain_prepared_session()
+            raise
+
+    def _prepared_session_is_current(self, expected: int, request_socket: socket.socket) -> bool:
+        return (
+            self._connected
+            and expected == self._physical_generation
+            and self._socket is request_socket
+        )
+
+    def _validate_prepared_session(
+        self, expected: int | None, request_socket: socket.socket
+    ) -> None:
+        self._validate_prepared_generation(expected)
+        if expected is not None and not self._prepared_session_is_current(expected, request_socket):
+            raise OperationalError("prepared physical session changed during request")
+
+    def _discard_uncertain_prepared_session(self) -> None:
+        """Best-effort retirement without replacing the request's primary error."""
+        try:
+            self._drop_connection()
+        # Preserve the primary request failure even for nonstandard BaseException.
+        # codeql[py/catch-base-exception]
+        except BaseException:
+            _LOGGER.warning("Failed to discard uncertain prepared session", exc_info=True)
+            self._connected = False
+            try:
+                self._safe_close_socket()
+            # codeql[py/catch-base-exception]
+            except BaseException:
+                _LOGGER.warning("Failed to close uncertain prepared socket", exc_info=True)
+            try:
+                self._invalidate_query_handles()
+            # codeql[py/catch-base-exception]
+            except BaseException:
+                _LOGGER.warning(
+                    "Failed to invalidate cursors after prepared failure", exc_info=True
+                )
+
+    def _validate_prepared_generation(self, expected: int | None) -> None:
+        if expected is None:
+            return
+        if type(expected) is not int:
+            raise InterfaceError("invalid prepared session generation")
+        if expected != self._physical_generation:
+            raise OperationalError("prepared handle belongs to an earlier physical session")
 
     def _recv_exact(self, sock: socket.socket, size: int) -> bytearray:
         """Receive exactly ``size`` bytes from the socket."""

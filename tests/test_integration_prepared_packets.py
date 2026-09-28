@@ -8,6 +8,7 @@ import pytest
 
 import pycubrid
 from pycubrid.constants import CCIPrepareOption
+from pycubrid.exceptions import OperationalError
 from pycubrid.protocol import (
     CloseQueryPacket,
     ExecutePacket,
@@ -41,9 +42,9 @@ def test_internal_scalar_packets_repeat_on_one_handle(
 ) -> None:
     conn = pycubrid.connect(**connect_kwargs(), autocommit=autocommit)
     with conn:
-        prep = PreparePacket(sql, auto_commit=autocommit, prepare_flag=CCIPrepareOption.HOLDABLE)
-        conn._send_and_receive(prep)
         generation = conn._physical_generation
+        prep = PreparePacket(sql, auto_commit=autocommit, prepare_flag=CCIPrepareOption.HOLDABLE)
+        conn._send_and_receive(prep, expected_generation=generation)
         try:
             assert prep.bind_count == 1
             for value, row in zip(values, expected):
@@ -56,11 +57,13 @@ def test_internal_scalar_packets_repeat_on_one_handle(
                     bind_count=prep.bind_count,
                 )
                 packet.columns = prep.columns
-                conn._send_and_receive(packet)
+                conn._send_and_receive(packet, expected_generation=generation)
                 assert packet.rows == [row]
                 assert conn._physical_generation == generation
         finally:
-            conn._send_and_receive(CloseQueryPacket(prep.query_handle))
+            conn._send_and_receive(
+                CloseQueryPacket(prep.query_handle), expected_generation=generation
+            )
 
 
 def test_internal_dml_packets_repeat_without_implicit_manual_commit() -> None:
@@ -92,7 +95,8 @@ def test_internal_dml_packets_repeat_without_implicit_manual_commit() -> None:
                     auto_commit=False,
                     prepare_flag=CCIPrepareOption.HOLDABLE,
                 )
-                conn._send_and_receive(prep)
+                generation = conn._physical_generation
+                conn._send_and_receive(prep, expected_generation=generation)
                 try:
                     for value in (11, 12):
                         packet = ExecutePacket(
@@ -103,11 +107,13 @@ def test_internal_dml_packets_repeat_without_implicit_manual_commit() -> None:
                             bindings=(_encode_prepared_scalar(value),),
                             bind_count=prep.bind_count,
                         )
-                        conn._send_and_receive(packet)
+                        conn._send_and_receive(packet, expected_generation=generation)
                         assert packet.total_tuple_count == 1
                     assert count_rows() == 0
                 finally:
-                    conn._send_and_receive(CloseQueryPacket(prep.query_handle))
+                    conn._send_and_receive(
+                        CloseQueryPacket(prep.query_handle), expected_generation=generation
+                    )
                 assert count_rows() == 0
                 conn.commit()
                 assert count_rows() == 2
@@ -120,3 +126,37 @@ def test_internal_dml_packets_repeat_without_implicit_manual_commit() -> None:
                     finally:
                         cleanup.close()
                     conn.commit()
+
+
+def test_prepared_generation_rejects_old_handle_after_live_reconnect() -> None:
+    with pycubrid.connect(**connect_kwargs()) as conn:
+        generation = conn._physical_generation
+        prep = PreparePacket("SELECT CAST(? AS INTEGER)", prepare_flag=CCIPrepareOption.HOLDABLE)
+        conn._send_and_receive(prep, expected_generation=generation)
+        packet = ExecutePacket(
+            prep.query_handle,
+            prep.statement_type,
+            protocol_version=conn._protocol_version,
+            bindings=(_encode_prepared_scalar(42),),
+            bind_count=prep.bind_count,
+        )
+        packet.columns = prep.columns
+        conn._send_and_receive(packet, expected_generation=generation)
+        assert packet.rows == [(42,)]
+
+        conn._drop_connection()
+        healthy = conn.ping(reconnect=True)
+        assert healthy is True
+        assert conn._physical_generation == generation + 1
+        with pytest.raises(OperationalError, match="earlier physical session"):
+            conn._send_and_receive(
+                CloseQueryPacket(prep.query_handle), expected_generation=generation
+            )
+
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT 1")
+            row = cursor.fetchone()
+            assert row == (1,)
+        finally:
+            cursor.close()
