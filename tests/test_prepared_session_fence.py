@@ -204,6 +204,22 @@ def test_prepared_interrupt_after_send_attempt_retires_session() -> None:
     sock.close.assert_called()
 
 
+def test_custom_base_exception_after_send_attempt_retires_session() -> None:
+    class _Stop(BaseException):
+        pass
+
+    conn, sock = make_connected_connection()
+    sock.sendall.side_effect = _Stop("uncertain send")
+    packet = MagicMock()
+    packet.write.return_value = b"prepared request"
+
+    with pytest.raises(_Stop, match="uncertain send"):
+        conn._send_and_receive(packet, expected_generation=conn._physical_generation)
+
+    assert conn._connected is False
+    assert conn._socket is None
+
+
 def test_prepared_partial_send_error_retires_session() -> None:
     conn, sock = make_connected_connection()
     sock.sendall.side_effect = BrokenPipeError("partial send")
@@ -394,6 +410,23 @@ def test_prepared_cleanup_failure_does_not_mask_primary_interrupt() -> None:
     packet.write.return_value = b"prepared request"
 
     with pytest.raises(KeyboardInterrupt, match="primary request interruption"):
+        conn._send_and_receive(packet, expected_generation=conn._physical_generation)
+
+    assert conn._connected is False
+    assert conn._socket is None
+
+
+def test_custom_cleanup_base_exception_does_not_mask_primary() -> None:
+    class _CleanupStop(BaseException):
+        pass
+
+    conn, sock = make_connected_connection()
+    conn._drop_connection = MagicMock(side_effect=_CleanupStop("secondary cleanup failure"))
+    sock.sendall.side_effect = KeyboardInterrupt("primary interruption")
+    packet = MagicMock()
+    packet.write.return_value = b"prepared request"
+
+    with pytest.raises(KeyboardInterrupt, match="primary interruption"):
         conn._send_and_receive(packet, expected_generation=conn._physical_generation)
 
     assert conn._connected is False
