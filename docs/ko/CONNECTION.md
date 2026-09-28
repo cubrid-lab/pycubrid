@@ -336,6 +336,8 @@ CUBRID 브로커는 ``KEEP_CONNECTION=AUTO``(기본값)일 때 요청 사이에 
 | `get_last_insert_id()`              | `str \| None` | 캐시된 브로커 식별자 또는 `None` 반환              |
 | `create_lob(lob_type)`              | `Lob`         | 새 LOB 객체 생성 (CLOB=24, BLOB=23)              |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | 서버에서 스키마 메타데이터 조회            |
+| `fetch_schema_info(packet)` | `list[tuple]` | 전체 행을 읽고 원래 스키마 핸들 해제 |
+| `close_schema_info(packet)` | `None` | 소유한 결과 폐기; 반복 종료는 no-op |
 
 `get_last_insert_id()`는 INSERT 이후 커서가 관측한 식별자를 추가 네트워크 요청 없이
 반환합니다. 정상 값은 문자열을 유지하며, 값이 없으면 이전의 모호한 `""` 대신
@@ -375,9 +377,17 @@ blob.write(b"\x89PNG\r\n...")
 
 ```python
 # 스키마 정보 조회 (schema_type 상수는 CUBRID 문서 참고)
-packet = conn.get_schema_info(schema_type=1)  # 테이블
-print(packet.tuple_count)
+packet = conn.get_schema_info(1, "my_table", 0)  # 정확한 CLASS 필터
+try:
+    print(conn.fetch_schema_info(packet))
+finally:
+    conn.close_schema_info(packet)
 ```
+
+스키마 패킷은 원래 연결·세션이 소유합니다. autocommit이 켜진 커서 작업과
+버전 조회를 포함한 트랜잭션 경계 전에 fetch하거나
+명시적으로 폐기하세요. 비동기는 같은 메서드에 `await`를 사용합니다.
+두 번째 필터·네 필드 컬럼·정리/오류 계약은 [API 참조](API_REFERENCE.md)를 참고하세요.
 
 ---
 

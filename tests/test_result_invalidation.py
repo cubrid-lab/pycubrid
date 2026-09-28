@@ -44,6 +44,8 @@ def _cursor(
     connection._send_and_receive = (
         AsyncMock(side_effect=send) if asynchronous else MagicMock(side_effect=send)
     )
+    if isinstance(connection, AsyncConnection):
+        connection._send_and_receive_locked = connection._send_and_receive
     cursor = connection.cursor()
     cursor._description = (("id", 8, None, None, 10, 0, False),)
     cursor._rows = [(0,), (1,), (2,)]

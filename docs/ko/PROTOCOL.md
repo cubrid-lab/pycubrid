@@ -373,8 +373,9 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 |----------------|-------|------|
 | `query_handle` | `int` | 스키마 행을 가져올 핸들 |
 | `tuple_count`  | `int` | 스키마 항목 수 |
+| `columns` | `list` | 네 필드만 있는 축약 컬럼 메타데이터 |
 
-**비공개 와이어 기반 작업 (#455), getter 수정 활성화 아님:** 확인된 FC9 요청은
+**소유권이 있는 스키마 요청 (#455, #456):** 확인된 FC9 요청은
 길이 접두가 있는 인자를 스키마 타입(`int`), 첫 이름/패턴(`string` 또는 NULL),
 두 번째 이름/패턴(`string` 또는 NULL), 플래그(`byte`), 샤드 ID(`int`, 프로토콜
 V5 이상) 순서로 보냅니다. NULL은 길이 0인 인자이며, 빈 문자열은 NUL 종료자를
@@ -387,11 +388,15 @@ NULL 허용 여부, 기본값, 제약 플래그는 없습니다. 따라서 비�
 타입·scale·precision·이름만 제공하고, 없는 필드를 만들어 내지 않으며 기존
 컬렉션 종류 정규화를 유지합니다.
 
-이 헬퍼들은 오프라인 테스트만 거쳤으며 실제 getter에서는 사용하지 않습니다.
-`GetSchemaPacket.write/parse`와 두 공개 `get_schema_info()` 메서드는 변경되지
-않았고 여전히 불완전합니다. 요청 활성화에는 #456에서 핸들 소유권, 행 소비,
-정리를 함께 구현해야 합니다. 이 fixture들은 실제 getter의 동작이나 네이티브
-드라이버와의 동등성을 인증하지 않습니다.
+`GetSchemaPacket.write/parse`는 이제 이 레이아웃을 사용합니다. 연결 getter는
+원래 패킷의 식별자와 불변 핸들·개수·컬럼을 등록합니다. `fetch_schema_info(packet)`은
+FC8로 모든 행을 읽고 0행도 FC6으로 닫으며, `close_schema_info(packet)`은 명시적
+폐기입니다. 두 작업은 원래 CAS 세션에서만 실행하고 자동 재접속·재실행하지 않습니다.
+기존 핸들 전용 FC6은 서버 기본값이 false인 선택적 auto-commit 인자를 생략합니다.
+commit/rollback은 END_TRAN 전에 활성 핸들을 닫고 물리 연결 폐기는 소유권을 종료합니다.
+비동기 등록·fetch/close는 연결 락 안에서 원자적으로 처리하며 I/O 취소 시 읽지 않은
+응답 위로 FC6을 보내지 않고 세션을 폐기합니다. 초기 실제 테스트는 10.2/11.4의
+CLASS/ATTRIBUTE를 검증하며 전체 타입·네이티브 동등성 인증은 아닙니다 (#457).
 참조 소스: [CAS FC9 인자](https://github.com/CUBRID/cubrid/blob/6b2bc75527c8bad94d9ad8aba961638efdfb3269/src/broker/cas_function.c#L1192),
 [CCI 축약 컬럼](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_query_execute.c#L5285),
 [JDBC 스키마 요청](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63ae4b334fde81ce2c523642f1afd37f/src/jdbc/cubrid/jdbc/jci/UConnection.java#L516).

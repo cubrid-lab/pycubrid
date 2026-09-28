@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 
 from .constants import (
     CASFunctionCode,
@@ -633,7 +633,7 @@ def _read_value(reader: PacketReader, column_type: int, size: int) -> Any:
 def _parse_row_data(
     reader: PacketReader,
     tuple_count: int,
-    columns: list[ColumnMetaData],
+    columns: Sequence[ColumnMetaData | _SchemaColumn],
     statement_type: int,
 ) -> list[tuple[Any, ...]]:
     """Parse row data from the reader."""
@@ -1013,7 +1013,7 @@ class FetchPacket:
         query_handle: int,
         current_tuple_count: int,
         fetch_size: int = 100,
-        columns: list[ColumnMetaData] | None = None,
+        columns: Sequence[ColumnMetaData | _SchemaColumn] | None = None,
         statement_type: int = CUBRIDStatementType.SELECT,
         decode_collections: bool = False,
         json_deserializer: Any = None,
@@ -1043,7 +1043,7 @@ class FetchPacket:
     def parse(
         self,
         data: bytes | bytearray,
-        columns: list[ColumnMetaData] | None = None,
+        columns: Sequence[ColumnMetaData | _SchemaColumn] | None = None,
         statement_type: int | None = None,
     ) -> None:
         """Parse the fetch response."""
@@ -1187,7 +1187,7 @@ def _write_schema_info_request(
     shard_id: int = 0,
     protocol_version: int = CASProtocol.VERSION,
 ) -> bytes:
-    """Stage the FC9 wire contract; production getters do not use this yet."""
+    """Serialize the independently nullable FC9 arguments and shard identifier."""
     writer = PacketWriter()
     writer._write_byte(CASFunctionCode.SCHEMA_INFO)
     writer.add_int(schema_type)
@@ -1210,22 +1210,31 @@ class GetSchemaPacket:
         schema_type: int,
         table_name: str = "",
         pattern_match_flag: int = 1,
+        *,
+        arg2: str | None = None,
+        protocol_version: int = CASProtocol.VERSION,
     ) -> None:
         self.schema_type = schema_type
         self.table_name = table_name
         self.pattern_match_flag = pattern_match_flag
+        self.arg2 = arg2
+        self.protocol_version = protocol_version
 
         self.query_handle: int = 0
         self.tuple_count: int = 0
+        self.columns: list[_SchemaColumn] = []
+        self._owner: object | None = None
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the get schema request."""
-        writer = PacketWriter()
-        writer._write_byte(CASFunctionCode.SCHEMA_INFO)
-        writer.add_int(self.schema_type)
-        writer._write_null_terminated_string(self.table_name)
-        writer.add_byte(self.pattern_match_flag)
-        return writer.finalize(cas_info)
+        return _write_schema_info_request(
+            cas_info,
+            self.schema_type,
+            self.table_name,
+            self.arg2,
+            self.pattern_match_flag,
+            protocol_version=self.protocol_version,
+        )
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get schema response."""
@@ -1237,6 +1246,11 @@ class GetSchemaPacket:
             _raise_error(reader, remaining)
         self.query_handle = response_code
         self.tuple_count = reader._parse_int()
+        if self.tuple_count < 0:
+            raise ValueError("negative schema tuple count")
+        self.columns = _parse_schema_column_metadata(reader, reader._parse_int())
+        if self.tuple_count and not self.columns:
+            raise ValueError("missing schema columns for nonempty result")
 
 
 class BatchExecutePacket:

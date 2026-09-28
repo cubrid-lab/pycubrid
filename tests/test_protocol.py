@@ -1224,6 +1224,8 @@ class TestGetSchemaPacket:
         response.extend(DEFAULT_CAS_INFO)
         response.extend(struct.pack(">i", 5))  # queryHandle
         response.extend(struct.pack(">i", 10))  # tuple_count
+        response.extend(struct.pack(">i", 1))  # condensed column count
+        response.extend(b"\x08" + struct.pack(">hii", 0, 10, 3) + b"id\x00")
         pkt.parse(bytes(response))
         assert pkt.query_handle == 5
         assert pkt.tuple_count == 10
@@ -1701,6 +1703,7 @@ class TestCloseQueryEncoding:
         assert payload[0] == CASFunctionCode.CLOSE_REQ_HANDLE
         # addInt: 4-byte length (4) + 4-byte value
         assert struct.unpack(">i", payload[5:9])[0] == 99
+        assert len(payload) == 9  # No optional auto-commit argument.
 
 
 class TestProtocolHeaderIntegration:
