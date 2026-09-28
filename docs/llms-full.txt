@@ -1426,6 +1426,8 @@ retains the original exception if cleanup also fails (the cleanup error is logge
 Async methods use `await` and hold the connection lock through fetch/cleanup.
 Cancellation during schema I/O discards the session and re-raises cancellation;
 cancellation while merely waiting for the lock does not discard another task's session.
+`KeyboardInterrupt` or `SystemExit` during async schema FETCH also discards the
+uncertain session without sending CLOSE on a stream with a pending reply.
 
 ---
 

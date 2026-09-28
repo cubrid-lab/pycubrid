@@ -802,7 +802,10 @@ class AsyncConnection(ConnectionCommonMixin):
                 # the stream. Retire synchronously before propagating cancellation.
                 self._drop_connection()
                 raise
-            except BaseException:
+            except BaseException as exc:
+                if not isinstance(exc, Exception):
+                    self._drop_connection()
+                    raise
                 try:
                     await self._close_schema_info_locked(packet)
                 except Exception:

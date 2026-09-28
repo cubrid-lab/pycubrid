@@ -601,6 +601,49 @@ def test_sync_interruption_drops_without_closing_over_pending_fetch(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+async def test_async_interruption_drops_without_closing_over_pending_fetch(
+    interruption: type[BaseException],
+) -> None:
+    conn = connected(True, SchemaPeer())
+    assert isinstance(conn, AsyncConnection)
+    packet = await conn.get_schema_info(1)
+    del conn._send_and_receive_locked
+    pending = fetch_reply([10, 20])
+    closed = CAS_INFO + struct.pack(">i", 0)
+    conn._reader, conn._writer, _ = make_mock_stream_pair(
+        [
+            struct.pack(">i", len(pending) - 4),
+            pending,
+            struct.pack(">i", len(closed) - 4),
+            closed,
+        ]
+    )
+    reader, writer = conn._reader, conn._writer
+    receive = reader.readexactly.side_effect
+    interrupted = False
+    primary = interruption("interrupted receive")
+
+    async def interrupt_once(size: int) -> bytes:
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            raise primary
+        return next(receive)
+
+    reader.readexactly.side_effect = interrupt_once
+    with pytest.raises(interruption) as raised:
+        await conn.fetch_schema_info(packet)
+    assert raised.value is primary
+    assert not conn._connected
+    assert not conn._schema_results
+    assert writer.write.call_count == 1  # FC8 only; never FC6 on an uncertain stream.
+    writer.close.assert_called_once()
+    assert conn._reader is None and conn._writer is None
+    await conn.close_schema_info(packet)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_schema_request_uses_negotiated_protocol_version(asynchronous: bool) -> None:
     peer = SchemaPeer()

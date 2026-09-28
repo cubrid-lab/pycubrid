@@ -209,6 +209,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   reconnect, replay or implicitly commit; transaction boundaries close active
   schema handles, including before auto-committing cursor/batch statements and
   connection-level version lookup with autocommit enabled.
+  Non-`Exception` interruptions during async schema FETCH discard the uncertain
+  session without sending CLOSE over a pending response.
   No holdability/native-profile choice or new dependencies.
   Initial CLASS/ATTRIBUTE coverage does not certify all schema types (#457).
 - **Empty bytes LOB writes avoid broker I/O (#394)** — PATCH / correction to the

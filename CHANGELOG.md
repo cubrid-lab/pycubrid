@@ -20,6 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
 
 ### Fixed
+- Async schema FETCH now discards the session without sending CLOSE when
+  `KeyboardInterrupt` or `SystemExit` interrupts a pending reply; the original
+  interruption is preserved. Ordinary FETCH errors retain their cleanup behavior.
 - Empty `bytes` LOB writes return `0` without a broker request after existing object, offset, connection and wire argument checks. BLOB/CLOB data and handles stay unchanged; nonempty ACK checks and existing bool/other-data paths are preserved. No new strict type policy or async LOB feature is introduced. (#394)
 - Native syntax (`-493`), semantic (`-494`) and communication (`-671`) errors now carry their verified meanings: generic `ProgrammingError` / `42000` for parser errors, `OperationalError` / `08S01` for communication. Batch dispatch reuses known-code SQLSTATE lookup rather than discarding it in favor of a class default; unknown-code defaults are unchanged. Missing-table inference from `-493` alone is unsupported. (#391)
 - Unfinished SELECT results invalidated by commit/rollback no longer silently look exhausted: sync and async fetch methods raise `InterfaceError` when another broker FETCH is required without a valid handle. Already received rows remain readable, fully buffered/exhausted results retain normal EOF, and reconnect-specific `OperationalError` stays distinct. No transparent replay or holdable-result guarantee is added. (#395)
