@@ -609,6 +609,6 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
     conn._no_backslash_escapes = False
     conn._lock.release()
 
-    with pytest.raises(OperationalError, match="escape mode changed"):
+    with pytest.raises(OperationalError, match="parameter binding; retry operation"):
         await asyncio.wait_for(task, timeout=2)
     conn._do_send_and_receive.assert_not_awaited()

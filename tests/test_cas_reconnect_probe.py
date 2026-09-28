@@ -22,6 +22,7 @@ from pycubrid.connection import Connection
 from pycubrid.constants import CASFunctionCode
 from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
 from pycubrid.protocol import (
+    BatchExecutePacket,
     CheckCasPacket,
     CloseDatabasePacket,
     CloseQueryPacket,
@@ -858,3 +859,130 @@ async def test_async_boundary_with_live_schema_result_survives_cas_recycle(
     end_tran = CommitPacket if boundary == "commit" else RollbackPacket
     assert cas.kinds() == [(1, CheckCasPacket), (2, end_tran)]
     assert conn._schema_results == {}
+
+
+# -- independent verification round --------------------------------------------------
+
+
+def _intercept_statements(conn: Connection) -> list[tuple[int, str]]:
+    """Answer PREPARE_AND_EXECUTE/EXECUTE_BATCH locally; record their generation."""
+    sent: list[tuple[int, str]] = []
+    original = conn._send_and_receive_locked
+
+    def record(packet: Any, **kwargs: Any) -> Any:
+        if isinstance(packet, PrepareAndExecutePacket):
+            sent.append((conn._physical_generation, packet.sql))
+            _prepare_reply(packet)
+            return packet
+        if isinstance(packet, BatchExecutePacket):
+            sent.append((conn._physical_generation, packet.sql_list[0]))
+            packet.results = [(20, 1)]
+            return packet
+        return original(packet, **kwargs)
+
+    conn._send_and_receive_locked = record  # type: ignore[method-assign]
+    return sent
+
+
+def test_sync_executemany_closes_old_handle_before_binding() -> None:
+    """A CAS recycled after the old handle's CLOSE_REQ must not reject the batch."""
+    conn, old = _sync_out_tran()
+    cursor = conn.cursor()
+    cursor._query_handle = 7
+    ok = build_simple_ok_response(OUT_TRAN)
+    _script(old, _frames(ok, ok))  # probe, CLOSE_REQ; then EOF for the pre-bind probe
+    sent = _intercept_statements(conn)
+    generation = conn._physical_generation
+    old_start = old.sendall.call_count
+
+    with patch("socket.create_connection", return_value=_replacement_socket()):
+        cursor.executemany("INSERT INTO t VALUES (?)", [("a\\b",)])
+
+    assert _function_codes(old, old_start) == [
+        CASFunctionCode.CHECK_CAS,
+        CASFunctionCode.CLOSE_REQ_HANDLE,
+        CASFunctionCode.CHECK_CAS,
+    ]
+    assert [g for g, _ in sent] == [generation + 1]
+
+
+@pytest.mark.asyncio
+async def test_async_executemany_closes_old_handle_before_binding() -> None:
+    conn, cas, _ = _async_out_tran()
+    cursor = conn.cursor()
+    cursor._query_handle = 7
+    cas.fail_on = {2}  # 0 probe, 1 CLOSE_REQ(7), 2 pre-bind probe fails
+
+    await cursor.executemany("INSERT INTO t VALUES (?)", [("a\\b",)])
+
+    batches = [(g, p) for g, p in cas.sent if isinstance(p, BatchExecutePacket)]
+    assert [g for g, _ in batches] == [2]
+    assert cas.kinds()[:3] == [(1, CheckCasPacket), (1, CloseQueryPacket), (1, CheckCasPacket)]
+
+
+def _sync_autocommit_with_schema(conn: Connection) -> None:
+    conn._autocommit = True
+    schema = GetSchemaPacket(schema_type=1)
+    schema.query_handle, schema.tuple_count, schema.columns = 4, 1, []
+    conn._register_schema_result(schema)
+
+
+@pytest.mark.parametrize("batch", [False, True], ids=["execute", "executemany"])
+def test_sync_reconnect_between_bind_and_send_rejects_bound_sql(batch: bool) -> None:
+    """Auto-committing SQL closes schema handles first; that CLOSE_REQ's OUT_TRAN
+    reply is re-probed, and a recycled CAS replaces the session after binding."""
+    conn, sock = make_connected_connection()  # IN_TRAN, verified: no pre-bind probe
+    _sync_autocommit_with_schema(conn)
+    cursor = conn.cursor()
+    _script(sock, _frames(build_simple_ok_response(OUT_TRAN)))  # CLOSE_REQ; then EOF
+    new = _replacement_socket()
+    start = sock.sendall.call_count
+
+    with patch("socket.create_connection", return_value=new):
+        with pytest.raises(OperationalError, match="parameter binding; retry operation"):
+            if batch:
+                cursor.executemany("INSERT INTO t VALUES (?)", [("a\\b",)])
+            else:
+                cursor.execute("SELECT ?", ("a\\b",))
+
+    assert _function_codes(sock, start) == [
+        CASFunctionCode.CLOSE_REQ_HANDLE,
+        CASFunctionCode.CHECK_CAS,
+    ]
+    assert _function_codes(new, 2) == []  # the bound SQL never reaches the new session
+    assert conn._connected is True
+
+
+def test_sync_stale_bound_sql_is_rejected_before_any_probe() -> None:
+    conn, sock = _sync_out_tran()  # OUT_TRAN, unverified: a probe would be due
+    start = sock.sendall.call_count
+
+    with pytest.raises(OperationalError, match="parameter binding; retry operation"):
+        conn._send_and_receive(
+            PrepareAndExecutePacket("SELECT 'a\\\\b'"),
+            bound_generation=conn._physical_generation - 1,
+        )
+    assert sock.sendall.call_count == start
+
+
+@pytest.mark.asyncio
+async def test_async_reconnect_between_bind_and_send_rejects_bound_sql() -> None:
+    conn, cas, _ = _async_out_tran()
+    conn._cas_info = bytearray(IN_TRAN)  # no pre-bind probe
+    conn._autocommit = True
+    schema = GetSchemaPacket(schema_type=1)
+    schema.query_handle, schema.tuple_count, schema.columns = 4, 1, []
+    conn._register_schema_result(schema)
+    cas.fail_on = {1}  # 0 schema CLOSE_REQ (OUT_TRAN reply), 1 re-probe fails
+    cursor = conn.cursor()
+
+    with pytest.raises(OperationalError, match="parameter binding; retry operation"):
+        await cursor.execute("SELECT ?", ("a\\b",))
+
+    statements = [
+        p.sql
+        for _, p in cas.sent
+        if isinstance(p, PrepareAndExecutePacket) and "CHAR_LENGTH" not in p.sql
+    ]
+    assert statements == []
+    assert conn._physical_generation == 2

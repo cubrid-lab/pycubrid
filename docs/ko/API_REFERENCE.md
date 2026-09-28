@@ -796,7 +796,7 @@ results = cur.executemany_batch([
 # statement_type 4 = CREATE_CLASS, 20 = INSERT
 ```
 
-> **참고:** `executemany_batch`는 pycubrid 확장이며 PEP 249의 일부가 아닙니다. 이전 쿼리 핸들을 닫은 뒤 배치 요청 전에 커서 결과 상태를 초기화합니다. 전송 또는 응답 파싱 오류를 포함한 배치 실패 시 `description=None`, `rowcount=-1`, `lastrowid=None`이며 이전 행을 가져올 수 없습니다. 문별 오류는 해당 데이터베이스 예외를 발생시키며 일부 성공 결과로 최종 행 수를 설정하지 않습니다. 이전 핸들 닫기가 실패하면 배치를 전송하지 않고 핸들을 계속 추적합니다.
+> **참고:** `executemany_batch`는 pycubrid 확장이며 PEP 249의 일부가 아닙니다. 이전 쿼리 핸들을 닫은 뒤 배치 요청 전에 커서 결과 상태를 초기화합니다. 전송 또는 응답 파싱 오류를 포함한 배치 실패 시 `description=None`, `rowcount=-1`, `lastrowid=None`이며 이전 행을 가져올 수 없습니다. 문별 오류는 해당 데이터베이스 예외를 발생시키며 일부 성공 결과로 최종 행 수를 설정하지 않습니다. 이전 핸들 닫기가 실패하면 배치를 전송하지 않고 핸들을 계속 추적합니다. `executemany_batch`에 직접 넘긴 SQL은 호출자가 렌더링한 것이므로 세대 검사를 하지 않으며, 자동 재접속(#485) 뒤에도 그대로 새 세션으로 보냅니다. 바인딩 뒤 세션이 바뀌었을 때 거부되는 것은 `execute()`/`executemany()`가 파라미터로 렌더링한 SQL뿐입니다.
 
 ---
 

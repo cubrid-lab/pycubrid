@@ -190,7 +190,8 @@ send if its session generation changed; the caller must deliberately retry
 the operation. Normal `CAS_INFO=OUT_TRAN` responses keep the session; only a
 failed pre-request `CHECK_CAS` reconnects (#485). Cursors run that check before
 rendering parameters; SQL rendered for a session that is replaced afterwards is
-rejected before send in sync and async alike.
+rejected before send in sync and async alike. SQL strings passed directly to
+`executemany_batch()` are rendered by the caller and are not generation-fenced.
 
 The [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) and
 [11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) CUBRID manuals

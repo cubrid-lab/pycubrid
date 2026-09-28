@@ -783,7 +783,7 @@ class Connection(ConnectionCommonMixin):
     def _validate_bound_generation(self, bound: int | None) -> None:
         """Reject SQL rendered for an earlier physical session before send."""
         if bound is not None and bound != self._physical_generation:
-            raise OperationalError("escape mode changed during parameter binding; retry operation")
+            raise OperationalError("CAS session replaced after parameter binding; retry operation")
 
     def _generation_for_binding(self) -> int:
         """Verify an OUT_TRAN CAS before SQL is bound, then return its generation.

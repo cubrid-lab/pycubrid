@@ -254,6 +254,11 @@ class Cursor(_CursorBase):
             return self._executemany_loop(operation, seq_of_parameters)
 
         # --- DML batch path: render + single RPC --------------------------
+        # Release the previous result first (as execute() does): its CLOSE_REQ
+        # can end OUT_TRAN, and the pre-bind check must run after it (#485).
+        if self._query_handle is not None:
+            self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+            self._query_handle = None
         bound_generation = self._connection._generation_for_binding()
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))

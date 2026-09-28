@@ -997,7 +997,7 @@ class AsyncConnection(ConnectionCommonMixin):
         if expected is not None and (
             expected != self._physical_generation or self._no_backslash_escapes is None
         ):
-            raise OperationalError("escape mode changed during parameter binding; retry operation")
+            raise OperationalError("CAS session replaced after parameter binding; retry operation")
 
     async def _send_and_receive_locked(
         self,

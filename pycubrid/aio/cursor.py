@@ -243,6 +243,13 @@ class AsyncCursor(_AsyncCursorBase):
 
         await self._connection._wait_for_setup_if_needed()
         self._connection._ensure_connected()
+        # Release the previous result first (as execute() does): its CLOSE_REQ
+        # can end OUT_TRAN, and the pre-bind check must run after it (#485).
+        if self._query_handle is not None:
+            await self._connection._send_and_receive(
+                CloseQueryPacket(self._query_handle), handle_owner=self
+            )
+            self._query_handle = None
         expected_escape_generation = await self._connection._generation_for_binding()
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
