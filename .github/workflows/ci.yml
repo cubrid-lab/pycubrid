@@ -73,6 +73,8 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Check tool consistency, lint, and format maintained Python
         run: make lint
+      - name: Lint CHANGELOG structure
+        run: python scripts/lint_changelog.py
 
   typecheck:
     runs-on: ubuntu-latest

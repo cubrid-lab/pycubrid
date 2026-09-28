@@ -44,6 +44,8 @@ dev = [
     "bandit[toml]==1.9.4",
     "pre-commit",
     "tox",
+    "build",
+    "twine",
     "hypothesis>=6.0",
 ]
 mutation = [

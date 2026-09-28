@@ -199,32 +199,12 @@ access is not a prerequisite for proposing a contribution.
 
 ## Release Process
 
-Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`.
-`pyproject.toml` derives it dynamically (`dynamic = ["version"]` + `version = {attr = "pycubrid.__version__"}`),
-so there is only one place to bump.
-
-Steps:
-1. `make release VERSION=x.y.z` (bumps `__init__.py`, validates)
-2. Add a dated changelog entry in `CHANGELOG.md` (`## [x.y.z] - YYYY-MM-DD`)
-3. Commit: `release: vx.y.z — <summary>`
-4. Open a PR and merge to `main`
-5. Push the tag on the merged commit: `git tag vx.y.z <merged-sha> && git push origin vx.y.z`
-6. The tag push triggers `.github/workflows/integration-full.yml`, which runs the **full
-   5×4 Python × CUBRID compatibility matrix** on the release commit. PR CI only runs a
-   reduced 2-cell matrix, so this tag run is the authoritative full-compatibility check.
-7. The tag push also triggers `.github/workflows/create-release.yml`, which extracts the
-   `## [x.y.z] - YYYY-MM-DD` section from `CHANGELOG.md` (fail-closed — no fallback)
-   and creates the GitHub Release titled `vx.y.z` with that body, after verifying the
-   tag is an ancestor of `origin/main`.
-8. Publishing the GitHub Release triggers `.github/workflows/publish-pypi.yml`,
-   which rebuilds, verifies (tag == version, dated CHANGELOG, tag on main, smoke tests,
-   **and that a successful `integration-full.yml` run exists for the release commit** —
-   PyPI publish is blocked until the full matrix passes), and publishes to PyPI via
-   Trusted Publisher (OIDC).
-
-Release notes are never hand-written: `CHANGELOG.md` is the single source of truth and
-`scripts/extract_release_notes.py` renders the Release body. To re-create a release body,
-re-run `create-release.yml` via `workflow_dispatch` with `update_existing: true`.
+Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`
+(`pyproject.toml` reads it dynamically). The full maintainer procedure — release PR,
+`make release-check VERSION=x.y.z`, tagging the squash-merged commit, waiting for the
+tag-triggered `integration-full.yml` + `create-release.yml`, the manual
+`publish-pypi.yml` dispatch, cookbook smoke, and recovery — lives in
+[`RELEASING.md`](RELEASING.md). There is no `make release`; never tag a local commit.
 
 ## CI Matrix
 
@@ -234,7 +214,8 @@ re-run `create-release.yml` via `workflow_dispatch` with `update_existing: true`
 |---|---|---|
 | `.github/workflows/ci.yml` | Push to main, PRs | Lint + offline tests (Py 3.10–3.14) + regular integration matrix |
 | `.github/workflows/integration-full.yml` | Nightly (03:00 UTC), tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
-| `.github/workflows/publish-pypi.yml` | GitHub Release published | Build, verify, and publish to PyPI |
+| `.github/workflows/create-release.yml` | Tag push, manual dispatch | Create the GitHub Release from CHANGELOG + attach SBOM (does not publish) |
+| `.github/workflows/publish-pypi.yml` | Manual dispatch (`-f tag=vX.Y.Z`) after tag-triggered integration-full passes | Verify, build, publish to PyPI, then dispatch the cookbook smoke test |
 
 ### Matrix Shape
 

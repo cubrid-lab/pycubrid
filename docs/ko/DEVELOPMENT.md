@@ -404,12 +404,14 @@ main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 �
 
 | 워크플로 | 트리거 | 설명 |
 |----------|---------|-------------|
-| `ci.yml` | main 푸시, PR | 린트 + 오프라인 테스트 (Python 3.10–3.13) + 통합 |
-| `python-publish.yml` | GitHub Release | 빌드 후 PyPI 게시 |
+| `ci.yml` | main 푸시, PR | 린트 + 오프라인 테스트 (Python 3.10–3.14) + 통합 |
+| `integration-full.yml` | 야간, 태그 푸시, 수동 실행 | 전체 Python × CUBRID 호환성 매트릭스 |
+| `create-release.yml` | 태그 푸시, 수동 실행 | CHANGELOG로 GitHub Release 생성 (게시하지 않음) |
+| `publish-pypi.yml` | 태그로 트리거된 전체 매트릭스 통과 후 수동 실행 | 검증 후 PyPI 게시, cookbook 스모크 테스트 디스패치 |
 
 ### CI 매트릭스
 
-- **오프라인**: Python 3.10, 3.11, 3.12, 3.13
+- **오프라인**: Python 3.10, 3.11, 3.12, 3.13, 3.14
 - **통합**: Python {3.10, 3.12} × CUBRID {11.2, 11.4}
 
 ---
@@ -509,10 +511,7 @@ graph TD
 
 ## 릴리스 절차
 
-1. `pyproject.toml`과 `pycubrid/__init__.py`에서 버전 갱신
-2. `CHANGELOG.md`에 변경 이력 항목 추가
-3. 커밋: `git commit -m "chore: bump version to X.Y.Z"`
-4. 태그: `git tag vX.Y.Z`
-5. 푸시: `git push origin main --tags`
-6. GitHub 릴리스 생성: `gh release create vX.Y.Z`
-7. PyPI 게시는 릴리스 워크플로에서 자동 트리거
+릴리스는 유지보수자 전용이며 [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 따릅니다: 릴리스 PR
+(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인),
+squash 병합된 커밋에 태그, 그리고 태그로 트리거된 전체 매트릭스가 통과한 뒤
+`publish-pypi.yml`을 수동 실행합니다.
