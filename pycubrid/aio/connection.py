@@ -691,46 +691,43 @@ class AsyncConnection(ConnectionCommonMixin):
         ``False`` rather than retrying.  Reconnect and restore run under a
         single hold of ``self._lock`` so a concurrent task cannot observe
         an un-restored session between the two operations."""
-        if not self._connected:
+        try:
+            await self._wait_for_setup_if_needed()
+        except (OSError, InterfaceError, OperationalError, struct.error):
+            return False
+        async with self._lock:
+            if not self._connected:
+                if not reconnect:
+                    return False
+                try:
+                    self._invalidate_query_handles_for_reconnect()
+                    _LOGGER.debug("ping: reconnecting")
+                    await self._invoke_connect_locked()
+                    await self._restore_session_state_locked()
+                    return True
+                except (OSError, OperationalError, InterfaceError):
+                    return False
+            try:
+                packet = await self._send_and_receive_locked(
+                    CheckCasPacket(), allow_reconnect=False
+                )
+                healthy = packet.response_code >= 0
+            except (OSError, InterfaceError, OperationalError, struct.error):
+                healthy = False
+            if healthy:
+                return True
             if not reconnect:
                 return False
             try:
-                self._invalidate_query_handles_for_reconnect()
-                _LOGGER.debug("ping: reconnecting")
-                async with self._lock:
-                    await self._invoke_connect_locked()
-                    await self._restore_session_state_locked()
-                return True
-            except (OSError, OperationalError, InterfaceError):
-                return False
-        probe_writer = self._writer
-        try:
-            packet = await self._send_and_receive(CheckCasPacket(), allow_reconnect=False)
-            healthy = packet.response_code >= 0
-        except (OSError, InterfaceError, OperationalError, struct.error):
-            healthy = False
-        if healthy:
-            return True
-        if not reconnect:
-            return False
-        try:
-            _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
-            async with self._lock:
-                if (
-                    self._connected
-                    and self._writer is not None
-                    and self._writer is not probe_writer
-                ):
-                    # Another ping already replaced and restored this session.
-                    return True
+                _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
                 await self._close_streams()
                 self._connected = False
                 self._invalidate_query_handles_for_reconnect()
                 await self._invoke_connect_locked()
                 await self._restore_session_state_locked()
-            return True
-        except (OSError, OperationalError, InterfaceError):
-            return False
+                return True
+            except (OSError, OperationalError, InterfaceError):
+                return False
 
     def create_lob(self, lob_type: int) -> Any:
         """Reject LOB creation on async connections.

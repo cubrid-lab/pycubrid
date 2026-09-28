@@ -823,7 +823,8 @@ async def test_implicit_autocommit_keeps_out_tran_socket_after_schema_close(
         else GetEngineVersionPacket(auto_commit=True)
     )
     packet.parse = MagicMock()
-    assert await invoke(conn, "_send_and_receive", packet) is packet
+    result = await invoke(conn, "_send_and_receive", packet)
+    assert result is packet
     writes = transport.write.call_args_list if asynchronous else transport.sendall.call_args_list
     assert [entry.args[0][8] for entry in writes] == [6, packet.write(b"\x00" * 4)[8]]
     assert observed == [1, 1, 0]

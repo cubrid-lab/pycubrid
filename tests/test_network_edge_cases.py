@@ -751,7 +751,7 @@ class TestPingSingleAttemptContract:
         conn._invoke_connect_locked = fake_invoke_connect_locked  # type: ignore[method-assign]
         conn._restore_session_state_locked = failing_restore  # type: ignore[method-assign]
         conn._close_streams = AsyncMock()  # type: ignore[method-assign]
-        conn._send_and_receive = AsyncMock(  # type: ignore[method-assign]
+        conn._send_and_receive_locked = AsyncMock(  # type: ignore[method-assign]
             side_effect=OperationalError("CHECK_CAS failed")
         )
 
