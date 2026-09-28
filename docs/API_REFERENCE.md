@@ -413,7 +413,9 @@ start, both previous identity values remain unchanged and the exception propagat
 def ping(self, reconnect: bool = True) -> bool
 ```
 
-Perform a lightweight `CHECK_CAS` health check without executing SQL.
+On a healthy session, perform a lightweight `CHECK_CAS` health check without
+SQL. Recovery of an automatically configured connection can execute the
+read-only escape-mode probe before accepting application SQL.
 
 - Returns `True` when the CAS connection is alive. `CAS_INFO[0]=0` means OUT_TRAN,
   not a disconnected session, and does not itself cause a reconnect.
@@ -425,6 +427,10 @@ Perform a lightweight `CHECK_CAS` health check without executing SQL.
   `reconnect=False` reports the negative response as `False` without reconnecting.
   Only explicitly set autocommit is restored after successful recovery.
   Interrupted SQL is not replayed; the caller must decide whether retry is safe.
+  An automatically detected `no_backslash_escapes` mode is probed again on a
+  new physical session before use; an explicit `True`/`False` remains pinned.
+  A healthy same-session ping does not probe. Probe failure retires the
+  replacement and returns `False`, without guessing a mode or replaying SQL.
 
 ```python
 if not conn.ping():
@@ -1069,7 +1075,8 @@ Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
 async def ping(self, reconnect: bool = True) -> bool
 ```
 
-Perform a lightweight native `CHECK_CAS` health check without executing SQL.
+On a healthy session, perform a lightweight native `CHECK_CAS` health check
+without SQL. Recovery can execute the read-only escape-mode probe.
 
 - Returns `True` when the CAS connection is alive.
 - Issues the native `CHECK_CAS` round-trip when the socket is open. `CAS_INFO[0]=0`
@@ -1081,6 +1088,11 @@ Perform a lightweight native `CHECK_CAS` health check without executing SQL.
   `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
   `reconnect=False` reports the negative response as `False` without reconnecting.
   Only explicitly set autocommit is restored; arbitrary SQL is never replayed.
+  Automatic `no_backslash_escapes` detection runs on each new physical session,
+  not on healthy same-session checks; explicit `True`/`False` remains pinned.
+  Probe failure retires the replacement and returns `False`. Parameterized SQL
+  bound against a prior session generation is rejected before send rather than
+  silently rebound or replayed; retry is the caller's decision.
 
 ```python
 if not await conn.ping(reconnect=False):

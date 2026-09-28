@@ -94,6 +94,12 @@ the same transport. A failed `CHECK_CAS` may justify explicit
 `ping(reconnect=True)` recovery, but an uncertain application request is
 never replayed automatically.
 
+Automatic `no_backslash_escapes` detection is scoped to a physical session:
+new sessions are probed before parameter binding resumes, while a healthy
+same-session `CHECK_CAS` does not probe. Explicit mode remains pinned. If
+recovery probing fails, the replacement is retired and ping returns `False`;
+async SQL bound under a prior session generation is rejected before send.
+
 **Building a header:**
 
 ```python

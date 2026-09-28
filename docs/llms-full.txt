@@ -301,7 +301,7 @@ def connect(
 | `read_timeout` | `float` | `None` | Socket read timeout in seconds |
 | `fetch_size` | `int` | `100` | Server-side fetch batch size |
 | `enable_timing` | `bool \| None` | `None` | Enable driver timing stats, or fall back to `PYCUBRID_ENABLE_TIMING` |
-| `no_backslash_escapes` | `bool` | `False` | Escape strings using doubled quotes only, without backslash escapes |
+| `no_backslash_escapes` | `bool \| None` | `None` (auto) | Probe each new physical session's string-escape mode; explicit `True`/`False` skips detection and remains pinned across recovery |
 | `autocommit` | `bool` | `False` | Enable immediate commit per statement |
 
 ### Unknown Options
@@ -486,7 +486,8 @@ if not alive:
 
 - `await conn.ping(reconnect=False)` issues a native `CHECK_CAS` round-trip on an open socket without reconnecting. `CAS_INFO[0]=0` means OUT_TRAN after a transaction boundary, not a released session; it does not change this behavior. A closed socket or failed check returns `False`, which makes this suitable for SQLAlchemy's `pool_pre_ping`.
 - `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting.
-- The async implementation uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and does not execute SQL.
+- A healthy same-session ping does not re-probe escape mode. On a new physical session, an automatic mode is re-probed before use; an explicit `no_backslash_escapes=True` or `False` remains pinned. Probe failure retires the replacement and makes ping return `False`, without guessing an escape mode or replaying SQL.
+- The healthy-session check uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and executes no SQL; recovery may run a read-only escape-mode probe.
 
 ---
 
@@ -586,8 +587,17 @@ probe returns a negative response (broken CAS-to-DB link), explicit
 the negative response returns `False` without reconnecting. The caller must
 decide whether interrupted SQL is safe to retry.
 
-After that recovery, pycubrid restores the session-level setting the caller
-has **explicitly** set:
+Automatic `no_backslash_escapes` detection runs again on the replacement
+physical session before state restoration; an explicitly selected mode remains
+unchanged. If this probe fails, the session is retired and `ping()` returns
+`False`. No interrupted SQL is replayed. Async parameterized SQL bound before
+a session replacement is rejected before send when its generation changed;
+the caller decides whether to retry. A healthy same-session ping does not
+probe. This does not claim a dynamic per-session setting toggle or verified
+heterogeneous failover.
+
+After successful recovery, pycubrid restores the session-level setting the
+caller has **explicitly** set:
 
 | Setting | Restored after successful ping recovery? |
 |---|---|
@@ -1342,7 +1352,9 @@ start, both previous identity values remain unchanged and the exception propagat
 def ping(self, reconnect: bool = True) -> bool
 ```
 
-Perform a lightweight `CHECK_CAS` health check without executing SQL.
+On a healthy session, perform a lightweight `CHECK_CAS` health check without
+SQL. Recovery of an automatically configured connection can execute the
+read-only escape-mode probe before accepting application SQL.
 
 - Returns `True` when the CAS connection is alive. `CAS_INFO[0]=0` means OUT_TRAN,
   not a disconnected session, and does not itself cause a reconnect.
@@ -1354,6 +1366,10 @@ Perform a lightweight `CHECK_CAS` health check without executing SQL.
   `reconnect=False` reports the negative response as `False` without reconnecting.
   Only explicitly set autocommit is restored after successful recovery.
   Interrupted SQL is not replayed; the caller must decide whether retry is safe.
+  An automatically detected `no_backslash_escapes` mode is probed again on a
+  new physical session before use; an explicit `True`/`False` remains pinned.
+  A healthy same-session ping does not probe. Probe failure retires the
+  replacement and returns `False`, without guessing a mode or replaying SQL.
 
 ```python
 if not conn.ping():
@@ -1998,7 +2014,8 @@ Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
 async def ping(self, reconnect: bool = True) -> bool
 ```
 
-Perform a lightweight native `CHECK_CAS` health check without executing SQL.
+On a healthy session, perform a lightweight native `CHECK_CAS` health check
+without SQL. Recovery can execute the read-only escape-mode probe.
 
 - Returns `True` when the CAS connection is alive.
 - Issues the native `CHECK_CAS` round-trip when the socket is open. `CAS_INFO[0]=0`
@@ -2010,6 +2027,11 @@ Perform a lightweight native `CHECK_CAS` health check without executing SQL.
   `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
   `reconnect=False` reports the negative response as `False` without reconnecting.
   Only explicitly set autocommit is restored; arbitrary SQL is never replayed.
+  Automatic `no_backslash_escapes` detection runs on each new physical session,
+  not on healthy same-session checks; explicit `True`/`False` remains pinned.
+  Probe failure retires the replacement and returns `False`. Parameterized SQL
+  bound against a prior session generation is rejected before send rather than
+  silently rebound or replayed; retry is the caller's decision.
 
 ```python
 if not await conn.ping(reconnect=False):
@@ -3849,6 +3871,12 @@ means IN_TRAN. OUT_TRAN after `END_TRAN` or an auto-committing request does
 the same transport. A failed `CHECK_CAS` may justify explicit
 `ping(reconnect=True)` recovery, but an uncertain application request is
 never replayed automatically.
+
+Automatic `no_backslash_escapes` detection is scoped to a physical session:
+new sessions are probed before parameter binding resumes, while a healthy
+same-session `CHECK_CAS` does not probe. Explicit mode remains pinned. If
+recovery probing fails, the replacement is retired and ping returns `False`;
+async SQL bound under a prior session generation is rejected before send.
 
 **Building a header:**
 
@@ -6522,7 +6550,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only `arg2=None`; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
-| Explicit connection recovery | ✅ | 1.2.0 (#70) | `ping(reconnect=True)` can reconnect after disconnect, negative `CHECK_CAS` (broken CAS-to-DB link), or a check transport/protocol error; `CAS_INFO[0]=0` is OUT_TRAN and never triggers reconnect or SQL replay |
+| Explicit connection recovery | ✅ | 1.2.0 (#70); Unreleased (#471) | `ping(reconnect=True)` can reconnect after disconnect, negative `CHECK_CAS` (broken CAS-to-DB link), or a check transport/protocol error; `CAS_INFO[0]=0` is OUT_TRAN and never triggers reconnect or SQL replay. Auto escape mode re-probes per new physical session; explicit mode stays pinned; failed probe returns `False`. Async prebound parameterized SQL from an old generation is rejected before send. No dynamic `SET` or heterogeneous-failover guarantee. |
 | Unknown-option reporting | ✅ | 1.8.0 (#377) | An unrecognised connection keyword is ignored but emits `UnknownConnectionOptionWarning` (with a spelling suggestion); escalate with `warnings.simplefilter("error", ...)` |
 
 ### TLS / SSL
@@ -7333,6 +7361,8 @@ String escaping is performed by `escape_string`
 from the live server at connect time (see
 [Escape-mode negotiation](#escape-mode-negotiation)); pass it explicitly to
 `pycubrid.connect(..., no_backslash_escapes=True|False)` to override detection.
+Automatic detection runs for each newly opened physical session, including
+explicit `ping(reconnect=True)` recovery, before parameterized SQL can use it.
 
 In every mode:
 
@@ -7371,14 +7401,22 @@ literal `'\\'`, two backslash characters):
   string escaping (and can enable SQL injection). Pass `no_backslash_escapes`
   explicitly to skip detection when the probe cannot run.
 
-Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
-entirely. Negotiation currently happens once per connection object; the chosen
-value is retained if an explicit `ping(reconnect=True)` recovers a failed
-transport. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect. Until
-[#471](https://github.com/cubrid-lab/pycubrid/issues/471) re-probes on recovery,
-do not reuse an automatically negotiated connection after failover to a target
-whose escape mode may differ. An explicit mode is safe only when every possible
-target is known to use that same mode.
+Passing `no_backslash_escapes=True` or `False` explicitly skips the probe and
+retains that choice across reconnections. Without an explicit value, a newly
+opened physical session is probed before use; a healthy same-session
+`ping()` does not re-probe. A failed probe prevents direct connection setup;
+during `ping(reconnect=True)`, it retires the replacement session and returns
+`False`. Neither path guesses a mode or replays interrupted SQL. In the async
+path, parameterized SQL bound before a session replacement is rejected before
+send if its session generation changed; the caller must deliberately retry
+the operation. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect.
+
+The [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) and
+[11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) CUBRID manuals
+do not classify `no_backslash_escapes` as dynamically changeable. This driver
+behavior does not imply support for a per-session `SET` toggle or prove
+heterogeneous failover between differently configured servers. An explicit
+mode should be used only when every possible target is known to match it.
 
 ### Literal mode (`no_backslash_escapes=True`)
 

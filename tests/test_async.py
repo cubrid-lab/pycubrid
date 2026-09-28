@@ -128,6 +128,42 @@ class TestAsyncConnectionEstablishment:
         await async_conn.connect()
         assert async_conn._connected is True
 
+    @pytest.mark.asyncio
+    async def test_failed_initial_autocommit_is_applied_on_retry(self) -> None:
+        conn = AsyncConnection(
+            "localhost", 33000, "testdb", "dba", "", autocommit=True, no_backslash_escapes=True
+        )
+        attempts = 0
+
+        async def fake_connect_locked() -> None:
+            conn._connected = True
+            conn._physical_generation += 1
+
+        async def fake_apply_pending() -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise OperationalError("initial autocommit failed")
+            conn._autocommit = True
+            conn._autocommit_explicitly_set = True
+            conn._pending_autocommit = False
+
+        conn._connect_locked = fake_connect_locked
+        conn._apply_pending_autocommit_locked = fake_apply_pending
+        conn._restore_session_state_locked = AsyncMock()
+
+        with pytest.raises(OperationalError, match="initial autocommit failed"):
+            await conn.connect()
+        assert conn._connected is False
+        assert conn._pending_autocommit is True
+
+        await conn.connect()
+        assert attempts == 2
+        assert conn._connected is True
+        assert conn.autocommit is True
+        assert conn._pending_autocommit is False
+        conn._restore_session_state_locked.assert_not_awaited()
+
 
 class TestAsyncConnectionLastInsertId:
     @pytest.mark.asyncio
@@ -438,7 +474,10 @@ def _make_mock_conn(autocommit: bool = False) -> MagicMock:
     conn._timing = None
     conn._cursors = set()
     conn._ensure_connected = MagicMock()
+    conn._wait_for_setup_if_needed = AsyncMock()
     conn._send_and_receive = AsyncMock()
+    conn._physical_generation = 1
+    conn._no_backslash_escapes = False
     conn._protocol_version = 1
     conn.autocommit = autocommit
     return conn
@@ -491,7 +530,8 @@ class TestAsyncCursorExecute:
         conn = _make_mock_conn()
         cur = AsyncCursor(conn)
 
-        async def fake_send(packet):
+        async def fake_send(packet, *, expected_escape_generation: int):
+            assert expected_escape_generation == 1
             packet.query_handle = 1
             packet.statement_type = CUBRIDStatementType.SELECT
             packet.columns = []
@@ -673,7 +713,11 @@ class TestAsyncCursorExecutemany:
         conn = _make_mock_conn()
         cur = AsyncCursor(conn)
 
-        async def fake_send(packet):
+        async def fake_send(packet, *, expected_escape_generation: int | None = None):
+            if isinstance(packet, CloseQueryPacket):
+                assert expected_escape_generation is None
+                return
+            assert expected_escape_generation == 1
             packet.query_handle = 1
             packet.statement_type = CUBRIDStatementType.SELECT
             packet.columns = []
@@ -690,7 +734,8 @@ class TestAsyncCursorExecutemany:
         conn = _make_mock_conn()
         cur = AsyncCursor(conn)
 
-        async def fake_send(packet):
+        async def fake_send(packet, *, expected_escape_generation: int):
+            assert expected_escape_generation == 1
             packet.results = [(0, 1), (0, 1)]
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
@@ -886,7 +931,8 @@ class TestAsyncCursorMisc:
 
         captured = {}
 
-        async def fake_send(packet):
+        async def fake_send(packet, *, expected_escape_generation: int):
+            assert expected_escape_generation == 1
             captured["sql"] = getattr(packet, "sql", None)
             packet.query_handle = 1
             packet.statement_type = CUBRIDStatementType.SELECT
@@ -909,7 +955,8 @@ class TestAsyncCursorMisc:
 
         captured = {}
 
-        async def fake_send(packet):
+        async def fake_send(packet, *, expected_escape_generation: int):
+            assert expected_escape_generation == 1
             captured["sql"] = getattr(packet, "sql", None)
             packet.query_handle = 1
             packet.statement_type = CUBRIDStatementType.SELECT

@@ -30,6 +30,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
 
 ### Fixed
+- Re-probe automatically detected `no_backslash_escapes` on each new physical
+  session, including explicit ping recovery (#471). Explicit `True`/`False`
+  remains pinned; healthy same-session ping does not probe. Probe failure
+  retires the replacement and returns `False` from ping, while direct connect
+  raises. Async parameterized SQL bound against an older session generation is
+  rejected before send, not silently rebound or replayed. PATCH correction;
+  no dynamic `SET` or heterogeneous-failover guarantee. This supersedes the
+  historical #264 note that recovery never re-probes.
 - Treat `CAS_INFO[0]=0` as OUT_TRAN, not a released CAS session (#468). Normal
   commit, rollback, and autocommit requests keep the physical connection and
   session state; only an explicit `ping(reconnect=True)` may recover from a

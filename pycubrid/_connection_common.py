@@ -208,6 +208,8 @@ class ConnectionCommonMixin:
         self._decode_collections = decode_collections
         self._json_deserializer = json_deserializer
         self._no_backslash_escapes: bool | None = no_backslash_escapes
+        self._no_backslash_escapes_explicit = no_backslash_escapes is not None
+        self._physical_generation = 0
 
         if type(fetch_size) is not int or fetch_size < 1:
             raise ValueError("fetch_size must be an integer >= 1")

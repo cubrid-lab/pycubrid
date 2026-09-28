@@ -17,7 +17,13 @@ from pycubrid._connection_common import (
     warn_unknown_connection_options,
 )
 from pycubrid.constants import CCIDbParam, DataSize
-from pycubrid.exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
+from pycubrid.exceptions import (
+    DataError,
+    Error,
+    InterfaceError,
+    NotSupportedError,
+    OperationalError,
+)
 from pycubrid.protocol import (
     BatchExecutePacket,
     CheckCasPacket,
@@ -133,40 +139,54 @@ class AsyncConnection(ConnectionCommonMixin):
         .. _#156: https://github.com/cubrid-lab/pycubrid/issues/156
         """
         async with self._setup_lock:
-            current = asyncio.current_task()
-            self._setup_owner = current
-            self._setup_error = None
-            self._setup_done.clear()
+            did_connect = False
+            previous_generation = self._physical_generation
             try:
                 # Read the connecting edge and run the handshake under _lock so
                 # two concurrent connect() calls can't both see "not connected"
                 # and both drive setup (PR #226 review).
                 async with self._lock:
-                    did_connect = not self._connected
+                    if self._connected:
+                        return  # Healthy no-op must not close the setup gate.
+                    did_connect = True
+                    self._setup_owner = asyncio.current_task()
+                    self._setup_error = None
+                    self._setup_done.clear()
                     await self._connect_locked()
 
                 # Match the sync driver's setup order exactly: negotiate the
                 # backslash-escape mode BEFORE applying pending autocommit.
                 # The probe is a read-only SELECT issued via a cursor; it runs
                 # without holding _lock (the cursor acquires it) but is fenced
-                # from other tasks by the setup gate, and the guard keeps it to
-                # a single probe per object. Re-probing after physical
-                # recovery is tracked separately in #471.
+                # from other tasks by the setup gate. Auto-detection is
+                # repeated for every new physical session (#471).
                 if did_connect and self._no_backslash_escapes is None:
                     await self._negotiate_backslash_escapes()
 
-                # Apply the constructor's autocommit in its own _lock hold via
-                # _send_and_receive_locked so no query on another task can slip
-                # between the handshake and the SET_DB_PARAMETER round-trip.
+                # Finish session settings before releasing the setup gate.
                 async with self._lock:
-                    if did_connect and self._pending_autocommit:
+                    if self._pending_autocommit:
                         await self._apply_pending_autocommit_locked()
+                    elif previous_generation:
+                        await self._restore_session_state_locked()
             except BaseException as exc:
-                self._setup_error = exc
+                if did_connect:
+                    self._setup_error = exc
+                    # A failed/cancelled probe leaves the new session unsafe.
+                    try:
+                        self._drop_connection()
+                    except BaseException:
+                        _LOGGER.warning(
+                            "Failed to discard connection after escape-mode probe", exc_info=True
+                        )
+                    finally:
+                        self._connected = False
+                        self._invalidate_query_handles()
                 raise
             finally:
-                self._setup_owner = None
-                self._setup_done.set()
+                if did_connect:
+                    self._setup_owner = None
+                    self._setup_done.set()
 
     async def _negotiate_backslash_escapes(self) -> None:
         """Async counterpart of
@@ -244,6 +264,9 @@ class AsyncConnection(ConnectionCommonMixin):
         if self._connected:
             return
 
+        if not self._no_backslash_escapes_explicit:
+            self._no_backslash_escapes = None
+
         self._last_insert_id = None
         _timing = self._timing
         _start = 0
@@ -261,6 +284,7 @@ class AsyncConnection(ConnectionCommonMixin):
             hs_writer = None  # ownership transferred to self or closed
 
             self._connected = True
+            self._physical_generation += 1
         except asyncio.TimeoutError as exc:
             raise OperationalError("read timeout during connect handshake") from exc
         except (OSError, ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
@@ -289,11 +313,9 @@ class AsyncConnection(ConnectionCommonMixin):
         (torn autocommit state).
 
         This bootstraps the explicit-autocommit state (``_autocommit`` +
-        ``_autocommit_explicitly_set``), after which the normal reconnect
-        restore machinery (``_restore_session_state_locked``) takes over — so
-        it is intentionally driven only from the public ``connect()`` path,
-        not the internal ``ping``/reconnect path, to avoid re-emitting on top
-        of restore.
+        ``_autocommit_explicitly_set``). The public ``connect()`` setup path
+        also runs during ping recovery, and uses this pending value before
+        normal reconnect restore when an initial application failed.
 
         ``self._pending_autocommit`` is cleared only on success, so a
         transient failure leaves it set for the next ``connect()`` attempt to
@@ -688,46 +710,51 @@ class AsyncConnection(ConnectionCommonMixin):
     async def ping(self, reconnect: bool = True) -> bool:
         """Contract: reconnect+session-restore is attempted at most once per
         call.  A restore failure tears the connection down and returns
-        ``False`` rather than retrying.  Reconnect and restore run under a
-        single hold of ``self._lock`` so a concurrent task cannot observe
-        an un-restored session between the two operations."""
-        try:
-            await self._wait_for_setup_if_needed()
-        except (OSError, InterfaceError, OperationalError, struct.error):
-            return False
-        async with self._lock:
-            if not self._connected:
-                if not reconnect:
-                    return False
-                try:
-                    self._invalidate_query_handles_for_reconnect()
-                    _LOGGER.debug("ping: reconnecting")
-                    await self._invoke_connect_locked()
-                    await self._restore_session_state_locked()
-                    return True
-                except (OSError, OperationalError, InterfaceError):
-                    return False
+        ``False`` rather than retrying. Recovery uses the public connect()
+        setup gate, which probes escape mode and restores settings before any
+        other task may send SQL on the new physical session. Subclass overrides
+        of connect() cannot bypass that recovery invariant."""
+        while True:
             try:
-                packet = await self._send_and_receive_locked(
-                    CheckCasPacket(), allow_reconnect=False
-                )
-                healthy = packet.response_code >= 0
-            except (OSError, InterfaceError, OperationalError, struct.error):
-                healthy = False
-            if healthy:
-                return True
-            if not reconnect:
+                await self._wait_for_setup_if_needed()
+            except (OSError, Error, struct.error):
                 return False
-            try:
-                _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
+            async with self._lock:
+                if (
+                    not self._setup_done.is_set()
+                    and self._setup_owner is not asyncio.current_task()
+                ):
+                    # Setup began after the outer wait. Release _lock and wait;
+                    # this is not evidence that the new session is broken.
+                    continue
+                if self._connected:
+                    try:
+                        packet = await self._send_and_receive_locked(
+                            CheckCasPacket(), allow_reconnect=False
+                        )
+                        healthy = packet.response_code >= 0
+                    except (OSError, Error, struct.error):
+                        healthy = False
+                    if healthy:
+                        return True
+                elif not reconnect:
+                    return False
                 await self._close_streams()
                 self._connected = False
                 self._invalidate_query_handles_for_reconnect()
-                await self._invoke_connect_locked()
-                await self._restore_session_state_locked()
-                return True
-            except (OSError, OperationalError, InterfaceError):
-                return False
+                if not reconnect:
+                    return False
+            break
+
+        try:
+            _LOGGER.debug("ping: recovering through a fully configured connection")
+            # An override of connect() can establish transport without the
+            # escape-mode probe or session restore. Recovery must run the base
+            # setup protocol; its _connect_locked hook remains overridable.
+            await AsyncConnection.connect(self)
+            return True
+        except (OSError, Error):
+            return False
 
     def create_lob(self, lob_type: int) -> Any:
         """Reject LOB creation on async connections.
@@ -897,15 +924,44 @@ class AsyncConnection(ConnectionCommonMixin):
             if self._setup_error is not None:
                 raise self._setup_error
 
-    async def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
+    async def _send_and_receive(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool = True,
+        expected_escape_generation: int | None = None,
+    ) -> Any:
         await self._wait_for_setup_if_needed()
         async with self._lock:
-            return await self._send_and_receive_locked(packet, allow_reconnect=allow_reconnect)
+            if expected_escape_generation is None:
+                return await self._send_and_receive_locked(packet, allow_reconnect=allow_reconnect)
+            return await self._send_and_receive_locked(
+                packet,
+                allow_reconnect=allow_reconnect,
+                expected_escape_generation=expected_escape_generation,
+            )
 
-    async def _send_and_receive_locked(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
+    def _validate_escape_generation(self, expected: int | None) -> None:
+        if expected is not None and (
+            expected != self._physical_generation or self._no_backslash_escapes is None
+        ):
+            raise OperationalError("escape mode changed during parameter binding; retry operation")
+
+    async def _send_and_receive_locked(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool = True,
+        expected_escape_generation: int | None = None,
+    ) -> Any:
+        if not self._setup_done.is_set() and self._setup_owner is not asyncio.current_task():
+            # A caller may have passed the outer gate before recovery began.
+            # Never send its prebuilt SQL while the new mode is unverified.
+            raise OperationalError("connection setup in progress; retry operation")
         await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
         if self._writer is None or self._reader is None:
             raise InterfaceError("connection is closed")
+        self._validate_escape_generation(expected_escape_generation)
         if (
             self._schema_results
             and isinstance(
@@ -918,6 +974,7 @@ class AsyncConnection(ConnectionCommonMixin):
             await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
             if self._writer is None or self._reader is None:
                 raise InterfaceError("connection is closed")
+            self._validate_escape_generation(expected_escape_generation)
 
         try:
             coro = self._do_send_and_receive(packet)

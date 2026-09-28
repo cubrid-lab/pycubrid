@@ -79,7 +79,6 @@ class Connection(ConnectionCommonMixin):
         )
 
         self.connect()
-        self._negotiate_backslash_escapes()
         if autocommit:
             self.autocommit = True
 
@@ -107,7 +106,8 @@ class Connection(ConnectionCommonMixin):
             return
         # From here the probe SELECT runs in the default manual-commit mode,
         # which opens a driver-owned transaction before the constructor's
-        # autocommit setting is applied. Roll it back on *every* exit path
+        # autocommit setting or recovered session state is applied. Roll it
+        # back on *every* exit path
         # (success, unexpected result, or probe error) so a freshly opened
         # connection is handed back with clean transaction state (e.g.
         # SQLAlchemy setting isolation_level on a new pooled connection can be
@@ -252,6 +252,9 @@ class Connection(ConnectionCommonMixin):
             self._session_id = open_db_packet.session_id
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._connected = True
+            self._physical_generation += 1
+            if not self._no_backslash_escapes_explicit:
+                self._no_backslash_escapes = None
             _LOGGER.debug(
                 "Connected to %s:%d/%s (protocol_version=%d, tls=%s)",
                 self._host,
@@ -278,6 +281,23 @@ class Connection(ConnectionCommonMixin):
                 self._safe_close_socket()
             if _timing is not None:
                 _timing.record_connect(time.perf_counter_ns() - _start)
+
+        # Every newly opened physical session may have a different server
+        # escape mode. Do not expose it to callers (or restore autocommit)
+        # until this session has been probed. An explicit option remains pinned.
+        try:
+            self._negotiate_backslash_escapes()
+        except BaseException:
+            try:
+                self._drop_connection()
+            except BaseException:
+                _LOGGER.warning(
+                    "Failed to discard connection after escape-mode probe", exc_info=True
+                )
+            finally:
+                self._connected = False
+                self._invalidate_query_handles()
+            raise
 
     def close(self) -> None:
         """Close the connection and all tracked cursors."""

@@ -9,7 +9,7 @@ import pytest
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import InterfaceError, OperationalError
-from pycubrid.protocol import CloseDatabasePacket
+from pycubrid.protocol import CloseDatabasePacket, SetDbParameterPacket
 
 
 def make_connected_async_connection() -> AsyncConnection:
@@ -21,6 +21,22 @@ def make_connected_async_connection() -> AsyncConnection:
     conn._writer.close = MagicMock()
     conn._writer.wait_closed = AsyncMock()
     return conn
+
+
+@pytest.mark.asyncio
+async def test_idempotent_connect_does_not_close_setup_gate_for_queued_query() -> None:
+    conn = make_connected_async_connection()
+    conn._do_send_and_receive = AsyncMock(side_effect=lambda packet: packet)
+    await conn._lock.acquire()
+    query = asyncio.create_task(conn._send_and_receive("query"))
+    await asyncio.sleep(0)  # Query passes the outer gate and queues on _lock.
+    redundant_connect = asyncio.create_task(conn.connect())
+    await asyncio.sleep(0)
+    conn._lock.release()
+
+    assert await query == "query"
+    assert await redundant_connect is None
+    conn._do_send_and_receive.assert_awaited_once_with("query")
 
 
 @pytest.mark.asyncio
@@ -245,6 +261,9 @@ async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> 
 
     conn = _TracingAsyncConnection("localhost", 33000, "testdb", "dba", "")
     conn._connected = False
+    conn._physical_generation = 1
+    conn._autocommit = True
+    conn._autocommit_explicitly_set = True
 
     async def fake_open_connection(host: str, port: int) -> tuple[Any, Any]:
         reader = MagicMock()
@@ -267,6 +286,11 @@ async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> 
     conn._do_connect_handshake = AsyncMock(side_effect=fake_do_connect_handshake)
     conn._do_send_and_receive = AsyncMock(side_effect=fake_do_send_and_receive)
 
+    async def fake_negotiate() -> None:
+        conn._no_backslash_escapes = True
+
+    conn._negotiate_backslash_escapes = AsyncMock(side_effect=fake_negotiate)
+
     n = 3
     try:
         results = await asyncio.wait_for(
@@ -277,7 +301,13 @@ async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> 
         pytest.fail("ping(reconnect=True) with subclass connect() override deadlocked")
 
     assert all(results)
-    assert conn.subclass_connect_calls >= 1
+    assert conn._no_backslash_escapes is True
+    conn._negotiate_backslash_escapes.assert_awaited_once()
+    assert conn.subclass_connect_calls == 0
+    assert any(
+        isinstance(call.args[0], SetDbParameterPacket)
+        for call in conn._do_send_and_receive.await_args_list
+    )
 
 
 @pytest.mark.asyncio

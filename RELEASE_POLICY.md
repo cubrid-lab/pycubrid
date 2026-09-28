@@ -227,8 +227,17 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   Confirmed CAS/transport failure can be repaired by explicit
   `ping(reconnect=True)` once, including a negative `CHECK_CAS` response;
   uncertain application SQL is not replayed. Incomplete/malformed framing
-  or async cancellation retires the transport. Auto-detected escape mode
-  across a *new* physical session remains a separate #471 follow-up.
+  or async cancellation retires the transport.
+
+- **Re-probe automatic escape mode on a new physical session (#471)** — PATCH /
+  correction to #468 recovery behavior. An unset `no_backslash_escapes` is
+  detected again before the replacement session is usable; explicit `True` or
+  `False` remains pinned. A healthy same-session ping does not probe. Failed
+  detection makes direct connect raise, or retires a ping replacement and
+  returns `False`; no escape mode is guessed and no SQL is replayed. Async
+  parameterized SQL bound against a prior session generation is rejected before
+  send, leaving retry to the caller. This does not establish a dynamic
+  per-session parameter toggle or heterogeneous-failover certification.
 
 - **Owned schema rows (#456)** — MINOR / additive methods and optional keyword-only
   `arg2=None`. The three existing getter positional arguments/defaults and raw

@@ -73,12 +73,14 @@ async def test_cursor_paths_parse_and_dispatch_native_failure(
     connection._timing = None
     connection._cursors = set()
     connection._no_backslash_escapes = False
+    connection._physical_generation = 1
+    connection._wait_for_setup_if_needed = AsyncMock()
     connection._decode_collections = False
     connection._json_deserializer = None
     connection._protocol_version = 8
     connection.autocommit = False
 
-    def send(packet: object) -> None:
+    def send(packet: object, **kwargs: object) -> None:
         if isinstance(packet, PrepareAndExecutePacket):
             packet.parse(_build_error_response(DEFAULT_CAS_INFO, code, "opaque native failure"))
         else:
