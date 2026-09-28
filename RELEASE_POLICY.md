@@ -220,6 +220,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **CAS OUT_TRAN preserves the physical session (#468)** — PATCH / correction
+  to the transaction and connection-lifecycle contract, not a new public API.
+  `CAS_INFO[0]=0` reports OUT_TRAN rather than released CAS: normal commit,
+  rollback and autocommit requests keep the same session and its settings.
+  Confirmed CAS/transport failure can be repaired by explicit
+  `ping(reconnect=True)` once, including a negative `CHECK_CAS` response;
+  uncertain application SQL is not replayed. Incomplete/malformed framing
+  or async cancellation retires the transport. Auto-detected escape mode
+  across a *new* physical session remains a separate #471 follow-up.
+
 - **Owned schema rows (#456)** — MINOR / additive methods and optional keyword-only
   `arg2=None`. The three existing getter positional arguments/defaults and raw
   packet return/query_handle/tuple_count remain. Correct FC9 layout is activated

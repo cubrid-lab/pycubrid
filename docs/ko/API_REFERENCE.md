@@ -359,8 +359,9 @@ commit/rollback 및 INSERT가 아닌 문장은 관측한 값을 유지합니다.
 초기화됩니다. 식별자 조회 실패, 빈 응답 또는 잘못된 응답이면 `None`이 유지됩니다.
 빈 배치는 기존 값을 유지합니다.
 
-트랜잭션 종료 후 CAS가 해제되면 다음 요청에서 자동 재접속해 연결 캐시가 초기화될
-수 있습니다. 이전 커서의 `lastrowid` 스냅샷은 물리 연결 변경 후에도 유지됩니다.
+정상적인 트랜잭션 종료 후에는 같은 물리 연결과 캐시가 유지됩니다. 실제 연결
+실패 뒤 명시적인 `ping(reconnect=True)` 복구가 성공하면 연결 캐시는 초기화되지만,
+이전 커서의 `lastrowid` 스냅샷은 물리 연결 변경 후에도 유지됩니다.
 
 이 값은 서버 응답이 INSERT로 분류한 커서 작업의 스냅샷이며, 이전의 실시간 브로커
 상태 조회를 대체합니다. `CALL`, 저장 프로시저 내부 INSERT 또는 커서 밖의 SQL은
@@ -400,8 +401,16 @@ def ping(self, reconnect: bool = True) -> bool
 
 SQL 실행 없이 가벼운 `CHECK_CAS` 헬스 체크를 수행합니다.
 
-- CAS 연결이 살아 있으면 `True` 반환.
-- `reconnect=True`이면 `False`를 반환하기 전에 재연결을 시도합니다.
+- CAS 연결이 살아 있으면 `True`를 반환합니다. `CAS_INFO[0]=0`은 연결 해제가
+  아니라 OUT_TRAN을 뜻하며 이 값만으로 재접속하지 않습니다.
+- `reconnect=False`이면 열린 소켓을 검사하되 재접속하지 않으며, 연결이 끊겼거나
+  검사에 실패하면 `False`를 반환합니다.
+- `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 검사 도중
+  전송/프로토콜 오류가 발생했거나 `CHECK_CAS`가 음수 코드로 CAS–DB 링크 장애를
+  보고하면 재접속을 한 번 시도합니다. `reconnect=False`는 음수 응답을
+  `False`로 보고하고 재접속하지 않습니다. 복구 후에는 명시적으로 설정한
+  autocommit만 복원합니다. 중단된 SQL은 자동 재실행하지 않으므로 재시도
+  안전성은 호출자가 판단해야 합니다.
 
 ```python
 if not conn.ping():
@@ -769,7 +778,14 @@ if row:
     name, age = row
 ```
 
-> **투명한 재연결에 관한 참고**: CUBRID 브로커가 반복 도중 CAS 워커를 회수하고(``KEEP_CONNECTION=AUTO``) pycubrid가 투명하게 재연결한 경우, 커서에 이미 버퍼된 행은 계속 접근 가능합니다. 버퍼가 소진되면 이후의 ``fetchone``/``fetchmany``/``fetchall`` 호출은 서버 측 커서 핸들이 더 이상 유효하지 않으므로 ``result set lost due to broker reconnect mid-fetch`` 메시지와 함께 :class:`OperationalError`를 발생시킵니다. 계속하려면 쿼리를 다시 실행하세요. ``execute()``와 ``close()``는 무효화 플래그를 리셋합니다.
+> **명시적 연결 복구에 관한 참고**: 정상적인 `CAS_INFO[0]=0` 응답은 세션을
+> 교체하거나 커서를 무효화하지 않습니다. 일부 행만 버퍼에 있는 상태에서 실제
+> 연결 실패 후 `ping(reconnect=True)` 복구가 성공하면 버퍼의 행은 계속 읽을 수
+> 있습니다. 버퍼가 소진된 뒤 `fetchone()`/`fetchmany()`/`fetchall()`은 기존 서버
+> 핸들이 유효하지 않아 `result set lost due to broker reconnect mid-fetch`
+> 메시지의 `OperationalError`를 발생시킵니다. 쿼리는 자동 재실행되지 않으므로
+> 명시적으로 다시 실행해야 합니다. `execute()`와 `close()`는 무효화 플래그를
+> 초기화합니다.
 
 > **트랜잭션 경계 이후 fetch:** `commit()`과 `rollback()`은 쿼리 핸들을
 > 무효화하지만 이미 로컬 버퍼로 받은 행은 유지합니다. 캐시된 행은 읽을 수
@@ -1028,9 +1044,15 @@ async def ping(self, reconnect: bool = True) -> bool
 SQL 실행 없이 가벼운 네이티브 `CHECK_CAS` 헬스 체크를 수행합니다.
 
 - CAS 연결이 살아 있으면 `True` 반환.
-- 소켓이 열려 있으면 브로커의 트랜잭션 상태(`CAS_INFO`)와 무관하게 항상 네이티브 `CHECK_CAS` 왕복을 수행합니다.
-- `reconnect=False`이면 `CAS_INFO=INACTIVE`에서 평소 발동하는 암시적 브로커 핸드오프 재연결을 억제합니다. 소켓이 닫혔거나 `CHECK_CAS` 자체가 실패할 때만 `False`를 반환합니다.
-- `reconnect=True`이면 소켓/프로토콜 실패 시 `False` 반환 전에 종료 + 재연결을 시도합니다.
+- 소켓이 열려 있으면 네이티브 `CHECK_CAS` 왕복을 수행합니다. `CAS_INFO[0]=0`은
+  트랜잭션 종료 후의 OUT_TRAN 상태이지 연결 해제가 아닙니다.
+- `reconnect=False`이면 재접속하지 않으며 연결이 끊겼거나 검사에 실패하면
+  `False`를 반환합니다.
+- `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 전송/프로토콜
+  오류가 발생했거나 `CHECK_CAS`가 음수 코드로 CAS–DB 링크 장애를 보고하면
+  재접속을 한 번 시도합니다. `reconnect=False`는 음수 응답을 `False`로 보고하고
+  재접속하지 않습니다. 명시적으로 설정한 autocommit만 복원하며 임의의
+  SQL을 자동 재실행하지 않습니다.
 
 ```python
 if not await conn.ping(reconnect=False):

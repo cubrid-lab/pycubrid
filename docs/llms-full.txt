@@ -484,8 +484,8 @@ if not alive:
     await conn.ping(reconnect=True)
 ```
 
-- `await conn.ping(reconnect=False)` always issues the native `CHECK_CAS` round-trip when the socket is open, but suppresses the implicit broker-handoff reconnect that fires on a normal post-commit `CAS_INFO=INACTIVE` state. Returns `False` only if the socket is closed or `CHECK_CAS` itself fails — making it safe for SQLAlchemy's `pool_pre_ping`.
-- `await conn.ping(reconnect=True)` attempts close + reconnect on socket/protocol failure before returning `False`.
+- `await conn.ping(reconnect=False)` issues a native `CHECK_CAS` round-trip on an open socket without reconnecting. `CAS_INFO[0]=0` means OUT_TRAN after a transaction boundary, not a released session; it does not change this behavior. A closed socket or failed check returns `False`, which makes this suitable for SQLAlchemy's `pool_pre_ping`.
+- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting.
 - The async implementation uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and does not execute SQL.
 
 ---
@@ -574,23 +574,28 @@ conn.autocommit = True
 > effectively overridden by what the driver reports. Pass ``autocommit=True`` to ``connect()``
 > (or set ``connection.autocommit = True`` after connecting) to enable.
 
-### Session-state restoration on transparent reconnect
+### Session-state restoration after explicit ping recovery
 
-The CUBRID broker may close a CAS worker between requests when
-``KEEP_CONNECTION=AUTO`` (the default). pycubrid follows JDBC's
-``UClientSideConnection.checkReconnect`` and reconnects transparently
-on the next request when the broker signals ``CAS_INFO_STATUS_INACTIVE``.
+`CAS_INFO[0]=0` denotes OUT_TRAN, not a released CAS worker. Normal commit,
+rollback, and autocommit requests can report this value while the same socket
+and session remain usable. pycubrid does not reconnect on that status or replay
+an arbitrary SQL request after a transport failure. If a connection is already
+disconnected, a `CHECK_CAS` probe raises a transport/protocol error, or the
+probe returns a negative response (broken CAS-to-DB link), explicit
+`ping(reconnect=True)` can attempt one new connection. With `reconnect=False`,
+the negative response returns `False` without reconnecting. The caller must
+decide whether interrupted SQL is safe to retry.
 
-To preserve PEP 249 semantics across that reconnect, pycubrid restores
-session-level settings the caller has **explicitly** set:
+After that recovery, pycubrid restores the session-level setting the caller
+has **explicitly** set:
 
-| Setting | Restored on reconnect? |
+| Setting | Restored after successful ping recovery? |
 |---|---|
-| ``autocommit`` (set via ``connection.autocommit = ...`` / ``await conn.set_autocommit(...)``) | Yes — the same value is re-emitted via ``SetDbParameterPacket`` |
+| ``autocommit`` (set via ``connect(autocommit=True)``, ``connection.autocommit = ...``, or ``await conn.set_autocommit(...)``) | Yes — the same value is re-emitted via ``SetDbParameterPacket`` |
 | ``autocommit`` left at the connect-time default | No — the broker default is used |
 
 Settings the caller has never touched are intentionally **not**
-re-emitted on reconnect to avoid spurious round-trips. If the restore
+re-emitted on the new connection to avoid spurious round-trips. If the restore
 itself fails, the connection is torn down and the underlying transport
 error is preserved via PEP 3134 ``__cause__`` so callers can diagnose
 the failure.
@@ -623,9 +628,10 @@ nonempty batch, or physical connection discard/reconnect clears it; failed, empt
 or malformed identity retrieval leaves it `None`. The broker may retain an earlier
 identity after a non-auto-increment INSERT, so a reported ID does not prove the
 latest statement generated it or that a row exists after rollback. Sync and async
-connections follow the same contract. If the broker releases the CAS after a
-transaction boundary, the next request can reconnect automatically and clear the
-connection cache; the earlier cursor's `lastrowid` snapshot still remains available.
+connections follow the same contract. A normal transaction boundary retains the
+same connection and cache. An explicit `ping(reconnect=True)` recovery after an
+actual connection failure clears the connection cache; the earlier cursor's
+`lastrowid` snapshot still remains available.
 
 The cache only refreshes for cursor operations with an INSERT server response.
 Unlike the previous live broker query, it does not observe `CALL`, stored-procedure
@@ -1292,9 +1298,10 @@ INSERT attempt (including a failed one), nonempty `executemany_batch()`, or phys
 connection discard/reconnect clears it. Empty, malformed, or failed identity retrieval
 leaves it `None`. An empty batch leaves it unchanged.
 
-If a transaction boundary releases the CAS, the next request can transparently
-reconnect and clear the connection cache. The earlier cursor's `lastrowid` snapshot
-remains available across that physical connection change.
+A normal transaction boundary keeps the same physical connection and cache.
+After an actual connection failure, explicit `ping(reconnect=True)` recovery
+clears the connection cache. The earlier cursor's `lastrowid` snapshot remains
+available across that physical connection change.
 
 This is a snapshot of cursor operations whose server response identifies an
 INSERT, replacing the previous live broker-state query. It does not refresh for
@@ -1337,8 +1344,16 @@ def ping(self, reconnect: bool = True) -> bool
 
 Perform a lightweight `CHECK_CAS` health check without executing SQL.
 
-- Returns `True` when the CAS connection is alive.
-- When `reconnect=True`, attempts reconnection before returning `False`.
+- Returns `True` when the CAS connection is alive. `CAS_INFO[0]=0` means OUT_TRAN,
+  not a disconnected session, and does not itself cause a reconnect.
+- With `reconnect=False`, checks an open socket without reconnecting and returns
+  `False` when disconnected or when the check fails.
+- With `reconnect=True`, probes the existing socket first and attempts one
+  reconnect if disconnected, if the check fails with a transport/protocol error,
+  or if `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
+  `reconnect=False` reports the negative response as `False` without reconnecting.
+  Only explicitly set autocommit is restored after successful recovery.
+  Interrupted SQL is not replayed; the caller must decide whether retry is safe.
 
 ```python
 if not conn.ping():
@@ -1714,14 +1729,15 @@ if row:
     name, age = row
 ```
 
-> **Note on transparent reconnect**: If the CUBRID broker releases the CAS worker
-> mid-iteration (``KEEP_CONNECTION=AUTO``) and pycubrid reconnects transparently,
-> any rows already buffered in the cursor remain accessible. Once the buffer is
-> exhausted, subsequent ``fetchone``/``fetchmany``/``fetchall`` calls raise
-> :class:`OperationalError` with the message ``result set lost due to broker
-> reconnect mid-fetch`` because the server-side cursor handle is no longer valid.
-> Re-execute the query to continue. ``execute()`` and ``close()`` reset the
-> invalidation flag.
+> **Note on explicit connection recovery**: A normal `CAS_INFO[0]=0` response
+> does not replace the session or invalidate a cursor. If an actual connection
+> failure is followed by successful `ping(reconnect=True)` recovery while a
+> result is only partially buffered, rows already in the buffer remain readable.
+> Once exhausted, subsequent `fetchone()`/`fetchmany()`/`fetchall()` calls raise
+> `OperationalError` with the existing message `result set lost due to broker
+> reconnect mid-fetch` because the former server-side handle is no longer valid.
+> Re-execute the query explicitly; it is never replayed automatically.
+> `execute()` and `close()` reset the invalidation flag.
 
 > **Transaction-boundary fetching:** `commit()` and `rollback()` invalidate
 > query handles, not rows already received into the local buffer. Cached rows
@@ -1985,9 +2001,15 @@ async def ping(self, reconnect: bool = True) -> bool
 Perform a lightweight native `CHECK_CAS` health check without executing SQL.
 
 - Returns `True` when the CAS connection is alive.
-- Always issues the native `CHECK_CAS` round-trip when the socket is open, regardless of the broker's transaction status (`CAS_INFO`).
-- When `reconnect=False`, suppresses the implicit broker-handoff reconnect that normally fires on `CAS_INFO=INACTIVE`; returns `False` only if the socket is closed or `CHECK_CAS` itself fails.
-- When `reconnect=True`, attempts close + reconnect on socket/protocol failure before returning `False`.
+- Issues the native `CHECK_CAS` round-trip when the socket is open. `CAS_INFO[0]=0`
+  denotes OUT_TRAN after a transaction boundary, not a disconnected session.
+- With `reconnect=False`, does not reconnect; returns `False` when disconnected
+  or when the check fails.
+- With `reconnect=True`, probes the existing socket first and attempts one
+  reconnect if disconnected, after a transport/protocol failure, or when
+  `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
+  `reconnect=False` reports the negative response as `False` without reconnecting.
+  Only explicitly set autocommit is restored; arbitrary SQL is never replayed.
 
 ```python
 if not await conn.ping(reconnect=False):
@@ -3821,6 +3843,13 @@ graph LR
 | CAS Info     | 4 bytes | Session state bytes maintained by the server |
 | Payload      | variable | Function code + arguments (requests) or response data |
 
+The first CAS Info byte is transaction state: `0` means OUT_TRAN and `1`
+means IN_TRAN. OUT_TRAN after `END_TRAN` or an auto-committing request does
+**not** mean the socket or CAS session was released; send the next request on
+the same transport. A failed `CHECK_CAS` may justify explicit
+`ping(reconnect=True)` recovery, but an uncertain application request is
+never replayed automatically.
+
 **Building a header:**
 
 ```python
@@ -4523,16 +4552,29 @@ sequenceDiagram
 
 ## CAS Reconnection
 
+`CAS_INFO[0]` is transaction state (`0` = OUT_TRAN, `1` = IN_TRAN), not
+connection liveness. A normal commit, rollback, or autocommit response with
+OUT_TRAN keeps the same physical session. An ordinary SQL request is never
+replayed on another connection after an uncertain transport failure.
+
 ```mermaid
 sequenceDiagram
+    participant App
     participant Connection
     participant Broker
     participant CAS
 
-    Connection->>Connection: _check_reconnect() inspects CAS_INFO[0]
-    alt CAS status == INACTIVE
-      Connection->>Connection: _drop_connection()
-      Connection->>Connection: self.connect() (full re-handshake to broker)
+    App->>Connection: commit()/rollback()/autocommit request
+    Connection->>CAS: Request on current socket
+    CAS-->>Connection: CAS_INFO[0]=0 (OUT_TRAN)
+    note over Connection,CAS: Same socket and session remain in use
+    App->>Connection: ping(reconnect=True)
+    opt Existing socket is connected
+      Connection->>CAS: CHECK_CAS (FC=32)
+      CAS-->>Connection: Healthy or negative (CAS-to-DB link broken)
+    end
+    opt Disconnected, negative CHECK_CAS, or transport/protocol failure
+      Connection->>Connection: Discard old transport and query handles
       Connection->>Broker: ClientInfoExchange ("CUBRK"/"CUBRS")
       Broker-->>Connection: status int32 (0 / >0 redirect / <0 fail)
       opt status > 0 (redirect)
@@ -4543,11 +4585,14 @@ sequenceDiagram
       end
       Connection->>CAS: OpenDatabase
       CAS-->>Connection: New session
-      note over Connection: Session restored transparently
-    else CAS status == ACTIVE
-      note over Connection: No action needed
+      note over Connection: Restore explicitly set autocommit only
     end
 ```
+
+`ping(reconnect=False)` still checks an open socket but never reconnects,
+including when `CHECK_CAS` returns a negative code.
+Recovery through `ping(reconnect=True)` is explicit and limited to one attempt;
+the caller decides whether to retry interrupted SQL.
 
 ## Module Boundaries
 
@@ -6477,7 +6522,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only `arg2=None`; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
-| CAS reconnection | ✅ | 1.0.0 | Auto-reconnect on broker `INACTIVE` status |
+| Explicit connection recovery | ✅ | 1.2.0 (#70) | `ping(reconnect=True)` can reconnect after disconnect, negative `CHECK_CAS` (broken CAS-to-DB link), or a check transport/protocol error; `CAS_INFO[0]=0` is OUT_TRAN and never triggers reconnect or SQL replay |
 | Unknown-option reporting | ✅ | 1.8.0 (#377) | An unrecognised connection keyword is ignored but emits `UnknownConnectionOptionWarning` (with a spelling suggestion); escalate with `warnings.simplefilter("error", ...)` |
 
 ### TLS / SSL
@@ -7327,8 +7372,13 @@ literal `'\\'`, two backslash characters):
   explicitly to skip detection when the probe cannot run.
 
 Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
-entirely. Negotiation happens once per physical connection and is preserved
-across transparent reconnects.
+entirely. Negotiation currently happens once per connection object; the chosen
+value is retained if an explicit `ping(reconnect=True)` recovers a failed
+transport. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect. Until
+[#471](https://github.com/cubrid-lab/pycubrid/issues/471) re-probes on recovery,
+do not reuse an automatically negotiated connection after failover to a target
+whose escape mode may differ. An explicit mode is safe only when every possible
+target is known to use that same mode.
 
 ### Literal mode (`no_backslash_escapes=True`)
 

@@ -327,27 +327,18 @@ class Connection(ConnectionCommonMixin):
         self._invalidate_query_handles()
 
     def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
-        """Reconnect to the broker when the CAS has been released.
+        """Validate local state without treating OUT_TRAN as a released socket.
 
-        The CUBRID broker sets the first byte of CAS_INFO to ``INACTIVE``
-        (0) when the CAS process is no longer reserved for this client
-        (``KEEP_CONNECTION=AUTO``).  The official JDBC driver checks this
-        before every request and transparently reconnects.  This method
-        replicates that behaviour so that ``commit()`` followed by a new
-        query works without the caller having to manage reconnection.
+        CAS_INFO status 0 means out of transaction. The broker may return it
+        after END_TRAN while keeping this physical session and its settings.
+        Only an observed transport failure can justify reconnecting; explicit
+        ``ping(reconnect=True)`` probes and repairs that case.
         """
+        del allow_reconnect  # Retained for internal callers of this preflight.
         self._ensure_connected()
-        if not allow_reconnect:
-            return
-        if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._socket is not None:
-            self._drop_connection()
-            self._invalidate_query_handles_for_reconnect()
-            _LOGGER.debug("CAS inactive, reconnecting to %s:%d", self._host, self._port)
-            self.connect()
-            self._restore_session_state()
 
     def _restore_session_state(self) -> None:
-        """Re-emit session-level settings after a transparent reconnect.
+        """Re-emit session-level settings after explicit ping recovery.
 
         Re-applies any session state that the caller has explicitly set
         on this connection (currently only ``autocommit``).  Settings the
@@ -466,30 +457,26 @@ class Connection(ConnectionCommonMixin):
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
-        # Preflight: if CAS is inactive, do the transparent reconnect+restore
-        # exactly once.  We then send CheckCasPacket with allow_reconnect=False
-        # so a restore failure (caught here) cannot trigger a second attempt
-        # via _send_and_receive -> _check_reconnect.
-        if reconnect:
-            try:
-                self._check_reconnect(allow_reconnect=True)
-            except (OSError, OperationalError, InterfaceError):
-                return False
+        # OUT_TRAN is not a release signal. Probe this socket before deciding
+        # whether an explicit recovery attempt is needed.
         try:
             packet = self._send_and_receive(CheckCasPacket(), allow_reconnect=False)
-            return bool(packet.response_code >= 0)
+            healthy = packet.response_code >= 0
         except (InterfaceError, OperationalError, OSError, struct.error):
-            if not reconnect:
-                return False
-            try:
-                self._drop_connection()
-                self._invalidate_query_handles_for_reconnect()
-                _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
-                self.connect()
-                self._restore_session_state()
-                return True
-            except (OSError, OperationalError, InterfaceError):
-                return False
+            healthy = False
+        if healthy:
+            return True
+        if not reconnect:
+            return False
+        try:
+            self._drop_connection()
+            self._invalidate_query_handles_for_reconnect()
+            _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
+            self.connect()
+            self._restore_session_state()
+            return True
+        except (OSError, OperationalError, InterfaceError):
+            return False
 
     def create_lob(self, lob_type: int) -> Any:
         """Create a new LOB object on the server."""
@@ -634,11 +621,9 @@ class Connection(ConnectionCommonMixin):
     def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
         """Send a framed CAS request and parse the framed response into ``packet``.
 
-        After each response the CAS_INFO status byte is checked.  When the
-        broker signals ``INACTIVE`` (the CAS process has been released), the
-        driver closes the current socket and reconnects transparently before
-        the *next* request — matching the behaviour of the official CUBRID
-        JDBC driver (``UClientSideConnection.checkReconnect``).
+        CAS_INFO status 0 is OUT_TRAN, not a release signal. Keep the physical
+        session after normal transaction boundaries; do not replay arbitrary
+        requests on a different session after an uncertain transport failure.
         """
         self._check_reconnect(allow_reconnect=allow_reconnect)
         if self._socket is None:
@@ -651,7 +636,7 @@ class Connection(ConnectionCommonMixin):
             and packet.auto_commit
         ):
             self._close_schema_results()
-            # FC6 may itself release the CAS. Recheck before the auto-committing RPC.
+            # Validate local connection state after closing schema handles.
             self._check_reconnect(allow_reconnect=allow_reconnect)
             if self._socket is None:
                 raise InterfaceError("connection is closed")
@@ -665,10 +650,16 @@ class Connection(ConnectionCommonMixin):
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("send: %d bytes", len(request_data))
 
-            data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
-            data_length = struct.unpack(">i", data_length_bytes)[0]
-            self._validate_data_length(data_length)
-            response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
+            try:
+                data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
+                data_length = struct.unpack(">i", data_length_bytes)[0]
+                self._validate_data_length(data_length)
+                response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
+            except OperationalError:
+                # Incomplete framing leaves the next response boundary unknown.
+                # Server-reported packet.parse errors do not retire a valid CAS.
+                self._drop_connection()
+                raise
 
             # Update CAS_INFO from the response (first 4 bytes).
             self._cas_info = response_body[: DataSize.CAS_INFO]

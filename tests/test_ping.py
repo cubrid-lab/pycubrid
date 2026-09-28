@@ -76,7 +76,21 @@ class TestConnectionPing:
         body = cas_info + struct.pack(">i", -1)
         resp = struct.pack(">i", len(body) - DataSize.CAS_INFO) + body
         sock.recv.side_effect = [resp[:4], resp[4:]]
-        assert conn.ping() is False
+        assert conn.ping(reconnect=False) is False
+
+    def test_ping_negative_response_reconnects_once(self, socket_queue: list[MagicMock]) -> None:
+        conn, sock = make_connected_connection(socket_queue)
+        body = b"\x01\x01\x02\x03" + struct.pack(">i", -1)
+        response = struct.pack(">i", len(body) - DataSize.CAS_INFO) + body
+        sock.recv.side_effect = [response[:4], response[4:]]
+
+        open_db = build_open_db_response()
+        replacement = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
+        socket_queue.append(replacement)
+
+        assert conn.ping(reconnect=True) is True
+        assert conn._socket is replacement
+        sock.close.assert_called_once()
 
     def test_ping_on_closed_connection_reconnects(self, socket_queue: list[MagicMock]) -> None:
         conn, _ = make_connected_connection(socket_queue)
@@ -112,28 +126,20 @@ class TestConnectionPing:
         assert isinstance(packet, CheckCasPacket)
         assert conn._send_and_receive.call_args.kwargs == {"allow_reconnect": False}
 
-    def test_ping_inactive_cas_info_with_reconnect(self, socket_queue: list[MagicMock]) -> None:
+    def test_ping_out_tran_uses_same_session(self, socket_queue: list[MagicMock]) -> None:
         conn, sock = make_connected_connection(socket_queue)
         conn._cas_info = b"\x00\x01\x02\x03"
         conn._invalidate_query_handles_for_reconnect = MagicMock()
-
-        open_db = build_open_db_response()
-        ok_resp = build_simple_ok_response()
-        reconnect_sock = make_socket(
-            [
-                build_handshake_response(),
-                open_db[:4],
-                open_db[4:],
-                ok_resp[:4],
-                ok_resp[4:],
-            ]
-        )
-        socket_queue.append(reconnect_sock)
+        conn.connect = MagicMock()
+        ok_resp = build_simple_ok_response(conn._cas_info)
+        sock.recv.side_effect = [ok_resp[:4], ok_resp[4:]]
 
         assert conn.ping(reconnect=True) is True
         assert conn._connected is True
-        assert sock.close.called
-        conn._invalidate_query_handles_for_reconnect.assert_called_once_with()
+        assert conn._socket is sock
+        sock.close.assert_not_called()
+        conn.connect.assert_not_called()
+        conn._invalidate_query_handles_for_reconnect.assert_not_called()
 
     def test_send_and_receive_skips_reconnect_when_disallowed(
         self,

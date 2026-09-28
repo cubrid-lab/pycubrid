@@ -65,6 +65,11 @@ graph TD
 [8:]   PAYLOAD      (variable length)
 ```
 
+`CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
+OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
+session. Only explicit `ping(reconnect=True)` may recover a confirmed
+CAS/transport failure, and arbitrary SQL is never replayed automatically.
+
 ### Handshake Flow
 
 1. **ClientInfoExchange**: Send 10 bytes (NO header) — magic `"CUBRS"` when `ssl` is requested (STARTTLS) or `"CUBRK"` plaintext, plus client type + version. Broker replies a 4-byte int32: `0`=ok, `<0`=fail-fast (`OperationalError`), `>0`=redirect port (reconnect on the new port WITHOUT repeating the handshake).

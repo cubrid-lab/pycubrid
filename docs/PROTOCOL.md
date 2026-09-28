@@ -87,6 +87,13 @@ graph LR
 | CAS Info     | 4 bytes | Session state bytes maintained by the server |
 | Payload      | variable | Function code + arguments (requests) or response data |
 
+The first CAS Info byte is transaction state: `0` means OUT_TRAN and `1`
+means IN_TRAN. OUT_TRAN after `END_TRAN` or an auto-committing request does
+**not** mean the socket or CAS session was released; send the next request on
+the same transport. A failed `CHECK_CAS` may justify explicit
+`ping(reconnect=True)` recovery, but an uncertain application request is
+never replayed automatically.
+
 **Building a header:**
 
 ```python

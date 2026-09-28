@@ -161,7 +161,7 @@ _resolve_ssl_context = resolve_ssl_context
 class ConnectionCommonMixin:
     """Mixin providing shared state and pure helpers for Connection classes."""
 
-    # -- CAS_INFO status constants (matches JDBC UConnection) ----------------
+    # -- CAS_INFO transaction status (0 = OUT_TRAN, not socket release) -------
     _CAS_INFO_STATUS_INACTIVE: int = 0
     _CAS_INFO_STATUS_ACTIVE: int = 1
 
@@ -284,7 +284,7 @@ class ConnectionCommonMixin:
         """Invalidate query handles and mark cursors as reconnect-invalidated.
 
         Distinct from :meth:`_invalidate_query_handles` so that mid-fetch
-        callers can detect a transparent reconnect (and raise
+        callers can detect explicit ping recovery (and raise
         :class:`OperationalError`) rather than the generic invalidated-result
         :class:`InterfaceError` at the next required server FETCH.
         """

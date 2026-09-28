@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import struct
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -38,7 +39,57 @@ class TestAsyncConnectionPing:
         conn, _, _ = make_async_connection()
         conn._send_and_receive = AsyncMock(return_value=SimpleNamespace(response_code=-1))
 
-        assert await conn.ping() is False
+        assert await conn.ping(reconnect=False) is False
+
+    @pytest.mark.asyncio
+    async def test_ping_negative_response_reconnects_once(self) -> None:
+        conn, _, writer = make_async_connection()
+        conn._send_and_receive = AsyncMock(return_value=SimpleNamespace(response_code=-1))
+        replacement = MagicMock()
+
+        async def reconnect() -> None:
+            conn._connected = True
+            conn._writer = replacement
+
+        conn._invoke_connect_locked = AsyncMock(side_effect=reconnect)
+        conn._restore_session_state_locked = AsyncMock()
+
+        assert await conn.ping(reconnect=True) is True
+        assert conn._writer is replacement
+        writer.close.assert_called_once()
+        conn._invoke_connect_locked.assert_awaited_once()
+        conn._restore_session_state_locked.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_negative_responses_share_one_recovery(self) -> None:
+        conn, _, _ = make_async_connection()
+        both_probing = asyncio.Event()
+        probes = 0
+
+        async def broken_probe(*args: object, **kwargs: object) -> SimpleNamespace:
+            nonlocal probes
+            probes += 1
+            if probes == 2:
+                both_probing.set()
+            await both_probing.wait()
+            return SimpleNamespace(response_code=-1)
+
+        conn._send_and_receive = AsyncMock(side_effect=broken_probe)
+        replacement = MagicMock()
+        replacement.wait_closed = AsyncMock()
+
+        async def reconnect() -> None:
+            conn._connected = True
+            conn._writer = replacement
+
+        conn._invoke_connect_locked = AsyncMock(side_effect=reconnect)
+        conn._restore_session_state_locked = AsyncMock()
+
+        assert await asyncio.gather(conn.ping(reconnect=True), conn.ping(reconnect=True)) == [
+            True,
+            True,
+        ]
+        conn._invoke_connect_locked.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_ping_on_closed_connection_no_reconnect(self) -> None:
@@ -78,26 +129,20 @@ class TestAsyncConnectionPing:
         assert conn._send_and_receive.call_args.kwargs == {"allow_reconnect": False}
 
     @pytest.mark.asyncio
-    async def test_ping_inactive_cas_info_with_reconnect(self) -> None:
+    async def test_ping_out_tran_uses_same_session(self) -> None:
         conn, _, writer = make_async_connection()
         conn._cas_info = b"\x00\x01\x02\x03"
         invalidate = MagicMock()
         conn._invalidate_query_handles_for_reconnect = invalidate
         conn._do_send_and_receive = AsyncMock(return_value=SimpleNamespace(response_code=0))
-
-        async def fake_connect() -> None:
-            assert conn._connected is False
-            conn._connected = True
-            conn._cas_info = b"\x01\x01\x02\x03"
-            conn._reader = MagicMock()
-            conn._writer = MagicMock()
-
-        conn.connect = AsyncMock(side_effect=fake_connect)
+        conn.connect = AsyncMock()
 
         assert await conn.ping(reconnect=True) is True
         assert conn._connected is True
-        assert invalidate.call_count == 1
-        writer.close.assert_called_once_with()
+        assert conn._writer is writer
+        invalidate.assert_not_called()
+        writer.close.assert_not_called()
+        conn.connect.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_ping_socket_error_with_reconnect(self) -> None:

@@ -151,7 +151,7 @@ async def test_aio_ssl_handshake_failure() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _can_connect_tls_custom(), reason=TLS_CUSTOM_REASON)
-async def test_aio_ssl_reconnect_after_inactive() -> None:
+async def test_aio_ssl_out_tran_keeps_tls_session() -> None:
     conn = await _connect_async(_custom_ssl_context())
     try:
         original_writer = conn._writer
@@ -161,7 +161,7 @@ async def test_aio_ssl_reconnect_after_inactive() -> None:
 
         assert await conn.ping(reconnect=True) is True
         assert conn._writer is not None
-        assert conn._writer is not original_writer
+        assert conn._writer is original_writer
         _assert_tls_transport(conn)
         await _assert_select_one(conn)
     finally:

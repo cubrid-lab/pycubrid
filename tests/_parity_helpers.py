@@ -161,7 +161,7 @@ class ParityAdapter:
     def lastrowid(self, cur: Cursor | AsyncCursor) -> int | None:
         return cur.lastrowid
 
-    def mark_cas_inactive(self, conn: Connection | AsyncConnection) -> None:
+    def mark_out_tran(self, conn: Connection | AsyncConnection) -> None:
         conn._ensure_connected()
         conn._cas_info = bytes([0]) + bytes(conn._cas_info[1:])
 
@@ -500,11 +500,11 @@ async def ping_after_drop(adapter: ParityAdapter, reconnect: bool) -> tuple[bool
         await adapter.close_connection(conn)
 
 
-async def reconnect_after_inactive_cas(adapter: ParityAdapter) -> tuple[bool, Row, str]:
+async def reuse_session_after_out_tran(adapter: ParityAdapter) -> tuple[bool, Row, str]:
     conn = await adapter.connect()
     before = adapter.transport_token(conn)
     try:
-        adapter.mark_cas_inactive(conn)
+        adapter.mark_out_tran(conn)
         version = await adapter.get_server_version(conn)
         cur = adapter.cursor(conn)
         try:
@@ -514,7 +514,7 @@ async def reconnect_after_inactive_cas(adapter: ParityAdapter) -> tuple[bool, Ro
             await adapter.close_cursor(cur)
         if row is None:
             raise AssertionError("SELECT 1 must return a row")
-        return before is not adapter.transport_token(conn), row, version
+        return before is adapter.transport_token(conn), row, version
     finally:
         await adapter.close_connection(conn)
 

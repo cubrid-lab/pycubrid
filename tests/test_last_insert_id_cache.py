@@ -302,7 +302,7 @@ async def test_physical_connect_clears_previous_identity_even_on_failure(
     assert connection._last_insert_id is None
 
 
-async def test_inactive_cas_reconnect_clears_previous_identity(
+async def test_out_tran_keeps_identity_until_physical_reconnect(
     connection: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     connection._last_insert_id = "99"
@@ -310,12 +310,33 @@ async def test_inactive_cas_reconnect_clears_previous_identity(
     if isinstance(connection, AsyncConnection):
         connection._writer = MagicMock()
         connection._writer.wait_closed = AsyncMock()
-        monkeypatch.setattr(connection, "_invoke_connect_locked", AsyncMock())
-        monkeypatch.setattr(connection, "_restore_session_state_locked", AsyncMock())
+        invoke = AsyncMock(side_effect=lambda: setattr(connection, "_connected", True))
+        restore = AsyncMock()
+        monkeypatch.setattr(connection, "_invoke_connect_locked", invoke)
+        monkeypatch.setattr(connection, "_restore_session_state_locked", restore)
         await connection._check_reconnect_locked()
+        assert connection._last_insert_id == "99"
+        invoke.assert_not_awaited()
+        restore.assert_not_awaited()
+        await connection._close_streams()
+        connection._connected = False
     else:
         connection._socket = MagicMock()
-        monkeypatch.setattr(connection, "connect", MagicMock())
-        monkeypatch.setattr(connection, "_restore_session_state", MagicMock())
+        connect = MagicMock(side_effect=lambda: setattr(connection, "_connected", True))
+        restore = MagicMock()
+        monkeypatch.setattr(connection, "connect", connect)
+        monkeypatch.setattr(connection, "_restore_session_state", restore)
         connection._check_reconnect()
+        assert connection._last_insert_id == "99"
+        connect.assert_not_called()
+        restore.assert_not_called()
+        connection._drop_connection()
+
+    assert await _call(connection.ping(reconnect=True)) is True
     assert connection._last_insert_id is None
+    if isinstance(connection, AsyncConnection):
+        invoke.assert_awaited_once()
+        restore.assert_awaited_once()
+    else:
+        connect.assert_called_once()
+        restore.assert_called_once()

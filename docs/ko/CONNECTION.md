@@ -224,8 +224,8 @@ if not alive:
     await conn.ping(reconnect=True)
 ```
 
-- `await conn.ping(reconnect=False)`는 소켓이 열려 있을 때 항상 네이티브 `CHECK_CAS` 왕복을 수행하되, 커밋 후 정상적인 `CAS_INFO=INACTIVE` 상태에서 발생하는 암시적 브로커 핸드오프 재연결은 억제합니다. 소켓이 닫혔거나 `CHECK_CAS` 자체가 실패할 때만 `False`를 반환합니다 — SQLAlchemy의 `pool_pre_ping`에 안전합니다.
-- `await conn.ping(reconnect=True)`은 `False`를 반환하기 전에 소켓/프로토콜 실패 시 종료 + 재연결을 시도합니다.
+- `await conn.ping(reconnect=False)`는 열린 소켓에서 네이티브 `CHECK_CAS` 왕복을 수행하며 재접속하지 않습니다. `CAS_INFO[0]=0`은 트랜잭션 종료 후의 OUT_TRAN 상태이지 세션 해제가 아니므로 이 동작에 영향을 주지 않습니다. 소켓이 닫혔거나 검사에 실패하면 `False`를 반환하므로 SQLAlchemy의 `pool_pre_ping`에 적합합니다.
+- `await conn.ping(reconnect=True)`는 기존 소켓을 먼저 검사하고, 이미 연결이 끊겼거나 `CHECK_CAS` 전송/프로토콜 오류가 발생했거나 음수 응답으로 CAS–DB 링크 장애가 확인되면 재접속을 한 번 시도합니다. 복구 실패는 `False`를 반환합니다. `reconnect=False`는 음수 응답에도 재접속하지 않고 `False`를 반환합니다.
 - 비동기 구현은 동기 `Connection.ping()`과 같은 네이티브 `CHECK_CAS` 함수 코드(`FC=32`)를 사용하며 SQL을 실행하지 않습니다.
 
 ---
@@ -309,18 +309,18 @@ conn.autocommit = True
 >
 > pycubrid의 `Connection`은 명시적 트랜잭션 제어를 위해 기본적으로 `autocommit=False`이며, 이 값을 매 `PrepareAndExecute` 패킷의 문장별 ``auto_commit`` 플래그로 보냅니다. 따라서 브로커 자체의 ``CUBRID_AUTO_COMMIT`` 설정은 사실상 드라이버가 보고하는 값으로 덮어씌워집니다. 활성화하려면 ``connect()``에 ``autocommit=True``를 전달하거나(또는 연결 후 ``connection.autocommit = True`` 설정) 하세요.
 
-### 투명한 재연결 시 세션 상태 복원
+### 명시적 ping 복구 후 세션 상태 복원
 
-CUBRID 브로커는 ``KEEP_CONNECTION=AUTO``(기본값)일 때 요청 사이에 CAS 워커를 닫을 수 있습니다. pycubrid는 JDBC의 ``UClientSideConnection.checkReconnect``를 따라, 브로커가 ``CAS_INFO_STATUS_INACTIVE``를 알리면 다음 요청에서 투명하게 재연결합니다.
+`CAS_INFO[0]=0`은 CAS 워커 해제가 아니라 트랜잭션 밖 상태인 OUT_TRAN을 뜻합니다. 정상적인 commit, rollback 및 autocommit 요청 후에도 같은 소켓과 세션에서 이 값이 나타날 수 있습니다. pycubrid는 이 상태만으로 재접속하지 않으며, 전송 실패 후 임의의 SQL 요청을 자동 재실행하지도 않습니다. 연결이 이미 끊겼거나 `CHECK_CAS` 검사 중 전송/프로토콜 오류가 발생했거나 음수 검사 응답으로 CAS–DB 링크 장애가 확인되면 명시적인 `ping(reconnect=True)`로 새 연결을 한 번 시도할 수 있습니다. `reconnect=False`는 음수 응답을 `False`로 보고하고 재접속하지 않습니다. 중단된 SQL을 재시도해도 안전한지는 호출자가 판단해야 합니다.
 
-이 재연결에서 PEP 249 의미론을 보존하기 위해, pycubrid는 호출자가 **명시적으로** 설정한 세션 수준 설정을 복원합니다:
+복구가 성공하면 pycubrid는 호출자가 **명시적으로** 설정한 세션 수준 설정을 복원합니다:
 
-| 설정 | 재연결 시 복원? |
+| 설정 | ping 복구 성공 후 복원? |
 |---|---|
-| ``autocommit`` (``connection.autocommit = ...`` / ``await conn.set_autocommit(...)``로 설정) | 예 — 같은 값이 ``SetDbParameterPacket``으로 재전송됨 |
+| ``autocommit`` (``connect(autocommit=True)``, ``connection.autocommit = ...`` 또는 ``await conn.set_autocommit(...)``으로 설정) | 예 — 같은 값이 ``SetDbParameterPacket``으로 재전송됨 |
 | 연결 시 기본값으로 남아있는 ``autocommit`` | 아니요 — 브로커 기본값 사용 |
 
-호출자가 한 번도 건드리지 않은 설정은 불필요한 왕복을 막기 위해 재연결 시 의도적으로 **재전송하지 않습니다**. 복원 자체가 실패하면 연결이 해체되고 PEP 3134 ``__cause__``로 기저 전송 오류가 보존되어 호출자가 실패를 진단할 수 있습니다.
+호출자가 한 번도 건드리지 않은 설정은 불필요한 왕복을 막기 위해 새 연결에 의도적으로 **재전송하지 않습니다**. 복원 자체가 실패하면 연결이 해체되고 PEP 3134 ``__cause__``로 기저 전송 오류가 보존되어 호출자가 실패를 진단할 수 있습니다.
 
 ---
 
@@ -348,9 +348,10 @@ commit/rollback 및 SELECT는 캐시된 관측값을 유지합니다. 새 INSERT
 않은 배치, 물리 연결 폐기/재접속은 캐시를 초기화합니다. 조회 실패, 빈 응답 또는
 잘못된 식별자는 `None`으로 남습니다. AUTO_INCREMENT가 없는 INSERT에도 브로커가
 이전 식별자를 보고할 수 있으므로 현재 문장이 생성한 ID 또는 rollback 이후 행의
-존재를 보장하는 값은 아닙니다. 동기/비동기 연결에 같은 규칙이 적용됩니다. 트랜잭션
-종료 후 브로커가 CAS를 해제하면 다음 요청에서 자동 재접속해 연결 캐시가 초기화될
-수 있습니다. 이전 커서의 `lastrowid` 스냅샷은 그대로 유지됩니다.
+존재를 보장하는 값은 아닙니다. 동기/비동기 연결에 같은 규칙이 적용됩니다. 정상적인
+트랜잭션 종료 후에는 같은 연결과 캐시가 유지됩니다. 실제 연결 실패 뒤 명시적인
+`ping(reconnect=True)` 복구가 성공하면 연결 캐시는 초기화되지만 이전 커서의
+`lastrowid` 스냅샷은 그대로 유지됩니다.
 
 캐시는 서버 응답이 INSERT로 분류한 커서 작업에서만 갱신됩니다. 이전의 실시간
 브로커 조회와 달리 `CALL`, 저장 프로시저 내부 INSERT 또는 커서 밖의 SQL은 관측하지
