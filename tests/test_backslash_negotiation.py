@@ -472,7 +472,7 @@ async def test_async_probe_failure_releases_waiter_without_sending_sql(
 
     assert await recovery is False
     with pytest.raises(OperationalError, match="new-session probe failed"):
-        await query
+        await asyncio.wait_for(query, timeout=2)
     assert conn._connected is False
     assert conn._setup_done.is_set()
     conn._do_send_and_receive.assert_not_awaited()
@@ -602,5 +602,5 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
     conn._lock.release()
 
     with pytest.raises(OperationalError, match="escape mode changed"):
-        await task
+        await asyncio.wait_for(task, timeout=2)
     conn._do_send_and_receive.assert_not_awaited()
