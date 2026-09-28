@@ -608,7 +608,7 @@ class AsyncConnection(ConnectionCommonMixin):
 
         # Closing never reconnects: a CAS that already went away needs no
         # CLOSE_REQ or CLOSE_DATABASE, and failures here are best effort.
-        self._implicit_reconnect_suspended = True
+        self._implicit_reconnect_suspended += 1
         try:
             for cursor in list(self._cursors):
                 try:
@@ -639,13 +639,16 @@ class AsyncConnection(ConnectionCommonMixin):
                     if _timing is not None:
                         _timing.record_close(time.perf_counter_ns() - _start)
         finally:
-            self._implicit_reconnect_suspended = False
+            self._implicit_reconnect_suspended -= 1
 
     async def commit(self) -> None:
         """Commit the current transaction."""
         await self._wait_for_setup_if_needed()
         async with self._lock:
             self._ensure_connected()
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            await self._check_reconnect_locked()
             await self._close_schema_results_locked()
             await self._close_open_query_handles_locked()
             await self._send_and_receive_locked(CommitPacket())
@@ -656,6 +659,9 @@ class AsyncConnection(ConnectionCommonMixin):
         await self._wait_for_setup_if_needed()
         async with self._lock:
             self._ensure_connected()
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            await self._check_reconnect_locked()
             await self._close_schema_results_locked()
             await self._close_open_query_handles_locked()
             await self._send_and_receive_locked(RollbackPacket())
@@ -1128,8 +1134,10 @@ class AsyncConnection(ConnectionCommonMixin):
             if probe.response_code >= 0:
                 self._verified_cas_info = self._cas_info
                 return False
-        except (Error, OSError, struct.error):
-            pass
+            _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
+        except (Error, OSError, struct.error) as exc:
+            # No answer: the CAS closed or reset this socket after OUT_TRAN.
+            _LOGGER.debug("CHECK_CAS got no answer: %r", exc)
         await self._reconnect_after_failed_probe_locked()
         return True
 
@@ -1141,13 +1149,15 @@ class AsyncConnection(ConnectionCommonMixin):
         ``connect()`` cannot be used here because it takes that lock.
         """
         _LOGGER.debug(
-            "CHECK_CAS failed out of transaction; reconnecting to %s:%d", self._host, self._port
+            "CAS did not answer CHECK_CAS out of transaction; reconnecting to %s:%d",
+            self._host,
+            self._port,
         )
         escape_mode = self._no_backslash_escapes
         await self._close_streams()
         self._connected = False
         self._invalidate_query_handles_for_reconnect()
-        self._implicit_reconnect_suspended = True
+        self._implicit_reconnect_suspended += 1
         try:
             await self._connect_locked()
             await self._negotiate_backslash_escapes_locked()
@@ -1155,15 +1165,22 @@ class AsyncConnection(ConnectionCommonMixin):
                 await self._apply_pending_autocommit_locked()
             else:
                 await self._restore_session_state_locked()
+            # Setup may itself end OUT_TRAN (the escape probe's rollback), and
+            # that CAS may be recycled too: verify it before the pending request.
+            if self._cas_status_unverified():
+                probe = await self._send_and_receive_locked(CheckCasPacket(), allow_reconnect=False)
+                if probe.response_code < 0:
+                    raise OperationalError("replacement CAS session failed CHECK_CAS")
+                self._verified_cas_info = self._cas_info
         except BaseException as exc:
             self._drop_connection()
             if isinstance(exc, Exception):
                 raise OperationalError(
-                    "CAS closed the connection out of transaction and reconnecting failed"
+                    "CAS did not answer CHECK_CAS out of transaction and reconnecting failed"
                 ) from exc
             raise
         finally:
-            self._implicit_reconnect_suspended = False
+            self._implicit_reconnect_suspended -= 1
         self._check_replacement_escape_mode(escape_mode)
 
     async def _negotiate_backslash_escapes_locked(self) -> None:

@@ -28,6 +28,8 @@ from pycubrid.protocol import (
     CommitPacket,
     FetchPacket,
     GetLastInsertIdPacket,
+    LOBReadPacket,
+    LOBWritePacket,
     PrepareAndExecutePacket,
     RollbackPacket,
     SetDbParameterPacket,
@@ -80,9 +82,18 @@ def test_skip_request_after_reconnect_classifies_session_bound_requests() -> Non
     assert Connection._skip_request_after_reconnect(CloseQueryPacket(3)) is True
     assert Connection._skip_request_after_reconnect(CommitPacket()) is False
     assert Connection._skip_request_after_reconnect(CheckCasPacket()) is False
-    for packet in (FetchPacket(3, 0, 10), GetLastInsertIdPacket()):
-        with pytest.raises(OperationalError, match="result set lost due to broker reconnect"):
+    with pytest.raises(OperationalError, match="result set lost due to broker reconnect"):
+        Connection._skip_request_after_reconnect(FetchPacket(3, 0, 10))
+    for packet in (LOBReadPacket(b"h", 0, 1), LOBWritePacket(b"h", 0, b"x")):
+        with pytest.raises(OperationalError, match="LOB handle lost due to broker reconnect"):
             Connection._skip_request_after_reconnect(packet)
+
+
+def test_lost_last_insert_id_is_logged_at_warning(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING", logger="pycubrid._connection_common"):
+        with pytest.raises(OperationalError, match="last insert id lost"):
+            Connection._skip_request_after_reconnect(GetLastInsertIdPacket())
+    assert "lastrowid is unavailable" in caplog.text
 
 
 # -- sync ----------------------------------------------------------------------
@@ -213,7 +224,7 @@ def test_sync_close_never_probes_or_reconnects() -> None:
         CASFunctionCode.CLOSE_REQ_HANDLE,
         CASFunctionCode.CON_CLOSE,
     ]
-    assert conn._implicit_reconnect_suspended is False
+    assert conn._implicit_reconnect_suspended == 0
 
 
 @pytest.mark.parametrize("boundary", ["commit", "rollback"])
@@ -293,12 +304,13 @@ class _FakeCas:
         self.dead = False
         self.escape_length = escape_length
         self.reply = OUT_TRAN
+        self.fail_on: set[int] = set()  # indices into ``sent`` that fail like EOF
         self.sent: list[tuple[int, Any]] = []
 
     async def __call__(self, packet: Any) -> Any:
         assert self.conn._lock.locked(), "every request, including reconnect setup, holds _lock"
         self.sent.append((self.conn._physical_generation, packet))
-        if self.dead:
+        if self.dead or len(self.sent) - 1 in self.fail_on:
             self.dead = False
             self.conn._drop_connection()
             raise OperationalError("connection lost during receive")
@@ -390,12 +402,13 @@ async def test_async_probe_failure_reconnects_once_and_restores_under_lock() -> 
         (2, CloseQueryPacket),
         (2, RollbackPacket),
         (2, SetDbParameterPacket),
+        (2, CheckCasPacket),  # setup ended OUT_TRAN: verify before the request
         (2, CommitPacket),
     ]
     assert cas.sent[1][1].sql == "SELECT CHAR_LENGTH('\\\\')"
     assert cursor._query_handle is None
     assert cursor._invalidated_by_reconnect is True
-    assert conn._implicit_reconnect_suspended is False
+    assert conn._implicit_reconnect_suspended == 0
 
 
 @pytest.mark.asyncio
@@ -411,6 +424,7 @@ async def test_async_pending_constructor_autocommit_is_applied_on_reconnect() ->
     assert cas.kinds()[1:] == [
         (2, SetDbParameterPacket),
         (2, CommitPacket),
+        (2, CheckCasPacket),
         (2, CommitPacket),
     ]
 
@@ -496,7 +510,7 @@ async def test_async_close_never_probes_or_reconnects() -> None:
 
     open_connection.assert_not_awaited()
     assert cas.kinds() == [(1, CloseQueryPacket), (1, CloseDatabasePacket)]
-    assert conn._implicit_reconnect_suspended is False
+    assert conn._implicit_reconnect_suspended == 0
 
 
 @pytest.mark.asyncio
@@ -567,7 +581,7 @@ async def test_async_cancelled_reconnect_retires_the_session() -> None:
         await conn._send_and_receive(CommitPacket())
     assert conn._connected is False
     assert conn._writer is None
-    assert conn._implicit_reconnect_suspended is False
+    assert conn._implicit_reconnect_suspended == 0
 
 
 # -- review follow-ups -----------------------------------------------------------
@@ -598,7 +612,7 @@ def test_sync_close_resets_suspension_after_base_exception() -> None:
 
     with pytest.raises(KeyboardInterrupt):
         conn.close()
-    assert conn._implicit_reconnect_suspended is False
+    assert conn._implicit_reconnect_suspended == 0
 
 
 def test_sync_interrupted_reconnect_retires_the_session() -> None:
@@ -610,7 +624,7 @@ def test_sync_interrupted_reconnect_retires_the_session() -> None:
             conn._send_and_receive(CommitPacket())
     assert conn._connected is False
     assert conn._socket is None
-    assert conn._implicit_reconnect_suspended is False
+    assert conn._implicit_reconnect_suspended == 0
 
 
 def _prepare_reply(packet: Any) -> None:
@@ -677,6 +691,84 @@ async def test_async_handle_released_while_waiting_is_never_sent(by_reconnect: b
 
     error = OperationalError if by_reconnect else InterfaceError
     with pytest.raises(error, match="re-execute the query"):
-        await fetch
+        _ = await fetch
     assert (await close).query_handle == 5
     assert cas.sent == []  # handle 5 may already name another result
+
+
+# -- second review round -----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_async_replacement_recycled_during_setup_fails_cleanly() -> None:
+    """The escape probe's rollback can recycle the new CAS too (M3)."""
+    conn, cas, open_connection = _async_out_tran()
+    cas.dead = True  # the first probe fails
+    cas.fail_on = {4}  # 0 probe, 1 escape SELECT, 2 CLOSE_REQ, 3 ROLLBACK, 4 re-probe
+    request = CommitPacket()
+
+    with pytest.raises(OperationalError, match="did not answer CHECK_CAS.*reconnecting failed"):
+        await conn._send_and_receive(request)
+
+    open_connection.assert_awaited_once()  # still one attempt per request
+    assert cas.kinds()[-1] == (2, CheckCasPacket)
+    assert all(packet is not request for _, packet in cas.sent)
+    assert conn._connected is False
+
+
+def test_sync_replacement_recycled_during_setup_fails_cleanly() -> None:
+    conn, old = _sync_out_tran()
+    conn._autocommit = True
+    conn._autocommit_explicitly_set = True
+    _script(old, [])
+    # The restore reply is OUT_TRAN, then the replacement closes too.
+    new = _replacement_socket(build_simple_ok_response(OUT_TRAN))
+
+    with patch("socket.create_connection", return_value=new) as create:
+        with pytest.raises(OperationalError, match="did not answer CHECK_CAS.*reconnecting failed"):
+            conn._send_and_receive(CommitPacket())
+
+    create.assert_called_once()
+    assert _function_codes(new, 2) == [
+        CASFunctionCode.SET_DB_PARAMETER,
+        CASFunctionCode.CHECK_CAS,
+    ]
+    assert conn._connected is False
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+def test_sync_boundary_probes_before_closing_schema_results(boundary: str) -> None:
+    conn, _ = make_connected_connection()
+    order: list[str] = []
+    conn._check_reconnect = MagicMock(  # type: ignore[method-assign]
+        side_effect=lambda **_: order.append("probe") or False
+    )
+    conn._close_schema_results = MagicMock(  # type: ignore[method-assign]
+        side_effect=lambda: order.append("schema")
+    )
+    conn._send_and_receive = MagicMock()  # type: ignore[method-assign]
+
+    getattr(conn, boundary)()
+    assert order[:2] == ["probe", "schema"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+async def test_async_boundary_probes_before_closing_schema_results(boundary: str) -> None:
+    conn, cas, _ = _async_out_tran()
+    conn._close_schema_results_locked = AsyncMock()  # type: ignore[method-assign]
+    cas.dead = True  # recycled after the last OUT_TRAN reply
+
+    await getattr(conn, boundary)()
+
+    assert conn._physical_generation == 2
+    assert cas.kinds()[0] == (1, CheckCasPacket)
+    assert cas.kinds()[-1][1] is (CommitPacket if boundary == "commit" else RollbackPacket)
+
+
+@pytest.mark.asyncio
+async def test_async_overlapping_suspension_scopes_nest() -> None:
+    conn, _, _ = _async_out_tran()
+    conn._implicit_reconnect_suspended += 1  # e.g. close() running in another task
+    await conn.close()
+    assert conn._implicit_reconnect_suspended == 1

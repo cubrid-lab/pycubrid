@@ -317,12 +317,12 @@ conn.autocommit = True
 그래도 CAS는 이런 응답 직후 소켓을 닫을 수 있습니다. 메모리가 `APPL_SERVER_MAX_SIZE`를 넘으면 다음 `END_TRAN`에서 재시작하고, `cubrid broker reset`은 유휴 워커를 재활용하며, `KEEP_CONNECTION=AUTO`에서 `MAX_NUM_APPL_SERVER`보다 많은 클라이언트가 연결되면 유휴 워커를 대기 중인 클라이언트에게 넘깁니다(CHANGE CLIENT). 그래서 직전 응답이 OUT_TRAN이면 동기/비동기 연결 모두 CUBRID JDBC 드라이버처럼 다음 요청 전에 네이티브 `CHECK_CAS`를 한 번 보냅니다(#485).
 
 - CAS가 응답하면 같은 세션을 유지하고 요청을 보냅니다. 트랜잭션 밖에서 보내는 요청마다, 즉 autocommit 모드의 모든 문장마다 왕복이 한 번 늘어납니다(autocommit INSERT는 last-insert-id 조회 전에도 검사합니다).
-- 검사가 실패하면 **해당 요청에 대해 한 번만** 연결을 교체합니다. 고정하지 않은 이스케이프 모드를 다시 감지하고 명시적으로 설정한 `autocommit`을 복원한 뒤, 요청을 새 세션에서 처음으로 보냅니다. SQL은 재실행하지 않으며, CAS가 열린 트랜잭션이 없다고 보고했으므로 커밋되지 않은 작업을 잃지 않습니다. 잃어버린 세션에 의존하는 요청은 새 세션으로 보내지 않습니다. 그 세션 핸들에 대한 `CLOSE_REQ`는 건너뛰고, 아직 읽지 않은 행에 대한 FETCH나 last-insert-id 조회는 `OperationalError`를 발생시키며, `pycubrid.compat.native` prepared 문은 이전 세션 소속으로 거부됩니다. 다시 감지한 이스케이프 모드가 이전과 다르면 SQL이 이미 이전 모드로 만들어졌을 수 있으므로 요청을 보내기 전에 `OperationalError`로 실패시키며, 새 세션은 재시도를 위해 열린 채로 둡니다.
-- 교체에 실패하면 `OperationalError`를 발생시키고 연결을 닫습니다. `ping(reconnect=True)`나 새 연결로 복구할 수 있습니다.
+- 검사가 실패하면 **해당 요청에 대해 한 번만** 연결을 교체합니다. 고정하지 않은 이스케이프 모드를 다시 감지하고 명시적으로 설정한 `autocommit`을 복원한 뒤, 요청을 새 세션에서 처음으로 보냅니다. SQL은 재실행하지 않으며, CAS가 열린 트랜잭션이 없다고 보고했으므로 커밋되지 않은 작업을 잃지 않습니다. 잃어버린 세션에 의존하는 요청은 새 세션으로 보내지 않습니다. 그 세션 핸들에 대한 `CLOSE_REQ`는 건너뛰고, 아직 읽지 않은 행에 대한 FETCH, last-insert-id 조회, 그 세션에서 얻은 LOB의 읽기/쓰기는 `OperationalError`를 발생시키며, `pycubrid.compat.native` prepared 문은 이전 세션 소속으로 거부됩니다. autocommit INSERT 직후 CAS가 재활용되면 INSERT는 커밋되지만 `lastrowid`는 `None`이 되고 WARNING 로그가 남습니다. 교체 설정 자체도 트랜잭션 밖에서 끝나므로 요청 전에 `CHECK_CAS`로 한 번 더 확인합니다. 다시 감지한 이스케이프 모드가 이전과 다르면 SQL이 이미 이전 모드로 만들어졌을 수 있으므로 요청을 보내기 전에 `OperationalError`로 실패시키며, 새 세션은 재시도를 위해 열린 채로 둡니다.
+- 교체에 실패하면 `OperationalError`를 발생시키고 연결을 닫지 않은 채 끊긴 상태로 둡니다. `ping(reconnect=True)`로 다시 연결하거나 새 연결을 여세요.
 
-복원하는 것은 드라이버가 소유한 상태뿐입니다. 세션 변수, SQL로 설정한 격리 수준이나 잠금 타임아웃 등 서버 세션 상태는 잃어버린 CAS 세션에 속하므로 이어지지 않습니다.
+복원하는 것은 드라이버가 소유한 상태뿐입니다. 실제 재접속은 SQL로 설정한 세션 상태를 초기화합니다. 세션 변수, `SET TRANSACTION ISOLATION LEVEL`, 잠금 타임아웃 등 서버 세션 상태는 잃어버린 CAS 세션에 속하므로 이어지지 않습니다. 이런 설정을 SQL로 적용하는 계층은 새 물리 세션마다 계속 다시 적용해야 합니다(예: sqlalchemy-cubrid의 격리 수준 재적용, sqlalchemy-cubrid#527).
 
-`commit()`과 `rollback()`은 `END_TRAN` 전에 닫히지 않은 커서가 가진 모든 쿼리 핸들에 `CLOSE_REQ`를 보내므로, 오래 유지되는 세션에 서버 핸들이 쌓이지 않습니다. 이미 받은 행은 계속 읽을 수 있고, 끝나지 않은 결과는 다음 FETCH가 필요할 때 여전히 `InterfaceError`를 발생시킵니다.
+`commit()`과 `rollback()`은 먼저 트랜잭션 밖 CAS를 확인한 뒤 `END_TRAN` 전에 닫히지 않은 커서가 가진 모든 쿼리 핸들에 `CLOSE_REQ`를 보내므로, 오래 유지되는 세션에 서버 핸들이 쌓이지 않습니다. 이미 받은 행은 계속 읽을 수 있고, 끝나지 않은 결과는 다음 FETCH가 필요할 때 여전히 `InterfaceError`를 발생시킵니다. autocommit 모드에서는 `END_TRAN`을 보내지 않으므로 닫히지 않은 커서의 서버 핸들은 `commit()`, `rollback()` 또는 `close()`까지 계속 쌓입니다. 커서를 닫거나 컨텍스트 매니저로 사용하세요.
 
 ### 명시적 ping 복구 후 세션 상태 복원
 

@@ -41,6 +41,8 @@ from .protocol import (
     FetchPacket,
     GetLastInsertIdPacket,
     GetSchemaPacket,
+    LOBReadPacket,
+    LOBWritePacket,
     _SchemaColumn,
 )
 
@@ -246,9 +248,9 @@ class ConnectionCommonMixin:
         # the OPEN_DATABASE reply or a successful CHECK_CAS. Any later reply
         # replaces ``_cas_info`` and requires a fresh probe (#485).
         self._verified_cas_info: bytes | bytearray | None = None
-        # Set while closing or while an implicit reconnect runs its own setup,
-        # so those requests never probe or reconnect recursively.
-        self._implicit_reconnect_suspended = False
+        # Depth of scopes (close, implicit-reconnect setup) whose requests must
+        # never probe or reconnect; a counter so overlapping scopes nest safely.
+        self._implicit_reconnect_suspended = 0
         self._session_id = 0
         self._autocommit = False
         self._autocommit_explicitly_set = False
@@ -320,7 +322,13 @@ class ConnectionCommonMixin:
         return (
             allow_reconnect
             and not self._implicit_reconnect_suspended
-            and self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE
+            and self._cas_status_unverified()
+        )
+
+    def _cas_status_unverified(self) -> bool:
+        """Return whether the last reply was OUT_TRAN and not yet verified live."""
+        return (
+            self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE
             and self._cas_info is not self._verified_cas_info
         )
 
@@ -329,14 +337,22 @@ class ConnectionCommonMixin:
         """Decide what happens to a request whose CAS session was just replaced.
 
         A CLOSE_REQ names a handle that died with the old CAS session, so there
-        is nothing left to close. FETCH and last-insert-id requests read state
-        of the old session and must fail explicitly instead of reading from the
-        new one. Every other request is session independent and is sent as-is;
-        it has not been sent before, so this is not a replay.
+        is nothing left to close. FETCH, last-insert-id and LOB read/write
+        requests use state of the old session and must fail explicitly instead
+        of reaching the new one. Every other request is session independent and
+        is sent as-is; it has not been sent before, so this is not a replay.
         """
         if isinstance(packet, CloseQueryPacket):
             return True
-        if isinstance(packet, (FetchPacket, GetLastInsertIdPacket)):
+        if isinstance(packet, GetLastInsertIdPacket):
+            _LOGGER.warning(
+                "CAS session was replaced before the last-insert-id lookup; "
+                "lastrowid is unavailable for the preceding INSERT"
+            )
+            raise OperationalError("last insert id lost due to broker reconnect")
+        if isinstance(packet, (LOBReadPacket, LOBWritePacket)):
+            raise OperationalError("LOB handle lost due to broker reconnect; fetch the LOB again")
+        if isinstance(packet, FetchPacket):
             raise OperationalError(
                 "result set lost due to broker reconnect; re-execute the query to continue"
             )

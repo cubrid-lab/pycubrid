@@ -598,23 +598,34 @@ as the CUBRID JDBC driver does (#485):
   restored, then the request is sent for the first time on the new session. No
   SQL is replayed; the CAS reported no open transaction, so no uncommitted work
   is lost. Requests that depend on the lost session are not sent there: a
-  `CLOSE_REQ` for one of its handles is skipped, a FETCH of its unread rows or a
-  last-insert-id lookup raises `OperationalError`, and `pycubrid.compat.native`
-  prepared statements are rejected as belonging to an earlier session. If the
+  `CLOSE_REQ` for one of its handles is skipped; a FETCH of its unread rows, a
+  last-insert-id lookup, or a LOB read/write on a LOB obtained from it raises
+  `OperationalError`; and `pycubrid.compat.native` prepared statements are
+  rejected as belonging to an earlier session. If the CAS is recycled right
+  after an autocommit INSERT, that INSERT is committed but its `lastrowid` is
+  `None`; a WARNING is logged. Because the replacement setup itself ends out of
+  transaction, it is verified with one more `CHECK_CAS` before the request. If the
   re-probed escape mode differs from the old one, the request fails with
   `OperationalError` before send, since its SQL may already be rendered for the
   old mode; the new session stays open for a retry.
 - The replacement fails: `OperationalError` is raised and the connection is
-  closed; `ping(reconnect=True)` or a new connection can recover it.
+  left disconnected (not closed); `ping(reconnect=True)` reconnects it, or open
+  a new connection.
 
-Only driver-owned state is restored. Session variables, isolation levels or lock
-timeouts set through SQL, and other server session state belong to the lost CAS
-session and are not carried over.
+Only driver-owned state is restored. A real reconnect resets session state set
+through SQL: session variables, `SET TRANSACTION ISOLATION LEVEL`, lock timeouts
+and other server session state belong to the lost CAS session and are not
+carried over. Layers that apply such settings with SQL must keep re-applying
+them on a new physical session (for example sqlalchemy-cubrid's isolation-level
+re-apply, sqlalchemy-cubrid#527).
 
-`commit()` and `rollback()` also send `CLOSE_REQ` for every query handle still
-held by an unclosed cursor before `END_TRAN`, so a long-lived session does not
-accumulate server handles. Rows that were already received stay readable; an
-unfinished result still raises `InterfaceError` at its next required FETCH.
+`commit()` and `rollback()` first verify an out-of-transaction CAS, then send
+`CLOSE_REQ` for every query handle still held by an unclosed cursor before
+`END_TRAN`, so a long-lived session does not accumulate server handles. Rows
+that were already received stay readable; an unfinished result still raises
+`InterfaceError` at its next required FETCH. In autocommit mode no `END_TRAN` is
+sent, so unclosed cursors still accumulate server handles until `commit()`,
+`rollback()` or `close()`: close cursors (or use them as context managers).
 
 ### Session-state restoration after explicit ping recovery
 
@@ -1318,7 +1329,8 @@ def commit(self) -> None
 
 Commit the current transaction. Sends `CLOSE_REQ` for query handles still held
 by unclosed cursors, then a `CommitPacket` to the server (#485). Rows already
-received stay readable. If the CAS recycled its session after an earlier
+received stay readable. In autocommit mode no `END_TRAN` is sent, so close
+cursors to release their server handles. If the CAS recycled its session after an earlier
 out-of-transaction reply, the request is preceded by the verified reconnect
 described in [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary).
 
@@ -1395,7 +1407,10 @@ leaves it `None`. An empty batch leaves it unchanged.
 A normal transaction boundary keeps the same physical connection and cache.
 After an actual connection failure, explicit `ping(reconnect=True)` recovery,
 or the automatic reconnect after a failed out-of-transaction `CHECK_CAS`
-(#485), clears the connection cache. The earlier cursor's `lastrowid` snapshot remains
+(#485), clears the connection cache. If the CAS is recycled right after an
+autocommit INSERT, the INSERT is committed but `lastrowid` is `None` and a
+WARNING is logged. A failed automatic reconnect leaves the connection
+disconnected, not closed; `ping(reconnect=True)` reconnects it. The earlier cursor's `lastrowid` snapshot remains
 available across that physical connection change.
 
 This is a snapshot of cursor operations whose server response identifies an

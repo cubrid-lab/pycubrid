@@ -64,14 +64,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   session variables and isolation level still survive normal boundaries. Only a
   failed probe replaces the session, once per request and before that request is
   first sent: the escape mode is re-probed unless pinned and explicit autocommit is
-  restored. Requests tied to the lost session are not sent to the new one (a
-  CLOSE_REQ is skipped; FETCH, last-insert-id and native prepared requests fail),
+  restored, and the replacement is verified once more before the request. Requests
+  tied to the lost session are not sent to the new one (a CLOSE_REQ is skipped;
+  FETCH, last-insert-id, LOB read/write and native prepared requests fail; a
+  `lastrowid` lost after an autocommit INSERT is `None` and logged at WARNING),
   and a changed escape mode fails the pending request before send. Async cursor
   FETCH/CLOSE_REQ requests whose handle another task's boundary released while
-  they waited are no longer sent. No SQL is replayed, SQL-level session state of the lost CAS is not
-  carried over, and a failed replacement raises `OperationalError`. Commit and
-  rollback first send `CLOSE_REQ` for handles still held by unclosed cursors, so
-  server handles no longer accumulate until the CAS exceeds its memory limit.
+  they waited are no longer sent. No SQL is replayed. SQL-level session state
+  of the lost CAS is not carried over, so layers that set isolation or session variables with SQL must
+  keep re-applying them on a new session (sqlalchemy-cubrid#527). A failed
+  replacement raises `OperationalError` and leaves the connection disconnected
+  for `ping(reconnect=True)`. Commit and rollback first send `CLOSE_REQ` for
+  handles still held by unclosed cursors, so server handles no longer accumulate
+  until the CAS exceeds its memory limit; in autocommit mode there is no such
+  boundary, so close cursors.
   Already received rows stay readable; unfinished results still raise
   `InterfaceError` (#395). Requests after an OUT_TRAN reply cost one extra round
   trip, including each statement in autocommit mode. This supersedes the #468

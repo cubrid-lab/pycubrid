@@ -19,6 +19,7 @@ import contextlib
 import os
 import re
 import select
+import shlex
 import socket
 import subprocess  # nosec B404 - fixed docker CLI argv, no shell on the host
 import time
@@ -47,7 +48,7 @@ PARAMS = pytest.mark.parametrize("adapter", ADAPTERS, ids=[adapter.kind for adap
 
 def _broker_cli(command: list[str]) -> str:
     result = subprocess.run(  # nosec B603 B607 - fixed argv; container from the test env
-        ["docker", "exec", "-u", "cubrid", CONTAINER, "bash", "-lc", " ".join(command)],
+        ["docker", "exec", "-u", "cubrid", CONTAINER, "bash", "-lc", shlex.join(command)],
         check=True,
         capture_output=True,
         text=True,

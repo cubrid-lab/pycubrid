@@ -339,7 +339,8 @@ def commit(self) -> None
 
 Commit the current transaction. Sends `CLOSE_REQ` for query handles still held
 by unclosed cursors, then a `CommitPacket` to the server (#485). Rows already
-received stay readable. If the CAS recycled its session after an earlier
+received stay readable. In autocommit mode no `END_TRAN` is sent, so close
+cursors to release their server handles. If the CAS recycled its session after an earlier
 out-of-transaction reply, the request is preceded by the verified reconnect
 described in [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary).
 
@@ -416,7 +417,10 @@ leaves it `None`. An empty batch leaves it unchanged.
 A normal transaction boundary keeps the same physical connection and cache.
 After an actual connection failure, explicit `ping(reconnect=True)` recovery,
 or the automatic reconnect after a failed out-of-transaction `CHECK_CAS`
-(#485), clears the connection cache. The earlier cursor's `lastrowid` snapshot remains
+(#485), clears the connection cache. If the CAS is recycled right after an
+autocommit INSERT, the INSERT is committed but `lastrowid` is `None` and a
+WARNING is logged. A failed automatic reconnect leaves the connection
+disconnected, not closed; `ping(reconnect=True)` reconnects it. The earlier cursor's `lastrowid` snapshot remains
 available across that physical connection change.
 
 This is a snapshot of cursor operations whose server response identifies an

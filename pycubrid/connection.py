@@ -330,7 +330,7 @@ class Connection(ConnectionCommonMixin):
 
         # Closing never reconnects: a CAS that already went away needs no
         # CLOSE_REQ or CLOSE_DATABASE, and failures here are best effort.
-        self._implicit_reconnect_suspended = True
+        self._implicit_reconnect_suspended += 1
         try:
             for cursor in list(self._cursors):
                 try:
@@ -345,7 +345,7 @@ class Connection(ConnectionCommonMixin):
         except Exception:  # nosec B110 — best-effort socket cleanup on close
             pass
         finally:
-            self._implicit_reconnect_suspended = False
+            self._implicit_reconnect_suspended -= 1
             self._safe_close_socket()
             self._connected = False
             self._statement_pooling = None
@@ -363,6 +363,9 @@ class Connection(ConnectionCommonMixin):
         self._ensure_connected()
         _LOGGER.debug("commit")
         with self._session_lock:
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            self._check_reconnect()
             self._close_schema_results()
             self._close_open_query_handles()
             self._send_and_receive(CommitPacket())
@@ -373,6 +376,9 @@ class Connection(ConnectionCommonMixin):
         self._ensure_connected()
         _LOGGER.debug("rollback")
         with self._session_lock:
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            self._check_reconnect()
             self._close_schema_results()
             self._close_open_query_handles()
             self._send_and_receive(RollbackPacket())
@@ -424,32 +430,45 @@ class Connection(ConnectionCommonMixin):
             if probe.response_code >= 0:
                 self._verified_cas_info = self._cas_info
                 return False
-        except (Error, OSError, struct.error):
-            pass
+            _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
+        except (Error, OSError, struct.error) as exc:
+            # No answer: the CAS closed or reset this socket after OUT_TRAN.
+            _LOGGER.debug("CHECK_CAS got no answer: %r", exc)
         self._reconnect_after_failed_probe()
         return True
 
     def _reconnect_after_failed_probe(self) -> None:
         """Replace a CAS session that failed its OUT_TRAN probe, exactly once."""
         _LOGGER.debug(
-            "CHECK_CAS failed out of transaction; reconnecting to %s:%d", self._host, self._port
+            "CAS did not answer CHECK_CAS out of transaction; reconnecting to %s:%d",
+            self._host,
+            self._port,
         )
         escape_mode = self._no_backslash_escapes
         self._drop_connection()
         self._invalidate_query_handles_for_reconnect()
-        self._implicit_reconnect_suspended = True
+        self._implicit_reconnect_suspended += 1
         try:
             self.connect()
             self._restore_session_state()
+            # Setup may itself end OUT_TRAN (the escape probe's rollback), and
+            # that CAS may be recycled too: verify it before the pending request.
+            if self._cas_status_unverified():
+                probe = self._send_and_receive_locked(
+                    CheckCasPacket(), allow_reconnect=False, expected_generation=None
+                )
+                if probe.response_code < 0:
+                    raise OperationalError("replacement CAS session failed CHECK_CAS")
+                self._verified_cas_info = self._cas_info
         except BaseException as exc:
             self._drop_connection()
             if isinstance(exc, Exception):
                 raise OperationalError(
-                    "CAS closed the connection out of transaction and reconnecting failed"
+                    "CAS did not answer CHECK_CAS out of transaction and reconnecting failed"
                 ) from exc
             raise
         finally:
-            self._implicit_reconnect_suspended = False
+            self._implicit_reconnect_suspended -= 1
         self._check_replacement_escape_mode(escape_mode)
 
     def _restore_session_state(self) -> None:
