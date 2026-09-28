@@ -406,7 +406,7 @@ lob.write(b"Hello, CUBRID!")
 
 ---
 
-#### `get_schema_info(schema_type, table_name, pattern_match_flag)`
+#### `get_schema_info(schema_type, table_name="", pattern_match_flag=1, *, arg2=None)`
 
 ```python
 def get_schema_info(
@@ -414,10 +414,13 @@ def get_schema_info(
     schema_type: int,
     table_name: str = "",
     pattern_match_flag: int = 1,
+    *,
+    arg2: str | None = None,
 ) -> GetSchemaPacket
 ```
 
-서버에서 스키마 정보를 조회합니다.
+현재 연결·CAS 세션이 소유하는 스키마 결과를 생성합니다.
+`fetch_schema_info()`로 소비하거나 `close_schema_info()`로 명시적으로 폐기하세요.
 
 **파라미터:**
 
@@ -426,14 +429,23 @@ def get_schema_info(
 | `schema_type`        | `int` | —       | 스키마 타입 코드 (`CCISchemaType` 참고) |
 | `table_name`         | `str` | `""`    | 테이블 이름 필터 |
 | `pattern_match_flag` | `int` | `1`     | 패턴 매치 플래그 |
+| `arg2` | `str \| None` | `None` | 키워드 전용 두 번째 이름/패턴 (예: ATTRIBUTE 필터) |
 
-**반환:** `query_handle`와 `tuple_count` 속성을 가진 `GetSchemaPacket`.
+**반환:** `query_handle`, `tuple_count`, `columns`를 가진 원래 `GetSchemaPacket`.
+축약 컬럼에는 `column_type`, `scale`, `precision`, `name`만 있으며 FC9에는
+SELECT의 NULL 허용·기본값·제약 메타데이터가 없습니다. NULL(`None`)과 빈 문자열은
+서로 다른 와이어 인자입니다. 모든 ATTRIBUTE 이름을 조회하려면 플래그 `2`와
+`arg2="%"`를 사용하세요. NULL은 전체 속성 조회의 약식 표현이 아닙니다.
 
 ```python
 from pycubrid.constants import CCISchemaType
 
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
+packet = conn.get_schema_info(CCISchemaType.CLASS, "my_table", 0)
+try:
+    rows = conn.fetch_schema_info(packet)
+finally:
+    conn.close_schema_info(packet)  # 정상 소비 후에도 안전합니다.
+print(rows)
 ```
 
 **사용 가능한 `CCISchemaType` 값:**
@@ -447,6 +459,35 @@ print(f"Found {packet.tuple_count} tables")
 | 16   | `PRIMARY_KEY`     | 기본 키 |
 | 17   | `IMPORTED_KEYS`   | 외래 키 (가져온) |
 | 18   | `EXPORTED_KEYS`   | 외래 키 (내보낸) |
+
+초기 실제 서버 계약은 CUBRID 10.2/11.4의 CLASS/ATTRIBUTE 및 패턴 필터를
+검증합니다. 다른 선언된 스키마 타입 검증은 #457에서 다루며, 모든 타입에 대한
+네이티브 드라이버 동등성을 인증하지 않습니다.
+
+#### `fetch_schema_info(packet)`와 `close_schema_info(packet)`
+
+`fetch_schema_info(packet) -> list[tuple[Any, ...]]`는 광고된 행 전체를 읽고
+원래 핸들을 닫습니다. 0행도 닫으며, 조기 EOF·개수 불일치·정리 실패 시 부분
+목록을 성공으로 반환하지 않습니다. `close_schema_info(packet) -> None`는 명시적
+폐기이며 같은 소유자의 종료된 패킷은 반복해서 닫아도 no-op입니다. 다른 연결의
+패킷·소유되지 않은 패킷·종료된 결과의 fetch는 I/O 전에 `InterfaceError`입니다.
+공개 패킷 필드를 변경해도 실제 추적 중인 핸들·메타데이터는 바뀌지 않습니다.
+
+commit/rollback은 활성 스키마 핸들을 먼저 닫고 소유권을 종료합니다. 유효한
+autocommit이 적용되는 커서 문장도 SQL을 보내기 전에 같은 정리를 수행합니다.
+연결의 autocommit이 꺼져 있어도 `executemany_batch(..., auto_commit=True)`에
+같은 규칙이 적용됩니다. 연결의 autocommit이 켜져 있으면
+`get_server_version()`도 자동 커밋 버전 조회 전에 소유한 스키마 핸들을 닫습니다.
+종료된 패킷의 fetch는 추가 RPC 전에 로컬에서
+`InterfaceError`를 발생시킵니다. 물리 연결
+폐기/재접속 및 연결 종료도 소유권을 종료하며 다른 CAS 세션에서 재실행하지
+않습니다. FETCH/CLOSE는 자동 재접속·암묵적 커밋을 하지 않습니다. 스키마 생성·
+종료 실패는 불확실한 세션을 폐기합니다. FETCH와 정리가 모두 실패하면 원래
+예외를 유지하고 정리 오류를 로그에 기록합니다. 비동기 메서드는 `await`하며
+fetch/정리 동안 연결 락을 유지합니다. 스키마 I/O 도중 취소하면 세션을 폐기하고
+취소를 다시 발생시키지만, 락 대기 중 취소는 다른 태스크의 세션을 폐기하지 않습니다.
+비동기 스키마 FETCH 도중 `KeyboardInterrupt` 또는 `SystemExit`가 발생해도
+응답이 남아 있을 수 있는 스트림에 CLOSE를 보내지 않고 불확실한 세션을 폐기합니다.
 
 ---
 
@@ -915,6 +956,8 @@ with conn.cursor() as cur:
 | `get_server_version()` | `async def get_server_version(self) -> str` | 엔진 버전 조회 |
 | `get_last_insert_id()` | `async def get_last_insert_id(self) -> str \| None` | 캐시된 브로커 식별자 문자열 또는 `None` 반환 |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | 파싱된 패킷 객체 반환 |
+| `fetch_schema_info()` | `async def fetch_schema_info(packet) -> list[tuple[Any, ...]]` | 전체 행을 읽고 원래 핸들 정리 |
+| `close_schema_info()` | `async def close_schema_info(packet) -> None` | 명시적·멱등 폐기 |
 | `set_autocommit()` | `async def set_autocommit(self, value: bool) -> None` | `SetDbParameterPacket`과 `CommitPacket` 전송 |
 
 `AsyncConnection`은 동기 `Connection.ping()`과 동등한 비동기 `ping()`을 노출합니다. `create_lob()`은 동기 전용으로 유지됩니다.

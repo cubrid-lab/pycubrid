@@ -546,17 +546,26 @@ print(data)  # b"Hello, CUBRID LOB!"
 from pycubrid.constants import CCISchemaType
 
 # List all tables
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
+packet = conn.get_schema_info(CCISchemaType.CLASS, "%", 1)
+tables = conn.fetch_schema_info(packet)  # Eagerly reads and closes the result
+print(f"Found {len(tables)} tables")
 
 # List columns of a specific table
-packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="users")
-print(f"Table has {packet.tuple_count} columns")
+packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, "users", 2, arg2="%")
+columns = conn.fetch_schema_info(packet)
+print(f"Table has {len(columns)} columns")
 
-# Get primary key info
-packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="users")
-print(f"Primary key entries: {packet.tuple_count}")
+# Explicitly abandon a result when only its advertised count is needed
+packet = conn.get_schema_info(CCISchemaType.CLASS, "users", 0)
+try:
+    print(f"Matching tables: {packet.tuple_count}")
+finally:
+    conn.close_schema_info(packet)
 ```
+
+Initial live validation covers CLASS/ATTRIBUTE on CUBRID10.2/11.4; broader schema
+types remain under #457. Autocommit changes retain their existing commit/flush
+behavior while closing and retiring active schema results before END_TRAN.
 
 ---
 

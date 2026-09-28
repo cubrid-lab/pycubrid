@@ -375,8 +375,9 @@ No result attributes — raises an exception on error.
 |----------------|-------|-------------|
 | `query_handle` | `int` | Handle for fetching schema rows |
 | `tuple_count`  | `int` | Number of schema entries |
+| `columns` | `list` | Condensed four-field column metadata |
 
-**Private wire groundwork (#455), not an enabled getter fix:** the verified FC9
+**Owned schema requests (#455, #456):** the verified FC9
 request carries length-prefixed arguments in this order: schema type (`int`),
 first name/pattern (`string` or NULL), second name/pattern (`string` or NULL),
 flags (`byte`), then shard ID (`int`, protocol V5 and newer). NULL is a zero-length
@@ -390,10 +391,17 @@ attribute/table names, nullability, default or constraint flags. The private
 decoder therefore exposes only type, scale, precision and name; it preserves the
 existing collection-kind normalization rather than inventing absent fields.
 
-These helpers are offline-tested and dormant. `GetSchemaPacket.write/parse` and
-both public `get_schema_info()` methods remain unchanged and incomplete. Enabling
-the request requires atomic handle ownership, row consumption and cleanup in #456;
-these fixtures do not certify a working live getter or native-driver parity.
+`GetSchemaPacket.write/parse` now uses this layout. Connection getters register
+the original packet identity and immutable handle/count/columns. Consume via
+`fetch_schema_info(packet)` (FC8 until all rows arrive, followed by FC6 even for
+zero rows) or abandon via `close_schema_info(packet)`. Both remain on the original
+CAS session, without reconnect/replay. The unchanged handle-only FC6 omits the
+optional auto-commit argument, whose server default is false. Commit/rollback
+close active schema handles before END_TRAN; physical teardown retires ownership.
+Async ownership registration and fetch/close are atomic under the connection lock;
+in-flight cancellation discards the transport rather than sending FC6 over an
+unread reply. Initial live tests cover CLASS/ATTRIBUTE on 10.2/11.4, not full
+schema-type or native-driver parity certification (#457).
 Source references: [CAS FC9 arguments](https://github.com/CUBRID/cubrid/blob/6b2bc75527c8bad94d9ad8aba961638efdfb3269/src/broker/cas_function.c#L1192),
 [CCI condensed columns](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_query_execute.c#L5285),
 and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63ae4b334fde81ce2c523642f1afd37f/src/jdbc/cubrid/jdbc/jci/UConnection.java#L516).

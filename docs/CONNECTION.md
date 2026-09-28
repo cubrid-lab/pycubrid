@@ -399,6 +399,8 @@ the failure.
 | `get_last_insert_id()`              | `str \| None` | Return the cached broker identity, or `None`   |
 | `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | Query schema metadata from the server |
+| `fetch_schema_info(packet)` | `list[tuple]` | Eagerly read rows and release the original schema handle |
+| `close_schema_info(packet)` | `None` | Abandon an owned result; repeat close is a no-op |
 
 `get_last_insert_id()` reads the identity captured by a cursor after INSERT without
 another network request. Successful values remain strings; unavailable values are
@@ -442,9 +444,18 @@ blob.write(b"\x89PNG\r\n...")
 
 ```python
 # Get schema information (schema_type constants from CUBRID docs)
-packet = conn.get_schema_info(schema_type=1)  # Tables
-print(packet.tuple_count)
+packet = conn.get_schema_info(1, "my_table", 0)  # Exact CLASS filter
+try:
+    print(conn.fetch_schema_info(packet))
+finally:
+    conn.close_schema_info(packet)
 ```
+
+Schema packets belong to the original connection/session; fetch before a
+transaction boundary (including cursor work and version lookup when autocommit
+is enabled) or explicitly abandon them. Async uses the same methods with
+`await`. See [API Reference](API_REFERENCE.md)
+for the second filter, four-field columns and cleanup/error contract.
 
 ---
 
