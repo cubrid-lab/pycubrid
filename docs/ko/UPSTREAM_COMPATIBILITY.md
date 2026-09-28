@@ -3,7 +3,8 @@
 [기계 판독 가능한 카탈로그](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_api_inventory.json)는
 공식 [CUBRID/cubrid-python 소스 스냅샷](https://github.com/CUBRID/cubrid-python/tree/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b)에
 드라이버가 선언한 공개 연산을 기록합니다. 소스 참조, 시그니처, 기본값,
-반환값·오류 관찰 결과, 현재 pycubrid의 대응 항목과 명시적 공백을 담습니다.
+반환값·오류 관찰 결과, 고정된 pycubrid 기준선 7e0aad8의 대응 항목과
+명시적 공백을 담습니다.
 이는 [#396](https://github.com/cubrid-lab/pycubrid/issues/396) 범위에서
 [#436](https://github.com/cubrid-lab/pycubrid/issues/436)이 제공하는 목록 산출물입니다.
 
@@ -11,8 +12,11 @@
 실행, 완전한 API 상위 집합을 인증하지 않습니다. 비슷한 이름이나 기존 패킷
 클래스만으로는 충분한 증거가 되지 않습니다.
 [#438](https://github.com/cubrid-lab/pycubrid/issues/438)의 선택된 additive 설계를
-아래에 기록하지만, 제안된 네임스페이스는 **아직 구현되지 않았습니다**.
-이 카탈로그와 설계는 1.x 기본값을 변경하거나 후속 구현을 인증하지 않습니다.
+아래에 기록합니다. 명시적 네임스페이스는 이제 생성·종료만 제공합니다(#465).
+이 카탈로그는 후속 실행 API나 네이티브 동등성을 인증하지 않으며 기존 1.x
+기본값도 바꾸지 않습니다.
+카탈로그의 대상 매핑은 과거 기준선으로 유지하며 #465의 생성 기능은
+이 가이드에 따로 기록합니다.
 
 ## 카탈로그 읽기
 
@@ -45,7 +49,7 @@
 
 | 공개 표면 | 기존 pycubrid 경로 또는 미완료 작업 |
 | --- | --- |
-| 생성자, autocommit, 스레딩 | 네이티브 초기화는 autocommit을 켭니다. pycubrid는 기본적으로 수동 commit을 사용하며 `threadsafety=1`을 선언합니다. 아래에 선택된 명시적 대상도 생성자 별칭과 CCI URL/HA 옵션을 포함해 구현이 필요합니다. |
+| 생성자, autocommit, 스레딩 | 네이티브 초기화는 autocommit을 켭니다. 기존 pycubrid는 수동 commit과 `threadsafety=1`을 유지합니다. #465는 명시적 CUBRID/UTF-8 생성자와 별칭만 제공하며 공유·설정·CCI URL/HA 옵션은 별도 작업입니다. |
 | 문자셋, dict 커서, 변환기 | 공식 래퍼는 이 옵션들을 노출합니다. pycubrid에는 동등한 설정 가능 표면이 없습니다. 문자셋 제안 #86이 누락된 인코딩 옵션을 추적합니다. UTF-8 전용 동작을 문서화한 것은 구현 증거가 아닙니다. UTF-8 기본값은 바뀌지 않습니다. |
 | Prepare/타입 지정 바인딩 | 패킷 클래스가 존재해도 공개 네이티브 prepare/bind/execute 기능은 없습니다. #418/#439, 타입 지정 컬렉션 핸들은 #440, LOB 핸들은 #441에서 추적합니다. |
 | LOB 커서·파일 동작 | pycubrid는 명시적 오프셋으로 bytes를 읽고 쓰며, 공식 드라이버의 변경 가능한 위치·암묵적 생성 인터페이스와 다릅니다. seek와 읽기·쓰기 계약은 #442, 파일 가져오기·내보내기는 #443입니다. |
@@ -56,13 +60,15 @@
 ## 선택된 additive 계약 (#438)
 
 2026-09-28 메인테이너가 선택한 설계는 기존 pycubrid를 유지하고 별도의
-`pycubrid.compat.cubriddb`(래퍼)와 `pycubrid.compat.native`(네이티브)를 계획합니다.
-이는 향후 대상이며 가져올 수 있는 모듈이나 제공된 기능이 아닙니다. 되돌릴 수 있는
+`pycubrid.compat.cubriddb`(래퍼)와 `pycubrid.compat.native`(네이티브)를 추가합니다.
+#465에서 가져와 생성·종료할 수 있지만 아래의 다른 행은 아직 목표 계약입니다. 되돌릴 수 있는
 이 additive 설계는 1.x 기본값 대체, 2.0 대체 도입, 릴리스 발행을 허가하지 않습니다.
 전역 스위치, `CUBRIDdb`/`_cubrid` 이름 가리기, 기존
 `Cursor.execute`의 오버로딩은 선택하지 않습니다. 래퍼와 네이티브의 실행 형태는
 의미를 바꾸지 않고 통합할 수 없기 때문입니다. 두 표면은 별도 드라이버가 아니라
 기존 순수 Python 전송 계층을 재사용해야 합니다.
+후속 호환성 기능은 동일한 네이티브 연결 소유자를 확장해야 하며, 내부의 기존
+드라이버 핸들을 새 공개 전송 API로 노출해서는 안 됩니다.
 
 기존 connect/aio, user=`dba`, autocommit=False, threadsafety=1,
 execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, Boolean null_ok,
@@ -73,10 +79,10 @@ execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, B
 아래는 선택된 **목표 계약**입니다. `/`는 위치 전용 인자를 나타내며,
 선택적 인자 생략과 명시적인 None은 서로 바꿔 쓸 수 없습니다.
 
-| 향후 표면 | 선택된 계약 / 구현 경계 |
+| 표면 | 선택된 계약 / 구현 경계 |
 | --- | --- |
-| 팩터리 | 래퍼 `Connect/connect/connection(*args, **kwargs)`는 `Connection(dsn='', user='public', password='', charset='utf8')`에 위임합니다. 위치 인자 최대 세 개가 dsn/user/password 키워드를 덮어씁니다. 네이티브 `connect(url, user='public', passwd='')`와 소문자 connection 생성은 autocommit=True로 시작합니다. 래퍼 `.connection`은 기존 객체가 아니라 호환성 네이티브 객체입니다. 초과 위치 인자·미지원 키워드/DSN 옵션은 정확히 거절하고, 파싱만으로 문자셋 선택이나 HA가 구현되었다고 하지 않습니다. |
-| 공유 / 전역 값 | 래퍼 apilevel='2.0', paramstyle='qmark', threadsafety=2에는 명시적 객체의 연결별 요청·수명주기 직렬화와 두 스레드 테스트가 먼저 필요합니다. 락 없는 기존 객체와 전역 threadsafety=1은 유지합니다. 네이티브 export는 카탈로그를 따르며 래퍼 전역 값을 만들어 넣지 않습니다. |
+| 팩터리 (#465) | 래퍼 `Connect/connect/connection(*args, **kwargs)`는 `Connection(dsn='', user='public', password='', charset='utf8')`에 위임합니다. 위치 인자 최대 세 개가 dsn/user/password 키워드를 덮어씁니다. 네이티브 `connect(url, user='public', passwd='')`와 소문자 connection 생성은 autocommit=True로 시작합니다. 래퍼 `.connection`은 정확히 그 호환성 네이티브 객체입니다. 생성·종료만 제공하며 초과 위치 인자·미지원 키워드/DSN 옵션을 거절합니다. 문자셋 선택·HA·커서 실행은 제공하지 않습니다. |
+| 공유 / 전역 값 (향후) | 래퍼 apilevel='2.0', paramstyle='qmark', threadsafety=2에는 실제 커서와 연결별 요청·수명주기 직렬화 및 두 스레드 테스트가 먼저 필요합니다. 생성 전용 모듈은 이 전역 값을 내보내지 않습니다. 락 없는 기존 객체와 전역 threadsafety=1은 유지합니다. |
 | 설정 | 네이티브 autocommit/isolation_level/lock_timeout/max_string_len 대입은 캐시 스냅샷만 바꿉니다. `set_autocommit(mode)` / `set_isolation_level(level)`은 서버 연산과 캐시 갱신을 수행하며 max_string_len은 소스의 조회 실패 시 0 폴백을 유지합니다. 래퍼 `.autocommit`은 서버에 반영되는 속성입니다. 스냅샷 멤버에 실제 서버 설정자를 만들어 붙이지 않습니다. |
 | 래퍼 커서 | `cursor(dictCursor=None)`, `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None`; 튜플/dict fetch와 연결의 fetch-converter 콜백을 유지합니다. 모순되는 mapping 바인딩/default_cursor docstring은 작동하는 기능 약속이 아닙니다. |
 | 네이티브 prepared 커서 | `prepare(sql) -> None`; 1부터 시작하는 인덱스의 `bind_param(index, value, bind_type=0, /) -> None`; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)`는 튜플/dict 또는 None입니다. 옵션 기본값은 docstring QUERY_ALL이 아니라 파싱된 0이며 #418/#439가 코어를 구현합니다. |
@@ -122,7 +128,8 @@ Python 3.10.12로 CUBRID 10.2.18.9024/11.4.6.1963의 정적 SELECT에서 타입�
 
 ### 이행 목표와 작은 구현 단위의 수용 기준
 
-구현 전에는 기존 import를 유지하세요. 향후 래퍼 이행은
+실제 쿼리에는 기존 import를 유지하세요. 새 모듈은 아직 연결 생성·종료만
+제공합니다. 후속 기능이 갖춰지면 래퍼 이행은
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`, 네이티브는
 `import _cubrid` → `from pycubrid.compat import native as _cubrid`입니다.
 수동 트랜잭션에서 래퍼는 `conn.autocommit = False`, 네이티브는
@@ -132,7 +139,7 @@ Python 3.10.12로 CUBRID 10.2.18.9024/11.4.6.1963의 정적 SELECT에서 타입�
 
 | 잠정 구현 단위 | 수용 기준 / 디펜던시 |
 | --- | --- |
-| M 팩터리 / M 공유 | 명시적 모듈·별칭, DSN/user/autocommit 기본값, 래퍼-네이티브 관계, 기존 동작 불변을 검증합니다. 공유·수명주기 직렬화 테스트가 threadsafety=2를 게이팅하며 가짜 prepared 엔진이나 전역 스위치는 없습니다. |
+| M 팩터리 / M 공유 | #465는 명시적 생성·종료, 별칭, DSN/user/autocommit 기본값과 래퍼-네이티브 관계를 제공하면서 기존 동작을 유지합니다. 공유·수명주기 직렬화는 별도이며 threadsafety=2를 게이팅합니다. prepared 엔진이나 전역 스위치는 제공하지 않습니다. |
 | M prepared / 타입 바인딩 | #439는 #418과 이 계약 뒤에 count/반환/위치 인자/NULL/오류를 검증하고 #440 컬렉션과 #441 LOB 바인딩이 코어 뒤를 따릅니다. |
 | M 변환 / 문자셋 / HA | 별도 dictCursor/converter 단위, #86의 실제 인코딩, 실제 failover 증거를 가진 HA/URL 옵션 단위입니다. 옵션 파싱이나 upstream default_cursor 스텁만으로는 미완료입니다. |
 | S 배치 / 예외 / identity | 기존 임의 SQL 전송을 이용하는 네이티브 배치 레코드, 네임스페이스 예외/export 어댑터, fresh/트랜잭션/CALL/non-auto 제어를 갖춘 브로커 identity를 각각 분리합니다. 기존 첫 오류·캐시 문자열 동작은 유지합니다. |
@@ -140,12 +147,12 @@ Python 3.10.12로 CUBRID 10.2.18.9024/11.4.6.1963의 정적 SELECT에서 타입�
 | S/M 메타데이터 / 스키마 / LOB | #445 값·타입·15필드, #412/#455–457 소유한 스키마 재사용, #442 실제 바이트 위치·짧은 전송, #443 파일입니다. 하나의 거대한 파사드 PR이 아닌 집중된 작업입니다. |
 | M 차분 증거 | #446/#351은 고정 네이티브 리비전에서 제공된 각 단위를 비교하며 저장된 컬렉션 NULL/빈 값/순서/중복, LOB UTF-8 실패와 기존 SQLAlchemy smoke를 포함합니다. 소스 목록은 패리티 통과가 아닙니다. |
 
-기반 구현은 같은 PR에서 서브모듈의 명시적 `__all__`, 기존 공개 API 검사기의
-추적 모듈/클래스와 RELEASE_POLICY §1 확장, baseline 재생성을 함께 수행해야 합니다.
-현재의 기존 API 전용 baseline은 제안된 네임스페이스를 보호하지 못합니다.
-새 root 별칭·eager import나 async 변경은 없습니다. 새 명시적 API는 향후 MINOR
-추가이고 기존 약속의 수정은 PATCH입니다. #438은 이 설계와 수용 경계를 제공하며
-하위 기능을 제공하지 않습니다. #396은 범위 내 기능과 검증이 완료될 때까지 열어 둡니다.
+#465 기반 구현은 서브모듈의 명시적 `__all__`, 기존 공개 API 검사기의
+추적 모듈/클래스와 RELEASE_POLICY §1 확장, baseline 재생성을 함께 제공합니다.
+후속 API 단위도 baseline을 갱신해야 합니다. 새 root 별칭이나 async 변경은
+없습니다. 새 명시적 API는 MINOR 추가이고 기존 약속의 수정은 PATCH입니다.
+#438은 설계를 선택했고 #465는 생성만 제공하며 나머지 하위 기능은 아직 없습니다.
+#396은 범위 내 기능과 검증이 완료될 때까지 열어 둡니다.
 
 ## 소스의 불일치는 패리티 목표가 아님
 

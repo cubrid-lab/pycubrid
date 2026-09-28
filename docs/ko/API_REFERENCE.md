@@ -15,6 +15,7 @@ CUBRID용 순수 Python DB-API 2.0 드라이버 pycubrid의 완전한 API 문서
   - [`json_deserializer`](#json-컬럼)
 - [비동기 모듈 생성자](#비동기-모듈-생성자)
   - [`pycubrid.aio.connect()`](#pycubridaioconnect)
+- [연결 생성 전용 호환 팩터리](#연결-생성-전용-호환-팩터리)
 - [Connection 클래스](#connection-클래스)
   - [생성자](#connection-생성자)
   - [메서드](#connection-메서드)
@@ -140,6 +141,36 @@ conn = pycubrid.connect(
     connect_timeout=5.0,
 )
 ```
+
+---
+
+<a id="연결-생성-전용-호환-팩터리"></a>
+
+## 연결 생성 전용 호환 팩터리
+
+#465는 옵트인 `pycubrid.compat.native`와 `pycubrid.compat.cubriddb` 모듈을
+추가합니다. 순수 Python 동기 전송을 재사용하지만 현재는 **연결 생성과
+반복 가능한 종료만** 제공합니다. 커서, `execute()`, prepared 바인딩,
+DB-API 모듈 전역 값, 스레드 간 연결 공유 또는 네이티브 C 확장 동등성은
+제공하지 않습니다. 후속 기능이 구현되기 전의 실제 쿼리는 기존
+`pycubrid.connect()`를 계속 사용하세요.
+
+`native.connect(url, user="public", passwd="")`는 `native.connection`을
+반환합니다. 래퍼의 `cubriddb.Connect/connect/connection(*args, **kwargs)`는
+`cubriddb.Connection(dsn="", user="public", password="", charset="utf8")`을
+반환합니다. 래퍼의 `.connection`은 단일 전송을 소유하는 바로 그 네이티브
+형태의 객체입니다. 팩터리의 위치 인자 최대 세 개는 대응하는
+dsn/user/password 키워드를 덮어씁니다. 두 표면은 서버에 적용되는
+autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 커밋
+기본값은 바꾸지 않습니다.
+
+마지막 콜론이 포함된 `CUBRID:host:port:database:user:password:` 형식을
+사용합니다. DSN 안의 계정보다 Python 인자가 우선하며 생략 시에도
+`public`/빈 비밀번호 기본값이 사용됩니다. 여기서는 기존 UTF-8 전송과
+기본 CUBRID 백엔드만 허용합니다. 다른 백엔드, 문자셋 선택, HA/TLS URL
+옵션과 초과 인자는 연결 전에 거부하며 오류에 계정 정보가 담긴 DSN
+원문을 노출하지 않습니다. 후속 실행·설정 계약은
+[호환성 가이드](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)에서 추적합니다.
 
 ---
 

@@ -58,7 +58,7 @@ Changelog = "https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md"
 Issues = "https://github.com/cubrid-lab/pycubrid/issues"
 
 [tool.setuptools]
-packages = ["pycubrid", "pycubrid.aio"]
+packages = ["pycubrid", "pycubrid.aio", "pycubrid.compat"]
 include-package-data = true
 
 [tool.setuptools.dynamic]
