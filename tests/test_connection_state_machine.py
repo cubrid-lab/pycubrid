@@ -239,6 +239,30 @@ ConnectionLifecycle.TestCase.settings = settings(
 TestConnectionLifecycle = ConnectionLifecycle.TestCase
 
 
+@pytest.mark.parametrize("end", ["rollback", "close", "commit", "set_autocommit"])
+def test_uncommitted_create_table_follows_transaction(end: str) -> None:
+    """Replay the issue #487 sequence deterministically for each boundary."""
+    machine = ConnectionLifecycle()
+    try:
+        machine.connect(autocommit=False)
+        machine.open_cursor()
+        machine.create_table()
+        if end == "set_autocommit":
+            machine.set_autocommit(value=False)
+        else:
+            getattr(machine, end)()
+        assert machine._table_exists == (end in ("commit", "set_autocommit"))
+        if end == "close":
+            machine.connect(autocommit=False)
+        if machine.cursor is None:
+            machine.open_cursor()
+        machine.table_visibility_matches_model()
+        if machine._table_exists:
+            machine.select()
+    finally:
+        machine.teardown()
+
+
 class TestClosedConnectionMisuse:
     """A closed connection rejects operations with DB-API errors, not raw ones."""
 
