@@ -28,6 +28,7 @@ from pycubrid.protocol import (
     CommitPacket,
     FetchPacket,
     GetLastInsertIdPacket,
+    GetSchemaPacket,
     LOBReadPacket,
     LOBWritePacket,
     PrepareAndExecutePacket,
@@ -466,25 +467,45 @@ async def test_async_failed_escape_probe_fails_the_reconnect(length: object) -> 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("new_length, sent", [(2, True), (1, False)])
-async def test_async_bound_sql_survives_only_an_unchanged_escape_mode(
-    new_length: int, sent: bool
+@pytest.mark.parametrize("new_length", [2, 1], ids=["same-mode", "changed-mode"])
+async def test_async_sql_bound_before_its_preflight_reconnect_is_never_sent(
+    new_length: int,
 ) -> None:
+    """SQL rendered for generation 1 is rejected when its own probe replaces the CAS."""
     conn, cas, _ = _async_out_tran()
     cas.escape_length = new_length
     cas.dead = True
     packet = PrepareAndExecutePacket("SELECT 'a\\\\b'")
 
-    if sent:
+    with pytest.raises(OperationalError, match="parameter binding; retry operation"):
         await conn._send_and_receive(packet, expected_escape_generation=1)
-        assert cas.sent[-1] == (2, packet)
-    else:
-        with pytest.raises(OperationalError, match="escape mode changed"):
-            await conn._send_and_receive(packet, expected_escape_generation=1)
-        assert all(sent_packet is not packet for _, sent_packet in cas.sent)
-        # The healthy replacement stays usable; the caller retries.
-        assert conn._connected is True
-        assert conn._no_backslash_escapes is False
+
+    assert conn._physical_generation == 2
+    assert all(sent_packet is not packet for _, sent_packet in cas.sent)
+    assert conn._connected is True  # the healthy replacement stays usable
+
+    # A fresh retry binds for generation 2 and is sent once.
+    cursor = conn.cursor()
+    await cursor.execute("SELECT ?", ("a\\b",))
+    assert cas.sent[-1][0] == 2
+    assert isinstance(cas.sent[-1][1], PrepareAndExecutePacket)
+
+
+@pytest.mark.asyncio
+async def test_async_cursor_probes_before_binding_so_first_statement_succeeds() -> None:
+    conn, cas, open_connection = _async_out_tran()
+    cursor = conn.cursor()
+    cas.dead = True  # the CAS was recycled after the last OUT_TRAN reply
+
+    await cursor.execute("SELECT ?", (1,))
+
+    open_connection.assert_awaited_once()
+    statements = [
+        (generation, packet.sql)
+        for generation, packet in cas.sent
+        if isinstance(packet, PrepareAndExecutePacket) and "CHAR_LENGTH" not in packet.sql
+    ]
+    assert statements == [(2, "SELECT 1")]
 
 
 @pytest.mark.asyncio
@@ -587,22 +608,50 @@ async def test_async_cancelled_reconnect_retires_the_session() -> None:
 # -- review follow-ups -----------------------------------------------------------
 
 
-def test_sync_escape_mode_change_fails_the_pending_request() -> None:
-    # SQL may already be rendered for the old mode (possibly before an earlier
-    # request of the same operation replaced the session): never send it.
+def test_sync_sql_bound_before_its_preflight_reconnect_is_never_sent() -> None:
+    """SQL rendered for generation 1 is rejected when its own probe replaces the CAS."""
     conn, old = _sync_out_tran()
-    conn._no_backslash_escapes = True  # auto-detected; the replacement re-probes False
     _script(old, [])
-    new = _replacement_socket()
-    packet = PrepareAndExecutePacket("SELECT 'a\\b'")
+    ok = build_simple_ok_response()
+    new = _replacement_socket(ok, ok)
+    generation = conn._physical_generation
+    packet = PrepareAndExecutePacket("SELECT 'a\\\\b'")
 
     with patch("socket.create_connection", return_value=new):
-        with pytest.raises(OperationalError, match="escape mode changed"):
-            conn._send_and_receive(packet)
+        with pytest.raises(OperationalError, match="parameter binding; retry operation"):
+            conn._send_and_receive(packet, bound_generation=generation)
 
+    assert conn._physical_generation == generation + 1
     assert _function_codes(new, 2) == []  # nothing sent on the replacement
     assert conn._connected is True
-    assert conn._no_backslash_escapes is False
+
+    # A fresh retry is bound for the new generation and sent once.
+    retry = CommitPacket()
+    conn._send_and_receive(retry, bound_generation=conn._generation_for_binding())
+    assert _function_codes(new, 2) == [CASFunctionCode.END_TRAN]
+
+
+def test_sync_cursor_probes_before_binding_so_first_statement_succeeds() -> None:
+    conn, old = _sync_out_tran()
+    cursor = conn.cursor()
+    _script(old, [])
+    new = _replacement_socket()
+    sent: list[Any] = []
+    original = conn._send_and_receive_locked
+
+    def record(packet: Any, **kwargs: Any) -> Any:
+        if isinstance(packet, PrepareAndExecutePacket):
+            sent.append((conn._physical_generation, packet.sql))
+            _prepare_reply(packet)
+            return packet
+        return original(packet, **kwargs)
+
+    conn._send_and_receive_locked = record  # type: ignore[method-assign]
+    generation = conn._physical_generation
+    with patch("socket.create_connection", return_value=new):
+        cursor.execute("SELECT ?", (1,))
+
+    assert sent == [(generation + 1, "SELECT 1")]
 
 
 def test_sync_close_resets_suspension_after_base_exception() -> None:
@@ -772,3 +821,40 @@ async def test_async_overlapping_suspension_scopes_nest() -> None:
     conn._implicit_reconnect_suspended += 1  # e.g. close() running in another task
     await conn.close()
     assert conn._implicit_reconnect_suspended == 1
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+def test_sync_boundary_with_live_schema_result_survives_cas_recycle(boundary: str) -> None:
+    """A recycled CAS is replaced before schema cleanup; no CLOSE_REQ hits the dead socket."""
+    conn, old = _sync_out_tran()
+    schema = GetSchemaPacket(schema_type=1)
+    schema.query_handle, schema.tuple_count, schema.columns = 4, 1, []
+    conn._register_schema_result(schema)
+    _script(old, [])
+    new = _replacement_socket(build_simple_ok_response())
+    old_start = old.sendall.call_count
+
+    with patch("socket.create_connection", return_value=new):
+        getattr(conn, boundary)()
+
+    assert _function_codes(old, old_start) == [CASFunctionCode.CHECK_CAS]
+    assert _function_codes(new, 2) == [CASFunctionCode.END_TRAN]
+    assert conn._schema_results == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+async def test_async_boundary_with_live_schema_result_survives_cas_recycle(
+    boundary: str,
+) -> None:
+    conn, cas, _ = _async_out_tran(no_backslash_escapes=True)
+    schema = GetSchemaPacket(schema_type=1)
+    schema.query_handle, schema.tuple_count, schema.columns = 4, 1, []
+    conn._register_schema_result(schema)
+    cas.dead = True
+
+    await getattr(conn, boundary)()
+
+    end_tran = CommitPacket if boundary == "commit" else RollbackPacket
+    assert cas.kinds() == [(1, CheckCasPacket), (2, end_tran)]
+    assert conn._schema_results == {}

@@ -444,7 +444,6 @@ class Connection(ConnectionCommonMixin):
             self._host,
             self._port,
         )
-        escape_mode = self._no_backslash_escapes
         self._drop_connection()
         self._invalidate_query_handles_for_reconnect()
         self._implicit_reconnect_suspended += 1
@@ -469,7 +468,6 @@ class Connection(ConnectionCommonMixin):
             raise
         finally:
             self._implicit_reconnect_suspended -= 1
-        self._check_replacement_escape_mode(escape_mode)
 
     def _restore_session_state(self) -> None:
         """Re-emit session-level settings after explicit ping recovery.
@@ -763,19 +761,40 @@ class Connection(ConnectionCommonMixin):
         *,
         allow_reconnect: bool = True,
         expected_generation: int | None = None,
+        bound_generation: int | None = None,
     ) -> Any:
         """Send a framed CAS request and parse the framed response into ``packet``.
 
         CAS_INFO status 0 is OUT_TRAN, not a release signal. Keep the physical
         session after normal transaction boundaries; do not replay arbitrary
         requests on a different session after an uncertain transport failure.
+        ``bound_generation`` is the physical generation parameterized SQL was
+        rendered for; if the session changed since, the request is rejected
+        before send so the caller can retry it (#471, #485).
         """
         with self._session_lock:
             return self._send_and_receive_locked(
                 packet,
                 allow_reconnect=allow_reconnect,
                 expected_generation=expected_generation,
+                bound_generation=bound_generation,
             )
+
+    def _validate_bound_generation(self, bound: int | None) -> None:
+        """Reject SQL rendered for an earlier physical session before send."""
+        if bound is not None and bound != self._physical_generation:
+            raise OperationalError("escape mode changed during parameter binding; retry operation")
+
+    def _generation_for_binding(self) -> int:
+        """Verify an OUT_TRAN CAS before SQL is bound, then return its generation.
+
+        Probing (and, if needed, reconnecting) before binding renders literals
+        for the session they will be sent on; the send-time ``bound_generation``
+        fence then only rejects a replacement between bind and send.
+        """
+        with self._session_lock:
+            self._check_reconnect()
+            return self._physical_generation
 
     def _send_and_receive_locked(
         self,
@@ -783,14 +802,17 @@ class Connection(ConnectionCommonMixin):
         *,
         allow_reconnect: bool,
         expected_generation: int | None,
+        bound_generation: int | None = None,
     ) -> Any:
         self._validate_prepared_generation(expected_generation)
+        self._validate_bound_generation(bound_generation)
         if self._check_reconnect(
             allow_reconnect=allow_reconnect
         ) and self._skip_request_after_reconnect(packet):
             return packet
         if self._socket is None:
             raise InterfaceError("connection is closed")
+        self._validate_bound_generation(bound_generation)
         if (
             self._schema_results
             and isinstance(
@@ -806,6 +828,7 @@ class Connection(ConnectionCommonMixin):
                 return packet
             if self._socket is None:
                 raise InterfaceError("connection is closed")
+            self._validate_bound_generation(bound_generation)
 
         request_socket = self._socket
         attempted_send = False

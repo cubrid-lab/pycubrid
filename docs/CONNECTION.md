@@ -394,10 +394,12 @@ as the CUBRID JDBC driver does (#485):
   rejected as belonging to an earlier session. If the CAS is recycled right
   after an autocommit INSERT, that INSERT is committed but its `lastrowid` is
   `None`; a WARNING is logged. Because the replacement setup itself ends out of
-  transaction, it is verified with one more `CHECK_CAS` before the request. If the
-  re-probed escape mode differs from the old one, the request fails with
-  `OperationalError` before send, since its SQL may already be rendered for the
-  old mode; the new session stays open for a retry.
+  transaction, it is verified with one more `CHECK_CAS` before the request.
+  Cursors run this check *before* rendering parameters, so parameterized SQL is
+  bound for the session it is sent on. SQL already rendered for a session that
+  was then replaced is never sent: it fails with the retryable
+  `OperationalError` ("... parameter binding; retry operation") and the new
+  session stays open for the retry.
 - The replacement fails: `OperationalError` is raised and the connection is
   left disconnected (not closed); `ping(reconnect=True)` reconnects it, or open
   a new connection.
@@ -429,11 +431,10 @@ decide whether interrupted SQL is safe to retry.
 Automatic `no_backslash_escapes` detection runs again on the replacement
 physical session before state restoration; an explicitly selected mode remains
 unchanged. If this probe fails, the session is retired and `ping()` returns
-`False`. No interrupted SQL is replayed. Async parameterized SQL bound before
-a session replacement is rejected before send when its generation changed;
-the caller decides whether to retry. The one exception is SQL whose own
-pre-request `CHECK_CAS` replaced the session: it was never sent, and it is sent
-only if the re-probed escape mode is unchanged. A healthy same-session ping does not
+`False`. No interrupted SQL is replayed. Sync and async parameterized SQL bound
+before a session replacement, including one made by that request's own
+`CHECK_CAS`, is rejected before send because its generation changed; the caller
+decides whether to retry. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 

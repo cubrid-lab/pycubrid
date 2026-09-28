@@ -142,7 +142,7 @@ class AsyncCursor(_AsyncCursorBase):
         sql = operation
         expected_escape_generation = None
         if parameters is not None:
-            expected_escape_generation = self._connection._physical_generation
+            expected_escape_generation = await self._connection._generation_for_binding()
             sql = self._bind_parameters(operation, parameters)
 
         packet = PrepareAndExecutePacket(
@@ -243,7 +243,7 @@ class AsyncCursor(_AsyncCursorBase):
 
         await self._connection._wait_for_setup_if_needed()
         self._connection._ensure_connected()
-        expected_escape_generation = self._connection._physical_generation
+        expected_escape_generation = await self._connection._generation_for_binding()
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
         await self._executemany_batch(

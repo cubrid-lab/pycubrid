@@ -358,20 +358,6 @@ class ConnectionCommonMixin:
             )
         return False
 
-    def _check_replacement_escape_mode(self, previous: bool | None) -> None:
-        """Fail the pending request if the replacement session changed escape mode.
-
-        SQL with bound parameters may already have been rendered for the old
-        session's mode, possibly before an earlier request of the same
-        operation replaced the session. Literals rendered for the wrong mode
-        must never be sent (#471), so the request that triggered the reconnect
-        fails before send and the caller retries it on the healthy new session.
-        """
-        if self._no_backslash_escapes != previous:
-            raise OperationalError(
-                "escape mode changed on the replacement CAS session; retry operation"
-            )
-
     def _ensure_connected(self) -> None:
         """Raise ``InterfaceError`` when called on a closed connection."""
         if not self._connected:

@@ -477,6 +477,7 @@ def _make_mock_conn(autocommit: bool = False) -> MagicMock:
     conn._wait_for_setup_if_needed = AsyncMock()
     conn._send_and_receive = AsyncMock()
     conn._physical_generation = 1
+    conn._generation_for_binding = AsyncMock(return_value=1)
     conn._no_backslash_escapes = False
     conn._protocol_version = 1
     conn.autocommit = autocommit

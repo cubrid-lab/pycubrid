@@ -156,7 +156,9 @@ class Cursor(_CursorBase):
             self._query_handle = None
 
         sql = operation
+        bound_generation = None
         if parameters is not None:
+            bound_generation = self._connection._generation_for_binding()
             sql = self._bind_parameters(operation, parameters)
 
         packet = PrepareAndExecutePacket(
@@ -166,7 +168,10 @@ class Cursor(_CursorBase):
             decode_collections=self._connection._decode_collections,
             json_deserializer=self._connection._json_deserializer,
         )
-        self._connection._send_and_receive(packet)
+        if bound_generation is None:
+            self._connection._send_and_receive(packet)
+        else:
+            self._connection._send_and_receive(packet, bound_generation=bound_generation)
         # Cleared only now: a reconnect before this send flags every cursor.
         self._invalidated_by_reconnect = False
         if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -249,9 +254,10 @@ class Cursor(_CursorBase):
             return self._executemany_loop(operation, seq_of_parameters)
 
         # --- DML batch path: render + single RPC --------------------------
+        bound_generation = self._connection._generation_for_binding()
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
-        self.executemany_batch(sql_list)
+        self._executemany_batch(sql_list, None, bound_generation=bound_generation)
         return self
 
     def _executemany_loop(
@@ -280,6 +286,15 @@ class Cursor(_CursorBase):
         auto_commit: bool | None = None,
     ) -> list[tuple[int, int]]:
         """Execute multiple SQL statements in a single batch request."""
+        return self._executemany_batch(sql_list, auto_commit, bound_generation=None)
+
+    def _executemany_batch(
+        self,
+        sql_list: list[str],
+        auto_commit: bool | None,
+        *,
+        bound_generation: int | None,
+    ) -> list[tuple[int, int]]:
         self._check_closed()
         self._connection._ensure_connected()
 
@@ -307,7 +322,10 @@ class Cursor(_CursorBase):
         self._lastrowid = None
 
         # A failed transport or response parse must not expose prior results.
-        self._connection._send_and_receive(packet)
+        if bound_generation is None:
+            self._connection._send_and_receive(packet)
+        else:
+            self._connection._send_and_receive(packet, bound_generation=bound_generation)
 
         # Raise on per-statement batch failures (issue #186).
         # The batch protocol returns partial results alongside per-statement

@@ -74,6 +74,9 @@ async def test_cursor_paths_parse_and_dispatch_native_failure(
     connection._cursors = set()
     connection._no_backslash_escapes = False
     connection._physical_generation = 1
+    connection._generation_for_binding = (
+        AsyncMock(return_value=1) if asynchronous else MagicMock(return_value=1)
+    )
     connection._wait_for_setup_if_needed = AsyncMock()
     connection._decode_collections = False
     connection._json_deserializer = None

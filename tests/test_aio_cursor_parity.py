@@ -23,6 +23,7 @@ def make_connection() -> MagicMock:
     connection._json_deserializer = None
     connection._no_backslash_escapes = False
     connection._physical_generation = 1
+    connection._generation_for_binding = AsyncMock(return_value=1)
     connection._connected = True
     connection._ensure_connected = MagicMock()
     connection._wait_for_setup_if_needed = AsyncMock()

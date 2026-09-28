@@ -68,7 +68,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tied to the lost session are not sent to the new one (a CLOSE_REQ is skipped;
   FETCH, last-insert-id, LOB read/write and native prepared requests fail; a
   `lastrowid` lost after an autocommit INSERT is `None` and logged at WARNING),
-  and a changed escape mode fails the pending request before send. Async cursor
+  and cursors probe before rendering parameters, so SQL rendered for a session
+  that is then replaced is rejected before send with the retryable
+  `OperationalError`, never sent to the new session (sync and async). Async cursor
   FETCH/CLOSE_REQ requests whose handle another task's boundary released while
   they waited are no longer sent. No SQL is replayed. SQL-level session state
   of the lost CAS is not carried over, so layers that set isolation or session variables with SQL must

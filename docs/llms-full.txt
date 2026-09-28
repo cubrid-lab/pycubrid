@@ -604,10 +604,12 @@ as the CUBRID JDBC driver does (#485):
   rejected as belonging to an earlier session. If the CAS is recycled right
   after an autocommit INSERT, that INSERT is committed but its `lastrowid` is
   `None`; a WARNING is logged. Because the replacement setup itself ends out of
-  transaction, it is verified with one more `CHECK_CAS` before the request. If the
-  re-probed escape mode differs from the old one, the request fails with
-  `OperationalError` before send, since its SQL may already be rendered for the
-  old mode; the new session stays open for a retry.
+  transaction, it is verified with one more `CHECK_CAS` before the request.
+  Cursors run this check *before* rendering parameters, so parameterized SQL is
+  bound for the session it is sent on. SQL already rendered for a session that
+  was then replaced is never sent: it fails with the retryable
+  `OperationalError` ("... parameter binding; retry operation") and the new
+  session stays open for the retry.
 - The replacement fails: `OperationalError` is raised and the connection is
   left disconnected (not closed); `ping(reconnect=True)` reconnects it, or open
   a new connection.
@@ -639,11 +641,10 @@ decide whether interrupted SQL is safe to retry.
 Automatic `no_backslash_escapes` detection runs again on the replacement
 physical session before state restoration; an explicitly selected mode remains
 unchanged. If this probe fails, the session is retired and `ping()` returns
-`False`. No interrupted SQL is replayed. Async parameterized SQL bound before
-a session replacement is rejected before send when its generation changed;
-the caller decides whether to retry. The one exception is SQL whose own
-pre-request `CHECK_CAS` replaced the session: it was never sent, and it is sent
-only if the re-probed escape mode is unchanged. A healthy same-session ping does not
+`False`. No interrupted SQL is replayed. Sync and async parameterized SQL bound
+before a session replacement, including one made by that request's own
+`CHECK_CAS`, is rejected before send because its generation changed; the caller
+decides whether to retry. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
@@ -7589,12 +7590,13 @@ retains that choice across reconnections. Without an explicit value, a newly
 opened physical session is probed before use; a healthy same-session
 `ping()` does not re-probe. A failed probe prevents direct connection setup;
 during `ping(reconnect=True)`, it retires the replacement session and returns
-`False`. Neither path guesses a mode or replays interrupted SQL. In the async
-path, parameterized SQL bound before a session replacement is rejected before
+`False`. Neither path guesses a mode or replays interrupted SQL. In the sync and
+async paths, parameterized SQL bound before a session replacement is rejected before
 send if its session generation changed; the caller must deliberately retry
 the operation. Normal `CAS_INFO=OUT_TRAN` responses keep the session; only a
-failed pre-request `CHECK_CAS` reconnects (#485), and SQL bound for the session
-that this probe replaced is sent only if the re-probed mode is unchanged.
+failed pre-request `CHECK_CAS` reconnects (#485). Cursors run that check before
+rendering parameters; SQL rendered for a session that is replaced afterwards is
+rejected before send in sync and async alike.
 
 The [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) and
 [11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) CUBRID manuals

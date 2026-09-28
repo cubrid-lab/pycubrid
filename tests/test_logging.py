@@ -173,7 +173,7 @@ class TestCursorLogging:
         conn = MagicMock()
         cursor = Cursor(conn)
 
-        def fake_send_and_receive(p: object) -> None:
+        def fake_send_and_receive(p: object, **_: object) -> None:
             p.statement_type = 1
             p.column_count = 3
             p.total_tuple_count = 10
@@ -210,7 +210,7 @@ class TestLobLogging:
 
         conn = MagicMock()
 
-        def fake_send_and_receive(p: object) -> None:
+        def fake_send_and_receive(p: object, **_: object) -> None:
             p.lob_handle = b"\x00" * 16
 
         conn._send_and_receive.side_effect = fake_send_and_receive
@@ -230,7 +230,7 @@ class TestLoggingDoesNotLeakParameters:
         conn = MagicMock()
         cursor = Cursor(conn)
 
-        def fake_send_and_receive(p: object) -> None:
+        def fake_send_and_receive(p: object, **_: object) -> None:
             p.statement_type = 1
             p.column_count = 1
             p.total_tuple_count = 1

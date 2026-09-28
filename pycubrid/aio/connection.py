@@ -1011,10 +1011,7 @@ class AsyncConnection(ConnectionCommonMixin):
             # Never send its prebuilt SQL while the new mode is unverified.
             raise OperationalError("connection setup in progress; retry operation")
         self._validate_escape_generation(expected_escape_generation)
-        skip, expected_escape_generation = await self._preflight_locked(
-            packet, allow_reconnect, expected_escape_generation
-        )
-        if skip:
+        if await self._preflight_locked(packet, allow_reconnect):
             return packet
         if self._writer is None or self._reader is None:
             raise InterfaceError("connection is closed")
@@ -1028,10 +1025,7 @@ class AsyncConnection(ConnectionCommonMixin):
         ):
             await self._close_schema_results_locked()
             # FC6 replies OUT_TRAN; verify the CAS again before auto-committing.
-            skip, expected_escape_generation = await self._preflight_locked(
-                packet, allow_reconnect, expected_escape_generation
-            )
-            if skip:
+            if await self._preflight_locked(packet, allow_reconnect):
                 return packet
             if self._writer is None or self._reader is None:
                 raise InterfaceError("connection is closed")
@@ -1098,22 +1092,27 @@ class AsyncConnection(ConnectionCommonMixin):
         except asyncio.IncompleteReadError as exc:
             raise OperationalError("connection lost during receive") from exc
 
-    async def _preflight_locked(
-        self, packet: Any, allow_reconnect: bool, expected_escape_generation: int | None
-    ) -> tuple[bool, int | None]:
-        """Run the OUT_TRAN reconnect check for one request.
+    async def _preflight_locked(self, packet: Any, allow_reconnect: bool) -> bool:
+        """Run the OUT_TRAN reconnect check; return whether to skip the request.
 
-        Returns whether the request must be skipped (see
-        ``_skip_request_after_reconnect``) and the escape generation it may be
-        sent under. A reconnect with a changed escape mode has already failed
-        the request; with an unchanged mode, SQL bound for the session this
-        very check replaced keeps valid literals and is sent, never rebound.
+        SQL bound under the replaced generation keeps that generation, so the
+        caller's ``_validate_escape_generation`` rejects it before send (#471).
         """
         if not await self._check_reconnect_locked(allow_reconnect=allow_reconnect):
-            return False, expected_escape_generation
-        if expected_escape_generation is not None:
-            expected_escape_generation = self._physical_generation
-        return self._skip_request_after_reconnect(packet), expected_escape_generation
+            return False
+        return self._skip_request_after_reconnect(packet)
+
+    async def _generation_for_binding(self) -> int:
+        """Verify an OUT_TRAN CAS before SQL is bound, then return its generation.
+
+        Probing (and, if needed, reconnecting) before binding lets the literals
+        be rendered for the session they will be sent on; the send-time
+        generation fence then only rejects a replacement that raced the bind.
+        """
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            await self._check_reconnect_locked()
+            return self._physical_generation
 
     async def _check_reconnect(self, *, allow_reconnect: bool = True) -> bool:
         async with self._lock:
@@ -1153,7 +1152,6 @@ class AsyncConnection(ConnectionCommonMixin):
             self._host,
             self._port,
         )
-        escape_mode = self._no_backslash_escapes
         await self._close_streams()
         self._connected = False
         self._invalidate_query_handles_for_reconnect()
@@ -1181,7 +1179,6 @@ class AsyncConnection(ConnectionCommonMixin):
             raise
         finally:
             self._implicit_reconnect_suspended -= 1
-        self._check_replacement_escape_mode(escape_mode)
 
     async def _negotiate_backslash_escapes_locked(self) -> None:
         """Lock-held twin of :meth:`_negotiate_backslash_escapes`.
