@@ -468,17 +468,26 @@ print(rows)
 
 | Code | Name              | Description |
 |------|-------------------|-------------|
-| 1    | `CLASS`           | Tables |
+| 1    | `CLASS`           | Tables and views |
 | 2    | `VCLASS`          | Views |
 | 4    | `ATTRIBUTE`       | Columns |
-| 11   | `CONSTRAINT`      | Constraints |
+| 11   | `CONSTRAINT`      | Index-family entries |
 | 16   | `PRIMARY_KEY`     | Primary keys |
 | 17   | `IMPORTED_KEYS`   | Foreign keys (imported) |
 | 18   | `EXPORTED_KEYS`   | Foreign keys (exported) |
 
-The initial live ownership contract covers CLASS/ATTRIBUTE and pattern filters on
-CUBRID 10.2/11.4. Wider declared schema-type validation is tracked in #457; this
-is not certification of native-driver parity for every schema type.
+The owned-object live matrix (#457) verifies these seven types in both sync and
+async modes on CUBRID 10.2.18 and 11.4.6, including exact/pattern filters, empty
+results, composite keys and multi-FETCH ATTRIBUTE rows. Other `CCISchemaType`
+values and native-driver parity are not certified by this matrix.
+
+Interpret rows using `packet.columns` names. CLASS can include views (`TYPE=1`)
+as well as ordinary tables (`TYPE=2`). PRIMARY_KEY rows can arrive in attribute-name
+order: use `KEY_SEQ` for declared composite-key order. CONSTRAINT reports index
+families, not every primary/foreign key; use the dedicated key types for those
+relationships. Its page/key fields are not reliable index statistics. Owner-qualified
+names and broker-encoded ATTRIBUTE DOMAIN integers are retained as returned;
+do not assume names are always unqualified or DOMAIN equals a scalar type constant.
 
 #### `fetch_schema_info(packet)` and `close_schema_info(packet)`
 

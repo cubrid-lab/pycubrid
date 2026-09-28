@@ -545,17 +545,26 @@ print(data)  # b"Hello, CUBRID LOB!"
 ```python
 from pycubrid.constants import CCISchemaType
 
-# List all tables
-packet = conn.get_schema_info(CCISchemaType.CLASS, "%", 1)
-tables = conn.fetch_schema_info(packet)  # Eagerly reads and closes the result
-print(f"Found {len(tables)} tables")
+# Consume every result, or explicitly abandon it in finally.
+requests = [
+    (CCISchemaType.CLASS, "%", 1, None),       # Tables and views
+    (CCISchemaType.VCLASS, "%", 1, None),      # Views only
+    (CCISchemaType.ATTRIBUTE, "users", 2, "%"),  # All columns: arg2 is required
+    (CCISchemaType.CONSTRAINT, "users", 0, None),
+    (CCISchemaType.PRIMARY_KEY, "users", 0, None),
+    (CCISchemaType.IMPORTED_KEYS, "orders", 0, None),
+    (CCISchemaType.EXPORTED_KEYS, "users", 0, None),
+]
+for schema_type, name, flags, arg2 in requests:
+    packet = conn.get_schema_info(schema_type, name, flags, arg2=arg2)
+    try:
+        names = [column.name for column in packet.columns]
+        for row in conn.fetch_schema_info(packet):
+            print(dict(zip(names, row)))
+    finally:
+        conn.close_schema_info(packet)  # Idempotent after successful consumption.
 
-# List columns of a specific table
-packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, "users", 2, arg2="%")
-columns = conn.fetch_schema_info(packet)
-print(f"Table has {len(columns)} columns")
-
-# Explicitly abandon a result when only its advertised count is needed
+# Explicitly abandon a result when only its advertised count is needed.
 packet = conn.get_schema_info(CCISchemaType.CLASS, "users", 0)
 try:
     print(f"Matching tables: {packet.tuple_count}")
@@ -563,9 +572,14 @@ finally:
     conn.close_schema_info(packet)
 ```
 
-Initial live validation covers CLASS/ATTRIBUTE on CUBRID10.2/11.4; broader schema
-types remain under #457. Autocommit changes retain their existing commit/flush
-behavior while closing and retiring active schema results before END_TRAN.
+For an exact column, use flag `0` and `arg2="column_name"`; flag `2` makes the
+second argument a pattern, and flag `3` makes both names patterns. Omitting
+ATTRIBUTE `arg2` is not an all-columns request. Keep returned owner qualifiers;
+use PRIMARY_KEY `KEY_SEQ`, not arrival order, for composite keys. CONSTRAINT is
+index-family information, not a replacement for dedicated PK/FK queries.
+With an async connection, await all three schema operations, including cleanup.
+Autocommit changes retain their existing commit/flush behavior while closing and
+retiring active schema results before END_TRAN.
 
 ---
 

@@ -400,8 +400,9 @@ optional auto-commit argument, whose server default is false. Commit/rollback
 close active schema handles before END_TRAN; physical teardown retires ownership.
 Async ownership registration and fetch/close are atomic under the connection lock;
 in-flight cancellation discards the transport rather than sending FC6 over an
-unread reply. Initial live tests cover CLASS/ATTRIBUTE on 10.2/11.4, not full
-schema-type or native-driver parity certification (#457).
+unread reply. The #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/
+PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not all schema codes or
+native-driver parity.
 Source references: [CAS FC9 arguments](https://github.com/CUBRID/cubrid/blob/6b2bc75527c8bad94d9ad8aba961638efdfb3269/src/broker/cas_function.c#L1192),
 [CCI condensed columns](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_query_execute.c#L5285),
 and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63ae4b334fde81ce2c523642f1afd37f/src/jdbc/cubrid/jdbc/jci/UConnection.java#L516).

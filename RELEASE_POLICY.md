@@ -225,7 +225,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   Non-`Exception` interruptions during async schema FETCH discard the uncertain
   session without sending CLOSE over a pending response.
   No holdability/native-profile choice or new dependencies.
-  Initial CLASS/ATTRIBUTE coverage does not certify all schema types (#457).
+  Initial #456 CLASS/ATTRIBUTE coverage is extended by the #457 seven-family
+  live matrix on CUBRID 10.2/11.4; it still does not certify all schema codes.
 - **Empty bytes LOB writes avoid broker I/O (#394)** — PATCH / correction to the
   documented bytes-written contract, matching the existing zero-length read
   precedent. Open-LOB, negative-offset, connection and wire argument validation
