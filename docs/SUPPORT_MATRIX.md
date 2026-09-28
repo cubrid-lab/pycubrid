@@ -75,7 +75,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only `arg2=None`; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
-| CAS reconnection | ✅ | 1.0.0 | Auto-reconnect on broker `INACTIVE` status |
+| Explicit connection recovery | ✅ | 1.2.0 (#70) | `ping(reconnect=True)` can reconnect after disconnect, negative `CHECK_CAS` (broken CAS-to-DB link), or a check transport/protocol error; `CAS_INFO[0]=0` is OUT_TRAN and never triggers reconnect or SQL replay |
 | Unknown-option reporting | ✅ | 1.8.0 (#377) | An unrecognised connection keyword is ignored but emits `UnknownConnectionOptionWarning` (with a spelling suggestion); escalate with `warnings.simplefilter("error", ...)` |
 
 ### TLS / SSL

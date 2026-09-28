@@ -88,6 +88,12 @@ graph LR
 | CAS Info     | 4바이트  | 서버가 유지하는 세션 상태 바이트 |
 | Payload      | 가변     | 함수 코드 + 인자(요청) 또는 응답 데이터 |
 
+CAS Info의 첫 바이트는 트랜잭션 상태입니다. `0`은 OUT_TRAN, `1`은
+IN_TRAN입니다. `END_TRAN`이나 자동 커밋 요청 뒤 OUT_TRAN이 되어도
+소켓 또는 CAS 세션이 해제된 것은 아니므로 다음 요청은 같은 전송 경로로
+보냅니다. `CHECK_CAS` 실패 후에는 명시적 `ping(reconnect=True)` 복구를
+시도할 수 있지만, 결과가 불확실한 일반 SQL 요청을 자동 재실행하지는 않습니다.
+
 **헤더 생성:**
 
 ```python

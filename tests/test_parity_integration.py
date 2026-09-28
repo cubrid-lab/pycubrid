@@ -25,7 +25,7 @@ from tests._parity_helpers import (
     fetchmany_round_trip,
     insert_identity_values,
     ping_after_drop,
-    reconnect_after_inactive_cas,
+    reuse_session_after_out_tran,
     rollback_rows,
     select_round_trip,
     table_name,
@@ -189,9 +189,9 @@ class TestParityConnectionLifecycle:
         assert row == expected_row
 
     @pytest.mark.asyncio
-    async def test_reconnect_after_inactive_cas(self, adapter: ParityAdapter) -> None:
-        reconnected, row, version = await reconnect_after_inactive_cas(adapter)
-        assert reconnected is True
+    async def test_out_tran_keeps_session(self, adapter: ParityAdapter) -> None:
+        same_session, row, version = await reuse_session_after_out_tran(adapter)
+        assert same_session is True
         assert row == (1,)
         assert version
 
@@ -239,8 +239,9 @@ class TestParityConnectionLifecycle:
             await adapter.execute(observer, "SELECT COUNT(*) FROM %s" % table)
             assert await adapter.fetchone(observer) == (rows if boundary == "commit" else 0,)
             current = conn._writer if isinstance(conn, AsyncConnection) else conn._socket
-            # A released CAS can force a physical reconnect on the next SELECT.
-            assert await adapter.get_last_insert_id(conn) == ("1" if current is transport else None)
+            # Normal END_TRAN does not replace the physical session or identity cache.
+            assert current is transport
+            assert await adapter.get_last_insert_id(conn) == "1"
             assert adapter.lastrowid(cur) == captured
         finally:
             try:
@@ -273,8 +274,10 @@ class TestParityConnectionLifecycle:
             assert await adapter.get_last_insert_id(conn) == "1"
             await adapter.commit(conn)
             await adapter.execute(cur, "INSERT INTO %s VALUES (3)" % plain_table)
-            assert adapter.lastrowid(cur) is None
-            assert await adapter.get_last_insert_id(conn) is None
+            # The same physical session can retain the earlier broker ID even
+            # after END_TRAN; a plain INSERT is not proof of a new identity.
+            assert adapter.lastrowid(cur) == 1
+            assert await adapter.get_last_insert_id(conn) == "1"
         finally:
             try:
                 await cleanup_table(adapter, conn, auto_table)

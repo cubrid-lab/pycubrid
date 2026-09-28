@@ -77,7 +77,7 @@ pycubrid 릴리스의 호환성과 기능 지원.
 | 소유권이 있는 스키마 행 | ✅ | 미출시 (#456) | 동기/비동기 `fetch_schema_info()` / `close_schema_info()`, 키워드 전용 `arg2=None`; #457 실서버 행렬은 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 네이티브 동등성이나 다른 스키마 코드는 인증하지 않음 |
 | 듀얼스택 주소 폴백 (동기) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 순회 |
 | 듀얼스택 주소 폴백 (비동기) | ✅ | 1.2.0 (#83) | 비동기 대응 |
-| CAS 재연결 | ✅ | 1.0.0 | 브로커 `INACTIVE` 상태에서 자동 재연결 |
+| 명시적 연결 복구 | ✅ | 1.2.0 (#70) | `ping(reconnect=True)`는 연결 끊김, 음수 `CHECK_CAS`(CAS–DB 링크 장애) 또는 검사 중 전송/프로토콜 오류 후 재접속할 수 있음; `CAS_INFO[0]=0`은 OUT_TRAN이며 재접속·SQL 재실행을 유발하지 않음 |
 
 ### TLS / SSL
 

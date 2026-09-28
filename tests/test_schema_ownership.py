@@ -13,7 +13,7 @@ import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
-from pycubrid.constants import CUBRIDDataType
+from pycubrid.constants import CASFunctionCode, CUBRIDDataType
 from pycubrid.exceptions import InterfaceError, OperationalError
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -784,14 +784,19 @@ async def test_implicit_autocommit_without_owned_schema_adds_no_close(
 @pytest.mark.parametrize("asynchronous", [False, True])
 @pytest.mark.parametrize("packet_kind", ["batch", "version"])
 @pytest.mark.asyncio
-async def test_implicit_autocommit_rechecks_inactive_cas_after_schema_close(
+async def test_implicit_autocommit_keeps_out_tran_socket_after_schema_close(
     asynchronous: bool,
     packet_kind: str,
 ) -> None:
     conn = connected(asynchronous, SchemaPeer())
     owned = await invoke(conn, "get_schema_info", 1)
     closing = b"\x00\x00\x00\x00" + struct.pack(">i", 0)
-    chunks = [struct.pack(">i", len(closing) - 4), closing]
+    chunks = [
+        struct.pack(">i", len(closing) - 4),
+        closing,
+        struct.pack(">i", len(closing) - 4),
+        closing,
+    ]
     observed: list[int] = []
 
     if isinstance(conn, AsyncConnection):
@@ -801,8 +806,6 @@ async def test_implicit_autocommit_rechecks_inactive_cas_after_schema_close(
 
         async def checked(*, allow_reconnect: bool = True) -> None:
             observed.append(conn._cas_info[0])
-            if conn._cas_info[0] == 0:
-                raise OperationalError("inactive CAS after schema close")
 
         conn._check_reconnect_locked = checked
     else:
@@ -812,8 +815,6 @@ async def test_implicit_autocommit_rechecks_inactive_cas_after_schema_close(
 
         def checked(*, allow_reconnect: bool = True) -> None:
             observed.append(conn._cas_info[0])
-            if conn._cas_info[0] == 0:
-                raise OperationalError("inactive CAS after schema close")
 
         conn._check_reconnect = checked
     packet = (
@@ -821,10 +822,17 @@ async def test_implicit_autocommit_rechecks_inactive_cas_after_schema_close(
         if packet_kind == "batch"
         else GetEngineVersionPacket(auto_commit=True)
     )
-    with pytest.raises(OperationalError, match="inactive CAS after schema close"):
-        await invoke(conn, "_send_and_receive", packet)
+    packet.parse = MagicMock()
+    result = await invoke(conn, "_send_and_receive", packet)
+    assert result is packet
     writes = transport.write.call_args_list if asynchronous else transport.sendall.call_args_list
-    assert [entry.args[0][8] for entry in writes] == [6]
+    expected_code = (
+        CASFunctionCode.EXECUTE_BATCH if packet_kind == "batch" else CASFunctionCode.GET_DB_VERSION
+    )
+    assert [entry.args[0][8] for entry in writes] == [
+        CASFunctionCode.CLOSE_REQ_HANDLE,
+        expected_code,
+    ]
     assert observed == [1, 1, 0]
     assert not conn._schema_results
     with pytest.raises(InterfaceError, match="retired"):

@@ -54,8 +54,8 @@ class AsyncConnection(ConnectionCommonMixin):
     - Autocommit changes go through :meth:`set_autocommit` (coroutine)
       rather than a property setter.
     - :meth:`ping` (added in 1.3.2) performs native ``CHECK_CAS`` and
-      accepts ``reconnect=True/False`` to suppress broker-handoff
-      reconnect.
+      accepts ``reconnect=True/False`` to recover from a confirmed
+      CAS/transport failure. OUT_TRAN alone never reconnects.
 
     .. note::
        On Python 3.10, :meth:`asyncio.AbstractEventLoop.start_tls` has a
@@ -150,7 +150,8 @@ class AsyncConnection(ConnectionCommonMixin):
                 # The probe is a read-only SELECT issued via a cursor; it runs
                 # without holding _lock (the cursor acquires it) but is fenced
                 # from other tasks by the setup gate, and the guard keeps it to
-                # a single probe across transparent reconnects.
+                # a single probe per object. Re-probing after physical
+                # recovery is tracked separately in #471.
                 if did_connect and self._no_backslash_escapes is None:
                     await self._negotiate_backslash_escapes()
 
@@ -690,37 +691,40 @@ class AsyncConnection(ConnectionCommonMixin):
         ``False`` rather than retrying.  Reconnect and restore run under a
         single hold of ``self._lock`` so a concurrent task cannot observe
         an un-restored session between the two operations."""
-        if not self._connected:
-            if not reconnect:
-                return False
-            try:
-                self._invalidate_query_handles_for_reconnect()
-                _LOGGER.debug("ping: reconnecting")
-                async with self._lock:
+        try:
+            await self._wait_for_setup_if_needed()
+        except (OSError, InterfaceError, OperationalError, struct.error):
+            return False
+        async with self._lock:
+            if not self._connected:
+                if not reconnect:
+                    return False
+                try:
+                    self._invalidate_query_handles_for_reconnect()
+                    _LOGGER.debug("ping: reconnecting")
                     await self._invoke_connect_locked()
                     await self._restore_session_state_locked()
-                return True
-            except (OSError, OperationalError, InterfaceError):
-                return False
-        if reconnect:
+                    return True
+                except (OSError, OperationalError, InterfaceError):
+                    return False
             try:
-                await self._check_reconnect(allow_reconnect=True)
-            except (OSError, OperationalError, InterfaceError):
-                return False
-        try:
-            packet = await self._send_and_receive(CheckCasPacket(), allow_reconnect=False)
-            return bool(packet.response_code >= 0)
-        except (OSError, InterfaceError, OperationalError, struct.error):
+                packet = await self._send_and_receive_locked(
+                    CheckCasPacket(), allow_reconnect=False
+                )
+                healthy = packet.response_code >= 0
+            except (OSError, InterfaceError, OperationalError, struct.error):
+                healthy = False
+            if healthy:
+                return True
             if not reconnect:
                 return False
             try:
                 _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
-                async with self._lock:
-                    await self._close_streams()
-                    self._connected = False
-                    self._invalidate_query_handles_for_reconnect()
-                    await self._invoke_connect_locked()
-                    await self._restore_session_state_locked()
+                await self._close_streams()
+                self._connected = False
+                self._invalidate_query_handles_for_reconnect()
+                await self._invoke_connect_locked()
+                await self._restore_session_state_locked()
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
@@ -910,7 +914,7 @@ class AsyncConnection(ConnectionCommonMixin):
             and packet.auto_commit
         ):
             await self._close_schema_results_locked()
-            # FC6 may itself release the CAS. Recheck before the auto-committing RPC.
+            # Validate local connection state after closing schema handles.
             await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
             if self._writer is None or self._reader is None:
                 raise InterfaceError("connection is closed")
@@ -928,6 +932,10 @@ class AsyncConnection(ConnectionCommonMixin):
             await self._close_streams()
             self._connected = False
             raise OperationalError("socket communication failed") from exc
+        except asyncio.CancelledError:
+            # The reply may arrive after cancellation and poison the next read.
+            self._drop_connection()
+            raise
 
     async def _do_send_and_receive(self, packet: Any) -> Any:
         writer = self._writer
@@ -941,10 +949,16 @@ class AsyncConnection(ConnectionCommonMixin):
         writer.write(request_data)
         await writer.drain()
 
-        data_length_bytes = await self._recv_exact(reader, DataSize.DATA_LENGTH)
-        data_length = struct.unpack(">i", data_length_bytes)[0]
-        self._validate_data_length(data_length)
-        response_body = await self._recv_exact(reader, data_length + DataSize.CAS_INFO)
+        try:
+            data_length_bytes = await self._recv_exact(reader, DataSize.DATA_LENGTH)
+            data_length = struct.unpack(">i", data_length_bytes)[0]
+            self._validate_data_length(data_length)
+            response_body = await self._recv_exact(reader, data_length + DataSize.CAS_INFO)
+        except OperationalError:
+            # A partial frame is not a usable stream. Parse-layer server
+            # errors below remain separate and do not close a healthy session.
+            self._drop_connection()
+            raise
 
         self._cas_info = response_body[: DataSize.CAS_INFO]
         try:
@@ -971,18 +985,12 @@ class AsyncConnection(ConnectionCommonMixin):
             await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
 
     async def _check_reconnect_locked(self, *, allow_reconnect: bool = True) -> None:
+        """Validate state; CAS_INFO OUT_TRAN does not release the stream."""
+        del allow_reconnect  # Retained for internal callers of this preflight.
         self._ensure_connected()
-        if not allow_reconnect:
-            return
-        if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._writer is not None:
-            await self._close_streams()
-            self._connected = False
-            self._invalidate_query_handles_for_reconnect()
-            await self._invoke_connect_locked()
-            await self._restore_session_state_locked()
 
     async def _restore_session_state_locked(self) -> None:
-        """Re-emit explicit session settings after a transparent reconnect.
+        """Re-emit explicit session settings after explicit ping recovery.
 
         Must be called while ``self._lock`` is held.  Uses
         ``_send_and_receive_locked`` with ``allow_reconnect=False`` to

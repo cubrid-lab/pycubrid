@@ -95,6 +95,10 @@ class TestCancelDuringExecute:
                     await task
                 except (asyncio.CancelledError, DBAPIError):
                     pass  # both outcomes (cancelled or clean error) are acceptable
+                # A canceled in-flight read retires the uncertain stream.
+                # Explicit health recovery must finish before opening the
+                # next cursor; cancellation never replays that SELECT.
+                assert await asyncio.wait_for(conn.ping(reconnect=True), timeout=10.0)
             await asyncio.wait_for(_assert_usable_or_closed(conn), timeout=10.0)
         finally:
             await conn.close()

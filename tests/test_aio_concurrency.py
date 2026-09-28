@@ -172,7 +172,8 @@ async def test_concurrent_connect_performs_single_handshake() -> None:
 @pytest.mark.asyncio
 async def test_concurrent_ping_reconnect_performs_single_reconnect() -> None:
     conn = make_connected_async_connection()
-    conn._cas_info = bytes([AsyncConnection._CAS_INFO_STATUS_INACTIVE, 0x00, 0x00, 0x00])
+    await conn._close_streams()
+    conn._connected = False  # Physical disconnect; OUT_TRAN alone must not reconnect.
 
     handshake_calls = 0
 
@@ -208,6 +209,28 @@ async def test_concurrent_ping_reconnect_performs_single_reconnect() -> None:
 
 
 @pytest.mark.asyncio
+async def test_concurrent_ping_out_tran_keeps_original_stream() -> None:
+    conn = make_connected_async_connection()
+    conn._cas_info = bytes([AsyncConnection._CAS_INFO_STATUS_INACTIVE, 0x00, 0x00, 0x00])
+    original_reader, original_writer = conn._reader, conn._writer
+
+    async def fake_do_send_and_receive(packet: Any) -> Any:
+        packet.response_code = 0
+        return packet
+
+    conn._open_connection = AsyncMock(side_effect=AssertionError("unexpected reconnect"))
+    conn._do_send_and_receive = AsyncMock(side_effect=fake_do_send_and_receive)
+
+    results = await asyncio.gather(*[conn.ping(reconnect=True) for _ in range(5)])
+
+    assert all(results)
+    conn._open_connection.assert_not_awaited()
+    assert conn._reader is original_reader
+    assert conn._writer is original_writer
+    assert conn._cas_info[0] == AsyncConnection._CAS_INFO_STATUS_INACTIVE
+
+
+@pytest.mark.asyncio
 async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> None:
     class _TracingAsyncConnection(AsyncConnection):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -221,12 +244,7 @@ async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> 
             await self._connect_locked()
 
     conn = _TracingAsyncConnection("localhost", 33000, "testdb", "dba", "")
-    conn._connected = True
-    conn._cas_info = bytes([AsyncConnection._CAS_INFO_STATUS_INACTIVE, 0x00, 0x00, 0x00])
-    conn._reader = MagicMock()
-    conn._writer = MagicMock()
-    conn._writer.close = MagicMock()
-    conn._writer.wait_closed = AsyncMock()
+    conn._connected = False
 
     async def fake_open_connection(host: str, port: int) -> tuple[Any, Any]:
         reader = MagicMock()

@@ -173,8 +173,13 @@ literal `'\\'`, two backslash characters):
   explicitly to skip detection when the probe cannot run.
 
 Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
-entirely. Negotiation happens once per physical connection and is preserved
-across transparent reconnects.
+entirely. Negotiation currently happens once per connection object; the chosen
+value is retained if an explicit `ping(reconnect=True)` recovers a failed
+transport. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect. Until
+[#471](https://github.com/cubrid-lab/pycubrid/issues/471) re-probes on recovery,
+do not reuse an automatically negotiated connection after failover to a target
+whose escape mode may differ. An explicit mode is safe only when every possible
+target is known to use that same mode.
 
 ### Literal mode (`no_backslash_escapes=True`)
 

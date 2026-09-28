@@ -84,16 +84,29 @@ sequenceDiagram
 
 ## CAS Reconnection
 
+`CAS_INFO[0]` is transaction state (`0` = OUT_TRAN, `1` = IN_TRAN), not
+connection liveness. A normal commit, rollback, or autocommit response with
+OUT_TRAN keeps the same physical session. An ordinary SQL request is never
+replayed on another connection after an uncertain transport failure.
+
 ```mermaid
 sequenceDiagram
+    participant App
     participant Connection
     participant Broker
     participant CAS
 
-    Connection->>Connection: _check_reconnect() inspects CAS_INFO[0]
-    alt CAS status == INACTIVE
-      Connection->>Connection: _drop_connection()
-      Connection->>Connection: self.connect() (full re-handshake to broker)
+    App->>Connection: commit()/rollback()/autocommit request
+    Connection->>CAS: Request on current socket
+    CAS-->>Connection: CAS_INFO[0]=0 (OUT_TRAN)
+    note over Connection,CAS: Same socket and session remain in use
+    App->>Connection: ping(reconnect=True)
+    opt Existing socket is connected
+      Connection->>CAS: CHECK_CAS (FC=32)
+      CAS-->>Connection: Healthy or negative (CAS-to-DB link broken)
+    end
+    opt Disconnected, negative CHECK_CAS, or transport/protocol failure
+      Connection->>Connection: Discard old transport and query handles
       Connection->>Broker: ClientInfoExchange ("CUBRK"/"CUBRS")
       Broker-->>Connection: status int32 (0 / >0 redirect / <0 fail)
       opt status > 0 (redirect)
@@ -104,11 +117,14 @@ sequenceDiagram
       end
       Connection->>CAS: OpenDatabase
       CAS-->>Connection: New session
-      note over Connection: Session restored transparently
-    else CAS status == ACTIVE
-      note over Connection: No action needed
+      note over Connection: Restore explicitly set autocommit only
     end
 ```
+
+`ping(reconnect=False)` still checks an open socket but never reconnects,
+including when `CHECK_CAS` returns a negative code.
+Recovery through `ping(reconnect=True)` is explicit and limited to one attempt;
+the caller decides whether to retry interrupted SQL.
 
 ## Module Boundaries
 
@@ -249,4 +265,3 @@ client over TCP was unaffected. No copyleft obligations reach this codebase.
 
 The `cubrid/cubrid` Docker images (10.2-11.4) are used in CI strictly to run
 integration tests against a live server; they are not distributed with pycubrid.
-

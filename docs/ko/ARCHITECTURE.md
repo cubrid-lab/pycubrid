@@ -86,16 +86,29 @@ sequenceDiagram
 
 ## CAS 재연결
 
+`CAS_INFO[0]`은 연결 상태가 아니라 트랜잭션 상태입니다(`0` = OUT_TRAN,
+`1` = IN_TRAN). 정상적인 commit, rollback 또는 autocommit 응답의 OUT_TRAN은
+같은 물리 세션을 유지합니다. 전송 실패 후 불확실한 임의의 SQL 요청을 새 연결에서
+자동 재실행하지 않습니다.
+
 ```mermaid
 sequenceDiagram
+    participant App
     participant Connection
     participant Broker
     participant CAS
 
-    Connection->>Connection: _check_reconnect() inspects CAS_INFO[0]
-    alt CAS status == INACTIVE
-      Connection->>Connection: _drop_connection()
-      Connection->>Connection: self.connect() (full re-handshake to broker)
+    App->>Connection: commit()/rollback()/autocommit 요청
+    Connection->>CAS: 기존 소켓으로 요청
+    CAS-->>Connection: CAS_INFO[0]=0 (OUT_TRAN)
+    note over Connection,CAS: 같은 소켓과 세션 유지
+    App->>Connection: ping(reconnect=True)
+    opt 기존 소켓이 연결됨
+      Connection->>CAS: CHECK_CAS (FC=32)
+      CAS-->>Connection: 정상 또는 음수 응답 (CAS–DB 링크 장애)
+    end
+    opt 연결 끊김, 음수 CHECK_CAS 또는 전송/프로토콜 실패
+      Connection->>Connection: 이전 전송과 쿼리 핸들 폐기
       Connection->>Broker: ClientInfoExchange ("CUBRK"/"CUBRS")
       Broker-->>Connection: status int32 (0 / >0 redirect / <0 fail)
       opt status > 0 (redirect)
@@ -105,12 +118,15 @@ sequenceDiagram
         Connection->>CAS: TLS upgrade (start_tls / wrap_socket)
       end
       Connection->>CAS: OpenDatabase
-      CAS-->>Connection: New session
-      note over Connection: Session restored transparently
-    else CAS status == ACTIVE
-      note over Connection: No action needed
+      CAS-->>Connection: 새 세션
+      note over Connection: 명시적으로 설정한 autocommit만 복원
     end
 ```
+
+`ping(reconnect=False)`는 열린 소켓을 검사하지만 음수 `CHECK_CAS` 응답에도
+재접속하지 않습니다.
+`ping(reconnect=True)`를 통한 복구는 명시적이며 한 번만 시도합니다. 중단된
+SQL을 재시도해도 안전한지는 호출자가 판단해야 합니다.
 
 ## 모듈 경계
 

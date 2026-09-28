@@ -30,6 +30,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
 
 ### Fixed
+- Treat `CAS_INFO[0]=0` as OUT_TRAN, not a released CAS session (#468). Normal
+  commit, rollback, and autocommit requests keep the physical connection and
+  session state; only an explicit `ping(reconnect=True)` may recover from a
+  disconnected socket, a negative `CHECK_CAS` response, or a CHECK_CAS
+  transport/protocol error. `ping(reconnect=False)` still reports failure without
+  reconnecting. Other SQL is never replayed after an uncertain transport
+  failure. Connection, API, architecture, and support documentation now
+  describe this boundary consistently.
 - Async schema FETCH now discards the session without sending CLOSE when
   `KeyboardInterrupt` or `SystemExit` interrupts a pending reply; the original
   interruption is preserved. Ordinary FETCH errors retain their cleanup behavior.
