@@ -41,6 +41,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
 
 ### Fixed
+- Fence future prepared FC3/FC6 requests to their owning physical CAS
+  generation inside the synchronous transport boundary (#478). A stale
+  handle is rejected before send even when a replacement server reuses its
+  number; uncertain post-send failure retires the session without replay.
+  This is internal groundwork for #439, not a public prepared API or a
+  change to the declared `threadsafety=1` contract.
 - Re-probe automatically detected `no_backslash_escapes` on each new physical
   session, including explicit ping recovery (#471). Explicit `True`/`False`
   remains pinned; healthy same-session ping does not probe. Probe failure

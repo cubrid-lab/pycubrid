@@ -529,12 +529,14 @@ def _raise_error(reader: PacketReader, response_length: int) -> None:
         exc_name = "DatabaseError"
 
     exc_class = _EXCEPTION_CLASSES[exc_name]
-    raise exc_class(
+    error = exc_class(
         msg=error_message,
         code=error_code,
         errno=error_code,
         sqlstate=sqlstate or _DEFAULT_SQLSTATE.get(exc_name, "HY000"),
     )
+    setattr(error, "_cas_server_error", True)
+    raise error
 
 
 def _parse_column_type(reader: PacketReader) -> int:
@@ -790,12 +792,14 @@ def _parse_result_infos(
             _ = reader._parse_bytes(message_size)  # Broker text may contain bound data.
             exc_name = CAS_ERROR_TO_EXCEPTION.get(error_code, "DatabaseError")
             exc_class = _EXCEPTION_CLASSES[exc_name]
-            raise exc_class(
+            error = exc_class(
                 "prepared statement execution failed",
                 code=error_code,
                 errno=error_code,
                 sqlstate=get_sqlstate(error_code) or _DEFAULT_SQLSTATE[exc_name],
             )
+            setattr(error, "_cas_server_error", True)
+            raise error
         oid = reader._parse_bytes(DataSize.OID)
         cache_sec = reader._parse_int()
         cache_usec = reader._parse_int()
