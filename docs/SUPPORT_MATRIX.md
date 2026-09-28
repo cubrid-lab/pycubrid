@@ -2,7 +2,7 @@
 
 Compatibility and feature support for pycubrid releases.
 
-> **Reference:** Current version `1.3.0`. For per-release detail see [`CHANGELOG.md`](../CHANGELOG.md).
+> **Reference:** Current version `1.8.0`. For per-release detail see [`CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
@@ -72,10 +72,10 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `get_server_version()` | ✅ | 1.0.0 | Returns version string (e.g. `"11.2.0.0378"`) |
 | `get_last_insert_id()` | ✅ | 1.0.0 | After AUTO_INCREMENT INSERT |
 | Schema getter | ✅ | 1.0.0 | Raw `GetSchemaPacket`; original positional arguments retained |
-| Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only `arg2=None`; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |
+| Owned schema rows | ✅ | 1.8.0 (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only `arg2=None`; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
-| Explicit connection recovery | ✅ | 1.2.0 (#70); Unreleased (#471, #485) | `ping(reconnect=True)` can reconnect after disconnect, negative `CHECK_CAS` (broken CAS-to-DB link), or a check transport/protocol error; `CAS_INFO[0]=0` is OUT_TRAN and keeps the session. Before the next request an OUT_TRAN session is verified with `CHECK_CAS`; only a failed probe (CAS restart, broker reset, CHANGE CLIENT) reconnects once, without SQL replay (#485). Auto escape mode re-probes per new physical session; explicit mode stays pinned; failed probe returns `False`. Async prebound parameterized SQL from an old generation is rejected before send. No dynamic `SET` or heterogeneous-failover guarantee. |
+| Explicit connection recovery | ✅ | 1.2.0 (#70); 1.8.0 (#471, #485) | `ping(reconnect=True)` can reconnect after disconnect, negative `CHECK_CAS` (broken CAS-to-DB link), or a check transport/protocol error; `CAS_INFO[0]=0` is OUT_TRAN and keeps the session. Before the next request an OUT_TRAN session is verified with `CHECK_CAS`; only a failed probe (CAS restart, broker reset, CHANGE CLIENT) reconnects once, without SQL replay (#485). Auto escape mode re-probes per new physical session; explicit mode stays pinned; failed probe returns `False`. Async prebound parameterized SQL from an old generation is rejected before send. No dynamic `SET` or heterogeneous-failover guarantee. |
 | Unknown-option reporting | ✅ | 1.8.0 (#377) | An unrecognised connection keyword is ignored but emits `UnknownConnectionOptionWarning` (with a spelling suggestion); escalate with `warnings.simplefilter("error", ...)` |
 
 ### TLS / SSL

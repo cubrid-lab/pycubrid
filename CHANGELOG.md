@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-29
+
+### Upgrade notes
+Behavior changes you may notice (details in the entries below):
+- Native NOT NULL (`-631`) and invalid foreign-key (`-922`) violations now raise
+  `IntegrityError` (SQLSTATE `23000`, still a `DatabaseError` subclass) instead
+  of a generic `DatabaseError`. (#390)
+- Fetching from an unfinished SELECT result after `commit()`/`rollback()`
+  invalidated its handle now raises `InterfaceError` instead of silently
+  returning a partial result as if exhausted. Already received rows remain
+  readable; no replay or holdable-result guarantee is added. (#395)
+- `cursor.description` `null_ok` was inverted and is now correct: `True` for
+  nullable columns, `False` for NOT NULL/primary-key columns. (#431)
+- SET/MULTISET/SEQUENCE columns report their collection type codes and decode
+  as collections with `decode_collections=True` (raw bytes when disabled). (#430)
+- Normal `commit()`, `rollback()` and autocommit requests keep the same CAS
+  session, so isolation level and session variables survive transaction
+  boundaries. (#468, #472)
+- If the CAS closed the socket after a transaction boundary (CAS restart,
+  CHANGE CLIENT, `cubrid broker reset`), the driver probes with `CHECK_CAS`
+  and reconnects once before the next request. Driver-owned settings (escape
+  mode unless pinned, explicit autocommit) are restored; session state set with
+  SQL (isolation, session variables) is not, so re-apply it. SQL bound for a
+  replaced session is never sent to the new one; a retryable `OperationalError`
+  is raised instead. Requests after a boundary cost one extra round trip. (#485)
+- `commit()`/`rollback()` now close server handles held by unclosed cursors. In
+  autocommit mode there is no such boundary: close cursors yourself, or their
+  handles stay open until commit/rollback/close. (#485)
+- `get_last_insert_id()` returns `None` instead of `""` when no identity is
+  available; replace `value == ""` checks with `value is None`. (#381)
+- Unknown connection keyword arguments now emit
+  `pycubrid.UnknownConnectionOptionWarning` (still ignored otherwise). Use
+  `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to
+  reject them. (#377)
+
+New explicit, staged APIs (additive; ordinary 1.x connect/cursor behavior is
+unchanged):
+- `pycubrid.compat.native` and `pycubrid.compat.cubriddb` factories construct
+  and close an owned sync connection (#465). `compat.native` also offers a sync
+  prepared scalar cursor limited to INT32, UTF-8 CHAR and SQL NULL bindings with
+  tuple-only rows (#439). Neither is full official-driver/DB-API parity; there is
+  no async preparation, and `compat.cubriddb` provides no cursor execution.
+- `Connection.fetch_schema_info()` / `close_schema_info()` (sync and async)
+  eagerly fetch and close owned schema rows (#456). Handles are closed at
+  transaction boundaries and are never reconnected or replayed. Live
+  verification covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/
+  IMPORTED_KEYS/EXPORTED_KEYS on CUBRID 10.2 and 11.4, not all schema codes
+  (#457).
+
 ### Added
 - Explicit `pycubrid.compat.native` sync prepared scalar cursor (#439): one
   physical-session-owned FC2 handle supports repeated typed FC3 execution of
@@ -32,7 +81,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   aliases and close are available; cursor execution, prepared binding, sharing,
   configurable charset and HA are not. Ordinary 1.x defaults and async behavior
   are unchanged. MINOR/additive public surface, protected by the API baseline.
-- Owned schema rows (#456): corrected FC9 requests/condensed metadata now ship with sync/async eager `fetch_schema_info(packet)` and idempotent `close_schema_info(packet)`. Existing getter positional arguments and raw packet fields remain; keyword-only `arg2=None` adds the second filter. Immutable original-session ownership prevents forged/retired handle RPCs; explicit transaction boundaries and auto-committing cursor statements/batches and version lookup with connection autocommit enabled close schema handles before the boundary, while connection teardown and I/O failures retire resources. Schema FETCH/CLOSE do not reconnect, replay, implicitly commit or return partial rows as success. Initial live coverage is CLASS/ATTRIBUTE on 10.2/11.4; broader schema-type validation remains #457. MINOR/additive surface; API baseline regenerated.
+- Owned schema rows (#456): corrected FC9 requests/condensed metadata now ship with sync/async eager `fetch_schema_info(packet)` and idempotent `close_schema_info(packet)`. Existing getter positional arguments and raw packet fields remain; keyword-only `arg2=None` adds the second filter. Immutable original-session ownership prevents forged/retired handle RPCs; explicit transaction boundaries and auto-committing cursor statements/batches and version lookup with connection autocommit enabled close schema handles before the boundary, while connection teardown and I/O failures retire resources. Schema FETCH/CLOSE do not reconnect, replay, implicitly commit or return partial rows as success. Initial live coverage was CLASS/ATTRIBUTE on 10.2/11.4; the #457 live matrix extends it to CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS, not all schema codes or native parity. MINOR/additive surface; API baseline regenerated.
 - **Unknown connection options are now surfaced instead of silently ignored (#377)** — `Connection.__init__`/`AsyncConnection.__init__` read a fixed set of options out of `**kwargs` and discarded everything else without a word, so a typo such as `read_timout=30` or `connectTimeout=5` was accepted, had no effect, and gave the caller no signal. Any keyword outside the supported set now emits a new `pycubrid.UnknownConnectionOptionWarning` (a `UserWarning` subclass, **not** part of the PEP 249 exception hierarchy) naming the offending option, suggesting the closest supported spelling when there is one, and listing the full supported set. Known options behave exactly as before, and the warning is emitted before any socket work so a mis-spelled option is reported even when the connection then fails. It covers `pycubrid.connect()`, `pycubrid.aio.connect()`, and direct `Connection(...)`/`AsyncConnection(...)` construction, and points at the caller's own line rather than pycubrid's internals.
 
   A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Callers choose their own strictness with the standard `warnings` machinery — `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to reject unknown options, `"ignore"` to silence them. Additive surface change (`api-baseline.json` regenerated).

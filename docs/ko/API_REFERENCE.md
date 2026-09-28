@@ -61,7 +61,7 @@ PEP 249가 요구하는 속성들이 모듈 수준에 정의되어 있습니다.
 | `apilevel`     | `"2.0"`   | DB-API 사양 버전 |
 | `threadsafety` | `1`       | 스레드는 모듈을 공유할 수 있으나 연결은 공유 불가 |
 | `paramstyle`   | `"qmark"` | 물음표 파라미터 방식: `WHERE name = ?` |
-| `__version__`  | `"1.3.0"` | 패키지 버전 문자열 |
+| `__version__`  | `"1.8.0"` | 패키지 버전 문자열 |
 
 ```python
 import pycubrid
@@ -69,7 +69,7 @@ import pycubrid
 print(pycubrid.apilevel)      # "2.0"
 print(pycubrid.threadsafety)  # 1
 print(pycubrid.paramstyle)    # "qmark"
-print(pycubrid.__version__)   # "1.3.0"
+print(pycubrid.__version__)   # "1.8.0"
 ```
 
 ---
