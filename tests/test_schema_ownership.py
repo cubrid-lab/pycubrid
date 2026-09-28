@@ -13,7 +13,7 @@ import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
-from pycubrid.constants import CUBRIDDataType
+from pycubrid.constants import CASFunctionCode, CUBRIDDataType
 from pycubrid.exceptions import InterfaceError, OperationalError
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -826,7 +826,13 @@ async def test_implicit_autocommit_keeps_out_tran_socket_after_schema_close(
     result = await invoke(conn, "_send_and_receive", packet)
     assert result is packet
     writes = transport.write.call_args_list if asynchronous else transport.sendall.call_args_list
-    assert [entry.args[0][8] for entry in writes] == [6, packet.write(b"\x00" * 4)[8]]
+    expected_code = (
+        CASFunctionCode.EXECUTE_BATCH if packet_kind == "batch" else CASFunctionCode.GET_DB_VERSION
+    )
+    assert [entry.args[0][8] for entry in writes] == [
+        CASFunctionCode.CLOSE_REQ_HANDLE,
+        expected_code,
+    ]
     assert observed == [1, 1, 0]
     assert not conn._schema_results
     with pytest.raises(InterfaceError, match="retired"):
