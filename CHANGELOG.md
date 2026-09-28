@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Explicit `pycubrid.compat.native` sync prepared scalar cursor (#439): one
+  physical-session-owned FC2 handle supports repeated typed FC3 execution of
+  INT32, UTF-8 CHAR and SQL NULL, tuple-only row fetch, current-generation
+  FC6 close, and connection commit/rollback result hooks. Pooling-off/unknown
+  sessions fail before FC2. HOLDABLE SELECT results continue across commit
+  and invalidate across rollback; ordinary sync/async FC41 remains unchanged.
+  Live scalar, DML and 130-row multi-FETCH gates pass on CUBRID 10.2, 11.0,
+  11.2 and 11.4. Pinned official-native comparisons on 10.2/11.4 match the
+  selected non-NULL scalar/DML results; native `bind_param(None)` crashes and
+  is a documented safety deviation, not a NULL parity pass. This is an
+  additive MINOR subset, not full native/DB-API
+  parity, public async preparation, effective settings, or a release.
 - Internal FC2/FC3 scalar packet groundwork (#475) now serializes validated
   INT32, UTF-8 CHAR and SQL NULL bindings, preserves the authoritative FC2
   bind count, and parses refreshed FC3 column metadata before shard/FETCH.

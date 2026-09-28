@@ -15,7 +15,7 @@ CUBRID용 순수 Python DB-API 2.0 드라이버 pycubrid의 완전한 API 문서
   - [`json_deserializer`](#json-컬럼)
 - [비동기 모듈 생성자](#비동기-모듈-생성자)
   - [`pycubrid.aio.connect()`](#pycubridaioconnect)
-- [연결 생성 전용 호환 팩터리](#연결-생성-전용-호환-팩터리)
+- [명시적 네이티브 호환 기능](#명시적-네이티브-호환-기능)
 - [Connection 클래스](#connection-클래스)
   - [생성자](#connection-생성자)
   - [메서드](#connection-메서드)
@@ -144,16 +144,16 @@ conn = pycubrid.connect(
 
 ---
 
-<a id="연결-생성-전용-호환-팩터리"></a>
+<a id="명시적-네이티브-호환-기능"></a>
 
-## 연결 생성 전용 호환 팩터리
+## 명시적 네이티브 호환 기능
 
-#465는 옵트인 `pycubrid.compat.native`와 `pycubrid.compat.cubriddb` 모듈을
-추가합니다. 순수 Python 동기 전송을 재사용하지만 현재는 **연결 생성과
-반복 가능한 종료만** 제공합니다. 커서, `execute()`, prepared 바인딩,
-DB-API 모듈 전역 값, 스레드 간 연결 공유 또는 네이티브 C 확장 동등성은
-제공하지 않습니다. 후속 기능이 구현되기 전의 실제 쿼리는 기존
-`pycubrid.connect()`를 계속 사용하세요.
+옵트인 `pycubrid.compat.native`는 순수 Python 동기 전송 위에 INT32,
+UTF-8 문자열, SQL NULL만 지원하는 **동기 prepared 커서**를 제공합니다.
+기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
+사용합니다. `pycubrid.compat.cubriddb` 래퍼는 아직 연결 생성·종료만
+지원하며 래퍼 커서, DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
+확장과의 완전한 동등성은 제공하지 않습니다.
 
 `native.connect(url, user="public", passwd="")`는 `native.connection`을
 반환합니다. 래퍼의 `cubriddb.Connect/connect/connection(*args, **kwargs)`는
@@ -169,8 +169,27 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 `public`/빈 비밀번호 기본값이 사용됩니다. 여기서는 기존 UTF-8 전송과
 기본 CUBRID 백엔드만 허용합니다. 다른 백엔드, 문자셋 선택, HA/TLS URL
 옵션과 초과 인자는 연결 전에 거부하며 오류에 계정 정보가 담긴 DSN
-원문을 노출하지 않습니다. 후속 실행·설정 계약은
-[호환성 가이드](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)에서 추적합니다.
+원문을 노출하지 않습니다.
+
+네이티브 연결은 `cursor()`, `commit()`, `rollback()`, `close()`를 제공합니다.
+커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
+bind_type=0)`, `execute(option=0, max_col_size=0) -> int`, 튜플만 반환하는
+`fetch_row(how=0)`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
+Python 값 형식은 실행 전 거부합니다. 브로커가 현재 세션의 statement
+pooling을 알리지 않거나 비활성화한 경우 FC2 전에 거부합니다. 핸들은
+물리 CAS 세션에 묶이며 재접속 뒤 자동 재실행하지 않습니다. `commit()`은
+HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
+무효화합니다. 연결은 기본적으로 autocommit이 켜져 있으며 효과적인
+`set_autocommit()`은 별도 #467 작업입니다. 브로커가 반환한 prepared
+오류는 DB-API 예외 종류·코드·errno·SQLSTATE를 유지하지만 SQL이나
+값이 포함될 수 있는 오류 문구는 가립니다. 고정된 공식 네이티브 확장은
+`bind_param(None)`에서 `SystemError`를 내지만 이 제한된 구현은 SQL NULL을
+명시적으로 바인딩합니다. 이는 네이티브 NULL 동등성 주장이 아닌 안전한
+차이입니다. 이는 범용 DB-API 커서나
+비동기 prepared API가 아닙니다. 자세한 범위는
+[typed CAS 설계](../PREPARED_BINDING_DESIGN.md)와
+[호환성 가이드](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)를
+참고하세요.
 
 ---
 

@@ -39,9 +39,10 @@ pycubrid는 **드라이버 측 리터럴 바인딩**을 수행합니다. `cursor
 바인딩 구현은 `CursorParamsMixin`을 통해 동기(`Cursor`)와 비동기(`AsyncCursor`) 경로에서 **그대로 공유**됩니다(`pycubrid/_cursor_common.py:237-257`). 동기·비동기 바인딩에 동작 차이가 없으며, 동등성은 `tests/test_aio_cursor_parity.py`와 `tests/test_split_placeholders.py`로 강제됩니다.
 
 **이것은 서버 측 prepared-statement 바인딩이 아닙니다.** pycubrid는 파라미터 값을 별도의 타입 페이로드로 보내지 않으며, 브로커는 execute마다 완전한 SQL 텍스트를 받습니다. [비보장과 명시적 한계](#비보장과-명시적-한계)를 참고하세요.
-향후 명시적 동기 호환성 prepared 커서의 설계는
+별도의 명시적 동기 `pycubrid.compat.native` prepared 커서는 INT32,
+UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기존 1.x
+커서의 동작을 바꾸지는 않습니다. 범위는
 [#418 타입 지정 CAS 설계](../PREPARED_BINDING_DESIGN.md)를 참고하세요.
-이는 현재 1.x 바인딩을 대체하는 구현된 API가 아닙니다.
 
 ---
 
@@ -171,7 +172,7 @@ DML 동사(`INSERT`, `UPDATE`, `DELETE`, `MERGE`)에 대해 `executemany`는:
 
 다음 동작들은 **명시적으로 계약 밖**이며 메이저 버전 없이 변경될 수 있습니다. 호출자가 암시적으로 의존하지 않도록 나열합니다.
 
-- **서버 측 prepared-statement 바인딩 없음.** 드라이버는 클라이언트에서 파라미터를 SQL 텍스트로 렌더링합니다. CUBRID는 `execute`마다 완전한 SQL 문자열을 받습니다. 별도의 타입 파라미터 페이로드도 클라이언트 측 문장 핸들 캐시도 없습니다. 성능 특성, 쿼리 플랜 캐싱, 로그 출력이 이 설계를 반영합니다.
+- **기존 동기·비동기 커서에는 서버 측 prepared 바인딩이 없음.** `pycubrid.Cursor`와 `pycubrid.aio.AsyncCursor`는 값을 클라이언트에서 SQL 텍스트로 렌더링하므로 완전한 SQL을 전송하며 타입 값 페이로드와 문장 핸들 캐시가 없습니다. 별도의 옵트인 `pycubrid.compat.native` 동기 커서는 제한된 스칼라 타입 바인딩을 지원하지만, 그 성능·플랜 캐시 효과는 여기서 보장하지 않습니다.
 - **식별자는 이스케이프되지 않음.** 식별자를 보간하는 코드 경로(특히 `Cursor.callproc`, `pycubrid/cursor.py:328-336`)는 따옴표 없이 식별자를 SQL 텍스트에 박습니다. 애플리케이션은 신뢰할 수 없는 입력에서 받은 식별자를 검증해야 합니다. 파라미터 바인딩(`?`)은 **값에만** 적용되며 식별자에는 절대 적용되지 않습니다.
 - **바인딩 계층의 타입 객체 동일성.** PEP 249 타입 객체(`STRING`, `BINARY` 등)는 `cursor.description`을 기술하며 파라미터 바인딩 중 참조되지 않습니다.
 - **서버 측 타입 강제 변환의 정규화 없음.** 드라이버는 SQL 리터럴을 렌더링하고, CUBRID가 자기 규칙에 따라 리터럴을 대상 컬럼 타입으로 강제 변환합니다. 드라이버는 대상 컬럼에 맞춰 정밀도·스케일·문자셋을 조정하지 않습니다.

@@ -1,10 +1,10 @@
 # Typed CAS binding design for the explicit compatibility cursor (#418)
 
-Status: reviewed design candidate, **not an implemented API**. The first delivery
-is the bounded scalar slice in [#439](https://github.com/cubrid-lab/pycubrid/issues/439).
+Status: reviewed design with its first bounded **sync public scalar subset**
+implemented by [#439](https://github.com/cubrid-lab/pycubrid/issues/439).
 Internal FC2/FC3 scalar packet groundwork is tracked separately by
 [#475](https://github.com/cubrid-lab/pycubrid/issues/475); it does not by
-itself make a prepared cursor usable.
+itself make a prepared cursor usable; #439 adds the owner/fetch/transaction path.
 Ordinary `pycubrid.Cursor.execute()` and `pycubrid.aio.AsyncCursor.execute()`
 continue to render 1.x SQL literals through FC41. This design does not switch
 their defaults, promise a measured speedup or plan-cache effect, establish a
@@ -12,9 +12,9 @@ current SQL-injection exploit, or change CUBRID `TIME` precision.
 
 The [official public API inventory](UPSTREAM_COMPATIBILITY.md) and
 [#438 additive contract](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-select the future sync-only `pycubrid.compat.native` prepared cursor. A public
-async prepared cursor is **not** part of #439. Shared protocol invariants and
-private async transport tests must still be designed before one is advertised.
+select the sync-only `pycubrid.compat.native` prepared cursor. A public
+async prepared cursor is **not** part of #439. Private async transport tests
+do not advertise an async prepared API.
 Wrapper query arguments, collections, LOBs, cursor navigation and broad
 differential proof remain separate #440–#446 work. No upstream source is
 copied into pycubrid; see [provenance](UPSTREAM_COMPATIBILITY.md#verification-and-provenance).

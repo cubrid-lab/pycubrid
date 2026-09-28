@@ -73,6 +73,7 @@ TRACKED_CLASSES: tuple[tuple[str, str], ...] = (
     ("pycubrid.lob", "Lob"),
     ("pycubrid.compat.cubriddb", "Connection"),
     ("pycubrid.compat.native", "connection"),
+    ("pycubrid.compat.native", "cursor"),
 )
 
 # Dunder methods we *do* protect on tracked classes. Anything not on this list

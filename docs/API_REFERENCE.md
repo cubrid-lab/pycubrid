@@ -13,7 +13,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [`json_deserializer`](#json-columns)
 - [Async Module Constructor](#async-module-constructor)
   - [`pycubrid.aio.connect()`](#pycubridaioconnect)
-- [Construction-only Compatibility Factories](#construction-only-compatibility-factories)
+- [Explicit Native Compatibility Subset](#explicit-native-compatibility-subset)
 - [Connection Class](#connection-class)
   - [Constructor](#connection-constructor)
   - [Methods](#connection-methods)
@@ -155,14 +155,15 @@ conn = pycubrid.connect(
 
 ---
 
-## Construction-only Compatibility Factories
+## Explicit Native Compatibility Subset
 
-Issue #465 adds opt-in `pycubrid.compat.native` and
-`pycubrid.compat.cubriddb` modules. They use the pure-Python sync transport and
-currently implement **connection construction and idempotent close only**. They
-do not provide cursors, `execute()`, prepared binding, DB-API module globals,
-thread-sharing guarantees or native C-extension parity. Continue using ordinary
-`pycubrid.connect()` for queries until those separate capabilities are delivered.
+The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
+It now provides a bounded **sync-only prepared cursor** for INT32, UTF-8 string
+and SQL NULL values. This does not change ordinary `pycubrid.connect()` or
+`pycubrid.aio` execution: their `execute()` methods still send complete SQL
+through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
+and close subset; it does not expose a wrapper cursor, DB-API globals, a
+thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="")` returns a
 `native.connection`. The wrapper `cubriddb.Connect/connect/connection(*args,
@@ -178,8 +179,46 @@ arguments, including omitted `public`/empty defaults, take precedence over
 credentials embedded in that DSN. Only the existing UTF-8 transport and the
 plain CUBRID backend are accepted here; alternate backends, selectable charset,
 HA/TLS URL options and excess arguments fail before connection work. Errors
-never echo the raw credential-bearing DSN. The [compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-tracks future execution and setting contracts.
+never echo the raw credential-bearing DSN.
+
+The native connection adds `cursor()`, `commit()`, `rollback()` and `close()`.
+Its cursor supports `prepare(sql)`, one-based
+`bind_param(index, value, bind_type=0)`, `execute(option=0,
+max_col_size=0) -> int`, tuple-only `fetch_row(how=0)` and `close()`.
+Nondefault flags and other Python value types fail before a prepared execute.
+Preparation requires the current broker session to advertise statement
+pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
+owned by one physical CAS session, never replayed after reconnect, and do not
+turn a failed transaction into a retry. `commit()` preserves an active
+HOLDABLE SELECT result; `rollback()` invalidates it, including buffered rows.
+Broker-originated prepared errors retain their DB-API class, code, errno and
+SQLSTATE, but their text is redacted because the broker may echo SQL or values.
+Unlike the pinned official native extension, which raises `SystemError` on
+`bind_param(None)`, this subset binds SQL NULL explicitly; this is a documented
+safety deviation rather than an exact native-NULL parity claim.
+The initial public connection still starts with autocommit enabled; effective
+`set_autocommit()` is separate #467 work. Do not treat this subset as a
+general DB-API cursor or a public async prepared API. See the
+[typed CAS contract](PREPARED_BINDING_DESIGN.md) and
+[compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
+for the supported boundary.
+
+```python
+from pycubrid.compat import native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        cur.prepare("SELECT CAST(? AS INTEGER)")
+        cur.bind_param(1, 42)
+        cur.execute()
+        assert cur.fetch_row() == (42,)
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
 
 ---
 

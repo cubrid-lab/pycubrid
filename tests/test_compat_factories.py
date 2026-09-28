@@ -232,10 +232,10 @@ def test_secondary_drop_failure_cannot_mask_setup_error_or_log_dsn(
 
 def test_namespace_is_partial_and_ordinary_contract_is_unchanged() -> None:
     assert cubriddb.__all__ == ["Connection", "Connect", "connect", "connection"]
-    assert native.__all__ == ["connection", "connect"]
+    assert native.__all__ == ["connection", "connect", "cursor"]
     for name in ("apilevel", "paramstyle", "threadsafety"):
         assert not hasattr(cubriddb, name)
-    assert not hasattr(native.connection, "cursor")
+    assert hasattr(native.connection, "cursor")
     assert pycubrid.threadsafety == 1
     assert inspect.signature(pycubrid.connect).parameters["user"].default == "dba"
 

@@ -952,7 +952,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [`json_deserializer`](#json-columns)
 - [Async Module Constructor](#async-module-constructor)
   - [`pycubrid.aio.connect()`](#pycubridaioconnect)
-- [Construction-only Compatibility Factories](#construction-only-compatibility-factories)
+- [Explicit Native Compatibility Subset](#explicit-native-compatibility-subset)
 - [Connection Class](#connection-class)
   - [Constructor](#connection-constructor)
   - [Methods](#connection-methods)
@@ -1094,14 +1094,15 @@ conn = pycubrid.connect(
 
 ---
 
-## Construction-only Compatibility Factories
+## Explicit Native Compatibility Subset
 
-Issue #465 adds opt-in `pycubrid.compat.native` and
-`pycubrid.compat.cubriddb` modules. They use the pure-Python sync transport and
-currently implement **connection construction and idempotent close only**. They
-do not provide cursors, `execute()`, prepared binding, DB-API module globals,
-thread-sharing guarantees or native C-extension parity. Continue using ordinary
-`pycubrid.connect()` for queries until those separate capabilities are delivered.
+The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
+It now provides a bounded **sync-only prepared cursor** for INT32, UTF-8 string
+and SQL NULL values. This does not change ordinary `pycubrid.connect()` or
+`pycubrid.aio` execution: their `execute()` methods still send complete SQL
+through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
+and close subset; it does not expose a wrapper cursor, DB-API globals, a
+thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="")` returns a
 `native.connection`. The wrapper `cubriddb.Connect/connect/connection(*args,
@@ -1117,8 +1118,46 @@ arguments, including omitted `public`/empty defaults, take precedence over
 credentials embedded in that DSN. Only the existing UTF-8 transport and the
 plain CUBRID backend are accepted here; alternate backends, selectable charset,
 HA/TLS URL options and excess arguments fail before connection work. Errors
-never echo the raw credential-bearing DSN. The [compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-tracks future execution and setting contracts.
+never echo the raw credential-bearing DSN.
+
+The native connection adds `cursor()`, `commit()`, `rollback()` and `close()`.
+Its cursor supports `prepare(sql)`, one-based
+`bind_param(index, value, bind_type=0)`, `execute(option=0,
+max_col_size=0) -> int`, tuple-only `fetch_row(how=0)` and `close()`.
+Nondefault flags and other Python value types fail before a prepared execute.
+Preparation requires the current broker session to advertise statement
+pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
+owned by one physical CAS session, never replayed after reconnect, and do not
+turn a failed transaction into a retry. `commit()` preserves an active
+HOLDABLE SELECT result; `rollback()` invalidates it, including buffered rows.
+Broker-originated prepared errors retain their DB-API class, code, errno and
+SQLSTATE, but their text is redacted because the broker may echo SQL or values.
+Unlike the pinned official native extension, which raises `SystemError` on
+`bind_param(None)`, this subset binds SQL NULL explicitly; this is a documented
+safety deviation rather than an exact native-NULL parity claim.
+The initial public connection still starts with autocommit enabled; effective
+`set_autocommit()` is separate #467 work. Do not treat this subset as a
+general DB-API cursor or a public async prepared API. See the
+[typed CAS contract](PREPARED_BINDING_DESIGN.md) and
+[compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
+for the supported boundary.
+
+```python
+from pycubrid.compat import native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        cur.prepare("SELECT CAST(? AS INTEGER)")
+        cur.bind_param(1, 42)
+        cur.execute()
+        assert cur.fetch_row() == (42,)
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
 
 ---
 
@@ -3974,10 +4013,10 @@ sequenceDiagram
     end
 ```
 
-For future prepared owners, the synchronous transport also accepts a private
-physical-session generation expectation (#478). **Only internal calls that
-pass this opt-in value are fenced**; #439 must stamp every prepared FC2/FC3/FC6
-request. The transport checks the generation and socket identity before
+For the explicit sync `pycubrid.compat.native` prepared cursor, the synchronous
+transport accepts a private physical-session generation expectation (#478).
+**Only calls that pass this opt-in value are fenced**; the #439 owner stamps
+each FC2/FC3/FC6/FC8 request. The transport checks generation and socket identity before
 serialization, immediately before send and again around the response, under
 the same reentrant lock that covers connect, ping recovery, close and a whole
 request/response. A captured request socket is used for both send and receive,
@@ -3985,8 +4024,10 @@ so a reentrant replacement cannot redirect old FC3/FC6 bytes or read the new
 session's reply as success. A definitely pre-byte local validation failure
 keeps the session; an interrupted/partial prepared send or uncertain reply
 retires it without replay or a new-session FC6. A fully received broker SQL
-error retains the existing code-based DB-API mapping and a usable transport.
-This internal fence does **not** create a public prepared cursor or raise
+error retains the existing code-based DB-API mapping and a usable transport;
+the explicit compatibility cursor redacts broker-controlled error text while
+preserving its class, code, errno and SQLSTATE. The fence does **not** change
+ordinary FC41 calls or raise
 `threadsafety` above `1`; a long blocking request can delay ping on the same
 connection, and other ordinary multi-step cursor/schema lifecycles are not
 made generally thread-safe by this lock. Calling DB-API methods reentrantly
@@ -7321,9 +7362,11 @@ between sync and async binding; parity is enforced by
 parameter values as a separate typed payload; the broker receives a complete
 SQL text per execute. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
-The future **explicit**, sync-only compatibility prepared cursor is specified
-in the [#418 typed CAS design](PREPARED_BINDING_DESIGN.md); it is not an
-implemented alternative to this 1.x contract.
+The separate, **explicit sync-only** `pycubrid.compat.native` prepared cursor
+does send typed INT32, UTF-8 string and SQL NULL values through FC2/FC3. It is
+not a replacement for this ordinary 1.x contract; see its bounded
+[#418 typed CAS design](PREPARED_BINDING_DESIGN.md) and
+[API reference](API_REFERENCE.md#explicit-native-compatibility-subset).
 
 ---
 
@@ -7540,11 +7583,12 @@ The following behaviors are **explicitly outside the contract** and may change
 without a major version bump. They are listed so that callers do not depend on
 them implicitly.
 
-- **No server-side prepared-statement binding.** The driver renders parameters
-  into SQL text on the client. CUBRID receives a complete SQL string per
-  `execute`. There is no separate typed parameter payload and no client-side
-  statement-handle cache. Performance characteristics, query-plan caching, and
-  log output reflect this design.
+- **Ordinary sync/async cursors do not use server-side prepared binding.**
+  `pycubrid.Cursor` and `pycubrid.aio.AsyncCursor` render parameters into SQL
+  text on the client, so their `execute()` sends a complete SQL string without
+  a typed value payload or statement-handle cache. The separate, opt-in
+  `pycubrid.compat.native` sync cursor has a narrow typed scalar contract;
+  its performance and plan-cache effects are not claimed here.
 - **Identifiers are not escaped.** Code paths that interpolate identifiers
   (notably `Cursor.callproc`, `pycubrid/cursor.py:328-336`) embed the
   identifier into the SQL text without quoting. Application code must validate
@@ -7656,11 +7700,11 @@ File: PREPARED_BINDING_DESIGN.md
 
 # Typed CAS binding design for the explicit compatibility cursor (#418)
 
-Status: reviewed design candidate, **not an implemented API**. The first delivery
-is the bounded scalar slice in [#439](https://github.com/cubrid-lab/pycubrid/issues/439).
+Status: reviewed design with its first bounded **sync public scalar subset**
+implemented by [#439](https://github.com/cubrid-lab/pycubrid/issues/439).
 Internal FC2/FC3 scalar packet groundwork is tracked separately by
 [#475](https://github.com/cubrid-lab/pycubrid/issues/475); it does not by
-itself make a prepared cursor usable.
+itself make a prepared cursor usable; #439 adds the owner/fetch/transaction path.
 Ordinary `pycubrid.Cursor.execute()` and `pycubrid.aio.AsyncCursor.execute()`
 continue to render 1.x SQL literals through FC41. This design does not switch
 their defaults, promise a measured speedup or plan-cache effect, establish a
@@ -7668,9 +7712,9 @@ current SQL-injection exploit, or change CUBRID `TIME` precision.
 
 The [official public API inventory](UPSTREAM_COMPATIBILITY.md) and
 [#438 additive contract](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-select the future sync-only `pycubrid.compat.native` prepared cursor. A public
-async prepared cursor is **not** part of #439. Shared protocol invariants and
-private async transport tests must still be designed before one is advertised.
+select the sync-only `pycubrid.compat.native` prepared cursor. A public
+async prepared cursor is **not** part of #439. Private async transport tests
+do not advertise an async prepared API.
 Wrapper query arguments, collections, LOBs, cursor navigation and broad
 differential proof remain separate #440–#446 work. No upstream source is
 copied into pycubrid; see [provenance](UPSTREAM_COMPATIBILITY.md#verification-and-provenance).
@@ -7966,8 +8010,9 @@ does not enumerate every inherited built-in method as a new driver operation.
 
 Maintainer-selected design, 2026-09-28: preserve ordinary pycubrid and add separate
 `pycubrid.compat.cubriddb` (wrapper) and `pycubrid.compat.native` (native) namespaces.
-Only construction and close are importable today (#465); the remaining rows below
-are future targets, not delivered capabilities. This reversible additive design
+Construction/close (#465) and the explicit native sync prepared scalar cursor
+(#439) are delivered; other rows below remain targets, not delivered capabilities.
+This reversible additive design
 does not authorize replacing 1.x defaults, adopting a
 2.0 replacement, or publishing a release. A global switch,
 shadowing `CUBRIDdb`/`_cubrid`, and overloading ordinary `Cursor.execute` are rejected:
@@ -7987,11 +8032,11 @@ and an omitted optional argument is not interchangeable with explicit None.
 
 | Surface | Selected contract / delivery boundary |
 | --- | --- |
-| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close are delivered; excess positional/unsupported keyword or DSN options are rejected. Selectable charset/HA and cursor execution are not delivered. |
-| Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require real cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The construction-only modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. |
+| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close are delivered; excess positional/unsupported keyword or DSN options are rejected. Selectable charset/HA and wrapper cursor execution are not delivered. |
+| Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require wrapper cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The compatibility modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. The native subset's private RLock is not a general thread-sharing promise. |
 | Settings | Native autocommit/isolation_level/lock_timeout/max_string_len assignments change cached snapshots only. `set_autocommit(mode)` / `set_isolation_level(level)` perform server operations and update caches; max_string_len retains the source's read-failure fallback 0. Wrapper `.autocommit` is server-backed. Do not invent effective setters for snapshot members. |
 | Wrapper cursor | `cursor(dictCursor=None)`, `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None`; tuple/dict fetch and connection fetch-converter callback. Contradictory mapping-binding/default_cursor docstrings are not working capability promises. |
-| Native prepared cursor | `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns tuple/dict or None. Parsed option 0, not docstring QUERY_ALL; #418/#439 implement the core. |
+| Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
 | Extended metadata | `result_info(n=0, /)` returns tuple-of-15-tuples (one outer entry for n>=1), or None with no columns. Actual order: type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared. Preserve empty versus absent metadata; #445 must not fabricate unavailable fields. |
 | Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; typed import/bind is #440. |
@@ -8021,11 +8066,32 @@ scalar tuple rows, integer null_ok, metadata containers and initial autocommit=T
 Collection literals returned lists of strings and codes 104/96 or 72/64, not stored
 SET proof or query-independent precision. Stored columns, LOBs, schema_info,
 charset/HA and fault behavior remain unverified by that oracle; #446 tracks wider
-portable differential evidence. This document does not rerun or certify native parity.
+portable differential evidence. That earlier observation does not certify native parity.
 
-- Native direct `bind_param(None)` raised SystemError; later execution of an
-  unbound NULL slot is not explicit NULL-binding success. Target core binds SQL NULL
-  safely; precise pre-execution rejection while incomplete does not complete it.
+For #439 P11, the **implemented** sync scalar cursor was compared after its
+public owner was built, using official `cubrid-python`
+`e75ec36b2a92b8829a49a967a29a1fbb9d7c322b` and its CCI gitlink
+`7d1eb8f40f04089b8218d08e36e2c24a2de11b24`. The isolated Python 3.10.12
+native extension had SHA-256
+`53861f3a058addb6131dab0796281ae9783209916cb6f6bfc3d26ae097114a84`;
+the pycubrid implementation head was `f917a97b5095da826db4a0b0f6883ab5c1d35eb8`.
+The upstream build wrapper needed a **temporary local-only** fix for its
+obsolete static-library path and Bash invocation; CCI and extension C source
+were not changed. The reproducible probe ran on CUBRID 10.2.18.9024 and
+11.4.6.1963: four non-NULL case families on each server matched exactly
+(INT min/zero/max repeated SELECT, quoted/backslash/Korean and empty string
+SELECT, repeated two-bind INSERT with autocommit on and off and independent
+visibility checks). Its verifier reported 8 matching cases and 4 classified
+deviations: official native `bind_param(None)` raised `SystemError` for INT and
+VARCHAR on both servers, whereas pycubrid returned SQL NULL. The native NULL
+failure is **not** a parity pass. This selected comparison does not certify
+collections, LOBs, arbitrary server settings or full official-driver parity;
+#446 owns the broader differential gate.
+
+- Native direct `bind_param(None)` raises `SystemError`; later execution of an
+  unbound slot is not explicit NULL-binding success. The #439 compatibility
+  cursor safely binds explicit SQL NULL and rejects an incomplete slot before
+  FC3. This is a deliberate deviation, not identical native behavior.
 - Native collection NULL became ''. Preserve None versus genuine empty text; do not
   reconstruct native text by `str()` of ordinary decoded values. Typed import needs
   explicit element type and None for SQL NULL, not a lossy string sentinel.
@@ -8041,8 +8107,10 @@ certification, not independent prepared-core work.
 
 ### Migration targets and small delivery acceptance
 
-For actual queries keep existing imports unchanged: the new modules only construct
-and close connections. Once later capabilities exist, wrapper migration is
+For ordinary queries keep existing imports unchanged. The explicit native
+namespace now supports only its bounded sync scalar prepared cursor; the
+wrapper still constructs and closes connections without cursor execution.
+Once later capabilities exist, wrapper migration is
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`; native migration
 is `import _cubrid` → `from pycubrid.compat import native as _cubrid`.
 For manual transactions, wrapper callers use `conn.autocommit = False`; native
