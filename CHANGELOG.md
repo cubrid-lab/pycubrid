@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Callers choose their own strictness with the standard `warnings` machinery — `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to reject unknown options, `"ignore"` to silence them. Additive surface change (`api-baseline.json` regenerated).
 
 ### Documentation
+- Record the pinned official-driver source declaration inventory and reviewed assertion subcases in a scenario ledger, keeping unknown/duplicate candidates and execution evidence separate; validate candidate links against ledger declarations. This accounting does not certify functional parity. (#437)
 - Private FC9 request/condensed-column groundwork (#455) preceded atomic getter activation and owned row consumption in #456. Its wire fixtures alone were not live-getter or native-parity certification.
 - Add a source-referenced official-driver public API inventory and compatibility guide; catalog consistency checks do not certify functional parity. (#436)
 - Added a README "First contribution" guide (with Korean translation) pointing newcomers to the right sibling repo for their first PR, and documented the `good first issue` → `status: in progress` label lifecycle in AGENTS.md.
