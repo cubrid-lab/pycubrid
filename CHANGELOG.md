@@ -24,6 +24,14 @@ Behavior changes you may notice (details in the entries below):
 - Normal `commit()`, `rollback()` and autocommit requests keep the same CAS
   session, so isolation level and session variables survive transaction
   boundaries. (#468, #472)
+- A session time zone set with `SET TIME ZONE` now also survives
+  `commit()`/`rollback()`. On 1.7.x a transaction boundary could transparently
+  reconnect and silently fall back to the server default zone, so
+  `DATETIMELTZ`/`TIMESTAMPLTZ` values read after a commit came back in that
+  zone (often `+00:00`). On 1.8.0 they come back in the session zone you set:
+  the same instant with a different UTC offset. Compare instants rather than
+  offsets or wall-clock fields if your code or expected output relied on the
+  old offset. (#468, #472)
 - If the CAS closed the socket after a transaction boundary (CAS restart,
   CHANGE CLIENT, `cubrid broker reset`), the driver probes with `CHECK_CAS`
   and reconnects once before the next request. Driver-owned settings (escape

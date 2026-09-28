@@ -2900,6 +2900,13 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `CLOB` | 24 | `dict` | LOB handle (see below) |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
 
+> **Local time zone types:** `TIMESTAMPLTZ` and `DATETIMELTZ` values are returned
+> as aware datetimes in the **session time zone**, not in the zone that was
+> active when the value was stored. Set it with `SET TIME ZONE '<zone>'`; the
+> session zone persists across `commit()`/`rollback()` since pycubrid 1.8.0.
+> If the session zone changes, the same stored instant is returned with a
+> different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
+
 ---
 
 ## LOB Type Handling

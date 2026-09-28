@@ -299,6 +299,13 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 | `CLOB` | 24 | `dict` | LOB 핸들 (아래 참고) |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
 
+> **로컬 타임존 타입:** `TIMESTAMPLTZ`와 `DATETIMELTZ` 값은 값을 저장할 때의
+> 타임존이 아니라 **세션 타임존** 기준의 aware datetime으로 반환됩니다. 세션
+> 타임존은 `SET TIME ZONE '<zone>'`으로 설정하며, pycubrid 1.8.0부터
+> `commit()`/`rollback()` 이후에도 유지됩니다. 세션 타임존이 바뀌면 같은 저장
+> 시점(instant)이 다른 UTC 오프셋으로 반환됩니다. `TIMESTAMPTZ`와 `DATETIMETZ`는
+> 값 자체의 타임존을 가집니다.
+
 ---
 
 ## LOB 타입 처리
