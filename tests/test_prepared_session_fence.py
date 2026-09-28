@@ -32,7 +32,7 @@ def _bounded_thread_call(action: Callable[[], Any]) -> Any:
     def run() -> None:
         try:
             result["value"] = action()
-        except BaseException as exc:
+        except (Exception, KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
             result["error"] = exc
 
     thread = Thread(target=run, daemon=True)
@@ -305,7 +305,7 @@ def test_ping_cannot_interleave_with_prepared_send() -> None:
     def record(name: str, action: Callable[[], object]) -> None:
         try:
             results[name] = action()
-        except BaseException as exc:
+        except (Exception, KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
             errors.append(exc)
 
     request = Thread(

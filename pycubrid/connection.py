@@ -778,7 +778,7 @@ class Connection(ConnectionCommonMixin):
             elif self._prepared_session_is_current(expected_generation, request_socket):
                 self._discard_uncertain_prepared_session()
             raise OperationalError("socket communication failed") from exc
-        except BaseException as exc:
+        except (Exception, KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
             if (
                 expected_generation is not None
                 and attempted_send
@@ -806,16 +806,16 @@ class Connection(ConnectionCommonMixin):
         """Best-effort retirement without replacing the request's primary error."""
         try:
             self._drop_connection()
-        except BaseException:
+        except (Exception, KeyboardInterrupt, SystemExit, GeneratorExit):
             _LOGGER.warning("Failed to discard uncertain prepared session", exc_info=True)
             self._connected = False
             try:
                 self._safe_close_socket()
-            except BaseException:
+            except (Exception, KeyboardInterrupt, SystemExit, GeneratorExit):
                 _LOGGER.warning("Failed to close uncertain prepared socket", exc_info=True)
             try:
                 self._invalidate_query_handles()
-            except BaseException:
+            except (Exception, KeyboardInterrupt, SystemExit, GeneratorExit):
                 _LOGGER.warning(
                     "Failed to invalidate cursors after prepared failure", exc_info=True
                 )
