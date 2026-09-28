@@ -1492,6 +1492,23 @@
               ]
             }
           },
+          "close_schema_info": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "packet"
+                }
+              ]
+            }
+          },
           "commit": {
             "kind": "callable",
             "signature": {
@@ -1545,6 +1562,23 @@
               ]
             }
           },
+          "fetch_schema_info": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "packet"
+                }
+              ]
+            }
+          },
           "get_last_insert_id": {
             "kind": "callable",
             "signature": {
@@ -1580,6 +1614,11 @@
                   "has_default": true,
                   "kind": "POSITIONAL_OR_KEYWORD",
                   "name": "pattern_match_flag"
+                },
+                {
+                  "has_default": true,
+                  "kind": "KEYWORD_ONLY",
+                  "name": "arg2"
                 }
               ]
             }
@@ -2047,6 +2086,23 @@
           ]
         }
       },
+      "close_schema_info": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "packet"
+            }
+          ]
+        }
+      },
       "commit": {
         "kind": "callable",
         "signature": {
@@ -2100,6 +2156,23 @@
           ]
         }
       },
+      "fetch_schema_info": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "packet"
+            }
+          ]
+        }
+      },
       "get_last_insert_id": {
         "kind": "callable",
         "signature": {
@@ -2135,6 +2208,11 @@
               "has_default": true,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "pattern_match_flag"
+            },
+            {
+              "has_default": true,
+              "kind": "KEYWORD_ONLY",
+              "name": "arg2"
             }
           ]
         }
@@ -2836,6 +2914,23 @@
           ]
         }
       },
+      "close_schema_info": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "packet"
+            }
+          ]
+        }
+      },
       "commit": {
         "kind": "callable",
         "signature": {
@@ -2889,6 +2984,23 @@
           ]
         }
       },
+      "fetch_schema_info": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "packet"
+            }
+          ]
+        }
+      },
       "get_last_insert_id": {
         "kind": "callable",
         "signature": {
@@ -2924,6 +3036,11 @@
               "has_default": true,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "pattern_match_flag"
+            },
+            {
+              "has_default": true,
+              "kind": "KEYWORD_ONLY",
+              "name": "arg2"
             }
           ]
         }

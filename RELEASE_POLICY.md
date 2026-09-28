@@ -214,6 +214,18 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Owned schema rows (#456)** — MINOR / additive methods and optional keyword-only
+  `arg2=None`. The three existing getter positional arguments/defaults and raw
+  packet return/query_handle/tuple_count remain. Correct FC9 layout is activated
+  together with owning eager fetch and explicit abandonment, immutable original
+  handle metadata, and deterministic retirement. Schema FETCH/CLOSE do not
+  reconnect, replay or implicitly commit; transaction boundaries close active
+  schema handles, including before auto-committing cursor/batch statements and
+  connection-level version lookup with autocommit enabled.
+  Non-`Exception` interruptions during async schema FETCH discard the uncertain
+  session without sending CLOSE over a pending response.
+  No holdability/native-profile choice or new dependencies.
+  Initial CLASS/ATTRIBUTE coverage does not certify all schema types (#457).
 - **Empty bytes LOB writes avoid broker I/O (#394)** — PATCH / correction to the
   documented bytes-written contract, matching the existing zero-length read
   precedent. Open-LOB, negative-offset, connection and wire argument validation

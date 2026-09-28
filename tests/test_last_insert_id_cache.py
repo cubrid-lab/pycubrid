@@ -46,6 +46,7 @@ def _sender(connection: Any, monkeypatch: pytest.MonkeyPatch, send: Any) -> None
             return send(packet, **kwargs)
 
         monkeypatch.setattr(connection, "_send_and_receive", async_send)
+        monkeypatch.setattr(connection, "_send_and_receive_locked", async_send)
     else:
         monkeypatch.setattr(connection, "_send_and_receive", send)
 

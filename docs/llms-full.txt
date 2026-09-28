@@ -609,6 +609,8 @@ the failure.
 | `get_last_insert_id()`              | `str \| None` | Return the cached broker identity, or `None`   |
 | `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | Query schema metadata from the server |
+| `fetch_schema_info(packet)` | `list[tuple]` | Eagerly read rows and release the original schema handle |
+| `close_schema_info(packet)` | `None` | Abandon an owned result; repeat close is a no-op |
 
 `get_last_insert_id()` reads the identity captured by a cursor after INSERT without
 another network request. Successful values remain strings; unavailable values are
@@ -652,9 +654,18 @@ blob.write(b"\x89PNG\r\n...")
 
 ```python
 # Get schema information (schema_type constants from CUBRID docs)
-packet = conn.get_schema_info(schema_type=1)  # Tables
-print(packet.tuple_count)
+packet = conn.get_schema_info(1, "my_table", 0)  # Exact CLASS filter
+try:
+    print(conn.fetch_schema_info(packet))
+finally:
+    conn.close_schema_info(packet)
 ```
+
+Schema packets belong to the original connection/session; fetch before a
+transaction boundary (including cursor work and version lookup when autocommit
+is enabled) or explicitly abandon them. Async uses the same methods with
+`await`. See [API Reference](API_REFERENCE.md)
+for the second filter, four-field columns and cleanup/error contract.
 
 ---
 
@@ -1334,7 +1345,7 @@ lob.write(b"Hello, CUBRID!")
 
 ---
 
-#### `get_schema_info(schema_type, table_name, pattern_match_flag)`
+#### `get_schema_info(schema_type, table_name="", pattern_match_flag=1, *, arg2=None)`
 
 ```python
 def get_schema_info(
@@ -1342,10 +1353,13 @@ def get_schema_info(
     schema_type: int,
     table_name: str = "",
     pattern_match_flag: int = 1,
+    *,
+    arg2: str | None = None,
 ) -> GetSchemaPacket
 ```
 
-Query schema information from the server.
+Create a schema result owned by this connection and its current CAS session.
+Consume it with `fetch_schema_info()` or abandon it with `close_schema_info()`.
 
 **Parameters:**
 
@@ -1354,14 +1368,23 @@ Query schema information from the server.
 | `schema_type`        | `int` | —       | Schema type code (see `CCISchemaType`) |
 | `table_name`         | `str` | `""`    | Table name filter |
 | `pattern_match_flag` | `int` | `1`     | Pattern match flag |
+| `arg2` | `str \| None` | `None` | Keyword-only second name/pattern, e.g. an ATTRIBUTE filter |
 
-**Returns:** A `GetSchemaPacket` with `query_handle` and `tuple_count` attributes.
+**Returns:** The raw `GetSchemaPacket`, retaining `query_handle`, `tuple_count` and
+`columns`. Each condensed column has only `column_type`, `scale`, `precision` and
+`name`; SELECT nullability/default/constraint metadata is not present in FC9.
+NULL (`None`) and the empty string are distinct wire arguments. For all ATTRIBUTE
+names use `arg2="%"` with flag `2`; NULL is not an all-attributes shortcut.
 
 ```python
 from pycubrid.constants import CCISchemaType
 
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
+packet = conn.get_schema_info(CCISchemaType.CLASS, "my_table", 0)
+try:
+    rows = conn.fetch_schema_info(packet)
+finally:
+    conn.close_schema_info(packet)  # Also safe after successful consumption.
+print(rows)
 ```
 
 **Available `CCISchemaType` values:**
@@ -1375,6 +1398,36 @@ print(f"Found {packet.tuple_count} tables")
 | 16   | `PRIMARY_KEY`     | Primary keys |
 | 17   | `IMPORTED_KEYS`   | Foreign keys (imported) |
 | 18   | `EXPORTED_KEYS`   | Foreign keys (exported) |
+
+The initial live ownership contract covers CLASS/ATTRIBUTE and pattern filters on
+CUBRID 10.2/11.4. Wider declared schema-type validation is tracked in #457; this
+is not certification of native-driver parity for every schema type.
+
+#### `fetch_schema_info(packet)` and `close_schema_info(packet)`
+
+`fetch_schema_info(packet) -> list[tuple[Any, ...]]` eagerly fetches exactly the
+advertised rows, then closes the original handle, including zero-row results.
+Premature EOF, inconsistent counts or cleanup failure raise instead of returning
+partial rows. `close_schema_info(packet) -> None` explicitly abandons the result;
+repeat closes of the same owner's retired packet are no-ops. Foreign/unowned
+packets and retired fetches raise `InterfaceError` before network I/O. Changing
+the raw packet's public fields cannot change the tracked handle or metadata.
+
+Commit/rollback first close active schema handles, then retire ownership. Cursor
+statements with effective autocommit do the same before sending SQL, including
+`executemany_batch(..., auto_commit=True)` on a manual-commit connection.
+With connection autocommit enabled, `get_server_version()` also closes owned
+schema handles before its auto-committing version request.
+Fetching such a retired packet raises `InterfaceError` locally before another RPC.
+Physical disconnect/reconnect and connection close also retire it; results cannot be replayed
+in a replacement CAS session. FETCH/CLOSE never reconnect or implicitly commit.
+A failed schema creation or close discards its uncertain session; a FETCH error
+retains the original exception if cleanup also fails (the cleanup error is logged).
+Async methods use `await` and hold the connection lock through fetch/cleanup.
+Cancellation during schema I/O discards the session and re-raises cancellation;
+cancellation while merely waiting for the lock does not discard another task's session.
+`KeyboardInterrupt` or `SystemExit` during async schema FETCH also discards the
+uncertain session without sending CLOSE on a stream with a pending reply.
 
 ---
 
@@ -1859,6 +1912,8 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 | `get_server_version()` | `async def get_server_version(self) -> str` | Fetch engine version |
 | `get_last_insert_id()` | `async def get_last_insert_id(self) -> str \| None` | Cached broker identity as a string, or `None` |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | Returns the parsed packet object |
+| `fetch_schema_info()` | `async def fetch_schema_info(packet) -> list[tuple[Any, ...]]` | Eager rows, then original-handle cleanup |
+| `close_schema_info()` | `async def close_schema_info(packet) -> None` | Explicit, idempotent abandonment |
 | `set_autocommit()` | `async def set_autocommit(self, value: bool) -> None` | Sends `SetDbParameterPacket` and `CommitPacket` |
 
 `AsyncConnection` exposes async `ping()` parity with sync `Connection.ping()`. `create_lob()` remains sync-only.
@@ -3388,17 +3443,26 @@ print(data)  # b"Hello, CUBRID LOB!"
 from pycubrid.constants import CCISchemaType
 
 # List all tables
-packet = conn.get_schema_info(CCISchemaType.CLASS)
-print(f"Found {packet.tuple_count} tables")
+packet = conn.get_schema_info(CCISchemaType.CLASS, "%", 1)
+tables = conn.fetch_schema_info(packet)  # Eagerly reads and closes the result
+print(f"Found {len(tables)} tables")
 
 # List columns of a specific table
-packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, table_name="users")
-print(f"Table has {packet.tuple_count} columns")
+packet = conn.get_schema_info(CCISchemaType.ATTRIBUTE, "users", 2, arg2="%")
+columns = conn.fetch_schema_info(packet)
+print(f"Table has {len(columns)} columns")
 
-# Get primary key info
-packet = conn.get_schema_info(CCISchemaType.PRIMARY_KEY, table_name="users")
-print(f"Primary key entries: {packet.tuple_count}")
+# Explicitly abandon a result when only its advertised count is needed
+packet = conn.get_schema_info(CCISchemaType.CLASS, "users", 0)
+try:
+    print(f"Matching tables: {packet.tuple_count}")
+finally:
+    conn.close_schema_info(packet)
 ```
+
+Initial live validation covers CLASS/ATTRIBUTE on CUBRID10.2/11.4; broader schema
+types remain under #457. Autocommit changes retain their existing commit/flush
+behavior while closing and retiring active schema results before END_TRAN.
 
 ---
 
@@ -3993,8 +4057,9 @@ No result attributes — raises an exception on error.
 |----------------|-------|-------------|
 | `query_handle` | `int` | Handle for fetching schema rows |
 | `tuple_count`  | `int` | Number of schema entries |
+| `columns` | `list` | Condensed four-field column metadata |
 
-**Private wire groundwork (#455), not an enabled getter fix:** the verified FC9
+**Owned schema requests (#455, #456):** the verified FC9
 request carries length-prefixed arguments in this order: schema type (`int`),
 first name/pattern (`string` or NULL), second name/pattern (`string` or NULL),
 flags (`byte`), then shard ID (`int`, protocol V5 and newer). NULL is a zero-length
@@ -4008,10 +4073,17 @@ attribute/table names, nullability, default or constraint flags. The private
 decoder therefore exposes only type, scale, precision and name; it preserves the
 existing collection-kind normalization rather than inventing absent fields.
 
-These helpers are offline-tested and dormant. `GetSchemaPacket.write/parse` and
-both public `get_schema_info()` methods remain unchanged and incomplete. Enabling
-the request requires atomic handle ownership, row consumption and cleanup in #456;
-these fixtures do not certify a working live getter or native-driver parity.
+`GetSchemaPacket.write/parse` now uses this layout. Connection getters register
+the original packet identity and immutable handle/count/columns. Consume via
+`fetch_schema_info(packet)` (FC8 until all rows arrive, followed by FC6 even for
+zero rows) or abandon via `close_schema_info(packet)`. Both remain on the original
+CAS session, without reconnect/replay. The unchanged handle-only FC6 omits the
+optional auto-commit argument, whose server default is false. Commit/rollback
+close active schema handles before END_TRAN; physical teardown retires ownership.
+Async ownership registration and fetch/close are atomic under the connection lock;
+in-flight cancellation discards the transport rather than sending FC6 over an
+unread reply. Initial live tests cover CLASS/ATTRIBUTE on 10.2/11.4, not full
+schema-type or native-driver parity certification (#457).
 Source references: [CAS FC9 arguments](https://github.com/CUBRID/cubrid/blob/6b2bc75527c8bad94d9ad8aba961638efdfb3269/src/broker/cas_function.c#L1192),
 [CCI condensed columns](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_query_execute.c#L5285),
 and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63ae4b334fde81ce2c523642f1afd37f/src/jdbc/cubrid/jdbc/jci/UConnection.java#L516).
@@ -6348,7 +6420,8 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `Connection.ping()` | ✅ | 1.2.0 (#70) | Native CHECK_CAS health check, no SQL needed |
 | `get_server_version()` | ✅ | 1.0.0 | Returns version string (e.g. `"11.2.0.0378"`) |
 | `get_last_insert_id()` | ✅ | 1.0.0 | After AUTO_INCREMENT INSERT |
-| Schema introspection | ✅ | 1.0.0 | `Connection.get_schema_info()` |
+| Schema getter | ✅ | 1.0.0 | Raw `GetSchemaPacket`; original positional arguments retained |
+| Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only second filter `arg2=None`; initial live CLASS/ATTRIBUTE on 10.2/11.4, broader matrix #457 |
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
 | CAS reconnection | ✅ | 1.0.0 | Auto-reconnect on broker `INACTIVE` status |
@@ -7594,3 +7667,113 @@ or docstrings are copied wholesale. Existing [NOTICE](https://github.com/cubrid-
 [third-party reference notes](https://github.com/cubrid-lab/pycubrid/blob/main/THIRD_PARTY_LICENSES.md#reference-test-suite)
 remain authoritative for provenance and licensing limits. This catalog adds no
 license inference, runtime dependency, or permission to reuse upstream source.
+
+============================================================
+File: UPSTREAM_TEST_LEDGER.md
+============================================================
+
+# Upstream scenario ledger
+
+The [scenario ledger](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/upstream_scenarios.csv) is an initial
+inventory for [#437](https://github.com/cubrid-lab/pycubrid/issues/437), under the
+[public-parity tracker](https://github.com/cubrid-lab/pycubrid/issues/396).
+It is not a functional-parity certificate or a Python 2 compatibility promise.
+
+## Accounting boundary
+
+Source: [CUBRID/cubrid-python at e75ec36](https://github.com/CUBRID/cubrid-python/tree/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b).
+The inventory retains all **450 raw test-prefixed function declarations**:
+
+| Source folder | Raw declarations |
+|---|---:|
+| `tests/` | 68 |
+| `tests2/` | 198 |
+| `tests3/` | 184 |
+
+This includes the legacy function named `test_`. Path, class, function and source
+line identify each declaration; eight separately named assertion subcases bring
+the initial ledger to 458 rows. These are accounting counts, not unique behavioral
+scenarios. Subcase assessment remains incomplete, as do helper/setup and top-level
+script assertions. Do not divide local parametrized tests by these declarations
+to advertise a parity percentage.
+
+Legacy declarations remain in the ledger. `duplicate_candidate_of` is a
+**name-only review hint**, pointing to a provisional newer source declaration;
+neither the hint nor its target establishes assertion equivalence or a canonical
+unique-scenario count. No declaration is removed because it looks duplicated.
+Each `duplicate_candidate` row must link to another declaration in this ledger;
+all other classifications leave `duplicate_candidate_of` empty. Each segment
+in a pipe-separated link must name a present declaration, never an assertion
+subcase; empty segments are invalid.
+
+Identifiers and independently paraphrased expectations reference upstream; no
+upstream test bodies are imported or copied. Keep the source acknowledgement and
+[unresolved test-file licensing terms](https://github.com/cubrid-lab/pycubrid/blob/main/THIRD_PARTY_LICENSES.md#reference-test-suite).
+Confirm applicable terms before any verbatim source reuse.
+
+## Mapping is separate from execution
+
+`classification` has these meanings:
+
+| Value | Meaning |
+|---|---|
+| `unknown` | Assertions/subcases require assessment. |
+| `duplicate_candidate` | A name matches a legacy declaration; behavior is still unassessed. |
+| `related` | Local coverage exists, but matching assertions/API/setup have not been established. |
+| `assertion_equivalent` | Only the named expectation matches a reviewed local assertion. |
+| `unsupported` | A reviewed required capability is absent and remains functional backlog. |
+
+`local_nodes` is reserved for explicit assertion-subcase rows with equivalent mappings; `related_nodes` is
+not counted as equivalent. `local_revision` pins the inspected local source.
+Every row has an owner/family, expected behavior or explicit unknown, and a gap
+reason/issue. #437 delivers this seed inventory; closing it does not complete
+unassessed declarations or candidate aliases. Ongoing family assessment remains
+under the open parent #396 or the named capability follow-ups; #437 is retained
+as delivery provenance. Unsupported scenarios are not exclusions from parity work.
+
+The initial review references the 41 collected local SQL/type/data nodes already
+merged at `7e0aad8fe83a37f324c1c9efea0ff68de15680f2`. Only eight exact assertion
+subcases map to seven local nodes: selected IDs/counts, identical ENUM ordinal
+pairs, and the two trigger result rows. Parent declarations remain related rather
+than declaring their entire fixture/API behavior equivalent. In particular:
+
+- INDEX joins/subselects assert 4 locally versus 5 upstream.
+- PARTITION schemas/payloads and padded CHAR assertions differ.
+- ENUM update datasets, affected counts and extra metadata checks differ.
+- Collection literal/decode tests do not implement prepared collection binding
+  (#440), and official string-valued containers differ (#438).
+- LOB literal round-trips use different payloads and do not establish official
+  handle bind/fetch (#441), seek (#442) or file import/export (#443) equivalence.
+
+All initial `evidence_status` values are `not_run`: this change inspects assertions
+and collects node IDs but does not execute either driver's live contracts.
+Mapping, test collection and a skipped integration test are not passing evidence.
+
+For a later execution observation, record `verification_commit`, server version,
+Python version, mode, result and an immutable CI/JUnit or retained artifact
+reference. Use `observed` for honest failed or explained-skipped results; retain
+the gap and never relabel them as passes. Non-skipped results must leave `skip_reason`
+empty. `verified_pass` requires an equivalent
+assertion mapping, a passing result and complete identities. One observation
+does not certify all servers/modes. Existing lane/JUnit mechanisms supply runtime
+evidence; [#446](https://github.com/cubrid-lab/pycubrid/issues/446) tracks that work.
+
+## Check and maintain
+
+```bash
+python -m pytest tests/test_upstream_scenario_ledger.py
+```
+
+The focused check uses the existing pytest collection mechanism without a server
+to reject broken node IDs, duplicate source IDs, malformed candidate links,
+missing ownership/gap reasons, unsupported/failed pass claims and unexplained
+skips. Synthetic validator inputs test those rejection rules; they are not
+stored as driver execution evidence.
+
+When assessing another declaration, preserve its source ID. Keep candidate links
+only while its classification is `duplicate_candidate`; clear them if that
+classification changes. Add explicit assertion subcases where necessary, and
+compare fixtures, arguments, types and exact expected values before supplying
+`local_nodes`. Keep execution
+fields independent. This is test-accounting maintenance only: no driver behavior,
+support policy, compatibility facade, CI scheduler or new dependency changes.

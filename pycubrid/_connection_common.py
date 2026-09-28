@@ -19,6 +19,7 @@ import socket
 import ssl as ssl_module
 import sys
 import warnings
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from .constants import DataSize
@@ -35,11 +36,21 @@ from .exceptions import (
     UnknownConnectionOptionWarning,
     Warning,
 )
+from .protocol import GetSchemaPacket, _SchemaColumn
 
 if TYPE_CHECKING:
     from .timing import TimingStats
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _SchemaResult:
+    """Immutable original-session resource, independent of public packet fields."""
+
+    handle: int
+    count: int
+    columns: tuple[_SchemaColumn, ...]
 
 
 # Every public connection option accepted by ``pycubrid.connect``,
@@ -227,6 +238,8 @@ class ConnectionCommonMixin:
         self._autocommit = False
         self._autocommit_explicitly_set = False
         self._cursors: set[Any] = set()
+        self._schema_owner = object()
+        self._schema_results: dict[GetSchemaPacket, _SchemaResult] = {}
         self._protocol_version: int = 1
         # Broker identity captured after an INSERT by any cursor, as a string
         # (the cursor keeps its own integer lastrowid snapshot).
@@ -236,6 +249,24 @@ class ConnectionCommonMixin:
         self._last_insert_id: str | None = None
 
     # -- Pure helpers (no I/O) -----------------------------------------------
+
+    def _register_schema_result(self, packet: GetSchemaPacket) -> None:
+        packet._owner = self._schema_owner
+        self._schema_results[packet] = _SchemaResult(
+            packet.query_handle, packet.tuple_count, tuple(packet.columns)
+        )
+
+    def _owned_schema_result(self, packet: GetSchemaPacket) -> _SchemaResult | None:
+        if not isinstance(packet, GetSchemaPacket) or packet._owner is not self._schema_owner:
+            raise InterfaceError("schema packet is not owned by this connection")
+        return self._schema_results.get(packet)
+
+    def _active_schema_result(self, packet: GetSchemaPacket) -> _SchemaResult:
+        result = self._owned_schema_result(packet)
+        if result is None:
+            raise InterfaceError("schema result has been retired")
+        self._ensure_connected()
+        return result
 
     def _invalidate_query_handles(self) -> None:
         """Invalidate all cursor query handles.
@@ -247,6 +278,7 @@ class ConnectionCommonMixin:
         """
         for cursor in self._cursors:
             cursor._query_handle = None
+        self._schema_results.clear()
 
     def _invalidate_query_handles_for_reconnect(self) -> None:
         """Invalidate query handles and mark cursors as reconnect-invalidated.
@@ -259,6 +291,7 @@ class ConnectionCommonMixin:
         for cursor in self._cursors:
             cursor._query_handle = None
             cursor._invalidated_by_reconnect = True
+        self._schema_results.clear()
 
     def _ensure_connected(self) -> None:
         """Raise ``InterfaceError`` when called on a closed connection."""
@@ -272,6 +305,7 @@ class ConnectionCommonMixin:
     def _safe_close_socket(self) -> None:
         """Close the socket safely, ignoring any OS errors."""
         self._last_insert_id = None
+        self._schema_results.clear()
         if self._socket is not None:
             try:
                 self._socket.close()
