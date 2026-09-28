@@ -1,6 +1,6 @@
 name: Performance Investigation
 description: Report a measured performance regression or gap detected by cubrid-benchmark
-title: "[Perf]: "
+title: "perf: "
 labels: ["performance"]
 body:
   - type: markdown
@@ -8,6 +8,8 @@ body:
       value: |
         Use this template when cubrid-benchmark detects a measurable performance gap or regression.
         Link to the benchmark run that triggered this investigation.
+        Keep the `perf:` title prefix. You do not need to apply labels;
+        maintainers assign priority and size after triage.
 
   - type: textarea
     id: benchmark-source

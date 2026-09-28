@@ -118,6 +118,19 @@ main-based configuration/scanner assets, so caller pinning does not freeze those
 
 ## Reporting Issues
 
+Search for an existing issue first, then use the closest issue form. Keep its
+prefilled title prefix (`fix:`, `feat:`, `chore:`, or `perf:`); for a custom
+issue, use a short type prefix such as `docs:`, `ci:`, or `test:`. An optional
+scope goes before the colon, for example `fix(protocol): ...`.
+
+Reporters describe impact and reproduction; they do **not** need permission
+to apply GitHub labels. Maintainers assign one type label, one
+`priority: <value>` and one `size: <value>` label (plus `area:` when relevant).
+Human-submitted CLI/API issues with incomplete metadata receive
+`status: needs triage`. The maintainer corrects the metadata and removes
+that label. Workflows creating issues with `GITHUB_TOKEN` must set the title
+and labels themselves: GitHub does not start another workflow from that event.
+
 When filing an issue, include:
 
 - Python version
