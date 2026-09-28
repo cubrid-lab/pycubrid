@@ -337,9 +337,9 @@ mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
 For protocol version >1, an `include_column_info=1` response carries the
 full FC2 prepare-info tail before the shard ID and inline FETCH. The parser
 updates statement/bind/column metadata and rejects truncated tails. A
-negative per-result record is surfaced as a `DatabaseError` rather than
-treated as a successful result; its broker text is not copied into the
-exception. These packet primitives remain internal until #439 supplies
+negative per-result record is surfaced through the existing code-to-DB-API
+exception mapping rather than treated as success; its broker text is not
+copied into the exception. These packet primitives remain internal until #439 supplies
 physical-session ownership, cursor lifecycle and full live support gates.
 
 | Attribute            | Type   | Description |

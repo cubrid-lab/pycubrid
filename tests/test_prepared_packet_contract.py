@@ -128,6 +128,36 @@ def test_unsupported_prepare_flag_rejects_without_sql_leak() -> None:
 
 
 @pytest.mark.parametrize(
+    ("prepare_flag", "autocommit"),
+    [(0.0, False), (8.0, False), (CCIPrepareOption.NORMAL, 1)],
+)
+def test_prepare_rejects_non_boolean_or_non_integer_controls(
+    prepare_flag: object, autocommit: object
+) -> None:
+    packet = protocol.PreparePacket("SELECT 1", auto_commit=autocommit, prepare_flag=prepare_flag)
+    with pytest.raises(ProgrammingError):
+        packet.write(_CAS_INFO)
+
+
+@pytest.mark.parametrize("bind_count", [True, 1.0])
+def test_execute_rejects_non_integer_bind_count(bind_count: object) -> None:
+    packet = protocol.ExecutePacket(
+        1,
+        CUBRIDStatementType.SELECT,
+        bindings=(protocol._encode_prepared_scalar(42),),
+        bind_count=bind_count,
+    )
+    with pytest.raises(ProgrammingError):
+        packet.write(_CAS_INFO)
+
+
+def test_execute_rejects_non_boolean_autocommit() -> None:
+    packet = protocol.ExecutePacket(1, CUBRIDStatementType.SELECT, auto_commit=1, forward_only=True)
+    with pytest.raises(ProgrammingError):
+        packet.write(_CAS_INFO)
+
+
+@pytest.mark.parametrize(
     ("sql", "error"),
     [("SELECT '\x00'", ProgrammingError), ("SELECT '\ud800'", DataError)],
 )

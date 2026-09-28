@@ -1037,17 +1037,28 @@ class TestExecutePacket:
         with pytest.raises((IndexError, ValueError, struct.error)):
             pkt.parse(bytes(response))
 
-    def test_negative_result_record_is_not_partial_success(self) -> None:
+    @pytest.mark.parametrize(
+        ("error_code", "error_class", "sqlstate"),
+        [
+            (-493, ProgrammingError, "42000"),
+            (-631, IntegrityError, "23000"),
+        ],
+    )
+    def test_negative_result_record_uses_code_mapping(
+        self, error_code: int, error_class: type[DatabaseError], sqlstate: str
+    ) -> None:
         pkt = ExecutePacket(1, CUBRIDStatementType.INSERT, protocol_version=7)
         response = bytearray(DEFAULT_CAS_INFO)
         response.extend(struct.pack(">iBi", 1, 0, 1))
         response.append(CUBRIDStatementType.INSERT)
-        response.extend(struct.pack(">iii", -1, -493, 4))
+        response.extend(struct.pack(">iii", -1, error_code, 4))
         response.extend(b"bad\x00")
 
-        with pytest.raises(DatabaseError) as caught:
+        with pytest.raises(error_class) as caught:
             pkt.parse(bytes(response))
-        assert caught.value.errno == -493
+        assert type(caught.value) is error_class
+        assert caught.value.errno == error_code
+        assert caught.value.sqlstate == sqlstate
         assert "bad" not in str(caught.value)
 
     def test_parse_select_no_columns(self) -> None:

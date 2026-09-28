@@ -236,7 +236,7 @@ graph TD
     types[types.py - DB-API 2.0 type objects and constructors]
     exceptions[exceptions.py - PEP 249 exception hierarchy]
     constants[constants.py - CAS function codes, data types, protocol constants]
-    protocol["protocol.py - CAS wire protocol packet classes (18 packet types)"]
+    protocol["protocol.py - CAS wire protocol packet classes (20 packet types)"]
     packet[packet.py - Low-level packet reader/writer]
     lob[lob.py - LOB support]
     typed[py.typed - PEP 561 marker]
