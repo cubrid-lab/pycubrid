@@ -2902,8 +2902,13 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 
 > **Local time zone types:** `TIMESTAMPLTZ` and `DATETIMELTZ` values are returned
 > as aware datetimes in the **session time zone**, not in the zone that was
-> active when the value was stored. Set it with `SET TIME ZONE '<zone>'`; the
-> session zone persists across `commit()`/`rollback()` since pycubrid 1.8.0.
+> active when the value was stored. Set it with `SET TIME ZONE '<zone>'`. Since
+> pycubrid 1.8.0 the zone persists across `commit()`/`rollback()` while the CAS
+> session is kept. If the CAS closes the socket after a transaction boundary
+> (CAS restart, CHANGE CLIENT, `cubrid broker reset`), the driver reconnects
+> and the new session uses the server default zone, so re-apply `SET TIME ZONE`
+> as with other SQL session state (see
+> [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary)).
 > If the session zone changes, the same stored instant is returned with a
 > different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
 

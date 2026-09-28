@@ -31,7 +31,8 @@ Behavior changes you may notice (details in the entries below):
   zone (often `+00:00`). On 1.8.0 they come back in the session zone you set:
   the same instant with a different UTC offset. Compare instants rather than
   offsets or wall-clock fields if your code or expected output relied on the
-  old offset. (#468, #472)
+  old offset. If the CAS itself closes the socket, the zone is lost like other
+  SQL session state (see the next note). (#468, #472)
 - If the CAS closed the socket after a transaction boundary (CAS restart,
   CHANGE CLIENT, `cubrid broker reset`), the driver probes with `CHECK_CAS`
   and reconnects once before the next request. Driver-owned settings (escape
