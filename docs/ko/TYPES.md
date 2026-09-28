@@ -299,6 +299,17 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 | `CLOB` | 24 | `dict` | LOB 핸들 (아래 참고) |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
 
+> **로컬 타임존 타입:** `TIMESTAMPLTZ`와 `DATETIMELTZ` 값은 값을 저장할 때의
+> 타임존이 아니라 **세션 타임존** 기준의 aware datetime으로 반환됩니다. 세션
+> 타임존은 `SET TIME ZONE '<zone>'`으로 설정합니다. pycubrid 1.8.0부터 CAS
+> 세션이 유지되는 동안에는 `commit()`/`rollback()` 이후에도 타임존이
+> 유지됩니다. 트랜잭션 경계 후 CAS가 소켓을 닫으면(CAS 재시작, CHANGE CLIENT,
+> `cubrid broker reset`) 드라이버가 재연결하고 새 세션은 서버 기본 타임존을
+> 사용하므로, 다른 SQL 세션 상태와 마찬가지로 `SET TIME ZONE`을 다시 적용해야
+> 합니다([연결 가이드의 "트랜잭션 경계에서 CAS가 재활용되는 경우"](CONNECTION.md)
+> 참고). 세션 타임존이 바뀌면 같은 저장 시점(instant)이 다른 UTC 오프셋으로
+> 반환됩니다. `TIMESTAMPTZ`와 `DATETIMETZ`는 값 자체의 타임존을 가집니다.
+
 ---
 
 ## LOB 타입 처리
