@@ -39,6 +39,9 @@ pycubrid는 **드라이버 측 리터럴 바인딩**을 수행합니다. `cursor
 바인딩 구현은 `CursorParamsMixin`을 통해 동기(`Cursor`)와 비동기(`AsyncCursor`) 경로에서 **그대로 공유**됩니다(`pycubrid/_cursor_common.py:237-257`). 동기·비동기 바인딩에 동작 차이가 없으며, 동등성은 `tests/test_aio_cursor_parity.py`와 `tests/test_split_placeholders.py`로 강제됩니다.
 
 **이것은 서버 측 prepared-statement 바인딩이 아닙니다.** pycubrid는 파라미터 값을 별도의 타입 페이로드로 보내지 않으며, 브로커는 execute마다 완전한 SQL 텍스트를 받습니다. [비보장과 명시적 한계](#비보장과-명시적-한계)를 참고하세요.
+향후 명시적 동기 호환성 prepared 커서의 설계는
+[#418 타입 지정 CAS 설계](../PREPARED_BINDING_DESIGN.md)를 참고하세요.
+이는 현재 1.x 바인딩을 대체하는 구현된 API가 아닙니다.
 
 ---
 
