@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- Release workflow unified with the sibling repos: new `RELEASING.md`; `make release`
+  replaced by the read-only `make release-check VERSION=x.y.z`; `publish-pypi.yml` is
+  manual-dispatch only and now dispatches the cookbook smoke test after a successful
+  publish (replacing `notify-cookbook.yml`); CI lints `CHANGELOG.md`.
+
 ## [1.8.0] - 2026-09-29
 
 ### Upgrade notes

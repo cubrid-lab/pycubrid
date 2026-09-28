@@ -435,7 +435,9 @@ assets; pinning its caller is not a complete freeze of those assets.
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
 | `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.13) + integration |
-| `python-publish.yml` | GitHub Release | Build and publish to PyPI |
+| `integration-full.yml` | Nightly, tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
+| `create-release.yml` | Tag push, manual dispatch | Create the GitHub Release from CHANGELOG (does not publish) |
+| `publish-pypi.yml` | Manual dispatch after the tag-triggered full matrix passes | Verify, publish to PyPI, dispatch the cookbook smoke test |
 
 ### CI Matrix
 
@@ -539,10 +541,7 @@ To support a new CUBRID data type:
 
 ## Release Process
 
-1. Update version in `pyproject.toml` and `pycubrid/__init__.py`
-2. Add changelog entry in `CHANGELOG.md`
-3. Commit: `git commit -m "chore: bump version to X.Y.Z"`
-4. Tag: `git tag vX.Y.Z`
-5. Push: `git push origin main --tags`
-6. Create GitHub release: `gh release create vX.Y.Z`
-7. PyPI publish triggers automatically from the release workflow
+Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md): a release PR
+(version bump + dated CHANGELOG section, checked with `make release-check VERSION=X.Y.Z`),
+a tag on the squash-merged commit, and a manual `publish-pypi.yml` dispatch once the
+tag-triggered full matrix passes.
