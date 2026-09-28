@@ -182,7 +182,10 @@ HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
 무효화합니다. 연결은 기본적으로 autocommit이 켜져 있으며 효과적인
 `set_autocommit()`은 별도 #467 작업입니다. 브로커가 반환한 prepared
 오류는 DB-API 예외 종류·코드·errno·SQLSTATE를 유지하지만 SQL이나
-값이 포함될 수 있는 오류 문구는 가립니다. 이는 범용 DB-API 커서나
+값이 포함될 수 있는 오류 문구는 가립니다. 고정된 공식 네이티브 확장은
+`bind_param(None)`에서 `SystemError`를 내지만 이 제한된 구현은 SQL NULL을
+명시적으로 바인딩합니다. 이는 네이티브 NULL 동등성 주장이 아닌 안전한
+차이입니다. 이는 범용 DB-API 커서나
 비동기 prepared API가 아닙니다. 자세한 범위는
 [typed CAS 설계](../PREPARED_BINDING_DESIGN.md)와
 [호환성 가이드](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)를

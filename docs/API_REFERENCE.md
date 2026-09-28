@@ -193,6 +193,9 @@ turn a failed transaction into a retry. `commit()` preserves an active
 HOLDABLE SELECT result; `rollback()` invalidates it, including buffered rows.
 Broker-originated prepared errors retain their DB-API class, code, errno and
 SQLSTATE, but their text is redacted because the broker may echo SQL or values.
+Unlike the pinned official native extension, which raises `SystemError` on
+`bind_param(None)`, this subset binds SQL NULL explicitly; this is a documented
+safety deviation rather than an exact native-NULL parity claim.
 The initial public connection still starts with autocommit enabled; effective
 `set_autocommit()` is separate #467 work. Do not treat this subset as a
 general DB-API cursor or a public async prepared API. See the
