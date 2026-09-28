@@ -95,6 +95,13 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Native LOB | Separate mutable byte-position object, initially unpopulated. `write(string, type omitted, /) -> None` accepts str/bytes (UTF-8 for str), creates BLOB by default or B/C when requested. `read(len=0, /) -> str` reads remaining bytes for omitted/0 and decodes strict UTF-8. `seek(offset, whence=SEEK_CUR, /) -> int`; SEEK_END is size-offset. #442/#443 own lifecycle/short transfer/file behavior; ordinary bytes methods are not replaced. |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. Exact unstable messages and native argument-parser crashes are not targets. |
 
+The reviewed [typed CAS design for #418](PREPARED_BINDING_DESIGN.md) defines
+the first sync-only prepared scalar slice (#439), its FC2/FC3/FC6 bytes,
+handle/result/transaction ownership, measured pooling-on boundary, and
+failing-first test IDs. It is a design, not an available execution API or
+proof of full official-driver parity. Ordinary 1.x literal binding remains
+[unchanged](PARAMETER_BINDING.md).
+
 ### Evidence and intentional safety deviations
 
 Source contracts follow the pinned wrapper/native implementations, not conflicting

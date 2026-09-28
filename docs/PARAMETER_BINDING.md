@@ -55,6 +55,9 @@ between sync and async binding; parity is enforced by
 parameter values as a separate typed payload; the broker receives a complete
 SQL text per execute. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
+The future **explicit**, sync-only compatibility prepared cursor is specified
+in the [#418 typed CAS design](PREPARED_BINDING_DESIGN.md); it is not an
+implemented alternative to this 1.x contract.
 
 ---
 

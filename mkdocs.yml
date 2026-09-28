@@ -47,6 +47,7 @@ nav:
       - Support Matrix: SUPPORT_MATRIX.md
       - Upstream Scenario Ledger: UPSTREAM_TEST_LEDGER.md
       - Official Driver API Inventory: UPSTREAM_COMPATIBILITY.md
+      - Typed CAS Binding Design: PREPARED_BINDING_DESIGN.md
   - Operations:
       - Performance: PERFORMANCE.md
       - Troubleshooting: TROUBLESHOOTING.md

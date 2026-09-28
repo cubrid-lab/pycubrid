@@ -93,6 +93,11 @@ execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, B
 | 네이티브 LOB | 처음에는 값이 없는 별도의 변경 가능한 바이트 위치 객체입니다. `write(string, type 생략, /) -> None`은 str/bytes(str은 UTF-8)를 받고 기본 BLOB 또는 요청된 B/C를 생성합니다. `read(len=0, /) -> str`은 생략/0에서 남은 바이트를 읽고 엄격한 UTF-8로 디코딩합니다. `seek(offset, whence=SEEK_CUR, /) -> int`의 SEEK_END는 size-offset입니다. #442/#443이 수명주기·짧은 전송·파일을 담당하며 기존 bytes 메서드를 대체하지 않습니다. |
 | 예외 | 네임스페이스별 PEP 249 어댑터는 `(numeric_code, formatted_message)` args와 code/errno/SQLSTATE 증거를 유지하며 기존 예외 identity/args는 바꾸지 않습니다. 불안정한 메시지의 완전 일치나 네이티브 인자 파서 충돌은 목표가 아닙니다. |
 
+[#418 타입 지정 CAS 설계](../PREPARED_BINDING_DESIGN.md)는 향후 동기 호환성
+prepared 커서의 첫 스칼라 범위(#439), FC2/FC3/FC6 형식, 핸들·결과·트랜잭션 소유권과
+statement pooling이 켜진 환경에서 측정한 경계를 명시합니다. 아직 실행 API나
+공식 드라이버 전체 패리티의 증거가 아니며, 기존 1.x 리터럴 바인딩은 유지됩니다.
+
 ### 증거와 의도적인 안전성 차이
 
 소스 계약은 모순되는 docstring보다 고정된 실제 구현을 따릅니다.
