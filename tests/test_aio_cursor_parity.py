@@ -23,6 +23,7 @@ def make_connection() -> MagicMock:
     connection._json_deserializer = None
     connection._no_backslash_escapes = False
     connection._physical_generation = 1
+    connection._generation_for_binding = AsyncMock(return_value=1)
     connection._connected = True
     connection._ensure_connected = MagicMock()
     connection._wait_for_setup_if_needed = AsyncMock()
@@ -162,7 +163,7 @@ async def test_fetch_threads_decode_and_json_options_to_packet() -> None:
     cursor._row_index = 0
     cursor._total_tuple_count = 1
 
-    async def fake_send(packet: FetchPacket) -> None:
+    async def fake_send(packet: FetchPacket, **_: object) -> None:
         assert packet.decode_collections is True
         assert packet.json_deserializer is json.loads
         packet.rows = [([1, 2],)]

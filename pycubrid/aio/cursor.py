@@ -104,7 +104,9 @@ class AsyncCursor(_AsyncCursorBase):
         try:
             if self._query_handle is not None:
                 self._connection._ensure_connected()
-                await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+                await self._connection._send_and_receive(
+                    CloseQueryPacket(self._query_handle), handle_owner=self
+                )
         except (InterfaceError, OperationalError, OSError):
             pass
         finally:
@@ -132,14 +134,15 @@ class AsyncCursor(_AsyncCursorBase):
             _start = time.perf_counter_ns()
 
         if self._query_handle is not None:
-            await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+            await self._connection._send_and_receive(
+                CloseQueryPacket(self._query_handle), handle_owner=self
+            )
             self._query_handle = None
-        self._invalidated_by_reconnect = False
 
         sql = operation
         expected_escape_generation = None
         if parameters is not None:
-            expected_escape_generation = self._connection._physical_generation
+            expected_escape_generation = await self._connection._generation_for_binding()
             sql = self._bind_parameters(operation, parameters)
 
         packet = PrepareAndExecutePacket(
@@ -155,6 +158,8 @@ class AsyncCursor(_AsyncCursorBase):
             await self._connection._send_and_receive(
                 packet, expected_escape_generation=expected_escape_generation
             )
+        # Cleared only now: a reconnect before this send flags every cursor.
+        self._invalidated_by_reconnect = False
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
                 "execute: type=%d cols=%d rows=%d",
@@ -205,7 +210,9 @@ class AsyncCursor(_AsyncCursorBase):
         self._check_closed()
         if not seq_of_parameters:
             if self._query_handle is not None:
-                await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+                await self._connection._send_and_receive(
+                    CloseQueryPacket(self._query_handle), handle_owner=self
+                )
                 self._query_handle = None
             self._description = None
             self._columns = []
@@ -236,7 +243,14 @@ class AsyncCursor(_AsyncCursorBase):
 
         await self._connection._wait_for_setup_if_needed()
         self._connection._ensure_connected()
-        expected_escape_generation = self._connection._physical_generation
+        # Release the previous result first (as execute() does): its CLOSE_REQ
+        # can end OUT_TRAN, and the pre-bind check must run after it (#485).
+        if self._query_handle is not None:
+            await self._connection._send_and_receive(
+                CloseQueryPacket(self._query_handle), handle_owner=self
+            )
+            self._query_handle = None
+        expected_escape_generation = await self._connection._generation_for_binding()
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
         await self._executemany_batch(
@@ -265,7 +279,9 @@ class AsyncCursor(_AsyncCursorBase):
         self._connection._ensure_connected()
 
         if self._query_handle is not None:
-            await self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+            await self._connection._send_and_receive(
+                CloseQueryPacket(self._query_handle), handle_owner=self
+            )
             self._query_handle = None
 
         if sql_list:
@@ -440,7 +456,7 @@ class AsyncCursor(_AsyncCursorBase):
             decode_collections=self._connection._decode_collections,
             json_deserializer=self._connection._json_deserializer,
         )
-        await self._connection._send_and_receive(packet)
+        await self._connection._send_and_receive(packet, handle_owner=self)
 
         if _timing is not None:
             _timing.record_fetch(time.perf_counter_ns() - _start)

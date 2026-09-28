@@ -284,6 +284,7 @@ class AsyncConnection(ConnectionCommonMixin):
             hs_writer = None  # ownership transferred to self or closed
 
             self._connected = True
+            self._verified_cas_info = self._cas_info
             self._physical_generation += 1
         except asyncio.TimeoutError as exc:
             raise OperationalError("read timeout during connect handshake") from exc
@@ -605,40 +606,51 @@ class AsyncConnection(ConnectionCommonMixin):
         if _timing is not None:
             _start = time.perf_counter_ns()
 
-        for cursor in list(self._cursors):
-            try:
-                await cursor.close()
-            except Exception:  # noqa: BLE001 - best-effort cleanup
-                _LOGGER.debug(
-                    "Suppressed error while closing cursor during shutdown", exc_info=True
-                )
-            finally:
-                self._cursors.discard(cursor)
-
-        await self._wait_for_setup_if_needed()
-        async with self._lock:
-            try:
-                if self._connected:
-                    await self._close_schema_results_locked()
-                    await self._send_and_receive_locked(
-                        CloseDatabasePacket(), allow_reconnect=False
+        # Closing never reconnects: a CAS that already went away needs no
+        # CLOSE_REQ or CLOSE_DATABASE, and failures here are best effort.
+        self._implicit_reconnect_suspended += 1
+        try:
+            for cursor in list(self._cursors):
+                try:
+                    await cursor.close()
+                except Exception:  # noqa: BLE001 - best-effort cleanup
+                    _LOGGER.debug(
+                        "Suppressed error while closing cursor during shutdown", exc_info=True
                     )
-            except Exception:  # noqa: BLE001 - best-effort cleanup
-                _LOGGER.debug(
-                    "Suppressed error sending CloseDatabasePacket during shutdown", exc_info=True
-                )
-            finally:
-                await self._close_streams()
-                self._connected = False
-                if _timing is not None:
-                    _timing.record_close(time.perf_counter_ns() - _start)
+                finally:
+                    self._cursors.discard(cursor)
+
+            await self._wait_for_setup_if_needed()
+            async with self._lock:
+                try:
+                    if self._connected:
+                        await self._close_schema_results_locked()
+                        await self._send_and_receive_locked(
+                            CloseDatabasePacket(), allow_reconnect=False
+                        )
+                except Exception:  # noqa: BLE001 - best-effort cleanup
+                    _LOGGER.debug(
+                        "Suppressed error sending CloseDatabasePacket during shutdown",
+                        exc_info=True,
+                    )
+                finally:
+                    await self._close_streams()
+                    self._connected = False
+                    if _timing is not None:
+                        _timing.record_close(time.perf_counter_ns() - _start)
+        finally:
+            self._implicit_reconnect_suspended -= 1
 
     async def commit(self) -> None:
         """Commit the current transaction."""
         await self._wait_for_setup_if_needed()
         async with self._lock:
             self._ensure_connected()
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            await self._check_reconnect_locked()
             await self._close_schema_results_locked()
+            await self._close_open_query_handles_locked()
             await self._send_and_receive_locked(CommitPacket())
             self._invalidate_query_handles()
 
@@ -647,9 +659,29 @@ class AsyncConnection(ConnectionCommonMixin):
         await self._wait_for_setup_if_needed()
         async with self._lock:
             self._ensure_connected()
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            await self._check_reconnect_locked()
             await self._close_schema_results_locked()
+            await self._close_open_query_handles_locked()
             await self._send_and_receive_locked(RollbackPacket())
             self._invalidate_query_handles()
+
+    async def _close_open_query_handles_locked(self) -> None:
+        """Async counterpart of ``Connection._close_open_query_handles`` (#485)."""
+        # Read each handle only when its turn comes: a probe-verified reconnect
+        # during an earlier CLOSE_REQ invalidates every remaining handle.
+        for cursor in list(self._cursors):
+            handle = cursor._query_handle
+            if handle is None:
+                continue
+            cursor._query_handle = None
+            try:
+                await self._send_and_receive_locked(CloseQueryPacket(handle))
+            except Error:
+                if not self._connected:
+                    raise
+                _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
 
     def cursor(self) -> Any:
         """Create and return a new async cursor bound to this connection."""
@@ -736,6 +768,7 @@ class AsyncConnection(ConnectionCommonMixin):
                     except (OSError, Error, struct.error):
                         healthy = False
                     if healthy:
+                        self._verified_cas_info = self._cas_info
                         return True
                 elif not reconnect:
                     return False
@@ -930,9 +963,14 @@ class AsyncConnection(ConnectionCommonMixin):
         *,
         allow_reconnect: bool = True,
         expected_escape_generation: int | None = None,
+        handle_owner: Any = None,
     ) -> Any:
         await self._wait_for_setup_if_needed()
         async with self._lock:
+            if handle_owner is not None and handle_owner._query_handle != packet.query_handle:
+                # Another task's commit/rollback or reconnect released this
+                # handle while the request waited; its id may name a new result.
+                return self._stale_handle_request(packet, handle_owner)
             if expected_escape_generation is None:
                 return await self._send_and_receive_locked(packet, allow_reconnect=allow_reconnect)
             return await self._send_and_receive_locked(
@@ -941,11 +979,25 @@ class AsyncConnection(ConnectionCommonMixin):
                 expected_escape_generation=expected_escape_generation,
             )
 
+    @staticmethod
+    def _stale_handle_request(packet: Any, owner: Any) -> Any:
+        """Resolve a cursor's FETCH/CLOSE_REQ for a handle it no longer owns (#485)."""
+        if isinstance(packet, CloseQueryPacket):
+            return packet  # Already released by the boundary or the reconnect.
+        if owner._invalidated_by_reconnect:
+            raise OperationalError(
+                "result set lost due to broker reconnect mid-fetch; "
+                "re-execute the query to continue"
+            )
+        raise InterfaceError(
+            "result set invalidated before all rows were fetched; re-execute the query to continue"
+        )
+
     def _validate_escape_generation(self, expected: int | None) -> None:
         if expected is not None and (
             expected != self._physical_generation or self._no_backslash_escapes is None
         ):
-            raise OperationalError("escape mode changed during parameter binding; retry operation")
+            raise OperationalError("CAS session replaced after parameter binding; retry operation")
 
     async def _send_and_receive_locked(
         self,
@@ -958,7 +1010,9 @@ class AsyncConnection(ConnectionCommonMixin):
             # A caller may have passed the outer gate before recovery began.
             # Never send its prebuilt SQL while the new mode is unverified.
             raise OperationalError("connection setup in progress; retry operation")
-        await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+        self._validate_escape_generation(expected_escape_generation)
+        if await self._preflight_locked(packet, allow_reconnect):
+            return packet
         if self._writer is None or self._reader is None:
             raise InterfaceError("connection is closed")
         self._validate_escape_generation(expected_escape_generation)
@@ -970,8 +1024,9 @@ class AsyncConnection(ConnectionCommonMixin):
             and packet.auto_commit
         ):
             await self._close_schema_results_locked()
-            # Validate local connection state after closing schema handles.
-            await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+            # FC6 replies OUT_TRAN; verify the CAS again before auto-committing.
+            if await self._preflight_locked(packet, allow_reconnect):
+                return packet
             if self._writer is None or self._reader is None:
                 raise InterfaceError("connection is closed")
             self._validate_escape_generation(expected_escape_generation)
@@ -1037,14 +1092,131 @@ class AsyncConnection(ConnectionCommonMixin):
         except asyncio.IncompleteReadError as exc:
             raise OperationalError("connection lost during receive") from exc
 
-    async def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
-        async with self._lock:
-            await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+    async def _preflight_locked(self, packet: Any, allow_reconnect: bool) -> bool:
+        """Run the OUT_TRAN reconnect check; return whether to skip the request.
 
-    async def _check_reconnect_locked(self, *, allow_reconnect: bool = True) -> None:
-        """Validate state; CAS_INFO OUT_TRAN does not release the stream."""
-        del allow_reconnect  # Retained for internal callers of this preflight.
+        SQL bound under the replaced generation keeps that generation, so the
+        caller's ``_validate_escape_generation`` rejects it before send (#471).
+        """
+        if not await self._check_reconnect_locked(allow_reconnect=allow_reconnect):
+            return False
+        return self._skip_request_after_reconnect(packet)
+
+    async def _generation_for_binding(self) -> int:
+        """Verify an OUT_TRAN CAS before SQL is bound, then return its generation.
+
+        Probing (and, if needed, reconnecting) before binding lets the literals
+        be rendered for the session they will be sent on; the send-time
+        generation fence then only rejects a replacement that raced the bind.
+        """
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            await self._check_reconnect_locked()
+            return self._physical_generation
+
+    async def _check_reconnect(self, *, allow_reconnect: bool = True) -> bool:
+        async with self._lock:
+            return await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+
+    async def _check_reconnect_locked(self, *, allow_reconnect: bool = True) -> bool:
+        """Async counterpart of ``Connection._check_reconnect`` (#485).
+
+        Probes an OUT_TRAN CAS with CHECK_CAS; only a failed probe replaces the
+        session, once per request, under this same lock hold so no other task
+        can observe the new session before its setup is complete.
+        """
         self._ensure_connected()
+        if self._writer is None or not self._needs_cas_probe(allow_reconnect):
+            return False
+        try:
+            probe = await self._send_and_receive_locked(CheckCasPacket(), allow_reconnect=False)
+            if probe.response_code >= 0:
+                self._verified_cas_info = self._cas_info
+                return False
+            _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
+        except (Error, OSError, struct.error) as exc:
+            # No answer: the CAS closed or reset this socket after OUT_TRAN.
+            _LOGGER.debug("CHECK_CAS got no answer: %r", exc)
+        await self._reconnect_after_failed_probe_locked()
+        return True
+
+    async def _reconnect_after_failed_probe_locked(self) -> None:
+        """Replace a CAS session that failed its OUT_TRAN probe, exactly once.
+
+        Runs the same setup as ``connect()`` (handshake, escape-mode probe,
+        autocommit restore) while ``self._lock`` stays held; the public
+        ``connect()`` cannot be used here because it takes that lock.
+        """
+        _LOGGER.debug(
+            "CAS did not answer CHECK_CAS out of transaction; reconnecting to %s:%d",
+            self._host,
+            self._port,
+        )
+        await self._close_streams()
+        self._connected = False
+        self._invalidate_query_handles_for_reconnect()
+        self._implicit_reconnect_suspended += 1
+        try:
+            await self._connect_locked()
+            await self._negotiate_backslash_escapes_locked()
+            if self._pending_autocommit:
+                await self._apply_pending_autocommit_locked()
+            else:
+                await self._restore_session_state_locked()
+            # Setup may itself end OUT_TRAN (the escape probe's rollback), and
+            # that CAS may be recycled too: verify it before the pending request.
+            if self._cas_status_unverified():
+                probe = await self._send_and_receive_locked(CheckCasPacket(), allow_reconnect=False)
+                if probe.response_code < 0:
+                    raise OperationalError("replacement CAS session failed CHECK_CAS")
+                self._verified_cas_info = self._cas_info
+        except BaseException as exc:
+            self._drop_connection()
+            if isinstance(exc, Exception):
+                raise OperationalError(
+                    "CAS did not answer CHECK_CAS out of transaction and reconnecting failed"
+                ) from exc
+            raise
+        finally:
+            self._implicit_reconnect_suspended -= 1
+
+    async def _negotiate_backslash_escapes_locked(self) -> None:
+        """Lock-held twin of :meth:`_negotiate_backslash_escapes`.
+
+        Sends the same ``CHAR_LENGTH`` probe through ``_send_and_receive_locked``
+        instead of a cursor, then closes its handle and rolls back.
+        """
+        if self._no_backslash_escapes is not None:
+            return
+        try:
+            probe = PrepareAndExecutePacket(
+                sql="SELECT CHAR_LENGTH('\\\\')",
+                auto_commit=False,
+                protocol_version=self._protocol_version,
+            )
+            await self._send_and_receive_locked(probe, allow_reconnect=False)
+            await self._send_and_receive_locked(
+                CloseQueryPacket(probe.query_handle), allow_reconnect=False
+            )
+            await self._send_and_receive_locked(RollbackPacket(), allow_reconnect=False)
+        except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
+            raise OperationalError(
+                "Failed to detect CUBRID backslash-escape mode; refusing to "
+                "guess because a wrong mode silently corrupts string escaping. "
+                "Pass no_backslash_escapes explicitly to skip detection."
+            ) from exc
+        length = probe.rows[0][0] if probe.rows else None
+        if length == 2:
+            self._no_backslash_escapes = True
+        elif length == 1:
+            self._no_backslash_escapes = False
+        else:
+            raise OperationalError(
+                "Could not detect CUBRID backslash-escape mode "
+                f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
+                "because a wrong mode silently corrupts string escaping. Pass "
+                "no_backslash_escapes explicitly to skip detection."
+            )
 
     async def _restore_session_state_locked(self) -> None:
         """Re-emit explicit session settings after explicit ping recovery.

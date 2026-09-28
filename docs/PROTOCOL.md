@@ -90,9 +90,14 @@ graph LR
 The first CAS Info byte is transaction state: `0` means OUT_TRAN and `1`
 means IN_TRAN. OUT_TRAN after `END_TRAN` or an auto-committing request does
 **not** mean the socket or CAS session was released; send the next request on
-the same transport. A failed `CHECK_CAS` may justify explicit
-`ping(reconnect=True)` recovery, but an uncertain application request is
-never replayed automatically.
+the same transport. The CAS may still close the socket after an OUT_TRAN reply
+(memory restart, `cubrid broker reset`, CHANGE CLIENT), so before the next
+request the driver sends `CHECK_CAS` (FC=32), like JDBC
+`UClientSideConnection.checkReconnect`. Only a failed probe replaces the session,
+once per request, before that request is first sent (#485). A failed `CHECK_CAS`
+may also justify explicit `ping(reconnect=True)` recovery, but an uncertain
+application request is never replayed automatically. Commit and rollback send
+`CLOSE_REQ` (FC=6) for open cursor query handles before `END_TRAN`.
 
 Automatic `no_backslash_escapes` detection is scoped to a physical session:
 new sessions are probed before parameter binding resumes, while a healthy

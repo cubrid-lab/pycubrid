@@ -307,7 +307,12 @@ conn.close()  # 연결과 모든 커서가 닫힘
 def commit(self) -> None
 ```
 
-현재 트랜잭션을 커밋합니다. 서버로 `CommitPacket`을 보냅니다.
+현재 트랜잭션을 커밋합니다. 닫히지 않은 커서가 가진 쿼리 핸들에 `CLOSE_REQ`를
+보낸 뒤 서버로 `CommitPacket`을 보냅니다(#485). 이미 받은 행은 계속 읽을 수
+있습니다. autocommit 모드에서는 `END_TRAN`을 보내지 않으므로 커서를 닫아 서버
+핸들을 해제하세요. 이전 트랜잭션 밖 응답 뒤 CAS가 세션을 재활용했다면 요청 전에
+[트랜잭션 경계에서 CAS가 재활용되는 경우](CONNECTION.md)에
+설명한 검증된 재접속이 먼저 수행됩니다.
 
 **발생:** 연결이 닫혔으면 `InterfaceError`.
 
@@ -319,7 +324,8 @@ def commit(self) -> None
 def rollback(self) -> None
 ```
 
-현재 트랜잭션을 롤백합니다. 서버로 `RollbackPacket`을 보냅니다.
+현재 트랜잭션을 롤백합니다. 닫히지 않은 커서가 가진 쿼리 핸들에 `CLOSE_REQ`를
+보낸 뒤 서버로 `RollbackPacket`을 보냅니다(#485).
 
 **발생:** 연결이 닫혔으면 `InterfaceError`.
 
@@ -379,7 +385,11 @@ commit/rollback 및 INSERT가 아닌 문장은 관측한 값을 유지합니다.
 빈 배치는 기존 값을 유지합니다.
 
 정상적인 트랜잭션 종료 후에는 같은 물리 연결과 캐시가 유지됩니다. 실제 연결
-실패 뒤 명시적인 `ping(reconnect=True)` 복구가 성공하면 연결 캐시는 초기화되지만,
+실패 뒤 명시적인 `ping(reconnect=True)` 복구나 트랜잭션 밖 `CHECK_CAS` 실패 후의
+자동 재접속(#485)이 성공하면 연결 캐시는 초기화되지만(autocommit INSERT 직후
+CAS가 재활용되면 INSERT는 커밋되지만 `lastrowid`는 `None`이고 WARNING 로그가
+남습니다. 자동 재접속이 실패하면 연결은 닫히지 않고 끊긴 상태가 되며
+`ping(reconnect=True)`로 다시 연결합니다),
 이전 커서의 `lastrowid` 스냅샷은 물리 연결 변경 후에도 유지됩니다.
 
 이 값은 서버 응답이 INSERT로 분류한 커서 작업의 스냅샷이며, 이전의 실시간 브로커
@@ -423,7 +433,9 @@ def ping(self, reconnect: bool = True) -> bool
 이스케이프 모드 탐색 SELECT를 실행할 수 있습니다.
 
 - CAS 연결이 살아 있으면 `True`를 반환합니다. `CAS_INFO[0]=0`은 연결 해제가
-  아니라 OUT_TRAN을 뜻하며 이 값만으로 재접속하지 않습니다.
+  아니라 OUT_TRAN을 뜻하며 이 값만으로 재접속하지 않습니다. OUT_TRAN 응답 뒤의
+  일반 요청 앞에는 자동 `CHECK_CAS`가 붙고, 실패할 때만 재접속합니다(#485).
+  정상적인 `ping()`도 이 검사로 인정됩니다.
 - `reconnect=False`이면 열린 소켓을 검사하되 재접속하지 않으며, 연결이 끊겼거나
   검사에 실패하면 `False`를 반환합니다.
 - `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 검사 도중
@@ -784,7 +796,7 @@ results = cur.executemany_batch([
 # statement_type 4 = CREATE_CLASS, 20 = INSERT
 ```
 
-> **참고:** `executemany_batch`는 pycubrid 확장이며 PEP 249의 일부가 아닙니다. 이전 쿼리 핸들을 닫은 뒤 배치 요청 전에 커서 결과 상태를 초기화합니다. 전송 또는 응답 파싱 오류를 포함한 배치 실패 시 `description=None`, `rowcount=-1`, `lastrowid=None`이며 이전 행을 가져올 수 없습니다. 문별 오류는 해당 데이터베이스 예외를 발생시키며 일부 성공 결과로 최종 행 수를 설정하지 않습니다. 이전 핸들 닫기가 실패하면 배치를 전송하지 않고 핸들을 계속 추적합니다.
+> **참고:** `executemany_batch`는 pycubrid 확장이며 PEP 249의 일부가 아닙니다. 이전 쿼리 핸들을 닫은 뒤 배치 요청 전에 커서 결과 상태를 초기화합니다. 전송 또는 응답 파싱 오류를 포함한 배치 실패 시 `description=None`, `rowcount=-1`, `lastrowid=None`이며 이전 행을 가져올 수 없습니다. 문별 오류는 해당 데이터베이스 예외를 발생시키며 일부 성공 결과로 최종 행 수를 설정하지 않습니다. 이전 핸들 닫기가 실패하면 배치를 전송하지 않고 핸들을 계속 추적합니다. `executemany_batch`에 직접 넘긴 SQL은 호출자가 렌더링한 것이므로 세대 검사를 하지 않으며, 자동 재접속(#485) 뒤에도 그대로 새 세션으로 보냅니다. 바인딩 뒤 세션이 바뀌었을 때 거부되는 것은 `execute()`/`executemany()`가 파라미터로 렌더링한 SQL뿐입니다.
 
 ---
 
@@ -1072,7 +1084,8 @@ async def ping(self, reconnect: bool = True) -> bool
 
 - CAS 연결이 살아 있으면 `True` 반환.
 - 소켓이 열려 있으면 네이티브 `CHECK_CAS` 왕복을 수행합니다. `CAS_INFO[0]=0`은
-  트랜잭션 종료 후의 OUT_TRAN 상태이지 연결 해제가 아닙니다.
+  트랜잭션 종료 후의 OUT_TRAN 상태이지 연결 해제가 아닙니다. OUT_TRAN 응답 뒤의
+  일반 요청 앞에는 자동 `CHECK_CAS`가 붙고, 실패할 때만 재접속합니다(#485).
 - `reconnect=False`이면 재접속하지 않으며 연결이 끊겼거나 검사에 실패하면
   `False`를 반환합니다.
 - `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 전송/프로토콜

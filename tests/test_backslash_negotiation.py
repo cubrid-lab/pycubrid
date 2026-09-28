@@ -591,7 +591,15 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
         return sql
 
     monkeypatch.setattr(cursor, "_bind_parameters", record_bind)
-    await conn._lock.acquire()
+    original_generation = conn._generation_for_binding
+
+    async def generation_then_hold_lock() -> int:
+        # Bind against generation 1, then keep the send waiting on _lock.
+        generation = await original_generation()
+        await conn._lock.acquire()
+        return generation
+
+    monkeypatch.setattr(conn, "_generation_for_binding", generation_then_hold_lock)
     if batch:
         task = asyncio.create_task(cursor.executemany("INSERT INTO t VALUES (?)", [(r"a\b",)]))
     else:
@@ -601,6 +609,6 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
     conn._no_backslash_escapes = False
     conn._lock.release()
 
-    with pytest.raises(OperationalError, match="escape mode changed"):
+    with pytest.raises(OperationalError, match="parameter binding; retry operation"):
         await asyncio.wait_for(task, timeout=2)
     conn._do_send_and_receive.assert_not_awaited()

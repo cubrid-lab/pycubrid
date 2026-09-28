@@ -264,6 +264,7 @@ class Connection(ConnectionCommonMixin):
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
             self._connected = True
+            self._verified_cas_info = self._cas_info
             self._physical_generation += 1
             if not self._no_backslash_escapes_explicit:
                 self._no_backslash_escapes = None
@@ -327,20 +328,24 @@ class Connection(ConnectionCommonMixin):
         if _timing is not None:
             _start = time.perf_counter_ns()
 
-        for cursor in list(self._cursors):
-            try:
-                cursor.close()
-            except Exception:  # nosec B110 — best-effort cursor cleanup
-                pass
-            finally:
-                self._cursors.discard(cursor)
-
+        # Closing never reconnects: a CAS that already went away needs no
+        # CLOSE_REQ or CLOSE_DATABASE, and failures here are best effort.
+        self._implicit_reconnect_suspended += 1
         try:
+            for cursor in list(self._cursors):
+                try:
+                    cursor.close()
+                except Exception:  # nosec B110 — best-effort cursor cleanup
+                    pass
+                finally:
+                    self._cursors.discard(cursor)
+
             self._close_schema_results()
             self._send_and_receive(CloseDatabasePacket())
         except Exception:  # nosec B110 — best-effort socket cleanup on close
             pass
         finally:
+            self._implicit_reconnect_suspended -= 1
             self._safe_close_socket()
             self._connected = False
             self._statement_pooling = None
@@ -357,28 +362,112 @@ class Connection(ConnectionCommonMixin):
         """Commit the current transaction."""
         self._ensure_connected()
         _LOGGER.debug("commit")
-        self._close_schema_results()
-        self._send_and_receive(CommitPacket())
-        self._invalidate_query_handles()
+        with self._session_lock:
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            self._check_reconnect()
+            self._close_schema_results()
+            self._close_open_query_handles()
+            self._send_and_receive(CommitPacket())
+            self._invalidate_query_handles()
 
     def rollback(self) -> None:
         """Roll back the current transaction."""
         self._ensure_connected()
         _LOGGER.debug("rollback")
-        self._close_schema_results()
-        self._send_and_receive(RollbackPacket())
-        self._invalidate_query_handles()
+        with self._session_lock:
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            self._check_reconnect()
+            self._close_schema_results()
+            self._close_open_query_handles()
+            self._send_and_receive(RollbackPacket())
+            self._invalidate_query_handles()
 
-    def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
-        """Validate local state without treating OUT_TRAN as a released socket.
+    def _close_open_query_handles(self) -> None:
+        """Send CLOSE_REQ for query handles still held by tracked cursors (#485).
 
-        CAS_INFO status 0 means out of transaction. The broker may return it
-        after END_TRAN while keeping this physical session and its settings.
-        Only an observed transport failure can justify reconnecting; explicit
-        ``ping(reconnect=True)`` probes and repairs that case.
+        The CAS session survives END_TRAN, so a handle that is only forgotten
+        locally stays allocated in the CAS until disconnect. Buffered rows and
+        delivered/advertised counts are kept, so an unfinished result still
+        raises ``InterfaceError`` at its next required FETCH (#395). A native
+        CLOSE_REQ error is ignored; a transport failure is raised, since the
+        transaction boundary itself can no longer be delivered.
         """
-        del allow_reconnect  # Retained for internal callers of this preflight.
+        # Read each handle only when its turn comes: a probe-verified reconnect
+        # during an earlier CLOSE_REQ invalidates every remaining handle.
+        for cursor in list(self._cursors):
+            handle = cursor._query_handle
+            if handle is None:
+                continue
+            cursor._query_handle = None
+            try:
+                self._send_and_receive(CloseQueryPacket(handle))
+            except Error:
+                if not self._connected:
+                    raise
+                _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
+
+    def _check_reconnect(self, *, allow_reconnect: bool = True) -> bool:
+        """Probe an OUT_TRAN CAS with CHECK_CAS and reconnect only if it is gone.
+
+        CAS_INFO status 0 means out of transaction; normally the CAS keeps this
+        physical session, and its settings, across END_TRAN (#468). The CAS may
+        still close the socket after replying (memory restart, broker reset,
+        CHANGE CLIENT), so before the next request a CHECK_CAS probe verifies it
+        (JDBC ``UClientSideConnection.checkReconnect`` parity, #485). Only a
+        failed probe replaces the session: once per request, restoring
+        driver-owned state and never replaying SQL. Returns ``True`` when the
+        session was replaced.
+        """
         self._ensure_connected()
+        if self._socket is None or not self._needs_cas_probe(allow_reconnect):
+            return False
+        try:
+            probe = self._send_and_receive_locked(
+                CheckCasPacket(), allow_reconnect=False, expected_generation=None
+            )
+            if probe.response_code >= 0:
+                self._verified_cas_info = self._cas_info
+                return False
+            _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
+        except (Error, OSError, struct.error) as exc:
+            # No answer: the CAS closed or reset this socket after OUT_TRAN.
+            _LOGGER.debug("CHECK_CAS got no answer: %r", exc)
+        self._reconnect_after_failed_probe()
+        return True
+
+    def _reconnect_after_failed_probe(self) -> None:
+        """Replace a CAS session that failed its OUT_TRAN probe, exactly once."""
+        _LOGGER.debug(
+            "CAS did not answer CHECK_CAS out of transaction; reconnecting to %s:%d",
+            self._host,
+            self._port,
+        )
+        self._drop_connection()
+        self._invalidate_query_handles_for_reconnect()
+        self._implicit_reconnect_suspended += 1
+        try:
+            self.connect()
+            self._restore_session_state()
+            # Setup may itself end OUT_TRAN (the escape probe's rollback), and
+            # that CAS may be recycled too: verify it before the pending request.
+            if self._cas_status_unverified():
+                probe = self._send_and_receive_locked(
+                    CheckCasPacket(), allow_reconnect=False, expected_generation=None
+                )
+                if probe.response_code < 0:
+                    raise OperationalError("replacement CAS session failed CHECK_CAS")
+                self._verified_cas_info = self._cas_info
+        except BaseException as exc:
+            self._drop_connection()
+            if isinstance(exc, Exception):
+                raise OperationalError(
+                    "CAS did not answer CHECK_CAS out of transaction and reconnecting failed"
+                ) from exc
+            raise
+        finally:
+            self._implicit_reconnect_suspended -= 1
 
     def _restore_session_state(self) -> None:
         """Re-emit session-level settings after explicit ping recovery.
@@ -512,6 +601,7 @@ class Connection(ConnectionCommonMixin):
         except (InterfaceError, OperationalError, OSError, struct.error):
             healthy = False
         if healthy:
+            self._verified_cas_info = self._cas_info
             return True
         if not reconnect:
             return False
@@ -671,19 +761,40 @@ class Connection(ConnectionCommonMixin):
         *,
         allow_reconnect: bool = True,
         expected_generation: int | None = None,
+        bound_generation: int | None = None,
     ) -> Any:
         """Send a framed CAS request and parse the framed response into ``packet``.
 
         CAS_INFO status 0 is OUT_TRAN, not a release signal. Keep the physical
         session after normal transaction boundaries; do not replay arbitrary
         requests on a different session after an uncertain transport failure.
+        ``bound_generation`` is the physical generation parameterized SQL was
+        rendered for; if the session changed since, the request is rejected
+        before send so the caller can retry it (#471, #485).
         """
         with self._session_lock:
             return self._send_and_receive_locked(
                 packet,
                 allow_reconnect=allow_reconnect,
                 expected_generation=expected_generation,
+                bound_generation=bound_generation,
             )
+
+    def _validate_bound_generation(self, bound: int | None) -> None:
+        """Reject SQL rendered for an earlier physical session before send."""
+        if bound is not None and bound != self._physical_generation:
+            raise OperationalError("CAS session replaced after parameter binding; retry operation")
+
+    def _generation_for_binding(self) -> int:
+        """Verify an OUT_TRAN CAS before SQL is bound, then return its generation.
+
+        Probing (and, if needed, reconnecting) before binding renders literals
+        for the session they will be sent on; the send-time ``bound_generation``
+        fence then only rejects a replacement between bind and send.
+        """
+        with self._session_lock:
+            self._check_reconnect()
+            return self._physical_generation
 
     def _send_and_receive_locked(
         self,
@@ -691,11 +802,17 @@ class Connection(ConnectionCommonMixin):
         *,
         allow_reconnect: bool,
         expected_generation: int | None,
+        bound_generation: int | None = None,
     ) -> Any:
         self._validate_prepared_generation(expected_generation)
-        self._check_reconnect(allow_reconnect=allow_reconnect)
+        self._validate_bound_generation(bound_generation)
+        if self._check_reconnect(
+            allow_reconnect=allow_reconnect
+        ) and self._skip_request_after_reconnect(packet):
+            return packet
         if self._socket is None:
             raise InterfaceError("connection is closed")
+        self._validate_bound_generation(bound_generation)
         if (
             self._schema_results
             and isinstance(
@@ -704,10 +821,14 @@ class Connection(ConnectionCommonMixin):
             and packet.auto_commit
         ):
             self._close_schema_results()
-            # Validate local connection state after closing schema handles.
-            self._check_reconnect(allow_reconnect=allow_reconnect)
+            # FC6 replies OUT_TRAN; verify the CAS again before auto-committing.
+            if self._check_reconnect(
+                allow_reconnect=allow_reconnect
+            ) and self._skip_request_after_reconnect(packet):
+                return packet
             if self._socket is None:
                 raise InterfaceError("connection is closed")
+            self._validate_bound_generation(bound_generation)
 
         request_socket = self._socket
         attempted_send = False

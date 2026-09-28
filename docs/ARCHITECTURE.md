@@ -89,6 +89,18 @@ connection liveness. A normal commit, rollback, or autocommit response with
 OUT_TRAN keeps the same physical session. An ordinary SQL request is never
 replayed on another connection after an uncertain transport failure.
 
+The CAS may still close the socket right after an OUT_TRAN reply: a CAS
+memory restart (`APPL_SERVER_MAX_SIZE`), `cubrid broker reset`, or CHANGE
+CLIENT when more clients than CAS processes are waiting. Like JDBC
+`UClientSideConnection.checkReconnect`, the driver therefore sends `CHECK_CAS`
+before the next request when the last reply was OUT_TRAN (#485). A live CAS
+keeps the session. Only a failed probe replaces it: once per request, with the
+escape-mode probe and autocommit restored and no SQL replayed. A `CLOSE_REQ`
+for a handle of the lost session is skipped, a FETCH of its result raises
+`OperationalError`, and a failed reconnect raises `OperationalError`. Commit and rollback first send `CLOSE_REQ` for query
+handles still held by unclosed cursors, so handles do not accumulate in a CAS
+session that now outlives transactions.
+
 ```mermaid
 sequenceDiagram
     participant App
@@ -96,10 +108,18 @@ sequenceDiagram
     participant Broker
     participant CAS
 
-    App->>Connection: commit()/rollback()/autocommit request
-    Connection->>CAS: Request on current socket
+    App->>Connection: commit()/rollback()
+    Connection->>CAS: CLOSE_REQ for each open cursor handle, then END_TRAN
     CAS-->>Connection: CAS_INFO[0]=0 (OUT_TRAN)
-    note over Connection,CAS: Same socket and session remain in use
+    App->>Connection: next request
+    Connection->>CAS: CHECK_CAS (FC=32)
+    alt CAS alive
+      CAS-->>Connection: Healthy
+      note over Connection,CAS: Same socket and session remain in use
+    else CAS closed the socket (restart, reset, CHANGE CLIENT)
+      Connection->>Broker: Reconnect once, probe escape mode, restore autocommit
+      note over Connection: Original request is sent once on the new session
+    end
     App->>Connection: ping(reconnect=True)
     opt Existing socket is connected
       Connection->>CAS: CHECK_CAS (FC=32)

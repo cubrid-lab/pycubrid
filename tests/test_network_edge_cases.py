@@ -9,7 +9,7 @@ import pytest
 
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
-from pycubrid.constants import CCIDbParam, DataSize
+from pycubrid.constants import CASFunctionCode, CCIDbParam, DataSize
 from pycubrid.exceptions import DataError, OperationalError
 from pycubrid.protocol import CommitPacket, SetDbParameterPacket
 
@@ -148,7 +148,7 @@ class TestConnectionNetworkEdgeCases:
         conn, sock = make_connected_connection()
         out_tran_frame = build_simple_ok_response(b"\x00\x01\x02\x03")
         sock.recv_into.side_effect = make_socket_from_chunks(
-            [out_tran_frame[:4], out_tran_frame[4:], out_tran_frame[:4], out_tran_frame[4:]]
+            [out_tran_frame[:4], out_tran_frame[4:]] * 3
         ).recv_into.side_effect
         initial_sends = sock.sendall.call_count
 
@@ -156,10 +156,14 @@ class TestConnectionNetworkEdgeCases:
         conn.connect = MagicMock()  # type: ignore[method-assign]
         conn._send_and_receive(CommitPacket())
 
+        # OUT_TRAN is verified with one CHECK_CAS probe (#485), then the same
+        # socket carries the request.
         conn.connect.assert_not_called()
         assert conn._socket is sock
         assert not sock.close.called
-        assert sock.sendall.call_count == initial_sends + 2
+        assert sock.sendall.call_count == initial_sends + 3
+        probe_request = sock.sendall.call_args_list[initial_sends + 1].args[0]
+        assert probe_request[8] == CASFunctionCode.CHECK_CAS
 
     def test_oserror_network_unreachable_during_connect_raises_operational_error(self) -> None:
         with patch("socket.create_connection", side_effect=OSError("Network is unreachable")):
@@ -786,6 +790,7 @@ class TestAsyncPositiveRestoreOnReconnect:
             await release_connect.wait()
             conn._reader, conn._writer, _ = make_mock_stream_pair()
             conn._connected = True
+            conn._verified_cas_info = conn._cas_info  # fresh OPEN_DATABASE reply
             conn._physical_generation += 1
             order.append("connect")
 

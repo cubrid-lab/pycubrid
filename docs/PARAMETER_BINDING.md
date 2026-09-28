@@ -184,10 +184,14 @@ retains that choice across reconnections. Without an explicit value, a newly
 opened physical session is probed before use; a healthy same-session
 `ping()` does not re-probe. A failed probe prevents direct connection setup;
 during `ping(reconnect=True)`, it retires the replacement session and returns
-`False`. Neither path guesses a mode or replays interrupted SQL. In the async
-path, parameterized SQL bound before a session replacement is rejected before
+`False`. Neither path guesses a mode or replays interrupted SQL. In the sync and
+async paths, parameterized SQL bound before a session replacement is rejected before
 send if its session generation changed; the caller must deliberately retry
-the operation. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect.
+the operation. Normal `CAS_INFO=OUT_TRAN` responses keep the session; only a
+failed pre-request `CHECK_CAS` reconnects (#485). Cursors run that check before
+rendering parameters; SQL rendered for a session that is replaced afterwards is
+rejected before send in sync and async alike. SQL strings passed directly to
+`executemany_batch()` are rendered by the caller and are not generation-fenced.
 
 The [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) and
 [11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) CUBRID manuals

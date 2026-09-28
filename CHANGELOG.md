@@ -53,6 +53,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
 
 ### Fixed
+- Recover when the CAS closes the socket after a transaction boundary, and
+  release open query handles at END_TRAN (#485). Since #468 the session survives
+  commit/rollback, but the CAS may still close the socket right after an OUT_TRAN
+  reply (CAS memory restart at `APPL_SERVER_MAX_SIZE`, `cubrid broker reset`,
+  CHANGE CLIENT with more clients than CAS processes), and the next request then
+  failed with `OperationalError: connection lost during receive`. Sync and async
+  connections now send one `CHECK_CAS` before a request that follows an OUT_TRAN
+  reply, like JDBC `checkReconnect`. A live CAS keeps the same session, so
+  session variables and isolation level still survive normal boundaries. Only a
+  failed probe replaces the session, once per request and before that request is
+  first sent: the escape mode is re-probed unless pinned and explicit autocommit is
+  restored, and the replacement is verified once more before the request. Requests
+  tied to the lost session are not sent to the new one (a CLOSE_REQ is skipped;
+  FETCH, last-insert-id, LOB read/write and native prepared requests fail; a
+  `lastrowid` lost after an autocommit INSERT is `None` and logged at WARNING),
+  and cursors probe before rendering parameters, so SQL rendered for a session
+  that is then replaced is rejected before send with the retryable
+  `OperationalError`, never sent to the new session (sync and async). Async cursor
+  FETCH/CLOSE_REQ requests whose handle another task's boundary released while
+  they waited are no longer sent. No SQL is replayed. SQL-level session state
+  of the lost CAS is not carried over, so layers that set isolation or session variables with SQL must
+  keep re-applying them on a new session (sqlalchemy-cubrid#527). A failed
+  replacement raises `OperationalError` and leaves the connection disconnected
+  for `ping(reconnect=True)`. Commit and rollback first send `CLOSE_REQ` for
+  handles still held by unclosed cursors, so server handles no longer accumulate
+  until the CAS exceeds its memory limit; in autocommit mode there is no such
+  boundary, so close cursors.
+  Already received rows stay readable; unfinished results still raise
+  `InterfaceError` (#395). Requests after an OUT_TRAN reply cost one extra round
+  trip, including each statement in autocommit mode. This supersedes the #468
+  entry's statement that only an explicit `ping(reconnect=True)` may recover:
+  normal boundaries keep the session, and only a CAS that fails the probe
+  triggers the automatic reconnect.
 - Fence future prepared FC3/FC6 requests to their owning physical CAS
   generation inside the synchronous transport boundary (#478). A stale
   handle is rejected before send even when a replacement server reuses its

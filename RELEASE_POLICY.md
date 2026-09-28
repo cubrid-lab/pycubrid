@@ -230,6 +230,18 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   uncertain application SQL is not replayed. Incomplete/malformed framing
   or async cancellation retires the transport.
 
+- **Probe-verified reconnect and END_TRAN handle release (#485)** — PATCH /
+  correction of an unreleased #468 regression; supersedes the #468 wording that
+  only explicit `ping(reconnect=True)` may recover. Normal boundaries still keep
+  the same CAS session. When the last reply was OUT_TRAN, the next request is
+  preceded by one `CHECK_CAS` (JDBC `checkReconnect` parity); only a failed probe
+  replaces the session, once per request, before that request is first sent,
+  re-probing an automatic escape mode and restoring explicit autocommit. A failed
+  replacement raises `OperationalError`. SQL-level session state of a lost CAS is
+  not carried over and no SQL is replayed. Commit/rollback send `CLOSE_REQ` for
+  handles held by unclosed cursors first. No public signature, dependency or
+  supported-version change.
+
 - **Re-probe automatic escape mode on a new physical session (#471)** — PATCH /
   correction to #468 recovery behavior. An unset `no_backslash_escapes` is
   detected again before the replacement session is usable; explicit `True` or

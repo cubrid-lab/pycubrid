@@ -36,7 +36,15 @@ from .exceptions import (
     UnknownConnectionOptionWarning,
     Warning,
 )
-from .protocol import GetSchemaPacket, _SchemaColumn
+from .protocol import (
+    CloseQueryPacket,
+    FetchPacket,
+    GetLastInsertIdPacket,
+    GetSchemaPacket,
+    LOBReadPacket,
+    LOBWritePacket,
+    _SchemaColumn,
+)
 
 if TYPE_CHECKING:
     from .timing import TimingStats
@@ -236,6 +244,13 @@ class ConnectionCommonMixin:
         self._socket: socket.socket | None = None
         self._connected = False
         self._cas_info: bytes | bytearray = b"\x00\x00\x00\x00"
+        # CAS_INFO object whose OUT_TRAN status is already known to be live:
+        # the OPEN_DATABASE reply or a successful CHECK_CAS. Any later reply
+        # replaces ``_cas_info`` and requires a fresh probe (#485).
+        self._verified_cas_info: bytes | bytearray | None = None
+        # Depth of scopes (close, implicit-reconnect setup) whose requests must
+        # never probe or reconnect; a counter so overlapping scopes nest safely.
+        self._implicit_reconnect_suspended = 0
         self._session_id = 0
         self._autocommit = False
         self._autocommit_explicitly_set = False
@@ -294,6 +309,54 @@ class ConnectionCommonMixin:
             cursor._query_handle = None
             cursor._invalidated_by_reconnect = True
         self._schema_results.clear()
+
+    def _needs_cas_probe(self, allow_reconnect: bool) -> bool:
+        """Return whether the next request must first be preceded by CHECK_CAS.
+
+        JDBC ``UClientSideConnection.checkReconnect`` parity (#485): OUT_TRAN
+        (``CAS_INFO[0] == 0``) does not mean the socket was released, but the
+        CAS *may* close it after replying at a transaction boundary (memory
+        restart, ``cubrid broker reset``, CHANGE CLIENT). Probe only then, and
+        not again when this exact status was already verified live.
+        """
+        return (
+            allow_reconnect
+            and not self._implicit_reconnect_suspended
+            and self._cas_status_unverified()
+        )
+
+    def _cas_status_unverified(self) -> bool:
+        """Return whether the last reply was OUT_TRAN and not yet verified live."""
+        return (
+            self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE
+            and self._cas_info is not self._verified_cas_info
+        )
+
+    @staticmethod
+    def _skip_request_after_reconnect(packet: Any) -> bool:
+        """Decide what happens to a request whose CAS session was just replaced.
+
+        A CLOSE_REQ names a handle that died with the old CAS session, so there
+        is nothing left to close. FETCH, last-insert-id and LOB read/write
+        requests use state of the old session and must fail explicitly instead
+        of reaching the new one. Every other request is session independent and
+        is sent as-is; it has not been sent before, so this is not a replay.
+        """
+        if isinstance(packet, CloseQueryPacket):
+            return True
+        if isinstance(packet, GetLastInsertIdPacket):
+            _LOGGER.warning(
+                "CAS session was replaced before the last-insert-id lookup; "
+                "lastrowid is unavailable for the preceding INSERT"
+            )
+            raise OperationalError("last insert id lost due to broker reconnect")
+        if isinstance(packet, (LOBReadPacket, LOBWritePacket)):
+            raise OperationalError("LOB handle lost due to broker reconnect; fetch the LOB again")
+        if isinstance(packet, FetchPacket):
+            raise OperationalError(
+                "result set lost due to broker reconnect; re-execute the query to continue"
+            )
+        return False
 
     def _ensure_connected(self) -> None:
         """Raise ``InterfaceError`` when called on a closed connection."""

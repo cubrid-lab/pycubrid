@@ -477,6 +477,7 @@ def _make_mock_conn(autocommit: bool = False) -> MagicMock:
     conn._wait_for_setup_if_needed = AsyncMock()
     conn._send_and_receive = AsyncMock()
     conn._physical_generation = 1
+    conn._generation_for_binding = AsyncMock(return_value=1)
     conn._no_backslash_escapes = False
     conn._protocol_version = 1
     conn.autocommit = autocommit
@@ -621,7 +622,7 @@ class TestAsyncCursorExecute:
 
         call_count = {"n": 0}
 
-        async def fake_send_insert(packet):
+        async def fake_send_insert(packet, **_: object):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 packet.query_handle = 6
@@ -637,7 +638,7 @@ class TestAsyncCursorExecute:
         await cur.execute("INSERT INTO t VALUES (1)")
         assert conn._last_insert_id == "7"
 
-        async def fake_send_select(packet):
+        async def fake_send_select(packet, **_: object):
             packet.query_handle = 7
             packet.statement_type = CUBRIDStatementType.SELECT
             packet.columns = []
@@ -683,7 +684,7 @@ class TestAsyncCursorExecute:
         cur = AsyncCursor(conn)
         cur._query_handle = 99
 
-        async def fake_send(packet):
+        async def fake_send(packet, **_: object):
             if hasattr(packet, "query_handle") and packet.query_handle == 99:
                 return
             packet.query_handle = 1
@@ -713,7 +714,7 @@ class TestAsyncCursorExecutemany:
         conn = _make_mock_conn()
         cur = AsyncCursor(conn)
 
-        async def fake_send(packet, *, expected_escape_generation: int | None = None):
+        async def fake_send(packet, *, expected_escape_generation: int | None = None, **_: object):
             if isinstance(packet, CloseQueryPacket):
                 assert expected_escape_generation is None
                 return
@@ -764,7 +765,7 @@ class TestAsyncCursorExecutemanyBatch:
         cur = AsyncCursor(conn)
         cur._query_handle = 99
 
-        async def fake_send(packet):
+        async def fake_send(packet, **_: object):
             if isinstance(packet, BatchExecutePacket):
                 packet.results = []
 
@@ -863,7 +864,7 @@ class TestAsyncCursorFetchMore:
         cur._query_handle = 1
         cur._total_tuple_count = 3
 
-        async def fake_send(packet):
+        async def fake_send(packet, **_: object):
             packet.rows = [(2,), (3,)]
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
@@ -892,7 +893,7 @@ class TestAsyncCursorFetchMore:
         cur._row_index = 0
         cur._total_tuple_count = 10
 
-        async def fake_send(packet):
+        async def fake_send(packet, **_: object):
             packet.rows = []
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)

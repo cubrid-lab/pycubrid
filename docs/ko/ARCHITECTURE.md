@@ -91,6 +91,18 @@ sequenceDiagram
 같은 물리 세션을 유지합니다. 전송 실패 후 불확실한 임의의 SQL 요청을 새 연결에서
 자동 재실행하지 않습니다.
 
+그래도 CAS는 OUT_TRAN 응답 직후 소켓을 닫을 수 있습니다. CAS 메모리 재시작
+(`APPL_SERVER_MAX_SIZE`), `cubrid broker reset`, CAS 프로세스보다 많은
+클라이언트가 대기할 때의 CHANGE CLIENT가 그 예입니다. 그래서 드라이버는 JDBC
+`UClientSideConnection.checkReconnect`처럼 직전 응답이 OUT_TRAN이면 다음 요청 전에
+`CHECK_CAS`를 보냅니다(#485). CAS가 살아 있으면 세션을 유지합니다. 검사가
+실패할 때만 요청당 한 번 세션을 교체하며, 이스케이프 모드 검사와 autocommit을
+복원하고 SQL은 재실행하지 않습니다. 잃어버린 세션의 핸들에 대한 `CLOSE_REQ`는
+건너뛰고, 그 결과에 대한 FETCH는 `OperationalError`를 발생시키며, 재접속 실패도
+`OperationalError`를 발생시킵니다. commit과 rollback은 닫히지 않은 커서가 가진
+쿼리 핸들에 먼저 `CLOSE_REQ`를 보내므로, 트랜잭션보다 오래 유지되는 CAS 세션에
+핸들이 쌓이지 않습니다.
+
 ```mermaid
 sequenceDiagram
     participant App
@@ -98,10 +110,18 @@ sequenceDiagram
     participant Broker
     participant CAS
 
-    App->>Connection: commit()/rollback()/autocommit 요청
-    Connection->>CAS: 기존 소켓으로 요청
+    App->>Connection: commit()/rollback()
+    Connection->>CAS: 열린 커서 핸들마다 CLOSE_REQ, 그다음 END_TRAN
     CAS-->>Connection: CAS_INFO[0]=0 (OUT_TRAN)
-    note over Connection,CAS: 같은 소켓과 세션 유지
+    App->>Connection: 다음 요청
+    Connection->>CAS: CHECK_CAS (FC=32)
+    alt CAS 정상
+      CAS-->>Connection: 정상 응답
+      note over Connection,CAS: 같은 소켓과 세션 유지
+    else CAS가 소켓을 닫음 (재시작, reset, CHANGE CLIENT)
+      Connection->>Broker: 한 번 재접속, 이스케이프 모드 검사, autocommit 복원
+      note over Connection: 원래 요청은 새 세션에서 한 번 전송
+    end
     App->>Connection: ping(reconnect=True)
     opt 기존 소켓이 연결됨
       Connection->>CAS: CHECK_CAS (FC=32)

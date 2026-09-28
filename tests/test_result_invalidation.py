@@ -33,7 +33,7 @@ def _cursor(
     else:
         connection, _ = make_connected_connection()
 
-    def send(packet: object) -> None:
+    def send(packet: object, **_: object) -> None:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(9,)], total_count=1
@@ -68,6 +68,14 @@ async def _boundary(connection: Connection | AsyncConnection, operation: str) ->
         connection.rollback()
 
 
+def _assert_boundary_only(connection: Connection | AsyncConnection, operation: str) -> None:
+    """The boundary releases the open handle (#485) and never sends a FETCH."""
+    sent = [call.args[0] for call in connection._send_and_receive.call_args_list]
+    boundary = CommitPacket if operation == "commit" else RollbackPacket
+    assert [type(packet) for packet in sent] == [CloseQueryPacket, boundary]
+    assert sent[0].query_handle == 42
+
+
 async def _fetch(cursor: Cursor | AsyncCursor, method: str) -> object:
     if isinstance(cursor, AsyncCursor):
         if method == "one":
@@ -98,7 +106,7 @@ async def test_unfinished_result_raises_at_missing_fetch(
         assert await _fetch(cursor, "one") == (2,)
     with pytest.raises(InterfaceError, match="invalidated"):
         await _fetch(cursor, method)
-    assert connection._send_and_receive.call_count == 1
+    _assert_boundary_only(connection, operation)
 
 
 @pytest.mark.asyncio
@@ -113,7 +121,7 @@ async def test_fully_buffered_and_exhausted_remain_normal(
     assert await _fetch(cursor, "one") is None
     assert await _fetch(cursor, "many") == []
     assert await _fetch(cursor, "all") == []
-    assert connection._send_and_receive.call_count == 1
+    _assert_boundary_only(connection, operation)
 
 
 @pytest.mark.asyncio
