@@ -13,6 +13,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [`json_deserializer`](#json-columns)
 - [Async Module Constructor](#async-module-constructor)
   - [`pycubrid.aio.connect()`](#pycubridaioconnect)
+- [Construction-only Compatibility Factories](#construction-only-compatibility-factories)
 - [Connection Class](#connection-class)
   - [Constructor](#connection-constructor)
   - [Methods](#connection-methods)
@@ -151,6 +152,34 @@ conn = pycubrid.connect(
     connect_timeout=5.0,
 )
 ```
+
+---
+
+## Construction-only Compatibility Factories
+
+Issue #465 adds opt-in `pycubrid.compat.native` and
+`pycubrid.compat.cubriddb` modules. They use the pure-Python sync transport and
+currently implement **connection construction and idempotent close only**. They
+do not provide cursors, `execute()`, prepared binding, DB-API module globals,
+thread-sharing guarantees or native C-extension parity. Continue using ordinary
+`pycubrid.connect()` for queries until those separate capabilities are delivered.
+
+`native.connect(url, user="public", passwd="")` returns a
+`native.connection`. The wrapper `cubriddb.Connect/connect/connection(*args,
+**kwargs)` factories return `cubriddb.Connection(dsn="", user="public",
+password="", charset="utf8")`; the wrapper's `.connection` property is the
+same native-style object that owns the single underlying transport. Factory
+positionals override the matching dsn/user/password keywords, up to three.
+Both surfaces start with server-backed autocommit enabled and preserve the
+ordinary driver's separate `dba`/manual-commit defaults.
+
+Use `CUBRID:host:port:database:user:password:` with the final colon. Python
+arguments, including omitted `public`/empty defaults, take precedence over
+credentials embedded in that DSN. Only the existing UTF-8 transport and the
+plain CUBRID backend are accepted here; alternate backends, selectable charset,
+HA/TLS URL options and excess arguments fail before connection work. Errors
+never echo the raw credential-bearing DSN. The [compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
+tracks future execution and setting contracts.
 
 ---
 

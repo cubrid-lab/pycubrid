@@ -4,7 +4,7 @@ The [machine-readable catalog](https://github.com/cubrid-lab/pycubrid/blob/main/
 accounts for driver-declared public operations in the official
 [CUBRID/cubrid-python snapshot](https://github.com/CUBRID/cubrid-python/tree/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b).
 It records source references, signatures, defaults, return/error observations,
-current pycubrid counterparts, and explicit gaps. It is the inventory deliverable
+pycubrid counterparts at pinned baseline 7e0aad8, and explicit gaps. It is the inventory deliverable
 for [#436](https://github.com/cubrid-lab/pycubrid/issues/436), within
 [#396](https://github.com/cubrid-lab/pycubrid/issues/396).
 
@@ -12,8 +12,11 @@ This is source accounting. It does not certify functional parity, successful
 official-driver execution, or a complete API superset. Similar names and existing
 packet classes are insufficient evidence. The selected additive design for
 [#438](https://github.com/cubrid-lab/pycubrid/issues/438) is recorded below;
-its proposed namespaces are **not implemented**. The catalog and this design
-change no 1.x defaults and do not certify their future implementations.
+its namespaces now provide construction and close only (#465). The catalog does
+not certify future execution APIs or native parity; ordinary 1.x defaults stay
+unchanged.
+The catalog's target mappings remain a historical baseline; later #465
+construction is described here without rewriting that source snapshot.
 
 ## Reading the catalog
 
@@ -47,7 +50,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 
 | Surface | Existing pycubrid path or outstanding work |
 | --- | --- |
-| Constructors, autocommit, threading | Native initialization enables autocommit; pycubrid defaults to manual commit and declares `threadsafety=1`. The selected explicit targets below still require implementation, including constructor aliases and CCI URL/HA options. |
+| Constructors, autocommit, threading | Native initialization enables autocommit; ordinary pycubrid defaults to manual commit and declares `threadsafety=1`. Explicit CUBRID/UTF-8 construction and aliases are available in #465; sharing, settings and CCI URL/HA options remain separate work. |
 | Charset, dict cursors, converters | The official wrapper exposes these options. pycubrid has no equivalent configurable surface. Charset proposal #86 tracks the missing encoding option; documentation of UTF-8-only behavior is not implementation evidence. UTF-8 defaults remain unchanged. |
 | Prepare/typed binding | Public native prepare/bind/execute capability is absent even though packet classes exist: #418/#439; typed collection handles #440; LOB handles #441. |
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
@@ -57,14 +60,17 @@ does not enumerate every inherited built-in method as a new driver operation.
 
 ## Selected additive contract (#438)
 
-Maintainer-selected design, 2026-09-28: preserve ordinary pycubrid and plan separate
+Maintainer-selected design, 2026-09-28: preserve ordinary pycubrid and add separate
 `pycubrid.compat.cubriddb` (wrapper) and `pycubrid.compat.native` (native) namespaces.
-These are future targets, not importable modules or delivered capabilities. This
-reversible additive design does not authorize replacing 1.x defaults, adopting a
+Only construction and close are importable today (#465); the remaining rows below
+are future targets, not delivered capabilities. This reversible additive design
+does not authorize replacing 1.x defaults, adopting a
 2.0 replacement, or publishing a release. A global switch,
 shadowing `CUBRIDdb`/`_cubrid`, and overloading ordinary `Cursor.execute` are rejected:
 the wrapper and native execution shapes cannot be unified without changing meaning.
 Both surfaces must reuse the pure-Python transport, not introduce a second driver.
+Later compatibility features must extend the same native connection owner; its
+ordinary-driver handle is private and is not a new public transport API.
 
 Ordinary connect/aio, user=`dba`, autocommit=False, threadsafety=1, execute-return-self,
 cached string/None identity, None size fields, Boolean null_ok, normalized collection
@@ -75,10 +81,10 @@ requirement stay unchanged. No new dependency or import-time native driver is ne
 The following are selected **target contracts**; `/` marks positional-only arguments,
 and an omitted optional argument is not interchangeable with explicit None.
 
-| Future surface | Selected contract / delivery boundary |
+| Surface | Selected contract / delivery boundary |
 | --- | --- |
-| Factories | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the compatibility native object, not the ordinary object. Reject excess positional/unsupported keyword or DSN options precisely; selectable charset/HA is not delivered by parsing alone. |
-| Sharing / globals | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 requires demonstrated explicit-object per-connection request/lifecycle serialization and two-thread tests first. Ordinary unlocked objects/global threadsafety=1 remain unchanged. Native exports follow the catalog, not invented wrapper globals. |
+| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close are delivered; excess positional/unsupported keyword or DSN options are rejected. Selectable charset/HA and cursor execution are not delivered. |
+| Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require real cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The construction-only modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. |
 | Settings | Native autocommit/isolation_level/lock_timeout/max_string_len assignments change cached snapshots only. `set_autocommit(mode)` / `set_isolation_level(level)` perform server operations and update caches; max_string_len retains the source's read-failure fallback 0. Wrapper `.autocommit` is server-backed. Do not invent effective setters for snapshot members. |
 | Wrapper cursor | `cursor(dictCursor=None)`, `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None`; tuple/dict fetch and connection fetch-converter callback. Contradictory mapping-binding/default_cursor docstrings are not working capability promises. |
 | Native prepared cursor | `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns tuple/dict or None. Parsed option 0, not docstring QUERY_ALL; #418/#439 implement the core. |
@@ -124,7 +130,8 @@ certification, not independent prepared-core work.
 
 ### Migration targets and small delivery acceptance
 
-Until implemented, keep existing imports unchanged. Future wrapper migration is
+For actual queries keep existing imports unchanged: the new modules only construct
+and close connections. Once later capabilities exist, wrapper migration is
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`; native migration
 is `import _cubrid` → `from pycubrid.compat import native as _cubrid`.
 For manual transactions, wrapper callers use `conn.autocommit = False`; native
@@ -134,7 +141,7 @@ empty strings. Binary LOB users retain ordinary bytes APIs, not compatibility Un
 
 | Provisional leaf | Acceptance / dependency |
 | --- | --- |
-| M factories / M sharing | Explicit modules/aliases, DSN/user/autocommit defaults and native-wrapper relationship; ordinary behavior unchanged. Sharing/lifecycle serialization tests gate threadsafety=2. No pretend prepared engine or global switch. |
+| M factories / M sharing | #465 delivers explicit construction/close, aliases, DSN/user/autocommit defaults and native-wrapper identity without changing ordinary behavior. Sharing/lifecycle serialization remains separate and gates threadsafety=2; no prepared engine or global switch is implied. |
 | M prepared / typed binding | #439 after #418 and this contract: exact count/return/positional/NULL/error checks; #440 collections and #441 LOB binding follow core. |
 | M conversion / charset / HA | Separate dictCursor/converter leaf; #86 real encoding; separate HA/URL-option leaf with actual failover evidence. Parsing options or upstream default_cursor stubs alone are incomplete. |
 | S batch / errors / identity | Separate native batch records using existing arbitrary-SQL transport, namespace exception/export adapters, and broker-driven identity leaf with fresh/transaction/CALL/non-auto controls. Preserve ordinary first-error and cached-string behavior. |
@@ -142,12 +149,12 @@ empty strings. Binary LOB users retain ordinary bytes APIs, not compatibility Un
 | S/M metadata / schema / LOB | #445 value/type/15-field metadata; #412/#455–457 owned schema reuse; #442 actual byte-position/short transfers; #443 files. Each is a focused slice, not a monolithic facade PR. |
 | M differential evidence | #446/#351 compare each delivered slice at pinned native revisions, including stored collection NULL/empty/order/duplicates, LOB UTF-8 failures and ordinary SQLAlchemy smoke compatibility. Source accounting is not passing parity. |
 
-The foundation implementation must declare explicit submodule `__all__`, extend
-the existing public-API checker's tracked modules/classes and RELEASE_POLICY §1,
-and regenerate the baseline in the same PR. Today's ordinary-only baseline cannot
-protect proposed namespaces. No new root aliases/eager imports or async changes.
-New explicit APIs are future MINOR additions; ordinary promise corrections remain
-PATCH. #438 delivers this design and acceptance boundaries, not the leaf features.
+The #465 foundation declares explicit submodule `__all__`, extends the existing
+public-API checker's tracked modules/classes and RELEASE_POLICY §1, and regenerates
+the baseline in the same PR. Future API slices must update that baseline again.
+There are no new root aliases or async changes. New explicit APIs are MINOR
+additions; ordinary promise corrections remain PATCH. #438 selected the design,
+while #465 delivers construction only, not the remaining leaf capabilities.
 #396 remains open until its scoped capabilities and verification are complete.
 
 ## Source discrepancies are not parity targets

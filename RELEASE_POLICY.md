@@ -17,14 +17,20 @@ The **public API** of pycubrid is exactly the union of:
 
 1. Every name listed in `pycubrid.__all__`.
 2. Every name listed in `pycubrid.aio.__all__`.
-3. The following classes, which users receive as return values from public
+3. Every name listed in `pycubrid.compat.__all__` and in the explicit
+   `pycubrid.compat.cubriddb.__all__` / `pycubrid.compat.native.__all__`.
+   These namespaces currently provide construction and close only, not a
+   complete DB-API or official native cursor.
+4. The following classes, which users receive as return values from public
    factory functions and therefore depend on transitively:
    - `pycubrid.connection.Connection`
    - `pycubrid.cursor.Cursor`
    - `pycubrid.aio.connection.AsyncConnection`
    - `pycubrid.aio.cursor.AsyncCursor`
    - `pycubrid.lob.Lob`
-4. For each public class, every public attribute (name not starting with `_`),
+   - `pycubrid.compat.cubriddb.Connection`
+   - `pycubrid.compat.native.connection`
+5. For each public class, every public attribute (name not starting with `_`),
    every public method, and the user-facing dunder allow-list:
    `__init__`, `__enter__`, `__exit__`, `__aenter__`, `__aexit__`, `__iter__`,
    `__aiter__`, `__next__`, `__anext__`, `__repr__`, `__str__`.
@@ -96,18 +102,18 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Planned explicit compatibility namespaces (#438)
+### Staged explicit compatibility namespaces (#438, #465)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-plans `pycubrid.compat.cubriddb` and `pycubrid.compat.native`; neither exists yet.
-This documentation-only decision changes no current API, default or support line.
-Future explicit APIs are **MINOR** additions only while ordinary behavior stays
-unchanged; documented ordinary bug corrections remain **PATCH**. Their foundation
-PR must declare explicit submodule exports, extend §1 and the existing API
-checker's tracked modules/returned classes, and regenerate the baseline together.
-Regenerating today's ordinary-only baseline alone cannot protect new namespaces.
-This design does not authorize a default replacement, 2.0 migration, new dependency,
-version/tag/PyPI publication.
+now includes construction-only `pycubrid.compat.cubriddb` and
+`pycubrid.compat.native` (#465). Only their implemented factories, connection
+objects, and close operations are public; no compatible cursor, prepared execution,
+threadsafety declaration or complete DB-API is promised. The foundation extends
+the existing checker and baseline for its explicit modules and returned classes.
+These are **MINOR** additions while ordinary behavior stays unchanged;
+documented ordinary bug corrections remain **PATCH**. The staged work does not
+authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI
+publication or a security-support change.
 
 ### What the gate does *not* detect
 
