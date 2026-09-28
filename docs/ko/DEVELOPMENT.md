@@ -94,7 +94,7 @@ graph TD
     pkg --> types[types.py - PEP 249 type objects and constructors]
     pkg --> exceptions[exceptions.py - Full PEP 249 exception hierarchy]
     pkg --> constants["constants.py - CAS protocol enums (41 function codes, 27+ types)"]
-    pkg --> protocol["protocol.py - 18 packet classes (serialize/deserialize)"]
+    pkg --> protocol["protocol.py - 20 packet classes (serialize/deserialize)"]
     pkg --> packet[packet.py - PacketWriter + PacketReader primitives]
     pkg --> lob["lob.py - LOB (BLOB/CLOB) support"]
     pkg --> typed[py.typed - PEP 561 marker]
@@ -414,7 +414,7 @@ graph TD
     user[User Code] --> init[__init__.py - Module API connect/types/exceptions]
     init --> connection[connection.py - TCP socket, CAS handshake, session]
     connection --> cursor[cursor.py - SQL execution, parameter binding, fetch]
-    cursor --> protocol[protocol.py - 18 packet classes serialize/deserialize]
+    cursor --> protocol[protocol.py - 20 packet classes serialize/deserialize]
     protocol --> packet[packet.py - PacketWriter + PacketReader binary I/O]
     packet --> constants[constants.py - CAS function codes, data types, enums]
 

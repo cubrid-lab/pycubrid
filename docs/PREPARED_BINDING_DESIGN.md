@@ -2,6 +2,9 @@
 
 Status: reviewed design candidate, **not an implemented API**. The first delivery
 is the bounded scalar slice in [#439](https://github.com/cubrid-lab/pycubrid/issues/439).
+Internal FC2/FC3 scalar packet groundwork is tracked separately by
+[#475](https://github.com/cubrid-lab/pycubrid/issues/475); it does not by
+itself make a prepared cursor usable.
 Ordinary `pycubrid.Cursor.execute()` and `pycubrid.aio.AsyncCursor.execute()`
 continue to render 1.x SQL literals through FC41. This design does not switch
 their defaults, promise a measured speedup or plan-cache effect, establish a

@@ -910,6 +910,20 @@ class TestPreparePacket:
         assert pkt.column_count == 1
         assert pkt.columns[0].name == "col"
 
+    @pytest.mark.parametrize(
+        "length_offset", [7, 11, 15, 20], ids=["name", "real", "table", "default"]
+    )
+    def test_negative_prepared_column_name_length_fails(self, length_offset: int) -> None:
+        metadata = bytearray(31)
+        metadata[0] = CUBRIDDataType.INT
+        struct.pack_into(">i", metadata, length_offset, -1)
+        response = bytearray(DEFAULT_CAS_INFO)
+        response.extend(struct.pack(">iiBiBi", 1, 0, CUBRIDStatementType.SELECT, 0, 0, 1))
+        response.extend(metadata)
+
+        with pytest.raises(ValueError, match="column .* length"):
+            PreparePacket("SELECT 1").parse(bytes(response))
+
     def test_parse_error(self) -> None:
         pkt = PreparePacket("BAD SQL")
         response = _build_error_response(DEFAULT_CAS_INFO, -1, "parse error")
@@ -983,6 +997,69 @@ class TestExecutePacket:
         assert pkt.total_tuple_count == 1
         assert pkt.tuple_count == 1
         assert pkt.rows[0][0] == 42
+
+    def test_parse_refreshed_column_info_before_shard_and_fetch(self) -> None:
+        pkt = ExecutePacket(1, CUBRIDStatementType.SELECT, protocol_version=7)
+        result_info = bytearray()
+        result_info.append(CUBRIDStatementType.SELECT)
+        result_info.extend(struct.pack(">i", 1))
+        result_info.extend(b"\x00" * DataSize.OID)
+        result_info.extend(struct.pack(">ii", 0, 0))
+
+        response = bytearray(DEFAULT_CAS_INFO)
+        response.extend(struct.pack(">iBi", 1, 0, 1))
+        response.extend(result_info)
+        response.append(1)  # included prepare-info follows
+        response.extend(struct.pack(">iBiBi", 0, CUBRIDStatementType.SELECT, 1, 0, 1))
+        response.extend(_build_column_metadata(column_type=CUBRIDDataType.INT, name="fresh"))
+        response.extend(struct.pack(">iii", 9, 0, 1))  # shard, fetch code, tuple count
+        response.extend(_build_row_data(0, [(CUBRIDDataType.INT, struct.pack(">i", 42))]))
+
+        pkt.parse(bytes(response))
+        assert pkt.columns[0].name == "fresh"
+        assert pkt.bind_count == 1
+        assert pkt.rows == [(42,)]
+
+    def test_truncated_refreshed_column_info_cannot_succeed(self) -> None:
+        pkt = ExecutePacket(1, CUBRIDStatementType.INSERT, protocol_version=7)
+        result_info = bytearray()
+        result_info.append(CUBRIDStatementType.INSERT)
+        result_info.extend(struct.pack(">i", 1))
+        result_info.extend(b"\x00" * DataSize.OID)
+        result_info.extend(struct.pack(">ii", 0, 0))
+
+        response = bytearray(DEFAULT_CAS_INFO)
+        response.extend(struct.pack(">iBi", 1, 0, 1))
+        response.extend(result_info)
+        response.append(1)
+        response.extend(struct.pack(">i", 0))  # lifetime only; other metadata absent
+
+        with pytest.raises((IndexError, ValueError, struct.error)):
+            pkt.parse(bytes(response))
+
+    @pytest.mark.parametrize(
+        ("error_code", "error_class", "sqlstate"),
+        [
+            (-493, ProgrammingError, "42000"),
+            (-631, IntegrityError, "23000"),
+        ],
+    )
+    def test_negative_result_record_uses_code_mapping(
+        self, error_code: int, error_class: type[DatabaseError], sqlstate: str
+    ) -> None:
+        pkt = ExecutePacket(1, CUBRIDStatementType.INSERT, protocol_version=7)
+        response = bytearray(DEFAULT_CAS_INFO)
+        response.extend(struct.pack(">iBi", 1, 0, 1))
+        response.append(CUBRIDStatementType.INSERT)
+        response.extend(struct.pack(">iii", -1, error_code, 4))
+        response.extend(b"bad\x00")
+
+        with pytest.raises(error_class) as caught:
+            pkt.parse(bytes(response))
+        assert type(caught.value) is error_class
+        assert caught.value.errno == error_code
+        assert caught.value.sqlstate == sqlstate
+        assert "bad" not in str(caught.value)
 
     def test_parse_select_no_columns(self) -> None:
         """SELECT with no columns provided — should not parse rows."""

@@ -241,7 +241,7 @@ sequenceDiagram
 
 ## 패킷 클래스
 
-pycubrid는 `pycubrid.protocol`에 18개 패킷 클래스를 구현합니다. 각 클래스는 다음을 제공합니다:
+pycubrid는 `pycubrid.protocol`에 20개 패킷 클래스를 구현합니다. 각 클래스는 다음을 제공합니다:
 
 - `write()` — 요청 직렬화 (일부는 `cas_info` 파라미터를 받음)
 - `parse(data)` — 응답 역직렬화
@@ -296,13 +296,18 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 | `result_count`       | `int`  | 결과 정보 항목 수 |
 | `result_infos`       | `list[ResultInfo]` | 문장별 결과 정보 |
 | `tuple_count`        | `int`  | 초기 fetch의 행 수 |
-| `rows`               | `list[list[Any]]` | 가져온 행 데이터 |
+| `rows`               | `list[tuple[Any, ...]]` | 가져온 행 데이터 |
 
 ---
 
 ### PreparePacket
 
 **문장 준비** (FC=2) — 별도 준비 단계.
+
+내부 패킷은 기존 기본값 `NORMAL` 또는 `HOLDABLE=0x08` 플래그와 실제 autocommit
+값을 보냅니다. SQL에 NUL이나 UTF-8로 인코딩할 수 없는 문자가 있으면 FC2를 보내기 전에
+거부합니다. 이는 [#439 설계](../PREPARED_BINDING_DESIGN.md)를 위한 내부 와이어
+기반이며, 공개 prepared 커서가 아닙니다.
 
 | 속성        | 타입   | 설명 |
 |------------------|--------|------|
@@ -318,13 +323,27 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 
 **준비된 문장 실행** (FC=3).
 
+고정 인자 10개 뒤에 검증된 스칼라 바인딩마다 타입 바이트와 값 바이트를 길이 접두 인자
+2개로 보냅니다. 내부 첫 범위는 부호 있는 INT32(타입 8), UTF-8 CHAR(타입 1,
+끝 NUL 포함), SQL NULL(타입 0, 길이 0)입니다. 빈 문자열은 NUL 1바이트로 NULL과
+구별합니다. 선택적 `bind_count`는 전달된 바인딩 수와 일치해야 하며 forward-only
+바이트는 autocommit일 때 1, 수동 모드일 때 0입니다. FC41 폴백이나 SQL 리터럴
+변환은 하지 않습니다.
+
+프로토콜 버전이 1보다 크고 응답의 `include_column_info=1`이면 전체 FC2 메타데이터
+본문이 shard ID와 인라인 FETCH 앞에 옵니다. 파서는 문장·바인드·컬럼 정보를
+갱신하고 잘린 메타데이터를 거부합니다. 결과 레코드가 음수 오류를 나타내면 성공으로
+처리하지 않고, 기존 CAS 코드→DB-API 예외 클래스 매핑을 적용합니다. 브로커 오류
+문구는 그대로 노출하지 않습니다.
+물리 세션 소유권과 공개 커서 수명주기는 아직 #439 작업입니다.
+
 | 속성            | 타입   | 설명 |
 |----------------------|--------|------|
 | `total_tuple_count`  | `int`  | 총 결과 행 수 |
 | `result_count`       | `int`  | 결과 정보 수 |
 | `result_infos`       | `list[ResultInfo]` | 문장별 결과 |
 | `tuple_count`        | `int`  | 인라인 fetch 행 수 |
-| `rows`               | `list[list[Any]]` | 인라인으로 가져온 행 |
+| `rows`               | `list[tuple[Any, ...]]` | 인라인으로 가져온 행 |
 
 ---
 
@@ -335,7 +354,7 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 | 속성      | 타입   | 설명 |
 |----------------|--------|------|
 | `tuple_count`  | `int`  | 가져온 행 수 |
-| `rows`         | `list[list[Any]]` | 행 데이터 |
+| `rows`         | `list[tuple[Any, ...]]` | 행 데이터 |
 
 ---
 

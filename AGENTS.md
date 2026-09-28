@@ -23,7 +23,7 @@ graph TD
     types[types.py - PEP 249 type objects and constructors]
     constants[constants.py - CAS protocol constants]
     packet[packet.py - PacketReader/PacketWriter binary serialization]
-    protocol["protocol.py - CAS protocol packets (18 packet classes)"]
+    protocol["protocol.py - CAS protocol packets (20 packet classes)"]
     connection[connection.py - PEP 249 Connection class]
     cursor[cursor.py - PEP 249 Cursor class]
     lob[lob.py - LOB support]
@@ -50,7 +50,7 @@ graph TD
 | `types.py` | `DBAPIType` class, `STRING`/`BINARY`/`NUMBER`/`DATETIME`/`ROWID` type objects, constructors |
 | `constants.py` | `CASFunctionCode` (41 funcs), `CUBRIDDataType` (27+ types), `CUBRIDStatementType`, protocol/data-size constants |
 | `packet.py` | Low-level binary read/write with big-endian byte ordering |
-| `protocol.py` | High-level CAS packet classes for each function code (18 packet types) |
+| `protocol.py` | High-level CAS packet classes for each function code (20 packet types) |
 | `connection.py` | `Connection` — TCP socket management, transactions, autocommit, LOB creation, schema info |
 | `cursor.py` | `Cursor` — execute, executemany, fetch, callproc, description, iteration |
 | `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |

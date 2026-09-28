@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Internal FC2/FC3 scalar packet groundwork (#475) now serializes validated
+  INT32, UTF-8 CHAR and SQL NULL bindings, preserves the authoritative FC2
+  bind count, and parses refreshed FC3 column metadata before shard/FETCH.
+  Error records fail closed. This has no public prepared cursor or owner
+  lifecycle yet; ordinary sync/async FC41 literal execution is unchanged and
+  #439 remains the public implementation gate.
 - Construction-only official-driver compatibility factories (#465): explicit
   `pycubrid.compat.native` and `pycubrid.compat.cubriddb` namespaces validate
   CUBRID/UTF-8 DSNs, preserve the source's public/empty credential defaults and

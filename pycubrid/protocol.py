@@ -81,6 +81,55 @@ class ResultInfo:
     cache_time_usec: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparedScalar:
+    """One validated type/value pair for a prepared FC3 request."""
+
+    type_code: int
+    payload: bytes
+
+    def __post_init__(self) -> None:
+        if isinstance(self.type_code, bool) or not isinstance(self.type_code, int):
+            raise ProgrammingError("invalid prepared parameter type code")
+        if not isinstance(self.payload, bytes):
+            raise ProgrammingError("invalid prepared parameter payload")
+        if self.type_code == CUBRIDDataType.NULL:
+            if self.payload:
+                raise ProgrammingError("SQL NULL must have an empty payload")
+        elif self.type_code == CUBRIDDataType.INT:
+            if len(self.payload) != 4:
+                raise ProgrammingError("prepared INT must have four value bytes")
+        elif self.type_code == CUBRIDDataType.CHAR:
+            if not self.payload.endswith(b"\x00") or b"\x00" in self.payload[:-1]:
+                raise ProgrammingError("prepared CHAR must have one terminal NUL")
+            try:
+                self.payload[:-1].decode("utf-8")
+            except UnicodeDecodeError:
+                raise DataError("prepared CHAR is not valid UTF-8") from None
+        else:
+            raise ProgrammingError("unsupported prepared parameter type code")
+
+
+def _encode_prepared_scalar(value: Any) -> _PreparedScalar:
+    """Encode the intentionally narrow #439 scalar set without SQL rendering."""
+    if value is None:
+        return _PreparedScalar(CUBRIDDataType.NULL, b"")
+    if isinstance(value, bool):
+        raise ProgrammingError("unsupported prepared parameter type")
+    if isinstance(value, int):
+        if not -(2**31) <= value < 2**31:
+            raise DataError("prepared INT value is outside signed 32-bit range")
+        return _PreparedScalar(CUBRIDDataType.INT, struct.pack(">i", value))
+    if isinstance(value, str):
+        if "\x00" in value:
+            raise ProgrammingError("prepared string contains NUL")
+        try:
+            return _PreparedScalar(CUBRIDDataType.CHAR, value.encode("utf-8") + b"\x00")
+        except UnicodeEncodeError:
+            raise DataError("prepared string cannot be encoded as UTF-8") from None
+    raise ProgrammingError("unsupported prepared parameter type")
+
+
 # ---------------------------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------------------------
@@ -517,7 +566,9 @@ def _parse_schema_column_metadata(reader: PacketReader, column_count: int) -> li
     return columns
 
 
-def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[ColumnMetaData]:
+def _parse_column_metadata(
+    reader: PacketReader, column_count: int, *, strict_lengths: bool = False
+) -> list[ColumnMetaData]:
     """Parse column metadata entries from the reader."""
     columns: list[ColumnMetaData] = []
     for _ in range(column_count):
@@ -526,15 +577,23 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
         precision = reader._parse_int()
 
         name_len = reader._parse_int()
+        if strict_lengths and (name_len < 0 or name_len > reader.bytes_remaining()):
+            raise ValueError("invalid prepared column name length")
         name = reader._parse_null_terminated_string(name_len)
         real_name_len = reader._parse_int()
+        if strict_lengths and (real_name_len < 0 or real_name_len > reader.bytes_remaining()):
+            raise ValueError("invalid prepared column real-name length")
         real_name = reader._parse_null_terminated_string(real_name_len)
         table_name_len = reader._parse_int()
+        if strict_lengths and (table_name_len < 0 or table_name_len > reader.bytes_remaining()):
+            raise ValueError("invalid prepared column table-name length")
         table_name = reader._parse_null_terminated_string(table_name_len)
 
         # CAS sends is_non_null: zero means the column accepts NULL.
         is_nullable = reader._parse_byte() == 0
         default_len = reader._parse_int()
+        if strict_lengths and (default_len < 0 or default_len > reader.bytes_remaining()):
+            raise ValueError("invalid prepared column default length")
         default_value = reader._parse_null_terminated_string(default_len)
         is_auto_increment = reader._parse_byte() == 1
         is_unique_key = reader._parse_byte() == 1
@@ -564,6 +623,26 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
             )
         )
     return columns
+
+
+def _parse_prepare_info(reader: PacketReader) -> tuple[int, int, list[ColumnMetaData]]:
+    """Parse the FC2 tail also reused by FC3 refreshed-column responses."""
+    if reader.bytes_remaining() < 14:
+        raise ValueError("truncated prepared column metadata")
+    _ = reader._parse_int()  # result cache lifetime
+    statement_type = reader._parse_byte()
+    bind_count = reader._parse_int()
+    _ = reader._parse_byte()  # is_updatable
+    column_count = reader._parse_int()
+    if bind_count < 0 or column_count < 0:
+        raise ValueError("negative prepared bind or column count")
+    if column_count > reader.bytes_remaining() // 31:
+        raise ValueError("truncated prepared column metadata")
+    return (
+        statement_type,
+        bind_count,
+        _parse_column_metadata(reader, column_count, strict_lengths=True),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -691,12 +770,32 @@ def _parse_row_data(
     return rows
 
 
-def _parse_result_infos(reader: PacketReader, result_count: int) -> list[ResultInfo]:
+def _parse_result_infos(
+    reader: PacketReader, result_count: int, *, prepared: bool = False
+) -> list[ResultInfo]:
     """Parse result info entries."""
+    if result_count < 0:
+        raise ValueError("negative execute result count")
     infos: list[ResultInfo] = []
     for _ in range(result_count):
         stmt_type = reader._parse_byte()
         count = reader._parse_int()
+        if prepared and count < 0:
+            if reader.bytes_remaining() < 8:
+                raise ValueError("truncated prepared execution error")
+            error_code = reader._parse_int()
+            message_size = reader._parse_int()
+            if message_size < 0 or message_size > reader.bytes_remaining():
+                raise ValueError("invalid prepared execution error length")
+            _ = reader._parse_bytes(message_size)  # Broker text may contain bound data.
+            exc_name = CAS_ERROR_TO_EXCEPTION.get(error_code, "DatabaseError")
+            exc_class = _EXCEPTION_CLASSES[exc_name]
+            raise exc_class(
+                "prepared statement execution failed",
+                code=error_code,
+                errno=error_code,
+                sqlstate=get_sqlstate(error_code) or _DEFAULT_SQLSTATE[exc_name],
+            )
         oid = reader._parse_bytes(DataSize.OID)
         cache_sec = reader._parse_int()
         cache_usec = reader._parse_int()
@@ -885,9 +984,16 @@ class PrepareAndExecutePacket:
 class PreparePacket:
     """Prepare a statement (FC=2)."""
 
-    def __init__(self, sql: str, auto_commit: bool = False) -> None:
+    def __init__(
+        self,
+        sql: str,
+        auto_commit: bool = False,
+        *,
+        prepare_flag: int = CCIPrepareOption.NORMAL,
+    ) -> None:
         self.sql = sql
         self.auto_commit = auto_commit
+        self.prepare_flag = prepare_flag
 
         self.response_code: int = 0
         self.query_handle: int = 0
@@ -898,10 +1004,23 @@ class PreparePacket:
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the prepare request."""
+        if not isinstance(self.sql, str) or "\x00" in self.sql:
+            raise ProgrammingError("prepared SQL must be a string without NUL")
+        if not isinstance(self.auto_commit, bool):
+            raise ProgrammingError("prepared autocommit must be a boolean")
+        if (
+            isinstance(self.prepare_flag, bool)
+            or not isinstance(self.prepare_flag, int)
+            or self.prepare_flag not in (CCIPrepareOption.NORMAL, CCIPrepareOption.HOLDABLE)
+        ):
+            raise ProgrammingError("unsupported prepared statement option")
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.PREPARE)
-        writer._write_null_terminated_string(self.sql)
-        writer.add_byte(CCIPrepareOption.NORMAL)
+        try:
+            writer._write_null_terminated_string(self.sql)
+        except UnicodeEncodeError:
+            raise DataError("prepared SQL cannot be encoded as UTF-8") from None
+        writer.add_byte(self.prepare_flag)
         writer.add_byte(1 if self.auto_commit else 0)
         return writer.finalize(cas_info)
 
@@ -915,12 +1034,8 @@ class PreparePacket:
             _raise_error(reader, remaining)
 
         self.query_handle = self.response_code
-        _ = reader._parse_int()  # result cache lifetime
-        self.statement_type = reader._parse_byte()
-        self.bind_count = reader._parse_int()
-        _ = reader._parse_byte()  # is_updatable
-        self.column_count = reader._parse_int()
-        self.columns = _parse_column_metadata(reader, self.column_count)
+        self.statement_type, self.bind_count, self.columns = _parse_prepare_info(reader)
+        self.column_count = len(self.columns)
 
 
 class ExecutePacket:
@@ -934,6 +1049,10 @@ class ExecutePacket:
         protocol_version: int = CASProtocol.VERSION,
         decode_collections: bool = False,
         json_deserializer: Any = None,
+        *,
+        bindings: Sequence[_PreparedScalar] = (),
+        bind_count: int | None = None,
+        forward_only: bool | None = None,
     ) -> None:
         self.query_handle = query_handle
         self.statement_type = statement_type
@@ -941,6 +1060,9 @@ class ExecutePacket:
         self.protocol_version = protocol_version
         self.decode_collections = decode_collections
         self.json_deserializer = json_deserializer
+        self.bindings = tuple(bindings)
+        self.bind_count = bind_count
+        self.forward_only = auto_commit if forward_only is None else forward_only
 
         self.total_tuple_count: int = 0
         self.result_count: int = 0
@@ -951,6 +1073,18 @@ class ExecutePacket:
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the execute request."""
+        if not isinstance(self.auto_commit, bool):
+            raise ProgrammingError("prepared autocommit must be a boolean")
+        if self.bind_count is not None and (
+            isinstance(self.bind_count, bool)
+            or not isinstance(self.bind_count, int)
+            or self.bind_count < 0
+        ):
+            raise ProgrammingError("prepared bind count must be a nonnegative integer")
+        if self.bind_count is not None and len(self.bindings) != self.bind_count:
+            raise ProgrammingError("prepared parameter count does not match server bind count")
+        if not isinstance(self.forward_only, bool):
+            raise ProgrammingError("forward_only must be a boolean")
         fetch_flag = 1 if self.statement_type == CUBRIDStatementType.SELECT else 0
         writer = PacketWriter()
         writer._write_byte(CASFunctionCode.EXECUTE)
@@ -959,12 +1093,17 @@ class ExecutePacket:
         writer.add_int(0)  # max_col_size
         writer.add_int(0)  # max_row_size
         writer.add_null()  # NULL
-        writer._write_int(1)  # bind mode count
+        writer._write_int(1)  # SELECT fetch-flag argument length
         writer._write_byte(fetch_flag)
         writer.add_byte(1 if self.auto_commit else 0)
-        writer.add_byte(1)  # forward only
+        writer.add_byte(1 if self.forward_only else 0)
         writer.add_cache_time()
         writer.add_int(0)  # query timeout
+        for binding in self.bindings:
+            if not isinstance(binding, _PreparedScalar):
+                raise ProgrammingError("invalid prepared parameter encoding")
+            writer.add_byte(binding.type_code)
+            writer.add_bytes(binding.payload)
         return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray, columns: list[ColumnMetaData] | None = None) -> None:
@@ -985,10 +1124,14 @@ class ExecutePacket:
         self.total_tuple_count = response_code
         _ = reader._parse_byte()  # cache_reusable
         self.result_count = reader._parse_int()
-        self.result_infos = _parse_result_infos(reader, self.result_count)
+        self.result_infos = _parse_result_infos(reader, self.result_count, prepared=True)
 
         if self.protocol_version > 1:
-            _ = reader._parse_byte()  # includes_column_info
+            includes_column_info = reader._parse_byte()
+            if includes_column_info not in (0, 1):
+                raise ValueError("invalid refreshed-column-info flag")
+            if includes_column_info:
+                self.statement_type, self.bind_count, self.columns = _parse_prepare_info(reader)
         if self.protocol_version > 4:
             _ = reader._parse_int()  # shard_id
 

@@ -244,7 +244,7 @@ All 41 CAS function codes, defined in `CASFunctionCode`:
 
 ## Packet Classes
 
-pycubrid implements 18 packet classes in `pycubrid.protocol`. Each class provides:
+pycubrid implements 20 packet classes in `pycubrid.protocol`. Each class provides:
 
 - `write()` — Serialize the request (some take `cas_info` parameter)
 - `parse(data)` — Deserialize the response
@@ -299,13 +299,18 @@ packet.parse(response_data) # Framed response with CAS info prefix
 | `result_count`       | `int`  | Number of result info entries |
 | `result_infos`       | `list[ResultInfo]` | Per-statement result info |
 | `tuple_count`        | `int`  | Rows in the initial fetch |
-| `rows`               | `list[list[Any]]` | Fetched row data |
+| `rows`               | `list[tuple[Any, ...]]` | Fetched row data |
 
 ---
 
 ### PreparePacket
 
 **Prepare a statement** (FC=2) — separate prepare step.
+
+The internal packet accepts `prepare_flag=NORMAL` (legacy default) or
+`HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or invalid
+UTF-8 is rejected before FC2. This is internal wire groundwork for
+[#439](PREPARED_BINDING_DESIGN.md), **not** a public prepared cursor.
 
 | Attribute        | Type   | Description |
 |------------------|--------|-------------|
@@ -321,13 +326,29 @@ packet.parse(response_data) # Framed response with CAS info prefix
 
 **Execute a prepared statement** (FC=3).
 
+After ten fixed arguments, the packet writes two length-prefixed arguments
+per validated scalar binding: type byte and value bytes. The supported
+internal subset is signed INT32 (`8`, four big-endian bytes), UTF-8 CHAR
+(`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
+NUL byte, not NULL. The optional `bind_count` must match the number of
+bindings. The forward-only byte follows effective autocommit: `1` in auto
+mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
+
+For protocol version >1, an `include_column_info=1` response carries the
+full FC2 prepare-info tail before the shard ID and inline FETCH. The parser
+updates statement/bind/column metadata and rejects truncated tails. A
+negative per-result record is surfaced through the existing code-to-DB-API
+exception mapping rather than treated as success; its broker text is not
+copied into the exception. These packet primitives remain internal until #439 supplies
+physical-session ownership, cursor lifecycle and full live support gates.
+
 | Attribute            | Type   | Description |
 |----------------------|--------|-------------|
 | `total_tuple_count`  | `int`  | Total result rows |
 | `result_count`       | `int`  | Number of result infos |
 | `result_infos`       | `list[ResultInfo]` | Per-statement results |
 | `tuple_count`        | `int`  | Inline fetch row count |
-| `rows`               | `list[list[Any]]` | Inline fetched rows |
+| `rows`               | `list[tuple[Any, ...]]` | Inline fetched rows |
 
 ---
 
@@ -338,7 +359,7 @@ packet.parse(response_data) # Framed response with CAS info prefix
 | Attribute      | Type   | Description |
 |----------------|--------|-------------|
 | `tuple_count`  | `int`  | Number of fetched rows |
-| `rows`         | `list[list[Any]]` | Row data |
+| `rows`         | `list[tuple[Any, ...]]` | Row data |
 
 ---
 
