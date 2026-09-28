@@ -387,6 +387,21 @@ def test_prepared_partial_read_and_malformed_parse_retire_session() -> None:
         assert conn._socket is None
 
 
+def test_prepared_invalid_length_retires_session() -> None:
+    conn, sock = make_connected_connection()
+    sock.recv_into.side_effect = make_socket_from_chunks(
+        [struct.pack(">i", -1)]
+    ).recv_into.side_effect
+    packet = MagicMock()
+    packet.write.return_value = b"prepared request"
+
+    with pytest.raises(OperationalError, match="DATA_LENGTH"):
+        conn._send_and_receive(packet, expected_generation=conn._physical_generation)
+
+    assert conn._connected is False
+    assert conn._socket is None
+
+
 def test_unexpected_prepared_parser_failure_retires_session() -> None:
     conn, sock = make_connected_connection()
     sock.recv_into.side_effect = _response_socket().recv_into.side_effect
