@@ -434,14 +434,14 @@ assets; pinning its caller is not a complete freeze of those assets.
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.13) + integration |
+| `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.14) + integration |
 | `integration-full.yml` | Nightly, tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
 | `create-release.yml` | Tag push, manual dispatch | Create the GitHub Release from CHANGELOG (does not publish) |
 | `publish-pypi.yml` | Manual dispatch after the tag-triggered full matrix passes | Verify, publish to PyPI, dispatch the cookbook smoke test |
 
 ### CI Matrix
 
-- **Offline**: Python 3.10, 3.11, 3.12, 3.13
+- **Offline**: Python 3.10, 3.11, 3.12, 3.13, 3.14
 - **Integration**: Python {3.10, 3.12} × CUBRID {11.2, 11.4}
 
 ---
