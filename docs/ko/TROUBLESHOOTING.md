@@ -127,10 +127,10 @@ ConnectionRefusedError: [Errno 111] Connection refused
    docker compose ps
 
    # 헬스 체크 대기
-   docker compose up -d
-   sleep 5  # 브로커 초기화 대기
+   docker compose up -d --wait
 
-   # 로그로 확인
+   # 대기 시간이 초과되면 서비스 상태와 로그 확인
+   docker compose ps
    docker compose logs cubrid | tail -20
    ```
 
@@ -909,8 +909,11 @@ docker compose ps
 **확인 2: 초기화 대기** — CUBRID는 시작에 몇 초 걸립니다:
 
 ```bash
-docker compose up -d
-sleep 10  # 전체 초기화 대기
+docker compose up -d --wait
+
+# 대기 시간이 초과되면 서비스 상태와 로그 확인
+docker compose ps
+docker compose logs cubrid
 
 # 연결 테스트
 python3 -c "
