@@ -14,6 +14,12 @@ every step:
   ``struct.error`` / ``AttributeError`` / etc.;
 * no operation deadlocks (bounded by the connection read timeout).
 
+CUBRID DDL is transactional: a ``CREATE TABLE`` issued outside autocommit is
+undone by ``rollback()`` (or by closing the connection before a commit), just
+like DML. The model therefore tracks whether the test table is committed or
+only pending in the open transaction, and table-dependent rules run only when
+the table is known to exist (issue #487).
+
 Skipped when no CUBRID server is reachable. Budget follows the active Hypothesis
 profile; stateful tests also honour ``stateful_step_count``.
 """
@@ -49,7 +55,20 @@ class ConnectionLifecycle(RuleBasedStateMachine):
         self.in_transaction = False
         self.has_result = False
         self.table = "sm_%s" % uuid.uuid4().hex[:8]
-        self._table_created = False
+        # The table exists durably once a commit covers its CREATE; until then
+        # it exists only inside the open transaction and a rollback drops it.
+        self._table_committed = False
+        self._table_pending = False
+
+    @property
+    def _table_exists(self) -> bool:
+        return self._table_committed or self._table_pending
+
+    def _end_transaction(self, *, committed: bool) -> None:
+        if committed and self._table_pending:
+            self._table_committed = True
+        self._table_pending = False
+        self.in_transaction = False
 
     # -- lifecycle rules ----------------------------------------------------
 
@@ -86,14 +105,18 @@ class ConnectionLifecycle(RuleBasedStateMachine):
     @rule()
     def create_table(self) -> None:
         assert self.conn is not None and self.cursor is not None
+        # CUBRID sizes VARCHAR in UTF-8 bytes for supplementary-plane text (a
+        # 4-byte character counts as 4), so 160 holds any 40-character value.
         self.cursor.execute(
-            "CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, v VARCHAR(50))" % self.table
+            "CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, v VARCHAR(160))" % self.table
         )
-        self._table_created = True
-        if not self.conn.autocommit:
+        if self.conn.autocommit:
+            self._table_committed = True
+        else:
+            self._table_pending = True
             self.in_transaction = True
 
-    @precondition(lambda self: self.cursor is not None and self._table_created)
+    @precondition(lambda self: self.cursor is not None and self._table_exists)
     @rule(key=st.integers(), text=st.text(max_size=40))
     def insert(self, key: int, text: str) -> None:
         assert self.conn is not None and self.cursor is not None
@@ -110,7 +133,7 @@ class ConnectionLifecycle(RuleBasedStateMachine):
         if not self.conn.autocommit:
             self.in_transaction = True
 
-    @precondition(lambda self: self.cursor is not None and self._table_created)
+    @precondition(lambda self: self.cursor is not None and self._table_exists)
     @rule()
     def select(self) -> None:
         assert self.cursor is not None
@@ -118,25 +141,39 @@ class ConnectionLifecycle(RuleBasedStateMachine):
         _ = self.cursor.fetchall()
         self.has_result = True
 
+    @precondition(lambda self: self.cursor is not None)
+    @rule()
+    def table_visibility_matches_model(self) -> None:
+        # Check the model against the catalog so the transactional DDL
+        # assumption is asserted rather than silently relied on.
+        assert self.cursor is not None
+        self.cursor.execute("SELECT COUNT(*) FROM db_class WHERE class_name = ?", (self.table,))
+        row = self.cursor.fetchone()
+        assert row is not None
+        assert (row[0] == 1) == self._table_exists
+        self.has_result = True
+
     @precondition(lambda self: self.conn is not None)
     @rule()
     def commit(self) -> None:
         assert self.conn is not None
         self.conn.commit()
-        self.in_transaction = False
+        self._end_transaction(committed=True)
 
     @precondition(lambda self: self.conn is not None)
     @rule()
     def rollback(self) -> None:
         assert self.conn is not None
         self.conn.rollback()
-        self.in_transaction = False
+        self._end_transaction(committed=False)
 
     @precondition(lambda self: self.conn is not None)
     @rule(value=st.booleans())
     def set_autocommit(self, value: bool) -> None:
         assert self.conn is not None
         self.conn.autocommit = value
+        # The autocommit setter commits the open transaction on the server.
+        self._end_transaction(committed=True)
 
     @precondition(lambda self: self.conn is not None)
     @rule(reconnect=st.booleans())
@@ -155,7 +192,8 @@ class ConnectionLifecycle(RuleBasedStateMachine):
         finally:
             self.conn = None
             self.closed = True
-            self.in_transaction = False
+            # Closing without a commit discards the open transaction.
+            self._end_transaction(committed=False)
             self.has_result = False
 
     # -- invariants ---------------------------------------------------------
@@ -199,6 +237,30 @@ ConnectionLifecycle.TestCase.settings = settings(
     deadline=None,
 )
 TestConnectionLifecycle = ConnectionLifecycle.TestCase
+
+
+@pytest.mark.parametrize("end", ["rollback", "close", "commit", "set_autocommit"])
+def test_uncommitted_create_table_follows_transaction(end: str) -> None:
+    """Replay the issue #487 sequence deterministically for each boundary."""
+    machine = ConnectionLifecycle()
+    try:
+        machine.connect(autocommit=False)
+        machine.open_cursor()
+        machine.create_table()
+        if end == "set_autocommit":
+            machine.set_autocommit(value=False)
+        else:
+            getattr(machine, end)()
+        assert machine._table_exists == (end in ("commit", "set_autocommit"))
+        if end == "close":
+            machine.connect(autocommit=False)
+        if machine.cursor is None:
+            machine.open_cursor()
+        machine.table_visibility_matches_model()
+        if machine._table_exists:
+            machine.select()
+    finally:
+        machine.teardown()
 
 
 class TestClosedConnectionMisuse:
