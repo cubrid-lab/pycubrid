@@ -395,8 +395,9 @@ FC8로 모든 행을 읽고 0행도 FC6으로 닫으며, `close_schema_info(pack
 기존 핸들 전용 FC6은 서버 기본값이 false인 선택적 auto-commit 인자를 생략합니다.
 commit/rollback은 END_TRAN 전에 활성 핸들을 닫고 물리 연결 폐기는 소유권을 종료합니다.
 비동기 등록·fetch/close는 연결 락 안에서 원자적으로 처리하며 I/O 취소 시 읽지 않은
-응답 위로 FC6을 보내지 않고 세션을 폐기합니다. 초기 실제 테스트는 10.2/11.4의
-CLASS/ATTRIBUTE를 검증하며 전체 타입·네이티브 동등성 인증은 아닙니다 (#457).
+응답 위로 FC6을 보내지 않고 세션을 폐기합니다. #457 실서버 행렬은 10.2/11.4의
+CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
+검증하며 모든 스키마 코드나 네이티브 동등성을 인증하지는 않습니다.
 참조 소스: [CAS FC9 인자](https://github.com/CUBRID/cubrid/blob/6b2bc75527c8bad94d9ad8aba961638efdfb3269/src/broker/cas_function.c#L1192),
 [CCI 축약 컬럼](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_query_execute.c#L5285),
 [JDBC 스키마 요청](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63ae4b334fde81ce2c523642f1afd37f/src/jdbc/cubrid/jdbc/jci/UConnection.java#L516).

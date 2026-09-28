@@ -151,7 +151,7 @@ marketers = cur.fetchall()
 - **Parameterized queries** — `cursor.execute(sql, params)` with driver-side parameter binding (`?` placeholders escaped and interpolated locally)
 - **Batch operations** — `executemany()` and `executemany_batch()` for bulk inserts
 - **LOB support** — `create_lob()`, read/write CLOB and BLOB columns
-- **Owned schema introspection** — `get_schema_info()` plus eager `fetch_schema_info()` or explicit `close_schema_info()`; initial live coverage is tables/columns, with broader schema types tracked in #457
+- **Owned schema introspection** — `get_schema_info()` plus eager `fetch_schema_info()` or explicit `close_schema_info()`; the #457 live matrix verifies CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on CUBRID 10.2/11.4, not all schema codes or native-driver parity
 - **Auto-commit control** — `connection.autocommit` property for transaction management
 - **Server version detection** — `connection.get_server_version()` returns version string (e.g., `"11.2.0.0378"`)
 - **Iterator protocol** — iterate over cursor results with `for row in cursor`

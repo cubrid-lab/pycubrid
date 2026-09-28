@@ -152,7 +152,7 @@ marketers = cur.fetchall()
 - **매개변수화된 쿼리** — 서버 측 `PREPARE_AND_EXECUTE`를 사용하는 `cursor.execute(sql, params)`
 - **배치 작업** — 대량 삽입을 위한 `executemany()` 및 `executemany_batch()`
 - **LOB 지원** — `create_lob()`, CLOB/BLOB 컬럼 읽기/쓰기
-- **소유권 기반 스키마 조회** — `get_schema_info()` 후 `fetch_schema_info()`로 전체 행 소비 또는 `close_schema_info()`로 명시적 폐기. 초기 실제 검증은 테이블/컬럼이며 다른 타입은 #457에서 다룹니다.
+- **소유권 기반 스키마 조회** — `get_schema_info()` 후 `fetch_schema_info()`로 전체 행 소비 또는 `close_schema_info()`로 명시적 폐기. #457 실서버 행렬은 CUBRID 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 모든 스키마 코드나 네이티브 드라이버 동등성을 인증하지는 않습니다.
 - **자동 커밋 제어** — 트랜잭션 관리를 위한 `connection.autocommit` 속성
 - **서버 버전 감지** — `connection.get_server_version()`이 버전 문자열(예: `"11.2.0.0378"`) 반환
 - **이터레이터 프로토콜** — `for row in cursor`로 커서 결과 반복 가능
