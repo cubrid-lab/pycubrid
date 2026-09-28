@@ -563,6 +563,13 @@ for schema_type, name, flags, arg2 in requests:
             print(dict(zip(names, row)))
     finally:
         conn.close_schema_info(packet)  # Idempotent after successful consumption.
+
+# Explicitly abandon a result when only its advertised count is needed.
+packet = conn.get_schema_info(CCISchemaType.CLASS, "users", 0)
+try:
+    print(f"Matching tables: {packet.tuple_count}")
+finally:
+    conn.close_schema_info(packet)
 ```
 
 For an exact column, use flag `0` and `arg2="column_name"`; flag `2` makes the
@@ -571,6 +578,8 @@ ATTRIBUTE `arg2` is not an all-columns request. Keep returned owner qualifiers;
 use PRIMARY_KEY `KEY_SEQ`, not arrival order, for composite keys. CONSTRAINT is
 index-family information, not a replacement for dedicated PK/FK queries.
 With an async connection, await all three schema operations, including cleanup.
+Autocommit changes retain their existing commit/flush behavior while closing and
+retiring active schema results before END_TRAN.
 
 ---
 

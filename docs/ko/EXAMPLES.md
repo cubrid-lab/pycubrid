@@ -555,6 +555,13 @@ for schema_type, name, flags, arg2 in requests:
             print(dict(zip(names, row)))
     finally:
         conn.close_schema_info(packet)  # 정상 소비 후에도 안전한 반복 종료입니다.
+
+# 표시된 개수만 필요한 경우 결과를 명시적으로 포기합니다.
+packet = conn.get_schema_info(CCISchemaType.CLASS, "users", 0)
+try:
+    print(f"Matching tables: {packet.tuple_count}")
+finally:
+    conn.close_schema_info(packet)
 ```
 
 정확한 컬럼 이름은 플래그 `0`과 `arg2="column_name"`을 사용하세요. 플래그 `2`는
@@ -563,6 +570,8 @@ for schema_type, name, flags, arg2 in requests:
 복합 키는 도착 순서 대신 PRIMARY_KEY의 `KEY_SEQ`를 사용하세요. CONSTRAINT는
 인덱스 계열 정보이며 전용 PK/FK 조회를 대신하지 않습니다.
 비동기 연결에서는 정리를 포함한 세 스키마 연산을 모두 await하세요.
+Autocommit 변경은 기존 commit/flush 동작을 유지하면서 END_TRAN 전에 활성
+스키마 결과를 닫고 소유권을 종료합니다.
 
 ---
 

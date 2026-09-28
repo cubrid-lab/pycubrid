@@ -96,6 +96,19 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
+### Planned explicit compatibility namespaces (#438)
+
+The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
+plans `pycubrid.compat.cubriddb` and `pycubrid.compat.native`; neither exists yet.
+This documentation-only decision changes no current API, default or support line.
+Future explicit APIs are **MINOR** additions only while ordinary behavior stays
+unchanged; documented ordinary bug corrections remain **PATCH**. Their foundation
+PR must declare explicit submodule exports, extend §1 and the existing API
+checker's tracked modules/returned classes, and regenerate the baseline together.
+Regenerating today's ordinary-only baseline alone cannot protect new namespaces.
+This design does not authorize a default replacement, 2.0 migration, new dependency,
+version/tag/PyPI publication.
+
 ### What the gate does *not* detect
 
 The `compat-check` CI gate captures the structural surface — names,
@@ -207,8 +220,18 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   together with owning eager fetch and explicit abandonment, immutable original
   handle metadata, and deterministic retirement. Schema FETCH/CLOSE do not
   reconnect, replay or implicitly commit; transaction boundaries close active
-  schema handles. No holdability/native-profile choice or new dependencies.
+  schema handles, including before auto-committing cursor/batch statements and
+  connection-level version lookup with autocommit enabled.
+  Non-`Exception` interruptions during async schema FETCH discard the uncertain
+  session without sending CLOSE over a pending response.
+  No holdability/native-profile choice or new dependencies.
   Initial CLASS/ATTRIBUTE coverage does not certify all schema types (#457).
+- **Empty bytes LOB writes avoid broker I/O (#394)** — PATCH / correction to the
+  documented bytes-written contract, matching the existing zero-length read
+  precedent. Open-LOB, negative-offset, connection and wire argument validation
+  still run before returning `0`; nonempty ACK checks and other data-type paths
+  retain existing behavior. No public signatures, strict argument policy (#449),
+  async LOB support, dependencies or supported versions change.
 
 - **Unfinished-result invalidation reports an error (#395)** — PATCH / correction
   of silent partial fetch success after a transaction boundary. A missing handle

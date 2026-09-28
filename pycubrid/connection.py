@@ -16,6 +16,7 @@ from ._connection_common import (
 from .constants import CCIDbParam, DataSize
 from .exceptions import DataError, InterfaceError, OperationalError
 from .protocol import (
+    BatchExecutePacket,
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
@@ -25,6 +26,7 @@ from .protocol import (
     GetEngineVersionPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
+    PrepareAndExecutePacket,
     RollbackPacket,
     SetDbParameterPacket,
 )
@@ -397,6 +399,7 @@ class Connection(ConnectionCommonMixin):
         """Set auto-commit mode and flush transaction state on the server."""
         self._ensure_connected()
         enabled = bool(value)
+        self._close_schema_results()
         self._send_and_receive(
             SetDbParameterPacket(
                 parameter=CCIDbParam.AUTO_COMMIT,
@@ -510,6 +513,7 @@ class Connection(ConnectionCommonMixin):
             table_name=table_name,
             pattern_match_flag=pattern_match_flag,
             arg2=arg2,
+            protocol_version=self._protocol_version,
         )
         try:
             self._send_and_receive(packet)
@@ -550,7 +554,10 @@ class Connection(ConnectionCommonMixin):
                 ):
                     raise OperationalError("inconsistent schema FETCH row count")
                 rows.extend(fetched.rows)
-        except BaseException:
+        except BaseException as exc:
+            if not isinstance(exc, Exception):
+                self._drop_connection()
+                raise
             try:
                 self.close_schema_info(packet)
             except Exception:
@@ -636,6 +643,18 @@ class Connection(ConnectionCommonMixin):
         self._check_reconnect(allow_reconnect=allow_reconnect)
         if self._socket is None:
             raise InterfaceError("connection is closed")
+        if (
+            self._schema_results
+            and isinstance(
+                packet, (PrepareAndExecutePacket, BatchExecutePacket, GetEngineVersionPacket)
+            )
+            and packet.auto_commit
+        ):
+            self._close_schema_results()
+            # FC6 may itself release the CAS. Recheck before the auto-committing RPC.
+            self._check_reconnect(allow_reconnect=allow_reconnect)
+            if self._socket is None:
+                raise InterfaceError("connection is closed")
 
         try:
             try:

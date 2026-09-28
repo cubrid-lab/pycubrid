@@ -499,14 +499,21 @@ repeat closes of the same owner's retired packet are no-ops. Foreign/unowned
 packets and retired fetches raise `InterfaceError` before network I/O. Changing
 the raw packet's public fields cannot change the tracked handle or metadata.
 
-Commit/rollback first close active schema handles, then retire ownership. Physical
-disconnect/reconnect and connection close also retire it; results cannot be replayed
+Commit/rollback first close active schema handles, then retire ownership. Cursor
+statements with effective autocommit do the same before sending SQL, including
+`executemany_batch(..., auto_commit=True)` on a manual-commit connection.
+With connection autocommit enabled, `get_server_version()` also closes owned
+schema handles before its auto-committing version request.
+Fetching such a retired packet raises `InterfaceError` locally before another RPC.
+Physical disconnect/reconnect and connection close also retire it; results cannot be replayed
 in a replacement CAS session. FETCH/CLOSE never reconnect or implicitly commit.
 A failed schema creation or close discards its uncertain session; a FETCH error
 retains the original exception if cleanup also fails (the cleanup error is logged).
 Async methods use `await` and hold the connection lock through fetch/cleanup.
 Cancellation during schema I/O discards the session and re-raises cancellation;
 cancellation while merely waiting for the lock does not discard another task's session.
+`KeyboardInterrupt` or `SystemExit` during async schema FETCH also discards the
+uncertain session without sending CLOSE on a stream with a pending reply.
 
 ---
 
@@ -1101,6 +1108,14 @@ def write(self, data: bytes, offset: int = 0) -> int
 ```
 
 Write bytes to the LOB starting from `offset`.
+
+An empty `bytes` value returns `0` without a broker request after the same
+open-LOB, negative-offset and connected-connection checks. Existing wire
+argument validation still applies before this local return. The LOB's bytes
+and handle are unchanged; nonempty writes retain server-acknowledgement checks.
+Signed-64-bit packing failures still raise `DataError`, as they do through the
+real connection's nonempty write path, with the serialization error as the cause.
+This does not introduce a new offset/data-type policy or async LOB support.
 
 **Returns:** Number of bytes written.
 

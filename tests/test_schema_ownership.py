@@ -16,12 +16,16 @@ from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import InterfaceError, OperationalError
 from pycubrid.protocol import (
+    BatchExecutePacket,
     CloseDatabasePacket,
     CloseQueryPacket,
     CommitPacket,
     FetchPacket,
+    GetEngineVersionPacket,
     GetSchemaPacket,
+    PrepareAndExecutePacket,
     RollbackPacket,
+    SetDbParameterPacket,
 )
 from tests.test_network_edge_cases import make_mock_stream_pair, make_socket_from_chunks
 
@@ -237,7 +241,7 @@ async def test_cancel_during_schema_io_drops_session_without_second_rpc(operatio
     await asyncio.wait_for(started.wait(), timeout=1)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        _ = await task
     assert not conn._connected
     assert conn._writer is None
     await conn.close_schema_info(packet)
@@ -254,7 +258,7 @@ async def test_cancel_waiting_for_lock_does_not_drop_active_session() -> None:
         await asyncio.sleep(0)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await task
+            _ = await task
         assert conn._connected
     assert await conn.fetch_schema_info(packet) == [(10,), (20,), (30,)]
 
@@ -282,7 +286,7 @@ async def test_transaction_waits_until_fetch_and_close_complete() -> None:
     assert not committing.done()
     resume.set()
     assert await fetching == [(10,), (20,), (30,)]
-    await committing
+    _ = await committing
     assert [type(p) for p, _ in peer.calls][-2:] == [CloseQueryPacket, CommitPacket]
 
 
@@ -487,7 +491,371 @@ async def test_schema_registration_and_transaction_are_one_atomic_lock_scope() -
     assert not committing.done()
     resume.set()
     packet = await creating
-    await committing
+    _ = await committing
     assert [type(p) for p, _ in peer.calls] == [GetSchemaPacket, CloseQueryPacket, CommitPacket]
     with pytest.raises(InterfaceError, match="retired"):
         await conn.fetch_schema_info(packet)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_autocommit_boundary_closes_and_retires_schema(
+    asynchronous: bool, enabled: bool
+) -> None:
+    peer = SchemaPeer()
+    conn = connected(asynchronous, peer)
+    packet = await invoke(conn, "get_schema_info", 1)
+    if isinstance(conn, AsyncConnection):
+        await conn.set_autocommit(enabled)
+    else:
+        conn.autocommit = enabled
+    assert [type(value) for value, _ in peer.calls] == [
+        GetSchemaPacket,
+        CloseQueryPacket,
+        SetDbParameterPacket,
+        CommitPacket,
+    ]
+    count = len(peer.calls)
+    with pytest.raises(InterfaceError, match="retired"):
+        await invoke(conn, "fetch_schema_info", packet)
+    await invoke(conn, "close_schema_info", packet)
+    assert len(peer.calls) == count
+    assert conn.autocommit is enabled
+
+
+@pytest.mark.asyncio
+async def test_autocommit_sequence_holds_one_async_lock() -> None:
+    peer = SchemaPeer()
+    conn = connected(True, peer)
+    assert isinstance(conn, AsyncConnection)
+    packet = await conn.get_schema_info(1)
+    started, resume = asyncio.Event(), asyncio.Event()
+
+    async def gated(value: object, *, allow_reconnect: bool = True) -> object:
+        if isinstance(value, SetDbParameterPacket):
+            peer.calls.append((value, allow_reconnect))
+            started.set()
+            await resume.wait()
+            return value
+        return peer.send(value, allow_reconnect=allow_reconnect)
+
+    conn._send_and_receive_locked = gated
+    changing = asyncio.create_task(conn.set_autocommit(True))
+    await asyncio.wait_for(started.wait(), 1)
+    creating = asyncio.create_task(conn.get_schema_info(1))
+    await asyncio.sleep(0)
+    assert not creating.done()
+    resume.set()
+    _ = await changing
+    current = await creating
+    assert [type(value) for value, _ in peer.calls] == [
+        GetSchemaPacket,
+        CloseQueryPacket,
+        SetDbParameterPacket,
+        CommitPacket,
+        GetSchemaPacket,
+    ]
+    with pytest.raises(InterfaceError, match="retired"):
+        await conn.fetch_schema_info(packet)
+    await conn.close_schema_info(current)
+
+
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_sync_interruption_drops_without_closing_over_pending_fetch(
+    interruption: type[BaseException],
+) -> None:
+    peer = SchemaPeer()
+    conn = connected(False, peer)
+    assert isinstance(conn, Connection)
+    packet = conn.get_schema_info(1)
+    del conn._send_and_receive
+    pending = fetch_reply([10, 20])
+    closed = CAS_INFO + struct.pack(">i", 0)
+    transport = make_socket_from_chunks(
+        [
+            struct.pack(">i", len(pending) - 4),
+            pending,
+            struct.pack(">i", len(closed) - 4),
+            closed,
+        ]
+    )
+    receive = transport.recv_into.side_effect
+    interrupted = False
+
+    def interrupt_once(buffer: memoryview, size: int) -> int:
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            raise interruption("interrupted receive")
+        return int(receive(buffer, size))
+
+    transport.recv_into.side_effect = interrupt_once
+    conn._socket = transport
+    with pytest.raises(interruption):
+        conn.fetch_schema_info(packet)
+    assert not conn._connected
+    assert transport.sendall.call_count == 1
+    transport.close.assert_called_once()
+    conn.close_schema_info(packet)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+async def test_async_interruption_drops_without_closing_over_pending_fetch(
+    interruption: type[BaseException],
+) -> None:
+    conn = connected(True, SchemaPeer())
+    assert isinstance(conn, AsyncConnection)
+    packet = await conn.get_schema_info(1)
+    del conn._send_and_receive_locked
+    pending = fetch_reply([10, 20])
+    closed = CAS_INFO + struct.pack(">i", 0)
+    conn._reader, conn._writer, _ = make_mock_stream_pair(
+        [
+            struct.pack(">i", len(pending) - 4),
+            pending,
+            struct.pack(">i", len(closed) - 4),
+            closed,
+        ]
+    )
+    reader, writer = conn._reader, conn._writer
+    receive = reader.readexactly.side_effect
+    interrupted = False
+    primary = interruption("interrupted receive")
+
+    async def interrupt_once(size: int) -> bytes:
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            raise primary
+        return next(receive)
+
+    reader.readexactly.side_effect = interrupt_once
+    with pytest.raises(interruption) as raised:
+        await conn.fetch_schema_info(packet)
+    assert raised.value is primary
+    assert not conn._connected
+    assert not conn._schema_results
+    assert writer.write.call_count == 1  # FC8 only; never FC6 on an uncertain stream.
+    writer.close.assert_called_once()
+    assert conn._reader is None and conn._writer is None
+    await conn.close_schema_info(packet)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_schema_request_uses_negotiated_protocol_version(asynchronous: bool) -> None:
+    peer = SchemaPeer()
+    conn = connected(asynchronous, peer)
+    conn._protocol_version = 4
+    packet = await invoke(conn, "get_schema_info", 1, "table", 0)
+    payload = b"\x09" + struct.pack(">ii", 4, 1) + struct.pack(">i", 6) + b"table\x00"
+    payload += struct.pack(">i", 0) + struct.pack(">iB", 1, 0)
+    encoded = packet.write(CAS_INFO)
+    assert encoded == struct.pack(">i", len(payload)) + CAS_INFO + payload
+    await invoke(conn, "close_schema_info", packet)
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("packet_kind", ["execute", "batch", "version"])
+@pytest.mark.parametrize("auto_commit", [False, True])
+@pytest.mark.asyncio
+async def test_implicit_autocommit_packet_closes_owned_schema_before_send(
+    asynchronous: bool, packet_kind: str, auto_commit: bool
+) -> None:
+    peer = SchemaPeer()
+    conn = connected(asynchronous, peer)
+    owned = await invoke(conn, "get_schema_info", 1)
+    assert len(conn._schema_results) == 1
+    packet = {
+        "execute": PrepareAndExecutePacket("UPDATE owned SET id=id", auto_commit=auto_commit),
+        "batch": BatchExecutePacket(["UPDATE owned SET id=id"], auto_commit=auto_commit),
+        "version": GetEngineVersionPacket(auto_commit=auto_commit),
+    }[packet_kind]
+    closing = CAS_INFO + struct.pack(">i", 0)
+    chunks = [struct.pack(">i", len(closing) - 4), closing]
+
+    class AutoRequestReached(Exception):
+        pass
+
+    should_close = auto_commit
+    if isinstance(conn, AsyncConnection):
+        del conn._send_and_receive_locked
+        conn._reader, conn._writer, _ = make_mock_stream_pair(chunks)
+        transport = conn._writer
+        transport.write.side_effect = (
+            [None, AutoRequestReached()] if should_close else AutoRequestReached()
+        )
+    else:
+        del conn._send_and_receive
+        conn._socket = make_socket_from_chunks(chunks)
+        transport = conn._socket
+        transport.sendall.side_effect = (
+            [None, AutoRequestReached()] if should_close else AutoRequestReached()
+        )
+
+    with pytest.raises(AutoRequestReached):
+        await invoke(conn, "_send_and_receive", packet)
+    writes = transport.write.call_args_list if asynchronous else transport.sendall.call_args_list
+    expected = ([6] if should_close else []) + [
+        {"execute": 41, "batch": 20, "version": 15}[packet_kind]
+    ]
+    assert [entry.args[0][8] for entry in writes] == expected
+    if should_close:
+        assert not conn._schema_results
+        sent = len(writes)
+        with pytest.raises(InterfaceError, match="retired"):
+            await invoke(conn, "fetch_schema_info", owned)
+        assert (
+            transport.write.call_count if asynchronous else transport.sendall.call_count
+        ) == sent
+    else:
+        assert len(conn._schema_results) == 1
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("packet_kind", ["batch", "version"])
+@pytest.mark.asyncio
+async def test_failed_schema_close_aborts_implicit_autocommit_packet(
+    asynchronous: bool, packet_kind: str
+) -> None:
+    peer = SchemaPeer()
+    conn = connected(asynchronous, peer)
+    owned = await invoke(conn, "get_schema_info", 1)
+    if isinstance(conn, AsyncConnection):
+        del conn._send_and_receive_locked
+        conn._reader, conn._writer, _ = make_mock_stream_pair()
+        transport = conn._writer
+        transport.write.side_effect = OSError("FC6 failed")
+    else:
+        del conn._send_and_receive
+        conn._socket = make_socket_from_chunks([])
+        transport = conn._socket
+        transport.sendall.side_effect = OSError("FC6 failed")
+    packet = (
+        BatchExecutePacket(["UPDATE owned SET id=id"], auto_commit=True)
+        if packet_kind == "batch"
+        else GetEngineVersionPacket(auto_commit=True)
+    )
+    with pytest.raises(OperationalError, match="socket communication failed"):
+        await invoke(conn, "_send_and_receive", packet)
+    writes = transport.write.call_args_list if asynchronous else transport.sendall.call_args_list
+    assert [entry.args[0][8] for entry in writes] == [6]
+    assert not conn._connected
+    await invoke(conn, "close_schema_info", owned)
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("packet_kind", ["execute", "batch", "version"])
+@pytest.mark.asyncio
+async def test_implicit_autocommit_without_owned_schema_adds_no_close(
+    asynchronous: bool, packet_kind: str
+) -> None:
+    conn = connected(asynchronous, SchemaPeer())
+    packet = {
+        "execute": PrepareAndExecutePacket("SELECT 1", auto_commit=True),
+        "batch": BatchExecutePacket(["SELECT 1"], auto_commit=True),
+        "version": GetEngineVersionPacket(auto_commit=True),
+    }[packet_kind]
+
+    class AutoRequestReached(Exception):
+        pass
+
+    if isinstance(conn, AsyncConnection):
+        del conn._send_and_receive_locked
+        conn._reader, conn._writer, _ = make_mock_stream_pair([])
+        transport = conn._writer
+        transport.write.side_effect = AutoRequestReached()
+    else:
+        del conn._send_and_receive
+        conn._socket = make_socket_from_chunks([])
+        transport = conn._socket
+        transport.sendall.side_effect = AutoRequestReached()
+    with pytest.raises(AutoRequestReached):
+        await invoke(conn, "_send_and_receive", packet)
+    writes = transport.write.call_args_list if asynchronous else transport.sendall.call_args_list
+    assert [entry.args[0][8] for entry in writes] == [
+        {"execute": 41, "batch": 20, "version": 15}[packet_kind]
+    ]
+    assert not conn._schema_results
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("packet_kind", ["batch", "version"])
+@pytest.mark.asyncio
+async def test_implicit_autocommit_rechecks_inactive_cas_after_schema_close(
+    asynchronous: bool,
+    packet_kind: str,
+) -> None:
+    conn = connected(asynchronous, SchemaPeer())
+    owned = await invoke(conn, "get_schema_info", 1)
+    closing = b"\x00\x00\x00\x00" + struct.pack(">i", 0)
+    chunks = [struct.pack(">i", len(closing) - 4), closing]
+    observed: list[int] = []
+
+    if isinstance(conn, AsyncConnection):
+        del conn._send_and_receive_locked
+        conn._reader, conn._writer, _ = make_mock_stream_pair(chunks)
+        transport = conn._writer
+
+        async def checked(*, allow_reconnect: bool = True) -> None:
+            observed.append(conn._cas_info[0])
+            if conn._cas_info[0] == 0:
+                raise OperationalError("inactive CAS after schema close")
+
+        conn._check_reconnect_locked = checked
+    else:
+        del conn._send_and_receive
+        conn._socket = make_socket_from_chunks(chunks)
+        transport = conn._socket
+
+        def checked(*, allow_reconnect: bool = True) -> None:
+            observed.append(conn._cas_info[0])
+            if conn._cas_info[0] == 0:
+                raise OperationalError("inactive CAS after schema close")
+
+        conn._check_reconnect = checked
+    packet = (
+        BatchExecutePacket(["SELECT 1"], auto_commit=True)
+        if packet_kind == "batch"
+        else GetEngineVersionPacket(auto_commit=True)
+    )
+    with pytest.raises(OperationalError, match="inactive CAS after schema close"):
+        await invoke(conn, "_send_and_receive", packet)
+    writes = transport.write.call_args_list if asynchronous else transport.sendall.call_args_list
+    assert [entry.args[0][8] for entry in writes] == [6]
+    assert observed == [1, 1, 0]
+    assert not conn._schema_results
+    with pytest.raises(InterfaceError, match="retired"):
+        await invoke(conn, "fetch_schema_info", owned)
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_implicit_schema_close_never_sends_autocommit_packet() -> None:
+    peer = SchemaPeer()
+    conn = connected(True, peer)
+    assert isinstance(conn, AsyncConnection)
+    owned = await conn.get_schema_info(1)
+    del conn._send_and_receive_locked
+    started = asyncio.Event()
+
+    async def blocked(packet: object) -> object:
+        if isinstance(packet, CloseQueryPacket):
+            started.set()
+            await asyncio.Future()
+        return peer.send(packet)
+
+    conn._do_send_and_receive = blocked
+    task = asyncio.create_task(
+        conn._send_and_receive(BatchExecutePacket(["UPDATE owned SET id=id"], auto_commit=True))
+    )
+    await asyncio.wait_for(started.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        _ = await task
+    assert not conn._connected
+    assert conn._writer is None
+    assert not conn._schema_results
+    assert not any(isinstance(packet, BatchExecutePacket) for packet, _ in peer.calls)
+    await conn.close_schema_info(owned)

@@ -19,6 +19,7 @@ from pycubrid._connection_common import (
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
 from pycubrid.protocol import (
+    BatchExecutePacket,
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
@@ -28,6 +29,7 @@ from pycubrid.protocol import (
     GetEngineVersionPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
+    PrepareAndExecutePacket,
     RollbackPacket,
     SetDbParameterPacket,
 )
@@ -642,17 +644,20 @@ class AsyncConnection(ConnectionCommonMixin):
 
     async def set_autocommit(self, value: bool) -> None:
         """Set auto-commit mode on the server."""
-        self._ensure_connected()
-        enabled = bool(value)
-        await self._send_and_receive(
-            SetDbParameterPacket(
-                parameter=CCIDbParam.AUTO_COMMIT,
-                value=1 if enabled else 0,
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            enabled = bool(value)
+            await self._close_schema_results_locked()
+            await self._send_and_receive_locked(
+                SetDbParameterPacket(
+                    parameter=CCIDbParam.AUTO_COMMIT,
+                    value=1 if enabled else 0,
+                )
             )
-        )
-        await self._send_and_receive(CommitPacket())
-        self._autocommit = enabled
-        self._autocommit_explicitly_set = True
+            await self._send_and_receive_locked(CommitPacket())
+            self._autocommit = enabled
+            self._autocommit_explicitly_set = True
 
     async def get_server_version(self) -> str:
         self._ensure_connected()
@@ -751,6 +756,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 table_name=table_name,
                 pattern_match_flag=pattern_match_flag,
                 arg2=arg2,
+                protocol_version=self._protocol_version,
             )
             try:
                 await self._send_and_receive_locked(packet)
@@ -796,7 +802,10 @@ class AsyncConnection(ConnectionCommonMixin):
                 # the stream. Retire synchronously before propagating cancellation.
                 self._drop_connection()
                 raise
-            except BaseException:
+            except BaseException as exc:
+                if not isinstance(exc, Exception):
+                    self._drop_connection()
+                    raise
                 try:
                     await self._close_schema_info_locked(packet)
                 except Exception:
@@ -893,6 +902,18 @@ class AsyncConnection(ConnectionCommonMixin):
         await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
         if self._writer is None or self._reader is None:
             raise InterfaceError("connection is closed")
+        if (
+            self._schema_results
+            and isinstance(
+                packet, (PrepareAndExecutePacket, BatchExecutePacket, GetEngineVersionPacket)
+            )
+            and packet.auto_commit
+        ):
+            await self._close_schema_results_locked()
+            # FC6 may itself release the CAS. Recheck before the auto-committing RPC.
+            await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+            if self._writer is None or self._reader is None:
+                raise InterfaceError("connection is closed")
 
         try:
             coro = self._do_send_and_receive(packet)

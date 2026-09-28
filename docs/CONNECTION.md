@@ -452,7 +452,8 @@ finally:
 ```
 
 Schema packets belong to the original connection/session; fetch before a
-transaction boundary or explicitly abandon them. Async uses the same methods with
+transaction boundary (including cursor work and version lookup when autocommit
+is enabled) or explicitly abandon them. Async uses the same methods with
 `await`. See [API Reference](API_REFERENCE.md)
 for the second filter, four-field columns and cleanup/error contract.
 
