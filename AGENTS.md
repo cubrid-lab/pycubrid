@@ -300,6 +300,14 @@ issue title or body. Reporters describe urgency and effort without needing label
 permissions. Maintainer-created issues receive these labels at creation; permissionless
 reports receive them during initial maintainer triage.
 
+Use a short issue title prefix such as `fix:`, `feat:`, `docs:`, `ci:`,
+`chore:`, `test:`, or `perf:` (with an optional scope before the colon).
+`.github/workflows/issue-triage.yml` flags incomplete human-submitted issue
+titles or labels as `status: needs triage` without posting a comment or
+guessing priority/size. Maintainers remove that label once triage is complete.
+Agents and workflows creating issues through CLI/API must supply canonical
+metadata at creation; `GITHUB_TOKEN`-created issues do not retrigger this guard.
+
 Use the following exact names, with **one space after the colon**:
 
 - Priority: `priority: critical`, `priority: high`, `priority: medium`, `priority: low`.
