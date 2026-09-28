@@ -154,7 +154,6 @@ class Cursor(_CursorBase):
         if self._query_handle is not None:
             self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
             self._query_handle = None
-        self._invalidated_by_reconnect = False
 
         sql = operation
         if parameters is not None:
@@ -168,6 +167,8 @@ class Cursor(_CursorBase):
             json_deserializer=self._connection._json_deserializer,
         )
         self._connection._send_and_receive(packet)
+        # Cleared only now: a reconnect before this send flags every cursor.
+        self._invalidated_by_reconnect = False
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
                 "execute: type=%d cols=%d rows=%d",

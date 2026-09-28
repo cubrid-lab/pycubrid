@@ -168,6 +168,14 @@ pytest tests/test_integration.py -v
 docker compose down -v
 ```
 
+The CAS-recycling regressions in `tests/test_integration_cas_reconnect.py`
+(#485) change broker parameters with `broker_changer` and run `cubrid broker
+reset` inside the server container. They skip unless
+`CUBRID_TEST_DOCKER_CONTAINER` names that container, for example
+`export CUBRID_TEST_DOCKER_CONTAINER="$(docker compose ps -q cubrid)"`.
+`make integration` and the CI integration lanes set it; every change is
+restored before the test returns.
+
 #### Async TLS integration tests
 
 `tests/test_aio_ssl_integration.py` adds async TLS coverage for `pycubrid.aio`.

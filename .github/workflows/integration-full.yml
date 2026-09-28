@@ -52,6 +52,8 @@ jobs:
       - name: Run integration tests
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+          # Broker-control regressions (#485) run broker_changer/broker reset here.
+          CUBRID_TEST_DOCKER_CONTAINER: ${{ job.services.cubrid.id }}
         run: |
           python scripts/check_integration_lanes.py
           python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \

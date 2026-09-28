@@ -62,6 +62,9 @@ jobs:
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
       - name: Run the bug-hunt integration suites (wide Hypothesis profile)
+        env:
+          # Broker-control regressions (#485) run broker_changer/broker reset here.
+          CUBRID_TEST_DOCKER_CONTAINER: ${{ job.services.cubrid.id }}
         run: |
           python scripts/check_integration_lanes.py
           python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \

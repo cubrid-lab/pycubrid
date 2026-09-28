@@ -155,6 +155,13 @@ pytest tests/test_integration.py -v
 docker compose down -v
 ```
 
+`tests/test_integration_cas_reconnect.py`의 CAS 재활용 회귀 테스트(#485)는 서버
+컨테이너 안에서 `broker_changer`로 브로커 파라미터를 바꾸고 `cubrid broker reset`을
+실행합니다. `CUBRID_TEST_DOCKER_CONTAINER`가 그 컨테이너를 가리키지 않으면 건너뜁니다.
+예: `export CUBRID_TEST_DOCKER_CONTAINER="$(docker compose ps -q cubrid)"`.
+`make integration`과 CI 통합 레인은 이 값을 설정하며, 모든 변경은 테스트가 끝나기 전에
+원래대로 복원됩니다.
+
 #### 비동기 TLS 통합 테스트
 
 `tests/test_aio_ssl_integration.py`는 `pycubrid.aio`의 비동기 TLS 커버리지를 추가합니다.

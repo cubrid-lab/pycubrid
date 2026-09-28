@@ -91,8 +91,14 @@ graph LR
 CAS Info의 첫 바이트는 트랜잭션 상태입니다. `0`은 OUT_TRAN, `1`은
 IN_TRAN입니다. `END_TRAN`이나 자동 커밋 요청 뒤 OUT_TRAN이 되어도
 소켓 또는 CAS 세션이 해제된 것은 아니므로 다음 요청은 같은 전송 경로로
-보냅니다. `CHECK_CAS` 실패 후에는 명시적 `ping(reconnect=True)` 복구를
+보냅니다. 그래도 CAS는 OUT_TRAN 응답 뒤 소켓을 닫을 수 있으므로(메모리
+재시작, `cubrid broker reset`, CHANGE CLIENT) 드라이버는 JDBC
+`UClientSideConnection.checkReconnect`처럼 다음 요청 전에 `CHECK_CAS`(FC=32)를
+보냅니다. 검사가 실패할 때만 요청당 한 번, 그 요청을 처음 보내기 전에 세션을
+교체합니다(#485). `CHECK_CAS` 실패 후에는 명시적 `ping(reconnect=True)` 복구도
 시도할 수 있지만, 결과가 불확실한 일반 SQL 요청을 자동 재실행하지는 않습니다.
+commit과 rollback은 `END_TRAN` 전에 열린 커서의 쿼리 핸들에 `CLOSE_REQ`(FC=6)를
+보냅니다.
 
 자동 `no_backslash_escapes` 감지는 물리 세션 단위입니다. 새 세션은
 파라미터 바인딩 재개 전에 감지하지만 정상적인 동일 세션 `CHECK_CAS`는

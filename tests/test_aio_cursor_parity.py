@@ -162,7 +162,7 @@ async def test_fetch_threads_decode_and_json_options_to_packet() -> None:
     cursor._row_index = 0
     cursor._total_tuple_count = 1
 
-    async def fake_send(packet: FetchPacket) -> None:
+    async def fake_send(packet: FetchPacket, **_: object) -> None:
         assert packet.decode_collections is True
         assert packet.json_deserializer is json.loads
         packet.rows = [([1, 2],)]

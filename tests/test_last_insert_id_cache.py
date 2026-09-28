@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import inspect
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -57,7 +59,7 @@ async def test_identity_survives_transactions_and_other_cursor_select(
     ids = iter(["41", "42"])
     requests: list[Any] = []
 
-    def send(packet: Any) -> Any:
+    def send(packet: Any, **_: object) -> Any:
         requests.append(packet)
         if isinstance(packet, PrepareAndExecutePacket):
             packet.statement_type = (
@@ -224,7 +226,7 @@ async def test_failed_query_close_preserves_both_identities_before_batch(
     cur._query_handle = 123
     sent: list[Any] = []
 
-    def send(packet: Any) -> Any:
+    def send(packet: Any, **_: object) -> Any:
         sent.append(packet)
         assert isinstance(packet, CloseQueryPacket)
         raise ProgrammingError("close failed")
@@ -323,7 +325,12 @@ async def test_out_tran_keeps_identity_until_physical_reconnect(
         monkeypatch.setattr(connection, "_open_connection", open_connection)
         monkeypatch.setattr(connection, "_do_connect_handshake", handshake)
         monkeypatch.setattr(connection, "_restore_session_state_locked", restore)
-        await connection._check_reconnect_locked()
+        # A live OUT_TRAN CAS answers the CHECK_CAS probe (#485).
+        probe = AsyncMock(return_value=SimpleNamespace(response_code=0))
+        monkeypatch.setattr(connection, "_send_and_receive_locked", probe)
+        assert await connection._check_reconnect_locked() is False
+        monkeypatch.delattr(connection, "_send_and_receive_locked")
+        probe.assert_awaited_once()
         assert connection._last_insert_id == "99"
         open_connection.assert_not_awaited()
         restore.assert_not_awaited()
@@ -335,7 +342,12 @@ async def test_out_tran_keeps_identity_until_physical_reconnect(
         restore = MagicMock()
         monkeypatch.setattr(connection, "connect", connect)
         monkeypatch.setattr(connection, "_restore_session_state", restore)
-        connection._check_reconnect()
+        # A live OUT_TRAN CAS answers the CHECK_CAS probe (#485).
+        probe = MagicMock(return_value=SimpleNamespace(response_code=0))
+        monkeypatch.setattr(connection, "_send_and_receive_locked", probe)
+        assert connection._check_reconnect() is False
+        monkeypatch.delattr(connection, "_send_and_receive_locked")
+        probe.assert_called_once()
         assert connection._last_insert_id == "99"
         connect.assert_not_called()
         restore.assert_not_called()

@@ -307,7 +307,11 @@ conn.close()  # 연결과 모든 커서가 닫힘
 def commit(self) -> None
 ```
 
-현재 트랜잭션을 커밋합니다. 서버로 `CommitPacket`을 보냅니다.
+현재 트랜잭션을 커밋합니다. 닫히지 않은 커서가 가진 쿼리 핸들에 `CLOSE_REQ`를
+보낸 뒤 서버로 `CommitPacket`을 보냅니다(#485). 이미 받은 행은 계속 읽을 수
+있습니다. 이전 트랜잭션 밖 응답 뒤 CAS가 세션을 재활용했다면 요청 전에
+[트랜잭션 경계에서 CAS가 재활용되는 경우](CONNECTION.md)에
+설명한 검증된 재접속이 먼저 수행됩니다.
 
 **발생:** 연결이 닫혔으면 `InterfaceError`.
 
@@ -319,7 +323,8 @@ def commit(self) -> None
 def rollback(self) -> None
 ```
 
-현재 트랜잭션을 롤백합니다. 서버로 `RollbackPacket`을 보냅니다.
+현재 트랜잭션을 롤백합니다. 닫히지 않은 커서가 가진 쿼리 핸들에 `CLOSE_REQ`를
+보낸 뒤 서버로 `RollbackPacket`을 보냅니다(#485).
 
 **발생:** 연결이 닫혔으면 `InterfaceError`.
 
@@ -379,7 +384,8 @@ commit/rollback 및 INSERT가 아닌 문장은 관측한 값을 유지합니다.
 빈 배치는 기존 값을 유지합니다.
 
 정상적인 트랜잭션 종료 후에는 같은 물리 연결과 캐시가 유지됩니다. 실제 연결
-실패 뒤 명시적인 `ping(reconnect=True)` 복구가 성공하면 연결 캐시는 초기화되지만,
+실패 뒤 명시적인 `ping(reconnect=True)` 복구나 트랜잭션 밖 `CHECK_CAS` 실패 후의
+자동 재접속(#485)이 성공하면 연결 캐시는 초기화되지만,
 이전 커서의 `lastrowid` 스냅샷은 물리 연결 변경 후에도 유지됩니다.
 
 이 값은 서버 응답이 INSERT로 분류한 커서 작업의 스냅샷이며, 이전의 실시간 브로커
@@ -423,7 +429,9 @@ def ping(self, reconnect: bool = True) -> bool
 이스케이프 모드 탐색 SELECT를 실행할 수 있습니다.
 
 - CAS 연결이 살아 있으면 `True`를 반환합니다. `CAS_INFO[0]=0`은 연결 해제가
-  아니라 OUT_TRAN을 뜻하며 이 값만으로 재접속하지 않습니다.
+  아니라 OUT_TRAN을 뜻하며 이 값만으로 재접속하지 않습니다. OUT_TRAN 응답 뒤의
+  일반 요청 앞에는 자동 `CHECK_CAS`가 붙고, 실패할 때만 재접속합니다(#485).
+  정상적인 `ping()`도 이 검사로 인정됩니다.
 - `reconnect=False`이면 열린 소켓을 검사하되 재접속하지 않으며, 연결이 끊겼거나
   검사에 실패하면 `False`를 반환합니다.
 - `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 검사 도중
@@ -1072,7 +1080,8 @@ async def ping(self, reconnect: bool = True) -> bool
 
 - CAS 연결이 살아 있으면 `True` 반환.
 - 소켓이 열려 있으면 네이티브 `CHECK_CAS` 왕복을 수행합니다. `CAS_INFO[0]=0`은
-  트랜잭션 종료 후의 OUT_TRAN 상태이지 연결 해제가 아닙니다.
+  트랜잭션 종료 후의 OUT_TRAN 상태이지 연결 해제가 아닙니다. OUT_TRAN 응답 뒤의
+  일반 요청 앞에는 자동 `CHECK_CAS`가 붙고, 실패할 때만 재접속합니다(#485).
 - `reconnect=False`이면 재접속하지 않으며 연결이 끊겼거나 검사에 실패하면
   `False`를 반환합니다.
 - `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 전송/프로토콜

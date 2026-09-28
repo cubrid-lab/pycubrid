@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import struct
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,15 +14,22 @@ from ._parity_helpers import ADAPTERS, ParityAdapter
 from pycubrid.exceptions import InterfaceError, OperationalError
 from pycubrid.protocol import CommitPacket
 from .test_aio_ping import make_async_connection
-from .test_network_edge_cases import make_connected_connection, make_socket_from_chunks
+from .test_network_edge_cases import (
+    build_simple_ok_response,
+    make_connected_connection,
+    make_socket_from_chunks,
+)
 
 
 def test_sync_out_tran_does_not_reconnect() -> None:
     conn, sock = make_connected_connection()
     conn._cas_info = b"\x00\x01\x02\x03"
+    ok = build_simple_ok_response(b"\x00\x01\x02\x03")
+    sock.recv_into.side_effect = make_socket_from_chunks([ok[:4], ok[4:]]).recv_into.side_effect
     conn.connect = MagicMock()
 
-    conn._check_reconnect()
+    # A live OUT_TRAN CAS answers the CHECK_CAS probe (#485): same session.
+    assert conn._check_reconnect() is False
 
     assert conn._socket is sock
     assert conn._cas_info[0] == 0
@@ -35,7 +43,14 @@ async def test_async_out_tran_does_not_reconnect() -> None:
     conn._cas_info = b"\x00\x01\x02\x03"
     conn.connect = AsyncMock()
 
-    await conn._check_reconnect()
+    async def live_probe(packet: object) -> object:
+        conn._cas_info = b"\x00\x01\x02\x03"
+        return SimpleNamespace(response_code=0)
+
+    conn._do_send_and_receive = AsyncMock(side_effect=live_probe)
+
+    # A live OUT_TRAN CAS answers the CHECK_CAS probe (#485): same session.
+    assert await conn._check_reconnect() is False
 
     assert conn._writer is writer
     assert conn._cas_info[0] == 0

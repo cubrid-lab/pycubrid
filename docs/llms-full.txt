@@ -575,12 +575,50 @@ conn.autocommit = True
 > effectively overridden by what the driver reports. Pass ``autocommit=True`` to ``connect()``
 > (or set ``connection.autocommit = True`` after connecting) to enable.
 
-### Session-state restoration after explicit ping recovery
+### CAS recycled at a transaction boundary
 
 `CAS_INFO[0]=0` denotes OUT_TRAN, not a released CAS worker. Normal commit,
-rollback, and autocommit requests can report this value while the same socket
-and session remain usable. pycubrid does not reconnect on that status or replay
-an arbitrary SQL request after a transport failure. If a connection is already
+rollback, and autocommit requests keep the same socket and CAS session, so
+session variables and `SET TRANSACTION ISOLATION LEVEL` survive them (#468).
+
+The CAS may still close the socket right after such a reply: when its memory
+exceeds `APPL_SERVER_MAX_SIZE` it restarts at the next `END_TRAN`, `cubrid broker
+reset` recycles idle workers, and with `KEEP_CONNECTION=AUTO` an idle worker is
+handed to a waiting client (CHANGE CLIENT) when more clients than
+`MAX_NUM_APPL_SERVER` are connected. Therefore, when the last reply was OUT_TRAN,
+sync and async connections send one native `CHECK_CAS` before the next request,
+as the CUBRID JDBC driver does (#485):
+
+- The CAS answers: the same session is kept and the request is sent. This costs
+  one extra round trip per request issued out of transaction, including every
+  statement in autocommit mode (an autocommit INSERT also probes before its
+  last-insert-id lookup).
+- The probe fails: the connection is replaced **once for that request**. The
+  escape mode is re-probed (unless pinned) and an explicitly set `autocommit` is
+  restored, then the request is sent for the first time on the new session. No
+  SQL is replayed; the CAS reported no open transaction, so no uncommitted work
+  is lost. Requests that depend on the lost session are not sent there: a
+  `CLOSE_REQ` for one of its handles is skipped, a FETCH of its unread rows or a
+  last-insert-id lookup raises `OperationalError`, and `pycubrid.compat.native`
+  prepared statements are rejected as belonging to an earlier session. If the
+  re-probed escape mode differs from the old one, the request fails with
+  `OperationalError` before send, since its SQL may already be rendered for the
+  old mode; the new session stays open for a retry.
+- The replacement fails: `OperationalError` is raised and the connection is
+  closed; `ping(reconnect=True)` or a new connection can recover it.
+
+Only driver-owned state is restored. Session variables, isolation levels or lock
+timeouts set through SQL, and other server session state belong to the lost CAS
+session and are not carried over.
+
+`commit()` and `rollback()` also send `CLOSE_REQ` for every query handle still
+held by an unclosed cursor before `END_TRAN`, so a long-lived session does not
+accumulate server handles. Rows that were already received stay readable; an
+unfinished result still raises `InterfaceError` at its next required FETCH.
+
+### Session-state restoration after explicit ping recovery
+
+pycubrid never replays an arbitrary SQL request after a transport failure. If a connection is already
 disconnected, a `CHECK_CAS` probe raises a transport/protocol error, or the
 probe returns a negative response (broken CAS-to-DB link), explicit
 `ping(reconnect=True)` can attempt one new connection. With `reconnect=False`,
@@ -592,12 +630,14 @@ physical session before state restoration; an explicitly selected mode remains
 unchanged. If this probe fails, the session is retired and `ping()` returns
 `False`. No interrupted SQL is replayed. Async parameterized SQL bound before
 a session replacement is rejected before send when its generation changed;
-the caller decides whether to retry. A healthy same-session ping does not
+the caller decides whether to retry. The one exception is SQL whose own
+pre-request `CHECK_CAS` replaced the session: it was never sent, and it is sent
+only if the re-probed escape mode is unchanged. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
-After successful recovery, pycubrid restores the session-level setting the
-caller has **explicitly** set:
+After successful recovery, including the automatic reconnect above, pycubrid
+restores the session-level setting the caller has **explicitly** set:
 
 | Setting | Restored after successful ping recovery? |
 |---|---|
@@ -1276,7 +1316,11 @@ conn.close()  # Connection and all cursors are closed
 def commit(self) -> None
 ```
 
-Commit the current transaction. Sends a `CommitPacket` to the server.
+Commit the current transaction. Sends `CLOSE_REQ` for query handles still held
+by unclosed cursors, then a `CommitPacket` to the server (#485). Rows already
+received stay readable. If the CAS recycled its session after an earlier
+out-of-transaction reply, the request is preceded by the verified reconnect
+described in [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary).
 
 **Raises:** `InterfaceError` if the connection is closed.
 
@@ -1288,7 +1332,8 @@ Commit the current transaction. Sends a `CommitPacket` to the server.
 def rollback(self) -> None
 ```
 
-Roll back the current transaction. Sends a `RollbackPacket` to the server.
+Roll back the current transaction. Sends `CLOSE_REQ` for query handles still
+held by unclosed cursors, then a `RollbackPacket` to the server (#485).
 
 **Raises:** `InterfaceError` if the connection is closed.
 
@@ -1348,8 +1393,9 @@ connection discard/reconnect clears it. Empty, malformed, or failed identity ret
 leaves it `None`. An empty batch leaves it unchanged.
 
 A normal transaction boundary keeps the same physical connection and cache.
-After an actual connection failure, explicit `ping(reconnect=True)` recovery
-clears the connection cache. The earlier cursor's `lastrowid` snapshot remains
+After an actual connection failure, explicit `ping(reconnect=True)` recovery,
+or the automatic reconnect after a failed out-of-transaction `CHECK_CAS`
+(#485), clears the connection cache. The earlier cursor's `lastrowid` snapshot remains
 available across that physical connection change.
 
 This is a snapshot of cursor operations whose server response identifies an
@@ -1396,7 +1442,9 @@ SQL. Recovery of an automatically configured connection can execute the
 read-only escape-mode probe before accepting application SQL.
 
 - Returns `True` when the CAS connection is alive. `CAS_INFO[0]=0` means OUT_TRAN,
-  not a disconnected session, and does not itself cause a reconnect.
+  not a disconnected session, and does not itself cause a reconnect. Ordinary
+  requests after an OUT_TRAN reply are preceded by an automatic `CHECK_CAS` and
+  reconnect only when it fails (#485); a healthy `ping()` also counts as that check.
 - With `reconnect=False`, checks an open socket without reconnecting and returns
   `False` when disconnected or when the check fails.
 - With `reconnect=True`, probes the existing socket first and attempts one
@@ -2059,6 +2107,8 @@ without SQL. Recovery can execute the read-only escape-mode probe.
 - Returns `True` when the CAS connection is alive.
 - Issues the native `CHECK_CAS` round-trip when the socket is open. `CAS_INFO[0]=0`
   denotes OUT_TRAN after a transaction boundary, not a disconnected session.
+  Ordinary requests after an OUT_TRAN reply are preceded by an automatic
+  `CHECK_CAS` and reconnect only when it fails (#485).
 - With `reconnect=False`, does not reconnect; returns `False` when disconnected
   or when the check fails.
 - With `reconnect=True`, probes the existing socket first and attempts one
@@ -3907,9 +3957,14 @@ graph LR
 The first CAS Info byte is transaction state: `0` means OUT_TRAN and `1`
 means IN_TRAN. OUT_TRAN after `END_TRAN` or an auto-committing request does
 **not** mean the socket or CAS session was released; send the next request on
-the same transport. A failed `CHECK_CAS` may justify explicit
-`ping(reconnect=True)` recovery, but an uncertain application request is
-never replayed automatically.
+the same transport. The CAS may still close the socket after an OUT_TRAN reply
+(memory restart, `cubrid broker reset`, CHANGE CLIENT), so before the next
+request the driver sends `CHECK_CAS` (FC=32), like JDBC
+`UClientSideConnection.checkReconnect`. Only a failed probe replaces the session,
+once per request, before that request is first sent (#485). A failed `CHECK_CAS`
+may also justify explicit `ping(reconnect=True)` recovery, but an uncertain
+application request is never replayed automatically. Commit and rollback send
+`CLOSE_REQ` (FC=6) for open cursor query handles before `END_TRAN`.
 
 Automatic `no_backslash_escapes` detection is scoped to a physical session:
 new sessions are probed before parameter binding resumes, while a healthy
@@ -4665,6 +4720,18 @@ connection liveness. A normal commit, rollback, or autocommit response with
 OUT_TRAN keeps the same physical session. An ordinary SQL request is never
 replayed on another connection after an uncertain transport failure.
 
+The CAS may still close the socket right after an OUT_TRAN reply: a CAS
+memory restart (`APPL_SERVER_MAX_SIZE`), `cubrid broker reset`, or CHANGE
+CLIENT when more clients than CAS processes are waiting. Like JDBC
+`UClientSideConnection.checkReconnect`, the driver therefore sends `CHECK_CAS`
+before the next request when the last reply was OUT_TRAN (#485). A live CAS
+keeps the session. Only a failed probe replaces it: once per request, with the
+escape-mode probe and autocommit restored and no SQL replayed. A `CLOSE_REQ`
+for a handle of the lost session is skipped, a FETCH of its result raises
+`OperationalError`, and a failed reconnect raises `OperationalError`. Commit and rollback first send `CLOSE_REQ` for query
+handles still held by unclosed cursors, so handles do not accumulate in a CAS
+session that now outlives transactions.
+
 ```mermaid
 sequenceDiagram
     participant App
@@ -4672,10 +4739,18 @@ sequenceDiagram
     participant Broker
     participant CAS
 
-    App->>Connection: commit()/rollback()/autocommit request
-    Connection->>CAS: Request on current socket
+    App->>Connection: commit()/rollback()
+    Connection->>CAS: CLOSE_REQ for each open cursor handle, then END_TRAN
     CAS-->>Connection: CAS_INFO[0]=0 (OUT_TRAN)
-    note over Connection,CAS: Same socket and session remain in use
+    App->>Connection: next request
+    Connection->>CAS: CHECK_CAS (FC=32)
+    alt CAS alive
+      CAS-->>Connection: Healthy
+      note over Connection,CAS: Same socket and session remain in use
+    else CAS closed the socket (restart, reset, CHANGE CLIENT)
+      Connection->>Broker: Reconnect once, probe escape mode, restore autocommit
+      note over Connection: Original request is sent once on the new session
+    end
     App->>Connection: ping(reconnect=True)
     opt Existing socket is connected
       Connection->>CAS: CHECK_CAS (FC=32)
@@ -6630,7 +6705,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | Owned schema rows | ✅ | Unreleased (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only `arg2=None`; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |
 | Dual-stack address fallback (sync) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 iteration |
 | Dual-stack address fallback (async) | ✅ | 1.2.0 (#83) | Async equivalent |
-| Explicit connection recovery | ✅ | 1.2.0 (#70); Unreleased (#471) | `ping(reconnect=True)` can reconnect after disconnect, negative `CHECK_CAS` (broken CAS-to-DB link), or a check transport/protocol error; `CAS_INFO[0]=0` is OUT_TRAN and never triggers reconnect or SQL replay. Auto escape mode re-probes per new physical session; explicit mode stays pinned; failed probe returns `False`. Async prebound parameterized SQL from an old generation is rejected before send. No dynamic `SET` or heterogeneous-failover guarantee. |
+| Explicit connection recovery | ✅ | 1.2.0 (#70); Unreleased (#471, #485) | `ping(reconnect=True)` can reconnect after disconnect, negative `CHECK_CAS` (broken CAS-to-DB link), or a check transport/protocol error; `CAS_INFO[0]=0` is OUT_TRAN and keeps the session. Before the next request an OUT_TRAN session is verified with `CHECK_CAS`; only a failed probe (CAS restart, broker reset, CHANGE CLIENT) reconnects once, without SQL replay (#485). Auto escape mode re-probes per new physical session; explicit mode stays pinned; failed probe returns `False`. Async prebound parameterized SQL from an old generation is rejected before send. No dynamic `SET` or heterogeneous-failover guarantee. |
 | Unknown-option reporting | ✅ | 1.8.0 (#377) | An unrecognised connection keyword is ignored but emits `UnknownConnectionOptionWarning` (with a spelling suggestion); escalate with `warnings.simplefilter("error", ...)` |
 
 ### TLS / SSL
@@ -6929,6 +7004,14 @@ pytest tests/test_integration.py -v
 # Cleanup
 docker compose down -v
 ```
+
+The CAS-recycling regressions in `tests/test_integration_cas_reconnect.py`
+(#485) change broker parameters with `broker_changer` and run `cubrid broker
+reset` inside the server container. They skip unless
+`CUBRID_TEST_DOCKER_CONTAINER` names that container, for example
+`export CUBRID_TEST_DOCKER_CONTAINER="$(docker compose ps -q cubrid)"`.
+`make integration` and the CI integration lanes set it; every change is
+restored before the test returns.
 
 #### Async TLS integration tests
 
@@ -7494,7 +7577,9 @@ during `ping(reconnect=True)`, it retires the replacement session and returns
 `False`. Neither path guesses a mode or replays interrupted SQL. In the async
 path, parameterized SQL bound before a session replacement is rejected before
 send if its session generation changed; the caller must deliberately retry
-the operation. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect.
+the operation. Normal `CAS_INFO=OUT_TRAN` responses keep the session; only a
+failed pre-request `CHECK_CAS` reconnects (#485), and SQL bound for the session
+that this probe replaced is sent only if the re-probed mode is unchanged.
 
 The [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) and
 [11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) CUBRID manuals

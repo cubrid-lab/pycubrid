@@ -337,7 +337,11 @@ conn.close()  # Connection and all cursors are closed
 def commit(self) -> None
 ```
 
-Commit the current transaction. Sends a `CommitPacket` to the server.
+Commit the current transaction. Sends `CLOSE_REQ` for query handles still held
+by unclosed cursors, then a `CommitPacket` to the server (#485). Rows already
+received stay readable. If the CAS recycled its session after an earlier
+out-of-transaction reply, the request is preceded by the verified reconnect
+described in [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary).
 
 **Raises:** `InterfaceError` if the connection is closed.
 
@@ -349,7 +353,8 @@ Commit the current transaction. Sends a `CommitPacket` to the server.
 def rollback(self) -> None
 ```
 
-Roll back the current transaction. Sends a `RollbackPacket` to the server.
+Roll back the current transaction. Sends `CLOSE_REQ` for query handles still
+held by unclosed cursors, then a `RollbackPacket` to the server (#485).
 
 **Raises:** `InterfaceError` if the connection is closed.
 
@@ -409,8 +414,9 @@ connection discard/reconnect clears it. Empty, malformed, or failed identity ret
 leaves it `None`. An empty batch leaves it unchanged.
 
 A normal transaction boundary keeps the same physical connection and cache.
-After an actual connection failure, explicit `ping(reconnect=True)` recovery
-clears the connection cache. The earlier cursor's `lastrowid` snapshot remains
+After an actual connection failure, explicit `ping(reconnect=True)` recovery,
+or the automatic reconnect after a failed out-of-transaction `CHECK_CAS`
+(#485), clears the connection cache. The earlier cursor's `lastrowid` snapshot remains
 available across that physical connection change.
 
 This is a snapshot of cursor operations whose server response identifies an
@@ -457,7 +463,9 @@ SQL. Recovery of an automatically configured connection can execute the
 read-only escape-mode probe before accepting application SQL.
 
 - Returns `True` when the CAS connection is alive. `CAS_INFO[0]=0` means OUT_TRAN,
-  not a disconnected session, and does not itself cause a reconnect.
+  not a disconnected session, and does not itself cause a reconnect. Ordinary
+  requests after an OUT_TRAN reply are preceded by an automatic `CHECK_CAS` and
+  reconnect only when it fails (#485); a healthy `ping()` also counts as that check.
 - With `reconnect=False`, checks an open socket without reconnecting and returns
   `False` when disconnected or when the check fails.
 - With `reconnect=True`, probes the existing socket first and attempts one
@@ -1120,6 +1128,8 @@ without SQL. Recovery can execute the read-only escape-mode probe.
 - Returns `True` when the CAS connection is alive.
 - Issues the native `CHECK_CAS` round-trip when the socket is open. `CAS_INFO[0]=0`
   denotes OUT_TRAN after a transaction boundary, not a disconnected session.
+  Ordinary requests after an OUT_TRAN reply are preceded by an automatic
+  `CHECK_CAS` and reconnect only when it fails (#485).
 - With `reconnect=False`, does not reconnect; returns `False` when disconnected
   or when the check fails.
 - With `reconnect=True`, probes the existing socket first and attempts one

@@ -310,18 +310,34 @@ conn.autocommit = True
 >
 > pycubrid의 `Connection`은 명시적 트랜잭션 제어를 위해 기본적으로 `autocommit=False`이며, 이 값을 매 `PrepareAndExecute` 패킷의 문장별 ``auto_commit`` 플래그로 보냅니다. 따라서 브로커 자체의 ``CUBRID_AUTO_COMMIT`` 설정은 사실상 드라이버가 보고하는 값으로 덮어씌워집니다. 활성화하려면 ``connect()``에 ``autocommit=True``를 전달하거나(또는 연결 후 ``connection.autocommit = True`` 설정) 하세요.
 
+### 트랜잭션 경계에서 CAS가 재활용되는 경우
+
+`CAS_INFO[0]=0`은 CAS 워커 해제가 아니라 트랜잭션 밖 상태인 OUT_TRAN을 뜻합니다. 정상적인 commit, rollback 및 autocommit 요청은 같은 소켓과 CAS 세션을 유지하므로 세션 변수와 `SET TRANSACTION ISOLATION LEVEL`도 유지됩니다(#468).
+
+그래도 CAS는 이런 응답 직후 소켓을 닫을 수 있습니다. 메모리가 `APPL_SERVER_MAX_SIZE`를 넘으면 다음 `END_TRAN`에서 재시작하고, `cubrid broker reset`은 유휴 워커를 재활용하며, `KEEP_CONNECTION=AUTO`에서 `MAX_NUM_APPL_SERVER`보다 많은 클라이언트가 연결되면 유휴 워커를 대기 중인 클라이언트에게 넘깁니다(CHANGE CLIENT). 그래서 직전 응답이 OUT_TRAN이면 동기/비동기 연결 모두 CUBRID JDBC 드라이버처럼 다음 요청 전에 네이티브 `CHECK_CAS`를 한 번 보냅니다(#485).
+
+- CAS가 응답하면 같은 세션을 유지하고 요청을 보냅니다. 트랜잭션 밖에서 보내는 요청마다, 즉 autocommit 모드의 모든 문장마다 왕복이 한 번 늘어납니다(autocommit INSERT는 last-insert-id 조회 전에도 검사합니다).
+- 검사가 실패하면 **해당 요청에 대해 한 번만** 연결을 교체합니다. 고정하지 않은 이스케이프 모드를 다시 감지하고 명시적으로 설정한 `autocommit`을 복원한 뒤, 요청을 새 세션에서 처음으로 보냅니다. SQL은 재실행하지 않으며, CAS가 열린 트랜잭션이 없다고 보고했으므로 커밋되지 않은 작업을 잃지 않습니다. 잃어버린 세션에 의존하는 요청은 새 세션으로 보내지 않습니다. 그 세션 핸들에 대한 `CLOSE_REQ`는 건너뛰고, 아직 읽지 않은 행에 대한 FETCH나 last-insert-id 조회는 `OperationalError`를 발생시키며, `pycubrid.compat.native` prepared 문은 이전 세션 소속으로 거부됩니다. 다시 감지한 이스케이프 모드가 이전과 다르면 SQL이 이미 이전 모드로 만들어졌을 수 있으므로 요청을 보내기 전에 `OperationalError`로 실패시키며, 새 세션은 재시도를 위해 열린 채로 둡니다.
+- 교체에 실패하면 `OperationalError`를 발생시키고 연결을 닫습니다. `ping(reconnect=True)`나 새 연결로 복구할 수 있습니다.
+
+복원하는 것은 드라이버가 소유한 상태뿐입니다. 세션 변수, SQL로 설정한 격리 수준이나 잠금 타임아웃 등 서버 세션 상태는 잃어버린 CAS 세션에 속하므로 이어지지 않습니다.
+
+`commit()`과 `rollback()`은 `END_TRAN` 전에 닫히지 않은 커서가 가진 모든 쿼리 핸들에 `CLOSE_REQ`를 보내므로, 오래 유지되는 세션에 서버 핸들이 쌓이지 않습니다. 이미 받은 행은 계속 읽을 수 있고, 끝나지 않은 결과는 다음 FETCH가 필요할 때 여전히 `InterfaceError`를 발생시킵니다.
+
 ### 명시적 ping 복구 후 세션 상태 복원
 
-`CAS_INFO[0]=0`은 CAS 워커 해제가 아니라 트랜잭션 밖 상태인 OUT_TRAN을 뜻합니다. 정상적인 commit, rollback 및 autocommit 요청 후에도 같은 소켓과 세션에서 이 값이 나타날 수 있습니다. pycubrid는 이 상태만으로 재접속하지 않으며, 전송 실패 후 임의의 SQL 요청을 자동 재실행하지도 않습니다. 연결이 이미 끊겼거나 `CHECK_CAS` 검사 중 전송/프로토콜 오류가 발생했거나 음수 검사 응답으로 CAS–DB 링크 장애가 확인되면 명시적인 `ping(reconnect=True)`로 새 연결을 한 번 시도할 수 있습니다. `reconnect=False`는 음수 응답을 `False`로 보고하고 재접속하지 않습니다. 중단된 SQL을 재시도해도 안전한지는 호출자가 판단해야 합니다.
+pycubrid는 전송 실패 후 임의의 SQL 요청을 자동 재실행하지 않습니다. 연결이 이미 끊겼거나 `CHECK_CAS` 검사 중 전송/프로토콜 오류가 발생했거나 음수 검사 응답으로 CAS–DB 링크 장애가 확인되면 명시적인 `ping(reconnect=True)`로 새 연결을 한 번 시도할 수 있습니다. `reconnect=False`는 음수 응답을 `False`로 보고하고 재접속하지 않습니다. 중단된 SQL을 재시도해도 안전한지는 호출자가 판단해야 합니다.
 
 자동 `no_backslash_escapes` 모드는 대체 물리 세션에서 상태 복원 전에 다시
 감지하며, 명시적으로 고른 모드는 유지합니다. 감지 실패 시 세션을 폐기하고
 `ping()`은 `False`를 반환합니다. 중단된 SQL은 재실행하지 않습니다. 비동기
 파라미터 SQL이 이전 세션 세대에서 바인딩되었다면 전송 전에 거부하므로
-재시도 여부는 호출자가 결정해야 합니다. 정상적인 동일 세션 ping은 감지하지
+재시도 여부는 호출자가 결정해야 합니다. 예외는 요청 자신의 사전 `CHECK_CAS`가
+세션을 교체한 경우로, 아직 보내지 않은 이 SQL은 다시 감지한 이스케이프 모드가
+같을 때만 보냅니다. 정상적인 동일 세션 ping은 감지하지
 않습니다. 세션 내 동적 설정 변경이나 이기종 페일오버 검증을 뜻하지 않습니다.
 
-복구가 성공하면 pycubrid는 호출자가 **명시적으로** 설정한 세션 수준 설정을 복원합니다:
+위의 자동 재접속을 포함해 복구가 성공하면 pycubrid는 호출자가 **명시적으로** 설정한 세션 수준 설정을 복원합니다:
 
 | 설정 | ping 복구 성공 후 복원? |
 |---|---|

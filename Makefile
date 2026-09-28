@@ -57,6 +57,7 @@ integration: docker-up ## Run integration tests against a Docker CUBRID
 	@echo "Waiting for CUBRID to be ready..."
 	@sleep 10
 	CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb" \
+		CUBRID_TEST_DOCKER_CONTAINER="$$(docker compose ps -q cubrid)" \
 		$(PYTEST) $(TESTS)/ -m integration -v
 	$(MAKE) docker-down
 

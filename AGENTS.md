@@ -67,8 +67,13 @@ graph TD
 
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
-session. Only explicit `ping(reconnect=True)` may recover a confirmed
-CAS/transport failure, and arbitrary SQL is never replayed automatically.
+session. Because the CAS may still close the socket after an OUT_TRAN reply
+(memory restart, broker reset, CHANGE CLIENT), probe with CHECK_CAS before the
+next request (JDBC `checkReconnect` parity) and replace the session only when
+that probe fails: once per request, before the request is first sent, restoring
+driver-owned state (#485). Explicit `ping(reconnect=True)` also recovers a
+confirmed CAS/transport failure; arbitrary SQL is never replayed automatically.
+Commit/rollback CLOSE_REQ open cursor handles before END_TRAN.
 With `no_backslash_escapes` unset, probe each newly opened physical session
 before binding against it; explicit `True`/`False` remains pinned. Healthy
 same-session ping does not probe. A failed probe makes direct connect raise or

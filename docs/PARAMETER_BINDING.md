@@ -187,7 +187,9 @@ during `ping(reconnect=True)`, it retires the replacement session and returns
 `False`. Neither path guesses a mode or replays interrupted SQL. In the async
 path, parameterized SQL bound before a session replacement is rejected before
 send if its session generation changed; the caller must deliberately retry
-the operation. Normal `CAS_INFO=OUT_TRAN` responses do not reconnect.
+the operation. Normal `CAS_INFO=OUT_TRAN` responses keep the session; only a
+failed pre-request `CHECK_CAS` reconnects (#485), and SQL bound for the session
+that this probe replaced is sent only if the re-probed mode is unchanged.
 
 The [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) and
 [11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) CUBRID manuals

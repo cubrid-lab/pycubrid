@@ -365,12 +365,50 @@ conn.autocommit = True
 > effectively overridden by what the driver reports. Pass ``autocommit=True`` to ``connect()``
 > (or set ``connection.autocommit = True`` after connecting) to enable.
 
-### Session-state restoration after explicit ping recovery
+### CAS recycled at a transaction boundary
 
 `CAS_INFO[0]=0` denotes OUT_TRAN, not a released CAS worker. Normal commit,
-rollback, and autocommit requests can report this value while the same socket
-and session remain usable. pycubrid does not reconnect on that status or replay
-an arbitrary SQL request after a transport failure. If a connection is already
+rollback, and autocommit requests keep the same socket and CAS session, so
+session variables and `SET TRANSACTION ISOLATION LEVEL` survive them (#468).
+
+The CAS may still close the socket right after such a reply: when its memory
+exceeds `APPL_SERVER_MAX_SIZE` it restarts at the next `END_TRAN`, `cubrid broker
+reset` recycles idle workers, and with `KEEP_CONNECTION=AUTO` an idle worker is
+handed to a waiting client (CHANGE CLIENT) when more clients than
+`MAX_NUM_APPL_SERVER` are connected. Therefore, when the last reply was OUT_TRAN,
+sync and async connections send one native `CHECK_CAS` before the next request,
+as the CUBRID JDBC driver does (#485):
+
+- The CAS answers: the same session is kept and the request is sent. This costs
+  one extra round trip per request issued out of transaction, including every
+  statement in autocommit mode (an autocommit INSERT also probes before its
+  last-insert-id lookup).
+- The probe fails: the connection is replaced **once for that request**. The
+  escape mode is re-probed (unless pinned) and an explicitly set `autocommit` is
+  restored, then the request is sent for the first time on the new session. No
+  SQL is replayed; the CAS reported no open transaction, so no uncommitted work
+  is lost. Requests that depend on the lost session are not sent there: a
+  `CLOSE_REQ` for one of its handles is skipped, a FETCH of its unread rows or a
+  last-insert-id lookup raises `OperationalError`, and `pycubrid.compat.native`
+  prepared statements are rejected as belonging to an earlier session. If the
+  re-probed escape mode differs from the old one, the request fails with
+  `OperationalError` before send, since its SQL may already be rendered for the
+  old mode; the new session stays open for a retry.
+- The replacement fails: `OperationalError` is raised and the connection is
+  closed; `ping(reconnect=True)` or a new connection can recover it.
+
+Only driver-owned state is restored. Session variables, isolation levels or lock
+timeouts set through SQL, and other server session state belong to the lost CAS
+session and are not carried over.
+
+`commit()` and `rollback()` also send `CLOSE_REQ` for every query handle still
+held by an unclosed cursor before `END_TRAN`, so a long-lived session does not
+accumulate server handles. Rows that were already received stay readable; an
+unfinished result still raises `InterfaceError` at its next required FETCH.
+
+### Session-state restoration after explicit ping recovery
+
+pycubrid never replays an arbitrary SQL request after a transport failure. If a connection is already
 disconnected, a `CHECK_CAS` probe raises a transport/protocol error, or the
 probe returns a negative response (broken CAS-to-DB link), explicit
 `ping(reconnect=True)` can attempt one new connection. With `reconnect=False`,
@@ -382,12 +420,14 @@ physical session before state restoration; an explicitly selected mode remains
 unchanged. If this probe fails, the session is retired and `ping()` returns
 `False`. No interrupted SQL is replayed. Async parameterized SQL bound before
 a session replacement is rejected before send when its generation changed;
-the caller decides whether to retry. A healthy same-session ping does not
+the caller decides whether to retry. The one exception is SQL whose own
+pre-request `CHECK_CAS` replaced the session: it was never sent, and it is sent
+only if the re-probed escape mode is unchanged. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
-After successful recovery, pycubrid restores the session-level setting the
-caller has **explicitly** set:
+After successful recovery, including the automatic reconnect above, pycubrid
+restores the session-level setting the caller has **explicitly** set:
 
 | Setting | Restored after successful ping recovery? |
 |---|---|
