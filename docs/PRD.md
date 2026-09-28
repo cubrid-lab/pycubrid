@@ -3,7 +3,7 @@
 ## 1. Overview
 
 **Project**: pycubrid
-**Current Version**: 1.3.0
+**Current Version**: 1.8.0
 **Status**: Production-ready
 **Repository**: [github.com/cubrid-lab/pycubrid](https://github.com/cubrid-lab/pycubrid)
 **License**: MIT
@@ -386,4 +386,4 @@ pycubrid follows the same philosophy: **examples are not supplementary — they 
 
 ---
 
-*Last updated: April 2026 · pycubrid v1.3.0 (async API available since v1.1.0)*
+*Last updated: September 2026 · pycubrid v1.8.0 (async API available since v1.1.0)*

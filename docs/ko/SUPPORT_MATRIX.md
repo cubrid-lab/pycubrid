@@ -4,7 +4,7 @@
 
 pycubrid 릴리스의 호환성과 기능 지원.
 
-> **참조:** 현재 버전 `1.3.0`. 릴리스별 상세는 [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)를 참고하세요.
+> **참조:** 현재 버전 `1.8.0`. 릴리스별 상세는 [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)를 참고하세요.
 
 ---
 
@@ -74,10 +74,10 @@ pycubrid 릴리스의 호환성과 기능 지원.
 | `get_server_version()` | ✅ | 1.0.0 | 버전 문자열 반환 (예: `"11.2.0.0378"`) |
 | `get_last_insert_id()` | ✅ | 1.0.0 | AUTO_INCREMENT INSERT 이후 |
 | 스키마 getter | ✅ | 1.0.0 | 원시 `GetSchemaPacket`; 기존 위치 인자 유지 |
-| 소유권이 있는 스키마 행 | ✅ | 미출시 (#456) | 동기/비동기 `fetch_schema_info()` / `close_schema_info()`, 키워드 전용 `arg2=None`; #457 실서버 행렬은 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 네이티브 동등성이나 다른 스키마 코드는 인증하지 않음 |
+| 소유권이 있는 스키마 행 | ✅ | 1.8.0 (#456) | 동기/비동기 `fetch_schema_info()` / `close_schema_info()`, 키워드 전용 `arg2=None`; #457 실서버 행렬은 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 네이티브 동등성이나 다른 스키마 코드는 인증하지 않음 |
 | 듀얼스택 주소 폴백 (동기) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 순회 |
 | 듀얼스택 주소 폴백 (비동기) | ✅ | 1.2.0 (#83) | 비동기 대응 |
-| 명시적 연결 복구 | ✅ | 1.2.0 (#70); 미출시 (#471, #485) | `ping(reconnect=True)`는 연결 끊김, 음수 `CHECK_CAS`(CAS–DB 링크 장애) 또는 검사 중 전송/프로토콜 오류 후 재접속할 수 있음; `CAS_INFO[0]=0`은 OUT_TRAN이며 세션을 유지함. 다음 요청 전에 OUT_TRAN 세션을 `CHECK_CAS`로 확인하고, 검사가 실패할 때만(CAS 재시작, broker reset, CHANGE CLIENT) SQL 재실행 없이 한 번 재접속함(#485). 자동 이스케이프 모드는 새 물리 세션마다 감지하고 명시적 모드는 유지하며, 감지 실패 시 `False` 반환. 이전 세대에서 바인딩한 비동기 파라미터 SQL은 전송 전 거부. 동적 `SET` 또는 이기종 페일오버 보장은 아님. |
+| 명시적 연결 복구 | ✅ | 1.2.0 (#70); 1.8.0 (#471, #485) | `ping(reconnect=True)`는 연결 끊김, 음수 `CHECK_CAS`(CAS–DB 링크 장애) 또는 검사 중 전송/프로토콜 오류 후 재접속할 수 있음; `CAS_INFO[0]=0`은 OUT_TRAN이며 세션을 유지함. 다음 요청 전에 OUT_TRAN 세션을 `CHECK_CAS`로 확인하고, 검사가 실패할 때만(CAS 재시작, broker reset, CHANGE CLIENT) SQL 재실행 없이 한 번 재접속함(#485). 자동 이스케이프 모드는 새 물리 세션마다 감지하고 명시적 모드는 유지하며, 감지 실패 시 `False` 반환. 이전 세대에서 바인딩한 비동기 파라미터 SQL은 전송 전 거부. 동적 `SET` 또는 이기종 페일오버 보장은 아님. |
 
 ### TLS / SSL
 
