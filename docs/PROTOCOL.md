@@ -619,6 +619,11 @@ byte carries the full scalar/element type (including codes above 31); otherwise
 the low five bits carry it. Collection row dispatch uses the collection kind,
 not that element type.
 
+A collection value is one element-type byte, a 4-byte element count, then a
+4-byte length and payload per element; a NULL element has length `-1` and no
+payload. When every element is NULL, CUBRID 10.2/11.4 send element type `0`
+(NULL): `{}` is `00 00000000` and `{NULL, NULL}` is `00 00000002 ffffffff ffffffff`.
+
 Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:
 
 | Type Code | Name       | Wire Format |

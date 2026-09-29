@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- With `decode_collections=True`, a nonempty `SET`/`MULTISET`/`SEQUENCE`
+  (`LIST`) whose elements are all SQL NULL, such as `{NULL}` or
+  `{NULL, NULL}`, now decodes to `[None, ...]` (a `SET` becomes
+  `frozenset({None})`) instead of raw `bytes`. CUBRID 10.2 and 11.4 send
+  these with element type NULL, the element count and a `-1` length per
+  element; only an empty collection was handled before. A NULL-only header
+  whose count does not match the payload size, or whose element lengths are
+  not NULL markers, raises `OperationalError('malformed response from
+  broker')`. Default raw-bytes mode, empty and mixed collections, and public
+  signatures are unchanged. (#483)
 - Invalid UTF-8 in a fully received broker reply no longer raises
   `OperationalError('malformed response from broker')` and closes the
   connection. Server error messages (and batch per-statement error messages)

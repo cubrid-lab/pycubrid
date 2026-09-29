@@ -321,6 +321,12 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   the documented collection types and opt-in decoding behavior. Default raw bytes,
   public signatures and unsupported collection parameter binding are unchanged.
 
+- **NULL-only collection decoding (#483)** — PATCH / bug correction. With
+  `decode_collections=True`, nonempty collections of only SQL NULL decode like
+  other collections instead of falling back to raw bytes; malformed NULL-only
+  headers are rejected. Default raw bytes, empty/mixed collections, public
+  signatures and unsupported collection parameter binding are unchanged.
+
 - **Quality-tool pin and scope consistency (#416, #497)** — PATCH / development
   and CI maintenance. Shared lint/format targets include maintained scripts/demos,
   and declared pins, installed versions, and scopes are checked together. Ruff and

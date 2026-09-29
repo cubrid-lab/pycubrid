@@ -375,6 +375,9 @@ CUBRID의 컬렉션 타입(`SET`, `MULTISET`, `SEQUENCE`)은 하위 호환을 �
 - description의 마지막 `null_ok` 필드는 PEP 249 의미로 NULL 허용 컬럼이면
   `True`, NOT NULL/기본키 컬럼이면 `False`입니다. CAS의 반대 의미 플래그
   `is_non_null`을 그대로 노출하지 않습니다.
+- 모든 요소가 SQL NULL인 비어 있지 않은 컬렉션(예: `{NULL}`, `{NULL, NULL}`)은
+  `MULTISET`/`SEQUENCE`에서 `[None, ...]`, `SET`에서 `frozenset({None})`으로 디코딩됩니다.
+  빈 컬렉션은 `[]` / `frozenset()`으로 디코딩됩니다.
 - 중첩 컬렉션 페이로드는 raw `bytes`로 유지됩니다.
 - 알 수 없는 컬렉션 요소 타입은 raw `bytes`로 폴백됩니다.
 - `SET` 값은 모든 디코딩된 요소가 해시 가능하면 `frozenset`으로 정규화됩니다.

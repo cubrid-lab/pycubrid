@@ -413,6 +413,19 @@ class PacketReader:
         element_count = self._parse_int()
         if element_type == CUBRIDDataType.NULL and element_count == 0:
             return []
+        if element_type == CUBRIDDataType.NULL:
+            # CUBRID 10.2/11.4 send element type NULL when every element is SQL
+            # NULL: the count is followed by one ``-1`` length word per element
+            # and no payload (#483). Check the exact size before allocating.
+            if (
+                element_count < 0
+                or element_count * DataSize.INT != size - DataSize.BYTE - DataSize.INT
+            ):
+                raise ValueError("malformed NULL-only collection: count does not match size")
+            for _ in range(element_count):
+                if self._parse_int() not in (-1, 0):
+                    raise ValueError("malformed NULL-only collection: invalid element length")
+            return [None] * element_count
         if element_type in (
             CUBRIDDataType.SET,
             CUBRIDDataType.MULTISET,
