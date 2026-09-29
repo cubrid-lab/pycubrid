@@ -3206,6 +3206,23 @@ cur.close()
 conn.close()
 ```
 
+### Decimal Parameters
+
+`Decimal` parameters are sent as plain fixed-point literals (never E notation),
+so CUBRID keeps them `NUMERIC` with the scale you wrote: `Decimal("0.0000001")`
+fetches back as `Decimal`, not `float`. A value whose plain literal needs more
+than 38 digits, CUBRID's maximum `NUMERIC` precision, raises `DataError`
+instead of becoming `DOUBLE`. See
+[Parameter Binding: Decimal parameters](PARAMETER_BINDING.md#decimal-parameters).
+
+```python
+from decimal import Decimal
+
+cur.execute("SELECT ?", [Decimal("0.0000001")])  # sent as 0.0000001
+assert cur.fetchone()[0] == Decimal("0.0000001")
+assert cur.description[0][1] == pycubrid.constants.CUBRIDDataType.NUMERIC
+```
+
 ### Using CUBRIDDataType Enum
 
 ```python
@@ -7675,6 +7692,7 @@ change to the rules below is a contract change governed by
 - [Overview](#overview)
 - [Placeholder Style](#placeholder-style)
 - [Type Mapping (Guarantees)](#type-mapping-guarantees)
+  - [Decimal parameters](#decimal-parameters)
 - [String Escaping](#string-escaping)
   - [Escape-mode negotiation](#escape-mode-negotiation)
   - [Literal mode](#literal-mode-no_backslash_escapestrue)
@@ -7756,7 +7774,7 @@ test that pins the behavior.
 | `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
 | `int` | `str(value)` (decimal digits) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
 | `float` | `str(value)`; `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
-| `decimal.Decimal` | `str(value)` (unquoted) | `_cursor_common.py:175-176` | `tests/test_param_security.py:113-115` |
+| `decimal.Decimal` | Plain fixed-point digits (`format(value, "f")`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`). See [Decimal parameters](#decimal-parameters) | `_cursor_common.py:233-251` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
 | `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
 | `bytes`, `bytearray` | `X'<hex>'` (lowercase hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
 | `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — microseconds truncated to milliseconds (`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
@@ -7771,6 +7789,41 @@ This formatting behavior does not guarantee that CUBRID can store the value;
 server numeric limits and Python's integer-to-string conversion limits still apply.
 Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_large_int`
 and `::test_bind_large_int`.
+
+### Decimal parameters
+
+A finite `decimal.Decimal` is rendered in plain fixed-point notation, never with
+an exponent: `Decimal("1E-7")` becomes `0.0000001`, `Decimal("1E+5")` becomes
+`100000`. CUBRID parses a numeric literal written with `E` as `DOUBLE`, so the
+previous `str(value)` rendering (`1E-7`) silently turned such values into
+floating point and lost digits on insert (#517). The sign, trailing zeros and
+scale are kept as written: `Decimal("1.10")` is sent as `1.10` (CUBRID types it
+`NUMERIC(3,2)`) and `Decimal("-0.00")` as `-0.00`.
+
+CUBRID accepts a plain numeric literal of at most 38 digits (the `NUMERIC`
+maximum precision) and rejects a longer one with error `-494` "Invalid
+numeric". The digit count is that of the rendered literal: every digit of a
+nonzero integer part plus every fractional digit, including leading fractional
+zeros (`0.0000001` has 7) and trailing zeros; a lone `0` integer part is not
+counted. A `Decimal` whose plain literal would need more than 38 digits raises
+`DataError` before anything is sent, instead of falling back to `DOUBLE`. That
+covers `Decimal("1E-39")`, 39 significant digits and any huge exponent such as
+`Decimal("1E+999999999")`, which is rejected without being expanded. Round or
+quantize such values before binding, or bind a `float` if `DOUBLE` semantics
+are intended.
+
+A fractional literal is `NUMERIC(p,s)` on the server. An integral value without
+fractional digits (`Decimal("42")`, `Decimal("1E+5")`) renders as a plain
+integer literal, which CUBRID types by magnitude (`INTEGER`, `BIGINT` or
+`NUMERIC(p,0)`); the value stays exact. When the target column has a smaller
+scale than the literal, CUBRID rounds on assignment as for any literal (see
+[Non-Guarantees](#non-guarantees-and-explicit-limits)). `NaN` and `Infinity`
+still raise `ProgrammingError`.
+
+Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_decimal_plain_notation`,
+`::test_decimal_precision_38_accepted`, `::test_decimal_precision_over_38_raises`
+and `::test_bind_decimal_plain_notation`, and live on CUBRID 10.2 and 11.4 (sync
+and async) by `tests/test_parity_integration.py::TestParityDecimalLiterals`.
 
 ### Explicitly unsupported as a bound value
 

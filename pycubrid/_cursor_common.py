@@ -16,7 +16,7 @@ import re
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 
-from .exceptions import InterfaceError, ProgrammingError
+from .exceptions import DataError, InterfaceError, ProgrammingError
 from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE, get_sqlstate
 
 if TYPE_CHECKING:
@@ -233,7 +233,22 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
     if isinstance(value, Decimal):
         if value.is_nan() or value.is_infinite():
             raise ProgrammingError("nan and inf are not supported by CUBRID")
-        return str(value)
+        # str() switches to E notation (1E-7), which CUBRID parses as DOUBLE.
+        # Render plain fixed-point digits instead; the server rejects a plain
+        # numeric literal with more than 38 digits (leading fractional zeros
+        # count), so check that before expanding a possibly huge exponent.
+        _, digits, exponent = value.as_tuple()
+        assert isinstance(exponent, int)
+        if exponent >= 0:
+            precision = len(digits) + exponent if value else 1
+        else:
+            precision = max(len(digits), -exponent)
+        if precision > 38:
+            raise DataError(
+                "Decimal parameter needs %d digits; CUBRID NUMERIC literals allow "
+                "at most 38 digits" % precision
+            )
+        return format(value, "f")
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):

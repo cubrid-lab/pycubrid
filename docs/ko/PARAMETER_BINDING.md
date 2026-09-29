@@ -13,6 +13,7 @@ pycubrid 1.x의 드라이버 측 파라미터 바인딩 계약.
 - [개요](#개요)
 - [플레이스홀더 방식](#플레이스홀더-방식)
 - [타입 매핑 (보장)](#타입-매핑-보장)
+  - [Decimal 파라미터](#decimal-파라미터)
 - [문자열 이스케이프](#문자열-이스케이프)
   - [이스케이프 모드 협상](#이스케이프-모드-협상)
   - [리터럴 모드](#리터럴-모드-no_backslash_escapestrue)
@@ -67,7 +68,7 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 | `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
 | `int` | `str(value)` (10진수) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
 | `float` | `str(value)`; `nan`/`inf`/`-inf`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
-| `decimal.Decimal` | `str(value)` (따옴표 없음) | `_cursor_common.py:175-176` | `tests/test_param_security.py:113-115` |
+| `decimal.Decimal` | 고정소수점 숫자(`format(value, "f")`, 따옴표 없음, E 표기 사용 안 함); 부호·후행 0·scale 유지; 리터럴 자릿수가 38을 넘으면 `DataError`; `NaN`/`Infinity`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`). [Decimal 파라미터](#decimal-파라미터) 참고 | `_cursor_common.py:233-251` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
 | `str` | 작은따옴표 리터럴; [문자열 이스케이프](#문자열-이스케이프) 적용; NUL(`U+0000`)과 Ctrl-Z(`U+001A`, `\x1a`)는 각각 `ProgrammingError` 발생 (현재 메시지: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
 | `bytes`, `bytearray` | `X'<hex>'` (소문자 hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
 | `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — 마이크로초는 밀리초로 절사(`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
@@ -82,6 +83,40 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 서버의 숫자 범위 제한과 Python의 정수-문자열 변환 제한은 여전히 적용됩니다.
 `tests/test_param_security.py::TestFormatParameterTypes::test_large_int`와
 `::test_bind_large_int`가 이 동작을 고정합니다.
+
+### Decimal 파라미터
+
+유한한 `decimal.Decimal`은 지수 없이 고정소수점 표기로 렌더링됩니다.
+`Decimal("1E-7")`은 `0.0000001`, `Decimal("1E+5")`는 `100000`이 됩니다.
+CUBRID는 `E`가 들어간 숫자 리터럴을 `DOUBLE`로 해석하므로, 이전의
+`str(value)` 렌더링(`1E-7`)은 이런 값을 조용히 부동소수점으로 바꾸고 삽입 시
+자릿수를 잃었습니다(#517). 부호, 후행 0, scale은 작성된 그대로 유지됩니다.
+`Decimal("1.10")`은 `1.10`(CUBRID 타입 `NUMERIC(3,2)`), `Decimal("-0.00")`은
+`-0.00`으로 전송됩니다.
+
+CUBRID는 최대 38자리(`NUMERIC` 최대 정밀도)의 고정소수점 숫자 리터럴만 받고,
+더 긴 리터럴은 오류 `-494` "Invalid numeric"으로 거부합니다. 자릿수는 렌더링된
+리터럴 기준입니다. 0이 아닌 정수부의 모든 자릿수와 소수부의 모든 자릿수를
+세며, 소수부 앞쪽의 0(`0.0000001`은 7자리)과 후행 0도 포함합니다. 정수부가
+`0` 하나뿐이면 세지 않습니다. 고정소수점 리터럴이 38자리를 넘는 `Decimal`은
+`DOUBLE`로 대체되지 않고, 아무것도 전송하기 전에 `DataError`를 발생시킵니다.
+`Decimal("1E-39")`, 유효숫자 39자리, `Decimal("1E+999999999")` 같은 매우 큰
+지수가 여기에 해당하며, 큰 지수는 펼치지 않고 거부합니다. 이런 값은 바인딩
+전에 반올림하거나 quantize하고, `DOUBLE` 의미가 목적이라면 `float`를
+바인딩하세요.
+
+소수부가 있는 리터럴은 서버에서 `NUMERIC(p,s)`입니다. 소수부 없는 정수 값
+(`Decimal("42")`, `Decimal("1E+5")`)은 정수 리터럴로 렌더링되며, CUBRID가 크기에
+따라 `INTEGER`, `BIGINT`, `NUMERIC(p,0)`으로 타입을 정하고 값은 정확히
+유지됩니다. 대상 컬럼의 scale이 리터럴보다 작으면 CUBRID가 다른 리터럴과
+마찬가지로 대입 시 반올림합니다([비보장과 명시적 한계](#비보장과-명시적-한계)
+참고). `NaN`과 `Infinity`는 계속 `ProgrammingError`를 발생시킵니다.
+
+`tests/test_param_security.py::TestFormatParameterTypes::test_decimal_plain_notation`,
+`::test_decimal_precision_38_accepted`, `::test_decimal_precision_over_38_raises`,
+`::test_bind_decimal_plain_notation`이 이 동작을 고정하며, CUBRID 10.2와 11.4에서
+(동기·비동기) `tests/test_parity_integration.py::TestParityDecimalLiterals`가
+실제 서버로 검증합니다.
 
 ### 바인딩 값으로 명시적으로 미지원
 

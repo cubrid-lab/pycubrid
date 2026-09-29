@@ -487,6 +487,23 @@ cur.close()
 conn.close()
 ```
 
+### Decimal Parameters
+
+`Decimal` parameters are sent as plain fixed-point literals (never E notation),
+so CUBRID keeps them `NUMERIC` with the scale you wrote: `Decimal("0.0000001")`
+fetches back as `Decimal`, not `float`. A value whose plain literal needs more
+than 38 digits, CUBRID's maximum `NUMERIC` precision, raises `DataError`
+instead of becoming `DOUBLE`. See
+[Parameter Binding: Decimal parameters](PARAMETER_BINDING.md#decimal-parameters).
+
+```python
+from decimal import Decimal
+
+cur.execute("SELECT ?", [Decimal("0.0000001")])  # sent as 0.0000001
+assert cur.fetchone()[0] == Decimal("0.0000001")
+assert cur.description[0][1] == pycubrid.constants.CUBRIDDataType.NUMERIC
+```
+
 ### Using CUBRIDDataType Enum
 
 ```python
