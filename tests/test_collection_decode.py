@@ -346,8 +346,9 @@ def test_null_only_collection_row_decodes_through_packets() -> None:
         bytes.fromhex("0000000002ffffffff"),
         # Huge count must be rejected before any allocation.
         bytes.fromhex("007fffffffffffffff"),
-        # Trailing bytes after the length words.
+        # Trailing bytes after the length words or an empty collection.
         bytes.fromhex("0000000001ffffffff00"),
+        bytes.fromhex("0000000000ff"),
         # A NULL element type cannot carry an element payload or a bogus length.
         bytes.fromhex("000000000100000004"),
         bytes.fromhex("0000000001fffffffe"),

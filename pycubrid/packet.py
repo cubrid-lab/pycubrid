@@ -411,12 +411,11 @@ class PacketReader:
         start_offset = self._offset
         element_type = self._parse_byte()
         element_count = self._parse_int()
-        if element_type == CUBRIDDataType.NULL and element_count == 0:
-            return []
         if element_type == CUBRIDDataType.NULL:
-            # CUBRID 10.2/11.4 send element type NULL when every element is SQL
-            # NULL: the count is followed by one ``-1`` length word per element
-            # and no payload (#483). Check the exact size before allocating.
+            # CUBRID 10.2/11.4 send element type NULL for an empty collection
+            # and when every element is SQL NULL: the count is followed by one
+            # ``-1`` length word per element and no payload (#483). Check the
+            # exact size before allocating.
             if (
                 element_count < 0
                 or element_count * DataSize.INT != size - DataSize.BYTE - DataSize.INT
