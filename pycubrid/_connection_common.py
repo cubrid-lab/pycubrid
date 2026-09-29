@@ -106,6 +106,15 @@ _ASCII_PROBE = bytes(range(128)).decode("ascii")
 _KNOWN_ASCII_SAFE_CODECS = frozenset({"utf-8", "euc_kr", "iso8859-1"})
 
 
+def _encodes(text: str, name: str) -> bool:
+    """Return whether codec ``name`` can encode ``text``."""
+    try:
+        text.encode(name)
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 @functools.lru_cache(maxsize=None)
 def _codec_is_ascii_safe(name: str) -> bool:
     """Return whether ``name`` keeps ASCII bytes for ASCII characters only.
@@ -126,13 +135,7 @@ def _codec_is_ascii_safe(name: str) -> bool:
         return True
     # Supplementary planes are scanned only when the codec can encode them
     # (no accepted stdlib codec does), keeping the one-time check fast.
-    supplementary = False
-    for probe in (0x10000, 0x1F600, 0x20000):
-        try:
-            chr(probe).encode(name)
-            supplementary = True
-        except UnicodeEncodeError:
-            pass
+    supplementary = any(_encodes(chr(probe), name) for probe in (0x10000, 0x1F600, 0x20000))
     for code_point in range(0x80, 0x110000 if supplementary else 0x10000):
         if 0xD800 <= code_point <= 0xDFFF:
             continue

@@ -48,8 +48,17 @@ def test_charset_lane_skip_is_classified_only_for_its_module() -> None:
         skip_category("tests.test_integration_charset::test_json[sync]", reason)
         == "charset-lane-only"
     )
-    with pytest.raises(ValueError, match="unclassified"):
-        skip_category("tests.test_integration::test_query", reason)
+    assert (
+        skip_category("tests/test_integration_charset.py::test_json[sync]", reason)
+        == "charset-lane-only"
+    )
+    for other in (
+        "tests.test_integration::test_query",
+        "tests.test_integration_charset_fallback::test_query",
+        "tests/test_integration.py::test_integration_charset",
+    ):
+        with pytest.raises(ValueError, match="unclassified"):
+            skip_category(other, reason)
 
 
 def test_missing_charset_lane_fails_workflow_audit(tmp_path: Path) -> None:

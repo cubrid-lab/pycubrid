@@ -37,16 +37,13 @@ HANGUL = "한글"
 
 def _database_charset() -> str:
     # charset() of an ASCII literal answers in ASCII whatever the codec.
-    conn = pycubrid.connect(
+    with pycubrid.connect(
         host=TEST_HOST, port=TEST_PORT, database=TEST_DB, user=TEST_USER, password=TEST_PASSWORD
-    )
-    try:
+    ) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT charset('a')")
         row = cursor.fetchone()
         return str(row[0]) if row else ""
-    finally:
-        conn.close()
 
 
 @pytest.fixture(scope="module")
@@ -231,7 +228,8 @@ async def test_reconnect_keeps_the_connection_codec(conn: Any) -> None:
 
 
 def test_clob_bytes_are_in_the_column_charset(euckr_database: None) -> None:
-    conn = pycubrid.connect(
+    table = _table()
+    with pycubrid.connect(
         host=TEST_HOST,
         port=TEST_PORT,
         database=TEST_DB,
@@ -239,24 +237,20 @@ def test_clob_bytes_are_in_the_column_charset(euckr_database: None) -> None:
         password=TEST_PASSWORD,
         autocommit=True,
         charset="euckr",
-    )
-    table = _table()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"CREATE TABLE {table} (cl CLOB)")
-        cursor.execute(f"INSERT INTO {table} VALUES (CHAR_TO_CLOB(?))", (HANGUL,))
-        cursor.execute(f"SELECT cl FROM {table}")
-        handle = cursor.fetchone()[0]
-        lob = Lob(conn, CUBRIDDataType.CLOB, handle["packed_lob_handle"])
+    ) as conn:
+        cursor = conn.cursor()
         try:
+            cursor.execute(f"CREATE TABLE {table} (cl CLOB)")
+            cursor.execute(f"INSERT INTO {table} VALUES (CHAR_TO_CLOB(?))", (HANGUL,))
+            cursor.execute(f"SELECT cl FROM {table}")
+            handle = cursor.fetchone()[0]
+            with Lob(conn, CUBRIDDataType.CLOB, handle["packed_lob_handle"]) as lob:
+                content = lob.read(handle["lob_length"])
             # LOB content is raw bytes: CLOB text is in the column charset.
-            assert lob.read(handle["lob_length"]) == HANGUL.encode("euc-kr")
+            assert content == HANGUL.encode("euc-kr")
         finally:
-            lob.close()
-    finally:
-        cursor.execute(f"DROP TABLE IF EXISTS {table}")
-        cursor.close()
-        conn.close()
+            cursor.execute(f"DROP TABLE IF EXISTS {table}")
+            cursor.close()
 
 
 def test_prepared_compat_path_and_cubriddb_wrapper_use_the_charset(

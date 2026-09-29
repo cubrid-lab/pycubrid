@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import socket
 import struct
 import warnings
@@ -11,14 +10,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import pycubrid
-import pycubrid.aio
-from pycubrid import _connection_common
+from pycubrid import _connection_common, connect
 from pycubrid._connection_common import (
     KNOWN_CONNECTION_OPTIONS,
     _codec_is_ascii_safe,
     resolve_charset,
 )
+from pycubrid.aio import connect as aio_connect
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.compat import cubriddb
 from pycubrid.connection import Connection
@@ -166,7 +164,7 @@ def test_charset_is_a_known_option_and_warns_nothing(
     socket_queue.append(make_socket([build_handshake_response(), open_db[:4], open_db[4:]]))
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        conn = pycubrid.connect(database="testdb", charset="euckr")
+        conn = connect(database="testdb", charset="euckr")
     assert conn._encoding == "euc_kr"
 
 
@@ -182,7 +180,7 @@ def test_invalid_charset_fails_before_any_socket_work(
 
     monkeypatch.setattr(socket, "create_connection", no_socket)
     with pytest.raises(error):
-        pycubrid.connect(database="testdb", charset=charset)
+        connect(database="testdb", charset=charset)
     with pytest.raises(error):
         AsyncConnection("localhost", 33000, "testdb", "dba", "", charset=charset)
     with pytest.raises(error):
@@ -196,7 +194,7 @@ async def test_async_connect_validates_charset_before_opening_a_stream(
     opened = AsyncMock()
     monkeypatch.setattr("asyncio.open_connection", opened)
     with pytest.raises(ValueError, match="not ASCII-compatible"):
-        await pycubrid.aio.connect(database="testdb", charset="utf-32")
+        await aio_connect(database="testdb", charset="utf-32")
     opened.assert_not_called()
 
 
@@ -205,7 +203,7 @@ def test_unencodable_credentials_fail_before_any_socket_work(
 ) -> None:
     monkeypatch.setattr(socket, "create_connection", MagicMock(side_effect=AssertionError))
     with pytest.raises(DataError, match="user cannot be encoded with charset 'iso8859-1'"):
-        pycubrid.connect(database="testdb", user=HANGUL, charset="latin-1")
+        connect(database="testdb", user=HANGUL, charset="latin-1")
     with pytest.raises(DataError, match="password cannot be encoded"):
         AsyncConnection("localhost", 33000, "testdb", "dba", "\U0001f600", charset="euckr")
 
@@ -225,19 +223,23 @@ _GOLDEN_BATCH = bytes.fromhex(
 _GOLDEN_SCHEMA = bytes.fromhex(
     "000000260102030409000000040000000100000004ed919c0000000004ec97b40000000001010000000400000000"
 )
-_GOLDEN_OPEN_DATABASE_SHA256 = "cf21ef5c5c29132f7c5397f8a3f34a678663ba02f14944a5d6b22fdc4575d684"
+# 628 bytes: three NUL-padded 32-byte names, then 532 zero bytes.
+_GOLDEN_OPEN_DATABASE = (
+    b"testdb".ljust(32, b"\x00") + b"dba".ljust(32, b"\x00") + b"db-pw".ljust(32, b"\x00")
+) + bytes(532)
 
 
 def test_default_charset_requests_are_byte_for_byte_unchanged() -> None:
     sql = "SELECT '한글', 'é' FROM t WHERE v = 'x'"
-    assert PrepareAndExecutePacket(sql, auto_commit=True).write(CAS_INFO) == (
-        _GOLDEN_PREPARE_AND_EXECUTE
-    )
+    written = PrepareAndExecutePacket(sql, auto_commit=True).write(CAS_INFO)
+    assert written == _GOLDEN_PREPARE_AND_EXECUTE
     batch = BatchExecutePacket(["INSERT INTO t VALUES ('한')", "DELETE FROM t"])
-    assert batch.write(CAS_INFO) == _GOLDEN_BATCH
-    assert GetSchemaPacket(1, "표", arg2="열").write(CAS_INFO) == _GOLDEN_SCHEMA
-    open_db = OpenDatabasePacket("testdb", "dba", "secret").write()
-    assert hashlib.sha256(open_db).hexdigest() == _GOLDEN_OPEN_DATABASE_SHA256
+    written = batch.write(CAS_INFO)
+    assert written == _GOLDEN_BATCH
+    written = GetSchemaPacket(1, "표", arg2="열").write(CAS_INFO)
+    assert written == _GOLDEN_SCHEMA
+    open_db = OpenDatabasePacket("testdb", "dba", "db-pw", encoding="utf-8").write()
+    assert open_db == _GOLDEN_OPEN_DATABASE
 
 
 def test_default_connection_stamps_utf8_and_sends_golden_bytes(
@@ -260,13 +262,16 @@ def test_default_connection_stamps_utf8_and_sends_golden_bytes(
 def test_request_text_uses_the_connection_codec() -> None:
     packet = PrepareAndExecutePacket(f"SELECT '{HANGUL}'")
     packet.encoding = "euc_kr"
-    assert b"'" + EUC_HANGUL + b"'\x00" in packet.write(CAS_INFO)
+    written = packet.write(CAS_INFO)
+    assert b"'" + EUC_HANGUL + b"'\x00" in written
     batch = BatchExecutePacket([f"INSERT INTO t VALUES ('{HANGUL}')"])
     batch.encoding = "euc_kr"
-    assert EUC_HANGUL in batch.write(CAS_INFO)
+    written = batch.write(CAS_INFO)
+    assert EUC_HANGUL in written
     schema = GetSchemaPacket(1, HANGUL)
     schema.encoding = "euc_kr"
-    assert struct.pack(">i", 5) + EUC_HANGUL + b"\x00" in schema.write(CAS_INFO)
+    written = schema.write(CAS_INFO)
+    assert struct.pack(">i", 5) + EUC_HANGUL + b"\x00" in written
 
 
 def test_unencodable_text_raises_data_error_without_echoing_it() -> None:
@@ -526,7 +531,8 @@ def test_prepared_execute_rejects_a_binding_for_another_codec() -> None:
     with pytest.raises(ProgrammingError, match="different charset"):
         packet.write(CAS_INFO)
     packet.encoding = "euc_kr"
-    assert EUC_HANGUL + b"\x00" in packet.write(CAS_INFO)
+    written = packet.write(CAS_INFO)
+    assert EUC_HANGUL + b"\x00" in written
 
 
 def test_prepare_packet_reports_the_codec() -> None:
@@ -535,7 +541,8 @@ def test_prepare_packet_reports_the_codec() -> None:
     with pytest.raises(DataError, match="prepared SQL cannot be encoded as iso8859-1"):
         packet.write(CAS_INFO)
     packet.encoding = "euc_kr"
-    assert EUC_HANGUL in packet.write(CAS_INFO)
+    written = packet.write(CAS_INFO)
+    assert EUC_HANGUL in written
 
 
 # --- review follow-ups -----------------------------------------------------------
@@ -556,7 +563,7 @@ def test_unencodable_secrets_are_not_kept_in_the_exception_chain(
 ) -> None:
     monkeypatch.setattr(socket, "create_connection", MagicMock(side_effect=AssertionError))
     with pytest.raises(DataError) as raised:
-        pycubrid.connect(database="testdb", password="pw-secret\U0001f600", charset="euckr")
+        connect(database="testdb", password="pw-secret\U0001f600", charset="euckr")
     assert "pw-secret" not in _chain(raised.value)
     with pytest.raises(DataError) as raised:
         _encode_prepared_scalar("bound-secret\U0001f600", "euc_kr")

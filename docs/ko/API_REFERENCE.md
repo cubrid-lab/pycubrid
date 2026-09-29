@@ -138,8 +138,10 @@ def connect(
   UTF-7, Shift_JIS, Big5, GBK, GB18030, CP949, ISO-2022 등)은 `ValueError`, 코덱으로
   인코딩할 수 없는 자격 증명은 `DataError`입니다.
 - 인코딩할 수 없는 텍스트는 해당 요청의 어떤 바이트도 보내기 전에 `DataError`를,
-  디코딩할 수 없는 바이트는 코덱 이름을 담은 `DataError`를 발생시킵니다. 두 경우 모두
-  세션은 계속 사용할 수 있습니다. 오류 텍스트는 `errors="replace"`로 디코딩합니다.
+  디코딩할 수 없는 바이트는 코덱 이름을 담은 `DataError`를 발생시킵니다. 일반 커서에서는
+  두 경우 모두 세션을 계속 사용할 수 있습니다. `get_schema_info()`는 해석할 수 없는 FC9
+  응답을 받으면 연결을 폐기하고, 명시적 prepared API(`pycubrid.compat.native`)는 세션을
+  폐기하고 `OperationalError`를 발생시킵니다. 오류 텍스트는 `errors="replace"`로 디코딩합니다.
 - `JSON`은 항상 UTF-8입니다. `NUMERIC`, 타임존 이름, 버전 문자열, LOB 내용은 영향을
   받지 않습니다(`CLOB` 바이트는 컬럼 문자셋).
 - 브로커는 변환하지 않으므로 EUC-KR 데이터베이스의 `CHARSET utf8` 컬럼은
@@ -1410,8 +1412,9 @@ class DataError(DatabaseError)
 [`charset`](#charset)으로 유효하지 않을 때(`JSON` 값은 UTF-8 기준), 서버로 보낼 텍스트를
 그 코덱으로 인코딩할 수 없을 때(해당 요청은 전혀 전송되지 않음)도 발생하며, `TIMESTAMPTZ`/`TIMESTAMPLTZ`/`DATETIMETZ`/`DATETIMELTZ` 값의 리전을
 클라이언트의 IANA 타임존 데이터베이스로 해석할 수 없거나(`tzdata` 설치 필요) 오프셋이
-±24시간을 벗어날 때도 발생합니다(#413). 응답은 모두 읽었으므로 연결은 계속 사용할 수
-있습니다. 명시적 prepared API(`pycubrid.compat.native`)는 대신 `OperationalError`를
+±24시간을 벗어날 때도 발생합니다(#413). 응답은 모두 읽었으므로 일반 커서에서는 연결을
+계속 사용할 수 있습니다. `get_schema_info()`는 해석할 수 없는 FC9 응답을 받으면 연결을
+폐기합니다. 명시적 prepared API(`pycubrid.compat.native`)는 대신 `OperationalError`를
 발생시키고 세션을 폐기합니다.
 
 ---

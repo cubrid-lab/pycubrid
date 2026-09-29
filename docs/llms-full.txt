@@ -1196,7 +1196,10 @@ server error text. Set it to the database charset, for example
   credentials the codec cannot encode raise `DataError`.
 - Text that cannot be encoded raises `DataError` before any byte of that request
   is sent; bytes that cannot be decoded raise `DataError` naming the codec.
-  Both keep the session usable. Error text is decoded with `errors="replace"`.
+  With ordinary cursors both keep the session usable; `get_schema_info()`
+  retires the connection on any FC9 reply it cannot parse, and the explicit
+  prepared API (`pycubrid.compat.native`) retires its session and raises
+  `OperationalError`. Error text is decoded with `errors="replace"`.
 - `JSON` is always UTF-8; `NUMERIC`, timezone names, the version string and LOB
   contents are not affected (`CLOB` bytes are in the column charset).
 - The broker does no conversion, so a `CHARSET utf8` column in an EUC-KR
@@ -2521,9 +2524,10 @@ value: not valid UTF-8), when text sent to the server cannot be encoded with
 it (nothing of that request is sent), and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
 `DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
 zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
-(#413). The reply was fully read, so the connection stays usable. The explicit
-prepared API (`pycubrid.compat.native`) raises `OperationalError` and retires
-the session instead.
+(#413). The reply was fully read, so with ordinary cursors the connection stays
+usable. `get_schema_info()` retires the connection on any FC9 reply it cannot
+parse, and the explicit prepared API (`pycubrid.compat.native`) raises
+`OperationalError` and retires the session instead.
 
 ---
 

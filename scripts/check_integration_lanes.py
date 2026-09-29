@@ -24,6 +24,21 @@ SELECTORS = {
 }
 
 
+def _module_of(identity: str) -> str:
+    """Return the test module name of a collection node id or JUnit identity.
+
+    Accepts ``tests/test_x.py::test`` (collection) and ``tests.test_x::test``
+    (JUnit ``classname::name``, possibly with a class after the module).
+    """
+    head = identity.split("::", 1)[0]
+    if head.endswith(".py"):
+        return head.rsplit("/", 1)[-1][: -len(".py")]
+    for part in head.split("."):
+        if part.startswith("test_"):
+            return part
+    return head
+
+
 def skip_category(identity: str, reason: str) -> str:
     if (
         "test_cubriddb_differential" in identity
@@ -36,7 +51,7 @@ def skip_category(identity: str, reason: str) -> str:
     ):
         return "platform-without-proc"
     if (
-        "test_integration_charset" in identity
+        _module_of(identity) == "test_integration_charset"
         and "requires an EUC-KR database (integration-charset lane)" in reason
     ):
         return "charset-lane-only"
