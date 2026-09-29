@@ -39,6 +39,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   same name: an identical file (a partial upload recovered with `gh run rerun --failed`)
   is dropped from the upload, and a different hash or an unreachable PyPI fails the job.
   `RELEASING.md` documents the bounded recovery; offline tests cover the guard.
+- Ruff/Mypy pre-commit hooks are now `repo: local` / `language: system` hooks that
+  invoke `python3 -m ruff`/`python3 -m mypy` from the active `.[dev]` environment
+  instead of separately versioned mirror repos, so there is a single source of
+  truth (the `pyproject.toml` dev pin) for each tool's version.
+  `scripts/check_quality_tools.py` was updated to match. This fixes Dependabot's
+  routine `pip`-ecosystem Ruff/Mypy bumps, which previously left the pre-commit
+  hook revision stale and failed the quality-tool consistency gate (#476).
 
 ## [1.8.0] - 2026-09-29
 
