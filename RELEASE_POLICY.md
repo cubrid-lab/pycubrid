@@ -239,9 +239,10 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   request bytes are unchanged (golden-byte test) except that an
   `OPEN_DATABASE` name longer than its 32-byte field is now cut on a character
   boundary rather than mid-character. On the reply side, a column/table name
-  or default value that cannot be decoded now raises `DataError` and keeps the
-  fully read session instead of `OperationalError` with a closed connection,
-  matching #492 for values. No dependency or supported-version change.
+  or default value that cannot be decoded now raises `DataError`, and an
+  ordinary cursor keeps the fully read session instead of `OperationalError`
+  with a closed connection, matching #492 for values (schema requests and the
+  explicit prepared API stay fail-closed). No dependency or supported-version change.
 
 - **Invalid UTF-8 in a complete reply keeps the session (#492)** — PATCH /
   correction of error classification and connection lifetime. Server error text

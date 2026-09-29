@@ -634,6 +634,10 @@ class Connection(ConnectionCommonMixin):
     ) -> GetSchemaPacket:
         """Create an owned schema result; consume or explicitly close its packet."""
         self._ensure_connected()
+        # An unencodable argument fails here, before the request can drop
+        # the session below (#86).
+        self._check_encodable("schema argument", table_name)
+        self._check_encodable("schema argument", arg2)
         packet = GetSchemaPacket(
             schema_type=schema_type,
             table_name=table_name,

@@ -132,9 +132,10 @@ def _encode_prepared_scalar(value: Any, encoding: str = "utf-8") -> _PreparedSca
         try:
             payload = value.encode(encoding) + b"\x00"
         except UnicodeEncodeError:
-            raise DataError(
-                f"prepared string cannot be encoded as {_codec_label(encoding)}"
-            ) from None
+            payload = None
+        if payload is None:
+            # Raised outside the handler so no chained exception keeps the value.
+            raise DataError(f"prepared string cannot be encoded as {_codec_label(encoding)}")
         return _PreparedScalar(CUBRIDDataType.CHAR, payload, encoding)
     raise ProgrammingError("unsupported prepared parameter type")
 

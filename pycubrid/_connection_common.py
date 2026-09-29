@@ -124,14 +124,23 @@ def _codec_is_ascii_safe(name: str) -> bool:
         return False
     if name in _KNOWN_ASCII_SAFE_CODECS:
         return True
-    for code_point in range(0x80, 0x10000):
+    # Supplementary planes are scanned only when the codec can encode them
+    # (no accepted stdlib codec does), keeping the one-time check fast.
+    supplementary = False
+    for probe in (0x10000, 0x1F600, 0x20000):
+        try:
+            chr(probe).encode(name)
+            supplementary = True
+        except UnicodeEncodeError:
+            pass
+    for code_point in range(0x80, 0x110000 if supplementary else 0x10000):
         if 0xD800 <= code_point <= 0xDFFF:
             continue
         try:
             encoded = chr(code_point).encode(name)
         except UnicodeEncodeError:
             continue
-        if min(encoded) < 0x80:
+        if not encoded or min(encoded) < 0x80:
             return False
     return True
 
@@ -286,14 +295,9 @@ class ConnectionCommonMixin:
         """Initialise attributes common to sync and async connections."""
         # Validated here, before any socket work; reconnects reuse the codec.
         self._encoding = resolve_charset(charset)
-        for name, value in (("database", database), ("user", user), ("password", password)):
-            if isinstance(value, str):
-                try:
-                    value.encode(self._encoding)
-                except UnicodeEncodeError:
-                    raise DataError(
-                        f"{name} cannot be encoded with charset {self._encoding!r}"
-                    ) from None
+        self._check_encodable("database", database)
+        self._check_encodable("user", user)
+        self._check_encodable("password", password)
         self._host = host
         self._port = port
         self._database = database
@@ -354,6 +358,21 @@ class ConnectionCommonMixin:
         self._last_insert_id: str | None = None
 
     # -- Pure helpers (no I/O) -----------------------------------------------
+
+    def _check_encodable(self, name: str, value: Any) -> None:
+        """Raise ``DataError`` before any I/O if ``value`` needs a missing character.
+
+        Raised outside the handler so no chained exception keeps the text
+        (it may be a password or a bound value).
+        """
+        if not isinstance(value, str):
+            return
+        try:
+            value.encode(self._encoding)
+            return
+        except UnicodeEncodeError:
+            pass
+        raise DataError(f"{name} cannot be encoded with charset {self._encoding!r}")
 
     def _register_schema_result(self, packet: GetSchemaPacket) -> None:
         packet._owner = self._schema_owner

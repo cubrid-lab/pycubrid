@@ -406,8 +406,21 @@ class PacketReader:
             ) from exc
 
     def _parse_text_value(self, length: int) -> str:
-        """Decode a character column value with the connection codec."""
-        return self._parse_charset_text(length, "column value")
+        """Decode a character column value with the connection codec (hot path)."""
+        if length <= 0:
+            return ""
+        start = self._offset
+        end = start + length
+        self._offset = end
+        if self._buffer[end - 1] == 0:
+            end -= 1
+        try:
+            return bytes(self._buffer[start:end]).decode(self._encoding)
+        except UnicodeDecodeError as exc:
+            raise DataError(
+                f"column value is not valid {_codec_label(self._encoding)} "
+                f"(invalid byte at offset {exc.start})"
+            ) from exc
 
     def _parse_metadata_text(self, length: int) -> str:
         """Decode a column/table name or default value with the connection codec."""

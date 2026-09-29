@@ -661,7 +661,7 @@ aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
 | 송신 | SQL 텍스트(렌더링된 파라미터 포함), `executemany` 배치 SQL, 스키마 정보 인자, `compat.native` prepared SQL과 문자열 바인딩 | 요청의 어떤 바이트도 보내기 전에 인코딩합니다. 인코딩할 수 없는 문자는 코덱과 문자 위치를 담은 `DataError`를 발생시키며(텍스트 자체는 출력하지 않음), 해당 요청은 전혀 전송되지 않고 세션은 계속 사용할 수 있습니다. |
 | 송신 | `OPEN_DATABASE`의 database, user, password | 인코딩한 뒤 32바이트 필드에 맞게 문자 경계에서 자릅니다. |
 | 수신 | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING`, `ENUM` 값, 컬렉션 요소(`decode_collections=True`) | 엄격 디코딩. 디코딩할 수 없는 바이트는 `DataError`(예: `column value is not valid euc_kr (invalid byte at offset 0)`)이며 세션은 유지됩니다. |
-| 수신 | 컬럼·테이블·별칭 이름, 컬럼 기본값 | 엄격 디코딩, `DataError`(`column metadata is not valid ...`), 세션 유지. |
+| 수신 | 컬럼·테이블·별칭 이름, 컬럼 기본값 | 엄격 디코딩, `DataError`(`column metadata is not valid ...`). 일반 커서는 세션을 유지하고 서버 핸들을 해제합니다. `get_schema_info()`와 `compat.native` 준비 커서는 해석할 수 없는 응답과 마찬가지로 세션을 폐기합니다. |
 | 수신 | 서버 오류 메시지(배치의 문장별 오류 포함) | `errors="replace"`로 디코딩하므로 원래 오류가 항상 드러납니다. |
 
 **사용하지 않는 항목:** `JSON` 값은 항상 UTF-8입니다(브로커는 데이터베이스 문자셋과 무관하게 JSON을 UTF-8로 보냄). `NUMERIC` 텍스트, 타임존 이름, 서버 버전 문자열, LOB 로케이터는 프로토콜 텍스트로 UTF-8을 유지합니다. LOB 내용은 원시 바이트입니다: `CLOB`에 대한 `Lob.read()`는 컬럼 문자셋의 바이트(EUC-KR 데이터베이스에서는 EUC-KR 바이트)를 반환하며, 애플리케이션이 직접 디코딩합니다.

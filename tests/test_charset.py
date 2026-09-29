@@ -536,3 +536,163 @@ def test_prepare_packet_reports_the_codec() -> None:
         packet.write(CAS_INFO)
     packet.encoding = "euc_kr"
     assert EUC_HANGUL in packet.write(CAS_INFO)
+
+
+# --- review follow-ups -----------------------------------------------------------
+
+
+def _chain(exc: BaseException) -> str:
+    """Render every chained exception, as an error collector would see it."""
+    parts = []
+    seen: BaseException | None = exc
+    while seen is not None:
+        parts.append(repr(seen) + repr(getattr(seen, "object", "")))
+        seen = seen.__cause__ or seen.__context__
+    return "".join(parts)
+
+
+def test_unencodable_secrets_are_not_kept_in_the_exception_chain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(socket, "create_connection", MagicMock(side_effect=AssertionError))
+    with pytest.raises(DataError) as raised:
+        pycubrid.connect(database="testdb", password="pw-secret\U0001f600", charset="euckr")
+    assert "pw-secret" not in _chain(raised.value)
+    with pytest.raises(DataError) as raised:
+        _encode_prepared_scalar("bound-secret\U0001f600", "euc_kr")
+    assert "bound-secret" not in _chain(raised.value)
+
+
+def test_unencodable_native_prepare_sql_is_not_kept_in_the_exception_chain() -> None:
+    from pycubrid.compat import native
+
+    owner = native.connection.__new__(native.connection)
+    driver = MagicMock()
+    driver._encoding = "euc_kr"
+    driver._connected = True
+    owner._driver = driver
+    owner._closed = False
+    owner._session_lock = __import__("threading").RLock()
+    owner._prepared_owners = set()
+    cursor = native.cursor(owner)
+    with pytest.raises(DataError, match="prepared SQL cannot be encoded as euc_kr") as raised:
+        cursor.prepare("SELECT 'sql-secret\U0001f600'")
+    assert "sql-secret" not in _chain(raised.value)
+    driver._send_and_receive.assert_not_called()
+
+
+def test_sync_unencodable_schema_argument_keeps_the_session(
+    socket_queue: list[MagicMock],  # noqa: F811
+) -> None:
+    open_db = build_open_db_response()
+    sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
+    socket_queue.append(sock)
+    conn = Connection("localhost", 33000, "testdb", "dba", "", charset="euckr")
+    sock.sendall.reset_mock()
+    with pytest.raises(DataError, match="schema argument cannot be encoded"):
+        conn.get_schema_info(1, "t\U0001f600")
+    with pytest.raises(DataError, match="schema argument cannot be encoded"):
+        conn.get_schema_info(4, "t", arg2="c\U0001f600")
+    sock.sendall.assert_not_called()
+    assert conn._connected is True
+    assert conn._socket is sock
+
+
+@pytest.mark.asyncio
+async def test_async_unencodable_schema_argument_keeps_the_session() -> None:
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", charset="euckr")
+    conn._connected = True
+    conn._cas_info = CAS_INFO
+    conn._reader = MagicMock()
+    writer = MagicMock()
+    writer.drain = AsyncMock()
+    conn._writer = writer
+    with pytest.raises(DataError, match="schema argument cannot be encoded"):
+        await conn.get_schema_info(1, "t\U0001f600")
+    writer.write.assert_not_called()
+    assert conn._connected is True
+    assert conn._writer is writer
+
+
+def test_unencodable_executemany_row_sends_nothing(
+    socket_queue: list[MagicMock],  # noqa: F811
+) -> None:
+    open_db = build_open_db_response()
+    sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
+    socket_queue.append(sock)
+    conn = Connection("localhost", 33000, "testdb", "dba", "", charset="euckr")
+    conn._cas_info = CAS_INFO  # IN_TRAN: no CHECK_CAS probe first
+    sock.sendall.reset_mock()
+    cursor = conn.cursor()
+    with pytest.raises(DataError, match="cannot be encoded as euc_kr"):
+        cursor.executemany("INSERT INTO t VALUES (?)", [(HANGUL,), ("\U0001f600",)])
+    sock.sendall.assert_not_called()
+    assert conn._connected is True
+
+
+def test_cursor_owns_and_releases_the_handle_after_metadata_decode_failure() -> None:
+    from pycubrid.cursor import Cursor
+    from pycubrid.protocol import CloseQueryPacket
+
+    body = _select_body([(CUBRIDDataType.STRING, EUC_HANGUL)], [b"a\x00"])
+
+    def reply(packet: object, **kwargs: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            packet.parse(body)
+        return packet
+
+    connection = MagicMock()
+    connection._timing = None
+    connection._cursors = set()
+    connection.autocommit = True
+    connection._protocol_version = 8
+    connection._decode_collections = False
+    connection._json_deserializer = None
+    connection._send_and_receive = MagicMock(side_effect=reply)
+    cursor = Cursor(connection)
+    with pytest.raises(DataError, match="column metadata is not valid UTF-8"):
+        cursor.execute("SELECT 1")
+    assert cursor._query_handle == 1
+    assert cursor.description is None
+    cursor.close()
+    closes = [
+        c.args[0].query_handle
+        for c in connection._send_and_receive.call_args_list
+        if isinstance(c.args[0], CloseQueryPacket)
+    ]
+    assert closes == [1]
+
+
+def test_codec_encoding_supplementary_characters_is_scanned_fully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import codecs
+
+    def encode(text: str, errors: str = "strict") -> tuple[bytes, int]:
+        out = bytearray()
+        for char in text:
+            code_point = ord(char)
+            if code_point < 0x80:
+                out.append(code_point)
+            elif code_point == 0x1F600:
+                out += b"\xff\x27"  # an apostrophe trail byte beyond the BMP
+            elif code_point >= 0x10000:
+                out += b"\xff\xfe"
+            else:
+                raise UnicodeEncodeError("fake", text, 0, 1, "unmapped")
+        return bytes(out), len(text)
+
+    def decode(data: bytes, errors: str = "strict") -> tuple[str, int]:
+        return bytes(data).decode("ascii"), len(data)
+
+    info = codecs.CodecInfo(encode, decode, name="pycubrid-test-supplementary")
+
+    def search(name: str) -> codecs.CodecInfo | None:
+        return info if name == "pycubrid_test_supplementary" else None
+
+    codecs.register(search)
+    try:
+        with pytest.raises(ValueError, match="not ASCII-compatible"):
+            resolve_charset("pycubrid_test_supplementary")
+    finally:
+        codecs.unregister(search)

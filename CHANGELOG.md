@@ -27,11 +27,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   database charset; a `CHARSET utf8` column in an EUC-KR database raises
   `DataError` under `charset="euckr"` (convert with `CAST(... CHARSET euckr)`).
   With the default UTF-8 codec, request bytes are unchanged except two edge
-  cases: a column name that is not valid UTF-8 now raises `DataError` and keeps
-  the session (previously `OperationalError('malformed response from broker')`
+  cases: a column name that is not valid UTF-8 now raises `DataError` and an
+  ordinary cursor keeps the session (previously `OperationalError('malformed response from broker')`
   and a closed connection), and a database/user/password longer than its
   32-byte `OPEN_DATABASE` field is cut on a character boundary instead of
-  mid-character. A new `integration-charset` CI job runs the live round trips
+  mid-character. `get_schema_info()` checks its arguments before sending, so an
+  unencodable table or column pattern no longer closes the connection. A new `integration-charset` CI job runs the live round trips
   against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr`.
 
 ### Documentation

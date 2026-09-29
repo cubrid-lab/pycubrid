@@ -249,10 +249,14 @@ class cursor:
             driver = self._connection._driver
             try:
                 sql.encode(driver._encoding)
+                encodable = True
             except UnicodeEncodeError:
+                encodable = False
+            if not encodable:
+                # Raised outside the handler so no chained exception keeps the SQL.
                 raise DataError(
                     f"prepared SQL cannot be encoded as {_codec_label(driver._encoding)}"
-                ) from None
+                )
             if driver._statement_pooling != 1:
                 raise NotSupportedError("prepared statements require broker statement pooling")
             if self._handle is not None:

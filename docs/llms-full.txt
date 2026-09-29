@@ -1001,7 +1001,7 @@ by `ping(reconnect=True)` and the CHECK_CAS recovery.
 | Sent | SQL text, including parameters rendered into it; `executemany` batch SQL; schema-info arguments; `compat.native` prepared SQL and string bindings | Encoded before any byte of the request is sent. An unencodable character raises `DataError` naming the codec and character position (the text itself is not echoed); nothing of that request is sent and the session stays usable. |
 | Sent | `OPEN_DATABASE` database, user and password | Encoded, then cut to the 32-byte field on a character boundary. |
 | Received | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING` and `ENUM` values, collection elements (`decode_collections=True`) | Strict decode. Undecodable bytes raise `DataError` (for example `column value is not valid euc_kr (invalid byte at offset 0)`); the session stays usable. |
-| Received | Column, table and alias names; column default values | Strict decode; `DataError` (`column metadata is not valid ...`); the session stays usable. |
+| Received | Column, table and alias names; column default values | Strict decode; `DataError` (`column metadata is not valid ...`). Ordinary cursors keep the session and release the server handle; `get_schema_info()` and the `compat.native` prepared cursor still retire the session, as for any unparsable reply there. |
 | Received | Server error messages, including per-statement batch errors | Decoded with `errors="replace"`, so the native error always surfaces. |
 
 **What does not use it:** `JSON` values are always UTF-8 (the broker sends JSON
