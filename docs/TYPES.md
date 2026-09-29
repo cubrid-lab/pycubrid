@@ -279,7 +279,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 
 | CUBRID Type | CCI Code | Python Type | Notes |
 |---|---|---|---|
-| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, UTF-8 decoded |
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, UTF-8 decoded; invalid UTF-8 raises `DataError` (connection stays usable) |
 | `SHORT` (SMALLINT) | 9 | `int` | 16-bit signed |
 | `INTEGER` | 8 | `int` | 32-bit signed |
 | `BIGINT` | 21 | `int` | 64-bit signed |

@@ -10,6 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .constants import CUBRIDDataType, DataSize
+from .exceptions import DataError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -224,11 +225,11 @@ class PacketWriter:
 
 
 _COLLECTION_ELEMENT_METHOD_NAMES: dict[int, str] = {
-    CUBRIDDataType.CHAR: "_parse_null_terminated_string",
-    CUBRIDDataType.STRING: "_parse_null_terminated_string",
-    CUBRIDDataType.NCHAR: "_parse_null_terminated_string",
-    CUBRIDDataType.VARNCHAR: "_parse_null_terminated_string",
-    CUBRIDDataType.ENUM: "_parse_null_terminated_string",
+    CUBRIDDataType.CHAR: "_parse_text_value",
+    CUBRIDDataType.STRING: "_parse_text_value",
+    CUBRIDDataType.NCHAR: "_parse_text_value",
+    CUBRIDDataType.VARNCHAR: "_parse_text_value",
+    CUBRIDDataType.ENUM: "_parse_text_value",
     CUBRIDDataType.SHORT: "_parse_short",
     CUBRIDDataType.INT: "_parse_int",
     CUBRIDDataType.BIGINT: "_parse_long",
@@ -318,6 +319,20 @@ class PacketReader:
             return bytes(self._buffer[start : end - 1]).decode("utf-8")
         return bytes(self._buffer[start:end]).decode("utf-8")
 
+    def _parse_text_value(self, length: int) -> str:
+        """Decode a character column value.
+
+        The caller already holds the complete response, so invalid UTF-8
+        in a value is a data problem, not a framing problem: raise
+        ``DataError`` and leave the connection usable (#492).
+        """
+        try:
+            return self._parse_null_terminated_string(length)
+        except UnicodeDecodeError as exc:
+            raise DataError(
+                f"column value is not valid UTF-8 (invalid byte at offset {exc.start})"
+            ) from exc
+
     def _parse_date(self, size: int = 0) -> datetime.date:
         year, month, day = _STRUCT_3H.unpack_from(self._buffer, self._offset)
         self._offset += 6
@@ -378,7 +393,7 @@ class PacketReader:
             raise ValueError(f"malformed NUMERIC value: {value!r}") from exc
 
     def _parse_json(self, size: int) -> Any:
-        value = self._parse_null_terminated_string(size)
+        value = self._parse_text_value(size)
         if self._json_deserializer is None:
             return value
         if self._json_deserializer is json.loads:
@@ -439,8 +454,23 @@ class PacketReader:
         """Read an error packet body as ``(error_code, message)``."""
         error_code = self._parse_int()
         message_size = response_length - DataSize.INT
-        error_message = self._parse_null_terminated_string(message_size)
+        error_message = self._parse_error_message(message_size)
         return error_code, error_message
+
+    def _parse_error_message(self, length: int) -> str:
+        """Decode server error text, replacing invalid UTF-8 (#492).
+
+        CUBRID can cut a message mid-character (e.g. when echoing an
+        oversized value), and the real error must still surface.
+        """
+        if length <= 0:
+            return ""
+        start = self._offset
+        end = start + length
+        self._offset = end
+        if self._buffer[end - 1] == 0:
+            end -= 1
+        return bytes(self._buffer[start:end]).decode("utf-8", errors="replace")
 
     def bytes_remaining(self) -> int:
         """Return unread byte count."""
