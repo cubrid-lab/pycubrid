@@ -29,7 +29,7 @@ from pycubrid.protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 # Identifier validation for stored procedure names (prevents SQL injection).
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
+_IDENTIFIER_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*")
 
 
 if TYPE_CHECKING:
@@ -397,7 +397,7 @@ class AsyncCursor(_AsyncCursorBase):
 
     async def callproc(self, procname: str, parameters: Sequence[Any] = ()) -> Sequence[Any]:
         """Call a stored procedure and return the original parameters."""
-        if not _IDENTIFIER_RE.match(procname):
+        if not _IDENTIFIER_RE.fullmatch(procname):
             raise ProgrammingError(f"Invalid stored procedure name: {procname!r}")
         placeholders = ", ".join(["?"] * len(parameters))
         if placeholders:

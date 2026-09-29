@@ -59,6 +59,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   such plain literals. `NaN`/`Infinity` still raise `ProgrammingError`, and
   integral Decimals written without an exponent (`Decimal("42")`) render as the
   same integer literal as before. Sync and async cursors share the change. (#517)
+- `callproc()` now rejects procedure names with empty or invalid dot-separated
+  segments before executing SQL, in both sync and async cursors. Valid single
+  and qualified identifiers continue to work. (#372)
 - With `decode_collections=True`, a nonempty `SET`/`MULTISET`/`SEQUENCE`
   (`LIST`) whose elements are all SQL NULL, such as `{NULL}` or
   `{NULL, NULL}`, now decodes to `[None, ...]` (a `SET` becomes

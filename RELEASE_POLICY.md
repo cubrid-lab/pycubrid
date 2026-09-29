@@ -234,6 +234,11 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   exponent, public signatures, dependencies and supported versions are
   unchanged.
 
+- **Qualified `callproc()` names reject empty segments (#372)** — PATCH /
+  backward-compatible validation fix. Sync and async cursors reject malformed
+  names before executing SQL; valid single and dot-qualified identifiers and
+  public signatures are unchanged.
+
 - **Unresolved TZ zones raise `DataError` (#413)** — PATCH / correction to the
   documented type contract (`TIMESTAMPTZ`/`LTZ` and `DATETIMETZ`/`LTZ` return
   timezone-aware values). A region the client's IANA database cannot resolve
