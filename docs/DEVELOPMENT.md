@@ -349,11 +349,17 @@ Python/pyi-only; Markdown is outside this formatting contract. Hooks use the sam
 Mypy remains strict and package-only. The tools run through the active Python
 environment, so install `.[dev]` and activate it before running checks.
 
-`pyproject.toml` owns the exact Ruff/Mypy versions. Update the dev pin and matching
-`.pre-commit-config.yaml` revision together, reinstall `.[dev]`, and run
+`pyproject.toml` owns the exact Ruff/Mypy versions. The Ruff and Mypy pre-commit
+hooks are `repo: local` / `language: system` hooks that invoke `python3 -m ruff`
+and `python3 -m mypy` against that same active environment, so there is no
+separate hook revision to keep in sync: bumping the dev pin (Dependabot's `pip`
+ecosystem does exactly this) and reinstalling `.[dev]` is enough. Activate that
+environment (or a venv where it's installed) whenever a commit should run the
+hooks; otherwise Ruff/Mypy are missing or a stale/global version silently runs
+instead of the pinned one. Update the dev pin, reinstall `.[dev]`, and run
 `make check-all` plus `pre-commit run --all-files`. `make tooling-check` rejects
-pin, installed-version, hook-scope, and CI-scope drift before lint/format/typecheck.
-No extra dependencies or unsupported dependency-update ecosystem are required.
+pin, installed-version, hook-scope, and CI-scope drift before
+lint/format/typecheck.
 
 ### Anti-Patterns (Never Do)
 

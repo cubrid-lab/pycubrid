@@ -321,11 +321,14 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   the documented collection types and opt-in decoding behavior. Default raw bytes,
   public signatures and unsupported collection parameter binding are unchanged.
 
-- **Quality-tool pin and scope consistency (#416)** — PATCH / development and CI
-  maintenance. Shared lint/format targets include maintained scripts/demos, and
-  declared pins, hook revisions, installed versions, and scopes are checked together.
-  Strict typechecking remains package-only; no driver behavior, public API, runtime
-  dependency, or supported-version changes.
+- **Quality-tool pin and scope consistency (#416, #497)** — PATCH / development
+  and CI maintenance. Shared lint/format targets include maintained scripts/demos,
+  and declared pins, installed versions, and scopes are checked together. Ruff and
+  Mypy pre-commit hooks run as `repo: local` / `language: system` hooks against
+  the active `.[dev]` environment, so `pyproject.toml` is the single source of
+  truth for their versions and there is no separate hook revision to check or
+  drift (#497). Strict typechecking remains package-only; no driver behavior,
+  public API, runtime dependency, or supported-version changes.
 
 - **Marker-based integration lane coverage (#397)** — PATCH / CI bug correction.
   Normal, TLS, and slow workloads have executable workflow paths and a dynamic

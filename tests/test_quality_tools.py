@@ -31,15 +31,93 @@ def test_declared_hooks_and_active_environment_agree() -> None:
     check_environment(check_configuration())
 
 
-def test_wrong_hook_revision_fails_and_restored_fixture_passes(project: Path) -> None:
+def test_hook_entry_drift_fails_and_restored_fixture_passes(project: Path) -> None:
     path = project / ".pre-commit-config.yaml"
     original = path.read_text()
-    pin = declared_pins(project)["ruff"]
-    path.write_text(original.replace(f"rev: v{pin}", "rev: v0.0.0"))
-    with pytest.raises(ValueError, match="hook revision"):
+    path.write_text(original.replace("entry: python3 -m ruff format", "entry: ruff format"))
+    with pytest.raises(ValueError, match="entry must be exactly"):
         check_configuration(project)
     path.write_text(original)
     check_configuration(project)
+
+
+def test_hook_swapped_subcommand_fails(project: Path) -> None:
+    """A hook entry that still invokes `python3 -m ruff` but with the wrong
+    subcommand (e.g. the format hook running `check` instead) must fail even
+    though the module prefix looks right."""
+    path = project / ".pre-commit-config.yaml"
+    original = path.read_text()
+    path.write_text(
+        original.replace("entry: python3 -m ruff format", "entry: python3 -m ruff check")
+    )
+    with pytest.raises(ValueError, match="entry must be exactly"):
+        check_configuration(project)
+    path.write_text(original)
+    check_configuration(project)
+
+
+def test_duplicate_local_hook_id_fails(project: Path) -> None:
+    path = project / ".pre-commit-config.yaml"
+    original = path.read_text()
+    anchor = "      - id: ruff\n        name: ruff\n"
+    duplicate_ruff_hook = (
+        "      - id: ruff\n"
+        "        name: ruff (unpinned duplicate)\n"
+        "        entry: ruff check\n"
+        "        language: system\n"
+        "        types_or: [python, pyi]\n"
+    )
+    assert original.count(anchor) == 1
+    path.write_text(original.replace(anchor, duplicate_ruff_hook + anchor, 1))
+    with pytest.raises(ValueError, match="duplicate local hook id"):
+        check_configuration(project)
+    path.write_text(original)
+    check_configuration(project)
+
+
+def test_ruff_hook_args_fails(project: Path) -> None:
+    """pre-commit appends `args:` to `entry:`, so an added `args: ["--check"]`
+    on ruff-format would silently turn formatting into a no-op check while
+    the exact-entry check alone still sees the pinned entry line."""
+    path = project / ".pre-commit-config.yaml"
+    original = path.read_text()
+    path.write_text(
+        original.replace(
+            "        entry: python3 -m ruff format\n        language: system\n",
+            '        entry: python3 -m ruff format\n        language: system\n        args: ["--check"]\n',
+        )
+    )
+    with pytest.raises(ValueError, match="must not add args"):
+        check_configuration(project)
+    path.write_text(original)
+    check_configuration(project)
+
+
+def test_hook_missing_language_system_fails(project: Path) -> None:
+    path = project / ".pre-commit-config.yaml"
+    original = path.read_text()
+    path.write_text(
+        original.replace(
+            "        entry: python3 -m mypy\n        language: system\n",
+            "        entry: python3 -m mypy\n",
+        )
+    )
+    with pytest.raises(ValueError, match="language: system"):
+        check_configuration(project)
+    path.write_text(original)
+    check_configuration(project)
+
+
+def test_dependabot_style_pin_bump_alone_does_not_require_hook_edit(project: Path) -> None:
+    """The whole point of the local/system hooks: bumping only the pyproject pin
+    (what Dependabot's pip ecosystem does) must not require also touching
+    .pre-commit-config.yaml, since there is no separate hook revision to sync."""
+    path = project / "pyproject.toml"
+    original = path.read_text()
+    pin = declared_pins(project)["ruff"]
+    path.write_text(original.replace(f'"ruff=={pin}"', '"ruff==99.0.0"'))
+    check_configuration(project)
+    path.write_text(original)
 
 
 def test_wrong_installed_version_fails(project: Path) -> None:
@@ -109,7 +187,12 @@ def test_ruff_hook_type_drift_is_rejected(project: Path, types: str) -> None:
 
 def test_system_guard_requires_python3(project: Path) -> None:
     path = project / ".pre-commit-config.yaml"
-    path.write_text(path.read_text().replace("entry: python3", "entry: python"))
+    path.write_text(
+        path.read_text().replace(
+            "entry: python3 scripts/check_quality_tools.py",
+            "entry: python scripts/check_quality_tools.py",
+        )
+    )
     with pytest.raises(ValueError, match="must use python3"):
         check_configuration(project)
 

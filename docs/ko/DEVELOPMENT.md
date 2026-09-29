@@ -322,11 +322,16 @@ Markdown은 이 포맷 범위에 포함하지 않습니다. 훅에도 같은 관
 Mypy는 기존의 엄격한 패키지 전용 검사를 유지합니다. 검사는 현재 Python 환경의
 도구를 사용하므로 `.[dev]`를 설치하고 해당 환경을 활성화하세요.
 
-Ruff/Mypy의 정확한 버전은 `pyproject.toml`에서 관리합니다. dev 핀과
-`.pre-commit-config.yaml`의 대응 버전을 같은 PR에서 갱신하고 `.[dev]`를 다시
-설치한 뒤 `make check-all` 및 `pre-commit run --all-files`를 실행하세요.
-`make tooling-check`는 린트/포맷/타입 검사 전에 핀, 설치 버전, 훅 범위 및 CI 범위의
-불일치를 실패 처리합니다. 새 의존성이나 지원되지 않는 업데이트 생태계는 추가하지 않습니다.
+Ruff/Mypy의 정확한 버전은 `pyproject.toml`에서 관리합니다. Ruff와 Mypy
+pre-commit 훅은 `repo: local` / `language: system` 훅으로, 같은 활성 환경에서
+`python3 -m ruff`와 `python3 -m mypy`를 직접 호출합니다. 따라서 별도로 맞춰야 할
+훅 버전(`rev:`)이 없습니다: dev 핀을 올리고(Dependabot의 `pip` 생태계가 정확히 이
+작업을 수행합니다) `.[dev]`를 다시 설치하면 충분합니다. 커밋 시 훅이 실행되길
+원한다면 그 환경(또는 이를 설치한 venv)을 항상 활성화해두세요. 그렇지 않으면
+Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치된 버전이 조용히
+실행됩니다. dev 핀을 갱신하고 `.[dev]`를 다시 설치한 뒤 `make check-all` 및
+`pre-commit run --all-files`를 실행하세요. `make tooling-check`는 린트/포맷/타입
+검사 전에 핀, 설치 버전, 훅 범위 및 CI 범위의 불일치를 실패 처리합니다.
 
 ### 안티패턴 (절대 금지)
 

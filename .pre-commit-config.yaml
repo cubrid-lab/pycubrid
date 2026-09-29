@@ -9,20 +9,21 @@ repos:
         pass_filenames: false
         always_run: true
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.9
-    hooks:
       - id: ruff-format
+        name: ruff-format
+        entry: python3 -m ruff format
+        language: system
         types_or: [python, pyi]
       - id: ruff
+        name: ruff
+        entry: python3 -m ruff check --fix
+        language: system
         types_or: [python, pyi]
-        args: ["--fix"]
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.3.1
-    hooks:
       - id: mypy
-        language: python
+        name: mypy
+        entry: python3 -m mypy
+        language: system
         files: "^pycubrid/"
         pass_filenames: false
         args:
