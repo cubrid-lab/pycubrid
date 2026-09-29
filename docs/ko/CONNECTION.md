@@ -646,7 +646,7 @@ conn = pycubrid.connect(database="kodb", charset="euckr")
 aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
 ```
 
-**허용 값.** 모든 Python 코덱 이름과 CUBRID 표기 `utf8`, `euckr`, `iso88591`를 받습니다(`ksc5601`은 Python의 EUC-KR 별칭으로 동작). 이름은 Python 코덱 이름으로 정규화됩니다(`"euckr"` → `"euc_kr"`). 옵션은 소켓 작업 전에 검증됩니다:
+**허용 값.** 모든 Python 코덱 이름과 CUBRID 표기 `utf8`, `euckr`, `iso88591`를 받습니다(`ksc5601`은 Python의 EUC-KR 별칭으로 동작). `createdb`에 쓰는 `"ko_KR.euckr"` 같은 CUBRID 로케일도 받으며 점 뒤 부분을 사용합니다. `None`은 기본값 `"utf-8"`입니다. 이름은 Python 코덱 이름으로 정규화됩니다(`"euckr"` → `"euc_kr"`). 옵션은 소켓 작업 전에 검증됩니다:
 
 - 문자열이 아니면 `TypeError`;
 - 알 수 없는 코덱, CUBRID `binary` 문자셋(텍스트 코덱 없음), ASCII 투명하지 않은 코덱은 `ValueError`. 거부되는 코덱: UTF-16/32, UTF-7, `utf-8-sig`, Shift_JIS, Big5, GBK, GB18030, CP949, Johab, ISO-2022 계열. SQL 인용·이스케이프는 인코딩 전에 `str`에서 수행되므로, 멀티바이트 문자 안에 `'`나 `\` 같은 ASCII 바이트를 만들 수 있는 코덱은 안전하지 않습니다;
@@ -658,13 +658,14 @@ aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
 
 | 방향 | 텍스트 | 동작 |
 |---|---|---|
-| 송신 | SQL 텍스트(렌더링된 파라미터 포함), `executemany` 배치 SQL, 스키마 정보 인자, `compat.native` prepared SQL과 문자열 바인딩 | 요청의 어떤 바이트도 보내기 전에 인코딩합니다. 인코딩할 수 없는 문자는 코덱과 문자 위치를 담은 `DataError`를 발생시키며(텍스트 자체는 출력하지 않음), 해당 요청은 전혀 전송되지 않고 세션은 계속 사용할 수 있습니다. |
+| 송신 | SQL 텍스트(렌더링된 파라미터와 JSON 파라미터 포함), `executemany` 배치 SQL, 스키마 정보 인자, `compat.native` prepared SQL과 문자열 바인딩 | 요청의 어떤 바이트도 보내기 전에 인코딩합니다. 인코딩할 수 없는 문자는 코덱과 문자 위치를 담은 `DataError`를 발생시키며(텍스트 자체는 출력하지 않음), 해당 요청은 전혀 전송되지 않고 세션은 계속 사용할 수 있습니다. `euc_kr`에서 KS X 1001 밖의 한글 음절(예: 똠, 뷁)은 인코딩할 수 없습니다. Python은 이를 8바이트 조합 시퀀스로 보내고 CUBRID는 개별 자모로 저장하기 때문입니다. |
 | 송신 | `OPEN_DATABASE`의 database, user, password | 인코딩한 뒤 32바이트 필드에 맞게 문자 경계에서 자릅니다. |
 | 수신 | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING`, `ENUM` 값, 컬렉션 요소(`decode_collections=True`) | 엄격 디코딩. 디코딩할 수 없는 바이트는 `DataError`(예: `column value is not valid euc_kr (invalid byte at offset 0)`)이며 세션은 유지됩니다. |
 | 수신 | 컬럼·테이블·별칭 이름, 컬럼 기본값 | 엄격 디코딩, `DataError`(`column metadata is not valid ...`). 일반 커서는 세션을 유지하고 서버 핸들을 해제합니다. `get_schema_info()`와 `compat.native` 준비 커서는 해석할 수 없는 응답과 마찬가지로 세션을 폐기합니다. |
 | 수신 | 서버 오류 메시지(배치의 문장별 오류 포함) | `errors="replace"`로 디코딩하므로 원래 오류가 항상 드러납니다. |
+| 수신 | LOB 파일 로케이터(`file_locator`, 서버 경로에 테이블 이름 포함) | `errors="replace"`로 디코딩합니다. 참고용이며 서버로 돌려보내는 것은 packed handle입니다. |
 
-**사용하지 않는 항목:** `JSON` 값은 항상 UTF-8입니다(브로커는 데이터베이스 문자셋과 무관하게 JSON을 UTF-8로 보냄). `NUMERIC` 텍스트, 타임존 이름, 서버 버전 문자열, LOB 로케이터는 프로토콜 텍스트로 UTF-8을 유지합니다. LOB 내용은 원시 바이트입니다: `CLOB`에 대한 `Lob.read()`는 컬럼 문자셋의 바이트(EUC-KR 데이터베이스에서는 EUC-KR 바이트)를 반환하며, 애플리케이션이 직접 디코딩합니다.
+**사용하지 않는 항목:** 가져온 `JSON` 값은 항상 UTF-8입니다(브로커는 데이터베이스 문자셋과 무관하게 JSON을 UTF-8로 보냄). 단, JSON 파라미터는 SQL 텍스트이므로 연결 코덱으로 인코딩되어 `euckr`에서 JSON 안의 이모지는 삽입 시 `DataError`를 발생시킵니다. `NUMERIC` 텍스트, 타임존 이름, 서버 버전 문자열은 프로토콜 텍스트로 UTF-8을 유지하며, `pycubrid.Binary(str)`는 항상 UTF-8로 인코딩합니다. LOB 내용은 원시 바이트입니다: `CLOB`에 대한 `Lob.read()`는 컬럼 문자셋의 바이트(EUC-KR 데이터베이스에서는 EUC-KR 바이트)를 반환하며, 애플리케이션이 직접 디코딩합니다.
 
 **와이어 상의 협상 없음.** CAS 프로토콜은 클라이언트 문자셋을 전달하지 않고 브로커는 변환하지 않습니다. 서버는 받은 바이트를 데이터베이스 문자셋으로 해석하고, 브로커는 각 값을 해당 컬럼의 문자셋으로 보냅니다. 결과:
 

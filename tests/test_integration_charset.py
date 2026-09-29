@@ -191,11 +191,13 @@ async def test_utf8_column_raises_documented_data_error(conn: Any) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["\U0001f600", "똠", '{"k": "\U0001f600"}'])
 async def test_unencodable_parameter_raises_data_error_and_keeps_the_session(
-    conn: Any,
+    conn: Any, value: str
 ) -> None:
+    # Hangul outside KS X 1001 and JSON text are sent through the SQL codec too.
     with pytest.raises(DataError, match="cannot be encoded as euc_kr"):
-        await _query(conn, "SELECT ?", ("\U0001f600",))
+        await _query(conn, "SELECT ?", (value,))
     assert await _query(conn, "SELECT ?", (HANGUL,)) == [(HANGUL,)]
 
 
@@ -228,7 +230,8 @@ async def test_reconnect_keeps_the_connection_codec(conn: Any) -> None:
 
 
 def test_clob_bytes_are_in_the_column_charset(euckr_database: None) -> None:
-    table = _table()
+    # A Korean table name lands in the LOB file locator (EUC-KR bytes).
+    table = "[표_" + uuid.uuid4().hex[:8] + "]"
     with pycubrid.connect(
         host=TEST_HOST,
         port=TEST_PORT,
@@ -244,6 +247,7 @@ def test_clob_bytes_are_in_the_column_charset(euckr_database: None) -> None:
             cursor.execute(f"INSERT INTO {table} VALUES (CHAR_TO_CLOB(?))", (HANGUL,))
             cursor.execute(f"SELECT cl FROM {table}")
             handle = cursor.fetchone()[0]
+            assert "표_" in handle["file_locator"]
             with Lob(conn, CUBRIDDataType.CLOB, handle["packed_lob_handle"]) as lob:
                 content = lob.read(handle["lob_length"])
             # LOB content is raw bytes: CLOB text is in the column charset.

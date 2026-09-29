@@ -17,6 +17,7 @@ import difflib
 import functools
 import logging
 import os
+import re
 import socket
 import ssl as ssl_module
 import sys
@@ -38,6 +39,7 @@ from .exceptions import (
     UnknownConnectionOptionWarning,
     Warning,
 )
+from .packet import _encode_text, _unencodable_message
 from .protocol import (
     CloseQueryPacket,
     FetchPacket,
@@ -100,6 +102,7 @@ _CUBRID_CHARSET_ALIASES: dict[str, str] = {
     "iso88591": "latin-1",
 }
 _ASCII_PROBE = bytes(range(128)).decode("ascii")
+_LOCALE_PREFIX = re.compile(r"[A-Za-z]{2,3}_[A-Za-z]{2}\.(?=.)")
 # Codecs of the CUBRID server charsets: every non-ASCII character encodes to
 # bytes >= 0x80 only (asserted by the unit tests), so connecting with them
 # skips the one-time full scan below.
@@ -151,14 +154,21 @@ def _codec_is_ascii_safe(name: str) -> bool:
 def resolve_charset(charset: Any) -> str:
     """Validate a ``charset`` connection option and return its codec name.
 
-    Accepts Python codec names and the CUBRID spellings ``utf8``, ``euckr``
-    and ``iso88591``. Raises ``TypeError`` for a non-string and ``ValueError``
+    Accepts Python codec names, the CUBRID spellings ``utf8``, ``euckr``
+    and ``iso88591``, and a CUBRID locale such as ``ko_KR.euckr`` (the part
+    after the dot is used). ``None`` means the default ``"utf-8"``. Raises ``TypeError`` for a non-string and ``ValueError``
     for an unknown codec, CUBRID ``binary`` or a codec that is not
     ASCII-compatible, like the other connection options, before any socket
     work (#86).
     """
+    if charset is None:
+        return "utf-8"
     if not isinstance(charset, str):
         raise TypeError(f"charset must be a string, got {type(charset).__name__}")
+    # Accept a CUBRID locale spelling such as "ko_KR.euckr" (createdb syntax).
+    locale_match = _LOCALE_PREFIX.match(charset)
+    if locale_match is not None:
+        charset = charset[locale_match.end() :]
     key = charset.lower()
     if key == "binary":
         raise ValueError(
@@ -370,12 +380,9 @@ class ConnectionCommonMixin:
         """
         if not isinstance(value, str):
             return
-        try:
-            value.encode(self._encoding)
-            return
-        except UnicodeEncodeError:
-            pass
-        raise DataError(f"{name} cannot be encoded with charset {self._encoding!r}")
+        encoded, position = _encode_text(value, self._encoding)
+        if encoded is None:
+            raise DataError(_unencodable_message(name, self._encoding, position))
 
     def _register_schema_result(self, packet: GetSchemaPacket) -> None:
         packet._owner = self._schema_owner

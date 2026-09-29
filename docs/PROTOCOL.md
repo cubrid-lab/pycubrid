@@ -321,9 +321,11 @@ client-side codec. Every packet built by a connection carries it
 (`packet.encoding`, set before `write()`), and `PacketWriter` / `PacketReader`
 use it for SQL text, FC9 arguments, credentials, character values, collection
 elements, column metadata names and defaults, and error text (with
-`errors="replace"`). `JSON` values are always UTF-8. `NUMERIC` text, timezone
-names, the engine version string and LOB locators stay UTF-8, and LOB contents
-are raw bytes. An encode failure raises `DataError` inside `write()`, before the
+`errors="replace"`, as are LOB file locators, which embed the table name).
+Fetched `JSON` values are always UTF-8. `NUMERIC` text, timezone names and the
+engine version string stay UTF-8, and LOB contents are raw bytes. With
+`euc_kr`, Hangul outside KS X 1001, which Python encodes as an 8-byte makeup
+sequence starting `A4 D4`, is treated as unencodable. An encode failure raises `DataError` inside `write()`, before the
 request is sent; a strict decode failure raises `DataError` after the whole
 reply was read, so the session stays usable.
 

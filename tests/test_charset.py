@@ -106,9 +106,13 @@ def _select_body(columns: list[tuple[int, bytes]], values: list[bytes | None]) -
         ("latin-1", "iso8859-1"),
         ("cp1252", "cp1252"),
         ("ascii", "ascii"),
+        (None, "utf-8"),
+        ("ko_KR.euckr", "euc_kr"),
+        ("en_US.utf8", "utf-8"),
+        ("en_US.iso88591", "iso8859-1"),
     ],
 )
-def test_charset_aliases_normalize_to_python_codecs(given: str, codec: str) -> None:
+def test_charset_aliases_normalize_to_python_codecs(given: str | None, codec: str) -> None:
     assert resolve_charset(given) == codec
 
 
@@ -145,8 +149,6 @@ def test_unknown_binary_and_non_string_charsets_are_rejected() -> None:
     with pytest.raises(ValueError, match="'binary' has no text codec"):
         resolve_charset("BINARY")
     with pytest.raises(TypeError, match="charset must be a string"):
-        resolve_charset(None)
-    with pytest.raises(TypeError, match="charset must be a string"):
         resolve_charset(b"utf8")
 
 
@@ -170,7 +172,7 @@ def test_charset_is_a_known_option_and_warns_nothing(
 
 @pytest.mark.parametrize(
     ("charset", "error"),
-    [("utf-16", ValueError), ("nope", ValueError), (None, TypeError)],
+    [("utf-16", ValueError), ("nope", ValueError), (b"utf8", TypeError)],
 )
 def test_invalid_charset_fails_before_any_socket_work(
     charset: Any, error: type[Exception], monkeypatch: pytest.MonkeyPatch
@@ -202,7 +204,10 @@ def test_unencodable_credentials_fail_before_any_socket_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(socket, "create_connection", MagicMock(side_effect=AssertionError))
-    with pytest.raises(DataError, match="user cannot be encoded with charset 'iso8859-1'"):
+    with pytest.raises(
+        DataError,
+        match=r"user cannot be encoded as iso8859-1 \(unencodable character at position 0\)",
+    ):
         connect(database="testdb", user=HANGUL, charset="latin-1")
     with pytest.raises(DataError, match="password cannot be encoded"):
         AsyncConnection("localhost", 33000, "testdb", "dba", "\U0001f600", charset="euckr")
@@ -703,3 +708,52 @@ def test_codec_encoding_supplementary_characters_is_scanned_fully(
             resolve_charset("pycubrid_test_supplementary")
     finally:
         codecs.unregister(search)
+
+
+def test_locale_without_codec_is_still_rejected() -> None:
+    with pytest.raises(ValueError, match="unknown charset"):
+        resolve_charset("ko_KR.")
+    with pytest.raises(ValueError, match="not ASCII-compatible"):
+        resolve_charset("ja_JP.shift_jis")
+
+
+@pytest.mark.parametrize("text", ["똠", "a뷁b", "\u3164똠"])
+def test_hangul_outside_ks_x_1001_is_unencodable_in_euc_kr(text: str) -> None:
+    position = next(i for i, c in enumerate(text) if c in "똠뷁")
+    with pytest.raises(DataError) as raised:
+        PacketWriter(encoding="euc_kr")._write_null_terminated_string(text)
+    assert str(raised.value) == (
+        f"text cannot be encoded as euc_kr (unencodable character at position {position})"
+    )
+    with pytest.raises(DataError, match="prepared string cannot be encoded as euc_kr"):
+        _encode_prepared_scalar(text, "euc_kr")
+
+
+def test_hangul_filler_alone_and_ks_x_1001_hangul_still_encode() -> None:
+    writer = PacketWriter(encoding="euc_kr")
+    writer._write_null_terminated_string("\u3164" + HANGUL)
+    assert writer.to_bytes().endswith(b"\xa4\xd4" + EUC_HANGUL + b"\x00")
+    # UTF-8 has no makeup sequences: the same text is fine there.
+    PacketWriter()._write_null_terminated_string("똠뷁")
+
+
+def test_unencodable_euc_kr_credential_fails_before_socket_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(socket, "create_connection", MagicMock(side_effect=AssertionError))
+    with pytest.raises(DataError, match="password cannot be encoded as euc_kr"):
+        connect(database="testdb", password="똠", charset="euckr")
+
+
+def test_lob_locator_decodes_leniently_with_the_connection_codec() -> None:
+    locator = b"file:ces_700/dba." + "한글표".encode("euc-kr") + b".00001_0001\x00"
+    handle = struct.pack(">iqi", 24, 4, len(locator)) + locator
+    reader = PacketReader(handle, encoding="euc_kr")
+    value = _read_value(reader, CUBRIDDataType.CLOB, len(handle))
+    assert value["file_locator"] == "file:ces_700/dba.한글표.00001_0001"
+    assert value["packed_lob_handle"] == handle
+    assert value["lob_length"] == 4
+    # A codec mismatch must not fail the fetch: the locator is informational.
+    value = _read_value(PacketReader(handle), CUBRIDDataType.BLOB, len(handle))
+    assert value["file_locator"].startswith("file:ces_700/dba.\ufffd")
+    assert value["packed_lob_handle"] == handle

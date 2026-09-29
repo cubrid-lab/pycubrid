@@ -98,8 +98,10 @@ heterogeneous failover.
 - Byte order: Big-endian throughout
 - Text: no charset is negotiated and the broker converts nothing. The `charset`
   option (default UTF-8, #86) is stamped on every packet as `packet.encoding` and
-  used for SQL, credentials, character values, metadata names and error text;
-  JSON, NUMERIC, TZ names, version strings and LOB locators stay UTF-8.
+  used for SQL, credentials, character values, metadata names, error text and
+  LOB locators (lenient); fetched JSON, NUMERIC, TZ names and version strings
+  stay UTF-8. Python euc_kr makeup sequences (Hangul outside KS X 1001) are
+  rejected as unencodable.
 - Column nullability is transmitted as `is_non_null`: zero permits NULL,
   nonzero means NOT NULL. Normalize it to `is_nullable` / DB-API `null_ok`.
 - Column metadata keeps first-byte collection flags (`0x60`) distinct from the

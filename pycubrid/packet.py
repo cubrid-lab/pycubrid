@@ -17,6 +17,38 @@ def _codec_label(encoding: str) -> str:
     return "UTF-8" if encoding == "utf-8" else encoding
 
 
+# Python's EUC-KR codec encodes a Hangul syllable outside KS X 1001 (e.g. 똠,
+# 뷁) as an 8-byte KS X 1001 "makeup" sequence starting with the Hangul filler
+# U+3164 (A4 D4). CUBRID's euckr charset stores those bytes as four separate
+# jamo, so such a character is treated as unencodable (#86).
+_EUC_KR_FILLER = b"\xa4\xd4"
+
+
+def _encode_text(value: str, encoding: str) -> tuple[bytes | None, int]:
+    """Encode ``value``; return ``(bytes, -1)`` or ``(None, bad_position)``.
+
+    Returns instead of raising so callers can raise ``DataError`` outside any
+    ``except`` block: no chained exception then keeps the (possibly secret)
+    text.
+    """
+    try:
+        encoded = value.encode(encoding)
+    except UnicodeEncodeError as exc:
+        return None, exc.start
+    if encoding == "euc_kr" and _EUC_KR_FILLER in encoded:
+        for position, char in enumerate(value):
+            if char != "\u3164" and len(char.encode(encoding)) > 2:
+                return None, position
+    return encoded, -1
+
+
+def _unencodable_message(what: str, encoding: str, position: int) -> str:
+    return (
+        f"{what} cannot be encoded as {_codec_label(encoding)} "
+        f"(unencodable character at position {position})"
+    )
+
+
 # Pre-compiled struct objects — avoids format-string parsing on every call.
 _STRUCT_SHORT = struct.Struct(">h")
 _STRUCT_INT = struct.Struct(">i")
@@ -234,15 +266,10 @@ class PacketWriter:
         without echoing the text (it may hold bound values), so nothing of
         the request reaches the socket and the session stays usable.
         """
-        try:
-            return value.encode(self._encoding)
-        except UnicodeEncodeError as exc:
-            position = exc.start
-        # Raised outside the handler so no chained exception carries the text.
-        raise DataError(
-            f"text cannot be encoded as {_codec_label(self._encoding)} "
-            f"(unencodable character at position {position})"
-        )
+        encoded, position = _encode_text(value, self._encoding)
+        if encoded is None:
+            raise DataError(_unencodable_message("text", self._encoding, position))
+        return encoded
 
     def _write_null_terminated_string(self, value: str) -> None:
         encoded = self._encode(value)
@@ -322,9 +349,9 @@ class PacketReader:
         self._offset: int = 0
         self._decode_collections: bool = decode_collections
         self._json_deserializer: Any = json_deserializer
-        # Connection charset (#86) for character values, metadata names and
-        # error text. Protocol text (NUMERIC, timezone names, version, LOB
-        # locators) and JSON stay UTF-8.
+        # Connection charset (#86) for character values, metadata names,
+        # error text and LOB locators (lenient: they embed the table name).
+        # Protocol text (NUMERIC, timezone names, version) and JSON stay UTF-8.
         self._encoding: str = encoding
 
     def _parse_byte(self) -> int:
@@ -372,7 +399,7 @@ class PacketReader:
         self._offset += count
 
     def _parse_null_terminated_string(self, length: int) -> str:
-        """Decode protocol text (NUMERIC, timezone, version, LOB locator) as UTF-8."""
+        """Decode protocol text (NUMERIC, timezone names, version) as UTF-8."""
         if length <= 0:
             return ""
 
@@ -561,7 +588,8 @@ class PacketReader:
         return error_code, error_message
 
     def _parse_error_message(self, length: int) -> str:
-        """Decode server error text with the connection codec, replacing errors.
+        """Decode server text (error messages, LOB locators) with the connection
+        codec, replacing undecodable bytes.
 
         CUBRID can cut a message mid-character (e.g. when echoing an
         oversized value), and the real error must still surface (#492).
@@ -584,11 +612,15 @@ class PacketReader:
 
     def _read_lob(self, size: int, lob_type: CUBRIDDataType) -> dict[str, object]:
         packed_lob_handle = self._parse_buffer(size)
-        lob_reader = PacketReader(packed_lob_handle)
+        lob_reader = PacketReader(packed_lob_handle, encoding=self._encoding)
         _ = lob_reader._parse_int()
         lob_length = lob_reader._parse_long()
         locator_size = lob_reader._parse_int()
-        file_locator = lob_reader._parse_null_terminated_string(locator_size)
+        # The locator is a server file path that embeds the table name, in the
+        # database charset. It is informational (``packed_lob_handle`` is what
+        # goes back to the server), so decode it leniently: a mismatch must not
+        # fail the fetch (#86).
+        file_locator = lob_reader._parse_error_message(locator_size)
 
         return {
             "lob_type": lob_type,

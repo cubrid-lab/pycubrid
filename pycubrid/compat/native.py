@@ -22,7 +22,7 @@ from pycubrid.exceptions import (
     OperationalError,
     ProgrammingError,
 )
-from pycubrid.packet import _codec_label
+from pycubrid.packet import _codec_label, _encode_text
 from pycubrid.protocol import (
     CloseQueryPacket,
     ExecutePacket,
@@ -247,12 +247,8 @@ class cursor:
             if type(sql) is not str or "\x00" in sql:
                 raise ProgrammingError("prepared SQL must be a string without NUL")
             driver = self._connection._driver
-            try:
-                sql.encode(driver._encoding)
-                encodable = True
-            except UnicodeEncodeError:
-                encodable = False
-            if not encodable:
+            encoded, _position = _encode_text(sql, driver._encoding)
+            if encoded is None:
                 # Raised outside the handler so no chained exception keeps the SQL.
                 raise DataError(
                     f"prepared SQL cannot be encoded as {_codec_label(driver._encoding)}"

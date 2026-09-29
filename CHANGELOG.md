@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   position, nothing of that request is sent and the session stays usable.
   Character values, `ENUM` and collection elements, column/table names and
   defaults are decoded strictly (`DataError` naming the codec), error messages
-  with replacement. `JSON` stays UTF-8; `NUMERIC`, timezone names, version
+  with replacement. Fetched `JSON` stays UTF-8 (JSON parameters are SQL text); `NUMERIC`, timezone names, version
   strings and LOB contents are unaffected (`CLOB` bytes are in the column
   charset). The broker does no conversion, so the codec must match the
   database charset; a `CHARSET utf8` column in an EUC-KR database raises
@@ -31,7 +31,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   ordinary cursor keeps the session (previously `OperationalError('malformed response from broker')`
   and a closed connection), and a database/user/password longer than its
   32-byte `OPEN_DATABASE` field is cut on a character boundary instead of
-  mid-character. `get_schema_info()` checks its arguments before sending, so an
+  mid-character. With `euc_kr`, Hangul outside KS X 1001 (such as 똠), which
+  Python would send as an 8-byte makeup sequence, is rejected as unencodable.
+  LOB file locators, which embed the table name, decode with the connection
+  codec and `errors="replace"`. `charset=None` means the default, and a CUBRID
+  locale such as `"ko_KR.euckr"` is accepted. `get_schema_info()` checks its arguments before sending, so an
   unencodable table or column pattern no longer closes the connection. A new `integration-charset` CI job runs the live round trips
   against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr`.
 

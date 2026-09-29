@@ -31,7 +31,7 @@ from .exceptions import (
     OperationalError,
     ProgrammingError,
 )
-from .packet import PacketReader, PacketWriter, _codec_label
+from .packet import PacketReader, PacketWriter, _codec_label, _encode_text
 
 
 # ---------------------------------------------------------------------------
@@ -129,14 +129,10 @@ def _encode_prepared_scalar(value: Any, encoding: str = "utf-8") -> _PreparedSca
     if isinstance(value, str):
         if "\x00" in value:
             raise ProgrammingError("prepared string contains NUL")
-        try:
-            payload = value.encode(encoding) + b"\x00"
-        except UnicodeEncodeError:
-            payload = None
-        if payload is None:
-            # Raised outside the handler so no chained exception keeps the value.
+        encoded, _position = _encode_text(value, encoding)
+        if encoded is None:
             raise DataError(f"prepared string cannot be encoded as {_codec_label(encoding)}")
-        return _PreparedScalar(CUBRIDDataType.CHAR, payload, encoding)
+        return _PreparedScalar(CUBRIDDataType.CHAR, encoded + b"\x00", encoding)
     raise ProgrammingError("unsupported prepared parameter type")
 
 

@@ -767,9 +767,11 @@ aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
 ```
 
 **Accepted values.** Any Python codec name, plus the CUBRID spellings `utf8`,
-`euckr` and `iso88591` (`ksc5601` works through Python's own EUC-KR alias). The
-name is normalized to the Python codec name (`"euckr"` becomes `"euc_kr"`). The
-option is validated before any socket work:
+`euckr` and `iso88591` (`ksc5601` works through Python's own EUC-KR alias), and
+a CUBRID locale as given to `createdb`, such as `"ko_KR.euckr"`, whose part
+after the dot is used. `None` means the default `"utf-8"`. The name is
+normalized to the Python codec name (`"euckr"` becomes `"euc_kr"`). The option
+is validated before any socket work:
 
 - a non-string raises `TypeError`;
 - an unknown codec, CUBRID's `binary` charset (it has no text codec) and any
@@ -788,15 +790,19 @@ by `ping(reconnect=True)` and the CHECK_CAS recovery.
 
 | Direction | Text | Behavior |
 |---|---|---|
-| Sent | SQL text, including parameters rendered into it; `executemany` batch SQL; schema-info arguments; `compat.native` prepared SQL and string bindings | Encoded before any byte of the request is sent. An unencodable character raises `DataError` naming the codec and character position (the text itself is not echoed); nothing of that request is sent and the session stays usable. |
+| Sent | SQL text, including parameters rendered into it (JSON parameters too); `executemany` batch SQL; schema-info arguments; `compat.native` prepared SQL and string bindings | Encoded before any byte of the request is sent. An unencodable character raises `DataError` naming the codec and character position (the text itself is not echoed); nothing of that request is sent and the session stays usable. With `euc_kr`, Hangul syllables outside KS X 1001 (such as 똠 or 뷁) are unencodable: Python would send them as 8-byte makeup sequences that CUBRID stores as separate jamo. |
 | Sent | `OPEN_DATABASE` database, user and password | Encoded, then cut to the 32-byte field on a character boundary. |
 | Received | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING` and `ENUM` values, collection elements (`decode_collections=True`) | Strict decode. Undecodable bytes raise `DataError` (for example `column value is not valid euc_kr (invalid byte at offset 0)`); the session stays usable. |
 | Received | Column, table and alias names; column default values | Strict decode; `DataError` (`column metadata is not valid ...`). Ordinary cursors keep the session and release the server handle; `get_schema_info()` and the `compat.native` prepared cursor still retire the session, as for any unparsable reply there. |
 | Received | Server error messages, including per-statement batch errors | Decoded with `errors="replace"`, so the native error always surfaces. |
+| Received | LOB file locators (`file_locator`; the server path embeds the table name) | Decoded with `errors="replace"`: informational only, the packed handle is what goes back to the server. |
 
-**What does not use it:** `JSON` values are always UTF-8 (the broker sends JSON
-as UTF-8 whatever the database charset); `NUMERIC` text, timezone names, the
-server version string and LOB locators are protocol text and stay UTF-8. LOB
+**What does not use it:** fetched `JSON` values are always UTF-8 (the broker
+sends JSON as UTF-8 whatever the database charset), although a JSON parameter
+is SQL text and is encoded with the connection codec, so an emoji in JSON
+raises `DataError` on insert under `euckr`. `NUMERIC` text, timezone names and
+the server version string are protocol text and stay UTF-8, and
+`pycubrid.Binary(str)` always encodes as UTF-8. LOB
 contents are raw bytes: `Lob.read()` on a `CLOB` returns the bytes in the
 column charset (EUC-KR bytes in an EUC-KR database), which the application
 decodes itself.
