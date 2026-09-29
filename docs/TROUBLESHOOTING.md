@@ -30,6 +30,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [NULL Handling](#null-handling)
   - [Boolean Values](#boolean-values)
   - [Unicode / NCHAR Encoding](#unicode--nchar-encoding)
+  - [Invalid UTF-8 in a Value or Error Message](#invalid-utf-8-in-a-value-or-error-message)
 - [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
   - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
   - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)

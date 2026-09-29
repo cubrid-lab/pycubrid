@@ -278,7 +278,7 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 
 | CUBRID 타입 | CCI 코드 | Python 타입 | 비고 |
 |---|---|---|---|
-| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null 종단, UTF-8 디코딩 |
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null 종단, UTF-8 디코딩; 잘못된 UTF-8은 `DataError` 발생 (연결은 유지) |
 | `SHORT` (SMALLINT) | 9 | `int` | 16비트 부호 있는 정수 |
 | `INTEGER` | 8 | `int` | 32비트 부호 있는 정수 |
 | `BIGINT` | 21 | `int` | 64비트 부호 있는 정수 |

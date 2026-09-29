@@ -1375,6 +1375,8 @@ class DataError(DatabaseError)
 ```
 
 데이터 처리 문제에 사용됩니다 (0으로 나누기, 숫자 오버플로 등).
+조회한 문자 값(`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`, `JSON`)이 유효한 UTF-8이 아닐 때도
+발생합니다. 응답은 모두 읽었으므로 연결은 계속 사용할 수 있습니다.
 
 ---
 
