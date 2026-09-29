@@ -970,6 +970,27 @@ class TestAsyncCursorMisc:
         await cur.callproc("myproc")
         assert captured["sql"] == "CALL myproc()"
 
+    @pytest.mark.parametrize("procname", ["foo..bar", "foo.", "foo.1bar", ".foo"])
+    @pytest.mark.asyncio
+    async def test_callproc_rejects_invalid_qualified_name(self, procname: str) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        cur.execute = AsyncMock()
+
+        with pytest.raises(ProgrammingError, match="Invalid stored procedure name"):
+            await cur.callproc(procname)
+
+        cur.execute.assert_not_awaited()
+
+    @pytest.mark.parametrize("procname", ["foo", "schema.proc", "_schema._proc2"])
+    @pytest.mark.asyncio
+    async def test_callproc_accepts_valid_qualified_name(self, procname: str) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        cur.execute = AsyncMock()
+
+        assert await cur.callproc(procname) == ()
+
+        cur.execute.assert_awaited_once_with(f"CALL {procname}()", ())
+
 
 class TestAsyncCursorBindParametersExtra:
     def test_bind_with_mapping_raises(self) -> None:
