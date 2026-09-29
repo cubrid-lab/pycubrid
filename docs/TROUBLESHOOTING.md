@@ -41,7 +41,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [fetchone() Returns None Unexpectedly](#fetchone-returns-none-unexpectedly)
   - [rowcount Is -1 After SELECT](#rowcount-is--1-after-select)
   - [executemany() Performance](#executemany-performance)
-- [Prepared Statement Issues](#prepared-statement-issues)
+- [Parameterized Query Issues](#parameterized-query-issues)
   - [execute(sql, params) Pattern](#executesql-params-pattern)
   - [Mixing Parameterized and Direct Execution](#mixing-parameterized-and-direct-execution)
 - [Docker Issues](#docker-issues)
@@ -950,7 +950,7 @@ cur.executemany_batch(sql_list)
 
 ---
 
-## Prepared Statement Issues
+## Parameterized Query Issues
 
 ### execute(sql, params) Pattern
 
@@ -971,7 +971,7 @@ marketers = cur.fetchall()
 
 - Always pass the SQL string as the first argument to `execute()`
 - Pass parameter values in the second argument
-- Each call uses CAS `PREPARE_AND_EXECUTE`; no separate prepare step is needed
+- The driver renders the parameters into SQL literals on the client and sends the complete SQL with CAS `PREPARE_AND_EXECUTE` on each call; there is no `cursor.prepare()`, server-side typed binding or statement reuse (see [Parameter Binding](PARAMETER_BINDING.md))
 
 ---
 

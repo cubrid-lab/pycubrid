@@ -114,7 +114,9 @@ the existing `translations-deferred` label and own the recorded follow-up. Korea
 README synchronization remains required; other translations remain advisory.
 
 When changing docs, regenerate `docs/llms-full.txt` with
-`python scripts/generate_llms_full.py` and run the existing site check
+`python scripts/generate_llms_full.py` (it also copies the canonical
+`docs/llms.txt` index to the root `llms.txt`; edit only `docs/llms.txt`, and CI
+fails if either generated file is stale) and run the existing site check
 `mkdocs build --strict` after installing its documented tooling
 (`mkdocs-material pymdown-extensions`). AI review feedback is separate from commands
 actually executed; report both accurately, including gaps and existing warnings.

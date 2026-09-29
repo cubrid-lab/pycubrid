@@ -42,7 +42,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [fetchone()이 예기치 않게 None 반환](#fetchone이-예기치-않게-none-반환)
   - [SELECT 후 rowcount가 -1](#rowcount가--1-after-select)
   - [executemany() 성능](#executemany-성능)
-- [Prepared Statement 문제](#prepared-statement-문제)
+- [파라미터화 쿼리 문제](#파라미터화-쿼리-문제)
   - [execute(sql, params) 패턴](#executesql-params-패턴)
   - [파라미터화 실행과 직접 실행 혼용](#파라미터화-실행과-직접-실행-혼용)
 - [Docker 문제](#docker-문제)
@@ -893,7 +893,7 @@ cur.executemany_batch(sql_list)
 
 ---
 
-## Prepared Statement 문제
+## 파라미터화 쿼리 문제
 
 ### execute(sql, params) 패턴
 
@@ -914,7 +914,7 @@ marketers = cur.fetchall()
 
 - 항상 SQL 문자열을 `execute()`의 첫 인자로 전달
 - 파라미터 값을 둘째 인자로 전달
-- 각 호출은 CAS `PREPARE_AND_EXECUTE`를 사용 — 별도 prepare 단계가 필요 없음
+- 드라이버가 파라미터를 클라이언트에서 SQL 리터럴로 렌더링하고, 호출마다 완성된 SQL을 CAS `PREPARE_AND_EXECUTE`로 전송합니다. `cursor.prepare()`, 서버 측 타입 바인딩, 문장 재사용은 없습니다([파라미터 바인딩](PARAMETER_BINDING.md) 참고)
 
 ---
 

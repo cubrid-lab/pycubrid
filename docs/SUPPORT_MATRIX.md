@@ -52,7 +52,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `connect()` | ✅ | Module-level constructor |
 | `Connection` | ✅ | Full lifecycle: commit, rollback, close, autocommit |
 | `Cursor` | ✅ | execute, executemany, fetch*, callproc, description, rowcount |
-| `Cursor.nextset()` | ✅ | Since 1.2.0 (#79) |
+| `Cursor.nextset()` | ✅ | Since 1.2.0 (#79) — raises `NotSupportedError`; CUBRID has no multiple result sets |
 | Exception hierarchy | ✅ | All 10 PEP 249 exception classes |
 | `errno` / `sqlstate` on `DatabaseError` | ✅ | Since 1.2.0 (#71) — 19 SQLSTATE mappings |
 | Type objects | ✅ | STRING, BINARY, NUMBER, DATETIME, ROWID |
@@ -137,7 +137,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 
 | Feature | Status | Since | Notes |
 |---|---|---|---|
-| `cursor.execute(sql, params)` | ✅ | 1.0.0 | Server-side `PREPARE_AND_EXECUTE` |
+| `cursor.execute(sql, params)` | ✅ | 1.0.0 | Driver-side literal binding; the rendered SQL is sent with `PREPARE_AND_EXECUTE` (no server-side typed binding) — see [PARAMETER_BINDING.md](PARAMETER_BINDING.md) |
 | `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | Batches non-SELECT DML via `BatchExecutePacket`; only SELECT falls back to the per-row loop |
 | `cursor.executemany_batch(sql_list, auto_commit=None)` | ✅ | 1.0.0 | Single round-trip `BatchExecutePacket` |
 | `cursor.callproc(name, params)` | ✅ | 1.0.0 | Stored procedure invocation |

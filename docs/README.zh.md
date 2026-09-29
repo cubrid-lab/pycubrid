@@ -146,7 +146,7 @@ marketers = cur.fetchall()
 
 - **纯 Python** — 无需 C 扩展、无需编译，在 Python 能运行的地方都能工作
 - **完整 DB-API 2.0** — `connect()`、`Cursor`、`fetchone/many/all`、`executemany`、`callproc`
-- **参数化查询** — `cursor.execute(sql, params)`，使用服务端 `PREPARE_AND_EXECUTE`
+- **参数化查询** — `cursor.execute(sql, params)`，使用驱动端参数绑定（`?` 占位符在本地转义并插入 SQL）
 - **批量操作** — `executemany()` 和 `executemany_batch()` 用于批量插入
 - **LOB 支持** — `create_lob()`，读写 CLOB 和 BLOB 列
 - **模式自省** — `get_schema_info()` 用于表、列、索引和约束

@@ -149,7 +149,7 @@ marketers = cur.fetchall()
 
 - **순수 Python** — C 확장과 컴파일 없이, Python이 실행되는 곳이라면 어디서나 동작
 - **완전한 DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **매개변수화된 쿼리** — 서버 측 `PREPARE_AND_EXECUTE`를 사용하는 `cursor.execute(sql, params)`
+- **매개변수화된 쿼리** — 드라이버 측 파라미터 바인딩을 사용하는 `cursor.execute(sql, params)` (`?` 플레이스홀더를 로컬에서 이스케이프하여 SQL에 삽입)
 - **배치 작업** — 대량 삽입을 위한 `executemany()` 및 `executemany_batch()`
 - **LOB 지원** — `create_lob()`, CLOB/BLOB 컬럼 읽기/쓰기
 - **소유권 기반 스키마 조회** — `get_schema_info()` 후 `fetch_schema_info()`로 전체 행 소비 또는 `close_schema_info()`로 명시적 폐기. #457 실서버 행렬은 CUBRID 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 모든 스키마 코드나 네이티브 드라이버 동등성을 인증하지는 않습니다.

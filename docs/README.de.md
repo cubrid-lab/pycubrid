@@ -148,7 +148,7 @@ marketers = cur.fetchall()
 
 - **Reines Python** — keine C-Erweiterungen, keine Kompilierung, läuft überall dort, wo Python läuft
 - **Vollständiges DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **Parametrisierte Abfragen** — `cursor.execute(sql, params)` mit serverseitigem `PREPARE_AND_EXECUTE`
+- **Parametrisierte Abfragen** — `cursor.execute(sql, params)` mit treiberseitiger Parameterbindung (`?`-Platzhalter werden lokal maskiert und eingesetzt)
 - **Batch-Operationen** — `executemany()` und `executemany_batch()` für Masseneinfügungen
 - **LOB-Unterstützung** — `create_lob()`, Lesen/Schreiben von CLOB- und BLOB-Spalten
 - **Schema-Introspektion** — `get_schema_info()` für Tabellen, Spalten, Indizes und Constraints
