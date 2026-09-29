@@ -4,6 +4,7 @@ import datetime
 import json
 import os
 from collections.abc import Callable
+from decimal import Decimal
 from typing import cast
 
 import pytest
@@ -12,7 +13,7 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.constants import CUBRIDDataType
-from pycubrid.exceptions import NotSupportedError
+from pycubrid.exceptions import DataError, NotSupportedError
 from tests._parity_helpers import (
     ADAPTERS,
     ParityAdapter,
@@ -156,6 +157,75 @@ class TestParityBytes:
             json_deserializer=json.loads,
         )
         assert result == [(payload,)]
+
+
+class TestParityDecimalLiterals:
+    """Decimal parameters stay NUMERIC on the server (#517)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "value, precision, scale",
+        [
+            (Decimal("0.0000001"), 7, 7),
+            (Decimal("-1.5E-3"), 4, 4),
+            (Decimal("1.10"), 3, 2),
+            (Decimal("-0.00"), 2, 2),
+            (Decimal("1.23456789012345678901234E-7"), 30, 30),
+            (Decimal("1E-38"), 38, 38),
+            (Decimal("9" * 38), 38, 0),
+        ],
+        ids=["1E-7", "negative", "trailing-zero", "negative-zero", "scale-30", "scale-38", "p38"],
+    )
+    async def test_select_parameter_is_numeric(
+        self,
+        adapter: ParityAdapter,
+        value: Decimal,
+        precision: int,
+        scale: int,
+    ) -> None:
+        conn = await adapter.connect()
+        cur = adapter.cursor(conn)
+        try:
+            await adapter.execute(cur, "SELECT ?, TYPEOF(?)", [value, value])
+            row = await adapter.fetchone(cur)
+            description = cur.description
+        finally:
+            await adapter.close_cursor(cur)
+            await adapter.close_connection(conn)
+        assert row is not None
+        assert description is not None
+        assert description[0][1] == CUBRIDDataType.NUMERIC
+        assert row[1] == "numeric (%d, %d)" % (precision, scale)
+        fetched = row[0]
+        assert isinstance(fetched, Decimal)
+        assert fetched == value
+        assert fetched.as_tuple().exponent == min(int(value.as_tuple().exponent), 0)
+
+    @pytest.mark.asyncio
+    async def test_numeric_38_30_round_trip_and_overflow(self, adapter: ParityAdapter) -> None:
+        exact = Decimal("1.23456789012345678901234E-7")
+        table = table_name("dec517")
+        conn = await adapter.connect()
+        cur = adapter.cursor(conn)
+        try:
+            await adapter.execute(cur, "DROP TABLE IF EXISTS %s" % table)
+            await adapter.execute(cur, "CREATE TABLE %s (id INT, v NUMERIC(38,30))" % table)
+            await adapter.execute(cur, "INSERT INTO %s VALUES (?, ?)" % table, [1, exact])
+            with pytest.raises(DataError, match="at most 38 digits"):
+                await adapter.execute(
+                    cur,
+                    "INSERT INTO %s VALUES (?, ?)" % table,
+                    [2, Decimal("1E-39")],
+                )
+            await adapter.execute(cur, "SELECT id, v FROM %s ORDER BY id" % table)
+            rows = await adapter.fetchall(cur)
+            await adapter.commit(conn)
+        finally:
+            await adapter.close_cursor(cur)
+            await cleanup_table(adapter, conn, table)
+            await adapter.close_connection(conn)
+        assert rows == [(1, exact)]
+        assert str(rows[0][1]) == "1.23456789012345678901234E-7"
 
 
 class TestParityConnectionLifecycle:

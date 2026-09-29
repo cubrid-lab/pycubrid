@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from pycubrid.exceptions import ProgrammingError
+from pycubrid.exceptions import DataError, ProgrammingError
 
 
 class TestEscapeString:
@@ -134,6 +134,88 @@ class TestFormatParameterTypes:
 
     def test_decimal(self, cursor: object) -> None:
         assert cursor._format_parameter(Decimal("99.99")) == "99.99"
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("0.0000001", "0.0000001"),
+            ("1E-7", "0.0000001"),
+            ("1.23456789012345678901234E-7", "0.000000123456789012345678901234"),
+            ("-1.5E-3", "-0.0015"),
+            ("1.10", "1.10"),
+            ("1.10E-6", "0.00000110"),
+            ("0E-3", "0.000"),
+            ("-0", "-0"),
+            ("-0.00", "-0.00"),
+            ("0E+5", "0"),
+            ("1E+5", "100000"),
+            ("-1.2E+3", "-1200"),
+            ("123.456E+2", "12345.6"),
+            ("12345678901234567890", "12345678901234567890"),
+        ],
+    )
+    def test_decimal_plain_notation(self, cursor: object, value: str, expected: str) -> None:
+        # CUBRID parses an E-notation literal as DOUBLE, so a Decimal must be
+        # rendered in plain fixed-point notation with its sign and scale (#517).
+        assert cursor._format_parameter(Decimal(value)) == expected
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("1E-38", "0." + "0" * 37 + "1"),
+            ("-1E-38", "-0." + "0" * 37 + "1"),
+            ("0E-38", "0." + "0" * 38),
+            ("9" * 38, "9" * 38),
+            ("1E+37", "1" + "0" * 37),
+            ("0." + "1" * 38, "0." + "1" * 38),
+            ("1" * 37 + ".1", "1" * 37 + ".1"),
+        ],
+        ids=[
+            "scale-38",
+            "negative-scale-38",
+            "zero-scale-38",
+            "integer-38",
+            "exponent-integer-38",
+            "fraction-38",
+            "mixed-38",
+        ],
+    )
+    def test_decimal_precision_38_accepted(self, cursor: object, value: str, expected: str) -> None:
+        assert cursor._format_parameter(Decimal(value)) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "1E-39",
+            "-1E-39",
+            "0E-39",
+            "9" * 39,
+            "1E+38",
+            "0." + "1" * 39,
+            "1" * 38 + ".1",
+            "1.00000000000000000000000000000000000001",
+            "1E+999999999",
+            "1E-999999999",
+        ],
+        ids=[
+            "scale-39",
+            "negative-scale-39",
+            "zero-scale-39",
+            "integer-39",
+            "exponent-integer-39",
+            "fraction-39",
+            "mixed-39",
+            "significant-39",
+            "huge-positive-exponent",
+            "huge-negative-exponent",
+        ],
+    )
+    def test_decimal_precision_over_38_raises(self, cursor: object, value: str) -> None:
+        with pytest.raises(DataError, match="at most 38 digits"):
+            cursor._format_parameter(Decimal(value))
+
+    def test_bind_decimal_plain_notation(self, cursor: object) -> None:
+        assert cursor._bind_parameters("SELECT ?", (Decimal("1E-7"),)) == "SELECT 0.0000001"
 
     def test_date(self, cursor: object) -> None:
         result = cursor._format_parameter(datetime.date(2026, 1, 15))

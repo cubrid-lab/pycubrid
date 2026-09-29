@@ -46,6 +46,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- `decimal.Decimal` parameters are now rendered in plain fixed-point notation
+  instead of `str(value)`, which switched to E notation (`Decimal("1E-7")` was
+  sent as `1E-7`). CUBRID parses an E-notation literal as `DOUBLE`, so such
+  values silently came back as `float` and lost digits when inserted into
+  `NUMERIC` columns; they now stay `NUMERIC` with their sign, trailing zeros
+  and scale (`Decimal("0.0000001")` is sent as `0.0000001`, `Decimal("1E+5")`
+  as `100000`). A `Decimal` whose plain literal needs more than 38 digits
+  (CUBRID's `NUMERIC` maximum precision; leading fractional zeros count), such
+  as `Decimal("1E-39")` or a 39-significant-digit value, raises `DataError`
+  before anything is sent instead of becoming `DOUBLE`; CUBRID itself rejects
+  such plain literals. `NaN`/`Infinity` still raise `ProgrammingError`, and
+  integral Decimals written without an exponent (`Decimal("42")`) render as the
+  same integer literal as before. Sync and async cursors share the change. (#517)
 - With `decode_collections=True`, a nonempty `SET`/`MULTISET`/`SEQUENCE`
   (`LIST`) whose elements are all SQL NULL, such as `{NULL}` or
   `{NULL, NULL}`, now decodes to `[None, ...]` (a `SET` becomes

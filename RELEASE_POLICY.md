@@ -221,6 +221,19 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Decimal parameters render in plain notation (#517)** — PATCH / correction
+  to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
+  A finite `Decimal` is sent as a fixed-point literal instead of `str(value)`,
+  whose E notation CUBRID parses as `DOUBLE`; the value now stays `NUMERIC`
+  with its scale. A `Decimal` whose plain literal exceeds 38 digits raises
+  `DataError` before send (previously `DOUBLE` for E notation, or server error
+  `-494` for a long plain literal). An integral `Decimal` in exponent form
+  (`Decimal("1E+5")`) is now sent as the integer literal `100000`, typed by
+  CUBRID as `INTEGER`/`BIGINT`/`NUMERIC(p,0)` by magnitude, instead of a
+  `DOUBLE`. `NaN`/`Infinity` rejection, integral values written without an
+  exponent, public signatures, dependencies and supported versions are
+  unchanged.
+
 - **Unresolved TZ zones raise `DataError` (#413)** — PATCH / correction to the
   documented type contract (`TIMESTAMPTZ`/`LTZ` and `DATETIMETZ`/`LTZ` return
   timezone-aware values). A region the client's IANA database cannot resolve

@@ -481,6 +481,22 @@ cur.close()
 conn.close()
 ```
 
+### Decimal 파라미터
+
+`Decimal` 파라미터는 고정소수점 리터럴(E 표기 사용 안 함)로 전송되므로 CUBRID가
+작성된 scale 그대로 `NUMERIC`으로 유지합니다. `Decimal("0.0000001")`은 `float`가
+아니라 `Decimal`로 조회됩니다. 고정소수점 리터럴이 CUBRID `NUMERIC` 최대
+정밀도인 38자리를 넘는 값은 `DOUBLE`이 되지 않고 `DataError`를 발생시킵니다.
+[파라미터 바인딩: Decimal 파라미터](PARAMETER_BINDING.md#decimal-파라미터)를 참고하세요.
+
+```python
+from decimal import Decimal
+
+cur.execute("SELECT ?", [Decimal("0.0000001")])  # 0.0000001로 전송
+assert cur.fetchone()[0] == Decimal("0.0000001")
+assert cur.description[0][1] == pycubrid.constants.CUBRIDDataType.NUMERIC
+```
+
 ### CUBRIDDataType enum 사용
 
 ```python
