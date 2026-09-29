@@ -739,6 +739,23 @@ for row in cur:
     print(row[0])  # Prints correctly: 김영선, 日本語テスト
 ```
 
+### Invalid UTF-8 in a Value or Error Message
+
+CUBRID counts `VARCHAR(n)` sizes and some echoed error text in bytes, so it can
+cut a string in the middle of a multi-byte character. CUBRID 10.2, for example,
+stores `'\U00010000' * 13` in a `VARCHAR(50)` as 50 bytes, ending with half a
+character.
+
+- **Error messages:** invalid bytes are replaced with `U+FFFD`, and the real
+  CUBRID error is raised with its `errno` and `sqlstate`.
+- **Column values:** a `CHAR`/`VARCHAR`/`NCHAR`/`ENUM`/`JSON` value that is not
+  valid UTF-8 raises `DataError`; the original `UnicodeDecodeError` is its
+  `__cause__`. The connection stays usable. To inspect the stored bytes, select
+  `HEX(col)` instead, then fix the stored value.
+
+Earlier releases raised `OperationalError: malformed response from
+broker` and closed the connection.
+
 ---
 
 ## LOB (CLOB/BLOB) Issues

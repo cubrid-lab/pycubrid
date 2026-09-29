@@ -221,6 +221,15 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Invalid UTF-8 in a complete reply keeps the session (#492)** — PATCH /
+  correction of error classification and connection lifetime. Server error text
+  is decoded with replacement, so the native class, `errno` and `sqlstate`
+  surface. An undecodable character or JSON column value raises `DataError`
+  instead of `OperationalError`, and the fully read session is kept. Framing
+  failures, invalid protocol metadata and the explicit prepared API keep their
+  fail-closed behavior. No public signature, dependency or supported-version
+  change.
+
 - **CAS OUT_TRAN preserves the physical session (#468)** — PATCH / correction
   to the transaction and connection-lifecycle contract, not a new public API.
   `CAS_INFO[0]=0` reports OUT_TRAN rather than released CAS: normal commit,

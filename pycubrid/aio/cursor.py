@@ -15,7 +15,7 @@ from pycubrid._cursor_common import (
     _raise_batch_error,
 )
 from pycubrid.constants import CUBRIDStatementType
-from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
+from pycubrid.exceptions import DataError, InterfaceError, OperationalError, ProgrammingError
 
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -152,12 +152,26 @@ class AsyncCursor(_AsyncCursorBase):
             decode_collections=self._connection._decode_collections,
             json_deserializer=self._connection._json_deserializer,
         )
-        if expected_escape_generation is None:
-            await self._connection._send_and_receive(packet)
-        else:
-            await self._connection._send_and_receive(
-                packet, expected_escape_generation=expected_escape_generation
-            )
+        try:
+            if expected_escape_generation is None:
+                await self._connection._send_and_receive(packet)
+            else:
+                await self._connection._send_and_receive(
+                    packet, expected_escape_generation=expected_escape_generation
+                )
+        except DataError:
+            # A row value failed to decode after the whole reply was read, so
+            # the session is intact (#492). Own the server handle the reply
+            # opened, with no result set, so the usual lifecycle releases it.
+            self._query_handle = packet.query_handle or None
+            self._description = None
+            self._columns = []
+            self._rows = []
+            self._row_index = 0
+            self._fetched_count = 0
+            self._total_tuple_count = 0
+            self._rowcount = -1
+            raise
         # Cleared only now: a reconnect before this send flags every cursor.
         self._invalidated_by_reconnect = False
         if _LOGGER.isEnabledFor(logging.DEBUG):

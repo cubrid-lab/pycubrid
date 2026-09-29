@@ -1438,6 +1438,9 @@ class DataError(DatabaseError)
 ```
 
 Raised for data processing problems (division by zero, numeric overflow, etc.).
+Also raised when a fetched character value (`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`,
+`JSON`) is not valid UTF-8; the reply was fully read, so the connection stays
+usable.
 
 ---
 

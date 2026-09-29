@@ -652,11 +652,11 @@ def _parse_prepare_info(reader: PacketReader) -> tuple[int, int, list[ColumnMeta
 # ---------------------------------------------------------------------------
 
 _TYPE_METHOD_NAMES: dict[int, str] = {
-    CUBRIDDataType.CHAR: "_parse_null_terminated_string",
-    CUBRIDDataType.STRING: "_parse_null_terminated_string",
-    CUBRIDDataType.NCHAR: "_parse_null_terminated_string",
-    CUBRIDDataType.VARNCHAR: "_parse_null_terminated_string",
-    CUBRIDDataType.ENUM: "_parse_null_terminated_string",
+    CUBRIDDataType.CHAR: "_parse_text_value",
+    CUBRIDDataType.STRING: "_parse_text_value",
+    CUBRIDDataType.NCHAR: "_parse_text_value",
+    CUBRIDDataType.VARNCHAR: "_parse_text_value",
+    CUBRIDDataType.ENUM: "_parse_text_value",
     CUBRIDDataType.JSON: "_parse_json",
     CUBRIDDataType.SHORT: "_parse_short",
     CUBRIDDataType.INT: "_parse_int",
@@ -1443,7 +1443,7 @@ class BatchExecutePacket:
             if result < 0:
                 error_code = reader._parse_int() if self.protocol_version > 2 else result
                 msg_len = reader._parse_int()
-                error_msg = reader._parse_null_terminated_string(msg_len)
+                error_msg = reader._parse_error_message(msg_len)
                 self.errors.append({"code": error_code, "message": error_msg})
             else:
                 self.results.append((stmt_type, result))
