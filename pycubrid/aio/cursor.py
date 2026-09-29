@@ -171,6 +171,7 @@ class AsyncCursor(_AsyncCursorBase):
             self._fetched_count = 0
             self._total_tuple_count = 0
             self._rowcount = -1
+            self._lastrowid = None
             raise
         # Cleared only now: a reconnect before this send flags every cursor.
         self._invalidated_by_reconnect = False

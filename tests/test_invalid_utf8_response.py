@@ -179,11 +179,13 @@ def _mock_connection(asynchronous: bool) -> MagicMock:
 def test_sync_cursor_owns_handle_after_row_decode_failure() -> None:
     connection = _mock_connection(asynchronous=False)
     cursor = Cursor(connection)
+    cursor._lastrowid = 7  # left over from an earlier INSERT
     with pytest.raises(DataError):
         cursor.execute("SELECT v FROM t")
     assert cursor._query_handle == 1
     assert cursor.description is None
     assert cursor.rowcount == -1
+    assert cursor.lastrowid is None
     cursor.close()
     closes = [
         c.args[0]
@@ -233,8 +235,10 @@ async def test_async_invalid_row_value_keeps_connection() -> None:
 async def test_async_cursor_owns_handle_after_row_decode_failure() -> None:
     connection = _mock_connection(asynchronous=True)
     cursor = AsyncCursor(connection)
+    cursor._lastrowid = 7  # left over from an earlier INSERT
     with pytest.raises(DataError):
         await cursor.execute("SELECT v FROM t")
     assert cursor._query_handle == 1
     assert cursor.description is None
     assert cursor.rowcount == -1
+    assert cursor.lastrowid is None
