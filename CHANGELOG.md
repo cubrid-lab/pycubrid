@@ -46,6 +46,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- **Security: `int`, `float` and `Decimal` subclasses are bound by value
+  (#518)** — `format_parameter()` rendered `int` and `float` parameters with
+  `str(value)` and `Decimal` with `format(value, "f")`, which dispatch to
+  methods a subclass can override. A subclass with a custom `__str__`/`__format__`
+  could therefore inject arbitrary text into the SQL sent to the server (a
+  `__str__` returning `1; DROP TABLE t` was sent verbatim), and on Python 3.10
+  `enum.IntEnum`/`enum.IntFlag` members were sent as `Color.RED` / `Perm.R|W`
+  instead of their values. Values are now rendered through the base-class
+  methods (`int.__repr__`, `float.__repr__`, and a plain `Decimal` copy for the
+  `NaN`/`Infinity` and 38-digit checks and `format(..., "f")`), so `Color.RED`
+  is sent as `1` and `Perm.R | Perm.W` as `6`. Output for plain `int`, `float`
+  and `Decimal` values is unchanged, `bool` still renders as `1`/`0`, and
+  sync and async cursors share the change.
 - `decimal.Decimal` parameters are now rendered in plain fixed-point notation
   instead of `str(value)`, which switched to E notation (`Decimal("1E-7")` was
   sent as `1E-7`). CUBRID parses an E-notation literal as `DOUBLE`, so such

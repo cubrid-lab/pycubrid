@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import enum
 import json
 import os
 from collections.abc import Callable
@@ -226,6 +227,75 @@ class TestParityDecimalLiterals:
             await adapter.close_connection(conn)
         assert rows == [(1, exact)]
         assert str(rows[0][1]) == "1.23456789012345678901234E-7"
+
+
+class _Color(enum.IntEnum):
+    RED = 1
+
+
+class _Perm(enum.IntFlag):
+    R = 4
+    W = 2
+
+
+class _HostileInt(int):
+    def __str__(self) -> str:
+        return "1; DROP TABLE t"
+
+    __repr__ = __str__
+
+
+class _HostileFloat(float):
+    def __str__(self) -> str:
+        return "1; DROP TABLE t"
+
+    __repr__ = __str__
+
+
+class _HostileDecimal(Decimal):
+    def __str__(self) -> str:
+        return "1; DROP TABLE t"
+
+    def __format__(self, spec: str, *args: object) -> str:
+        return "1; DROP TABLE t"
+
+
+class TestParityNumericSubclassLiterals:
+    """int/float/Decimal subclasses are bound by value, not str() (#518)."""
+
+    @pytest.mark.asyncio
+    async def test_subclasses_round_trip_by_value(self, adapter: ParityAdapter) -> None:
+        values = [
+            _Color.RED,
+            _Perm.R | _Perm.W,
+            _HostileInt(42),
+            _HostileFloat(2.5),
+            _HostileDecimal("0.0000001"),
+        ]
+        table = table_name("num518")
+        conn = await adapter.connect()
+        cur = adapter.cursor(conn)
+        try:
+            await adapter.execute(cur, "SELECT ?, ?, ?, ?, ?", values)
+            selected = await adapter.fetchone(cur)
+            await adapter.execute(cur, "DROP TABLE IF EXISTS %s" % table)
+            await adapter.execute(
+                cur,
+                "CREATE TABLE %s (a INT, b INT, c BIGINT, d DOUBLE, e NUMERIC(38,30))" % table,
+            )
+            await adapter.execute(cur, "INSERT INTO %s VALUES (?, ?, ?, ?, ?)" % table, values)
+            await adapter.execute(cur, "SELECT a, b, c, d, e FROM %s" % table)
+            stored = await adapter.fetchall(cur)
+            await adapter.commit(conn)
+        finally:
+            await adapter.close_cursor(cur)
+            await cleanup_table(adapter, conn, table)
+            await adapter.close_connection(conn)
+        expected = (1, 6, 42, 2.5, Decimal("0.0000001"))
+        assert selected == expected
+        assert type(selected[0]) is int
+        assert isinstance(selected[4], Decimal)
+        assert stored == [expected]
 
 
 class TestParityConnectionLifecycle:

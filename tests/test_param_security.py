@@ -3,11 +3,74 @@
 from __future__ import annotations
 
 import datetime
-from decimal import Decimal
+import enum
+from decimal import Decimal, DecimalTuple
 
 import pytest
 
 from pycubrid.exceptions import DataError, ProgrammingError
+
+_INJECTED = "1; DROP TABLE t"
+
+
+class _Color(enum.IntEnum):
+    RED = 1
+
+
+class _Perm(enum.IntFlag):
+    R = 4
+    W = 2
+
+
+class _HostileInt(int):
+    def __str__(self) -> str:
+        return _INJECTED
+
+    def __repr__(self) -> str:
+        return _INJECTED
+
+    def __format__(self, spec: str) -> str:
+        return _INJECTED
+
+    def __int__(self) -> int:
+        return 666
+
+    def __index__(self) -> int:
+        return 666
+
+
+class _HostileFloat(float):
+    def __str__(self) -> str:
+        return _INJECTED
+
+    def __repr__(self) -> str:
+        return _INJECTED
+
+    def __format__(self, spec: str) -> str:
+        return _INJECTED
+
+    def __float__(self) -> float:
+        return 666.0
+
+
+class _HostileDecimal(Decimal):
+    def __str__(self) -> str:
+        return _INJECTED
+
+    def __repr__(self) -> str:
+        return _INJECTED
+
+    def __format__(self, spec: str, *args: object) -> str:
+        return _INJECTED
+
+    def is_nan(self) -> bool:
+        return False
+
+    def is_infinite(self) -> bool:
+        return False
+
+    def as_tuple(self) -> DecimalTuple:
+        return Decimal("1").as_tuple()
 
 
 class TestEscapeString:
@@ -267,6 +330,57 @@ class TestFormatParameterTypes:
     def test_decimal_neg_inf_raises(self, cursor: object) -> None:
         with pytest.raises(ProgrammingError, match="nan and inf"):
             cursor._format_parameter(Decimal("-Infinity"))
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (_Color.RED, "1"),
+            (_Perm.R | _Perm.W, "6"),
+            (_Perm(0), "0"),
+            (_HostileInt(1), "1"),
+            (_HostileInt(-(10**40)), "-1" + "0" * 40),
+            (_HostileFloat(2.5), "2.5"),
+            (_HostileFloat(1e20), "1e+20"),
+            (_HostileDecimal("1E-7"), "0.0000001"),
+            (_HostileDecimal("-1.10"), "-1.10"),
+        ],
+        ids=[
+            "IntEnum",
+            "IntFlag",
+            "IntFlag-zero",
+            "int-subclass",
+            "int-subclass-large",
+            "float-subclass",
+            "float-subclass-exponent",
+            "decimal-subclass",
+            "decimal-subclass-scale",
+        ],
+    )
+    def test_numeric_subclass_renders_by_value(
+        self, cursor: object, value: object, expected: str
+    ) -> None:
+        # Subclasses (IntEnum/IntFlag and user types) must not reach SQL
+        # through an overridable __str__/__repr__/__format__ (#518).
+        assert cursor._format_parameter(value) == expected
+        assert cursor._bind_parameters("SELECT ?", (value,)) == "SELECT " + expected
+
+    def test_float_subclass_nan_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(_HostileFloat("nan"))
+
+    def test_decimal_subclass_nan_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(_HostileDecimal("NaN"))
+
+    def test_decimal_subclass_precision_check_uses_value(self, cursor: object) -> None:
+        # A lying as_tuple() override must not bypass the 38-digit check.
+        with pytest.raises(DataError, match="at most 38 digits"):
+            cursor._format_parameter(_HostileDecimal("1E-39"))
+
+    def test_bool_cannot_be_subclassed(self) -> None:
+        # bool is final, so the bool -> 0/1 branch cannot be spoofed.
+        with pytest.raises(TypeError):
+            type("B", (bool,), {})
 
     def test_bytearray_hex(self, cursor: object) -> None:
         assert cursor._format_parameter(bytearray(b"\xca\xfe")) == "X'cafe'"

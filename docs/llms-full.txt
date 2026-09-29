@@ -7772,9 +7772,9 @@ test that pins the behavior.
 |---|---|---|---|
 | `None` | `NULL` | `_cursor_common.py:143-144` | `tests/test_param_security.py:95-97` |
 | `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
-| `int` | `str(value)` (decimal digits) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
-| `float` | `str(value)`; `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
-| `decimal.Decimal` | Plain fixed-point digits (`format(value, "f")`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`). See [Decimal parameters](#decimal-parameters) | `_cursor_common.py:233-251` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
+| `int` (and subclasses such as `IntEnum`/`IntFlag`) | `int.__repr__(value)` (decimal digits of the value). See [Numeric subclasses](#numeric-subclasses) | `_cursor_common.py:259-260` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
+| `float` (and subclasses) | `float.__repr__(value)` (shortest round-trip form, identical to `str()` of a plain `float`, e.g. `1e+20`); `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:261-264` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
+| `decimal.Decimal` (and subclasses) | Plain fixed-point digits (`format(value, "f")` on the value converted to a plain `Decimal`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`). See [Decimal parameters](#decimal-parameters) | `_cursor_common.py:237-258` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
 | `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
 | `bytes`, `bytearray` | `X'<hex>'` (lowercase hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
 | `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — microseconds truncated to milliseconds (`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
@@ -7789,6 +7789,23 @@ This formatting behavior does not guarantee that CUBRID can store the value;
 server numeric limits and Python's integer-to-string conversion limits still apply.
 Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_large_int`
 and `::test_bind_large_int`.
+
+### Numeric subclasses
+
+Subclasses of `int`, `float` and `decimal.Decimal` are rendered from their
+numeric value through the base-class methods (`int.__repr__`, `float.__repr__`,
+and `format(Decimal(value), "f")`), never through `str()`, `repr()` or
+`format()` on the object itself. Before #518 they were rendered with
+`str(value)`, so a subclass that overrides `__str__` changed the SQL text: on
+Python 3.10 `enum.IntEnum` members were sent as `Color.RED` and `enum.IntFlag`
+combinations as `Perm.R|W`, and a user subclass whose `__str__` returned
+`1; DROP TABLE t` injected that text verbatim. `Color.RED` is now sent as `1`
+and `Perm.R | Perm.W` as `6`. A `Decimal` subclass is converted to a plain
+`Decimal` first, so overridden `__format__`, `is_nan()` or `as_tuple()` cannot
+alter the literal or bypass the `NaN`/`Infinity` and 38-digit checks. `bool` is
+checked before `int` and still renders as `1`/`0`; it cannot be subclassed.
+Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_numeric_subclass_renders_by_value`
+and `tests/test_parity_integration.py::TestParityNumericSubclassLiterals`.
 
 ### Decimal parameters
 
