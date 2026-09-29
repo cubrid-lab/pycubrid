@@ -46,14 +46,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   logging a warning per value and returning a naive `datetime`. The session
   stays usable. This mostly affects clients without a time zone database
   (Windows without `tzdata`, minimal container images), where every region
-  value, including the LTZ types' `UTC`, silently lost its zone. Offsets,
-  resolvable regions and an empty zone suffix decode as before. pycubrid now
+  value, including the LTZ types' `UTC`, silently lost its zone. An offset
+  that is malformed or not strictly within ±24 hours also raises `DataError`
+  instead of `OperationalError('malformed response from broker')` with a
+  closed connection. The explicit prepared API (`pycubrid.compat.native`)
+  stays fail-closed, as in #492. Offsets, resolvable regions and an empty
+  zone suffix decode as before. pycubrid now
   depends on `tzdata` on Windows only (`tzdata; sys_platform == 'win32'`).
   (#413)
 - A region value in the repeated hour when daylight saving time ends now
   honors the abbreviation CUBRID sends: `America/New_York EST` at
   2026-11-01 01:30 decodes with `fold=1` (UTC-05:00) instead of the EDT
-  instant an hour earlier. (#413)
+  instant an hour earlier. A missing or unknown abbreviation, or one both
+  occurrences share, keeps `fold=0`. (#413)
 
 ### Changed
 - Release workflow unified with the sibling repos: new `RELEASING.md`; `make release`

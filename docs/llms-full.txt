@@ -2430,8 +2430,12 @@ class DataError(DatabaseError)
 
 Raised for data processing problems (division by zero, numeric overflow, etc.).
 Also raised when a fetched character value (`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`,
-`JSON`) is not valid UTF-8; the reply was fully read, so the connection stays
-usable.
+`JSON`) is not valid UTF-8, and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
+`DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
+zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
+(#413). The reply was fully read, so the connection stays usable. The explicit
+prepared API (`pycubrid.compat.native`) raises `OperationalError` and retires
+the session instead.
 
 ---
 
@@ -2928,12 +2932,16 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > - a region to `zoneinfo.ZoneInfo(region)`. The abbreviation picks `fold` when
 >   a wall time occurs twice as daylight saving time ends, so
 >   `America/New_York EST` at 01:30 on 2026-11-01 is UTC-05:00 (`fold=1`) and
->   `EDT` is UTC-04:00;
+>   `EDT` is UTC-04:00. A missing or unknown abbreviation, or one both
+>   occurrences share (`Europe/Moscow MSK` on 2014-10-26), keeps `fold=0`;
 > - an empty zone to a naive `datetime`.
 >
-> A region the client's time zone database does not know raises `DataError`
-> naming the zone, rather than silently returning a naive value. The
-> connection stays usable. `zoneinfo` reads the system database or the
+> A region the client's time zone database does not know, or an offset that is
+> malformed or not strictly within ±24 hours, raises `DataError` naming the
+> zone, rather than silently returning a naive value. The connection stays
+> usable. The explicit prepared API (`pycubrid.compat.native`) stays
+> fail-closed as for invalid UTF-8 (#492): it raises `OperationalError` and
+> retires the session. `zoneinfo` reads the system database or the
 > [`tzdata`](https://pypi.org/project/tzdata/) package; on Windows pycubrid
 > installs `tzdata` automatically, and on minimal Linux images install
 > `tzdata` (pip or the OS package). See
@@ -6070,9 +6078,12 @@ zone, so even `UTC` needs the database. Usual causes:
   OS package.
 - **`PYTHONTZPATH` points somewhere empty** — unset it or fix the path.
 
-The connection stays usable. Offsets such as `+09:00` need no database. To
-read the values without zone resolution, select them as text, e.g.
-`SELECT TO_CHAR(col)`.
+The connection stays usable. Offsets such as `+09:00` need no database; an
+offset outside ±24 hours raises `DataError: cannot resolve CUBRID timezone
+offset ...`. The explicit prepared API (`pycubrid.compat.native`) stays
+fail-closed, as for invalid UTF-8: it raises `OperationalError` and retires
+the session. To read the values without zone resolution, select them as
+text, e.g. `SELECT TO_CHAR(col)`.
 
 Earlier releases logged `Unknown timezone token` and returned a naive
 `datetime`, silently dropping the zone (#413).

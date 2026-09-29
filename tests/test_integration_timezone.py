@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import sys
 import zoneinfo
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import cast
 
 import pytest
 
 from pycubrid.exceptions import DataError
-from tests._parity_helpers import ADAPTERS, ParityAdapter
+from tests._parity_helpers import ADAPTERS, ParityAdapter, table_name
 
 pytestmark = pytest.mark.integration
 
+_MISSING = object()
 AMBIGUOUS = "2026-11-01 01:30:00.250 America/New_York"
 
 
@@ -23,17 +25,28 @@ def adapter(request: pytest.FixtureRequest) -> ParityAdapter:
     return cast(ParityAdapter, request.param)
 
 
-@pytest.fixture
-def no_tz_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+@contextlib.contextmanager
+def _hide_tz_database() -> Iterator[None]:
     """Hide both the system zoneinfo and the ``tzdata`` package."""
-    monkeypatch.setitem(sys.modules, "tzdata", None)
+    saved = sys.modules.get("tzdata", _MISSING)
+    sys.modules["tzdata"] = None  # type: ignore[assignment]
     zoneinfo.reset_tzpath(to=[])
     zoneinfo.ZoneInfo.clear_cache()
     try:
         yield
     finally:
+        if saved is _MISSING:
+            del sys.modules["tzdata"]
+        else:
+            sys.modules["tzdata"] = saved  # type: ignore[assignment]
         zoneinfo.reset_tzpath()
         zoneinfo.ZoneInfo.clear_cache()
+
+
+@pytest.fixture
+def no_tz_database() -> Iterator[None]:
+    with _hide_tz_database():
+        yield
 
 
 @pytest.mark.asyncio
@@ -89,5 +102,79 @@ async def test_missing_tz_database_raises_data_error_and_keeps_session(
         value = cast(datetime.datetime, row[0])
         assert value.utcoffset() == datetime.timedelta(hours=5, minutes=30)
     finally:
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)
+
+
+@pytest.mark.asyncio
+async def test_shared_abbreviation_keeps_first_occurrence(adapter: ParityAdapter) -> None:
+    # Moscow went from UTC+4 to UTC+3 on 2014-10-26; both are "MSK".
+    connection = await adapter.connect()
+    cursor = adapter.cursor(connection)
+    try:
+        await adapter.execute(cursor, "SELECT DATETIMETZ'2014-10-26 01:30:00 Europe/Moscow MSK'")
+        row = await adapter.fetchone(cursor)
+        assert row is not None
+        value = cast(datetime.datetime, row[0])
+        assert (value.fold, value.utcoffset()) == (0, datetime.timedelta(hours=4))
+    finally:
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("no_tz_database")
+async def test_unresolved_zone_on_execute_then_same_connection(adapter: ParityAdapter) -> None:
+    connection = await adapter.connect()
+    cursor = adapter.cursor(connection)
+    try:
+        with pytest.raises(DataError, match="'Asia/Seoul'"):
+            await adapter.execute(cursor, "SELECT TIMESTAMPTZ'2026-01-15 10:30:00 Asia/Seoul'")
+        assert cursor.description is None
+        await adapter.close_cursor(cursor)
+        cursor = adapter.cursor(connection)
+        await adapter.execute(cursor, "SELECT 1")
+        assert await adapter.fetchone(cursor) == (1,)
+    finally:
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)
+
+
+@pytest.mark.asyncio
+async def test_unresolved_zone_on_later_fetch_page(adapter: ParityAdapter) -> None:
+    connection = await adapter.connect(fetch_size=17)
+    cursor = adapter.cursor(connection)
+    table = table_name("tz413")
+    created = False
+    try:
+        await adapter.execute(
+            cursor,
+            "CREATE TABLE %s (id INTEGER PRIMARY KEY, pad VARCHAR(1000), v TIMESTAMPTZ)" % table,
+        )
+        created = True
+        # Wide rows push the last one past the first reply page.
+        rows: list[Sequence[object]] = [
+            (i, "x" * 1000, "2026-01-15 10:30:00 +05:30") for i in range(199)
+        ]
+        rows.append((199, "x" * 1000, "2026-01-15 10:30:00 Asia/Seoul"))
+        await adapter.executemany(cursor, "INSERT INTO %s VALUES (?, ?, ?)" % table, rows)
+        with _hide_tz_database():
+            await adapter.execute(cursor, "SELECT id, pad, v FROM %s ORDER BY id" % table)
+            first_page = cursor._fetched_count
+            assert 0 < first_page < 200
+            seen: list[int] = []
+            with pytest.raises(DataError, match="'Asia/Seoul'"):
+                while (row := await adapter.fetchone(cursor)) is not None:
+                    seen.append(cast(int, row[0]))
+            # The failure came from a FETCH after the first page was consumed.
+            assert seen == list(range(len(seen)))
+            assert first_page <= len(seen) < 199
+            await adapter.close_cursor(cursor)
+            cursor = adapter.cursor(connection)
+            await adapter.execute(cursor, "SELECT COUNT(*) FROM %s" % table)
+            assert await adapter.fetchone(cursor) == (200,)
+    finally:
+        if created:
+            await adapter.execute(cursor, "DROP TABLE %s" % table)
         await adapter.close_cursor(cursor)
         await adapter.close_connection(connection)

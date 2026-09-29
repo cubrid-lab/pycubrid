@@ -320,12 +320,16 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > - a region to `zoneinfo.ZoneInfo(region)`. The abbreviation picks `fold` when
 >   a wall time occurs twice as daylight saving time ends, so
 >   `America/New_York EST` at 01:30 on 2026-11-01 is UTC-05:00 (`fold=1`) and
->   `EDT` is UTC-04:00;
+>   `EDT` is UTC-04:00. A missing or unknown abbreviation, or one both
+>   occurrences share (`Europe/Moscow MSK` on 2014-10-26), keeps `fold=0`;
 > - an empty zone to a naive `datetime`.
 >
-> A region the client's time zone database does not know raises `DataError`
-> naming the zone, rather than silently returning a naive value. The
-> connection stays usable. `zoneinfo` reads the system database or the
+> A region the client's time zone database does not know, or an offset that is
+> malformed or not strictly within ±24 hours, raises `DataError` naming the
+> zone, rather than silently returning a naive value. The connection stays
+> usable. The explicit prepared API (`pycubrid.compat.native`) stays
+> fail-closed as for invalid UTF-8 (#492): it raises `OperationalError` and
+> retires the session. `zoneinfo` reads the system database or the
 > [`tzdata`](https://pypi.org/project/tzdata/) package; on Windows pycubrid
 > installs `tzdata` automatically, and on minimal Linux images install
 > `tzdata` (pip or the OS package). See

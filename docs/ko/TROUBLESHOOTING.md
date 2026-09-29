@@ -722,7 +722,10 @@ update the system zoneinfo)
   업데이트하세요.
 - **`PYTHONTZPATH`가 빈 경로를 가리킴** — 설정을 해제하거나 경로를 수정하세요.
 
-연결은 계속 사용할 수 있습니다. `+09:00` 같은 오프셋은 데이터베이스가 필요 없습니다.
+연결은 계속 사용할 수 있습니다. `+09:00` 같은 오프셋은 데이터베이스가 필요 없으며,
+±24시간을 벗어난 오프셋은 `DataError: cannot resolve CUBRID timezone offset ...`을
+발생시킵니다. 명시적 prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8과
+마찬가지로 fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다.
 타임존 해석 없이 값을 읽으려면 `SELECT TO_CHAR(col)`처럼 텍스트로 조회하세요.
 
 이전 릴리스에서는 `Unknown timezone token`을 로그에 남기고 naive `datetime`을

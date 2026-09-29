@@ -4,15 +4,23 @@ import datetime
 import struct
 import sys
 import zoneinfo
-from collections.abc import Iterator
-from unittest.mock import MagicMock
+from collections.abc import Callable, Iterator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import DataError
 from pycubrid.packet import PacketReader, _attach_timezone
-from pycubrid.protocol import _TYPE_METHOD_NAMES, PrepareAndExecutePacket, _resolve_reader
+from pycubrid.aio.cursor import AsyncCursor
+from pycubrid.cursor import Cursor
+from pycubrid.protocol import (
+    _TYPE_METHOD_NAMES,
+    CloseQueryPacket,
+    FetchPacket,
+    PrepareAndExecutePacket,
+    _resolve_reader,
+)
 from tests.test_connection import socket_queue  # noqa: F401
 from tests.test_invalid_utf8_response import (
     _async_connection_with_reply,
@@ -205,6 +213,8 @@ WIRE_TIMESTAMPTZ_NY_EST = (
     b"\x07\xea\x00\x0b\x00\x01\x00\x01\x00\x1e\x00\x00America/New_York EST\x00"
 )
 
+OFFSET_0530 = datetime.timedelta(hours=5, minutes=30)
+
 
 @pytest.fixture
 def no_tz_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
@@ -317,3 +327,162 @@ async def test_async_unresolved_zone_keeps_connection() -> None:
         await conn._send_and_receive(PrepareAndExecutePacket("SELECT v FROM t"))
     assert conn._connected is True
     assert conn._writer is not None
+
+
+# --- cursor level: execute and later fetch pages ------------------------------
+
+
+def _fetch_body(wire: bytes) -> bytes:
+    # FETCH reply: result code, tuple count, then one row (index, OID, value).
+    body = b"\x00\x01\x02\x03" + struct.pack(">ii", 0, 1) + struct.pack(">i", 2) + b"\x00" * 8
+    return body + struct.pack(">i", len(wire)) + wire
+
+
+def _tz_reply(bodies: list[tuple[bytes, int]]) -> Callable[..., object]:
+    """Answer SELECTs with queued (reply, total rows); FETCH with a bad zone."""
+
+    def reply(packet: object, **_kwargs: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            body, total = bodies.pop(0)
+            packet.parse(body)
+            packet.total_tuple_count = total
+        elif isinstance(packet, FetchPacket):
+            packet.parse(_fetch_body(WIRE_TIMESTAMPTZ_SEOUL))
+        return packet
+
+    return reply
+
+
+def _tz_mock_connection(asynchronous: bool, bodies: list[tuple[bytes, int]]) -> MagicMock:
+    connection = MagicMock()
+    connection._timing = None
+    connection._cursors = set()
+    connection.autocommit = True
+    connection._protocol_version = 8
+    connection._decode_collections = False
+    connection._json_deserializer = None
+    if asynchronous:
+        connection._send_and_receive = AsyncMock(side_effect=_tz_reply(bodies))
+        connection._wait_for_setup_if_needed = AsyncMock()
+    else:
+        connection._send_and_receive = MagicMock(side_effect=_tz_reply(bodies))
+    return connection
+
+
+def _closed_handles(connection: MagicMock) -> list[int]:
+    return [
+        c.args[0].query_handle
+        for c in connection._send_and_receive.call_args_list
+        if isinstance(c.args[0], CloseQueryPacket)
+    ]
+
+
+GOOD = (_tz_select_body(WIRE_TIMESTAMPTZ_OFFSET), 1)
+BAD = (_tz_select_body(WIRE_TIMESTAMPTZ_SEOUL), 1)
+FIRST_PAGE_OF_TWO = (_tz_select_body(WIRE_TIMESTAMPTZ_OFFSET), 2)
+
+
+@pytest.mark.usefixtures("no_tz_database")
+def test_sync_cursor_execute_unresolved_zone_then_reuse() -> None:
+    connection = _tz_mock_connection(False, [BAD, GOOD])
+    cursor = Cursor(connection)
+    with pytest.raises(DataError, match="'Asia/Seoul'"):
+        cursor.execute("SELECT v FROM t")
+    assert cursor.description is None
+    assert cursor._query_handle == 1
+    cursor.execute("SELECT v FROM t")
+    assert cursor.fetchone() == (
+        datetime.datetime(2026, 1, 15, 10, 30, tzinfo=datetime.timezone(OFFSET_0530)),
+    )
+    cursor.close()
+    assert _closed_handles(connection) == [1, 1]
+
+
+@pytest.mark.usefixtures("no_tz_database")
+def test_sync_cursor_fetch_page_unresolved_zone_then_reuse() -> None:
+    connection = _tz_mock_connection(False, [FIRST_PAGE_OF_TWO, GOOD])
+    cursor = Cursor(connection)
+    cursor.execute("SELECT v FROM t")
+    assert cursor.fetchone() is not None
+    with pytest.raises(DataError, match="'Asia/Seoul'"):
+        cursor.fetchone()
+    cursor.close()
+    assert _closed_handles(connection) == [1]
+    cursor = Cursor(connection)
+    cursor.execute("SELECT v FROM t")
+    assert cursor.fetchall()[0][0].utcoffset() == OFFSET_0530
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("no_tz_database")
+async def test_async_cursor_execute_unresolved_zone_then_reuse() -> None:
+    connection = _tz_mock_connection(True, [BAD, GOOD])
+    cursor = AsyncCursor(connection)
+    with pytest.raises(DataError, match="'Asia/Seoul'"):
+        await cursor.execute("SELECT v FROM t")
+    assert cursor.description is None
+    assert cursor._query_handle == 1
+    await cursor.execute("SELECT v FROM t")
+    row = await cursor.fetchone()
+    assert row is not None and row[0].utcoffset() == OFFSET_0530
+    await cursor.close()
+    assert _closed_handles(connection) == [1, 1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("no_tz_database")
+async def test_async_cursor_fetch_page_unresolved_zone_then_reuse() -> None:
+    connection = _tz_mock_connection(True, [FIRST_PAGE_OF_TWO, GOOD])
+    cursor = AsyncCursor(connection)
+    await cursor.execute("SELECT v FROM t")
+    assert await cursor.fetchone() is not None
+    with pytest.raises(DataError, match="'Asia/Seoul'"):
+        await cursor.fetchone()
+    await cursor.close()
+    assert _closed_handles(connection) == [1]
+    cursor = AsyncCursor(connection)
+    await cursor.execute("SELECT v FROM t")
+    rows = await cursor.fetchall()
+    assert rows[0][0].utcoffset() == OFFSET_0530
+
+
+# --- review follow-ups: fold edge cases and out-of-range offsets -------------
+
+
+def test_shared_abbreviation_keeps_first_occurrence() -> None:
+    # Europe/Moscow left UTC+4 for UTC+3 on 2014-10-26; both are "MSK", so the
+    # abbreviation cannot disambiguate 01:30 and fold stays 0 (CUBRID 11.4 and
+    # 10.2 send "Europe/Moscow MSK" and mean UTC+4 here).
+    value = _attach_timezone(datetime.datetime(2014, 10, 26, 1, 30), "Europe/Moscow MSK")
+    assert (value.fold, value.utcoffset()) == (0, datetime.timedelta(hours=4))
+
+
+def test_skipped_hour_abbreviation_selects_post_transition_offset() -> None:
+    gap = datetime.datetime(2026, 3, 8, 2, 30)
+    assert _attach_timezone(gap, "America/New_York EST").utcoffset() == datetime.timedelta(hours=-5)
+    edt = _attach_timezone(gap, "America/New_York EDT")
+    assert (edt.fold, edt.utcoffset()) == (1, datetime.timedelta(hours=-4))
+
+
+@pytest.mark.parametrize("token", ["+24", "-24:00", "+25:00", "+23:59:60", "+09:99", "+9", "-"])
+def test_out_of_range_or_malformed_offset_raises_data_error(token: str) -> None:
+    with pytest.raises(DataError, match=f"cannot resolve CUBRID timezone offset '\\{token}"):
+        _attach_timezone(datetime.datetime(2026, 1, 1), token)
+
+
+def test_largest_offsets_still_decode() -> None:
+    dt = datetime.datetime(2026, 1, 1)
+    assert _attach_timezone(dt, "+23:59:59").utcoffset() == datetime.timedelta(
+        hours=23, minutes=59, seconds=59
+    )
+    assert _attach_timezone(dt, "-23:59").utcoffset() == -datetime.timedelta(hours=23, minutes=59)
+
+
+def test_sync_out_of_range_offset_keeps_connection(
+    socket_queue: list[MagicMock],  # noqa: F811
+) -> None:
+    wire = WIRE_TIMESTAMPTZ_OFFSET.replace(b"+05:30", b"+25:00")
+    conn, _ = _connection_with_reply(socket_queue, _tz_select_body(wire))
+    with pytest.raises(DataError, match="offset '\\+25:00'"):
+        conn._send_and_receive(PrepareAndExecutePacket("SELECT v FROM t"))
+    assert conn._connected is True

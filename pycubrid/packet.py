@@ -46,12 +46,11 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
 
     Handles IANA region names (``Asia/Seoul``), UTC offsets in forms
     ``±HH``, ``±HH:MM``, ``±HH:MM:SS``, and region names followed by
-    an abbreviation token (e.g. ``America/New_York EST``). The
-    abbreviation selects ``fold`` for a wall time that occurs twice when
-    daylight saving time ends.
+    an abbreviation token (e.g. ``America/New_York EST``).
 
     An empty string returns ``dt`` unchanged. A nonempty token that
-    cannot be resolved raises ``DataError`` instead of dropping the
+    cannot be resolved (an unknown region, or an offset that is malformed
+    or outside ±24 hours) raises ``DataError`` instead of dropping the
     timezone (#413); the caller holds the complete reply, so the session
     stays usable.
     """
@@ -64,15 +63,22 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
     tokens = tz_str.split()
     timezone_token = tokens[0]
 
-    # Match ±HH, ±HH:MM, or ±HH:MM:SS offset forms
-    offset_match = re.match(r"^([+-])(\d{2})(?::(\d{2}))?(?::(\d{2}))?$", timezone_token)
-    if offset_match:
-        sign = 1 if offset_match.group(1) == "+" else -1
-        hours = int(offset_match.group(2))
-        minutes = int(offset_match.group(3) or "0")
-        seconds = int(offset_match.group(4) or "0")
-        offset = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds) * sign
-        return dt.replace(tzinfo=datetime.timezone(offset))
+    if timezone_token[0] in "+-":
+        # ±HH, ±HH:MM or ±HH:MM:SS
+        offset_match = re.match(r"^([+-])(\d{2})(?::([0-5]\d))?(?::([0-5]\d))?$", timezone_token)
+        try:
+            if offset_match is None:
+                raise ValueError("not in ±HH[:MM[:SS]] form")
+            sign = 1 if offset_match.group(1) == "+" else -1
+            hours = int(offset_match.group(2))
+            minutes = int(offset_match.group(3) or "0")
+            seconds = int(offset_match.group(4) or "0")
+            offset = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds) * sign
+            return dt.replace(tzinfo=datetime.timezone(offset))
+        except ValueError as exc:
+            raise DataError(
+                f"cannot resolve CUBRID timezone offset {timezone_token!r}: {exc}"
+            ) from exc
 
     try:
         zone = ZoneInfo(timezone_token)
@@ -84,11 +90,14 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
         ) from exc
 
     aware = dt.replace(tzinfo=zone)
-    if len(tokens) > 1:
-        # CUBRID names the offset in effect; use it to pick the second
-        # occurrence of an ambiguous wall time (e.g. 01:30 EST, not EDT).
+    # CUBRID sends the abbreviation in effect. When fold=0 does not carry it
+    # but fold=1 does, take fold=1: the second occurrence of a repeated wall
+    # time (01:30 EST, not EDT, as DST ends) or the post-transition offset of
+    # a skipped one. A missing or unknown abbreviation, or one both folds
+    # share (Europe/Moscow MSK on 2014-10-26), keeps fold=0.
+    if len(tokens) > 1 and aware.tzname() != tokens[1]:
         later = aware.replace(fold=1)
-        if later.utcoffset() != aware.utcoffset() and later.tzname() == tokens[1]:
+        if later.tzname() == tokens[1] and later.utcoffset() != aware.utcoffset():
             return later
     return aware
 

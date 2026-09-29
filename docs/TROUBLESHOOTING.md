@@ -778,9 +778,12 @@ zone, so even `UTC` needs the database. Usual causes:
   OS package.
 - **`PYTHONTZPATH` points somewhere empty** — unset it or fix the path.
 
-The connection stays usable. Offsets such as `+09:00` need no database. To
-read the values without zone resolution, select them as text, e.g.
-`SELECT TO_CHAR(col)`.
+The connection stays usable. Offsets such as `+09:00` need no database; an
+offset outside ±24 hours raises `DataError: cannot resolve CUBRID timezone
+offset ...`. The explicit prepared API (`pycubrid.compat.native`) stays
+fail-closed, as for invalid UTF-8: it raises `OperationalError` and retires
+the session. To read the values without zone resolution, select them as
+text, e.g. `SELECT TO_CHAR(col)`.
 
 Earlier releases logged `Unknown timezone token` and returned a naive
 `datetime`, silently dropping the zone (#413).
