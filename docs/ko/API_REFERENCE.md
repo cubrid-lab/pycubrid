@@ -1394,7 +1394,7 @@ class OperationalError(DatabaseError)
 class IntegrityError(DatabaseError)
 ```
 
-관계형 무결성이 영향받을 때 사용됩니다 (외래 키 위반, 중복 키, 제약조건 위반).
+관계형 무결성이 영향받을 때 사용됩니다 (외래 키 위반, 중복 키, 제약조건 위반). 참조하는 외래 키 때문에 거부된 `DELETE`, `UPDATE`, `TRUNCATE`도 포함합니다.
 
 ---
 
@@ -1431,8 +1431,12 @@ class NotSupportedError(DatabaseError)
 ### 오류 분류
 
 pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 오류를 분류합니다.
-네이티브 `-631` (`ER_NULL_CONSTRAINT_VIOLATION`)과 `-922` (`ER_FK_INVALID`)는
-메시지 언어와 관계없이 SQLSTATE `23000`의 `IntegrityError`를 발생시킵니다.
+네이티브 `-631` (`ER_NULL_CONSTRAINT_VIOLATION`), `-922` (`ER_FK_INVALID`, 부모가
+없는 자식 행의 삽입 또는 수정), `-924` (`ER_FK_RESTRICT`, 참조되는 부모 행의 삭제
+또는 수정), `-1284` (`ER_TRUNCATE_PK_REFERRED`, CUBRID 11.4에서 참조되는 부모
+테이블의 TRUNCATE; 10.2는 `-924`를 반환)는 메시지 언어와 관계없이 SQLSTATE
+`23000`의 `IntegrityError`를 발생시킵니다. 참조되는 기본 키의 삭제(`-923`,
+`ER_FK_CANT_DROP_PK_REFERRED`)는 스키마 변경 거부이므로 `DatabaseError`로 유지합니다.
 단일 문장과 배치의 개별 문장 오류는 원래 숫자 값을 `code`와 `errno`에 모두
 보존합니다. 알 수 없는 코드는 제약조건 같은 메시지가 있어도 `DatabaseError`로
 유지합니다.
