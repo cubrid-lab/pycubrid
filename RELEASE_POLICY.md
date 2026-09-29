@@ -221,6 +221,21 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`str`, `bytes`, date and time parameters render by value; years are
+  zero-padded (#528, #519)** — PATCH / security and data-corruption correction
+  to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
+  Subclasses of `str`, `bytes`, `bytearray`, `date`, `datetime` and `time` are
+  rendered from their stored value through base-class methods and descriptors,
+  so overridden `replace()`/`__contains__()`/`hex()`/`strftime()` or field
+  properties can no longer change or inject SQL text. Years below 1000 are
+  zero-padded to four digits (`DATE'0099-01-02'`), which CUBRID previously
+  misread (`'99-01-02'` as 1999). A non-empty `tzinfo.key` that is not a plain
+  `str` matching `[A-Za-z0-9_+/-]+`, an object that only claims a supported
+  type through `__class__`, and a `Decimal` subclass without the C `decimal`
+  module now raise `ProgrammingError`; these inputs were unsafe or failed
+  with raw exceptions before. Plain-value output other than the year padding,
+  public signatures, dependencies and supported versions are unchanged.
+
 - **Numeric subclasses render by value (#518)** — PATCH / security
   correction to the documented parameter-binding contract
   (`docs/PARAMETER_BINDING.md`). Subclasses of `int`, `float` and `Decimal`

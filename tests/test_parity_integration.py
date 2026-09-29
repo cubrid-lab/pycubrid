@@ -298,6 +298,120 @@ class TestParityNumericSubclassLiterals:
         assert stored == [expected]
 
 
+_INJECTED_528 = "x'; DROP TABLE users; --"
+
+
+def _inject_528(*args: object, **kwargs: object) -> str:
+    return _INJECTED_528
+
+
+class _HostileStr(str):
+    replace = _inject_528
+    __str__ = _inject_528
+    __format__ = _inject_528
+
+    def __contains__(self, item: object) -> bool:
+        return False
+
+
+class _HostileBytes(bytes):
+    hex = _inject_528
+
+
+_HOSTILE_TEMPORAL_528 = {
+    "strftime": _inject_528,
+    "isoformat": _inject_528,
+    "__str__": _inject_528,
+    "__format__": _inject_528,
+    "year": property(lambda self: 7),
+    "hour": property(lambda self: 7),
+}
+_HostileDate = type("_HostileDate", (datetime.date,), dict(_HOSTILE_TEMPORAL_528))
+_HostileDateTime = type("_HostileDateTime", (datetime.datetime,), dict(_HOSTILE_TEMPORAL_528))
+_HostileTime = type("_HostileTime", (datetime.time,), dict(_HOSTILE_TEMPORAL_528))
+
+
+class TestParityLiteralHardening:
+    """str, bytes, date and time parameters render by value (#528, #519)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("year", [1, 99, 999, 1000])
+    async def test_low_years_round_trip(self, adapter: ParityAdapter, year: int) -> None:
+        # #519: '99-01-02' was read by CUBRID as 1999-01-02.
+        date_value = datetime.date(year, 1, 2)
+        dt_value = datetime.datetime(year, 1, 2, 3, 4, 5, 6000)
+        tz_value = datetime.datetime(year, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc)
+        table = table_name("year519")
+        conn = await adapter.connect()
+        cur = adapter.cursor(conn)
+        try:
+            await adapter.execute(cur, "SELECT ?, ?, ?", [date_value, dt_value, tz_value])
+            selected = await adapter.fetchone(cur)
+            await adapter.execute(cur, "DROP TABLE IF EXISTS %s" % table)
+            await adapter.execute(cur, "CREATE TABLE %s (d DATE, dt DATETIME)" % table)
+            await adapter.execute(
+                cur, "INSERT INTO %s VALUES (?, ?)" % table, [date_value, dt_value]
+            )
+            await adapter.execute(
+                cur,
+                "SELECT COUNT(*) FROM %s WHERE d = ? AND dt = ?" % table,
+                [date_value, dt_value],
+            )
+            matched = await adapter.fetchone(cur)
+            await adapter.execute(cur, "SELECT d, dt FROM %s" % table)
+            stored = await adapter.fetchall(cur)
+            await adapter.commit(conn)
+        finally:
+            await adapter.close_cursor(cur)
+            await cleanup_table(adapter, conn, table)
+            await adapter.close_connection(conn)
+        assert selected is not None
+        assert selected[0] == date_value
+        assert selected[1] == dt_value
+        assert selected[2] == tz_value
+        assert matched == (1,)
+        assert stored == [(date_value, dt_value)]
+
+    @pytest.mark.asyncio
+    async def test_hostile_subclasses_round_trip_by_value(self, adapter: ParityAdapter) -> None:
+        values = [
+            _HostileStr("it's"),
+            _HostileBytes(b"A'"),
+            _HostileDate(2024, 2, 29),
+            _HostileDateTime(2024, 2, 29, 13, 14, 15, 16000),
+            _HostileTime(13, 14, 15),
+        ]
+        expected = (
+            "it's",
+            b"A'",
+            datetime.date(2024, 2, 29),
+            datetime.datetime(2024, 2, 29, 13, 14, 15, 16000),
+            datetime.time(13, 14, 15),
+        )
+        table = table_name("lit528")
+        conn = await adapter.connect()
+        cur = adapter.cursor(conn)
+        try:
+            await adapter.execute(cur, "SELECT ?, ?, ?, ?, ?", values)
+            selected = await adapter.fetchone(cur)
+            await adapter.execute(cur, "DROP TABLE IF EXISTS %s" % table)
+            await adapter.execute(
+                cur,
+                "CREATE TABLE %s (s VARCHAR(32), b BIT VARYING(64), d DATE, dt DATETIME, t TIME)"
+                % table,
+            )
+            await adapter.execute(cur, "INSERT INTO %s VALUES (?, ?, ?, ?, ?)" % table, values)
+            await adapter.execute(cur, "SELECT s, b, d, dt, t FROM %s" % table)
+            stored = await adapter.fetchall(cur)
+            await adapter.commit(conn)
+        finally:
+            await adapter.close_cursor(cur)
+            await cleanup_table(adapter, conn, table)
+            await adapter.close_connection(conn)
+        assert selected == expected
+        assert stored == [expected]
+
+
 class TestParityConnectionLifecycle:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("reconnect", [False, True], ids=["no-reconnect", "reconnect"])
