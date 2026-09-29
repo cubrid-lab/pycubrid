@@ -221,6 +221,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Unresolved TZ zones raise `DataError` (#413)** — PATCH / correction to the
+  documented type contract (`TIMESTAMPTZ`/`LTZ` and `DATETIMETZ`/`LTZ` return
+  timezone-aware values). A region the client's IANA database cannot resolve
+  raises `DataError` instead of returning a naive `datetime`, as does an offset
+  outside ±24 hours; the fully read session is kept, and the explicit prepared
+  API stays fail-closed, as in #492. The zone abbreviation now selects `fold` in the
+  repeated DST hour. Offsets, resolvable regions and an empty suffix are
+  unchanged. Adds a Windows-only runtime dependency on `tzdata`
+  (`sys_platform == 'win32'`); no public signature or supported-version change.
+
 - **Invalid UTF-8 in a complete reply keeps the session (#492)** — PATCH /
   correction of error classification and connection lifetime. Server error text
   is decoded with replacement, so the native class, `errno` and `sqlstate`

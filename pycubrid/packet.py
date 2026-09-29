@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import datetime
 import json
-import logging
 import struct
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .constants import CUBRIDDataType, DataSize
 from .exceptions import DataError
 
-_LOGGER = logging.getLogger(__name__)
 
 # Pre-compiled struct objects — avoids format-string parsing on every call.
 _STRUCT_SHORT = struct.Struct(">h")
@@ -48,11 +46,13 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
 
     Handles IANA region names (``Asia/Seoul``), UTC offsets in forms
     ``±HH``, ``±HH:MM``, ``±HH:MM:SS``, and region names followed by
-    optional abbreviation tokens (e.g. ``Asia/Seoul KST``).
+    an abbreviation token (e.g. ``America/New_York EST``).
 
-    Raises ``ValueError`` if the timezone token cannot be resolved so
-    callers are aware of data loss rather than silently returning a
-    naive datetime.
+    An empty string returns ``dt`` unchanged. A nonempty token that
+    cannot be resolved (an unknown region, or an offset that is malformed
+    or outside ±24 hours) raises ``DataError`` instead of dropping the
+    timezone (#413); the caller holds the complete reply, so the session
+    stays usable.
     """
     import re
 
@@ -60,23 +60,46 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
     if not tz_str:
         return dt
 
-    timezone_token = tz_str.split()[0] if " " in tz_str else tz_str
+    tokens = tz_str.split()
+    timezone_token = tokens[0]
 
-    # Match ±HH, ±HH:MM, or ±HH:MM:SS offset forms
-    offset_match = re.match(r"^([+-])(\d{2})(?::(\d{2}))?(?::(\d{2}))?$", timezone_token)
-    if offset_match:
-        sign = 1 if offset_match.group(1) == "+" else -1
-        hours = int(offset_match.group(2))
-        minutes = int(offset_match.group(3) or "0")
-        seconds = int(offset_match.group(4) or "0")
-        offset = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds) * sign
-        return dt.replace(tzinfo=datetime.timezone(offset))
+    if timezone_token[0] in "+-":
+        # ±HH, ±HH:MM or ±HH:MM:SS
+        offset_match = re.match(r"^([+-])(\d{2})(?::([0-5]\d))?(?::([0-5]\d))?$", timezone_token)
+        try:
+            if offset_match is None:
+                raise ValueError("not in ±HH[:MM[:SS]] form")
+            sign = 1 if offset_match.group(1) == "+" else -1
+            hours = int(offset_match.group(2))
+            minutes = int(offset_match.group(3) or "0")
+            seconds = int(offset_match.group(4) or "0")
+            offset = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds) * sign
+            return dt.replace(tzinfo=datetime.timezone(offset))
+        except ValueError as exc:
+            raise DataError(
+                f"cannot resolve CUBRID timezone offset {timezone_token!r}: {exc}"
+            ) from exc
 
     try:
-        return dt.replace(tzinfo=ZoneInfo(timezone_token))
-    except KeyError:
-        _LOGGER.warning("Unknown timezone token %r; returning naive datetime", timezone_token)
-        raise ValueError(f"Unrecognized CUBRID timezone: {timezone_token!r}")
+        zone = ZoneInfo(timezone_token)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise DataError(
+            f"cannot resolve CUBRID timezone {timezone_token!r}: it is not in the "
+            "client's IANA time zone database (install the 'tzdata' package or "
+            "update the system zoneinfo)"
+        ) from exc
+
+    aware = dt.replace(tzinfo=zone)
+    # CUBRID sends the abbreviation in effect. When fold=0 does not carry it
+    # but fold=1 does, take fold=1: the second occurrence of a repeated wall
+    # time (01:30 EST, not EDT, as DST ends) or the post-transition offset of
+    # a skipped one. A missing or unknown abbreviation, or one both folds
+    # share (Europe/Moscow MSK on 2014-10-26), keeps fold=0.
+    if len(tokens) > 1 and aware.tzname() != tokens[1]:
+        later = aware.replace(fold=1)
+        if later.tzname() == tokens[1] and later.utcoffset() != aware.utcoffset():
+            return later
+    return aware
 
 
 class PacketWriter:
@@ -380,10 +403,7 @@ class PacketReader:
             tz_str = self._parse_null_terminated_string(tz_bytes_len)
         else:
             tz_str = ""
-        try:
-            return _attach_timezone(dt, tz_str)
-        except ValueError:
-            return dt
+        return _attach_timezone(dt, tz_str)
 
     def _parse_numeric(self, size: int) -> Decimal:
         value = self._parse_null_terminated_string(size)

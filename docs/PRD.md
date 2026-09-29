@@ -97,7 +97,9 @@ graph TD
 | pytest | ≥ 7.0 | Testing (dev) |
 | ruff | ≥ 0.4 | Lint + format (dev) |
 
-**Zero runtime dependencies** — pycubrid uses only the Python standard library.
+**Standard library only** — pycubrid needs no runtime dependencies except
+[`tzdata`](https://pypi.org/project/tzdata/) on Windows, which supplies the IANA
+time zone database that `zoneinfo` needs for TZ types (#413).
 
 ### 2.3 PEP 249 Compliance
 

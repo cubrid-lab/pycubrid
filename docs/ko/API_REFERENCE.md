@@ -1376,7 +1376,11 @@ class DataError(DatabaseError)
 
 데이터 처리 문제에 사용됩니다 (0으로 나누기, 숫자 오버플로 등).
 조회한 문자 값(`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`, `JSON`)이 유효한 UTF-8이 아닐 때도
-발생합니다. 응답은 모두 읽었으므로 연결은 계속 사용할 수 있습니다.
+발생하며, `TIMESTAMPTZ`/`TIMESTAMPLTZ`/`DATETIMETZ`/`DATETIMELTZ` 값의 리전을
+클라이언트의 IANA 타임존 데이터베이스로 해석할 수 없거나(`tzdata` 설치 필요) 오프셋이
+±24시간을 벗어날 때도 발생합니다(#413). 응답은 모두 읽었으므로 연결은 계속 사용할 수
+있습니다. 명시적 prepared API(`pycubrid.compat.native`)는 대신 `OperationalError`를
+발생시키고 세션을 폐기합니다.
 
 ---
 

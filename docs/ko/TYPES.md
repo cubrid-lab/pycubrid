@@ -310,6 +310,29 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 > 참고). 세션 타임존이 바뀌면 같은 저장 시점(instant)이 다른 UTC 오프셋으로
 > 반환됩니다. `TIMESTAMPTZ`와 `DATETIMETZ`는 값 자체의 타임존을 가집니다.
 
+> **타임존 디코딩 (#413):** CUBRID는 각 값의 타임존을 텍스트로 보냅니다. 오프셋
+> (`+05:30`)이거나, 리전 이름과 그 시점의 약어(`Asia/Seoul KST`, LTZ 타입은
+> `UTC UTC`)입니다. pycubrid는 다음과 같이 해석합니다.
+>
+> - 오프셋은 고정 `datetime.timezone`으로 변환합니다.
+> - 리전은 `zoneinfo.ZoneInfo(region)`으로 변환합니다. 서머타임이 끝나 같은 벽시계
+>   시각이 두 번 나타나면 약어로 `fold`를 고릅니다. 따라서 2026-11-01 01:30의
+>   `America/New_York EST`는 UTC-05:00(`fold=1`), `EDT`는 UTC-04:00입니다.
+>   약어가 없거나 알 수 없는 경우, 또는 두 시점이 같은 약어를 쓰는 경우
+>   (2014-10-26의 `Europe/Moscow MSK`)에는 `fold=0`을 유지합니다.
+> - 빈 타임존은 naive `datetime`으로 반환합니다.
+>
+> 클라이언트의 타임존 데이터베이스가 모르는 리전이나, 형식이 잘못되었거나 ±24시간
+> 범위를 벗어난 오프셋은 naive 값을 조용히 반환하지 않고, 해당 타임존을 담은
+> `DataError`를 발생시킵니다. 연결은 계속 사용할 수 있습니다. 명시적 prepared
+> API(`pycubrid.compat.native`)는 잘못된 UTF-8(#492)과 마찬가지로 fail-closed로
+> 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다. `zoneinfo`는 시스템 데이터베이스 또는
+> [`tzdata`](https://pypi.org/project/tzdata/) 패키지를 읽습니다. Windows에서는
+> pycubrid가 `tzdata`를 자동으로 설치하며, 최소 구성 Linux 이미지에서는 `tzdata`를
+> (pip 또는 OS 패키지로) 설치하세요.
+> [TZ 값의 타임존을 해석할 수 없음](TROUBLESHOOTING.md#tz-값의-타임존을-해석할-수-없음)을
+> 참고하세요.
+
 ---
 
 ## LOB 타입 처리

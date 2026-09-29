@@ -1439,8 +1439,12 @@ class DataError(DatabaseError)
 
 Raised for data processing problems (division by zero, numeric overflow, etc.).
 Also raised when a fetched character value (`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`,
-`JSON`) is not valid UTF-8; the reply was fully read, so the connection stays
-usable.
+`JSON`) is not valid UTF-8, and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
+`DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
+zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
+(#413). The reply was fully read, so the connection stays usable. The explicit
+prepared API (`pycubrid.compat.native`) raises `OperationalError` and retires
+the session instead.
 
 ---
 
