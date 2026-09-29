@@ -5341,7 +5341,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [fetchone() Returns None Unexpectedly](#fetchone-returns-none-unexpectedly)
   - [rowcount Is -1 After SELECT](#rowcount-is--1-after-select)
   - [executemany() Performance](#executemany-performance)
-- [Prepared Statement Issues](#prepared-statement-issues)
+- [Parameterized Query Issues](#parameterized-query-issues)
   - [execute(sql, params) Pattern](#executesql-params-pattern)
   - [Mixing Parameterized and Direct Execution](#mixing-parameterized-and-direct-execution)
 - [Docker Issues](#docker-issues)
@@ -6250,7 +6250,7 @@ cur.executemany_batch(sql_list)
 
 ---
 
-## Prepared Statement Issues
+## Parameterized Query Issues
 
 ### execute(sql, params) Pattern
 
@@ -6271,7 +6271,7 @@ marketers = cur.fetchall()
 
 - Always pass the SQL string as the first argument to `execute()`
 - Pass parameter values in the second argument
-- Each call uses CAS `PREPARE_AND_EXECUTE`; no separate prepare step is needed
+- The driver renders the parameters into SQL literals on the client and sends the complete SQL with CAS `PREPARE_AND_EXECUTE` on each call; there is no `cursor.prepare()`, typed value payload or driver-side statement-handle cache (see [Parameter Binding](PARAMETER_BINDING.md))
 
 ---
 
@@ -6805,7 +6805,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `connect()` | ✅ | Module-level constructor |
 | `Connection` | ✅ | Full lifecycle: commit, rollback, close, autocommit |
 | `Cursor` | ✅ | execute, executemany, fetch*, callproc, description, rowcount |
-| `Cursor.nextset()` | ✅ | Since 1.2.0 (#79) |
+| `Cursor.nextset()` | ✅ | Since 1.2.0 (#79) — raises `NotSupportedError`; CUBRID has no multiple result sets |
 | Exception hierarchy | ✅ | All 10 PEP 249 exception classes |
 | `errno` / `sqlstate` on `DatabaseError` | ✅ | Since 1.2.0 (#71) — 19 SQLSTATE mappings |
 | Type objects | ✅ | STRING, BINARY, NUMBER, DATETIME, ROWID |
@@ -6890,7 +6890,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 
 | Feature | Status | Since | Notes |
 |---|---|---|---|
-| `cursor.execute(sql, params)` | ✅ | 1.0.0 | Server-side `PREPARE_AND_EXECUTE` |
+| `cursor.execute(sql, params)` | ✅ | 1.0.0 | Driver-side literal binding; the rendered SQL is sent with `PREPARE_AND_EXECUTE` (no server-side typed binding) — see [PARAMETER_BINDING.md](PARAMETER_BINDING.md) |
 | `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | Batches non-SELECT DML via `BatchExecutePacket`; only SELECT falls back to the per-row loop |
 | `cursor.executemany_batch(sql_list, auto_commit=None)` | ✅ | 1.0.0 | Single round-trip `BatchExecutePacket` |
 | `cursor.callproc(name, params)` | ✅ | 1.0.0 | Stored procedure invocation |

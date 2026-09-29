@@ -54,7 +54,7 @@ pycubrid 릴리스의 호환성과 기능 지원.
 | `connect()` | ✅ | 모듈 수준 생성자 |
 | `Connection` | ✅ | 전체 수명 주기: 커밋, 롤백, 종료, 오토커밋 |
 | `Cursor` | ✅ | execute, executemany, fetch*, callproc, description, rowcount |
-| `Cursor.nextset()` | ✅ | 1.2.0부터 (#79) |
+| `Cursor.nextset()` | ✅ | 1.2.0부터 (#79) — `NotSupportedError` 발생, CUBRID는 다중 결과 집합이 없음 |
 | 예외 계층 | ✅ | PEP 249 예외 클래스 전체 10종 |
 | `DatabaseError`의 `errno` / `sqlstate` | ✅ | 1.2.0부터 (#71) — SQLSTATE 매핑 19종 |
 | 타입 객체 | ✅ | STRING, BINARY, NUMBER, DATETIME, ROWID |
@@ -138,7 +138,7 @@ pycubrid 릴리스의 호환성과 기능 지원.
 
 | 기능 | 상태 | 도입 | 비고 |
 |---|---|---|---|
-| `cursor.execute(sql, params)` | ✅ | 1.0.0 | 서버 측 `PREPARE_AND_EXECUTE` |
+| `cursor.execute(sql, params)` | ✅ | 1.0.0 | 드라이버 측 리터럴 바인딩. 렌더링된 SQL을 `PREPARE_AND_EXECUTE`로 전송(서버 측 타입 바인딩 없음) — [PARAMETER_BINDING.md](PARAMETER_BINDING.md) 참고 |
 | `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | 비-SELECT DML을 `BatchExecutePacket`으로 배치. SELECT만 행별 루프로 폴백 |
 | `cursor.executemany_batch(sql_list, auto_commit=None)` | ✅ | 1.0.0 | 단일 왕복 `BatchExecutePacket` |
 | `cursor.callproc(name, params)` | ✅ | 1.0.0 | 저장 프로시저 호출 |

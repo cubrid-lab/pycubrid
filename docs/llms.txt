@@ -1,23 +1,62 @@
 # pycubrid
 
-> Pure Python DB-API 2.0 driver for the CUBRID database. Provides connection management, cursor operations, LOB handling, and type mapping with full PEP 249 compliance.
+> Pure-Python DB-API 2.0 (PEP 249) driver for the CUBRID database, with an asyncio API (`pycubrid.aio`). No C extensions and no runtime dependencies except `tzdata` on Windows (for time zone names); Python 3.10+, PEP 561 typed.
 
-pycubrid is a pure Python driver that communicates with CUBRID database servers using the CAS (CUBRID Application Server) protocol. It supports Python 3.10+ and provides complete DB-API 2.0 compliance including parameterized queries, transactions, LOB operations, and batch inserts.
+pycubrid implements the CUBRID CAS (broker) wire protocol in Python. It provides synchronous `pycubrid.connect()` and asynchronous `pycubrid.aio.connect()` connections, is tested against CUBRID 10.2, 11.0, 11.2 and 11.4, and is the recommended driver for sqlalchemy-cubrid.
+
+Key facts:
+- PEP 249 globals: `apilevel = "2.0"`, `threadsafety = 1` (threads may share the module, not connections), `paramstyle = "qmark"`
+- Connect: `pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba", password="")`; async: `await pycubrid.aio.connect(...)` with the same arguments
+- Autocommit is off by default; toggle with `conn.autocommit = True` (async: `await conn.set_autocommit(True)`) or `connect(..., autocommit=True)`
+- Parameter binding is driver-side: `cursor.execute(sql, params)` renders `?` placeholders into escaped SQL literals on the client and sends one complete SQL string per execute. Ordinary sync and async cursors send no typed value payload, keep no driver-side statement-handle cache and have no `cursor.prepare()`; server-side plan caching is outside the driver contract
+- Binding limits: parameters must be a sequence (mappings are rejected); `None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`/`bytearray`, `date`, `time` and `datetime` are supported, anything else raises `ProgrammingError`; a list or tuple is not expanded for `IN (...)`; identifiers (including `callproc` names) are never bound
+- The only prepared API is the opt-in, sync-only `pycubrid.compat.native` cursor (`prepare()` / `bind_param()` for INT32, UTF-8 string and NULL values); it is a bounded compatibility subset, not a general DB-API cursor
+- `executemany()` sends INSERT/UPDATE/DELETE/MERGE rows as one batch request (other statements fall back to a per-row loop); `executemany_batch(sql_list)` sends a list of SQL strings in one request
+- `callproc()` runs `CALL name(?, ...)` and returns the input parameters unchanged; `nextset()` raises `NotSupportedError`
+- Exceptions: `Warning`, `Error`, `InterfaceError`, `DatabaseError`, `DataError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError`, with `errno` / `sqlstate` on database errors
+- Type objects `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID` and the PEP 249 constructors (`Date`, `Time`, `Timestamp`, `Binary`, `*FromTicks`)
+- Also: LOBs via `conn.create_lob()`, schema introspection via `get_schema_info()`, `get_last_insert_id()`, `ping()`, `get_server_version()`, opt-in TLS (`ssl=True` or an `ssl.SSLContext`), opt-in collection decoding (`decode_collections=True`) and JSON decoding (`json_deserializer=`), context managers and cursor iteration (sync and async)
+- Install: `pip install pycubrid`
 
 ## Docs
 
-- [Quick Start](https://cubrid-lab.github.io/pycubrid/quickstart/): Connect to CUBRID in 5 minutes with installation, basic connection, and CRUD examples
-- [Connection Guide](https://cubrid-lab.github.io/pycubrid/CONNECTION/): Connection parameters, authentication, connection string format, and connection management
-- [API Reference](https://cubrid-lab.github.io/pycubrid/API_REFERENCE/): Complete API documentation for connect(), Connection, Cursor, LOB, types, and exceptions
-- [Type Mapping](https://cubrid-lab.github.io/pycubrid/TYPES/): CUBRID SQL types to Python type mapping, type constructors, and DBAPIType
-- [Examples](https://cubrid-lab.github.io/pycubrid/EXAMPLES/): Practical code examples for common database operations
+- [Quick Start](https://cubrid-lab.github.io/pycubrid/quickstart/): Install, connect, CRUD and explicit transactions
+- [Connection Guide](https://cubrid-lab.github.io/pycubrid/CONNECTION/): `connect()` parameters, TLS, context managers, autocommit, broker handshake, pooling
+- [API Reference](https://cubrid-lab.github.io/pycubrid/API_REFERENCE/): `connect()`, `pycubrid.aio`, Connection, Cursor, Lob, exceptions, type objects, the explicit native compatibility subset
+- [Parameter Binding](https://cubrid-lab.github.io/pycubrid/PARAMETER_BINDING/): Authoritative driver-side binding contract, type-to-literal mapping, escaping and limits
+- [Type Mapping](https://cubrid-lab.github.io/pycubrid/TYPES/): CUBRID types to Python, type objects and constructors, LOB and collection types
+- [Examples](https://cubrid-lab.github.io/pycubrid/EXAMPLES/): TLS, CRUD, transactions, parameterized queries, batches, LOBs, schema introspection, stored procedures
+
+## Reference
+
+- [Protocol](https://cubrid-lab.github.io/pycubrid/PROTOCOL/): CAS wire protocol, packets and function codes
+- [Architecture](https://cubrid-lab.github.io/pycubrid/ARCHITECTURE/): Module structure, CAS reconnection, public API boundary
+- [Support Matrix](https://cubrid-lab.github.io/pycubrid/SUPPORT_MATRIX/): Python and CUBRID version compatibility and per-feature status
+- [Official Driver API Inventory](https://cubrid-lab.github.io/pycubrid/UPSTREAM_COMPATIBILITY/): Differences from the official CUBRIDdb driver and the selected compatibility contract
+- [Source — cursor.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/cursor.py): Cursor — execute, executemany, executemany_batch, fetch, callproc, iterator
+- [Source — connection.py](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/connection.py): Connection — connect, commit, rollback, cursor, autocommit, LOB, schema info
+- [Source — aio](https://github.com/cubrid-lab/pycubrid/tree/main/pycubrid/aio): AsyncConnection and AsyncCursor
+
+## Examples
+
+- [README Quick Start](https://github.com/cubrid-lab/pycubrid/blob/main/README.md#quick-start): Connection, context managers, parameter binding, async
+- [Cookbook — pycubrid fundamentals](https://github.com/cubrid-lab/cubrid-cookbook-python/tree/main/fundamentals/pycubrid): Numbered pycubrid examples from connect to cascade delete
+- [Cookbook — Parameterized queries](https://github.com/cubrid-lab/cubrid-cookbook-python/tree/main/fundamentals/parameterized-queries): `?` placeholders with driver-side binding
+- [Cookbook — Async](https://github.com/cubrid-lab/cubrid-cookbook-python/tree/main/fundamentals/async): `pycubrid.aio` and the SQLAlchemy async engine
+- [Cookbook — LOB handling](https://github.com/cubrid-lab/cubrid-cookbook-python/tree/main/fundamentals/lob-handling): BLOB/CLOB with `conn.create_lob()`
+
+## Ecosystem
+
+- [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid): SQLAlchemy 2.0/2.1 dialect for CUBRID (`cubrid+pycubrid://`, `cubrid+aiopycubrid://`)
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python): Runnable Python examples for CUBRID
+- [CUBRID](https://www.cubrid.org/): The CUBRID database
 
 ## Optional
 
-- [Protocol](https://cubrid-lab.github.io/pycubrid/PROTOCOL/): CAS protocol implementation details
-- [Architecture](https://cubrid-lab.github.io/pycubrid/ARCHITECTURE/): Internal architecture and module structure
-- [Performance](https://cubrid-lab.github.io/pycubrid/PERFORMANCE/): Performance optimization tips
+- [Performance](https://cubrid-lab.github.io/pycubrid/PERFORMANCE/): Benchmarks, optimization tips, timing hooks
 - [Troubleshooting](https://cubrid-lab.github.io/pycubrid/TROUBLESHOOTING/): Common issues and solutions
 - [FAQ](https://cubrid-lab.github.io/pycubrid/faq/): Frequently asked questions
-- [Support Matrix](https://cubrid-lab.github.io/pycubrid/SUPPORT_MATRIX/): Python and CUBRID version compatibility
-- [Development](https://cubrid-lab.github.io/pycubrid/DEVELOPMENT/): Development setup and contributing
+- [Development](https://cubrid-lab.github.io/pycubrid/DEVELOPMENT/): Development setup, tests, CI
+- [Full documentation in one file](https://cubrid-lab.github.io/pycubrid/llms-full.txt): All user docs concatenated for LLM context
+- [Contributing Guide](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md): Contribution guidelines
+- [Changelog](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md): Release history

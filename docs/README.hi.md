@@ -147,7 +147,7 @@ marketers = cur.fetchall()
 
 - **शुद्ध Python** — कोई C एक्सटेंशन नहीं, कोई कम्पाइलेशन नहीं, जहाँ Python चलता है वहाँ काम करता है
 - **पूर्ण DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **पैरामीटराइज़्ड क्वेरी** — server-side `PREPARE_AND_EXECUTE` के साथ `cursor.execute(sql, params)`
+- **पैरामीटराइज़्ड क्वेरी** — driver-side parameter binding के साथ `cursor.execute(sql, params)` (`?` placeholders को लोकल रूप से escape करके SQL में डाला जाता है)
 - **बैच ऑपरेशन** — bulk inserts के लिए `executemany()` और `executemany_batch()`
 - **LOB सपोर्ट** — `create_lob()`, CLOB और BLOB कॉलम का read/write
 - **स्कीमा introspection** — tables, columns, indexes, constraints के लिए `get_schema_info()`
