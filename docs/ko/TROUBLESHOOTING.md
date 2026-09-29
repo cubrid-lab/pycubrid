@@ -914,7 +914,7 @@ marketers = cur.fetchall()
 
 - 항상 SQL 문자열을 `execute()`의 첫 인자로 전달
 - 파라미터 값을 둘째 인자로 전달
-- 드라이버가 파라미터를 클라이언트에서 SQL 리터럴로 렌더링하고, 호출마다 완성된 SQL을 CAS `PREPARE_AND_EXECUTE`로 전송합니다. `cursor.prepare()`, 서버 측 타입 바인딩, 문장 재사용은 없습니다([파라미터 바인딩](PARAMETER_BINDING.md) 참고)
+- 드라이버가 파라미터를 클라이언트에서 SQL 리터럴로 렌더링하고, 호출마다 완성된 SQL을 CAS `PREPARE_AND_EXECUTE`로 전송합니다. `cursor.prepare()`, 타입 값 페이로드, 드라이버 측 문장 핸들 캐시는 없습니다([파라미터 바인딩](PARAMETER_BINDING.md) 참고)
 
 ---
 

@@ -971,7 +971,7 @@ marketers = cur.fetchall()
 
 - Always pass the SQL string as the first argument to `execute()`
 - Pass parameter values in the second argument
-- The driver renders the parameters into SQL literals on the client and sends the complete SQL with CAS `PREPARE_AND_EXECUTE` on each call; there is no `cursor.prepare()`, server-side typed binding or statement reuse (see [Parameter Binding](PARAMETER_BINDING.md))
+- The driver renders the parameters into SQL literals on the client and sends the complete SQL with CAS `PREPARE_AND_EXECUTE` on each call; there is no `cursor.prepare()`, typed value payload or driver-side statement-handle cache (see [Parameter Binding](PARAMETER_BINDING.md))
 
 ---
 
