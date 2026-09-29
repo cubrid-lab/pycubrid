@@ -35,7 +35,41 @@ def test_hook_entry_drift_fails_and_restored_fixture_passes(project: Path) -> No
     path = project / ".pre-commit-config.yaml"
     original = path.read_text()
     path.write_text(original.replace("entry: python3 -m ruff format", "entry: ruff format"))
-    with pytest.raises(ValueError, match="entry must invoke"):
+    with pytest.raises(ValueError, match="entry must be exactly"):
+        check_configuration(project)
+    path.write_text(original)
+    check_configuration(project)
+
+
+def test_hook_swapped_subcommand_fails(project: Path) -> None:
+    """A hook entry that still invokes `python3 -m ruff` but with the wrong
+    subcommand (e.g. the format hook running `check` instead) must fail even
+    though the module prefix looks right."""
+    path = project / ".pre-commit-config.yaml"
+    original = path.read_text()
+    path.write_text(
+        original.replace("entry: python3 -m ruff format", "entry: python3 -m ruff check")
+    )
+    with pytest.raises(ValueError, match="entry must be exactly"):
+        check_configuration(project)
+    path.write_text(original)
+    check_configuration(project)
+
+
+def test_duplicate_local_hook_id_fails(project: Path) -> None:
+    path = project / ".pre-commit-config.yaml"
+    original = path.read_text()
+    anchor = "      - id: ruff\n        name: ruff\n"
+    duplicate_ruff_hook = (
+        "      - id: ruff\n"
+        "        name: ruff (unpinned duplicate)\n"
+        "        entry: ruff check\n"
+        "        language: system\n"
+        "        types_or: [python, pyi]\n"
+    )
+    assert original.count(anchor) == 1
+    path.write_text(original.replace(anchor, duplicate_ruff_hook + anchor, 1))
+    with pytest.raises(ValueError, match="duplicate local hook id"):
         check_configuration(project)
     path.write_text(original)
     check_configuration(project)

@@ -20,6 +20,15 @@ LOCAL_HOOK_IDS = {
     "ruff": {"ruff", "ruff-format"},
     "mypy": {"mypy"},
 }
+# Exact required `entry:` per local hook id. Local hook ids carry no inherent
+# behavior (unlike a pinned remote hook manifest), so the full command --
+# not just the `python3 -m <tool>` prefix -- must be pinned, or a hook could
+# drift to the wrong Ruff subcommand while still reporting as configured.
+EXPECTED_HOOK_ENTRY = {
+    "ruff-format": "python3 -m ruff format",
+    "ruff": "python3 -m ruff check --fix",
+    "mypy": "python3 -m mypy",
+}
 REQUIRED_PATHS = {"pycubrid", "tests", "scripts", "demos", "examples"}
 
 
@@ -63,6 +72,10 @@ def check_configuration(root: Path = ROOT) -> dict[str, str]:
         local_blocks[0],
         re.MULTILINE | re.DOTALL,
     )
+    hook_ids = [hook_id for hook_id, _ in hook_blocks]
+    duplicates = {hook_id for hook_id in hook_ids if hook_ids.count(hook_id) > 1}
+    if duplicates:
+        raise ValueError(f"duplicate local hook id(s): {sorted(duplicates)}")
     hooks_by_id = dict(hook_blocks)
     for tool, expected_ids in LOCAL_HOOK_IDS.items():
         present_ids = sorted(expected_ids & hooks_by_id.keys())
@@ -78,10 +91,14 @@ def check_configuration(root: Path = ROOT) -> dict[str, str]:
                     f"{hook_id}: hook must run via language: system against the active .[dev] "
                     f"environment, matching the pyproject {tool} pin"
                 )
-            if not re.search(rf"^        entry: python3 -m {tool}\b", body, re.MULTILINE):
+            expected_entry = EXPECTED_HOOK_ENTRY[hook_id]
+            if not re.search(
+                rf"^        entry: {re.escape(expected_entry)}\s*$", body, re.MULTILINE
+            ):
                 raise ValueError(
-                    f"{hook_id}: hook entry must invoke `python3 -m {tool}` so it always runs the "
-                    f"pyproject-pinned, actively-installed {tool} (no separate hook revision to drift)"
+                    f"{hook_id}: hook entry must be exactly `{expected_entry}` so it always runs "
+                    f"the pyproject-pinned, actively-installed {tool} (no separate hook revision "
+                    "to drift, and no silently-different subcommand)"
                 )
         if tool == "ruff":
             for hook_id in present_ids:
