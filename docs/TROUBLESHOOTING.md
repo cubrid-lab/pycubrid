@@ -31,6 +31,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Boolean Values](#boolean-values)
   - [Unicode / NCHAR Encoding](#unicode--nchar-encoding)
   - [Invalid UTF-8 in a Value or Error Message](#invalid-utf-8-in-a-value-or-error-message)
+  - [Unresolved Time Zone in a TZ Value](#unresolved-time-zone-in-a-tz-value)
 - [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
   - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
   - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)
@@ -756,6 +757,33 @@ character.
 
 Earlier releases raised `OperationalError: malformed response from
 broker` and closed the connection.
+
+### Unresolved Time Zone in a TZ Value
+
+```
+pycubrid.exceptions.DataError: cannot resolve CUBRID timezone 'Asia/Seoul': it is
+not in the client's IANA time zone database (install the 'tzdata' package or
+update the system zoneinfo)
+```
+
+A `TIMESTAMPTZ`, `TIMESTAMPLTZ`, `DATETIMETZ` or `DATETIMELTZ` value named a
+region that Python's `zoneinfo` cannot find. The LTZ types report the session
+zone, so even `UTC` needs the database. Usual causes:
+
+- **No time zone database on the client** — minimal container images
+  (`python:*-slim`, distroless, Alpine without `tzdata`). Run
+  `pip install tzdata`, or install the OS `tzdata` package. pycubrid already
+  depends on `tzdata` on Windows.
+- **The client database is older than the server's** — update `tzdata` or the
+  OS package.
+- **`PYTHONTZPATH` points somewhere empty** — unset it or fix the path.
+
+The connection stays usable. Offsets such as `+09:00` need no database. To
+read the values without zone resolution, select them as text, e.g.
+`SELECT TO_CHAR(col)`.
+
+Earlier releases logged `Unknown timezone token` and returned a naive
+`datetime`, silently dropping the zone (#413).
 
 ---
 

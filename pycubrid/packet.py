@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import datetime
 import json
-import logging
 import struct
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .constants import CUBRIDDataType, DataSize
 from .exceptions import DataError
 
-_LOGGER = logging.getLogger(__name__)
 
 # Pre-compiled struct objects — avoids format-string parsing on every call.
 _STRUCT_SHORT = struct.Struct(">h")
@@ -48,11 +46,14 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
 
     Handles IANA region names (``Asia/Seoul``), UTC offsets in forms
     ``±HH``, ``±HH:MM``, ``±HH:MM:SS``, and region names followed by
-    optional abbreviation tokens (e.g. ``Asia/Seoul KST``).
+    an abbreviation token (e.g. ``America/New_York EST``). The
+    abbreviation selects ``fold`` for a wall time that occurs twice when
+    daylight saving time ends.
 
-    Raises ``ValueError`` if the timezone token cannot be resolved so
-    callers are aware of data loss rather than silently returning a
-    naive datetime.
+    An empty string returns ``dt`` unchanged. A nonempty token that
+    cannot be resolved raises ``DataError`` instead of dropping the
+    timezone (#413); the caller holds the complete reply, so the session
+    stays usable.
     """
     import re
 
@@ -60,7 +61,8 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
     if not tz_str:
         return dt
 
-    timezone_token = tz_str.split()[0] if " " in tz_str else tz_str
+    tokens = tz_str.split()
+    timezone_token = tokens[0]
 
     # Match ±HH, ±HH:MM, or ±HH:MM:SS offset forms
     offset_match = re.match(r"^([+-])(\d{2})(?::(\d{2}))?(?::(\d{2}))?$", timezone_token)
@@ -73,10 +75,22 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
         return dt.replace(tzinfo=datetime.timezone(offset))
 
     try:
-        return dt.replace(tzinfo=ZoneInfo(timezone_token))
-    except KeyError:
-        _LOGGER.warning("Unknown timezone token %r; returning naive datetime", timezone_token)
-        raise ValueError(f"Unrecognized CUBRID timezone: {timezone_token!r}")
+        zone = ZoneInfo(timezone_token)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise DataError(
+            f"cannot resolve CUBRID timezone {timezone_token!r}: it is not in the "
+            "client's IANA time zone database (install the 'tzdata' package or "
+            "update the system zoneinfo)"
+        ) from exc
+
+    aware = dt.replace(tzinfo=zone)
+    if len(tokens) > 1:
+        # CUBRID names the offset in effect; use it to pick the second
+        # occurrence of an ambiguous wall time (e.g. 01:30 EST, not EDT).
+        later = aware.replace(fold=1)
+        if later.utcoffset() != aware.utcoffset() and later.tzname() == tokens[1]:
+            return later
+    return aware
 
 
 class PacketWriter:
@@ -380,10 +394,7 @@ class PacketReader:
             tz_str = self._parse_null_terminated_string(tz_bytes_len)
         else:
             tz_str = ""
-        try:
-            return _attach_timezone(dt, tz_str)
-        except ValueError:
-            return dt
+        return _attach_timezone(dt, tz_str)
 
     def _parse_numeric(self, size: int) -> Decimal:
         value = self._parse_null_terminated_string(size)

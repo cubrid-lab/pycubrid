@@ -31,7 +31,11 @@ classifiers = [
     "Topic :: Database :: Front-Ends",
     "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    # Windows ships no IANA time zone database; zoneinfo needs it for
+    # TIMESTAMPTZ/DATETIMETZ region names (#413).
+    "tzdata; sys_platform == 'win32'",
+]
 
 [project.optional-dependencies]
 dev = [

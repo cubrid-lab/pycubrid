@@ -32,6 +32,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [불리언 값](#불리언-값)
   - [유니코드 / NCHAR 인코딩](#유니코드--nchar-인코딩)
   - [값 또는 오류 메시지의 잘못된 UTF-8](#값-또는-오류-메시지의-잘못된-utf-8)
+  - [TZ 값의 타임존을 해석할 수 없음](#tz-값의-타임존을-해석할-수-없음)
 - [LOB (CLOB/BLOB) 문제](#lob-clobblob-문제)
   - [LOB 컬럼이 데이터가 아니라 dict를 반환](#lob-컬럼이-데이터가-아니라-dict를-반환)
   - [Lob 객체를 파라미터로 전달할 수 없음](#lob-객체를-파라미터로-전달할-수-없음)
@@ -700,6 +701,32 @@ CUBRID는 `VARCHAR(n)` 크기와 일부 오류 메시지에 포함되는 값을 
 
 이전 릴리스에서는 두 경우 모두 `OperationalError: malformed response from broker`가
 발생하고 연결이 닫혔습니다.
+
+### TZ 값의 타임존을 해석할 수 없음
+
+```
+pycubrid.exceptions.DataError: cannot resolve CUBRID timezone 'Asia/Seoul': it is
+not in the client's IANA time zone database (install the 'tzdata' package or
+update the system zoneinfo)
+```
+
+`TIMESTAMPTZ`, `TIMESTAMPLTZ`, `DATETIMETZ`, `DATETIMELTZ` 값의 리전을 Python
+`zoneinfo`가 찾지 못한 경우입니다. LTZ 타입은 세션 타임존을 보내므로 `UTC`도
+데이터베이스가 필요합니다. 주요 원인은 다음과 같습니다.
+
+- **클라이언트에 타임존 데이터베이스가 없음** — 최소 구성 컨테이너 이미지
+  (`python:*-slim`, distroless, `tzdata`가 없는 Alpine). `pip install tzdata`를
+  실행하거나 OS의 `tzdata` 패키지를 설치하세요. Windows에서는 pycubrid가 이미
+  `tzdata`에 의존합니다.
+- **클라이언트 데이터베이스가 서버보다 오래됨** — `tzdata` 또는 OS 패키지를
+  업데이트하세요.
+- **`PYTHONTZPATH`가 빈 경로를 가리킴** — 설정을 해제하거나 경로를 수정하세요.
+
+연결은 계속 사용할 수 있습니다. `+09:00` 같은 오프셋은 데이터베이스가 필요 없습니다.
+타임존 해석 없이 값을 읽으려면 `SELECT TO_CHAR(col)`처럼 텍스트로 조회하세요.
+
+이전 릴리스에서는 `Unknown timezone token`을 로그에 남기고 naive `datetime`을
+반환하여 타임존을 조용히 버렸습니다 (#413).
 
 ---
 

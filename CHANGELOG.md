@@ -40,6 +40,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   generic `DatabaseError`, for single statements and batch failures alike.
   `IntegrityError` is still a `DatabaseError` subclass. Dropping a referenced
   primary key (`-923`) is a schema error and stays `DatabaseError`. (#493)
+- A `TIMESTAMPTZ`/`TIMESTAMPLTZ`/`DATETIMETZ`/`DATETIMELTZ` value whose
+  region the client's IANA time zone database cannot resolve now raises
+  `DataError` naming the zone, with a hint to install `tzdata`, instead of
+  logging a warning per value and returning a naive `datetime`. The session
+  stays usable. This mostly affects clients without a time zone database
+  (Windows without `tzdata`, minimal container images), where every region
+  value, including the LTZ types' `UTC`, silently lost its zone. Offsets,
+  resolvable regions and an empty zone suffix decode as before. pycubrid now
+  depends on `tzdata` on Windows only (`tzdata; sys_platform == 'win32'`).
+  (#413)
+- A region value in the repeated hour when daylight saving time ends now
+  honors the abbreviation CUBRID sends: `America/New_York EST` at
+  2026-11-01 01:30 decodes with `fold=1` (UTC-05:00) instead of the EDT
+  instant an hour earlier. (#413)
 
 ### Changed
 - Release workflow unified with the sibling repos: new `RELEASING.md`; `make release`

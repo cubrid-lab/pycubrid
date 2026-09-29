@@ -2,7 +2,7 @@
 
 This file lists the third-party open-source software involved in building and testing **pycubrid**.
 
-**pycubrid has ZERO runtime dependencies** (`[project] dependencies = []`) — `pip install pycubrid` installs nothing else. The table below covers the development/testing toolchain only (`pip install -e ".[dev]"`), none of which ships in the wheel.
+**pycubrid has no runtime dependencies except on Windows**, where it depends on [`tzdata`](https://pypi.org/project/tzdata/) (Apache-2.0; `tzdata; sys_platform == 'win32'`) because Windows ships no IANA time zone database for `zoneinfo` (#413). On Linux and macOS `pip install pycubrid` installs nothing else. The table below covers the development/testing toolchain only (`pip install -e ".[dev]"`), none of which ships in the wheel.
 > **CUBRID server license, for the record.** The CUBRID server engine is
 > distributed under Apache License 2.0 and the official APIs/connectors under
 > BSD (upstream `COPYING`, http://www.cubrid.org/cubrid) — the frequently cited

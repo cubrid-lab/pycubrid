@@ -2,7 +2,7 @@
 
 > Pure Python DB-API 2.0 (PEP 249) driver for the CUBRID relational database. No C extensions, no compilation — install with `pip install pycubrid` and connect immediately. Python 3.10+.
 
-pycubrid implements the CUBRID CAS (Client Application Server) wire protocol directly in Python, providing a zero-dependency database driver that works everywhere Python runs. It is the recommended driver for sqlalchemy-cubrid.
+pycubrid implements the CUBRID CAS (Client Application Server) wire protocol directly in Python, providing a pure-Python database driver with no runtime dependencies outside Windows (where it pulls in `tzdata` for time zone data) that works everywhere Python runs. It is the recommended driver for sqlalchemy-cubrid.
 
 Key facts:
 - PEP 249 compliant: `apilevel = "2.0"`, `threadsafety = 1`, `paramstyle = "qmark"`

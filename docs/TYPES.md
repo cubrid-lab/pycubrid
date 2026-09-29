@@ -312,6 +312,25 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > If the session zone changes, the same stored instant is returned with a
 > different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
 
+> **Zone decoding (#413):** CUBRID sends each value's zone as text: an offset
+> (`+05:30`) or a region name with the abbreviation in effect
+> (`Asia/Seoul KST`, `UTC UTC` for the LTZ types). pycubrid resolves:
+>
+> - an offset to a fixed `datetime.timezone`;
+> - a region to `zoneinfo.ZoneInfo(region)`. The abbreviation picks `fold` when
+>   a wall time occurs twice as daylight saving time ends, so
+>   `America/New_York EST` at 01:30 on 2026-11-01 is UTC-05:00 (`fold=1`) and
+>   `EDT` is UTC-04:00;
+> - an empty zone to a naive `datetime`.
+>
+> A region the client's time zone database does not know raises `DataError`
+> naming the zone, rather than silently returning a naive value. The
+> connection stays usable. `zoneinfo` reads the system database or the
+> [`tzdata`](https://pypi.org/project/tzdata/) package; on Windows pycubrid
+> installs `tzdata` automatically, and on minimal Linux images install
+> `tzdata` (pip or the OS package). See
+> [Unresolved Time Zone in a TZ Value](TROUBLESHOOTING.md#unresolved-time-zone-in-a-tz-value).
+
 ---
 
 ## LOB Type Handling
