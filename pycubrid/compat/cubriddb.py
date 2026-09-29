@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from pycubrid.exceptions import NotSupportedError
-
 from . import native
 
 
@@ -21,9 +19,9 @@ class Connection:
     ) -> None:
         if not isinstance(charset, str):
             raise TypeError("charset must be a string")
-        if charset != "utf8":
-            raise NotSupportedError("only the existing UTF-8 transport is supported")
-        self._connection = native.connection(dsn, user, password)
+        # Validated by the driver before any socket work; CUBRID spellings
+        # such as "euckr" are accepted (#86).
+        self._connection = native.connection(dsn, user, password, charset=charset)
 
     @property
     def connection(self) -> native.connection:

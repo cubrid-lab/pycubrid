@@ -12,7 +12,9 @@ concrete sync/async classes.
 from __future__ import annotations
 
 
+import codecs
 import difflib
+import functools
 import logging
 import os
 import socket
@@ -85,8 +87,83 @@ KNOWN_CONNECTION_OPTIONS: frozenset[str] = frozenset(
         "read_timeout",
         "no_backslash_escapes",
         "enable_timing",
+        "charset",
     }
 )
+
+# CUBRID charset names (``CHARSET utf8``, ``createdb ... ko_KR.euckr``) that
+# are not all Python codec aliases. ``ksc5601`` is already a Python alias of
+# EUC-KR. CUBRID's ``binary`` charset has no text codec and is rejected.
+_CUBRID_CHARSET_ALIASES: dict[str, str] = {
+    "utf8": "utf-8",
+    "euckr": "euc-kr",
+    "iso88591": "latin-1",
+}
+_ASCII_PROBE = bytes(range(128)).decode("ascii")
+# Codecs of the CUBRID server charsets: every non-ASCII character encodes to
+# bytes >= 0x80 only (asserted by the unit tests), so connecting with them
+# skips the one-time full scan below.
+_KNOWN_ASCII_SAFE_CODECS = frozenset({"utf-8", "euc_kr", "iso8859-1"})
+
+
+@functools.lru_cache(maxsize=None)
+def _codec_is_ascii_safe(name: str) -> bool:
+    """Return whether ``name`` keeps ASCII bytes for ASCII characters only.
+
+    SQL quoting and escaping run on ``str`` before encoding, so the codec must
+    encode ASCII as itself and never emit a byte below 0x80 inside a non-ASCII
+    character: a trail byte equal to ``'`` or ``\\`` (Shift_JIS, Big5, GBK,
+    GB18030, stateful ISO-2022 and UTF-7/16/32) could end a literal early.
+    """
+    try:
+        if _ASCII_PROBE.encode(name) != _ASCII_PROBE.encode("ascii"):
+            return False
+        if _ASCII_PROBE.encode("ascii").decode(name) != _ASCII_PROBE:
+            return False
+    except (UnicodeError, LookupError, TypeError, ValueError):
+        return False
+    if name in _KNOWN_ASCII_SAFE_CODECS:
+        return True
+    for code_point in range(0x80, 0x10000):
+        if 0xD800 <= code_point <= 0xDFFF:
+            continue
+        try:
+            encoded = chr(code_point).encode(name)
+        except UnicodeEncodeError:
+            continue
+        if min(encoded) < 0x80:
+            return False
+    return True
+
+
+def resolve_charset(charset: Any) -> str:
+    """Validate a ``charset`` connection option and return its codec name.
+
+    Accepts Python codec names and the CUBRID spellings ``utf8``, ``euckr``
+    and ``iso88591``. Raises ``TypeError`` for a non-string and ``ValueError``
+    for an unknown codec, CUBRID ``binary`` or a codec that is not
+    ASCII-compatible, like the other connection options, before any socket
+    work (#86).
+    """
+    if not isinstance(charset, str):
+        raise TypeError(f"charset must be a string, got {type(charset).__name__}")
+    key = charset.lower()
+    if key == "binary":
+        raise ValueError(
+            "charset 'binary' has no text codec; connect with the charset of "
+            "the character columns (for example 'utf8' or 'euckr')"
+        )
+    try:
+        info = codecs.lookup(_CUBRID_CHARSET_ALIASES.get(key, charset))
+    except LookupError:
+        raise ValueError(f"unknown charset {charset!r}") from None
+    if not getattr(info, "_is_text_encoding", True) or not _codec_is_ascii_safe(info.name):
+        raise ValueError(
+            f"charset {charset!r} is not ASCII-compatible; pycubrid supports "
+            "codecs such as utf-8, euc-kr and latin-1"
+        )
+    return info.name
+
 
 _PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -204,8 +281,19 @@ class ConnectionCommonMixin:
         json_deserializer: Any = None,
         no_backslash_escapes: bool | None = None,
         enable_timing: bool | None = None,
+        charset: Any = "utf-8",
     ) -> None:
         """Initialise attributes common to sync and async connections."""
+        # Validated here, before any socket work; reconnects reuse the codec.
+        self._encoding = resolve_charset(charset)
+        for name, value in (("database", database), ("user", user), ("password", password)):
+            if isinstance(value, str):
+                try:
+                    value.encode(self._encoding)
+                except UnicodeEncodeError:
+                    raise DataError(
+                        f"{name} cannot be encoded with charset {self._encoding!r}"
+                    ) from None
         self._host = host
         self._port = port
         self._database = database

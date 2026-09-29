@@ -44,6 +44,7 @@ class FakeDriver:
         self._fetch_size = 2
         self._decode_collections = False
         self._json_deserializer = None
+        self._encoding = "utf-8"
         self._connected = True
         self._socket = object()
         self.autocommit = kwargs["autocommit"]

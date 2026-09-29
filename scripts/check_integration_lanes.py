@@ -35,6 +35,11 @@ def skip_category(identity: str, reason: str) -> str:
         and "cannot count file descriptors on this platform" in reason
     ):
         return "platform-without-proc"
+    if (
+        "test_integration_charset" in identity
+        and "requires an EUC-KR database (integration-charset lane)" in reason
+    ):
+        return "charset-lane-only"
     raise ValueError(f"unclassified integration skip: {identity}: {reason}")
 
 
@@ -50,6 +55,10 @@ def verify_workflows(root: Path = ROOT) -> None:
         for lane in lanes:
             if SELECTORS[lane] not in selectors:
                 raise ValueError(f"{filename} has no executable {lane} marker selection")
+    # The EUC-KR charset lane (#86) selects its module by path, not by marker.
+    ci = (root / ".github" / "workflows" / "ci.yml").read_text()
+    if not re.search(r"^\s+python -m pytest tests/test_integration_charset\.py ", ci, re.MULTILINE):
+        raise ValueError("ci.yml has no executable EUC-KR charset lane")
 
 
 class Inventory:

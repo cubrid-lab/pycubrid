@@ -105,6 +105,7 @@ class AsyncConnection(ConnectionCommonMixin):
             json_deserializer=kwargs.get("json_deserializer"),
             no_backslash_escapes=kwargs.get("no_backslash_escapes", None),
             enable_timing=kwargs.get("enable_timing"),
+            charset=kwargs.get("charset", "utf-8"),
         )
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -405,6 +406,7 @@ class AsyncConnection(ConnectionCommonMixin):
             database=self._database,
             user=self._user,
             password=self._password,
+            encoding=self._encoding,
         )
         if self._writer is None:
             raise InterfaceError("Connection not established: writer is None")
@@ -1054,6 +1056,9 @@ class AsyncConnection(ConnectionCommonMixin):
         reader = self._reader
         if writer is None or reader is None:
             raise InterfaceError("connection is closed")
+        # Every request on this connection uses its charset (#86); encoding
+        # happens in write(), so an unencodable value sends nothing.
+        packet.encoding = self._encoding
         try:
             request_data = packet.write(self._cas_info)
         except struct.error as exc:
