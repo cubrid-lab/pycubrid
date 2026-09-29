@@ -686,6 +686,12 @@ for row in cur:
     print(row[0])  # 올바르게 출력: 김영선, 日本語テスト
 ```
 
+이는 UTF-8 데이터베이스(기본값)를 가정합니다. 다른 문자셋으로 만든 데이터베이스는 그
+문자셋으로 연결하세요. 예를 들어 `ko_KR.euckr`에는 `charset="euckr"`를 사용합니다.
+브로커는 변환하지 않으므로 문자셋이 맞지 않는 클라이언트는 값을 인코딩하거나 응답을
+디코딩하지 못해 `DataError`를 발생시킵니다. [문자 인코딩](CONNECTION.md#문자-인코딩)을
+참고하세요.
+
 ### 값 또는 오류 메시지의 잘못된 UTF-8
 
 CUBRID는 `VARCHAR(n)` 크기와 일부 오류 메시지에 포함되는 값을 바이트 단위로 자르므로
@@ -698,6 +704,12 @@ CUBRID는 `VARCHAR(n)` 크기와 일부 오류 메시지에 포함되는 값을 
   `DataError`를 발생시키며, 원래의 `UnicodeDecodeError`는 `__cause__`에 있습니다.
   연결은 계속 사용할 수 있습니다. 저장된 바이트를 확인하려면 `HEX(col)`을 조회한 뒤
   저장된 값을 수정하세요.
+- **문자셋 불일치:** 같은 `DataError`가 연결 코덱을 명시합니다. 예를 들어 EUC-KR
+  데이터베이스의 기본 클라이언트는 `column value is not valid UTF-8`, `charset="euckr"`로
+  `CHARSET utf8` 컬럼을 읽으면 `column value is not valid euc_kr`입니다. 데이터베이스
+  문자셋으로 연결하거나 SQL에서 `CAST(col AS VARCHAR(n) CHARSET euckr)`로 변환하세요.
+  디코딩할 수 없는 컬럼 이름도 같은 방식으로 `DataError`를 발생시킵니다(#86). `JSON`은
+  항상 UTF-8입니다.
 
 이전 릴리스에서는 두 경우 모두 `OperationalError: malformed response from broker`가
 발생하고 연결이 닫혔습니다.

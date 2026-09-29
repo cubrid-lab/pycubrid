@@ -741,6 +741,12 @@ for row in cur:
     print(row[0])  # Prints correctly: 김영선, 日本語テスト
 ```
 
+This assumes a UTF-8 database (the default). For a database created with
+another charset, connect with that charset, for example `charset="euckr"` for
+`ko_KR.euckr`; the broker does no conversion, so a mismatched client either
+cannot encode a value or cannot decode a reply and raises `DataError`. See
+[Character Encoding](CONNECTION.md#character-encoding).
+
 ### Invalid UTF-8 in a Value or Error Message
 
 CUBRID counts `VARCHAR(n)` sizes and some echoed error text in bytes, so it can
@@ -754,6 +760,12 @@ character.
   valid UTF-8 raises `DataError`; the original `UnicodeDecodeError` is its
   `__cause__`. The connection stays usable. To inspect the stored bytes, select
   `HEX(col)` instead, then fix the stored value.
+- **Charset mismatch:** the same `DataError` names the connection codec, for
+  example `column value is not valid UTF-8` from a default client on an EUC-KR
+  database, or `column value is not valid euc_kr` for a `CHARSET utf8` column
+  read with `charset="euckr"`. Connect with the database charset, or convert
+  the column in SQL: `CAST(col AS VARCHAR(n) CHARSET euckr)`. Undecodable
+  column names raise `DataError` the same way (#86). `JSON` is always UTF-8.
 
 Earlier releases raised `OperationalError: malformed response from
 broker` and closed the connection.
