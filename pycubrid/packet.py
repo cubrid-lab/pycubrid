@@ -42,6 +42,29 @@ def _encode_text(value: str, encoding: str) -> tuple[bytes | None, int]:
     return encoded, -1
 
 
+def _decode_text(raw: bytes, encoding: str) -> str:
+    """Strictly decode ``raw`` with ``encoding`` the way the CUBRID server reads it.
+
+    CPython's ``euc_kr`` reads ``A4 D4`` (the Hangul filler U+3164) as the
+    start of an 8-byte makeup sequence, so a stored lone U+3164 fails to
+    decode and stored filler+jamo reads back as one syllable. CUBRID's euckr
+    treats each pair as one KS X 1001 character, as ``cp949`` does; any
+    CP949-only extension character is still rejected as invalid EUC-KR.
+    """
+    if encoding != "euc_kr" or _EUC_KR_FILLER not in raw:
+        return raw.decode(encoding)
+    text = raw.decode("cp949")
+    offset = 0
+    for char in text:
+        width = len(char.encode("cp949"))
+        if len(char.encode("euc_kr")) > 2:
+            raise UnicodeDecodeError(
+                "euc_kr", raw, offset, offset + width, "not a KS X 1001 character"
+            )
+        offset += width
+    return text
+
+
 def _unencodable_message(what: str, encoding: str, position: int) -> str:
     return (
         f"{what} cannot be encoded as {_codec_label(encoding)} "
@@ -426,7 +449,7 @@ class PacketReader:
         if self._buffer[end - 1] == 0:
             end -= 1
         try:
-            return bytes(self._buffer[start:end]).decode(codec)
+            return _decode_text(bytes(self._buffer[start:end]), codec)
         except UnicodeDecodeError as exc:
             raise DataError(
                 f"{what} is not valid {_codec_label(codec)} (invalid byte at offset {exc.start})"
@@ -442,7 +465,7 @@ class PacketReader:
         if self._buffer[end - 1] == 0:
             end -= 1
         try:
-            return bytes(self._buffer[start:end]).decode(self._encoding)
+            return _decode_text(bytes(self._buffer[start:end]), self._encoding)
         except UnicodeDecodeError as exc:
             raise DataError(
                 f"column value is not valid {_codec_label(self._encoding)} "
@@ -584,10 +607,10 @@ class PacketReader:
         """Read an error packet body as ``(error_code, message)``."""
         error_code = self._parse_int()
         message_size = response_length - DataSize.INT
-        error_message = self._parse_error_message(message_size)
+        error_message = self._parse_lenient_text(message_size)
         return error_code, error_message
 
-    def _parse_error_message(self, length: int) -> str:
+    def _parse_lenient_text(self, length: int) -> str:
         """Decode server text (error messages, LOB locators) with the connection
         codec, replacing undecodable bytes.
 
@@ -620,7 +643,7 @@ class PacketReader:
         # database charset. It is informational (``packed_lob_handle`` is what
         # goes back to the server), so decode it leniently: a mismatch must not
         # fail the fetch (#86).
-        file_locator = lob_reader._parse_error_message(locator_size)
+        file_locator = lob_reader._parse_lenient_text(locator_size)
 
         return {
             "lob_type": lob_type,

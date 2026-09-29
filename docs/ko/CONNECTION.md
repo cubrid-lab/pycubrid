@@ -658,7 +658,7 @@ aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
 
 | 방향 | 텍스트 | 동작 |
 |---|---|---|
-| 송신 | SQL 텍스트(렌더링된 파라미터와 JSON 파라미터 포함), `executemany` 배치 SQL, 스키마 정보 인자, `compat.native` prepared SQL과 문자열 바인딩 | 요청의 어떤 바이트도 보내기 전에 인코딩합니다. 인코딩할 수 없는 문자는 코덱과 문자 위치를 담은 `DataError`를 발생시키며(텍스트 자체는 출력하지 않음), 해당 요청은 전혀 전송되지 않고 세션은 계속 사용할 수 있습니다. `euc_kr`에서 KS X 1001 밖의 한글 음절(예: 똠, 뷁)은 인코딩할 수 없습니다. Python은 이를 8바이트 조합 시퀀스로 보내고 CUBRID는 개별 자모로 저장하기 때문입니다. |
+| 송신 | SQL 텍스트(렌더링된 파라미터와 JSON 파라미터 포함), `executemany` 배치 SQL, 스키마 정보 인자, `compat.native` prepared SQL과 문자열 바인딩 | 요청의 어떤 바이트도 보내기 전에 인코딩합니다. 인코딩할 수 없는 문자는 코덱과 문자 위치를 담은 `DataError`를 발생시키며(텍스트 자체는 출력하지 않음), 해당 요청은 전혀 전송되지 않고 세션은 계속 사용할 수 있습니다. `euc_kr`에서 KS X 1001 밖의 한글 음절(예: 똠, 뷁)은 인코딩할 수 없습니다. Python은 이를 8바이트 조합 시퀀스로 보내고 CUBRID는 개별 자모로 저장하기 때문입니다. 읽을 때 한글 채움 문자 U+3164와 뒤따르는 자모는 CUBRID가 저장한 대로 개별 문자로 디코딩됩니다. |
 | 송신 | `OPEN_DATABASE`의 database, user, password | 인코딩한 뒤 32바이트 필드에 맞게 문자 경계에서 자릅니다. |
 | 수신 | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING`, `ENUM` 값, 컬렉션 요소(`decode_collections=True`) | 엄격 디코딩. 디코딩할 수 없는 바이트는 `DataError`(예: `column value is not valid euc_kr (invalid byte at offset 0)`)이며 세션은 유지됩니다. |
 | 수신 | 컬럼·테이블·별칭 이름, 컬럼 기본값 | 엄격 디코딩, `DataError`(`column metadata is not valid ...`). 일반 커서는 세션을 유지하고 서버 핸들을 해제합니다. `get_schema_info()`와 `compat.native` 준비 커서는 해석할 수 없는 응답과 마찬가지로 세션을 폐기합니다. |

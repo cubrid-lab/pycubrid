@@ -13,6 +13,7 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 import pytest
 import pytest_asyncio
@@ -25,11 +26,14 @@ from pycubrid.lob import Lob
 
 pytestmark = pytest.mark.integration
 
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
+# CUBRID_TEST_URL (cubrid://user[:password]@host:port/db) gives the defaults;
+# the per-field CUBRID_TEST_* variables override it.
+_URL = urlsplit(os.environ.get("CUBRID_TEST_URL", ""))
+TEST_HOST = os.environ.get("CUBRID_TEST_HOST", _URL.hostname or "localhost")
+TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", _URL.port or 33000))
+TEST_DB = os.environ.get("CUBRID_TEST_DB", _URL.path.lstrip("/") or "testdb")
+TEST_USER = os.environ.get("CUBRID_TEST_USER", unquote(_URL.username or "dba"))
+TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", unquote(_URL.password or ""))
 
 EUCKR_LANE_SKIP = "requires an EUC-KR database (integration-charset lane)"
 HANGUL = "한글"
@@ -279,3 +283,16 @@ def test_prepared_compat_path_and_cubriddb_wrapper_use_the_charset(
             cur.close()
     finally:
         wrapper.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["\u3164", "\u3164\u3138\u3157\u3141", "한\u3164"])
+async def test_hangul_filler_round_trips(conn: Any, value: str) -> None:
+    table = _table()
+    await _query(conn, f"CREATE TABLE {table} (v VARCHAR(10))")
+    try:
+        await _query(conn, f"INSERT INTO {table} VALUES (?)", (value,))
+        rows = await _query(conn, f"SELECT v, length(v) FROM {table}")
+        assert rows == [(value, len(value))]
+    finally:
+        await _query(conn, f"DROP TABLE {table}")

@@ -39,7 +39,7 @@ from .exceptions import (
     UnknownConnectionOptionWarning,
     Warning,
 )
-from .packet import _encode_text, _unencodable_message
+from .packet import _codec_label, _encode_text, _unencodable_message
 from .protocol import (
     CloseQueryPacket,
     FetchPacket,
@@ -382,6 +382,9 @@ class ConnectionCommonMixin:
             return
         encoded, position = _encode_text(value, self._encoding)
         if encoded is None:
+            if name == "password":
+                # Even a character position narrows down a secret.
+                raise DataError(f"password cannot be encoded as {_codec_label(self._encoding)}")
             raise DataError(_unencodable_message(name, self._encoding, position))
 
     def _register_schema_result(self, packet: GetSchemaPacket) -> None:

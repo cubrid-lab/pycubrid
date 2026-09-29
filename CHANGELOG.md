@@ -32,7 +32,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and a closed connection), and a database/user/password longer than its
   32-byte `OPEN_DATABASE` field is cut on a character boundary instead of
   mid-character. With `euc_kr`, Hangul outside KS X 1001 (such as 똠), which
-  Python would send as an 8-byte makeup sequence, is rejected as unencodable.
+  Python would send as an 8-byte makeup sequence, is rejected as unencodable,
+  and stored Hangul filler (U+3164) and jamo read back as separate characters,
+  as CUBRID stores them.
   LOB file locators, which embed the table name, decode with the connection
   codec and `errors="replace"`. `charset=None` means the default, and a CUBRID
   locale such as `"ko_KR.euckr"` is accepted. `get_schema_info()` checks its arguments before sending, so an

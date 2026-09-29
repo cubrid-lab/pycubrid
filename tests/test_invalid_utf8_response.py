@@ -56,8 +56,8 @@ def test_error_message_with_cut_character_surfaces_server_error() -> None:
 
 def test_error_message_without_terminator_and_empty_message() -> None:
     reader = PacketReader(b"ab" + CUT_CHAR)
-    assert reader._parse_error_message(4) == "ab�"
-    assert reader._parse_error_message(0) == ""
+    assert reader._parse_lenient_text(4) == "ab�"
+    assert reader._parse_lenient_text(0) == ""
 
 
 def test_batch_error_message_with_cut_character_is_replaced() -> None:

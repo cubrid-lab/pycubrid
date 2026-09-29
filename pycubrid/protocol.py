@@ -1471,7 +1471,7 @@ class BatchExecutePacket(_CasPacket):
             if result < 0:
                 error_code = reader._parse_int() if self.protocol_version > 2 else result
                 msg_len = reader._parse_int()
-                error_msg = reader._parse_error_message(msg_len)
+                error_msg = reader._parse_lenient_text(msg_len)
                 self.errors.append({"code": error_code, "message": error_msg})
             else:
                 self.results.append((stmt_type, result))

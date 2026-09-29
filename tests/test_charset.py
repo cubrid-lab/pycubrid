@@ -493,7 +493,7 @@ def test_error_messages_decode_with_the_connection_codec_and_replace() -> None:
     assert "테이블 '없음' 이 없습니다" in raised.value.msg
     # A message cut inside a character still surfaces with a replacement.
     reader = PacketReader(message[:-1], encoding="euc_kr")
-    assert reader._parse_error_message(len(message) - 1).endswith("�")
+    assert reader._parse_lenient_text(len(message) - 1).endswith("�")
 
 
 def test_batch_error_messages_decode_with_the_connection_codec() -> None:
@@ -741,7 +741,7 @@ def test_unencodable_euc_kr_credential_fails_before_socket_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(socket, "create_connection", MagicMock(side_effect=AssertionError))
-    with pytest.raises(DataError, match="password cannot be encoded as euc_kr"):
+    with pytest.raises(DataError, match=r"^password cannot be encoded as euc_kr$"):
         connect(database="testdb", password="똠", charset="euckr")
 
 
@@ -757,3 +757,38 @@ def test_lob_locator_decodes_leniently_with_the_connection_codec() -> None:
     value = _read_value(PacketReader(handle), CUBRIDDataType.BLOB, len(handle))
     assert value["file_locator"].startswith("file:ces_700/dba.\ufffd")
     assert value["packed_lob_handle"] == handle
+
+
+@pytest.mark.parametrize(
+    ("raw", "text"),
+    [
+        (b"\xa4\xd4", "\u3164"),
+        (b"\xa4\xd4\xa4\xa8\xa4\xc7\xa4\xb1", "\u3164\u3138\u3157\u3141"),
+        (EUC_HANGUL + b"\xa4\xd4", HANGUL + "\u3164"),
+    ],
+)
+def test_euc_kr_filler_decodes_as_cubrid_stores_it(raw: bytes, text: str) -> None:
+    # CUBRID reads each KS X 1001 pair separately; CPython euc_kr would treat
+    # A4 D4 as a makeup-sequence start (error, or one composed syllable).
+    payload = raw + b"\x00"
+    reader = PacketReader(payload, encoding="euc_kr")
+    value = _read_value(reader, CUBRIDDataType.STRING, len(payload))
+    assert value == text
+    entry = _metadata_entry(CUBRIDDataType.STRING, raw)
+    columns = _parse_column_metadata(PacketReader(entry, encoding="euc_kr"), 1)
+    assert columns[0].name == text
+
+
+def test_euc_kr_filler_path_still_rejects_cp949_extensions() -> None:
+    payload = b"\xa4\xd4\x81\x41\x00"  # filler + a CP949-only syllable
+    with pytest.raises(DataError, match=r"not valid euc_kr \(invalid byte at offset 2\)"):
+        _read_value(PacketReader(payload, encoding="euc_kr"), CUBRIDDataType.STRING, 5)
+
+
+def test_unencodable_password_error_omits_the_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(socket, "create_connection", MagicMock(side_effect=AssertionError))
+    with pytest.raises(DataError) as raised:
+        connect(database="testdb", password="abc\U0001f600", charset="euckr")
+    assert str(raised.value) == "password cannot be encoded as euc_kr"
