@@ -1438,6 +1438,9 @@ class DataError(DatabaseError)
 ```
 
 Raised for data processing problems (division by zero, numeric overflow, etc.).
+Also raised when a fetched character value (`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`,
+`JSON`) is not valid UTF-8; the reply was fully read, so the connection stays
+usable.
 
 ---
 
@@ -1457,7 +1460,7 @@ Raised for database operation errors (unexpected disconnect, memory errors, tran
 class IntegrityError(DatabaseError)
 ```
 
-Raised when relational integrity is affected (foreign key violation, duplicate key, constraint violation).
+Raised when relational integrity is affected (foreign key violation, duplicate key, constraint violation), including a `DELETE`, `UPDATE` or `TRUNCATE` blocked by a referencing foreign key.
 
 ---
 
@@ -1524,9 +1527,14 @@ See [Unknown Options](CONNECTION.md#unknown-options).
 ### Error Classification
 
 pycubrid primarily classifies server errors by their numeric error code, not by
-message wording. Native `-631` (`ER_NULL_CONSTRAINT_VIOLATION`) and `-922`
-(`ER_FK_INVALID`) raise `IntegrityError` with SQLSTATE `23000`, even when the
-message is localized. Single statements and per-statement batch failures preserve
+message wording. Native `-631` (`ER_NULL_CONSTRAINT_VIOLATION`), `-922`
+(`ER_FK_INVALID`, inserting or updating a child row without a parent), `-924`
+(`ER_FK_RESTRICT`, deleting or updating a referenced parent row) and `-1284`
+(`ER_TRUNCATE_PK_REFERRED`, truncating a referenced parent table on CUBRID 11.4;
+10.2 reports `-924`) raise `IntegrityError` with SQLSTATE `23000`, even when the
+message is localized. Dropping a referenced primary key (`-923`,
+`ER_FK_CANT_DROP_PK_REFERRED`) rejects a schema change and remains
+`DatabaseError`. Single statements and per-statement batch failures preserve
 the original numeric value in both `code` and `errno`. Unknown codes remain
 `DatabaseError` rather than being classified from constraint-like message text.
 

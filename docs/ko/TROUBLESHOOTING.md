@@ -31,6 +31,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [NULL 처리](#null-처리)
   - [불리언 값](#불리언-값)
   - [유니코드 / NCHAR 인코딩](#유니코드--nchar-인코딩)
+  - [값 또는 오류 메시지의 잘못된 UTF-8](#값-또는-오류-메시지의-잘못된-utf-8)
 - [LOB (CLOB/BLOB) 문제](#lob-clobblob-문제)
   - [LOB 컬럼이 데이터가 아니라 dict를 반환](#lob-컬럼이-데이터가-아니라-dict를-반환)
   - [Lob 객체를 파라미터로 전달할 수 없음](#lob-객체를-파라미터로-전달할-수-없음)
@@ -683,6 +684,22 @@ cur.execute("SELECT name FROM users")
 for row in cur:
     print(row[0])  # 올바르게 출력: 김영선, 日本語テスト
 ```
+
+### 값 또는 오류 메시지의 잘못된 UTF-8
+
+CUBRID는 `VARCHAR(n)` 크기와 일부 오류 메시지에 포함되는 값을 바이트 단위로 자르므로
+멀티바이트 문자 중간에서 문자열이 잘릴 수 있습니다. 예를 들어 CUBRID 10.2는
+`'\U00010000' * 13`을 `VARCHAR(50)`에 50바이트로 저장하며, 마지막 문자는 절반만 남습니다.
+
+- **오류 메시지:** 잘못된 바이트는 `U+FFFD`로 대체되고, 실제 CUBRID 오류가 `errno`,
+  `sqlstate`와 함께 발생합니다.
+- **컬럼 값:** 유효한 UTF-8이 아닌 `CHAR`/`VARCHAR`/`NCHAR`/`ENUM`/`JSON` 값은
+  `DataError`를 발생시키며, 원래의 `UnicodeDecodeError`는 `__cause__`에 있습니다.
+  연결은 계속 사용할 수 있습니다. 저장된 바이트를 확인하려면 `HEX(col)`을 조회한 뒤
+  저장된 값을 수정하세요.
+
+이전 릴리스에서는 두 경우 모두 `OperationalError: malformed response from broker`가
+발생하고 연결이 닫혔습니다.
 
 ---
 

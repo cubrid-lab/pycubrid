@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- Invalid UTF-8 in a fully received broker reply no longer raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection. Server error messages (and batch per-statement error messages)
+  are decoded with `errors="replace"`, so the real CUBRID error surfaces with
+  its `errno`/`sqlstate`; this happens when CUBRID cuts an echoed value in the
+  middle of a multi-byte character. A `CHAR`/`VARCHAR`/`NCHAR`/`ENUM`/`JSON`
+  value (including a collection element) that is not valid UTF-8 now raises
+  `DataError` and the session stays usable; `execute()` keeps the server
+  handle so it is released normally. CUBRID 10.2 can store such a value when
+  it truncates an oversized string by bytes. Truncated packets and invalid
+  UTF-8 in protocol metadata still raise the connection-level
+  `OperationalError`, as does the explicit prepared API (`compat.native`),
+  which retires the session on any non-server failure. (#492)
+- A `DELETE`/`UPDATE` of a parent row that a foreign key still references
+  (native `-924`, `ER_FK_RESTRICT`) and a `TRUNCATE` of a referenced parent
+  table (`-1284`, `ER_TRUNCATE_PK_REFERRED` on CUBRID 11.4; 10.2 reports
+  `-924`) now raise `IntegrityError` with SQLSTATE `23000` instead of a
+  generic `DatabaseError`, for single statements and batch failures alike.
+  `IntegrityError` is still a `DatabaseError` subclass. Dropping a referenced
+  primary key (`-923`) is a schema error and stays `DatabaseError`. (#493)
+
 ### Changed
 - Release workflow unified with the sibling repos: new `RELEASING.md`; `make release`
   replaced by the read-only `make release-check VERSION=x.y.z`; `publish-pypi.yml` is
