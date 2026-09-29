@@ -68,12 +68,15 @@ Activate the project development environment (`pip install -e ".[dev]"`) before
 running Make or pre-commit. The Ruff and Mypy pre-commit hooks are `repo: local`,
 `language: system` hooks that invoke `python3 -m ruff`/`python3 -m mypy` from that
 same active environment, so there is a single source of truth for each tool's
-version: the exact pin in `pyproject.toml`. `make tooling-check` verifies the
-installed Ruff/Mypy versions against those pins and confirms the hooks are wired
-to run through the active environment. Make and CI share `LINT_PATHS` (`pycubrid
-tests scripts demos examples`) with explicit Python/pyi discovery and hook types,
-so Markdown is not reformatted; package-only strict Mypy remains separate, and its
-pre-commit hook explicitly checks `pycubrid/`.
+version: the exact pin in `pyproject.toml`. Activate that environment (or a venv
+where it's installed) whenever a commit should run the hooks; otherwise
+Ruff/Mypy are missing or a stale/global version silently runs instead of the
+pinned one. `make tooling-check` verifies the installed Ruff/Mypy versions
+against those pins and confirms the hooks are wired to run through the active
+environment. Make and CI share `LINT_PATHS` (`pycubrid tests scripts demos
+examples`) with explicit Python/pyi discovery and hook types, so Markdown is not
+reformatted; package-only strict Mypy remains separate, and its pre-commit hook
+explicitly checks `pycubrid/`.
 
 When updating either tool, change its dev pin in `pyproject.toml`, reinstall
 `.[dev]`, then run `make check-all` and `pre-commit run --all-files`; there is no

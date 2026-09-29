@@ -353,10 +353,13 @@ environment, so install `.[dev]` and activate it before running checks.
 hooks are `repo: local` / `language: system` hooks that invoke `python3 -m ruff`
 and `python3 -m mypy` against that same active environment, so there is no
 separate hook revision to keep in sync: bumping the dev pin (Dependabot's `pip`
-ecosystem does exactly this) and reinstalling `.[dev]` is enough. Update the dev
-pin, reinstall `.[dev]`, and run `make check-all` plus `pre-commit run
---all-files`. `make tooling-check` rejects pin, installed-version, hook-scope,
-and CI-scope drift before lint/format/typecheck.
+ecosystem does exactly this) and reinstalling `.[dev]` is enough. Activate that
+environment (or a venv where it's installed) whenever a commit should run the
+hooks; otherwise Ruff/Mypy are missing or a stale/global version silently runs
+instead of the pinned one. Update the dev pin, reinstall `.[dev]`, and run
+`make check-all` plus `pre-commit run --all-files`. `make tooling-check` rejects
+pin, installed-version, hook-scope, and CI-scope drift before
+lint/format/typecheck.
 
 ### Anti-Patterns (Never Do)
 
