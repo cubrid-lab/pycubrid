@@ -227,8 +227,11 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   whose E notation CUBRID parses as `DOUBLE`; the value now stays `NUMERIC`
   with its scale. A `Decimal` whose plain literal exceeds 38 digits raises
   `DataError` before send (previously `DOUBLE` for E notation, or server error
-  `-494` for a long plain literal). `NaN`/`Infinity` rejection, integral
-  values, public signatures, dependencies and supported versions are
+  `-494` for a long plain literal). An integral `Decimal` in exponent form
+  (`Decimal("1E+5")`) is now sent as the integer literal `100000`, typed by
+  CUBRID as `INTEGER`/`BIGINT`/`NUMERIC(p,0)` by magnitude, instead of a
+  `DOUBLE`. `NaN`/`Infinity` rejection, integral values written without an
+  exponent, public signatures, dependencies and supported versions are
   unchanged.
 
 - **Unresolved TZ zones raise `DataError` (#413)** — PATCH / correction to the

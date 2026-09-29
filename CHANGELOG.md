@@ -57,8 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   as `Decimal("1E-39")` or a 39-significant-digit value, raises `DataError`
   before anything is sent instead of becoming `DOUBLE`; CUBRID itself rejects
   such plain literals. `NaN`/`Infinity` still raise `ProgrammingError`, and
-  integral values render as the same integer literal as before. Sync and async
-  cursors share the change. (#517)
+  integral Decimals written without an exponent (`Decimal("42")`) render as the
+  same integer literal as before. Sync and async cursors share the change. (#517)
 - With `decode_collections=True`, a nonempty `SET`/`MULTISET`/`SEQUENCE`
   (`LIST`) whose elements are all SQL NULL, such as `{NULL}` or
   `{NULL, NULL}`, now decodes to `[None, ...]` (a `SET` becomes
