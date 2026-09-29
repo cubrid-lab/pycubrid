@@ -75,8 +75,10 @@ async def test_missing_tz_database_raises_data_error_and_keeps_session(
 ) -> None:
     connection = await adapter.connect()
     cursor = adapter.cursor(connection)
-    token_before = adapter.transport_token(connection)
     try:
+        # LTZ values carry the session zone; pin it so the token is known.
+        await adapter.execute(cursor, "SET TIME ZONE 'UTC'")
+        token_before = adapter.transport_token(connection)
         with pytest.raises(DataError, match=f"'{token}'.*install the 'tzdata' package"):
             await adapter.execute(cursor, f"SELECT {literal}")
         assert adapter.transport_token(connection) is token_before
