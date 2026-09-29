@@ -50,6 +50,7 @@ def test_native_defaults_own_one_autocommitting_transport(fake_driver: type) -> 
         "user": "public",
         "password": "",
         "autocommit": True,
+        "charset": "utf-8",
     }
     connection.close()
     connection.close()
@@ -156,9 +157,14 @@ def test_native_credential_nul_fails_before_transport(fake_driver: type, keyword
     assert not fake_driver.created
 
 
-def test_unsupported_charset_and_extra_wrapper_args_fail_early(fake_driver: type) -> None:
-    with pytest.raises(NotSupportedError):
-        cubriddb.Connection(DSN, charset="euckr")
+def test_wrapper_charset_passes_through_to_the_driver(fake_driver: type) -> None:
+    # The driver validates and normalizes it before socket work (#86).
+    wrapper = cubriddb.Connection(DSN, charset="euckr")
+    assert wrapper.connection._driver.options["charset"] == "euckr"
+    assert cubriddb.Connection(DSN).connection._driver.options["charset"] == "utf8"
+
+
+def test_invalid_charset_type_and_extra_wrapper_args_fail_early(fake_driver: type) -> None:
     with pytest.raises(TypeError):
         cubriddb.Connection(DSN, charset=None)
     with pytest.raises(TypeError):

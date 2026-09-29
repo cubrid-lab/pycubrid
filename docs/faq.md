@@ -63,10 +63,10 @@ Common pycubrid usage questions with practical answers.
     ```
 
 ??? "What character encodings are supported?"
-    pycubrid supports standard CUBRID character types and Python `str` values.
+    UTF-8 by default. For a database created with another charset, pass it as `charset`, for example `pycubrid.connect(database="kodb", charset="euckr")` (also `pycubrid.aio.connect`). CUBRID names `utf8`, `euckr` and `iso88591` and ASCII-transparent Python codecs are accepted; UTF-16/32, Shift_JIS, Big5, GBK, CP949 and other codecs that can emit ASCII bytes inside a multibyte character are rejected.
 
     !!! note
-        For multilingual text workloads (NCHAR/VARNCHAR), verify your database collation and server/client charset settings together.
+        The broker does no charset conversion: the client codec must match the database charset, and every value arrives in its column's charset. A `CHARSET utf8` column inside an EUC-KR database raises `DataError` under `charset="euckr"`; convert it in SQL with `CAST(col AS VARCHAR(n) CHARSET euckr)`. JSON is always UTF-8. See [Character Encoding](CONNECTION.md#character-encoding).
 
 ??? "How do I handle errors properly?"
     Catch specific DB-API exceptions first (`IntegrityError`, `ProgrammingError`, `OperationalError`) and fall back to `Error`.

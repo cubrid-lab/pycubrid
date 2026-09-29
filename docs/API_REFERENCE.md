@@ -11,6 +11,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [`pycubrid.connect()`](#pycubridconnect)
   - [`decode_collections`](#decode_collections)
   - [`json_deserializer`](#json-columns)
+  - [`charset`](#charset)
 - [Async Module Constructor](#async-module-constructor)
   - [`pycubrid.aio.connect()`](#pycubridaioconnect)
 - [Explicit Native Compatibility Subset](#explicit-native-compatibility-subset)
@@ -87,6 +88,7 @@ def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> Connection
 ```
@@ -104,6 +106,7 @@ Create a new database connection.
 | `password` | `str` | `""` | Database password |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `charset` | `str` | `"utf-8"` | Codec for SQL text, credentials, character values, names and error text; see [`charset`](#charset) |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync and async broker connections; `True` uses the default verified context with a TLS 1.2 minimum. Connection uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake then TLS upgrade before `OPEN_DATABASE`. See [Connection guide](CONNECTION.md#ssltls). |
 | `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit`. An unrecognised keyword is ignored but reported — see [Unknown Options](#unknown-options) |
 
@@ -132,6 +135,44 @@ into Python containers.
 | `None` (default) | Return JSON columns as `str` |
 | `callable` | Pass the raw JSON string to the callable and return its result |
 
+#### `charset`
+
+`charset` (default `"utf-8"`) is the Python codec for SQL text (including
+rendered parameters), batch and schema-info arguments, `OPEN_DATABASE`
+credentials, character values (`CHAR`, `VARCHAR`, `STRING`, `NCHAR`,
+`NCHAR VARYING`, `ENUM`, collection elements), column/table names, defaults and
+server error text. Set it to the database charset, for example
+`charset="euckr"` for a database created with `ko_KR.euckr` (#86).
+
+- Accepts Python codec names, the CUBRID names `utf8`, `euckr` and
+  `iso88591`, and a CUBRID locale such as `"ko_KR.euckr"` (the part after the
+  dot is used), normalized to the Python codec name (`"euc_kr"`); `None` means
+  the default. Validated before
+  any socket work: a non-string raises `TypeError`; an unknown codec, CUBRID
+  `binary` and codecs that are not ASCII-transparent (UTF-16/32, UTF-7,
+  Shift_JIS, Big5, GBK, GB18030, CP949, ISO-2022, ...) raise `ValueError`;
+  credentials the codec cannot encode raise `DataError`.
+- Text that cannot be encoded raises `DataError` before any byte of that request
+  is sent, on every path (ordinary and `compat.native` cursors,
+  `get_schema_info()`), and the session stays usable. With `euc_kr`, Hangul
+  syllables outside KS X 1001 (such as 똠 or 뷁), which Python would encode as
+  8-byte makeup sequences, count as unencodable.
+- Bytes that cannot be decoded raise `DataError` naming the codec. Ordinary
+  cursors keep the session; `get_schema_info()` retires the connection on any
+  FC9 reply it cannot parse, and the explicit prepared API
+  (`pycubrid.compat.native`) retires its session and raises `OperationalError`.
+  Error text and LOB file locators are decoded with `errors="replace"`.
+- `JSON` values are read back as UTF-8, but a JSON parameter is SQL text and is
+  encoded with the connection codec (an emoji in JSON under `euckr` raises
+  `DataError` on insert). `NUMERIC`, timezone names, the version string and LOB
+  contents are not affected (`CLOB` bytes are in the column charset);
+  `pycubrid.Binary(str)` always encodes as UTF-8.
+- The broker does no conversion, so a `CHARSET utf8` column in an EUC-KR
+  database raises `DataError` under `charset="euckr"`; convert it in SQL with
+  `CAST(col AS VARCHAR(n) CHARSET euckr)`.
+
+See [Character Encoding](CONNECTION.md#character-encoding) for the full contract.
+
 **Returns:** A new `Connection` instance.
 
 **Raises:** `OperationalError` if the connection cannot be established.
@@ -158,14 +199,14 @@ conn = pycubrid.connect(
 ## Explicit Native Compatibility Subset
 
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
-It now provides a bounded **sync-only prepared cursor** for INT32, UTF-8 string
-and SQL NULL values. This does not change ordinary `pycubrid.connect()` or
+It now provides a bounded **sync-only prepared cursor** for INT32, string
+and SQL NULL values; strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
 through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
 and close subset; it does not expose a wrapper cursor, DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
-`native.connect(url, user="public", passwd="")` returns a
+`native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
 `native.connection`. The wrapper `cubriddb.Connect/connect/connection(*args,
 **kwargs)` factories return `cubriddb.Connection(dsn="", user="public",
 password="", charset="utf8")`; the wrapper's `.connection` property is the
@@ -176,9 +217,11 @@ ordinary driver's separate `dba`/manual-commit defaults.
 
 Use `CUBRID:host:port:database:user:password:` with the final colon. Python
 arguments, including omitted `public`/empty defaults, take precedence over
-credentials embedded in that DSN. Only the existing UTF-8 transport and the
-plain CUBRID backend are accepted here; alternate backends, selectable charset,
-HA/TLS URL options and excess arguments fail before connection work. Errors
+credentials embedded in that DSN. The wrapper's `charset` (default `"utf8"`) is
+passed to the driver's [`charset`](#charset) option, so CUBRID names such as
+`"euckr"` work and an invalid codec fails before connection work. Only the
+plain CUBRID backend is accepted; alternate backends, HA/TLS URL options and
+excess arguments fail before connection work. Errors
 never echo the raw credential-bearing DSN.
 
 The native connection adds `cursor()`, `commit()`, `rollback()` and `close()`.
@@ -236,6 +279,7 @@ async def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> AsyncConnection
 ```
@@ -243,7 +287,7 @@ async def connect(
 Create and open an async connection.
 
 - Returns a connected `AsyncConnection`.
-- Accepts the same collection / JSON decoding kwargs as `pycubrid.connect()`.
+- Accepts the same collection / JSON decoding kwargs and the same `charset` option as `pycubrid.connect()`.
 - Supports `autocommit=True`, applied automatically once the connection is established. `AsyncConnection` itself now accepts `autocommit` directly too (as a keyword-only constructor argument), so constructing it without going through this factory no longer silently drops the flag.
 - Provides a similar async surface to the sync API, including `await conn.ping(reconnect=...)`; `create_lob()` remains sync-only, and auto-commit changes go through `await conn.set_autocommit(...)` instead of a property setter.
 - Accepts the same `ssl` parameter as `pycubrid.connect()`: `True`, `False`/`None`, or a custom `SSLContext`; when `True`, the default verified context enforces a TLS 1.2 minimum. Async TLS uses CUBRID's STARTTLS-style upgrade — the `CUBRS` handshake is sent in plaintext, then the transport is upgraded via `asyncio.AbstractEventLoop.start_tls()` (bounded by `ssl_handshake_timeout`) before `OPEN_DATABASE`. See the [Connection guide](CONNECTION.md#ssltls) for full details and the Python 3.10 `start_tls()` cert-verify caveat ([#156](https://github.com/cubrid-lab/pycubrid/issues/156)).
@@ -298,6 +342,7 @@ class Connection:
 | `read_timeout` | `float \| None` | `None` | Socket read timeout in seconds. |
 | `fetch_size` | `int` | `100` | Server-side fetch batch size. |
 | `json_deserializer` | `Callable[[str], Any] \| None` | `None` | Opt-in JSON column decoder. |
+| `charset` | `str` | `"utf-8"` | Connection codec; see [`charset`](#charset). Kept across reconnects. |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections. |
 
 ### Connection Methods
@@ -1438,13 +1483,16 @@ class DataError(DatabaseError)
 ```
 
 Raised for data processing problems (division by zero, numeric overflow, etc.).
-Also raised when a fetched character value (`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`,
-`JSON`) is not valid UTF-8, and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
+Also raised when a fetched character value (`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`)
+or column name is not valid in the connection [`charset`](#charset) (a `JSON`
+value: not valid UTF-8), when text sent to the server cannot be encoded with
+it (nothing of that request is sent), and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
 `DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
 zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
-(#413). The reply was fully read, so the connection stays usable. The explicit
-prepared API (`pycubrid.compat.native`) raises `OperationalError` and retires
-the session instead.
+(#413). The reply was fully read, so with ordinary cursors the connection stays
+usable. `get_schema_info()` retires the connection on any FC9 reply it cannot
+parse, and the explicit prepared API (`pycubrid.compat.native`) raises
+`OperationalError` and retires the session instead.
 
 ---
 

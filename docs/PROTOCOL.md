@@ -15,6 +15,7 @@ Technical documentation for the CUBRID CAS (Common Application Server) wire prot
 - [Packet Classes](#packet-classes)
   - [ClientInfoExchangePacket](#clientinfoexchangepacket)
   - [OpenDatabasePacket](#opendatabasepacket)
+  - [Connection charset](#connection-charset)
   - [PrepareAndExecutePacket](#prepareandexecutepacket)
   - [PreparePacket](#preparepacket)
   - [ExecutePacket](#executepacket)
@@ -307,6 +308,27 @@ packet.parse(response_data) # Framed response with CAS info prefix
 | `broker_info`    | `dict`  | `{db_type, protocol_version, statement_pooling}` |
 | `session_id`     | `int`   | Server session identifier |
 
+Database, user and password are encoded with the connection `charset` (default
+UTF-8) and cut to their 32-byte fields on a character boundary, so a multibyte
+character is never split (#86).
+
+### Connection charset
+
+The CAS protocol carries no client charset and the broker converts nothing: the
+server interprets request text in the database charset and returns each value
+in its column's charset. `charset` (default `"utf-8"`, #86) is therefore a
+client-side codec. Every packet built by a connection carries it
+(`packet.encoding`, set before `write()`), and `PacketWriter` / `PacketReader`
+use it for SQL text, FC9 arguments, credentials, character values, collection
+elements, column metadata names and defaults, and error text (with
+`errors="replace"`, as are LOB file locators, which embed the table name).
+Fetched `JSON` values are always UTF-8. `NUMERIC` text, timezone names and the
+engine version string stay UTF-8, and LOB contents are raw bytes. With
+`euc_kr`, Hangul outside KS X 1001, which Python encodes as an 8-byte makeup
+sequence starting `A4 D4`, is treated as unencodable. An encode failure raises `DataError` inside `write()`, before the
+request is sent; a strict decode failure raises `DataError` after the whole
+reply was read, so the session stays usable.
+
 ---
 
 ### PrepareAndExecutePacket
@@ -333,8 +355,8 @@ packet.parse(response_data) # Framed response with CAS info prefix
 **Prepare a statement** (FC=2) — separate prepare step.
 
 The internal packet accepts `prepare_flag=NORMAL` (legacy default) or
-`HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or invalid
-UTF-8 is rejected before FC2. This is internal wire groundwork for
+`HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or text the
+connection charset cannot encode is rejected before FC2. This is internal wire groundwork for
 [#439](PREPARED_BINDING_DESIGN.md), **not** a public prepared cursor.
 
 | Attribute        | Type   | Description |
@@ -353,8 +375,8 @@ UTF-8 is rejected before FC2. This is internal wire groundwork for
 
 After ten fixed arguments, the packet writes two length-prefixed arguments
 per validated scalar binding: type byte and value bytes. The supported
-internal subset is signed INT32 (`8`, four big-endian bytes), UTF-8 CHAR
-(`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
+internal subset is signed INT32 (`8`, four big-endian bytes), CHAR in the
+connection charset (`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
 NUL byte, not NULL. The optional `bind_count` must match the number of
 bindings. The forward-only byte follows effective autocommit: `1` in auto
 mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
@@ -441,7 +463,7 @@ request carries length-prefixed arguments in this order: schema type (`int`),
 first name/pattern (`string` or NULL), second name/pattern (`string` or NULL),
 flags (`byte`), then shard ID (`int`, protocol V5 and newer). NULL is a zero-length
 argument; an empty string contains its NUL terminator and is a different argument.
-Strings retain the driver's existing UTF-8 encoding.
+Strings use the connection charset (default UTF-8).
 
 After the response handle and tuple count, the column count precedes condensed
 columns: type (one or two bytes), scale (`int16`), precision (`int32`), name length
@@ -570,8 +592,8 @@ Available parameters (`CCIDbParam`):
 | `_write_double(value)` | Raw double (8B) |
 | `_write_bytes(value)` | Raw bytes, no prefix |
 | `_write_filler(count, value)` | Fill N bytes with value |
-| `_write_null_terminated_string(value)` | Length-prefixed UTF-8 string + null terminator |
-| `_write_fixed_length_string(value, length)` | Fixed-width null-padded string |
+| `_write_null_terminated_string(value)` | Length-prefixed string in the connection charset (default UTF-8) + null terminator |
+| `_write_fixed_length_string(value, length)` | Fixed-width null-padded string, cut on a character boundary |
 
 ---
 
@@ -629,10 +651,10 @@ Column data is transmitted as a 4-byte size prefix followed by the raw data. The
 | Type Code | Name       | Wire Format |
 |-----------|------------|-------------|
 | 0         | `NULL`     | size ≤ 0 → `None` |
-| 1         | `CHAR`     | Null-terminated UTF-8 string |
-| 2         | `STRING`   | Null-terminated UTF-8 string |
-| 3         | `NCHAR`    | Null-terminated UTF-8 string |
-| 4         | `VARNCHAR` | Null-terminated UTF-8 string |
+| 1         | `CHAR`     | Null-terminated string in the connection charset (default UTF-8) |
+| 2         | `STRING`   | Null-terminated string in the connection charset (default UTF-8) |
+| 3         | `NCHAR`    | Null-terminated string in the connection charset (default UTF-8) |
+| 4         | `VARNCHAR` | Null-terminated string in the connection charset (default UTF-8) |
 | 5         | `BIT`      | Raw bytes |
 | 6         | `VARBIT`   | Raw bytes |
 | 7         | `NUMERIC`  | Null-terminated string → `Decimal` |
@@ -650,7 +672,7 @@ Column data is transmitted as a 4-byte size prefix followed by the raw data. The
 | 22        | `DATETIME` | 7 shorts: y, m, d, h, m, s, ms |
 | 23        | `BLOB`     | Packed LOB handle → `dict` |
 | 24        | `CLOB`     | Packed LOB handle → `dict` |
-| 25        | `ENUM`     | Null-terminated UTF-8 string |
+| 25        | `ENUM`     | Null-terminated string in the connection charset (default UTF-8) |
 
 ### Column Metadata
 

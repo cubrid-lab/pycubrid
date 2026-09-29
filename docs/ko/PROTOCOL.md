@@ -17,6 +17,7 @@ pycubrid가 구현하는 CUBRID CAS(Common Application Server) 와이어 프로�
 - [패킷 클래스](#패킷-클래스)
   - [ClientInfoExchangePacket](#clientinfoexchangepacket)
   - [OpenDatabasePacket](#opendatabasepacket)
+  - [연결 문자셋](#연결-문자셋)
   - [PrepareAndExecutePacket](#prepareandexecutepacket)
   - [PreparePacket](#preparepacket)
   - [ExecutePacket](#executepacket)
@@ -301,6 +302,24 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 | `broker_info`    | `dict`  | `{db_type, protocol_version, statement_pooling}` |
 | `session_id`     | `int`   | 서버 세션 식별자 |
 
+database, user, password는 연결 `charset`(기본 UTF-8)으로 인코딩한 뒤 32바이트 필드에
+맞게 문자 경계에서 잘라, 멀티바이트 문자가 쪼개지지 않습니다(#86).
+
+### 연결 문자셋
+
+CAS 프로토콜은 클라이언트 문자셋을 전달하지 않고 브로커는 변환하지 않습니다. 서버는
+요청 텍스트를 데이터베이스 문자셋으로 해석하고 각 값을 해당 컬럼의 문자셋으로
+반환합니다. 따라서 `charset`(기본값 `"utf-8"`, #86)은 클라이언트 측 코덱입니다.
+연결이 만드는 모든 패킷이 이를 가지며(`write()` 전에 설정되는 `packet.encoding`),
+`PacketWriter` / `PacketReader`는 SQL 텍스트, FC9 인자, 자격 증명, 문자 값, 컬렉션 요소,
+컬럼 메타데이터 이름과 기본값, 오류 텍스트와 테이블 이름을 담은 LOB 파일
+로케이터(`errors="replace"`)에 이를 사용합니다. 가져온 `JSON` 값은 항상 UTF-8입니다.
+`NUMERIC` 텍스트, 타임존 이름, 엔진 버전 문자열은 UTF-8을 유지하고 LOB 내용은 원시
+바이트입니다. `euc_kr`에서 KS X 1001 밖의 한글(Python이 `A4 D4`로 시작하는 8바이트 조합
+시퀀스로 인코딩)은 인코딩할 수 없는 것으로 취급합니다. 인코딩 실패는 요청을
+보내기 전 `write()` 안에서 `DataError`를 발생시키고, 엄격 디코딩 실패는 응답 전체를
+읽은 뒤 `DataError`를 발생시키므로 세션은 계속 사용할 수 있습니다.
+
 ---
 
 ### PrepareAndExecutePacket
@@ -327,7 +346,7 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 **문장 준비** (FC=2) — 별도 준비 단계.
 
 내부 패킷은 기존 기본값 `NORMAL` 또는 `HOLDABLE=0x08` 플래그와 실제 autocommit
-값을 보냅니다. SQL에 NUL이나 UTF-8로 인코딩할 수 없는 문자가 있으면 FC2를 보내기 전에
+값을 보냅니다. SQL에 NUL이나 연결 문자셋으로 인코딩할 수 없는 문자가 있으면 FC2를 보내기 전에
 거부합니다. 이는 [#439 설계](../PREPARED_BINDING_DESIGN.md)를 위한 내부 와이어
 기반이며, 공개 prepared 커서가 아닙니다.
 
@@ -346,7 +365,7 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 **준비된 문장 실행** (FC=3).
 
 고정 인자 10개 뒤에 검증된 스칼라 바인딩마다 타입 바이트와 값 바이트를 길이 접두 인자
-2개로 보냅니다. 내부 첫 범위는 부호 있는 INT32(타입 8), UTF-8 CHAR(타입 1,
+2개로 보냅니다. 내부 첫 범위는 부호 있는 INT32(타입 8), 연결 문자셋의 CHAR(타입 1,
 끝 NUL 포함), SQL NULL(타입 0, 길이 0)입니다. 빈 문자열은 NUL 1바이트로 NULL과
 구별합니다. 선택적 `bind_count`는 전달된 바인딩 수와 일치해야 하며 forward-only
 바이트는 autocommit일 때 1, 수동 모드일 때 0입니다. FC41 폴백이나 SQL 리터럴
@@ -432,7 +451,7 @@ packet.parse(response_data) # CAS 정보 접두사가 있는 프레임된 응답
 길이 접두가 있는 인자를 스키마 타입(`int`), 첫 이름/패턴(`string` 또는 NULL),
 두 번째 이름/패턴(`string` 또는 NULL), 플래그(`byte`), 샤드 ID(`int`, 프로토콜
 V5 이상) 순서로 보냅니다. NULL은 길이 0인 인자이며, 빈 문자열은 NUL 종료자를
-포함하므로 서로 다른 인자입니다. 문자열은 드라이버의 기존 UTF-8 인코딩을 유지합니다.
+포함하므로 서로 다른 인자입니다. 문자열은 연결 문자셋(기본 UTF-8)을 사용합니다.
 
 응답 핸들과 튜플 수 다음에는 컬럼 수와 축약 컬럼 정보가 옵니다. 각 컬럼은
 타입(1 또는 2바이트), scale(`int16`), precision(`int32`), 이름 길이(`int32`),
@@ -559,8 +578,8 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 | `_write_double(value)` | raw double (8B) |
 | `_write_bytes(value)` | raw 바이트, 접두 없음 |
 | `_write_filler(count, value)` | N바이트를 값으로 채우기 |
-| `_write_null_terminated_string(value)` | 길이 접두 UTF-8 문자열 + null 종단 |
-| `_write_fixed_length_string(value, length)` | 고정 폭 null 패딩 문자열 |
+| `_write_null_terminated_string(value)` | 연결 문자셋(기본 UTF-8)의 길이 접두 문자열 + null 종단 |
+| `_write_fixed_length_string(value, length)` | 고정 폭 null 패딩 문자열, 문자 경계에서 자름 |
 
 ---
 
@@ -617,10 +636,10 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 | 타입 코드 | 이름       | 와이어 형식 |
 |-----------|------------|-------------|
 | 0         | `NULL`     | size ≤ 0 → `None` |
-| 1         | `CHAR`     | null 종단 UTF-8 문자열 |
-| 2         | `STRING`   | null 종단 UTF-8 문자열 |
-| 3         | `NCHAR`    | null 종단 UTF-8 문자열 |
-| 4         | `VARNCHAR` | null 종단 UTF-8 문자열 |
+| 1         | `CHAR`     | 연결 문자셋(기본 UTF-8)의 null 종단 문자열 |
+| 2         | `STRING`   | 연결 문자셋(기본 UTF-8)의 null 종단 문자열 |
+| 3         | `NCHAR`    | 연결 문자셋(기본 UTF-8)의 null 종단 문자열 |
+| 4         | `VARNCHAR` | 연결 문자셋(기본 UTF-8)의 null 종단 문자열 |
 | 5         | `BIT`      | raw 바이트 |
 | 6         | `VARBIT`   | raw 바이트 |
 | 7         | `NUMERIC`  | null 종단 문자열 → `Decimal` |
@@ -638,7 +657,7 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 | 22        | `DATETIME` | short 7개: y, m, d, h, m, s, ms |
 | 23        | `BLOB`     | 패킹된 LOB 핸들 → `dict` |
 | 24        | `CLOB`     | 패킹된 LOB 핸들 → `dict` |
-| 25        | `ENUM`     | null 종단 UTF-8 문자열 |
+| 25        | `ENUM`     | 연결 문자셋(기본 UTF-8)의 null 종단 문자열 |
 
 ### 컬럼 메타데이터
 

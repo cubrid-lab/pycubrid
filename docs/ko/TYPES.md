@@ -278,7 +278,7 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 
 | CUBRID 타입 | CCI 코드 | Python 타입 | 비고 |
 |---|---|---|---|
-| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null 종단, UTF-8 디코딩; 잘못된 UTF-8은 `DataError` 발생 (연결은 유지) |
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null 종단, 연결 `charset`(기본 UTF-8)으로 디코딩; 디코딩할 수 없는 바이트는 코덱 이름을 담은 `DataError` 발생 (연결은 유지). EUC-KR 데이터베이스에서 `CHAR(n)`은 U+3000으로 채움 |
 | `SHORT` (SMALLINT) | 9 | `int` | 16비트 부호 있는 정수 |
 | `INTEGER` | 8 | `int` | 32비트 부호 있는 정수 |
 | `BIGINT` | 21 | `int` | 64비트 부호 있는 정수 |
@@ -292,11 +292,11 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | 타임존 포함 타임스탬프 (초 정밀도, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | 타임존 포함 datetime (밀리초 정밀도) |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | raw 바이너리 데이터 |
-| `JSON` | 34 | `str` 또는 `Any` | 기본은 raw JSON 문자열; `json_deserializer=` 설정 시 디코딩됨 |
+| `JSON` | 34 | `str` 또는 `Any` | 기본은 raw JSON 문자열; `json_deserializer=` 설정 시 디코딩됨. 연결 `charset`과 무관하게 항상 UTF-8 |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` 또는 디코딩된 컬렉션 | `decode_collections=True`일 때만 디코딩 |
 | `OBJECT` (OID) | 19 | `str` | 형식: `"OID:@page\|slot\|volume"` |
 | `BLOB` | 23 | `dict` | LOB 핸들 (아래 참고) |
-| `CLOB` | 24 | `dict` | LOB 핸들 (아래 참고) |
+| `CLOB` | 24 | `dict` | LOB 핸들 (아래 참고); `Lob.read()`는 `charset`으로 디코딩하지 않은 컬럼 문자셋의 바이트 반환 |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
 
 > **로컬 타임존 타입:** `TIMESTAMPLTZ`와 `DATETIMELTZ` 값은 값을 저장할 때의

@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **`charset` connection option (#86)** — `pycubrid.connect()`,
+  `pycubrid.aio.connect()`, `pycubrid.compat.native.connect()` and
+  `cubriddb.Connection(charset=...)` (previously `"utf8"` only) accept
+  `charset` (default `"utf-8"`): a Python codec or the CUBRID names `utf8`,
+  `euckr`, `iso88591`. It is validated before any socket work (`TypeError` for
+  a non-string; `ValueError` for an unknown codec, CUBRID `binary` or a codec
+  that is not ASCII-transparent, such as UTF-16/32, Shift_JIS, Big5, GBK or
+  CP949; `DataError` for unencodable credentials) and kept across reconnects.
+  SQL text with rendered parameters, batch and schema-info arguments, prepared
+  strings and `OPEN_DATABASE` credentials are encoded with it before anything
+  is sent; an unencodable character raises `DataError` naming the codec and
+  position, nothing of that request is sent and the session stays usable.
+  Character values, `ENUM` and collection elements, column/table names and
+  defaults are decoded strictly (`DataError` naming the codec), error messages
+  with replacement. Fetched `JSON` stays UTF-8 (JSON parameters are SQL text); `NUMERIC`, timezone names, version
+  strings and LOB contents are unaffected (`CLOB` bytes are in the column
+  charset). The broker does no conversion, so the codec must match the
+  database charset; a `CHARSET utf8` column in an EUC-KR database raises
+  `DataError` under `charset="euckr"` (convert with `CAST(... CHARSET euckr)`).
+  With the default UTF-8 codec, request bytes are unchanged except two edge
+  cases: a column name that is not valid UTF-8 now raises `DataError` and an
+  ordinary cursor keeps the session (previously `OperationalError('malformed response from broker')`
+  and a closed connection), and a database/user/password longer than its
+  32-byte `OPEN_DATABASE` field is cut on a character boundary instead of
+  mid-character. With `euc_kr`, Hangul outside KS X 1001 (such as 똠), which
+  Python would send as an 8-byte makeup sequence, is rejected as unencodable,
+  and stored Hangul filler (U+3164) and jamo read back as separate characters,
+  as CUBRID stores them.
+  LOB file locators, which embed the table name, decode with the connection
+  codec and `errors="replace"`. `charset=None` means the default, and a CUBRID
+  locale such as `"ko_KR.euckr"` is accepted. `get_schema_info()` checks its arguments before sending, so an
+  unencodable table or column pattern no longer closes the connection. A new `integration-charset` CI job runs the live round trips
+  against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr`.
+
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).

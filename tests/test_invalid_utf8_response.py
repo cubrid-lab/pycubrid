@@ -12,7 +12,7 @@ from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.cursor import Cursor
-from pycubrid.exceptions import DataError, OperationalError, ProgrammingError
+from pycubrid.exceptions import DataError, ProgrammingError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -56,8 +56,8 @@ def test_error_message_with_cut_character_surfaces_server_error() -> None:
 
 def test_error_message_without_terminator_and_empty_message() -> None:
     reader = PacketReader(b"ab" + CUT_CHAR)
-    assert reader._parse_error_message(4) == "ab�"
-    assert reader._parse_error_message(0) == ""
+    assert reader._parse_lenient_text(4) == "ab�"
+    assert reader._parse_lenient_text(0) == ""
 
 
 def test_batch_error_message_with_cut_character_is_replaced() -> None:
@@ -144,14 +144,16 @@ def test_sync_invalid_row_value_keeps_connection(
     assert conn._socket is not None
 
 
-def test_sync_invalid_column_name_is_still_malformed(
+def test_sync_invalid_column_name_raises_data_error(
     socket_queue: list[MagicMock],  # noqa: F811
 ) -> None:
+    # Column names are in the database charset: an undecodable name is a
+    # charset mismatch in a fully read reply, not framing damage (#86).
     body = _select_body(b"ok\x00").replace(b"v\x00", b"\xff\x00", 1)
     conn, _ = _connection_with_reply(socket_queue, body)
-    with pytest.raises(OperationalError, match="malformed response from broker"):
+    with pytest.raises(DataError, match="column metadata is not valid UTF-8"):
         conn._send_and_receive(PrepareAndExecutePacket("SELECT v FROM t"))
-    assert conn._connected is False
+    assert conn._connected is True
 
 
 def _reply_with_bad_row(packet: object) -> object:

@@ -1,6 +1,7 @@
 """Explicit native-style compatibility subset over the pure Python driver.
 
-Only the sync prepared INT, UTF-8 string and NULL cursor is supported here.
+Only the sync prepared INT, string and NULL cursor is supported here. Strings
+use the connection charset (UTF-8 unless ``charset`` says otherwise).
 Ordinary DB-API cursors continue to use their existing FC41 path.
 """
 
@@ -21,6 +22,7 @@ from pycubrid.exceptions import (
     OperationalError,
     ProgrammingError,
 )
+from pycubrid.packet import _codec_label, _encode_text
 from pycubrid.protocol import (
     CloseQueryPacket,
     ExecutePacket,
@@ -61,7 +63,14 @@ def _parse_url(url: str) -> tuple[str, int, str]:
 class connection:
     """Own one sync transport and its separately tracked prepared cursors."""
 
-    def __init__(self, url: str, user: str = "public", passwd: str = "") -> None:  # nosec B107
+    def __init__(
+        self,
+        url: str,
+        user: str = "public",
+        passwd: str = "",  # nosec B107
+        *,
+        charset: str = "utf-8",
+    ) -> None:
         host, port, database = _parse_url(url)
         for name, value in (("user", user), ("passwd", passwd)):
             if not isinstance(value, str):
@@ -81,6 +90,7 @@ class connection:
                 user=user,
                 password=passwd,
                 autocommit=True,
+                charset=charset,
             )
         except BaseException:
             if hasattr(driver, "_socket"):
@@ -236,11 +246,13 @@ class cursor:
             # preflight and PreparePacket.write() under the session lock.
             if type(sql) is not str or "\x00" in sql:
                 raise ProgrammingError("prepared SQL must be a string without NUL")
-            try:
-                sql.encode("utf-8")
-            except UnicodeEncodeError:
-                raise DataError("prepared SQL cannot be encoded as UTF-8") from None
             driver = self._connection._driver
+            encoded, _position = _encode_text(sql, driver._encoding)
+            if encoded is None:
+                # Raised outside the handler so no chained exception keeps the SQL.
+                raise DataError(
+                    f"prepared SQL cannot be encoded as {_codec_label(driver._encoding)}"
+                )
             if driver._statement_pooling != 1:
                 raise NotSupportedError("prepared statements require broker statement pooling")
             if self._handle is not None:
@@ -261,14 +273,14 @@ class cursor:
             self._invalidate_result()
 
     def bind_param(self, index: int, value: Any, bind_type: int = 0, /) -> None:
-        """Bind a one-based INT, UTF-8 string or SQL NULL without wire I/O."""
+        """Bind a one-based INT, string or SQL NULL without wire I/O."""
         with self._connection._session_lock:
-            self._check_handle()
+            driver, _handle, _generation = self._check_handle()
             if type(bind_type) is not int or bind_type != 0:
                 raise ProgrammingError("unsupported prepared bind type")
             if type(index) is not int or not 1 <= index <= self._bind_count:
                 raise ProgrammingError("prepared parameter index is out of range")
-            binding = _encode_prepared_scalar(value)
+            binding = _encode_prepared_scalar(value, driver._encoding)
             self._bindings[index - 1] = binding
 
     def execute(self, option: int = 0, max_col_size: int = 0, /) -> int:
@@ -370,9 +382,15 @@ class cursor:
             self._close_locked()
 
 
-def connect(url: str, user: str = "public", passwd: str = "") -> connection:  # nosec B107
+def connect(
+    url: str,
+    user: str = "public",
+    passwd: str = "",  # nosec B107
+    *,
+    charset: str = "utf-8",
+) -> connection:
     """Create a native-style sync compatibility connection."""
-    return connection(url, user, passwd)
+    return connection(url, user, passwd, charset=charset)
 
 
 __all__ = ["connection", "connect", "cursor"]

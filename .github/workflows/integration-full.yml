@@ -227,10 +227,48 @@ jobs:
         if: always()
         run: docker stop cubrid-tls || true
 
+  integration-charset:
+    # EUC-KR database lane (#86): the same CUBRID image with
+    # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
+    # charset="euckr" round-trip tests that skip against a UTF-8 database.
+    runs-on: ubuntu-latest
+    services:
+      cubrid:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+          CUBRID_LOCALE: ko_KR.euckr
+        ports:
+          - 33000:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.14"
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Wait for CUBRID readiness
+        run: python scripts/wait_for_cubrid.py
+      - name: Run EUC-KR charset integration tests
+        env:
+          CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+        run: |
+          python -m pytest tests/test_integration_charset.py -m integration -v --tb=short \
+            --junitxml=charset-results.xml
+          python scripts/check_integration_lanes.py --results charset-results.xml
+
   full-matrix-result:
     name: Full compatibility matrix result
     runs-on: ubuntu-latest
-    needs: [integration-full, integration-tls]
+    needs: [integration-full, integration-tls, integration-charset]
     if: always()
     steps:
       - name: Require the full matrix to pass
@@ -241,6 +279,10 @@ jobs:
           fi
           if [ "${{ needs.integration-tls.result }}" != "success" ]; then
             echo "::error::TLS full matrix failed: ${{ needs.integration-tls.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.integration-charset.result }}" != "success" ]; then
+            echo "::error::EUC-KR charset lane failed: ${{ needs.integration-charset.result }}"
             exit 1
           fi
           echo "Full compatibility matrix passed."

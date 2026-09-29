@@ -276,6 +276,7 @@ def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> Connection
 ```
@@ -291,6 +292,7 @@ def connect(
 | `password` | `str` | `""` | Database password |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `charset` | `str` | `"utf-8"` | Python codec (or CUBRID `utf8`/`euckr`/`iso88591`) for SQL text, credentials, character values, names and error text; set it to the database charset. See [Character Encoding](#character-encoding) |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync broker connections |
 
 ### Keyword Arguments
@@ -962,24 +964,81 @@ See [Troubleshooting](TROUBLESHOOTING.md) for pool tuning guidance.
 
 ## Character Encoding
 
-pycubrid operates exclusively in **UTF-8** encoding. This matches CUBRID's internal
-character set — the server stores and returns string data as UTF-8.
+The `charset` connection option (default `"utf-8"`) selects the Python codec
+for the text pycubrid exchanges with the broker. Set it to the charset the
+database was created with (#86):
 
-There is no `charset` connection parameter. All string encoding/decoding in the
-wire protocol uses UTF-8 unconditionally:
+```python
+import pycubrid
+import pycubrid.aio
 
-- Python `str` values are encoded to UTF-8 bytes before sending to the server
-- Byte responses from the server are decoded as UTF-8 to produce Python `str` values
+conn = pycubrid.connect(database="kodb", charset="euckr")
+aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
+```
 
-This is intentional and covers all CUBRID string types (`VARCHAR`, `CHAR`, `STRING`,
-`CLOB`). If your application deals with non-UTF-8 data, encode/decode at the
-application layer before passing values to pycubrid.
+**Accepted values.** Any Python codec name, plus the CUBRID spellings `utf8`,
+`euckr` and `iso88591` (`ksc5601` works through Python's own EUC-KR alias), and
+a CUBRID locale as given to `createdb`, such as `"ko_KR.euckr"`, whose part
+after the dot is used. `None` means the default `"utf-8"`. The name is
+normalized to the Python codec name (`"euckr"` becomes `"euc_kr"`). The option
+is validated before any socket work:
+
+- a non-string raises `TypeError`;
+- an unknown codec, CUBRID's `binary` charset (it has no text codec) and any
+  codec that is not ASCII-transparent raise `ValueError`. Rejected codecs
+  include UTF-16/32, UTF-7, `utf-8-sig`, Shift_JIS, Big5, GBK, GB18030, CP949,
+  Johab and the ISO-2022 family: SQL quoting and escaping run on `str` before
+  encoding, so a codec that can emit an ASCII byte such as `'` or `\` inside a
+  multibyte character is unsafe;
+- a `database`, `user` or `password` that the codec cannot encode raises
+  `DataError`.
+
+The codec is kept for the life of the connection, including the reconnect done
+by `ping(reconnect=True)` and the CHECK_CAS recovery.
+
+**What uses the connection charset:**
+
+| Direction | Text | Behavior |
+|---|---|---|
+| Sent | SQL text, including parameters rendered into it (JSON parameters too); `executemany` batch SQL; schema-info arguments; `compat.native` prepared SQL and string bindings | Encoded before any byte of the request is sent. An unencodable character raises `DataError` naming the codec and character position (the text itself is not echoed); nothing of that request is sent and the session stays usable. With `euc_kr`, Hangul syllables outside KS X 1001 (such as 똠 or 뷁) are unencodable: Python would send them as 8-byte makeup sequences that CUBRID stores as separate jamo. On read, the Hangul filler U+3164 and following jamo decode as separate characters, as CUBRID stores them. |
+| Sent | `OPEN_DATABASE` database, user and password | Encoded, then cut to the 32-byte field on a character boundary. |
+| Received | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING` and `ENUM` values, collection elements (`decode_collections=True`) | Strict decode. Undecodable bytes raise `DataError` (for example `column value is not valid euc_kr (invalid byte at offset 0)`); the session stays usable. |
+| Received | Column, table and alias names; column default values | Strict decode; `DataError` (`column metadata is not valid ...`). Ordinary cursors keep the session and release the server handle; `get_schema_info()` and the `compat.native` prepared cursor still retire the session, as for any unparsable reply there. |
+| Received | Server error messages, including per-statement batch errors | Decoded with `errors="replace"`, so the native error always surfaces. |
+| Received | LOB file locators (`file_locator`; the server path embeds the table name) | Decoded with `errors="replace"`: informational only, the packed handle is what goes back to the server. |
+
+**What does not use it:** fetched `JSON` values are always UTF-8 (the broker
+sends JSON as UTF-8 whatever the database charset), although a JSON parameter
+is SQL text and is encoded with the connection codec, so an emoji in JSON
+raises `DataError` on insert under `euckr`. `NUMERIC` text, timezone names and
+the server version string are protocol text and stay UTF-8, and
+`pycubrid.Binary(str)` always encodes as UTF-8. LOB
+contents are raw bytes: `Lob.read()` on a `CLOB` returns the bytes in the
+column charset (EUC-KR bytes in an EUC-KR database), which the application
+decodes itself.
+
+**No negotiation on the wire.** The CAS protocol carries no client charset and
+the broker does no conversion: the server interprets the bytes it receives in
+the database charset, and the broker sends each value in its own column's
+charset. Consequences:
+
+- A default (`utf-8`) client on an EUC-KR database cannot read EUC-KR text: it
+  raises `DataError` instead of returning wrong characters, and before #86 its
+  writes silently stored mojibake. Connect with `charset="euckr"`.
+- A column declared `CHARSET utf8` inside an EUC-KR database arrives as UTF-8
+  and raises `DataError` under `charset="euckr"`. Convert it in SQL, for example
+  `SELECT CAST(u AS VARCHAR(10) CHARSET euckr) FROM t`, or read `hex(u)`.
+- Only one codec applies per connection.
 
 !!! note
-    CUBRID's default charset is `utf8` (set at database creation). All modern CUBRID
-    installations use UTF-8. Legacy databases created with `iso88591` charset may
-    produce garbled strings for non-ASCII data, since pycubrid always decodes bytes
-    as UTF-8.
+    In an EUC-KR database, CUBRID's lexer accepts non-ASCII identifiers only when
+    quoted (`[표]` or `"표"`), and `CHAR(n)` pads with the full-width space
+    U+3000. Both are server behaviors, not driver ones.
+
+!!! note "JDBC difference"
+    The CUBRID JDBC driver exposes a `charSet` connection-URL property for the
+    same purpose. pycubrid additionally refuses codecs that are not
+    ASCII-transparent and always treats `JSON` as UTF-8.
 
 ---
 
@@ -1002,6 +1061,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [`pycubrid.connect()`](#pycubridconnect)
   - [`decode_collections`](#decode_collections)
   - [`json_deserializer`](#json-columns)
+  - [`charset`](#charset)
 - [Async Module Constructor](#async-module-constructor)
   - [`pycubrid.aio.connect()`](#pycubridaioconnect)
 - [Explicit Native Compatibility Subset](#explicit-native-compatibility-subset)
@@ -1078,6 +1138,7 @@ def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> Connection
 ```
@@ -1095,6 +1156,7 @@ Create a new database connection.
 | `password` | `str` | `""` | Database password |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `charset` | `str` | `"utf-8"` | Codec for SQL text, credentials, character values, names and error text; see [`charset`](#charset) |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync and async broker connections; `True` uses the default verified context with a TLS 1.2 minimum. Connection uses CUBRID's STARTTLS-style upgrade — plaintext `CUBRS` handshake then TLS upgrade before `OPEN_DATABASE`. See [Connection guide](CONNECTION.md#ssltls). |
 | `**kwargs` | `Any` | — | Additional parameters such as `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, and `autocommit`. An unrecognised keyword is ignored but reported — see [Unknown Options](#unknown-options) |
 
@@ -1123,6 +1185,44 @@ into Python containers.
 | `None` (default) | Return JSON columns as `str` |
 | `callable` | Pass the raw JSON string to the callable and return its result |
 
+#### `charset`
+
+`charset` (default `"utf-8"`) is the Python codec for SQL text (including
+rendered parameters), batch and schema-info arguments, `OPEN_DATABASE`
+credentials, character values (`CHAR`, `VARCHAR`, `STRING`, `NCHAR`,
+`NCHAR VARYING`, `ENUM`, collection elements), column/table names, defaults and
+server error text. Set it to the database charset, for example
+`charset="euckr"` for a database created with `ko_KR.euckr` (#86).
+
+- Accepts Python codec names, the CUBRID names `utf8`, `euckr` and
+  `iso88591`, and a CUBRID locale such as `"ko_KR.euckr"` (the part after the
+  dot is used), normalized to the Python codec name (`"euc_kr"`); `None` means
+  the default. Validated before
+  any socket work: a non-string raises `TypeError`; an unknown codec, CUBRID
+  `binary` and codecs that are not ASCII-transparent (UTF-16/32, UTF-7,
+  Shift_JIS, Big5, GBK, GB18030, CP949, ISO-2022, ...) raise `ValueError`;
+  credentials the codec cannot encode raise `DataError`.
+- Text that cannot be encoded raises `DataError` before any byte of that request
+  is sent, on every path (ordinary and `compat.native` cursors,
+  `get_schema_info()`), and the session stays usable. With `euc_kr`, Hangul
+  syllables outside KS X 1001 (such as 똠 or 뷁), which Python would encode as
+  8-byte makeup sequences, count as unencodable.
+- Bytes that cannot be decoded raise `DataError` naming the codec. Ordinary
+  cursors keep the session; `get_schema_info()` retires the connection on any
+  FC9 reply it cannot parse, and the explicit prepared API
+  (`pycubrid.compat.native`) retires its session and raises `OperationalError`.
+  Error text and LOB file locators are decoded with `errors="replace"`.
+- `JSON` values are read back as UTF-8, but a JSON parameter is SQL text and is
+  encoded with the connection codec (an emoji in JSON under `euckr` raises
+  `DataError` on insert). `NUMERIC`, timezone names, the version string and LOB
+  contents are not affected (`CLOB` bytes are in the column charset);
+  `pycubrid.Binary(str)` always encodes as UTF-8.
+- The broker does no conversion, so a `CHARSET utf8` column in an EUC-KR
+  database raises `DataError` under `charset="euckr"`; convert it in SQL with
+  `CAST(col AS VARCHAR(n) CHARSET euckr)`.
+
+See [Character Encoding](CONNECTION.md#character-encoding) for the full contract.
+
 **Returns:** A new `Connection` instance.
 
 **Raises:** `OperationalError` if the connection cannot be established.
@@ -1149,14 +1249,14 @@ conn = pycubrid.connect(
 ## Explicit Native Compatibility Subset
 
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
-It now provides a bounded **sync-only prepared cursor** for INT32, UTF-8 string
-and SQL NULL values. This does not change ordinary `pycubrid.connect()` or
+It now provides a bounded **sync-only prepared cursor** for INT32, string
+and SQL NULL values; strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
 through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
 and close subset; it does not expose a wrapper cursor, DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
-`native.connect(url, user="public", passwd="")` returns a
+`native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
 `native.connection`. The wrapper `cubriddb.Connect/connect/connection(*args,
 **kwargs)` factories return `cubriddb.Connection(dsn="", user="public",
 password="", charset="utf8")`; the wrapper's `.connection` property is the
@@ -1167,9 +1267,11 @@ ordinary driver's separate `dba`/manual-commit defaults.
 
 Use `CUBRID:host:port:database:user:password:` with the final colon. Python
 arguments, including omitted `public`/empty defaults, take precedence over
-credentials embedded in that DSN. Only the existing UTF-8 transport and the
-plain CUBRID backend are accepted here; alternate backends, selectable charset,
-HA/TLS URL options and excess arguments fail before connection work. Errors
+credentials embedded in that DSN. The wrapper's `charset` (default `"utf8"`) is
+passed to the driver's [`charset`](#charset) option, so CUBRID names such as
+`"euckr"` work and an invalid codec fails before connection work. Only the
+plain CUBRID backend is accepted; alternate backends, HA/TLS URL options and
+excess arguments fail before connection work. Errors
 never echo the raw credential-bearing DSN.
 
 The native connection adds `cursor()`, `commit()`, `rollback()` and `close()`.
@@ -1227,6 +1329,7 @@ async def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> AsyncConnection
 ```
@@ -1234,7 +1337,7 @@ async def connect(
 Create and open an async connection.
 
 - Returns a connected `AsyncConnection`.
-- Accepts the same collection / JSON decoding kwargs as `pycubrid.connect()`.
+- Accepts the same collection / JSON decoding kwargs and the same `charset` option as `pycubrid.connect()`.
 - Supports `autocommit=True`, applied automatically once the connection is established. `AsyncConnection` itself now accepts `autocommit` directly too (as a keyword-only constructor argument), so constructing it without going through this factory no longer silently drops the flag.
 - Provides a similar async surface to the sync API, including `await conn.ping(reconnect=...)`; `create_lob()` remains sync-only, and auto-commit changes go through `await conn.set_autocommit(...)` instead of a property setter.
 - Accepts the same `ssl` parameter as `pycubrid.connect()`: `True`, `False`/`None`, or a custom `SSLContext`; when `True`, the default verified context enforces a TLS 1.2 minimum. Async TLS uses CUBRID's STARTTLS-style upgrade — the `CUBRS` handshake is sent in plaintext, then the transport is upgraded via `asyncio.AbstractEventLoop.start_tls()` (bounded by `ssl_handshake_timeout`) before `OPEN_DATABASE`. See the [Connection guide](CONNECTION.md#ssltls) for full details and the Python 3.10 `start_tls()` cert-verify caveat ([#156](https://github.com/cubrid-lab/pycubrid/issues/156)).
@@ -1289,6 +1392,7 @@ class Connection:
 | `read_timeout` | `float \| None` | `None` | Socket read timeout in seconds. |
 | `fetch_size` | `int` | `100` | Server-side fetch batch size. |
 | `json_deserializer` | `Callable[[str], Any] \| None` | `None` | Opt-in JSON column decoder. |
+| `charset` | `str` | `"utf-8"` | Connection codec; see [`charset`](#charset). Kept across reconnects. |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections. |
 
 ### Connection Methods
@@ -2429,13 +2533,16 @@ class DataError(DatabaseError)
 ```
 
 Raised for data processing problems (division by zero, numeric overflow, etc.).
-Also raised when a fetched character value (`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`,
-`JSON`) is not valid UTF-8, and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
+Also raised when a fetched character value (`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`)
+or column name is not valid in the connection [`charset`](#charset) (a `JSON`
+value: not valid UTF-8), when text sent to the server cannot be encoded with
+it (nothing of that request is sent), and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
 `DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
 zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
-(#413). The reply was fully read, so the connection stays usable. The explicit
-prepared API (`pycubrid.compat.native`) raises `OperationalError` and retires
-the session instead.
+(#413). The reply was fully read, so with ordinary cursors the connection stays
+usable. `get_schema_info()` retires the connection on any FC9 reply it cannot
+parse, and the explicit prepared API (`pycubrid.compat.native`) raises
+`OperationalError` and retires the session instead.
 
 ---
 
@@ -2891,7 +2998,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 
 | CUBRID Type | CCI Code | Python Type | Notes |
 |---|---|---|---|
-| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, UTF-8 decoded; invalid UTF-8 raises `DataError` (connection stays usable) |
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, decoded with the connection `charset` (default UTF-8); undecodable bytes raise `DataError` naming the codec (connection stays usable). In an EUC-KR database `CHAR(n)` pads with U+3000 |
 | `SHORT` (SMALLINT) | 9 | `int` | 16-bit signed |
 | `INTEGER` | 8 | `int` | 32-bit signed |
 | `BIGINT` | 21 | `int` | 64-bit signed |
@@ -2905,11 +3012,11 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps (second precision, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes (millisecond precision) |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
-| `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set |
+| `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set. Always UTF-8, whatever the connection `charset` |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
 | `OBJECT` (OID) | 19 | `str` | Format: `"OID:@page\|slot\|volume"` |
 | `BLOB` | 23 | `dict` | LOB handle (see below) |
-| `CLOB` | 24 | `dict` | LOB handle (see below) |
+| `CLOB` | 24 | `dict` | LOB handle (see below); `Lob.read()` returns bytes in the column charset, not decoded with `charset` |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
 
 > **Local time zone types:** `TIMESTAMPLTZ` and `DATETIMELTZ` values are returned
@@ -3948,6 +4055,7 @@ Technical documentation for the CUBRID CAS (Common Application Server) wire prot
 - [Packet Classes](#packet-classes)
   - [ClientInfoExchangePacket](#clientinfoexchangepacket)
   - [OpenDatabasePacket](#opendatabasepacket)
+  - [Connection charset](#connection-charset)
   - [PrepareAndExecutePacket](#prepareandexecutepacket)
   - [PreparePacket](#preparepacket)
   - [ExecutePacket](#executepacket)
@@ -4240,6 +4348,27 @@ packet.parse(response_data) # Framed response with CAS info prefix
 | `broker_info`    | `dict`  | `{db_type, protocol_version, statement_pooling}` |
 | `session_id`     | `int`   | Server session identifier |
 
+Database, user and password are encoded with the connection `charset` (default
+UTF-8) and cut to their 32-byte fields on a character boundary, so a multibyte
+character is never split (#86).
+
+### Connection charset
+
+The CAS protocol carries no client charset and the broker converts nothing: the
+server interprets request text in the database charset and returns each value
+in its column's charset. `charset` (default `"utf-8"`, #86) is therefore a
+client-side codec. Every packet built by a connection carries it
+(`packet.encoding`, set before `write()`), and `PacketWriter` / `PacketReader`
+use it for SQL text, FC9 arguments, credentials, character values, collection
+elements, column metadata names and defaults, and error text (with
+`errors="replace"`, as are LOB file locators, which embed the table name).
+Fetched `JSON` values are always UTF-8. `NUMERIC` text, timezone names and the
+engine version string stay UTF-8, and LOB contents are raw bytes. With
+`euc_kr`, Hangul outside KS X 1001, which Python encodes as an 8-byte makeup
+sequence starting `A4 D4`, is treated as unencodable. An encode failure raises `DataError` inside `write()`, before the
+request is sent; a strict decode failure raises `DataError` after the whole
+reply was read, so the session stays usable.
+
 ---
 
 ### PrepareAndExecutePacket
@@ -4266,8 +4395,8 @@ packet.parse(response_data) # Framed response with CAS info prefix
 **Prepare a statement** (FC=2) — separate prepare step.
 
 The internal packet accepts `prepare_flag=NORMAL` (legacy default) or
-`HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or invalid
-UTF-8 is rejected before FC2. This is internal wire groundwork for
+`HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or text the
+connection charset cannot encode is rejected before FC2. This is internal wire groundwork for
 [#439](PREPARED_BINDING_DESIGN.md), **not** a public prepared cursor.
 
 | Attribute        | Type   | Description |
@@ -4286,8 +4415,8 @@ UTF-8 is rejected before FC2. This is internal wire groundwork for
 
 After ten fixed arguments, the packet writes two length-prefixed arguments
 per validated scalar binding: type byte and value bytes. The supported
-internal subset is signed INT32 (`8`, four big-endian bytes), UTF-8 CHAR
-(`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
+internal subset is signed INT32 (`8`, four big-endian bytes), CHAR in the
+connection charset (`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
 NUL byte, not NULL. The optional `bind_count` must match the number of
 bindings. The forward-only byte follows effective autocommit: `1` in auto
 mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
@@ -4374,7 +4503,7 @@ request carries length-prefixed arguments in this order: schema type (`int`),
 first name/pattern (`string` or NULL), second name/pattern (`string` or NULL),
 flags (`byte`), then shard ID (`int`, protocol V5 and newer). NULL is a zero-length
 argument; an empty string contains its NUL terminator and is a different argument.
-Strings retain the driver's existing UTF-8 encoding.
+Strings use the connection charset (default UTF-8).
 
 After the response handle and tuple count, the column count precedes condensed
 columns: type (one or two bytes), scale (`int16`), precision (`int32`), name length
@@ -4503,8 +4632,8 @@ Available parameters (`CCIDbParam`):
 | `_write_double(value)` | Raw double (8B) |
 | `_write_bytes(value)` | Raw bytes, no prefix |
 | `_write_filler(count, value)` | Fill N bytes with value |
-| `_write_null_terminated_string(value)` | Length-prefixed UTF-8 string + null terminator |
-| `_write_fixed_length_string(value, length)` | Fixed-width null-padded string |
+| `_write_null_terminated_string(value)` | Length-prefixed string in the connection charset (default UTF-8) + null terminator |
+| `_write_fixed_length_string(value, length)` | Fixed-width null-padded string, cut on a character boundary |
 
 ---
 
@@ -4562,10 +4691,10 @@ Column data is transmitted as a 4-byte size prefix followed by the raw data. The
 | Type Code | Name       | Wire Format |
 |-----------|------------|-------------|
 | 0         | `NULL`     | size ≤ 0 → `None` |
-| 1         | `CHAR`     | Null-terminated UTF-8 string |
-| 2         | `STRING`   | Null-terminated UTF-8 string |
-| 3         | `NCHAR`    | Null-terminated UTF-8 string |
-| 4         | `VARNCHAR` | Null-terminated UTF-8 string |
+| 1         | `CHAR`     | Null-terminated string in the connection charset (default UTF-8) |
+| 2         | `STRING`   | Null-terminated string in the connection charset (default UTF-8) |
+| 3         | `NCHAR`    | Null-terminated string in the connection charset (default UTF-8) |
+| 4         | `VARNCHAR` | Null-terminated string in the connection charset (default UTF-8) |
 | 5         | `BIT`      | Raw bytes |
 | 6         | `VARBIT`   | Raw bytes |
 | 7         | `NUMERIC`  | Null-terminated string → `Decimal` |
@@ -4583,7 +4712,7 @@ Column data is transmitted as a 4-byte size prefix followed by the raw data. The
 | 22        | `DATETIME` | 7 shorts: y, m, d, h, m, s, ms |
 | 23        | `BLOB`     | Packed LOB handle → `dict` |
 | 24        | `CLOB`     | Packed LOB handle → `dict` |
-| 25        | `ENUM`     | Null-terminated UTF-8 string |
+| 25        | `ENUM`     | Null-terminated string in the connection charset (default UTF-8) |
 
 ### Column Metadata
 
@@ -4883,7 +5012,7 @@ flowchart TD
 - **`connection.py` — TCP Socket & Transaction Management**: Manages the physical TCP connection to the CAS, handles transactions (commit/rollback), and acts as the owner for LOB operations.
 - **`cursor.py` — SQL Execution & Result Fetching**: Implements the `Cursor` object, handling SQL preparation, execution, and the various fetch operations while maintaining state of results.
 - **`protocol.py` — CAS Packet Classes**: Defines 18 specialized packet classes that map to CUBRID CAS function codes, handling the serialization and deserialization of specific requests and responses.
-- **`packet.py` — PacketReader / PacketWriter**: Provides low-level utilities for reading from and writing to the wire format, handling byte order and primitive type serialization.
+- **`packet.py` — PacketReader / PacketWriter**: Provides low-level utilities for reading from and writing to the wire format, handling byte order and primitive type serialization. Both carry the connection `charset` codec (#86): the connection sets it on every packet before `write()`, so SQL text, credentials, character values, column names, error text and LOB locators use the database charset, while fetched JSON, NUMERIC and timezone names stay UTF-8. See [Character Encoding](CONNECTION.md#character-encoding).
 - **`constants.py` — CAS Constants**: Contains enumeration for CAS function codes, CUBRID data types, and other protocol-level constants.
 - **`types.py` — DB-API Types**: Defines the type objects required by PEP 249 and manages the mapping between CUBRID types and Python types.
 - **`exceptions.py` — PEP 249 Exceptions**: Implements the standard hierarchy of exceptions required by the DB-API 2.0 specification.
@@ -4910,7 +5039,7 @@ flowchart TD
     
     wire --> dispatch
     
-    dispatch -->|"1-4, 25"| str["str<br/>(UTF-8 decoded)"]
+    dispatch -->|"1-4, 25"| str["str<br/>(connection charset,<br/>default UTF-8)"]
     dispatch -->|"5, 6"| bytes["bytes<br/>(raw binary)"]
     dispatch -->|"7"| decimal["Decimal<br/>(string-parsed)"]
     dispatch -->|"8"| int32["int<br/>(4B signed)"]
@@ -6041,6 +6170,12 @@ for row in cur:
     print(row[0])  # Prints correctly: 김영선, 日本語テスト
 ```
 
+This assumes a UTF-8 database (the default). For a database created with
+another charset, connect with that charset, for example `charset="euckr"` for
+`ko_KR.euckr`; the broker does no conversion, so a mismatched client either
+cannot encode a value or cannot decode a reply and raises `DataError`. See
+[Character Encoding](CONNECTION.md#character-encoding).
+
 ### Invalid UTF-8 in a Value or Error Message
 
 CUBRID counts `VARCHAR(n)` sizes and some echoed error text in bytes, so it can
@@ -6054,6 +6189,12 @@ character.
   valid UTF-8 raises `DataError`; the original `UnicodeDecodeError` is its
   `__cause__`. The connection stays usable. To inspect the stored bytes, select
   `HEX(col)` instead, then fix the stored value.
+- **Charset mismatch:** the same `DataError` names the connection codec, for
+  example `column value is not valid UTF-8` from a default client on an EUC-KR
+  database, or `column value is not valid euc_kr` for a `CHARSET utf8` column
+  read with `charset="euckr"`. Connect with the database charset, or convert
+  the column in SQL: `CAST(col AS VARCHAR(n) CHARSET euckr)`. Undecodable
+  column names raise `DataError` the same way (#86). `JSON` is always UTF-8.
 
 Earlier releases raised `OperationalError: malformed response from
 broker` and closed the connection.
@@ -6723,10 +6864,10 @@ Common pycubrid usage questions with practical answers.
     ```
 
 ??? "What character encodings are supported?"
-    pycubrid supports standard CUBRID character types and Python `str` values.
+    UTF-8 by default. For a database created with another charset, pass it as `charset`, for example `pycubrid.connect(database="kodb", charset="euckr")` (also `pycubrid.aio.connect`). CUBRID names `utf8`, `euckr` and `iso88591` and ASCII-transparent Python codecs are accepted; UTF-16/32, Shift_JIS, Big5, GBK, CP949 and other codecs that can emit ASCII bytes inside a multibyte character are rejected.
 
     !!! note
-        For multilingual text workloads (NCHAR/VARNCHAR), verify your database collation and server/client charset settings together.
+        The broker does no charset conversion: the client codec must match the database charset, and every value arrives in its column's charset. A `CHARSET utf8` column inside an EUC-KR database raises `DataError` under `charset="euckr"`; convert it in SQL with `CAST(col AS VARCHAR(n) CHARSET euckr)`. JSON is always UTF-8. See [Character Encoding](CONNECTION.md#character-encoding).
 
 ??? "How do I handle errors properly?"
     Catch specific DB-API exceptions first (`IntegrityError`, `ProgrammingError`, `OperationalError`) and fall back to `Error`.
@@ -8214,7 +8355,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 | Surface | Existing pycubrid path or outstanding work |
 | --- | --- |
 | Constructors, autocommit, threading | Native initialization enables autocommit; ordinary pycubrid defaults to manual commit and declares `threadsafety=1`. Explicit CUBRID/UTF-8 construction and aliases are available in #465; sharing, settings and CCI URL/HA options remain separate work. |
-| Charset, dict cursors, converters | The official wrapper exposes these options. pycubrid has no equivalent configurable surface. Charset proposal #86 tracks the missing encoding option; documentation of UTF-8-only behavior is not implementation evidence. UTF-8 defaults remain unchanged. |
+| Charset, dict cursors, converters | The official wrapper exposes these options. Since #86, `pycubrid.connect(charset=...)`, `pycubrid.aio.connect(charset=...)`, `compat.native` and the `cubriddb.Connection(charset=...)` constructor encode and decode with the selected codec, verified live against an EUC-KR database; no `charset` attribute is retained on the connection. Dict cursors and converters have no equivalent surface. UTF-8 defaults remain unchanged. |
 | Prepare/typed binding | Public native prepare/bind/execute capability is absent even though packet classes exist: #418/#439; typed collection handles #440; LOB handles #441. |
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
 | Result navigation and metadata | Absolute/relative seek and position are #444; 15-field result metadata is #445 with #398. Native next_result exists; the wrapper nextset stub and pycubrid's unsupported nextset do not supply that capability. |
@@ -8337,7 +8478,7 @@ empty strings. Binary LOB users retain ordinary bytes APIs, not compatibility Un
 | --- | --- |
 | M factories / M sharing | #465 delivers explicit construction/close, aliases, DSN/user/autocommit defaults and native-wrapper identity without changing ordinary behavior. Sharing/lifecycle serialization remains separate and gates threadsafety=2; no prepared engine or global switch is implied. |
 | M prepared / typed binding | #439 after #418 and this contract: exact count/return/positional/NULL/error checks; #440 collections and #441 LOB binding follow core. |
-| M conversion / charset / HA | Separate dictCursor/converter leaf; #86 real encoding; separate HA/URL-option leaf with actual failover evidence. Parsing options or upstream default_cursor stubs alone are incomplete. |
+| M conversion / charset / HA | Separate dictCursor/converter leaf; charset encoding delivered by #86 (a retained wrapper `charset` attribute is still absent); separate HA/URL-option leaf with actual failover evidence. Parsing options or upstream default_cursor stubs alone are incomplete. |
 | S batch / errors / identity | Separate native batch records using existing arbitrary-SQL transport, namespace exception/export adapters, and broker-driven identity leaf with fresh/transaction/CALL/non-auto controls. Preserve ordinary first-error and cached-string behavior. |
 | M settings / navigation | Effective server operations versus four cached members; #444 seek/position; separate next_result/execute-option/query-plan leaves. Stubs/flags do not complete capabilities. |
 | S/M metadata / schema / LOB | #445 value/type/15-field metadata; #412/#455–457 owned schema reuse; #442 actual byte-position/short transfers; #443 files. Each is a focused slice, not a monolithic facade PR. |

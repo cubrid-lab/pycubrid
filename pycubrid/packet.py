@@ -12,6 +12,66 @@ from .constants import CUBRIDDataType, DataSize
 from .exceptions import DataError
 
 
+def _codec_label(encoding: str) -> str:
+    """Return the codec name used in driver error messages."""
+    return "UTF-8" if encoding == "utf-8" else encoding
+
+
+# Python's EUC-KR codec encodes a Hangul syllable outside KS X 1001 (e.g. 똠,
+# 뷁) as an 8-byte KS X 1001 "makeup" sequence starting with the Hangul filler
+# U+3164 (A4 D4). CUBRID's euckr charset stores those bytes as four separate
+# jamo, so such a character is treated as unencodable (#86).
+_EUC_KR_FILLER = b"\xa4\xd4"
+
+
+def _encode_text(value: str, encoding: str) -> tuple[bytes | None, int]:
+    """Encode ``value``; return ``(bytes, -1)`` or ``(None, bad_position)``.
+
+    Returns instead of raising so callers can raise ``DataError`` outside any
+    ``except`` block: no chained exception then keeps the (possibly secret)
+    text.
+    """
+    try:
+        encoded = value.encode(encoding)
+    except UnicodeEncodeError as exc:
+        return None, exc.start
+    if encoding == "euc_kr" and _EUC_KR_FILLER in encoded:
+        for position, char in enumerate(value):
+            if char != "\u3164" and len(char.encode(encoding)) > 2:
+                return None, position
+    return encoded, -1
+
+
+def _decode_text(raw: bytes, encoding: str) -> str:
+    """Strictly decode ``raw`` with ``encoding`` the way the CUBRID server reads it.
+
+    CPython's ``euc_kr`` reads ``A4 D4`` (the Hangul filler U+3164) as the
+    start of an 8-byte makeup sequence, so a stored lone U+3164 fails to
+    decode and stored filler+jamo reads back as one syllable. CUBRID's euckr
+    treats each pair as one KS X 1001 character, as ``cp949`` does; any
+    CP949-only extension character is still rejected as invalid EUC-KR.
+    """
+    if encoding != "euc_kr" or _EUC_KR_FILLER not in raw:
+        return raw.decode(encoding)
+    text = raw.decode("cp949")
+    offset = 0
+    for char in text:
+        width = len(char.encode("cp949"))
+        if len(char.encode("euc_kr")) > 2:
+            raise UnicodeDecodeError(
+                "euc_kr", raw, offset, offset + width, "not a KS X 1001 character"
+            )
+        offset += width
+    return text
+
+
+def _unencodable_message(what: str, encoding: str, position: int) -> str:
+    return (
+        f"{what} cannot be encoded as {_codec_label(encoding)} "
+        f"(unencodable character at position {position})"
+    )
+
+
 # Pre-compiled struct objects — avoids format-string parsing on every call.
 _STRUCT_SHORT = struct.Struct(">h")
 _STRUCT_INT = struct.Struct(">i")
@@ -103,9 +163,13 @@ def _attach_timezone(dt: datetime.datetime, tz_str: str) -> datetime.datetime:
 
 
 class PacketWriter:
-    def __init__(self, *, reserve_header: bool = True) -> None:
+    def __init__(self, *, reserve_header: bool = True, encoding: str = "utf-8") -> None:
         self._header_size: int = _HEADER_SIZE if reserve_header else 0
         self._buffer: bytearray = bytearray(self._header_size)
+        # Python codec for SQL text and credentials: the connection charset
+        # (#86). The CAS applies no conversion, so these bytes must already be
+        # in the database charset.
+        self._encoding: str = encoding
 
     def add_byte(self, value: int) -> None:
         """Write a length-prefixed byte value."""
@@ -218,8 +282,20 @@ class PacketWriter:
             return
         self._buffer.extend(bytes([value & 0xFF]) * count)
 
+    def _encode(self, value: str) -> bytes:
+        """Encode request text with the connection codec, before any I/O.
+
+        An unencodable character is a data problem: raise ``DataError``
+        without echoing the text (it may hold bound values), so nothing of
+        the request reaches the socket and the session stays usable.
+        """
+        encoded, position = _encode_text(value, self._encoding)
+        if encoded is None:
+            raise DataError(_unencodable_message("text", self._encoding, position))
+        return encoded
+
     def _write_null_terminated_string(self, value: str) -> None:
-        encoded = value.encode("utf-8")
+        encoded = self._encode(value)
         self._write_int(len(encoded) + 1)
         self._write_bytes(encoded)
         self._write_byte(0)
@@ -228,8 +304,17 @@ class PacketWriter:
         if length <= 0:
             return
 
-        encoded = value.encode("utf-8")
-        fixed = encoded[:length]
+        fixed = self._encode(value)
+        if len(fixed) > length:
+            # Keep whole characters: never send a truncated multibyte
+            # sequence the CAS would read as a different name (#86).
+            kept = bytearray()
+            for char in value:
+                encoded_char = char.encode(self._encoding)
+                if len(kept) + len(encoded_char) > length:
+                    break
+                kept += encoded_char
+            fixed = bytes(kept)
         self._write_bytes(fixed)
         if len(fixed) < length:
             self._write_filler(length - len(fixed), filler)
@@ -273,7 +358,7 @@ _COLLECTION_ELEMENT_METHOD_NAMES: dict[int, str] = {
 
 
 class PacketReader:
-    __slots__ = ("_buffer", "_offset", "_decode_collections", "_json_deserializer")
+    __slots__ = ("_buffer", "_offset", "_decode_collections", "_json_deserializer", "_encoding")
 
     def __init__(
         self,
@@ -281,11 +366,16 @@ class PacketReader:
         *,
         decode_collections: bool = False,
         json_deserializer: Any = None,
+        encoding: str = "utf-8",
     ) -> None:
         self._buffer: memoryview = memoryview(data)
         self._offset: int = 0
         self._decode_collections: bool = decode_collections
         self._json_deserializer: Any = json_deserializer
+        # Connection charset (#86) for character values, metadata names,
+        # error text and LOB locators (lenient: they embed the table name).
+        # Protocol text (NUMERIC, timezone names, version) and JSON stay UTF-8.
+        self._encoding: str = encoding
 
     def _parse_byte(self) -> int:
         value = self._buffer[self._offset]
@@ -332,6 +422,7 @@ class PacketReader:
         self._offset += count
 
     def _parse_null_terminated_string(self, length: int) -> str:
+        """Decode protocol text (NUMERIC, timezone names, version) as UTF-8."""
         if length <= 0:
             return ""
 
@@ -342,19 +433,48 @@ class PacketReader:
             return bytes(self._buffer[start : end - 1]).decode("utf-8")
         return bytes(self._buffer[start:end]).decode("utf-8")
 
-    def _parse_text_value(self, length: int) -> str:
-        """Decode a character column value.
+    def _parse_charset_text(self, length: int, what: str, encoding: str | None = None) -> str:
+        """Decode strictly with the connection codec (or ``encoding``).
 
-        The caller already holds the complete response, so invalid UTF-8
-        in a value is a data problem, not a framing problem: raise
-        ``DataError`` and leave the connection usable (#492).
+        The caller already holds the complete response, so undecodable bytes
+        are a data problem, not a framing problem: raise ``DataError`` naming
+        the codec and leave the connection usable (#492, #86).
         """
+        if length <= 0:
+            return ""
+        codec = self._encoding if encoding is None else encoding
+        start = self._offset
+        end = start + length
+        self._offset = end
+        if self._buffer[end - 1] == 0:
+            end -= 1
         try:
-            return self._parse_null_terminated_string(length)
+            return _decode_text(bytes(self._buffer[start:end]), codec)
         except UnicodeDecodeError as exc:
             raise DataError(
-                f"column value is not valid UTF-8 (invalid byte at offset {exc.start})"
+                f"{what} is not valid {_codec_label(codec)} (invalid byte at offset {exc.start})"
             ) from exc
+
+    def _parse_text_value(self, length: int) -> str:
+        """Decode a character column value with the connection codec (hot path)."""
+        if length <= 0:
+            return ""
+        start = self._offset
+        end = start + length
+        self._offset = end
+        if self._buffer[end - 1] == 0:
+            end -= 1
+        try:
+            return _decode_text(bytes(self._buffer[start:end]), self._encoding)
+        except UnicodeDecodeError as exc:
+            raise DataError(
+                f"column value is not valid {_codec_label(self._encoding)} "
+                f"(invalid byte at offset {exc.start})"
+            ) from exc
+
+    def _parse_metadata_text(self, length: int) -> str:
+        """Decode a column/table name or default value with the connection codec."""
+        return self._parse_charset_text(length, "column metadata")
 
     def _parse_date(self, size: int = 0) -> datetime.date:
         year, month, day = _STRUCT_3H.unpack_from(self._buffer, self._offset)
@@ -413,7 +533,8 @@ class PacketReader:
             raise ValueError(f"malformed NUMERIC value: {value!r}") from exc
 
     def _parse_json(self, size: int) -> Any:
-        value = self._parse_text_value(size)
+        # The CAS always sends JSON as UTF-8, whatever the database charset.
+        value = self._parse_charset_text(size, "JSON value", "utf-8")
         if self._json_deserializer is None:
             return value
         if self._json_deserializer is json.loads:
@@ -486,14 +607,15 @@ class PacketReader:
         """Read an error packet body as ``(error_code, message)``."""
         error_code = self._parse_int()
         message_size = response_length - DataSize.INT
-        error_message = self._parse_error_message(message_size)
+        error_message = self._parse_lenient_text(message_size)
         return error_code, error_message
 
-    def _parse_error_message(self, length: int) -> str:
-        """Decode server error text, replacing invalid UTF-8 (#492).
+    def _parse_lenient_text(self, length: int) -> str:
+        """Decode server text (error messages, LOB locators) with the connection
+        codec, replacing undecodable bytes.
 
         CUBRID can cut a message mid-character (e.g. when echoing an
-        oversized value), and the real error must still surface.
+        oversized value), and the real error must still surface (#492).
         """
         if length <= 0:
             return ""
@@ -502,7 +624,7 @@ class PacketReader:
         self._offset = end
         if self._buffer[end - 1] == 0:
             end -= 1
-        return bytes(self._buffer[start:end]).decode("utf-8", errors="replace")
+        return bytes(self._buffer[start:end]).decode(self._encoding, errors="replace")
 
     def bytes_remaining(self) -> int:
         """Return unread byte count."""
@@ -513,11 +635,15 @@ class PacketReader:
 
     def _read_lob(self, size: int, lob_type: CUBRIDDataType) -> dict[str, object]:
         packed_lob_handle = self._parse_buffer(size)
-        lob_reader = PacketReader(packed_lob_handle)
+        lob_reader = PacketReader(packed_lob_handle, encoding=self._encoding)
         _ = lob_reader._parse_int()
         lob_length = lob_reader._parse_long()
         locator_size = lob_reader._parse_int()
-        file_locator = lob_reader._parse_null_terminated_string(locator_size)
+        # The locator is a server file path that embeds the table name, in the
+        # database charset. It is informational (``packed_lob_handle`` is what
+        # goes back to the server), so decode it leniently: a mismatch must not
+        # fail the fetch (#86).
+        file_locator = lob_reader._parse_lenient_text(locator_size)
 
         return {
             "lob_type": lob_type,

@@ -31,7 +31,7 @@ from .exceptions import (
     OperationalError,
     ProgrammingError,
 )
-from .packet import PacketReader, PacketWriter
+from .packet import PacketReader, PacketWriter, _codec_label, _encode_text
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +87,7 @@ class _PreparedScalar:
 
     type_code: int
     payload: bytes
+    encoding: str = "utf-8"
 
     def __post_init__(self) -> None:
         if isinstance(self.type_code, bool) or not isinstance(self.type_code, int):
@@ -103,15 +104,20 @@ class _PreparedScalar:
             if not self.payload.endswith(b"\x00") or b"\x00" in self.payload[:-1]:
                 raise ProgrammingError("prepared CHAR must have one terminal NUL")
             try:
-                self.payload[:-1].decode("utf-8")
+                self.payload[:-1].decode(self.encoding)
             except UnicodeDecodeError:
-                raise DataError("prepared CHAR is not valid UTF-8") from None
+                raise DataError(
+                    f"prepared CHAR is not valid {_codec_label(self.encoding)}"
+                ) from None
         else:
             raise ProgrammingError("unsupported prepared parameter type code")
 
 
-def _encode_prepared_scalar(value: Any) -> _PreparedScalar:
-    """Encode the intentionally narrow #439 scalar set without SQL rendering."""
+def _encode_prepared_scalar(value: Any, encoding: str = "utf-8") -> _PreparedScalar:
+    """Encode the intentionally narrow #439 scalar set without SQL rendering.
+
+    Strings use ``encoding``, the connection charset (#86).
+    """
     if value is None:
         return _PreparedScalar(CUBRIDDataType.NULL, b"")
     if isinstance(value, bool):
@@ -123,10 +129,10 @@ def _encode_prepared_scalar(value: Any) -> _PreparedScalar:
     if isinstance(value, str):
         if "\x00" in value:
             raise ProgrammingError("prepared string contains NUL")
-        try:
-            return _PreparedScalar(CUBRIDDataType.CHAR, value.encode("utf-8") + b"\x00")
-        except UnicodeEncodeError:
-            raise DataError("prepared string cannot be encoded as UTF-8") from None
+        encoded, _position = _encode_text(value, encoding)
+        if encoded is None:
+            raise DataError(f"prepared string cannot be encoded as {_codec_label(encoding)}")
+        return _PreparedScalar(CUBRIDDataType.CHAR, encoded + b"\x00", encoding)
     raise ProgrammingError("unsupported prepared parameter type")
 
 
@@ -563,7 +569,7 @@ def _parse_schema_column_metadata(reader: PacketReader, column_count: int) -> li
         name_len = reader._parse_int()
         if name_len < 0 or name_len > reader.bytes_remaining():
             raise ValueError("invalid schema column name length")
-        name = reader._parse_null_terminated_string(name_len)
+        name = reader._parse_metadata_text(name_len)
         columns.append(_SchemaColumn(column_type, scale, precision, name))
     return columns
 
@@ -581,22 +587,22 @@ def _parse_column_metadata(
         name_len = reader._parse_int()
         if strict_lengths and (name_len < 0 or name_len > reader.bytes_remaining()):
             raise ValueError("invalid prepared column name length")
-        name = reader._parse_null_terminated_string(name_len)
+        name = reader._parse_metadata_text(name_len)
         real_name_len = reader._parse_int()
         if strict_lengths and (real_name_len < 0 or real_name_len > reader.bytes_remaining()):
             raise ValueError("invalid prepared column real-name length")
-        real_name = reader._parse_null_terminated_string(real_name_len)
+        real_name = reader._parse_metadata_text(real_name_len)
         table_name_len = reader._parse_int()
         if strict_lengths and (table_name_len < 0 or table_name_len > reader.bytes_remaining()):
             raise ValueError("invalid prepared column table-name length")
-        table_name = reader._parse_null_terminated_string(table_name_len)
+        table_name = reader._parse_metadata_text(table_name_len)
 
         # CAS sends is_non_null: zero means the column accepts NULL.
         is_nullable = reader._parse_byte() == 0
         default_len = reader._parse_int()
         if strict_lengths and (default_len < 0 or default_len > reader.bytes_remaining()):
             raise ValueError("invalid prepared column default length")
-        default_value = reader._parse_null_terminated_string(default_len)
+        default_value = reader._parse_metadata_text(default_len)
         is_auto_increment = reader._parse_byte() == 1
         is_unique_key = reader._parse_byte() == 1
         is_primary_key = reader._parse_byte() == 1
@@ -820,6 +826,17 @@ def _parse_result_infos(
 # ---------------------------------------------------------------------------
 
 
+class _CasPacket:
+    """Base of the CAS packets that carry connection-charset text (#86).
+
+    ``encoding`` is the Python codec for SQL text, character values,
+    metadata names and error messages. The owning connection sets it to its
+    ``charset`` before ``write()``; the default keeps the UTF-8 wire format.
+    """
+
+    encoding: str = "utf-8"
+
+
 class ClientInfoExchangePacket:
     """Initial handshake packet (no DATA_LENGTH/CAS_INFO framing)."""
 
@@ -842,13 +859,14 @@ class ClientInfoExchangePacket:
         self.new_connection_port = struct.unpack(">i", data[:4])[0]
 
 
-class OpenDatabasePacket:
+class OpenDatabasePacket(_CasPacket):
     """Open a database connection."""
 
-    def __init__(self, database: str, user: str, password: str) -> None:
+    def __init__(self, database: str, user: str, password: str, *, encoding: str = "utf-8") -> None:
         self.database = database
         self.user = user
         self.password = password
+        self.encoding = encoding
         self.cas_info: bytes = b""
         self.response_code: int = 0
         self.broker_info: dict[str, int] = {}
@@ -858,9 +876,10 @@ class OpenDatabasePacket:
         """Serialize the open database packet.
 
         Wire format: database(32) + user(32) + password(32) + extended_info(512)
-        + reserved(20) = 628 bytes (no header).
+        + reserved(20) = 628 bytes (no header). Each name is encoded with the
+        connection charset and cut to 32 bytes on a character boundary.
         """
-        writer = PacketWriter(reserve_header=False)
+        writer = PacketWriter(reserve_header=False, encoding=self.encoding)
         writer._write_fixed_length_string(self.database, 32)
         writer._write_fixed_length_string(self.user, 32)
         writer._write_fixed_length_string(self.password, 32)
@@ -874,7 +893,7 @@ class OpenDatabasePacket:
         ``data`` starts after the 4-byte DATA_LENGTH prefix, so it begins
         with casInfo(4B).
         """
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         self.cas_info = reader._parse_bytes(DataSize.CAS_INFO)
         self.response_code = reader._parse_int()
         if self.response_code < 0:
@@ -889,7 +908,7 @@ class OpenDatabasePacket:
         self.session_id = reader._parse_int()
 
 
-class PrepareAndExecutePacket:
+class PrepareAndExecutePacket(_CasPacket):
     """Combined prepare-and-execute packet (FC=41)."""
 
     def __init__(
@@ -920,7 +939,7 @@ class PrepareAndExecutePacket:
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the prepare-and-execute request."""
-        writer = PacketWriter()
+        writer = PacketWriter(encoding=self.encoding)
         writer._write_byte(CASFunctionCode.PREPARE_AND_EXECUTE)
         writer.add_int(3)  # arg count
         writer._write_null_terminated_string(self.sql)
@@ -945,6 +964,7 @@ class PrepareAndExecutePacket:
             data,
             decode_collections=self.decode_collections,
             json_deserializer=self.json_deserializer,
+            encoding=self.encoding,
         )
         reader._skip_bytes(DataSize.CAS_INFO)
         self.response_code = reader._parse_int()
@@ -985,7 +1005,7 @@ class PrepareAndExecutePacket:
                     )
 
 
-class PreparePacket:
+class PreparePacket(_CasPacket):
     """Prepare a statement (FC=2)."""
 
     def __init__(
@@ -1018,19 +1038,21 @@ class PreparePacket:
             or self.prepare_flag not in (CCIPrepareOption.NORMAL, CCIPrepareOption.HOLDABLE)
         ):
             raise ProgrammingError("unsupported prepared statement option")
-        writer = PacketWriter()
+        writer = PacketWriter(encoding=self.encoding)
         writer._write_byte(CASFunctionCode.PREPARE)
         try:
             writer._write_null_terminated_string(self.sql)
-        except UnicodeEncodeError:
-            raise DataError("prepared SQL cannot be encoded as UTF-8") from None
+        except DataError:
+            raise DataError(
+                f"prepared SQL cannot be encoded as {_codec_label(self.encoding)}"
+            ) from None
         writer.add_byte(self.prepare_flag)
         writer.add_byte(1 if self.auto_commit else 0)
         return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the prepare response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         self.response_code = reader._parse_int()
         if self.response_code < 0:
@@ -1042,7 +1064,7 @@ class PreparePacket:
         self.column_count = len(self.columns)
 
 
-class ExecutePacket:
+class ExecutePacket(_CasPacket):
     """Execute a prepared statement (FC=3)."""
 
     def __init__(
@@ -1106,6 +1128,8 @@ class ExecutePacket:
         for binding in self.bindings:
             if not isinstance(binding, _PreparedScalar):
                 raise ProgrammingError("invalid prepared parameter encoding")
+            if binding.type_code == CUBRIDDataType.CHAR and binding.encoding != self.encoding:
+                raise ProgrammingError("prepared string was encoded for a different charset")
             writer.add_byte(binding.type_code)
             writer.add_bytes(binding.payload)
         return writer.finalize(cas_info)
@@ -1118,6 +1142,7 @@ class ExecutePacket:
             data,
             decode_collections=self.decode_collections,
             json_deserializer=self.json_deserializer,
+            encoding=self.encoding,
         )
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
@@ -1152,7 +1177,7 @@ class ExecutePacket:
                     )
 
 
-class FetchPacket:
+class FetchPacket(_CasPacket):
     """Fetch result rows (FC=8)."""
 
     def __init__(
@@ -1198,6 +1223,7 @@ class FetchPacket:
             data,
             decode_collections=self.decode_collections,
             json_deserializer=self.json_deserializer,
+            encoding=self.encoding,
         )
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
@@ -1215,7 +1241,7 @@ class FetchPacket:
             )
 
 
-class CommitPacket:
+class CommitPacket(_CasPacket):
     """Commit transaction (FC=1)."""
 
     def write(self, cas_info: bytes) -> bytes:
@@ -1227,7 +1253,7 @@ class CommitPacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the commit response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1235,7 +1261,7 @@ class CommitPacket:
             _raise_error(reader, remaining)
 
 
-class RollbackPacket:
+class RollbackPacket(_CasPacket):
     """Rollback transaction (FC=1)."""
 
     def write(self, cas_info: bytes) -> bytes:
@@ -1247,7 +1273,7 @@ class RollbackPacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the rollback response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1255,7 +1281,7 @@ class RollbackPacket:
             _raise_error(reader, remaining)
 
 
-class CloseDatabasePacket:
+class CloseDatabasePacket(_CasPacket):
     """Close database connection (FC=31)."""
 
     def write(self, cas_info: bytes) -> bytes:
@@ -1266,7 +1292,7 @@ class CloseDatabasePacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close database response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1274,7 +1300,7 @@ class CloseDatabasePacket:
             _raise_error(reader, remaining)
 
 
-class CloseQueryPacket:
+class CloseQueryPacket(_CasPacket):
     """Close a query handle (FC=6)."""
 
     def __init__(self, query_handle: int) -> None:
@@ -1289,7 +1315,7 @@ class CloseQueryPacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close query response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1297,7 +1323,7 @@ class CloseQueryPacket:
             _raise_error(reader, remaining)
 
 
-class GetEngineVersionPacket:
+class GetEngineVersionPacket(_CasPacket):
     """Get the database engine version (FC=15)."""
 
     def __init__(self, auto_commit: bool = True) -> None:
@@ -1313,7 +1339,7 @@ class GetEngineVersionPacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get engine version response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1333,9 +1359,10 @@ def _write_schema_info_request(
     *,
     shard_id: int = 0,
     protocol_version: int = CASProtocol.VERSION,
+    encoding: str = "utf-8",
 ) -> bytes:
     """Serialize the independently nullable FC9 arguments and shard identifier."""
-    writer = PacketWriter()
+    writer = PacketWriter(encoding=encoding)
     writer._write_byte(CASFunctionCode.SCHEMA_INFO)
     writer.add_int(schema_type)
     for argument in (arg1, arg2):
@@ -1349,7 +1376,7 @@ def _write_schema_info_request(
     return writer.finalize(cas_info)
 
 
-class GetSchemaPacket:
+class GetSchemaPacket(_CasPacket):
     """Get schema information (FC=9)."""
 
     def __init__(
@@ -1381,11 +1408,12 @@ class GetSchemaPacket:
             self.arg2,
             self.pattern_match_flag,
             protocol_version=self.protocol_version,
+            encoding=self.encoding,
         )
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get schema response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1400,7 +1428,7 @@ class GetSchemaPacket:
             raise ValueError("missing schema columns for nonempty result")
 
 
-class BatchExecutePacket:
+class BatchExecutePacket(_CasPacket):
     """Batch execute multiple SQL statements (FC=20)."""
 
     def __init__(
@@ -1417,7 +1445,7 @@ class BatchExecutePacket:
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the batch execute request."""
-        writer = PacketWriter()
+        writer = PacketWriter(encoding=self.encoding)
         writer._write_byte(CASFunctionCode.EXECUTE_BATCH)
         writer.add_byte(1 if self.auto_commit else 0)
         if self.protocol_version > 3:
@@ -1428,7 +1456,7 @@ class BatchExecutePacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the batch execute response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1443,7 +1471,7 @@ class BatchExecutePacket:
             if result < 0:
                 error_code = reader._parse_int() if self.protocol_version > 2 else result
                 msg_len = reader._parse_int()
-                error_msg = reader._parse_error_message(msg_len)
+                error_msg = reader._parse_lenient_text(msg_len)
                 self.errors.append({"code": error_code, "message": error_msg})
             else:
                 self.results.append((stmt_type, result))
@@ -1454,7 +1482,7 @@ class BatchExecutePacket:
             _ = reader._parse_int()  # lastShardId
 
 
-class LOBNewPacket:
+class LOBNewPacket(_CasPacket):
     """Create a new LOB handle (FC=35)."""
 
     def __init__(self, lob_type: int) -> None:
@@ -1470,7 +1498,7 @@ class LOBNewPacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB new response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1480,7 +1508,7 @@ class LOBNewPacket:
         self.lob_handle = reader._parse_bytes(reader.bytes_remaining())
 
 
-class LOBWritePacket:
+class LOBWritePacket(_CasPacket):
     """Write data to a LOB (FC=36)."""
 
     def __init__(self, packed_lob_handle: bytes, offset: int, data: bytes) -> None:
@@ -1503,7 +1531,7 @@ class LOBWritePacket:
 
         On success, ``response_code`` doubles as ``bytes_written`` per CAS protocol.
         """
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1512,7 +1540,7 @@ class LOBWritePacket:
         self.bytes_written = response_code
 
 
-class LOBReadPacket:
+class LOBReadPacket(_CasPacket):
     """Read data from a LOB (FC=37)."""
 
     def __init__(self, packed_lob_handle: bytes, offset: int, length: int) -> None:
@@ -1534,7 +1562,7 @@ class LOBReadPacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB read response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1545,7 +1573,7 @@ class LOBReadPacket:
             self.lob_data = reader._parse_bytes(self.bytes_read)
 
 
-class GetLastInsertIdPacket:
+class GetLastInsertIdPacket(_CasPacket):
     """Get the last insert ID (FC=40)."""
 
     def __init__(self) -> None:
@@ -1565,7 +1593,7 @@ class GetLastInsertIdPacket:
           2 bytes (e.g. ``0x83 0x07`` for CCI_U_TYPE_NUMERIC).
         - Otherwise the header is 1 byte (legacy single-byte type).
         """
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1582,7 +1610,7 @@ class GetLastInsertIdPacket:
                 self.last_insert_id = reader._parse_null_terminated_string(remaining)
 
 
-class GetDbParameterPacket:
+class GetDbParameterPacket(_CasPacket):
     """Get a database parameter (FC=4)."""
 
     def __init__(self, parameter: int) -> None:
@@ -1598,7 +1626,7 @@ class GetDbParameterPacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get db parameter response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
@@ -1607,7 +1635,7 @@ class GetDbParameterPacket:
         self.value = reader._parse_int()
 
 
-class CheckCasPacket:
+class CheckCasPacket(_CasPacket):
     """Ping/health check the CAS broker connection (FC=32).
 
     Uses the lightweight ``CHECK_CAS`` function code which verifies
@@ -1630,7 +1658,7 @@ class CheckCasPacket:
         ``response_code >= 0`` means the connection is alive.
         ``response_code < 0`` means the CAS-to-DB link is broken.
         """
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         # CHECK_CAS success may return an empty body (no int) or a zero int.
         # Accept both: empty body → 0 (alive), otherwise parse the int.
@@ -1640,7 +1668,7 @@ class CheckCasPacket:
             self.response_code = 0
 
 
-class SetDbParameterPacket:
+class SetDbParameterPacket(_CasPacket):
     """Set a database parameter (FC=5)."""
 
     def __init__(self, parameter: int, value: int) -> None:
@@ -1657,7 +1685,7 @@ class SetDbParameterPacket:
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the set db parameter response."""
-        reader = PacketReader(data)
+        reader = PacketReader(data, encoding=self.encoding)
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:

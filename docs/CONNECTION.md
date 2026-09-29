@@ -66,6 +66,7 @@ def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> Connection
 ```
@@ -81,6 +82,7 @@ def connect(
 | `password` | `str` | `""` | Database password |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `charset` | `str` | `"utf-8"` | Python codec (or CUBRID `utf8`/`euckr`/`iso88591`) for SQL text, credentials, character values, names and error text; set it to the database charset. See [Character Encoding](#character-encoding) |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync broker connections |
 
 ### Keyword Arguments
@@ -752,24 +754,81 @@ See [Troubleshooting](TROUBLESHOOTING.md) for pool tuning guidance.
 
 ## Character Encoding
 
-pycubrid operates exclusively in **UTF-8** encoding. This matches CUBRID's internal
-character set — the server stores and returns string data as UTF-8.
+The `charset` connection option (default `"utf-8"`) selects the Python codec
+for the text pycubrid exchanges with the broker. Set it to the charset the
+database was created with (#86):
 
-There is no `charset` connection parameter. All string encoding/decoding in the
-wire protocol uses UTF-8 unconditionally:
+```python
+import pycubrid
+import pycubrid.aio
 
-- Python `str` values are encoded to UTF-8 bytes before sending to the server
-- Byte responses from the server are decoded as UTF-8 to produce Python `str` values
+conn = pycubrid.connect(database="kodb", charset="euckr")
+aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
+```
 
-This is intentional and covers all CUBRID string types (`VARCHAR`, `CHAR`, `STRING`,
-`CLOB`). If your application deals with non-UTF-8 data, encode/decode at the
-application layer before passing values to pycubrid.
+**Accepted values.** Any Python codec name, plus the CUBRID spellings `utf8`,
+`euckr` and `iso88591` (`ksc5601` works through Python's own EUC-KR alias), and
+a CUBRID locale as given to `createdb`, such as `"ko_KR.euckr"`, whose part
+after the dot is used. `None` means the default `"utf-8"`. The name is
+normalized to the Python codec name (`"euckr"` becomes `"euc_kr"`). The option
+is validated before any socket work:
+
+- a non-string raises `TypeError`;
+- an unknown codec, CUBRID's `binary` charset (it has no text codec) and any
+  codec that is not ASCII-transparent raise `ValueError`. Rejected codecs
+  include UTF-16/32, UTF-7, `utf-8-sig`, Shift_JIS, Big5, GBK, GB18030, CP949,
+  Johab and the ISO-2022 family: SQL quoting and escaping run on `str` before
+  encoding, so a codec that can emit an ASCII byte such as `'` or `\` inside a
+  multibyte character is unsafe;
+- a `database`, `user` or `password` that the codec cannot encode raises
+  `DataError`.
+
+The codec is kept for the life of the connection, including the reconnect done
+by `ping(reconnect=True)` and the CHECK_CAS recovery.
+
+**What uses the connection charset:**
+
+| Direction | Text | Behavior |
+|---|---|---|
+| Sent | SQL text, including parameters rendered into it (JSON parameters too); `executemany` batch SQL; schema-info arguments; `compat.native` prepared SQL and string bindings | Encoded before any byte of the request is sent. An unencodable character raises `DataError` naming the codec and character position (the text itself is not echoed); nothing of that request is sent and the session stays usable. With `euc_kr`, Hangul syllables outside KS X 1001 (such as 똠 or 뷁) are unencodable: Python would send them as 8-byte makeup sequences that CUBRID stores as separate jamo. On read, the Hangul filler U+3164 and following jamo decode as separate characters, as CUBRID stores them. |
+| Sent | `OPEN_DATABASE` database, user and password | Encoded, then cut to the 32-byte field on a character boundary. |
+| Received | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING` and `ENUM` values, collection elements (`decode_collections=True`) | Strict decode. Undecodable bytes raise `DataError` (for example `column value is not valid euc_kr (invalid byte at offset 0)`); the session stays usable. |
+| Received | Column, table and alias names; column default values | Strict decode; `DataError` (`column metadata is not valid ...`). Ordinary cursors keep the session and release the server handle; `get_schema_info()` and the `compat.native` prepared cursor still retire the session, as for any unparsable reply there. |
+| Received | Server error messages, including per-statement batch errors | Decoded with `errors="replace"`, so the native error always surfaces. |
+| Received | LOB file locators (`file_locator`; the server path embeds the table name) | Decoded with `errors="replace"`: informational only, the packed handle is what goes back to the server. |
+
+**What does not use it:** fetched `JSON` values are always UTF-8 (the broker
+sends JSON as UTF-8 whatever the database charset), although a JSON parameter
+is SQL text and is encoded with the connection codec, so an emoji in JSON
+raises `DataError` on insert under `euckr`. `NUMERIC` text, timezone names and
+the server version string are protocol text and stay UTF-8, and
+`pycubrid.Binary(str)` always encodes as UTF-8. LOB
+contents are raw bytes: `Lob.read()` on a `CLOB` returns the bytes in the
+column charset (EUC-KR bytes in an EUC-KR database), which the application
+decodes itself.
+
+**No negotiation on the wire.** The CAS protocol carries no client charset and
+the broker does no conversion: the server interprets the bytes it receives in
+the database charset, and the broker sends each value in its own column's
+charset. Consequences:
+
+- A default (`utf-8`) client on an EUC-KR database cannot read EUC-KR text: it
+  raises `DataError` instead of returning wrong characters, and before #86 its
+  writes silently stored mojibake. Connect with `charset="euckr"`.
+- A column declared `CHARSET utf8` inside an EUC-KR database arrives as UTF-8
+  and raises `DataError` under `charset="euckr"`. Convert it in SQL, for example
+  `SELECT CAST(u AS VARCHAR(10) CHARSET euckr) FROM t`, or read `hex(u)`.
+- Only one codec applies per connection.
 
 !!! note
-    CUBRID's default charset is `utf8` (set at database creation). All modern CUBRID
-    installations use UTF-8. Legacy databases created with `iso88591` charset may
-    produce garbled strings for non-ASCII data, since pycubrid always decodes bytes
-    as UTF-8.
+    In an EUC-KR database, CUBRID's lexer accepts non-ASCII identifiers only when
+    quoted (`[표]` or `"표"`), and `CHAR(n)` pads with the full-width space
+    U+3000. Both are server behaviors, not driver ones.
+
+!!! note "JDBC difference"
+    The CUBRID JDBC driver exposes a `charSet` connection-URL property for the
+    same purpose. pycubrid additionally refuses codecs that are not
+    ASCII-transparent and always treats `JSON` as UTF-8.
 
 ---
 

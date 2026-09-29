@@ -1110,6 +1110,11 @@
               "name": "ssl"
             },
             {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "charset"
+            },
+            {
               "has_default": false,
               "kind": "VAR_KEYWORD",
               "name": "kwargs"
@@ -1730,6 +1735,11 @@
               "has_default": true,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "ssl"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "charset"
             },
             {
               "has_default": false,
@@ -2769,6 +2779,11 @@
               "has_default": true,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "passwd"
+            },
+            {
+              "has_default": true,
+              "kind": "KEYWORD_ONLY",
+              "name": "charset"
             }
           ]
         }
@@ -2801,6 +2816,11 @@
                   "has_default": true,
                   "kind": "POSITIONAL_OR_KEYWORD",
                   "name": "passwd"
+                },
+                {
+                  "has_default": true,
+                  "kind": "KEYWORD_ONLY",
+                  "name": "charset"
                 }
               ]
             }
@@ -3006,6 +3026,11 @@
               "has_default": true,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "passwd"
+            },
+            {
+              "has_default": true,
+              "kind": "KEYWORD_ONLY",
+              "name": "charset"
             }
           ]
         }

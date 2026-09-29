@@ -279,7 +279,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 
 | CUBRID Type | CCI Code | Python Type | Notes |
 |---|---|---|---|
-| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, UTF-8 decoded; invalid UTF-8 raises `DataError` (connection stays usable) |
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, decoded with the connection `charset` (default UTF-8); undecodable bytes raise `DataError` naming the codec (connection stays usable). In an EUC-KR database `CHAR(n)` pads with U+3000 |
 | `SHORT` (SMALLINT) | 9 | `int` | 16-bit signed |
 | `INTEGER` | 8 | `int` | 32-bit signed |
 | `BIGINT` | 21 | `int` | 64-bit signed |
@@ -293,11 +293,11 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps (second precision, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes (millisecond precision) |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
-| `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set |
+| `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set. Always UTF-8, whatever the connection `charset` |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
 | `OBJECT` (OID) | 19 | `str` | Format: `"OID:@page\|slot\|volume"` |
 | `BLOB` | 23 | `dict` | LOB handle (see below) |
-| `CLOB` | 24 | `dict` | LOB handle (see below) |
+| `CLOB` | 24 | `dict` | LOB handle (see below); `Lob.read()` returns bytes in the column charset, not decoded with `charset` |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
 
 > **Local time zone types:** `TIMESTAMPLTZ` and `DATETIMELTZ` values are returned

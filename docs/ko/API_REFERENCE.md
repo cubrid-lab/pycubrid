@@ -13,6 +13,7 @@ CUBRID용 순수 Python DB-API 2.0 드라이버 pycubrid의 완전한 API 문서
   - [`pycubrid.connect()`](#pycubridconnect)
   - [`decode_collections`](#decode_collections)
   - [`json_deserializer`](#json-컬럼)
+  - [`charset`](#charset)
 - [비동기 모듈 생성자](#비동기-모듈-생성자)
   - [`pycubrid.aio.connect()`](#pycubridaioconnect)
 - [명시적 네이티브 호환 기능](#명시적-네이티브-호환-기능)
@@ -88,6 +89,7 @@ def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> Connection
 ```
@@ -105,6 +107,7 @@ def connect(
 | `password` | `str` | `""` | 데이터베이스 비밀번호 |
 | `decode_collections` | `bool` | `False` | SET/MULTISET/SEQUENCE 컬럼을 Python 컬렉션으로 디코딩 |
 | `json_deserializer` | `Any` | `None` | fetch 시 JSON 컬럼을 디코딩하는 콜러블. 미설정 시 JSON은 `str`로 반환 |
+| `charset` | `str` | `"utf-8"` | SQL 텍스트, 자격 증명, 문자 값, 이름, 오류 텍스트의 코덱. [`charset`](#charset) 참고 |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | 동기·비동기 브로커 연결의 옵트인 TLS. `True`면 TLS 1.2 최소의 기본 검증 컨텍스트 사용. 연결은 CUBRID의 STARTTLS 방식 업그레이드를 사용 — 평문 `CUBRS` 핸드셰이크 후 `OPEN_DATABASE` 전에 TLS 업그레이드. [연결 가이드](CONNECTION.md#ssltls) 참고. |
 | `**kwargs` | `Any` | — | `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, `autocommit` 등 추가 파라미터 |
 
@@ -120,6 +123,39 @@ def connect(
 |---|---|
 | `None` (기본) | JSON 컬럼을 `str`로 반환 |
 | `callable` | raw JSON 문자열을 콜러블에 전달하고 그 결과 반환 |
+
+#### `charset`
+
+`charset`(기본값 `"utf-8"`)은 SQL 텍스트(렌더링된 파라미터 포함), 배치·스키마 정보
+인자, `OPEN_DATABASE` 자격 증명, 문자 값(`CHAR`, `VARCHAR`, `STRING`, `NCHAR`,
+`NCHAR VARYING`, `ENUM`, 컬렉션 요소), 컬럼·테이블 이름, 기본값, 서버 오류 텍스트에
+사용하는 Python 코덱입니다. 데이터베이스 문자셋으로 설정하세요. 예를 들어
+`ko_KR.euckr`로 만든 데이터베이스에는 `charset="euckr"`를 사용합니다(#86).
+
+- Python 코덱 이름, CUBRID 이름 `utf8`, `euckr`, `iso88591`, 그리고 `"ko_KR.euckr"` 같은
+  CUBRID 로케일(점 뒤 부분 사용)을 받으며 Python 코덱 이름(`"euc_kr"`)으로 정규화합니다.
+  `None`은 기본값을 뜻합니다. 소켓 작업 전에 검증합니다: 문자열이 아니면
+  `TypeError`, 알 수 없는 코덱·CUBRID `binary`·ASCII 투명하지 않은 코덱(UTF-16/32,
+  UTF-7, Shift_JIS, Big5, GBK, GB18030, CP949, ISO-2022 등)은 `ValueError`, 코덱으로
+  인코딩할 수 없는 자격 증명은 `DataError`입니다.
+- 인코딩할 수 없는 텍스트는 모든 경로(일반·`compat.native` 커서, `get_schema_info()`)에서
+  해당 요청의 어떤 바이트도 보내기 전에 `DataError`를 발생시키며 세션은 계속 사용할 수
+  있습니다. `euc_kr`에서는 KS X 1001 밖의 한글 음절(예: 똠, 뷁)도 인코딩할 수 없는 것으로
+  취급합니다(Python은 이를 8바이트 조합 시퀀스로 인코딩함).
+- 디코딩할 수 없는 바이트는 코덱 이름을 담은 `DataError`를 발생시킵니다. 일반 커서는
+  세션을 유지합니다. `get_schema_info()`는 해석할 수 없는 FC9 응답을 받으면 연결을
+  폐기하고, 명시적 prepared API(`pycubrid.compat.native`)는 세션을 폐기하고
+  `OperationalError`를 발생시킵니다. 오류 텍스트와 LOB 파일 로케이터는
+  `errors="replace"`로 디코딩합니다.
+- 가져온 `JSON` 값은 UTF-8이지만 JSON 파라미터는 SQL 텍스트이므로 연결 코덱으로
+  인코딩됩니다(`euckr`에서 JSON 안의 이모지는 삽입 시 `DataError`). `NUMERIC`, 타임존 이름,
+  버전 문자열, LOB 내용은 영향을 받지 않으며(`CLOB` 바이트는 컬럼 문자셋),
+  `pycubrid.Binary(str)`는 항상 UTF-8로 인코딩합니다.
+- 브로커는 변환하지 않으므로 EUC-KR 데이터베이스의 `CHARSET utf8` 컬럼은
+  `charset="euckr"`에서 `DataError`를 발생시킵니다. SQL에서
+  `CAST(col AS VARCHAR(n) CHARSET euckr)`로 변환하세요.
+
+전체 계약은 [문자 인코딩](CONNECTION.md#문자-인코딩)을 참고하세요.
 
 **반환:** 새 `Connection` 인스턴스.
 
@@ -149,13 +185,14 @@ conn = pycubrid.connect(
 ## 명시적 네이티브 호환 기능
 
 옵트인 `pycubrid.compat.native`는 순수 Python 동기 전송 위에 INT32,
-UTF-8 문자열, SQL NULL만 지원하는 **동기 prepared 커서**를 제공합니다.
+문자열, SQL NULL만 지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
+문자셋을 사용합니다.
 기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
 사용합니다. `pycubrid.compat.cubriddb` 래퍼는 아직 연결 생성·종료만
 지원하며 래퍼 커서, DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
 확장과의 완전한 동등성은 제공하지 않습니다.
 
-`native.connect(url, user="public", passwd="")`는 `native.connection`을
+`native.connect(url, user="public", passwd="", *, charset="utf-8")`는 `native.connection`을
 반환합니다. 래퍼의 `cubriddb.Connect/connect/connection(*args, **kwargs)`는
 `cubriddb.Connection(dsn="", user="public", password="", charset="utf8")`을
 반환합니다. 래퍼의 `.connection`은 단일 전송을 소유하는 바로 그 네이티브
@@ -166,9 +203,10 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 
 마지막 콜론이 포함된 `CUBRID:host:port:database:user:password:` 형식을
 사용합니다. DSN 안의 계정보다 Python 인자가 우선하며 생략 시에도
-`public`/빈 비밀번호 기본값이 사용됩니다. 여기서는 기존 UTF-8 전송과
-기본 CUBRID 백엔드만 허용합니다. 다른 백엔드, 문자셋 선택, HA/TLS URL
-옵션과 초과 인자는 연결 전에 거부하며 오류에 계정 정보가 담긴 DSN
+`public`/빈 비밀번호 기본값이 사용됩니다. 래퍼의 `charset`(기본값 `"utf8"`)은
+드라이버의 [`charset`](#charset) 옵션으로 전달되므로 `"euckr"` 같은 CUBRID 이름을
+쓸 수 있고, 잘못된 코덱은 연결 전에 실패합니다. 기본 CUBRID 백엔드만 허용하며,
+다른 백엔드, HA/TLS URL 옵션과 초과 인자는 연결 전에 거부하며 오류에 계정 정보가 담긴 DSN
 원문을 노출하지 않습니다.
 
 네이티브 연결은 `cursor()`, `commit()`, `rollback()`, `close()`를 제공합니다.
@@ -207,6 +245,7 @@ async def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> AsyncConnection
 ```
@@ -214,7 +253,7 @@ async def connect(
 비동기 연결을 만들고 엽니다.
 
 - 연결된 `AsyncConnection`을 반환합니다.
-- `pycubrid.connect()`와 동일한 컬렉션/JSON 디코딩 kwargs를 받습니다.
+- `pycubrid.connect()`와 동일한 컬렉션/JSON 디코딩 kwargs와 `charset` 옵션을 받습니다.
 - `autocommit=True`를 지원하며, 연결 수립 후 자동 적용됩니다. `AsyncConnection` 자체도 이제 `autocommit`을 (키워드 전용 생성자 인자로) 직접 받으므로, 이 팩토리를 거치지 않고 생성해도 플래그가 조용히 사라지지 않습니다.
 - 동기 API와 유사한 비동기 서피스를 제공합니다 — `await conn.ping(reconnect=...)` 포함. `create_lob()`은 동기 전용으로 유지되며, 오토커밋 변경은 속성 세터 대신 `await conn.set_autocommit(...)`으로 합니다.
 - `pycubrid.connect()`와 동일한 `ssl` 파라미터를 받습니다: `True`, `False`/`None`, 또는 커스텀 `SSLContext`. `True`면 기본 검증 컨텍스트가 TLS 1.2 최소를 강제합니다. 비동기 TLS는 CUBRID의 STARTTLS 방식 업그레이드를 사용 — `CUBRS` 핸드셰이크를 평문으로 보낸 뒤, `OPEN_DATABASE` 전에 `asyncio.AbstractEventLoop.start_tls()`(`ssl_handshake_timeout`으로 제한)로 전송을 업그레이드합니다. 전체 내용과 Python 3.10 `start_tls()` 인증서 검증 주의점([#156](https://github.com/cubrid-lab/pycubrid/issues/156))은 [연결 가이드](CONNECTION.md#ssltls)를 참고하세요.
@@ -269,6 +308,7 @@ class Connection:
 | `read_timeout` | `float \| None` | `None` | 소켓 읽기 타임아웃(초). |
 | `fetch_size` | `int` | `100` | 서버 측 fetch 배치 크기. |
 | `json_deserializer` | `Callable[[str], Any] \| None` | `None` | 옵트인 JSON 컬럼 디코더. |
+| `charset` | `str` | `"utf-8"` | 연결 코덱. [`charset`](#charset) 참고. 재연결 후에도 유지. |
 | `decode_collections` | `bool` | `False` | SET/MULTISET/SEQUENCE 컬럼을 Python 컬렉션으로 디코딩. |
 
 ### Connection 메서드
@@ -1375,11 +1415,13 @@ class DataError(DatabaseError)
 ```
 
 데이터 처리 문제에 사용됩니다 (0으로 나누기, 숫자 오버플로 등).
-조회한 문자 값(`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`, `JSON`)이 유효한 UTF-8이 아닐 때도
-발생하며, `TIMESTAMPTZ`/`TIMESTAMPLTZ`/`DATETIMETZ`/`DATETIMELTZ` 값의 리전을
+조회한 문자 값(`CHAR`, `VARCHAR`, `NCHAR`, `ENUM`)이나 컬럼 이름이 연결
+[`charset`](#charset)으로 유효하지 않을 때(`JSON` 값은 UTF-8 기준), 서버로 보낼 텍스트를
+그 코덱으로 인코딩할 수 없을 때(해당 요청은 전혀 전송되지 않음)도 발생하며, `TIMESTAMPTZ`/`TIMESTAMPLTZ`/`DATETIMETZ`/`DATETIMELTZ` 값의 리전을
 클라이언트의 IANA 타임존 데이터베이스로 해석할 수 없거나(`tzdata` 설치 필요) 오프셋이
-±24시간을 벗어날 때도 발생합니다(#413). 응답은 모두 읽었으므로 연결은 계속 사용할 수
-있습니다. 명시적 prepared API(`pycubrid.compat.native`)는 대신 `OperationalError`를
+±24시간을 벗어날 때도 발생합니다(#413). 응답은 모두 읽었으므로 일반 커서에서는 연결을
+계속 사용할 수 있습니다. `get_schema_info()`는 해석할 수 없는 FC9 응답을 받으면 연결을
+폐기합니다. 명시적 prepared API(`pycubrid.compat.native`)는 대신 `OperationalError`를
 발생시키고 세션을 폐기합니다.
 
 ---

@@ -231,6 +231,19 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   unchanged. Adds a Windows-only runtime dependency on `tzdata`
   (`sys_platform == 'win32'`); no public signature or supported-version change.
 
+- **Connection `charset` option (#86)** — MINOR / additive keyword option on
+  `pycubrid.connect()`, `pycubrid.aio.connect()` and `compat.native.connect()`,
+  and a relaxation of `cubriddb.Connection(charset=...)`, which rejected
+  anything but `"utf8"`. Invalid values raise `TypeError`/`ValueError` before
+  socket work, like other connection options. With the default `"utf-8"` the
+  request bytes are unchanged (golden-byte test) except that an
+  `OPEN_DATABASE` name longer than its 32-byte field is now cut on a character
+  boundary rather than mid-character. On the reply side, a column/table name
+  or default value that cannot be decoded now raises `DataError`, and an
+  ordinary cursor keeps the fully read session instead of `OperationalError`
+  with a closed connection, matching #492 for values (schema requests and the
+  explicit prepared API stay fail-closed). No dependency or supported-version change.
+
 - **Invalid UTF-8 in a complete reply keeps the session (#492)** — PATCH /
   correction of error classification and connection lifetime. Server error text
   is decoded with replacement, so the native class, `errno` and `sqlstate`
