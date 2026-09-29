@@ -140,6 +140,9 @@ async def test_upgrade_to_tls_aborts_transport_on_start_tls_failure() -> None:
 
     assert excinfo.value is boom
     old_transport.abort.assert_called_once_with()
+    # #513: the stream protocol must learn the transport is gone, or
+    # StreamWriter.wait_closed() in the connect cleanup never returns.
+    old_transport.get_protocol.return_value.connection_lost.assert_called_once_with(None)
 
 
 @pytest.mark.asyncio
@@ -158,6 +161,7 @@ async def test_upgrade_to_tls_raises_operational_error_on_none_transport() -> No
             await conn._upgrade_to_tls()
 
     old_transport.abort.assert_called_once_with()
+    old_transport.get_protocol.return_value.connection_lost.assert_called_once_with(None)
 
 
 @pytest.mark.asyncio
