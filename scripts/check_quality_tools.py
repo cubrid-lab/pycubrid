@@ -1,8 +1,11 @@
-"""Fail when declared pins, hook revisions, installed tools, or lint scopes drift.
+"""Fail when declared pins, local hooks, installed tools, or lint scopes drift.
 
 The narrow extraction matches this repository's dev dependency/hook layout and
 works on Python 3.10 without a TOML/YAML dependency. pyproject owns tool versions;
-Makefile LINT_PATHS owns scope and CI invokes the shared Make targets.
+Ruff/Mypy pre-commit hooks run as `repo: local` / `language: system` entries that
+invoke `python3 -m <tool>` against the same active environment, so there is no
+separate hook revision to keep in sync with the pyproject pin. Makefile
+LINT_PATHS owns scope and CI invokes the shared Make targets.
 """
 
 from __future__ import annotations
@@ -13,9 +16,9 @@ from pathlib import Path
 from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORIES = {
-    "ruff": "https://github.com/astral-sh/ruff-pre-commit",
-    "mypy": "https://github.com/pre-commit/mirrors-mypy",
+LOCAL_HOOK_IDS = {
+    "ruff": {"ruff", "ruff-format"},
+    "mypy": {"mypy"},
 }
 REQUIRED_PATHS = {"pycubrid", "tests", "scripts", "demos", "examples"}
 
@@ -33,7 +36,7 @@ def declared_pins(root: Path) -> dict[str, str]:
     if len(dev) != 1:
         raise ValueError("exactly one dev dependency list is required")
     pins = {}
-    for tool in REPOSITORIES:
+    for tool in LOCAL_HOOK_IDS:
         versions = re.findall(rf'^\s*["\']{tool}==([^"\']+)["\']\s*,?\s*$', dev[0], re.MULTILINE)
         if len(versions) != 1:
             raise ValueError(f"{tool}: exactly one exact dev pin is required")
@@ -50,38 +53,45 @@ def check_configuration(root: Path = ROOT) -> dict[str, str]:
     ):
         raise ValueError("Ruff CLI discovery must be explicitly Python/pyi-only")
     hooks = (root / ".pre-commit-config.yaml").read_text()
-    blocks = re.findall(
-        r"^  - repo: ([^\n]+)\n(.*?)(?=^  - repo:|\Z)", hooks, re.MULTILINE | re.DOTALL
+    local_blocks = re.findall(
+        r"^  - repo: local\s*\n(.*?)(?=^  - repo:|\Z)", hooks, re.MULTILINE | re.DOTALL
     )
-    for tool, repository in REPOSITORIES.items():
-        bodies = [body for repo, body in blocks if repo.strip() == repository]
-        if len(bodies) != 1:
-            raise ValueError(f"{tool}: exactly one hook repository is required")
-        revisions = re.findall(r"^    rev: v?(\S+)\s*$", bodies[0], re.MULTILINE)
-        if revisions != [pins[tool]]:
-            raise ValueError(
-                f"{tool}: hook revision {revisions} does not match dev pin {pins[tool]}"
-            )
-        if tool == "ruff" and re.search(r"^\s+files:", bodies[0], re.MULTILINE):
-            raise ValueError("Ruff hook files override the shared lint scope")
+    if len(local_blocks) != 1:
+        raise ValueError("exactly one local hook repository is required")
+    hook_blocks = re.findall(
+        r"^      - id: (\S+)\n(.*?)(?=^      - id:|\Z)",
+        local_blocks[0],
+        re.MULTILINE | re.DOTALL,
+    )
+    hooks_by_id = dict(hook_blocks)
+    for tool, expected_ids in LOCAL_HOOK_IDS.items():
+        present_ids = sorted(expected_ids & hooks_by_id.keys())
         if tool == "ruff":
-            hook_blocks = re.findall(
-                r"^      - id: (\S+)\n(.*?)(?=^      - id:|\Z)",
-                bodies[0],
-                re.MULTILINE | re.DOTALL,
-            )
-            ids = {hook_id for hook_id, _ in hook_blocks}
-            if (
-                len(hook_blocks) != 2
-                or "ruff-format" not in ids
-                or not ids.intersection({"ruff", "ruff-check"})
-            ):
+            if len(present_ids) != 2:
                 raise ValueError("both Ruff check and format hooks are required")
-            for hook_id, body in hook_blocks:
+        elif len(present_ids) != 1:
+            raise ValueError(f"{tool}: exactly one local hook is required")
+        for hook_id in present_ids:
+            body = hooks_by_id[hook_id]
+            if not re.search(r"^        language: system\s*$", body, re.MULTILINE):
+                raise ValueError(
+                    f"{hook_id}: hook must run via language: system against the active .[dev] "
+                    f"environment, matching the pyproject {tool} pin"
+                )
+            if not re.search(rf"^        entry: python3 -m {tool}\b", body, re.MULTILINE):
+                raise ValueError(
+                    f"{hook_id}: hook entry must invoke `python3 -m {tool}` so it always runs the "
+                    f"pyproject-pinned, actively-installed {tool} (no separate hook revision to drift)"
+                )
+        if tool == "ruff":
+            for hook_id in present_ids:
+                body = hooks_by_id[hook_id]
+                if re.search(r"^        files:", body, re.MULTILINE):
+                    raise ValueError("Ruff hook files override the shared lint scope")
                 scopes = re.findall(r"^        types_or: \[([^\]]+)\]\s*$", body, re.MULTILINE)
                 if len(scopes) != 1 or set(scopes[0].split(", ")) != {"python", "pyi"}:
                     raise ValueError(f"{hook_id}: Ruff hook types must be exactly python and pyi")
-        if tool == "mypy" and '"pycubrid/"' not in bodies[0]:
+        if tool == "mypy" and '"pycubrid/"' not in hooks_by_id["mypy"]:
             raise ValueError("mypy hook must explicitly check the pycubrid/ package")
 
     makefile = (root / "Makefile").read_text()

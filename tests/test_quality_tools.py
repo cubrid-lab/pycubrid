@@ -31,15 +31,41 @@ def test_declared_hooks_and_active_environment_agree() -> None:
     check_environment(check_configuration())
 
 
-def test_wrong_hook_revision_fails_and_restored_fixture_passes(project: Path) -> None:
+def test_hook_entry_drift_fails_and_restored_fixture_passes(project: Path) -> None:
     path = project / ".pre-commit-config.yaml"
     original = path.read_text()
-    pin = declared_pins(project)["ruff"]
-    path.write_text(original.replace(f"rev: v{pin}", "rev: v0.0.0"))
-    with pytest.raises(ValueError, match="hook revision"):
+    path.write_text(original.replace("entry: python3 -m ruff format", "entry: ruff format"))
+    with pytest.raises(ValueError, match="entry must invoke"):
         check_configuration(project)
     path.write_text(original)
     check_configuration(project)
+
+
+def test_hook_missing_language_system_fails(project: Path) -> None:
+    path = project / ".pre-commit-config.yaml"
+    original = path.read_text()
+    path.write_text(
+        original.replace(
+            "        entry: python3 -m mypy\n        language: system\n",
+            "        entry: python3 -m mypy\n",
+        )
+    )
+    with pytest.raises(ValueError, match="language: system"):
+        check_configuration(project)
+    path.write_text(original)
+    check_configuration(project)
+
+
+def test_dependabot_style_pin_bump_alone_does_not_require_hook_edit(project: Path) -> None:
+    """The whole point of the local/system hooks: bumping only the pyproject pin
+    (what Dependabot's pip ecosystem does) must not require also touching
+    .pre-commit-config.yaml, since there is no separate hook revision to sync."""
+    path = project / "pyproject.toml"
+    original = path.read_text()
+    pin = declared_pins(project)["ruff"]
+    path.write_text(original.replace(f'"ruff=={pin}"', '"ruff==99.0.0"'))
+    check_configuration(project)
+    path.write_text(original)
 
 
 def test_wrong_installed_version_fails(project: Path) -> None:
@@ -109,7 +135,12 @@ def test_ruff_hook_type_drift_is_rejected(project: Path, types: str) -> None:
 
 def test_system_guard_requires_python3(project: Path) -> None:
     path = project / ".pre-commit-config.yaml"
-    path.write_text(path.read_text().replace("entry: python3", "entry: python"))
+    path.write_text(
+        path.read_text().replace(
+            "entry: python3 scripts/check_quality_tools.py",
+            "entry: python scripts/check_quality_tools.py",
+        )
+    )
     with pytest.raises(ValueError, match="must use python3"):
         check_configuration(project)
 

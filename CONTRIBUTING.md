@@ -65,17 +65,22 @@ make format
 ```
 
 Activate the project development environment (`pip install -e ".[dev]"`) before
-running Make or pre-commit. `make tooling-check` verifies the installed Ruff/Mypy
-versions and hook revisions against the exact pins in `pyproject.toml`. Make and CI
-share `LINT_PATHS` (`pycubrid tests scripts demos examples`) with explicit Python/pyi discovery
-and hook types, so Markdown is not reformatted; package-only strict Mypy remains
-separate, and its pre-commit hook explicitly checks `pycubrid/`.
+running Make or pre-commit. The Ruff and Mypy pre-commit hooks are `repo: local`,
+`language: system` hooks that invoke `python3 -m ruff`/`python3 -m mypy` from that
+same active environment, so there is a single source of truth for each tool's
+version: the exact pin in `pyproject.toml`. `make tooling-check` verifies the
+installed Ruff/Mypy versions against those pins and confirms the hooks are wired
+to run through the active environment. Make and CI share `LINT_PATHS` (`pycubrid
+tests scripts demos examples`) with explicit Python/pyi discovery and hook types,
+so Markdown is not reformatted; package-only strict Mypy remains separate, and its
+pre-commit hook explicitly checks `pycubrid/`.
 
-When updating either tool, change its dev pin and matching hook revision in the
-same PR, reinstall `.[dev]`, then run `make check-all` and
-`pre-commit run --all-files`. The drift gate rejects missing/ambiguous pins,
-version mismatches, and narrowed scopes. Hook updates use this documented process;
-there is no additional Dependabot ecosystem configuration.
+When updating either tool, change its dev pin in `pyproject.toml`, reinstall
+`.[dev]`, then run `make check-all` and `pre-commit run --all-files`; there is no
+separate hook revision to edit. The drift gate rejects missing/ambiguous pins,
+an installed version that no longer matches the pin, and narrowed scopes.
+Dependabot's `pip` ecosystem can bump the `pyproject.toml` pin on its own and CI
+stays green, since the pre-commit hooks always run whatever is installed.
 
 ## Pull Request Guidelines
 
