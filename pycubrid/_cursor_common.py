@@ -230,7 +230,14 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
         return "DATE'%s'" % value.strftime("%Y-%m-%d")
     if isinstance(value, datetime.time):
         return "TIME'%s'" % value.strftime("%H:%M:%S")
+    # Numeric values are rendered through the base-class methods, never
+    # str()/format() on the value itself: a subclass (IntEnum, IntFlag or any
+    # user type) can override __str__/__repr__/__format__ and would otherwise
+    # put arbitrary text into the SQL (#518).
     if isinstance(value, Decimal):
+        # Decimal(subclass) copies the numeric value without calling any
+        # overridable method, so the checks below see the real value.
+        value = Decimal(value)
         if value.is_nan() or value.is_infinite():
             raise ProgrammingError("nan and inf are not supported by CUBRID")
         # str() switches to E notation (1E-7), which CUBRID parses as DOUBLE.
@@ -250,11 +257,11 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
             )
         return format(value, "f")
     if isinstance(value, int):
-        return str(value)
+        return int.__repr__(value)
     if isinstance(value, float):
         if math.isnan(value) or math.isinf(value):
             raise ProgrammingError("nan and inf are not supported by CUBRID")
-        return str(value)
+        return float.__repr__(value)
     if isinstance(value, (list, tuple, set, frozenset, dict)):
         raise ProgrammingError(
             "cannot bind a collection (list/tuple/set/frozenset/dict) as a "

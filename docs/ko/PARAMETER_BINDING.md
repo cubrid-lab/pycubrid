@@ -66,9 +66,9 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 |---|---|---|---|
 | `None` | `NULL` | `_cursor_common.py:143-144` | `tests/test_param_security.py:95-97` |
 | `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
-| `int` | `str(value)` (10진수) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
-| `float` | `str(value)`; `nan`/`inf`/`-inf`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
-| `decimal.Decimal` | 고정소수점 숫자(`format(value, "f")`, 따옴표 없음, E 표기 사용 안 함); 부호·후행 0·scale 유지; 리터럴 자릿수가 38을 넘으면 `DataError`; `NaN`/`Infinity`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`). [Decimal 파라미터](#decimal-파라미터) 참고 | `_cursor_common.py:233-251` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
+| `int` (`IntEnum`/`IntFlag` 등 하위 클래스 포함) | `int.__repr__(value)` (값의 10진수). [숫자 하위 클래스](#숫자-하위-클래스) 참고 | `_cursor_common.py:259-260` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
+| `float` (하위 클래스 포함) | `float.__repr__(value)` (일반 `float`의 `str()`과 같은 최단 왕복 표기, 예: `1e+20`); `nan`/`inf`/`-inf`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:261-264` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
+| `decimal.Decimal` (하위 클래스 포함) | 고정소수점 숫자(일반 `Decimal`로 변환한 값에 `format(value, "f")`, 따옴표 없음, E 표기 사용 안 함); 부호·후행 0·scale 유지; 리터럴 자릿수가 38을 넘으면 `DataError`; `NaN`/`Infinity`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`). [Decimal 파라미터](#decimal-파라미터) 참고 | `_cursor_common.py:237-258` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
 | `str` | 작은따옴표 리터럴; [문자열 이스케이프](#문자열-이스케이프) 적용; NUL(`U+0000`)과 Ctrl-Z(`U+001A`, `\x1a`)는 각각 `ProgrammingError` 발생 (현재 메시지: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
 | `bytes`, `bytearray` | `X'<hex>'` (소문자 hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
 | `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — 마이크로초는 밀리초로 절사(`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
@@ -83,6 +83,22 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 서버의 숫자 범위 제한과 Python의 정수-문자열 변환 제한은 여전히 적용됩니다.
 `tests/test_param_security.py::TestFormatParameterTypes::test_large_int`와
 `::test_bind_large_int`가 이 동작을 고정합니다.
+
+### 숫자 하위 클래스
+
+`int`, `float`, `decimal.Decimal`의 하위 클래스는 객체 자신의 `str()`, `repr()`,
+`format()`이 아니라 기반 클래스 메서드(`int.__repr__`, `float.__repr__`,
+`format(Decimal(value), "f")`)로 숫자 값에서 렌더링됩니다. #518 이전에는
+`str(value)`로 렌더링했기 때문에 `__str__`을 재정의한 하위 클래스가 SQL 텍스트를
+바꿀 수 있었습니다. Python 3.10에서 `enum.IntEnum` 멤버는 `Color.RED`로,
+`enum.IntFlag` 조합은 `Perm.R|W`로 전송되었고, `__str__`이 `1; DROP TABLE t`를
+반환하는 사용자 하위 클래스는 그 텍스트를 그대로 주입했습니다. 이제 `Color.RED`는
+`1`, `Perm.R | Perm.W`는 `6`으로 전송됩니다. `Decimal` 하위 클래스는 먼저 일반
+`Decimal`로 변환되므로 재정의된 `__format__`, `is_nan()`, `as_tuple()`이 리터럴을
+바꾸거나 `NaN`/`Infinity` 및 38자리 검사를 우회할 수 없습니다. `bool`은 `int`보다
+먼저 검사되어 여전히 `1`/`0`으로 렌더링되며, 하위 클래스를 만들 수 없습니다.
+`tests/test_param_security.py::TestFormatParameterTypes::test_numeric_subclass_renders_by_value`와
+`tests/test_parity_integration.py::TestParityNumericSubclassLiterals`가 이 동작을 고정합니다.
 
 ### Decimal 파라미터
 

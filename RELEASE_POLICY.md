@@ -221,6 +221,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Numeric subclasses render by value (#518)** — PATCH / security
+  correction to the documented parameter-binding contract
+  (`docs/PARAMETER_BINDING.md`). Subclasses of `int`, `float` and `Decimal`
+  (including `enum.IntEnum`/`enum.IntFlag`) are rendered from their numeric
+  value via the base-class methods instead of `str()`/`format()` on the object,
+  so an overridden `__str__`/`__repr__`/`__format__` can no longer change or
+  inject SQL text. Plain `int`/`float`/`Decimal` output, `bool` rendering,
+  `NaN`/`Infinity` rejection, public signatures, dependencies and supported
+  versions are unchanged.
+
 - **Decimal parameters render in plain notation (#517)** — PATCH / correction
   to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
   A finite `Decimal` is sent as a fixed-point literal instead of `str(value)`,
