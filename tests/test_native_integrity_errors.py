@@ -1,4 +1,4 @@
-"""Native constraint errors dispatch by code, including batch metadata (#390)."""
+"""Native constraint errors dispatch by code, including batch metadata (#390, #493)."""
 
 from __future__ import annotations
 
@@ -17,6 +17,10 @@ from pycubrid.protocol import BatchExecutePacket, PrepareAndExecutePacket
 from tests.test_protocol import DEFAULT_CAS_INFO, _build_error_response
 
 
+# -924/-1284 (#493): the referenced parent row blocks DELETE/UPDATE/TRUNCATE.
+NATIVE_INTEGRITY_CODES = [-631, -922, -924, -1284]
+
+
 def _batch_response(code: int, message: str, protocol_version: int) -> bytes:
     text = message.encode("utf-8") + b"\x00"
     result = -1 if protocol_version > 2 else code
@@ -31,14 +35,19 @@ def _batch_response(code: int, message: str, protocol_version: int) -> bytes:
 
 @pytest.mark.parametrize(
     ("code", "description"),
-    [(-631, "NOT NULL constraint violation"), (-922, "Foreign key constraint violation")],
+    [
+        (-631, "NOT NULL constraint violation"),
+        (-922, "Foreign key constraint violation"),
+        (-924, "Update/delete restricted by foreign key"),
+        (-1284, "Truncate restricted by foreign key"),
+    ],
 )
 def test_native_constraint_metadata(code: int, description: str) -> None:
     assert get_error_description(code) == description
     assert get_sqlstate(code) == "23000"
 
 
-@pytest.mark.parametrize("code", [-631, -922])
+@pytest.mark.parametrize("code", NATIVE_INTEGRITY_CODES)
 @pytest.mark.parametrize("message", ["opaque native failure", "제약 오류", "syntax error"])
 def test_error_packet_uses_native_code(code: int, message: str) -> None:
     packet = PrepareAndExecutePacket("INSERT INTO t VALUES (NULL)")
@@ -50,7 +59,7 @@ def test_error_packet_uses_native_code(code: int, message: str) -> None:
     assert raised.value.msg == message
 
 
-@pytest.mark.parametrize("code", [-631, -922])
+@pytest.mark.parametrize("code", NATIVE_INTEGRITY_CODES)
 @pytest.mark.parametrize("protocol_version", [2, 8])
 def test_batch_wire_dispatch_preserves_native_metadata(code: int, protocol_version: int) -> None:
     packet = BatchExecutePacket(["INSERT INTO t VALUES (NULL)"], protocol_version=protocol_version)
@@ -65,7 +74,7 @@ def test_batch_wire_dispatch_preserves_native_metadata(code: int, protocol_versi
 @pytest.mark.asyncio
 @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
 @pytest.mark.parametrize("operation", ["execute", "executemany", "batch"])
-@pytest.mark.parametrize("code", [-631, -922])
+@pytest.mark.parametrize("code", NATIVE_INTEGRITY_CODES)
 async def test_cursor_paths_parse_and_dispatch_native_failure(
     asynchronous: bool, operation: str, code: int
 ) -> None:
@@ -128,4 +137,15 @@ def test_unknown_native_code_does_not_use_constraint_message(batch: bool) -> Non
     assert type(raised.value) is DatabaseError
     assert raised.value.code == code
     assert raised.value.errno == code
+    assert raised.value.sqlstate == "HY000"
+
+
+def test_referenced_primary_key_drop_is_not_an_integrity_error() -> None:
+    # -923 (ER_FK_CANT_DROP_PK_REFERRED) rejects a schema change, not data.
+    with pytest.raises(DatabaseError) as raised:
+        PrepareAndExecutePacket("DROP TABLE parent").parse(
+            _build_error_response(DEFAULT_CAS_INFO, -923, "primary key is referred")
+        )
+    assert type(raised.value) is DatabaseError
+    assert raised.value.errno == -923
     assert raised.value.sqlstate == "HY000"

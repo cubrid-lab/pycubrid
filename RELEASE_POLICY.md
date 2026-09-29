@@ -221,6 +221,13 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Foreign-key restrict classification (#493)** — PATCH / correction to the
+  documented PEP 249 integrity-error contract, extending #390. Codes `-924`
+  (`ER_FK_RESTRICT`) and `-1284` (`ER_TRUNCATE_PK_REFERRED`) raise the existing
+  `IntegrityError` with SQLSTATE `23000`; batch failures keep the original code
+  in `errno`. `-923` stays `DatabaseError`. Public names/signatures, transaction
+  semantics, runtime dependencies and supported versions are unchanged.
+
 - **CAS OUT_TRAN preserves the physical session (#468)** — PATCH / correction
   to the transaction and connection-lifecycle contract, not a new public API.
   `CAS_INFO[0]=0` reports OUT_TRAN rather than released CAS: normal commit,

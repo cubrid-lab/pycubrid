@@ -25,6 +25,8 @@ CUBRID_ERROR_CODES: dict[int, str] = {
     -670: "Unique constraint violation",
     -671: "Communication error",
     -922: "Foreign key constraint violation",
+    -924: "Update/delete restricted by foreign key",
+    -1284: "Truncate restricted by foreign key",
     -21001: "Authentication failed",
     -21003: "Connection refused",
 }
@@ -51,6 +53,8 @@ CAS_ERROR_TO_SQLSTATE: dict[int, str] = {
     -670: "23000",  # Integrity constraint violation (unique)
     -671: "08S01",  # ER_CSS_RECV_OR_SEND
     -922: "23000",  # Integrity constraint violation (FK)
+    -924: "23000",  # Integrity constraint violation (FK restrict)
+    -1284: "23000",  # Integrity constraint violation (FK truncate)
     -21001: "28000",  # Invalid authorization
     -21003: "08004",  # Connection rejected
     -13: "HY000",  # No shard available
@@ -65,6 +69,8 @@ CAS_ERROR_TO_EXCEPTION: dict[int, str] = {
     -631: "IntegrityError",  # ER_NULL_CONSTRAINT_VIOLATION
     -670: "IntegrityError",  # Unique constraint violation
     -922: "IntegrityError",  # ER_FK_INVALID
+    -924: "IntegrityError",  # ER_FK_RESTRICT
+    -1284: "IntegrityError",  # ER_TRUNCATE_PK_REFERRED (11.4; 10.2 reports -924)
     # ProgrammingError (SQLSTATE 42xxx) — SQL/object errors
     -394: "ProgrammingError",  # Column not found
     -493: "ProgrammingError",  # ER_PT_SYNTAX
