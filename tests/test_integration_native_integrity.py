@@ -64,3 +64,66 @@ async def test_native_integrity_failure_and_rollback_reuse(
             await adapter.commit(connection)
         await adapter.close_cursor(cursor)
         await adapter.close_connection(connection)
+
+
+_PARENT_CHANGES = [
+    ("delete", "DELETE FROM {parent} WHERE id = 1", {-924}),
+    ("update", "UPDATE {parent} SET id = 5 WHERE id = 1", {-924}),
+    # CUBRID 11.4 reports ER_TRUNCATE_PK_REFERRED; 10.2 reports -924.
+    ("truncate", "TRUNCATE TABLE {parent}", {-924, -1284}),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("operation", "statement", "codes"),
+    [
+        pytest.param(operation, statement, codes, id="%s-%s" % (kind, operation))
+        for kind, statement, codes in _PARENT_CHANGES
+        for operation in ("execute", "executemany", "batch")
+        # TRUNCATE takes no parameters to bind through executemany().
+        if not (kind == "truncate" and operation == "executemany")
+    ],
+)
+async def test_referenced_parent_change_is_integrity_error(
+    adapter: ParityAdapter, operation: str, statement: str, codes: set[int]
+) -> None:
+    connection = await adapter.connect()
+    cursor = adapter.cursor(connection)
+    parent = table_name("er493p")
+    child = table_name("er493c")
+    created: list[str] = []
+    try:
+        await adapter.set_autocommit(connection, False)
+        await adapter.execute(cursor, "CREATE TABLE %s (id INTEGER PRIMARY KEY)" % parent)
+        created.append(parent)
+        await adapter.execute(
+            cursor,
+            "CREATE TABLE %s (id INTEGER PRIMARY KEY, parent_id INTEGER, "
+            "FOREIGN KEY(parent_id) REFERENCES %s(id))" % (child, parent),
+        )
+        created.insert(0, child)
+        await adapter.execute(cursor, "INSERT INTO %s VALUES (1)" % parent)
+        await adapter.execute(cursor, "INSERT INTO %s VALUES (1, 1)" % child)
+        await adapter.commit(connection)
+        sql = statement.format(parent=parent)
+        with pytest.raises(IntegrityError) as raised:
+            if operation == "execute":
+                await adapter.execute(cursor, sql)
+            elif operation == "executemany":
+                await adapter.executemany(cursor, sql.replace("id = 1", "id = ?"), [(1,)])
+            else:
+                await adapter.executemany_batch(cursor, [sql])
+        assert raised.value.code in codes
+        assert raised.value.errno == raised.value.code
+        assert raised.value.sqlstate == "23000"
+        await adapter.rollback(connection)
+        await adapter.execute(cursor, "SELECT COUNT(*) FROM %s" % parent)
+        assert await adapter.fetchone(cursor) == (1,)
+    finally:
+        await adapter.rollback(connection)
+        for table in created:
+            await adapter.execute(cursor, "DROP TABLE %s" % table)
+        await adapter.commit(connection)
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)

@@ -20,6 +20,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   UTF-8 in protocol metadata still raise the connection-level
   `OperationalError`, as does the explicit prepared API (`compat.native`),
   which retires the session on any non-server failure. (#492)
+- A `DELETE`/`UPDATE` of a parent row that a foreign key still references
+  (native `-924`, `ER_FK_RESTRICT`) and a `TRUNCATE` of a referenced parent
+  table (`-1284`, `ER_TRUNCATE_PK_REFERRED` on CUBRID 11.4; 10.2 reports
+  `-924`) now raise `IntegrityError` with SQLSTATE `23000` instead of a
+  generic `DatabaseError`, for single statements and batch failures alike.
+  `IntegrityError` is still a `DatabaseError` subclass. Dropping a referenced
+  primary key (`-923`) is a schema error and stays `DatabaseError`. (#493)
 
 ### Changed
 - Release workflow unified with the sibling repos: new `RELEASING.md`; `make release`
