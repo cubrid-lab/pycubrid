@@ -282,3 +282,79 @@ def test_cursor_threads_decode_collections_to_packets() -> None:
     _ = cursor.execute("SELECT items FROM t")
 
     assert cursor.fetchone() == ([1, 2],)
+
+
+# Exact collection payloads captured from CUBRID 10.2 and 11.4 (#483). A
+# collection whose elements are all SQL NULL carries element type NULL (0),
+# the element count, and one ``-1`` length word per element with no payload.
+_LIVE_NULL_ONE = bytes.fromhex("0000000001ffffffff")
+_LIVE_NULL_TWO = bytes.fromhex("0000000002ffffffffffffffff")
+_LIVE_EMPTY = bytes.fromhex("0000000000")
+_LIVE_INT_MIXED = bytes.fromhex("0800000003ffffffff0000000400000002ffffffff")
+_LIVE_STRING_MIXED = bytes.fromhex("0200000002000000026100ffffffff")
+
+
+@pytest.mark.parametrize(
+    "column_type,payload,expected",
+    [
+        (CUBRIDDataType.SET, _LIVE_NULL_ONE, frozenset({None})),
+        (CUBRIDDataType.MULTISET, _LIVE_NULL_ONE, [None]),
+        (CUBRIDDataType.SEQUENCE, _LIVE_NULL_ONE, [None]),
+        (CUBRIDDataType.SET, _LIVE_NULL_TWO, frozenset({None})),
+        (CUBRIDDataType.MULTISET, _LIVE_NULL_TWO, [None, None]),
+        (CUBRIDDataType.SEQUENCE, _LIVE_NULL_TWO, [None, None]),
+        (CUBRIDDataType.SET, _LIVE_EMPTY, frozenset()),
+        (CUBRIDDataType.SEQUENCE, _LIVE_EMPTY, []),
+        # Zero-length NULL markers, as older encoders and the helper above emit.
+        (CUBRIDDataType.SEQUENCE, _encode_collection(CUBRIDDataType.NULL, [None]), [None]),
+        (CUBRIDDataType.SEQUENCE, _LIVE_INT_MIXED, [None, 2, None]),
+        (CUBRIDDataType.SEQUENCE, _LIVE_STRING_MIXED, ["a", None]),
+    ],
+)
+def test_live_null_only_collection_payloads(
+    column_type: int, payload: bytes, expected: object
+) -> None:
+    reader = PacketReader(payload, decode_collections=True)
+    assert _read_value(reader, column_type, len(payload)) == expected
+    assert reader.bytes_remaining() == 0
+    raw_reader = PacketReader(payload)
+    assert _read_value(raw_reader, column_type, len(payload)) == payload
+    assert raw_reader.bytes_remaining() == 0
+
+
+def test_null_only_collection_row_decodes_through_packets() -> None:
+    response = _build_select_response(
+        [
+            (CUBRIDDataType.SET, "s"),
+            (CUBRIDDataType.MULTISET, "m"),
+            (CUBRIDDataType.SEQUENCE, "q"),
+            (CUBRIDDataType.INT, "n"),
+        ],
+        [_LIVE_NULL_TWO, _LIVE_NULL_TWO, _LIVE_NULL_ONE, _encode_int(7)],
+    )
+    packet = PrepareAndExecutePacket("SELECT", protocol_version=7, decode_collections=True)
+    packet.parse(response)
+    assert packet.rows == [(frozenset({None}), [None, None], [None], 7)]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # Negative element count.
+        bytes.fromhex("00ffffffff"),
+        # Count larger than the length words present.
+        bytes.fromhex("0000000002ffffffff"),
+        # Huge count must be rejected before any allocation.
+        bytes.fromhex("007fffffffffffffff"),
+        # Trailing bytes after the length words or an empty collection.
+        bytes.fromhex("0000000001ffffffff00"),
+        bytes.fromhex("0000000000ff"),
+        # A NULL element type cannot carry an element payload or a bogus length.
+        bytes.fromhex("000000000100000004"),
+        bytes.fromhex("0000000001fffffffe"),
+    ],
+)
+def test_malformed_null_only_collection_is_rejected(payload: bytes) -> None:
+    reader = PacketReader(payload, decode_collections=True)
+    with pytest.raises(ValueError, match="malformed NULL-only collection"):
+        _read_value(reader, CUBRIDDataType.SEQUENCE, len(payload))

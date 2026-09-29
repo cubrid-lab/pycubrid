@@ -2987,6 +2987,9 @@ Notes:
 - The final description field, `null_ok`, uses the PEP 249 meaning: `True` for
   nullable columns and `False` for NOT NULL/primary-key columns, not the inverse
   CAS `is_non_null` flag.
+- A nonempty collection whose elements are all SQL NULL (for example `{NULL}` or
+  `{NULL, NULL}`) decodes to `[None, ...]` for `MULTISET`/`SEQUENCE` and
+  `frozenset({None})` for `SET`. An empty collection decodes to `[]` / `frozenset()`.
 - Nested collection payloads remain raw `bytes`.
 - Unknown collection element types fall back to raw `bytes`.
 - `SET` values are normalized to a `frozenset` when every decoded element is hashable.
@@ -4521,6 +4524,11 @@ Column metadata preserves the first type byte's `0x60` collection-kind bits:
 byte carries the full scalar/element type (including codes above 31); otherwise
 the low five bits carry it. Collection row dispatch uses the collection kind,
 not that element type.
+
+A collection value is one element-type byte, a 4-byte element count, then a
+4-byte length and payload per element; a NULL element has length `-1` and no
+payload. When every element is NULL, CUBRID 10.2/11.4 send element type `0`
+(NULL): `{}` is `00 00000000` and `{NULL, NULL}` is `00 00000002 ffffffff ffffffff`.
 
 Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:
 

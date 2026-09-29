@@ -379,6 +379,9 @@ Notes:
 - The final description field, `null_ok`, uses the PEP 249 meaning: `True` for
   nullable columns and `False` for NOT NULL/primary-key columns, not the inverse
   CAS `is_non_null` flag.
+- A nonempty collection whose elements are all SQL NULL (for example `{NULL}` or
+  `{NULL, NULL}`) decodes to `[None, ...]` for `MULTISET`/`SEQUENCE` and
+  `frozenset({None})` for `SET`. An empty collection decodes to `[]` / `frozenset()`.
 - Nested collection payloads remain raw `bytes`.
 - Unknown collection element types fall back to raw `bytes`.
 - `SET` values are normalized to a `frozenset` when every decoded element is hashable.

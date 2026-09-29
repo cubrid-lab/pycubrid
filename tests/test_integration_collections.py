@@ -157,6 +157,87 @@ class TestCollectionCRUD:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
 
+class TestNullOnlyCollections:
+    """Nonempty collections whose elements are all SQL NULL (#483)."""
+
+    def test_null_only_and_mixed_rows(self, cursor: Cursor) -> None:
+        table = _tbl()
+        try:
+            cursor.execute(
+                "CREATE TABLE %s (id INT, s SET(INT), m MULTISET(INT), "
+                "q SEQUENCE(INT), l LIST(VARCHAR(10)))" % table
+            )
+            cursor.execute(
+                "INSERT INTO %s VALUES "
+                "(1, {NULL}, {NULL}, {NULL}, {NULL}),"
+                "(2, {NULL,NULL}, {NULL,NULL}, {NULL,NULL}, {NULL,NULL}),"
+                "(3, {1,NULL}, {NULL,1,NULL}, {NULL,2,NULL}, {'a',NULL}),"
+                "(4, {}, {}, {}, {})" % table
+            )
+            cursor.execute("SELECT * FROM %s ORDER BY id" % table)
+            assert cursor.fetchall() == [
+                (1, frozenset({None}), [None], [None], [None]),
+                (2, frozenset({None}), [None, None], [None, None], [None, None]),
+                (3, frozenset({1, None}), [1, None, None], [None, 2, None], ["a", None]),
+                (4, frozenset(), [], [], []),
+            ]
+        finally:
+            cursor.execute("DROP TABLE IF EXISTS %s" % table)
+
+    def test_null_only_literals(self, cursor: Cursor) -> None:
+        cursor.execute(
+            "SELECT {NULL}, {NULL,NULL}, CAST({NULL} AS SET(INT)), "
+            "CAST({NULL,NULL} AS MULTISET(INT)), "
+            "CAST({NULL,NULL} AS SEQUENCE(VARCHAR(5))), {NULL,1}, {}"
+        )
+        assert cursor.fetchone() == (
+            [None],
+            [None, None],
+            frozenset({None}),
+            [None, None],
+            [None, None],
+            [None, 1],
+            [],
+        )
+
+    def test_null_only_raw_bytes_unchanged(self) -> None:
+        with _connect(decode_collections=False) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT {NULL,NULL}, CAST({NULL} AS SET(INT))")
+            assert cur.fetchone() == (
+                bytes.fromhex("0000000002ffffffffffffffff"),
+                bytes.fromhex("0000000001ffffffff"),
+            )
+            cur.close()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("decode", [False, True])
+    async def test_async_null_only_collections(self, decode: bool) -> None:
+        conn = await pycubrid.aio.connect(
+            host=TEST_HOST,
+            port=TEST_PORT,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+            decode_collections=decode,
+        )
+        async with conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT CAST({NULL,NULL} AS SET(INT)), "
+                    "CAST({NULL,NULL} AS MULTISET(INT)), CAST({NULL} AS SEQUENCE(INT))"
+                )
+                row = await cur.fetchone()
+                if decode:
+                    assert row == (frozenset({None}), [None, None], [None])
+                else:
+                    assert row == (
+                        bytes.fromhex("0000000002ffffffffffffffff"),
+                        bytes.fromhex("0000000002ffffffffffffffff"),
+                        bytes.fromhex("0000000001ffffffff"),
+                    )
+
+
 class TestCollectionDecodeFlag:
     def test_decode_collections_false(self) -> None:
         with _connect(decode_collections=False) as conn:
