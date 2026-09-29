@@ -75,6 +75,24 @@ def test_duplicate_local_hook_id_fails(project: Path) -> None:
     check_configuration(project)
 
 
+def test_ruff_hook_args_fails(project: Path) -> None:
+    """pre-commit appends `args:` to `entry:`, so an added `args: ["--check"]`
+    on ruff-format would silently turn formatting into a no-op check while
+    the exact-entry check alone still sees the pinned entry line."""
+    path = project / ".pre-commit-config.yaml"
+    original = path.read_text()
+    path.write_text(
+        original.replace(
+            "        entry: python3 -m ruff format\n        language: system\n",
+            '        entry: python3 -m ruff format\n        language: system\n        args: ["--check"]\n',
+        )
+    )
+    with pytest.raises(ValueError, match="must not add args"):
+        check_configuration(project)
+    path.write_text(original)
+    check_configuration(project)
+
+
 def test_hook_missing_language_system_fails(project: Path) -> None:
     path = project / ".pre-commit-config.yaml"
     original = path.read_text()

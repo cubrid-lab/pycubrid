@@ -108,6 +108,12 @@ def check_configuration(root: Path = ROOT) -> dict[str, str]:
                 scopes = re.findall(r"^        types_or: \[([^\]]+)\]\s*$", body, re.MULTILINE)
                 if len(scopes) != 1 or set(scopes[0].split(", ")) != {"python", "pyi"}:
                     raise ValueError(f"{hook_id}: Ruff hook types must be exactly python and pyi")
+                if re.search(r"^        args:", body, re.MULTILINE):
+                    raise ValueError(
+                        f"{hook_id}: Ruff hook must not add args (pre-commit appends them to "
+                        "entry, e.g. `--check` on ruff-format silently disables formatting); "
+                        "the full command already lives in entry"
+                    )
         if tool == "mypy" and '"pycubrid/"' not in hooks_by_id["mypy"]:
             raise ValueError("mypy hook must explicitly check the pycubrid/ package")
 
