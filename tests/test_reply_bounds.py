@@ -245,6 +245,62 @@ def test_fixed_width_cell_size_mismatch_in_call_result_is_malformed() -> None:
         packet.parse(_fetch_body([[cell]]))
 
 
+def _call_fetch(body: bytes, column_count: int = 1) -> FetchPacket:
+    packet = FetchPacket(
+        1,
+        0,
+        columns=[ColumnMetaData(column_type=CUBRIDDataType.NULL)] * column_count,
+        statement_type=CUBRIDStatementType.CALL,
+    )
+    packet.parse(body)
+    return packet
+
+
+@pytest.mark.parametrize(
+    ("declared", "tail"),
+    [
+        # The size counts the one header byte it holds; the type byte is outside.
+        pytest.param(1, _INT_42, id="size-covers-only-first-header-byte"),
+        # The reply ends after the first header byte.
+        pytest.param(1, b"", id="reply-ends-inside-header"),
+    ],
+)
+def test_two_byte_cell_header_longer_than_its_cell_is_malformed(declared: int, tail: bytes) -> None:
+    # Protocol 8 CALL cells start with 0x80|charset, type (#542). A cell too
+    # short for that header must not borrow the next bytes as its type.
+    body = _fetch_body([[struct.pack(">iB", declared, 0x83) + tail]])
+    with pytest.raises((ValueError, IndexError)):
+        _call_fetch(body)
+
+
+def test_two_byte_cell_header_int_size_mismatch_is_malformed() -> None:
+    # Two header bytes + a 3-byte INT: the value width is checked after the header.
+    cell = struct.pack(">iBB", 2 + 3, 0x83, CUBRIDDataType.INT) + _INT_42[:3]
+    with pytest.raises(ValueError, match="cell size"):
+        _call_fetch(_fetch_body([[cell]]))
+
+
+def test_two_byte_cell_header_size_mismatch_after_unrepresentable_value_is_malformed() -> None:
+    # The re-walk before DataError (#512) reads the same two-byte header, so a
+    # later CALL cell whose INT does not fill its size is still framing damage.
+    zero_date = struct.pack(">BB3h", 0x83, CUBRIDDataType.DATE, 0, 0, 0)
+    short_int = struct.pack(">BB", 0x83, CUBRIDDataType.INT) + _INT_42[:3]
+    body = _fetch_body([[_cell(zero_date), _cell(short_int)]])
+    with pytest.raises(ValueError, match="cell size"):
+        _call_fetch(body, column_count=2)
+
+
+def test_two_byte_cell_header_unrepresentable_value_in_complete_reply_is_data_error() -> None:
+    # The re-walk also passes SQL NULL cells and a cell holding only its header.
+    zero_date = struct.pack(">BB3h", 0x83, CUBRIDDataType.DATE, 0, 0, 0)
+    int_42 = struct.pack(">BB", 0x83, CUBRIDDataType.INT) + _INT_42
+    header_only = struct.pack(">BB", 0x83, CUBRIDDataType.INT)
+    null = struct.pack(">i", -1)
+    body = _fetch_body([[_cell(zero_date), _cell(int_42), _cell(header_only), null]])
+    with pytest.raises(DataError):
+        _call_fetch(body, column_count=4)
+
+
 def test_fixed_width_cell_size_mismatch_after_an_unrepresentable_value_is_malformed() -> None:
     # A zero DATE is DataError only for a complete reply (#512). The re-walk
     # that proves completeness must also reject a later INT cell whose size

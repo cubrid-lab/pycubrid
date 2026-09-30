@@ -986,8 +986,19 @@ Call a stored procedure. Constructs and executes a `CALL procname(?, ?, ...)` st
 
 **Returns:** The original `parameters` sequence (as per PEP 249).
 
+A stored function's return value is the one row of the result set: fetch it
+with `fetchone()`. The same holds for `execute("CALL ...")` (including method
+calls such as `CALL find_user('dba') ON CLASS db_user`) and `EVALUATE`. Each
+value carries its own type on the wire and is decoded like a column of that
+type (`INT` to `int`, `VARCHAR` to `str`, `DATETIME` to `datetime`, an object
+to its `"OID:@page|slot|volume"` string, SQL `NULL` to `None`); before #542
+these values came back as raw `bytes`. `description` reports the column type as
+`NULL` (`0`) because the broker announces no type for it.
+
 ```python
 cur.callproc("my_procedure", [1, "hello"])
+cur.callproc("my_function")
+(value,) = cur.fetchone()
 ```
 
 ---

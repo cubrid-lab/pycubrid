@@ -937,8 +937,18 @@ def callproc(
 
 **반환:** 원본 `parameters` 시퀀스 (PEP 249에 따라).
 
+저장 함수의 반환값은 결과 집합의 한 행입니다. `fetchone()`으로 가져옵니다.
+`execute("CALL ...")`(예: `CALL find_user('dba') ON CLASS db_user` 같은 메서드
+호출 포함)와 `EVALUATE`도 같습니다. 각 값은 와이어에서 자신의 타입을 함께 전달하며
+해당 타입의 컬럼 값처럼 디코딩됩니다(`INT`는 `int`, `VARCHAR`는 `str`,
+`DATETIME`은 `datetime`, 객체는 `"OID:@page|slot|volume"` 문자열, SQL `NULL`은
+`None`). #542 이전에는 이 값들이 원시 `bytes`로 반환되었습니다. 브로커가 이 컬럼의
+타입을 알려주지 않으므로 `description`의 컬럼 타입은 `NULL`(`0`)입니다.
+
 ```python
 cur.callproc("my_procedure", [1, "hello"])
+cur.callproc("my_function")
+(value,) = cur.fetchone()
 ```
 
 ---

@@ -229,6 +229,18 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`CALL`/`EVALUATE` values and `NULL`-typed cells are decoded (#542)** — PATCH /
+  bug correction. A value returned by `CALL` (stored function, method call,
+  `callproc()`) or `EVALUATE`, and a non-NULL value in a column whose metadata
+  type is `NULL`, is now decoded to its Python type (`int`, `str`, `datetime`,
+  OID string, collection, ...) instead of being returned as raw `bytes` that
+  included part of the protocol 8 type header. Code that decoded those bytes by
+  hand must use the value directly. A type header longer than its cell raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection, like other framing damage (#383, #523). `description`, SQL `NULL`
+  cells, public signatures, dependencies and supported versions are unchanged;
+  sync and async behave the same.
+
 - **Rows before a failing fetch page are kept (#507)** — PATCH / correction of
   data loss in error handling. When a later FETCH page raises a data-level
   `DataError` (#492, #413, #512), rows the failing `fetchmany()`/`fetchall()`

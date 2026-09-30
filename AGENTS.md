@@ -113,6 +113,11 @@ heterogeneous failover.
   nonzero means NOT NULL. Normalize it to `is_nullable` / DB-API `null_ok`.
 - Column metadata keeps first-byte collection flags (`0x60`) distinct from the
   scalar/element type; `0x80` marks a full second type byte, not a scalar-only column.
+- Cells of CALL/EVALUATE results and of NULL-typed columns carry their own type
+  header, counted in the cell size, in the same layout: two bytes
+  (`0x80 | collection bits | charset`, type) under protocol 7+, one byte from older
+  brokers (#542). The row parser and the bounds re-walk before `DataError` read it
+  with one helper; a header longer than its cell is malformed.
 - FC9 schema metadata is condensed: type, scale, precision and name only, without
   SELECT constraint fields. Schema packets are owned by their original connection:
   consume with fetch_schema_info or abandon with close_schema_info, never replay
