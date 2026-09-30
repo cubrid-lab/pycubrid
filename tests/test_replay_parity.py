@@ -571,11 +571,6 @@ def _truncated_execute(request: Request, state: Session) -> Reply:
     return Reply(body[:-6])  # well framed, but the row cell runs past the end (#533)
 
 
-_CONSTRUCTOR_AUTOCOMMIT = (
-    "sync constructor applies autocommit through the reconnecting property setter: "
-    "probes between SET_DB_PARAMETER and COMMIT, can split them across CAS sessions, "
-    "and raises the native error instead of OperationalError"
-)
 _PING_RETIRE = "sync ping(reconnect=False) keeps a session whose CHECK_CAS failed"
 
 SCENARIOS: tuple[Scenario, ...] = (
@@ -587,7 +582,6 @@ SCENARIOS: tuple[Scenario, ...] = (
         ),
         options={"autocommit": True},
         check=_check_constructor_autocommit_failure,
-        unintended=_CONSTRUCTOR_AUTOCOMMIT,
     ),
     Scenario(
         "constructor_autocommit_cas_recycled",
@@ -595,7 +589,6 @@ SCENARIOS: tuple[Scenario, ...] = (
         script=_on("SET_DB_PARAMETER", _hang_up_after_ok, session=0),
         options={"autocommit": True},
         check=_check_constructor_autocommit_not_split,
-        unintended=_CONSTRUCTOR_AUTOCOMMIT,
     ),
     Scenario(
         "create_lob",
@@ -638,7 +631,6 @@ SCENARIOS: tuple[Scenario, ...] = (
         (("open",), ("close",), ("connect",), ("get_autocommit",), ("version",)),
         options={"autocommit": True},
         check=_check_autocommit_restored(1),
-        unintended=_CONSTRUCTOR_AUTOCOMMIT,
     ),
     Scenario(
         "reconnect_leaves_untouched_autocommit_at_default",

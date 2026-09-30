@@ -88,7 +88,30 @@ class Connection(ConnectionCommonMixin):
 
         self.connect()
         if autocommit:
-            self.autocommit = True
+            self._apply_initial_autocommit()
+
+    def _apply_initial_autocommit(self) -> None:
+        """Apply the constructor's ``autocommit=True`` on the session just opened.
+
+        Mirrors the async ``_apply_pending_autocommit_locked``: ``SET_DB_PARAMETER``
+        and its ``COMMIT`` are sent on this session with implicit reconnect
+        disabled, so a CAS recycled between them cannot split the two across
+        sessions (which left the new session at the broker default while
+        ``autocommit`` reported ``True``). Any failure retires the session and
+        raises :class:`OperationalError` with the cause chained.
+        """
+        with self._session_lock:
+            try:
+                self._send_and_receive(
+                    SetDbParameterPacket(parameter=CCIDbParam.AUTO_COMMIT, value=1),
+                    allow_reconnect=False,
+                )
+                self._send_and_receive(CommitPacket(), allow_reconnect=False)
+            except Exception as exc:
+                self._drop_connection()
+                raise OperationalError("failed to apply autocommit after connect") from exc
+            self._autocommit = True
+            self._autocommit_explicitly_set = True
 
     def _negotiate_backslash_escapes(self) -> None:
         """Detect the server's backslash-escape mode when not pinned.

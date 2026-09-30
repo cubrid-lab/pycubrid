@@ -55,6 +55,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   failed `CHECK_CAS` probe (each still restores exactly once). A connection
   whose `autocommit` was never set explicitly sends nothing extra. Found by the
   offline sync/async replay parity suite (#521).
+- **Sync `connect(autocommit=True)` applies autocommit on one CAS session, like async (#521)** —
+  the sync constructor applied `autocommit=True` through the public property
+  setter, which probes an OUT_TRAN reply with `CHECK_CAS` and may reconnect in
+  between: a CAS recycled right after `SET_DB_PARAMETER` made it send the
+  `COMMIT` on a new session that never received `AUTO_COMMIT=1`, while
+  `conn.autocommit` reported `True`. It now sends both requests on the session
+  it just opened with implicit reconnect disabled, as `pycubrid.aio` does; any
+  failure closes the connection and raises `OperationalError` (the native
+  error is its `__cause__`; previously the native `DatabaseError` escaped and
+  the socket stayed open). A healthy connect no longer sends the extra
+  `CHECK_CAS` between the two requests.
 - **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
   under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
   type header `0x80 | collection bits | charset`, type, the layout of column
