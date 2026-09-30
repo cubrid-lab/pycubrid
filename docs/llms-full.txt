@@ -4686,6 +4686,19 @@ Available parameters (`CCIDbParam`):
 | `_parse_bytes(count)` | `bytes` | `count` |
 | `_parse_null_terminated_string(length)` | `str` | `length` |
 
+Every read stays inside the reply (#383). A length-prefixed read (bytes, text,
+`NUMERIC`, `JSON`, a raw collection or LOB handle, `_skip_bytes()`) checks
+`0 <= length <= bytes_remaining()` before it moves and raises `ValueError`
+otherwise; a fixed-width read past the end raises `struct.error` or
+`IndexError`. A failed read leaves the offset unchanged. Text readers return
+`""` for a non-positive length without moving. A decoded collection's elements
+must fill its declared size exactly, and a `LOB_READ` byte count must fit the
+reply (a count below the requested length is a valid short read). The
+connection turns these exceptions into `OperationalError("malformed response
+from broker")` and closes; `DataError` stays reserved for a complete reply
+whose value Python cannot represent (#492, #512). Unread bytes after the last
+value a reply declares are not checked.
+
 ### Composite Parsers
 
 | Method | Returns | Description |
@@ -5696,6 +5709,18 @@ InterfaceError: Connection is closed
 - **Broker restart** — If the broker restarts, all existing connections are terminated.
 - **Network interruption** — Temporary network failure drops the TCP connection.
 - **Idle connection cleanup** — The broker may close idle connections to free resources.
+- **Malformed broker reply** — the call itself raised
+  `OperationalError: malformed response from broker` because the reply could
+  not be read as a whole: a length field (a `BIT`/`VARBIT`, string, `NUMERIC`,
+  collection or LOB byte count) that is negative or runs past the end of the
+  reply, or collection elements that do not fill their declared size. The
+  driver closes the connection, because the next reply boundary is unknown,
+  and later calls raise `InterfaceError`. Bytes after the last value a reply
+  declares are not an error. A complete reply with a value Python cannot
+  represent raises `DataError` and keeps the connection instead (see
+  [Invalid UTF-8](#invalid-utf-8-in-a-value-or-error-message) and
+  [Zero Date](#zero-date-or-datetime-value)). Earlier releases returned a
+  shortened value for a cut-off field and kept the connection (#383).
 
 **Fix:** Create a new connection when this error occurs:
 

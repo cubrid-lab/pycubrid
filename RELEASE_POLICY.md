@@ -221,6 +221,17 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Reads past the end of a broker reply are rejected (#383)** — PATCH /
+  correction of a protocol-robustness defect. A length field that is negative
+  or runs past the end of a complete reply (row values, collections, LOB
+  handles, `LOB_READ` byte counts), or collection elements that do not fill
+  their declared size, now raise `OperationalError('malformed response from
+  broker')` and close the connection instead of returning a shortened value
+  and keeping it. A normal server does not send such replies. Valid replies,
+  short `LOB_READ` results, the `DataError` classification of complete replies
+  (#492, #512), public signatures, dependencies and supported versions are
+  unchanged.
+
 - **Zero temporal values raise `DataError` and keep the session (#512)** —
   PATCH / correction of error classification and connection lifetime, extending
   #492 and #413. A zero `DATE`, `DATETIME`, `TIMESTAMP` or TZ/LTZ value (year 0,

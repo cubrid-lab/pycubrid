@@ -614,6 +614,19 @@ Available parameters (`CCIDbParam`):
 | `_parse_bytes(count)` | `bytes` | `count` |
 | `_parse_null_terminated_string(length)` | `str` | `length` |
 
+Every read stays inside the reply (#383). A length-prefixed read (bytes, text,
+`NUMERIC`, `JSON`, a raw collection or LOB handle, `_skip_bytes()`) checks
+`0 <= length <= bytes_remaining()` before it moves and raises `ValueError`
+otherwise; a fixed-width read past the end raises `struct.error` or
+`IndexError`. A failed read leaves the offset unchanged. Text readers return
+`""` for a non-positive length without moving. A decoded collection's elements
+must fill its declared size exactly, and a `LOB_READ` byte count must fit the
+reply (a count below the requested length is a valid short read). The
+connection turns these exceptions into `OperationalError("malformed response
+from broker")` and closes; `DataError` stays reserved for a complete reply
+whose value Python cannot represent (#492, #512). Unread bytes after the last
+value a reply declares are not checked.
+
 ### Composite Parsers
 
 | Method | Returns | Description |

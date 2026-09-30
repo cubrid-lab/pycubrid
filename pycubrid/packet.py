@@ -375,7 +375,33 @@ def _unrepresentable_temporal(
     return DataError(f"CUBRID {type_name} value {fields!r} cannot be represented in Python: {exc}")
 
 
+def _out_of_bounds(count: int, offset: int, buffer_size: int) -> ValueError:
+    """A length that cannot be read from the reply: a malformed response (#383)."""
+    if count < 0:
+        return ValueError(f"negative length {count} in broker reply")
+    return ValueError(
+        f"read of {count} bytes at offset {offset} runs past the end of the "
+        f"broker reply ({buffer_size - offset} bytes left)"
+    )
+
+
 class PacketReader:
+    """Read CAS values from one complete broker reply.
+
+    Every read that consumes bytes stays inside the reply (#383): a
+    length-prefixed read checks ``0 <= length <= bytes_remaining()`` before it
+    moves and raises ``ValueError`` otherwise, and a fixed-width read past the
+    end raises ``struct.error`` or ``IndexError``. The connection reports all
+    three as ``OperationalError("malformed response from broker")`` and closes,
+    while ``DataError`` stays for a complete reply holding a value Python cannot
+    represent (#492, #512). A failed read leaves the offset where it was.
+    Text readers treat a non-positive length as empty without moving.
+
+    Bytes left unread after a reply is parsed are not checked: only values whose
+    size the protocol states exactly (a length word, a collection's size) must
+    match it.
+    """
+
     __slots__ = ("_buffer", "_offset", "_decode_collections", "_json_deserializer", "_encoding")
 
     def __init__(
@@ -433,11 +459,16 @@ class PacketReader:
     def _parse_bytes(self, count: int) -> bytes:
         start = self._offset
         end = start + count
+        if count < 0 or end > len(self._buffer):
+            raise _out_of_bounds(count, start, len(self._buffer))
         self._offset = end
         return bytes(self._buffer[start:end])
 
     def _skip_bytes(self, count: int) -> None:
-        self._offset += count
+        end = self._offset + count
+        if count < 0 or end > len(self._buffer):
+            raise _out_of_bounds(count, self._offset, len(self._buffer))
+        self._offset = end
 
     def _parse_null_terminated_string(self, length: int) -> str:
         """Decode protocol text (NUMERIC, timezone names, version) as UTF-8."""
@@ -446,6 +477,8 @@ class PacketReader:
 
         start = self._offset
         end = start + length
+        if end > len(self._buffer):
+            raise _out_of_bounds(length, start, len(self._buffer))
         self._offset = end
         if self._buffer[end - 1] == 0:
             return bytes(self._buffer[start : end - 1]).decode("utf-8")
@@ -463,6 +496,8 @@ class PacketReader:
         codec = self._encoding if encoding is None else encoding
         start = self._offset
         end = start + length
+        if end > len(self._buffer):
+            raise _out_of_bounds(length, start, len(self._buffer))
         self._offset = end
         if self._buffer[end - 1] == 0:
             end -= 1
@@ -479,6 +514,8 @@ class PacketReader:
             return ""
         start = self._offset
         end = start + length
+        if end > len(self._buffer):
+            raise _out_of_bounds(length, start, len(self._buffer))
         self._offset = end
         if self._buffer[end - 1] == 0:
             end -= 1
@@ -643,7 +680,15 @@ class PacketReader:
                         self._offset += element_size
                 if self._offset > start_offset + size:
                     raise ValueError("malformed collection: elements exceed its size") from None
+                if self._offset != start_offset + size:
+                    raise ValueError(
+                        "malformed collection: elements do not match its size"
+                    ) from None
                 raise
+        if self._offset != start_offset + size:
+            # The elements must fill the declared size exactly, or the next
+            # value in the row would be read from the wrong place (#383).
+            raise ValueError("malformed collection: elements do not match its size")
         return values
 
     def _parse_object(self, size: int = 0) -> str:
@@ -678,6 +723,8 @@ class PacketReader:
             return ""
         start = self._offset
         end = start + length
+        if end > len(self._buffer):
+            raise _out_of_bounds(length, start, len(self._buffer))
         self._offset = end
         if self._buffer[end - 1] == 0:
             end -= 1

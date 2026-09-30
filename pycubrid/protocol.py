@@ -723,7 +723,8 @@ def _check_row_data_bounds(
     """Walk ``tuple_count`` rows by declared sizes; raise if the reply is short.
 
     Each value's size includes the type byte of CALL/NULL-typed columns, so
-    skipping ``size`` bytes covers every column layout.
+    skipping ``size`` bytes covers every column layout. A size past the end of
+    the reply raises ``ValueError`` from ``_skip_bytes`` (#383).
     """
     reader._offset = rows_start
     for _ in range(tuple_count):
@@ -733,8 +734,6 @@ def _check_row_data_bounds(
             size = reader._parse_int()
             if size > 0:
                 reader._skip_bytes(size)
-    if reader.bytes_remaining() < 0:
-        raise IndexError("row data runs past the end of the broker reply")
 
 
 def _parse_row_data(
@@ -1597,9 +1596,10 @@ class LOBReadPacket(_CasPacket):
         if response_code < 0:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
+        # A count past the end of the reply raises before any field is set (#383).
+        if response_code > 0:
+            self.lob_data = reader._parse_bytes(response_code)
         self.bytes_read = response_code
-        if self.bytes_read > 0:
-            self.lob_data = reader._parse_bytes(self.bytes_read)
 
 
 class GetLastInsertIdPacket(_CasPacket):

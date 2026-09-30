@@ -153,8 +153,9 @@ def _fetch_body(values: list[bytes], *, cut: int = 0) -> bytes:
 def test_zero_date_before_truncated_row_is_a_framing_error() -> None:
     body = _fetch_body([_ZERO_DATE, struct.pack(">3h", 2024, 1, 2)], cut=3)
     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
-    with pytest.raises((IndexError, struct.error)):
+    with pytest.raises(ValueError, match="past the end") as raised:
         packet.parse(body, columns=_date_columns())
+    assert not isinstance(raised.value, DataError)
 
 
 def test_zero_date_before_overlong_value_is_a_framing_error() -> None:
@@ -163,7 +164,7 @@ def test_zero_date_before_overlong_value_is_a_framing_error() -> None:
     body += struct.pack(">i", 2) + b"\x00" * 8 + struct.pack(">i", 64) + b"\x00" * 6
     body = body[:4] + struct.pack(">ii", 0, 2) + body[12:]
     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
-    with pytest.raises(IndexError, match="past the end"):
+    with pytest.raises(ValueError, match="past the end"):
         packet.parse(body, columns=_date_columns())
 
 

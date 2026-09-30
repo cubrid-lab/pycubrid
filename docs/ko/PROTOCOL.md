@@ -600,6 +600,19 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 | `_parse_bytes(count)` | `bytes` | `count` |
 | `_parse_null_terminated_string(length)` | `str` | `length` |
 
+모든 읽기는 응답 안에서만 이루어집니다(#383). 길이가 앞에 오는 읽기(바이트,
+텍스트, `NUMERIC`, `JSON`, 디코딩하지 않은 컬렉션 또는 LOB 핸들,
+`_skip_bytes()`)는 이동하기 전에 `0 <= length <= bytes_remaining()`를 확인하고,
+아니면 `ValueError`를 발생시킵니다. 고정 폭 읽기가 끝을 넘으면 `struct.error`
+또는 `IndexError`가 발생합니다. 실패한 읽기는 오프셋을 바꾸지 않습니다. 텍스트
+리더는 길이가 0 이하이면 이동하지 않고 `""`를 반환합니다. 디코딩한 컬렉션의
+원소는 선언된 크기를 정확히 채워야 하며, `LOB_READ` 바이트 수는 응답 안에
+들어가야 합니다(요청한 길이보다 작은 값은 정상적인 짧은 읽기). 연결은 이
+예외들을 `OperationalError("malformed response from broker")`로 바꾸고 연결을
+닫습니다. `DataError`는 응답은 완전하지만 Python이 값을 표현할 수 없는 경우에만
+사용합니다(#492, #512). 응답이 선언한 마지막 값 뒤에 남은 바이트는 검사하지
+않습니다.
+
 ### 복합 파서
 
 | 메서드 | 반환 | 설명 |

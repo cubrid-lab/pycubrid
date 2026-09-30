@@ -235,6 +235,18 @@ InterfaceError: Connection is closed
 - **Broker restart** — If the broker restarts, all existing connections are terminated.
 - **Network interruption** — Temporary network failure drops the TCP connection.
 - **Idle connection cleanup** — The broker may close idle connections to free resources.
+- **Malformed broker reply** — the call itself raised
+  `OperationalError: malformed response from broker` because the reply could
+  not be read as a whole: a length field (a `BIT`/`VARBIT`, string, `NUMERIC`,
+  collection or LOB byte count) that is negative or runs past the end of the
+  reply, or collection elements that do not fill their declared size. The
+  driver closes the connection, because the next reply boundary is unknown,
+  and later calls raise `InterfaceError`. Bytes after the last value a reply
+  declares are not an error. A complete reply with a value Python cannot
+  represent raises `DataError` and keeps the connection instead (see
+  [Invalid UTF-8](#invalid-utf-8-in-a-value-or-error-message) and
+  [Zero Date](#zero-date-or-datetime-value)). Earlier releases returned a
+  shortened value for a cut-off field and kept the connection (#383).
 
 **Fix:** Create a new connection when this error occurs:
 
