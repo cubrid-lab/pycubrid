@@ -1135,7 +1135,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit`은 읽기 전용입니다. 변경하려면 `await conn.set_autocommit(True)`을 사용하세요.
-동기 세터처럼 `SetDbParameterPacket`과 `CommitPacket` 둘 다 보냅니다.
+동기 세터처럼 `SetDbParameterPacket`과 `CommitPacket`을 하나의 CAS 세션에서 보내며, CAS 재활용 및 실패 시 동작도 같습니다(#551).
 
 ### `ping(reconnect=True)`
 
