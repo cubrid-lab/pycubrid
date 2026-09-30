@@ -233,6 +233,12 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   lifetime, successful fetches, public signatures, dependencies and supported
   versions are unchanged; sync and async behave the same.
 
+- **No asyncio `eof_received` warning when a TLS broker closes (#514)** —
+  PATCH / correction of spurious log output. `pycubrid.aio` connections using
+  `ssl=` no longer make asyncio log a WARNING each time the broker closes the
+  TLS session. Errors, reconnect behavior, the sync driver, public signatures,
+  dependencies and supported versions are unchanged.
+
 - **Async TLS connect no longer hangs after an interrupted handshake (#513)** —
   PATCH / correction of a hang in error handling. When the broker stalls or
   resets the connection before the TLS handshake completes,
