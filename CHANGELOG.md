@@ -46,6 +46,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- **Row cells whose value does not use exactly their declared size are rejected (#523)** —
+  the readers for fixed-width values (`SHORT`, `INT`, `BIGINT`, `FLOAT`,
+  `DOUBLE`, `MONETARY`, `DATE`, `TIME`, `DATETIME`, `TIMESTAMP`, `OBJECT`, and
+  the fixed part of the TZ types) ignored a cell's size word, so a FETCH or
+  inline execute row whose cell declared more bytes than the reply held (for
+  example an `INT` declaring 1000 bytes at the end of the reply), or a size
+  that disagreed with the value's width, was decoded as if it were complete.
+  Every row cell must now use exactly its declared size, like the
+  length-prefixed values since #383; otherwise the reply raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection, sync and async. A normal server always sends the exact size, so
+  valid replies, the `DataError` classification of complete replies (#492,
+  #512) and SQL `NULL` cells (a non-positive size) are unchanged. Documented in
+  `docs/PROTOCOL.md` and `docs/TROUBLESHOOTING.md` (+ Korean).
 - **Tests: a configured but unreachable CUBRID now errors instead of skipping (#522, #432)** —
   16 integration modules probed the server at import time and called
   `skipif("CUBRID instance not available")`, so pointing the suite at a dead

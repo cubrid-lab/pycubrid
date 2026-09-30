@@ -736,6 +736,11 @@ def _check_row_data_bounds(
                 reader._skip_bytes(size)
 
 
+def _cell_size_mismatch(declared: int, used: int) -> ValueError:
+    """A row cell whose value does not fill its size word: a malformed reply (#383)."""
+    return ValueError(f"row cell size {declared} does not match the {used} bytes its value uses")
+
+
 def _parse_row_data(
     reader: PacketReader,
     tuple_count: int,
@@ -768,6 +773,10 @@ def _parse_row_data(
     rows: list[tuple[Any, ...]] = []
     _rows_append = rows.append
 
+    # Every cell value must use exactly the bytes its size word declares. The
+    # fixed-width readers (INT, DATE, OID, ...) do not look at the size, so
+    # without this check a size past the end of the reply, or one that
+    # disagrees with its type, was silently accepted (#383, #523).
     rows_start = reader._offset
     try:
         for _ in range(tuple_count):
@@ -778,7 +787,10 @@ def _parse_row_data(
                 for i in range(ncols):
                     size = _parse_int()
                     if size > 0:
+                        end = reader._offset + size
                         row[i] = _convert_collection_value(col_types[i], col_readers[i](size))
+                        if reader._offset != end:
+                            raise _cell_size_mismatch(size, reader._offset - end + size)
             else:
                 for i in range(ncols):
                     size = _parse_int()
@@ -790,11 +802,14 @@ def _parse_row_data(
                         size -= 1
                         if size <= 0:
                             continue
+                    end = reader._offset + size
                     method_name = _get(ct)
                     if method_name is not None:
                         row[i] = _convert_collection_value(ct, _getattr(reader, method_name)(size))
                     else:
                         row[i] = _parse_bytes(size)
+                    if reader._offset != end:
+                        raise _cell_size_mismatch(size, reader._offset - end + size)
             _rows_append(tuple(row))
     except DataError:
         # A value the client cannot represent (invalid text #492, unknown zone
