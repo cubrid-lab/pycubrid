@@ -279,7 +279,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 
 | CUBRID Type | CCI Code | Python Type | Notes |
 |---|---|---|---|
-| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, UTF-8 decoded; invalid UTF-8 raises `DataError` (connection stays usable) |
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null-terminated, decoded with the connection `charset` (default UTF-8); undecodable bytes raise `DataError` naming the codec (connection stays usable). In an EUC-KR database `CHAR(n)` pads with U+3000 |
 | `SHORT` (SMALLINT) | 9 | `int` | 16-bit signed |
 | `INTEGER` | 8 | `int` | 32-bit signed |
 | `BIGINT` | 21 | `int` | 64-bit signed |
@@ -293,11 +293,11 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps (second precision, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes (millisecond precision) |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
-| `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set |
+| `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set. Always UTF-8, whatever the connection `charset` |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
 | `OBJECT` (OID) | 19 | `str` | Format: `"OID:@page\|slot\|volume"` |
 | `BLOB` | 23 | `dict` | LOB handle (see below) |
-| `CLOB` | 24 | `dict` | LOB handle (see below) |
+| `CLOB` | 24 | `dict` | LOB handle (see below); `Lob.read()` returns bytes in the column charset, not decoded with `charset` |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
 
 > **Local time zone types:** `TIMESTAMPLTZ` and `DATETIMELTZ` values are returned
@@ -311,6 +311,24 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary)).
 > If the session zone changes, the same stored instant is returned with a
 > different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
+
+> **Zero dates (#512):** CUBRID accepts zero values such as `DATE'0000-00-00'`,
+> `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
+> `TIMESTAMPLTZ`, `DATETIMETZ` and `DATETIMELTZ` values, but Python's `datetime`
+> has no year 0. Fetching one raises `DataError` naming the CUBRID type and
+> fields, on `execute()` and on a later fetch page alike; the connection stays
+> usable, and the cursor keeps its server handle as for invalid UTF-8 (#492).
+> On a later page, rows fetched before that page are still returned, and
+> fetches after them keep raising the same `DataError` until the next
+> `execute()` (#507).
+> Any other temporal field Python cannot hold is reported the same way.
+> There is no option to return `None` or text instead: convert the value in
+> SQL, for example `NULLIF(d, DATE'0000-00-00')` (zero becomes `NULL`),
+> `CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END`, or
+> `TO_CHAR(d, 'YYYY-MM-DD')` (returns `'0000-00-00'`). The explicit prepared
+> API (`pycubrid.compat.native`) stays fail-closed: it raises
+> `OperationalError` and retires the session. See
+> [Zero Date or Datetime Value](TROUBLESHOOTING.md#zero-date-or-datetime-value).
 
 > **Zone decoding (#413):** CUBRID sends each value's zone as text: an offset
 > (`+05:30`) or a region name with the abbreviation in effect
@@ -485,6 +503,23 @@ cur.execute(
 conn.commit()
 cur.close()
 conn.close()
+```
+
+### Decimal Parameters
+
+`Decimal` parameters are sent as plain fixed-point literals (never E notation),
+so CUBRID keeps them `NUMERIC` with the scale you wrote: `Decimal("0.0000001")`
+fetches back as `Decimal`, not `float`. A value whose plain literal needs more
+than 38 digits, CUBRID's maximum `NUMERIC` precision, raises `DataError`
+instead of becoming `DOUBLE`. See
+[Parameter Binding: Decimal parameters](PARAMETER_BINDING.md#decimal-parameters).
+
+```python
+from decimal import Decimal
+
+cur.execute("SELECT ?", [Decimal("0.0000001")])  # sent as 0.0000001
+assert cur.fetchone()[0] == Decimal("0.0000001")
+assert cur.description[0][1] == pycubrid.constants.CUBRIDDataType.NUMERIC
 ```
 
 ### Using CUBRIDDataType Enum

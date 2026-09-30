@@ -112,6 +112,7 @@ markers = [
     "integration: requires a live CUBRID server",
     "slow: long-running tests (soak, stress, chaos) excluded from the standard full matrix",
     "tls: TLS-specific integration tests run in the dedicated integration-tls job",
+    "version_matrix: cross-version differential run against every CUBRID in CUBRID_VERSION_MATRIX (version-differential job)",
     "benchmark: performance benchmark (requires a live CUBRID server)",
 ]
 

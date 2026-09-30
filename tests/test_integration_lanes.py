@@ -42,6 +42,37 @@ def test_optional_native_comparison_skip_is_classified() -> None:
     )
 
 
+def test_charset_lane_skip_is_classified_only_for_its_module() -> None:
+    reason = "requires an EUC-KR database (integration-charset lane)"
+    assert (
+        skip_category("tests.test_integration_charset::test_json[sync]", reason)
+        == "charset-lane-only"
+    )
+    assert (
+        skip_category("tests/test_integration_charset.py::test_json[sync]", reason)
+        == "charset-lane-only"
+    )
+    for other in (
+        "tests.test_integration::test_query",
+        "tests.test_integration_charset_fallback::test_query",
+        "tests/test_integration.py::test_integration_charset",
+    ):
+        with pytest.raises(ValueError, match="unclassified"):
+            skip_category(other, reason)
+
+
+def test_missing_charset_lane_fails_workflow_audit(tmp_path: Path) -> None:
+    target = tmp_path / ".github" / "workflows"
+    target.mkdir(parents=True)
+    for name in ("ci.yml", "integration-full.yml", "bug-hunt.yml"):
+        content = (ROOT / ".github" / "workflows" / name).read_text()
+        if name == "ci.yml":
+            content = content.replace("tests/test_integration_charset.py", "tests/")
+        (target / name).write_text(content)
+    with pytest.raises(ValueError, match="no executable EUC-KR charset lane"):
+        verify_workflows(tmp_path)
+
+
 def test_junit_unknown_skip_cannot_hide_behind_passed_tests(tmp_path: Path) -> None:
     report = tmp_path / "results.xml"
     report.write_text(
@@ -65,3 +96,39 @@ def test_junit_entity_declarations_are_rejected(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="DTD/entity declarations are forbidden"):
         verify_results(report)
+
+
+def test_tls_matrix_fd_skip_is_classified_but_broker_skip_is_not() -> None:
+    node = "tests.test_tls_matrix_integration::test_tls_connect_failures_and_cycles_do_not_leak_fds[sync]"
+    assert (
+        skip_category(node, "cannot count file descriptors on this platform")
+        == "platform-without-proc"
+    )
+    with pytest.raises(ValueError, match="unclassified"):
+        skip_category(node, "TLS-enabled CUBRID broker not available")
+
+
+def test_version_lane_skip_is_classified_only_for_its_module() -> None:
+    reason = "CUBRID_VERSION_MATRIX not set: the version differential runs only in the multi-version lane"
+    assert (
+        skip_category("tests.test_version_differential::test_scalar_expression_agrees", reason)
+        == "version-lane-only"
+    )
+    assert (
+        skip_category("tests/test_version_differential.py::test_scalar_expression_agrees", reason)
+        == "version-lane-only"
+    )
+    with pytest.raises(ValueError, match="unclassified"):
+        skip_category("tests.test_integration::test_query", reason)
+
+
+def test_missing_version_differential_lane_fails_workflow_audit(tmp_path: Path) -> None:
+    target = tmp_path / ".github" / "workflows"
+    target.mkdir(parents=True)
+    for name in ("ci.yml", "integration-full.yml", "bug-hunt.yml"):
+        content = (ROOT / ".github" / "workflows" / name).read_text()
+        if name == "integration-full.yml":
+            content = content.replace('-m "integration and version_matrix"', '-m "integration"')
+        (target / name).write_text(content)
+    with pytest.raises(ValueError, match="no executable version marker selection"):
+        verify_workflows(tmp_path)

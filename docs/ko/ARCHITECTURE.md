@@ -183,7 +183,7 @@ flowchart TD
 - **`connection.py` — TCP 소켓과 트랜잭션 관리**: CAS에 대한 물리적 TCP 연결을 관리하고, 트랜잭션(커밋/롤백)을 처리하며, LOB 연산의 소유자 역할을 합니다.
 - **`cursor.py` — SQL 실행과 결과 조회**: `Cursor` 객체를 구현해 SQL 준비·실행·다양한 fetch 연산을 처리하고 결과 상태를 유지합니다.
 - **`protocol.py` — CAS 패킷 클래스**: CUBRID CAS 함수 코드에 대응하는 18개 전문 패킷 클래스를 정의하고, 특정 요청·응답의 직렬화/역직렬화를 담당합니다.
-- **`packet.py` — PacketReader / PacketWriter**: 와이어 형식 읽기·쓰기의 저수준 유틸리티를 제공하고 바이트 순서와 원시 타입 직렬화를 처리합니다.
+- **`packet.py` — PacketReader / PacketWriter**: 와이어 형식 읽기·쓰기의 저수준 유틸리티를 제공하고 바이트 순서와 원시 타입 직렬화를 처리합니다. 둘 다 연결 `charset` 코덱을 사용합니다(#86): 연결은 `write()` 전에 모든 패킷에 코덱을 설정하므로 SQL 텍스트, 자격 증명, 문자 값, 컬럼 이름, 오류 텍스트, LOB 로케이터는 데이터베이스 문자셋을 쓰고, 가져온 JSON, NUMERIC, 타임존 이름은 UTF-8을 유지합니다. [문자 인코딩](CONNECTION.md#문자-인코딩)을 참고하세요.
 - **`constants.py` — CAS 상수**: CAS 함수 코드, CUBRID 데이터 타입, 기타 프로토콜 수준 상수의 열거형을 담습니다.
 - **`types.py` — DB-API 타입**: PEP 249가 요구하는 타입 객체를 정의하고 CUBRID 타입과 Python 타입 간 매핑을 관리합니다.
 - **`exceptions.py` — PEP 249 예외**: DB-API 2.0 사양이 요구하는 표준 예외 계층을 구현합니다.
@@ -210,7 +210,7 @@ flowchart TD
 
     wire --> dispatch
 
-    dispatch -->|"1-4, 25"| str["str<br/>(UTF-8 decoded)"]
+    dispatch -->|"1-4, 25"| str["str<br/>(connection charset,<br/>default UTF-8)"]
     dispatch -->|"5, 6"| bytes["bytes<br/>(raw binary)"]
     dispatch -->|"7"| decimal["Decimal<br/>(string-parsed)"]
     dispatch -->|"8"| int32["int<br/>(4B signed)"]

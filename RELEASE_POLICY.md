@@ -221,6 +221,98 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Rows before a failing fetch page are kept (#507)** — PATCH / correction of
+  data loss in error handling. When a later FETCH page raises a data-level
+  `DataError` (#492, #413, #512), rows the failing `fetchmany()`/`fetchall()`
+  call had already collected are returned by the next fetch calls instead of
+  being dropped, and every fetch after them raises the same `DataError` without
+  requesting the page again until `execute()` or `close()`, instead of
+  re-requesting it on every retry (which in autocommit mode could raise CAS
+  error `-1012` once the broker had closed the result). No row of or past the
+  failing page is returned. The error class, connection and cursor-handle
+  lifetime, successful fetches, public signatures, dependencies and supported
+  versions are unchanged; sync and async behave the same.
+
+- **No asyncio `eof_received` warning when a TLS broker closes (#514)** —
+  PATCH / correction of spurious log output. `pycubrid.aio` connections using
+  `ssl=` no longer make asyncio log a WARNING each time the broker closes the
+  TLS session. Errors, reconnect behavior, the sync driver, public signatures,
+  dependencies and supported versions are unchanged.
+
+- **Async TLS connect no longer hangs after an interrupted handshake (#513)** —
+  PATCH / correction of a hang in error handling. When the broker stalls or
+  resets the connection before the TLS handshake completes,
+  `pycubrid.aio.connect(..., ssl=...)` now raises `OperationalError` within
+  `read_timeout` (or the 10-second `ssl_handshake_timeout` when `read_timeout`
+  is unset) and closes the socket, instead of never returning on Python 3.11+.
+  Timeout semantics (`connect_timeout` bounds only the TCP connect), the sync
+  driver, successful TLS connects, public signatures, dependencies and
+  supported versions are unchanged.
+
+- **Reads past the end of a broker reply are rejected (#383)** — PATCH /
+  correction of a protocol-robustness defect. A length field that is negative
+  or runs past the end of a complete reply (row values, collections, LOB
+  handles, `LOB_READ` byte counts), or collection elements that do not fill
+  their declared size, now raise `OperationalError('malformed response from
+  broker')` and close the connection instead of returning a shortened value
+  and keeping it. A normal server does not send such replies. Valid replies,
+  short `LOB_READ` results, the `DataError` classification of complete replies
+  (#492, #512), public signatures, dependencies and supported versions are
+  unchanged.
+
+- **Zero temporal values raise `DataError` and keep the session (#512)** —
+  PATCH / correction of error classification and connection lifetime, extending
+  #492 and #413. A zero `DATE`, `DATETIME`, `TIMESTAMP` or TZ/LTZ value (year 0,
+  which Python's `datetime` cannot hold) in a complete reply raises `DataError`
+  instead of `OperationalError('malformed response from broker')`, and the
+  session is kept, on `execute()` and on later fetch pages. A row value that
+  raises `DataError` (#492, #413, #512) is now reported only after the rest of
+  the row data is checked against the reply length, so a short reply stays a
+  fail-closed `OperationalError`, as does a temporal field of the wrong size or
+  a collection element past the collection's size. Any other temporal value Python cannot hold
+  (for example a `TIME` hour of 25 or a month of 13, which a normal server does
+  not send) is classified the same way. The explicit prepared API stays
+  fail-closed. Valid temporal values, public signatures, dependencies and
+  supported versions are unchanged.
+
+- **`str`, `bytes`, date and time parameters render by value; years are
+  zero-padded (#528, #519)** — PATCH / security and data-corruption correction
+  to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
+  Subclasses of `str`, `bytes`, `bytearray`, `date`, `datetime` and `time` are
+  rendered from their stored value through base-class methods and descriptors,
+  so overridden `replace()`/`__contains__()`/`hex()`/`strftime()` or field
+  properties can no longer change or inject SQL text. Years below 1000 are
+  zero-padded to four digits (`DATE'0099-01-02'`), which CUBRID previously
+  misread (`'99-01-02'` as 1999). A non-empty `tzinfo.key` that is not a plain
+  `str` matching `[A-Za-z0-9_+/-]+`, an object that only claims a supported
+  type through `__class__`, and a `Decimal` subclass without the C `decimal`
+  module now raise `ProgrammingError`; these inputs were unsafe or failed
+  with raw exceptions before. Plain-value output other than the year padding,
+  public signatures, dependencies and supported versions are unchanged.
+
+- **Numeric subclasses render by value (#518)** — PATCH / security
+  correction to the documented parameter-binding contract
+  (`docs/PARAMETER_BINDING.md`). Subclasses of `int`, `float` and `Decimal`
+  (including `enum.IntEnum`/`enum.IntFlag`) are rendered from their numeric
+  value via the base-class methods instead of `str()`/`format()` on the object,
+  so an overridden `__str__`/`__repr__`/`__format__` can no longer change or
+  inject SQL text. Plain `int`/`float`/`Decimal` output, `bool` rendering,
+  `NaN`/`Infinity` rejection, public signatures, dependencies and supported
+  versions are unchanged.
+
+- **Decimal parameters render in plain notation (#517)** — PATCH / correction
+  to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
+  A finite `Decimal` is sent as a fixed-point literal instead of `str(value)`,
+  whose E notation CUBRID parses as `DOUBLE`; the value now stays `NUMERIC`
+  with its scale. A `Decimal` whose plain literal exceeds 38 digits raises
+  `DataError` before send (previously `DOUBLE` for E notation, or server error
+  `-494` for a long plain literal). An integral `Decimal` in exponent form
+  (`Decimal("1E+5")`) is now sent as the integer literal `100000`, typed by
+  CUBRID as `INTEGER`/`BIGINT`/`NUMERIC(p,0)` by magnitude, instead of a
+  `DOUBLE`. `NaN`/`Infinity` rejection, integral values written without an
+  exponent, public signatures, dependencies and supported versions are
+  unchanged.
+
 - **Unresolved TZ zones raise `DataError` (#413)** — PATCH / correction to the
   documented type contract (`TIMESTAMPTZ`/`LTZ` and `DATETIMETZ`/`LTZ` return
   timezone-aware values). A region the client's IANA database cannot resolve
@@ -230,6 +322,19 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   repeated DST hour. Offsets, resolvable regions and an empty suffix are
   unchanged. Adds a Windows-only runtime dependency on `tzdata`
   (`sys_platform == 'win32'`); no public signature or supported-version change.
+
+- **Connection `charset` option (#86)** — MINOR / additive keyword option on
+  `pycubrid.connect()`, `pycubrid.aio.connect()` and `compat.native.connect()`,
+  and a relaxation of `cubriddb.Connection(charset=...)`, which rejected
+  anything but `"utf8"`. Invalid values raise `TypeError`/`ValueError` before
+  socket work, like other connection options. With the default `"utf-8"` the
+  request bytes are unchanged (golden-byte test) except that an
+  `OPEN_DATABASE` name longer than its 32-byte field is now cut on a character
+  boundary rather than mid-character. On the reply side, a column/table name
+  or default value that cannot be decoded now raises `DataError`, and an
+  ordinary cursor keeps the fully read session instead of `OperationalError`
+  with a closed connection, matching #492 for values (schema requests and the
+  explicit prepared API stay fail-closed). No dependency or supported-version change.
 
 - **Invalid UTF-8 in a complete reply keeps the session (#492)** — PATCH /
   correction of error classification and connection lifetime. Server error text

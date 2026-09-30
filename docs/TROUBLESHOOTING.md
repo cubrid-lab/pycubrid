@@ -13,6 +13,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Connection Closed Unexpectedly](#connection-closed-unexpectedly)
   - [Broker Port Redirect Failure](#broker-port-redirect-failure)
   - [Async TLS Handshake Hangs on Python 3.10](#async-tls-handshake-hangs-on-python-310)
+  - [Async TLS Connect Hangs After a Stalled or Reset Handshake](#async-tls-connect-hangs-after-a-stalled-or-reset-handshake)
   - [Connection Option Has No Effect](#connection-option-has-no-effect)
 - [Query Issues](#query-issues)
   - [ProgrammingError: SQL Syntax](#programmingerror-sql-syntax)
@@ -32,6 +33,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Unicode / NCHAR Encoding](#unicode--nchar-encoding)
   - [Invalid UTF-8 in a Value or Error Message](#invalid-utf-8-in-a-value-or-error-message)
   - [Unresolved Time Zone in a TZ Value](#unresolved-time-zone-in-a-tz-value)
+  - [Zero Date or Datetime Value](#zero-date-or-datetime-value)
 - [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
   - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
   - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)
@@ -234,6 +236,18 @@ InterfaceError: Connection is closed
 - **Broker restart** — If the broker restarts, all existing connections are terminated.
 - **Network interruption** — Temporary network failure drops the TCP connection.
 - **Idle connection cleanup** — The broker may close idle connections to free resources.
+- **Malformed broker reply** — the call itself raised
+  `OperationalError: malformed response from broker` because the reply could
+  not be read as a whole: a length field (a `BIT`/`VARBIT`, string, `NUMERIC`,
+  collection or LOB byte count) that is negative or runs past the end of the
+  reply, or collection elements that do not fill their declared size. The
+  driver closes the connection, because the next reply boundary is unknown,
+  and later calls raise `InterfaceError`. Bytes after the last value a reply
+  declares are not an error. A complete reply with a value Python cannot
+  represent raises `DataError` and keeps the connection instead (see
+  [Invalid UTF-8](#invalid-utf-8-in-a-value-or-error-message) and
+  [Zero Date](#zero-date-or-datetime-value)). Earlier releases returned a
+  shortened value for a cut-off field and kept the connection (#383).
 
 **Fix:** Create a new connection when this error occurs:
 
@@ -341,6 +355,16 @@ OperationalError: ... (during connection handshake)
 - **Pass a custom `ssl.SSLContext`** with the correct CA bundle loaded (`context.load_verify_locations(cafile=...)`) rather than relying on the system trust store, eliminating the most common verify failure.
 
 **Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That is the signature of the 3.10-only async-TLS handshake bug.
+
+---
+
+### Async TLS Connect Hangs After a Stalled or Reset Handshake
+
+**Symptom** (pycubrid releases before the fix for [#513](https://github.com/cubrid-lab/pycubrid/issues/513)): on Python 3.11+, `await pycubrid.aio.connect(..., ssl=...)` never returns, even with `read_timeout` set, when the broker (or a proxy or middlebox in front of it) accepts the plaintext `CUBRS` handshake but then stalls or resets the connection before the TLS handshake completes.
+
+**Cause**: the TLS handshake timed out or failed as intended, but asyncio's `SSLProtocol` does not report the lost connection to the stream while it is still handshaking, so the connect cleanup waited forever for the stream to close.
+
+**Fix**: upgrade pycubrid. The async driver now raises `OperationalError` within `read_timeout` (or the 10-second `ssl_handshake_timeout` when `read_timeout` is unset) and closes the socket. `connect_timeout` only bounds the TCP connect, so set `read_timeout` to bound the TLS handshake. The sync driver was not affected.
 
 ---
 
@@ -741,6 +765,12 @@ for row in cur:
     print(row[0])  # Prints correctly: 김영선, 日本語テスト
 ```
 
+This assumes a UTF-8 database (the default). For a database created with
+another charset, connect with that charset, for example `charset="euckr"` for
+`ko_KR.euckr`; the broker does no conversion, so a mismatched client either
+cannot encode a value or cannot decode a reply and raises `DataError`. See
+[Character Encoding](CONNECTION.md#character-encoding).
+
 ### Invalid UTF-8 in a Value or Error Message
 
 CUBRID counts `VARCHAR(n)` sizes and some echoed error text in bytes, so it can
@@ -754,6 +784,12 @@ character.
   valid UTF-8 raises `DataError`; the original `UnicodeDecodeError` is its
   `__cause__`. The connection stays usable. To inspect the stored bytes, select
   `HEX(col)` instead, then fix the stored value.
+- **Charset mismatch:** the same `DataError` names the connection codec, for
+  example `column value is not valid UTF-8` from a default client on an EUC-KR
+  database, or `column value is not valid euc_kr` for a `CHARSET utf8` column
+  read with `charset="euckr"`. Connect with the database charset, or convert
+  the column in SQL: `CAST(col AS VARCHAR(n) CHARSET euckr)`. Undecodable
+  column names raise `DataError` the same way (#86). `JSON` is always UTF-8.
 
 Earlier releases raised `OperationalError: malformed response from
 broker` and closed the connection.
@@ -787,6 +823,63 @@ text, e.g. `SELECT TO_CHAR(col)`.
 
 Earlier releases logged `Unknown timezone token` and returned a naive
 `datetime`, silently dropping the zone (#413).
+
+### Zero Date or Datetime Value
+
+```
+pycubrid.exceptions.DataError: CUBRID DATE value (0, 0, 0) cannot be represented
+in Python: year 0 is out of range
+```
+
+CUBRID accepts zero values such as `DATE'0000-00-00'` and
+`DATETIME'0000-00-00 00:00:00'` (also for `TIMESTAMP` and the TZ/LTZ types),
+for example from `CAST('0000-00-00' AS DATE)` or data loaded from another
+system. Python's `datetime` has no year 0, so pycubrid raises `DataError` when
+such a value is fetched, whether it is in the first page returned by
+`execute()` or in a later fetch page. The reply was read in full, so the
+connection stays usable; after a failed `execute()` the cursor has no result
+set (`description` is `None`) but still owns and releases the server handle,
+as for invalid UTF-8.
+
+On a later fetch page, the fetch call that reaches the page raises and the
+whole page is withheld, but rows that call had already collected are kept:
+the next `fetchmany()`/`fetchall()` returns them, and every fetch after that
+raises the same `DataError` without asking the server again, until you execute
+a new query (#507). For example:
+
+```python
+cur.execute("SELECT id, d FROM t ORDER BY id")
+try:
+    rows = cur.fetchall()
+except pycubrid.DataError:
+    rows = cur.fetchall()  # rows before the failing page
+    # cur.fetchone() now raises the same DataError; re-execute with a
+    # converted column (below) to read the rest.
+```
+
+The same applies to invalid text (#492) and unresolved zones (#413). Earlier
+releases dropped the rows collected by that call and requested the page again
+on every retry, which in autocommit mode could fail with CAS error `-1012`
+because the broker had already closed the result.
+
+pycubrid has no option to return zero dates as `None` or text. Convert them
+in SQL instead:
+
+```sql
+SELECT id, NULLIF(d, DATE'0000-00-00') AS d FROM t;              -- zero -> NULL
+SELECT id, CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END FROM t;
+SELECT id, TO_CHAR(d, 'YYYY-MM-DD') AS d FROM t;                 -- '0000-00-00'
+SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- find them
+```
+
+Use `DATETIME'0000-00-00 00:00:00'` (or the matching type) for the other
+types. The explicit prepared API (`pycubrid.compat.native`) stays fail-closed,
+as for invalid UTF-8: it raises `OperationalError` and retires the session.
+A reply that is cut short is still `OperationalError: malformed response from
+broker`, even when it also contains a zero date.
+
+Earlier releases raised `OperationalError: malformed response from broker`
+and closed the connection (#512).
 
 ---
 

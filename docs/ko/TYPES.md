@@ -278,7 +278,7 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 
 | CUBRID 타입 | CCI 코드 | Python 타입 | 비고 |
 |---|---|---|---|
-| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null 종단, UTF-8 디코딩; 잘못된 UTF-8은 `DataError` 발생 (연결은 유지) |
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null 종단, 연결 `charset`(기본 UTF-8)으로 디코딩; 디코딩할 수 없는 바이트는 코덱 이름을 담은 `DataError` 발생 (연결은 유지). EUC-KR 데이터베이스에서 `CHAR(n)`은 U+3000으로 채움 |
 | `SHORT` (SMALLINT) | 9 | `int` | 16비트 부호 있는 정수 |
 | `INTEGER` | 8 | `int` | 32비트 부호 있는 정수 |
 | `BIGINT` | 21 | `int` | 64비트 부호 있는 정수 |
@@ -292,11 +292,11 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | 타임존 포함 타임스탬프 (초 정밀도, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | 타임존 포함 datetime (밀리초 정밀도) |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | raw 바이너리 데이터 |
-| `JSON` | 34 | `str` 또는 `Any` | 기본은 raw JSON 문자열; `json_deserializer=` 설정 시 디코딩됨 |
+| `JSON` | 34 | `str` 또는 `Any` | 기본은 raw JSON 문자열; `json_deserializer=` 설정 시 디코딩됨. 연결 `charset`과 무관하게 항상 UTF-8 |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` 또는 디코딩된 컬렉션 | `decode_collections=True`일 때만 디코딩 |
 | `OBJECT` (OID) | 19 | `str` | 형식: `"OID:@page\|slot\|volume"` |
 | `BLOB` | 23 | `dict` | LOB 핸들 (아래 참고) |
-| `CLOB` | 24 | `dict` | LOB 핸들 (아래 참고) |
+| `CLOB` | 24 | `dict` | LOB 핸들 (아래 참고); `Lob.read()`는 `charset`으로 디코딩하지 않은 컬럼 문자셋의 바이트 반환 |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
 
 > **로컬 타임존 타입:** `TIMESTAMPLTZ`와 `DATETIMELTZ` 값은 값을 저장할 때의
@@ -309,6 +309,22 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 > 합니다([연결 가이드의 "트랜잭션 경계에서 CAS가 재활용되는 경우"](CONNECTION.md)
 > 참고). 세션 타임존이 바뀌면 같은 저장 시점(instant)이 다른 UTC 오프셋으로
 > 반환됩니다. `TIMESTAMPTZ`와 `DATETIMETZ`는 값 자체의 타임존을 가집니다.
+
+> **0 날짜 (#512):** CUBRID는 `DATE'0000-00-00'`, `DATETIME'0000-00-00 00:00:00'`
+> 및 0 값의 `TIMESTAMP`, `TIMESTAMPTZ`, `TIMESTAMPLTZ`, `DATETIMETZ`,
+> `DATETIMELTZ`를 허용하지만 Python `datetime`에는 0년이 없습니다. 이런 값을
+> 가져오면 `execute()`에서든 이후 fetch 페이지에서든 CUBRID 타입과 필드 값을 담은
+> `DataError`가 발생합니다. 연결은 계속 사용할 수 있으며, 잘못된 UTF-8(#492)과
+> 마찬가지로 커서는 서버 핸들을 유지합니다. 이후 페이지에서 발생한 경우 그 페이지
+> 전에 가져온 행은 그대로 반환되고, 그 뒤의 fetch는 다음 `execute()` 전까지 같은
+> `DataError`를 계속 발생시킵니다(#507). Python이 표현할 수 없는 다른 날짜/시간
+> 필드 값도 같은 방식으로 보고됩니다. `None`이나 텍스트로 반환하는 옵션은
+> 없으므로 SQL에서 변환하세요. 예: `NULLIF(d, DATE'0000-00-00')`(0 값은 `NULL`),
+> `CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END`,
+> `TO_CHAR(d, 'YYYY-MM-DD')`(`'0000-00-00'` 반환). 명시적 prepared
+> API(`pycubrid.compat.native`)는 fail-closed로 동작하여 `OperationalError`를
+> 발생시키고 세션을 폐기합니다.
+> [0 날짜 또는 날짜시간 값](TROUBLESHOOTING.md#0-날짜-또는-날짜시간-값)을 참고하세요.
 
 > **타임존 디코딩 (#413):** CUBRID는 각 값의 타임존을 텍스트로 보냅니다. 오프셋
 > (`+05:30`)이거나, 리전 이름과 그 시점의 약어(`Asia/Seoul KST`, LTZ 타입은
@@ -479,6 +495,22 @@ cur.execute(
 conn.commit()
 cur.close()
 conn.close()
+```
+
+### Decimal 파라미터
+
+`Decimal` 파라미터는 고정소수점 리터럴(E 표기 사용 안 함)로 전송되므로 CUBRID가
+작성된 scale 그대로 `NUMERIC`으로 유지합니다. `Decimal("0.0000001")`은 `float`가
+아니라 `Decimal`로 조회됩니다. 고정소수점 리터럴이 CUBRID `NUMERIC` 최대
+정밀도인 38자리를 넘는 값은 `DOUBLE`이 되지 않고 `DataError`를 발생시킵니다.
+[파라미터 바인딩: Decimal 파라미터](PARAMETER_BINDING.md#decimal-파라미터)를 참고하세요.
+
+```python
+from decimal import Decimal
+
+cur.execute("SELECT ?", [Decimal("0.0000001")])  # 0.0000001로 전송
+assert cur.fetchone()[0] == Decimal("0.0000001")
+assert cur.description[0][1] == pycubrid.constants.CUBRIDDataType.NUMERIC
 ```
 
 ### CUBRIDDataType enum 사용

@@ -44,6 +44,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.tls]
 
 def _custom_ssl_context() -> ssl_module.SSLContext:
     context = ssl_module.create_default_context()
+    context.minimum_version = ssl_module.TLSVersion.TLSv1_2
     if TLS_CA_FILE:
         context.load_verify_locations(cafile=TLS_CA_FILE)
     return context

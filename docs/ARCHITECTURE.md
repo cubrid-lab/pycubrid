@@ -181,7 +181,7 @@ flowchart TD
 - **`connection.py` — TCP Socket & Transaction Management**: Manages the physical TCP connection to the CAS, handles transactions (commit/rollback), and acts as the owner for LOB operations.
 - **`cursor.py` — SQL Execution & Result Fetching**: Implements the `Cursor` object, handling SQL preparation, execution, and the various fetch operations while maintaining state of results.
 - **`protocol.py` — CAS Packet Classes**: Defines 18 specialized packet classes that map to CUBRID CAS function codes, handling the serialization and deserialization of specific requests and responses.
-- **`packet.py` — PacketReader / PacketWriter**: Provides low-level utilities for reading from and writing to the wire format, handling byte order and primitive type serialization.
+- **`packet.py` — PacketReader / PacketWriter**: Provides low-level utilities for reading from and writing to the wire format, handling byte order and primitive type serialization. Both carry the connection `charset` codec (#86): the connection sets it on every packet before `write()`, so SQL text, credentials, character values, column names, error text and LOB locators use the database charset, while fetched JSON, NUMERIC and timezone names stay UTF-8. See [Character Encoding](CONNECTION.md#character-encoding).
 - **`constants.py` — CAS Constants**: Contains enumeration for CAS function codes, CUBRID data types, and other protocol-level constants.
 - **`types.py` — DB-API Types**: Defines the type objects required by PEP 249 and manages the mapping between CUBRID types and Python types.
 - **`exceptions.py` — PEP 249 Exceptions**: Implements the standard hierarchy of exceptions required by the DB-API 2.0 specification.
@@ -208,7 +208,7 @@ flowchart TD
     
     wire --> dispatch
     
-    dispatch -->|"1-4, 25"| str["str<br/>(UTF-8 decoded)"]
+    dispatch -->|"1-4, 25"| str["str<br/>(connection charset,<br/>default UTF-8)"]
     dispatch -->|"5, 6"| bytes["bytes<br/>(raw binary)"]
     dispatch -->|"7"| decimal["Decimal<br/>(string-parsed)"]
     dispatch -->|"8"| int32["int<br/>(4B signed)"]

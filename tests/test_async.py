@@ -1088,6 +1088,7 @@ class TestAsyncConnectModule:
                 password="",
                 decode_collections=False,
                 json_deserializer=None,
+                charset="utf-8",
                 autocommit=True,
             )
             instance.connect.assert_awaited()

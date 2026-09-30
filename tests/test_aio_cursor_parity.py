@@ -74,6 +74,7 @@ async def test_async_connect_threads_decode_collection_and_json_kwargs() -> None
         password="",
         decode_collections=True,
         json_deserializer=json.loads,
+        charset="utf-8",
         autocommit=True,
     )
     mock_connection.connect.assert_awaited_once_with()

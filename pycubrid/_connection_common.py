@@ -12,9 +12,12 @@ concrete sync/async classes.
 from __future__ import annotations
 
 
+import codecs
 import difflib
+import functools
 import logging
 import os
+import re
 import socket
 import ssl as ssl_module
 import sys
@@ -36,6 +39,7 @@ from .exceptions import (
     UnknownConnectionOptionWarning,
     Warning,
 )
+from .packet import _codec_label, _encode_text, _unencodable_message
 from .protocol import (
     CloseQueryPacket,
     FetchPacket,
@@ -85,8 +89,103 @@ KNOWN_CONNECTION_OPTIONS: frozenset[str] = frozenset(
         "read_timeout",
         "no_backslash_escapes",
         "enable_timing",
+        "charset",
     }
 )
+
+# CUBRID charset names (``CHARSET utf8``, ``createdb ... ko_KR.euckr``) that
+# are not all Python codec aliases. ``ksc5601`` is already a Python alias of
+# EUC-KR. CUBRID's ``binary`` charset has no text codec and is rejected.
+_CUBRID_CHARSET_ALIASES: dict[str, str] = {
+    "utf8": "utf-8",
+    "euckr": "euc-kr",
+    "iso88591": "latin-1",
+}
+_ASCII_PROBE = bytes(range(128)).decode("ascii")
+_LOCALE_PREFIX = re.compile(r"[A-Za-z]{2,3}_[A-Za-z]{2}\.(?=.)")
+# Codecs of the CUBRID server charsets: every non-ASCII character encodes to
+# bytes >= 0x80 only (asserted by the unit tests), so connecting with them
+# skips the one-time full scan below.
+_KNOWN_ASCII_SAFE_CODECS = frozenset({"utf-8", "euc_kr", "iso8859-1"})
+
+
+def _encodes(text: str, name: str) -> bool:
+    """Return whether codec ``name`` can encode ``text``."""
+    try:
+        text.encode(name)
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+@functools.lru_cache(maxsize=None)
+def _codec_is_ascii_safe(name: str) -> bool:
+    """Return whether ``name`` keeps ASCII bytes for ASCII characters only.
+
+    SQL quoting and escaping run on ``str`` before encoding, so the codec must
+    encode ASCII as itself and never emit a byte below 0x80 inside a non-ASCII
+    character: a trail byte equal to ``'`` or ``\\`` (Shift_JIS, Big5, GBK,
+    GB18030, stateful ISO-2022 and UTF-7/16/32) could end a literal early.
+    """
+    try:
+        if _ASCII_PROBE.encode(name) != _ASCII_PROBE.encode("ascii"):
+            return False
+        if _ASCII_PROBE.encode("ascii").decode(name) != _ASCII_PROBE:
+            return False
+    except (UnicodeError, LookupError, TypeError, ValueError):
+        return False
+    if name in _KNOWN_ASCII_SAFE_CODECS:
+        return True
+    # Supplementary planes are scanned only when the codec can encode them
+    # (no accepted stdlib codec does), keeping the one-time check fast.
+    supplementary = any(_encodes(chr(probe), name) for probe in (0x10000, 0x1F600, 0x20000))
+    for code_point in range(0x80, 0x110000 if supplementary else 0x10000):
+        if 0xD800 <= code_point <= 0xDFFF:
+            continue
+        try:
+            encoded = chr(code_point).encode(name)
+        except UnicodeEncodeError:
+            continue
+        if not encoded or min(encoded) < 0x80:
+            return False
+    return True
+
+
+def resolve_charset(charset: Any) -> str:
+    """Validate a ``charset`` connection option and return its codec name.
+
+    Accepts Python codec names, the CUBRID spellings ``utf8``, ``euckr``
+    and ``iso88591``, and a CUBRID locale such as ``ko_KR.euckr`` (the part
+    after the dot is used). ``None`` means the default ``"utf-8"``. Raises ``TypeError`` for a non-string and ``ValueError``
+    for an unknown codec, CUBRID ``binary`` or a codec that is not
+    ASCII-compatible, like the other connection options, before any socket
+    work (#86).
+    """
+    if charset is None:
+        return "utf-8"
+    if not isinstance(charset, str):
+        raise TypeError(f"charset must be a string, got {type(charset).__name__}")
+    # Accept a CUBRID locale spelling such as "ko_KR.euckr" (createdb syntax).
+    locale_match = _LOCALE_PREFIX.match(charset)
+    if locale_match is not None:
+        charset = charset[locale_match.end() :]
+    key = charset.lower()
+    if key == "binary":
+        raise ValueError(
+            "charset 'binary' has no text codec; connect with the charset of "
+            "the character columns (for example 'utf8' or 'euckr')"
+        )
+    try:
+        info = codecs.lookup(_CUBRID_CHARSET_ALIASES.get(key, charset))
+    except LookupError:
+        raise ValueError(f"unknown charset {charset!r}") from None
+    if not getattr(info, "_is_text_encoding", True) or not _codec_is_ascii_safe(info.name):
+        raise ValueError(
+            f"charset {charset!r} is not ASCII-compatible; pycubrid supports "
+            "codecs such as utf-8, euc-kr and latin-1"
+        )
+    return info.name
+
 
 _PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -204,8 +303,14 @@ class ConnectionCommonMixin:
         json_deserializer: Any = None,
         no_backslash_escapes: bool | None = None,
         enable_timing: bool | None = None,
+        charset: Any = "utf-8",
     ) -> None:
         """Initialise attributes common to sync and async connections."""
+        # Validated here, before any socket work; reconnects reuse the codec.
+        self._encoding = resolve_charset(charset)
+        self._check_encodable("database", database)
+        self._check_encodable("user", user)
+        self._check_encodable("password", password)
         self._host = host
         self._port = port
         self._database = database
@@ -266,6 +371,21 @@ class ConnectionCommonMixin:
         self._last_insert_id: str | None = None
 
     # -- Pure helpers (no I/O) -----------------------------------------------
+
+    def _check_encodable(self, name: str, value: Any) -> None:
+        """Raise ``DataError`` before any I/O if ``value`` needs a missing character.
+
+        Raised outside the handler so no chained exception keeps the text
+        (it may be a password or a bound value).
+        """
+        if not isinstance(value, str):
+            return
+        encoded, position = _encode_text(value, self._encoding)
+        if encoded is None:
+            if name == "password":
+                # Even a character position narrows down a secret.
+                raise DataError(f"password cannot be encoded as {_codec_label(self._encoding)}")
+            raise DataError(_unencodable_message(name, self._encoding, position))
 
     def _register_schema_result(self, packet: GetSchemaPacket) -> None:
         packet._owner = self._schema_owner

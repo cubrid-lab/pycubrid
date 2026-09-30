@@ -6,11 +6,163 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **`charset` connection option (#86)** — `pycubrid.connect()`,
+  `pycubrid.aio.connect()`, `pycubrid.compat.native.connect()` and
+  `cubriddb.Connection(charset=...)` (previously `"utf8"` only) accept
+  `charset` (default `"utf-8"`): a Python codec or the CUBRID names `utf8`,
+  `euckr`, `iso88591`. It is validated before any socket work (`TypeError` for
+  a non-string; `ValueError` for an unknown codec, CUBRID `binary` or a codec
+  that is not ASCII-transparent, such as UTF-16/32, Shift_JIS, Big5, GBK or
+  CP949; `DataError` for unencodable credentials) and kept across reconnects.
+  SQL text with rendered parameters, batch and schema-info arguments, prepared
+  strings and `OPEN_DATABASE` credentials are encoded with it before anything
+  is sent; an unencodable character raises `DataError` naming the codec and
+  position, nothing of that request is sent and the session stays usable.
+  Character values, `ENUM` and collection elements, column/table names and
+  defaults are decoded strictly (`DataError` naming the codec), error messages
+  with replacement. Fetched `JSON` stays UTF-8 (JSON parameters are SQL text); `NUMERIC`, timezone names, version
+  strings and LOB contents are unaffected (`CLOB` bytes are in the column
+  charset). The broker does no conversion, so the codec must match the
+  database charset; a `CHARSET utf8` column in an EUC-KR database raises
+  `DataError` under `charset="euckr"` (convert with `CAST(... CHARSET euckr)`).
+  With the default UTF-8 codec, request bytes are unchanged except two edge
+  cases: a column name that is not valid UTF-8 now raises `DataError` and an
+  ordinary cursor keeps the session (previously `OperationalError('malformed response from broker')`
+  and a closed connection), and a database/user/password longer than its
+  32-byte `OPEN_DATABASE` field is cut on a character boundary instead of
+  mid-character. With `euc_kr`, Hangul outside KS X 1001 (such as 똠), which
+  Python would send as an 8-byte makeup sequence, is rejected as unencodable,
+  and stored Hangul filler (U+3164) and jamo read back as separate characters,
+  as CUBRID stores them.
+  LOB file locators, which embed the table name, decode with the connection
+  codec and `errors="replace"`. `charset=None` means the default, and a CUBRID
+  locale such as `"ko_KR.euckr"` is accepted. `get_schema_info()` checks its arguments before sending, so an
+  unencodable table or column pattern no longer closes the connection. A new `integration-charset` CI job runs the live round trips
+  against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr`.
+
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- **Rows fetched before a failing page are no longer lost (#507)** — when a
+  later FETCH page raised a data-level `DataError` (invalid text #492, an
+  unresolved zone #413, a zero date #512), `fetchall()` and `fetchmany()`
+  dropped the rows they had already collected in that call, and because the
+  fetch position did not advance, every retry requested the same page again:
+  it failed again, or, in autocommit mode once the broker had closed the
+  result after its last page, raised `DatabaseError` with CAS error `-1012`.
+  The call that reaches the page still raises `DataError` and the whole page is
+  withheld, but the rows it had collected stay buffered and the next
+  `fetchone()`/`fetchmany()`/`fetchall()` (or iteration) returns them without
+  contacting the server. After that every fetch raises the same `DataError`
+  again, without requesting the page, until `execute()` or `close()`, so no
+  row of or past the failing page is returned and retries do not loop on the
+  server. The connection stays usable and the cursor keeps its handle, sync
+  and async alike. Documented in `docs/API_REFERENCE.md`, `docs/TYPES.md` and
+  `docs/TROUBLESHOOTING.md` (+ Korean); live-tested against CUBRID 11.4 with a
+  zero `DATE` several FETCH pages into the result.
+- **`pycubrid.aio` no longer logs an asyncio warning whenever a TLS broker closes the connection (#514)** — after the in-place `loop.start_tls()` upgrade the stream protocol still believed it was on a plaintext transport, so every TLS peer close (broker restart, CAS recycle, idle timeout, dropped session before a reconnect) made asyncio log `WARNING returning true from eof_received() has no effect when using ssl`. The upgrade now marks the stream protocol as running over TLS, as `StreamWriter.start_tls()` does on Python 3.11+. Log output only; connection state, errors and the sync driver are unchanged.
+- **`pycubrid.aio.connect(..., ssl=...)` no longer hangs forever when the TLS handshake is interrupted (#513)** — if the broker stalled or reset the connection before the TLS handshake completed, `read_timeout` (or the 10-second `ssl_handshake_timeout`) fired as intended, but connect cleanup then awaited `StreamWriter.wait_closed()` on a stream that asyncio never marks closed (its `SSLProtocol` drops `connection_lost` while still handshaking), so the call never returned on Python 3.11+. The failed upgrade now notifies the stream protocol itself after aborting the transport, and connect raises `OperationalError` within `read_timeout` and closes the socket. The sync driver was not affected. `docs/CONNECTION.md` and `docs/TROUBLESHOOTING.md` (+ Korean) now state which timeout bounds the TLS handshake (`read_timeout`; `connect_timeout` covers only the TCP connect).
+- **Reads past the end of a broker reply are rejected (#383)** — a length
+  field that ran past the end of a reply was cut short by a Python slice and
+  returned as if complete: a `BIT`/`VARBIT` cell declaring 8 bytes but carrying
+  2 returned those 2 bytes, a `LOB_READ` reply declaring 10 bytes with 3 in
+  the payload set `bytes_read = 10`, and strings, `NUMERIC`, `JSON`, raw
+  collections and LOB handles and locators behaved the same way. A negative
+  length moved the reader backwards. Every length-prefixed read now checks
+  `0 <= length <= remaining` before it moves, and a decoded collection's
+  elements must fill its declared size exactly (previously elements could run
+  into the next column). Such a reply raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection, sync and async, like other framing damage; `DataError` stays for
+  complete replies (#492, #512). A `LOB_READ` count below the requested length
+  is still a valid short read (#362), and bytes after the last value a reply
+  declares are still ignored. Documented in `docs/PROTOCOL.md` and
+  `docs/TROUBLESHOOTING.md` (+ Korean).
+- **Zero `DATE`/`DATETIME`/`TIMESTAMP` values no longer close the connection
+  (#512)** — CUBRID accepts zero values such as `DATE'0000-00-00'`,
+  `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
+  `TIMESTAMPLTZ`, `DATETIMETZ` and `DATETIMELTZ` values, but Python's
+  `datetime` has no year 0. The decoder's raw `ValueError` was treated as a
+  framing failure: `OperationalError('malformed response from broker')`, the
+  socket closed, and every later call raised `InterfaceError('connection is
+  closed')`. The value now raises `DataError` naming the CUBRID type and fields
+  (`CUBRID DATE value (0, 0, 0) cannot be represented in Python: year 0 is out
+  of range`) and the session stays usable, on `execute()` and on a later fetch
+  page, sync and async, with the same cursor state as invalid UTF-8 (#492).
+  Any other temporal field Python cannot hold (such as a `TIME` hour of 25)
+  in a complete reply is reported the same way.
+  A row value that raises `DataError` (#492, #413, #512) is now reported only
+  after the rest of the row data is checked against the reply length, so a
+  reply cut short still raises `OperationalError` and closes the connection,
+  and so does a temporal field whose declared size does not match its type,
+  or a collection element that runs past the collection.
+  The explicit prepared API (`pycubrid.compat.native`) stays fail-closed.
+  There is no option to return zero dates as `None` or text;
+  `docs/TYPES.md` and `docs/TROUBLESHOOTING.md` (+ Korean) document SQL
+  workarounds (`NULLIF(d, DATE'0000-00-00')`, `CASE`, `TO_CHAR`). Found by
+  the CUBRID 10.2-11.4 version differential (#351); the behavior was the same
+  on 10.2, 11.0, 11.2 and 11.4.
+- **Security: `str`, `bytes`, date and time parameters are rendered without
+  calling overridable methods (#528)** — `format_parameter()` escaped `str`
+  parameters with `value.replace(...)` and `"\x00" in value`, rendered
+  `bytes`/`bytearray` with `value.hex()` and dates and times with
+  `value.strftime(...)`, all of which a subclass can override, and spliced a
+  `tzinfo.key` into `DATETIMETZ` literals unescaped. A `str` subclass whose
+  `replace()` returned `x'; DROP TABLE users; --` had that text sent
+  unescaped; an overridden `hex()` or `strftime()`, or a `tzinfo.key`
+  containing `'`, injected SQL the same way. A `str` subclass is now copied to
+  a plain `str` through the base class before the NUL/Ctrl-Z checks and
+  escaping, `bytes`/`bytearray` are rendered with `bytes.hex(value)` /
+  `bytearray.hex(value)`, and date/time literals are built from the integer
+  fields read through the base-class descriptors (the UTC offset through
+  `datetime.datetime.utcoffset()` and the `timedelta` descriptors). A
+  non-empty `tzinfo.key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`
+  (every IANA name does), otherwise `ProgrammingError`. Parameters are
+  dispatched on `type(value)`, so an object that only claims a supported type
+  through `__class__` (including transparent proxies) raises
+  `ProgrammingError("unsupported parameter type")` instead of a raw
+  `TypeError` or being rendered through the proxy; `escape_string()` raises
+  `ProgrammingError` for a non-`str` argument. When the C `decimal` module is
+  unavailable (pure-Python `_pydecimal` fallback), `Decimal` subclasses raise
+  `ProgrammingError`, because that module copies their value through
+  attributes a subclass can forge. Output for plain `str`, `bytes`,
+  `bytearray`, `date`, `datetime` and `time` values is byte-identical except
+  for the year padding below, and sync and async cursors share the change.
+- **Years below 1000 are zero-padded in `DATE`/`DATETIME`/`DATETIMETZ`
+  literals (#519)** — the year was rendered with `strftime("%Y")`, which does
+  not pad on Linux, and CUBRID reads `DATE'99-01-02'` as 1999-01-02, so
+  `date(99, 1, 2)` and `datetime(99, ...)` were silently stored and compared as
+  year 1999. Years are now always four digits (`DATE'0099-01-02'`); years 1,
+  99, 999 and 1000 round-trip on CUBRID 10.2 and 11.4.
+- **Security: `int`, `float` and `Decimal` subclasses are bound by value
+  (#518)** — `format_parameter()` rendered `int` and `float` parameters with
+  `str(value)` and `Decimal` with `format(value, "f")`, which dispatch to
+  methods a subclass can override. A subclass with a custom `__str__`/`__format__`
+  could therefore inject arbitrary text into the SQL sent to the server (a
+  `__str__` returning `1; DROP TABLE t` was sent verbatim), and on Python 3.10
+  `enum.IntEnum`/`enum.IntFlag` members were sent as `Color.RED` / `Perm.R|W`
+  instead of their values. Values are now rendered through the base-class
+  methods (`int.__repr__`, `float.__repr__`, and a plain `Decimal` copy for the
+  `NaN`/`Infinity` and 38-digit checks and `format(..., "f")`), so `Color.RED`
+  is sent as `1` and `Perm.R | Perm.W` as `6`. Output for plain `int`, `float`
+  and `Decimal` values is unchanged, `bool` still renders as `1`/`0`, and
+  sync and async cursors share the change.
+- `decimal.Decimal` parameters are now rendered in plain fixed-point notation
+  instead of `str(value)`, which switched to E notation (`Decimal("1E-7")` was
+  sent as `1E-7`). CUBRID parses an E-notation literal as `DOUBLE`, so such
+  values silently came back as `float` and lost digits when inserted into
+  `NUMERIC` columns; they now stay `NUMERIC` with their sign, trailing zeros
+  and scale (`Decimal("0.0000001")` is sent as `0.0000001`, `Decimal("1E+5")`
+  as `100000`). A `Decimal` whose plain literal needs more than 38 digits
+  (CUBRID's `NUMERIC` maximum precision; leading fractional zeros count), such
+  as `Decimal("1E-39")` or a 39-significant-digit value, raises `DataError`
+  before anything is sent instead of becoming `DOUBLE`; CUBRID itself rejects
+  such plain literals. `NaN`/`Infinity` still raise `ProgrammingError`, and
+  integral Decimals written without an exponent (`Decimal("42")`) render as the
+  same integer literal as before. Sync and async cursors share the change. (#517)
 - With `decode_collections=True`, a nonempty `SET`/`MULTISET`/`SEQUENCE`
   (`LIST`) whose elements are all SQL NULL, such as `{NULL}` or
   `{NULL, NULL}`, now decodes to `[None, ...]` (a `SET` becomes

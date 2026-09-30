@@ -21,7 +21,24 @@ SELECTORS = {
     "normal": "integration and not slow and not tls",
     "slow": "integration and slow and not tls",
     "tls": "integration and tls",
+    # Cross-version differential (#351): every CUBRID of the matrix at once.
+    "version": "integration and version_matrix",
 }
+
+
+def _module_of(identity: str) -> str:
+    """Return the test module name of a collection node id or JUnit identity.
+
+    Accepts ``tests/test_x.py::test`` (collection) and ``tests.test_x::test``
+    (JUnit ``classname::name``, possibly with a class after the module).
+    """
+    head = identity.split("::", 1)[0]
+    if head.endswith(".py"):
+        return head.rsplit("/", 1)[-1][: -len(".py")]
+    for part in head.split("."):
+        if part.startswith("test_"):
+            return part
+    return head
 
 
 def skip_category(identity: str, reason: str) -> str:
@@ -31,17 +48,30 @@ def skip_category(identity: str, reason: str) -> str:
     ):
         return "optional-native-driver"
     if (
-        any(name in identity for name in ("test_resource_leaks", "test_soak"))
+        any(
+            name in identity
+            for name in ("test_resource_leaks", "test_soak", "test_tls_matrix_integration")
+        )
         and "cannot count file descriptors on this platform" in reason
     ):
         return "platform-without-proc"
+    if (
+        _module_of(identity) == "test_integration_charset"
+        and "requires an EUC-KR database (integration-charset lane)" in reason
+    ):
+        return "charset-lane-only"
+    if (
+        _module_of(identity) == "test_version_differential"
+        and "CUBRID_VERSION_MATRIX not set" in reason
+    ):
+        return "version-lane-only"
     raise ValueError(f"unclassified integration skip: {identity}: {reason}")
 
 
 def verify_workflows(root: Path = ROOT) -> None:
     expected = {
         "ci.yml": {"normal", "tls"},
-        "integration-full.yml": {"normal", "tls"},
+        "integration-full.yml": {"normal", "tls", "version"},
         "bug-hunt.yml": {"normal", "slow"},
     }
     for filename, lanes in expected.items():
@@ -50,6 +80,10 @@ def verify_workflows(root: Path = ROOT) -> None:
         for lane in lanes:
             if SELECTORS[lane] not in selectors:
                 raise ValueError(f"{filename} has no executable {lane} marker selection")
+    # The EUC-KR charset lane (#86) selects its module by path, not by marker.
+    ci = (root / ".github" / "workflows" / "ci.yml").read_text()
+    if not re.search(r"^\s+python -m pytest tests/test_integration_charset\.py ", ci, re.MULTILINE):
+        raise ValueError("ci.yml has no executable EUC-KR charset lane")
 
 
 class Inventory:
@@ -63,12 +97,18 @@ class Inventory:
             integration = item.get_closest_marker("integration") is not None
             slow = item.get_closest_marker("slow") is not None
             tls = item.get_closest_marker("tls") is not None
+            version = item.get_closest_marker("version_matrix") is not None
             if not integration:
-                if slow or tls:
-                    self.invalid.append(f"{item.nodeid}: slow/tls requires integration")
+                if slow or tls or version:
+                    self.invalid.append(
+                        f"{item.nodeid}: slow/tls/version_matrix requires integration"
+                    )
                 continue
             lane = "tls" if tls else "slow" if slow else "normal"
             self.lanes[lane].append(item.nodeid)
+            if version:
+                # Also selected (and skipped as version-lane-only) by the normal lane.
+                self.lanes["version"].append(item.nodeid)
 
     def pytest_collectreport(self, report: pytest.CollectReport) -> None:
         if report.skipped:
@@ -131,7 +171,7 @@ def main() -> int:
         if inventory.invalid:
             raise ValueError("; ".join(inventory.invalid))
         if any(not nodes for nodes in inventory.lanes.values()):
-            raise ValueError("normal, slow, and TLS lanes must each have collected tests")
+            raise ValueError("normal, slow, TLS, and version lanes must each have collected tests")
         print(
             json.dumps(
                 {

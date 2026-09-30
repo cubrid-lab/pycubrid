@@ -105,6 +105,7 @@ class AsyncConnection(ConnectionCommonMixin):
             json_deserializer=kwargs.get("json_deserializer"),
             no_backslash_escapes=kwargs.get("no_backslash_escapes", None),
             enable_timing=kwargs.get("enable_timing"),
+            charset=kwargs.get("charset", "utf-8"),
         )
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -405,6 +406,7 @@ class AsyncConnection(ConnectionCommonMixin):
             database=self._database,
             user=self._user,
             password=self._password,
+            encoding=self._encoding,
         )
         if self._writer is None:
             raise InterfaceError("Connection not established: writer is None")
@@ -463,13 +465,28 @@ class AsyncConnection(ConnectionCommonMixin):
             )
         except BaseException:
             old_transport.abort()
+            # start_tls() moved the transport onto an SSLProtocol, which does
+            # not forward connection_lost to the stream protocol while still in
+            # DO_HANDSHAKE (peer reset, ssl_handshake_timeout, or cancellation
+            # by read_timeout). Its close future would then never resolve and
+            # the cleanup's StreamWriter.wait_closed() would hang forever
+            # (#513). abort() already released the socket; deliver the missing
+            # notification (a no-op if asyncio delivers it too).
+            protocol.connection_lost(None)
             raise
 
         if new_transport is None:
             old_transport.abort()
+            protocol.connection_lost(None)  # see the except branch above (#513)
             raise OperationalError("TLS upgrade returned no transport")
         self._writer._transport = new_transport  # type: ignore[attr-defined]
         self._reader._transport = new_transport  # type: ignore[attr-defined]
+        # The stream protocol was built for the plaintext transport and still
+        # has _over_ssl = False, so its eof_received() returns True and
+        # SSLProtocol logs "returning true from eof_received() has no effect
+        # when using ssl" on every TLS peer close (#514). Record the upgrade as
+        # StreamReaderProtocol._replace_transport() (3.11+) would.
+        setattr(protocol, "_over_ssl", True)
 
     async def _maybe_probe_tls_verification(
         self, *, effective_port: int, followed_redirect: bool
@@ -815,6 +832,10 @@ class AsyncConnection(ConnectionCommonMixin):
         await self._wait_for_setup_if_needed()
         async with self._lock:
             self._ensure_connected()
+            # An unencodable argument fails here, before the request can drop
+            # the session below (#86).
+            self._check_encodable("schema argument", table_name)
+            self._check_encodable("schema argument", arg2)
             packet = GetSchemaPacket(
                 schema_type=schema_type,
                 table_name=table_name,
@@ -1054,6 +1075,9 @@ class AsyncConnection(ConnectionCommonMixin):
         reader = self._reader
         if writer is None or reader is None:
             raise InterfaceError("connection is closed")
+        # Every request on this connection uses its charset (#86); encoding
+        # happens in write(), so an unencodable value sends nothing.
+        packet.encoding = self._encoding
         try:
             request_data = packet.write(self._cas_info)
         except struct.error as exc:

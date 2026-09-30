@@ -178,9 +178,24 @@ restored before the test returns.
 
 #### Async TLS integration tests
 
-`tests/test_aio_ssl_integration.py` adds async TLS coverage for `pycubrid.aio`.
-The repository's default `docker-compose.yml` starts a plaintext broker only, so
-these tests are skipped unless you point them at a separate TLS-enabled broker.
+`tests/test_aio_ssl_integration.py` adds async TLS coverage for `pycubrid.aio`,
+and `tests/test_tls_matrix_integration.py` runs the TLS negative and lifecycle
+matrix (unknown CA, hostname mismatch, plaintext/TLS refusal in both
+directions, pinned TLS 1.2/1.3, `ssl=True` versus a caller `SSLContext`, read
+timeout and dropped transport followed by a TLS reconnect, file-descriptor
+leaks) against both the sync and async drivers. Both carry the `integration` and `tls` markers. The repository's
+default `docker-compose.yml` starts a plaintext broker only, so these tests are
+skipped unless you point them at a separate TLS-enabled broker.
+
+The broker-independent half of the matrix (expired and self-signed
+certificates, interrupted or stalled handshakes, TLS-version floors, downgrade
+attempts on reconnect, no plaintext fallback) runs offline in
+`tests/test_tls_matrix_offline.py` against an in-process OpenSSL peer
+(`tests/helpers/tls_broker.py`), so it is part of `make test`. Its test PKI
+lives in `tests/fixtures/tls/`; regenerate it with
+`tests/fixtures/tls/generate.sh`. The async connect hang on an interrupted
+handshake (#513) has its own offline regression suite,
+`tests/test_aio_tls_handshake_hang.py`.
 
 Export the normal integration variables plus these TLS overrides as needed:
 
@@ -197,16 +212,28 @@ export CUBRID_TLS_TEST_CA_FILE="$PWD/certs/ca.pem"
 # Optional: alternate reachable host/IP for hostname-mismatch coverage.
 export CUBRID_TLS_TEST_MISMATCH_HOST=127.0.0.1
 
-# If test_aio_ssl_connect_default_context uses a private CA, also point the
-# process default trust store at that CA before running pytest.
+# Optional: an SSL=OFF broker port on the same server (the stock query_editor
+# broker listens on 30000) for TLS-client-to-plaintext-broker refusal coverage.
+export CUBRID_TLS_TEST_PLAIN_PORT=30000
+
+# If the broker uses a private CA, also point the process default trust store
+# at it so the ssl=True cases (test_aio_ssl_connect_default_context and the
+# ssl=True rows of the matrix) can verify the broker.
 export SSL_CERT_FILE="$CUBRID_TLS_TEST_CA_FILE"
 ```
+
+The optional variables only gate individual cases locally: a case skips only
+when its configuration is missing. Once `CUBRID_TLS_TEST_CA_FILE` is set, a
+broker that is unreachable or not serving TLS fails the tests instead of
+skipping them. In CI every variable is set, and
+`scripts/check_integration_lanes.py` fails the TLS lane on any skip in these
+modules, so a lane that silently skips is red, not green.
 
 Broker-side TLS must already be enabled (`SSL=ON` in `cubrid_broker.conf`) and
 the broker certificate must match `CUBRID_TLS_TEST_HOST`. Then run:
 
 ```bash
-pytest tests/test_aio_ssl_integration.py -v
+pytest tests/ -m "integration and tls" -v
 ```
 
 ##### Automated TLS coverage in CI
@@ -225,8 +252,11 @@ You do not need to run the steps above locally for routine development —
    `CUBRID_TLS_TEST_CA_FILE` and `SSL_CERT_FILE`.
 4. Probes the broker with a real TLS handshake and fails the job loudly
    if TLS is not actually serving — silent skips are explicitly rejected.
-5. Runs `tests/test_aio_ssl_integration.py` against the TLS broker with
-   the `CUBRID_TLS_TEST_*` env vars wired up automatically.
+5. Runs every `integration and tls` test (`tests/test_aio_ssl_integration.py`
+   and `tests/test_tls_matrix_integration.py`) against the TLS broker with the
+   `CUBRID_TLS_TEST_*` env vars wired up automatically, including
+   `CUBRID_TLS_TEST_PLAIN_PORT=30000` for the container's `SSL=OFF`
+   `query_editor` broker.
 
 > **Python 3.10 note**: The driver uses a certificate-verification preflight to
 > handle the known CPython async TLS verification failure in 3.10
@@ -236,7 +266,13 @@ You do not need to run the steps above locally for routine development —
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
-(nightly, on tag push, and via `workflow_dispatch`).
+(nightly, on tag push, and via `workflow_dispatch`). `ci.yml` runs the same
+lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
+TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
+`pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
+`tests/helpers/tls_*.py`, `tests/fixtures/tls/`, the lane audit script or
+workflows), so
+routine PRs do not pay for it.
 
 ### Code Coverage
 

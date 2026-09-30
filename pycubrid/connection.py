@@ -80,6 +80,7 @@ class Connection(ConnectionCommonMixin):
             json_deserializer=json_deserializer,
             no_backslash_escapes=kwargs.get("no_backslash_escapes", None),
             enable_timing=kwargs.get("enable_timing"),
+            charset=kwargs.get("charset", "utf-8"),
         )
         # OPEN_DATABASE advertises this per physical broker session.  A
         # prepared handle may be reused only on a measured pooling-on lane.
@@ -251,6 +252,7 @@ class Connection(ConnectionCommonMixin):
                 database=self._database,
                 user=self._user,
                 password=self._password,
+                encoding=self._encoding,
             )
             self._socket.sendall(open_db_packet.write())
             data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
@@ -632,6 +634,10 @@ class Connection(ConnectionCommonMixin):
     ) -> GetSchemaPacket:
         """Create an owned schema result; consume or explicitly close its packet."""
         self._ensure_connected()
+        # An unencodable argument fails here, before the request can drop
+        # the session below (#86).
+        self._check_encodable("schema argument", table_name)
+        self._check_encodable("schema argument", arg2)
         packet = GetSchemaPacket(
             schema_type=schema_type,
             table_name=table_name,
@@ -834,6 +840,9 @@ class Connection(ConnectionCommonMixin):
         attempted_send = False
         response_complete = False
         try:
+            # Every request on this connection uses its charset (#86); encoding
+            # happens in write(), so an unencodable value sends nothing.
+            packet.encoding = self._encoding
             try:
                 request_data = packet.write(self._cas_info)
             except struct.error as exc:

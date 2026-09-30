@@ -35,8 +35,32 @@ Compatibility and feature support for pycubrid releases.
 |---|---|---|
 | Offline tests | Python 3.10, 3.11, 3.12, 3.13, 3.14 | Same |
 | Integration tests | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8 jobs | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20 jobs |
+| Version differential | — | One job: the same generated workloads against CUBRID 10.2, 11.0, 11.2 and 11.4 at once |
 
 The 5 × 4 full integration matrix is run by `.github/workflows/integration-full.yml` on a nightly schedule, on tagged releases, and on demand via `workflow_dispatch`.
+
+### Server Behavior Differences Between CUBRID Versions
+
+The version differential (`tests/test_version_differential.py`) compares what
+pycubrid returns for the same statements on every supported server: error
+class, `errno` and `sqlstate`, `rowcount`, `lastrowid`, `description`, and
+each value's Python type and value. pycubrid decodes every version the same
+way. The differences below come from the server (the same results appear in
+`csql`), and they are the only ones the suite allows. Each entry, with its
+upstream link, is in `tests/helpers/version_matrix.py`.
+
+| Behavior | 10.2 | 11.0 | 11.2 | 11.4 |
+|---|---|---|---|---|
+| String/bit value longer than its `CHAR(n)`/`VARCHAR(n)`/`BIT VARYING(n)` column | Silently truncated | `ProgrammingError` -494 | `ProgrammingError` -494 | `ProgrammingError` -494 |
+| `REGEXP_LIKE` / `REGEXP_*` functions | Undefined (-494) | Available | Available | Available |
+| Bare value as a condition (`IF(1, ...)`, `WHERE 1`) | Accepted | Accepted | `ProgrammingError` -493 | `ProgrammingError` -493 |
+| Type of `'a' \|\| 'b'` / `CONCAT` | CHAR | VARCHAR | VARCHAR | VARCHAR |
+| `CAST('a' AS VARCHAR) = 'a '` | True | False | False | False |
+| `TRUNCATE` of an FK-referenced parent | `IntegrityError` -924 | `IntegrityError` -924 | `IntegrityError` -1284 | `IntegrityError` -1284 |
+| Type of `COUNT(*)` | INTEGER | INTEGER | BIGINT | BIGINT |
+| Integer mixed with NUMERIC (`(5) * (0.100)`) | NUMERIC(14,3) | NUMERIC(14,3) | NUMERIC(19,3); 17+ digit BIGINT overflows (-427) | NUMERIC(14,3) |
+| `REGEXP` operator on text with 3-byte UTF-8 characters | Matches | Never matches | Never matches | Never matches |
+| `REGEXP_*` on text with 3-byte UTF-8 characters | Undefined | NULL | 0 | 0 |
 
 ---
 

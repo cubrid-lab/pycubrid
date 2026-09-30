@@ -65,6 +65,12 @@ graph TD
 [8:]   PAYLOAD      (variable length)
 ```
 
+Reply parsing never reads past the end of a reply (#383): a negative or
+overrunning length, or collection elements that do not fill their size, raise
+`ValueError`, which the connection reports as `OperationalError('malformed
+response from broker')` and closes. Trailing bytes after the last declared
+value are not checked; `DataError` is only for a complete reply (#492, #512).
+
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
 session. Because the CAS may still close the socket after an OUT_TRAN reply
@@ -96,6 +102,12 @@ heterogeneous failover.
 - Client type: `CAS_CLIENT_JDBC = 3`
 - Protocol version: `8` (since CUBRID 10.2)
 - Byte order: Big-endian throughout
+- Text: no charset is negotiated and the broker converts nothing. The `charset`
+  option (default UTF-8, #86) is stamped on every packet as `packet.encoding` and
+  used for SQL, credentials, character values, metadata names, error text and
+  LOB locators (lenient); fetched JSON, NUMERIC, TZ names and version strings
+  stay UTF-8. Python euc_kr makeup sequences (Hangul outside KS X 1001) are
+  rejected as unencodable.
 - Column nullability is transmitted as `is_non_null`: zero permits NULL,
   nonzero means NOT NULL. Normalize it to `is_nullable` / DB-API `null_ok`.
 - Column metadata keeps first-byte collection flags (`0x60`) distinct from the
