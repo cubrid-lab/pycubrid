@@ -40,6 +40,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   locale such as `"ko_KR.euckr"` is accepted. `get_schema_info()` checks its arguments before sending, so an
   unencodable table or column pattern no longer closes the connection. A new `integration-charset` CI job runs the live round trips
   against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr`.
+- **Official-driver differential gate (#446)** — official behavior that
+  pycubrid claims is now listed in `tests/fixtures/official_differential_claims.json`.
+  Each claim is a `match`, or a `deviation` with a reason, an issue and both
+  drivers' observations, and names its API inventory and upstream scenario ids.
+  The first 18 claims are the #344 stored-type fetches, a static scalar row and
+  its `description`, and the #439 prepared INT/string subset. They include
+  three classified deviations: MONETARY, description size/null_ok, and native
+  `bind_param(None)`. `tests/test_official_differential.py` (replacing
+  `tests/test_cubriddb_differential.py`) runs one live case per claim through
+  pycubrid and the official driver. `scripts/build_official_oracle.py` builds
+  that driver from verified cubrid-python `e75ec36` and CCI `7d1eb8f` pins
+  with CMake directly, without patching upstream, and records the extension
+  SHA-256. A new required `official-differential` CI job (Python 3.10, CUBRID
+  10.2 and 11.4, cached oracle, skipped only for docs-only changes) is part of
+  the CI Gate and of the nightly/release full matrix. In that job, a missing
+  driver, zero cases, any skip, a mismatch or an unclassified divergence fails.
+  Evidence is uploaded as the `official-differential-evidence` artifact.
+  `scripts/check_official_differential.py` validates the ledger offline and
+  the evidence in CI, and generates the claim counts in the compatibility
+  guides. `check_integration_lanes.py` gains an `official` lane, and
+  `--lane official` accepts no skip.
 
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.

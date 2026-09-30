@@ -114,7 +114,7 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
         "test_batch_semantics",
         "test_lob_adversarial",
         "test_async_cancellation",
-        "test_cubriddb_differential",
+        "test_official_differential",
         "test_resource_leaks",
         "test_pep249_runtime",
         "test_soak",
