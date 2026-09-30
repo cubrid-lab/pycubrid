@@ -220,13 +220,40 @@ def test_complete_evidence_passes_and_summarizes() -> None:
             lambda r: [
                 dict(x, outcome="mismatch") if x.get("claim") == "fetch-integer" else x for x in r
             ],
-            "fetch-integer: mismatch",
+            "fetch-integer: recorded outcome 'mismatch'",
         ),
         (
             lambda r: [
                 dict(x, outcome="match") if x.get("claim") == "fetch-monetary" else x for x in r
             ],
-            "fetch-monetary: match",
+            "fetch-monetary: recorded outcome 'match'",
+        ),
+        (
+            # A divergent match record cannot certify itself with its own outcome label.
+            lambda r: [
+                dict(x, native="int(2)") if x.get("claim") == "fetch-integer" else x for x in r
+            ],
+            "fetch-integer: mismatch",
+        ),
+        (
+            lambda r: [dict(x, native="") if x.get("claim") == "fetch-integer" else x for x in r],
+            "fetch-integer: mismatch",
+        ),
+        (
+            lambda r: [
+                dict(x, native="int(99)", pycubrid="int(99)")
+                if x.get("claim") == "fetch-monetary"
+                else x
+                for x in r
+            ],
+            "fetch-monetary: mismatch",
+        ),
+        (
+            lambda r: [
+                dict(x, classification="deviation") if x.get("claim") == "fetch-integer" else x
+                for x in r
+            ],
+            "fetch-integer: recorded classification 'deviation' differs",
         ),
         (
             lambda r: [

@@ -43,6 +43,7 @@ jobs:
               - 'tests/**'
               - 'pyproject.toml'
               - 'scripts/build_official_oracle.py'
+              - 'scripts/check_integration_lanes.py'
               - 'scripts/check_official_differential.py'
               - '.github/workflows/**'
 

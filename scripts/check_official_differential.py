@@ -20,6 +20,8 @@ blocks in the compatibility guides must be current.
 differential writes. Zero cases, a missing driver identity, a server from
 ``required_servers`` without a run, a claim without a result on every required
 server (an unexplained skip) and any mismatch or unclassified divergence fail.
+Agreement is recomputed from the recorded observations and the ledger, so a
+record's own ``outcome`` label cannot certify a divergence.
 ``--json-out``/``--summary-out`` write the evidence summary and a Markdown
 table (e.g. ``$GITHUB_STEP_SUMMARY``) whose counts come from the ledger and the
 evidence, never from hand-written numbers.
@@ -289,12 +291,24 @@ def check_evidence(doc: dict[str, Any], records: list[dict[str, Any]]) -> dict[s
             errors.append(f"{server}: evidence for unknown claim {cid}")
             continue
         claim = claims[cid]
-        wanted = "match" if claim["classification"] == "match" else "classified-deviation"
-        if case.get("outcome") != wanted:
+        pycubrid_obs, native_obs = case.get("pycubrid"), case.get("native")
+        # Recompute agreement from the observations; never trust the recorded outcome.
+        if claim["classification"] == "match":
+            agrees = isinstance(native_obs, str) and bool(native_obs) and pycubrid_obs == native_obs
+            wanted = "match"
+        else:
+            expected = claim["expected"]
+            agrees = pycubrid_obs == expected["pycubrid"] and native_obs == expected["native"]
+            wanted = "classified-deviation"
+        if case.get("classification") != claim["classification"]:
             errors.append(
-                f"{server} {cid}: {case.get('outcome')} (pycubrid={case.get('pycubrid')} "
-                f"native={case.get('native')})"
+                f"{server} {cid}: recorded classification {case.get('classification')!r} "
+                f"differs from the ledger"
             )
+        if not agrees:
+            errors.append(f"{server} {cid}: mismatch (pycubrid={pycubrid_obs} native={native_obs})")
+        elif case.get("outcome") != wanted:
+            errors.append(f"{server} {cid}: recorded outcome {case.get('outcome')!r} != {wanted}")
         for required, per_claim in results.items():
             if _server_matches(server, required):
                 if cid in per_claim:

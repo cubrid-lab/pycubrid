@@ -194,9 +194,12 @@ skipping:
 The lane audit (`check_integration_lanes.py --lane official`) rejects every
 skip. The per-case JSON Lines evidence and its summary are uploaded as the
 `official-differential-evidence` artifact. The evidence records Python, server
-and driver versions, the pycubrid commit and every observation. Elsewhere
-(offline, other integration lanes, local runs without the oracle) the module
-skips. Such runs never certify a claim.
+and driver versions, the pycubrid commit and every observation. Without
+`PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1` (offline, other integration lanes, local
+runs) the module skips even if some other `CUBRIDdb` build is importable. Such
+runs never certify a claim. The evidence check recomputes each outcome from
+the recorded observations and the ledger. It does not trust a recorded outcome
+label.
 
 The counts below are generated from the ledger. Do not edit them by hand. Run
 `python scripts/check_official_differential.py --write-docs` after changing a

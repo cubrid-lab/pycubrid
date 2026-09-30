@@ -165,8 +165,10 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 레인 감사(`check_integration_lanes.py --lane official`)는 모든 skip을 거부합니다.
 케이스별 JSON Lines 증거와 요약은 `official-differential-evidence` 아티팩트로
 업로드됩니다. 증거에는 Python·서버·드라이버 버전, pycubrid 커밋, 모든 관측값이
-기록됩니다. 그 밖의 경우(오프라인, 다른 통합 레인, 오라클 없는 로컬 실행)에는 모듈을
-건너뛰며, 이런 실행은 주장을 인증하지 않습니다.
+기록됩니다. `PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1`이 없으면(오프라인, 다른 통합 레인,
+로컬 실행) 다른 `CUBRIDdb` 빌드를 가져올 수 있더라도 모듈을 건너뛰며, 이런 실행은
+주장을 인증하지 않습니다. 증거 검사는 기록된 결과 표시를 믿지 않고, 기록된
+관측값과 원장으로 각 결과를 다시 계산합니다.
 
 아래 수치는 원장에서 생성되므로 직접 수정하지 마세요. 주장을 바꾼 뒤
 `python scripts/check_official_differential.py --write-docs`를 실행합니다. 오프라인

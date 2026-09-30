@@ -7,10 +7,10 @@ type-tagged strings; a ``match`` claim requires identical observations and a
 ``deviation`` claim requires both sides to equal its pinned, reasoned
 expectations, so any change on either side fails and is re-triaged.
 
-The oracle is built by ``scripts/build_official_oracle.py``. Locally the module
-skips when it is not importable (every case is still collected, so lane audits
-see them). The required ``official-differential`` CI lane sets
-``PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1``: a missing driver or manifest, or an
+The oracle is built by ``scripts/build_official_oracle.py``. Cases run only with
+``PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1`` (the ``official-differential`` lane or a
+local reproduction); everywhere else they are collected but skipped, even when
+some other ``CUBRIDdb`` build is importable. In required mode a missing driver or manifest, or an
 extension whose SHA-256 differs from the manifest, then fails instead of
 skipping. ``PYCUBRID_DIFFERENTIAL_EVIDENCE`` names a JSON Lines file receiving
 one environment record and one record per case, which
@@ -274,10 +274,11 @@ def _pycubrid_commit() -> str:
 @pytest.fixture(scope="module", autouse=True)
 def environment() -> Iterator[dict[str, Any]]:
     """Record (and in the required lane verify) the oracle and server identities."""
-    if IMPORT_ERROR is not None:
-        if REQUIRED:
-            pytest.fail(f"official oracle required but not importable: {IMPORT_ERROR}")
+    if not REQUIRED:
+        # Only the pinned lane certifies claims; an arbitrary installed driver must not.
         pytest.skip(SKIP_REASON)
+    if IMPORT_ERROR is not None:
+        pytest.fail(f"official oracle required but not importable: {IMPORT_ERROR}")
     extension = Path(_cubrid.__file__)
     sha256 = hashlib.sha256(extension.read_bytes()).hexdigest()
     manifest: dict[str, Any] = {}
