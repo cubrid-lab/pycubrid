@@ -284,7 +284,7 @@ if not alive:
 ```
 
 - `await conn.ping(reconnect=False)` issues a native `CHECK_CAS` round-trip on an open socket without reconnecting. `CAS_INFO[0]=0` means OUT_TRAN after a transaction boundary, not a released session; it does not change this behavior. A closed socket or failed check returns `False`, which makes this suitable for SQLAlchemy's `pool_pre_ping`.
-- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting.
+- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting and closes that broken session.
 - A healthy same-session ping does not re-probe escape mode. On a new physical session, an automatic mode is re-probed before use; an explicit `no_backslash_escapes=True` or `False` remains pinned. Probe failure retires the replacement and makes ping return `False`, without guessing an escape mode or replaying SQL.
 - The healthy-session check uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and executes no SQL; recovery may run a read-only escape-mode probe.
 
@@ -434,7 +434,9 @@ pycubrid never replays an arbitrary SQL request after a transport failure. If a 
 disconnected, a `CHECK_CAS` probe raises a transport/protocol error, or the
 probe returns a negative response (broken CAS-to-DB link), explicit
 `ping(reconnect=True)` can attempt one new connection. With `reconnect=False`,
-the negative response returns `False` without reconnecting. The caller must
+the negative response returns `False` without reconnecting and closes that
+broken session, in both drivers; later calls raise `InterfaceError` until
+`connect()` or `ping(reconnect=True)`. The caller must
 decide whether interrupted SQL is safe to retry.
 
 Automatic `no_backslash_escapes` detection runs again on the replacement
@@ -447,8 +449,9 @@ decides whether to retry. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
-After successful recovery, including the automatic reconnect above, pycubrid
-restores the session-level setting the caller has **explicitly** set:
+After successful recovery, including the automatic reconnect above, and when
+`connect()` reopens a connection after `close()` (sync and async alike, #520),
+pycubrid restores the session-level setting the caller has **explicitly** set:
 
 | Setting | Restored after successful ping recovery? |
 |---|---|

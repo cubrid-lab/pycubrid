@@ -229,6 +229,37 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Sync `connect()` after `close()` restores explicit autocommit (#520)** — PATCH /
+  bug correction and sync/async parity. A new physical session opened by
+  `connect()` after an earlier one (also on `ping(reconnect=True)` and
+  `CHECK_CAS` recovery) re-sends an explicitly set `autocommit`, once, as
+  `pycubrid.aio` already did. Nothing extra is sent when `autocommit` was never
+  set explicitly. No public signature, dependency or supported-version change.
+
+- **Sync constructor autocommit applied on one session (#521)** — PATCH / bug
+  correction and sync/async parity. `connect(autocommit=True)` sends
+  `SET_DB_PARAMETER` and `COMMIT` on the session it opened without implicit
+  reconnect between them, as async does. A failure there now closes the
+  connection and raises `OperationalError` with the native error as
+  `__cause__`, instead of raising the native `DatabaseError` with the socket
+  left open. Code that caught `DatabaseError` still catches it
+  (`OperationalError` is a `DatabaseError` subclass).
+
+- **Sync `ping(reconnect=False)` closes a session whose `CHECK_CAS` failed
+  (#521)** — PATCH / bug correction and sync/async parity. It still returns
+  `False` without reconnecting, but the confirmed-broken session is closed, as
+  async already did, so later calls raise `InterfaceError` until `connect()` or
+  `ping(reconnect=True)` instead of silently reconnecting on the next request.
+  Healthy pings and `ping(reconnect=True)` are unchanged.
+
+- **`connect()` verifies an OUT_TRAN session before applying autocommit
+  (#521)** — PATCH / bug correction in both drivers. With automatic escape
+  detection, a CAS recycled right after the probe's `ROLLBACK` is replaced once
+  by a `CHECK_CAS` check before autocommit is applied or restored, instead of
+  failing `connect()`; each session is configured once. The async escape probe
+  of a `CHECK_CAS` replacement session carries the connection's autocommit flag
+  like every other escape probe. A healthy session sends nothing extra.
+
 - **`CALL`/`EVALUATE` values and `NULL`-typed cells are decoded (#542)** — PATCH /
   bug correction. A value returned by `CALL` (stored function, method call,
   `callproc()`) or `EVALUATE`, and a non-NULL value in a column whose metadata

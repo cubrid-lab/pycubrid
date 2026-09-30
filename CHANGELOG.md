@@ -45,6 +45,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Sync `Connection.connect()` after `close()` restores an explicit `autocommit` (#520)** —
+  reopening a closed sync connection did not re-send `SET_DB_PARAMETER`
+  (`AUTO_COMMIT`), so the new CAS session kept the broker default while
+  `conn.autocommit` still reported the value the caller had set; the async
+  driver already restored it. `connect()` now re-applies an explicitly set
+  `autocommit` whenever it opens a new physical session after an earlier one,
+  which also covers `ping(reconnect=True)` recovery and the reconnect after a
+  failed `CHECK_CAS` probe (each still restores exactly once). A connection
+  whose `autocommit` was never set explicitly sends nothing extra. Found by the
+  offline sync/async replay parity suite (#521).
+- **Sync `connect(autocommit=True)` applies autocommit on one CAS session, like async (#521)** —
+  the sync constructor applied `autocommit=True` through the public property
+  setter, which probes an OUT_TRAN reply with `CHECK_CAS` and may reconnect in
+  between: a CAS recycled right after `SET_DB_PARAMETER` made it send the
+  `COMMIT` on a new session that never received `AUTO_COMMIT=1`, while
+  `conn.autocommit` reported `True`. It now sends both requests on the session
+  it just opened with implicit reconnect disabled, as `pycubrid.aio` does; any
+  failure closes the connection and raises `OperationalError` (the native
+  error is its `__cause__`; previously the native `DatabaseError` escaped and
+  the socket stayed open). A healthy connect no longer sends the extra
+  `CHECK_CAS` between the two requests.
+- **`connect()` verifies an OUT_TRAN session before applying autocommit (#521)** —
+  with automatic `no_backslash_escapes` detection the escape probe ends with a
+  `ROLLBACK`, so a new session is OUT_TRAN when the constructor's
+  `autocommit=True` or the restore of an explicit `autocommit` is sent without
+  implicit reconnect. A CAS recycled right after that `ROLLBACK` made the async
+  `connect()` and the reconnect restore fail (the sync constructor survived it
+  only through the reconnecting property setter replaced above). Both drivers now send
+  `CHECK_CAS` first in that case and, if it fails, replace the session once and
+  apply the setting there; a healthy or verified session sends nothing extra.
+  A session replaced during the escape probe itself is configured once by
+  that recovery and not again by `connect()`, and an interrupted sync setup
+  retires the new session instead of leaving it half-configured.
+  The async escape probe of that replacement also now carries the connection's
+  autocommit flag, like every other escape probe in both drivers.
+- **Sync `ping(reconnect=False)` closes a session whose `CHECK_CAS` failed, like async (#521)** —
+  when `CHECK_CAS` returned a negative code (broken CAS-to-DB link), the sync
+  driver returned `False` but kept the session, and the next request probed it
+  again and silently reconnected; `pycubrid.aio` closes it. Both now close the
+  confirmed-broken session: `ping(reconnect=False)` still returns `False`
+  without reconnecting, and later calls raise `InterfaceError` until
+  `connect()` or `ping(reconnect=True)`. A healthy ping, a closed connection
+  and `ping(reconnect=True)` are unchanged.
 - **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
   under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
   type header `0x80 | collection bits | charset`, type, the layout of column
@@ -76,6 +119,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   FETCH tuple count, which read as an empty page and silently ended the result
   set early, is rejected the same way. Documented in `docs/PROTOCOL.md` and
   `docs/TROUBLESHOOTING.md` (+ Korean).
+- **Tests: offline sync/async replay parity (#521)** —
+  `tests/test_replay_parity.py` replays scripted broker replies through a real
+  sync `Connection` and a real `AsyncConnection`, each against its own
+  in-process multi-session broker (`tests/helpers/replay_broker.py`) over a real
+  socket, and compares step outcomes, the exact requests sent, whether the
+  connection stays usable and the number of sessions. Scenarios cover
+  connect/close, reconnect after close, autocommit set/restore, handle
+  invalidation at commit/rollback, the OUT_TRAN `CHECK_CAS` probe and one
+  recovery, SQL bound to a replaced session, failed pings, malformed and
+  truncated replies and the `DataError` contracts (#512, #536). Intended
+  differences are listed per scenario with a reason and documented, with the
+  four unintended ones it found (fixed above), in `docs/DEVELOPMENT.md`
+  (+ Korean). `prepare_and_execute_reply()` in `tests/helpers/cas_reply.py`
+  gains a `total` keyword for replies that leave rows to later FETCH pages.
 - **Tests: protocol fuzzing seeds realistic replies (#523)** — every
   `tests/test_protocol_fuzz.py` seed used to carry zero columns, so no fuzz
   case reached column metadata or row cells. Seeds built by

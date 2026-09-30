@@ -494,7 +494,7 @@ if not alive:
 ```
 
 - `await conn.ping(reconnect=False)` issues a native `CHECK_CAS` round-trip on an open socket without reconnecting. `CAS_INFO[0]=0` means OUT_TRAN after a transaction boundary, not a released session; it does not change this behavior. A closed socket or failed check returns `False`, which makes this suitable for SQLAlchemy's `pool_pre_ping`.
-- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting.
+- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting and closes that broken session.
 - A healthy same-session ping does not re-probe escape mode. On a new physical session, an automatic mode is re-probed before use; an explicit `no_backslash_escapes=True` or `False` remains pinned. Probe failure retires the replacement and makes ping return `False`, without guessing an escape mode or replaying SQL.
 - The healthy-session check uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and executes no SQL; recovery may run a read-only escape-mode probe.
 
@@ -644,7 +644,9 @@ pycubrid never replays an arbitrary SQL request after a transport failure. If a 
 disconnected, a `CHECK_CAS` probe raises a transport/protocol error, or the
 probe returns a negative response (broken CAS-to-DB link), explicit
 `ping(reconnect=True)` can attempt one new connection. With `reconnect=False`,
-the negative response returns `False` without reconnecting. The caller must
+the negative response returns `False` without reconnecting and closes that
+broken session, in both drivers; later calls raise `InterfaceError` until
+`connect()` or `ping(reconnect=True)`. The caller must
 decide whether interrupted SQL is safe to retry.
 
 Automatic `no_backslash_escapes` detection runs again on the replacement
@@ -657,8 +659,9 @@ decides whether to retry. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
-After successful recovery, including the automatic reconnect above, pycubrid
-restores the session-level setting the caller has **explicitly** set:
+After successful recovery, including the automatic reconnect above, and when
+`connect()` reopens a connection after `close()` (sync and async alike, #520),
+pycubrid restores the session-level setting the caller has **explicitly** set:
 
 | Setting | Restored after successful ping recovery? |
 |---|---|
@@ -1577,7 +1580,9 @@ read-only escape-mode probe before accepting application SQL.
 - With `reconnect=True`, probes the existing socket first and attempts one
   reconnect if disconnected, if the check fails with a transport/protocol error,
   or if `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
-  `reconnect=False` reports the negative response as `False` without reconnecting.
+  `reconnect=False` reports the negative response as `False` without reconnecting
+  and closes that broken session (later calls raise `InterfaceError`), as the
+  async driver does.
   Only explicitly set autocommit is restored after successful recovery.
   Interrupted SQL is not replayed; the caller must decide whether retry is safe.
   An automatically detected `no_backslash_escapes` mode is probed again on a
@@ -2267,7 +2272,9 @@ without SQL. Recovery can execute the read-only escape-mode probe.
 - With `reconnect=True`, probes the existing socket first and attempts one
   reconnect if disconnected, after a transport/protocol failure, or when
   `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
-  `reconnect=False` reports the negative response as `False` without reconnecting.
+  `reconnect=False` reports the negative response as `False` without reconnecting
+  and closes that broken session (later calls raise `InterfaceError`), as the
+  sync driver does.
   Only explicitly set autocommit is restored; arbitrary SQL is never replayed.
   Automatic `no_backslash_escapes` detection runs on each new physical session,
   not on healthy same-session checks; explicit `True`/`False` remains pinned.
@@ -7315,6 +7322,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 - [Project Structure](#project-structure)
 - [Running Tests](#running-tests)
   - [Offline Tests](#offline-tests)
+  - [Sync/Async Replay Parity](#syncasync-replay-parity)
   - [Integration Tests](#integration-tests)
   - [Code Coverage](#code-coverage)
 - [Docker Setup](#docker-setup)
@@ -7438,6 +7446,73 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 # Or use the Makefile
 make test
 ```
+
+### Sync/Async Replay Parity
+
+`tests/test_replay_parity.py` checks, offline and in a few seconds, that the
+sync `Connection` and the async `AsyncConnection` behave the same against the
+same broker. `tests/helpers/replay_broker.py` is a threaded in-process CAS
+broker: it accepts any number of TCP sessions (so reconnects are real), answers
+each request through a per-scenario *script* with deterministic default replies
+built by `tests/helpers/cas_reply.py`, and records every request it receives.
+
+Each scenario is a list of public operations (`open`, `close`, `connect`,
+`execute`, `fetchall`, `commit`, `ping`, ...) plus a script. It is replayed
+through both drivers, each against a fresh broker, and four aspects are
+compared: step outcomes (return value or exception type), the exact requests
+sent (session, CAS function, echoed CAS_INFO, arguments), whether the connection
+is still usable afterwards (`ping(reconnect=False)`), and the number of TCP
+sessions. A scenario names the aspects in which the drivers are *meant* to
+differ, with a reason; every other difference fails. A known divergence that is
+not fixed yet is recorded with `unintended=` and runs as a strict `xfail`. Each
+scenario also carries a `check` run against both observations, so it cannot
+silently stop exercising its path.
+
+```bash
+pytest tests/test_replay_parity.py -v
+```
+
+Covered: connect/close, reconnect after close, autocommit set/restore (explicit,
+constructor, never set), handle invalidation by commit/rollback, the OUT_TRAN
+`CHECK_CAS` probe, one `CHECK_CAS` recovery (with autocommit restore and
+escape-mode re-probe) and a failed recovery, SQL bound to a replaced session
+(generation fence, #471/#485), failed `ping()` with and without recovery,
+malformed and truncated replies (#533), `DataError` keeping the session (#512)
+and the fetch-page `DataError` contract (#536). Task cancellation exists only
+in `pycubrid.aio` and is covered by `tests/test_async_cancellation.py` instead.
+
+To add a scenario, append a `Scenario` to `SCENARIOS` with its steps, a script
+built from `_on(...)` (for example `_hang_up_after_ok` to recycle the CAS after a
+reply) and a `check`.
+
+**Intended differences** (not failures):
+
+| Difference | Reason |
+|---|---|
+| `AsyncConnection(...)` does not connect; `await pycubrid.aio.connect(...)` does | `__init__` cannot await |
+| Async autocommit is set with `await conn.set_autocommit(v)` | a property setter cannot await |
+| Every async I/O method is a coroutine | asyncio API |
+| Async `create_lob()` raises `NotSupportedError` and sends no `LOB_NEW` | no async LOB support (scenario `create_lob`) |
+| Task cancellation | async only; excluded from parity |
+
+**Unintended differences found by the harness** (all fixed in #521):
+
+| Difference | Fix |
+|---|---|
+| Sync `connect()` after `close()` did not re-send an explicit `autocommit` (#520) | `connect()` restores explicit session state on every replacement session |
+| Sync `connect(autocommit=True)` used the reconnecting property setter: an extra `CHECK_CAS` between `SET_DB_PARAMETER` and `COMMIT`, a CAS recycled there split them across sessions, and a failure raised the native error with the socket left open | applied on the opened session only, with `OperationalError` on failure, like async |
+| Sync `ping(reconnect=False)` kept a session whose `CHECK_CAS` returned a negative code, and the next request reconnected silently | the broken session is closed, like async |
+| Async escape probe on a `CHECK_CAS` replacement session sent `auto_commit=0`; every other escape probe (both drivers) sends the connection's flag | the replacement probe sends the connection's flag |
+
+A shared gap (no parity difference) was fixed at the same time: with automatic
+escape detection, a CAS recycled right after the probe's `ROLLBACK` made
+`connect()` fail before autocommit was applied; both drivers now verify that
+OUT_TRAN session with `CHECK_CAS` first and replace it once.
+
+Known and not yet fixed, shared by both drivers (strict `xfail` scenario
+`autocommit_setter_survives_recycle_after_set_db_parameter`): the public
+autocommit setter can send `SET_DB_PARAMETER` and its `COMMIT` on different CAS
+sessions when the CAS is recycled between them (#551).
 
 ### Mutation Testing
 

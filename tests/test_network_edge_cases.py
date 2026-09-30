@@ -429,8 +429,10 @@ class TestSessionStateRestoreOnReconnect:
             conn._socket = reconnect_sock
             conn._cas_info = b"\x01\x01\x02\x03"
             conn._connected = True
+            conn._physical_generation += 1
 
-        conn.connect = MagicMock(side_effect=reconnect)
+        # Fake only the physical open: connect() itself restores state (#520).
+        setattr(conn, "_connect_locked", MagicMock(side_effect=reconnect))
         restore = MagicMock(wraps=conn._restore_session_state)
         conn._restore_session_state = restore  # type: ignore[method-assign]
 
@@ -451,8 +453,10 @@ class TestSessionStateRestoreOnReconnect:
             conn._socket = reconnect_sock
             conn._cas_info = b"\x01\x01\x02\x03"
             conn._connected = True
+            conn._physical_generation += 1
 
-        conn.connect = MagicMock(side_effect=reconnect)
+        # Fake only the physical open: connect() itself restores state (#520).
+        setattr(conn, "_connect_locked", MagicMock(side_effect=reconnect))
         restore = MagicMock(wraps=conn._restore_session_state)
         conn._restore_session_state = restore  # type: ignore[method-assign]
 
@@ -709,8 +713,10 @@ class TestPingSingleAttemptContract:
             conn._socket = MagicMock()
             conn._cas_info = b"\x01\x01\x02\x03"
             conn._connected = True
+            conn._physical_generation += 1
 
-        conn.connect = MagicMock(side_effect=fake_reconnect)  # type: ignore[method-assign]
+        # Fake only the physical open: connect() itself restores state (#520).
+        setattr(conn, "_connect_locked", MagicMock(side_effect=fake_reconnect))
         restore = MagicMock(wraps=conn._restore_session_state)
         conn._restore_session_state = restore  # type: ignore[method-assign]
         conn._send_and_receive = MagicMock(  # type: ignore[method-assign]
