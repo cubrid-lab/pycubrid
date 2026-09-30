@@ -105,6 +105,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   FETCH tuple count, which read as an empty page and silently ended the result
   set early, is rejected the same way. Documented in `docs/PROTOCOL.md` and
   `docs/TROUBLESHOOTING.md` (+ Korean).
+- **Tests: offline sync/async replay parity (#521)** —
+  `tests/test_replay_parity.py` replays scripted broker replies through a real
+  sync `Connection` and a real `AsyncConnection`, each against its own
+  in-process multi-session broker (`tests/helpers/replay_broker.py`) over a real
+  socket, and compares step outcomes, the exact requests sent, whether the
+  connection stays usable and the number of sessions. Scenarios cover
+  connect/close, reconnect after close, autocommit set/restore, handle
+  invalidation at commit/rollback, the OUT_TRAN `CHECK_CAS` probe and one
+  recovery, SQL bound to a replaced session, failed pings, malformed and
+  truncated replies and the `DataError` contracts (#512, #536). Intended
+  differences are listed per scenario with a reason and documented, with the
+  three unintended ones it found (fixed above), in `docs/DEVELOPMENT.md`
+  (+ Korean). `prepare_and_execute_reply()` in `tests/helpers/cas_reply.py`
+  gains a `total` keyword for replies that leave rows to later FETCH pages.
 - **Tests: protocol fuzzing seeds realistic replies (#523)** — every
   `tests/test_protocol_fuzz.py` seed used to carry zero columns, so no fuzz
   case reached column metadata or row cells. Seeds built by

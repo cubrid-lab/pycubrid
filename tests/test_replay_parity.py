@@ -36,7 +36,7 @@ adapters rather than listed per scenario):
   counterpart and is covered by ``tests/test_async_cancellation.py`` instead.
 
 The table of intended and unintended differences found by this harness is
-kept in ``docs/DEVELOPMENT.md`` ("Sync/async replay parity").
+kept in ``docs/DEVELOPMENT.md`` ("Sync/Async Replay Parity").
 """
 
 from __future__ import annotations
