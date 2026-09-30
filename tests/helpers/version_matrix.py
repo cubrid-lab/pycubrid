@@ -32,6 +32,9 @@ SUPPORTED_VERSIONS: tuple[str, ...] = ("10.2", "11.0", "11.2", "11.4")
 # One statement's observation: field name -> comparable value.
 Step = Mapping[str, object]
 Observation = Sequence[Step]
+# Allowlist tags: one set for every statement, or one set per statement so a
+# documented difference in one statement cannot hide a regression in another.
+Tags = frozenset[str] | Sequence[frozenset[str]]
 
 FIELDS = frozenset({"error", "rowcount", "lastrowid", "description", "rows"})
 
@@ -309,8 +312,15 @@ def _assign(
     return None
 
 
+def step_tags(tags: Tags, index: int) -> frozenset[str]:
+    """Return the tags that apply to statement ``index``."""
+    if isinstance(tags, frozenset):
+        return tags
+    return tags[index] if index < len(tags) else frozenset()
+
+
 def classify(
-    tags: frozenset[str],
+    tags: Tags,
     observations: Mapping[str, Observation],
     allowlist: Sequence[VersionDifference] = ALLOWLIST,
 ) -> tuple[list[VersionDifference], list[str]]:
@@ -323,7 +333,8 @@ def classify(
     used: list[VersionDifference] = []
     problems: list[str] = []
     for index, field, groups in differing_fields(observations):
-        candidates = [e for e in allowlist if e.tag in tags and field in e.fields]
+        applicable = step_tags(tags, index)
+        candidates = [e for e in allowlist if e.tag in applicable and field in e.fields]
         explained = _explain(groups, candidates, present)
         if explained is None:
             split = " vs ".join("/".join(sorted(g)) for g in groups)
@@ -335,16 +346,15 @@ def classify(
 
 def format_report(
     statements: Sequence[str],
-    tags: frozenset[str],
+    tags: Tags,
     observations: Mapping[str, Observation],
     problems: Sequence[str],
 ) -> str:
     """Human-readable divergence report for an assertion message."""
     lines = ["Unexplained CUBRID version divergence:"]
     lines += [f"  - {p}" for p in problems]
-    lines.append(f"workload tags: {sorted(tags) or '[]'}")
     for index, sql in enumerate(statements):
-        lines.append(f"[{index}] {sql}")
+        lines.append(f"[{index}] {sql}  tags={sorted(step_tags(tags, index))}")
         for version, obs in observations.items():
             step = obs[index] if index < len(obs) else None
             lines.append(f"      {version}: {dict(step) if step is not None else None}")

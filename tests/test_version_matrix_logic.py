@@ -171,6 +171,15 @@ def test_wider_entry_needs_all_its_versions_to_differ() -> None:
     assert problems
 
 
+def test_step_tags_explain_only_their_own_statement() -> None:
+    entry = VersionDifference("t", frozenset({"10.2"}), frozenset({"rows"}), "r", "l")
+    observations: Obs = {v: [{"rows": (0,)}, {"rows": (0,)}] for v in ALL}
+    observations["10.2"] = [{"rows": (1,)}, {"rows": (1,)}]
+    used, problems = classify([frozenset({"t"}), frozenset()], observations, allowlist=[entry])
+    assert used == [entry]
+    assert problems == ["step 1 field 'rows' differs: 10.2 vs 11.0/11.2/11.4"]
+
+
 def test_report_only_keys_are_not_compared() -> None:
     observations = _same(ERROR)
     observations["11.4"] = [dict(ERROR, _message="differs per version")]

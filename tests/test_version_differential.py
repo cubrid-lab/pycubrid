@@ -7,7 +7,7 @@ pycubrid: error class, ``errno`` and ``sqlstate``; ``rowcount``;
 ``lastrowid``; ``cursor.description`` (type code, precision, scale,
 nullability); and every fetched value's Python type and value. Then:
 
-* all versions must agree, unless the workload carries the tags of
+* all versions must agree, unless the statement carries the tags of
   documented :data:`~tests.helpers.version_matrix.ALLOWLIST` entries (reason +
   link) that explain exactly that split of versions and those fields;
 * a DB-API error must never leave the session unusable, and anything that is
@@ -91,13 +91,20 @@ class Stmt:
     sql: str
     params: tuple[object, ...] | list[tuple[object, ...]] | None = None
     many: bool = False
+    # Allowlist tags for this statement only, so a documented difference in
+    # one statement cannot hide a regression in another. A statement that
+    # reads what an earlier tagged statement wrote carries the tag too.
+    tags: frozenset[str] = frozenset()
 
 
 @dataclass
 class Workload:
     statements: list[Stmt]
-    tags: frozenset[str] = frozenset()
     setup: list[str] = field(default_factory=list)  # run unobserved first
+
+    @property
+    def tags(self) -> list[frozenset[str]]:
+        return [stmt.tags for stmt in self.statements]
 
 
 class Server:
@@ -605,14 +612,16 @@ class TestVersionDifferential:
         workload = Workload(
             setup=["DELETE FROM %s" % table],
             statements=[
-                Stmt("INSERT INTO %s (v) VALUES (?)" % table, (case.value,)),
-                Stmt("SELECT v FROM %s" % table),
-                Stmt("UPDATE %s SET v = ?" % table, (case.value,)),
-                Stmt("SELECT v, COUNT(*) FROM %s GROUP BY v" % table),
+                Stmt("INSERT INTO %s (v) VALUES (?)" % table, (case.value,), tags=case.tags),
+                Stmt("SELECT v FROM %s" % table, tags=case.tags),
+                Stmt("UPDATE %s SET v = ?" % table, (case.value,), tags=case.tags),
+                # COUNT(*) is INTEGER on 10.2/11.0 and BIGINT on 11.2+.
+                Stmt(
+                    "SELECT v, COUNT(*) FROM %s GROUP BY v" % table,
+                    tags=case.tags | {"count-bigint"},
+                ),
                 Stmt("SELECT ?", (case.value,)),
             ],
-            # COUNT(*) is INTEGER on 10.2/11.0 and BIGINT on 11.2+.
-            tags=case.tags | {"count-bigint"},
         )
         compare(servers, workload)
 
@@ -620,7 +629,7 @@ class TestVersionDifferential:
     @given(expr=expressions())
     def test_scalar_expression_agrees(self, servers: list[Server], expr: Expr) -> None:
         """Generated numeric/string/temporal/JSON/collection/conditional expressions."""
-        compare(servers, Workload([Stmt("SELECT %s" % expr.sql)], expr.tags))
+        compare(servers, Workload([Stmt("SELECT %s" % expr.sql, tags=expr.tags)]))
 
     @LIVE
     @given(
@@ -641,7 +650,7 @@ class TestVersionDifferential:
     def test_condition_forms_agree(self, servers: list[Server], cond: Expr, form: str) -> None:
         """Logical and bare-value conditions in IF / WHERE / CASE WHEN."""
         tags = cond.tags | {"count-bigint"} if "COUNT" in form else cond.tags
-        compare(servers, Workload([Stmt(form % cond.sql)], tags))
+        compare(servers, Workload([Stmt(form % cond.sql, tags=tags)]))
 
     @settings(LIVE, max_examples=WRITE_BUDGET)
     @given(
@@ -712,17 +721,17 @@ class TestVersionDifferential:
                 statements.append(Stmt("INSERT INTO %s (k, s) VALUES (NULL, 'n')" % table))
             elif name == "aggregate":
                 statements.append(
-                    Stmt("SELECT COUNT(*), SUM(k), MIN(s), MAX(id), AVG(k) FROM %s" % table)
+                    Stmt(
+                        "SELECT COUNT(*), SUM(k), MIN(s), MAX(id), AVG(k) FROM %s" % table,
+                        tags=frozenset({"count-bigint"}),
+                    )
                 )
             else:
                 statements.append(
                     Stmt("SELECT id, k, s FROM %s WHERE k >= ? ORDER BY id" % table, (op[1],))
                 )
         statements.append(Stmt("SELECT id, k, s FROM %s ORDER BY id" % table))
-        tags = (
-            frozenset({"count-bigint"}) if any(op[0] == "aggregate" for op in ops) else frozenset()
-        )
-        compare(servers, Workload(statements, tags, setup=["TRUNCATE TABLE %s" % table]))
+        compare(servers, Workload(statements, setup=["TRUNCATE TABLE %s" % table]))
 
     @settings(LIVE, max_examples=WRITE_BUDGET)
     @given(
@@ -792,15 +801,16 @@ class TestVersionDifferential:
                 child,
                 "CREATE TABLE %%s (id INT, pid INT, FOREIGN KEY (pid) REFERENCES %s(id))" % parent,
             )
-        statements = [Stmt(sql.format(parent=parent, child=child)) for sql, _tags in errors]
-        tags = frozenset().union(*(t for _sql, t in errors))
+        statements = [
+            Stmt(sql.format(parent=parent, child=child), tags=tags) for sql, tags in errors
+        ]
         setup = [
             "DELETE FROM %s" % child,
             "DELETE FROM %s" % parent,
             "INSERT INTO %s VALUES (1), (2)" % parent,
             "INSERT INTO %s VALUES (1, 1)" % child,
         ]
-        compare(servers, Workload(statements, tags, setup))
+        compare(servers, Workload(statements, setup))
 
     @settings(LIVE, max_examples=SCHEMA_BUDGET)
     @given(
@@ -932,8 +942,7 @@ def test_documented_difference_still_reproduces(
     try:
         tags = PROBE_COMPANIONS.get(entry.tag, frozenset()) | {entry.tag}
         workload = Workload(
-            [Stmt(s.sql.format(t=table), s.params, s.many) for s in statements],
-            tags,
+            [Stmt(s.sql.format(t=table), s.params, s.many, tags) for s in statements],
             [sql.format(t=table) for sql in setup],
         )
         observations = {s.version: s.run(workload) for s in servers}
