@@ -65,6 +65,12 @@ graph TD
 [8:]   PAYLOAD      (variable length)
 ```
 
+Reply parsing never reads past the end of a reply (#383): a negative or
+overrunning length, or collection elements that do not fill their size, raise
+`ValueError`, which the connection reports as `OperationalError('malformed
+response from broker')` and closes. Trailing bytes after the last declared
+value are not checked; `DataError` is only for a complete reply (#492, #512).
+
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
 session. Because the CAS may still close the socket after an OUT_TRAN reply

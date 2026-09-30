@@ -46,6 +46,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- **Reads past the end of a broker reply are rejected (#383)** — a length
+  field that ran past the end of a reply was cut short by a Python slice and
+  returned as if complete: a `BIT`/`VARBIT` cell declaring 8 bytes but carrying
+  2 returned those 2 bytes, a `LOB_READ` reply declaring 10 bytes with 3 in
+  the payload set `bytes_read = 10`, and strings, `NUMERIC`, `JSON`, raw
+  collections and LOB handles and locators behaved the same way. A negative
+  length moved the reader backwards. Every length-prefixed read now checks
+  `0 <= length <= remaining` before it moves, and a decoded collection's
+  elements must fill its declared size exactly (previously elements could run
+  into the next column). Such a reply raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection, sync and async, like other framing damage; `DataError` stays for
+  complete replies (#492, #512). A `LOB_READ` count below the requested length
+  is still a valid short read (#362), and bytes after the last value a reply
+  declares are still ignored. Documented in `docs/PROTOCOL.md` and
+  `docs/TROUBLESHOOTING.md` (+ Korean).
 - **Zero `DATE`/`DATETIME`/`TIMESTAMP` values no longer close the connection
   (#512)** — CUBRID accepts zero values such as `DATE'0000-00-00'`,
   `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
