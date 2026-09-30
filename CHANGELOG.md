@@ -46,6 +46,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- **Security: `str`, `bytes`, date and time parameters are rendered without
+  calling overridable methods (#528)** — `format_parameter()` escaped `str`
+  parameters with `value.replace(...)` and `"\x00" in value`, rendered
+  `bytes`/`bytearray` with `value.hex()` and dates and times with
+  `value.strftime(...)`, all of which a subclass can override, and spliced a
+  `tzinfo.key` into `DATETIMETZ` literals unescaped. A `str` subclass whose
+  `replace()` returned `x'; DROP TABLE users; --` had that text sent
+  unescaped; an overridden `hex()` or `strftime()`, or a `tzinfo.key`
+  containing `'`, injected SQL the same way. A `str` subclass is now copied to
+  a plain `str` through the base class before the NUL/Ctrl-Z checks and
+  escaping, `bytes`/`bytearray` are rendered with `bytes.hex(value)` /
+  `bytearray.hex(value)`, and date/time literals are built from the integer
+  fields read through the base-class descriptors (the UTC offset through
+  `datetime.datetime.utcoffset()` and the `timedelta` descriptors). A
+  non-empty `tzinfo.key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`
+  (every IANA name does), otherwise `ProgrammingError`. Parameters are
+  dispatched on `type(value)`, so an object that only claims a supported type
+  through `__class__` (including transparent proxies) raises
+  `ProgrammingError("unsupported parameter type")` instead of a raw
+  `TypeError` or being rendered through the proxy; `escape_string()` raises
+  `ProgrammingError` for a non-`str` argument. When the C `decimal` module is
+  unavailable (pure-Python `_pydecimal` fallback), `Decimal` subclasses raise
+  `ProgrammingError`, because that module copies their value through
+  attributes a subclass can forge. Output for plain `str`, `bytes`,
+  `bytearray`, `date`, `datetime` and `time` values is byte-identical except
+  for the year padding below, and sync and async cursors share the change.
+- **Years below 1000 are zero-padded in `DATE`/`DATETIME`/`DATETIMETZ`
+  literals (#519)** — the year was rendered with `strftime("%Y")`, which does
+  not pad on Linux, and CUBRID reads `DATE'99-01-02'` as 1999-01-02, so
+  `date(99, 1, 2)` and `datetime(99, ...)` were silently stored and compared as
+  year 1999. Years are now always four digits (`DATE'0099-01-02'`); years 1,
+  99, 999 and 1000 round-trip on CUBRID 10.2 and 11.4.
 - **Security: `int`, `float` and `Decimal` subclasses are bound by value
   (#518)** — `format_parameter()` rendered `int` and `float` parameters with
   `str(value)` and `Decimal` with `format(value, "f")`, which dispatch to

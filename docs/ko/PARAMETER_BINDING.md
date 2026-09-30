@@ -64,18 +64,18 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 
 | Python 타입 | SQL 리터럴 | 구현 | 고정 테스트 |
 |---|---|---|---|
-| `None` | `NULL` | `_cursor_common.py:143-144` | `tests/test_param_security.py:95-97` |
-| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
-| `int` (`IntEnum`/`IntFlag` 등 하위 클래스 포함) | `int.__repr__(value)` (값의 10진수). [숫자 하위 클래스](#숫자-하위-클래스) 참고 | `_cursor_common.py:259-260` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
-| `float` (하위 클래스 포함) | `float.__repr__(value)` (일반 `float`의 `str()`과 같은 최단 왕복 표기, 예: `1e+20`); `nan`/`inf`/`-inf`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:261-264` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
-| `decimal.Decimal` (하위 클래스 포함) | 고정소수점 숫자(일반 `Decimal`로 변환한 값에 `format(value, "f")`, 따옴표 없음, E 표기 사용 안 함); 부호·후행 0·scale 유지; 리터럴 자릿수가 38을 넘으면 `DataError`; `NaN`/`Infinity`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`). [Decimal 파라미터](#decimal-파라미터) 참고 | `_cursor_common.py:237-258` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
-| `str` | 작은따옴표 리터럴; [문자열 이스케이프](#문자열-이스케이프) 적용; NUL(`U+0000`)과 Ctrl-Z(`U+001A`, `\x1a`)는 각각 `ProgrammingError` 발생 (현재 메시지: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
-| `bytes`, `bytearray` | `X'<hex>'` (소문자 hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
-| `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — 마이크로초는 밀리초로 절사(`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
-| `datetime.datetime` (tz 포함) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` — `<tz>`는 `tzinfo.key`가 있으면 그 값(예: `Asia/Seoul`), 없으면 `±HH:MM` 숫자 오프셋 | `_cursor_common.py:151-169` | `tests/test_param_security.py:147-169` |
-| `datetime.date` | `DATE'YYYY-MM-DD'` | `_cursor_common.py:171-172` | `tests/test_param_security.py:116-118` |
-| `datetime.time` | `TIME'HH:MM:SS'` — 마이크로초 버림 | `_cursor_common.py:173-174` | `tests/test_param_security.py:120-122` |
-| 그 외 전부 | `ProgrammingError` (현재 메시지: `"unsupported parameter type"`) | `_cursor_common.py:181` | `tests/test_param_security.py:128-130`; `tests/test_cursor.py:233-235` |
+| `None` | `NULL` | `_cursor_common.py:254-255` | `tests/test_param_security.py:95-97` |
+| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:260-261` | `tests/test_param_security.py:98-102` |
+| `int` (`IntEnum`/`IntFlag` 등 하위 클래스 포함) | `int.__repr__(value)` (값의 10진수). [숫자 하위 클래스](#숫자-하위-클래스) 참고 | `_cursor_common.py:330-331` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
+| `float` (하위 클래스 포함) | `float.__repr__(value)` (일반 `float`의 `str()`과 같은 최단 왕복 표기, 예: `1e+20`); `nan`/`inf`/`-inf`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:332-335` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
+| `decimal.Decimal` (하위 클래스 포함) | 고정소수점 숫자(일반 `Decimal`로 변환한 값에 `format(value, "f")`, 따옴표 없음, E 표기 사용 안 함); 부호·후행 0·scale 유지; 리터럴 자릿수가 38을 넘으면 `DataError`; `NaN`/`Infinity`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`); C `decimal` 모듈이 없으면 하위 클래스는 `ProgrammingError` 발생. [Decimal 파라미터](#decimal-파라미터)와 [숫자 하위 클래스](#숫자-하위-클래스) 참고 | `_cursor_common.py:301-329` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`, `::TestPureDecimalFallback`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
+| `str` (하위 클래스 포함) | 작은따옴표 리터럴; 값을 일반 `str`로 복사한 뒤 [문자열 이스케이프](#문자열-이스케이프) 적용; NUL(`U+0000`)과 Ctrl-Z(`U+001A`, `\x1a`)는 각각 `ProgrammingError` 발생 (현재 메시지: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). [텍스트, 바이너리, 날짜/시간 하위 클래스](#텍스트-바이너리-날짜시간-하위-클래스) 참고 | `_cursor_common.py:262-263, 194-228` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
+| `bytes`, `bytearray` (하위 클래스 포함) | `X'<hex>'` (소문자 hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.py:266-269` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
+| `datetime.datetime` (naive, 하위 클래스 포함) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — 연도는 4자리로 0 채움; 마이크로초는 밀리초로 절사(`microsecond // 1000`) | `_cursor_common.py:274-288` | `tests/test_param_security.py:124-127`, `::TestTemporalSubclassRendering` |
+| `datetime.datetime` (tz 포함, 하위 클래스 포함) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` — `<tz>`는 `tzinfo.key`가 있으면 그 값(예: `Asia/Seoul`), 없으면 `±HH:MM` 숫자 오프셋. 비어 있지 않은 `key`는 `[A-Za-z0-9_+/-]+`에 맞는 일반 `str`이어야 하며, 아니면 `ProgrammingError` 발생 (현재 메시지: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
+| `datetime.date` (하위 클래스 포함) | `DATE'YYYY-MM-DD'` — 연도는 4자리로 0 채움 | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
+| `datetime.time` (하위 클래스 포함) | `TIME'HH:MM:SS'` — 마이크로초와 `tzinfo` 버림 | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
+| 그 외 전부 (`__class__`로만 지원 타입인 척하는 객체 포함) | `ProgrammingError` (현재 메시지: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 정수는 `float`로 변환하지 않고 바로 10진수 문자열로 변환합니다.
 `10**1000`과 `-(10**1000)`처럼 float 범위를 초과하는 값도 포함됩니다.
@@ -97,8 +97,54 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 `Decimal`로 변환되므로 재정의된 `__format__`, `is_nan()`, `as_tuple()`이 리터럴을
 바꾸거나 `NaN`/`Infinity` 및 38자리 검사를 우회할 수 없습니다. `bool`은 `int`보다
 먼저 검사되어 여전히 `1`/`0`으로 렌더링되며, 하위 클래스를 만들 수 없습니다.
-`tests/test_param_security.py::TestFormatParameterTypes::test_numeric_subclass_renders_by_value`와
-`tests/test_parity_integration.py::TestParityNumericSubclassLiterals`가 이 동작을 고정합니다.
+`Decimal` 복사가 조작 불가능한 것은 CPython의 C `decimal` 모듈(`_decimal`)을 쓸
+때뿐입니다. 순수 Python 대체 구현(`_pydecimal`)은 `_sign`, `_int`, `_exp`를 일반
+속성 읽기로 복사하므로 하위 클래스가 이를 위조할 수 있습니다(#528). C 모듈이
+없으면 `Decimal` 하위 클래스는 `ProgrammingError`를 발생시키며, 일반 `Decimal`은
+그대로 허용됩니다.
+`tests/test_param_security.py::TestFormatParameterTypes::test_numeric_subclass_renders_by_value`,
+`::TestPureDecimalFallback`, `tests/test_parity_integration.py::TestParityNumericSubclassLiterals`가
+이 동작을 고정합니다.
+
+### 텍스트, 바이너리, 날짜/시간 하위 클래스
+
+`str`, `bytes`, `bytearray`, `datetime.datetime`, `datetime.date`,
+`datetime.time`의 하위 클래스는 하위 클래스가 재정의할 수 있는 메서드를 거치지
+않고 저장된 값에서 렌더링됩니다(#528).
+
+- `str`: 값을 먼저 일반 `str`로 복사하고(기반 클래스의 `str.__str__(value)` 호출),
+  NUL/Ctrl-Z 검사와 이스케이프는 그 복사본에 수행합니다. 재정의된 `replace()`,
+  `__contains__()`, `__str__()`, `__format__()`은 호출되지 않습니다. #528 이전에는
+  `replace()`가 `x'; DROP TABLE users; --`를 반환하는 하위 클래스의 텍스트가
+  이스케이프 없이 전송되었습니다.
+- `bytes`/`bytearray`: `bytes.hex(value)` / `bytearray.hex(value)`가 버퍼를 직접
+  읽으므로 재정의된 `hex()`나 `__bytes__()`는 호출되지 않습니다.
+- 날짜와 시간: `strftime()` 대신 기반 클래스 디스크립터(`datetime.date.year`,
+  `datetime.datetime.hour`, ...)로 읽은 정수 필드를 명시적으로 0 채움하여 리터럴을
+  만듭니다. `strftime()`, `isoformat()`, `year`/`hour`/... 프로퍼티를 재정의해도
+  리터럴은 바뀌지 않습니다. UTC 오프셋은 기반 클래스의
+  `datetime.datetime.utcoffset()`으로 얻고, 그 `days`/`seconds`/`microseconds`
+  필드도 같은 방식으로 읽습니다.
+- 1000 미만의 연도는 4자리로 0 채움됩니다(`date(99, 1, 2)`는 `DATE'0099-01-02'`로
+  전송). Linux에서 `strftime("%Y")`는 이를 채우지 않고, CUBRID는 `DATE'99-01-02'`를
+  1999-01-02로 읽기 때문에 두 자리 연도가 잘못된 연도로 조용히 저장되었습니다(#519).
+  한 자리와 세 자리 연도는 우연히 왕복되었으며 값은 달라지지 않습니다.
+- `tzinfo.key`: 비어 있지 않은 key는 `[A-Za-z0-9_+/-]+`에 맞는 일반 `str`일 때만
+  `DATETIMETZ` 리터럴에 들어갑니다(`Asia/Seoul`, `Etc/GMT+5`,
+  `America/Port-au-Prince` 등 모든 IANA 이름이 해당). 그 외에는 `ProgrammingError`가
+  발생합니다. key가 없거나 `None` 또는 빈 문자열이면 이전처럼 `±HH:MM` 숫자
+  오프셋을 사용합니다.
+
+타입 판별은 재정의된 `__class__`도 믿는 `isinstance()`가 아니라 `type(value)`를
+사용합니다. `__class__`로만 지원 타입인 척하는 객체(예: 투명 프록시)는
+`ProgrammingError("unsupported parameter type")`를 발생시키므로 바인딩 전에 풀어서
+전달하세요. `escape_string()`도 `str`이 아닌 인자에 `ProgrammingError`를 발생시킵니다.
+
+일반 값의 렌더링은 연도 0 채움을 제외하면 이전과 같습니다.
+`tests/test_param_security.py::TestPlainLiteralsUnchanged`, `::TestStrSubclassEscaping`,
+`::TestBinarySubclassRendering`, `::TestTemporalSubclassRendering`, `::TestTzinfoKey`,
+`::TestClassSpoofing`, 그리고 CUBRID 10.2와 11.4(sync, async)에서
+`tests/test_parity_integration.py::TestParityLiteralHardening`이 이 동작을 고정합니다.
 
 ### Decimal 파라미터
 

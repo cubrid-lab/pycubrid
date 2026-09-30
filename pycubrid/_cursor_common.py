@@ -19,6 +19,15 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 from .exceptions import DataError, InterfaceError, ProgrammingError
 from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE, get_sqlstate
 
+# The C implementation of Decimal, or None when only _pydecimal is available.
+_CDecimal: type[Decimal] | None
+try:
+    import _decimal
+
+    _CDecimal = _decimal.Decimal
+except ImportError:  # pragma: no cover - CPython builds without the C module
+    _CDecimal = None
+
 if TYPE_CHECKING:
     from .protocol import ColumnMetaData
 
@@ -33,6 +42,27 @@ DML_BATCH_VERBS = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE"})
 # CUBRID C++-style line // ... (each to EOL/EOF).  Kept consistent with the
 # comment styles skipped by split_on_placeholders().
 _RE_LEADING_COMMENTS = re.compile(r"^(\s*(/\*.*?\*/|--[^\n]*(\n|$)|//[^\n]*(\n|$)))*\s*", re.DOTALL)
+
+# IANA-style time zone name accepted from ``tzinfo.key`` in DATETIMETZ literals.
+_RE_TZ_KEY = re.compile(r"[A-Za-z0-9_+/-]+")
+
+# Field readers taken from the base classes. A subclass can shadow ``year``,
+# ``strftime()`` and friends, but not the base-class descriptors, so literals
+# built from these reflect the stored value (#528).
+_DATE_YEAR = datetime.date.year.__get__
+_DATE_MONTH = datetime.date.month.__get__
+_DATE_DAY = datetime.date.day.__get__
+_DT_HOUR = datetime.datetime.hour.__get__
+_DT_MINUTE = datetime.datetime.minute.__get__
+_DT_SECOND = datetime.datetime.second.__get__
+_DT_MICROSECOND = datetime.datetime.microsecond.__get__
+_DT_TZINFO = datetime.datetime.tzinfo.__get__
+_TIME_HOUR = datetime.time.hour.__get__
+_TIME_MINUTE = datetime.time.minute.__get__
+_TIME_SECOND = datetime.time.second.__get__
+_TD_DAYS = datetime.timedelta.days.__get__
+_TD_SECONDS = datetime.timedelta.seconds.__get__
+_TD_MICROSECONDS = datetime.timedelta.microseconds.__get__
 
 
 # ---- SQL parsing -----------------------------------------------------------
@@ -183,6 +213,12 @@ def escape_string(value: str, *, no_backslash_escapes: bool = True) -> str:
     internal driver paths always pass the connection's negotiated value
     explicitly.
     """
+    if not issubclass(type(value), str):
+        raise ProgrammingError("escape_string() requires a str")
+    # Copy to a plain str through the base-class slot: a subclass can override
+    # replace(), __contains__(), __str__() and the rest, and those overrides
+    # would otherwise decide what reaches the SQL text (#528).
+    value = str.__str__(value)
     if "\x00" in value:
         raise ProgrammingError("string parameter contains null byte")
     if "\x1a" in value:
@@ -196,47 +232,86 @@ def escape_string(value: str, *, no_backslash_escapes: bool = True) -> str:
     return "'%s'" % escaped
 
 
+def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
+    """Return the DATETIMETZ zone for an aware *value*, or ``None`` if naive."""
+    # The unbound call bypasses a subclass utcoffset(); the C implementation
+    # guarantees the tzinfo returns None or a timedelta, whose fields are read
+    # through the base-class descriptors.
+    offset = datetime.datetime.utcoffset(value)
+    if offset is None:
+        return None
+    tz_key = getattr(tzinfo, "key", None)
+    if tz_key is not None and not (type(tz_key) is str and tz_key == ""):
+        if type(tz_key) is not str or not _RE_TZ_KEY.fullmatch(tz_key):
+            raise ProgrammingError("time zone key must be an IANA name matching [A-Za-z0-9_+/-]+")
+        return tz_key
+    total_us = (_TD_DAYS(offset) * 86400 + _TD_SECONDS(offset)) * 1000000 + _TD_MICROSECONDS(offset)
+    # Truncate toward zero, as int(offset.total_seconds()) did.
+    total_seconds = abs(total_us) // 1000000
+    sign = "-" if total_us < 0 and total_seconds else "+"
+    hours, remainder = divmod(total_seconds, 3600)
+    return "%s%02d:%02d" % (sign, hours, remainder // 60)
+
+
 def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
     """Format a single Python value as a CUBRID SQL literal string."""
     if value is None:
         return "NULL"
-    if isinstance(value, bool):
+    # Dispatch on type(value), not isinstance(): isinstance() also trusts an
+    # overridden __class__, and such an object would then reach the base-class
+    # renderers below with the wrong layout. It is rejected as unsupported.
+    cls = type(value)
+    if cls is bool:
         return "1" if value else "0"
-    if isinstance(value, str):
+    if issubclass(cls, str):
         return escape_string(value, no_backslash_escapes=no_backslash_escapes)
-    if isinstance(value, (bytes, bytearray)):
-        return "X'%s'" % value.hex()
-    if isinstance(value, datetime.datetime):
-        milliseconds = value.microsecond // 1000
-        if value.tzinfo is not None and value.utcoffset() is not None:
-            tz_key = getattr(value.tzinfo, "key", None)
-            if tz_key:
-                tz_str = tz_key
-            else:
-                offset = value.utcoffset()
-                assert offset is not None
-                total_seconds = int(offset.total_seconds())
-                sign = "+" if total_seconds >= 0 else "-"
-                hours, remainder = divmod(abs(total_seconds), 3600)
-                minutes = remainder // 60
-                tz_str = "%s%02d:%02d" % (sign, hours, minutes)
-            return "DATETIMETZ'%s.%03d %s'" % (
-                value.strftime("%Y-%m-%d %H:%M:%S"),
-                milliseconds,
-                tz_str,
-            )
-        return "DATETIME'%s.%03d'" % (value.strftime("%Y-%m-%d %H:%M:%S"), milliseconds)
-    if isinstance(value, datetime.date):
-        return "DATE'%s'" % value.strftime("%Y-%m-%d")
-    if isinstance(value, datetime.time):
-        return "TIME'%s'" % value.strftime("%H:%M:%S")
+    # bytes.hex()/bytearray.hex() unbound read the buffer directly, so an
+    # overridden hex() or __bytes__() on a subclass is never called (#528).
+    if issubclass(cls, bytes):
+        return "X'%s'" % bytes.hex(value)
+    if issubclass(cls, bytearray):
+        return "X'%s'" % bytearray.hex(value)
+    # Dates and times are built from their integer fields, read through the
+    # base-class descriptors, instead of strftime(): a subclass can override
+    # strftime() or the field properties (#528), and %Y does not zero-pad
+    # years below 1000, which CUBRID then misreads ('99-01-02' is 1999) (#519).
+    if issubclass(cls, datetime.datetime):
+        literal = "%04d-%02d-%02d %02d:%02d:%02d.%03d" % (
+            _DATE_YEAR(value),
+            _DATE_MONTH(value),
+            _DATE_DAY(value),
+            _DT_HOUR(value),
+            _DT_MINUTE(value),
+            _DT_SECOND(value),
+            _DT_MICROSECOND(value) // 1000,
+        )
+        tzinfo = _DT_TZINFO(value)
+        tz_str = None if tzinfo is None else _format_tz(value, tzinfo)
+        if tz_str is not None:
+            return "DATETIMETZ'%s %s'" % (literal, tz_str)
+        return "DATETIME'%s'" % literal
+    if issubclass(cls, datetime.date):
+        return "DATE'%04d-%02d-%02d'" % (_DATE_YEAR(value), _DATE_MONTH(value), _DATE_DAY(value))
+    if issubclass(cls, datetime.time):
+        return "TIME'%02d:%02d:%02d'" % (
+            _TIME_HOUR(value),
+            _TIME_MINUTE(value),
+            _TIME_SECOND(value),
+        )
     # Numeric values are rendered through the base-class methods, never
     # str()/format() on the value itself: a subclass (IntEnum, IntFlag or any
     # user type) can override __str__/__repr__/__format__ and would otherwise
     # put arbitrary text into the SQL (#518).
-    if isinstance(value, Decimal):
-        # Decimal(subclass) copies the numeric value without calling any
-        # overridable method, so the checks below see the real value.
+    if issubclass(cls, Decimal):
+        # With CPython's C decimal module, Decimal(subclass) copies the
+        # internal value without calling any overridable method, so the checks
+        # below see the real value. The pure-Python fallback (_pydecimal)
+        # copies _sign/_int/_exp through ordinary attribute reads, which a
+        # subclass can forge, so subclasses are refused there.
+        if cls is not Decimal and Decimal is not _CDecimal:
+            raise ProgrammingError(
+                "Decimal subclass parameters require the C decimal module; pass a plain Decimal"
+            )
         value = Decimal(value)
         if value.is_nan() or value.is_infinite():
             raise ProgrammingError("nan and inf are not supported by CUBRID")
@@ -256,13 +331,13 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
                 "at most 38 digits" % precision
             )
         return format(value, "f")
-    if isinstance(value, int):
+    if issubclass(cls, int):
         return int.__repr__(value)
-    if isinstance(value, float):
+    if issubclass(cls, float):
         if math.isnan(value) or math.isinf(value):
             raise ProgrammingError("nan and inf are not supported by CUBRID")
         return float.__repr__(value)
-    if isinstance(value, (list, tuple, set, frozenset, dict)):
+    if issubclass(cls, (list, tuple, set, frozenset, dict)):
         raise ProgrammingError(
             "cannot bind a collection (list/tuple/set/frozenset/dict) as a "
             "single parameter; pycubrid does not auto-expand IN (?, ?, ...) — "
