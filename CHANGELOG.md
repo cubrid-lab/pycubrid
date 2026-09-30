@@ -406,6 +406,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   routine `pip`-ecosystem Ruff/Mypy bumps, which previously left the pre-commit
   hook revision stale and failed the quality-tool consistency gate (#476).
 
+### Tests
+- **The backslash-escape-mode pin opts out on an explicit marker, not a
+  filename guess (#524)** — `tests/conftest.py`'s autouse fixture used to skip
+  the pin for any module whose path matched one of 17 hardcoded filename
+  substrings; `"test_integration"` is a prefix of every `test_integration_*.py`
+  module, so all of them opted out whether or not they actually negotiate
+  against a live server. Opt-out is now `pytest.mark.no_escape_pin`
+  (registered in `pyproject.toml`), carried directly by every module that
+  needs it — alongside the existing `integration` marker for the ones that
+  also gate on a live server. `tests/test_integration_lanes.py` (a workflow-YAML
+  regression test that never builds a `Connection`) no longer opts out; every
+  other previously-opted-out module keeps the same behavior.
+
 ## [1.8.0] - 2026-09-29
 
 ### Upgrade notes
