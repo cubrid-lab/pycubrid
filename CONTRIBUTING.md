@@ -194,3 +194,28 @@ in the fixing PR.
 
 See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) §7 for where behavior-change
 classifications are recorded.
+
+### CUBRID version differential
+
+`tests/test_version_differential.py` (#351) runs the same Hypothesis-generated
+values and statements against CUBRID 10.2, 11.0, 11.2 and 11.4 at once and
+compares what pycubrid exposes: error class/`errno`/`sqlstate`, `rowcount`,
+`lastrowid`, `description`, and each fetched value's Python type and value.
+It runs in the `version-differential` job of `integration-full.yml` (nightly
+and `workflow_dispatch`, not per PR). Locally, start one container per
+version and point the suite at them:
+
+```bash
+CUBRID_VERSION_MATRIX="10.2=127.0.0.1:33102,11.0=127.0.0.1:33110,11.2=127.0.0.1:33112,11.4=127.0.0.1:33114" \
+CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33114 \
+  python -m pytest tests/ -m "integration and version_matrix"
+```
+
+A divergence passes only when a `VersionDifference` in
+`tests/helpers/version_matrix.py` explains it: a reason, a link to the CUBRID
+change, the versions that differ, the fields allowed to differ, and a tag the
+generator attaches to workloads that can hit it. Each entry also has a
+deterministic probe that fails when the difference stops reproducing. Any
+other divergence is a driver bug (fix it or file it) or an undocumented
+server change (confirm it outside pycubrid, e.g. with `csql`, then document
+it).
