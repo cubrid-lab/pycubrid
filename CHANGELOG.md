@@ -43,7 +43,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
-- **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
 - **Row cells whose value does not use exactly their declared size are rejected (#523)** —
@@ -287,8 +286,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `integration-full.yml` matrix (now also a `workflow_call` workflow, no longer run on tag
   pushes), one build with SHA-256 hashes, the annotated tag, a draft GitHub Release with
   SBOM, the PyPI upload through the duplicate guard, and the cookbook verification of that
-  exact version (`scripts/cookbook_wait.py`; "incomplete" without
-  `COOKBOOK_DISPATCH_TOKEN`), with one run summary. `create-release.yml` and the manual
+  exact version, with one run summary. The cookbook smoke test runs inside the release run
+  as a reusable workflow pinned to a cookbook commit, so it needs no cross-repository token
+  or secret; the release fails unless it reports the requested version installed (#544). `create-release.yml` and the manual
   `publish-pypi.yml` are removed; a narrow recovery dispatch (`resume`, `verify-only`,
   `dry-run`) remains. The CHANGELOG stays hand-curated.
 - Ruff/Mypy pre-commit hooks are now `repo: local` / `language: system` hooks that
