@@ -22,6 +22,7 @@ Complete reference for pycubrid's PEP 249 type objects, constructors, and CUBRID
 - [Collection Types](#collection-types)
   - [JSON Columns](#json-columns)
   - [`decode_collections`](#decode_collections)
+  - [Binding Collections](#binding-collections)
 - [Usage Examples](#usage-examples)
 
 ---
@@ -450,6 +451,35 @@ This opt-in behavior keeps fetches allocation-light when applications prefer to 
 |---|---|
 | `False` (default) | Return collection payloads as raw CAS wire `bytes` |
 | `True` | Decode supported `SET`, `MULTISET`, and `SEQUENCE` payloads into Python containers |
+
+### Binding Collections
+
+Plain Python `set`, `frozenset`, `list` and `tuple` values are rejected as
+parameters. To bind a collection, wrap its elements in one of the typed
+collection parameters (#567):
+
+| Class | Rendered literal | Server semantics |
+|---|---|---|
+| `pycubrid.types.Set` | `SET{...}` | duplicates removed, order not kept |
+| `pycubrid.types.Multiset` | `MULTISET{...}` | duplicates kept, order not kept |
+| `pycubrid.types.Sequence` | `SEQUENCE{...}` (same type as `LIST{...}`) | duplicates and order kept |
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute("INSERT INTO t VALUES (?, ?, ?)", (Set([1, 2]), Multiset(["a", "a"]), Sequence([3, 1])))
+```
+
+The classes are also exported from the top-level `pycubrid` package. Each one is
+immutable, stores its elements as a `tuple` (`.elements`) and cannot be
+subclassed. Elements accept the same types as scalar parameters (`None`, `bool`,
+`int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`,
+`datetime`) and are rendered by the same hardened renderer; nested collections
+raise `ProgrammingError`. Both sync and async ordinary cursors support them. See
+[Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).
+
+Decoding is unchanged: fetched collections are plain Python containers as in the
+table above (with `decode_collections=True`), never these parameter types.
 
 ---
 

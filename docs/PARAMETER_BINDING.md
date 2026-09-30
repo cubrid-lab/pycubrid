@@ -17,6 +17,7 @@ change to the rules below is a contract change governed by
 - [Placeholder Style](#placeholder-style)
 - [Type Mapping (Guarantees)](#type-mapping-guarantees)
   - [Decimal parameters](#decimal-parameters)
+  - [Typed collection parameters](#typed-collection-parameters)
 - [String Escaping](#string-escaping)
   - [Escape-mode negotiation](#escape-mode-negotiation)
   - [Literal mode](#literal-mode-no_backslash_escapestrue)
@@ -105,6 +106,7 @@ test that pins the behavior.
 | `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (`SET{}` when empty); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
 | anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
@@ -215,6 +217,43 @@ Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_decimal_
 and `::test_bind_decimal_plain_notation`, and live on CUBRID 10.2 and 11.4 (sync
 and async) by `tests/test_parity_integration.py::TestParityDecimalLiterals`.
 
+### Typed collection parameters
+
+Wrap the elements in `pycubrid.types.Set`, `Multiset` or `Sequence` (also
+exported as `pycubrid.Set`, `pycubrid.Multiset`, `pycubrid.Sequence`) to bind a
+CUBRID collection through an ordinary sync or async cursor (#567):
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
+```
+
+- Each type takes one iterable and stores its elements as a `tuple`
+  (`.elements`); the objects are immutable, compare equal only to the same type
+  with equal elements, and cannot be subclassed. A single `str`, `bytes` or
+  `bytearray` argument raises `TypeError` instead of being split into characters.
+- The literal keyword follows the type: `SET{...}`, `MULTISET{...}`,
+  `SEQUENCE{...}` (CUBRID's `LIST{...}` is the same type). The server applies the
+  collection semantics: `SET` drops duplicates, `MULTISET` keeps duplicates but
+  not their order, `SEQUENCE` keeps both.
+- Every element goes through the same override-proof renderer as a scalar
+  parameter, so the element types are exactly the scalar rows of the table above
+  (`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`,
+  `date`, `time`, `datetime`), including their subclass hardening. The server
+  converts the elements to the column's element type, as for a literal.
+- Nested collections are rejected (`ProgrammingError`): a typed collection
+  inside another, or a plain `list`/`tuple`/`set`/`frozenset`/`dict` element.
+- `executemany()` accepts typed collections in each parameter set.
+- Fetching is unchanged: with `decode_collections=True` a `SET` column still
+  decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
+  otherwise). Decoded values are not wrapped back into these types; wrap them
+  again (for example `Set(row[0])`) to bind them.
+
 ### Explicitly unsupported as a bound value
 
 - `datetime.timedelta` — no branch; raises `ProgrammingError("unsupported parameter type")`.
@@ -224,9 +263,11 @@ and async) by `tests/test_parity_integration.py::TestParityDecimalLiterals`.
   (`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
 - Collections (`list`, `tuple`, `set`, `frozenset`, `dict`) as a single bound
   value — raise `ProgrammingError` with an actionable message (current text:
-  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL`).
+  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL, or wrap the elements in pycubrid.types.Set, Multiset or Sequence to bind a CUBRID collection`).
   There is **no automatic `IN (?, ?, ?)`** expansion; expand placeholders
-  explicitly in the SQL.
+  explicitly in the SQL. To bind a CUBRID collection, wrap the elements in a
+  [typed collection parameter](#typed-collection-parameters); the message also
+  says so.
 - Arbitrary Python objects — raises
   `ProgrammingError("unsupported parameter type")`.
 
@@ -478,6 +519,9 @@ any of these are contract regressions:
   `Mapping`/`str` parameter rejection.
 - `tests/test_aio_cursor_parity.py` (lines 76-105) — sync/async parity for
   NUL rejection, default escaping, and `no_backslash_escapes` mode.
+- `tests/test_typed_collections.py` — typed `Set`/`Multiset`/`Sequence`
+  rendering, element hardening and nested-collection rejection; sync/async
+  parity in `tests/test_replay_parity.py::typed_collection_parameters`.
 
 Together these tests provide the executable specification of this contract.
 

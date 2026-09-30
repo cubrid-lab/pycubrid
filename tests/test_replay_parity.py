@@ -55,6 +55,7 @@ import pycubrid.aio
 from pycubrid.connection import Connection
 from pycubrid.constants import CCIDbParam
 from pycubrid.constants import CUBRIDDataType as T
+from pycubrid.types import Multiset, Sequence, Set
 
 from .helpers.cas_reply import Column, ResultSet, Value, date, int_
 from .helpers.replay_broker import (
@@ -679,6 +680,22 @@ def _check_fetch_page_data_error(obs: Observation) -> None:
 # ---------------------------------------------------------------------------
 
 
+_COLLECTION_INSERT = "INSERT INTO t VALUES (?, ?, ?)"
+
+
+def _check_typed_collections(obs: Observation) -> None:
+    assert obs.outcomes[1:] == [
+        ("execute", "ok", None),
+        ("execute", "raise", "ProgrammingError"),
+        ("execute", "raise", "ProgrammingError"),
+    ]
+    # Only the valid statement is sent; both rejections happen before binding.
+    sent = [r.sql for r in obs.raw_requests if r.sql is not None]
+    assert sent == ["INSERT INTO t VALUES (SET{3, 1, 1}, MULTISET{'a', 'a'}, SEQUENCE{3, 1, 2})"], (
+        sent
+    )
+
+
 def _truncated_execute(request: Request, state: Session) -> Reply:
     body = execute_body(_ints("t", 7), handle=1, inline=1)
     return Reply(body[:-6])  # well framed, but the row cell runs past the end (#533)
@@ -967,6 +984,21 @@ SCENARIOS: tuple[Scenario, ...] = (
         results={"SELECT d FROM t": (_dates(date(2024, 1, 1), date(2024, 1, 2), _ZERO_DATE), 1)},
         options={"fetch_size": 1},
         check=_check_fetch_page_data_error,
+    ),
+    Scenario(
+        # Typed collection parameters render identically on both drivers (#567).
+        "typed_collection_parameters",
+        (
+            ("open",),
+            (
+                "execute",
+                _COLLECTION_INSERT,
+                (Set([3, 1, 1]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+            ),
+            ("execute", _COLLECTION_INSERT, (Set([Set([1])]), 1, 2)),
+            ("execute", _COLLECTION_INSERT, ([1], 1, 2)),
+        ),
+        check=_check_typed_collections,
     ),
 )
 
