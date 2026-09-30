@@ -75,7 +75,7 @@ _TIMEOUT = 5.0
 
 def _ca_context(**versions: ssl.TLSVersion) -> ssl.SSLContext:
     """Verifying client context that trusts the broker's CA file only."""
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx = _empty_trust_context()
     assert TLS_CA_FILE is not None
     ctx.load_verify_locations(cafile=TLS_CA_FILE)
     for name, value in versions.items():
@@ -84,8 +84,13 @@ def _ca_context(**versions: ssl.TLSVersion) -> ssl.SSLContext:
 
 
 def _empty_trust_context() -> ssl.SSLContext:
-    """Verifying client context that trusts nothing (independent of SSL_CERT_FILE)."""
-    return ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    """Verifying client context that trusts nothing (independent of SSL_CERT_FILE).
+
+    TLS 1.2 is the floor, as for ``ssl=True``.
+    """
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
 
 
 def _kwargs(ssl_value: Any, **overrides: Any) -> dict[str, Any]:
@@ -117,11 +122,22 @@ def _tls_broker_available() -> bool:
         client.shutdown()
 
 
-requires_tls_broker = pytest.mark.skipif(
-    not _tls_broker_available(),
-    reason="TLS-enabled CUBRID broker not available; configure CUBRID_TLS_TEST_* "
-    "(including CUBRID_TLS_TEST_CA_FILE)",
-)
+@pytest.fixture(scope="session")
+def tls_broker() -> None:
+    """Skip unless a TLS broker answers; probed at setup, not at collection.
+
+    Probing in a ``skipif`` condition would open a TLS connection whenever this
+    module is imported, including offline ``make test`` runs and the lane
+    audit's collection-only pass.
+    """
+    if not _tls_broker_available():
+        pytest.skip(
+            "TLS-enabled CUBRID broker not available; configure CUBRID_TLS_TEST_* "
+            "(including CUBRID_TLS_TEST_CA_FILE)"
+        )
+
+
+requires_tls_broker = pytest.mark.usefixtures("tls_broker")
 requires_mismatch_host = pytest.mark.skipif(
     TLS_MISMATCH_HOST is None,
     reason="Set CUBRID_TLS_TEST_MISMATCH_HOST to a reachable host not in the broker certificate",
@@ -277,9 +293,13 @@ def test_read_timeout_under_tls_closes_then_reconnects_over_tls(mode: str, sessi
 def test_aio_broker_closing_a_tls_session_logs_no_asyncio_warning(
     session: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Issue #514 against a real broker: a read timeout makes the broker drop
-    the TLS session; neither that nor the reconnect may log asyncio's
-    "returning true from eof_received() has no effect when using ssl"."""
+    """Issue #514 against a real broker: the read-timeout teardown, reconnect
+    and close cycle from the issue's reproduction must not log asyncio's
+    "returning true from eof_received() has no effect when using ssl".
+
+    Verified to fail against a CUBRID 11.4 ``SSL=ON`` broker without the fix;
+    the offline ``test_aio_tls_peer_close_logs_no_asyncio_warning`` pins the
+    peer-close path deterministically."""
     with caplog.at_level("WARNING", logger="asyncio"):
         client = session("aio", read_timeout=1.0)
         with pytest.raises(OperationalError):

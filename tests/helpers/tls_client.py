@@ -121,6 +121,11 @@ class DriverClient:
             self.close()
         finally:
             if self._loop is not None:
+                # Let call_soon'd transport close callbacks run and stop the
+                # default executor (Python 3.10 verification preflight), so
+                # sockets are closed here rather than by the GC.
+                self._loop.run_until_complete(asyncio.sleep(0))
+                self._loop.run_until_complete(self._loop.shutdown_default_executor())
                 self._loop.close()
 
 

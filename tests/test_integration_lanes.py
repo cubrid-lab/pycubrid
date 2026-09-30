@@ -96,3 +96,13 @@ def test_junit_entity_declarations_are_rejected(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="DTD/entity declarations are forbidden"):
         verify_results(report)
+
+
+def test_tls_matrix_fd_skip_is_classified_but_broker_skip_is_not() -> None:
+    node = "tests.test_tls_matrix_integration::test_tls_connect_failures_and_cycles_do_not_leak_fds[sync]"
+    assert (
+        skip_category(node, "cannot count file descriptors on this platform")
+        == "platform-without-proc"
+    )
+    with pytest.raises(ValueError, match="unclassified"):
+        skip_category(node, "TLS-enabled CUBRID broker not available")

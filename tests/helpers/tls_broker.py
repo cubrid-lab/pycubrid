@@ -92,15 +92,17 @@ def server_context(
 def client_context(
     *,
     cafile: Path | None = CA_FILE,
-    minimum_version: ssl.TLSVersion | None = None,
+    minimum_version: ssl.TLSVersion = ssl.TLSVersion.TLSv1_2,
     maximum_version: ssl.TLSVersion | None = None,
 ) -> ssl.SSLContext:
-    """A verifying client context that trusts only *cafile* (no system CAs)."""
+    """A verifying client context that trusts only *cafile* (no system CAs).
+
+    TLS 1.2 is the floor, as for ``ssl=True``; pass *minimum_version* to raise it.
+    """
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = minimum_version
     if cafile is not None:
         ctx.load_verify_locations(cafile=str(cafile))
-    if minimum_version is not None:
-        ctx.minimum_version = minimum_version
     if maximum_version is not None:
         ctx.maximum_version = maximum_version
     return ctx

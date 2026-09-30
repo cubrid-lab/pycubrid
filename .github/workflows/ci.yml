@@ -27,10 +27,13 @@ jobs:
               - 'pycubrid/aio/**'
               - 'pycubrid/connection.py'
               - 'pycubrid/_connection_common.py'
+              - 'pycubrid/__init__.py'
+              - 'pycubrid/protocol.py'
               - 'tests/test_*ssl*.py'
               - 'tests/test_tls_*.py'
               - 'tests/helpers/tls_*.py'
               - 'tests/fixtures/tls/**'
+              - 'scripts/check_integration_lanes.py'
               - '.github/workflows/**'
             docs:
               - '**/*.md'
