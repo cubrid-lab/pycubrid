@@ -388,3 +388,50 @@ def test_collection_of_unknown_element_type_past_end_of_reply_is_malformed() -> 
     with pytest.raises(ValueError, match="past the end of the broker reply"):
         _read_value(reader, CUBRIDDataType.SET, len(payload) + 4)
     assert reader._offset == 0
+
+
+def test_unrepresentable_element_in_underfilled_collection_is_malformed() -> None:
+    # A DataError element (#512) is reported only when the collection is
+    # otherwise exact; spare bytes inside its declared size are framing damage.
+    zero_date = struct.pack(">3h", 0, 0, 0)
+    collection = _collection(CUBRIDDataType.DATE, [zero_date]) + b"\x00\x00"
+    reader = PacketReader(collection, decode_collections=True)
+    with pytest.raises(ValueError, match="do not match its size") as raised:
+        _read_value(reader, CUBRIDDataType.SEQUENCE, len(collection))
+    assert not isinstance(raised.value, DataError)
+    body = _fetch_body([[_cell(collection)]])
+    with pytest.raises(ValueError, match="do not match its size"):
+        _fetch([CUBRIDDataType.SEQUENCE], body, decode_collections=True)
+
+
+def _underfilled_zero_date_collection_fetch() -> tuple[FetchPacket, bytes]:
+    collection = _collection(CUBRIDDataType.DATE, [struct.pack(">3h", 0, 0, 0)]) + b"\x00\x00"
+    packet = FetchPacket(
+        1,
+        0,
+        columns=[ColumnMetaData(column_type=CUBRIDDataType.SEQUENCE)],
+        statement_type=CUBRIDStatementType.SELECT,
+        decode_collections=True,
+    )
+    return packet, _fetch_body([[_cell(collection)]])
+
+
+def test_sync_unrepresentable_element_in_underfilled_collection_closes_connection(
+    socket_queue: list[MagicMock],  # noqa: F811
+) -> None:
+    packet, body = _underfilled_zero_date_collection_fetch()
+    conn, _ = _connection_with_reply(socket_queue, body)
+    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
+        conn._send_and_receive(packet)
+    assert not isinstance(raised.value.__cause__, DataError)
+    assert conn._connected is False
+
+
+@pytest.mark.asyncio
+async def test_async_unrepresentable_element_in_underfilled_collection_closes_connection() -> None:
+    packet, body = _underfilled_zero_date_collection_fetch()
+    conn = _async_connection_with_reply(body)
+    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
+        await conn._send_and_receive(packet)
+    assert not isinstance(raised.value.__cause__, DataError)
+    assert conn._connected is False

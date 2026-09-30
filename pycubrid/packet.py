@@ -680,6 +680,10 @@ class PacketReader:
                         self._offset += element_size
                 if self._offset > start_offset + size:
                     raise ValueError("malformed collection: elements exceed its size") from None
+                if self._offset != start_offset + size:
+                    raise ValueError(
+                        "malformed collection: elements do not match its size"
+                    ) from None
                 raise
         if self._offset != start_offset + size:
             # The elements must fill the declared size exactly, or the next
