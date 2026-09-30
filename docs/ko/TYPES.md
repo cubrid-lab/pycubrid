@@ -315,7 +315,9 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 > `DATETIMELTZ`를 허용하지만 Python `datetime`에는 0년이 없습니다. 이런 값을
 > 가져오면 `execute()`에서든 이후 fetch 페이지에서든 CUBRID 타입과 필드 값을 담은
 > `DataError`가 발생합니다. 연결은 계속 사용할 수 있으며, 잘못된 UTF-8(#492)과
-> 마찬가지로 커서는 서버 핸들을 유지합니다. Python이 표현할 수 없는 다른 날짜/시간
+> 마찬가지로 커서는 서버 핸들을 유지합니다. 이후 페이지에서 발생한 경우 그 페이지
+> 전에 가져온 행은 그대로 반환되고, 그 뒤의 fetch는 다음 `execute()` 전까지 같은
+> `DataError`를 계속 발생시킵니다(#507). Python이 표현할 수 없는 다른 날짜/시간
 > 필드 값도 같은 방식으로 보고됩니다. `None`이나 텍스트로 반환하는 옵션은
 > 없으므로 SQL에서 변환하세요. 예: `NULLIF(d, DATE'0000-00-00')`(0 값은 `NULL`),
 > `CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END`,

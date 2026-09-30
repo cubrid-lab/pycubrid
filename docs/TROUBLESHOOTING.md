@@ -841,6 +841,27 @@ connection stays usable; after a failed `execute()` the cursor has no result
 set (`description` is `None`) but still owns and releases the server handle,
 as for invalid UTF-8.
 
+On a later fetch page, the fetch call that reaches the page raises and the
+whole page is withheld, but rows that call had already collected are kept:
+the next `fetchmany()`/`fetchall()` returns them, and every fetch after that
+raises the same `DataError` without asking the server again, until you execute
+a new query (#507). For example:
+
+```python
+cur.execute("SELECT id, d FROM t ORDER BY id")
+try:
+    rows = cur.fetchall()
+except pycubrid.DataError:
+    rows = cur.fetchall()  # rows before the failing page
+    # cur.fetchone() now raises the same DataError; re-execute with a
+    # converted column (below) to read the rest.
+```
+
+The same applies to invalid text (#492) and unresolved zones (#413). Earlier
+releases dropped the rows collected by that call and requested the page again
+on every retry, which in autocommit mode could fail with CAS error `-1012`
+because the broker had already closed the result.
+
 pycubrid has no option to return zero dates as `None` or text. Convert them
 in SQL instead:
 

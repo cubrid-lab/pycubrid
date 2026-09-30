@@ -221,6 +221,18 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Rows before a failing fetch page are kept (#507)** — PATCH / correction of
+  data loss in error handling. When a later FETCH page raises a data-level
+  `DataError` (#492, #413, #512), rows the failing `fetchmany()`/`fetchall()`
+  call had already collected are returned by the next fetch calls instead of
+  being dropped, and every fetch after them raises the same `DataError` without
+  requesting the page again until `execute()` or `close()`, instead of
+  re-requesting it on every retry (which in autocommit mode could raise CAS
+  error `-1012` once the broker had closed the result). No row of or past the
+  failing page is returned. The error class, connection and cursor-handle
+  lifetime, successful fetches, public signatures, dependencies and supported
+  versions are unchanged; sync and async behave the same.
+
 - **Async TLS connect no longer hangs after an interrupted handshake (#513)** —
   PATCH / correction of a hang in error handling. When the broker stalls or
   resets the connection before the TLS handshake completes,
