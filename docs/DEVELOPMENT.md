@@ -497,8 +497,9 @@ metadata and populated rows for every common type, plus schema, batch and LOB
 replies. Each seed records its expected decoded values and the offsets of its
 length words, counts and field boundaries, so the unmutated seed is an exact
 round-trip check and mutations aim at truncation and length/count mismatches.
-To seed a new reply shape, add a `ResultSet` or reply builder there; the fuzz
-targets pick it up from `RESULT_SETS`. Example budgets come from the Hypothesis
+To seed a new column mix, add a `ResultSet` to `RESULT_SETS`; the FETCH and
+execute targets pick it up. A new reply builder needs its own round-trip test
+and fuzz target. Example budgets come from the Hypothesis
 profile (`pr`: 50 examples per target, about 2 s for the module; `nightly`: 1000).
 
 ### Documentation exceptions and contributor validation

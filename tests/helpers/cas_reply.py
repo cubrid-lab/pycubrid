@@ -332,7 +332,7 @@ class Column:
         return _SchemaColumn(self.column_type, self.scale, self.precision, self.name)
 
     def write_type(self, w: Wire) -> None:
-        kind = _COLLECTION_KIND_BITS.get(T(self.column_type))
+        kind = _COLLECTION_KIND_BITS.get(self.column_type)
         if kind is not None:
             w.byte(0x80 | kind)
             w.byte(self.element_type)
@@ -587,7 +587,9 @@ LOBS_AND_JSON = ResultSet(
     ),
 )
 
-# A CALL result: every cell carries its own type byte, sized with it.
+# A CALL result: every cell carries its own type byte, sized with it. This is
+# the single-byte layout the driver decodes; protocol 8 brokers send a two-byte
+# header that it does not decode yet (#542).
 CALL_RESULT = ResultSet(
     "call",
     (Column("ret", T.NULL),),

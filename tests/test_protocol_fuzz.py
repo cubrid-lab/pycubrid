@@ -331,7 +331,12 @@ def _assert_documented(
       ``OperationalError('malformed response from broker')``;
     * a server-reported DB-API error (negative response code);
     * ``DataError`` for a value Python cannot represent, and only when the reply
-      is complete (``reply_complete``, where the target can check it).
+      is complete (``reply_complete``, where the target can check it: FETCH
+      replies, whose rows start at a fixed offset; execute replies share the
+      same ``_parse_row_data`` completeness check).
+
+    A structural error is not further classified: invalid JSON text in a
+    complete reply currently closes the session like framing damage (#543).
     """
     if exc is None or isinstance(exc, STRUCTURAL_CAUGHT):
         return
@@ -727,12 +732,20 @@ def _sync_connection(reply: bytes) -> tuple[Connection, MagicMock]:
 class TestFetchThroughConnection:
     """What the caller sees: OperationalError (closed) or DataError (kept), never raw."""
 
-    @given(case=_cases(_FETCH_SEEDS), use_async=st.booleans(), data=st.data())
+    @given(
+        case=_cases(_FETCH_SEEDS),
+        use_async=st.booleans(),
+        decode_collections=st.booleans(),
+        json_loads=st.booleans(),
+        data=st.data(),
+    )
     @settings(deadline=None)
     def test_fetch_errors_reach_caller_as_documented(
         self,
         case: _Case,
         use_async: bool,
+        decode_collections: bool,
+        json_loads: bool,
         data: st.DataObject,
     ) -> None:
         rs, seed = case
@@ -740,7 +753,7 @@ class TestFetchThroughConnection:
         reply = data.draw(_framing_mutation(seed))
         # Keep the reply framable: DATA_LENGTH covers at least CAS_INFO.
         reply = reply if len(reply) >= DataSize.CAS_INFO else seed.data[: DataSize.CAS_INFO]
-        pkt = _fetch_packet(rs, decode_collections=True, json_loads=False)
+        pkt = _fetch_packet(rs, decode_collections=decode_collections, json_loads=json_loads)
         conn: Connection | AsyncConnection
         if use_async:
             conn = _async_connection_with_reply(reply)

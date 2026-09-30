@@ -54,7 +54,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   example an `INT` declaring 1000 bytes at the end of the reply), or a size
   that disagreed with the value's width, was decoded as if it were complete.
   Every row cell must now use exactly its declared size, like the
-  length-prefixed values since #383; otherwise the reply raises
+  length-prefixed values since #383 (checked before the value is read, and
+  when a reply is re-walked before `DataError`); otherwise the reply raises
   `OperationalError('malformed response from broker')` and closes the
   connection, sync and async. A normal server always sends the exact size, so
   valid replies, the `DataError` classification of complete replies (#492,
@@ -71,8 +72,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   at truncation at field boundaries, length and count words, and collection
   element types, and the oracle admits only structural errors (reported as
   `OperationalError`), server errors and `DataError` for complete replies,
-  also through the sync and async connections. Fifteen tests whose only
-  assertion was `is not None` now check the expected value.
+  also through the sync and async connections. Thirteen tests whose only
+  assertion was `is not None` now check the expected value, and two unittest
+  guards use `self.fail()` instead of a narrowing `assert`.
 - **Tests: a configured but unreachable CUBRID now errors instead of skipping (#522, #432)** —
   16 integration modules probed the server at import time and called
   `skipif("CUBRID instance not available")`, so pointing the suite at a dead
