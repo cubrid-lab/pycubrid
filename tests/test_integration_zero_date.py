@@ -156,7 +156,7 @@ async def test_rows_before_zero_date_page_are_not_lost(adapter: ParityAdapter) -
         await adapter.execute(cursor, select)
         before_page: list[int] = []
         with pytest.raises(DataError, match="cannot be represented"):
-            while True:
+            for _ in range(rows + 1):
                 row = await adapter.fetchone(cursor)
                 assert row is not None
                 before_page.append(row[0])
