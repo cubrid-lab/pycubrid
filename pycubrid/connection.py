@@ -200,9 +200,17 @@ class Connection(ConnectionCommonMixin):
         raises :class:`ssl.SSLCertVerificationError` synchronously on
         verification failure (unlike the async path on Python 3.10 — see
         `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_).
+
+        When this opens a new physical session after an earlier one (``close()``
+        then ``connect()``, ``ping()`` recovery, or a failed ``CHECK_CAS``
+        probe), an explicitly set ``autocommit`` is re-applied on it, as the
+        async driver does (#520).
         """
         with self._session_lock:
+            previous_generation = self._physical_generation
             self._connect_locked()
+            if previous_generation and self._physical_generation != previous_generation:
+                self._restore_session_state()
 
     def _connect_locked(self) -> None:
         if self._connected:
@@ -450,8 +458,7 @@ class Connection(ConnectionCommonMixin):
         self._invalidate_query_handles_for_reconnect()
         self._implicit_reconnect_suspended += 1
         try:
-            self.connect()
-            self._restore_session_state()
+            self.connect()  # also restores explicit session state
             # Setup may itself end OUT_TRAN (the escape probe's rollback), and
             # that CAS may be recycled too: verify it before the pending request.
             if self._cas_status_unverified():
@@ -472,7 +479,7 @@ class Connection(ConnectionCommonMixin):
             self._implicit_reconnect_suspended -= 1
 
     def _restore_session_state(self) -> None:
-        """Re-emit session-level settings after explicit ping recovery.
+        """Re-emit session-level settings on a replacement physical session.
 
         Re-applies any session state that the caller has explicitly set
         on this connection (currently only ``autocommit``).  Settings the
@@ -590,8 +597,7 @@ class Connection(ConnectionCommonMixin):
             try:
                 self._invalidate_query_handles_for_reconnect()
                 _LOGGER.debug("ping: reconnecting")
-                self.connect()
-                self._restore_session_state()
+                self.connect()  # also restores explicit session state
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
@@ -611,8 +617,7 @@ class Connection(ConnectionCommonMixin):
             self._drop_connection()
             self._invalidate_query_handles_for_reconnect()
             _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
-            self.connect()
-            self._restore_session_state()
+            self.connect()  # also restores explicit session state
             return True
         except (OSError, OperationalError, InterfaceError):
             return False

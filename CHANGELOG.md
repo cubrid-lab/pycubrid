@@ -45,6 +45,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Sync `Connection.connect()` after `close()` restores an explicit `autocommit` (#520)** —
+  reopening a closed sync connection did not re-send `SET_DB_PARAMETER`
+  (`AUTO_COMMIT`), so the new CAS session kept the broker default while
+  `conn.autocommit` still reported the value the caller had set; the async
+  driver already restored it. `connect()` now re-applies an explicitly set
+  `autocommit` whenever it opens a new physical session after an earlier one,
+  which also covers `ping(reconnect=True)` recovery and the reconnect after a
+  failed `CHECK_CAS` probe (each still restores exactly once). A connection
+  whose `autocommit` was never set explicitly sends nothing extra. Found by the
+  offline sync/async replay parity suite (#521).
 - **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
   under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
   type header `0x80 | collection bits | charset`, type, the layout of column

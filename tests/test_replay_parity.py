@@ -571,7 +571,6 @@ def _truncated_execute(request: Request, state: Session) -> Reply:
     return Reply(body[:-6])  # well framed, but the row cell runs past the end (#533)
 
 
-_ISSUE_520 = "#520: sync connect() after close() does not restore explicit autocommit"
 _CONSTRUCTOR_AUTOCOMMIT = (
     "sync constructor applies autocommit through the reconnecting property setter: "
     "probes between SET_DB_PARAMETER and COMMIT, can split them across CAS sessions, "
@@ -628,20 +627,18 @@ SCENARIOS: tuple[Scenario, ...] = (
             ("version",),
         ),
         check=_check_autocommit_restored(1),
-        unintended=_ISSUE_520,
     ),
     Scenario(
         "reconnect_restores_explicit_autocommit_off",
         (("open",), ("set_autocommit", False), ("close",), ("connect",), ("get_autocommit",)),
         check=_check_autocommit_restored(0),
-        unintended=_ISSUE_520,
     ),
     Scenario(
         "reconnect_restores_constructor_autocommit",
         (("open",), ("close",), ("connect",), ("get_autocommit",), ("version",)),
         options={"autocommit": True},
         check=_check_autocommit_restored(1),
-        unintended=f"{_ISSUE_520}; {_CONSTRUCTOR_AUTOCOMMIT}",
+        unintended=_CONSTRUCTOR_AUTOCOMMIT,
     ),
     Scenario(
         "reconnect_leaves_untouched_autocommit_at_default",
