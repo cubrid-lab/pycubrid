@@ -69,6 +69,7 @@ from .helpers.replay_broker import (
     execute_body,
     ok_body,
     run_replay_broker,
+    with_status,
 )
 
 _TIMEOUT = 5.0
@@ -553,6 +554,29 @@ def _check_ping_restores_once(obs: Observation) -> None:
     assert obs.reusable is True
 
 
+def _escape_probe_hang_up(session: int) -> Script:
+    """Answer the escape probe OUT_TRAN, then recycle the CAS in ``session``."""
+
+    def script(request: Request, state: Session) -> Reply | None:
+        if request.session == session and request.sql == "SELECT CHAR_LENGTH('\\\\')":
+            state.status = OUT_TRAN
+            body = execute_body(_ints("length", 2), handle=1, inline=1)
+            return Reply(with_status(body, OUT_TRAN), close=True)
+        return None
+
+    return script
+
+
+def _check_configured_once(obs: Observation) -> None:
+    # The probe's own CHECK_CAS replaces the session; that replacement is
+    # configured once, and connect() does not configure it again.
+    assert all(outcome[1] == "ok" for outcome in obs.outcomes), obs.outcomes
+    assert obs.sessions == 3
+    assert _set_autocommit_requests(obs, 1) == []
+    assert _set_autocommit_requests(obs, 2) == [_set_autocommit_args(1)]
+    assert obs.reusable is True
+
+
 def _check_lob(obs: Observation) -> None:
     expected = {
         "sync": ("create_lob", "ok", "Lob"),
@@ -681,6 +705,13 @@ SCENARIOS: tuple[Scenario, ...] = (
             session=0,
         ),
         check=_check_ping_restores_once,
+    ),
+    Scenario(
+        "reconnect_configured_once_when_escape_probe_sees_recycle",
+        (("open",), ("set_autocommit", True), ("close",), ("connect",), ("get_autocommit",)),
+        script=_escape_probe_hang_up(1),
+        options={"no_backslash_escapes": None},
+        check=_check_configured_once,
     ),
     Scenario(
         "create_lob",

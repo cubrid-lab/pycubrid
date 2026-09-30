@@ -323,6 +323,9 @@ class ConnectionCommonMixin:
         self._no_backslash_escapes: bool | None = no_backslash_escapes
         self._no_backslash_escapes_explicit = no_backslash_escapes is not None
         self._physical_generation = 0
+        # Physical generation whose session settings were last applied, so a
+        # session configured by a nested recovery is not configured again.
+        self._configured_generation = 0
 
         if type(fetch_size) is not int or fetch_size < 1:
             raise ValueError("fetch_size must be an integer >= 1")

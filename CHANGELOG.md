@@ -75,6 +75,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   only through the reconnecting property setter replaced above). Both drivers now send
   `CHECK_CAS` first in that case and, if it fails, replace the session once and
   apply the setting there; a healthy or verified session sends nothing extra.
+  A session replaced during the escape probe itself is configured once by
+  that recovery and not again by `connect()`, and an interrupted sync setup
+  retires the new session instead of leaving it half-configured.
   The async escape probe of that replacement also now carries the connection's
   autocommit flag, like every other escape probe in both drivers.
 - **Sync `ping(reconnect=False)` closes a session whose `CHECK_CAS` failed, like async (#521)** —

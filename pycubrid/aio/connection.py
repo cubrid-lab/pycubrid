@@ -173,12 +173,19 @@ class AsyncConnection(ConnectionCommonMixin):
                     sends_setting = self._pending_autocommit or (
                         bool(previous_generation) and self._autocommit_explicitly_set
                     )
-                    if sends_setting and await self._check_reconnect_locked():
+                    configured_by_recovery = (
+                        self._physical_generation != previous_generation
+                        and self._configured_generation == self._physical_generation
+                    )
+                    if configured_by_recovery:
+                        pass  # a recovery nested in the escape probe configured it
+                    elif sends_setting and await self._check_reconnect_locked():
                         pass
                     elif self._pending_autocommit:
                         await self._apply_pending_autocommit_locked()
                     elif previous_generation:
                         await self._restore_session_state_locked()
+                    self._configured_generation = self._physical_generation
             except BaseException as exc:
                 if did_connect:
                     self._setup_error = exc
@@ -1203,6 +1210,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 if probe.response_code < 0:
                     raise OperationalError("replacement CAS session failed CHECK_CAS")
                 self._verified_cas_info = self._cas_info
+            self._configured_generation = self._physical_generation
         except BaseException as exc:
             self._drop_connection()
             if isinstance(exc, Exception):

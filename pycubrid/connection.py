@@ -111,6 +111,7 @@ class Connection(ConnectionCommonMixin):
             self._apply_pending_autocommit()
         elif previous_generation:
             self._restore_session_state()
+        self._configured_generation = self._physical_generation
 
     def _apply_pending_autocommit(self) -> None:
         """Apply the constructor's ``autocommit=True`` on the current session.
@@ -256,8 +257,17 @@ class Connection(ConnectionCommonMixin):
         with self._session_lock:
             previous_generation = self._physical_generation
             self._connect_locked()
-            if self._physical_generation != previous_generation:
+            if self._physical_generation == previous_generation:
+                return
+            # A recovery nested in the escape probe already configured its
+            # replacement session; do not send its settings twice.
+            if self._configured_generation == self._physical_generation:
+                return
+            try:
                 self._configure_new_session(previous_generation)
+            except BaseException:
+                self._drop_connection()
+                raise
 
     def _connect_locked(self) -> None:
         if self._connected:
