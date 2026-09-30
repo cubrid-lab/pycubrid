@@ -864,10 +864,8 @@ class DocsReasonWorkflowTests(unittest.TestCase):
     def test_json_data_and_existing_translation_authorization_are_preserved(self) -> None:
         text = WORKFLOW.read_text()
         permissions = re.search(r"(?m)^permissions:\n((?:  [^\n]+\n)+)", text)
-        self.assertIsNotNone(
-            permissions, "docs-sync must declare workflow-level read-only permissions"
-        )
-        assert permissions is not None
+        if permissions is None:
+            self.fail("docs-sync must declare workflow-level read-only permissions")
         self.assertEqual(permissions.group(1), "  contents: read\n")
         self.assertIn("json.load(_f)", text)
         self.assertNotIn("${{ github.event.pull_request.body }}", text)

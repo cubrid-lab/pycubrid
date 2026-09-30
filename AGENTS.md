@@ -66,7 +66,8 @@ graph TD
 ```
 
 Reply parsing never reads past the end of a reply (#383): a negative or
-overrunning length, or collection elements that do not fill their size, raise
+overrunning length, a row cell whose value does not use exactly its declared
+size (#523), or collection elements that do not fill their size, raise
 `ValueError`, which the connection reports as `OperationalError('malformed
 response from broker')` and closes. Trailing bytes after the last declared
 value are not checked; `DataError` is only for a complete reply (#492, #512).

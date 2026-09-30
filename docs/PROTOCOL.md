@@ -621,7 +621,12 @@ otherwise; a fixed-width read past the end raises `struct.error` or
 `IndexError`. A failed read leaves the offset unchanged. Text readers return
 `""` for a non-positive length without moving. A decoded collection's elements
 must fill its declared size exactly, and a `LOB_READ` byte count must fit the
-reply (a count below the requested length is a valid short read). The
+reply (a count below the requested length is a valid short read). Each row cell
+of a FETCH or inline execute reply must use exactly the bytes its size word
+declares: fixed-width values (`INT`, `DATE`, `OBJECT`, ...) do not read the size
+themselves, so the row parser checks it against the type's width before reading
+the value (#523), also when it re-walks a reply before raising `DataError`; a
+non-positive size is SQL `NULL`. A negative FETCH tuple count is malformed too. The
 connection turns these exceptions into `OperationalError("malformed response
 from broker")` and closes; `DataError` stays reserved for a complete reply
 whose value Python cannot represent (#492, #512). Unread bytes after the last
