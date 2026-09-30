@@ -205,6 +205,11 @@ class TlsBroker:
                 # now would be a plaintext retry on a refused TLS session.
                 self._capture_plaintext(client, record)
                 return
+            if behavior == CLOSE_BEFORE_TLS:
+                # Close right after the status reply, before reading (or even
+                # peeking at) the ClientHello; waiting for it would turn this
+                # into the mid-handshake case.
+                return
             peek = client.recv(1, socket.MSG_PEEK)
             if peek:
                 record.first_post_handshake_byte = peek[0]
@@ -215,8 +220,6 @@ class TlsBroker:
                     return
                 conn.sendall(framed(build_open_db_body()))
                 self._serve_requests(conn)
-            elif behavior == CLOSE_BEFORE_TLS:
-                return
             elif behavior == CLOSE_MID_HANDSHAKE:
                 self._capture_once(client, record)
             elif behavior == STALL_HANDSHAKE:

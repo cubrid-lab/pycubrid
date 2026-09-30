@@ -222,10 +222,12 @@ export CUBRID_TLS_TEST_PLAIN_PORT=30000
 export SSL_CERT_FILE="$CUBRID_TLS_TEST_CA_FILE"
 ```
 
-The optional variables only gate individual cases locally. In CI every one of
-them is set, and `scripts/check_integration_lanes.py` fails the TLS lane on
-any skip in these modules, so a lane that silently skips (for example because
-the broker is not serving TLS) is red, not green.
+The optional variables only gate individual cases locally: a case skips only
+when its configuration is missing. Once `CUBRID_TLS_TEST_CA_FILE` is set, a
+broker that is unreachable or not serving TLS fails the tests instead of
+skipping them. In CI every variable is set, and
+`scripts/check_integration_lanes.py` fails the TLS lane on any skip in these
+modules, so a lane that silently skips is red, not green.
 
 Broker-side TLS must already be enabled (`SSL=ON` in `cubrid_broker.conf`) and
 the broker certificate must match `CUBRID_TLS_TEST_HOST`. Then run:

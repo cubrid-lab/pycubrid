@@ -34,7 +34,6 @@ from __future__ import annotations
 import gc
 import os
 import ssl
-from functools import lru_cache
 from typing import Any
 
 import pytest
@@ -108,31 +107,18 @@ def _kwargs(ssl_value: Any, **overrides: Any) -> dict[str, Any]:
     return kwargs
 
 
-@lru_cache(maxsize=None)
-def _tls_broker_available() -> bool:
-    if TLS_CA_FILE is None:
-        return False
-    client = DriverClient("sync", **_kwargs(_ca_context()))
-    try:
-        client.connect()
-        return client.tls_version() is not None and client.scalar("SELECT 1") == 1
-    except Exception:
-        return False
-    finally:
-        client.shutdown()
-
-
 @pytest.fixture(scope="session")
 def tls_broker() -> None:
-    """Skip unless a TLS broker answers; probed at setup, not at collection.
+    """Skip only when no TLS broker is configured.
 
-    Probing in a ``skipif`` condition would open a TLS connection whenever this
-    module is imported, including offline ``make test`` runs and the lane
-    audit's collection-only pass.
+    Mirrors the ``integration`` gate in ``tests/conftest.py``: an unconfigured
+    run skips, but a configured broker that is unreachable or not serving TLS
+    must surface as failures from each test's own connection attempt, never
+    as skips.
     """
-    if not _tls_broker_available():
+    if TLS_CA_FILE is None:
         pytest.skip(
-            "TLS-enabled CUBRID broker not available; configure CUBRID_TLS_TEST_* "
+            "TLS-enabled CUBRID broker not configured; set CUBRID_TLS_TEST_* "
             "(including CUBRID_TLS_TEST_CA_FILE)"
         )
 

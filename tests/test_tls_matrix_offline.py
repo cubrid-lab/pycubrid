@@ -332,6 +332,21 @@ def test_transport_fault_during_tls_upgrade_raises_operational_error(
 
 
 @pytest.mark.parametrize("mode", MODES)
+def test_close_before_tls_happens_before_any_client_hello_byte(mode: str) -> None:
+    """The pre-TLS close must not wait for the ClientHello; that would make it a
+    mid-handshake close (covered separately)."""
+    with run_tls_broker(CLOSE_BEFORE_TLS) as broker:
+        _connect_error(mode, broker.port, client_context())
+
+    assert broker.records, "the client never reached the broker"
+    for record in broker.records:
+        assert record.magic == b"CUBRS"
+        assert record.first_post_handshake_byte is None
+        assert not record.plaintext_after_handshake
+        assert not record.tls_completed
+
+
+@pytest.mark.parametrize("mode", MODES)
 def test_stalled_tls_handshake_is_bounded_by_read_timeout(mode: str) -> None:
     with run_tls_broker(STALL_HANDSHAKE) as broker:
         started = time.monotonic()
