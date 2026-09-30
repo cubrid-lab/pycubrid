@@ -100,6 +100,7 @@ jobs:
           docker run -d --rm --name cubrid-tls \
             -e CUBRID_DB=testdb \
             -p 33000:33000 \
+            -p 30000:30000 \
             cubrid/cubrid:${{ matrix.cubrid-version }}
           # Wait for the default broker to come up before reconfiguring it.
           for i in $(seq 1 40); do
@@ -205,6 +206,9 @@ jobs:
           CUBRID_TLS_TEST_PASSWORD: ""
           CUBRID_TLS_TEST_CA_FILE: ${{ runner.temp }}/cas_ssl_cert.crt
           CUBRID_TLS_TEST_MISMATCH_HOST: "127.0.0.1"
+          # Stock SSL=OFF query_editor broker on the same server: TLS-to-plaintext
+          # refusal coverage in tests/test_tls_matrix_integration.py (#350).
+          CUBRID_TLS_TEST_PLAIN_PORT: "30000"
           # Trust the self-signed broker cert via Python's default SSL context
           # (used by `ssl=True`) so the default-context test runs instead of
           # being silently skipped.
