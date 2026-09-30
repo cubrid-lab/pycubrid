@@ -49,7 +49,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Clear previous results in synchronous and asynchronous `execute()` calls
   after closing the old query handle (#373). A subsequent binding or request
   failure leaves `description=None`, `rowcount=-1`, `lastrowid=None` and no
-  fetchable rows. Failure to close the old handle preserves it and its buffered rows.
+  fetchable rows. If closing the old handle fails, `execute()` keeps the buffered
+  result; connection invalidation or reconnect handling may still retire the handle.
 - **Security: `str`, `bytes`, date and time parameters are rendered without
   calling overridable methods (#528)** — `format_parameter()` escaped `str`
   parameters with `value.replace(...)` and `"\x00" in value`, rendered

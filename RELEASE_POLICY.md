@@ -433,8 +433,9 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
 - **Failed `execute()` calls clear previous result state (#373)**: PATCH /
   backward-compatible bug fix. After the previous query handle closes, binding
   or request failures leave no result metadata, row count, last inserted ID
-  or fetchable rows from that query. Both cursor implementations retain the
-  existing handle and buffered rows if closing the previous query fails.
+  or fetchable rows from that query. If closing the previous query fails, both
+  cursor implementations keep the buffered result; connection invalidation or
+  reconnect handling may still retire the handle.
 
 - **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
   PATCH / backward-compatible bug fix. The public signatures are unchanged;
