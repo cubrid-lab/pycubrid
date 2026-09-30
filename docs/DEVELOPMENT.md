@@ -266,7 +266,7 @@ You do not need to run the steps above locally for routine development —
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
-(nightly, on tag push, and via `workflow_dispatch`). `ci.yml` runs the same
+(nightly, via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
 lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
 TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
 `pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
@@ -477,9 +477,9 @@ assets; pinning its caller is not a complete freeze of those assets.
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
 | `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.14) + integration |
-| `integration-full.yml` | Nightly, tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
-| `create-release.yml` | Tag push, manual dispatch | Create the GitHub Release from CHANGELOG (does not publish) |
-| `publish-pypi.yml` | Manual dispatch after the tag-triggered full matrix passes | Verify, publish to PyPI, dispatch the cookbook smoke test |
+| `integration-full.yml` | Nightly, manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
+| `prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
+| `release.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
 
 ### CI Matrix
 
@@ -583,7 +583,8 @@ To support a new CUBRID data type:
 
 ## Release Process
 
-Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md): a release PR
-(version bump + dated CHANGELOG section, checked with `make release-check VERSION=X.Y.Z`),
-a tag on the squash-merged commit, and a manual `publish-pypi.yml` dispatch once the
-tag-triggered full matrix passes.
+Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md):
+`prepare-release.yml` opens a release PR (version bump + dated CHANGELOG section, checked
+with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `release.yml`
+runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
+automatically. Nobody pushes tags or publishes by hand.
