@@ -312,8 +312,8 @@ issue title or body. Reporters describe urgency and effort without needing label
 permissions. Maintainer-created issues receive these labels at creation; permissionless
 reports receive them during initial maintainer triage.
 
-Use a short issue title prefix such as `fix:`, `feat:`, `docs:`, `ci:`,
-`chore:`, `test:`, or `perf:` (with an optional scope before the colon).
+Issue titles use the same `type(scope): description` format as pull request
+titles (see [CONTRIBUTING.md](CONTRIBUTING.md#pull-request-and-commit-titles)).
 `.github/workflows/issue-triage.yml` flags incomplete human-submitted issue
 titles or labels as `status: needs triage` without posting a comment or
 guessing priority/size. Maintainers remove that label once triage is complete.
@@ -381,6 +381,14 @@ Do not mark work complete until code, tests, and documentation are consistent.
 
 ## Commit Convention
 
+Issue titles, pull request titles and commit subjects follow
+[CONTRIBUTING.md - Pull request and commit titles](CONTRIBUTING.md#pull-request-and-commit-titles):
+`type(scope)!: description` with types `feat`, `fix`, `docs`, `test`, `perf`,
+`refactor`, `ci`, `build`, `chore`, `style`, `revert`; English, lowercase start,
+no trailing period, no issue numbers in pull request titles (use `Closes #N` /
+`Refs #N` in the body). Pull requests are squash-merged and the pull request
+title becomes the commit title. The `PR title` check enforces it.
+
 Preserve actual contributor authorship and existing credits. The following tool
 attribution applies to commits actually produced with that tool; it is not a
 required footer for outside contributors' commits.
@@ -393,8 +401,6 @@ required footer for outside contributors' commits.
 Ultraworked with [Sisyphus](https://github.com/code-yeongyu/oh-my-opencode)
 Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
 ```
-
-Types: `feat`, `fix`, `docs`, `chore`, `ci`, `style`, `test`, `refactor`
 
 ## Project Context — Performance Loop System
 
