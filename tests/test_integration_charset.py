@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import unquote, urlsplit
 
 import pytest
 import pytest_asyncio
@@ -24,16 +22,9 @@ from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import DataError, ProgrammingError
 from pycubrid.lob import Lob
 
-pytestmark = pytest.mark.integration
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
-# CUBRID_TEST_URL (cubrid://user[:password]@host:port/db) gives the defaults;
-# the per-field CUBRID_TEST_* variables override it.
-_URL = urlsplit(os.environ.get("CUBRID_TEST_URL", ""))
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", _URL.hostname or "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", _URL.port or 33000))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", _URL.path.lstrip("/") or "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", unquote(_URL.username or "dba"))
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", unquote(_URL.password or ""))
+pytestmark = pytest.mark.integration
 
 EUCKR_LANE_SKIP = "requires an EUC-KR database (integration-charset lane)"
 HANGUL = "한글"

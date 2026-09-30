@@ -10,7 +10,6 @@ calls because pycubrid connections/cursors are not thread-safe enough for
 
 from __future__ import annotations
 
-import os
 import socket
 import uuid
 from collections.abc import Callable, Sequence
@@ -22,6 +21,8 @@ from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.connection import Connection
 from pycubrid.cursor import Cursor
+
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 JsonDeserializer = Callable[[str], object]
 Row = tuple[object, ...]
@@ -35,13 +36,6 @@ class ConnectKwargs(TypedDict, total=False):
     password: str
     fetch_size: int
     json_deserializer: JsonDeserializer
-
-
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
 
 
 def connect_kwargs(
@@ -61,21 +55,6 @@ def connect_kwargs(
     if json_deserializer is not None:
         kwargs["json_deserializer"] = json_deserializer
     return kwargs
-
-
-def can_connect() -> bool:
-    try:
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-        )
-    except Exception:
-        return False
-    conn.close()
-    return True
 
 
 def table_name(prefix: str = "parity") -> str:

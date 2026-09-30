@@ -19,7 +19,6 @@ from tests._parity_helpers import (
     ADAPTERS,
     ParityAdapter,
     autocommit_transitions,
-    can_connect,
     cleanup_table,
     close_cursor_then_connection,
     connect_kwargs,
@@ -35,7 +34,6 @@ from tests._parity_helpers import (
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
 ]
 
 approx = cast(Callable[..., object], getattr(pytest, "approx"))

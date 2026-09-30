@@ -14,7 +14,7 @@ Classifications observed on CUBRID 11.2 / CUBRIDdb 11.3:
 
 All other covered types agree in both Python type and value.
 
-Skipped when either CUBRIDdb is not importable or no CUBRID server is reachable,
+Skipped when either CUBRIDdb is not importable or no CUBRID server is configured,
 so it runs opportunistically (e.g. nightly / environments with the C extension)
 without breaking the pure-Python offline suite.
 """
@@ -29,13 +29,12 @@ import pytest
 import pycubrid
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 CUBRIDdb = pytest.importorskip("CUBRIDdb", reason="official CUBRIDdb C-extension not installed")
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
 ]
 
 

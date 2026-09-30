@@ -17,7 +17,8 @@ divergence fails the test (that is the bug signal this suite exists to raise):
 * ``DOCUMENTED_SERVER_BEHAVIOR`` — nondeterminism the server is allowed to have;
 * otherwise it is a ``REAL_BUG`` and the assertion fails.
 
-Skipped when no CUBRID server is reachable. Budget follows the active Hypothesis
+Skipped when no CUBRID server is configured (errors when a configured one is
+unreachable; see the shared ``tests/conftest.py`` gate). Budget follows the active Hypothesis
 profile.
 """
 
@@ -37,11 +38,10 @@ from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
 ]
 
 

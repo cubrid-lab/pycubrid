@@ -40,6 +40,7 @@ import pytest
 
 from pycubrid.exceptions import OperationalError
 
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 from .helpers.tls_client import (
     HOSTNAME_MISMATCH_CODES,
     MODES,
@@ -50,15 +51,11 @@ from .helpers.tls_client import (
     verify_code,
 )
 
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
 TLS_HOST = os.environ.get("CUBRID_TLS_TEST_HOST", TEST_HOST)
 TLS_PORT = int(os.environ.get("CUBRID_TLS_TEST_PORT", str(TEST_PORT)))
-TLS_DB = os.environ.get("CUBRID_TLS_TEST_DB", os.environ.get("CUBRID_TEST_DB", "testdb"))
-TLS_USER = os.environ.get("CUBRID_TLS_TEST_USER", os.environ.get("CUBRID_TEST_USER", "dba"))
-TLS_PASSWORD = os.environ.get(
-    "CUBRID_TLS_TEST_PASSWORD", os.environ.get("CUBRID_TEST_PASSWORD", "")
-)
+TLS_DB = os.environ.get("CUBRID_TLS_TEST_DB", TEST_DB)
+TLS_USER = os.environ.get("CUBRID_TLS_TEST_USER", TEST_USER)
+TLS_PASSWORD = os.environ.get("CUBRID_TLS_TEST_PASSWORD", TEST_PASSWORD)
 TLS_CA_FILE = os.environ.get("CUBRID_TLS_TEST_CA_FILE")
 TLS_MISMATCH_HOST = os.environ.get("CUBRID_TLS_TEST_MISMATCH_HOST")
 # ssl=True verifies against the default trust store; the lane points it at
