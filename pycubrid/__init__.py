@@ -28,6 +28,9 @@ from pycubrid.types import (
     Binary,
     Date,
     DateFromTicks,
+    Multiset,
+    Sequence,
+    Set,
     Time,
     Timestamp,
     TimestampFromTicks,
@@ -147,6 +150,10 @@ __all__ = [
     "TimeFromTicks",
     "TimestampFromTicks",
     "Binary",
+    # Typed collection parameters
+    "Set",
+    "Multiset",
+    "Sequence",
     "Lob",
     "TimingStats",
 ]

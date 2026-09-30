@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 
 from .exceptions import DataError, InterfaceError, ProgrammingError
 from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE, get_sqlstate
+from .types import Multiset, Set, _Collection
+from .types import Sequence as SequenceParam
 
 # The C implementation of Decimal, or None when only _pydecimal is available.
 _CDecimal: type[Decimal] | None
@@ -63,6 +65,9 @@ _TIME_SECOND = datetime.time.second.__get__
 _TD_DAYS = datetime.timedelta.days.__get__
 _TD_SECONDS = datetime.timedelta.seconds.__get__
 _TD_MICROSECONDS = datetime.timedelta.microseconds.__get__
+# The slot reader of the typed collection parameters (#567): reads the stored
+# tuple without going through an attribute lookup on the instance.
+_COLLECTION_ELEMENTS = _Collection.__dict__["_elements"].__get__
 
 
 # ---- SQL parsing -----------------------------------------------------------
@@ -337,11 +342,25 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
         if math.isnan(value) or math.isinf(value):
             raise ProgrammingError("nan and inf are not supported by CUBRID")
         return float.__repr__(value)
+    # Typed collections (#567). The classes cannot be subclassed; they are
+    # matched by identity and each element goes through this same renderer.
+    if cls is Set or cls is Multiset or cls is SequenceParam:
+        elements = _COLLECTION_ELEMENTS(value)
+        if type(elements) is not tuple:
+            raise ProgrammingError("collection parameter elements must be a tuple")
+        rendered = []
+        for element in elements:
+            if issubclass(type(element), _Collection):
+                raise ProgrammingError("nested collection parameters are not supported")
+            rendered.append(format_parameter(element, no_backslash_escapes=no_backslash_escapes))
+        keyword = "SET" if cls is Set else "MULTISET" if cls is Multiset else "SEQUENCE"
+        return "%s{%s}" % (keyword, ", ".join(rendered))
     if issubclass(cls, (list, tuple, set, frozenset, dict)):
         raise ProgrammingError(
             "cannot bind a collection (list/tuple/set/frozenset/dict) as a "
             "single parameter; pycubrid does not auto-expand IN (?, ?, ...) — "
-            "expand the placeholders explicitly in the SQL"
+            "expand the placeholders explicitly in the SQL, or wrap the elements "
+            "in pycubrid.types.Set, Multiset or Sequence to bind a CUBRID collection"
         )
     raise ProgrammingError("unsupported parameter type")
 
