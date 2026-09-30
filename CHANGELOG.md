@@ -98,6 +98,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   order is not guaranteed and would make `Sequence`'s element order
   nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset`.
 
+- Internal typed collection binding wire contract (#482): prepared FC3
+  requests can carry an immutable SET/SEQUENCE/MULTISET value of INT or STRING
+  elements (NULL elements, empty collections), with exact per-element framing
+  and rejection of mixed, nested and unsupported elements before any bytes are
+  built. There is no public collection API yet (#440); ordinary sync/async
+  execution and the public API are unchanged. Live 10.2/11.4 evidence: the
+  broker rejects the MULTISET kind (error -454), and a SET value stored into a
+  MULTISET column drops duplicates while a SEQUENCE value keeps them.
+
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
