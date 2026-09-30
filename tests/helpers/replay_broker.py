@@ -120,6 +120,7 @@ class Request:
     index: int
     function: str
     cas_info: bytes = b""
+    # Sized arguments of a framed request; the raw bytes of HANDSHAKE/OPEN_DB.
     args: tuple[bytes, ...] = ()
 
     @property
@@ -271,13 +272,20 @@ class ReplayBroker:
         client.settimeout(_SOCKET_TIMEOUT)
         try:
             with client:
-                if _recv_exact(client, _HANDSHAKE_LEN) is None:
+                # The unframed handshake and OPEN_DATABASE bytes are recorded
+                # whole, so a difference in magic, version or credentials is
+                # part of the compared request.
+                handshake = _recv_exact(client, _HANDSHAKE_LEN)
+                if handshake is None:
                     return
-                if not self._answer(client, session, Request(session.number, -1, HANDSHAKE)):
+                request = Request(session.number, -1, HANDSHAKE, args=(bytes(handshake),))
+                if not self._answer(client, session, request):
                     return
-                if _recv_exact(client, _OPEN_DB_LEN) is None:
+                open_db = _recv_exact(client, _OPEN_DB_LEN)
+                if open_db is None:
                     return
-                if not self._answer(client, session, Request(session.number, -1, OPEN_DB)):
+                request = Request(session.number, -1, OPEN_DB, args=(bytes(open_db),))
+                if not self._answer(client, session, request):
                     return
                 index = 0
                 while True:

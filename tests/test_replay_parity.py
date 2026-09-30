@@ -577,6 +577,17 @@ def _check_configured_once(obs: Observation) -> None:
     assert obs.reusable is True
 
 
+def _check_setter_not_split(obs: Observation) -> None:
+    # #551: SET_DB_PARAMETER and its COMMIT must reach one CAS session, or the
+    # setter must fail; today the COMMIT goes to a replacement that never got
+    # the new value while autocommit reports True.
+    changed = obs.outcomes[1] == ("set_autocommit", "ok", None)
+    if changed:
+        assert _set_autocommit_requests(obs, 1) == [_set_autocommit_args(1)]
+    else:
+        assert obs.outcomes[2] == ("get_autocommit", "ok", False)
+
+
 def _check_lob(obs: Observation) -> None:
     expected = {
         "sync": ("create_lob", "ok", "Lob"),
@@ -712,6 +723,14 @@ SCENARIOS: tuple[Scenario, ...] = (
         script=_escape_probe_hang_up(1),
         options={"no_backslash_escapes": None},
         check=_check_configured_once,
+    ),
+    Scenario(
+        "autocommit_setter_survives_recycle_after_set_db_parameter",
+        (("open",), ("set_autocommit", True), ("get_autocommit",)),
+        script=_on("SET_DB_PARAMETER", _hang_up_after_ok, session=0),
+        check=_check_setter_not_split,
+        unintended="#551: the autocommit setter can split SET_DB_PARAMETER and COMMIT "
+        "across CAS sessions (shared by both drivers)",
     ),
     Scenario(
         "create_lob",

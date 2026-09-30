@@ -130,7 +130,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   recovery, SQL bound to a replaced session, failed pings, malformed and
   truncated replies and the `DataError` contracts (#512, #536). Intended
   differences are listed per scenario with a reason and documented, with the
-  three unintended ones it found (fixed above), in `docs/DEVELOPMENT.md`
+  four unintended ones it found (fixed above), in `docs/DEVELOPMENT.md`
   (+ Korean). `prepare_and_execute_reply()` in `tests/helpers/cas_reply.py`
   gains a `total` keyword for replies that leave rows to later FETCH pages.
 - **Tests: protocol fuzzing seeds realistic replies (#523)** — every
