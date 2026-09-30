@@ -7866,12 +7866,36 @@ filename-glob inventory:
 | Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and nightly bug hunt |
 | Slow | `integration and slow and not tls` | Nightly/manual bug hunt: soak, chaos, and concurrency stress |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
+| Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.10, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
 
 `python scripts/check_integration_lanes.py` collects the current marker inventory
 and checks that each lane has an executable workflow command. The JUnit audit
-(`--results FILE`) fails unknown skips or empty/all-skipped runs. Missing optional
-CUBRIDdb native-comparison dependencies and platforms without `/proc` have explicit
-skip categories; missing broker/TLS configuration is not an accepted CI skip.
+(`--results FILE`) fails unknown skips or empty/all-skipped runs. Outside its own
+lane the official-driver differential skips as `official-lane-only`, and platforms
+without `/proc` have an explicit skip category. Missing broker/TLS configuration
+is not an accepted CI skip. `--lane official` accepts no skip at all.
+
+The official-driver differential (#446) compares pycubrid with the official
+`CUBRIDdb`/`_cubrid` driver built from pinned source. To reproduce it locally
+(Linux x86_64, git, CMake 3.21 or newer, a C compiler and Python 3.10 headers),
+run:
+
+```bash
+python3.10 scripts/build_official_oracle.py --out .official-oracle
+PYTHONPATH=.official-oracle PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1 \
+  PYCUBRID_OFFICIAL_ORACLE_MANIFEST=.official-oracle/oracle.json \
+  PYCUBRID_DIFFERENTIAL_EVIDENCE=official-evidence.jsonl \
+  CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python3.10 -m pytest tests/ -m "integration and official_differential"
+python scripts/check_official_differential.py --evidence official-evidence.jsonl
+```
+
+A new or changed claim goes in `tests/fixtures/official_differential_claims.json`.
+Its case goes in `CASES` in `tests/test_official_differential.py`. Then run
+`python scripts/check_official_differential.py --write-docs`. A divergence is
+either fixed, or recorded as a `deviation` with a reason, an issue and both
+observed values. Never edit an expected value just to match current output. See
+[the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
 The nightly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
@@ -8935,6 +8959,74 @@ These are explicit differential classifications, not blanket waivers or
 NULL/data preservation needs tests. Missing stored-type evidence blocks that dimension's
 certification, not independent prepared-core work.
 
+### Official driver differential gate (#446)
+
+Each official behavior pycubrid claims is recorded in
+[`tests/fixtures/official_differential_claims.json`](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_differential_claims.json).
+A claim is either `match` (same Python type and value as the official driver) or
+`deviation` (a reason, an owning issue and the exact observations of both
+drivers). It names the inventory operations and upstream scenario ids it
+exercises. Each claim has one live case in `tests/test_official_differential.py`,
+which runs the same SQL, values and autocommit settings through pycubrid and
+the official driver on one server. A mismatch fails, and so does a classified
+deviation whose observed values change on either side.
+
+**Oracle provenance.** `scripts/build_official_oracle.py` fetches cubrid-python
+`e75ec36b2a92b8829a49a967a29a1fbb9d7c322b`, checks that its `cci-src` gitlink is
+`7d1eb8f40f04089b8218d08e36e2c24a2de11b24` and fetches that CCI commit. It builds
+the CCI static library with CMake directly, using CCI's tracked bundled OpenSSL
+1.1.1f libraries, and compiles the unchanged `cubrid_ext/python_cubrid.c`. The
+upstream `setup.py`/`build_cci.sh` wrapper is not run and no upstream file is
+patched, unlike the earlier maintainer-local #439 build. Only the upstream
+`version.h` template is rendered outside the source tree. The script records
+both commits, the toolchain and the extension SHA-256 in `oracle.json`. It
+supports Linux x86_64 only. TLS is not exercised through the oracle.
+
+**Required lanes.** The `official-differential` job in regular CI is part of the
+CI Gate. It is skipped only for docs-only changes. It runs Python 3.10 against
+CUBRID 10.2 and 11.4 and caches the oracle build, keyed by the build script
+hash, which contains both pins. The same job gates the nightly and release full
+matrix. With `PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1`, the following fail instead of
+skipping:
+
+- a missing driver or manifest, or an extension hash that differs from the manifest;
+- zero cases, or a claim without a result on either server;
+- a mismatch, or an unclassified divergence.
+
+The lane audit (`check_integration_lanes.py --lane official`) rejects every
+skip. The per-case JSON Lines evidence and its summary are uploaded as the
+`official-differential-evidence` artifact. The evidence records Python, server
+and driver versions, the pycubrid commit and every observation. Without
+`PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1` (offline, other integration lanes, local
+runs) the module skips even if some other `CUBRIDdb` build is importable. Such
+runs never certify a claim. The evidence check recomputes each outcome from
+the recorded observations and the ledger. It does not trust a recorded outcome
+label.
+
+The counts below are generated from the ledger. Do not edit them by hand. Run
+`python scripts/check_official_differential.py --write-docs` after changing a
+claim. The offline check fails on stale counts, unknown inventory or scenario ids,
+claims without cases and oracle pins that differ from the build script.
+
+<!-- official-differential-summary:start (generated by scripts/check_official_differential.py --write-docs) -->
+
+| Surface | Match | Classified deviation | Total |
+| --- | ---: | ---: | ---: |
+| Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
+| Native (`_cubrid`) | 3 | 1 | 4 |
+| **Total** | **15** | **3** | **18** |
+
+- Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
+- Required servers: CUBRID 10.2, CUBRID 11.4
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439)
+
+<!-- official-differential-summary:end -->
+
+These claims cover the first bounded slice: stored scalar fetches, a static scalar
+row and description, and the #439 prepared INT/string subset. Collections, LOBs,
+charset/HA, fault behavior and every other inventory operation remain uncertified
+until they have claims here. The claim counts are not a parity percentage.
+
 ### Migration targets and small delivery acceptance
 
 For ordinary queries keep existing imports unchanged. The explicit native
@@ -9001,8 +9093,12 @@ python -m pytest tests/test_official_api_inventory.py -q
 
 They validate accounting and currently named targets, without importing the
 native driver, opening a database, or converting a mapping into parity proof.
-Actual source-scenario accounting and official comparison evidence remain
-separate deliverables (#437/#446).
+Source-scenario accounting (#437) is a separate deliverable. Official comparison
+evidence comes only from the live differential gate described above (#446):
+
+```bash
+python scripts/check_official_differential.py   # offline claims/docs structure
+```
 
 We acknowledge the official driver's maintainers and contributors. Descriptions
 here are independently paraphrased from the pinned source; no upstream source

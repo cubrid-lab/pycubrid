@@ -42,6 +42,9 @@ jobs:
               - 'pycubrid/**'
               - 'tests/**'
               - 'pyproject.toml'
+              - 'scripts/build_official_oracle.py'
+              - 'scripts/check_integration_lanes.py'
+              - 'scripts/check_official_differential.py'
               - '.github/workflows/**'
 
   doc-lint:
@@ -412,10 +415,104 @@ jobs:
         if: always()
         run: docker stop cubrid-tls || true
 
+  official-differential:
+    # Claims-driven differential against the pinned official CUBRIDdb driver
+    # (#446): tests/fixtures/official_differential_claims.json, one live case
+    # per claim, both servers, no accepted skip. The oracle build is cached by
+    # the build script hash, which holds both source pins.
+    name: official differential (Python 3.10 / CUBRID 10.2 + 11.4)
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint, typecheck, offline-tests, packaging-smoke-test]
+    if: needs.detect-changes.outputs.code == 'true'
+    timeout-minutes: 30
+    services:
+      cubrid102:
+        image: cubrid/cubrid:10.2
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33102:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+      cubrid114:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33114:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        id: python
+        with:
+          python-version: "3.10"
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Restore the official oracle build
+        id: oracle-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
+        with:
+          path: ${{ runner.temp }}/official-oracle
+          key: official-oracle-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('scripts/build_official_oracle.py') }}
+      - name: Build the pinned official oracle
+        if: steps.oracle-cache.outputs.cache-hit != 'true'
+        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --work "$RUNNER_TEMP/official-oracle-work"
+      - name: Verify the official oracle
+        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --verify
+      - name: Wait for CUBRID 10.2 and 11.4
+        run: |
+          set -euo pipefail
+          for port in 33102 33114; do
+            CUBRID_TEST_PORT="$port" python scripts/wait_for_cubrid.py
+          done
+      - name: Run the official differential
+        env:
+          CUBRID_TEST_HOST: localhost
+          PYCUBRID_OFFICIAL_ORACLE_REQUIRED: "1"
+          PYCUBRID_DIFFERENTIAL_EVIDENCE: official-evidence.jsonl
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$RUNNER_TEMP/official-oracle"
+          export PYCUBRID_OFFICIAL_ORACLE_MANIFEST="$RUNNER_TEMP/official-oracle/oracle.json"
+          python scripts/check_official_differential.py
+          python scripts/check_integration_lanes.py
+          for port in 33102 33114; do
+            export CUBRID_TEST_PORT="$port"
+            python -m pytest tests/ -m "integration and official_differential" -v --tb=short \
+              --junitxml="official-$port-results.xml"
+            python scripts/check_integration_lanes.py --lane official --results "official-$port-results.xml"
+          done
+          python scripts/check_official_differential.py --evidence official-evidence.jsonl \
+            --json-out official-evidence-summary.json --summary-out "$GITHUB_STEP_SUMMARY"
+      - name: Upload differential evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: official-differential-evidence
+          path: |
+            official-evidence.jsonl
+            official-evidence-summary.json
+            official-*-results.xml
+            ${{ runner.temp }}/official-oracle/oracle.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   ci-gate:
     name: CI Gate (all checks must pass)
     if: always()
-    needs: [lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, integration-charset, compat-check, integration-tls]
+    needs: [lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, integration-charset, compat-check, integration-tls, official-differential]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
@@ -428,6 +525,7 @@ jobs:
           R_CHARSET: ${{ needs.integration-charset.result }}
           R_COMPAT: ${{ needs.compat-check.result }}
           R_TLS: ${{ needs.integration-tls.result }}
+          R_OFFICIAL: ${{ needs.official-differential.result }}
         run: |
           set -euo pipefail
           fail=0
@@ -453,6 +551,12 @@ jobs:
           # (failure, cancelled) must fail the gate.
           if [[ "$R_TLS" != "success" && "$R_TLS" != "skipped" ]]; then
             echo "::error::integration-tls result: $R_TLS"
+            fail=1
+          fi
+          # official-differential (#446) shares the code-path gate; a docs-only
+          # PR may skip it, but a failed or cancelled comparison blocks.
+          if [[ "$R_OFFICIAL" != "success" && "$R_OFFICIAL" != "skipped" ]]; then
+            echo "::error::official-differential result: $R_OFFICIAL"
             fail=1
           fi
           if [[ "$fail" -ne 0 ]]; then

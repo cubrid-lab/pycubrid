@@ -1,0 +1,185 @@
+{
+  "format_version": 1,
+  "description": "Official public behavior pycubrid claims to match or deliberately deviate from, each backed by a live differential case in tests/test_official_differential.py (#446). Observations are rendered as type-tagged strings, e.g. int(1) or (str('a'),).",
+  "oracle": {
+    "cubrid_python_repository": "https://github.com/CUBRID/cubrid-python",
+    "cubrid_python_commit": "e75ec36b2a92b8829a49a967a29a1fbb9d7c322b",
+    "cci_commit": "7d1eb8f40f04089b8218d08e36e2c24a2de11b24",
+    "python": "3.10"
+  },
+  "required_servers": ["10.2", "11.4"],
+  "claims": [
+    {
+      "id": "fetch-integer",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored INTEGER value fetches with the same Python type and value as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchall.py::test_fetchall_int", "tests3/test_fetchone.py::test_fetchone"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-bigint",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored BIGINT maximum fetches with the same Python type and value as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchone.py::test_fetchone"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-numeric",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored NUMERIC(10,2) value fetches as the same Decimal as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchall.py::test_fetchall_numeric"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-double",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored DOUBLE value fetches as the same float as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchall.py::test_fetchall_double"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-char",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored CHAR(5) value fetches with the same blank padding as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchall.py::test_fetchall_char"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-varchar",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored VARCHAR value fetches as the same str as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchall.py::test_fetchall_varchar"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-date",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored DATE value fetches as the same datetime.date as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchall.py::test_fetchall_date"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-time",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored TIME value fetches as the same datetime.time as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchall.py::test_fetchall_time"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-datetime",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored DATETIME value fetches as the same datetime.datetime as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchall.py::test_fetchall_datetime"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-json",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A stored JSON value fetches as the same raw str as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchone.py::test_fetchone"],
+      "issue": "#344"
+    },
+    {
+      "id": "fetch-monetary",
+      "surface": "wrapper",
+      "classification": "deviation",
+      "summary": "A stored MONETARY value keeps its fraction in pycubrid; CUBRIDdb truncates it to int.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests2/python/_02_fetchall/fetchall_dataType_test.py::FetchoneTypeTest::test_monetary"],
+      "issue": "#344",
+      "reason": "pycubrid decodes MONETARY to a value-preserving float; the official wrapper returns an int without the fraction. Copying the truncation would lose data.",
+      "expected": {"pycubrid": "float(99.99)", "native": "int(99)"}
+    },
+    {
+      "id": "select-scalar-row",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "A static multi-type scalar SELECT (INTEGER, BIGINT, NUMERIC, DOUBLE, VARCHAR, CHAR, DATE, NULL) returns the same row tuple as CUBRIDdb.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.BaseCursor.fetchone"],
+      "scenario_ids": ["tests3/test_fetchone.py::test_fetchone", "tests3/test_fetchall.py::test_fetchall_multiple_columns"],
+      "issue": "#398"
+    },
+    {
+      "id": "description-core-fields",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "For the static scalar SELECT, description name, type_code, precision and scale (fields 0, 1, 4, 5) equal CUBRIDdb's in value and Python type.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.description"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_description", "tests3/test_description.py::test_description_int", "tests3/test_description.py::test_description_varchar"],
+      "issue": "#398"
+    },
+    {
+      "id": "description-size-and-null-ok",
+      "surface": "wrapper",
+      "classification": "deviation",
+      "summary": "Ordinary pycubrid reports display_size/internal_size as None and null_ok as bool; CUBRIDdb reports 0, 0 and an int.",
+      "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.description"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_description", "tests3/test_description.py::test_description"],
+      "issue": "#438",
+      "reason": "The approved #438 compatibility contract keeps the documented 1.x ordinary description (None size fields, Boolean null_ok); only a future explicit wrapper namespace may return the native 0/0/int shape.",
+      "expected": {
+        "pycubrid": "[(NoneType(None), NoneType(None), bool(True))]",
+        "native": "[(int(0), int(0), int(1))]"
+      }
+    },
+    {
+      "id": "prepared-int-reexecute",
+      "surface": "native",
+      "classification": "match",
+      "summary": "One prepared INTEGER SELECT handle re-executed with INT32 minimum, zero and maximum binds returns the same execute counts and fetch_row tuples as _cubrid.",
+      "inventory_ids": ["documented_cubrid.cursor.prepare", "documented_cubrid.cursor.bind_param", "documented_cubrid.cursor.execute", "documented_cubrid.cursor.fetch_row"],
+      "scenario_ids": ["tests3/test_bind.py::test_bind_int", "tests3/test_cubrid.py::test_bind_int"],
+      "issue": "#439"
+    },
+    {
+      "id": "prepared-string-reexecute",
+      "surface": "native",
+      "classification": "match",
+      "summary": "One prepared VARCHAR SELECT handle re-executed with quote/backslash/Korean and empty string binds returns the same results as _cubrid.",
+      "inventory_ids": ["documented_cubrid.cursor.prepare", "documented_cubrid.cursor.bind_param", "documented_cubrid.cursor.execute", "documented_cubrid.cursor.fetch_row"],
+      "scenario_ids": ["tests3/test_bind.py::test_bind_str"],
+      "issue": "#439"
+    },
+    {
+      "id": "prepared-insert-two-binds",
+      "surface": "native",
+      "classification": "match",
+      "summary": "A prepared two-parameter INSERT re-executed under the default autocommit returns the same counts as _cubrid, and an independent connection sees the same rows.",
+      "inventory_ids": ["documented_cubrid.cursor.prepare", "documented_cubrid.cursor.bind_param", "documented_cubrid.cursor.execute", "documented_cubrid.connection.autocommit"],
+      "scenario_ids": ["tests3/test_bind.py::test_bind_int", "tests3/test_bind.py::test_bind_str"],
+      "issue": "#439"
+    },
+    {
+      "id": "prepared-bind-null",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "bind_param(1, None) binds SQL NULL in pycubrid; the official native bind_param raises SystemError.",
+      "inventory_ids": ["documented_cubrid.cursor.bind_param"],
+      "scenario_ids": [],
+      "scenario_gap": "No pinned upstream scenario binds None; the native failure was measured by #439.",
+      "issue": "#439",
+      "reason": "The official extension returns NULL from bind_param without setting an exception (SystemError). The #439 compatibility cursor deliberately binds explicit SQL NULL instead of reproducing the crash-shaped failure.",
+      "expected": {"pycubrid": "(int(1), (NoneType(None),))", "native": "raises SystemError"}
+    }
+  ]
+}
