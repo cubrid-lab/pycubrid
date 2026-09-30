@@ -609,7 +609,7 @@ class PacketReader:
     def _parse_numeric(self, size: int) -> Decimal:
         value = self._parse_null_terminated_string(size)
         try:
-            return Decimal(value).normalize()
+            return Decimal(value)
         except InvalidOperation as exc:
             raise ValueError(f"malformed NUMERIC value: {value!r}") from exc
 
