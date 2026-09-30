@@ -46,6 +46,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- Clear previous results in synchronous and asynchronous `execute()` calls
+  after closing the old query handle (#373). A subsequent binding or request
+  failure leaves `description=None`, `rowcount=-1`, `lastrowid=None` and no
+  fetchable rows. Failure to close the old handle preserves it and its buffered rows.
 - **Security: `str`, `bytes`, date and time parameters are rendered without
   calling overridable methods (#528)** — `format_parameter()` escaped `str`
   parameters with `value.replace(...)` and `"\x00" in value`, rendered

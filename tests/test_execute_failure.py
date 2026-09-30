@@ -135,24 +135,28 @@ async def test_failed_execute_clears_previous_insert_metadata(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["SELECT 99", "INSERT INTO t VALUES (99)"])
 async def test_execute_close_failure_preserves_previous_result_and_handle(
     cursor_case: tuple[Cursor | AsyncCursor, MagicMock],
+    operation: str,
 ) -> None:
     cursor, connection = cursor_case
     connection._send_and_receive.side_effect = _select_reply
     await _call(cursor, "execute", "SELECT id FROM t")
     assert await _call(cursor, "fetchone") == (1,)
     previous_description = cursor.description
+    connection._last_insert_id = "88"
     error = ProgrammingError("close failed")
     connection._send_and_receive.reset_mock()
     connection._send_and_receive.side_effect = error
 
     with pytest.raises(ProgrammingError) as raised:
-        await _call(cursor, "execute", "SELECT 99")
+        await _call(cursor, "execute", operation)
     assert raised.value is error
     assert cursor.description == previous_description
     assert cursor._query_handle == 1
     assert await _call(cursor, "fetchone") == (2,)
+    assert connection._last_insert_id == (None if operation.startswith("INSERT") else "88")
     connection._send_and_receive.assert_called_once()
 
     connection._send_and_receive.side_effect = _select_reply
