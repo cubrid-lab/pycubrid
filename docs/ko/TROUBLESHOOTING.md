@@ -781,6 +781,26 @@ Python `datetime`에는 0년이 없으므로, pycubrid는 이런 값을 가져�
 커서에는 결과 집합이 없지만(`description`은 `None`), 잘못된 UTF-8과 마찬가지로
 서버 핸들을 소유하고 해제합니다.
 
+이후 fetch 페이지에서는 그 페이지에 도달한 fetch 호출이 오류를 발생시키고 페이지
+전체가 반환되지 않지만, 그 호출이 이미 모은 행은 유지됩니다. 다음
+`fetchmany()`/`fetchall()`이 그 행을 반환하고, 그 뒤의 모든 fetch는 새 쿼리를
+실행하기 전까지 서버에 다시 요청하지 않고 같은 `DataError`를 발생시킵니다(#507).
+예:
+
+```python
+cur.execute("SELECT id, d FROM t ORDER BY id")
+try:
+    rows = cur.fetchall()
+except pycubrid.DataError:
+    rows = cur.fetchall()  # 실패한 페이지 전의 행
+    # 이제 cur.fetchone()은 같은 DataError를 발생시킵니다. 나머지를 읽으려면
+    # 아래처럼 컬럼을 변환해 다시 실행하세요.
+```
+
+잘못된 텍스트(#492)와 해석할 수 없는 타임존(#413)도 같습니다. 이전 릴리스는 그
+호출이 모은 행을 버리고 재시도할 때마다 페이지를 다시 요청했으며, autocommit
+모드에서는 브로커가 이미 결과를 닫아 CAS 오류 `-1012`로 실패할 수 있었습니다.
+
 pycubrid에는 0 날짜를 `None`이나 텍스트로 반환하는 옵션이 없습니다. 대신 SQL에서
 변환하세요.
 

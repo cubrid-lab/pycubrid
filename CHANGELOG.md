@@ -46,6 +46,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- **Rows fetched before a failing page are no longer lost (#507)** — when a
+  later FETCH page raised a data-level `DataError` (invalid text #492, an
+  unresolved zone #413, a zero date #512), `fetchall()` and `fetchmany()`
+  dropped the rows they had already collected in that call, and because the
+  fetch position did not advance, every retry requested the same page again:
+  it failed again, or, in autocommit mode once the broker had closed the
+  result after its last page, raised `DatabaseError` with CAS error `-1012`.
+  The call that reaches the page still raises `DataError` and the whole page is
+  withheld, but the rows it had collected stay buffered and the next
+  `fetchone()`/`fetchmany()`/`fetchall()` (or iteration) returns them without
+  contacting the server. After that every fetch raises the same `DataError`
+  again, without requesting the page, until `execute()` or `close()`, so no
+  row of or past the failing page is returned and retries do not loop on the
+  server. The connection stays usable and the cursor keeps its handle, sync
+  and async alike. Documented in `docs/API_REFERENCE.md`, `docs/TYPES.md` and
+  `docs/TROUBLESHOOTING.md` (+ Korean); live-tested against CUBRID 11.4 with a
+  zero `DATE` several FETCH pages into the result.
 - **`pycubrid.aio.connect(..., ssl=...)` no longer hangs forever when the TLS handshake is interrupted (#513)** — if the broker stalled or reset the connection before the TLS handshake completed, `read_timeout` (or the 10-second `ssl_handshake_timeout`) fired as intended, but connect cleanup then awaited `StreamWriter.wait_closed()` on a stream that asyncio never marks closed (its `SSLProtocol` drops `connection_lost` while still handshaking), so the call never returned on Python 3.11+. The failed upgrade now notifies the stream protocol itself after aborting the transport, and connect raises `OperationalError` within `read_timeout` and closes the socket. The sync driver was not affected. `docs/CONNECTION.md` and `docs/TROUBLESHOOTING.md` (+ Korean) now state which timeout bounds the TLS handshake (`read_timeout`; `connect_timeout` covers only the TCP connect).
 - **Reads past the end of a broker reply are rejected (#383)** — a length
   field that ran past the end of a reply was cut short by a Python slice and

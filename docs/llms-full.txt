@@ -1980,6 +1980,21 @@ if row:
 > explicitly to continue. There is no transparent SELECT replay or holdable-result
 > guarantee; reconnect invalidation retains its separate `OperationalError`.
 
+> **Data errors on a later fetch page (#507):** When a FETCH page contains a
+> value pycubrid cannot represent (text invalid in the connection charset
+> #492, an unresolved zone #413, a zero date #512), the `fetchone()`,
+> `fetchmany()` or `fetchall()` call (or iteration step) that reaches the page
+> raises `DataError`. The whole page is withheld, including its rows before the
+> bad value. Rows that call had already collected are not lost: the next fetch
+> calls return them without contacting the server, so a `fetchmany()` or
+> `fetchall()` after the error returns those rows (possibly fewer than
+> requested). After that, every fetch raises the same `DataError` again without
+> requesting the page, until `execute()` or `close()`; no row of the failing
+> page or after it is ever returned. The connection stays usable and the
+> cursor keeps its server handle. Sync and async cursors behave the same. To
+> read past the value, convert it in SQL (see [Zero Date or Datetime
+> Value](TROUBLESHOOTING.md#zero-date-or-datetime-value)) and execute again.
+
 ---
 
 #### `fetchmany(size)`
@@ -2547,7 +2562,9 @@ it (nothing of that request is sent), and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
 `DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
 zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
 (#413). The reply was fully read, so with ordinary cursors the connection stays
-usable. `get_schema_info()` retires the connection on any FC9 reply it cannot
+usable; on a later fetch page, rows collected before that page are still
+returned first (see *Data errors on a later fetch page* under
+[`fetchone()`](#fetchone), #507). `get_schema_info()` retires the connection on any FC9 reply it cannot
 parse, and the explicit prepared API (`pycubrid.compat.native`) raises
 `OperationalError` and retires the session instead.
 
@@ -3044,6 +3061,9 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > has no year 0. Fetching one raises `DataError` naming the CUBRID type and
 > fields, on `execute()` and on a later fetch page alike; the connection stays
 > usable, and the cursor keeps its server handle as for invalid UTF-8 (#492).
+> On a later page, rows fetched before that page are still returned, and
+> fetches after them keep raising the same `DataError` until the next
+> `execute()` (#507).
 > Any other temporal field Python cannot hold is reported the same way.
 > There is no option to return `None` or text instead: convert the value in
 > SQL, for example `NULLIF(d, DATE'0000-00-00')` (zero becomes `NULL`),
@@ -6321,6 +6341,27 @@ such a value is fetched, whether it is in the first page returned by
 connection stays usable; after a failed `execute()` the cursor has no result
 set (`description` is `None`) but still owns and releases the server handle,
 as for invalid UTF-8.
+
+On a later fetch page, the fetch call that reaches the page raises and the
+whole page is withheld, but rows that call had already collected are kept:
+the next `fetchmany()`/`fetchall()` returns them, and every fetch after that
+raises the same `DataError` without asking the server again, until you execute
+a new query (#507). For example:
+
+```python
+cur.execute("SELECT id, d FROM t ORDER BY id")
+try:
+    rows = cur.fetchall()
+except pycubrid.DataError:
+    rows = cur.fetchall()  # rows before the failing page
+    # cur.fetchone() now raises the same DataError; re-execute with a
+    # converted column (below) to read the rest.
+```
+
+The same applies to invalid text (#492) and unresolved zones (#413). Earlier
+releases dropped the rows collected by that call and requested the page again
+on every retry, which in autocommit mode could fail with CAS error `-1012`
+because the broker had already closed the result.
 
 pycubrid has no option to return zero dates as `None` or text. Convert them
 in SQL instead:

@@ -318,6 +318,9 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > has no year 0. Fetching one raises `DataError` naming the CUBRID type and
 > fields, on `execute()` and on a later fetch page alike; the connection stays
 > usable, and the cursor keeps its server handle as for invalid UTF-8 (#492).
+> On a later page, rows fetched before that page are still returned, and
+> fetches after them keep raising the same `DataError` until the next
+> `execute()` (#507).
 > Any other temporal field Python cannot hold is reported the same way.
 > There is no option to return `None` or text instead: convert the value in
 > SQL, for example `NULLIF(d, DATE'0000-00-00')` (zero becomes `NULL`),
