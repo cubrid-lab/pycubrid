@@ -221,6 +221,21 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Zero temporal values raise `DataError` and keep the session (#512)** —
+  PATCH / correction of error classification and connection lifetime, extending
+  #492 and #413. A zero `DATE`, `DATETIME`, `TIMESTAMP` or TZ/LTZ value (year 0,
+  which Python's `datetime` cannot hold) in a complete reply raises `DataError`
+  instead of `OperationalError('malformed response from broker')`, and the
+  session is kept, on `execute()` and on later fetch pages. A row value that
+  raises `DataError` (#492, #413, #512) is now reported only after the rest of
+  the row data is checked against the reply length, so a short reply stays a
+  fail-closed `OperationalError`, as does a temporal field of the wrong size or
+  a collection element past the collection's size. Any other temporal value Python cannot hold
+  (for example a `TIME` hour of 25 or a month of 13, which a normal server does
+  not send) is classified the same way. The explicit prepared API stays
+  fail-closed. Valid temporal values, public signatures, dependencies and
+  supported versions are unchanged.
+
 - **`str`, `bytes`, date and time parameters render by value; years are
   zero-padded (#528, #519)** — PATCH / security and data-corruption correction
   to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).

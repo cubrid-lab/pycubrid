@@ -717,6 +717,26 @@ def _read_value(reader: PacketReader, column_type: int, size: int) -> Any:
     return _convert_collection_value(column_type, _resolve_reader(reader, column_type)(size))
 
 
+def _check_row_data_bounds(
+    reader: PacketReader, rows_start: int, tuple_count: int, ncols: int
+) -> None:
+    """Walk ``tuple_count`` rows by declared sizes; raise if the reply is short.
+
+    Each value's size includes the type byte of CALL/NULL-typed columns, so
+    skipping ``size`` bytes covers every column layout.
+    """
+    reader._offset = rows_start
+    for _ in range(tuple_count):
+        reader._parse_int()
+        reader._skip_bytes(DataSize.OID)
+        for _ in range(ncols):
+            size = reader._parse_int()
+            if size > 0:
+                reader._skip_bytes(size)
+    if reader.bytes_remaining() < 0:
+        raise IndexError("row data runs past the end of the broker reply")
+
+
 def _parse_row_data(
     reader: PacketReader,
     tuple_count: int,
@@ -749,32 +769,41 @@ def _parse_row_data(
     rows: list[tuple[Any, ...]] = []
     _rows_append = rows.append
 
-    for _ in range(tuple_count):
-        _parse_int()
-        _skip_bytes(_oid_size)
-        row: list[Any] = [None] * ncols
-        if col_readers is not None:
-            for i in range(ncols):
-                size = _parse_int()
-                if size > 0:
-                    row[i] = _convert_collection_value(col_types[i], col_readers[i](size))
-        else:
-            for i in range(ncols):
-                size = _parse_int()
-                if size <= 0:
-                    continue
-                ct = col_types[i]
-                if is_call_type or ct == _null_type:
-                    ct = _parse_byte()
-                    size -= 1
+    rows_start = reader._offset
+    try:
+        for _ in range(tuple_count):
+            _parse_int()
+            _skip_bytes(_oid_size)
+            row: list[Any] = [None] * ncols
+            if col_readers is not None:
+                for i in range(ncols):
+                    size = _parse_int()
+                    if size > 0:
+                        row[i] = _convert_collection_value(col_types[i], col_readers[i](size))
+            else:
+                for i in range(ncols):
+                    size = _parse_int()
                     if size <= 0:
                         continue
-                method_name = _get(ct)
-                if method_name is not None:
-                    row[i] = _convert_collection_value(ct, _getattr(reader, method_name)(size))
-                else:
-                    row[i] = _parse_bytes(size)
-        _rows_append(tuple(row))
+                    ct = col_types[i]
+                    if is_call_type or ct == _null_type:
+                        ct = _parse_byte()
+                        size -= 1
+                        if size <= 0:
+                            continue
+                    method_name = _get(ct)
+                    if method_name is not None:
+                        row[i] = _convert_collection_value(ct, _getattr(reader, method_name)(size))
+                    else:
+                        row[i] = _parse_bytes(size)
+            _rows_append(tuple(row))
+    except DataError:
+        # A value the client cannot represent (invalid text #492, unknown zone
+        # #413, zero date #512) is a data problem only when the reply is
+        # complete. Re-walk the row data by its declared sizes first, so a
+        # short reply still fails as framing damage (#383), not DataError.
+        _check_row_data_bounds(reader, rows_start, tuple_count, ncols)
+        raise
     return rows
 
 

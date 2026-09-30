@@ -33,6 +33,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [유니코드 / NCHAR 인코딩](#유니코드--nchar-인코딩)
   - [값 또는 오류 메시지의 잘못된 UTF-8](#값-또는-오류-메시지의-잘못된-utf-8)
   - [TZ 값의 타임존을 해석할 수 없음](#tz-값의-타임존을-해석할-수-없음)
+  - [0 날짜 또는 날짜시간 값](#0-날짜-또는-날짜시간-값)
 - [LOB (CLOB/BLOB) 문제](#lob-clobblob-문제)
   - [LOB 컬럼이 데이터가 아니라 dict를 반환](#lob-컬럼이-데이터가-아니라-dict를-반환)
   - [Lob 객체를 파라미터로 전달할 수 없음](#lob-객체를-파라미터로-전달할-수-없음)
@@ -742,6 +743,41 @@ update the system zoneinfo)
 
 이전 릴리스에서는 `Unknown timezone token`을 로그에 남기고 naive `datetime`을
 반환하여 타임존을 조용히 버렸습니다 (#413).
+
+### 0 날짜 또는 날짜시간 값
+
+```
+pycubrid.exceptions.DataError: CUBRID DATE value (0, 0, 0) cannot be represented
+in Python: year 0 is out of range
+```
+
+CUBRID는 `DATE'0000-00-00'`, `DATETIME'0000-00-00 00:00:00'` 같은 0 값을
+허용합니다(`TIMESTAMP`와 TZ/LTZ 타입도 마찬가지). 예를 들어
+`CAST('0000-00-00' AS DATE)`나 다른 시스템에서 적재한 데이터에서 나올 수 있습니다.
+Python `datetime`에는 0년이 없으므로, pycubrid는 이런 값을 가져올 때
+`execute()`가 반환한 첫 페이지든 이후 fetch 페이지든 `DataError`를 발생시킵니다.
+응답은 모두 읽었으므로 연결은 계속 사용할 수 있습니다. `execute()`가 실패한 뒤
+커서에는 결과 집합이 없지만(`description`은 `None`), 잘못된 UTF-8과 마찬가지로
+서버 핸들을 소유하고 해제합니다.
+
+pycubrid에는 0 날짜를 `None`이나 텍스트로 반환하는 옵션이 없습니다. 대신 SQL에서
+변환하세요.
+
+```sql
+SELECT id, NULLIF(d, DATE'0000-00-00') AS d FROM t;              -- 0 값 -> NULL
+SELECT id, CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END FROM t;
+SELECT id, TO_CHAR(d, 'YYYY-MM-DD') AS d FROM t;                 -- '0000-00-00'
+SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- 0 값 찾기
+```
+
+다른 타입에는 `DATETIME'0000-00-00 00:00:00'`(또는 해당 타입)을 사용하세요.
+명시적 prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8과 마찬가지로
+fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다. 도중에
+잘린 응답은 0 날짜가 들어 있더라도 여전히
+`OperationalError: malformed response from broker`입니다.
+
+이전 릴리스에서는 `OperationalError: malformed response from broker`를 발생시키고
+연결을 닫았습니다 (#512).
 
 ---
 

@@ -312,6 +312,21 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > If the session zone changes, the same stored instant is returned with a
 > different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
 
+> **Zero dates (#512):** CUBRID accepts zero values such as `DATE'0000-00-00'`,
+> `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
+> `TIMESTAMPLTZ`, `DATETIMETZ` and `DATETIMELTZ` values, but Python's `datetime`
+> has no year 0. Fetching one raises `DataError` naming the CUBRID type and
+> fields, on `execute()` and on a later fetch page alike; the connection stays
+> usable, and the cursor keeps its server handle as for invalid UTF-8 (#492).
+> Any other temporal field Python cannot hold is reported the same way.
+> There is no option to return `None` or text instead: convert the value in
+> SQL, for example `NULLIF(d, DATE'0000-00-00')` (zero becomes `NULL`),
+> `CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END`, or
+> `TO_CHAR(d, 'YYYY-MM-DD')` (returns `'0000-00-00'`). The explicit prepared
+> API (`pycubrid.compat.native`) stays fail-closed: it raises
+> `OperationalError` and retires the session. See
+> [Zero Date or Datetime Value](TROUBLESHOOTING.md#zero-date-or-datetime-value).
+
 > **Zone decoding (#413):** CUBRID sends each value's zone as text: an offset
 > (`+05:30`) or a region name with the abbreviation in effect
 > (`Asia/Seoul KST`, `UTC UTC` for the LTZ types). pycubrid resolves:

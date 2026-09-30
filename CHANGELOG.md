@@ -46,6 +46,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- **Zero `DATE`/`DATETIME`/`TIMESTAMP` values no longer close the connection
+  (#512)** — CUBRID accepts zero values such as `DATE'0000-00-00'`,
+  `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
+  `TIMESTAMPLTZ`, `DATETIMETZ` and `DATETIMELTZ` values, but Python's
+  `datetime` has no year 0. The decoder's raw `ValueError` was treated as a
+  framing failure: `OperationalError('malformed response from broker')`, the
+  socket closed, and every later call raised `InterfaceError('connection is
+  closed')`. The value now raises `DataError` naming the CUBRID type and fields
+  (`CUBRID DATE value (0, 0, 0) cannot be represented in Python: year 0 is out
+  of range`) and the session stays usable, on `execute()` and on a later fetch
+  page, sync and async, with the same cursor state as invalid UTF-8 (#492).
+  Any other temporal field Python cannot hold (such as a `TIME` hour of 25)
+  in a complete reply is reported the same way.
+  A row value that raises `DataError` (#492, #413, #512) is now reported only
+  after the rest of the row data is checked against the reply length, so a
+  reply cut short still raises `OperationalError` and closes the connection,
+  and so does a temporal field whose declared size does not match its type,
+  or a collection element that runs past the collection.
+  The explicit prepared API (`pycubrid.compat.native`) stays fail-closed.
+  There is no option to return zero dates as `None` or text;
+  `docs/TYPES.md` and `docs/TROUBLESHOOTING.md` (+ Korean) document SQL
+  workarounds (`NULLIF(d, DATE'0000-00-00')`, `CASE`, `TO_CHAR`). Found by
+  the CUBRID 10.2-11.4 version differential (#351); the behavior was the same
+  on 10.2, 11.0, 11.2 and 11.4.
 - **Security: `str`, `bytes`, date and time parameters are rendered without
   calling overridable methods (#528)** — `format_parameter()` escaped `str`
   parameters with `value.replace(...)` and `"\x00" in value`, rendered

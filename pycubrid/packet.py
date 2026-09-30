@@ -357,6 +357,24 @@ _COLLECTION_ELEMENT_METHOD_NAMES: dict[int, str] = {
 }
 
 
+def _unrepresentable_temporal(
+    type_name: str, fields: tuple[int, ...], exc: ValueError, size_ok: bool
+) -> DataError | ValueError:
+    """Classify a temporal value Python cannot hold (#512).
+
+    CUBRID stores zero dates such as ``DATE'0000-00-00'``, but ``datetime``
+    has no year 0. When the field has the declared size of its type, this is a
+    data problem: return ``DataError`` so the connection stays usable, as for
+    invalid UTF-8 (#492); ``_parse_row_data`` still checks the rest of the
+    reply before re-raising it. A field of the wrong size means the decoder
+    read outside it, so return a ``ValueError`` that the connection reports as
+    a malformed response (#383).
+    """
+    if not size_ok:
+        return ValueError(f"malformed CUBRID {type_name} value: wrong field size")
+    return DataError(f"CUBRID {type_name} value {fields!r} cannot be represented in Python: {exc}")
+
+
 class PacketReader:
     __slots__ = ("_buffer", "_offset", "_decode_collections", "_json_deserializer", "_encoding")
 
@@ -479,22 +497,38 @@ class PacketReader:
     def _parse_date(self, size: int = 0) -> datetime.date:
         year, month, day = _STRUCT_3H.unpack_from(self._buffer, self._offset)
         self._offset += 6
-        return datetime.date(year, month, day)
+        try:
+            return datetime.date(year, month, day)
+        except ValueError as exc:
+            raise _unrepresentable_temporal("DATE", (year, month, day), exc, size == 6) from exc
 
     def _parse_time(self, size: int = 0) -> datetime.time:
         hour, minute, second = _STRUCT_3H.unpack_from(self._buffer, self._offset)
         self._offset += 6
-        return datetime.time(hour, minute, second)
+        try:
+            return datetime.time(hour, minute, second)
+        except ValueError as exc:
+            raise _unrepresentable_temporal("TIME", (hour, minute, second), exc, size == 6) from exc
 
     def _parse_datetime(self, size: int = 0) -> datetime.datetime:
         y, mo, d, h, mi, s, ms = _STRUCT_7H.unpack_from(self._buffer, self._offset)
         self._offset += 14
-        return datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        try:
+            return datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        except ValueError as exc:
+            raise _unrepresentable_temporal(
+                "DATETIME", (y, mo, d, h, mi, s, ms), exc, size == 14
+            ) from exc
 
     def _parse_timestamp(self, size: int = 0) -> datetime.datetime:
         y, mo, d, h, mi, s = _STRUCT_6H.unpack_from(self._buffer, self._offset)
         self._offset += 12
-        return datetime.datetime(y, mo, d, h, mi, s, 0)
+        try:
+            return datetime.datetime(y, mo, d, h, mi, s, 0)
+        except ValueError as exc:
+            raise _unrepresentable_temporal(
+                "TIMESTAMP", (y, mo, d, h, mi, s), exc, size == 12
+            ) from exc
 
     def _parse_timestamptz(self, size: int) -> datetime.datetime:
         # TIMESTAMPTZ / TIMESTAMPLTZ are second-precision: 6 shorts (12 bytes,
@@ -505,7 +539,12 @@ class PacketReader:
         # "malformed response from broker" (#289).
         y, mo, d, h, mi, s = _STRUCT_6H.unpack_from(self._buffer, self._offset)
         self._offset += 12
-        dt = datetime.datetime(y, mo, d, h, mi, s, 0)
+        try:
+            dt = datetime.datetime(y, mo, d, h, mi, s, 0)
+        except ValueError as exc:
+            raise _unrepresentable_temporal(
+                "TIMESTAMPTZ/TIMESTAMPLTZ", (y, mo, d, h, mi, s), exc, size >= 12
+            ) from exc
         return self._attach_timezone_suffix(dt, size - 12)
 
     def _parse_datetimetz(self, size: int) -> datetime.datetime:
@@ -513,7 +552,12 @@ class PacketReader:
         # (14 bytes) followed by the timezone string.
         y, mo, d, h, mi, s, ms = _STRUCT_7H.unpack_from(self._buffer, self._offset)
         self._offset += 14
-        dt = datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        try:
+            dt = datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        except ValueError as exc:
+            raise _unrepresentable_temporal(
+                "DATETIMETZ/DATETIMELTZ", (y, mo, d, h, mi, s, ms), exc, size >= 14
+            ) from exc
         return self._attach_timezone_suffix(dt, size - 14)
 
     def _attach_timezone_suffix(
@@ -581,12 +625,25 @@ class PacketReader:
 
         parser = getattr(self, method_name)
         values: list[object] = []
-        for _ in range(element_count):
+        for index in range(element_count):
             element_size = self._parse_int()
             if element_size <= 0:
                 values.append(None)
                 continue
-            values.append(parser(element_size))
+            element_start = self._offset
+            try:
+                values.append(parser(element_size))
+            except DataError:
+                # Report an unrepresentable element (#492, #512) only when the
+                # remaining elements fit the collection's declared size.
+                self._offset = element_start + element_size
+                for _ in range(index + 1, element_count):
+                    element_size = self._parse_int()
+                    if element_size > 0:
+                        self._offset += element_size
+                if self._offset > start_offset + size:
+                    raise ValueError("malformed collection: elements exceed its size") from None
+                raise
         return values
 
     def _parse_object(self, size: int = 0) -> str:
