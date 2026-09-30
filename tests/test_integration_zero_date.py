@@ -7,8 +7,10 @@ from typing import cast
 
 import pytest
 
+import pycubrid
+import pycubrid.aio
 from pycubrid.exceptions import DataError
-from tests._parity_helpers import ADAPTERS, ParityAdapter
+from tests._parity_helpers import ADAPTERS, ParityAdapter, connect_kwargs
 
 pytestmark = pytest.mark.integration
 
@@ -48,6 +50,34 @@ async def test_zero_literal_raises_data_error_and_keeps_session(
     finally:
         await adapter.close_cursor(cursor)
         await adapter.close_connection(connection)
+
+
+ZERO_DATE_SEQUENCE = "SELECT CAST({DATE'0000-00-00', DATE'2024-01-02'} AS SEQUENCE OF DATE)"
+
+
+def test_zero_date_in_decoded_collection_keeps_session_sync() -> None:
+    connection = pycubrid.connect(**connect_kwargs(), decode_collections=True)
+    try:
+        cursor = connection.cursor()
+        with pytest.raises(DataError, match="cannot be represented"):
+            cursor.execute(ZERO_DATE_SEQUENCE)
+        cursor.execute("SELECT 1")
+        assert cursor.fetchone() == (1,)
+    finally:
+        connection.close()
+
+
+@pytest.mark.asyncio
+async def test_zero_date_in_decoded_collection_keeps_session_async() -> None:
+    connection = await pycubrid.aio.connect(**connect_kwargs(), decode_collections=True)
+    try:
+        cursor = connection.cursor()
+        with pytest.raises(DataError, match="cannot be represented"):
+            await cursor.execute(ZERO_DATE_SEQUENCE)
+        await cursor.execute("SELECT 1")
+        assert await cursor.fetchone() == (1,)
+    finally:
+        await connection.close()
 
 
 @pytest.mark.asyncio

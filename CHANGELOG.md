@@ -61,7 +61,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   in a complete reply is reported the same way.
   A row value that raises `DataError` (#492, #413, #512) is now reported only
   after the rest of the row data is checked against the reply length, so a
-  reply cut short still raises `OperationalError` and closes the connection.
+  reply cut short still raises `OperationalError` and closes the connection,
+  and so does a temporal field whose declared size does not match its type,
+  or a collection element that runs past the collection.
   The explicit prepared API (`pycubrid.compat.native`) stays fail-closed.
   There is no option to return zero dates as `None` or text;
   `docs/TYPES.md` and `docs/TROUBLESHOOTING.md` (+ Korean) document SQL

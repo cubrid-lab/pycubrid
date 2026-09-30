@@ -22,7 +22,7 @@ from pycubrid.cursor import Cursor
 from pycubrid.exceptions import DataError, OperationalError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import CloseQueryPacket, FetchPacket, PrepareAndExecutePacket, _read_value
-from tests.test_connection import make_connected_connection, socket_queue  # noqa: F401
+from tests.test_connection import socket_queue  # noqa: F401
 from tests.test_invalid_utf8_response import (
     CAS_INFO,
     _async_connection_with_reply,
@@ -165,6 +165,108 @@ def test_zero_date_before_overlong_value_is_a_framing_error() -> None:
     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
     with pytest.raises(IndexError, match="past the end"):
         packet.parse(body, columns=_date_columns())
+
+
+# (column type, full-width zero payload, declared size one byte too small)
+UNDERSIZED_ZERO_VALUES = [
+    pytest.param(CUBRIDDataType.DATE, struct.pack(">3h", 0, 0, 0), 5, id="date"),
+    pytest.param(
+        CUBRIDDataType.DATETIME, struct.pack(">7h", 0, 0, 0, 0, 0, 0, 0), 13, id="datetime"
+    ),
+    pytest.param(
+        CUBRIDDataType.TIMESTAMP, struct.pack(">6h", 0, 0, 0, 0, 0, 0), 11, id="timestamp"
+    ),
+    pytest.param(
+        CUBRIDDataType.TIMESTAMPTZ, struct.pack(">6h", 0, 0, 0, 0, 0, 0), 11, id="timestamptz"
+    ),
+    pytest.param(
+        CUBRIDDataType.DATETIMETZ, struct.pack(">7h", 0, 0, 0, 0, 0, 0, 0), 13, id="datetimetz"
+    ),
+]
+
+
+@pytest.mark.parametrize(("column_type", "payload", "size"), UNDERSIZED_ZERO_VALUES)
+def test_undersized_zero_temporal_field_is_a_framing_error(
+    column_type: int, payload: bytes, size: int
+) -> None:
+    # The decoder would read past its field, so this is not a data error.
+    with pytest.raises(ValueError, match="wrong field size") as raised:
+        _read_value(PacketReader(payload), column_type, size)
+    assert not isinstance(raised.value, DataError)
+
+
+def _date_int_columns() -> list:
+    columns = PrepareAndExecutePacket("SELECT d, i FROM t")
+    columns.parse(
+        _build_select_response(
+            [(CUBRIDDataType.DATE, "d"), (CUBRIDDataType.INT, "i")],
+            [struct.pack(">3h", 2024, 1, 1), struct.pack(">i", 1)],
+        )
+    )
+    return columns.columns
+
+
+def _undersized_date_then_int_body() -> bytes:
+    # DATE declared as 5 bytes: _parse_date() would take the first byte of the
+    # INT length as its sixth byte, and the declared sizes still add up.
+    body = CAS_INFO + struct.pack(">ii", 0, 1) + struct.pack(">i", 1) + b"\x00" * 8
+    body += struct.pack(">i", 5) + b"\x00" * 5
+    body += struct.pack(">i", 4) + struct.pack(">i", 7)
+    return body
+
+
+def test_undersized_zero_date_before_complete_column_is_a_framing_error() -> None:
+    packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
+    with pytest.raises(ValueError, match="wrong field size"):
+        packet.parse(_undersized_date_then_int_body(), columns=_date_int_columns())
+
+
+def test_sync_undersized_zero_date_closes_connection(
+    socket_queue: list,  # noqa: F811
+) -> None:
+    conn, _ = _connection_with_reply(socket_queue, _undersized_date_then_int_body())
+    packet = FetchPacket(
+        1, 0, columns=_date_int_columns(), statement_type=CUBRIDStatementType.SELECT
+    )
+    with pytest.raises(OperationalError, match="malformed response"):
+        conn._send_and_receive(packet)
+    assert conn._connected is False
+
+
+def test_undersized_typed_call_value_is_a_framing_error() -> None:
+    # CALL results carry a type byte inside the value; 1 + 5 bytes is short.
+    body = CAS_INFO + struct.pack(">ii", 0, 1) + struct.pack(">i", 1) + b"\x00" * 8
+    body += struct.pack(">iB", 6, CUBRIDDataType.DATE) + b"\x00" * 5
+    body += struct.pack(">i", 4) + struct.pack(">i", 7)
+    packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.CALL)
+    with pytest.raises(ValueError, match="wrong field size"):
+        packet.parse(body, columns=_date_int_columns())
+
+
+def test_undersized_collection_element_is_a_framing_error() -> None:
+    payload = struct.pack(">Bi", CUBRIDDataType.DATE, 1) + struct.pack(">i", 5) + b"\x00" * 6
+    reader = PacketReader(payload, decode_collections=True)
+    with pytest.raises(ValueError, match="wrong field size"):
+        _read_value(reader, CUBRIDDataType.SET, len(payload))
+
+
+def test_collection_element_past_collection_size_is_a_framing_error() -> None:
+    payload = struct.pack(">Bi", CUBRIDDataType.DATE, 2)
+    payload += struct.pack(">i", 6) + _ZERO_DATE + struct.pack(">i", 64) + b"\x00" * 6
+    reader = PacketReader(payload, decode_collections=True)
+    with pytest.raises(ValueError, match="exceed its size"):
+        _read_value(reader, CUBRIDDataType.SEQUENCE, len(payload))
+
+
+def test_zero_date_in_complete_collection_with_more_elements_raises_data_error() -> None:
+    payload = struct.pack(">Bi", CUBRIDDataType.DATE, 3)
+    for element in (_ZERO_DATE, struct.pack(">3h", 2024, 1, 2)):
+        payload += struct.pack(">i", 6) + element
+    payload += struct.pack(">i", -1)
+    reader = PacketReader(payload, decode_collections=True)
+    with pytest.raises(DataError, match="cannot be represented"):
+        _read_value(reader, CUBRIDDataType.SEQUENCE, len(payload))
+    assert reader.bytes_remaining() == 0
 
 
 def test_zero_date_in_complete_multi_row_reply_raises_data_error() -> None:

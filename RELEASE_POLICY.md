@@ -229,7 +229,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   session is kept, on `execute()` and on later fetch pages. A row value that
   raises `DataError` (#492, #413, #512) is now reported only after the rest of
   the row data is checked against the reply length, so a short reply stays a
-  fail-closed `OperationalError`. Any other temporal value Python cannot hold
+  fail-closed `OperationalError`, as does a temporal field of the wrong size or
+  a collection element past the collection's size. Any other temporal value Python cannot hold
   (for example a `TIME` hour of 25 or a month of 13, which a normal server does
   not send) is classified the same way. The explicit prepared API stays
   fail-closed. Valid temporal values, public signatures, dependencies and
