@@ -19,6 +19,7 @@ import sys
 import pytest
 
 import pycubrid
+from pycubrid.connection import Connection
 from pycubrid.exceptions import Error as DBAPIError
 
 from .helpers.fault_broker import ALL_FAULTS, run_fault_broker
@@ -75,8 +76,12 @@ def test_well_framed_response_connects(fault_name: str) -> None:
     fault = ALL_FAULTS[fault_name]
     with run_fault_broker(fault) as port:
         conn = _connect(port)
-        assert conn is not None
-        conn.close()
+        try:
+            assert isinstance(conn, Connection)
+            assert conn._connected is True
+        finally:
+            conn.close()
+        assert conn._connected is False
 
 
 @pytest.mark.parametrize("fault_name", sorted(ALL_FAULTS))
