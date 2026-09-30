@@ -449,12 +449,13 @@ def _check_fetch(
 ) -> None:
     """FETCH oracle: documented errors only; a parsed reply's cells fit inside it."""
     _assert_documented(exc, reply_complete=lambda: cas_reply.fetch_rows_fit(reply, ncols))
-    if exc is None and pkt.tuple_count > 0 and ncols:
+    if exc is None and ncols:
+        assert cas_reply.fetch_rows_fit(reply, ncols), (
+            "FETCH parsed a reply whose tuple count is negative or whose declared "
+            "cell sizes overrun it"
+        )
         assert len(pkt.rows) == pkt.tuple_count
         assert all(len(row) == ncols for row in pkt.rows)
-        assert cas_reply.fetch_rows_fit(reply, ncols), (
-            "FETCH returned rows although a declared cell size overruns the reply"
-        )
 
 
 # --- unmutated seeds decode exactly --------------------------------------------

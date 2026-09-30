@@ -1322,6 +1322,9 @@ class FetchPacket(_CasPacket):
         effective_stmt_type = statement_type if statement_type is not None else self._statement_type
 
         self.tuple_count = reader._parse_int()
+        if self.tuple_count < 0:
+            # Would read as an empty page and end the result set early (#523).
+            raise ValueError("negative FETCH tuple count")
         if self.tuple_count > 0 and effective_columns:
             self.rows = _parse_row_data(
                 reader, self.tuple_count, effective_columns, effective_stmt_type

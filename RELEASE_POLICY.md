@@ -263,7 +263,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `OBJECT`, ...) does not use exactly the bytes its size word declares, including
   a size past the end of the reply, now raises `OperationalError('malformed
   response from broker')` and closes the connection instead of returning the
-  value. A normal server always sends the exact size. Valid replies, SQL `NULL`
+  value; so does a negative FETCH tuple count, which used to end the result set
+  early. A normal server always sends the exact size. Valid replies, SQL `NULL`
   cells, the `DataError` classification of complete replies (#492, #512), public
   signatures, dependencies and supported versions are unchanged.
 

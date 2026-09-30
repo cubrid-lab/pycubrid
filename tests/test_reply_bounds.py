@@ -297,6 +297,15 @@ def test_sync_fixed_width_cell_size_mismatch_closes_connection(
     sock.close.assert_called()
 
 
+@pytest.mark.parametrize("tuple_count", [-1, -(2**31)])
+def test_negative_fetch_tuple_count_is_malformed(tuple_count: int) -> None:
+    # A negative count used to parse as an empty page, silently ending the
+    # result set early instead of reporting framing damage (#523).
+    body = CAS_INFO + struct.pack(">ii", 0, tuple_count)
+    with pytest.raises(ValueError, match="negative FETCH tuple count"):
+        _fetch([CUBRIDDataType.INT], body)
+
+
 def test_trailing_bytes_after_last_row_are_ignored() -> None:
     # Deliberate: a FETCH reply is not required to end at its last row, so
     # bytes after it are not a framing error (only reads past the end are).

@@ -851,8 +851,10 @@ def fetch_rows_fit(reply: bytes, ncols: int) -> bool:
     if len(reply) < 12:
         return False
     tuple_count = struct.unpack_from(">i", reply, 8)[0]
+    if tuple_count < 0:
+        return False
     offset = 12
-    for _ in range(max(tuple_count, 0)):
+    for _ in range(tuple_count):
         offset += 4 + len(OID)
         for _ in range(ncols):
             if offset + 4 > len(reply):

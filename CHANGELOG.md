@@ -59,8 +59,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `OperationalError('malformed response from broker')` and closes the
   connection, sync and async. A normal server always sends the exact size, so
   valid replies, the `DataError` classification of complete replies (#492,
-  #512) and SQL `NULL` cells (a non-positive size) are unchanged. Documented in
-  `docs/PROTOCOL.md` and `docs/TROUBLESHOOTING.md` (+ Korean).
+  #512) and SQL `NULL` cells (a non-positive size) are unchanged. A negative
+  FETCH tuple count, which read as an empty page and silently ended the result
+  set early, is rejected the same way. Documented in `docs/PROTOCOL.md` and
+  `docs/TROUBLESHOOTING.md` (+ Korean).
 - **Tests: protocol fuzzing seeds realistic replies (#523)** — every
   `tests/test_protocol_fuzz.py` seed used to carry zero columns, so no fuzz
   case reached column metadata or row cells. Seeds built by
