@@ -986,3 +986,153 @@ async def test_async_reconnect_between_bind_and_send_rejects_bound_sql() -> None
     ]
     assert statements == []
     assert conn._physical_generation == 2
+
+
+# -- autocommit setter keeps SET_DB_PARAMETER and COMMIT on one session (#551) --
+
+
+def _native_error_response(cas_info: bytes = IN_TRAN) -> bytes:
+    body = cas_info + struct.pack(">ii", -1, -1) + b"denied\x00"
+    return struct.pack(">i", len(body) - 4) + body
+
+
+def test_sync_setter_recycle_before_commit_restores_new_value_on_replacement() -> None:
+    conn, old = make_connected_connection()
+    # SET_DB_PARAMETER is answered OUT_TRAN, then the CAS closes the socket.
+    _script(old, _frames(build_simple_ok_response(OUT_TRAN)))
+    ok = build_simple_ok_response()
+    new = _replacement_socket(ok, ok)
+    old_start = old.sendall.call_count
+
+    with patch("socket.create_connection", return_value=new) as create:
+        conn.autocommit = True
+
+    create.assert_called_once()
+    assert conn.autocommit is True
+    assert _function_codes(old, old_start) == [
+        CASFunctionCode.SET_DB_PARAMETER,
+        CASFunctionCode.CHECK_CAS,
+    ]
+    # The replacement receives the new value before the COMMIT.
+    assert _function_codes(new, 2) == [CASFunctionCode.SET_DB_PARAMETER, CASFunctionCode.END_TRAN]
+    assert new.sendall.call_args_list[2].args[0][-4:] == struct.pack(">i", 1)
+
+
+def test_sync_setter_replaces_the_session_at_most_once() -> None:
+    conn, old = _sync_out_tran()
+    _script(old, [])  # the SET_DB_PARAMETER probe finds the CAS gone
+    # The replacement answers SET_DB_PARAMETER OUT_TRAN and is recycled too.
+    new = _replacement_socket(build_simple_ok_response(OUT_TRAN))
+
+    with patch("socket.create_connection", return_value=new) as create:
+        with pytest.raises(OperationalError, match="autocommit change"):
+            conn.autocommit = True
+
+    create.assert_called_once()
+    assert _function_codes(new, 2) == [CASFunctionCode.SET_DB_PARAMETER, CASFunctionCode.END_TRAN]
+    assert conn._connected is False
+    assert conn._autocommit is False
+    assert conn._autocommit_explicitly_set is False
+
+
+def test_sync_setter_commit_error_retires_session_and_keeps_previous_value() -> None:
+    conn, sock = make_connected_connection()
+    conn._autocommit_explicitly_set = True  # an earlier explicit False
+    _script(sock, _frames(build_simple_ok_response(), _native_error_response()))
+
+    with pytest.raises(OperationalError, match="autocommit change") as info:
+        conn.autocommit = True
+
+    assert type(info.value.__cause__).__name__ == "DatabaseError"
+    assert conn._connected is False
+    assert conn._socket is None
+    assert (conn._autocommit, conn._autocommit_explicitly_set) == (False, True)
+
+
+def test_sync_setter_native_set_error_keeps_session_and_value() -> None:
+    conn, sock = make_connected_connection()
+    _script(sock, _frames(_native_error_response()))
+    start = sock.sendall.call_count
+
+    with pytest.raises(Exception) as info:
+        conn.autocommit = True
+
+    assert not isinstance(info.value, OperationalError)
+    assert _function_codes(sock, start) == [CASFunctionCode.SET_DB_PARAMETER]
+    assert conn._connected is True
+    assert conn._autocommit is False
+    assert conn._autocommit_explicitly_set is False
+
+
+def test_sync_setter_interrupted_commit_retires_session_and_keeps_previous_value() -> None:
+    conn, sock = make_connected_connection()
+    _script(sock, _frames(build_simple_ok_response()))
+    original = conn._send_and_receive_locked
+
+    def interrupt_commit(packet: Any, **kwargs: Any) -> Any:
+        if isinstance(packet, CommitPacket):
+            raise KeyboardInterrupt
+        return original(packet, **kwargs)
+
+    with patch.object(conn, "_send_and_receive_locked", interrupt_commit):
+        with pytest.raises(KeyboardInterrupt):
+            conn.autocommit = True
+
+    assert conn._connected is False
+    assert conn._autocommit is False
+    assert conn._autocommit_explicitly_set is False
+
+
+@pytest.mark.asyncio
+async def test_async_setter_recycle_before_commit_restores_new_value_on_replacement() -> None:
+    conn, cas, open_connection = _async_out_tran(no_backslash_escapes=True)
+    cas.fail_on = {2}  # the COMMIT's CHECK_CAS finds the CAS recycled
+
+    await conn.set_autocommit(True)
+
+    open_connection.assert_awaited_once()
+    assert conn.autocommit is True
+    assert cas.kinds() == [
+        (1, CheckCasPacket),
+        (1, SetDbParameterPacket),
+        (1, CheckCasPacket),
+        (2, SetDbParameterPacket),  # restored before the COMMIT
+        (2, CheckCasPacket),
+        (2, CommitPacket),
+    ]
+    assert cas.sent[3][1].value == 1
+
+
+@pytest.mark.asyncio
+async def test_async_setter_replaces_the_session_at_most_once() -> None:
+    conn, cas, open_connection = _async_out_tran(no_backslash_escapes=True)
+    # The SET_DB_PARAMETER probe fails, then the replacement's COMMIT fails too.
+    cas.fail_on = {0, 2}
+
+    with pytest.raises(OperationalError, match="autocommit change"):
+        await conn.set_autocommit(True)
+
+    open_connection.assert_awaited_once()
+    # The COMMIT follows an OUT_TRAN reply but is not probed: no second reconnect.
+    assert cas.kinds() == [(1, CheckCasPacket), (2, SetDbParameterPacket), (2, CommitPacket)]
+    assert conn._connected is False
+    assert conn._autocommit is False
+    assert conn._autocommit_explicitly_set is False
+
+
+@pytest.mark.asyncio
+async def test_async_setter_cancelled_commit_retires_session_and_keeps_previous_value() -> None:
+    conn, cas, _ = _async_out_tran(no_backslash_escapes=True)
+    conn._autocommit_explicitly_set = True
+
+    async def cancel_commit(packet: Any) -> Any:
+        if isinstance(packet, CommitPacket):
+            raise asyncio.CancelledError
+        return await cas(packet)
+
+    with patch.object(conn, "_do_send_and_receive", cancel_commit):
+        with pytest.raises(asyncio.CancelledError):
+            await conn.set_autocommit(True)
+
+    assert conn._connected is False
+    assert (conn._autocommit, conn._autocommit_explicitly_set) == (False, True)

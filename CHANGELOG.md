@@ -45,6 +45,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **The autocommit setter keeps `SET_DB_PARAMETER` and `COMMIT` on one CAS session (#551)** —
+  in both drivers, `conn.autocommit = v` / `await conn.set_autocommit(v)` sent
+  `COMMIT` with implicit reconnect after an OUT_TRAN `SET_DB_PARAMETER` reply,
+  so a CAS recycled between the two sent only the `COMMIT` to the replacement
+  session: `autocommit` reported the new value while that session had the
+  broker default (first change) or the previous value (later change). The new
+  value is now recorded before the `COMMIT`, so the `COMMIT`'s single
+  `CHECK_CAS` reconnect restores it on the replacement first. A call replaces
+  the session at most once: if `SET_DB_PARAMETER` itself needed a reconnect, the
+  `COMMIT` is not allowed another one. If the `COMMIT` fails (including a
+  native error), the connection is closed, the previous value is kept and
+  `OperationalError` is raised with the cause chained; a rejected
+  `SET_DB_PARAMETER` still raises its native error and keeps the session.
+  Found by the offline sync/async replay parity suite (#521), whose strict
+  `xfail` scenario now passes.
 - **Sync `Connection.connect()` after `close()` restores an explicit `autocommit` (#520)** —
   reopening a closed sync connection did not re-send `SET_DB_PARAMETER`
   (`AUTO_COMMIT`), so the new CAS session kept the broker default while

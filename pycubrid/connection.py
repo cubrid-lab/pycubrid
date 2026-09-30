@@ -585,19 +585,42 @@ class Connection(ConnectionCommonMixin):
 
     @autocommit.setter
     def autocommit(self, value: bool) -> None:
-        """Set auto-commit mode and flush transaction state on the server."""
+        """Set auto-commit mode and flush transaction state on the server.
+
+        ``SET_DB_PARAMETER`` and its ``COMMIT`` must take effect on one CAS
+        session (#551). The new value is recorded once ``SET_DB_PARAMETER``
+        succeeds, so if the CAS is recycled before the ``COMMIT`` the
+        reconnect restores the new value on the replacement session before the
+        ``COMMIT`` is sent there. At most one session is replaced per call: a
+        CAS already replaced for this call is not replaced again. If the
+        ``COMMIT`` fails, the session is retired, the previous value is kept,
+        and :class:`OperationalError` is raised with the cause chained.
+        """
         self._ensure_connected()
         enabled = bool(value)
-        self._close_schema_results()
-        self._send_and_receive(
-            SetDbParameterPacket(
-                parameter=CCIDbParam.AUTO_COMMIT,
-                value=1 if enabled else 0,
+        with self._session_lock:
+            generation = self._physical_generation
+            self._close_schema_results()
+            self._send_and_receive(
+                SetDbParameterPacket(
+                    parameter=CCIDbParam.AUTO_COMMIT,
+                    value=1 if enabled else 0,
+                ),
+                allow_reconnect=self._physical_generation == generation,
             )
-        )
-        self._send_and_receive(CommitPacket())
-        self._autocommit = enabled
-        self._autocommit_explicitly_set = True
+            previous = (self._autocommit, self._autocommit_explicitly_set)
+            self._autocommit = enabled
+            self._autocommit_explicitly_set = True
+            try:
+                self._send_and_receive(
+                    CommitPacket(), allow_reconnect=self._physical_generation == generation
+                )
+            except BaseException as exc:
+                self._autocommit, self._autocommit_explicitly_set = previous
+                self._drop_connection()
+                if isinstance(exc, Exception):
+                    raise OperationalError("failed to commit the autocommit change") from exc
+                raise
         _LOGGER.debug("autocommit=%s", enabled)
 
     def get_server_version(self) -> str:
