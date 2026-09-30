@@ -7520,8 +7520,10 @@ You do not need to run the steps above locally for routine development —
 This job runs on the same triggers as the rest of `integration-full`
 (nightly, on tag push, and via `workflow_dispatch`). `ci.yml` runs the same
 lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
-TLS-relevant paths change (the connection modules, `pycubrid/aio/`, the TLS and
-SSL tests, `tests/helpers/tls_*.py`, `tests/fixtures/tls/` or workflows), so
+TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
+`pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
+`tests/helpers/tls_*.py`, `tests/fixtures/tls/`, the lane audit script or
+workflows), so
 routine PRs do not pay for it.
 
 ### Code Coverage
