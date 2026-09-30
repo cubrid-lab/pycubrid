@@ -60,6 +60,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   valid replies, the `DataError` classification of complete replies (#492,
   #512) and SQL `NULL` cells (a non-positive size) are unchanged. Documented in
   `docs/PROTOCOL.md` and `docs/TROUBLESHOOTING.md` (+ Korean).
+- **Tests: protocol fuzzing seeds realistic replies (#523)** — every
+  `tests/test_protocol_fuzz.py` seed used to carry zero columns, so no fuzz
+  case reached column metadata or row cells. Seeds built by
+  `tests/helpers/cas_reply.py` now cover `PREPARE_AND_EXECUTE`, `PREPARE` and
+  `EXECUTE` replies with metadata for string, numeric, `NUMERIC`, temporal and
+  TZ, `BIT`/`VARBIT`, OID, collection, LOB and `JSON` columns; multi-row FETCH
+  replies (including CALL and `NULL`-typed layouts); and schema, batch and LOB
+  replies. Unmutated seeds must decode to exactly their values; mutations aim
+  at truncation at field boundaries, length and count words, and collection
+  element types, and the oracle admits only structural errors (reported as
+  `OperationalError`), server errors and `DataError` for complete replies,
+  also through the sync and async connections. Fifteen tests whose only
+  assertion was `is not None` now check the expected value.
 - **Tests: a configured but unreachable CUBRID now errors instead of skipping (#522, #432)** —
   16 integration modules probed the server at import time and called
   `skipif("CUBRID instance not available")`, so pointing the suite at a dead
