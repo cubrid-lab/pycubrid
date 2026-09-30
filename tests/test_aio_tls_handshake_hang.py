@@ -40,6 +40,12 @@ MAX_ELAPSED = READ_TIMEOUT + 2.0
 GUARD_TIMEOUT = 10.0
 
 
+def _client_context() -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
 def _reset(writer: asyncio.StreamWriter) -> None:
     """Close the server side with an RST (SO_LINGER 0) instead of a FIN."""
     sock = writer.get_extra_info("socket")
@@ -67,6 +73,7 @@ async def _serve(behavior: str, reader: asyncio.StreamReader, writer: asyncio.St
             await reader.read(1)  # first byte of the ClientHello record
             _reset(writer)
     except (ConnectionError, asyncio.IncompleteReadError):
+        # The client went away first, which is what these cases expect.
         pass
     finally:
         writer.transport.abort()
@@ -86,7 +93,7 @@ async def test_aio_tls_connect_fails_within_read_timeout(behavior: str) -> None:
     port = server.sockets[0].getsockname()[1]
     tasks_before = asyncio.all_tasks()
 
-    error: type[BaseException] | None = None
+    error: type[Exception] | None = None
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", ResourceWarning)
         try:
@@ -98,13 +105,13 @@ async def test_aio_tls_connect_fails_within_read_timeout(behavior: str) -> None:
                         port=port,
                         database="testdb",
                         user="dba",
-                        ssl=ssl.create_default_context(),
+                        ssl=_client_context(),
                         connect_timeout=READ_TIMEOUT,
                         read_timeout=READ_TIMEOUT,
                     ),
                     timeout=GUARD_TIMEOUT,
                 )
-            except BaseException as exc:  # keep no traceback alive for the GC check
+            except Exception as exc:  # keep no traceback alive for the GC check
                 error = type(exc)
             elapsed = time.monotonic() - started
             if behavior in ("stall", "silent"):
@@ -170,7 +177,7 @@ def test_sync_tls_connect_fails_within_read_timeout(behavior: str) -> None:
                 port=port,
                 database="testdb",
                 user="dba",
-                ssl=ssl.create_default_context(),
+                ssl=_client_context(),
                 connect_timeout=READ_TIMEOUT,
                 read_timeout=READ_TIMEOUT,
             )
