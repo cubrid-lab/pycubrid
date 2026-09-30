@@ -32,6 +32,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Unicode / NCHAR Encoding](#unicode--nchar-encoding)
   - [Invalid UTF-8 in a Value or Error Message](#invalid-utf-8-in-a-value-or-error-message)
   - [Unresolved Time Zone in a TZ Value](#unresolved-time-zone-in-a-tz-value)
+  - [Zero Date or Datetime Value](#zero-date-or-datetime-value)
 - [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
   - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
   - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)
@@ -799,6 +800,42 @@ text, e.g. `SELECT TO_CHAR(col)`.
 
 Earlier releases logged `Unknown timezone token` and returned a naive
 `datetime`, silently dropping the zone (#413).
+
+### Zero Date or Datetime Value
+
+```
+pycubrid.exceptions.DataError: CUBRID DATE value (0, 0, 0) cannot be represented
+in Python: year 0 is out of range
+```
+
+CUBRID accepts zero values such as `DATE'0000-00-00'` and
+`DATETIME'0000-00-00 00:00:00'` (also for `TIMESTAMP` and the TZ/LTZ types),
+for example from `CAST('0000-00-00' AS DATE)` or data loaded from another
+system. Python's `datetime` has no year 0, so pycubrid raises `DataError` when
+such a value is fetched, whether it is in the first page returned by
+`execute()` or in a later fetch page. The reply was read in full, so the
+connection stays usable; after a failed `execute()` the cursor has no result
+set (`description` is `None`) but still owns and releases the server handle,
+as for invalid UTF-8.
+
+pycubrid has no option to return zero dates as `None` or text. Convert them
+in SQL instead:
+
+```sql
+SELECT id, NULLIF(d, DATE'0000-00-00') AS d FROM t;              -- zero -> NULL
+SELECT id, CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END FROM t;
+SELECT id, TO_CHAR(d, 'YYYY-MM-DD') AS d FROM t;                 -- '0000-00-00'
+SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- find them
+```
+
+Use `DATETIME'0000-00-00 00:00:00'` (or the matching type) for the other
+types. The explicit prepared API (`pycubrid.compat.native`) stays fail-closed,
+as for invalid UTF-8: it raises `OperationalError` and retires the session.
+A reply that is cut short is still `OperationalError: malformed response from
+broker`, even when it also contains a zero date.
+
+Earlier releases raised `OperationalError: malformed response from broker`
+and closed the connection (#512).
 
 ---
 
