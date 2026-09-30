@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import datetime
+
 import pycubrid
+from pycubrid.constants import CUBRIDDataType as T
 
 
 class TestModuleInterface:
@@ -49,39 +52,87 @@ class TestExceptionHierarchy:
         assert issubclass(pycubrid.NotSupportedError, pycubrid.DatabaseError)
 
 
+# PEP 249: each type object compares equal to the type codes of its group and
+# unequal to every other code a result column can report.
+_TYPE_OBJECT_MEMBERS = {
+    "STRING": {
+        T.CHAR,
+        T.STRING,
+        T.NCHAR,
+        T.VARNCHAR,
+        T.ENUM,
+        T.CLOB,
+        T.JSON,
+    },
+    "BINARY": {T.BIT, T.VARBIT, T.BLOB},
+    "NUMBER": {
+        T.NUMERIC,
+        T.INT,
+        T.SHORT,
+        T.MONETARY,
+        T.FLOAT,
+        T.DOUBLE,
+        T.BIGINT,
+    },
+    "DATETIME": {
+        T.DATE,
+        T.TIME,
+        T.TIMESTAMP,
+        T.DATETIME,
+        T.TIMESTAMPTZ,
+        T.TIMESTAMPLTZ,
+        T.DATETIMETZ,
+        T.DATETIMELTZ,
+    },
+    "ROWID": {T.OBJECT},
+}
+
+
+def _assert_type_object_group(name: str) -> None:
+    type_object = getattr(pycubrid, name)
+    members = _TYPE_OBJECT_MEMBERS[name]
+    assert {code for code in T if code == type_object} == members
+    assert all(code != type_object for code in set(T) - members)
+
+
 class TestTypeObjects:
     def test_string(self) -> None:
-        assert pycubrid.STRING is not None
+        _assert_type_object_group("STRING")
 
     def test_binary(self) -> None:
-        assert pycubrid.BINARY is not None
+        _assert_type_object_group("BINARY")
 
     def test_number(self) -> None:
-        assert pycubrid.NUMBER is not None
+        _assert_type_object_group("NUMBER")
 
     def test_datetime(self) -> None:
-        assert pycubrid.DATETIME is not None
+        _assert_type_object_group("DATETIME")
 
     def test_rowid(self) -> None:
-        assert pycubrid.ROWID is not None
+        _assert_type_object_group("ROWID")
 
 
 class TestConstructors:
     def test_date(self) -> None:
         date_value = pycubrid.Date(2026, 1, 1)
-        assert date_value is not None
+        assert type(date_value) is datetime.date
+        assert date_value == datetime.date(2026, 1, 1)
 
     def test_time(self) -> None:
         time_value = pycubrid.Time(12, 30, 0)
-        assert time_value is not None
+        assert type(time_value) is datetime.time
+        assert time_value == datetime.time(12, 30, 0)
 
     def test_timestamp(self) -> None:
         timestamp_value = pycubrid.Timestamp(2026, 1, 1, 12, 30, 0)
-        assert timestamp_value is not None
+        assert type(timestamp_value) is datetime.datetime
+        assert timestamp_value == datetime.datetime(2026, 1, 1, 12, 30, 0)
+        assert timestamp_value.tzinfo is None
 
     def test_binary(self) -> None:
         binary_value = pycubrid.Binary(b"hello")
-        assert binary_value is not None
+        assert type(binary_value) is bytes
+        assert binary_value == b"hello"
 
 
 _EXCEPTION_NAMES = (

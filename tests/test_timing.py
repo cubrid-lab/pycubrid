@@ -346,8 +346,20 @@ class TestConnectionTimingEnvVar:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("PYCUBRID_ENABLE_TIMING", "1")
+        conn, _ = _make_connected(socket_queue, enable_timing=False)
+        assert conn._timing is None
+        assert conn.timing_stats is None
+
+    def test_kwarg_enables_timing_when_env_disables_it(
+        self,
+        socket_queue: list[MagicMock],
+        cursor_module: type,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("PYCUBRID_ENABLE_TIMING", "0")
         conn, _ = _make_connected(socket_queue, enable_timing=True)
-        assert conn._timing is not None
+        assert isinstance(conn.timing_stats, TimingStats)
+        assert conn.timing_stats.connect_count == 1
 
 
 class TestCursorTiming:

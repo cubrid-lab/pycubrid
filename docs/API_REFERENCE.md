@@ -775,12 +775,14 @@ Prepare and execute a SQL statement.
 **Returns:** The cursor itself (for chaining).
 
 After closing the previous query handle, `execute()` clears its result state
-before binding parameters or sending the new statement. If binding or the request
-fails, `description` is `None`, `rowcount` is `-1`, `lastrowid` is `None`, and
-fetch methods raise `InterfaceError("No result set available")`. A later
-successful `execute()` can reuse the cursor. If closing the previous handle
-fails, `execute()` keeps the buffered result; connection invalidation or reconnect
-handling may still retire the handle. This behaviour applies to both `Cursor`
+before binding parameters or sending the new statement, discarding buffered rows
+and any held fetch-page error. If binding or the request fails, `description` is
+`None`, `rowcount` is `-1`, `lastrowid` is `None`, and fetch methods raise
+`InterfaceError("No result set available")`. A later successful `execute()` can
+reuse the cursor. If closing the previous handle fails, `execute()` keeps the
+buffered result and its page error; connection invalidation or reconnect handling
+may still retire the handle. An undecodable replacement reply may open a new query
+handle, which stays tracked for cleanup. This behaviour applies to both `Cursor`
 and `AsyncCursor`.
 
 **Raises:**
@@ -931,6 +933,21 @@ if row:
 > it may already have consumed local rows before raising. Execute a new query
 > explicitly to continue. There is no transparent SELECT replay or holdable-result
 > guarantee; reconnect invalidation retains its separate `OperationalError`.
+
+> **Data errors on a later fetch page (#507):** When a FETCH page contains a
+> value pycubrid cannot represent (text invalid in the connection charset
+> #492, an unresolved zone #413, a zero date #512), the `fetchone()`,
+> `fetchmany()` or `fetchall()` call (or iteration step) that reaches the page
+> raises `DataError`. The whole page is withheld, including its rows before the
+> bad value. Rows that call had already collected are not lost: the next fetch
+> calls return them without contacting the server, so a `fetchmany()` or
+> `fetchall()` after the error returns those rows (possibly fewer than
+> requested). After that, every fetch raises the same `DataError` again without
+> requesting the page, until `execute()` or `close()`; no row of the failing
+> page or after it is ever returned. The connection stays usable and the
+> cursor keeps its server handle. Sync and async cursors behave the same. To
+> read past the value, convert it in SQL (see [Zero Date or Datetime
+> Value](TROUBLESHOOTING.md#zero-date-or-datetime-value)) and execute again.
 
 ---
 
@@ -1499,7 +1516,9 @@ it (nothing of that request is sent), and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
 `DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
 zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
 (#413). The reply was fully read, so with ordinary cursors the connection stays
-usable. `get_schema_info()` retires the connection on any FC9 reply it cannot
+usable; on a later fetch page, rows collected before that page are still
+returned first (see *Data errors on a later fetch page* under
+[`fetchone()`](#fetchone), #507). `get_schema_info()` retires the connection on any FC9 reply it cannot
 parse, and the explicit prepared API (`pycubrid.compat.native`) raises
 `OperationalError` and retires the session instead.
 

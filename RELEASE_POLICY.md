@@ -11,6 +11,11 @@ declared public API surface fails CI unless the baseline is regenerated and
 committed in the same change, which forces every surface change to surface
 explicitly in pull-request review.
 
+Every release ships the same way: a reviewed release PR (hand-curated
+`CHANGELOG.md` section, including the Upgrade notes and the classification in
+§7) is merged, and `release.yml` releases it. There is no manual tag or publish
+step; see [`RELEASING.md`](RELEASING.md).
+
 ## 1. Public API Surface
 
 The **public API** of pycubrid is exactly the union of:
@@ -151,9 +156,12 @@ for landing one is:
 5. Add a `### Breaking Changes` section to the relevant `CHANGELOG.md` entry
    describing what changed, why, and how users migrate. The entry must include
    a `Migration` subsection with concrete before/after code.
-6. Bump the major version in both `pyproject.toml` and `pycubrid/__init__.py`
-   (the existing `version-check` CI job enforces these stay in sync).
-7. Land the change on `main`. Tag and release as `vX.0.0`.
+6. Land the change on `main`, then prepare the release PR with
+   `gh workflow run prepare-release.yml -f version=X.0.0`: it bumps
+   `__version__` in `pycubrid/__init__.py` (the single source that
+   `pyproject.toml` reads) and dates the CHANGELOG section.
+7. Merging the reviewed release PR releases `vX.0.0` automatically
+   (tag, GitHub Release, PyPI, cookbook verification; see `RELEASING.md`).
 
 The CI gate (`compat-check` job) will fail any pull request that changes the
 public surface without also updating `api-baseline.json`, which is exactly
@@ -220,6 +228,71 @@ Code without a corresponding documentation update is considered incomplete.
 
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
+
+- **Rows before a failing fetch page are kept (#507)** — PATCH / correction of
+  data loss in error handling. When a later FETCH page raises a data-level
+  `DataError` (#492, #413, #512), rows the failing `fetchmany()`/`fetchall()`
+  call had already collected are returned by the next fetch calls instead of
+  being dropped, and every fetch after them raises the same `DataError` without
+  requesting the page again until `execute()` or `close()`, instead of
+  re-requesting it on every retry (which in autocommit mode could raise CAS
+  error `-1012` once the broker had closed the result). No row of or past the
+  failing page is returned. The error class, connection and cursor-handle
+  lifetime, successful fetches, public signatures, dependencies and supported
+  versions are unchanged; sync and async behave the same.
+
+- **No asyncio `eof_received` warning when a TLS broker closes (#514)** —
+  PATCH / correction of spurious log output. `pycubrid.aio` connections using
+  `ssl=` no longer make asyncio log a WARNING each time the broker closes the
+  TLS session. Errors, reconnect behavior, the sync driver, public signatures,
+  dependencies and supported versions are unchanged.
+
+- **Async TLS connect no longer hangs after an interrupted handshake (#513)** —
+  PATCH / correction of a hang in error handling. When the broker stalls or
+  resets the connection before the TLS handshake completes,
+  `pycubrid.aio.connect(..., ssl=...)` now raises `OperationalError` within
+  `read_timeout` (or the 10-second `ssl_handshake_timeout` when `read_timeout`
+  is unset) and closes the socket, instead of never returning on Python 3.11+.
+  Timeout semantics (`connect_timeout` bounds only the TCP connect), the sync
+  driver, successful TLS connects, public signatures, dependencies and
+  supported versions are unchanged.
+
+- **Row cells whose value does not use exactly their declared size are rejected
+  (#523)** — PATCH / correction of a protocol-robustness defect completing #383.
+  A FETCH or inline execute row cell whose fixed-width value (`INT`, `DATE`,
+  `OBJECT`, ...) does not use exactly the bytes its size word declares, including
+  a size past the end of the reply, now raises `OperationalError('malformed
+  response from broker')` and closes the connection instead of returning the
+  value; so does a negative FETCH tuple count, which used to end the result set
+  early. A normal server always sends the exact size. Valid replies, SQL `NULL`
+  cells, the `DataError` classification of complete replies (#492, #512), public
+  signatures, dependencies and supported versions are unchanged.
+
+- **Reads past the end of a broker reply are rejected (#383)** — PATCH /
+  correction of a protocol-robustness defect. A length field that is negative
+  or runs past the end of a complete reply (row values, collections, LOB
+  handles, `LOB_READ` byte counts), or collection elements that do not fill
+  their declared size, now raise `OperationalError('malformed response from
+  broker')` and close the connection instead of returning a shortened value
+  and keeping it. A normal server does not send such replies. Valid replies,
+  short `LOB_READ` results, the `DataError` classification of complete replies
+  (#492, #512), public signatures, dependencies and supported versions are
+  unchanged.
+
+- **Zero temporal values raise `DataError` and keep the session (#512)** —
+  PATCH / correction of error classification and connection lifetime, extending
+  #492 and #413. A zero `DATE`, `DATETIME`, `TIMESTAMP` or TZ/LTZ value (year 0,
+  which Python's `datetime` cannot hold) in a complete reply raises `DataError`
+  instead of `OperationalError('malformed response from broker')`, and the
+  session is kept, on `execute()` and on later fetch pages. A row value that
+  raises `DataError` (#492, #413, #512) is now reported only after the rest of
+  the row data is checked against the reply length, so a short reply stays a
+  fail-closed `OperationalError`, as does a temporal field of the wrong size or
+  a collection element past the collection's size. Any other temporal value Python cannot hold
+  (for example a `TIME` hour of 25 or a month of 13, which a normal server does
+  not send) is classified the same way. The explicit prepared API stays
+  fail-closed. Valid temporal values, public signatures, dependencies and
+  supported versions are unchanged.
 
 - **`str`, `bytes`, date and time parameters render by value; years are
   zero-padded (#528, #519)** — PATCH / security and data-corruption correction
@@ -433,9 +506,11 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
 - **Failed `execute()` calls clear previous result state (#373)**: PATCH /
   backward-compatible bug fix. After the previous query handle closes, binding
   or request failures leave no result metadata, row count, last inserted ID
-  or fetchable rows from that query. If closing the previous query fails, both
-  cursor implementations keep the buffered result; connection invalidation or
-  reconnect handling may still retire the handle.
+  or fetchable rows from that query, and discard any held fetch-page error.
+  If closing the previous query fails, both cursor implementations keep the
+  buffered result and its page error; connection invalidation or reconnect
+  handling may still retire the handle. Handles opened by undecodable replacement
+  replies remain tracked for cleanup. Public signatures are unchanged.
 
 - **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
   PATCH / backward-compatible bug fix. The public signatures are unchanged;

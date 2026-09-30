@@ -65,6 +65,13 @@ graph TD
 [8:]   PAYLOAD      (variable length)
 ```
 
+Reply parsing never reads past the end of a reply (#383): a negative or
+overrunning length, a row cell whose value does not use exactly its declared
+size (#523), or collection elements that do not fill their size, raise
+`ValueError`, which the connection reports as `OperationalError('malformed
+response from broker')` and closes. Trailing bytes after the last declared
+value are not checked; `DataError` is only for a complete reply (#492, #512).
+
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
 session. Because the CAS may still close the socket after an OUT_TRAN reply
@@ -127,7 +134,7 @@ make install          # pip install -e ".[dev]"
 make test             # Offline tests with 95% coverage threshold
 make lint             # ruff check + format
 make format           # Auto-fix lint/format
-make integration      # Docker → integration tests → cleanup
+make integration      # Docker → readiness wait → integration tests → skip audit → cleanup
 ```
 
 ### Test Commands (manual)
@@ -137,10 +144,10 @@ make integration      # Docker → integration tests → cleanup
 pytest tests/ -v --ignore=tests/test_integration.py \
   --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
 
-# Integration (requires Docker)
-docker compose up -d
-export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
-pytest tests/test_integration.py -v
+# Integration (requires Docker; waits for readiness, always cleans up)
+make integration CUBRID_TEST_PORT=33522   # any free port; default 33000
+# Existing server: CUBRID_TEST_HOST/CUBRID_TEST_PORT (win over CUBRID_TEST_URL).
+# Configured but unreachable -> tests error; unconfigured -> tests skip.
 ```
 
 ### Test Stats
@@ -206,11 +213,16 @@ access is not a prerequisite for proposing a contribution.
 ## Release Process
 
 Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`
-(`pyproject.toml` reads it dynamically). The full maintainer procedure — release PR,
-`make release-check VERSION=x.y.z`, tagging the squash-merged commit, waiting for the
-tag-triggered `integration-full.yml` + `create-release.yml`, the manual
-`publish-pypi.yml` dispatch, cookbook smoke, and recovery — lives in
-[`RELEASING.md`](RELEASING.md). There is no `make release`; never tag a local commit.
+(`pyproject.toml` reads it dynamically). Merging a reviewed release PR is the only
+normal way to release: `prepare-release.yml` opens it (dated CHANGELOG section +
+version bump, checked by `make release-check VERSION=x.y.z`), and after the
+squash-merge `release.yml` detects the version change and runs consistency → full
+matrix → build → tag/Release/PyPI → cookbook verification (the cookbook smoke test
+called as a pinned reusable workflow, no token) → summary on its own.
+Ordinary PRs never change `__version__` or date a CHANGELOG section. Never push
+tags or publish by hand; the only manual entry point is the narrow recovery
+dispatch of `release.yml`. Procedure, failure matrix and recovery:
+[`RELEASING.md`](RELEASING.md).
 
 ## CI Matrix
 
@@ -219,15 +231,15 @@ tag-triggered `integration-full.yml` + `create-release.yml`, the manual
 | File | Trigger | Purpose |
 |---|---|---|
 | `.github/workflows/ci.yml` | Push to main, PRs | Lint + offline tests (Py 3.10–3.14) + regular integration matrix |
-| `.github/workflows/integration-full.yml` | Nightly (03:00 UTC), tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
-| `.github/workflows/create-release.yml` | Tag push, manual dispatch | Create the GitHub Release from CHANGELOG + attach SBOM (does not publish) |
-| `.github/workflows/publish-pypi.yml` | Manual dispatch (`-f tag=vX.Y.Z`) after tag-triggered integration-full passes | Verify, build, publish to PyPI, then dispatch the cookbook smoke test |
+| `.github/workflows/integration-full.yml` | Nightly (03:00 UTC), manual dispatch, `workflow_call` from `release.yml` | Full Python × CUBRID compatibility matrix |
+| `.github/workflows/prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
+| `.github/workflows/release.yml` | Push to main; recovery dispatch (`resume` / `verify-only` / `dry-run`) | Detect a merged release, then matrix, build, tag + GitHub Release + PyPI, cookbook verification, summary |
 
 ### Matrix Shape
 
 - **Offline (every PR/push)**: Python 3.10, 3.11, 3.12, 3.13, 3.14
 - **Integration (every PR/push)**: Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} — 8 jobs
-- **Integration full (nightly + tag push + dispatch)**: Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} — 20 jobs
+- **Integration full (nightly + dispatch + every release)**: Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} — 20 jobs
 
 ## Test Structure
 
@@ -306,8 +318,8 @@ issue title or body. Reporters describe urgency and effort without needing label
 permissions. Maintainer-created issues receive these labels at creation; permissionless
 reports receive them during initial maintainer triage.
 
-Use a short issue title prefix such as `fix:`, `feat:`, `docs:`, `ci:`,
-`chore:`, `test:`, or `perf:` (with an optional scope before the colon).
+Issue titles use the same `type(scope): description` format as pull request
+titles (see [CONTRIBUTING.md](CONTRIBUTING.md#pull-request-and-commit-titles)).
 `.github/workflows/issue-triage.yml` flags incomplete human-submitted issue
 titles or labels as `status: needs triage` without posting a comment or
 guessing priority/size. Maintainers remove that label once triage is complete.
@@ -375,6 +387,14 @@ Do not mark work complete until code, tests, and documentation are consistent.
 
 ## Commit Convention
 
+Issue titles, pull request titles and commit subjects follow
+[CONTRIBUTING.md - Pull request and commit titles](CONTRIBUTING.md#pull-request-and-commit-titles):
+`type(scope)!: description` with types `feat`, `fix`, `docs`, `test`, `perf`,
+`refactor`, `ci`, `build`, `chore`, `style`, `revert`; English, lowercase start,
+no trailing period, no issue numbers in pull request titles (use `Closes #N` /
+`Refs #N` in the body). Pull requests are squash-merged and the pull request
+title becomes the commit title. The `PR title` check enforces it.
+
 Preserve actual contributor authorship and existing credits. The following tool
 attribution applies to commits actually produced with that tool; it is not a
 required footer for outside contributors' commits.
@@ -387,8 +407,6 @@ required footer for outside contributors' commits.
 Ultraworked with [Sisyphus](https://github.com/code-yeongyu/oh-my-opencode)
 Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
 ```
-
-Types: `feat`, `fix`, `docs`, `chore`, `ci`, `style`, `test`, `refactor`
 
 ## Project Context — Performance Loop System
 

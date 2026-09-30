@@ -18,7 +18,8 @@ returns ``b""`` with no server round-trip (it no longer issues a ``LOB_READ``
 request, so it cannot trigger the server-side transaction abort the old
 one-shot read caused).
 
-Skipped when no CUBRID server is reachable.
+Skipped when no CUBRID server is configured; errors when a configured one is
+unreachable (see the shared ``tests/conftest.py`` gate).
 """
 
 from __future__ import annotations
@@ -32,11 +33,10 @@ import pycubrid
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import InterfaceError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
 ]
 
 _CHUNK = 4096  # a representative chunk boundary for boundary sizing

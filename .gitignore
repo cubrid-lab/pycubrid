@@ -73,3 +73,4 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
+integration-results.xml

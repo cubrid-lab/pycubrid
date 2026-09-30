@@ -17,7 +17,6 @@ network-failure tests still run in the offline suite.
 
 from __future__ import annotations
 
-import os
 import time
 
 import pytest
@@ -25,11 +24,7 @@ import pytest
 import pycubrid
 from pycubrid.exceptions import DatabaseError, OperationalError
 
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 # RFC 5737 TEST-NET-1: guaranteed non-routable, so the connect attempt hangs
 # until connect_timeout rather than being refused immediately.

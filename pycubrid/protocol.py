@@ -717,6 +717,73 @@ def _read_value(reader: PacketReader, column_type: int, size: int) -> Any:
     return _convert_collection_value(column_type, _resolve_reader(reader, column_type)(size))
 
 
+# Wire width of the cell values whose readers do not consume the cell size
+# themselves (#523). A negative entry is the minimum width of a TZ value, whose
+# zone string takes the rest of the cell. Every other reader (text, NUMERIC,
+# JSON, bytes, collections, LOBs) consumes exactly the size it is given.
+_FIXED_CELL_WIDTHS: dict[int, int] = {
+    CUBRIDDataType.SHORT: DataSize.SHORT,
+    CUBRIDDataType.INT: DataSize.INT,
+    CUBRIDDataType.BIGINT: DataSize.LONG,
+    CUBRIDDataType.FLOAT: DataSize.FLOAT,
+    CUBRIDDataType.DOUBLE: DataSize.DOUBLE,
+    CUBRIDDataType.MONETARY: DataSize.DOUBLE,
+    CUBRIDDataType.DATE: 6,
+    CUBRIDDataType.TIME: 6,
+    CUBRIDDataType.TIMESTAMP: 12,
+    CUBRIDDataType.DATETIME: 14,
+    CUBRIDDataType.OBJECT: DataSize.OBJECT,
+    CUBRIDDataType.TIMESTAMPTZ: -12,
+    CUBRIDDataType.TIMESTAMPLTZ: -12,
+    CUBRIDDataType.DATETIMETZ: -14,
+    CUBRIDDataType.DATETIMELTZ: -14,
+}
+
+
+def _cell_size_mismatch(column_type: int, size: int) -> ValueError:
+    """A row cell whose size does not fit its fixed-width value: a malformed reply."""
+    return ValueError(
+        f"row cell size {size} does not fit a {CUBRIDDataType(column_type).name} value"
+    )
+
+
+def _check_cell_size(column_type: int, size: int) -> None:
+    width = _FIXED_CELL_WIDTHS.get(column_type)
+    if width is not None and (size != width if width > 0 else size < -width):
+        raise _cell_size_mismatch(column_type, size)
+
+
+def _check_row_data_bounds(
+    reader: PacketReader,
+    rows_start: int,
+    tuple_count: int,
+    col_types: Sequence[int],
+    typed: Sequence[bool],
+) -> None:
+    """Walk ``tuple_count`` rows by declared sizes; raise if the reply is malformed.
+
+    A size past the end of the reply raises ``ValueError`` from ``_skip_bytes``
+    (#383), and a fixed-width value whose size disagrees with its width raises
+    too (#523). ``typed`` marks CALL/NULL-typed columns, whose cells start with
+    their own type byte, counted in the size.
+    """
+    reader._offset = rows_start
+    for _ in range(tuple_count):
+        reader._parse_int()
+        reader._skip_bytes(DataSize.OID)
+        for column_type, is_typed in zip(col_types, typed):
+            size = reader._parse_int()
+            if size <= 0:
+                continue
+            if is_typed:
+                column_type = reader._parse_byte()
+                size -= 1
+                if size <= 0:
+                    continue
+            _check_cell_size(column_type, size)
+            reader._skip_bytes(size)
+
+
 def _parse_row_data(
     reader: PacketReader,
     tuple_count: int,
@@ -746,35 +813,55 @@ def _parse_row_data(
     else:
         col_readers = [_resolve_reader(reader, ct) for ct in col_types]
 
+    # Every cell value must use exactly the bytes its size word declares. The
+    # fixed-width readers (INT, DATE, OID, ...) do not look at the size, so a
+    # size past the end of the reply, or one that disagrees with the type's
+    # width, was silently accepted; check it before reading (#383, #523).
+    widths = [_FIXED_CELL_WIDTHS.get(ct) for ct in col_types]
+
     rows: list[tuple[Any, ...]] = []
     _rows_append = rows.append
 
-    for _ in range(tuple_count):
-        _parse_int()
-        _skip_bytes(_oid_size)
-        row: list[Any] = [None] * ncols
-        if col_readers is not None:
-            for i in range(ncols):
-                size = _parse_int()
-                if size > 0:
-                    row[i] = _convert_collection_value(col_types[i], col_readers[i](size))
-        else:
-            for i in range(ncols):
-                size = _parse_int()
-                if size <= 0:
-                    continue
-                ct = col_types[i]
-                if is_call_type or ct == _null_type:
-                    ct = _parse_byte()
-                    size -= 1
+    rows_start = reader._offset
+    try:
+        for _ in range(tuple_count):
+            _parse_int()
+            _skip_bytes(_oid_size)
+            row: list[Any] = [None] * ncols
+            if col_readers is not None:
+                for i in range(ncols):
+                    size = _parse_int()
+                    if size > 0:
+                        width = widths[i]
+                        if width is not None and (size != width if width > 0 else size < -width):
+                            raise _cell_size_mismatch(col_types[i], size)
+                        row[i] = _convert_collection_value(col_types[i], col_readers[i](size))
+            else:
+                for i in range(ncols):
+                    size = _parse_int()
                     if size <= 0:
                         continue
-                method_name = _get(ct)
-                if method_name is not None:
-                    row[i] = _convert_collection_value(ct, _getattr(reader, method_name)(size))
-                else:
-                    row[i] = _parse_bytes(size)
-        _rows_append(tuple(row))
+                    ct = col_types[i]
+                    if is_call_type or ct == _null_type:
+                        ct = _parse_byte()
+                        size -= 1
+                        if size <= 0:
+                            continue
+                    _check_cell_size(ct, size)
+                    method_name = _get(ct)
+                    if method_name is not None:
+                        row[i] = _convert_collection_value(ct, _getattr(reader, method_name)(size))
+                    else:
+                        row[i] = _parse_bytes(size)
+            _rows_append(tuple(row))
+    except DataError:
+        # A value the client cannot represent (invalid text #492, unknown zone
+        # #413, zero date #512) is a data problem only when the reply is
+        # complete. Re-walk the row data by its declared sizes first, so a
+        # short reply still fails as framing damage (#383), not DataError.
+        typed = [is_call_type or ct == _null_type for ct in col_types]
+        _check_row_data_bounds(reader, rows_start, tuple_count, col_types, typed)
+        raise
     return rows
 
 
@@ -1235,6 +1322,9 @@ class FetchPacket(_CasPacket):
         effective_stmt_type = statement_type if statement_type is not None else self._statement_type
 
         self.tuple_count = reader._parse_int()
+        if self.tuple_count < 0:
+            # Would read as an empty page and end the result set early (#523).
+            raise ValueError("negative FETCH tuple count")
         if self.tuple_count > 0 and effective_columns:
             self.rows = _parse_row_data(
                 reader, self.tuple_count, effective_columns, effective_stmt_type
@@ -1568,9 +1658,10 @@ class LOBReadPacket(_CasPacket):
         if response_code < 0:
             remaining = len(data) - 8
             _raise_error(reader, remaining)
+        # A count past the end of the reply raises before any field is set (#383).
+        if response_code > 0:
+            self.lob_data = reader._parse_bytes(response_code)
         self.bytes_read = response_code
-        if self.bytes_read > 0:
-            self.lob_data = reader._parse_bytes(self.bytes_read)
 
 
 class GetLastInsertIdPacket(_CasPacket):

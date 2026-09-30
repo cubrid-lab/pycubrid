@@ -47,6 +47,12 @@ def _select_reply(packet: object, **kwargs: object) -> object:
 
 
 async def _assert_no_result(cursor: Cursor | AsyncCursor) -> None:
+    assert cursor._page_error is None
+    assert cursor._columns == []
+    assert cursor._rows == []
+    assert cursor._row_index == 0
+    assert cursor._fetched_count == 0
+    assert cursor._total_tuple_count == 0
     assert cursor.description is None
     assert cursor.rowcount == -1
     assert cursor.lastrowid is None
@@ -189,6 +195,6 @@ async def test_async_execute_cancellation_clears_previous_result() -> None:
     await asyncio.wait_for(started.wait(), timeout=5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
     await _assert_no_result(cursor)
     assert cursor._query_handle is None

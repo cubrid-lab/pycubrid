@@ -43,14 +43,127 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
-- **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
 - Clear previous results in synchronous and asynchronous `execute()` calls
   after closing the old query handle (#373). A subsequent binding or request
   failure leaves `description=None`, `rowcount=-1`, `lastrowid=None` and no
-  fetchable rows. If closing the old handle fails, `execute()` keeps the buffered
-  result; connection invalidation or reconnect handling may still retire the handle.
+  fetchable rows or held fetch-page error. If closing the old handle fails,
+  `execute()` keeps the buffered result and its page error; connection invalidation
+  or reconnect handling may still retire the handle.
+- **Row cells whose value does not use exactly their declared size are rejected (#523)** —
+  the readers for fixed-width values (`SHORT`, `INT`, `BIGINT`, `FLOAT`,
+  `DOUBLE`, `MONETARY`, `DATE`, `TIME`, `DATETIME`, `TIMESTAMP`, `OBJECT`, and
+  the fixed part of the TZ types) ignored a cell's size word, so a FETCH or
+  inline execute row whose cell declared more bytes than the reply held (for
+  example an `INT` declaring 1000 bytes at the end of the reply), or a size
+  that disagreed with the value's width, was decoded as if it were complete.
+  Every row cell must now use exactly its declared size, like the
+  length-prefixed values since #383 (checked before the value is read, and
+  when a reply is re-walked before `DataError`); otherwise the reply raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection, sync and async. A normal server always sends the exact size, so
+  valid replies, the `DataError` classification of complete replies (#492,
+  #512) and SQL `NULL` cells (a non-positive size) are unchanged. A negative
+  FETCH tuple count, which read as an empty page and silently ended the result
+  set early, is rejected the same way. Documented in `docs/PROTOCOL.md` and
+  `docs/TROUBLESHOOTING.md` (+ Korean).
+- **Tests: protocol fuzzing seeds realistic replies (#523)** — every
+  `tests/test_protocol_fuzz.py` seed used to carry zero columns, so no fuzz
+  case reached column metadata or row cells. Seeds built by
+  `tests/helpers/cas_reply.py` now cover `PREPARE_AND_EXECUTE`, `PREPARE` and
+  `EXECUTE` replies with metadata for string, numeric, `NUMERIC`, temporal and
+  TZ, `BIT`/`VARBIT`, OID, collection, LOB and `JSON` columns; multi-row FETCH
+  replies (including CALL and `NULL`-typed layouts); and schema, batch and LOB
+  replies. Unmutated seeds must decode to exactly their values; mutations aim
+  at truncation at field boundaries, length and count words, and collection
+  element types, and the oracle admits only structural errors (reported as
+  `OperationalError`), server errors and `DataError` for complete replies,
+  also through the sync and async connections. Thirteen tests whose only
+  assertion was `is not None` now check the expected value, and two unittest
+  guards use `self.fail()` instead of a narrowing `assert`.
+- **Tests: a configured but unreachable CUBRID now errors instead of skipping (#522, #432)** —
+  16 integration modules probed the server at import time and called
+  `skipif("CUBRID instance not available")`, so pointing the suite at a dead
+  endpoint produced hundreds of silent skips despite `tests/conftest.py`
+  promising fail-closed behavior. Those probes (and the TLS module's import-time
+  TLS probes) are gone: one gate in `tests/conftest.py` skips integration tests
+  when neither `CUBRID_TEST_URL` nor `CUBRID_TEST_HOST` is set, and otherwise
+  probes the endpoint once per session and makes every plain integration test
+  error with the endpoint and connection error. Every integration module, the
+  gate and `scripts/wait_for_cubrid.py` now resolve the endpoint through one
+  helper, `tests/_cubrid_endpoint.py`: per-field `CUBRID_TEST_*` variables win,
+  then the components of `CUBRID_TEST_URL` (a scheme-less value such as `1`
+  stays a pure on/off switch; a malformed URL errors the integration tests
+  without breaking offline collection), then `localhost:33000/testdb` as
+  `dba` — so a URL naming another host or port is no longer silently ignored in
+  favor of whatever listens on `localhost:33000`. CI, which exports both, is
+  unchanged. `make integration` waits with `wait_for_cubrid.py` instead of
+  `sleep 10`, runs `integration and not tls`, fails when the JUnit audit
+  (`check_integration_lanes.py --results`) finds an all-skipped run, always
+  removes the container, and accepts `CUBRID_TEST_PORT=<port>` (also used by
+  `docker-compose.yml`) to avoid a busy port 33000. `make integration-tls` also
+  waits for readiness instead of sleeping, audits its JUnit report and always
+  removes the container.
+- **Rows fetched before a failing page are no longer lost (#507)** — when a
+  later FETCH page raised a data-level `DataError` (invalid text #492, an
+  unresolved zone #413, a zero date #512), `fetchall()` and `fetchmany()`
+  dropped the rows they had already collected in that call, and because the
+  fetch position did not advance, every retry requested the same page again:
+  it failed again, or, in autocommit mode once the broker had closed the
+  result after its last page, raised `DatabaseError` with CAS error `-1012`.
+  The call that reaches the page still raises `DataError` and the whole page is
+  withheld, but the rows it had collected stay buffered and the next
+  `fetchone()`/`fetchmany()`/`fetchall()` (or iteration) returns them without
+  contacting the server. After that every fetch raises the same `DataError`
+  again, without requesting the page, until `execute()` or `close()`, so no
+  row of or past the failing page is returned and retries do not loop on the
+  server. The connection stays usable and the cursor keeps its handle, sync
+  and async alike. Documented in `docs/API_REFERENCE.md`, `docs/TYPES.md` and
+  `docs/TROUBLESHOOTING.md` (+ Korean); live-tested against CUBRID 11.4 with a
+  zero `DATE` several FETCH pages into the result.
+- **`pycubrid.aio` no longer logs an asyncio warning whenever a TLS broker closes the connection (#514)** — after the in-place `loop.start_tls()` upgrade the stream protocol still believed it was on a plaintext transport, so every TLS peer close (broker restart, CAS recycle, idle timeout, dropped session before a reconnect) made asyncio log `WARNING returning true from eof_received() has no effect when using ssl`. The upgrade now marks the stream protocol as running over TLS, as `StreamWriter.start_tls()` does on Python 3.11+. Log output only; connection state, errors and the sync driver are unchanged.
+- **`pycubrid.aio.connect(..., ssl=...)` no longer hangs forever when the TLS handshake is interrupted (#513)** — if the broker stalled or reset the connection before the TLS handshake completed, `read_timeout` (or the 10-second `ssl_handshake_timeout`) fired as intended, but connect cleanup then awaited `StreamWriter.wait_closed()` on a stream that asyncio never marks closed (its `SSLProtocol` drops `connection_lost` while still handshaking), so the call never returned on Python 3.11+. The failed upgrade now notifies the stream protocol itself after aborting the transport, and connect raises `OperationalError` within `read_timeout` and closes the socket. The sync driver was not affected. `docs/CONNECTION.md` and `docs/TROUBLESHOOTING.md` (+ Korean) now state which timeout bounds the TLS handshake (`read_timeout`; `connect_timeout` covers only the TCP connect).
+- **Reads past the end of a broker reply are rejected (#383)** — a length
+  field that ran past the end of a reply was cut short by a Python slice and
+  returned as if complete: a `BIT`/`VARBIT` cell declaring 8 bytes but carrying
+  2 returned those 2 bytes, a `LOB_READ` reply declaring 10 bytes with 3 in
+  the payload set `bytes_read = 10`, and strings, `NUMERIC`, `JSON`, raw
+  collections and LOB handles and locators behaved the same way. A negative
+  length moved the reader backwards. Every length-prefixed read now checks
+  `0 <= length <= remaining` before it moves, and a decoded collection's
+  elements must fill its declared size exactly (previously elements could run
+  into the next column). Such a reply raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection, sync and async, like other framing damage; `DataError` stays for
+  complete replies (#492, #512). A `LOB_READ` count below the requested length
+  is still a valid short read (#362), and bytes after the last value a reply
+  declares are still ignored. Documented in `docs/PROTOCOL.md` and
+  `docs/TROUBLESHOOTING.md` (+ Korean).
+- **Zero `DATE`/`DATETIME`/`TIMESTAMP` values no longer close the connection
+  (#512)** — CUBRID accepts zero values such as `DATE'0000-00-00'`,
+  `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
+  `TIMESTAMPLTZ`, `DATETIMETZ` and `DATETIMELTZ` values, but Python's
+  `datetime` has no year 0. The decoder's raw `ValueError` was treated as a
+  framing failure: `OperationalError('malformed response from broker')`, the
+  socket closed, and every later call raised `InterfaceError('connection is
+  closed')`. The value now raises `DataError` naming the CUBRID type and fields
+  (`CUBRID DATE value (0, 0, 0) cannot be represented in Python: year 0 is out
+  of range`) and the session stays usable, on `execute()` and on a later fetch
+  page, sync and async, with the same cursor state as invalid UTF-8 (#492).
+  Any other temporal field Python cannot hold (such as a `TIME` hour of 25)
+  in a complete reply is reported the same way.
+  A row value that raises `DataError` (#492, #413, #512) is now reported only
+  after the rest of the row data is checked against the reply length, so a
+  reply cut short still raises `OperationalError` and closes the connection,
+  and so does a temporal field whose declared size does not match its type,
+  or a collection element that runs past the collection.
+  The explicit prepared API (`pycubrid.compat.native`) stays fail-closed.
+  There is no option to return zero dates as `None` or text;
+  `docs/TYPES.md` and `docs/TROUBLESHOOTING.md` (+ Korean) document SQL
+  workarounds (`NULLIF(d, DATE'0000-00-00')`, `CASE`, `TO_CHAR`). Found by
+  the CUBRID 10.2-11.4 version differential (#351); the behavior was the same
+  on 10.2, 11.0, 11.2 and 11.4.
 - **Security: `str`, `bytes`, date and time parameters are rendered without
   calling overridable methods (#528)** — `format_parameter()` escaped `str`
   parameters with `value.replace(...)` and `"\x00" in value`, rendered
@@ -170,6 +283,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   same name: an identical file (a partial upload recovered with `gh run rerun --failed`)
   is dropped from the upload, and a different hash or an unreachable PyPI fails the job.
   `RELEASING.md` documents the bounded recovery; offline tests cover the guard.
+- **CI: releases happen automatically when a reviewed release PR is merged (#539)** —
+  `prepare-release.yml` opens the `chore: release vX.Y.Z` PR (moves `[Unreleased]` into a
+  dated section, bumps `__version__`, runs `make release-check`). On every push to `main`,
+  the new `release.yml` decides from git facts only (`scripts/release_detect.py`: version
+  changed against the first parent, dated CHANGELOG section, tag absent or at the same
+  commit) and then runs, pinned to the merge SHA: release check, the full
+  `integration-full.yml` matrix (now also a `workflow_call` workflow, no longer run on tag
+  pushes), one build with SHA-256 hashes, the annotated tag, a draft GitHub Release with
+  SBOM, the PyPI upload through the duplicate guard, and the cookbook verification of that
+  exact version, with one run summary. The cookbook smoke test runs inside the release run
+  as a reusable workflow pinned to a cookbook commit, so it needs no cross-repository token
+  or secret; the release fails unless it reports the requested version installed (#544). `create-release.yml` and the manual
+  `publish-pypi.yml` are removed; a narrow recovery dispatch (`resume`, `verify-only`,
+  `dry-run`) remains. The CHANGELOG stays hand-curated.
 - Ruff/Mypy pre-commit hooks are now `repo: local` / `language: system` hooks that
   invoke `python3 -m ruff`/`python3 -m mypy` from the active `.[dev]` environment
   instead of separately versioned mirror repos, so there is a single source of

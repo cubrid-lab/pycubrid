@@ -357,7 +357,51 @@ _COLLECTION_ELEMENT_METHOD_NAMES: dict[int, str] = {
 }
 
 
+def _unrepresentable_temporal(
+    type_name: str, fields: tuple[int, ...], exc: ValueError, size_ok: bool
+) -> DataError | ValueError:
+    """Classify a temporal value Python cannot hold (#512).
+
+    CUBRID stores zero dates such as ``DATE'0000-00-00'``, but ``datetime``
+    has no year 0. When the field has the declared size of its type, this is a
+    data problem: return ``DataError`` so the connection stays usable, as for
+    invalid UTF-8 (#492); ``_parse_row_data`` still checks the rest of the
+    reply before re-raising it. A field of the wrong size means the decoder
+    read outside it, so return a ``ValueError`` that the connection reports as
+    a malformed response (#383).
+    """
+    if not size_ok:
+        return ValueError(f"malformed CUBRID {type_name} value: wrong field size")
+    return DataError(f"CUBRID {type_name} value {fields!r} cannot be represented in Python: {exc}")
+
+
+def _out_of_bounds(count: int, offset: int, buffer_size: int) -> ValueError:
+    """A length that cannot be read from the reply: a malformed response (#383)."""
+    if count < 0:
+        return ValueError(f"negative length {count} in broker reply")
+    return ValueError(
+        f"read of {count} bytes at offset {offset} runs past the end of the "
+        f"broker reply ({buffer_size - offset} bytes left)"
+    )
+
+
 class PacketReader:
+    """Read CAS values from one complete broker reply.
+
+    Every read that consumes bytes stays inside the reply (#383): a
+    length-prefixed read checks ``0 <= length <= bytes_remaining()`` before it
+    moves and raises ``ValueError`` otherwise, and a fixed-width read past the
+    end raises ``struct.error`` or ``IndexError``. The connection reports all
+    three as ``OperationalError("malformed response from broker")`` and closes,
+    while ``DataError`` stays for a complete reply holding a value Python cannot
+    represent (#492, #512). A failed read leaves the offset where it was.
+    Text readers treat a non-positive length as empty without moving.
+
+    Bytes left unread after a reply is parsed are not checked: only values whose
+    size the protocol states exactly (a length word, a collection's size) must
+    match it.
+    """
+
     __slots__ = ("_buffer", "_offset", "_decode_collections", "_json_deserializer", "_encoding")
 
     def __init__(
@@ -415,11 +459,16 @@ class PacketReader:
     def _parse_bytes(self, count: int) -> bytes:
         start = self._offset
         end = start + count
+        if count < 0 or end > len(self._buffer):
+            raise _out_of_bounds(count, start, len(self._buffer))
         self._offset = end
         return bytes(self._buffer[start:end])
 
     def _skip_bytes(self, count: int) -> None:
-        self._offset += count
+        end = self._offset + count
+        if count < 0 or end > len(self._buffer):
+            raise _out_of_bounds(count, self._offset, len(self._buffer))
+        self._offset = end
 
     def _parse_null_terminated_string(self, length: int) -> str:
         """Decode protocol text (NUMERIC, timezone names, version) as UTF-8."""
@@ -428,6 +477,8 @@ class PacketReader:
 
         start = self._offset
         end = start + length
+        if end > len(self._buffer):
+            raise _out_of_bounds(length, start, len(self._buffer))
         self._offset = end
         if self._buffer[end - 1] == 0:
             return bytes(self._buffer[start : end - 1]).decode("utf-8")
@@ -445,6 +496,8 @@ class PacketReader:
         codec = self._encoding if encoding is None else encoding
         start = self._offset
         end = start + length
+        if end > len(self._buffer):
+            raise _out_of_bounds(length, start, len(self._buffer))
         self._offset = end
         if self._buffer[end - 1] == 0:
             end -= 1
@@ -461,6 +514,8 @@ class PacketReader:
             return ""
         start = self._offset
         end = start + length
+        if end > len(self._buffer):
+            raise _out_of_bounds(length, start, len(self._buffer))
         self._offset = end
         if self._buffer[end - 1] == 0:
             end -= 1
@@ -479,22 +534,38 @@ class PacketReader:
     def _parse_date(self, size: int = 0) -> datetime.date:
         year, month, day = _STRUCT_3H.unpack_from(self._buffer, self._offset)
         self._offset += 6
-        return datetime.date(year, month, day)
+        try:
+            return datetime.date(year, month, day)
+        except ValueError as exc:
+            raise _unrepresentable_temporal("DATE", (year, month, day), exc, size == 6) from exc
 
     def _parse_time(self, size: int = 0) -> datetime.time:
         hour, minute, second = _STRUCT_3H.unpack_from(self._buffer, self._offset)
         self._offset += 6
-        return datetime.time(hour, minute, second)
+        try:
+            return datetime.time(hour, minute, second)
+        except ValueError as exc:
+            raise _unrepresentable_temporal("TIME", (hour, minute, second), exc, size == 6) from exc
 
     def _parse_datetime(self, size: int = 0) -> datetime.datetime:
         y, mo, d, h, mi, s, ms = _STRUCT_7H.unpack_from(self._buffer, self._offset)
         self._offset += 14
-        return datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        try:
+            return datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        except ValueError as exc:
+            raise _unrepresentable_temporal(
+                "DATETIME", (y, mo, d, h, mi, s, ms), exc, size == 14
+            ) from exc
 
     def _parse_timestamp(self, size: int = 0) -> datetime.datetime:
         y, mo, d, h, mi, s = _STRUCT_6H.unpack_from(self._buffer, self._offset)
         self._offset += 12
-        return datetime.datetime(y, mo, d, h, mi, s, 0)
+        try:
+            return datetime.datetime(y, mo, d, h, mi, s, 0)
+        except ValueError as exc:
+            raise _unrepresentable_temporal(
+                "TIMESTAMP", (y, mo, d, h, mi, s), exc, size == 12
+            ) from exc
 
     def _parse_timestamptz(self, size: int) -> datetime.datetime:
         # TIMESTAMPTZ / TIMESTAMPLTZ are second-precision: 6 shorts (12 bytes,
@@ -505,7 +576,12 @@ class PacketReader:
         # "malformed response from broker" (#289).
         y, mo, d, h, mi, s = _STRUCT_6H.unpack_from(self._buffer, self._offset)
         self._offset += 12
-        dt = datetime.datetime(y, mo, d, h, mi, s, 0)
+        try:
+            dt = datetime.datetime(y, mo, d, h, mi, s, 0)
+        except ValueError as exc:
+            raise _unrepresentable_temporal(
+                "TIMESTAMPTZ/TIMESTAMPLTZ", (y, mo, d, h, mi, s), exc, size >= 12
+            ) from exc
         return self._attach_timezone_suffix(dt, size - 12)
 
     def _parse_datetimetz(self, size: int) -> datetime.datetime:
@@ -513,7 +589,12 @@ class PacketReader:
         # (14 bytes) followed by the timezone string.
         y, mo, d, h, mi, s, ms = _STRUCT_7H.unpack_from(self._buffer, self._offset)
         self._offset += 14
-        dt = datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        try:
+            dt = datetime.datetime(y, mo, d, h, mi, s, ms * 1000)
+        except ValueError as exc:
+            raise _unrepresentable_temporal(
+                "DATETIMETZ/DATETIMELTZ", (y, mo, d, h, mi, s, ms), exc, size >= 14
+            ) from exc
         return self._attach_timezone_suffix(dt, size - 14)
 
     def _attach_timezone_suffix(
@@ -581,12 +662,33 @@ class PacketReader:
 
         parser = getattr(self, method_name)
         values: list[object] = []
-        for _ in range(element_count):
+        for index in range(element_count):
             element_size = self._parse_int()
             if element_size <= 0:
                 values.append(None)
                 continue
-            values.append(parser(element_size))
+            element_start = self._offset
+            try:
+                values.append(parser(element_size))
+            except DataError:
+                # Report an unrepresentable element (#492, #512) only when the
+                # remaining elements fit the collection's declared size.
+                self._offset = element_start + element_size
+                for _ in range(index + 1, element_count):
+                    element_size = self._parse_int()
+                    if element_size > 0:
+                        self._offset += element_size
+                if self._offset > start_offset + size:
+                    raise ValueError("malformed collection: elements exceed its size") from None
+                if self._offset != start_offset + size:
+                    raise ValueError(
+                        "malformed collection: elements do not match its size"
+                    ) from None
+                raise
+        if self._offset != start_offset + size:
+            # The elements must fill the declared size exactly, or the next
+            # value in the row would be read from the wrong place (#383).
+            raise ValueError("malformed collection: elements do not match its size")
         return values
 
     def _parse_object(self, size: int = 0) -> str:
@@ -621,6 +723,8 @@ class PacketReader:
             return ""
         start = self._offset
         end = start + length
+        if end > len(self._buffer):
+            raise _out_of_bounds(length, start, len(self._buffer))
         self._offset = end
         if self._buffer[end - 1] == 0:
             end -= 1

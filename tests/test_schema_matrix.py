@@ -6,7 +6,6 @@ Metadata: CUBRID/cubrid cas_schema_info.c at 6b2bc755 (11.4) and d56a158c
 
 from __future__ import annotations
 
-import os
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -21,6 +20,7 @@ from pycubrid.constants import CCISchemaType, CUBRIDDataType
 from pycubrid.protocol import CloseQueryPacket, FetchPacket
 from tests.test_schema_integration import call
 
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 STRING, SHORT, INT = CUBRIDDataType.STRING, CUBRIDDataType.SHORT, CUBRIDDataType.INT
@@ -80,7 +80,7 @@ def assert_columns(packet: Any, expected: list[tuple[str, int, int]]) -> None:
 def local_name(value: str) -> str:
     # Preserve the raw API; test-owned identifiers can be owner-qualified in 11.4.
     parts = value.split(".")
-    assert len(parts) == 1 or parts[:-1] == [os.environ.get("CUBRID_TEST_USER", "dba").lower()]
+    assert len(parts) == 1 or parts[:-1] == [TEST_USER.lower()]
     return parts[-1]
 
 
@@ -98,11 +98,11 @@ async def schema_rows(conn: Any, kind: int, name: str, flags: int = 0, **kwargs:
 @pytest_asyncio.fixture(params=["sync", "async"])
 async def owned_schema(request: pytest.FixtureRequest) -> AsyncIterator[tuple[Any, Any, str]]:
     config = dict(
-        host=os.environ.get("CUBRID_TEST_HOST", "127.0.0.1"),
-        port=int(os.environ.get("CUBRID_TEST_PORT", "33000")),
-        database=os.environ.get("CUBRID_TEST_DB", "testdb"),
-        user=os.environ.get("CUBRID_TEST_USER", "dba"),
-        password=os.environ.get("CUBRID_TEST_PASSWORD", ""),
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
         no_backslash_escapes=True,
         read_timeout=5,
         connect_timeout=5,
