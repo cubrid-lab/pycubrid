@@ -833,18 +833,24 @@ line 1 column 1 (char 0)
 유효한 JSON 텍스트가 아닌 `JSON` 컬럼 값은 `DataError`를 발생시킵니다. 원래의
 `json.JSONDecodeError`는 그 `__cause__`가 됩니다. 응답은 모두 읽었으므로
 연결은 계속 사용할 수 있습니다. 그 값이 `execute()`가 반환한 첫 페이지에
-있든 이후 fetch 페이지에 있든 마찬가지이며, `execute()`가 실패한 커서도
-잘못된 UTF-8(#492)이나 0 날짜(#512)와 마찬가지로 서버 핸들을 소유하고
-해제합니다. 이후 fetch 페이지에서는 #507과 같은 규칙이 적용됩니다: 그
-페이지에 도달한 fetch 호출이 오류를 발생시키고, 그 호출이 이미 모은 행은
-유지되며, 그 뒤의 모든 fetch는 새 쿼리를 실행하기 전까지 서버에 다시
-요청하지 않고 같은 `DataError`를 발생시킵니다.
+있든 이후 fetch 페이지에 있든 마찬가지입니다. `execute()`가 실패하면
+커서에는 결과 집합이 없지만(`description`은 `None`), 잘못된 UTF-8(#492)이나
+0 날짜(#512)와 마찬가지로 서버 핸들을 소유하고 해제합니다. 이후 fetch
+페이지에서는 #507과 같은 규칙이 적용됩니다: 그 페이지에 도달한 fetch
+호출이 오류를 발생시키고, 그 호출이 이미 모은 행은 유지되며, 그 뒤의
+모든 fetch는 새 쿼리를 실행하기 전까지 서버에 다시 요청하지 않고 같은
+`DataError`를 발생시킵니다.
 
 `json_deserializer`를 지정하지 않으면(기본값) `JSON` 컬럼은 원본 `str`로
 반환되므로 이 문제가 적용되지 않습니다: CUBRID가 보내는 텍스트에 대해
 `str.__new__`는 실패하지 않습니다. 위의 재분류는 내장 `json.loads` 경로에만
 적용됩니다: 호출자가 지정한 `json_deserializer` 콜러블은 그대로 호출되며,
 그것이 발생시키는 예외는 `DataError`로 바뀌지 않습니다.
+
+이는 일반 커서의 동작입니다. 같은 `json_deserializer`를 사용하는 명시적
+prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8이나 0 날짜와
+마찬가지로 fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을
+폐기합니다.
 
 이전 릴리스에서는 `OperationalError: malformed response from broker`를 발생시키고
 연결을 닫았습니다 (#543).

@@ -92,10 +92,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   contract a complete reply holding a value the client cannot represent is a
   data problem: `PacketReader._parse_json` now raises `DataError` (the
   `JSONDecodeError` chained as `__cause__`), and the existing complete-reply
-  bounds check (#383) applies before it is re-raised, so the connection and
-  the cursor's result set stay usable, both on `execute()` and on a later
-  fetch page; a truncated reply around the same cell is still reported as
-  `OperationalError` and closes the connection. A caller-supplied
+  bounds check (#383) applies before it is re-raised, so an ordinary
+  connection and cursor stay usable, both on `execute()` (the cursor has no
+  result set, `description` is `None`, but still owns and releases its server
+  handle) and on a later fetch page (rows already collected are kept, #507); a
+  truncated reply around the same cell is still reported as `OperationalError`
+  and closes the connection. The explicit prepared API
+  (`pycubrid.compat.native`), which threads the same `json_deserializer`,
+  stays fail-closed as for invalid UTF-8 and zero dates: it raises
+  `OperationalError` and retires the session. A caller-supplied
   `json_deserializer` is not wrapped: only the built-in `json.loads` path is
   reclassified.
 - **The autocommit setter keeps `SET_DB_PARAMETER` and `COMMIT` on one CAS session (#551)** —

@@ -253,12 +253,16 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   value that is not valid JSON, decoded with the built-in
   `json_deserializer=json.loads`, now raises `DataError` (the
   `json.JSONDecodeError` chained as its `__cause__`) instead of
-  `OperationalError('malformed response from broker')`, and the session stays
-  usable, on `execute()` and on later fetch pages, exactly as for invalid UTF-8
-  and unrepresentable temporal values. The row-data completeness check (#383)
-  still applies first, so a short reply stays a fail-closed `OperationalError`.
-  A caller-supplied `json_deserializer` is unaffected: its own exceptions are
-  not wrapped. No public signature, dependency or supported-version change.
+  `OperationalError('malformed response from broker')`, and an ordinary
+  connection and cursor stay usable, on `execute()` and on later fetch pages,
+  exactly as for invalid UTF-8 and unrepresentable temporal values. The
+  row-data completeness check (#383) still applies first, so a short reply
+  stays a fail-closed `OperationalError`. The explicit prepared API
+  (`pycubrid.compat.native`), which threads the same `json_deserializer`,
+  keeps its documented fail-closed behavior: it raises `OperationalError` and
+  retires the session, as for invalid UTF-8 and zero dates. A caller-supplied
+  `json_deserializer` is unaffected: its own exceptions are not wrapped. No
+  public signature, dependency or supported-version change.
 
 - **Autocommit setter keeps its two requests on one CAS session (#551)** — PATCH
   / bug correction in both drivers. When the CAS is recycled between

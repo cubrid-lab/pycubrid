@@ -9,9 +9,12 @@ contract a complete reply holding a value the client cannot represent is a
 data problem: ``PacketReader._parse_json`` now raises ``DataError`` (the
 ``JSONDecodeError`` chained as its cause), and ``_parse_row_data`` applies the
 same complete-reply check as for invalid UTF-8 and zero dates before
-re-raising it, so the connection stays usable. A caller-supplied
-``json_deserializer`` is not wrapped: only the built-in ``json.loads`` path is
-reclassified.
+re-raising it, so an ordinary connection and cursor stay usable. A
+caller-supplied ``json_deserializer`` is not wrapped: only the built-in
+``json.loads`` path is reclassified. The explicit prepared API
+(``pycubrid.compat.native``), which threads the same ``json_deserializer``,
+keeps its documented fail-closed contract: it raises ``OperationalError`` and
+retires the session, as for invalid UTF-8 and zero dates.
 
 All tests below are offline/synthetic. A live reproduction was attempted on a
 dedicated CUBRID 11.4.6 container: CUBRID validates JSON text strictly at
@@ -38,7 +41,7 @@ from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.cursor import Cursor
-from pycubrid.exceptions import DataError
+from pycubrid.exceptions import DataError, OperationalError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import CloseQueryPacket, FetchPacket, PrepareAndExecutePacket, _read_value
 from tests.test_connection import socket_queue  # noqa: F401
@@ -48,6 +51,8 @@ from tests.test_invalid_utf8_response import (
     _connection_with_reply,
 )
 from tests.test_json_decode import _build_select_response
+from tests.test_network_edge_cases import make_connected_connection as make_edge_connection
+from tests.test_prepared_session_fence import _response_socket
 
 # A JSON cell whose text is not valid JSON at all (unterminated object).
 BAD_JSON = b'{"a":'
@@ -278,3 +283,25 @@ async def test_async_cursor_keeps_result_set_after_invalid_json_on_fetch_page() 
     assert cursor.description is not None
     await cursor.close()
     assert _closed_handles(connection) == [1]
+
+
+# --- pycubrid.compat.native stays fail-closed -------------------------------
+
+
+def test_native_prepared_invalid_json_retires_session() -> None:
+    # The explicit prepared API keeps its fail-closed contract, as for #492
+    # and #512: any client-side decode failure retires the prepared session.
+    conn, sock = make_edge_connection()
+    sock.recv_into.side_effect = _response_socket().recv_into.side_effect
+    payload = _encode_json(BAD_JSON)
+    packet = MagicMock()
+    packet.write.return_value = b"prepared request"
+    packet.parse.side_effect = lambda _body: _read_value(
+        PacketReader(payload, json_deserializer=json.loads),
+        CUBRIDDataType.JSON,
+        len(payload),
+    )
+    with pytest.raises(OperationalError, match="malformed response") as raised:
+        conn._send_and_receive(packet, expected_generation=conn._physical_generation)
+    assert isinstance(raised.value.__cause__, DataError)
+    assert conn._connected is False
