@@ -15,6 +15,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [연결이 예기치 않게 닫힘](#연결이-예기치-않게-닫힘)
   - [브로커 포트 리다이렉트 실패](#브로커-포트-리다이렉트-실패)
   - [Python 3.10에서 비동기 TLS 핸드셰이크 멈춤](#python-310에서-비동기-tls-핸드셰이크-멈춤)
+  - [핸드셰이크가 멈추거나 리셋된 뒤 비동기 TLS 연결 멈춤](#핸드셰이크가-멈추거나-리셋된-뒤-비동기-tls-연결-멈춤)
 - [쿼리 문제](#쿼리-문제)
   - [ProgrammingError: SQL 구문](#programmingerror-sql-구문)
   - [파라미터 바인딩 오류](#파라미터-바인딩-오류)
@@ -353,6 +354,16 @@ OperationalError: ... (during connection handshake)
 - **커스텀 `ssl.SSLContext` 전달** — 시스템 신뢰 저장소에 의존하지 말고 올바른 CA 번들을 로드(`context.load_verify_locations(cafile=...)`)해 가장 흔한 검증 실패를 제거.
 
 **진단**: 제어 가능한 브로커에서 재현 가능하면 패킷 트레이스를 캡처하세요(tcpdump/Wireshark, 포트 33000) — 평문 `CUBRS` 교환이 완료되고 TLS ClientHello가 나간 뒤 클라이언트 측에서 ServerHello 처리가 없는 것이 보일 것입니다. 그것이 3.10 전용 비동기 TLS 핸드셰이크 버그의 시그니처입니다.
+
+---
+
+### 핸드셰이크가 멈추거나 리셋된 뒤 비동기 TLS 연결 멈춤
+
+**증상** ([#513](https://github.com/cubrid-lab/pycubrid/issues/513) 수정 이전 pycubrid 릴리스): Python 3.11+에서 브로커(또는 그 앞의 프록시·미들박스)가 평문 `CUBRS` 핸드셰이크는 받았지만 TLS 핸드셰이크가 끝나기 전에 멈추거나 연결을 리셋하면, `read_timeout`을 설정해도 `await pycubrid.aio.connect(..., ssl=...)`가 반환되지 않습니다.
+
+**원인**: TLS 핸드셰이크는 의도대로 타임아웃되거나 실패했지만, asyncio의 `SSLProtocol`이 핸드셰이크 도중에는 연결 끊김을 스트림에 알리지 않아 연결 정리 과정이 스트림이 닫히기를 무한히 기다렸습니다.
+
+**해결**: pycubrid를 업그레이드하세요. 이제 비동기 드라이버는 `read_timeout`(설정하지 않았으면 10초 `ssl_handshake_timeout`) 안에 `OperationalError`를 발생시키고 소켓을 닫습니다. `connect_timeout`은 TCP 연결만 제한하므로 TLS 핸드셰이크를 제한하려면 `read_timeout`을 설정하세요. 동기 드라이버는 영향을 받지 않았습니다.
 
 ---
 

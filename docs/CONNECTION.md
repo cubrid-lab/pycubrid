@@ -234,6 +234,13 @@ Async TLS uses CUBRID's STARTTLS-style upgrade: the connection opens in plaintex
 `OPEN_DATABASE` exchange. Async shutdown awaits `writer.wait_closed()` so TLS sessions close
 cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_socket()`.
 
+`connect_timeout` bounds only the TCP connect. The broker handshake, the TLS handshake and
+`OPEN_DATABASE` are bounded by `read_timeout` on both drivers; when `read_timeout` is unset the
+async TLS handshake still gives up after 10 seconds (`ssl_handshake_timeout`), while the sync
+driver waits without a limit. A broker that stalls or resets the connection during the TLS
+handshake raises `OperationalError` within that bound
+([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of
