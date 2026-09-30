@@ -15,6 +15,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [연결이 예기치 않게 닫힘](#연결이-예기치-않게-닫힘)
   - [브로커 포트 리다이렉트 실패](#브로커-포트-리다이렉트-실패)
   - [Python 3.10에서 비동기 TLS 핸드셰이크 멈춤](#python-310에서-비동기-tls-핸드셰이크-멈춤)
+  - [핸드셰이크가 멈추거나 리셋된 뒤 비동기 TLS 연결 멈춤](#핸드셰이크가-멈추거나-리셋된-뒤-비동기-tls-연결-멈춤)
 - [쿼리 문제](#쿼리-문제)
   - [ProgrammingError: SQL 구문](#programmingerror-sql-구문)
   - [파라미터 바인딩 오류](#파라미터-바인딩-오류)
@@ -33,6 +34,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [유니코드 / NCHAR 인코딩](#유니코드--nchar-인코딩)
   - [값 또는 오류 메시지의 잘못된 UTF-8](#값-또는-오류-메시지의-잘못된-utf-8)
   - [TZ 값의 타임존을 해석할 수 없음](#tz-값의-타임존을-해석할-수-없음)
+  - [0 날짜 또는 날짜시간 값](#0-날짜-또는-날짜시간-값)
 - [LOB (CLOB/BLOB) 문제](#lob-clobblob-문제)
   - [LOB 컬럼이 데이터가 아니라 dict를 반환](#lob-컬럼이-데이터가-아니라-dict를-반환)
   - [Lob 객체를 파라미터로 전달할 수 없음](#lob-객체를-파라미터로-전달할-수-없음)
@@ -235,6 +237,17 @@ InterfaceError: Connection is closed
 - **브로커 재시작** — 브로커가 재시작되면 기존 연결이 모두 종료됩니다.
 - **네트워크 중단** — 일시적인 네트워크 장애가 TCP 연결을 끊습니다.
 - **유휴 연결 정리** — 브로커가 자원을 freeing하기 위해 유휴 연결을 닫을 수 있습니다.
+- **잘못된 형식의 브로커 응답** — 호출 자체가
+  `OperationalError: malformed response from broker`를 발생시켰다면 응답을
+  온전히 읽을 수 없었던 것입니다. 길이 필드(`BIT`/`VARBIT`, 문자열, `NUMERIC`,
+  컬렉션 또는 LOB 바이트 수)가 음수이거나 응답 끝을 넘어서는 경우, 행 셀의 값이
+  선언된 크기를 정확히 사용하지 않는 경우(#523), 또는 컬렉션 원소가 선언된
+  크기와 정확히 맞지 않는 경우입니다. 다음 응답의 경계를 알 수
+  없으므로 드라이버는 연결을 닫고, 이후 호출은 `InterfaceError`를 발생시킵니다.
+  응답이 선언한 마지막 값 뒤의 바이트는 오류가 아닙니다. 응답은 완전하지만
+  Python이 표현할 수 없는 값이 있으면 대신 `DataError`를 발생시키고 연결을
+  유지합니다(유효하지 않은 UTF-8, 0 날짜 항목 참고). 이전 릴리스는 잘린 필드를
+  짧아진 값으로 반환하고 연결을 유지했습니다(#383).
 
 **해결:** 이 오류가 발생하면 새 연결을 만드세요:
 
@@ -342,6 +355,16 @@ OperationalError: ... (during connection handshake)
 - **커스텀 `ssl.SSLContext` 전달** — 시스템 신뢰 저장소에 의존하지 말고 올바른 CA 번들을 로드(`context.load_verify_locations(cafile=...)`)해 가장 흔한 검증 실패를 제거.
 
 **진단**: 제어 가능한 브로커에서 재현 가능하면 패킷 트레이스를 캡처하세요(tcpdump/Wireshark, 포트 33000) — 평문 `CUBRS` 교환이 완료되고 TLS ClientHello가 나간 뒤 클라이언트 측에서 ServerHello 처리가 없는 것이 보일 것입니다. 그것이 3.10 전용 비동기 TLS 핸드셰이크 버그의 시그니처입니다.
+
+---
+
+### 핸드셰이크가 멈추거나 리셋된 뒤 비동기 TLS 연결 멈춤
+
+**증상** ([#513](https://github.com/cubrid-lab/pycubrid/issues/513) 수정 이전 pycubrid 릴리스): Python 3.11+에서 브로커(또는 그 앞의 프록시·미들박스)가 평문 `CUBRS` 핸드셰이크는 받았지만 TLS 핸드셰이크가 끝나기 전에 멈추거나 연결을 리셋하면, `read_timeout`을 설정해도 `await pycubrid.aio.connect(..., ssl=...)`가 반환되지 않습니다.
+
+**원인**: TLS 핸드셰이크는 의도대로 타임아웃되거나 실패했지만, asyncio의 `SSLProtocol`이 핸드셰이크 도중에는 연결 끊김을 스트림에 알리지 않아 연결 정리 과정이 스트림이 닫히기를 무한히 기다렸습니다.
+
+**해결**: pycubrid를 업그레이드하세요. 이제 비동기 드라이버는 `read_timeout`(설정하지 않았으면 10초 `ssl_handshake_timeout`) 안에 `OperationalError`를 발생시키고 소켓을 닫습니다. `connect_timeout`은 TCP 연결만 제한하므로 TLS 핸드셰이크를 제한하려면 `read_timeout`을 설정하세요. 동기 드라이버는 영향을 받지 않았습니다.
 
 ---
 
@@ -742,6 +765,61 @@ update the system zoneinfo)
 
 이전 릴리스에서는 `Unknown timezone token`을 로그에 남기고 naive `datetime`을
 반환하여 타임존을 조용히 버렸습니다 (#413).
+
+### 0 날짜 또는 날짜시간 값
+
+```
+pycubrid.exceptions.DataError: CUBRID DATE value (0, 0, 0) cannot be represented
+in Python: year 0 is out of range
+```
+
+CUBRID는 `DATE'0000-00-00'`, `DATETIME'0000-00-00 00:00:00'` 같은 0 값을
+허용합니다(`TIMESTAMP`와 TZ/LTZ 타입도 마찬가지). 예를 들어
+`CAST('0000-00-00' AS DATE)`나 다른 시스템에서 적재한 데이터에서 나올 수 있습니다.
+Python `datetime`에는 0년이 없으므로, pycubrid는 이런 값을 가져올 때
+`execute()`가 반환한 첫 페이지든 이후 fetch 페이지든 `DataError`를 발생시킵니다.
+응답은 모두 읽었으므로 연결은 계속 사용할 수 있습니다. `execute()`가 실패한 뒤
+커서에는 결과 집합이 없지만(`description`은 `None`), 잘못된 UTF-8과 마찬가지로
+서버 핸들을 소유하고 해제합니다.
+
+이후 fetch 페이지에서는 그 페이지에 도달한 fetch 호출이 오류를 발생시키고 페이지
+전체가 반환되지 않지만, 그 호출이 이미 모은 행은 유지됩니다. 다음
+`fetchmany()`/`fetchall()`이 그 행을 반환하고, 그 뒤의 모든 fetch는 새 쿼리를
+실행하기 전까지 서버에 다시 요청하지 않고 같은 `DataError`를 발생시킵니다(#507).
+예:
+
+```python
+cur.execute("SELECT id, d FROM t ORDER BY id")
+try:
+    rows = cur.fetchall()
+except pycubrid.DataError:
+    rows = cur.fetchall()  # 실패한 페이지 전의 행
+    # 이제 cur.fetchone()은 같은 DataError를 발생시킵니다. 나머지를 읽으려면
+    # 아래처럼 컬럼을 변환해 다시 실행하세요.
+```
+
+잘못된 텍스트(#492)와 해석할 수 없는 타임존(#413)도 같습니다. 이전 릴리스는 그
+호출이 모은 행을 버리고 재시도할 때마다 페이지를 다시 요청했으며, autocommit
+모드에서는 브로커가 이미 결과를 닫아 CAS 오류 `-1012`로 실패할 수 있었습니다.
+
+pycubrid에는 0 날짜를 `None`이나 텍스트로 반환하는 옵션이 없습니다. 대신 SQL에서
+변환하세요.
+
+```sql
+SELECT id, NULLIF(d, DATE'0000-00-00') AS d FROM t;              -- 0 값 -> NULL
+SELECT id, CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END FROM t;
+SELECT id, TO_CHAR(d, 'YYYY-MM-DD') AS d FROM t;                 -- '0000-00-00'
+SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- 0 값 찾기
+```
+
+다른 타입에는 `DATETIME'0000-00-00 00:00:00'`(또는 해당 타입)을 사용하세요.
+명시적 prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8과 마찬가지로
+fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다. 도중에
+잘린 응답은 0 날짜가 들어 있더라도 여전히
+`OperationalError: malformed response from broker`입니다.
+
+이전 릴리스에서는 `OperationalError: malformed response from broker`를 발생시키고
+연결을 닫았습니다 (#512).
 
 ---
 

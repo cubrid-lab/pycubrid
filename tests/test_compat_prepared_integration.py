@@ -2,25 +2,20 @@
 
 from __future__ import annotations
 
-import os
 
 import pytest
 
 from pycubrid.compat import native
 from pycubrid.exceptions import InterfaceError
 
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 from ._parity_helpers import table_name
 
 pytestmark = pytest.mark.integration
 
 
 def _connect() -> native.connection:
-    host = os.environ.get("CUBRID_TEST_HOST", "127.0.0.1")
-    port = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-    database = os.environ.get("CUBRID_TEST_DB", "testdb")
-    user = os.environ.get("CUBRID_TEST_USER", "dba")
-    password = os.environ.get("CUBRID_TEST_PASSWORD", "")
-    return native.connect(f"CUBRID:{host}:{port}:{database}:::", user, password)
+    return native.connect(f"CUBRID:{TEST_HOST}:{TEST_PORT}:{TEST_DB}:::", TEST_USER, TEST_PASSWORD)
 
 
 @pytest.mark.parametrize(

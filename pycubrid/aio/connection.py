@@ -165,11 +165,27 @@ class AsyncConnection(ConnectionCommonMixin):
                     await self._negotiate_backslash_escapes()
 
                 # Finish session settings before releasing the setup gate.
+                # The escape probe ends with a ROLLBACK, so this session may be
+                # OUT_TRAN and its CAS already recycled: verify it once before
+                # sending a setting. A replacement is configured by
+                # _reconnect_after_failed_probe_locked itself.
                 async with self._lock:
-                    if self._pending_autocommit:
+                    sends_setting = self._pending_autocommit or (
+                        bool(previous_generation) and self._autocommit_explicitly_set
+                    )
+                    configured_by_recovery = (
+                        self._physical_generation != previous_generation
+                        and self._configured_generation == self._physical_generation
+                    )
+                    if configured_by_recovery:
+                        pass  # a recovery nested in the escape probe configured it
+                    elif sends_setting and await self._check_reconnect_locked():
+                        pass
+                    elif self._pending_autocommit:
                         await self._apply_pending_autocommit_locked()
                     elif previous_generation:
                         await self._restore_session_state_locked()
+                    self._configured_generation = self._physical_generation
             except BaseException as exc:
                 if did_connect:
                     self._setup_error = exc
@@ -465,13 +481,28 @@ class AsyncConnection(ConnectionCommonMixin):
             )
         except BaseException:
             old_transport.abort()
+            # start_tls() moved the transport onto an SSLProtocol, which does
+            # not forward connection_lost to the stream protocol while still in
+            # DO_HANDSHAKE (peer reset, ssl_handshake_timeout, or cancellation
+            # by read_timeout). Its close future would then never resolve and
+            # the cleanup's StreamWriter.wait_closed() would hang forever
+            # (#513). abort() already released the socket; deliver the missing
+            # notification (a no-op if asyncio delivers it too).
+            protocol.connection_lost(None)
             raise
 
         if new_transport is None:
             old_transport.abort()
+            protocol.connection_lost(None)  # see the except branch above (#513)
             raise OperationalError("TLS upgrade returned no transport")
         self._writer._transport = new_transport  # type: ignore[attr-defined]
         self._reader._transport = new_transport  # type: ignore[attr-defined]
+        # The stream protocol was built for the plaintext transport and still
+        # has _over_ssl = False, so its eof_received() returns True and
+        # SSLProtocol logs "returning true from eof_received() has no effect
+        # when using ssl" on every TLS peer close (#514). Record the upgrade as
+        # StreamReaderProtocol._replace_transport() (3.11+) would.
+        setattr(protocol, "_over_ssl", True)
 
     async def _maybe_probe_tls_verification(
         self, *, effective_port: int, followed_redirect: bool
@@ -700,21 +731,40 @@ class AsyncConnection(ConnectionCommonMixin):
         return self._autocommit
 
     async def set_autocommit(self, value: bool) -> None:
-        """Set auto-commit mode on the server."""
+        """Set auto-commit mode on the server.
+
+        Same contract as the sync ``Connection.autocommit`` setter (#551):
+        ``SET_DB_PARAMETER`` and its ``COMMIT`` take effect on one CAS session,
+        a CAS recycled between them is replaced at most once with the new value
+        restored before the ``COMMIT``, and a failed ``COMMIT`` retires the
+        session, keeps the previous value and raises :class:`OperationalError`.
+        """
         await self._wait_for_setup_if_needed()
         async with self._lock:
             self._ensure_connected()
             enabled = bool(value)
+            generation = self._physical_generation
             await self._close_schema_results_locked()
             await self._send_and_receive_locked(
                 SetDbParameterPacket(
                     parameter=CCIDbParam.AUTO_COMMIT,
                     value=1 if enabled else 0,
-                )
+                ),
+                allow_reconnect=self._physical_generation == generation,
             )
-            await self._send_and_receive_locked(CommitPacket())
+            previous = (self._autocommit, self._autocommit_explicitly_set)
             self._autocommit = enabled
             self._autocommit_explicitly_set = True
+            try:
+                await self._send_and_receive_locked(
+                    CommitPacket(), allow_reconnect=self._physical_generation == generation
+                )
+            except BaseException as exc:
+                self._autocommit, self._autocommit_explicitly_set = previous
+                self._drop_connection()
+                if isinstance(exc, Exception):
+                    raise OperationalError("failed to commit the autocommit change") from exc
+                raise
 
     async def get_server_version(self) -> str:
         self._ensure_connected()
@@ -1179,6 +1229,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 if probe.response_code < 0:
                     raise OperationalError("replacement CAS session failed CHECK_CAS")
                 self._verified_cas_info = self._cas_info
+            self._configured_generation = self._physical_generation
         except BaseException as exc:
             self._drop_connection()
             if isinstance(exc, Exception):
@@ -1198,9 +1249,11 @@ class AsyncConnection(ConnectionCommonMixin):
         if self._no_backslash_escapes is not None:
             return
         try:
+            # Same request as the cursor-based probe of connect(), in both
+            # drivers: it carries the connection's autocommit flag.
             probe = PrepareAndExecutePacket(
                 sql="SELECT CHAR_LENGTH('\\\\')",
-                auto_commit=False,
+                auto_commit=self._autocommit,
                 protocol_version=self._protocol_version,
             )
             await self._send_and_receive_locked(probe, allow_reconnect=False)

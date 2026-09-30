@@ -56,6 +56,8 @@ class AsyncCursor(_AsyncCursorBase):
         self._rows: list[tuple[Any, ...]] = []
         self._row_index: int = 0
         self._fetched_count: int = 0  # total rows fetched from server (absolute position)
+        # DataError raised by a fetch page of the current result set (#507).
+        self._page_error: DataError | None = None
         self._statement_type: int = 0
         self._total_tuple_count: int = 0
         self._lastrowid: int | None = None
@@ -169,6 +171,7 @@ class AsyncCursor(_AsyncCursorBase):
             self._rows = []
             self._row_index = 0
             self._fetched_count = 0
+            self._page_error = None
             self._total_tuple_count = 0
             self._rowcount = -1
             self._lastrowid = None
@@ -191,6 +194,7 @@ class AsyncCursor(_AsyncCursorBase):
         self._rows = list(packet.rows)
         self._row_index = 0
         self._fetched_count = len(packet.rows)
+        self._page_error = None
         self._lastrowid = None
 
         if packet.statement_type == CUBRIDStatementType.SELECT:
@@ -234,6 +238,7 @@ class AsyncCursor(_AsyncCursorBase):
             self._rows = []
             self._row_index = 0
             self._fetched_count = 0
+            self._page_error = None
             self._statement_type = 0
             self._total_tuple_count = 0
             self._invalidated_by_reconnect = False
@@ -315,6 +320,7 @@ class AsyncCursor(_AsyncCursorBase):
         self._rows = []
         self._row_index = 0
         self._fetched_count = 0
+        self._page_error = None
         self._query_handle = None
         self._rowcount = -1
         self._lastrowid = None
@@ -344,7 +350,7 @@ class AsyncCursor(_AsyncCursorBase):
         self._check_result_set()
 
         if self._row_index >= len(self._rows):
-            if not await self._fetch_more_rows():
+            if not await self._next_page([]):
                 return None
 
         row = self._rows[self._row_index]
@@ -361,7 +367,7 @@ class AsyncCursor(_AsyncCursorBase):
         while remaining > 0:
             available = len(self._rows) - self._row_index
             if available <= 0:
-                if not await self._fetch_more_rows():
+                if not await self._next_page(rows):
                     break
                 available = len(self._rows) - self._row_index
 
@@ -382,7 +388,7 @@ class AsyncCursor(_AsyncCursorBase):
             if available > 0:
                 rows.extend(self._rows[self._row_index :])
                 self._row_index = len(self._rows)
-            if not await self._fetch_more_rows():
+            if not await self._next_page(rows):
                 break
         # All rows consumed — release the buffer to free memory.
         self._rows = []
@@ -440,6 +446,31 @@ class AsyncCursor(_AsyncCursorBase):
     def _check_result_set(self) -> None:
         if self._description is None:
             raise InterfaceError("No result set available")
+
+    async def _next_page(self, collected: list[tuple[Any, ...]]) -> bool:
+        """Load the next page for a fetch call that has ``collected`` rows so far.
+
+        A page that raises ``DataError`` was read in full, so the session stays
+        usable and the cursor keeps its handle (#492, #512), but the page
+        cannot be returned. The fetch call raises, and the rows it had
+        collected stay buffered: the next fetch calls return them without
+        contacting the server. After that every fetch raises the same
+        ``DataError`` until the cursor executes again or closes, so no row
+        past the failing page is returned (#507). The page is not requested
+        again: in autocommit mode the CAS may already have closed the result
+        after sending its last page.
+        """
+        if self._page_error is not None:
+            if collected:
+                return False
+            raise self._page_error.with_traceback(None)
+        try:
+            return await self._fetch_more_rows()
+        except DataError as exc:
+            self._rows = collected
+            self._row_index = 0
+            self._page_error = exc
+            raise
 
     async def _fetch_more_rows(self) -> bool:
         if self._query_handle is None:

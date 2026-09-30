@@ -18,7 +18,7 @@ for both the sync and async drivers:
   on the connection, identical to the module-level class.
 
 Any intentional deviation is documented inline. Skipped when no CUBRID server is
-reachable.
+configured; errors when a configured one is unreachable (see the shared ``tests/conftest.py`` gate).
 """
 
 from __future__ import annotations
@@ -33,11 +33,10 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.exceptions import InterfaceError, NotSupportedError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
 ]
 
 _EXC_NAMES = (

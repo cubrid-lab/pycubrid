@@ -193,6 +193,8 @@ conn = pycubrid.connect(
 
 비동기 TLS는 CUBRID의 STARTTLS 방식 업그레이드를 사용합니다: 연결이 평문으로 열리고, 브로커와 TLS를 협상하기 위해 `CUBRS` 핸드셰이크 매직을 보낸 뒤, `OPEN_DATABASE` 교환 **이전에** `asyncio.AbstractEventLoop.start_tls()`(`ssl_handshake_timeout`으로 제한)로 라이브 전송을 업그레이드합니다. 비동기 종료 시 `writer.wait_closed()`를 기다려 TLS 세션이 깨끗이 닫힙니다. 동기 드라이버는 `ssl.SSLContext.wrap_socket()`으로 동등한 흐름을 수행합니다.
 
+`connect_timeout`은 TCP 연결만 제한합니다. 브로커 핸드셰이크, TLS 핸드셰이크, `OPEN_DATABASE`는 두 드라이버 모두 `read_timeout`으로 제한됩니다. `read_timeout`을 설정하지 않으면 비동기 TLS 핸드셰이크는 10초(`ssl_handshake_timeout`) 후 포기하고, 동기 드라이버는 제한 없이 기다립니다. TLS 핸드셰이크 도중 브로커가 멈추거나 연결을 리셋하면 그 제한 안에 `OperationalError`가 발생합니다([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
+
 !!! note "Python 3.10 비동기 TLS 사전 점검 프로브"
     Python 3.10의 `asyncio.loop.start_tls()`에는 알려진 CPython 버그(3.13/3.14에서 수정)가 있어, **인증서 검증** 실패 시 예외를 던지는 대신 무한히 멈출 수 있습니다. [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156)부터 비동기 드라이버는 Python 3.10에서 `loop.start_tls()` 직전에 같은 `SSLContext`와 `server_hostname=host`로 `ssl.SSLContext.wrap_socket()` 사전 점검 프로브를 자동 실행합니다. 검증 실패는 이제 연결 타임아웃 내에 `OperationalError`(`ssl.SSLError`에서 체이닝)로 발생하며, 3.11+ 동작과 일치합니다. 프로브는 Python 3.11+에서는 no-op이고, 3.10에서만 연결당 TCP 왕복 한 번이 추가됩니다. 다른 TLS 오류 경로(응답 없음, 타임아웃)는 여전히 `ssl_handshake_timeout`으로 제한됩니다. 이 이슈는 동기 드라이버에 영향을 주지 않습니다.
 
@@ -227,7 +229,7 @@ if not alive:
 ```
 
 - `await conn.ping(reconnect=False)`는 열린 소켓에서 네이티브 `CHECK_CAS` 왕복을 수행하며 재접속하지 않습니다. `CAS_INFO[0]=0`은 트랜잭션 종료 후의 OUT_TRAN 상태이지 세션 해제가 아니므로 이 동작에 영향을 주지 않습니다. 소켓이 닫혔거나 검사에 실패하면 `False`를 반환하므로 SQLAlchemy의 `pool_pre_ping`에 적합합니다.
-- `await conn.ping(reconnect=True)`는 기존 소켓을 먼저 검사하고, 이미 연결이 끊겼거나 `CHECK_CAS` 전송/프로토콜 오류가 발생했거나 음수 응답으로 CAS–DB 링크 장애가 확인되면 재접속을 한 번 시도합니다. 복구 실패는 `False`를 반환합니다. `reconnect=False`는 음수 응답에도 재접속하지 않고 `False`를 반환합니다.
+- `await conn.ping(reconnect=True)`는 기존 소켓을 먼저 검사하고, 이미 연결이 끊겼거나 `CHECK_CAS` 전송/프로토콜 오류가 발생했거나 음수 응답으로 CAS–DB 링크 장애가 확인되면 재접속을 한 번 시도합니다. 복구 실패는 `False`를 반환합니다. `reconnect=False`는 음수 응답에도 재접속하지 않고 그 손상된 세션을 닫은 뒤 `False`를 반환합니다.
 - 정상적인 동일 세션 ping은 이스케이프 모드를 다시 감지하지 않습니다. 새 물리 세션에서는 자동 모드를 사용한 경우 사용 전에 다시 감지하며, 명시적 `no_backslash_escapes=True` 또는 `False`는 유지합니다. 감지 실패 시 대체 세션을 폐기하고 ping은 `False`를 반환하며, 모드를 추측하거나 SQL을 재실행하지 않습니다.
 - 정상 세션의 비동기 검사는 동기 `Connection.ping()`과 같은 네이티브 `CHECK_CAS` 함수 코드(`FC=32`)를 사용하며 SQL을 실행하지 않습니다. 재연결 중에는 읽기 전용 이스케이프 모드 탐색 SELECT를 실행할 수 있습니다.
 
@@ -307,6 +309,8 @@ conn.autocommit = True
 | 게터 | 현재 오토커밋 상태 반환 |
 | 세터(`= True`) | 서버로 `SetDbParameterPacket` + `CommitPacket` 전송 |
 | 세터(`= False`) | 서버로 `SetDbParameterPacket` + `CommitPacket` 전송 |
+| 두 요청 사이에 CAS 재활용 | 대체 세션에 새 값을 먼저 복원한 뒤 `COMMIT` 전송, 호출당 재접속은 최대 한 번(#551) |
+| `COMMIT` 실패 | 연결을 닫고 이전 값을 유지하며 `OperationalError` 발생 |
 
 > **참고**: pycubrid를 SQLAlchemy(`cubrid+pycubrid://`)와 사용하면 방언이 새 연결마다 `autocommit = False`로 설정해 SQLAlchemy가 트랜잭션을 올바르게 관리하게 합니다.
 >
@@ -328,7 +332,7 @@ conn.autocommit = True
 
 ### 명시적 ping 복구 후 세션 상태 복원
 
-pycubrid는 전송 실패 후 임의의 SQL 요청을 자동 재실행하지 않습니다. 연결이 이미 끊겼거나 `CHECK_CAS` 검사 중 전송/프로토콜 오류가 발생했거나 음수 검사 응답으로 CAS–DB 링크 장애가 확인되면 명시적인 `ping(reconnect=True)`로 새 연결을 한 번 시도할 수 있습니다. `reconnect=False`는 음수 응답을 `False`로 보고하고 재접속하지 않습니다. 중단된 SQL을 재시도해도 안전한지는 호출자가 판단해야 합니다.
+pycubrid는 전송 실패 후 임의의 SQL 요청을 자동 재실행하지 않습니다. 연결이 이미 끊겼거나 `CHECK_CAS` 검사 중 전송/프로토콜 오류가 발생했거나 음수 검사 응답으로 CAS–DB 링크 장애가 확인되면 명시적인 `ping(reconnect=True)`로 새 연결을 한 번 시도할 수 있습니다. `reconnect=False`는 음수 응답을 `False`로 보고하고 재접속하지 않으며, 동기·비동기 모두 그 손상된 세션을 닫으므로 이후 호출은 `connect()` 또는 `ping(reconnect=True)` 전까지 `InterfaceError`를 발생시킵니다. 중단된 SQL을 재시도해도 안전한지는 호출자가 판단해야 합니다.
 
 자동 `no_backslash_escapes` 모드는 대체 물리 세션에서 상태 복원 전에 다시
 감지하며, 명시적으로 고른 모드는 유지합니다. 감지 실패 시 세션을 폐기하고
@@ -338,7 +342,7 @@ pycubrid는 전송 실패 후 임의의 SQL 요청을 자동 재실행하지 않
 결정해야 합니다. 정상적인 동일 세션 ping은 감지하지
 않습니다. 세션 내 동적 설정 변경이나 이기종 페일오버 검증을 뜻하지 않습니다.
 
-위의 자동 재접속을 포함해 복구가 성공하면 pycubrid는 호출자가 **명시적으로** 설정한 세션 수준 설정을 복원합니다:
+위의 자동 재접속을 포함해 복구가 성공하면, 그리고 `close()` 후 `connect()`로 연결을 다시 열면(동기·비동기 동일, #520) pycubrid는 호출자가 **명시적으로** 설정한 세션 수준 설정을 복원합니다:
 
 | 설정 | ping 복구 성공 후 복원? |
 |---|---|

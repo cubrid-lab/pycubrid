@@ -234,6 +234,13 @@ Async TLS uses CUBRID's STARTTLS-style upgrade: the connection opens in plaintex
 `OPEN_DATABASE` exchange. Async shutdown awaits `writer.wait_closed()` so TLS sessions close
 cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_socket()`.
 
+`connect_timeout` bounds only the TCP connect. The broker handshake, the TLS handshake and
+`OPEN_DATABASE` are bounded by `read_timeout` on both drivers; when `read_timeout` is unset the
+async TLS handshake still gives up after 10 seconds (`ssl_handshake_timeout`), while the sync
+driver waits without a limit. A broker that stalls or resets the connection during the TLS
+handshake raises `OperationalError` within that bound
+([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of
@@ -277,7 +284,7 @@ if not alive:
 ```
 
 - `await conn.ping(reconnect=False)` issues a native `CHECK_CAS` round-trip on an open socket without reconnecting. `CAS_INFO[0]=0` means OUT_TRAN after a transaction boundary, not a released session; it does not change this behavior. A closed socket or failed check returns `False`, which makes this suitable for SQLAlchemy's `pool_pre_ping`.
-- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting.
+- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting and closes that broken session.
 - A healthy same-session ping does not re-probe escape mode. On a new physical session, an automatic mode is re-probed before use; an explicit `no_backslash_escapes=True` or `False` remains pinned. Probe failure retires the replacement and makes ping return `False`, without guessing an escape mode or replaying SQL.
 - The healthy-session check uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and executes no SQL; recovery may run a read-only escape-mode probe.
 
@@ -357,6 +364,8 @@ conn.autocommit = True
 | Getter | Returns current autocommit state |
 | Setter (`= True`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
 | Setter (`= False`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
+| CAS recycled between the two | The new value is restored on the replacement session before its `COMMIT`; at most one reconnect per call (#551) |
+| `COMMIT` fails | Connection closed, previous value kept, `OperationalError` raised |
 
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
@@ -427,7 +436,9 @@ pycubrid never replays an arbitrary SQL request after a transport failure. If a 
 disconnected, a `CHECK_CAS` probe raises a transport/protocol error, or the
 probe returns a negative response (broken CAS-to-DB link), explicit
 `ping(reconnect=True)` can attempt one new connection. With `reconnect=False`,
-the negative response returns `False` without reconnecting. The caller must
+the negative response returns `False` without reconnecting and closes that
+broken session, in both drivers; later calls raise `InterfaceError` until
+`connect()` or `ping(reconnect=True)`. The caller must
 decide whether interrupted SQL is safe to retry.
 
 Automatic `no_backslash_escapes` detection runs again on the replacement
@@ -440,8 +451,9 @@ decides whether to retry. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
-After successful recovery, including the automatic reconnect above, pycubrid
-restores the session-level setting the caller has **explicitly** set:
+After successful recovery, including the automatic reconnect above, and when
+`connect()` reopens a connection after `close()` (sync and async alike, #520),
+pycubrid restores the session-level setting the caller has **explicitly** set:
 
 | Setting | Restored after successful ping recovery? |
 |---|---|

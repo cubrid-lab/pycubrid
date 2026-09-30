@@ -444,6 +444,13 @@ Async TLS uses CUBRID's STARTTLS-style upgrade: the connection opens in plaintex
 `OPEN_DATABASE` exchange. Async shutdown awaits `writer.wait_closed()` so TLS sessions close
 cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_socket()`.
 
+`connect_timeout` bounds only the TCP connect. The broker handshake, the TLS handshake and
+`OPEN_DATABASE` are bounded by `read_timeout` on both drivers; when `read_timeout` is unset the
+async TLS handshake still gives up after 10 seconds (`ssl_handshake_timeout`), while the sync
+driver waits without a limit. A broker that stalls or resets the connection during the TLS
+handshake raises `OperationalError` within that bound
+([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of
@@ -487,7 +494,7 @@ if not alive:
 ```
 
 - `await conn.ping(reconnect=False)` issues a native `CHECK_CAS` round-trip on an open socket without reconnecting. `CAS_INFO[0]=0` means OUT_TRAN after a transaction boundary, not a released session; it does not change this behavior. A closed socket or failed check returns `False`, which makes this suitable for SQLAlchemy's `pool_pre_ping`.
-- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting.
+- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting and closes that broken session.
 - A healthy same-session ping does not re-probe escape mode. On a new physical session, an automatic mode is re-probed before use; an explicit `no_backslash_escapes=True` or `False` remains pinned. Probe failure retires the replacement and makes ping return `False`, without guessing an escape mode or replaying SQL.
 - The healthy-session check uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and executes no SQL; recovery may run a read-only escape-mode probe.
 
@@ -567,6 +574,8 @@ conn.autocommit = True
 | Getter | Returns current autocommit state |
 | Setter (`= True`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
 | Setter (`= False`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
+| CAS recycled between the two | The new value is restored on the replacement session before its `COMMIT`; at most one reconnect per call (#551) |
+| `COMMIT` fails | Connection closed, previous value kept, `OperationalError` raised |
 
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
@@ -637,7 +646,9 @@ pycubrid never replays an arbitrary SQL request after a transport failure. If a 
 disconnected, a `CHECK_CAS` probe raises a transport/protocol error, or the
 probe returns a negative response (broken CAS-to-DB link), explicit
 `ping(reconnect=True)` can attempt one new connection. With `reconnect=False`,
-the negative response returns `False` without reconnecting. The caller must
+the negative response returns `False` without reconnecting and closes that
+broken session, in both drivers; later calls raise `InterfaceError` until
+`connect()` or `ping(reconnect=True)`. The caller must
 decide whether interrupted SQL is safe to retry.
 
 Automatic `no_backslash_escapes` detection runs again on the replacement
@@ -650,8 +661,9 @@ decides whether to retry. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
-After successful recovery, including the automatic reconnect above, pycubrid
-restores the session-level setting the caller has **explicitly** set:
+After successful recovery, including the automatic reconnect above, and when
+`connect()` reopens a connection after `close()` (sync and async alike, #520),
+pycubrid restores the session-level setting the caller has **explicitly** set:
 
 | Setting | Restored after successful ping recovery? |
 |---|---|
@@ -1570,7 +1582,9 @@ read-only escape-mode probe before accepting application SQL.
 - With `reconnect=True`, probes the existing socket first and attempts one
   reconnect if disconnected, if the check fails with a transport/protocol error,
   or if `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
-  `reconnect=False` reports the negative response as `False` without reconnecting.
+  `reconnect=False` reports the negative response as `False` without reconnecting
+  and closes that broken session (later calls raise `InterfaceError`), as the
+  async driver does.
   Only explicitly set autocommit is restored after successful recovery.
   Interrupted SQL is not replayed; the caller must decide whether retry is safe.
   An automatically detected `no_backslash_escapes` mode is probed again on a
@@ -1719,7 +1733,7 @@ def autocommit(self) -> bool
 def autocommit(self, value: bool) -> None
 ```
 
-Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server.
+Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server. Both take effect on one CAS session: if the CAS is recycled between them, the new value is restored on the replacement session before the `COMMIT` is sent there (at most one reconnect per call). If the `COMMIT` fails, the connection is closed, the previous value is kept and `OperationalError` is raised with the cause chained (#551).
 
 ```python
 conn = pycubrid.connect(database="testdb")
@@ -1973,6 +1987,21 @@ if row:
 > explicitly to continue. There is no transparent SELECT replay or holdable-result
 > guarantee; reconnect invalidation retains its separate `OperationalError`.
 
+> **Data errors on a later fetch page (#507):** When a FETCH page contains a
+> value pycubrid cannot represent (text invalid in the connection charset
+> #492, an unresolved zone #413, a zero date #512), the `fetchone()`,
+> `fetchmany()` or `fetchall()` call (or iteration step) that reaches the page
+> raises `DataError`. The whole page is withheld, including its rows before the
+> bad value. Rows that call had already collected are not lost: the next fetch
+> calls return them without contacting the server, so a `fetchmany()` or
+> `fetchall()` after the error returns those rows (possibly fewer than
+> requested). After that, every fetch raises the same `DataError` again without
+> requesting the page, until `execute()` or `close()`; no row of the failing
+> page or after it is ever returned. The connection stays usable and the
+> cursor keeps its server handle. Sync and async cursors behave the same. To
+> read past the value, convert it in SQL (see [Zero Date or Datetime
+> Value](TROUBLESHOOTING.md#zero-date-or-datetime-value)) and execute again.
+
 ---
 
 #### `fetchmany(size)`
@@ -2024,8 +2053,19 @@ raise `ProgrammingError` before any SQL is executed.
 
 **Returns:** The original `parameters` sequence (as per PEP 249).
 
+A stored function's return value is the one row of the result set: fetch it
+with `fetchone()`. The same holds for `execute("CALL ...")` (including method
+calls such as `CALL find_user('dba') ON CLASS db_user`) and `EVALUATE`. Each
+value carries its own type on the wire and is decoded like a column of that
+type (`INT` to `int`, `VARCHAR` to `str`, `DATETIME` to `datetime`, an object
+to its `"OID:@page|slot|volume"` string, SQL `NULL` to `None`); before #542
+these values came back as raw `bytes`. `description` reports the column type as
+`NULL` (`0`) because the broker announces no type for it.
+
 ```python
 cur.callproc("my_procedure", [1, "hello"])
+cur.callproc("my_function")
+(value,) = cur.fetchone()
 ```
 
 ---
@@ -2216,7 +2256,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit` is read-only; use `await conn.set_autocommit(True)` to change it.
-Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
+Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket` on one CAS session, with the same recycle and failure behavior (#551).
 
 ### `ping(reconnect=True)`
 
@@ -2237,7 +2277,9 @@ without SQL. Recovery can execute the read-only escape-mode probe.
 - With `reconnect=True`, probes the existing socket first and attempts one
   reconnect if disconnected, after a transport/protocol failure, or when
   `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
-  `reconnect=False` reports the negative response as `False` without reconnecting.
+  `reconnect=False` reports the negative response as `False` without reconnecting
+  and closes that broken session (later calls raise `InterfaceError`), as the
+  sync driver does.
   Only explicitly set autocommit is restored; arbitrary SQL is never replayed.
   Automatic `no_backslash_escapes` detection runs on each new physical session,
   not on healthy same-session checks; explicit `True`/`False` remains pinned.
@@ -2543,7 +2585,9 @@ it (nothing of that request is sent), and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
 `DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
 zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
 (#413). The reply was fully read, so with ordinary cursors the connection stays
-usable. `get_schema_info()` retires the connection on any FC9 reply it cannot
+usable; on a later fetch page, rows collected before that page are still
+returned first (see *Data errors on a later fetch page* under
+[`fetchone()`](#fetchone), #507). `get_schema_info()` retires the connection on any FC9 reply it cannot
 parse, and the explicit prepared API (`pycubrid.compat.native`) raises
 `OperationalError` and retires the session instead.
 
@@ -3033,6 +3077,24 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary)).
 > If the session zone changes, the same stored instant is returned with a
 > different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
+
+> **Zero dates (#512):** CUBRID accepts zero values such as `DATE'0000-00-00'`,
+> `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
+> `TIMESTAMPLTZ`, `DATETIMETZ` and `DATETIMELTZ` values, but Python's `datetime`
+> has no year 0. Fetching one raises `DataError` naming the CUBRID type and
+> fields, on `execute()` and on a later fetch page alike; the connection stays
+> usable, and the cursor keeps its server handle as for invalid UTF-8 (#492).
+> On a later page, rows fetched before that page are still returned, and
+> fetches after them keep raising the same `DataError` until the next
+> `execute()` (#507).
+> Any other temporal field Python cannot hold is reported the same way.
+> There is no option to return `None` or text instead: convert the value in
+> SQL, for example `NULLIF(d, DATE'0000-00-00')` (zero becomes `NULL`),
+> `CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END`, or
+> `TO_CHAR(d, 'YYYY-MM-DD')` (returns `'0000-00-00'`). The explicit prepared
+> API (`pycubrid.compat.native`) stays fail-closed: it raises
+> `OperationalError` and retires the session. See
+> [Zero Date or Datetime Value](TROUBLESHOOTING.md#zero-date-or-datetime-value).
 
 > **Zone decoding (#413):** CUBRID sends each value's zone as text: an offset
 > (`+05:30`) or a region name with the abbreviation in effect
@@ -4674,6 +4736,24 @@ Available parameters (`CCIDbParam`):
 | `_parse_bytes(count)` | `bytes` | `count` |
 | `_parse_null_terminated_string(length)` | `str` | `length` |
 
+Every read stays inside the reply (#383). A length-prefixed read (bytes, text,
+`NUMERIC`, `JSON`, a raw collection or LOB handle, `_skip_bytes()`) checks
+`0 <= length <= bytes_remaining()` before it moves and raises `ValueError`
+otherwise; a fixed-width read past the end raises `struct.error` or
+`IndexError`. A failed read leaves the offset unchanged. Text readers return
+`""` for a non-positive length without moving. A decoded collection's elements
+must fill its declared size exactly, and a `LOB_READ` byte count must fit the
+reply (a count below the requested length is a valid short read). Each row cell
+of a FETCH or inline execute reply must use exactly the bytes its size word
+declares: fixed-width values (`INT`, `DATE`, `OBJECT`, ...) do not read the size
+themselves, so the row parser checks it against the type's width before reading
+the value (#523), also when it re-walks a reply before raising `DataError`; a
+non-positive size is SQL `NULL`. A negative FETCH tuple count is malformed too. The
+connection turns these exceptions into `OperationalError("malformed response
+from broker")` and closes; `DataError` stays reserved for a complete reply
+whose value Python cannot represent (#492, #512). Unread bytes after the last
+value a reply declares are not checked.
+
 ### Composite Parsers
 
 | Method | Returns | Description |
@@ -4700,6 +4780,15 @@ Column metadata preserves the first type byte's `0x60` collection-kind bits:
 byte carries the full scalar/element type (including codes above 31); otherwise
 the low five bits carry it. Collection row dispatch uses the collection kind,
 not that element type.
+
+Cells of a `CALL` / `EVALUATE` result and of a column whose metadata type is
+`NULL` (`SELECT NULL`, ...) carry their own type header before the value, and
+the cell size counts it. Protocol 7+ brokers (CUBRID 10.2+) write it like
+column metadata: `0x80 | collection bits | charset`, then the type byte, for
+example `00000006 83 08 0000002a` for `CALL` of a function returning `INT` 42
+and `0000000a 83 13 <8-byte OID>` for `CALL find_user('dba') ON CLASS db_user`.
+Older brokers write one type byte. The driver reads either layout (#542); a
+header longer than its cell is a malformed reply.
 
 A collection value is one element-type byte, a 4-byte element count, then a
 4-byte length and payload per element; a NULL element has length `-1` and no
@@ -5462,6 +5551,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Connection Closed Unexpectedly](#connection-closed-unexpectedly)
   - [Broker Port Redirect Failure](#broker-port-redirect-failure)
   - [Async TLS Handshake Hangs on Python 3.10](#async-tls-handshake-hangs-on-python-310)
+  - [Async TLS Connect Hangs After a Stalled or Reset Handshake](#async-tls-connect-hangs-after-a-stalled-or-reset-handshake)
   - [Connection Option Has No Effect](#connection-option-has-no-effect)
 - [Query Issues](#query-issues)
   - [ProgrammingError: SQL Syntax](#programmingerror-sql-syntax)
@@ -5481,6 +5571,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Unicode / NCHAR Encoding](#unicode--nchar-encoding)
   - [Invalid UTF-8 in a Value or Error Message](#invalid-utf-8-in-a-value-or-error-message)
   - [Unresolved Time Zone in a TZ Value](#unresolved-time-zone-in-a-tz-value)
+  - [Zero Date or Datetime Value](#zero-date-or-datetime-value)
 - [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
   - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
   - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)
@@ -5683,6 +5774,19 @@ InterfaceError: Connection is closed
 - **Broker restart** — If the broker restarts, all existing connections are terminated.
 - **Network interruption** — Temporary network failure drops the TCP connection.
 - **Idle connection cleanup** — The broker may close idle connections to free resources.
+- **Malformed broker reply** — the call itself raised
+  `OperationalError: malformed response from broker` because the reply could
+  not be read as a whole: a length field (a `BIT`/`VARBIT`, string, `NUMERIC`,
+  collection or LOB byte count) that is negative or runs past the end of the
+  reply, a row cell whose value does not use exactly its declared size (#523),
+  or collection elements that do not fill their declared size. The
+  driver closes the connection, because the next reply boundary is unknown,
+  and later calls raise `InterfaceError`. Bytes after the last value a reply
+  declares are not an error. A complete reply with a value Python cannot
+  represent raises `DataError` and keeps the connection instead (see
+  [Invalid UTF-8](#invalid-utf-8-in-a-value-or-error-message) and
+  [Zero Date](#zero-date-or-datetime-value)). Earlier releases returned a
+  shortened value for a cut-off field and kept the connection (#383).
 
 **Fix:** Create a new connection when this error occurs:
 
@@ -5790,6 +5894,16 @@ OperationalError: ... (during connection handshake)
 - **Pass a custom `ssl.SSLContext`** with the correct CA bundle loaded (`context.load_verify_locations(cafile=...)`) rather than relying on the system trust store, eliminating the most common verify failure.
 
 **Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That is the signature of the 3.10-only async-TLS handshake bug.
+
+---
+
+### Async TLS Connect Hangs After a Stalled or Reset Handshake
+
+**Symptom** (pycubrid releases before the fix for [#513](https://github.com/cubrid-lab/pycubrid/issues/513)): on Python 3.11+, `await pycubrid.aio.connect(..., ssl=...)` never returns, even with `read_timeout` set, when the broker (or a proxy or middlebox in front of it) accepts the plaintext `CUBRS` handshake but then stalls or resets the connection before the TLS handshake completes.
+
+**Cause**: the TLS handshake timed out or failed as intended, but asyncio's `SSLProtocol` does not report the lost connection to the stream while it is still handshaking, so the connect cleanup waited forever for the stream to close.
+
+**Fix**: upgrade pycubrid. The async driver now raises `OperationalError` within `read_timeout` (or the 10-second `ssl_handshake_timeout` when `read_timeout` is unset) and closes the socket. `connect_timeout` only bounds the TCP connect, so set `read_timeout` to bound the TLS handshake. The sync driver was not affected.
 
 ---
 
@@ -6248,6 +6362,63 @@ text, e.g. `SELECT TO_CHAR(col)`.
 
 Earlier releases logged `Unknown timezone token` and returned a naive
 `datetime`, silently dropping the zone (#413).
+
+### Zero Date or Datetime Value
+
+```
+pycubrid.exceptions.DataError: CUBRID DATE value (0, 0, 0) cannot be represented
+in Python: year 0 is out of range
+```
+
+CUBRID accepts zero values such as `DATE'0000-00-00'` and
+`DATETIME'0000-00-00 00:00:00'` (also for `TIMESTAMP` and the TZ/LTZ types),
+for example from `CAST('0000-00-00' AS DATE)` or data loaded from another
+system. Python's `datetime` has no year 0, so pycubrid raises `DataError` when
+such a value is fetched, whether it is in the first page returned by
+`execute()` or in a later fetch page. The reply was read in full, so the
+connection stays usable; after a failed `execute()` the cursor has no result
+set (`description` is `None`) but still owns and releases the server handle,
+as for invalid UTF-8.
+
+On a later fetch page, the fetch call that reaches the page raises and the
+whole page is withheld, but rows that call had already collected are kept:
+the next `fetchmany()`/`fetchall()` returns them, and every fetch after that
+raises the same `DataError` without asking the server again, until you execute
+a new query (#507). For example:
+
+```python
+cur.execute("SELECT id, d FROM t ORDER BY id")
+try:
+    rows = cur.fetchall()
+except pycubrid.DataError:
+    rows = cur.fetchall()  # rows before the failing page
+    # cur.fetchone() now raises the same DataError; re-execute with a
+    # converted column (below) to read the rest.
+```
+
+The same applies to invalid text (#492) and unresolved zones (#413). Earlier
+releases dropped the rows collected by that call and requested the page again
+on every retry, which in autocommit mode could fail with CAS error `-1012`
+because the broker had already closed the result.
+
+pycubrid has no option to return zero dates as `None` or text. Convert them
+in SQL instead:
+
+```sql
+SELECT id, NULLIF(d, DATE'0000-00-00') AS d FROM t;              -- zero -> NULL
+SELECT id, CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END FROM t;
+SELECT id, TO_CHAR(d, 'YYYY-MM-DD') AS d FROM t;                 -- '0000-00-00'
+SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- find them
+```
+
+Use `DATETIME'0000-00-00 00:00:00'` (or the matching type) for the other
+types. The explicit prepared API (`pycubrid.compat.native`) stays fail-closed,
+as for invalid UTF-8: it raises `OperationalError` and retires the session.
+A reply that is cut short is still `OperationalError: malformed response from
+broker`, even when it also contains a zero date.
+
+Earlier releases raised `OperationalError: malformed response from broker`
+and closed the connection (#512).
 
 ---
 
@@ -6949,8 +7120,32 @@ Compatibility and feature support for pycubrid releases.
 |---|---|---|
 | Offline tests | Python 3.10, 3.11, 3.12, 3.13, 3.14 | Same |
 | Integration tests | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8 jobs | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20 jobs |
+| Version differential | — | One job: the same generated workloads against CUBRID 10.2, 11.0, 11.2 and 11.4 at once |
 
 The 5 × 4 full integration matrix is run by `.github/workflows/integration-full.yml` on a nightly schedule, on tagged releases, and on demand via `workflow_dispatch`.
+
+### Server Behavior Differences Between CUBRID Versions
+
+The version differential (`tests/test_version_differential.py`) compares what
+pycubrid returns for the same statements on every supported server: error
+class, `errno` and `sqlstate`, `rowcount`, `lastrowid`, `description`, and
+each value's Python type and value. pycubrid decodes every version the same
+way. The differences below come from the server (the same results appear in
+`csql`), and they are the only ones the suite allows. Each entry, with its
+upstream link, is in `tests/helpers/version_matrix.py`.
+
+| Behavior | 10.2 | 11.0 | 11.2 | 11.4 |
+|---|---|---|---|---|
+| String/bit value longer than its `CHAR(n)`/`VARCHAR(n)`/`BIT VARYING(n)` column | Silently truncated | `ProgrammingError` -494 | `ProgrammingError` -494 | `ProgrammingError` -494 |
+| `REGEXP_LIKE` / `REGEXP_*` functions | Undefined (-494) | Available | Available | Available |
+| Bare value as a condition (`IF(1, ...)`, `WHERE 1`) | Accepted | Accepted | `ProgrammingError` -493 | `ProgrammingError` -493 |
+| Type of `'a' \|\| 'b'` / `CONCAT` | CHAR | VARCHAR | VARCHAR | VARCHAR |
+| `CAST('a' AS VARCHAR) = 'a '` | True | False | False | False |
+| `TRUNCATE` of an FK-referenced parent | `IntegrityError` -924 | `IntegrityError` -924 | `IntegrityError` -1284 | `IntegrityError` -1284 |
+| Type of `COUNT(*)` | INTEGER | INTEGER | BIGINT | BIGINT |
+| Integer mixed with NUMERIC (`(5) * (0.100)`) | NUMERIC(14,3) | NUMERIC(14,3) | NUMERIC(19,3); 17+ digit BIGINT overflows (-427) | NUMERIC(14,3) |
+| `REGEXP` operator on text with 3-byte UTF-8 characters | Matches | Never matches | Never matches | Never matches |
+| `REGEXP_*` on text with 3-byte UTF-8 characters | Undefined | NULL | 0 | 0 |
 
 ---
 
@@ -7132,6 +7327,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 - [Project Structure](#project-structure)
 - [Running Tests](#running-tests)
   - [Offline Tests](#offline-tests)
+  - [Sync/Async Replay Parity](#syncasync-replay-parity)
   - [Integration Tests](#integration-tests)
   - [Code Coverage](#code-coverage)
 - [Docker Setup](#docker-setup)
@@ -7256,6 +7452,76 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 make test
 ```
 
+### Sync/Async Replay Parity
+
+`tests/test_replay_parity.py` checks, offline and in a few seconds, that the
+sync `Connection` and the async `AsyncConnection` behave the same against the
+same broker. `tests/helpers/replay_broker.py` is a threaded in-process CAS
+broker: it accepts any number of TCP sessions (so reconnects are real), answers
+each request through a per-scenario *script* with deterministic default replies
+built by `tests/helpers/cas_reply.py`, and records every request it receives.
+
+Each scenario is a list of public operations (`open`, `close`, `connect`,
+`execute`, `fetchall`, `commit`, `ping`, ...) plus a script. It is replayed
+through both drivers, each against a fresh broker, and four aspects are
+compared: step outcomes (return value or exception type), the exact requests
+sent (session, CAS function, echoed CAS_INFO, arguments), whether the connection
+is still usable afterwards (`ping(reconnect=False)`), and the number of TCP
+sessions. A scenario names the aspects in which the drivers are *meant* to
+differ, with a reason; every other difference fails. A known divergence that is
+not fixed yet is recorded with `unintended=` and runs as a strict `xfail`. Each
+scenario also carries a `check` run against both observations, so it cannot
+silently stop exercising its path.
+
+```bash
+pytest tests/test_replay_parity.py -v
+```
+
+Covered: connect/close, reconnect after close, autocommit set/restore (explicit,
+constructor, never set), handle invalidation by commit/rollback, the OUT_TRAN
+`CHECK_CAS` probe, one `CHECK_CAS` recovery (with autocommit restore and
+escape-mode re-probe) and a failed recovery, SQL bound to a replaced session
+(generation fence, #471/#485), failed `ping()` with and without recovery,
+malformed and truncated replies (#533), `DataError` keeping the session (#512)
+and the fetch-page `DataError` contract (#536). Task cancellation exists only
+in `pycubrid.aio` and is covered by `tests/test_async_cancellation.py` instead.
+
+To add a scenario, append a `Scenario` to `SCENARIOS` with its steps, a script
+built from `_on(...)` (for example `_hang_up_after_ok` to recycle the CAS after a
+reply) and a `check`.
+
+**Intended differences** (not failures):
+
+| Difference | Reason |
+|---|---|
+| `AsyncConnection(...)` does not connect; `await pycubrid.aio.connect(...)` does | `__init__` cannot await |
+| Async autocommit is set with `await conn.set_autocommit(v)` | a property setter cannot await |
+| Every async I/O method is a coroutine | asyncio API |
+| Async `create_lob()` raises `NotSupportedError` and sends no `LOB_NEW` | no async LOB support (scenario `create_lob`) |
+| Task cancellation | async only; excluded from parity |
+
+**Unintended differences found by the harness** (all fixed in #521):
+
+| Difference | Fix |
+|---|---|
+| Sync `connect()` after `close()` did not re-send an explicit `autocommit` (#520) | `connect()` restores explicit session state on every replacement session |
+| Sync `connect(autocommit=True)` used the reconnecting property setter: an extra `CHECK_CAS` between `SET_DB_PARAMETER` and `COMMIT`, a CAS recycled there split them across sessions, and a failure raised the native error with the socket left open | applied on the opened session only, with `OperationalError` on failure, like async |
+| Sync `ping(reconnect=False)` kept a session whose `CHECK_CAS` returned a negative code, and the next request reconnected silently | the broken session is closed, like async |
+| Async escape probe on a `CHECK_CAS` replacement session sent `auto_commit=0`; every other escape probe (both drivers) sends the connection's flag | the replacement probe sends the connection's flag |
+
+A shared gap (no parity difference) was fixed at the same time: with automatic
+escape detection, a CAS recycled right after the probe's `ROLLBACK` made
+`connect()` fail before autocommit was applied; both drivers now verify that
+OUT_TRAN session with `CHECK_CAS` first and replace it once.
+
+Another shared gap was fixed in #551 (scenario
+`autocommit_setter_survives_recycle_after_set_db_parameter`): the public
+autocommit setter sent `SET_DB_PARAMETER` and its `COMMIT` on different CAS
+sessions when the CAS was recycled between them. The new value is now recorded
+before the `COMMIT`, so that request's single reconnect restores it on the
+replacement session first; a failed `COMMIT` closes the connection and keeps the
+previous value.
+
 ### Mutation Testing
 
 Line coverage proves code *runs*; mutation testing proves the tests *catch wrong
@@ -7273,21 +7539,60 @@ that no test kills), not the raw score.
 
 ### Integration Tests
 
-Integration tests require a running CUBRID instance. Use Docker:
+Integration tests (marker `integration`) require a running CUBRID instance.
+The simplest path is Docker through the Makefile:
 
 ```bash
-# Start CUBRID
-docker compose up -d
-
-# Set connection URL
-export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
-
-# Run integration tests
-pytest tests/test_integration.py -v
-
-# Cleanup
-docker compose down -v
+make integration                          # broker published on localhost:33000
+make integration CUBRID_TEST_PORT=33522   # same, on a port nothing else uses
 ```
+
+`make integration` starts the compose service, waits with
+`scripts/wait_for_cubrid.py` (fails the run if the broker is not ready within
+about three minutes instead of sleeping a fixed time), runs
+`-m "integration and not tls"` with every endpoint field set explicitly, audits
+the JUnit report with `scripts/check_integration_lanes.py --results` (an
+all-skipped or unclassified-skip run fails), and always removes the container.
+TLS tests need an SSL-enabled broker; see
+[Async TLS integration tests](#async-tls-integration-tests).
+
+**Enabling integration vs. choosing the endpoint.** Integration tests are
+*enabled* when `CUBRID_TEST_URL` or `CUBRID_TEST_HOST` is set to a non-empty
+value. The *endpoint* is then resolved field by field by one shared helper,
+`tests/_cubrid_endpoint.py`, used by every integration module, the
+`tests/conftest.py` gate and `scripts/wait_for_cubrid.py`:
+
+1. the per-field variables `CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`,
+   `CUBRID_TEST_DB`, `CUBRID_TEST_USER`, `CUBRID_TEST_PASSWORD` win;
+2. otherwise the matching component of
+   `CUBRID_TEST_URL=cubrid://user[:password]@host[:port]/database`;
+3. otherwise the defaults `localhost`, `33000`, `testdb`, `dba`, empty password.
+
+An empty per-field variable counts as unset, except `CUBRID_TEST_PASSWORD=""`,
+which is an explicit empty password. A scheme-less `CUBRID_TEST_URL` (such as
+`1`) only enables integration. A `CUBRID_TEST_URL` with a foreign scheme, no
+host, a non-numeric port or a malformed database name makes every integration
+test error (offline tests are unaffected). Exporting both the URL and the per-field
+variables (as CI does) behaves exactly as before; a URL naming a non-default
+host or port is now honored instead of silently testing `localhost:33000`.
+
+To run against a server you already started (no Docker lifecycle), set the
+endpoint explicitly, preferably with the per-field variables:
+
+```bash
+CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
+  CUBRID_TEST_DB=testdb CUBRID_TEST_USER=dba CUBRID_TEST_PASSWORD= \
+  pytest tests/ -m "integration and not slow and not tls" -v
+# equivalent: CUBRID_TEST_URL="cubrid://dba@127.0.0.1:33522/testdb" pytest ...
+```
+
+**Skip vs. error.** With no endpoint configured, integration tests skip so a
+bare `pytest` stays green. With an endpoint configured, the gate probes it once
+per session (`SELECT 1`, five-second timeouts); if it is unreachable, every
+plain integration test **errors** with the endpoint (without the password) and
+the connection error instead of skipping, and pytest exits non-zero. No test
+module probes the server at import time. To skip integration tests, unset both
+`CUBRID_TEST_URL` and `CUBRID_TEST_HOST`.
 
 The CAS-recycling regressions in `tests/test_integration_cas_reconnect.py`
 (#485) change broker parameters with `broker_changer` and run `cubrid broker
@@ -7299,9 +7604,24 @@ restored before the test returns.
 
 #### Async TLS integration tests
 
-`tests/test_aio_ssl_integration.py` adds async TLS coverage for `pycubrid.aio`.
-The repository's default `docker-compose.yml` starts a plaintext broker only, so
-these tests are skipped unless you point them at a separate TLS-enabled broker.
+`tests/test_aio_ssl_integration.py` adds async TLS coverage for `pycubrid.aio`,
+and `tests/test_tls_matrix_integration.py` runs the TLS negative and lifecycle
+matrix (unknown CA, hostname mismatch, plaintext/TLS refusal in both
+directions, pinned TLS 1.2/1.3, `ssl=True` versus a caller `SSLContext`, read
+timeout and dropped transport followed by a TLS reconnect, file-descriptor
+leaks) against both the sync and async drivers. Both carry the `integration` and `tls` markers. The repository's
+default `docker-compose.yml` starts a plaintext broker only, so these tests are
+skipped unless you point them at a separate TLS-enabled broker.
+
+The broker-independent half of the matrix (expired and self-signed
+certificates, interrupted or stalled handshakes, TLS-version floors, downgrade
+attempts on reconnect, no plaintext fallback) runs offline in
+`tests/test_tls_matrix_offline.py` against an in-process OpenSSL peer
+(`tests/helpers/tls_broker.py`), so it is part of `make test`. Its test PKI
+lives in `tests/fixtures/tls/`; regenerate it with
+`tests/fixtures/tls/generate.sh`. The async connect hang on an interrupted
+handshake (#513) has its own offline regression suite,
+`tests/test_aio_tls_handshake_hang.py`.
 
 Export the normal integration variables plus these TLS overrides as needed:
 
@@ -7318,16 +7638,28 @@ export CUBRID_TLS_TEST_CA_FILE="$PWD/certs/ca.pem"
 # Optional: alternate reachable host/IP for hostname-mismatch coverage.
 export CUBRID_TLS_TEST_MISMATCH_HOST=127.0.0.1
 
-# If test_aio_ssl_connect_default_context uses a private CA, also point the
-# process default trust store at that CA before running pytest.
+# Optional: an SSL=OFF broker port on the same server (the stock query_editor
+# broker listens on 30000) for TLS-client-to-plaintext-broker refusal coverage.
+export CUBRID_TLS_TEST_PLAIN_PORT=30000
+
+# If the broker uses a private CA, also point the process default trust store
+# at it so the ssl=True cases (test_aio_ssl_connect_default_context and the
+# ssl=True rows of the matrix) can verify the broker.
 export SSL_CERT_FILE="$CUBRID_TLS_TEST_CA_FILE"
 ```
+
+The optional variables only gate individual cases locally: a case skips only
+when its configuration is missing. Once `CUBRID_TLS_TEST_CA_FILE` is set, a
+broker that is unreachable or not serving TLS fails the tests instead of
+skipping them. In CI every variable is set, and
+`scripts/check_integration_lanes.py` fails the TLS lane on any skip in these
+modules, so a lane that silently skips is red, not green.
 
 Broker-side TLS must already be enabled (`SSL=ON` in `cubrid_broker.conf`) and
 the broker certificate must match `CUBRID_TLS_TEST_HOST`. Then run:
 
 ```bash
-pytest tests/test_aio_ssl_integration.py -v
+pytest tests/ -m "integration and tls" -v
 ```
 
 ##### Automated TLS coverage in CI
@@ -7346,8 +7678,11 @@ You do not need to run the steps above locally for routine development —
    `CUBRID_TLS_TEST_CA_FILE` and `SSL_CERT_FILE`.
 4. Probes the broker with a real TLS handshake and fails the job loudly
    if TLS is not actually serving — silent skips are explicitly rejected.
-5. Runs `tests/test_aio_ssl_integration.py` against the TLS broker with
-   the `CUBRID_TLS_TEST_*` env vars wired up automatically.
+5. Runs every `integration and tls` test (`tests/test_aio_ssl_integration.py`
+   and `tests/test_tls_matrix_integration.py`) against the TLS broker with the
+   `CUBRID_TLS_TEST_*` env vars wired up automatically, including
+   `CUBRID_TLS_TEST_PLAIN_PORT=30000` for the container's `SSL=OFF`
+   `query_editor` broker.
 
 > **Python 3.10 note**: The driver uses a certificate-verification preflight to
 > handle the known CPython async TLS verification failure in 3.10
@@ -7357,7 +7692,13 @@ You do not need to run the steps above locally for routine development —
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
-(nightly, on tag push, and via `workflow_dispatch`).
+(nightly, via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
+lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
+TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
+`pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
+`tests/helpers/tls_*.py`, `tests/fixtures/tls/`, the lane audit script or
+workflows), so
+routine PRs do not pay for it.
 
 ### Code Coverage
 
@@ -7500,7 +7841,8 @@ lint/format/typecheck.
 | `make test` | Run offline tests with coverage |
 | `make lint` | Run ruff check + format check |
 | `make format` | Auto-fix lint and formatting issues |
-| `make integration` | Docker → integration tests → cleanup |
+| `make integration` | Docker → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker) |
+| `make integration-local` | Integration tests against an already-running server (`CUBRID_TEST_URL` or `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | Remove build artifacts |
 
 ---
@@ -7508,9 +7850,10 @@ lint/format/typecheck.
 ## CI/CD
 
 The regular and full integration workflows run `python scripts/wait_for_cubrid.py`
-before the tests. It connects using `CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`,
-`CUBRID_TEST_DB`, `CUBRID_TEST_USER`, and `CUBRID_TEST_PASSWORD` (defaults:
-`localhost:33000/testdb`, user `dba`, empty password), executes `SELECT 1`, and
+before the tests. It resolves the endpoint exactly like the test suite (per-field
+`CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`, `CUBRID_TEST_DB`, `CUBRID_TEST_USER`,
+`CUBRID_TEST_PASSWORD`, then `CUBRID_TEST_URL`, then `localhost:33000/testdb`,
+user `dba`, empty password), executes `SELECT 1`, and
 fails the job if no probe succeeds within 30 attempts with 5 seconds between
 attempts. Infrastructure failure therefore stops the test step.
 Each connection and read has a five-second timeout, configurable through
@@ -7526,14 +7869,49 @@ filename-glob inventory:
 | Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and nightly bug hunt |
 | Slow | `integration and slow and not tls` | Nightly/manual bug hunt: soak, chaos, and concurrency stress |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
+| Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.10, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
 
 `python scripts/check_integration_lanes.py` collects the current marker inventory
 and checks that each lane has an executable workflow command. The JUnit audit
-(`--results FILE`) fails unknown skips or empty/all-skipped runs. Missing optional
-CUBRIDdb native-comparison dependencies and platforms without `/proc` have explicit
-skip categories; missing broker/TLS configuration is not an accepted CI skip.
+(`--results FILE`) fails unknown skips or empty/all-skipped runs. Outside its own
+lane the official-driver differential skips as `official-lane-only`, and platforms
+without `/proc` have an explicit skip category. Missing broker/TLS configuration
+is not an accepted CI skip. `--lane official` accepts no skip at all.
+
+The official-driver differential (#446) compares pycubrid with the official
+`CUBRIDdb`/`_cubrid` driver built from pinned source. To reproduce it locally
+(Linux x86_64, git, CMake 3.21 or newer, a C compiler and Python 3.10 headers),
+run:
+
+```bash
+python3.10 scripts/build_official_oracle.py --out .official-oracle
+PYTHONPATH=.official-oracle PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1 \
+  PYCUBRID_OFFICIAL_ORACLE_MANIFEST=.official-oracle/oracle.json \
+  PYCUBRID_DIFFERENTIAL_EVIDENCE=official-evidence.jsonl \
+  CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python3.10 -m pytest tests/ -m "integration and official_differential"
+python scripts/check_official_differential.py --evidence official-evidence.jsonl
+```
+
+A new or changed claim goes in `tests/fixtures/official_differential_claims.json`.
+Its case goes in `CASES` in `tests/test_official_differential.py`. Then run
+`python scripts/check_official_differential.py --write-docs`. A divergence is
+either fixed, or recorded as a `deviation` with a reason, an issue and both
+observed values. Never edit an expected value just to match current output. See
+[the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
 The nightly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
+
+`tests/test_protocol_fuzz.py` mutates realistic broker replies built by
+`tests/helpers/cas_reply.py` (#523): execute and FETCH replies with column
+metadata and populated rows for every common type, plus schema, batch and LOB
+replies. Each seed records its expected decoded values and the offsets of its
+length words, counts and field boundaries, so the unmutated seed is an exact
+round-trip check and mutations aim at truncation and length/count mismatches.
+To seed a new column mix, add a `ResultSet` to `RESULT_SETS`; the FETCH and
+execute targets pick it up. A new reply builder needs its own round-trip test
+and fuzz target. Example budgets come from the Hypothesis
+profile (`pr`: 50 examples per target, about 2 s for the module; `nightly`: 1000).
 
 ### Documentation exceptions and contributor validation
 
@@ -7562,9 +7940,9 @@ assets; pinning its caller is not a complete freeze of those assets.
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
 | `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.14) + integration |
-| `integration-full.yml` | Nightly, tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
-| `create-release.yml` | Tag push, manual dispatch | Create the GitHub Release from CHANGELOG (does not publish) |
-| `publish-pypi.yml` | Manual dispatch after the tag-triggered full matrix passes | Verify, publish to PyPI, dispatch the cookbook smoke test |
+| `integration-full.yml` | Nightly, manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
+| `prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
+| `release.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
 
 ### CI Matrix
 
@@ -7668,10 +8046,11 @@ To support a new CUBRID data type:
 
 ## Release Process
 
-Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md): a release PR
-(version bump + dated CHANGELOG section, checked with `make release-check VERSION=X.Y.Z`),
-a tag on the squash-merged commit, and a manual `publish-pypi.yml` dispatch once the
-tag-triggered full matrix passes.
+Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md):
+`prepare-release.yml` opens a release PR (version bump + dated CHANGELOG section, checked
+with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `release.yml`
+runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
+automatically. Nobody pushes tags or publishes by hand.
 
 ============================================================
 File: PARAMETER_BINDING.md
@@ -7773,18 +8152,18 @@ test that pins the behavior.
 
 | Python type | SQL literal | Implementation | Pinned by |
 |---|---|---|---|
-| `None` | `NULL` | `_cursor_common.py:143-144` | `tests/test_param_security.py:95-97` |
-| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
-| `int` | `str(value)` (decimal digits) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
-| `float` | `str(value)`; `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
-| `decimal.Decimal` | Plain fixed-point digits (`format(value, "f")`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`). See [Decimal parameters](#decimal-parameters) | `_cursor_common.py:233-251` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
-| `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
-| `bytes`, `bytearray` | `X'<hex>'` (lowercase hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
-| `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — microseconds truncated to milliseconds (`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
-| `datetime.datetime` (tz-aware) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset | `_cursor_common.py:151-169` | `tests/test_param_security.py:147-169` |
-| `datetime.date` | `DATE'YYYY-MM-DD'` | `_cursor_common.py:171-172` | `tests/test_param_security.py:116-118` |
-| `datetime.time` | `TIME'HH:MM:SS'` — microseconds dropped | `_cursor_common.py:173-174` | `tests/test_param_security.py:120-122` |
-| anything else | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:181` | `tests/test_param_security.py:128-130`; `tests/test_cursor.py:233-235` |
+| `None` | `NULL` | `_cursor_common.py:254-255` | `tests/test_param_security.py:95-97` |
+| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:260-261` | `tests/test_param_security.py:98-102` |
+| `int` (and subclasses such as `IntEnum`/`IntFlag`) | `int.__repr__(value)` (decimal digits of the value). See [Numeric subclasses](#numeric-subclasses) | `_cursor_common.py:330-331` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
+| `float` (and subclasses) | `float.__repr__(value)` (shortest round-trip form, identical to `str()` of a plain `float`, e.g. `1e+20`); `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:332-335` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
+| `decimal.Decimal` (and subclasses) | Plain fixed-point digits (`format(value, "f")` on the value converted to a plain `Decimal`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`); subclasses raise `ProgrammingError` when the C `decimal` module is unavailable. See [Decimal parameters](#decimal-parameters) and [Numeric subclasses](#numeric-subclasses) | `_cursor_common.py:301-329` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`, `::TestPureDecimalFallback`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
+| `str` (and subclasses) | Single-quoted literal; escaping per [String Escaping](#string-escaping), applied to a plain `str` copy of the value; NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). See [Text, binary and temporal subclasses](#text-binary-and-temporal-subclasses) | `_cursor_common.py:262-263, 194-228` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
+| `bytes`, `bytearray` (and subclasses) | `X'<hex>'` (lowercase hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.py:266-269` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
+| `datetime.datetime` (naive, and subclasses) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — year zero-padded to 4 digits; microseconds truncated to milliseconds (`microsecond // 1000`) | `_cursor_common.py:274-288` | `tests/test_param_security.py:124-127`, `::TestTemporalSubclassRendering` |
+| `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
+| `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
+| `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
+| anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
 including values such as `10**1000` and `-(10**1000)` that exceed the float range.
@@ -7792,6 +8171,72 @@ This formatting behavior does not guarantee that CUBRID can store the value;
 server numeric limits and Python's integer-to-string conversion limits still apply.
 Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_large_int`
 and `::test_bind_large_int`.
+
+### Numeric subclasses
+
+Subclasses of `int`, `float` and `decimal.Decimal` are rendered from their
+numeric value through the base-class methods (`int.__repr__`, `float.__repr__`,
+and `format(Decimal(value), "f")`), never through `str()`, `repr()` or
+`format()` on the object itself. Before #518 they were rendered with
+`str(value)`, so a subclass that overrides `__str__` changed the SQL text: on
+Python 3.10 `enum.IntEnum` members were sent as `Color.RED` and `enum.IntFlag`
+combinations as `Perm.R|W`, and a user subclass whose `__str__` returned
+`1; DROP TABLE t` injected that text verbatim. `Color.RED` is now sent as `1`
+and `Perm.R | Perm.W` as `6`. A `Decimal` subclass is converted to a plain
+`Decimal` first, so overridden `__format__`, `is_nan()` or `as_tuple()` cannot
+alter the literal or bypass the `NaN`/`Infinity` and 38-digit checks. `bool` is
+checked before `int` and still renders as `1`/`0`; it cannot be subclassed.
+The `Decimal` copy is only tamper-proof with CPython's C `decimal` module
+(`_decimal`): the pure-Python fallback (`_pydecimal`) copies `_sign`, `_int`
+and `_exp` through ordinary attribute reads, which a subclass can forge (#528).
+When the C module is unavailable, a `Decimal` subclass raises
+`ProgrammingError`; a plain `Decimal` is still accepted.
+Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_numeric_subclass_renders_by_value`,
+`::TestPureDecimalFallback` and `tests/test_parity_integration.py::TestParityNumericSubclassLiterals`.
+
+### Text, binary and temporal subclasses
+
+Subclasses of `str`, `bytes`, `bytearray`, `datetime.datetime`,
+`datetime.date` and `datetime.time` are rendered from their stored value, never
+through methods the subclass can override (#528):
+
+- `str`: the value is first copied to a plain `str` (`str.__str__(value)`
+  called on the base class), and the NUL/Ctrl-Z checks and escaping run on that
+  copy. An overridden `replace()`, `__contains__()`, `__str__()` or
+  `__format__()` is never called. Before #528 a subclass whose `replace()`
+  returned `x'; DROP TABLE users; --` had that text sent unescaped.
+- `bytes`/`bytearray`: `bytes.hex(value)` / `bytearray.hex(value)` read the
+  buffer directly; an overridden `hex()` or `__bytes__()` is never called.
+- Dates and times: the literal is built from the integer fields read through
+  the base-class descriptors (`datetime.date.year`, `datetime.datetime.hour`,
+  ...) with explicit zero padding, instead of `strftime()`. Overriding
+  `strftime()`, `isoformat()` or the `year`/`hour`/... properties does not
+  change the literal. The UTC offset comes from `datetime.datetime.utcoffset()`
+  called on the base class, and its `days`/`seconds`/`microseconds` fields are
+  read the same way.
+- Years below 1000 are zero-padded to four digits (`date(99, 1, 2)` is sent as
+  `DATE'0099-01-02'`). `strftime("%Y")` does not pad them on Linux, and CUBRID
+  reads `DATE'99-01-02'` as 1999-01-02, so two-digit years were silently
+  stored with the wrong year (#519); one- and three-digit years happened to
+  round-trip and are unchanged in value.
+- `tzinfo.key`: a non-empty key is spliced into the `DATETIMETZ` literal only
+  when it is a plain `str` matching `[A-Za-z0-9_+/-]+` (every IANA name, such
+  as `Asia/Seoul`, `Etc/GMT+5` or `America/Port-au-Prince`, qualifies);
+  anything else raises `ProgrammingError`. A missing, `None` or empty key still
+  falls back to the numeric `±HH:MM` offset.
+
+Dispatch uses `type(value)`, not `isinstance()`, which also trusts an
+overridden `__class__`. An object that only claims to be one of the supported
+types through `__class__` (for example a transparent proxy) raises
+`ProgrammingError("unsupported parameter type")`; unwrap it before binding.
+`escape_string()` likewise raises `ProgrammingError` for a non-`str` argument.
+
+Plain values render exactly as before, except the year padding.
+Pinned by `tests/test_param_security.py::TestPlainLiteralsUnchanged`,
+`::TestStrSubclassEscaping`, `::TestBinarySubclassRendering`,
+`::TestTemporalSubclassRendering`, `::TestTzinfoKey`, `::TestClassSpoofing`,
+and live on CUBRID 10.2 and 11.4 (sync and async) by
+`tests/test_parity_integration.py::TestParityLiteralHardening`.
 
 ### Decimal parameters
 
@@ -8517,6 +8962,74 @@ These are explicit differential classifications, not blanket waivers or
 NULL/data preservation needs tests. Missing stored-type evidence blocks that dimension's
 certification, not independent prepared-core work.
 
+### Official driver differential gate (#446)
+
+Each official behavior pycubrid claims is recorded in
+[`tests/fixtures/official_differential_claims.json`](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_differential_claims.json).
+A claim is either `match` (same Python type and value as the official driver) or
+`deviation` (a reason, an owning issue and the exact observations of both
+drivers). It names the inventory operations and upstream scenario ids it
+exercises. Each claim has one live case in `tests/test_official_differential.py`,
+which runs the same SQL, values and autocommit settings through pycubrid and
+the official driver on one server. A mismatch fails, and so does a classified
+deviation whose observed values change on either side.
+
+**Oracle provenance.** `scripts/build_official_oracle.py` fetches cubrid-python
+`e75ec36b2a92b8829a49a967a29a1fbb9d7c322b`, checks that its `cci-src` gitlink is
+`7d1eb8f40f04089b8218d08e36e2c24a2de11b24` and fetches that CCI commit. It builds
+the CCI static library with CMake directly, using CCI's tracked bundled OpenSSL
+1.1.1f libraries, and compiles the unchanged `cubrid_ext/python_cubrid.c`. The
+upstream `setup.py`/`build_cci.sh` wrapper is not run and no upstream file is
+patched, unlike the earlier maintainer-local #439 build. Only the upstream
+`version.h` template is rendered outside the source tree. The script records
+both commits, the toolchain and the extension SHA-256 in `oracle.json`. It
+supports Linux x86_64 only. TLS is not exercised through the oracle.
+
+**Required lanes.** The `official-differential` job in regular CI is part of the
+CI Gate. It is skipped only for docs-only changes. It runs Python 3.10 against
+CUBRID 10.2 and 11.4 and caches the oracle build, keyed by the build script
+hash, which contains both pins. The same job gates the nightly and release full
+matrix. With `PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1`, the following fail instead of
+skipping:
+
+- a missing driver or manifest, or an extension hash that differs from the manifest;
+- zero cases, or a claim without a result on either server;
+- a mismatch, or an unclassified divergence.
+
+The lane audit (`check_integration_lanes.py --lane official`) rejects every
+skip. The per-case JSON Lines evidence and its summary are uploaded as the
+`official-differential-evidence` artifact. The evidence records Python, server
+and driver versions, the pycubrid commit and every observation. Without
+`PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1` (offline, other integration lanes, local
+runs) the module skips even if some other `CUBRIDdb` build is importable. Such
+runs never certify a claim. The evidence check recomputes each outcome from
+the recorded observations and the ledger. It does not trust a recorded outcome
+label.
+
+The counts below are generated from the ledger. Do not edit them by hand. Run
+`python scripts/check_official_differential.py --write-docs` after changing a
+claim. The offline check fails on stale counts, unknown inventory or scenario ids,
+claims without cases and oracle pins that differ from the build script.
+
+<!-- official-differential-summary:start (generated by scripts/check_official_differential.py --write-docs) -->
+
+| Surface | Match | Classified deviation | Total |
+| --- | ---: | ---: | ---: |
+| Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
+| Native (`_cubrid`) | 3 | 1 | 4 |
+| **Total** | **15** | **3** | **18** |
+
+- Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
+- Required servers: CUBRID 10.2, CUBRID 11.4
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439)
+
+<!-- official-differential-summary:end -->
+
+These claims cover the first bounded slice: stored scalar fetches, a static scalar
+row and description, and the #439 prepared INT/string subset. Collections, LOBs,
+charset/HA, fault behavior and every other inventory operation remain uncertified
+until they have claims here. The claim counts are not a parity percentage.
+
 ### Migration targets and small delivery acceptance
 
 For ordinary queries keep existing imports unchanged. The explicit native
@@ -8583,8 +9096,12 @@ python -m pytest tests/test_official_api_inventory.py -q
 
 They validate accounting and currently named targets, without importing the
 native driver, opening a database, or converting a mapping into parity proof.
-Actual source-scenario accounting and official comparison evidence remain
-separate deliverables (#437/#446).
+Source-scenario accounting (#437) is a separate deliverable. Official comparison
+evidence comes only from the live differential gate described above (#446):
+
+```bash
+python scripts/check_official_differential.py   # offline claims/docs structure
+```
 
 We acknowledge the official driver's maintainers and contributors. Descriptions
 here are independently paraphrased from the pinned source; no upstream source

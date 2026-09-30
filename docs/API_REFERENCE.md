@@ -520,7 +520,9 @@ read-only escape-mode probe before accepting application SQL.
 - With `reconnect=True`, probes the existing socket first and attempts one
   reconnect if disconnected, if the check fails with a transport/protocol error,
   or if `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
-  `reconnect=False` reports the negative response as `False` without reconnecting.
+  `reconnect=False` reports the negative response as `False` without reconnecting
+  and closes that broken session (later calls raise `InterfaceError`), as the
+  async driver does.
   Only explicitly set autocommit is restored after successful recovery.
   Interrupted SQL is not replayed; the caller must decide whether retry is safe.
   An automatically detected `no_backslash_escapes` mode is probed again on a
@@ -669,7 +671,7 @@ def autocommit(self) -> bool
 def autocommit(self, value: bool) -> None
 ```
 
-Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server.
+Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server. Both take effect on one CAS session: if the CAS is recycled between them, the new value is restored on the replacement session before the `COMMIT` is sent there (at most one reconnect per call). If the `COMMIT` fails, the connection is closed, the previous value is kept and `OperationalError` is raised with the cause chained (#551).
 
 ```python
 conn = pycubrid.connect(database="testdb")
@@ -923,6 +925,21 @@ if row:
 > explicitly to continue. There is no transparent SELECT replay or holdable-result
 > guarantee; reconnect invalidation retains its separate `OperationalError`.
 
+> **Data errors on a later fetch page (#507):** When a FETCH page contains a
+> value pycubrid cannot represent (text invalid in the connection charset
+> #492, an unresolved zone #413, a zero date #512), the `fetchone()`,
+> `fetchmany()` or `fetchall()` call (or iteration step) that reaches the page
+> raises `DataError`. The whole page is withheld, including its rows before the
+> bad value. Rows that call had already collected are not lost: the next fetch
+> calls return them without contacting the server, so a `fetchmany()` or
+> `fetchall()` after the error returns those rows (possibly fewer than
+> requested). After that, every fetch raises the same `DataError` again without
+> requesting the page, until `execute()` or `close()`; no row of the failing
+> page or after it is ever returned. The connection stays usable and the
+> cursor keeps its server handle. Sync and async cursors behave the same. To
+> read past the value, convert it in SQL (see [Zero Date or Datetime
+> Value](TROUBLESHOOTING.md#zero-date-or-datetime-value)) and execute again.
+
 ---
 
 #### `fetchmany(size)`
@@ -974,8 +991,19 @@ raise `ProgrammingError` before any SQL is executed.
 
 **Returns:** The original `parameters` sequence (as per PEP 249).
 
+A stored function's return value is the one row of the result set: fetch it
+with `fetchone()`. The same holds for `execute("CALL ...")` (including method
+calls such as `CALL find_user('dba') ON CLASS db_user`) and `EVALUATE`. Each
+value carries its own type on the wire and is decoded like a column of that
+type (`INT` to `int`, `VARCHAR` to `str`, `DATETIME` to `datetime`, an object
+to its `"OID:@page|slot|volume"` string, SQL `NULL` to `None`); before #542
+these values came back as raw `bytes`. `description` reports the column type as
+`NULL` (`0`) because the broker announces no type for it.
+
 ```python
 cur.callproc("my_procedure", [1, "hello"])
+cur.callproc("my_function")
+(value,) = cur.fetchone()
 ```
 
 ---
@@ -1166,7 +1194,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit` is read-only; use `await conn.set_autocommit(True)` to change it.
-Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
+Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket` on one CAS session, with the same recycle and failure behavior (#551).
 
 ### `ping(reconnect=True)`
 
@@ -1187,7 +1215,9 @@ without SQL. Recovery can execute the read-only escape-mode probe.
 - With `reconnect=True`, probes the existing socket first and attempts one
   reconnect if disconnected, after a transport/protocol failure, or when
   `CHECK_CAS` returns a negative code (broken CAS-to-DB link).
-  `reconnect=False` reports the negative response as `False` without reconnecting.
+  `reconnect=False` reports the negative response as `False` without reconnecting
+  and closes that broken session (later calls raise `InterfaceError`), as the
+  sync driver does.
   Only explicitly set autocommit is restored; arbitrary SQL is never replayed.
   Automatic `no_backslash_escapes` detection runs on each new physical session,
   not on healthy same-session checks; explicit `True`/`False` remains pinned.
@@ -1493,7 +1523,9 @@ it (nothing of that request is sent), and when a `TIMESTAMPTZ`/`TIMESTAMPLTZ`/
 `DATETIMETZ`/`DATETIMELTZ` value names a zone region the client's IANA time
 zone database cannot resolve (install `tzdata`) or an offset outside ±24 hours
 (#413). The reply was fully read, so with ordinary cursors the connection stays
-usable. `get_schema_info()` retires the connection on any FC9 reply it cannot
+usable; on a later fetch page, rows collected before that page are still
+returned first (see *Data errors on a later fetch page* under
+[`fetchone()`](#fetchone), #507). `get_schema_info()` retires the connection on any FC9 reply it cannot
 parse, and the explicit prepared API (`pycubrid.compat.native`) raises
 `OperationalError` and retires the session instead.
 

@@ -1,8 +1,10 @@
 """Audit collected integration markers, workflow selectors, and reported skips.
 
-No test-count constants: pytest collection is the inventory. Missing dependencies
-for the optional native-driver comparison and platforms without /proc are explicit
+No test-count constants: pytest collection is the inventory. The official-driver
+differential skipping outside its own lane and platforms without /proc are explicit
 exceptions; missing broker/TLS configuration or unknown skip reasons fail CI.
+``--lane official`` audits the required official-differential lane (#446), where
+no skip at all is accepted.
 """
 
 from __future__ import annotations
@@ -21,7 +23,12 @@ SELECTORS = {
     "normal": "integration and not slow and not tls",
     "slow": "integration and slow and not tls",
     "tls": "integration and tls",
+    # Cross-version differential (#351): every CUBRID of the matrix at once.
+    "version": "integration and version_matrix",
+    # Official-driver differential (#446): the pinned CUBRIDdb oracle lane.
+    "official": "integration and official_differential",
 }
+OFFICIAL_SKIP_REASON = "official CUBRIDdb oracle not installed (official-differential lane)"
 
 
 def _module_of(identity: str) -> str:
@@ -40,13 +47,13 @@ def _module_of(identity: str) -> str:
 
 
 def skip_category(identity: str, reason: str) -> str:
+    if _module_of(identity) == "test_official_differential" and OFFICIAL_SKIP_REASON in reason:
+        return "official-lane-only"
     if (
-        "test_cubriddb_differential" in identity
-        and "official CUBRIDdb C-extension not installed" in reason
-    ):
-        return "optional-native-driver"
-    if (
-        any(name in identity for name in ("test_resource_leaks", "test_soak"))
+        any(
+            name in identity
+            for name in ("test_resource_leaks", "test_soak", "test_tls_matrix_integration")
+        )
         and "cannot count file descriptors on this platform" in reason
     ):
         return "platform-without-proc"
@@ -55,13 +62,18 @@ def skip_category(identity: str, reason: str) -> str:
         and "requires an EUC-KR database (integration-charset lane)" in reason
     ):
         return "charset-lane-only"
+    if (
+        _module_of(identity) == "test_version_differential"
+        and "CUBRID_VERSION_MATRIX not set" in reason
+    ):
+        return "version-lane-only"
     raise ValueError(f"unclassified integration skip: {identity}: {reason}")
 
 
 def verify_workflows(root: Path = ROOT) -> None:
     expected = {
-        "ci.yml": {"normal", "tls"},
-        "integration-full.yml": {"normal", "tls"},
+        "ci.yml": {"normal", "tls", "official"},
+        "integration-full.yml": {"normal", "tls", "version", "official"},
         "bug-hunt.yml": {"normal", "slow"},
     }
     for filename, lanes in expected.items():
@@ -87,12 +99,23 @@ class Inventory:
             integration = item.get_closest_marker("integration") is not None
             slow = item.get_closest_marker("slow") is not None
             tls = item.get_closest_marker("tls") is not None
+            version = item.get_closest_marker("version_matrix") is not None
+            official = item.get_closest_marker("official_differential") is not None
             if not integration:
-                if slow or tls:
-                    self.invalid.append(f"{item.nodeid}: slow/tls requires integration")
+                if slow or tls or version or official:
+                    self.invalid.append(
+                        f"{item.nodeid}: slow/tls/version_matrix/official_differential"
+                        " requires integration"
+                    )
                 continue
             lane = "tls" if tls else "slow" if slow else "normal"
             self.lanes[lane].append(item.nodeid)
+            if version:
+                # Also selected (and skipped as version-lane-only) by the normal lane.
+                self.lanes["version"].append(item.nodeid)
+            if official:
+                # Also selected (and skipped as official-lane-only) by the normal lane.
+                self.lanes["official"].append(item.nodeid)
 
     def pytest_collectreport(self, report: pytest.CollectReport) -> None:
         if report.skipped:
@@ -105,7 +128,7 @@ class Inventory:
                 self.collection_skips.append({"node": report.nodeid, "category": category})
 
 
-def verify_results(path: Path) -> dict[str, Any]:
+def verify_results(path: Path, lane: str = "default") -> dict[str, Any]:
     payload = path.read_text(encoding="utf-8-sig")
     if "\x00" in payload or "<!DOCTYPE" in payload.upper() or "<!ENTITY" in payload.upper():
         raise ValueError(f"{path}: DTD/entity declarations are forbidden in JUnit reports")
@@ -124,16 +147,24 @@ def verify_results(path: Path) -> dict[str, Any]:
             raise ValueError(f"{path}: failed tests cannot pass the lane audit")
     if len(skips) == len(cases):
         raise ValueError(f"{path}: all selected tests skipped")
+    if lane == "official" and skips:
+        raise ValueError(f"{path}: the required official lane accepts no skips: {skips}")
     return {"report": str(path), "tests": len(cases), "classified_skips": skips}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results", type=Path)
+    parser.add_argument(
+        "--lane",
+        choices=("default", "official"),
+        default="default",
+        help="official: the required official-differential lane rejects every skip",
+    )
     args = parser.parse_args()
     try:
         if args.results is not None:
-            print(json.dumps(verify_results(args.results), sort_keys=True))
+            print(json.dumps(verify_results(args.results, args.lane), sort_keys=True))
             return 0
         verify_workflows()
         inventory = Inventory()
@@ -155,7 +186,9 @@ def main() -> int:
         if inventory.invalid:
             raise ValueError("; ".join(inventory.invalid))
         if any(not nodes for nodes in inventory.lanes.values()):
-            raise ValueError("normal, slow, and TLS lanes must each have collected tests")
+            raise ValueError(
+                "normal, slow, TLS, version, and official lanes must each have collected tests"
+            )
         print(
             json.dumps(
                 {

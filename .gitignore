@@ -73,3 +73,10 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
+integration-results.xml
+
+# Official-driver differential oracle build and evidence (#446)
+.official-oracle/
+.official-oracle.work/
+official-evidence*.jsonl
+official-evidence-summary.json

@@ -12,7 +12,6 @@ change, not a silent regression.
 
 from __future__ import annotations
 
-import os
 import uuid
 from collections.abc import Generator
 
@@ -21,13 +20,8 @@ import pytest
 from pycubrid.connection import Connection
 from pycubrid.cursor import Cursor
 
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 from ._parity_helpers import AsyncParityAdapter, ParityAdapter, SyncParityAdapter
-
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
 
 
 def _table_name() -> str:

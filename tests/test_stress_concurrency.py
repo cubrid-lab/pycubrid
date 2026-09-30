@@ -3,13 +3,13 @@
 Threading: each thread owns its own Connection (threadsafety=1).
 Asyncio: many AsyncConnections invoked via asyncio.gather().
 
-Skipped automatically when no CUBRID instance is available.
+Skipped when no CUBRID server is configured; errors when a configured one is
+unreachable (see the shared ``tests/conftest.py`` gate).
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -18,33 +18,11 @@ import pycubrid
 import pycubrid.aio
 import pytest
 
-
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
-
-
-def _can_connect() -> bool:
-    try:
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-        )
-        conn.close()
-        return True
-    except Exception:
-        return False
-
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.slow,
-    pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
 ]
 
 

@@ -481,7 +481,8 @@ def ping(self, reconnect: bool = True) -> bool
 - `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 검사 도중
   전송/프로토콜 오류가 발생했거나 `CHECK_CAS`가 음수 코드로 CAS–DB 링크 장애를
   보고하면 재접속을 한 번 시도합니다. `reconnect=False`는 음수 응답을
-  `False`로 보고하고 재접속하지 않습니다. 복구 후에는 명시적으로 설정한
+  `False`로 보고하고 재접속하지 않으며, 비동기 드라이버처럼 그 손상된 세션을
+  닫습니다(이후 호출은 `InterfaceError`). 복구 후에는 명시적으로 설정한
   autocommit만 복원합니다. 중단된 SQL은 자동 재실행하지 않으므로 재시도
   안전성은 호출자가 판단해야 합니다.
   자동 `no_backslash_escapes` 모드는 새 물리 세션에서 사용 전에 다시 감지하며,
@@ -630,7 +631,7 @@ def autocommit(self) -> bool
 def autocommit(self, value: bool) -> None
 ```
 
-자동 커밋 모드를 조회하거나 설정합니다. 활성화되면 각 문장이 즉시 커밋됩니다. 이 속성을 설정하면 서버에서 트랜잭션 상태를 플러시하기 위해 `SetDbParameterPacket`과 `CommitPacket`을 보냅니다.
+자동 커밋 모드를 조회하거나 설정합니다. 활성화되면 각 문장이 즉시 커밋됩니다. 이 속성을 설정하면 서버에서 트랜잭션 상태를 플러시하기 위해 `SetDbParameterPacket`과 `CommitPacket`을 보냅니다. 두 요청은 하나의 CAS 세션에 적용됩니다. 그 사이 CAS가 재활용되면 대체 세션에 새 값을 먼저 복원한 뒤 그 세션으로 `COMMIT`을 보냅니다(호출당 재접속은 최대 한 번). `COMMIT`이 실패하면 연결을 닫고 이전 값을 유지하며 원인을 연결한 `OperationalError`를 발생시킵니다(#551).
 
 ```python
 conn = pycubrid.connect(database="testdb")
@@ -875,6 +876,20 @@ if row:
 > 투명 재실행이나 holdable 결과를 보장하지 않으며, 재연결 무효화의 별도
 > `OperationalError`는 유지합니다.
 
+> **이후 fetch 페이지의 데이터 오류 (#507):** FETCH 페이지에 pycubrid가 표현할 수
+> 없는 값(연결 charset으로 유효하지 않은 텍스트 #492, 해석할 수 없는 타임존 #413,
+> 0 날짜 #512)이 들어 있으면, 그 페이지에 도달한 `fetchone()`, `fetchmany()`,
+> `fetchall()` 호출(또는 반복 단계)이 `DataError`를 발생시킵니다. 잘못된 값보다
+> 앞선 행을 포함해 페이지 전체가 반환되지 않습니다. 그 호출이 이미 모은 행은
+> 사라지지 않고, 다음 fetch 호출이 서버에 요청하지 않고 반환합니다. 따라서 오류
+> 뒤의 `fetchmany()`나 `fetchall()`은 그 행들을 반환합니다(요청한 수보다 적을 수
+> 있음). 그 뒤로는 `execute()` 또는 `close()` 전까지 모든 fetch가 페이지를 다시
+> 요청하지 않고 같은 `DataError`를 다시 발생시키며, 실패한 페이지와 그 이후의 행은
+> 반환되지 않습니다. 연결은 계속 사용할 수 있고 커서는 서버 핸들을 유지합니다.
+> 동기·비동기 커서의 동작은 같습니다. 해당 값 이후를 읽으려면 SQL에서 값을
+> 변환([0 날짜 또는 날짜시간 값](TROUBLESHOOTING.md#0-날짜-또는-날짜시간-값) 참고)한
+> 뒤 다시 실행하세요.
+
 ---
 
 #### `fetchmany(size)`
@@ -926,8 +941,18 @@ def callproc(
 
 **반환:** 원본 `parameters` 시퀀스 (PEP 249에 따라).
 
+저장 함수의 반환값은 결과 집합의 한 행입니다. `fetchone()`으로 가져옵니다.
+`execute("CALL ...")`(예: `CALL find_user('dba') ON CLASS db_user` 같은 메서드
+호출 포함)와 `EVALUATE`도 같습니다. 각 값은 와이어에서 자신의 타입을 함께 전달하며
+해당 타입의 컬럼 값처럼 디코딩됩니다(`INT`는 `int`, `VARCHAR`는 `str`,
+`DATETIME`은 `datetime`, 객체는 `"OID:@page|slot|volume"` 문자열, SQL `NULL`은
+`None`). #542 이전에는 이 값들이 원시 `bytes`로 반환되었습니다. 브로커가 이 컬럼의
+타입을 알려주지 않으므로 `description`의 컬럼 타입은 `NULL`(`0`)입니다.
+
 ```python
 cur.callproc("my_procedure", [1, "hello"])
+cur.callproc("my_function")
+(value,) = cur.fetchone()
 ```
 
 ---
@@ -1113,7 +1138,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit`은 읽기 전용입니다. 변경하려면 `await conn.set_autocommit(True)`을 사용하세요.
-동기 세터처럼 `SetDbParameterPacket`과 `CommitPacket` 둘 다 보냅니다.
+동기 세터처럼 `SetDbParameterPacket`과 `CommitPacket`을 하나의 CAS 세션에서 보내며, CAS 재활용 및 실패 시 동작도 같습니다(#551).
 
 ### `ping(reconnect=True)`
 
@@ -1134,7 +1159,8 @@ async def ping(self, reconnect: bool = True) -> bool
 - `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 전송/프로토콜
   오류가 발생했거나 `CHECK_CAS`가 음수 코드로 CAS–DB 링크 장애를 보고하면
   재접속을 한 번 시도합니다. `reconnect=False`는 음수 응답을 `False`로 보고하고
-  재접속하지 않습니다. 명시적으로 설정한 autocommit만 복원하며 임의의
+  재접속하지 않으며, 동기 드라이버처럼 그 손상된 세션을 닫습니다(이후 호출은
+  `InterfaceError`). 명시적으로 설정한 autocommit만 복원하며 임의의
   SQL을 자동 재실행하지 않습니다.
   자동 `no_backslash_escapes` 모드는 새 물리 세션마다 감지하지만 정상적인
   동일 세션 검사에서는 감지하지 않습니다. 명시적 `True`/`False`는 유지됩니다.
@@ -1423,7 +1449,9 @@ class DataError(DatabaseError)
 그 코덱으로 인코딩할 수 없을 때(해당 요청은 전혀 전송되지 않음)도 발생하며, `TIMESTAMPTZ`/`TIMESTAMPLTZ`/`DATETIMETZ`/`DATETIMELTZ` 값의 리전을
 클라이언트의 IANA 타임존 데이터베이스로 해석할 수 없거나(`tzdata` 설치 필요) 오프셋이
 ±24시간을 벗어날 때도 발생합니다(#413). 응답은 모두 읽었으므로 일반 커서에서는 연결을
-계속 사용할 수 있습니다. `get_schema_info()`는 해석할 수 없는 FC9 응답을 받으면 연결을
+계속 사용할 수 있으며, 이후 fetch 페이지에서 발생한 경우 그 페이지 전에 모은 행은
+먼저 반환됩니다([`fetchone()`](#fetchone)의 *이후 fetch 페이지의 데이터 오류* 참고,
+#507). `get_schema_info()`는 해석할 수 없는 FC9 응답을 받으면 연결을
 폐기합니다. 명시적 prepared API(`pycubrid.compat.native`)는 대신 `OperationalError`를
 발생시키고 세션을 폐기합니다.
 

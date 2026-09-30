@@ -600,6 +600,24 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 | `_parse_bytes(count)` | `bytes` | `count` |
 | `_parse_null_terminated_string(length)` | `str` | `length` |
 
+모든 읽기는 응답 안에서만 이루어집니다(#383). 길이가 앞에 오는 읽기(바이트,
+텍스트, `NUMERIC`, `JSON`, 디코딩하지 않은 컬렉션 또는 LOB 핸들,
+`_skip_bytes()`)는 이동하기 전에 `0 <= length <= bytes_remaining()`를 확인하고,
+아니면 `ValueError`를 발생시킵니다. 고정 폭 읽기가 끝을 넘으면 `struct.error`
+또는 `IndexError`가 발생합니다. 실패한 읽기는 오프셋을 바꾸지 않습니다. 텍스트
+리더는 길이가 0 이하이면 이동하지 않고 `""`를 반환합니다. 디코딩한 컬렉션의
+원소는 선언된 크기를 정확히 채워야 하며, `LOB_READ` 바이트 수는 응답 안에
+들어가야 합니다(요청한 길이보다 작은 값은 정상적인 짧은 읽기). FETCH 또는
+실행 응답에 포함된 행의 각 셀 값은 크기 워드가 선언한 바이트를 정확히 사용해야
+합니다. 고정 폭 값(`INT`, `DATE`, `OBJECT` 등)은 크기를 직접 읽지 않으므로 행
+파서가 값을 읽기 전에 타입의 폭과 비교합니다(#523). `DataError`를 발생시키기 전에
+응답을 다시 훑을 때도 같습니다. 0 이하의 크기는 SQL `NULL`입니다. 음수인 FETCH
+튜플 수도 잘못된 형식입니다. 연결은 이
+예외들을 `OperationalError("malformed response from broker")`로 바꾸고 연결을
+닫습니다. `DataError`는 응답은 완전하지만 Python이 값을 표현할 수 없는 경우에만
+사용합니다(#492, #512). 응답이 선언한 마지막 값 뒤에 남은 바이트는 검사하지
+않습니다.
+
 ### 복합 파서
 
 | 메서드 | 반환 | 설명 |
@@ -625,6 +643,14 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 `0x20`은 SET, `0x40`은 MULTISET, `0x60`은 SEQUENCE입니다. `0x80`이 설정되면
 두 번째 바이트 전체가 스칼라/요소 타입(31을 넘는 코드 포함)을 나타내며,
 그렇지 않으면 하위 5비트가 타입입니다. 컬렉션 행은 요소 타입이 아닌 컬렉션 종류로 디코딩합니다.
+
+`CALL` / `EVALUATE` 결과의 셀과 메타데이터 타입이 `NULL`인 컬럼(`SELECT NULL` 등)의
+셀은 값 앞에 자신의 타입 헤더를 가지며, 셀 크기는 이 헤더를 포함합니다. 프로토콜 7 이상
+브로커(CUBRID 10.2+)는 컬럼 메타데이터와 같이 `0x80 | 컬렉션 비트 | charset`, 그다음
+타입 바이트를 씁니다. 예를 들어 `INT` 42를 반환하는 함수의 `CALL`은
+`00000006 83 08 0000002a`, `CALL find_user('dba') ON CLASS db_user`는
+`0000000a 83 13 <8바이트 OID>`입니다. 이전 브로커는 타입 바이트 하나를 씁니다.
+드라이버는 두 형식을 모두 읽으며(#542), 셀보다 긴 헤더는 잘못된 응답입니다.
 
 컬렉션 값은 요소 타입 1바이트, 4바이트 요소 개수, 그리고 요소마다 4바이트 길이와 페이로드로
 구성됩니다. NULL 요소는 길이 `-1`이며 페이로드가 없습니다. 모든 요소가 NULL이면 CUBRID
