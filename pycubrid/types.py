@@ -2,7 +2,8 @@
 
 This module provides the five required DB-API 2.0 type objects
 (``STRING``, ``BINARY``, ``NUMBER``, ``DATETIME``, ``ROWID``) and
-the seven required constructor functions.
+the seven required constructor functions, plus the typed collection
+parameters :class:`Set`, :class:`Multiset` and :class:`Sequence`.
 
 Type objects compare equal to CUBRID CCI_U_TYPE codes that belong
 to their category, enabling ``cursor.description`` type comparison::
@@ -14,6 +15,8 @@ to their category, enabling ``cursor.description`` type comparison::
 from __future__ import annotations
 
 import datetime
+from collections.abc import Iterable, Iterator
+from typing import Any
 
 
 class DBAPIType:
@@ -182,3 +185,91 @@ def Binary(value: bytes | bytearray | str) -> bytes:
         return value.encode("utf-8")
     msg = f"Binary() argument must be bytes, bytearray, or str, not {type(value).__name__}"
     raise TypeError(msg)
+
+
+# ---------------------------------------------------------------------------
+# Typed collection parameters
+# ---------------------------------------------------------------------------
+
+
+class _Collection:
+    """Immutable tuple of elements bound as one typed CUBRID collection literal.
+
+    Plain Python ``set``/``list``/``tuple`` values stay rejected as parameters;
+    wrap the elements in :class:`Set`, :class:`Multiset` or :class:`Sequence`
+    to choose the collection type explicitly. The classes cannot be subclassed,
+    and the renderer reads the stored tuple directly, so the SQL text depends
+    only on the elements (#567).
+    """
+
+    __slots__ = ("_elements",)
+    _elements: tuple[Any, ...]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        if cls.__bases__ != (_Collection,):
+            raise TypeError(f"{cls.__mro__[1].__name__} cannot be subclassed")
+        super().__init_subclass__(**kwargs)
+
+    def __init__(self, elements: Iterable[Any] = ()) -> None:
+        if isinstance(elements, (str, bytes, bytearray)):
+            raise TypeError(
+                f"{type(self).__name__}() takes an iterable of elements, not a single "
+                f"{type(elements).__name__}; wrap it in a list"
+            )
+        object.__setattr__(self, "_elements", tuple(elements))
+
+    @property
+    def elements(self) -> tuple[Any, ...]:
+        """The elements, in the order given."""
+        return self._elements
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
+
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self._elements)
+
+    def __len__(self) -> int:
+        return len(self._elements)
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self):
+            return NotImplemented
+        assert isinstance(other, _Collection)
+        return self._elements == other._elements
+
+    def __hash__(self) -> int:
+        return hash((type(self).__name__, self._elements))
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({list(self._elements)!r})"
+
+
+class Set(_Collection):
+    """A CUBRID ``SET`` parameter, rendered as ``SET{...}``.
+
+    The server removes duplicate elements and does not keep their order.
+    """
+
+    __slots__ = ()
+
+
+class Multiset(_Collection):
+    """A CUBRID ``MULTISET`` parameter, rendered as ``MULTISET{...}``.
+
+    The server keeps duplicate elements but not their order.
+    """
+
+    __slots__ = ()
+
+
+class Sequence(_Collection):
+    """A CUBRID ``SEQUENCE`` (``LIST``) parameter, rendered as ``SEQUENCE{...}``.
+
+    The server keeps duplicate elements and their order.
+    """
+
+    __slots__ = ()

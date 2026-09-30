@@ -14,6 +14,7 @@ pycubrid 1.x의 드라이버 측 파라미터 바인딩 계약.
 - [플레이스홀더 방식](#플레이스홀더-방식)
 - [타입 매핑 (보장)](#타입-매핑-보장)
   - [Decimal 파라미터](#decimal-파라미터)
+  - [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터)
 - [문자열 이스케이프](#문자열-이스케이프)
   - [이스케이프 모드 협상](#이스케이프-모드-협상)
   - [리터럴 모드](#리터럴-모드-no_backslash_escapestrue)
@@ -75,6 +76,7 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 | `datetime.datetime` (tz 포함, 하위 클래스 포함) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` — `<tz>`는 `tzinfo.key`가 있으면 그 값(예: `Asia/Seoul`), 없으면 `±HH:MM` 숫자 오프셋. 비어 있지 않은 `key`는 `[A-Za-z0-9_+/-]+`에 맞는 일반 `str`이어야 하며, 아니면 `ProgrammingError` 발생 (현재 메시지: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (하위 클래스 포함) | `DATE'YYYY-MM-DD'` — 연도는 4자리로 0 채움 | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (하위 클래스 포함) | `TIME'HH:MM:SS'` — 마이크로초와 `tzinfo` 버림 | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (비어 있으면 `SET{}`); 각 원소는 연결의 이스케이프 모드로 이 표의 행에 따라 렌더링. 중첩된 타입 지정 컬렉션은 `ProgrammingError` 발생 (현재 메시지: `"nested collection parameters are not supported"`); 원소로 쓴 일반 컨테이너는 아래와 같이 거부. [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터) 참고 | `_cursor_common.py` `format_parameter`의 타입 지정 컬렉션 분기 | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
 | 그 외 전부 (`__class__`로만 지원 타입인 척하는 객체 포함) | `ProgrammingError` (현재 메시지: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 정수는 `float`로 변환하지 않고 바로 10진수 문자열로 변환합니다.
@@ -180,11 +182,32 @@ CUBRID는 최대 38자리(`NUMERIC` 최대 정밀도)의 고정소수점 숫자 
 (동기·비동기) `tests/test_parity_integration.py::TestParityDecimalLiterals`가
 실제 서버로 검증합니다.
 
+### 타입 지정 컬렉션 파라미터
+
+원소를 `pycubrid.types.Set`, `Multiset`, `Sequence`(`pycubrid.Set`, `pycubrid.Multiset`, `pycubrid.Sequence`로도 export)로 감싸면 일반 동기/비동기 커서로 CUBRID 컬렉션을 바인딩할 수 있습니다(#567):
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
+```
+
+- 각 타입은 iterable 하나를 받아 원소를 `tuple`(`.elements`)로 저장합니다. 객체는 불변이고, 같은 타입이면서 원소가 같은 경우에만 같다고 비교되며, 하위 클래스를 만들 수 없습니다. 단일 `str`, `bytes`, `bytearray` 인자는 문자 단위로 쪼개지 않고 `TypeError`를 발생시킵니다.
+- 리터럴 키워드는 타입을 따릅니다: `SET{...}`, `MULTISET{...}`, `SEQUENCE{...}`(CUBRID의 `LIST{...}`와 같은 타입). 컬렉션 의미는 서버가 적용합니다: `SET`은 중복을 제거하고, `MULTISET`은 중복은 유지하지만 순서는 유지하지 않으며, `SEQUENCE`는 둘 다 유지합니다.
+- 모든 원소는 스칼라 파라미터와 같은 재정의 방지 렌더러를 거치므로, 원소 타입은 위 표의 스칼라 행(`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`)과 정확히 같고 하위 클래스 보호도 동일합니다. 원소는 리터럴과 마찬가지로 서버가 컬럼의 원소 타입으로 변환합니다.
+- 중첩 컬렉션은 거부됩니다(`ProgrammingError`): 다른 타입 지정 컬렉션 안의 타입 지정 컬렉션, 또는 일반 `list`/`tuple`/`set`/`frozenset`/`dict` 원소.
+- `executemany()`도 각 파라미터 집합에서 타입 지정 컬렉션을 받습니다.
+- 조회 동작은 바뀌지 않습니다: `decode_collections=True`이면 `SET` 컬럼은 여전히 `frozenset`으로, `MULTISET`/`SEQUENCE`는 `list`로 디코딩됩니다(아니면 raw `bytes`). 디코딩된 값은 이 타입으로 다시 감싸지지 않으므로, 바인딩하려면 다시 감싸세요(예: `Set(row[0])`).
+
 ### 바인딩 값으로 명시적으로 미지원
 
 - `datetime.timedelta` — 분기가 없음; `ProgrammingError("unsupported parameter type")` 발생.
 - `pycubrid.Lob` — `Lob` 인스턴스는 SQL 리터럴로 변환되지 않습니다. `BLOB`/`BIT` 타입 컬럼에는 raw `bytes`를 삽입하고, 대형 객체 워크플로우에는 `Connection.create_lob()`과 LOB 쓰기 API를 사용하세요(`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
-- 컬렉션(`list`, `tuple`, `set`, `frozenset`, `dict`)을 단일 바인딩 값으로 — 실행 가능한 메시지와 함께 `ProgrammingError` 발생 (현재 문구: `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL`). **자동 `IN (?, ?, ?)` 확장은 없습니다**. SQL에 플레이스홀더를 명시적으로 펼치세요.
+- 컬렉션(`list`, `tuple`, `set`, `frozenset`, `dict`)을 단일 바인딩 값으로 — 실행 가능한 메시지와 함께 `ProgrammingError` 발생 (현재 문구: `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL, or wrap the elements in pycubrid.types.Set, Multiset or Sequence to bind a CUBRID collection`). **자동 `IN (?, ?, ?)` 확장은 없습니다**. SQL에 플레이스홀더를 명시적으로 펼치세요. CUBRID 컬렉션을 바인딩하려면 원소를 [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터)로 감싸세요. 메시지도 이를 안내합니다.
 - 임의의 Python 객체 — `ProgrammingError("unsupported parameter type")` 발생.
 
 ---
@@ -314,6 +337,7 @@ DML 동사(`INSERT`, `UPDATE`, `DELETE`, `MERGE`)에 대해 `executemany`는:
 - `tests/test_split_placeholders.py` — 따옴표 문자열, 따옴표 식별자, 행 주석, 블록 주석 전반의 플레이스홀더 토크나이저 동작과 `_bind_parameters` 통합.
 - `tests/test_cursor.py` (183-235행) — 다중 타입 파라미터 시퀀스의 종단 간 바인딩, 플레이스홀더 수 검증, `Mapping`/`str` 파라미터 거부.
 - `tests/test_aio_cursor_parity.py` (76-105행) — NUL 거부, 기본 이스케이프, `no_backslash_escapes` 모드의 동기/비동기 동등성.
+- `tests/test_typed_collections.py` — 타입 지정 `Set`/`Multiset`/`Sequence` 렌더링, 원소 보호, 중첩 컬렉션 거부; 동기/비동기 동등성은 `tests/test_replay_parity.py::typed_collection_parameters`.
 
 이 테스트들이 이 계약의 실행 가능한 명세를 제공합니다.
 

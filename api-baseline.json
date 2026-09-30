@@ -13,12 +13,15 @@
       "InterfaceError",
       "InternalError",
       "Lob",
+      "Multiset",
       "NUMBER",
       "NotSupportedError",
       "OperationalError",
       "ProgrammingError",
       "ROWID",
       "STRING",
+      "Sequence",
+      "Set",
       "Time",
       "TimeFromTicks",
       "Timestamp",
@@ -593,6 +596,59 @@
           "lob_type"
         ]
       },
+      "Multiset": {
+        "bases": [
+          "pycubrid.types._Collection"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "elements"
+                }
+              ]
+            }
+          },
+          "__iter__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": [
+          "elements"
+        ]
+      },
       "NUMBER": {
         "kind": "attribute",
         "type": "DBAPIType"
@@ -802,6 +858,112 @@
       "STRING": {
         "kind": "attribute",
         "type": "DBAPIType"
+      },
+      "Sequence": {
+        "bases": [
+          "pycubrid.types._Collection"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "elements"
+                }
+              ]
+            }
+          },
+          "__iter__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": [
+          "elements"
+        ]
+      },
+      "Set": {
+        "bases": [
+          "pycubrid.types._Collection"
+        ],
+        "class_vars": [],
+        "kind": "class",
+        "methods": {
+          "__init__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "elements"
+                }
+              ]
+            }
+          },
+          "__iter__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "__repr__": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          }
+        },
+        "properties": [
+          "elements"
+        ]
       },
       "Time": {
         "kind": "callable",

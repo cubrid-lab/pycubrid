@@ -61,6 +61,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the evidence in CI, and generates the claim counts in the compatibility
   guides. `check_integration_lanes.py` gains an `official` lane, and
   `--lane official` accepts no skip.
+- **Typed collection parameters for ordinary cursors (#567)** — new
+  `pycubrid.types.Set`, `Multiset` and `Sequence` (also exported from
+  `pycubrid`) wrap an immutable tuple of elements and bind through `execute()`
+  and `executemany()` on ordinary sync and async cursors as `SET{...}`,
+  `MULTISET{...}` and `SEQUENCE{...}` literals, so SQLAlchemy and other DB-API
+  callers can bind CUBRID collections (cubrid-lab/sqlalchemy-cubrid#484).
+  Every element goes through the hardened scalar renderer (#518, #528), so
+  element types are the scalar parameter types and overridden methods on an
+  element subclass never reach the SQL; nested collections raise
+  `ProgrammingError`, and the classes cannot be subclassed. Plain Python
+  `set`/`list`/`tuple` parameters stay rejected (the message now names the
+  typed classes). Fetching is unchanged: with `decode_collections=True`
+  collections still decode to `frozenset`/`list`. Round trips, including
+  MULTISET duplicates and SEQUENCE order, run live on CUBRID 10.2 and 11.4,
+  and a replay scenario pins sync/async parity. The official driver has no
+  equivalent ordinary-execute API (its wrapper binds plain lists through
+  native prepared `bind_set`), so no differential claim is made.
 
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.

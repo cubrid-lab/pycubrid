@@ -24,6 +24,7 @@ pycubrid의 PEP 249 타입 객체·생성자·CUBRID CCI 데이터 타입 코드
 - [컬렉션 타입](#컬렉션-타입)
   - [JSON 컬럼](#json-컬럼)
   - [`decode_collections`](#decode_collections)
+  - [컬렉션 바인딩](#컬렉션-바인딩)
 - [사용 예제](#사용-예제)
 
 ---
@@ -442,6 +443,26 @@ JSON 컬럼은 CUBRID 타입 코드 `34`를 사용합니다.
 |---|---|
 | `False` (기본) | 컬렉션 페이로드를 raw CAS 와이어 `bytes`로 반환 |
 | `True` | 지원되는 `SET`, `MULTISET`, `SEQUENCE` 페이로드를 Python 컨테이너로 디코딩 |
+
+### 컬렉션 바인딩
+
+일반 Python `set`, `frozenset`, `list`, `tuple` 값은 파라미터로 거부됩니다. 컬렉션을 바인딩하려면 원소를 타입 지정 컬렉션 파라미터로 감싸세요(#567):
+
+| 클래스 | 렌더링되는 리터럴 | 서버 의미 |
+|---|---|---|
+| `pycubrid.types.Set` | `SET{...}` | 중복 제거, 순서 유지 안 함 |
+| `pycubrid.types.Multiset` | `MULTISET{...}` | 중복 유지, 순서 유지 안 함 |
+| `pycubrid.types.Sequence` | `SEQUENCE{...}` (`LIST{...}`와 같은 타입) | 중복과 순서 유지 |
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute("INSERT INTO t VALUES (?, ?, ?)", (Set([1, 2]), Multiset(["a", "a"]), Sequence([3, 1])))
+```
+
+이 클래스들은 최상위 `pycubrid` 패키지에서도 export됩니다. 각각 불변이고, 원소를 `tuple`(`.elements`)로 저장하며, 하위 클래스를 만들 수 없습니다. 원소는 스칼라 파라미터와 같은 타입(`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`)을 받으며 같은 보호된 렌더러로 렌더링됩니다. 중첩 컬렉션은 `ProgrammingError`를 발생시킵니다. 동기와 비동기 일반 커서 모두 지원합니다. [파라미터 바인딩](PARAMETER_BINDING.md#타입-지정-컬렉션-파라미터)을 참고하세요.
+
+디코딩은 바뀌지 않습니다: 조회한 컬렉션은 위 표와 같이(`decode_collections=True`일 때) 일반 Python 컨테이너이며, 이 파라미터 타입이 아닙니다.
 
 ---
 

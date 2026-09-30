@@ -121,6 +121,18 @@ documented ordinary bug corrections remain **PATCH**. The staged work does not
 authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI
 publication or a security-support change.
 
+### Typed collection parameters (#567)
+
+`pycubrid.types.Set`, `Multiset` and `Sequence` (also exported from
+`pycubrid`) are a **MINOR** addition: new public classes and `__all__` entries
+that ordinary sync and async cursors render as `SET{...}`, `MULTISET{...}` and
+`SEQUENCE{...}` literals. Every input that binds or fails today keeps its
+literal and its exception class (plain `set`/`list`/`tuple` parameters still
+raise `ProgrammingError`; only the message now names the typed classes), and
+fetched collections keep their `decode_collections` containers. Changing a
+rendered keyword, element rendering or the rejection of nested collections is
+governed by the [parameter binding policy](docs/PARAMETER_BINDING.md#compatibility-policy-1x).
+
 ### What the gate does *not* detect
 
 The `compat-check` CI gate captures the structural surface — names,
