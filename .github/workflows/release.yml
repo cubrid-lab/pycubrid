@@ -334,17 +334,23 @@ jobs:
       - name: Create the draft GitHub Release with the SBOM
         run: |
           set -euo pipefail
-          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
-            if [ "$draft" = "true" ]; then
+          # List (drafts included) instead of `gh release view`, so an API error
+          # fails the step instead of reading as "no Release yet".
+          drafts=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == env.TAG) | .draft')
+          case "$drafts" in
+            "")
+              gh release create "$TAG" --draft --verify-tag --title "$TAG" \
+                --notes-file release-meta/RELEASE_NOTES.md release-meta/sbom.spdx.json ;;
+            true)
               gh release upload "$TAG" release-meta/sbom.spdx.json --clobber
-              echo "reusing draft Release $TAG"
-            else
-              echo "Release $TAG is already published; leaving it unchanged"
-            fi
-          else
-            gh release create "$TAG" --draft --verify-tag --title "$TAG" \
-              --notes-file release-meta/RELEASE_NOTES.md release-meta/sbom.spdx.json
-          fi
+              echo "reusing draft Release $TAG" ;;
+            false)
+              echo "Release $TAG is already published; leaving it unchanged" ;;
+            *)
+              echo "::error::several Releases carry $TAG; resolve them by hand"
+              exit 1 ;;
+          esac
 
       # Fails on a filename PyPI already serves with a different SHA-256, on a
       # file PyPI serves for this version that the verified build did not
@@ -372,7 +378,7 @@ jobs:
     # After a successful publish; or, without publishing, after a successful
     # dry-run build or for verify-only.
     if: >-
-      always() && needs.detect.outputs.verify == 'true' &&
+      !cancelled() && needs.detect.outputs.verify == 'true' &&
       (needs.publish.result == 'success' ||
       (needs.detect.outputs.publish != 'true' &&
       (needs.detect.outputs.mode == 'verify-only' || needs.build.result == 'success')))

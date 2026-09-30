@@ -375,3 +375,17 @@ def test_redirected_download_never_forwards_the_token(monkeypatch: pytest.Monkey
     assert seen[0].get_header("Authorization") == "Bearer secret-token"
     assert seen[1].full_url == "https://storage.example.invalid/blob?sig=x"
     assert seen[1].get_header("Authorization") is None
+
+
+def test_rejected_token_fails_without_waiting() -> None:
+    clock = Clock()
+    client = FakeClient([cw.ApiError("GET runs returned HTTP 401", 401)])
+    result = wait(client, clock)
+    assert (result.status, result.reason) == ("failure", "GET runs returned HTTP 401")
+    assert clock.sleeps == []
+
+
+def test_outputs_are_single_line(github_output: Path) -> None:
+    cw.write_outputs(cw.Result("failure", "line one\nstatus=success", RID).outputs())
+    assert outputs(github_output)["status"] == "failure"
+    assert outputs(github_output)["reason"] == "line one status=success"

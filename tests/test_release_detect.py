@@ -289,3 +289,18 @@ def test_parse_version_is_ast_only() -> None:
     assert detect.parse_version("__version__ = get()\n") == ""
     assert detect.parse_version("def (:\n") == ""
     assert detect.parse_version(None) == ""
+
+
+def test_unvalidated_version_never_reaches_github_output(repo: Repo) -> None:
+    sha = repo.commit("1.1.0\\npublish=true", changelog("## [1.0.0] - 2026-01-01"))
+    code, out = run("--sha", sha)
+    assert code == 0
+    assert (out["release"], out["publish"], out["version"]) == ("false", "false", "")
+    assert out["reason"] == "__version__ is not MAJOR.MINOR.PATCH"
+
+
+def test_outputs_are_single_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(path))
+    detect.write_outputs({"reason": "a\npublish=true"})
+    assert path.read_text() == "reason=a publish=true\n"

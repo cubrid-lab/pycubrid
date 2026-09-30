@@ -146,7 +146,8 @@ def test_job_graph() -> None:
     assert jobs["publish"]["if"] == "needs.detect.outputs.publish == 'true'"
     assert jobs["publish"]["environment"]["name"] == "pypi"
     verify_if = " ".join(jobs["verify-cookbook"]["if"].split())
-    assert verify_if.startswith("always() && needs.detect.outputs.verify == 'true' &&")
+    # Not always(): cancelling a dry run must not dispatch the cookbook.
+    assert verify_if.startswith("!cancelled() && needs.detect.outputs.verify == 'true' &&")
     assert "needs.publish.result == 'success'" in verify_if
     assert jobs["summary"]["if"] == "always()"
 
@@ -193,6 +194,8 @@ def test_publish_order_tag_draft_pypi_undraft() -> None:
         'gh release create "$TAG" --draft --verify-tag'
         in body["Create the draft GitHub Release with the SBOM"]
     )
+    # An API error must fail the step, never read as "no Release yet".
+    assert "2>/dev/null" not in body["Create the draft GitHub Release with the SBOM"]
     assert body["Publish the GitHub Release"] == 'gh release edit "$TAG" --draft=false'
     text = (WORKFLOWS / "release.yml").read_text()
     assert (

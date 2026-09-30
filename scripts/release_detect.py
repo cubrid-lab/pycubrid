@@ -172,16 +172,18 @@ def detect_push(sha: str, version_file: str, changelog: str, remote: str) -> Dec
     version = parse_version(read_at(sha, version_file))
     parent = resolve_commit(f"{sha}^1")
     previous = parse_version(read_at(parent, version_file)) if parent else ""
-    decision.version = version
     if not version:
         decision.reason = f"no __version__ found in {version_file}"
         return decision
+    if not VERSION_RE.match(version):
+        # Never echo an unvalidated string into $GITHUB_OUTPUT.
+        decision.reason = "__version__ is not MAJOR.MINOR.PATCH"
+        if version != previous:
+            decision.warnings.append(decision.reason)
+        return decision
+    decision.version = version
     if version == previous:
         decision.reason = f"__version__ unchanged ({version}) compared with the first parent"
-        return decision
-    if not VERSION_RE.match(version):
-        decision.reason = f"__version__ {version!r} is not MAJOR.MINOR.PATCH"
-        decision.warnings.append(decision.reason)
         return decision
     if not has_dated_section(read_at(sha, changelog), version):
         decision.reason = (
@@ -270,7 +272,8 @@ def detect(args: argparse.Namespace) -> Decision:
 
 
 def write_outputs(outputs: dict[str, str]) -> None:
-    lines = [f"{key}={value}" for key, value in outputs.items()]
+    # One line per output: a newline in a value could forge another output.
+    lines = [f"{key}={' '.join(value.splitlines())}" for key, value in outputs.items()]
     print("\n".join(lines))
     path = os.environ.get("GITHUB_OUTPUT")
     if path:

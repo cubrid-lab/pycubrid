@@ -81,7 +81,7 @@ class Result:
     def outputs(self) -> dict[str, str]:
         return {
             "status": self.status,
-            "reason": self.reason.replace("\n", " "),
+            "reason": self.reason,
             "request_id": self.request_id,
             "run_url": self.run_url,
             "installed_version": self.installed_version,
@@ -278,6 +278,9 @@ def wait(
                     )
         except ApiError as exc:
             last = str(exc)
+            if exc.status == 401:
+                # A rejected token does not recover by waiting.
+                return Result(FAILURE, last, request_id)
             print(f"::warning::{last}")
         if clock() >= deadline:
             return Result(FAILURE, f"timed out after {timeout / 60:.0f} min: {last}", request_id)
@@ -328,7 +331,8 @@ def run(args: argparse.Namespace, env: dict[str, str]) -> Result:
 
 
 def write_outputs(outputs: dict[str, str]) -> None:
-    lines = [f"{key}={value}" for key, value in outputs.items()]
+    # One line per output: a newline in a value could forge another output.
+    lines = [f"{key}={' '.join(value.splitlines())}" for key, value in outputs.items()]
     print("\n".join(lines))
     path = os.environ.get("GITHUB_OUTPUT")
     if path:
