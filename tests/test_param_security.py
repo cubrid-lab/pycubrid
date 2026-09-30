@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import datetime
 import enum
+from collections.abc import Iterator
 from decimal import Decimal, DecimalTuple
+from typing import cast
 
 import pytest
 
@@ -441,7 +443,7 @@ class _HostileStr(str):
     def find(self, *args: object) -> int:
         return -1
 
-    def __iter__(self):  # type: ignore[no-untyped-def]
+    def __iter__(self) -> Iterator[str]:
         return iter(_INJECTED_SQL)
 
     def __len__(self) -> int:
@@ -467,7 +469,7 @@ class _HostileBytes(bytes):
     def __bytes__(self) -> bytes:
         return b"'; DROP TABLE users; --"
 
-    def __iter__(self):  # type: ignore[no-untyped-def]
+    def __iter__(self) -> Iterator[int]:
         return iter(b"'; DROP")
 
     def __len__(self) -> int:
@@ -518,8 +520,11 @@ class _HostileTimedelta(datetime.timedelta):
     def total_seconds(self) -> float:
         return 0.0
 
-    days = property(_lie)  # type: ignore[assignment]
-    seconds = property(_lie)  # type: ignore[assignment]
+
+# Shadow the timedelta fields after class creation (a class-body assignment
+# would conflict with the base-class attribute types).
+setattr(_HostileTimedelta, "days", property(_lie))
+setattr(_HostileTimedelta, "seconds", property(_lie))
 
 
 class _KeyedTZ(datetime.tzinfo):
@@ -658,7 +663,7 @@ class TestStrSubclassEscaping:
         from pycubrid._cursor_common import escape_string
 
         with pytest.raises(ProgrammingError):
-            escape_string(_spoof(str))  # type: ignore[arg-type]
+            escape_string(cast(str, _spoof(str)))
 
 
 class TestBinarySubclassRendering:

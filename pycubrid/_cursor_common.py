@@ -19,10 +19,14 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 from .exceptions import DataError, InterfaceError, ProgrammingError
 from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE, get_sqlstate
 
+# The C implementation of Decimal, or None when only _pydecimal is available.
+_CDecimal: type[Decimal] | None
 try:
-    from _decimal import Decimal as _CDecimal
+    import _decimal
+
+    _CDecimal = _decimal.Decimal
 except ImportError:  # pragma: no cover - CPython builds without the C module
-    _CDecimal = None  # type: ignore[assignment,misc]
+    _CDecimal = None
 
 if TYPE_CHECKING:
     from .protocol import ColumnMetaData
