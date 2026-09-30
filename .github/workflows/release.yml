@@ -386,7 +386,7 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read # sparse checkout of the wait script
-      actions: read # GITHUB_TOKEN reads the public cookbook runs and artifact
+      actions: read # cookbook runs/artifacts: public repo, readable with any authenticated token
     outputs:
       status: ${{ steps.wait.outputs.status }}
       reason: ${{ steps.wait.outputs.reason }}

@@ -133,8 +133,14 @@ verified `dist/` with the file PyPI serves under the same name: not on PyPI
 (HTTP 404) → uploaded; same SHA-256 → skipped; different SHA-256, a PyPI file
 the build did not produce, or PyPI unreachable → the job fails and nothing is
 uploaded. Only an explicit "every file already on PyPI" skips the upload step.
-A `File already exists` rejection from the upload means PyPI holds different
-bytes for that filename: handle it as a broken release.
+If PyPI's JSON API lags right after an upload and does not list a file yet,
+that file goes to the upload step, which is still safe: PyPI answers a
+byte-identical re-upload of an existing filename with success and rejects
+different bytes with `400 File already exists`. Before treating that rejection
+as a broken release, re-query `https://pypi.org/pypi/pycubrid/X.Y.Z/json` and
+compare the published SHA-256 with the run's `SHA256SUMS` (artifact
+`release-meta`): a match means the file is fine and `gh run rerun --failed`
+completes the release; a mismatch is a broken release.
 
 ### Recovery dispatch (the only manual entry point)
 
