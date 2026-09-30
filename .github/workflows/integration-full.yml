@@ -3,20 +3,26 @@ name: Integration Full Matrix
 # Full Python x CUBRID compatibility validation.
 # Regular CI runs {3.10, 3.14} x all CUBRID versions on every PR/push.
 # This workflow runs the full 5x4 matrix on a nightly schedule, on demand
-# (workflow_dispatch), and before tagged releases, plus the cross-version
-# behavior differential (#351) that needs all four CUBRID versions at once.
+# (workflow_dispatch), and as the release gate: release.yml calls it through
+# workflow_call with the release commit SHA, plus the cross-version behavior
+# differential (#351) that needs all four CUBRID versions at once.
 
 on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
+    inputs:
+      sha:
+        description: "Full commit SHA to test (release.yml passes the release commit)"
+        required: true
+        type: string
 
+# A release call gets its own group per SHA and is never cancelled; a nightly
+# or manual run keeps the per-ref group that replaces an older pending run.
 concurrency:
-  group: integration-full-${{ github.ref }}
-  cancel-in-progress: true
+  group: integration-full-${{ inputs.sha && format('release-{0}', inputs.sha) || github.ref }}
+  cancel-in-progress: ${{ !inputs.sha }}
 
 jobs:
   integration-full:
@@ -41,6 +47,9 @@ jobs:
           --health-start-period 30s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -75,6 +84,9 @@ jobs:
         cubrid-version: ["11.4"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -253,6 +265,9 @@ jobs:
           --health-start-period 30s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.14"
@@ -339,6 +354,9 @@ jobs:
       CUBRID_TEST_PASSWORD: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.14"
