@@ -13,6 +13,7 @@ pycubrid를 설정·테스트·기여하는 데 필요한 모든 것.
 - [프로젝트 구조](#프로젝트-구조)
 - [테스트 실행](#테스트-실행)
   - [오프라인 테스트](#오프라인-테스트)
+  - [동기/비동기 재생 패리티](#동기비동기-재생-패리티)
   - [통합 테스트](#통합-테스트)
   - [코드 커버리지](#코드-커버리지)
 - [Docker 설정](#docker-설정)
@@ -136,6 +137,69 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 # 또는 Makefile 사용
 make test
 ```
+
+### 동기/비동기 재생 패리티
+
+`tests/test_replay_parity.py`는 동기 `Connection`과 비동기 `AsyncConnection`이
+같은 브로커에 대해 같게 동작하는지를 오프라인으로 몇 초 안에 검사합니다.
+`tests/helpers/replay_broker.py`는 스레드 기반의 프로세스 내 CAS 브로커입니다.
+TCP 세션을 여러 번 받을 수 있어 재접속이 실제로 일어나고, 각 요청에 시나리오별
+*스크립트*로 응답하며(지정하지 않은 요청에는 `tests/helpers/cas_reply.py`로 만든
+결정적인 기본 응답), 받은 모든 요청을 기록합니다.
+
+시나리오는 공개 연산(`open`, `close`, `connect`, `execute`, `fetchall`,
+`commit`, `ping` 등)의 목록과 스크립트로 이루어집니다. 두 드라이버에서 각각 새
+브로커로 재생한 뒤 네 가지를 비교합니다: 단계별 결과(반환값 또는 예외 타입),
+보낸 요청 전체(세션, CAS 함수, 되돌려 보낸 CAS_INFO, 인자), 이후 연결을 계속 쓸 수
+있는지(`ping(reconnect=False)`), TCP 세션 수. 시나리오는 드라이버가 *의도적으로*
+다른 항목을 이유와 함께 적고, 그 밖의 차이는 모두 실패입니다. 아직 고치지 않은
+알려진 차이는 `unintended=`로 기록해 strict `xfail`로 실행합니다. 각 시나리오의
+`check`는 두 관측 결과 모두에 실행되므로 시나리오가 원래 경로를 조용히 벗어날 수
+없습니다.
+
+```bash
+pytest tests/test_replay_parity.py -v
+```
+
+다루는 범위: 연결/종료, 종료 후 재접속, autocommit 설정/복원(명시적 설정, 생성자,
+미설정), commit/rollback에 의한 핸들 무효화, OUT_TRAN `CHECK_CAS` 검사, 한 번의
+`CHECK_CAS` 복구(autocommit 복원과 이스케이프 모드 재감지 포함)와 복구 실패, 교체된
+세션에 바인딩된 SQL(세대 펜스, #471/#485), 복구 여부별 `ping()` 실패, 잘못된
+응답과 잘린 응답(#533), 세션을 유지하는 `DataError`(#512), fetch 페이지
+`DataError` 계약(#536). 태스크 취소는 `pycubrid.aio`에만 있으므로 대신
+`tests/test_async_cancellation.py`에서 다룹니다.
+
+시나리오를 추가하려면 `SCENARIOS`에 단계, `_on(...)`으로 만든 스크립트(예: 응답 후
+CAS를 재활용하는 `_hang_up_after_ok`), `check`를 갖춘 `Scenario`를 추가합니다.
+
+**의도된 차이** (실패 아님):
+
+| 차이 | 이유 |
+|---|---|
+| `AsyncConnection(...)`은 연결하지 않고 `await pycubrid.aio.connect(...)`가 연결 | `__init__`은 await할 수 없음 |
+| 비동기 autocommit은 `await conn.set_autocommit(v)`로 설정 | 프로퍼티 setter는 await할 수 없음 |
+| 비동기 I/O 메서드는 모두 코루틴 | asyncio API |
+| 비동기 `create_lob()`은 `NotSupportedError`를 발생시키고 `LOB_NEW`를 보내지 않음 | 비동기 LOB 미지원(시나리오 `create_lob`) |
+| 태스크 취소 | 비동기 전용, 패리티에서 제외 |
+
+**하니스가 찾은 의도치 않은 차이** (모두 #521에서 수정):
+
+| 차이 | 수정 |
+|---|---|
+| 동기 `close()` 후 `connect()`가 명시적 `autocommit`을 다시 보내지 않음(#520) | `connect()`가 모든 대체 세션에서 명시적 세션 상태를 복원 |
+| 동기 `connect(autocommit=True)`가 재접속하는 프로퍼티 setter를 사용: `SET_DB_PARAMETER`와 `COMMIT` 사이에 `CHECK_CAS`가 추가되고, 그 사이 CAS가 재활용되면 두 요청이 다른 세션으로 나뉘며, 실패 시 원래 오류가 나오고 소켓이 열린 채 남음 | 비동기처럼 연 세션에서만 적용하고 실패 시 `OperationalError` |
+| 동기 `ping(reconnect=False)`가 `CHECK_CAS` 음수 응답 후에도 세션을 유지해 다음 요청이 조용히 재접속함 | 비동기처럼 손상된 세션을 닫음 |
+| `CHECK_CAS` 대체 세션에서 비동기 이스케이프 감지가 `auto_commit=0`을 보냄. 다른 모든 이스케이프 감지(두 드라이버)는 연결의 값을 보냄 | 대체 세션의 감지도 연결의 값을 보냄 |
+
+같은 시점에 공통 결함(패리티 차이 아님)도 수정했습니다: 자동 이스케이프 감지에서
+감지 `ROLLBACK` 직후 CAS가 재활용되면 autocommit 적용 전에 `connect()`가
+실패했습니다. 이제 두 드라이버 모두 그 OUT_TRAN 세션을 먼저 `CHECK_CAS`로
+확인하고 한 번 교체합니다.
+
+알려졌지만 아직 수정하지 않은 공통 결함(strict `xfail` 시나리오
+`autocommit_setter_survives_recycle_after_set_db_parameter`): 공개 autocommit
+setter는 두 요청 사이에 CAS가 재활용되면 `SET_DB_PARAMETER`와 `COMMIT`을 서로 다른
+CAS 세션으로 보낼 수 있습니다(#551).
 
 ### 통합 테스트
 

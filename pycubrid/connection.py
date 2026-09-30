@@ -46,6 +46,9 @@ _resolve_ssl_context = resolve_ssl_context
 class Connection(ConnectionCommonMixin):
     """PEP 249 DB-API connection for the CUBRID CAS protocol."""
 
+    # The constructor's autocommit=True until it is applied on a session.
+    _pending_autocommit: bool = False
+
     def __init__(
         self,
         host: str,
@@ -86,9 +89,54 @@ class Connection(ConnectionCommonMixin):
         # prepared handle may be reused only on a measured pooling-on lane.
         self._statement_pooling: int | None = None
 
+        # Applied by connect() on the session it opens (async parity).
+        self._pending_autocommit = bool(autocommit)
         self.connect()
-        if autocommit:
-            self.autocommit = True
+
+    def _configure_new_session(self, previous_generation: int) -> None:
+        """Apply the constructor's autocommit or restore explicit session state.
+
+        Async ``connect()`` parity. Runs on every newly opened physical session.
+        The escape-mode probe ends with a ROLLBACK, so the session may be
+        OUT_TRAN and that CAS may already be recycled: verify it once before
+        sending any setting. A replacement session is configured by the nested
+        ``connect()`` of that recovery, so nothing is sent twice.
+        """
+        sends_setting = self._pending_autocommit or (
+            bool(previous_generation) and self._autocommit_explicitly_set
+        )
+        if sends_setting and self._check_reconnect():
+            return
+        if self._pending_autocommit:
+            self._apply_pending_autocommit()
+        elif previous_generation:
+            self._restore_session_state()
+        self._configured_generation = self._physical_generation
+
+    def _apply_pending_autocommit(self) -> None:
+        """Apply the constructor's ``autocommit=True`` on the current session.
+
+        Mirrors the async ``_apply_pending_autocommit_locked``: ``SET_DB_PARAMETER``
+        and its ``COMMIT`` are sent on this session with implicit reconnect
+        disabled, so a CAS recycled between them cannot split the two across
+        sessions (which left the new session at the broker default while
+        ``autocommit`` reported ``True``). Any failure retires the session and
+        raises :class:`OperationalError` with the cause chained.
+        """
+        try:
+            self._send_and_receive(
+                SetDbParameterPacket(parameter=CCIDbParam.AUTO_COMMIT, value=1),
+                allow_reconnect=False,
+            )
+            self._send_and_receive(CommitPacket(), allow_reconnect=False)
+        except BaseException as exc:
+            self._drop_connection()
+            if isinstance(exc, Exception):
+                raise OperationalError("failed to apply autocommit after connect") from exc
+            raise
+        self._autocommit = True
+        self._autocommit_explicitly_set = True
+        self._pending_autocommit = False
 
     def _negotiate_backslash_escapes(self) -> None:
         """Detect the server's backslash-escape mode when not pinned.
@@ -200,9 +248,26 @@ class Connection(ConnectionCommonMixin):
         raises :class:`ssl.SSLCertVerificationError` synchronously on
         verification failure (unlike the async path on Python 3.10 — see
         `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_).
+
+        When this opens a new physical session after an earlier one (``close()``
+        then ``connect()``, ``ping()`` recovery, or a failed ``CHECK_CAS``
+        probe), an explicitly set ``autocommit`` is re-applied on it, as the
+        async driver does (#520).
         """
         with self._session_lock:
+            previous_generation = self._physical_generation
             self._connect_locked()
+            if self._physical_generation == previous_generation:
+                return
+            # A recovery nested in the escape probe already configured its
+            # replacement session; do not send its settings twice.
+            if self._configured_generation == self._physical_generation:
+                return
+            try:
+                self._configure_new_session(previous_generation)
+            except BaseException:
+                self._drop_connection()
+                raise
 
     def _connect_locked(self) -> None:
         if self._connected:
@@ -450,8 +515,7 @@ class Connection(ConnectionCommonMixin):
         self._invalidate_query_handles_for_reconnect()
         self._implicit_reconnect_suspended += 1
         try:
-            self.connect()
-            self._restore_session_state()
+            self.connect()  # also restores explicit session state
             # Setup may itself end OUT_TRAN (the escape probe's rollback), and
             # that CAS may be recycled too: verify it before the pending request.
             if self._cas_status_unverified():
@@ -472,7 +536,7 @@ class Connection(ConnectionCommonMixin):
             self._implicit_reconnect_suspended -= 1
 
     def _restore_session_state(self) -> None:
-        """Re-emit session-level settings after explicit ping recovery.
+        """Re-emit session-level settings on a replacement physical session.
 
         Re-applies any session state that the caller has explicitly set
         on this connection (currently only ``autocommit``).  Settings the
@@ -578,7 +642,9 @@ class Connection(ConnectionCommonMixin):
 
         Contract: reconnect+session-restore is attempted **at most once**
         per ``ping()`` call. A restore failure tears the connection down
-        and returns ``False`` rather than retrying.
+        and returns ``False`` rather than retrying. A negative ``CHECK_CAS``
+        response closes the broken session even with ``reconnect=False``,
+        as the async driver does.
         """
         with self._session_lock:
             return self._ping_locked(reconnect)
@@ -590,8 +656,7 @@ class Connection(ConnectionCommonMixin):
             try:
                 self._invalidate_query_handles_for_reconnect()
                 _LOGGER.debug("ping: reconnecting")
-                self.connect()
-                self._restore_session_state()
+                self.connect()  # also restores explicit session state
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
@@ -605,14 +670,16 @@ class Connection(ConnectionCommonMixin):
         if healthy:
             self._verified_cas_info = self._cas_info
             return True
+        # A failed CHECK_CAS confirms this session is broken: retire it even
+        # without reconnect, as the async driver does, so no later request is
+        # sent on it and nothing reconnects behind the caller's back.
+        self._drop_connection()
+        self._invalidate_query_handles_for_reconnect()
         if not reconnect:
             return False
         try:
-            self._drop_connection()
-            self._invalidate_query_handles_for_reconnect()
             _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
-            self.connect()
-            self._restore_session_state()
+            self.connect()  # also restores explicit session state
             return True
         except (OSError, OperationalError, InterfaceError):
             return False

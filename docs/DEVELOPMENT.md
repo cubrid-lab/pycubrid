@@ -11,6 +11,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 - [Project Structure](#project-structure)
 - [Running Tests](#running-tests)
   - [Offline Tests](#offline-tests)
+  - [Sync/Async Replay Parity](#syncasync-replay-parity)
   - [Integration Tests](#integration-tests)
   - [Code Coverage](#code-coverage)
 - [Docker Setup](#docker-setup)
@@ -134,6 +135,73 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 # Or use the Makefile
 make test
 ```
+
+### Sync/Async Replay Parity
+
+`tests/test_replay_parity.py` checks, offline and in a few seconds, that the
+sync `Connection` and the async `AsyncConnection` behave the same against the
+same broker. `tests/helpers/replay_broker.py` is a threaded in-process CAS
+broker: it accepts any number of TCP sessions (so reconnects are real), answers
+each request through a per-scenario *script* with deterministic default replies
+built by `tests/helpers/cas_reply.py`, and records every request it receives.
+
+Each scenario is a list of public operations (`open`, `close`, `connect`,
+`execute`, `fetchall`, `commit`, `ping`, ...) plus a script. It is replayed
+through both drivers, each against a fresh broker, and four aspects are
+compared: step outcomes (return value or exception type), the exact requests
+sent (session, CAS function, echoed CAS_INFO, arguments), whether the connection
+is still usable afterwards (`ping(reconnect=False)`), and the number of TCP
+sessions. A scenario names the aspects in which the drivers are *meant* to
+differ, with a reason; every other difference fails. A known divergence that is
+not fixed yet is recorded with `unintended=` and runs as a strict `xfail`. Each
+scenario also carries a `check` run against both observations, so it cannot
+silently stop exercising its path.
+
+```bash
+pytest tests/test_replay_parity.py -v
+```
+
+Covered: connect/close, reconnect after close, autocommit set/restore (explicit,
+constructor, never set), handle invalidation by commit/rollback, the OUT_TRAN
+`CHECK_CAS` probe, one `CHECK_CAS` recovery (with autocommit restore and
+escape-mode re-probe) and a failed recovery, SQL bound to a replaced session
+(generation fence, #471/#485), failed `ping()` with and without recovery,
+malformed and truncated replies (#533), `DataError` keeping the session (#512)
+and the fetch-page `DataError` contract (#536). Task cancellation exists only
+in `pycubrid.aio` and is covered by `tests/test_async_cancellation.py` instead.
+
+To add a scenario, append a `Scenario` to `SCENARIOS` with its steps, a script
+built from `_on(...)` (for example `_hang_up_after_ok` to recycle the CAS after a
+reply) and a `check`.
+
+**Intended differences** (not failures):
+
+| Difference | Reason |
+|---|---|
+| `AsyncConnection(...)` does not connect; `await pycubrid.aio.connect(...)` does | `__init__` cannot await |
+| Async autocommit is set with `await conn.set_autocommit(v)` | a property setter cannot await |
+| Every async I/O method is a coroutine | asyncio API |
+| Async `create_lob()` raises `NotSupportedError` and sends no `LOB_NEW` | no async LOB support (scenario `create_lob`) |
+| Task cancellation | async only; excluded from parity |
+
+**Unintended differences found by the harness** (all fixed in #521):
+
+| Difference | Fix |
+|---|---|
+| Sync `connect()` after `close()` did not re-send an explicit `autocommit` (#520) | `connect()` restores explicit session state on every replacement session |
+| Sync `connect(autocommit=True)` used the reconnecting property setter: an extra `CHECK_CAS` between `SET_DB_PARAMETER` and `COMMIT`, a CAS recycled there split them across sessions, and a failure raised the native error with the socket left open | applied on the opened session only, with `OperationalError` on failure, like async |
+| Sync `ping(reconnect=False)` kept a session whose `CHECK_CAS` returned a negative code, and the next request reconnected silently | the broken session is closed, like async |
+| Async escape probe on a `CHECK_CAS` replacement session sent `auto_commit=0`; every other escape probe (both drivers) sends the connection's flag | the replacement probe sends the connection's flag |
+
+A shared gap (no parity difference) was fixed at the same time: with automatic
+escape detection, a CAS recycled right after the probe's `ROLLBACK` made
+`connect()` fail before autocommit was applied; both drivers now verify that
+OUT_TRAN session with `CHECK_CAS` first and replace it once.
+
+Known and not yet fixed, shared by both drivers (strict `xfail` scenario
+`autocommit_setter_survives_recycle_after_set_db_parameter`): the public
+autocommit setter can send `SET_DB_PARAMETER` and its `COMMIT` on different CAS
+sessions when the CAS is recycled between them (#551).
 
 ### Mutation Testing
 

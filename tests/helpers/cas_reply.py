@@ -701,8 +701,15 @@ def _result_info(w: Wire, statement_type: int, count: int) -> None:
     w.i32(0)  # cache microseconds
 
 
-def prepare_and_execute_reply(rs: ResultSet, *, query_handle: int = 7) -> Seed:
-    """FC41 PREPARE_AND_EXECUTE with column metadata and the first page inline."""
+def prepare_and_execute_reply(
+    rs: ResultSet, *, query_handle: int = 7, total: int | None = None
+) -> Seed:
+    """FC41 PREPARE_AND_EXECUTE with column metadata and the first page inline.
+
+    ``total`` is the advertised tuple count (default: the inline rows); a larger
+    value leaves the remaining rows to later FETCH pages.
+    """
+    total_rows = len(rs.rows) if total is None else total
     w = Wire()
     w.raw(CAS_INFO)
     w.i32(query_handle)
@@ -713,10 +720,10 @@ def prepare_and_execute_reply(rs: ResultSet, *, query_handle: int = 7) -> Seed:
     w.count(len(rs.columns))
     write_column_metadata(w, rs.columns)
     w.mark()
-    w.i32(len(rs.rows))  # total tuple count
+    w.i32(total_rows)  # total tuple count
     w.byte(0)  # cache reusable
     w.count(1)  # result count
-    _result_info(w, rs.statement_type, len(rs.rows))
+    _result_info(w, rs.statement_type, total_rows)
     w.byte(0)  # includes_column_info
     w.i32(0)  # shard id
     w.mark()
