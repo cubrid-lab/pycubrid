@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (`CUBRID DATE value (0, 0, 0) cannot be represented in Python: year 0 is out
   of range`) and the session stays usable, on `execute()` and on a later fetch
   page, sync and async, with the same cursor state as invalid UTF-8 (#492).
+  Any other temporal field Python cannot hold (such as a `TIME` hour of 25)
+  in a complete reply is reported the same way.
   A row value that raises `DataError` (#492, #413, #512) is now reported only
   after the rest of the row data is checked against the reply length, so a
   reply cut short still raises `OperationalError` and closes the connection.
