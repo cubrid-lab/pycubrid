@@ -164,7 +164,8 @@ def test_zero_date_before_overlong_value_is_a_framing_error() -> None:
     body += struct.pack(">i", 2) + b"\x00" * 8 + struct.pack(">i", 64) + b"\x00" * 6
     body = body[:4] + struct.pack(">ii", 0, 2) + body[12:]
     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
-    with pytest.raises(ValueError, match="past the end"):
+    # A DATE cell must be exactly 6 bytes (#523), checked before the overrun.
+    with pytest.raises(ValueError, match="cell size 64 does not fit a DATE"):
         packet.parse(body, columns=_date_columns())
 
 
@@ -218,7 +219,8 @@ def _undersized_date_then_int_body() -> bytes:
 
 def test_undersized_zero_date_before_complete_column_is_a_framing_error() -> None:
     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
-    with pytest.raises(ValueError, match="wrong field size"):
+    # The cell size is checked against the DATE width before decoding (#523).
+    with pytest.raises(ValueError, match="cell size 5 does not fit a DATE"):
         packet.parse(_undersized_date_then_int_body(), columns=_date_int_columns())
 
 
@@ -240,7 +242,7 @@ def test_undersized_typed_call_value_is_a_framing_error() -> None:
     body += struct.pack(">iB", 6, CUBRIDDataType.DATE) + b"\x00" * 5
     body += struct.pack(">i", 4) + struct.pack(">i", 7)
     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.CALL)
-    with pytest.raises(ValueError, match="wrong field size"):
+    with pytest.raises(ValueError, match="cell size 5 does not fit a DATE"):
         packet.parse(body, columns=_date_int_columns())
 
 

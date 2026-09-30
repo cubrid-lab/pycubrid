@@ -245,6 +245,23 @@ def test_fixed_width_cell_size_mismatch_in_call_result_is_malformed() -> None:
         packet.parse(_fetch_body([[cell]]))
 
 
+def test_fixed_width_cell_size_mismatch_after_an_unrepresentable_value_is_malformed() -> None:
+    # A zero DATE is DataError only for a complete reply (#512). The re-walk
+    # that proves completeness must also reject a later INT cell whose size
+    # fits the reply but not the value, instead of reporting DataError.
+    zero_date = struct.pack(">3h", 0, 0, 0)
+    body = _fetch_body([[_cell(zero_date), _cell(_INT_42 + b"\x00", declared=5)]])
+    with pytest.raises(ValueError, match="cell size"):
+        _fetch([CUBRIDDataType.DATE, CUBRIDDataType.INT], body)
+
+
+def test_unrepresentable_value_in_a_complete_reply_is_still_data_error() -> None:
+    zero_date = struct.pack(">3h", 0, 0, 0)
+    body = _fetch_body([[_cell(zero_date), _cell(_INT_42)]])
+    with pytest.raises(DataError):
+        _fetch([CUBRIDDataType.DATE, CUBRIDDataType.INT], body)
+
+
 def test_fixed_width_cells_of_their_exact_size_are_unchanged() -> None:
     body = _fetch_body([[_cell(_INT_42), _cell(_DATE), _cell(_TSTZ), _cell(_OID), _cell(b"")]])
     packet = _fetch(
