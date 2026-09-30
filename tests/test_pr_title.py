@@ -134,8 +134,8 @@ class PrTitleValidatorTest(unittest.TestCase):
 
     def test_type_list_matches_workflow(self) -> None:
         match = re.search(r"TYPES = \((.*?)\)", _validator(), re.DOTALL)
-        self.assertIsNotNone(match)
-        assert match is not None
+        if match is None:
+            self.fail("the title validator must define a TYPES tuple")
         self.assertEqual(tuple(re.findall(r'"([a-z]+)"', match[1])), TYPES)
 
 

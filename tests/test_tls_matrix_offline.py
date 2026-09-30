@@ -208,7 +208,8 @@ def test_ssl_true_connects_over_tls_when_ca_is_trusted(
         client = Client(mode, broker.port, True)
         try:
             client.connect()
-            assert client.tls_version() is not None
+            # ssl=True floors the protocol at TLS 1.2 and never falls back.
+            assert client.tls_version() in ("TLSv1.2", "TLSv1.3")
         finally:
             client.shutdown()
 

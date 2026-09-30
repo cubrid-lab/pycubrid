@@ -257,6 +257,17 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   driver, successful TLS connects, public signatures, dependencies and
   supported versions are unchanged.
 
+- **Row cells whose value does not use exactly their declared size are rejected
+  (#523)** — PATCH / correction of a protocol-robustness defect completing #383.
+  A FETCH or inline execute row cell whose fixed-width value (`INT`, `DATE`,
+  `OBJECT`, ...) does not use exactly the bytes its size word declares, including
+  a size past the end of the reply, now raises `OperationalError('malformed
+  response from broker')` and closes the connection instead of returning the
+  value; so does a negative FETCH tuple count, which used to end the result set
+  early. A normal server always sends the exact size. Valid replies, SQL `NULL`
+  cells, the `DataError` classification of complete replies (#492, #512), public
+  signatures, dependencies and supported versions are unchanged.
+
 - **Reads past the end of a broker reply are rejected (#383)** — PATCH /
   correction of a protocol-robustness defect. A length field that is negative
   or runs past the end of a complete reply (row values, collections, LOB

@@ -240,7 +240,8 @@ InterfaceError: Connection is closed
   `OperationalError: malformed response from broker` because the reply could
   not be read as a whole: a length field (a `BIT`/`VARBIT`, string, `NUMERIC`,
   collection or LOB byte count) that is negative or runs past the end of the
-  reply, or collection elements that do not fill their declared size. The
+  reply, a row cell whose value does not use exactly its declared size (#523),
+  or collection elements that do not fill their declared size. The
   driver closes the connection, because the next reply boundary is unknown,
   and later calls raise `InterfaceError`. Bytes after the last value a reply
   declares are not an error. A complete reply with a value Python cannot

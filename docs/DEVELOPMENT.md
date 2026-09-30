@@ -491,6 +491,17 @@ skip categories; missing broker/TLS configuration is not an accepted CI skip.
 The nightly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
+`tests/test_protocol_fuzz.py` mutates realistic broker replies built by
+`tests/helpers/cas_reply.py` (#523): execute and FETCH replies with column
+metadata and populated rows for every common type, plus schema, batch and LOB
+replies. Each seed records its expected decoded values and the offsets of its
+length words, counts and field boundaries, so the unmutated seed is an exact
+round-trip check and mutations aim at truncation and length/count mismatches.
+To seed a new column mix, add a `ResultSet` to `RESULT_SETS`; the FETCH and
+execute targets pick it up. A new reply builder needs its own round-trip test
+and fuzz target. Example budgets come from the Hypothesis
+profile (`pr`: 50 examples per target, about 2 s for the module; `nightly`: 1000).
+
 ### Documentation exceptions and contributor validation
 
 The docs gate accepts a populated `Docs: not needed -` reason on a standalone

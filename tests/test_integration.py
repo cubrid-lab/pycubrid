@@ -230,7 +230,10 @@ class TestCursorDML:
 
     def test_lastrowid(self, cursor: Cursor, test_table: str) -> None:
         cursor.execute("INSERT INTO %s (name, val) VALUES (?, ?)" % test_table, ("new", 42))
-        assert cursor.lastrowid is not None
+        lastrowid = cursor.lastrowid
+        assert isinstance(lastrowid, int)
+        cursor.execute("SELECT id FROM %s WHERE name = ?" % test_table, ("new",))
+        assert cursor.fetchall() == [(lastrowid,)]
 
 
 class TestParameterBinding:

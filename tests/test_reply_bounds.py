@@ -12,6 +12,7 @@ value Python cannot represent stays ``DataError`` with the session kept
 
 from __future__ import annotations
 
+import datetime
 import struct
 from collections.abc import Callable
 from typing import Any
@@ -198,6 +199,111 @@ def test_truncated_unknown_type_cell_is_malformed() -> None:
     body = _fetch_body([[_cell(b"\x01\x02", declared=9)]])
     with pytest.raises(ValueError, match="past the end of the broker reply"):
         _fetch([250], body)
+
+
+_INT_42 = struct.pack(">i", 42)
+_DATE = struct.pack(">3h", 2026, 9, 30)
+_TSTZ = struct.pack(">6h", 2026, 9, 30, 1, 2, 3) + b"+09:00\x00"
+_OID = struct.pack(">ihh", 100, 2, 0)
+
+
+@pytest.mark.parametrize(
+    ("column_type", "payload", "declared"),
+    [
+        # Found by the FETCH fuzz target (#523): fixed-width readers ignored
+        # the cell's size word, so a size past the end of the reply returned
+        # the value as if the reply were complete.
+        pytest.param(CUBRIDDataType.INT, _INT_42, 1000, id="int-overrunning-reply"),
+        pytest.param(CUBRIDDataType.SHORT, b"\x00\x07", 3, id="short-overrunning-reply"),
+        pytest.param(CUBRIDDataType.DOUBLE, b"\x00" * 8, 9, id="double-overrunning-reply"),
+        pytest.param(CUBRIDDataType.DATE, _DATE, 7, id="date-overrunning-reply"),
+        pytest.param(CUBRIDDataType.OBJECT, _OID, 12, id="oid-overrunning-reply"),
+        # ...and a size shorter than the type read the following bytes as its own.
+        pytest.param(CUBRIDDataType.INT, _INT_42, 2, id="int-shorter-than-value"),
+        pytest.param(CUBRIDDataType.DATE, _DATE, 4, id="date-shorter-than-value"),
+        pytest.param(CUBRIDDataType.TIMESTAMPTZ, _TSTZ, 5, id="tstz-shorter-than-value"),
+    ],
+)
+def test_fixed_width_cell_whose_size_disagrees_is_malformed(
+    column_type: int, payload: bytes, declared: int
+) -> None:
+    body = _fetch_body([[_cell(payload, declared=declared)]])
+    with pytest.raises(ValueError, match="cell size"):
+        _fetch([column_type], body)
+
+
+def test_fixed_width_cell_size_mismatch_in_call_result_is_malformed() -> None:
+    # CALL results carry a type byte per cell; the size counts it.
+    cell = struct.pack(">iB", 1 + 2, CUBRIDDataType.INT) + _INT_42
+    packet = FetchPacket(
+        1,
+        0,
+        columns=[ColumnMetaData(column_type=CUBRIDDataType.NULL)],
+        statement_type=CUBRIDStatementType.CALL,
+    )
+    with pytest.raises(ValueError, match="cell size"):
+        packet.parse(_fetch_body([[cell]]))
+
+
+def test_fixed_width_cell_size_mismatch_after_an_unrepresentable_value_is_malformed() -> None:
+    # A zero DATE is DataError only for a complete reply (#512). The re-walk
+    # that proves completeness must also reject a later INT cell whose size
+    # fits the reply but not the value, instead of reporting DataError.
+    zero_date = struct.pack(">3h", 0, 0, 0)
+    body = _fetch_body([[_cell(zero_date), _cell(_INT_42 + b"\x00", declared=5)]])
+    with pytest.raises(ValueError, match="cell size"):
+        _fetch([CUBRIDDataType.DATE, CUBRIDDataType.INT], body)
+
+
+def test_unrepresentable_value_in_a_complete_reply_is_still_data_error() -> None:
+    zero_date = struct.pack(">3h", 0, 0, 0)
+    body = _fetch_body([[_cell(zero_date), _cell(_INT_42)]])
+    with pytest.raises(DataError):
+        _fetch([CUBRIDDataType.DATE, CUBRIDDataType.INT], body)
+
+
+def test_fixed_width_cells_of_their_exact_size_are_unchanged() -> None:
+    body = _fetch_body([[_cell(_INT_42), _cell(_DATE), _cell(_TSTZ), _cell(_OID), _cell(b"")]])
+    packet = _fetch(
+        [
+            CUBRIDDataType.INT,
+            CUBRIDDataType.DATE,
+            CUBRIDDataType.TIMESTAMPTZ,
+            CUBRIDDataType.OBJECT,
+            CUBRIDDataType.INT,
+        ],
+        body,
+    )
+    (row,) = packet.rows
+    assert row[0] == 42
+    assert row[1] == datetime.date(2026, 9, 30)
+    assert row[2] == datetime.datetime(
+        2026, 9, 30, 1, 2, 3, tzinfo=datetime.timezone(datetime.timedelta(hours=9))
+    )
+    assert row[3] == "OID:@100|2|0"
+    assert row[4] is None
+
+
+def test_sync_fixed_width_cell_size_mismatch_closes_connection(
+    socket_queue: list[MagicMock],  # noqa: F811
+) -> None:
+    packet = FetchPacket(1, 0, columns=[ColumnMetaData(column_type=CUBRIDDataType.INT)])
+    body = _fetch_body([[_cell(_INT_42, declared=1000)]])
+    conn, sock = _connection_with_reply(socket_queue, body)
+    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
+        conn._send_and_receive(packet)
+    assert isinstance(raised.value.__cause__, ValueError)
+    assert conn._connected is False
+    sock.close.assert_called()
+
+
+@pytest.mark.parametrize("tuple_count", [-1, -(2**31)])
+def test_negative_fetch_tuple_count_is_malformed(tuple_count: int) -> None:
+    # A negative count used to parse as an empty page, silently ending the
+    # result set early instead of reporting framing damage (#523).
+    body = CAS_INFO + struct.pack(">ii", 0, tuple_count)
+    with pytest.raises(ValueError, match="negative FETCH tuple count"):
+        _fetch([CUBRIDDataType.INT], body)
 
 
 def test_trailing_bytes_after_last_row_are_ignored() -> None:
