@@ -15,7 +15,6 @@ from typing import Any, cast
 import pytest
 
 import pycubrid
-import pycubrid.types
 from pycubrid._cursor_common import bind_parameters, format_parameter
 from pycubrid.exceptions import ProgrammingError
 from pycubrid.types import Multiset, Sequence, Set
@@ -42,7 +41,7 @@ class TestConstruction:
         assert pycubrid.Multiset is Multiset
         assert pycubrid.Sequence is Sequence
         assert {"Set", "Multiset", "Sequence"} <= set(pycubrid.__all__)
-        assert pycubrid.types.Sequence is Sequence
+        assert Sequence.__module__ == "pycubrid.types"
 
     @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
     def test_wraps_a_tuple(self, kind: Any) -> None:

@@ -375,6 +375,8 @@ class TestTypedCollectionParameters:
             assert cursor.fetchall() == [(1,), (2,)]
             cursor.execute("SELECT s, q FROM %s WHERE id = 2" % table)
             assert cursor.fetchone() == (frozenset(), [])
+            cursor.execute("SELECT s, q FROM %s WHERE id = 3" % table)
+            assert cursor.fetchone() == (frozenset({None}), [None, 2])
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
 
