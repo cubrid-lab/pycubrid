@@ -105,7 +105,9 @@ def resolve_endpoint(environ: Mapping[str, str] | None = None) -> CubridEndpoint
     password = env.get(PASSWORD_VAR)
     if password is None:
         password = unquote(url.password) if url.password is not None else DEFAULT_PASSWORD
-    port = env.get(PORT_VAR) or url_port or DEFAULT_PORT
+    # An explicit URL port (even 0) is kept so a bad one fails the probe
+    # instead of silently falling back to the default broker.
+    port = env.get(PORT_VAR) or (url_port if url_port is not None else DEFAULT_PORT)
     return CubridEndpoint(
         host=env.get(HOST_VAR) or url.hostname or DEFAULT_HOST,
         port=int(port),

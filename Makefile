@@ -71,7 +71,7 @@ integration: docker-up ## Run integration tests against a Docker CUBRID (fails i
 	$(INTEGRATION_ENV) CUBRID_TEST_DOCKER_CONTAINER="$$(docker compose ps -q cubrid)" \
 		$(PYTEST) $(TESTS)/ -m "integration and not tls" -v --junitxml=$(INTEGRATION_RESULTS) && \
 	$(PYTHON) scripts/check_integration_lanes.py --results $(INTEGRATION_RESULTS) || status=$$?; \
-	$(MAKE) docker-down; \
+	$(MAKE) docker-down || { [ $$status -ne 0 ] || status=1; }; \
 	exit $$status
 
 integration-local: ## Run integration tests against an already-running CUBRID (set CUBRID_TEST_URL or CUBRID_TEST_HOST/PORT; no Docker)
@@ -90,7 +90,7 @@ integration-tls: docker-up ## Run async TLS integration tests (requires SSL=ON b
 	$(INTEGRATION_ENV) $(PYTHON) scripts/wait_for_cubrid.py 36 5 && \
 	$(INTEGRATION_ENV) $(PYTEST) $(TESTS)/test_aio_ssl_integration.py -v --junitxml=$(INTEGRATION_RESULTS) && \
 	$(PYTHON) scripts/check_integration_lanes.py --results $(INTEGRATION_RESULTS) || status=$$?; \
-	$(MAKE) docker-down; \
+	$(MAKE) docker-down || { [ $$status -ne 0 ] || status=1; }; \
 	exit $$status
 
 docker-up: ## Start CUBRID Docker container (published on CUBRID_TEST_PORT, default 33000)

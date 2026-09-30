@@ -96,6 +96,10 @@ def test_backward_compatible_ci_configuration() -> None:
     assert resolve_endpoint(env) == CubridEndpoint("localhost", 33114, "testdb", "dba", "")
 
 
+def test_explicit_url_port_zero_is_kept_not_defaulted() -> None:
+    assert resolve_endpoint({"CUBRID_TEST_URL": "cubrid://dba@h:0/testdb"}).port == 0
+
+
 def test_trailing_slash_is_not_part_of_the_database() -> None:
     env = {"CUBRID_TEST_URL": "cubrid://dba@h:1/testdb/"}
 
