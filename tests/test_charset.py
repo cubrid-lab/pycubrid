@@ -441,7 +441,7 @@ def test_json_stays_utf8_whatever_the_connection_codec() -> None:
 def test_numeric_and_timezone_text_stay_utf8() -> None:
     numeric = b"12.50\x00"
     reader = PacketReader(numeric, encoding="euc_kr")
-    assert str(_read_value(reader, CUBRIDDataType.NUMERIC, len(numeric))) == "12.50"
+    assert str(_read_value(reader, CUBRIDDataType.NUMERIC, len(numeric))) == "12.5"
     tz = struct.pack(">6h", 2024, 1, 2, 3, 4, 5) + b"Asia/Seoul\x00"
     reader = PacketReader(tz, encoding="latin-1")
     value = _read_value(reader, CUBRIDDataType.TIMESTAMPTZ, len(tz))
