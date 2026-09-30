@@ -571,8 +571,6 @@ def _truncated_execute(request: Request, state: Session) -> Reply:
     return Reply(body[:-6])  # well framed, but the row cell runs past the end (#533)
 
 
-_PING_RETIRE = "sync ping(reconnect=False) keeps a session whose CHECK_CAS failed"
-
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         "constructor_autocommit_failure",
@@ -737,7 +735,6 @@ SCENARIOS: tuple[Scenario, ...] = (
             "CHECK_CAS", lambda _r, s: Reply(error_body(s.status, -1, "db down")), session=0
         ),
         check=_check_ping_failed,
-        unintended=_PING_RETIRE,
     ),
     Scenario(
         "failed_ping_reconnects",

@@ -481,7 +481,8 @@ def ping(self, reconnect: bool = True) -> bool
 - `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 검사 도중
   전송/프로토콜 오류가 발생했거나 `CHECK_CAS`가 음수 코드로 CAS–DB 링크 장애를
   보고하면 재접속을 한 번 시도합니다. `reconnect=False`는 음수 응답을
-  `False`로 보고하고 재접속하지 않습니다. 복구 후에는 명시적으로 설정한
+  `False`로 보고하고 재접속하지 않으며, 비동기 드라이버처럼 그 손상된 세션을
+  닫습니다(이후 호출은 `InterfaceError`). 복구 후에는 명시적으로 설정한
   autocommit만 복원합니다. 중단된 SQL은 자동 재실행하지 않으므로 재시도
   안전성은 호출자가 판단해야 합니다.
   자동 `no_backslash_escapes` 모드는 새 물리 세션에서 사용 전에 다시 감지하며,
@@ -1155,7 +1156,8 @@ async def ping(self, reconnect: bool = True) -> bool
 - `reconnect=True`이면 기존 소켓을 먼저 검사하고, 연결이 끊겼거나 전송/프로토콜
   오류가 발생했거나 `CHECK_CAS`가 음수 코드로 CAS–DB 링크 장애를 보고하면
   재접속을 한 번 시도합니다. `reconnect=False`는 음수 응답을 `False`로 보고하고
-  재접속하지 않습니다. 명시적으로 설정한 autocommit만 복원하며 임의의
+  재접속하지 않으며, 동기 드라이버처럼 그 손상된 세션을 닫습니다(이후 호출은
+  `InterfaceError`). 명시적으로 설정한 autocommit만 복원하며 임의의
   SQL을 자동 재실행하지 않습니다.
   자동 `no_backslash_escapes` 모드는 새 물리 세션마다 감지하지만 정상적인
   동일 세션 검사에서는 감지하지 않습니다. 명시적 `True`/`False`는 유지됩니다.

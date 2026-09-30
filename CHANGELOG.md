@@ -66,6 +66,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   error is its `__cause__`; previously the native `DatabaseError` escaped and
   the socket stayed open). A healthy connect no longer sends the extra
   `CHECK_CAS` between the two requests.
+- **Sync `ping(reconnect=False)` closes a session whose `CHECK_CAS` failed, like async (#521)** —
+  when `CHECK_CAS` returned a negative code (broken CAS-to-DB link), the sync
+  driver returned `False` but kept the session, and the next request probed it
+  again and silently reconnected; `pycubrid.aio` closes it. Both now close the
+  confirmed-broken session: `ping(reconnect=False)` still returns `False`
+  without reconnecting, and later calls raise `InterfaceError` until
+  `connect()` or `ping(reconnect=True)`. A healthy ping, a closed connection
+  and `ping(reconnect=True)` are unchanged.
 - **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
   under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
   type header `0x80 | collection bits | charset`, type, the layout of column

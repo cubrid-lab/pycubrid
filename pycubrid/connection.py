@@ -608,7 +608,9 @@ class Connection(ConnectionCommonMixin):
 
         Contract: reconnect+session-restore is attempted **at most once**
         per ``ping()`` call. A restore failure tears the connection down
-        and returns ``False`` rather than retrying.
+        and returns ``False`` rather than retrying. A negative ``CHECK_CAS``
+        response closes the broken session even with ``reconnect=False``,
+        as the async driver does.
         """
         with self._session_lock:
             return self._ping_locked(reconnect)
@@ -634,11 +636,14 @@ class Connection(ConnectionCommonMixin):
         if healthy:
             self._verified_cas_info = self._cas_info
             return True
+        # A failed CHECK_CAS confirms this session is broken: retire it even
+        # without reconnect, as the async driver does, so no later request is
+        # sent on it and nothing reconnects behind the caller's back.
+        self._drop_connection()
+        self._invalidate_query_handles_for_reconnect()
         if not reconnect:
             return False
         try:
-            self._drop_connection()
-            self._invalidate_query_handles_for_reconnect()
             _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
             self.connect()  # also restores explicit session state
             return True
