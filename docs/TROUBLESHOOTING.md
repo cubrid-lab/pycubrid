@@ -13,6 +13,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Connection Closed Unexpectedly](#connection-closed-unexpectedly)
   - [Broker Port Redirect Failure](#broker-port-redirect-failure)
   - [Async TLS Handshake Hangs on Python 3.10](#async-tls-handshake-hangs-on-python-310)
+  - [Async TLS Connect Hangs After a Stalled or Reset Handshake](#async-tls-connect-hangs-after-a-stalled-or-reset-handshake)
   - [Connection Option Has No Effect](#connection-option-has-no-effect)
 - [Query Issues](#query-issues)
   - [ProgrammingError: SQL Syntax](#programmingerror-sql-syntax)
@@ -354,6 +355,16 @@ OperationalError: ... (during connection handshake)
 - **Pass a custom `ssl.SSLContext`** with the correct CA bundle loaded (`context.load_verify_locations(cafile=...)`) rather than relying on the system trust store, eliminating the most common verify failure.
 
 **Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That is the signature of the 3.10-only async-TLS handshake bug.
+
+---
+
+### Async TLS Connect Hangs After a Stalled or Reset Handshake
+
+**Symptom** (pycubrid releases before the fix for [#513](https://github.com/cubrid-lab/pycubrid/issues/513)): on Python 3.11+, `await pycubrid.aio.connect(..., ssl=...)` never returns, even with `read_timeout` set, when the broker (or a proxy or middlebox in front of it) accepts the plaintext `CUBRS` handshake but then stalls or resets the connection before the TLS handshake completes.
+
+**Cause**: the TLS handshake timed out or failed as intended, but asyncio's `SSLProtocol` does not report the lost connection to the stream while it is still handshaking, so the connect cleanup waited forever for the stream to close.
+
+**Fix**: upgrade pycubrid. The async driver now raises `OperationalError` within `read_timeout` (or the 10-second `ssl_handshake_timeout` when `read_timeout` is unset) and closes the socket. `connect_timeout` only bounds the TCP connect, so set `read_timeout` to bound the TLS handshake. The sync driver was not affected.
 
 ---
 
