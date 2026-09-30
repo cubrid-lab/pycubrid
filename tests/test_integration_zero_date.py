@@ -56,15 +56,12 @@ ZERO_DATE_SEQUENCE = "SELECT CAST({DATE'0000-00-00', DATE'2024-01-02'} AS SEQUEN
 
 
 def test_zero_date_in_decoded_collection_keeps_session_sync() -> None:
-    connection = pycubrid.connect(**connect_kwargs(), decode_collections=True)
-    try:
+    with pycubrid.connect(**connect_kwargs(), decode_collections=True) as connection:
         cursor = connection.cursor()
         with pytest.raises(DataError, match="cannot be represented"):
             cursor.execute(ZERO_DATE_SEQUENCE)
         cursor.execute("SELECT 1")
         assert cursor.fetchone() == (1,)
-    finally:
-        connection.close()
 
 
 @pytest.mark.asyncio
