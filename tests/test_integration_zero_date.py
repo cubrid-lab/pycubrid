@@ -19,6 +19,10 @@ ZERO_LITERALS = [
     "DATETIME'0000-00-00 00:00:00'",
     "TIMESTAMP'0000-00-00 00:00:00'",
     "CAST('0000-00-00' AS DATE)",
+    "DATETIMETZ'0000-00-00 00:00:00 +09:00'",
+    "DATETIMELTZ'0000-00-00 00:00:00'",
+    "TIMESTAMPTZ'0000-00-00 00:00:00 +09:00'",
+    "TIMESTAMPLTZ'0000-00-00 00:00:00'",
 ]
 
 
@@ -41,6 +45,27 @@ async def test_zero_literal_raises_data_error_and_keeps_session(
         assert adapter.transport_token(connection) is token
         await adapter.execute(cursor, "SELECT 1")
         assert await adapter.fetchone(cursor) == (1,)
+    finally:
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)
+
+
+@pytest.mark.asyncio
+async def test_documented_sql_workaround_reads_zero_dates(adapter: ParityAdapter) -> None:
+    connection = await adapter.connect()
+    cursor = adapter.cursor(connection)
+    try:
+        await adapter.execute(
+            cursor,
+            "SELECT NULLIF(DATE'0000-00-00', DATE'0000-00-00'),"
+            " NULLIF(DATE'2024-01-02', DATE'0000-00-00'),"
+            " TO_CHAR(DATE'0000-00-00', 'YYYY-MM-DD')",
+        )
+        row = await adapter.fetchone(cursor)
+        assert row is not None
+        assert row[0] is None
+        assert str(row[1]) == "2024-01-02"
+        assert row[2] == "0000-00-00"
     finally:
         await adapter.close_cursor(cursor)
         await adapter.close_connection(connection)
