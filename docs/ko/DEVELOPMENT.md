@@ -139,21 +139,61 @@ make test
 
 ### 통합 테스트
 
-통합 테스트는 실행 중인 CUBRID 인스턴스가 필요합니다. Docker 사용:
+통합 테스트(`integration` 마커)는 실행 중인 CUBRID 인스턴스가 필요합니다.
+가장 간단한 방법은 Makefile로 Docker를 사용하는 것입니다:
 
 ```bash
-# CUBRID 시작
-docker compose up -d
-
-# 연결 URL 설정
-export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
-
-# 통합 테스트 실행
-pytest tests/test_integration.py -v
-
-# 정리
-docker compose down -v
+make integration                          # 브로커를 localhost:33000에 게시
+make integration CUBRID_TEST_PORT=33522   # 다른 컨테이너가 쓰지 않는 포트 사용
 ```
+
+`make integration`은 compose 서비스를 시작하고, 고정 시간 대기 대신
+`scripts/wait_for_cubrid.py`로 준비 상태를 기다리며(약 3분 안에 준비되지 않으면
+실행 실패), 모든 엔드포인트 필드를 명시적으로 설정해
+`-m "integration and not tls"`를 실행합니다. 이어서
+`scripts/check_integration_lanes.py --results`로 JUnit 보고서를 검사해 전부
+건너뛰었거나 분류되지 않은 skip이 있으면 실패시키고, 컨테이너는 항상 제거합니다.
+TLS 테스트는 SSL이 켜진 브로커가 필요합니다.
+[비동기 TLS 통합 테스트](#비동기-tls-통합-테스트)를 참고하세요.
+
+**통합 테스트 활성화와 엔드포인트 선택의 구분.** 통합 테스트는
+`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 비어 있지 않은 값으로 설정되면
+*활성화*됩니다. *엔드포인트*는 모든 통합 모듈, `tests/conftest.py` 게이트,
+`scripts/wait_for_cubrid.py`가 함께 쓰는 공유 헬퍼 `tests/_cubrid_endpoint.py`가
+필드별로 결정합니다:
+
+1. 필드별 변수 `CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`, `CUBRID_TEST_DB`,
+   `CUBRID_TEST_USER`, `CUBRID_TEST_PASSWORD`가 우선합니다.
+2. 없으면 `CUBRID_TEST_URL=cubrid://user[:password]@host[:port]/database`의
+   해당 구성 요소를 사용합니다.
+3. 그것도 없으면 기본값 `localhost`, `33000`, `testdb`, `dba`, 빈 비밀번호를 씁니다.
+
+비어 있는 필드별 변수는 설정되지 않은 것으로 보지만, `CUBRID_TEST_PASSWORD=""`는
+명시적인 빈 비밀번호입니다. 스킴이 없는 `CUBRID_TEST_URL`(예: `1`)은 통합 테스트를
+활성화하기만 합니다. 다른 스킴, 호스트 누락, 숫자가 아닌 포트, 잘못된 데이터베이스
+이름을 가진 `CUBRID_TEST_URL`은 모든 통합 테스트를 error로 만듭니다(오프라인
+테스트에는 영향 없음).
+CI처럼 URL과 필드별 변수를 함께 내보내면 이전과 똑같이 동작하며, 기본값이 아닌
+호스트나 포트를 가리키는 URL은 이제 조용히 `localhost:33000`을 테스트하는 대신
+그대로 사용됩니다.
+
+이미 실행 중인 서버(Docker 수명 주기 없음)를 대상으로 할 때는 엔드포인트를
+명시적으로, 가급적 필드별 변수로 지정하세요:
+
+```bash
+CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
+  CUBRID_TEST_DB=testdb CUBRID_TEST_USER=dba CUBRID_TEST_PASSWORD= \
+  pytest tests/ -m "integration and not slow and not tls" -v
+# 동일: CUBRID_TEST_URL="cubrid://dba@127.0.0.1:33522/testdb" pytest ...
+```
+
+**skip과 error.** 엔드포인트가 설정되지 않으면 통합 테스트는 건너뛰므로 인자 없는
+`pytest`는 계속 통과합니다. 엔드포인트가 설정되어 있으면 게이트가 세션당 한 번
+(`SELECT 1`, 5초 제한 시간) 접속을 확인하고, 연결할 수 없으면 모든 일반 통합
+테스트가 건너뛰는 대신 엔드포인트(비밀번호 제외)와 연결 오류를 담아 **error**로
+보고되며 pytest는 0이 아닌 코드로 종료합니다. 어떤 테스트 모듈도 import 시점에
+서버에 접속하지 않습니다. 통합 테스트를 건너뛰려면 `CUBRID_TEST_URL`과
+`CUBRID_TEST_HOST`를 모두 해제하세요.
 
 `tests/test_integration_cas_reconnect.py`의 CAS 재활용 회귀 테스트(#485)는 서버
 컨테이너 안에서 `broker_changer`로 브로커 파라미터를 바꾸고 `cubrid broker reset`을
@@ -351,7 +391,8 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | `make test` | 커버리지와 함께 오프라인 테스트 실행 |
 | `make lint` | ruff check + format 검사 실행 |
 | `make format` | 린트와 포맷 문제 자동 수정 |
-| `make integration` | Docker → 통합 테스트 → 정리 |
+| `make integration` | Docker → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경) |
+| `make integration-local` | 이미 실행 중인 서버에 대한 통합 테스트 (`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | 빌드 산출물 제거 |
 
 ---
@@ -359,9 +400,10 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 ## CI/CD
 
 일반 및 전체 통합 워크플로는 테스트 전에
-`python scripts/wait_for_cubrid.py`를 실행합니다. 이 스크립트는
-`CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`, `CUBRID_TEST_DB`,
-`CUBRID_TEST_USER`, `CUBRID_TEST_PASSWORD`로 접속합니다(기본값:
+`python scripts/wait_for_cubrid.py`를 실행합니다. 이 스크립트는 테스트
+스위트와 똑같이 엔드포인트를 결정합니다(필드별 `CUBRID_TEST_HOST`,
+`CUBRID_TEST_PORT`, `CUBRID_TEST_DB`, `CUBRID_TEST_USER`,
+`CUBRID_TEST_PASSWORD` → `CUBRID_TEST_URL` → 기본값
 `localhost:33000/testdb`, 사용자 `dba`, 빈 비밀번호).
 `SELECT 1` 확인을 5초 간격으로 최대 30회 시도하며, 모두 실패하면
 잡을 실패 처리해 테스트 단계가 실행되지 않습니다.

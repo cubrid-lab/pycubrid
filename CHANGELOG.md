@@ -46,6 +46,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
 
 ### Fixed
+- **Tests: a configured but unreachable CUBRID now errors instead of skipping (#522, #432)** —
+  16 integration modules probed the server at import time and called
+  `skipif("CUBRID instance not available")`, so pointing the suite at a dead
+  endpoint produced hundreds of silent skips despite `tests/conftest.py`
+  promising fail-closed behavior. Those probes (and the TLS module's import-time
+  TLS probes) are gone: one gate in `tests/conftest.py` skips integration tests
+  when neither `CUBRID_TEST_URL` nor `CUBRID_TEST_HOST` is set, and otherwise
+  probes the endpoint once per session and makes every plain integration test
+  error with the endpoint and connection error. Every integration module, the
+  gate and `scripts/wait_for_cubrid.py` now resolve the endpoint through one
+  helper, `tests/_cubrid_endpoint.py`: per-field `CUBRID_TEST_*` variables win,
+  then the components of `CUBRID_TEST_URL` (a scheme-less value such as `1`
+  stays a pure on/off switch; a malformed URL errors the integration tests
+  without breaking offline collection), then `localhost:33000/testdb` as
+  `dba` — so a URL naming another host or port is no longer silently ignored in
+  favor of whatever listens on `localhost:33000`. CI, which exports both, is
+  unchanged. `make integration` waits with `wait_for_cubrid.py` instead of
+  `sleep 10`, runs `integration and not tls`, fails when the JUnit audit
+  (`check_integration_lanes.py --results`) finds an all-skipped run, always
+  removes the container, and accepts `CUBRID_TEST_PORT=<port>` (also used by
+  `docker-compose.yml`) to avoid a busy port 33000. `make integration-tls` also
+  waits for readiness instead of sleeping, audits its JUnit report and always
+  removes the container.
 - **Rows fetched before a failing page are no longer lost (#507)** — when a
   later FETCH page raised a data-level `DataError` (invalid text #492, an
   unresolved zone #413, a zero date #512), `fetchall()` and `fetchmany()`

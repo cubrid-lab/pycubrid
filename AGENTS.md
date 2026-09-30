@@ -133,7 +133,7 @@ make install          # pip install -e ".[dev]"
 make test             # Offline tests with 95% coverage threshold
 make lint             # ruff check + format
 make format           # Auto-fix lint/format
-make integration      # Docker → integration tests → cleanup
+make integration      # Docker → readiness wait → integration tests → skip audit → cleanup
 ```
 
 ### Test Commands (manual)
@@ -143,10 +143,10 @@ make integration      # Docker → integration tests → cleanup
 pytest tests/ -v --ignore=tests/test_integration.py \
   --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
 
-# Integration (requires Docker)
-docker compose up -d
-export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
-pytest tests/test_integration.py -v
+# Integration (requires Docker; waits for readiness, always cleans up)
+make integration CUBRID_TEST_PORT=33522   # any free port; default 33000
+# Existing server: CUBRID_TEST_HOST/CUBRID_TEST_PORT (win over CUBRID_TEST_URL).
+# Configured but unreachable -> tests error; unconfigured -> tests skip.
 ```
 
 ### Test Stats

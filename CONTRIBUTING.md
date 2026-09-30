@@ -36,11 +36,24 @@ make test
 ### Integration tests
 
 ```bash
-docker compose up -d
-export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
-pytest tests/ -m "integration and not slow and not tls" -v
-docker compose down -v
+make integration                          # Docker broker on localhost:33000
+make integration CUBRID_TEST_PORT=33522   # use a free port if 33000 is taken
 ```
+
+`make integration` waits for readiness, fails if the broker never comes up or
+if every selected test skips, and always removes the container. To test an
+already-running server, set the endpoint explicitly:
+
+```bash
+CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
+  pytest tests/ -m "integration and not slow and not tls" -v
+```
+
+`CUBRID_TEST_URL` or `CUBRID_TEST_HOST` *enables* integration tests; the
+endpoint comes from the per-field `CUBRID_TEST_*` variables, then the URL, then
+`localhost:33000/testdb` as user `dba`. With nothing configured, integration
+tests skip; with an endpoint configured but unreachable, they **error** instead
+of skipping. See [Integration Tests](docs/DEVELOPMENT.md#integration-tests).
 
 ### Async TLS integration tests (optional)
 

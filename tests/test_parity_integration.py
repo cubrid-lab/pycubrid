@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import enum
 import json
-import os
 from collections.abc import Callable
 from decimal import Decimal
 from typing import cast
@@ -19,7 +18,6 @@ from tests._parity_helpers import (
     ADAPTERS,
     ParityAdapter,
     autocommit_transitions,
-    can_connect,
     cleanup_table,
     close_cursor_then_connection,
     connect_kwargs,
@@ -35,7 +33,6 @@ from tests._parity_helpers import (
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
 ]
 
 approx = cast(Callable[..., object], getattr(pytest, "approx"))
@@ -427,10 +424,6 @@ class TestParityConnectionLifecycle:
             await adapter.close_connection(conn)
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(
-        not os.getenv("CUBRID_TEST_URL"),
-        reason="Set CUBRID_TEST_URL to run broker drop parity scenarios",
-    )
     @pytest.mark.parametrize("reconnect", [False, True], ids=["no-reconnect", "reconnect"])
     async def test_ping_after_transport_drop(
         self,

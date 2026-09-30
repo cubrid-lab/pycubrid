@@ -13,7 +13,8 @@ CUBRID server, and asserts the durable batch contract for both sync and async:
   succeeds);
 * sync and async behave identically.
 
-Skipped when no CUBRID server is reachable. Row visibility is checked from the
+Skipped when no CUBRID server is configured (errors when a configured one is
+unreachable; see the shared ``tests/conftest.py`` gate). Row visibility is checked from the
 same autocommit connection so table state is authoritative.
 """
 
@@ -30,11 +31,10 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
 ]
 
 

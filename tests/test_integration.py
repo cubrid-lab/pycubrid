@@ -1,16 +1,16 @@
 """Integration tests against a live CUBRID instance.
 
-These tests require a running CUBRID database. They are skipped
-automatically when no CUBRID connection is available.
+These tests require a running CUBRID database. They are skipped when no
+endpoint is configured and error when a configured endpoint is unreachable
+(see the shared gate in ``tests/conftest.py``).
 
-Set the environment variable ``CUBRID_TEST_HOST`` and ``CUBRID_TEST_PORT``
-to configure, or use defaults (localhost:33000).
+Configure with ``CUBRID_TEST_URL`` or ``CUBRID_TEST_HOST`` / ``CUBRID_TEST_PORT``
+(resolution rules in ``tests/_cubrid_endpoint.py``; default localhost:33000).
 """
 
 from __future__ import annotations
 
 import datetime
-import os
 import uuid
 from collections.abc import Generator
 
@@ -19,27 +19,7 @@ import pytest
 from pycubrid.connection import Connection
 from pycubrid.cursor import Cursor
 
-
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
-
-
-def _can_connect() -> bool:
-    try:
-        connection = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-        )
-        connection.close()
-        return True
-    except Exception:
-        return False
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 
 def _table_name(suffix: str) -> str:
@@ -59,7 +39,6 @@ def _create_basic_table(cur: Cursor, table_name: str) -> None:
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not _can_connect(), reason="CUBRID instance not available"),
 ]
 
 

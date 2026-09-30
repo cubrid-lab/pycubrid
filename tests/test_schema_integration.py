@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import os
 import uuid
 from typing import Any
 
@@ -14,6 +13,7 @@ import pycubrid.aio
 from pycubrid.constants import CCISchemaType
 from pycubrid.exceptions import InterfaceError
 
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = pytest.mark.integration
 
@@ -32,11 +32,11 @@ async def test_owned_schema_rows_and_noncommitting_cleanup(
     asynchronous: bool, boundary: str
 ) -> None:
     config = dict(
-        host=os.environ.get("CUBRID_TEST_HOST", "127.0.0.1"),
-        port=int(os.environ.get("CUBRID_TEST_PORT", "33000")),
-        database=os.environ.get("CUBRID_TEST_DB", "testdb"),
-        user=os.environ.get("CUBRID_TEST_USER", "dba"),
-        password=os.environ.get("CUBRID_TEST_PASSWORD", ""),
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
         no_backslash_escapes=True,
         read_timeout=5,
         connect_timeout=5,
@@ -107,11 +107,11 @@ async def test_implicit_autocommit_retires_schema_before_cursor_work(
     asynchronous: bool, operation: str
 ) -> None:
     config = dict(
-        host=os.environ.get("CUBRID_TEST_HOST", "127.0.0.1"),
-        port=int(os.environ.get("CUBRID_TEST_PORT", "33000")),
-        database=os.environ.get("CUBRID_TEST_DB", "testdb"),
-        user=os.environ.get("CUBRID_TEST_USER", "dba"),
-        password=os.environ.get("CUBRID_TEST_PASSWORD", ""),
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
         no_backslash_escapes=True,
         read_timeout=5,
         connect_timeout=5,
@@ -163,11 +163,11 @@ async def test_implicit_autocommit_retires_schema_before_cursor_work(
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_autocommit_version_lookup_retires_schema(asynchronous: bool) -> None:
     config = dict(
-        host=os.environ.get("CUBRID_TEST_HOST", "127.0.0.1"),
-        port=int(os.environ.get("CUBRID_TEST_PORT", "33000")),
-        database=os.environ.get("CUBRID_TEST_DB", "testdb"),
-        user=os.environ.get("CUBRID_TEST_USER", "dba"),
-        password=os.environ.get("CUBRID_TEST_PASSWORD", ""),
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
         no_backslash_escapes=True,
         read_timeout=5,
         connect_timeout=5,

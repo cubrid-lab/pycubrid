@@ -21,12 +21,7 @@ from pycubrid.constants import CUBRIDDataType
 from pycubrid.cursor import Cursor
 from pycubrid.lob import Lob
 
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
-
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = pytest.mark.integration
 
