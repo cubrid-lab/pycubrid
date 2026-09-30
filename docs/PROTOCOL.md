@@ -659,6 +659,15 @@ byte carries the full scalar/element type (including codes above 31); otherwise
 the low five bits carry it. Collection row dispatch uses the collection kind,
 not that element type.
 
+Cells of a `CALL` / `EVALUATE` result and of a column whose metadata type is
+`NULL` (`SELECT NULL`, ...) carry their own type header before the value, and
+the cell size counts it. Protocol 7+ brokers (CUBRID 10.2+) write it like
+column metadata: `0x80 | collection bits | charset`, then the type byte, for
+example `00000006 83 08 0000002a` for `CALL` of a function returning `INT` 42
+and `0000000a 83 13 <8-byte OID>` for `CALL find_user('dba') ON CLASS db_user`.
+Older brokers write one type byte. The driver reads either layout (#542); a
+header longer than its cell is a malformed reply.
+
 A collection value is one element-type byte, a 4-byte element count, then a
 4-byte length and payload per element; a NULL element has length `-1` and no
 payload. When every element is NULL, CUBRID 10.2/11.4 send element type `0`

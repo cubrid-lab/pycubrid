@@ -753,6 +753,23 @@ def _check_cell_size(column_type: int, size: int) -> None:
         raise _cell_size_mismatch(column_type, size)
 
 
+def _parse_cell_type(reader: PacketReader, size: int) -> tuple[int, int]:
+    """Read the type header of a CALL / NULL-typed row cell; return (type, value size).
+
+    Protocol 7+ brokers write the header as column metadata does (#542):
+    ``0x80 | collection bits | charset``, then the type byte. Older brokers write
+    one type byte. The header counts in the cell size, so a header longer than
+    the size is a malformed reply.
+    """
+    start = reader._offset
+    column_type = _parse_column_type(reader)
+    header_size = reader._offset - start
+    if header_size > size:
+        reader._offset = start
+        raise ValueError(f"row cell size {size} is shorter than its {header_size}-byte type")
+    return column_type, size - header_size
+
+
 def _check_row_data_bounds(
     reader: PacketReader,
     rows_start: int,
@@ -765,7 +782,7 @@ def _check_row_data_bounds(
     A size past the end of the reply raises ``ValueError`` from ``_skip_bytes``
     (#383), and a fixed-width value whose size disagrees with its width raises
     too (#523). ``typed`` marks CALL/NULL-typed columns, whose cells start with
-    their own type byte, counted in the size.
+    their own one- or two-byte type header, counted in the size (#542).
     """
     reader._offset = rows_start
     for _ in range(tuple_count):
@@ -776,9 +793,8 @@ def _check_row_data_bounds(
             if size <= 0:
                 continue
             if is_typed:
-                column_type = reader._parse_byte()
-                size -= 1
-                if size <= 0:
+                column_type, size = _parse_cell_type(reader, size)
+                if size == 0:
                     continue
             _check_cell_size(column_type, size)
             reader._skip_bytes(size)
@@ -801,7 +817,6 @@ def _parse_row_data(
 
     _parse_int = reader._parse_int
     _parse_bytes = reader._parse_bytes
-    _parse_byte = reader._parse_byte
     _skip_bytes = reader._skip_bytes
     _null_type = CUBRIDDataType.NULL
     _oid_size = DataSize.OID
@@ -843,9 +858,8 @@ def _parse_row_data(
                         continue
                     ct = col_types[i]
                     if is_call_type or ct == _null_type:
-                        ct = _parse_byte()
-                        size -= 1
-                        if size <= 0:
+                        ct, size = _parse_cell_type(reader, size)
+                        if size == 0:
                             continue
                     _check_cell_size(ct, size)
                     method_name = _get(ct)

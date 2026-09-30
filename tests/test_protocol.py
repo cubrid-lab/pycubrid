@@ -598,6 +598,102 @@ class TestParseRowData:
         rows = _parse_row_data(reader, 1, [col], CUBRIDStatementType.CALL)
         assert rows[0][0] is None
 
+    # Row data after the FETCH tuple count, captured from CUBRID 11.4 and 10.2
+    # brokers (protocol 8, #542). Each cell starts with the two-byte type header
+    # ``0x80 | collection bits | charset, type`` and its size counts both bytes.
+    @pytest.mark.parametrize(
+        ("statement_type", "row_hex", "expected"),
+        [
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 00000006 8308 0000002a",
+                42,
+                id="call-int",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 00000008 8302 68656c6c6f00",
+                "hello",
+                id="call-varchar",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 00000010 8316 07ea0009001e000c002200380315",
+                datetime.datetime(2026, 9, 30, 12, 34, 56, 789000),
+                id="call-datetime",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 ffffffff",
+                None,
+                id="call-null",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 0000000a 8313 00000381 0001 0000",
+                "OID:@897|1|0",
+                id="call-method-oid-11.4",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 0000000a 8313 00000341 0001 0000",
+                "OID:@833|1|0",
+                id="call-method-oid-10.2",
+            ),
+            pytest.param(
+                CUBRIDStatementType.EVALUATE,
+                "00000001 0000000000000000 00000006 8308 00000002",
+                2,
+                id="evaluate-int",
+            ),
+            pytest.param(
+                CUBRIDStatementType.EVALUATE,
+                "00000001 0000000000000000 00000008 8301 68656c6c6f00",
+                "hello",
+                id="evaluate-char",
+            ),
+            pytest.param(
+                # EVALUATE {1,2}: 0xe0 is 0x80 | SEQUENCE bits 0x60. Without
+                # decode_collections the value is its raw collection payload.
+                CUBRIDStatementType.EVALUATE,
+                "00000001 0000000000000000 00000017 e001"
+                " 08 00000002 00000004 00000001 00000004 00000002",
+                bytes.fromhex("08 00000002 00000004 00000001 00000004 00000002"),
+                id="evaluate-sequence",
+            ),
+        ],
+    )
+    def test_protocol_8_call_cell_decodes_its_value(
+        self, statement_type: int, row_hex: str, expected: object
+    ) -> None:
+        col = ColumnMetaData(column_type=CUBRIDDataType.NULL)
+        reader = PacketReader(bytes.fromhex(row_hex))
+        rows = _parse_row_data(reader, 1, [col], statement_type)
+        assert rows == [(expected,)]
+        assert reader.bytes_remaining() == 0
+
+    def test_protocol_8_null_typed_column_cell_decodes_its_value(self) -> None:
+        # ``SELECT NULL, 1``-shaped result whose NULL-typed column holds a value:
+        # the CAS writes the same two-byte header as for CALL (dbval_to_net_buf).
+        cols = [
+            ColumnMetaData(column_type=CUBRIDDataType.NULL),
+            ColumnMetaData(column_type=CUBRIDDataType.INT),
+        ]
+        row = bytes.fromhex("00000001 0000000000000000 00000007 8302 6c61746500 00000004 00000008")
+        rows = _parse_row_data(PacketReader(row), 1, cols, CUBRIDStatementType.SELECT)
+        assert rows == [("late", 8)]
+
+    def test_protocol_8_call_collection_cell_keeps_its_collection_kind(self) -> None:
+        # First byte 0x80 | SET bits 0x20 | charset; second byte the element type.
+        payload = bytes([0xA3, CUBRIDDataType.INT, CUBRIDDataType.INT])
+        payload += struct.pack(">ii", 2, 4) + struct.pack(">i", 1)
+        payload += struct.pack(">ii", 4, 2)
+        row = struct.pack(">i", 1) + b"\x00" * 8 + struct.pack(">i", len(payload)) + payload
+        reader = PacketReader(row, decode_collections=True)
+        col = ColumnMetaData(column_type=CUBRIDDataType.NULL)
+        rows = _parse_row_data(reader, 1, [col], CUBRIDStatementType.CALL)
+        assert rows == [(frozenset({1, 2}),)]
+
     def test_zero_rows(self) -> None:
         reader = PacketReader(b"")
         rows = _parse_row_data(reader, 0, [], CUBRIDStatementType.SELECT)

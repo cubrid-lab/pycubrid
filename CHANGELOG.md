@@ -51,6 +51,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fetchable rows or held fetch-page error. If closing the old handle fails,
   `execute()` keeps the buffered result and its page error; connection invalidation
   or reconnect handling may still retire the handle.
+- **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
+  under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
+  type header `0x80 | collection bits | charset`, type, the layout of column
+  metadata, but the row parser read one byte, took `0x83` as an unknown type and
+  returned the rest of the cell as raw `bytes`. `CALL` of a stored function or
+  method, `callproc()` and `EVALUATE` now return the decoded value (for example
+  `42` instead of `b'\x08\x00\x00\x00*'`, `'OID:@897|1|0'` for
+  `CALL find_user('dba') ON CLASS db_user`, a `datetime` for `DATETIME`), sync
+  and async; collection values keep their collection kind. The single-byte
+  header of older brokers is still accepted. A header longer than its cell is a
+  malformed reply (`OperationalError('malformed response from broker')`, the
+  connection closes), and the re-walk before `DataError` (#523) reads the same
+  header. Verified live on CUBRID 10.2 and 11.4. Documented in
+  `docs/API_REFERENCE.md` and `docs/PROTOCOL.md` (+ Korean).
 - **Row cells whose value does not use exactly their declared size are rejected (#523)** —
   the readers for fixed-width values (`SHORT`, `INT`, `BIGINT`, `FLOAT`,
   `DOUBLE`, `MONETARY`, `DATE`, `TIME`, `DATETIME`, `TIMESTAMP`, `OBJECT`, and
