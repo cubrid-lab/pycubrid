@@ -236,6 +236,18 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `pycubrid.aio` already did. Nothing extra is sent when `autocommit` was never
   set explicitly. No public signature, dependency or supported-version change.
 
+- **Invalid JSON text in a complete reply raises `DataError` (#543)** — PATCH /
+  correction of error classification, extending #492 and #512. A `JSON` column
+  value that is not valid JSON, decoded with the built-in
+  `json_deserializer=json.loads`, now raises `DataError` (the
+  `json.JSONDecodeError` chained as its `__cause__`) instead of
+  `OperationalError('malformed response from broker')`, and the session stays
+  usable, on `execute()` and on later fetch pages, exactly as for invalid UTF-8
+  and unrepresentable temporal values. The row-data completeness check (#383)
+  still applies first, so a short reply stays a fail-closed `OperationalError`.
+  A caller-supplied `json_deserializer` is unaffected: its own exceptions are
+  not wrapped. No public signature, dependency or supported-version change.
+
 - **Autocommit setter keeps its two requests on one CAS session (#551)** — PATCH
   / bug correction in both drivers. When the CAS is recycled between
   `SET_DB_PARAMETER` and `COMMIT`, the replacement session now receives the new

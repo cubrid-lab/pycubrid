@@ -27,7 +27,7 @@ the documented contract:
 * an unmutated seed decodes to exactly the values it was built from;
 * a mutated reply either parses, raises a structural error (reported as
   ``OperationalError('malformed response from broker')``, session closed), a
-  server error, or ``DataError`` only when the reply is complete (#383, #512);
+  server error, or ``DataError`` only when the reply is complete (#383, #512, #543);
 * a parsed FETCH reply never has cells whose declared sizes overrun it.
 
 Mutations aim at framing: truncation at field and cell boundaries, length and
@@ -335,8 +335,10 @@ def _assert_documented(
       replies, whose rows start at a fixed offset; execute replies share the
       same ``_parse_row_data`` completeness check).
 
-    A structural error is not further classified: invalid JSON text in a
-    complete reply currently closes the session like framing damage (#543).
+    A structural error is not further classified. Invalid JSON text in a
+    complete reply (``json_deserializer=json.loads``) is classified as
+    ``DataError`` like any other unrepresentable value, not as a structural
+    error (#543).
     """
     if exc is None or isinstance(exc, STRUCTURAL_CAUGHT):
         return
