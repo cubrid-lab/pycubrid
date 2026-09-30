@@ -221,6 +221,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Async TLS connect no longer hangs after an interrupted handshake (#513)** —
+  PATCH / correction of a hang in error handling. When the broker stalls or
+  resets the connection before the TLS handshake completes,
+  `pycubrid.aio.connect(..., ssl=...)` now raises `OperationalError` within
+  `read_timeout` (or the 10-second `ssl_handshake_timeout` when `read_timeout`
+  is unset) and closes the socket, instead of never returning on Python 3.11+.
+  Timeout semantics (`connect_timeout` bounds only the TCP connect), the sync
+  driver, successful TLS connects, public signatures, dependencies and
+  supported versions are unchanged.
+
 - **Reads past the end of a broker reply are rejected (#383)** — PATCH /
   correction of a protocol-robustness defect. A length field that is negative
   or runs past the end of a complete reply (row values, collections, LOB
