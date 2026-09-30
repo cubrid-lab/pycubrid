@@ -2043,8 +2043,19 @@ Call a stored procedure. Constructs and executes a `CALL procname(?, ?, ...)` st
 
 **Returns:** The original `parameters` sequence (as per PEP 249).
 
+A stored function's return value is the one row of the result set: fetch it
+with `fetchone()`. The same holds for `execute("CALL ...")` (including method
+calls such as `CALL find_user('dba') ON CLASS db_user`) and `EVALUATE`. Each
+value carries its own type on the wire and is decoded like a column of that
+type (`INT` to `int`, `VARCHAR` to `str`, `DATETIME` to `datetime`, an object
+to its `"OID:@page|slot|volume"` string, SQL `NULL` to `None`); before #542
+these values came back as raw `bytes`. `description` reports the column type as
+`NULL` (`0`) because the broker announces no type for it.
+
 ```python
 cur.callproc("my_procedure", [1, "hello"])
+cur.callproc("my_function")
+(value,) = cur.fetchone()
 ```
 
 ---
@@ -4757,6 +4768,15 @@ Column metadata preserves the first type byte's `0x60` collection-kind bits:
 byte carries the full scalar/element type (including codes above 31); otherwise
 the low five bits carry it. Collection row dispatch uses the collection kind,
 not that element type.
+
+Cells of a `CALL` / `EVALUATE` result and of a column whose metadata type is
+`NULL` (`SELECT NULL`, ...) carry their own type header before the value, and
+the cell size counts it. Protocol 7+ brokers (CUBRID 10.2+) write it like
+column metadata: `0x80 | collection bits | charset`, then the type byte, for
+example `00000006 83 08 0000002a` for `CALL` of a function returning `INT` 42
+and `0000000a 83 13 <8-byte OID>` for `CALL find_user('dba') ON CLASS db_user`.
+Older brokers write one type byte. The driver reads either layout (#542); a
+header longer than its cell is a malformed reply.
 
 A collection value is one element-type byte, a 4-byte element count, then a
 4-byte length and payload per element; a NULL element has length `-1` and no

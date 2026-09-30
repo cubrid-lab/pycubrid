@@ -45,6 +45,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
+  under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
+  type header `0x80 | collection bits | charset`, type, the layout of column
+  metadata, but the row parser read one byte, took `0x83` as an unknown type and
+  returned the rest of the cell as raw `bytes`. `CALL` of a stored function or
+  method, `callproc()` and `EVALUATE` now return the decoded value (for example
+  `42` instead of `b'\x08\x00\x00\x00*'`, `'OID:@897|1|0'` for
+  `CALL find_user('dba') ON CLASS db_user`, a `datetime` for `DATETIME`), sync
+  and async; collection values keep their collection kind. The single-byte
+  header of older brokers is still accepted. A header longer than its cell is a
+  malformed reply (`OperationalError('malformed response from broker')`, the
+  connection closes), and the re-walk before `DataError` (#523) reads the same
+  header. Verified live on CUBRID 10.2 and 11.4. Documented in
+  `docs/API_REFERENCE.md` and `docs/PROTOCOL.md` (+ Korean).
 - **Row cells whose value does not use exactly their declared size are rejected (#523)** —
   the readers for fixed-width values (`SHORT`, `INT`, `BIGINT`, `FLOAT`,
   `DOUBLE`, `MONETARY`, `DATE`, `TIME`, `DATETIME`, `TIMESTAMP`, `OBJECT`, and

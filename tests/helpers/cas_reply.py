@@ -138,6 +138,24 @@ class Value:
     write: Callable[[Wire], None]
     expected: Any
     decoded_json: Any = None
+    element_type: int = 0  # element type of a collection value
+
+    def write_cell_type(self, w: Wire, *, legacy: bool = False) -> None:
+        """The type header of a CALL / NULL-typed cell (#542).
+
+        Protocol 7+ brokers send ``0x80 | collection bits | charset`` then the
+        scalar or element type, as ``net_buf_cp_cas_type_and_charset`` writes it
+        (charset 3 as CUBRID 10.2/11.4 send it). ``legacy`` is the single byte of
+        older brokers: collection bits plus a type below ``0x20``.
+        """
+        kind = _COLLECTION_KIND_BITS.get(self.column_type, 0)
+        scalar = self.element_type if kind else self.column_type
+        if legacy:
+            assert scalar < 0x20, "legacy type byte collides with collection bits"
+            w.byte(kind | scalar)
+        else:
+            w.byte(0x80 | kind | 0x03)
+            w.byte(scalar)
 
     def payload(self) -> Wire:
         sub = Wire()
@@ -285,7 +303,7 @@ def collection(kind: int, element_type: int, elements: Sequence[Value | None]) -
 
     decoded = [None if e is None else e.expected for e in elements]
     expected: Any = frozenset(decoded) if kind == T.SET else decoded
-    return Value(kind, write, expected)
+    return Value(kind, write, expected, element_type=element_type)
 
 
 def null_collection(kind: int, count: int) -> Value:
@@ -372,11 +390,14 @@ def write_schema_columns(w: Wire, columns: Sequence[Column]) -> None:
 Row = Sequence[Value | None]
 
 
-def write_rows(w: Wire, rows: Sequence[Row], typed: Sequence[bool]) -> None:
+def write_rows(
+    w: Wire, rows: Sequence[Row], typed: Sequence[bool], *, legacy_cell_type: bool = False
+) -> None:
     """Rows: index, OID, then one sized cell per column (``-1`` is SQL NULL).
 
     ``typed[i]`` selects the CALL / NULL-typed-column layout for column ``i``:
-    the cell starts with its own type byte and its size includes that byte.
+    the cell starts with its own type header (two bytes, or one with
+    ``legacy_cell_type``) and its size includes that header.
     """
     for index, row in enumerate(rows, start=1):
         w.mark()
@@ -389,8 +410,10 @@ def write_rows(w: Wire, rows: Sequence[Row], typed: Sequence[bool]) -> None:
                 continue
             payload = cell.payload()
             if typed_cell:
-                w.length(len(payload.buf) + 1)
-                w.byte(cell.column_type)
+                header = Wire()
+                cell.write_cell_type(header, legacy=legacy_cell_type)
+                w.length(len(header.buf) + len(payload.buf))
+                w.raw(bytes(header.buf))
             else:
                 w.length(len(payload.buf))
             w.embed(payload)
@@ -422,6 +445,7 @@ class ResultSet:
     columns: tuple[Column, ...]
     rows: tuple[tuple[Value | None, ...], ...]
     statement_type: int = CUBRIDStatementType.SELECT
+    legacy_cell_type: bool = False  # one-byte CALL / NULL-typed cell headers
 
     def typed(self) -> list[bool]:
         """Which columns carry a per-cell type byte (CALL results, NULL-typed columns)."""
@@ -587,21 +611,39 @@ LOBS_AND_JSON = ResultSet(
     ),
 )
 
-# A CALL result: every cell carries its own type byte, sized with it. This is
-# the single-byte layout the driver decodes; protocol 8 brokers send a two-byte
-# header that it does not decode yet (#542).
+# A CALL result: every cell carries its own type header, sized with it. Protocol
+# 8 brokers send two bytes, ``0x80 | collection bits | charset`` then the type
+# (#542), the layout CUBRID 10.2 and 11.4 were captured sending.
 CALL_RESULT = ResultSet(
     "call",
     (Column("ret", T.NULL),),
-    ((int_(42),), (text("out"),), (None,), (numeric("3.25"),)),
+    (
+        (int_(42),),
+        (text("out"),),
+        (None,),
+        (numeric("3.25"),),
+        (datetime_(2026, 9, 30, 12, 34, 56, 789),),
+        (oid(897, 1, 0),),
+        (collection(T.SET, T.INT, [int_(1), int_(2)]),),
+        (collection(T.SEQUENCE, T.STRING, [text("a"), None]),),
+    ),
     statement_type=CUBRIDStatementType.CALL,
 )
 
-# ``SELECT NULL, x``: a NULL-typed column switches the whole row to typed cells.
+# The single-byte cell header of brokers before protocol 7, still accepted.
+CALL_RESULT_LEGACY = ResultSet(
+    "call_legacy",
+    CALL_RESULT.columns,
+    ((int_(42),), (text("out"),), (None,), (collection(T.SET, T.INT, [int_(3)]),)),
+    statement_type=CUBRIDStatementType.CALL,
+    legacy_cell_type=True,
+)
+
+# ``SELECT NULL, x``: only the NULL-typed column carries per-cell type headers.
 NULL_TYPED = ResultSet(
     "null_typed",
     (Column("n", T.NULL), Column("x", T.INT)),
-    ((None, int_(7)), (text("late"), int_(8))),
+    ((None, int_(7)), (text("late"), int_(8)), (datetime_(2026, 1, 2, 3, 4, 5, 6), None)),
 )
 
 WIDE = ResultSet(
@@ -628,6 +670,7 @@ RESULT_SETS: tuple[ResultSet, ...] = (
     COLLECTIONS,
     LOBS_AND_JSON,
     CALL_RESULT,
+    CALL_RESULT_LEGACY,
     NULL_TYPED,
     WIDE,
 )
@@ -645,7 +688,7 @@ def fetch_reply(rs: ResultSet) -> Seed:
     w.mark()
     w.i32(0)  # response code
     w.count(len(rs.rows))
-    write_rows(w, rs.rows, rs.typed())
+    write_rows(w, rs.rows, rs.typed(), legacy_cell_type=rs.legacy_cell_type)
     return w.seed(f"fetch/{rs.name}")
 
 
@@ -679,7 +722,7 @@ def prepare_and_execute_reply(rs: ResultSet, *, query_handle: int = 7) -> Seed:
     w.mark()
     w.i32(0)  # fetch code
     w.count(len(rs.rows))
-    write_rows(w, rs.rows, rs.typed())
+    write_rows(w, rs.rows, rs.typed(), legacy_cell_type=rs.legacy_cell_type)
     return w.seed(f"prepare_and_execute/{rs.name}")
 
 
@@ -721,7 +764,7 @@ def execute_reply(rs: ResultSet, *, refresh_columns: bool) -> Seed:
     w.mark()
     w.i32(0)  # fetch code
     w.count(len(rs.rows))
-    write_rows(w, rs.rows, rs.typed())
+    write_rows(w, rs.rows, rs.typed(), legacy_cell_type=rs.legacy_cell_type)
     suffix = "refreshed" if refresh_columns else "cached"
     return w.seed(f"execute_{suffix}/{rs.name}")
 
