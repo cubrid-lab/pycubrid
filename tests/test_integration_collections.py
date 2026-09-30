@@ -1,15 +1,16 @@
 """SET / MULTISET / SEQUENCE live CRUD + decode parity (#403).
 
-Tests collection types via SQL literal INSERT (not parameter binding).
-pycubrid explicitly rejects collection parameter binding
-(``_cursor_common.py`` raises ``ProgrammingError``); that is tracked
-as a separate feature issue.
+Most tests insert collections as SQL literals. Plain Python containers stay
+rejected as parameters; ``TestTypedCollectionParameters`` binds the typed
+``pycubrid.types.Set``/``Multiset``/``Sequence`` parameters (#567).
 """
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from collections.abc import Generator
+from decimal import Decimal
 from typing import Any
 
 import pycubrid
@@ -17,6 +18,7 @@ import pycubrid.aio
 import pytest
 from pycubrid.connection import Connection
 from pycubrid.cursor import Cursor
+from pycubrid.types import Multiset, Sequence, Set
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
@@ -275,3 +277,152 @@ class TestCollectionDecodeFlag:
                 else:
                     assert all(isinstance(value, bytes) for value in row[:3])
                     assert row[3] == 42
+
+
+_INJECTED = "x'}); DROP TABLE t; --"
+
+
+def _inject(*args: object, **kwargs: object) -> str:
+    return _INJECTED
+
+
+class _EvilStr(str):
+    """A str whose overridable text methods lie; only its characters may bind."""
+
+    replace = _inject
+    __str__ = _inject
+    __format__ = _inject
+
+
+class _EvilInt(int):
+    __str__ = _inject
+    __repr__ = _inject
+    __format__ = _inject
+
+
+class TestTypedCollectionParameters:
+    """Typed Set/Multiset/Sequence parameters round-trip through the server (#567)."""
+
+    _DDL = (
+        "CREATE TABLE %s (id INT, s SET(INT), m MULTISET(VARCHAR(20)), q SEQUENCE(INT), "
+        "d SET(DATE), n SEQUENCE(NUMERIC(10,2)), b SET(BIT VARYING(64)), "
+        "f SEQUENCE(DOUBLE), dt SEQUENCE(DATETIME), t SET(TIME))"
+    )
+    _INSERT = "INSERT INTO %s VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    _PARAMS = (
+        1,
+        Set([3, 1, 1, 2]),
+        Multiset(["b", "a", "a", "it's"]),
+        Sequence([3, 1, 2, 1]),
+        Set([datetime.date(2024, 1, 2), datetime.date(99, 12, 31)]),
+        Sequence([Decimal("1.25"), Decimal("-2")]),
+        Set([b"\x0a\xff"]),
+        Sequence([1.5, 1e-07]),
+        Sequence([datetime.datetime(2024, 1, 2, 3, 4, 5, 123000)]),
+        Set([datetime.time(1, 2, 3)]),
+    )
+
+    @staticmethod
+    def _check(row: Any) -> None:
+        assert row[0] == 1
+        assert row[1] == frozenset({1, 2, 3})
+        # MULTISET keeps duplicates, not order; SEQUENCE keeps both.
+        assert sorted(row[2]) == ["a", "a", "b", "it's"]
+        assert row[3] == [3, 1, 2, 1]
+        assert row[4] == frozenset({datetime.date(2024, 1, 2), datetime.date(99, 12, 31)})
+        assert row[5] == [Decimal("1.25"), Decimal("-2.00")]
+        assert row[6] == frozenset({b"\x0a\xff"})
+        assert row[7] == [1.5, 1e-07]
+        assert row[8] == [datetime.datetime(2024, 1, 2, 3, 4, 5, 123000)]
+        assert row[9] == frozenset({datetime.time(1, 2, 3)})
+
+    def test_round_trip(self, cursor: Cursor) -> None:
+        table = _tbl()
+        try:
+            cursor.execute(self._DDL % table)
+            cursor.execute(self._INSERT % table, self._PARAMS)
+            assert cursor.rowcount == 1
+            cursor.execute("SELECT * FROM %s" % table)
+            self._check(cursor.fetchone())
+            assert cursor.description is not None
+            assert [c[1] for c in cursor.description[1:4]] == [16, 17, 18]
+        finally:
+            cursor.execute("DROP TABLE IF EXISTS %s" % table)
+
+    def test_predicates_and_empty(self, cursor: Cursor) -> None:
+        table = _tbl()
+        try:
+            cursor.execute("CREATE TABLE %s (id INT, s SET(INT), q SEQUENCE(INT))" % table)
+            cursor.executemany(
+                "INSERT INTO %s VALUES (?, ?, ?)" % table,
+                [
+                    (1, Set([1, 3]), Sequence([3, 1])),
+                    (2, Set(), Sequence()),
+                    (3, Set([None]), Sequence([None, 2])),
+                ],
+            )
+            cursor.execute("SELECT id FROM %s WHERE s = ? ORDER BY id" % table, (Set([3, 1]),))
+            assert cursor.fetchall() == [(1,)]
+            cursor.execute("SELECT id FROM %s WHERE q = ? ORDER BY id" % table, (Sequence([3, 1]),))
+            assert cursor.fetchall() == [(1,)]
+            # Order matters for SEQUENCE equality.
+            cursor.execute("SELECT id FROM %s WHERE q = ?" % table, (Sequence([1, 3]),))
+            assert cursor.fetchall() == []
+            cursor.execute(
+                "SELECT id FROM %s WHERE s SUBSETEQ ? ORDER BY id" % table,
+                (Set([1, 3, 5]),),
+            )
+            assert cursor.fetchall() == [(1,), (2,)]
+            cursor.execute("SELECT s, q FROM %s WHERE id = 2" % table)
+            assert cursor.fetchone() == (frozenset(), [])
+            cursor.execute("SELECT s, q FROM %s WHERE id = 3" % table)
+            assert cursor.fetchone() == (frozenset({None}), [None, 2])
+        finally:
+            cursor.execute("DROP TABLE IF EXISTS %s" % table)
+
+    def test_hostile_elements_bind_their_values(self, cursor: Cursor) -> None:
+        table = _tbl()
+        try:
+            cursor.execute("CREATE TABLE %s (m MULTISET(VARCHAR(40)), q SEQUENCE(INT))" % table)
+            cursor.execute(
+                "INSERT INTO %s VALUES (?, ?)" % table,
+                (Multiset([_EvilStr("it's"), _EvilStr("}")]), Sequence([_EvilInt(7)])),
+            )
+            cursor.execute("SELECT m, q FROM %s" % table)
+            row = cursor.fetchone()
+            assert row is not None
+            assert sorted(row[0]) == ["it's", "}"]
+            assert row[1] == [7]
+        finally:
+            cursor.execute("DROP TABLE IF EXISTS %s" % table)
+
+    def test_plain_containers_stay_rejected(self, cursor: Cursor) -> None:
+        with pytest.raises(pycubrid.ProgrammingError, match="cannot bind a collection"):
+            cursor.execute("SELECT ?", ([1, 2],))
+        with pytest.raises(pycubrid.ProgrammingError, match="nested collection"):
+            cursor.execute("SELECT ?", (Set([Set([1])]),))
+
+    @pytest.mark.asyncio
+    async def test_async_round_trip(self) -> None:
+        conn = await pycubrid.aio.connect(
+            host=TEST_HOST,
+            port=TEST_PORT,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+            decode_collections=True,
+        )
+        table = _tbl()
+        async with conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(self._DDL % table)
+                    await cur.execute(self._INSERT % table, self._PARAMS)
+                    await cur.execute("SELECT * FROM %s" % table)
+                    self._check(await cur.fetchone())
+                    await cur.execute(
+                        "SELECT id FROM %s WHERE q = ?" % table, (Sequence([3, 1, 2, 1]),)
+                    )
+                    assert await cur.fetchall() == [(1,)]
+                finally:
+                    await cur.execute("DROP TABLE IF EXISTS %s" % table)

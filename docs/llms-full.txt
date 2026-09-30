@@ -1111,6 +1111,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [UnknownConnectionOptionWarning](#unknownconnectionoptionwarning)
 - [Type Objects](#type-objects)
 - [Type Constructors](#type-constructors)
+  - [Typed Collection Parameters](#typed-collection-parameters)
 
 ---
 
@@ -1869,6 +1870,7 @@ cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 | `datetime.date`      | `DATE'YYYY-MM-DD'` |
 | `datetime.time`      | `TIME'HH:MM:SS'` |
 | `datetime.datetime`  | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` |
+| `Set` / `Multiset` / `Sequence` | `SET{...}` / `MULTISET{...}` / `SEQUENCE{...}` |
 
 ---
 
@@ -2757,6 +2759,52 @@ ts = pycubrid.Timestamp(2025, 1, 15, 14, 30, 0)
 b = pycubrid.Binary(b"\x00\x01\x02")
 ```
 
+### Typed Collection Parameters
+
+```python
+class Set(elements: Iterable[Any] = ())
+class Multiset(elements: Iterable[Any] = ())
+class Sequence(elements: Iterable[Any] = ())
+```
+
+Defined in `pycubrid.types` and exported from `pycubrid` (added in #567). Each
+wraps its elements in an immutable `tuple` and binds as one typed CUBRID
+collection literal through `execute()`/`executemany()` on ordinary sync and
+async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
+
+| Class | Literal | Server semantics |
+|---|---|---|
+| `Set` | `SET{...}` | duplicates removed, order not kept |
+| `Multiset` | `MULTISET{...}` | duplicates kept, order not kept |
+| `Sequence` | `SEQUENCE{...}` (same type as `LIST{...}`) | duplicates and order kept |
+
+| Member | Description |
+|---|---|
+| `.elements` | The stored `tuple` of elements |
+| `iter()`, `len()` | Iterate over / count the elements |
+| `==`, `hash()` | Equal only to the same class with equal elements (order-sensitive for all three) |
+
+- Elements take the scalar parameter types (`None`, `bool`, `int`, `float`,
+  `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`) and are
+  rendered by the same hardened renderer; anything else, including a nested
+  collection, raises `ProgrammingError`.
+- A single `str`/`bytes`/`bytearray` argument raises `TypeError`; subclassing
+  raises `TypeError`; setting an attribute raises `AttributeError`.
+- Fetched collections are not returned as these classes: with
+  `decode_collections=True` they stay `frozenset` (`SET`) and `list`
+  (`MULTISET`/`SEQUENCE`).
+
+```python
+from pycubrid import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+```
+
+See [Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).
+
 ============================================================
 File: TYPES.md
 ============================================================
@@ -2785,6 +2833,7 @@ Complete reference for pycubrid's PEP 249 type objects, constructors, and CUBRID
 - [Collection Types](#collection-types)
   - [JSON Columns](#json-columns)
   - [`decode_collections`](#decode_collections)
+  - [Binding Collections](#binding-collections)
 - [Usage Examples](#usage-examples)
 
 ---
@@ -3213,6 +3262,35 @@ This opt-in behavior keeps fetches allocation-light when applications prefer to 
 |---|---|
 | `False` (default) | Return collection payloads as raw CAS wire `bytes` |
 | `True` | Decode supported `SET`, `MULTISET`, and `SEQUENCE` payloads into Python containers |
+
+### Binding Collections
+
+Plain Python `set`, `frozenset`, `list` and `tuple` values are rejected as
+parameters. To bind a collection, wrap its elements in one of the typed
+collection parameters (#567):
+
+| Class | Rendered literal | Server semantics |
+|---|---|---|
+| `pycubrid.types.Set` | `SET{...}` | duplicates removed, order not kept |
+| `pycubrid.types.Multiset` | `MULTISET{...}` | duplicates kept, order not kept |
+| `pycubrid.types.Sequence` | `SEQUENCE{...}` (same type as `LIST{...}`) | duplicates and order kept |
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute("INSERT INTO t VALUES (?, ?, ?)", (Set([1, 2]), Multiset(["a", "a"]), Sequence([3, 1])))
+```
+
+The classes are also exported from the top-level `pycubrid` package. Each one is
+immutable, stores its elements as a `tuple` (`.elements`) and cannot be
+subclassed. Elements accept the same types as scalar parameters (`None`, `bool`,
+`int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`,
+`datetime`) and are rendered by the same hardened renderer; nested collections
+raise `ProgrammingError`. Both sync and async ordinary cursors support them. See
+[Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).
+
+Decoding is unchanged: fetched collections are plain Python containers as in the
+table above (with `decode_collections=True`), never these parameter types.
 
 ---
 
@@ -8072,6 +8150,7 @@ change to the rules below is a contract change governed by
 - [Placeholder Style](#placeholder-style)
 - [Type Mapping (Guarantees)](#type-mapping-guarantees)
   - [Decimal parameters](#decimal-parameters)
+  - [Typed collection parameters](#typed-collection-parameters)
 - [String Escaping](#string-escaping)
   - [Escape-mode negotiation](#escape-mode-negotiation)
   - [Literal mode](#literal-mode-no_backslash_escapestrue)
@@ -8160,6 +8239,7 @@ test that pins the behavior.
 | `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (`SET{}` when empty); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
 | anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
@@ -8270,6 +8350,43 @@ Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_decimal_
 and `::test_bind_decimal_plain_notation`, and live on CUBRID 10.2 and 11.4 (sync
 and async) by `tests/test_parity_integration.py::TestParityDecimalLiterals`.
 
+### Typed collection parameters
+
+Wrap the elements in `pycubrid.types.Set`, `Multiset` or `Sequence` (also
+exported as `pycubrid.Set`, `pycubrid.Multiset`, `pycubrid.Sequence`) to bind a
+CUBRID collection through an ordinary sync or async cursor (#567):
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
+```
+
+- Each type takes one iterable and stores its elements as a `tuple`
+  (`.elements`); the objects are immutable, compare equal only to the same type
+  with equal elements, and cannot be subclassed. A single `str`, `bytes` or
+  `bytearray` argument raises `TypeError` instead of being split into characters.
+- The literal keyword follows the type: `SET{...}`, `MULTISET{...}`,
+  `SEQUENCE{...}` (CUBRID's `LIST{...}` is the same type). The server applies the
+  collection semantics: `SET` drops duplicates, `MULTISET` keeps duplicates but
+  not their order, `SEQUENCE` keeps both.
+- Every element goes through the same override-proof renderer as a scalar
+  parameter, so the element types are exactly the scalar rows of the table above
+  (`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`,
+  `date`, `time`, `datetime`), including their subclass hardening. The server
+  converts the elements to the column's element type, as for a literal.
+- Nested collections are rejected (`ProgrammingError`): a typed collection
+  inside another, or a plain `list`/`tuple`/`set`/`frozenset`/`dict` element.
+- `executemany()` accepts typed collections in each parameter set.
+- Fetching is unchanged: with `decode_collections=True` a `SET` column still
+  decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
+  otherwise). Decoded values are not wrapped back into these types; wrap them
+  again (for example `Set(row[0])`) to bind them.
+
 ### Explicitly unsupported as a bound value
 
 - `datetime.timedelta` — no branch; raises `ProgrammingError("unsupported parameter type")`.
@@ -8279,9 +8396,11 @@ and async) by `tests/test_parity_integration.py::TestParityDecimalLiterals`.
   (`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
 - Collections (`list`, `tuple`, `set`, `frozenset`, `dict`) as a single bound
   value — raise `ProgrammingError` with an actionable message (current text:
-  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL`).
+  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL, or wrap the elements in pycubrid.types.Set, Multiset or Sequence to bind a CUBRID collection`).
   There is **no automatic `IN (?, ?, ?)`** expansion; expand placeholders
-  explicitly in the SQL.
+  explicitly in the SQL. To bind a CUBRID collection, wrap the elements in a
+  [typed collection parameter](#typed-collection-parameters); the message also
+  says so.
 - Arbitrary Python objects — raises
   `ProgrammingError("unsupported parameter type")`.
 
@@ -8533,6 +8652,9 @@ any of these are contract regressions:
   `Mapping`/`str` parameter rejection.
 - `tests/test_aio_cursor_parity.py` (lines 76-105) — sync/async parity for
   NUL rejection, default escaping, and `no_backslash_escapes` mode.
+- `tests/test_typed_collections.py` — typed `Set`/`Multiset`/`Sequence`
+  rendering, element hardening and nested-collection rejection; sync/async
+  parity in `tests/test_replay_parity.py::typed_collection_parameters`.
 
 Together these tests provide the executable specification of this contract.
 
@@ -8893,7 +9015,7 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
 | Extended metadata | `result_info(n=0, /)` returns tuple-of-15-tuples (one outer entry for n>=1), or None with no columns. Actual order: type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared. Preserve empty versus absent metadata; #445 must not fabricate unavailable fields. |
-| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; typed import/bind is #440. |
+| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; typed import/bind is #440. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
 | Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
 | Native LOB | Separate mutable byte-position object, initially unpopulated. `write(string, type omitted, /) -> None` accepts str/bytes (UTF-8 for str), creates BLOB by default or B/C when requested. `read(len=0, /) -> str` reads remaining bytes for omitted/0 and decodes strict UTF-8. `seek(offset, whence=SEEK_CUR, /) -> int`; SEEK_END is size-offset. #442/#443 own lifecycle/short transfer/file behavior; ordinary bytes methods are not replaced. |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. Exact unstable messages and native argument-parser crashes are not targets. |
