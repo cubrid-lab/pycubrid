@@ -66,6 +66,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   error is its `__cause__`; previously the native `DatabaseError` escaped and
   the socket stayed open). A healthy connect no longer sends the extra
   `CHECK_CAS` between the two requests.
+- **`connect()` verifies an OUT_TRAN session before applying autocommit (#521)** —
+  with automatic `no_backslash_escapes` detection the escape probe ends with a
+  `ROLLBACK`, so a new session is OUT_TRAN when the constructor's
+  `autocommit=True` or the restore of an explicit `autocommit` is sent without
+  implicit reconnect. A CAS recycled right after that `ROLLBACK` made the async
+  `connect()` and the reconnect restore fail (the sync constructor survived it
+  only through the reconnecting property setter replaced above). Both drivers now send
+  `CHECK_CAS` first in that case and, if it fails, replace the session once and
+  apply the setting there; a healthy or verified session sends nothing extra.
+  The async escape probe of that replacement also now carries the connection's
+  autocommit flag, like every other escape probe in both drivers.
 - **Sync `ping(reconnect=False)` closes a session whose `CHECK_CAS` failed, like async (#521)** —
   when `CHECK_CAS` returned a negative code (broken CAS-to-DB link), the sync
   driver returned `False` but kept the session, and the next request probed it

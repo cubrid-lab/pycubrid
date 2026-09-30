@@ -168,6 +168,8 @@ class Session:
     status: int = OUT_TRAN
     next_handle: int = 1
     results: dict[int, Result] = field(default_factory=dict)
+    # Functions received so far in this session, including the current one.
+    functions: list[str] = field(default_factory=list)
 
 
 Script = Callable[[Request, Session], "Reply | None"]
@@ -202,6 +204,9 @@ class ReplayBroker:
         self._clients: list[socket.socket] = []
         self._sessions = 0
         self._stopping = False
+        # First exception raised by a script or a default reply; stop() re-raises
+        # it so a broken script fails the test instead of looking like an EOF.
+        self.error: BaseException | None = None
         self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server.bind(("127.0.0.1", 0))
@@ -237,6 +242,8 @@ class ReplayBroker:
             client.close()
         for thread in threads:
             thread.join(timeout=_SOCKET_TIMEOUT)
+        if self.error is not None:
+            raise AssertionError("replay broker script failed") from self.error
 
     # -- serving -------------------------------------------------------------
 
@@ -293,9 +300,14 @@ class ReplayBroker:
                         return
         except OSError:
             return  # the client went away; nothing left to answer
+        except Exception as exc:  # noqa: BLE001 - surfaced by stop()
+            with self._lock:
+                if self.error is None:
+                    self.error = exc
 
     def _answer(self, client: socket.socket, session: Session, request: Request) -> bool:
         self._record(request)
+        session.functions.append(request.function)
         reply = self._script(request, session)
         if reply is None:
             reply = self.default_reply(request, session)

@@ -191,6 +191,12 @@ reply) and a `check`.
 | Sync `connect()` after `close()` did not re-send an explicit `autocommit` (#520) | `connect()` restores explicit session state on every replacement session |
 | Sync `connect(autocommit=True)` used the reconnecting property setter: an extra `CHECK_CAS` between `SET_DB_PARAMETER` and `COMMIT`, a CAS recycled there split them across sessions, and a failure raised the native error with the socket left open | applied on the opened session only, with `OperationalError` on failure, like async |
 | Sync `ping(reconnect=False)` kept a session whose `CHECK_CAS` returned a negative code, and the next request reconnected silently | the broken session is closed, like async |
+| Async escape probe on a `CHECK_CAS` replacement session sent `auto_commit=0`; every other escape probe (both drivers) sends the connection's flag | the replacement probe sends the connection's flag |
+
+A shared gap (no parity difference) was fixed at the same time: with automatic
+escape detection, a CAS recycled right after the probe's `ROLLBACK` made
+`connect()` fail before autocommit was applied; both drivers now verify that
+OUT_TRAN session with `CHECK_CAS` first and replace it once.
 
 ### Mutation Testing
 

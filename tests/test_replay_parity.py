@@ -52,6 +52,7 @@ import pytest
 
 import pycubrid
 import pycubrid.aio
+from pycubrid.connection import Connection
 from pycubrid.constants import CCIDbParam
 from pycubrid.constants import CUBRIDDataType as T
 
@@ -83,6 +84,7 @@ class Observation:
     reusable: object
     sessions: int
     raw_requests: list[Request] = field(default_factory=list)
+    driver: str = ""
 
     def aspects(self) -> dict[str, object]:
         return {
@@ -297,7 +299,7 @@ def replay_sync(scenario: Scenario) -> Observation:
             reusable = driver.reusable()
         finally:
             driver.teardown()
-    return _observation(outcomes, requests, reusable)
+    return _observation("sync", outcomes, requests, reusable)
 
 
 def replay_async(scenario: Scenario) -> Observation:
@@ -310,13 +312,16 @@ def replay_async(scenario: Scenario) -> Observation:
                 reusable = await driver.reusable()
             finally:
                 await driver.teardown()
-        return _observation(outcomes, requests, reusable)
+        return _observation("async", outcomes, requests, reusable)
 
     return asyncio.run(run())
 
 
-def _observation(outcomes: list[Outcome], requests: list[Request], reusable: object) -> Observation:
+def _observation(
+    driver: str, outcomes: list[Outcome], requests: list[Request], reusable: object
+) -> Observation:
     return Observation(
+        driver=driver,
         outcomes=outcomes,
         requests=[r.key() for r in requests],
         reusable=reusable,
@@ -348,6 +353,17 @@ def _hang_up_after_ok(request: Request, state: Session) -> Reply:
     state.status = OUT_TRAN
     state.results.clear()
     return Reply(ok_body(OUT_TRAN), close=True)
+
+
+def _after_first_statement(script: Script) -> Script:
+    """Run ``script`` only once its session has received a PREPARE_AND_EXECUTE."""
+
+    def wrapped(request: Request, state: Session) -> Reply | None:
+        if "PREPARE_AND_EXECUTE" in state.functions:
+            return script(request, state)
+        return None
+
+    return wrapped
 
 
 def _reject_handshake(_request: Request, _state: Session) -> Reply:
@@ -494,11 +510,55 @@ def _check_ping_failed(obs: Observation) -> None:
     assert obs.reusable is False
 
 
+def _escape_rollback_hang_up(session: int) -> Script:
+    """Recycle the CAS right after the escape-mode probe's ROLLBACK in ``session``."""
+
+    def script(request: Request, state: Session) -> Reply | None:
+        if (
+            request.session == session
+            and request.function == "END_TRAN"
+            and request.args == (b"\x02",)
+        ):
+            return _hang_up_after_ok(request, state)
+        return None
+
+    return script
+
+
+def _check_setup_survives_recycle(session: int, value: int) -> Callable[[Observation], None]:
+    def check(obs: Observation) -> None:
+        # The OUT_TRAN left by the probe is verified before autocommit is
+        # applied; a recycled CAS is replaced once and configured there.
+        assert all(outcome[1] == "ok" for outcome in obs.outcomes), obs.outcomes
+        assert obs.sessions == session + 2
+        assert _set_autocommit_requests(obs, session) == []
+        assert _set_autocommit_requests(obs, session + 1) == [_set_autocommit_args(value)]
+        assert obs.reusable is True
+
+    return check
+
+
+def _check_restore_failure(obs: Observation) -> None:
+    assert obs.outcomes[-2:] == [
+        ("connect", "raise", "OperationalError"),
+        ("version", "raise", "InterfaceError"),
+    ]
+    assert obs.reusable is False
+
+
+def _check_ping_restores_once(obs: Observation) -> None:
+    assert ("ping", "ok", True) in obs.outcomes
+    assert obs.sessions == 2
+    assert _set_autocommit_requests(obs, 1) == [_set_autocommit_args(1)]
+    assert obs.reusable is True
+
+
 def _check_lob(obs: Observation) -> None:
-    assert obs.outcomes[1] in (
-        ("create_lob", "ok", "Lob"),
-        ("create_lob", "raise", "NotSupportedError"),
-    )
+    expected = {
+        "sync": ("create_lob", "ok", "Lob"),
+        "async": ("create_lob", "raise", "NotSupportedError"),
+    }
+    assert obs.outcomes[1] == expected[obs.driver]
     assert obs.reusable is True
 
 
@@ -587,6 +647,40 @@ SCENARIOS: tuple[Scenario, ...] = (
         script=_on("SET_DB_PARAMETER", _hang_up_after_ok, session=0),
         options={"autocommit": True},
         check=_check_constructor_autocommit_not_split,
+    ),
+    Scenario(
+        "constructor_autocommit_survives_recycle_after_escape_probe",
+        (("open",), ("get_autocommit",)),
+        script=_escape_rollback_hang_up(0),
+        options={"autocommit": True, "no_backslash_escapes": None},
+        check=_check_setup_survives_recycle(0, 1),
+    ),
+    Scenario(
+        "reconnect_restore_survives_recycle_after_escape_probe",
+        (("open",), ("set_autocommit", True), ("close",), ("connect",), ("get_autocommit",)),
+        script=_escape_rollback_hang_up(1),
+        options={"no_backslash_escapes": None},
+        check=_check_setup_survives_recycle(1, 1),
+    ),
+    Scenario(
+        "reconnect_restore_failure_closes_connection",
+        (("open",), ("set_autocommit", True), ("close",), ("connect",), ("version",)),
+        script=_on(
+            "SET_DB_PARAMETER", lambda _r, s: Reply(error_body(s.status, -1, "denied")), session=1
+        ),
+        check=_check_restore_failure,
+    ),
+    Scenario(
+        "failed_ping_reconnects_and_restores_autocommit_once",
+        (("open",), ("set_autocommit", True), ("ping", True), ("version",)),
+        script=_on(
+            "CHECK_CAS",
+            lambda r, s: (
+                Reply(error_body(s.status, -1, "db down")) if "END_TRAN" in s.functions else None
+            ),
+            session=0,
+        ),
+        check=_check_ping_restores_once,
     ),
     Scenario(
         "create_lob",
@@ -682,11 +776,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             _SELECT,
             ("fetchall",),
         ),
-        script=lambda r, s: (
-            _hang_up_after_ok(r, s)
-            if r.session == 0 and r.function == "END_TRAN" and r.index > 2
-            else None
-        ),
+        script=_after_first_statement(_on("END_TRAN", _hang_up_after_ok, session=0)),
         results=_THREE,
         check=_check_recovery_restores_autocommit,
     ),
@@ -828,7 +918,51 @@ def test_sync_and_async_replay_the_same_scenario_identically(scenario: Scenario)
             raise AssertionError(f"{name} driver: {exc}\n{observation.aspects()}") from exc
 
 
-def test_replays_are_deterministic() -> None:
-    scenario = next(s for s in SCENARIOS if s.name == "check_cas_failure_recovers_once")
+@pytest.mark.parametrize("scenario", SCENARIOS, ids=[s.name for s in SCENARIOS])
+def test_replays_are_deterministic(scenario: Scenario) -> None:
     assert replay_sync(scenario).aspects() == replay_sync(scenario).aspects()
     assert replay_async(scenario).aspects() == replay_async(scenario).aspects()
+
+
+# ---------------------------------------------------------------------------
+# Sync-only contracts the parity table does not show
+# ---------------------------------------------------------------------------
+
+
+def _sync_options(port: int, **overrides: Any) -> dict[str, Any]:
+    return _options(Scenario("sync", ()), port) | overrides
+
+
+def test_sync_constructor_autocommit_failure_closes_socket_and_chains_cause() -> None:
+    script = _on(
+        "SET_DB_PARAMETER", lambda _r, s: Reply(error_body(s.status, -1, "denied")), session=0
+    )
+    with run_replay_broker(script) as broker:
+        # Keep a reference to the half-built object, as compat.native does.
+        conn = Connection.__new__(Connection)
+        with pytest.raises(pycubrid.OperationalError) as info:
+            Connection.__init__(conn, **_sync_options(broker.port, autocommit=True))
+
+    assert isinstance(info.value.__cause__, pycubrid.DatabaseError)
+    assert conn._socket is None
+    assert conn._connected is False
+
+
+def test_sync_connect_on_a_live_connection_sends_nothing() -> None:
+    with run_replay_broker() as broker:
+        conn = pycubrid.connect(**_sync_options(broker.port))
+        conn.autocommit = True
+        before = len(broker.requests)
+        conn.connect()
+        assert len(broker.requests) == before
+        conn.close()
+
+
+def test_broker_reports_a_failing_script() -> None:
+    def broken(_request: Request, _state: Session) -> Reply | None:
+        raise KeyError("typo in a scenario script")
+
+    with pytest.raises(AssertionError, match="replay broker script failed"):
+        with run_replay_broker(broken) as broker:
+            with pytest.raises(pycubrid.OperationalError):
+                pycubrid.connect(**_sync_options(broker.port))

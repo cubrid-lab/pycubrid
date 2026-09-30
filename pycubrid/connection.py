@@ -46,6 +46,9 @@ _resolve_ssl_context = resolve_ssl_context
 class Connection(ConnectionCommonMixin):
     """PEP 249 DB-API connection for the CUBRID CAS protocol."""
 
+    # The constructor's autocommit=True until it is applied on a session.
+    _pending_autocommit: bool = False
+
     def __init__(
         self,
         host: str,
@@ -86,12 +89,31 @@ class Connection(ConnectionCommonMixin):
         # prepared handle may be reused only on a measured pooling-on lane.
         self._statement_pooling: int | None = None
 
+        # Applied by connect() on the session it opens (async parity).
+        self._pending_autocommit = bool(autocommit)
         self.connect()
-        if autocommit:
-            self._apply_initial_autocommit()
 
-    def _apply_initial_autocommit(self) -> None:
-        """Apply the constructor's ``autocommit=True`` on the session just opened.
+    def _configure_new_session(self, previous_generation: int) -> None:
+        """Apply the constructor's autocommit or restore explicit session state.
+
+        Async ``connect()`` parity. Runs on every newly opened physical session.
+        The escape-mode probe ends with a ROLLBACK, so the session may be
+        OUT_TRAN and that CAS may already be recycled: verify it once before
+        sending any setting. A replacement session is configured by the nested
+        ``connect()`` of that recovery, so nothing is sent twice.
+        """
+        sends_setting = self._pending_autocommit or (
+            bool(previous_generation) and self._autocommit_explicitly_set
+        )
+        if sends_setting and self._check_reconnect():
+            return
+        if self._pending_autocommit:
+            self._apply_pending_autocommit()
+        elif previous_generation:
+            self._restore_session_state()
+
+    def _apply_pending_autocommit(self) -> None:
+        """Apply the constructor's ``autocommit=True`` on the current session.
 
         Mirrors the async ``_apply_pending_autocommit_locked``: ``SET_DB_PARAMETER``
         and its ``COMMIT`` are sent on this session with implicit reconnect
@@ -100,18 +122,20 @@ class Connection(ConnectionCommonMixin):
         ``autocommit`` reported ``True``). Any failure retires the session and
         raises :class:`OperationalError` with the cause chained.
         """
-        with self._session_lock:
-            try:
-                self._send_and_receive(
-                    SetDbParameterPacket(parameter=CCIDbParam.AUTO_COMMIT, value=1),
-                    allow_reconnect=False,
-                )
-                self._send_and_receive(CommitPacket(), allow_reconnect=False)
-            except Exception as exc:
-                self._drop_connection()
+        try:
+            self._send_and_receive(
+                SetDbParameterPacket(parameter=CCIDbParam.AUTO_COMMIT, value=1),
+                allow_reconnect=False,
+            )
+            self._send_and_receive(CommitPacket(), allow_reconnect=False)
+        except BaseException as exc:
+            self._drop_connection()
+            if isinstance(exc, Exception):
                 raise OperationalError("failed to apply autocommit after connect") from exc
-            self._autocommit = True
-            self._autocommit_explicitly_set = True
+            raise
+        self._autocommit = True
+        self._autocommit_explicitly_set = True
+        self._pending_autocommit = False
 
     def _negotiate_backslash_escapes(self) -> None:
         """Detect the server's backslash-escape mode when not pinned.
@@ -232,8 +256,8 @@ class Connection(ConnectionCommonMixin):
         with self._session_lock:
             previous_generation = self._physical_generation
             self._connect_locked()
-            if previous_generation and self._physical_generation != previous_generation:
-                self._restore_session_state()
+            if self._physical_generation != previous_generation:
+                self._configure_new_session(previous_generation)
 
     def _connect_locked(self) -> None:
         if self._connected:

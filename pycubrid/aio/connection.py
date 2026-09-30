@@ -165,8 +165,17 @@ class AsyncConnection(ConnectionCommonMixin):
                     await self._negotiate_backslash_escapes()
 
                 # Finish session settings before releasing the setup gate.
+                # The escape probe ends with a ROLLBACK, so this session may be
+                # OUT_TRAN and its CAS already recycled: verify it once before
+                # sending a setting. A replacement is configured by
+                # _reconnect_after_failed_probe_locked itself.
                 async with self._lock:
-                    if self._pending_autocommit:
+                    sends_setting = self._pending_autocommit or (
+                        bool(previous_generation) and self._autocommit_explicitly_set
+                    )
+                    if sends_setting and await self._check_reconnect_locked():
+                        pass
+                    elif self._pending_autocommit:
                         await self._apply_pending_autocommit_locked()
                     elif previous_generation:
                         await self._restore_session_state_locked()
@@ -1213,9 +1222,11 @@ class AsyncConnection(ConnectionCommonMixin):
         if self._no_backslash_escapes is not None:
             return
         try:
+            # Same request as the cursor-based probe of connect(), in both
+            # drivers: it carries the connection's autocommit flag.
             probe = PrepareAndExecutePacket(
                 sql="SELECT CHAR_LENGTH('\\\\')",
-                auto_commit=False,
+                auto_commit=self._autocommit,
                 protocol_version=self._protocol_version,
             )
             await self._send_and_receive_locked(probe, allow_reconnect=False)
