@@ -236,6 +236,17 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `pycubrid.aio` already did. Nothing extra is sent when `autocommit` was never
   set explicitly. No public signature, dependency or supported-version change.
 
+- **Autocommit setter keeps its two requests on one CAS session (#551)** — PATCH
+  / bug correction in both drivers. When the CAS is recycled between
+  `SET_DB_PARAMETER` and `COMMIT`, the replacement session now receives the new
+  value before the `COMMIT` instead of only the `COMMIT`; each call reconnects
+  at most once. A failed `COMMIT` in the setter now closes the connection, keeps
+  the previous `autocommit` value and raises `OperationalError` with the native
+  error as `__cause__`, instead of raising the native error with the session
+  open and the value unchanged while the server had already applied it. Code
+  that caught `DatabaseError` still catches it. A healthy session sends nothing
+  extra; no public signature, dependency or supported-version change.
+
 - **Sync constructor autocommit applied on one session (#521)** — PATCH / bug
   correction and sync/async parity. `connect(autocommit=True)` sends
   `SET_DB_PARAMETER` and `COMMIT` on the session it opened without implicit

@@ -198,10 +198,13 @@ escape detection, a CAS recycled right after the probe's `ROLLBACK` made
 `connect()` fail before autocommit was applied; both drivers now verify that
 OUT_TRAN session with `CHECK_CAS` first and replace it once.
 
-Known and not yet fixed, shared by both drivers (strict `xfail` scenario
+Another shared gap was fixed in #551 (scenario
 `autocommit_setter_survives_recycle_after_set_db_parameter`): the public
-autocommit setter can send `SET_DB_PARAMETER` and its `COMMIT` on different CAS
-sessions when the CAS is recycled between them (#551).
+autocommit setter sent `SET_DB_PARAMETER` and its `COMMIT` on different CAS
+sessions when the CAS was recycled between them. The new value is now recorded
+before the `COMMIT`, so that request's single reconnect restores it on the
+replacement session first; a failed `COMMIT` closes the connection and keeps the
+previous value.
 
 ### Mutation Testing
 

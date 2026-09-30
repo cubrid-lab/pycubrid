@@ -631,7 +631,7 @@ def autocommit(self) -> bool
 def autocommit(self, value: bool) -> None
 ```
 
-자동 커밋 모드를 조회하거나 설정합니다. 활성화되면 각 문장이 즉시 커밋됩니다. 이 속성을 설정하면 서버에서 트랜잭션 상태를 플러시하기 위해 `SetDbParameterPacket`과 `CommitPacket`을 보냅니다.
+자동 커밋 모드를 조회하거나 설정합니다. 활성화되면 각 문장이 즉시 커밋됩니다. 이 속성을 설정하면 서버에서 트랜잭션 상태를 플러시하기 위해 `SetDbParameterPacket`과 `CommitPacket`을 보냅니다. 두 요청은 하나의 CAS 세션에 적용됩니다. 그 사이 CAS가 재활용되면 대체 세션에 새 값을 먼저 복원한 뒤 그 세션으로 `COMMIT`을 보냅니다(호출당 재접속은 최대 한 번). `COMMIT`이 실패하면 연결을 닫고 이전 값을 유지하며 원인을 연결한 `OperationalError`를 발생시킵니다(#551).
 
 ```python
 conn = pycubrid.connect(database="testdb")
@@ -1135,7 +1135,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit`은 읽기 전용입니다. 변경하려면 `await conn.set_autocommit(True)`을 사용하세요.
-동기 세터처럼 `SetDbParameterPacket`과 `CommitPacket` 둘 다 보냅니다.
+동기 세터처럼 `SetDbParameterPacket`과 `CommitPacket`을 하나의 CAS 세션에서 보내며, CAS 재활용 및 실패 시 동작도 같습니다(#551).
 
 ### `ping(reconnect=True)`
 

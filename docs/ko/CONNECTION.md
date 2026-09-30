@@ -309,6 +309,8 @@ conn.autocommit = True
 | 게터 | 현재 오토커밋 상태 반환 |
 | 세터(`= True`) | 서버로 `SetDbParameterPacket` + `CommitPacket` 전송 |
 | 세터(`= False`) | 서버로 `SetDbParameterPacket` + `CommitPacket` 전송 |
+| 두 요청 사이에 CAS 재활용 | 대체 세션에 새 값을 먼저 복원한 뒤 `COMMIT` 전송, 호출당 재접속은 최대 한 번(#551) |
+| `COMMIT` 실패 | 연결을 닫고 이전 값을 유지하며 `OperationalError` 발생 |
 
 > **참고**: pycubrid를 SQLAlchemy(`cubrid+pycubrid://`)와 사용하면 방언이 새 연결마다 `autocommit = False`로 설정해 SQLAlchemy가 트랜잭션을 올바르게 관리하게 합니다.
 >

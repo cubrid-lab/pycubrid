@@ -671,7 +671,7 @@ def autocommit(self) -> bool
 def autocommit(self, value: bool) -> None
 ```
 
-Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server.
+Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server. Both take effect on one CAS session: if the CAS is recycled between them, the new value is restored on the replacement session before the `COMMIT` is sent there (at most one reconnect per call). If the `COMMIT` fails, the connection is closed, the previous value is kept and `OperationalError` is raised with the cause chained (#551).
 
 ```python
 conn = pycubrid.connect(database="testdb")
@@ -1191,7 +1191,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit` is read-only; use `await conn.set_autocommit(True)` to change it.
-Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
+Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket` on one CAS session, with the same recycle and failure behavior (#551).
 
 ### `ping(reconnect=True)`
 

@@ -578,14 +578,32 @@ def _check_configured_once(obs: Observation) -> None:
 
 
 def _check_setter_not_split(obs: Observation) -> None:
-    # #551: SET_DB_PARAMETER and its COMMIT must reach one CAS session, or the
-    # setter must fail; today the COMMIT goes to a replacement that never got
-    # the new value while autocommit reports True.
-    changed = obs.outcomes[1] == ("set_autocommit", "ok", None)
-    if changed:
-        assert _set_autocommit_requests(obs, 1) == [_set_autocommit_args(1)]
-    else:
-        assert obs.outcomes[2] == ("get_autocommit", "ok", False)
+    # #551: SET_DB_PARAMETER and its COMMIT must reach one CAS session: the
+    # COMMIT's CHECK_CAS finds the CAS recycled, and the one reconnect restores
+    # the new value on the replacement before the COMMIT is sent there.
+    assert obs.outcomes[1:] == [("set_autocommit", "ok", None), ("get_autocommit", "ok", True)]
+    assert obs.sessions == 2
+    assert _set_autocommit_requests(obs, 1) == [_set_autocommit_args(1)]
+    session_1 = [r.function for r in obs.raw_requests if r.session == 1]
+    assert session_1.index("SET_DB_PARAMETER") < session_1.index("END_TRAN")
+    assert obs.reusable is True
+
+
+def _check_setter_failure_keeps_previous_value(sessions: int) -> Callable[[Observation], None]:
+    def check(obs: Observation) -> None:
+        # #551: a setter that cannot finish on one session fails, retires that
+        # session and keeps the previous value; the next connect() restores
+        # nothing because autocommit was never explicitly set.
+        assert obs.outcomes[-3:] == [
+            ("set_autocommit", "raise", "OperationalError"),
+            ("connect", "ok", None),
+            ("get_autocommit", "ok", False),
+        ]
+        assert obs.sessions == sessions
+        assert _set_autocommit_requests(obs, sessions - 1) == []
+        assert obs.reusable is True
+
+    return check
 
 
 def _check_lob(obs: Observation) -> None:
@@ -729,8 +747,23 @@ SCENARIOS: tuple[Scenario, ...] = (
         (("open",), ("set_autocommit", True), ("get_autocommit",)),
         script=_on("SET_DB_PARAMETER", _hang_up_after_ok, session=0),
         check=_check_setter_not_split,
-        unintended="#551: the autocommit setter can split SET_DB_PARAMETER and COMMIT "
-        "across CAS sessions (shared by both drivers)",
+    ),
+    Scenario(
+        "autocommit_setter_commit_failure_keeps_previous_value",
+        (("open",), ("set_autocommit", True), ("connect",), ("get_autocommit",)),
+        script=_on("END_TRAN", lambda _r, s: Reply(error_body(s.status, -1, "denied")), session=0),
+        check=_check_setter_failure_keeps_previous_value(2),
+    ),
+    Scenario(
+        # The SET_DB_PARAMETER probe already replaced session 0, so a CAS
+        # recycled again before the COMMIT is not replaced a second time.
+        "autocommit_setter_replaces_the_session_at_most_once",
+        (("open",), ("commit",), ("set_autocommit", True), ("connect",), ("get_autocommit",)),
+        script=_both(
+            _on("CHECK_CAS", lambda _r, s: Reply(error_body(s.status, -1, "gone")), session=0),
+            _on("SET_DB_PARAMETER", _hang_up_after_ok, session=1),
+        ),
+        check=_check_setter_failure_keeps_previous_value(3),
     ),
     Scenario(
         "create_lob",

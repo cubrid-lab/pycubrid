@@ -196,10 +196,12 @@ CAS를 재활용하는 `_hang_up_after_ok`), `check`를 갖춘 `Scenario`를 추
 실패했습니다. 이제 두 드라이버 모두 그 OUT_TRAN 세션을 먼저 `CHECK_CAS`로
 확인하고 한 번 교체합니다.
 
-알려졌지만 아직 수정하지 않은 공통 결함(strict `xfail` 시나리오
+또 다른 공통 결함도 #551에서 수정했습니다(시나리오
 `autocommit_setter_survives_recycle_after_set_db_parameter`): 공개 autocommit
 setter는 두 요청 사이에 CAS가 재활용되면 `SET_DB_PARAMETER`와 `COMMIT`을 서로 다른
-CAS 세션으로 보낼 수 있습니다(#551).
+CAS 세션으로 보냈습니다. 이제 `COMMIT` 전에 새 값을 기록하므로 그 요청의 한 번뿐인
+재접속이 대체 세션에 새 값을 먼저 복원합니다. `COMMIT`이 실패하면 연결을 닫고 이전
+값을 유지합니다.
 
 ### 통합 테스트
 

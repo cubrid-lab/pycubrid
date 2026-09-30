@@ -364,6 +364,8 @@ conn.autocommit = True
 | Getter | Returns current autocommit state |
 | Setter (`= True`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
 | Setter (`= False`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
+| CAS recycled between the two | The new value is restored on the replacement session before its `COMMIT`; at most one reconnect per call (#551) |
+| `COMMIT` fails | Connection closed, previous value kept, `OperationalError` raised |
 
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
