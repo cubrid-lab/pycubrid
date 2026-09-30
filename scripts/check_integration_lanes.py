@@ -46,7 +46,10 @@ def skip_category(identity: str, reason: str) -> str:
     ):
         return "optional-native-driver"
     if (
-        any(name in identity for name in ("test_resource_leaks", "test_soak"))
+        any(
+            name in identity
+            for name in ("test_resource_leaks", "test_soak", "test_tls_matrix_integration")
+        )
         and "cannot count file descriptors on this platform" in reason
     ):
         return "platform-without-proc"

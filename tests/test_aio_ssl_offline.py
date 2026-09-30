@@ -105,6 +105,23 @@ async def test_upgrade_to_tls_calls_start_tls_with_expected_kwargs() -> None:
 
 
 @pytest.mark.asyncio
+async def test_upgrade_to_tls_marks_stream_protocol_as_running_over_ssl() -> None:
+    """Issue #514: after the in-place upgrade the stream protocol must know it
+    is behind TLS, or its ``eof_received()`` returns ``True`` and asyncio logs
+    "returning true from eof_received() has no effect when using ssl" every
+    time the broker closes the TLS session."""
+    conn, _reader, writer = _make_pre_tls_async_connection()
+    protocol = writer.transport.get_protocol.return_value
+    fake_loop = MagicMock(name="loop")
+    fake_loop.start_tls = AsyncMock(return_value=MagicMock(name="new_tls_transport"))
+
+    with patch("pycubrid.aio.connection.asyncio.get_running_loop", return_value=fake_loop):
+        await conn._upgrade_to_tls()
+
+    assert protocol._over_ssl is True
+
+
+@pytest.mark.asyncio
 async def test_upgrade_to_tls_uses_default_handshake_timeout_when_unset() -> None:
     """When ``read_timeout`` is ``None``, the upgrade must still bound the
     handshake via the documented 10-second default; otherwise a stalled

@@ -481,6 +481,12 @@ class AsyncConnection(ConnectionCommonMixin):
             raise OperationalError("TLS upgrade returned no transport")
         self._writer._transport = new_transport  # type: ignore[attr-defined]
         self._reader._transport = new_transport  # type: ignore[attr-defined]
+        # The stream protocol was built for the plaintext transport and still
+        # has _over_ssl = False, so its eof_received() returns True and
+        # SSLProtocol logs "returning true from eof_received() has no effect
+        # when using ssl" on every TLS peer close (#514). Record the upgrade as
+        # StreamReaderProtocol._replace_transport() (3.11+) would.
+        setattr(protocol, "_over_ssl", True)
 
     async def _maybe_probe_tls_verification(
         self, *, effective_port: int, followed_redirect: bool
