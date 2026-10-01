@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime
+import contextlib
+import importlib.resources
 import struct
 import sys
 import zoneinfo
@@ -219,13 +221,74 @@ OFFSET_0530 = datetime.timedelta(hours=5, minutes=30)
 @pytest.fixture
 def no_tz_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Hide both the system zoneinfo and the ``tzdata`` package."""
-    monkeypatch.setitem(sys.modules, "tzdata", None)
-    zoneinfo.reset_tzpath(to=[])
-    zoneinfo.ZoneInfo.clear_cache()
+    saved_path = zoneinfo.TZPATH
+    with monkeypatch.context() as patch:
+        for name in tuple(sys.modules):
+            if name == "tzdata" or name.startswith("tzdata."):
+                patch.delitem(sys.modules, name)
+        patch.setitem(sys.modules, "tzdata", None)
+        zoneinfo.reset_tzpath(to=[])
+        zoneinfo.ZoneInfo.clear_cache()
+        try:
+            yield
+        finally:
+            zoneinfo.reset_tzpath(to=saved_path)
+            zoneinfo.ZoneInfo.clear_cache()
+
+
+@pytest.mark.parametrize("fixture_source", ["offline", "integration"])
+@pytest.mark.parametrize("body_error", [False, True], ids=["normal", "body-error"])
+def test_missing_tz_fixture_isolates_and_restores_preloaded_resources(
+    monkeypatch: pytest.MonkeyPatch,
+    fixture_source: str,
+    body_error: bool,
+) -> None:
+    pytest.importorskip(
+        "tzdata", reason="cached-wheel isolation requires the optional tzdata wheel"
+    )
+    for package, resource in (
+        ("tzdata.zoneinfo.Asia", "Seoul"),
+        ("tzdata.zoneinfo.America", "New_York"),
+    ):
+        with importlib.resources.files(package).joinpath(resource).open("rb") as stream:
+            assert stream.read(4) == b"TZif"
+    saved_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "tzdata" or name.startswith("tzdata.")
+    }
+    original_path = zoneinfo.TZPATH
     try:
-        yield
+        zoneinfo.reset_tzpath(to=())  # a custom caller path; wheel-only lookup
+        zoneinfo.ZoneInfo.clear_cache()
+        before = zoneinfo.ZoneInfo("Asia/Seoul")
+        context = contextlib.contextmanager(no_tz_database.__wrapped__)(monkeypatch)
+        if fixture_source == "integration":
+            from tests.test_integration_timezone import _hide_tz_database
+
+            context = _hide_tz_database()
+        expected_error = (
+            pytest.raises(RuntimeError, match="fixture body failure")
+            if body_error
+            else contextlib.nullcontext()
+        )
+        with expected_error:
+            with context:
+                assert zoneinfo.TZPATH == ()
+                with pytest.raises(zoneinfo.ZoneInfoNotFoundError):
+                    zoneinfo.ZoneInfo("Asia/Seoul")
+                with pytest.raises(DataError, match="cannot resolve CUBRID timezone"):
+                    _attach_timezone(datetime.datetime(2026, 1, 15), "America/New_York")
+                if body_error:
+                    raise RuntimeError("fixture body failure")
+        assert zoneinfo.TZPATH == ()
+        assert all(sys.modules.get(name) is module for name, module in saved_modules.items())
+        expected = datetime.timedelta(hours=9)
+        instant = datetime.datetime(2026, 1, 15)
+        assert before.utcoffset(instant) == expected  # held objects remain usable
+        assert zoneinfo.ZoneInfo("Asia/Seoul").utcoffset(instant) == expected
     finally:
-        zoneinfo.reset_tzpath()
+        zoneinfo.reset_tzpath(to=original_path)
         zoneinfo.ZoneInfo.clear_cache()
 
 
