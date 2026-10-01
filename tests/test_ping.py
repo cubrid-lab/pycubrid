@@ -116,7 +116,7 @@ class TestConnectionPing:
 
     def test_ping_inactive_cas_info_no_reconnect(self, socket_queue: list[MagicMock]) -> None:
         conn, _ = make_connected_connection(socket_queue)
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
         conn._send_and_receive = MagicMock(return_value=MagicMock(response_code=0))
 
         assert conn.ping(reconnect=False) is True
@@ -128,7 +128,7 @@ class TestConnectionPing:
 
     def test_ping_out_tran_uses_same_session(self, socket_queue: list[MagicMock]) -> None:
         conn, sock = make_connected_connection(socket_queue)
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
         conn._invalidate_query_handles_for_reconnect = MagicMock()
         conn.connect = MagicMock()
         ok_resp = build_simple_ok_response(conn._cas_info)
@@ -146,7 +146,7 @@ class TestConnectionPing:
         socket_queue: list[MagicMock],
     ) -> None:
         conn, sock = make_connected_connection(socket_queue)
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
         conn.connect = MagicMock()
 
         ok_resp = build_simple_ok_response(conn._cas_info)

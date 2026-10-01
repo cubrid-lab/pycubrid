@@ -12,7 +12,11 @@ import time
 from typing import Any
 
 from pycubrid._connection_common import (
+    ESCAPE_PROBE_FAILED,
+    ESCAPE_PROBE_ROLLBACK_FAILED,
+    ESCAPE_PROBE_SQL,
     ConnectionCommonMixin,
+    no_backslash_escapes_from_probe,
     resolve_ssl_context,
     warn_unknown_connection_options,
 )
@@ -233,28 +237,13 @@ class AsyncConnection(ConnectionCommonMixin):
             try:
                 cursor = self.cursor()
                 try:
-                    await cursor.execute("SELECT CHAR_LENGTH('\\\\')")
+                    await cursor.execute(ESCAPE_PROBE_SQL)
                     row = await cursor.fetchone()
                 finally:
                     await cursor.close()
             except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
-                raise OperationalError(
-                    "Failed to detect CUBRID backslash-escape mode; refusing to "
-                    "guess because a wrong mode silently corrupts string escaping. "
-                    "Pass no_backslash_escapes explicitly to skip detection."
-                ) from exc
-            length = row[0] if row else None
-            if length == 2:
-                self._no_backslash_escapes = True
-            elif length == 1:
-                self._no_backslash_escapes = False
-            else:
-                raise OperationalError(
-                    "Could not detect CUBRID backslash-escape mode "
-                    f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
-                    "because a wrong mode silently corrupts string escaping. Pass "
-                    "no_backslash_escapes explicitly to skip detection."
-                )
+                raise OperationalError(ESCAPE_PROBE_FAILED) from exc
+            self._no_backslash_escapes = no_backslash_escapes_from_probe(row[0] if row else None)
         except BaseException:
             probe_failed = True
             raise
@@ -274,12 +263,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 except Exception:  # nosec B110 — best-effort close after rollback failure
                     pass
                 if not probe_failed:
-                    raise OperationalError(
-                        "Failed to roll back the CUBRID backslash-escape probe "
-                        "transaction; the connection may be in an unknown "
-                        "transaction state and has been closed. Pass "
-                        "no_backslash_escapes explicitly to skip detection."
-                    ) from rollback_exc
+                    raise OperationalError(ESCAPE_PROBE_ROLLBACK_FAILED) from rollback_exc
 
     async def _connect_locked(self) -> None:
         if self._connected:
@@ -305,7 +289,7 @@ class AsyncConnection(ConnectionCommonMixin):
             hs_writer = None  # ownership transferred to self or closed
 
             self._connected = True
-            self._verified_cas_info = self._cas_info
+            self._mark_cas_reply_verified()
             self._physical_generation += 1
         except asyncio.TimeoutError as exc:
             raise OperationalError("read timeout during connect handshake") from exc
@@ -437,7 +421,7 @@ class AsyncConnection(ConnectionCommonMixin):
         response_body = await self._recv_exact(self._reader, data_length + DataSize.CAS_INFO)
         open_db_packet.parse(response_body)
 
-        self._cas_info = open_db_packet.cas_info
+        self._record_reply_cas_info(open_db_packet.cas_info)
         self._session_id = open_db_packet.session_id
         self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
         self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
@@ -878,7 +862,7 @@ class AsyncConnection(ConnectionCommonMixin):
                     except (OSError, Error, struct.error):
                         healthy = False
                     if healthy:
-                        self._verified_cas_info = self._cas_info
+                        self._mark_cas_reply_verified()
                         return True
                 elif not reconnect:
                     return False
@@ -1260,7 +1244,7 @@ class AsyncConnection(ConnectionCommonMixin):
             self._drop_connection()
             raise
 
-        self._cas_info = response_body[: DataSize.CAS_INFO]
+        self._record_reply_cas_info(response_body[: DataSize.CAS_INFO])
         self._reply_complete = True
         try:
             packet.parse(response_body)
@@ -1322,7 +1306,7 @@ class AsyncConnection(ConnectionCommonMixin):
         try:
             probe = await self._send_and_receive_locked(CheckCasPacket(), allow_reconnect=False)
             if probe.response_code >= 0:
-                self._verified_cas_info = self._cas_info
+                self._mark_cas_reply_verified()
                 return False
             _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
         except (Error, OSError, struct.error) as exc:
@@ -1358,7 +1342,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 probe = await self._send_and_receive_locked(CheckCasPacket(), allow_reconnect=False)
                 if probe.response_code < 0:
                     raise OperationalError("replacement CAS session failed CHECK_CAS")
-                self._verified_cas_info = self._cas_info
+                self._mark_cas_reply_verified()
             self._configured_generation = self._physical_generation
         except BaseException as exc:
             self._drop_connection()
@@ -1382,7 +1366,7 @@ class AsyncConnection(ConnectionCommonMixin):
             # Same request as the cursor-based probe of connect(), in both
             # drivers: it carries the connection's autocommit flag.
             probe = PrepareAndExecutePacket(
-                sql="SELECT CHAR_LENGTH('\\\\')",
+                sql=ESCAPE_PROBE_SQL,
                 auto_commit=self._autocommit,
                 protocol_version=self._protocol_version,
             )
@@ -1392,23 +1376,10 @@ class AsyncConnection(ConnectionCommonMixin):
             )
             await self._send_and_receive_locked(RollbackPacket(), allow_reconnect=False)
         except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
-            raise OperationalError(
-                "Failed to detect CUBRID backslash-escape mode; refusing to "
-                "guess because a wrong mode silently corrupts string escaping. "
-                "Pass no_backslash_escapes explicitly to skip detection."
-            ) from exc
-        length = probe.rows[0][0] if probe.rows else None
-        if length == 2:
-            self._no_backslash_escapes = True
-        elif length == 1:
-            self._no_backslash_escapes = False
-        else:
-            raise OperationalError(
-                "Could not detect CUBRID backslash-escape mode "
-                f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
-                "because a wrong mode silently corrupts string escaping. Pass "
-                "no_backslash_escapes explicitly to skip detection."
-            )
+            raise OperationalError(ESCAPE_PROBE_FAILED) from exc
+        self._no_backslash_escapes = no_backslash_escapes_from_probe(
+            probe.rows[0][0] if probe.rows else None
+        )
 
     async def _restore_session_state_locked(self) -> None:
         """Re-emit explicit session settings after explicit ping recovery.

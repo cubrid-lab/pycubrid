@@ -131,7 +131,7 @@ async def test_aio_ssl_out_tran_keeps_tls_session() -> None:
         original_writer = conn._writer
         _assert_tls_transport(conn)
 
-        conn._cas_info = bytes([conn._CAS_INFO_STATUS_INACTIVE, *conn._cas_info[1:]])
+        conn._record_reply_cas_info(bytes([conn._CAS_INFO_STATUS_INACTIVE, *conn._cas_info[1:]]))
 
         assert await conn.ping(reconnect=True) is True
         assert conn._writer is not None

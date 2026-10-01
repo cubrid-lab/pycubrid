@@ -162,7 +162,7 @@ def test_replacement_after_response_check_keeps_new_cas_info() -> None:
             conn._socket = replacement
             conn._connected = True
             conn._physical_generation += 1
-            conn._cas_info = replacement_info
+            conn._record_reply_cas_info(replacement_info)
 
     conn._validate_prepared_session = replace_after_response_check
     packet = MagicMock()

@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from pycubrid._connection_common import ESCAPE_PROBE_SQL, no_backslash_escapes_from_probe
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
 from pycubrid.exceptions import OperationalError
@@ -614,3 +615,78 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
     with pytest.raises(OperationalError, match="parameter binding; retry operation"):
         await asyncio.wait_for(task, timeout=2)
     conn._do_send_and_receive.assert_not_awaited()
+
+
+# -- one shared escape policy for every probe path (#525) ------------------------
+
+
+@pytest.mark.parametrize(("length", "expected"), [(2, True), (1, False)])
+def test_shared_policy_maps_probe_length(length: object, expected: bool) -> None:
+    assert no_backslash_escapes_from_probe(length) is expected
+
+
+@pytest.mark.parametrize("length", [0, 3, 7, None, "2", b"\x02"])
+def test_shared_policy_never_guesses(length: object) -> None:
+    with pytest.raises(OperationalError, match=r"CHAR_LENGTH probe returned"):
+        no_backslash_escapes_from_probe(length)
+
+
+def _sync_probe_outcome(row: object) -> object:
+    conn, cur = _make_sync_conn(row)
+    try:
+        conn._negotiate_backslash_escapes()
+    except OperationalError as exc:
+        return str(exc)
+    finally:
+        assert cur.execute.call_args.args == (ESCAPE_PROBE_SQL,)
+    return conn._no_backslash_escapes
+
+
+async def _async_probe_outcome(row: object) -> object:
+    conn, cur = _make_async_conn(row)
+    try:
+        await conn._negotiate_backslash_escapes()
+    except OperationalError as exc:
+        return str(exc)
+    finally:
+        assert cur.execute.await_args.args == (ESCAPE_PROBE_SQL,)
+    return conn._no_backslash_escapes
+
+
+async def _async_locked_probe_outcome(row: object) -> object:
+    conn = AsyncConnection.__new__(AsyncConnection)
+    conn._no_backslash_escapes = None
+    conn._autocommit = False
+    conn._protocol_version = 8
+    sent: list[str] = []
+
+    async def send(packet: object, *, allow_reconnect: bool) -> object:
+        assert allow_reconnect is False
+        if isinstance(packet, PrepareAndExecutePacket):
+            sent.append(packet.sql)
+            packet.rows = [] if row is None else [row]
+            packet.query_handle = 1
+        return packet
+
+    setattr(conn, "_send_and_receive_locked", send)
+    try:
+        await conn._negotiate_backslash_escapes_locked()
+    except OperationalError as exc:
+        return str(exc)
+    finally:
+        assert sent == [ESCAPE_PROBE_SQL]
+    return conn._no_backslash_escapes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row", [(2,), (1,), (7,), None])
+async def test_sync_async_and_recovery_probes_share_one_policy(row: object) -> None:
+    length = row[0] if isinstance(row, tuple) else None
+    try:
+        expected: object = no_backslash_escapes_from_probe(length)
+    except OperationalError as exc:
+        expected = str(exc)
+
+    assert _sync_probe_outcome(row) == expected
+    assert await _async_probe_outcome(row) == expected
+    assert await _async_locked_probe_outcome(row) == expected

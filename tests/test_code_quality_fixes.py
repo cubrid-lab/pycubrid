@@ -216,7 +216,7 @@ async def test_async_read_timeout_raises_operational_error() -> None:
     conn._connected = True
     conn._reader = AsyncMock(spec=asyncio.StreamReader)
     conn._writer = MagicMock(spec=asyncio.StreamWriter)
-    conn._cas_info = b"\x01\x00\x00\x00"
+    conn._record_reply_cas_info(b"\x01\x00\x00\x00")
 
     async def slow_send_receive(packet: Any) -> Any:
         del packet

@@ -15,7 +15,7 @@ from pycubrid.protocol import CloseDatabasePacket, SetDbParameterPacket
 def make_connected_async_connection() -> AsyncConnection:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")
     conn._reader = MagicMock()
     conn._writer = MagicMock()
     conn._writer.close = MagicMock()
@@ -162,7 +162,7 @@ async def test_concurrent_connect_performs_single_handshake() -> None:
         await release.wait()
         conn._reader = hs_reader
         conn._writer = hs_writer
-        conn._cas_info = b"\x01\x00\x00\x00"
+        conn._record_reply_cas_info(b"\x01\x00\x00\x00")
         conn._session_id = 1
 
     conn._open_connection = AsyncMock(side_effect=fake_open_connection)
@@ -205,7 +205,9 @@ async def test_concurrent_ping_reconnect_performs_single_reconnect() -> None:
         handshake_calls += 1
         conn._reader = hs_reader
         conn._writer = hs_writer
-        conn._cas_info = bytes([AsyncConnection._CAS_INFO_STATUS_ACTIVE, 0x00, 0x00, 0x00])
+        conn._record_reply_cas_info(
+            bytes([AsyncConnection._CAS_INFO_STATUS_ACTIVE, 0x00, 0x00, 0x00])
+        )
         conn._session_id = 1
 
     async def fake_do_send_and_receive(packet: Any) -> Any:
@@ -227,7 +229,9 @@ async def test_concurrent_ping_reconnect_performs_single_reconnect() -> None:
 @pytest.mark.asyncio
 async def test_concurrent_ping_out_tran_keeps_original_stream() -> None:
     conn = make_connected_async_connection()
-    conn._cas_info = bytes([AsyncConnection._CAS_INFO_STATUS_INACTIVE, 0x00, 0x00, 0x00])
+    conn._record_reply_cas_info(
+        bytes([AsyncConnection._CAS_INFO_STATUS_INACTIVE, 0x00, 0x00, 0x00])
+    )
     original_reader, original_writer = conn._reader, conn._writer
 
     async def fake_do_send_and_receive(packet: Any) -> Any:
@@ -275,7 +279,9 @@ async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> 
     async def fake_do_connect_handshake(hs_reader: Any, hs_writer: Any) -> None:
         conn._reader = hs_reader
         conn._writer = hs_writer
-        conn._cas_info = bytes([AsyncConnection._CAS_INFO_STATUS_ACTIVE, 0x00, 0x00, 0x00])
+        conn._record_reply_cas_info(
+            bytes([AsyncConnection._CAS_INFO_STATUS_ACTIVE, 0x00, 0x00, 0x00])
+        )
         conn._session_id = 1
 
     async def fake_do_send_and_receive(packet: Any) -> Any:

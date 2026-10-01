@@ -10,7 +10,11 @@ from threading import RLock
 from typing import TYPE_CHECKING, Any
 
 from ._connection_common import (
+    ESCAPE_PROBE_FAILED,
+    ESCAPE_PROBE_ROLLBACK_FAILED,
+    ESCAPE_PROBE_SQL,
     ConnectionCommonMixin,
+    no_backslash_escapes_from_probe,
     resolve_ssl_context,
     warn_unknown_connection_options,
 )
@@ -177,28 +181,13 @@ class Connection(ConnectionCommonMixin):
             try:
                 cursor = self.cursor()
                 try:
-                    cursor.execute("SELECT CHAR_LENGTH('\\\\')")
+                    cursor.execute(ESCAPE_PROBE_SQL)
                     row = cursor.fetchone()
                 finally:
                     cursor.close()
             except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
-                raise OperationalError(
-                    "Failed to detect CUBRID backslash-escape mode; refusing to "
-                    "guess because a wrong mode silently corrupts string escaping. "
-                    "Pass no_backslash_escapes explicitly to skip detection."
-                ) from exc
-            length = row[0] if row else None
-            if length == 2:
-                self._no_backslash_escapes = True
-            elif length == 1:
-                self._no_backslash_escapes = False
-            else:
-                raise OperationalError(
-                    "Could not detect CUBRID backslash-escape mode "
-                    f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
-                    "because a wrong mode silently corrupts string escaping. Pass "
-                    "no_backslash_escapes explicitly to skip detection."
-                )
+                raise OperationalError(ESCAPE_PROBE_FAILED) from exc
+            self._no_backslash_escapes = no_backslash_escapes_from_probe(row[0] if row else None)
         except BaseException:
             probe_failed = True
             raise
@@ -218,12 +207,7 @@ class Connection(ConnectionCommonMixin):
                 except Exception:  # nosec B110 — best-effort close after rollback failure
                     pass
                 if not probe_failed:
-                    raise OperationalError(
-                        "Failed to roll back the CUBRID backslash-escape probe "
-                        "transaction; the connection may be in an unknown "
-                        "transaction state and has been closed. Pass "
-                        "no_backslash_escapes explicitly to skip detection."
-                    ) from rollback_exc
+                    raise OperationalError(ESCAPE_PROBE_ROLLBACK_FAILED) from rollback_exc
 
     def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.
@@ -330,13 +314,13 @@ class Connection(ConnectionCommonMixin):
             response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
             open_db_packet.parse(response_body)
 
-            self._cas_info = open_db_packet.cas_info
+            self._record_reply_cas_info(open_db_packet.cas_info)
             self._session_id = open_db_packet.session_id
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
             self._broker_db_type = open_db_packet.broker_info.get("db_type")
             self._connected = True
-            self._verified_cas_info = self._cas_info
+            self._mark_cas_reply_verified()
             self._physical_generation += 1
             if not self._no_backslash_escapes_explicit:
                 self._no_backslash_escapes = None
@@ -509,7 +493,7 @@ class Connection(ConnectionCommonMixin):
                 CheckCasPacket(), allow_reconnect=False, expected_generation=None
             )
             if probe.response_code >= 0:
-                self._verified_cas_info = self._cas_info
+                self._mark_cas_reply_verified()
                 return False
             _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
         except (Error, OSError, struct.error) as exc:
@@ -538,7 +522,7 @@ class Connection(ConnectionCommonMixin):
                 )
                 if probe.response_code < 0:
                     raise OperationalError("replacement CAS session failed CHECK_CAS")
-                self._verified_cas_info = self._cas_info
+                self._mark_cas_reply_verified()
         except BaseException as exc:
             self._drop_connection()
             if isinstance(exc, Exception):
@@ -705,7 +689,7 @@ class Connection(ConnectionCommonMixin):
         except (InterfaceError, OperationalError, OSError, struct.error):
             healthy = False
         if healthy:
-            self._verified_cas_info = self._cas_info
+            self._mark_cas_reply_verified()
             return True
         # A failed CHECK_CAS confirms this session is broken: retire it even
         # without reconnect, as the async driver does, so no later request is
@@ -994,7 +978,7 @@ class Connection(ConnectionCommonMixin):
             response_complete = True
             response_cas_info = response_body[: DataSize.CAS_INFO]
             if expected_generation is None:
-                self._cas_info = response_cas_info
+                self._record_reply_cas_info(response_cas_info)
 
             try:
                 packet.parse(response_body)
@@ -1009,7 +993,7 @@ class Connection(ConnectionCommonMixin):
                     raise
                 if getattr(exc, "_cas_server_error", False):
                     self._validate_prepared_session(expected_generation, request_socket)
-                    self._cas_info = response_cas_info
+                    self._record_reply_cas_info(response_cas_info)
                     raise
                 if self._prepared_session_is_current(expected_generation, request_socket):
                     self._discard_uncertain_prepared_session()
@@ -1022,7 +1006,7 @@ class Connection(ConnectionCommonMixin):
                 raise OperationalError("malformed response from broker") from exc
             self._validate_prepared_session(expected_generation, request_socket)
             if expected_generation is not None:
-                self._cas_info = response_cas_info
+                self._record_reply_cas_info(response_cas_info)
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("recv: %d bytes", data_length + DataSize.CAS_INFO)
             return packet

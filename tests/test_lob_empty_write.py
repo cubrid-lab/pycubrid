@@ -90,7 +90,9 @@ def test_real_connection_preserves_serialization_error_translation(
     data: bytes, offset: object
 ) -> None:
     conn, sock = make_connected_connection()
-    conn._cas_info = b"\x01\x00\x00\x00"  # Active session: no reconnect before validation.
+    conn._record_reply_cas_info(
+        b"\x01\x00\x00\x00"
+    )  # Active session: no reconnect before validation.
     sock.sendall.reset_mock()
     try:
         lob = Lob(conn, CUBRIDDataType.BLOB, b"handle")
