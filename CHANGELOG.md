@@ -161,6 +161,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   without reconnecting, and later calls raise `InterfaceError` until
   `connect()` or `ping(reconnect=True)`. A healthy ping, a closed connection
   and `ping(reconnect=True)` are unchanged.
+- Clear previous results in synchronous and asynchronous `execute()` calls
+  after closing the old query handle (#373). A subsequent binding or request
+  failure leaves `description=None`, `rowcount=-1`, `lastrowid=None` and no
+  fetchable rows or held fetch-page error. If closing the old handle fails,
+  `execute()` keeps the buffered result and its page error; connection invalidation
+  or reconnect handling may still retire the handle.
 - **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
   under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
   type header `0x80 | collection bits | charset`, type, the layout of column

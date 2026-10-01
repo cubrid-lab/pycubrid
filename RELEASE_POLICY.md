@@ -585,6 +585,15 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
 
 - Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
 
+- **Failed `execute()` calls clear previous result state (#373)**: PATCH /
+  backward-compatible bug fix. After the previous query handle closes, binding
+  or request failures leave no result metadata, row count, last inserted ID
+  or fetchable rows from that query, and discard any held fetch-page error.
+  If closing the previous query fails, both cursor implementations keep the
+  buffered result and its page error; connection invalidation or reconnect
+  handling may still retire the handle. Handles opened by undecodable replacement
+  replies remain tracked for cleanup. Public signatures are unchanged.
+
 - **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
   PATCH / backward-compatible bug fix. The public signatures are unchanged;
   validation now enforces the documented positive-integer row-count contract,
