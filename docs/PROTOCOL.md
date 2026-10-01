@@ -186,7 +186,18 @@ If `ssl` was truthy on the connect call, the live transport is upgraded **before
 - Async driver: `loop.start_tls(transport, protocol, context, server_hostname=host,
   ssl_handshake_timeout=...)`
 
-A failed handshake aborts the transport rather than leaking it.
+The TLS handshake uses `read_timeout` when configured, otherwise a 10-second
+default. That default does not bound subsequent requests; `connect_timeout`
+still bounds only the TCP connect.
+
+On Python 3.10, the async certificate preflight uses memory BIOs on an owned
+raw socket. Sends, receives and handshake completion share one monotonic
+deadline. A failed required final-flight send propagates; optional close-notify
+is best-effort within the same budget. The probe always closes its socket.
+
+Failed handshakes abort the transport. The primary sync Python 3.10
+`wrap_socket()` upgrade has a documented CPython reset/resource-warning
+limitation; see [Connection configuration](CONNECTION.md).
 
 ### Phase 2: Open Database
 
