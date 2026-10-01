@@ -18,6 +18,7 @@ from pycubrid._connection_common import (
 )
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import (
+    DatabaseError,
     DataError,
     Error,
     InterfaceError,
@@ -1005,13 +1006,34 @@ class AsyncConnection(ConnectionCommonMixin):
         setup bypasses the wait so its own cursor-based probe does not deadlock
         against itself. If setup failed, the recorded error is re-raised here
         so waiters do not proceed against a half-initialized connection.
+
+        Each waiter raises its own exception (#554): the recorded error belongs
+        to the setup owner, so re-raising that one instance would cancel every
+        waiter when the owner is cancelled and append their frames to a shared
+        traceback. A cancelled or interrupted setup becomes
+        :class:`OperationalError`; a pycubrid error is copied with its class,
+        code, errno and sqlstate; any other error is wrapped in
+        :class:`OperationalError`. Non-cancellation originals are chained as
+        ``__cause__``. A waiter's own cancellation still propagates unchanged.
         """
         if self._setup_owner is asyncio.current_task():
             return
         if not self._setup_done.is_set():
             await self._setup_done.wait()
-            if self._setup_error is not None:
-                raise self._setup_error
+            error = self._setup_error
+            if error is None:
+                return
+            if not isinstance(error, Exception):
+                raise OperationalError(
+                    "connection setup was cancelled or interrupted in another task; retry operation"
+                ) from None
+            if isinstance(error, DatabaseError):
+                raise type(error)(error.msg, error.code, error.errno, error.sqlstate) from error
+            if isinstance(error, Error):
+                raise type(error)(error.msg, error.code) from error
+            raise OperationalError(
+                f"connection setup failed in another task: {type(error).__name__}: {error}"
+            ) from error
 
     async def _send_and_receive(
         self,
