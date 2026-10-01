@@ -154,6 +154,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (previously ignored, passed through, or read as zero rows) and a column count
   the reply cannot hold, as FC2 already did; FC3 rejects a negative inline
   tuple count. Sync and async behave the same.
+- **Sync TLS handshake is bounded without `read_timeout`; the Python 3.10 TLS preflight probe closes its socket (#535)** —
+  `pycubrid.connect(..., ssl=...)` without `read_timeout` waited forever when the
+  broker (or a proxy in front of it) stalled during the TLS handshake. The
+  handshake now gives up after 10 seconds, the same default the async driver
+  passes as `ssl_handshake_timeout`, and raises `OperationalError`; the socket is
+  blocking again once the handshake is done, so later requests stay unbounded
+  as before. With `read_timeout` set nothing changes, and `connect_timeout`
+  still bounds only the TCP connect. On Python 3.10 the async driver's
+  certificate preflight probe now runs its handshake over memory BIOs on a
+  socket it owns, so a broker reset just before the ClientHello no longer
+  leaves the probe socket to the garbage collector (`ResourceWarning`). The
+  same CPython 3.10 `ssl` behavior can still affect the sync driver's
+  `wrap_socket()` upgrade on 3.10; `docs/CONNECTION.md` (+ Korean) documents it.
 - **Transport failures retire cursor handles; async timeout errors name their cause (#556)** —
   an uncertain transport failure closed the connection but left cursors
   holding the dead session's query handle ids: the sync socket-error and

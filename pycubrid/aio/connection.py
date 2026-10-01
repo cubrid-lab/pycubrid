@@ -68,7 +68,7 @@ class AsyncConnection(ConnectionCommonMixin):
        On Python 3.10, :meth:`asyncio.AbstractEventLoop.start_tls` has a
        known CPython bug (fixed in 3.13/3.14) that causes it to hang on
        certificate-verify failures instead of raising. As of #156, an
-       automatic preflight :meth:`ssl.SSLContext.wrap_socket` probe runs
+       automatic preflight blocking TLS handshake probe runs
        on Python 3.10 immediately before :meth:`_upgrade_to_tls` to
        surface verification failures as :class:`OperationalError`,
        matching the 3.11+ behavior. The probe is a no-op on Python
@@ -525,9 +525,10 @@ class AsyncConnection(ConnectionCommonMixin):
         The probe opens a **separate** TCP socket to the same effective
         endpoint, replays the CUBRS broker handshake when needed
         (no-redirect path only — redirected CAS workers go straight to TLS
-        on any incoming connection), then performs a synchronous
-        :meth:`ssl.SSLContext.wrap_socket` using the **same** ``SSLContext``
-        object and ``server_hostname=self._host`` as the real upgrade. Any
+        on any incoming connection), then performs a blocking TLS handshake
+        over :meth:`ssl.SSLContext.wrap_bio` memory BIOs using the **same**
+        ``SSLContext`` object and ``server_hostname=self._host`` as the real
+        upgrade. The probe owns its socket throughout and always closes it. Any
         :class:`ssl.SSLError` raised propagates as :class:`OSError`
         (``SSLError`` is an ``OSError`` subclass) into
         :meth:`_connect_locked`'s ``except`` clause, which wraps it as
@@ -604,18 +605,45 @@ class AsyncConnection(ConnectionCommonMixin):
                         (host, client_info.new_connection_port), timeout=connect_timeout
                     )
                     sock.settimeout(handshake_timeout)
-            ssock = ssl_context.wrap_socket(sock, server_hostname=host)
-            sock = None  # ownership transferred to ssock
-            try:
-                # Handshake happens implicitly in wrap_socket on a blocking
-                # socket; closing immediately suffices to validate the cert.
+            # Run the handshake over memory BIOs instead of wrap_socket(): on
+            # Python 3.10, SSLSocket._create() takes over the fd and can raise
+            # on a peer reset before the ClientHello without closing it, which
+            # left the socket to the garbage collector (#535). This way the
+            # probe keeps owning the socket and the finally below closes it.
+            # handshake_timeout bounds the whole handshake, as it does for
+            # wrap_socket(), not each socket operation.
+            deadline = time.monotonic() + handshake_timeout
+            incoming = ssl_module.MemoryBIO()
+            outgoing = ssl_module.MemoryBIO()
+            tls = ssl_context.wrap_bio(incoming, outgoing, server_hostname=host)
+            while True:
                 try:
-                    ssock.unwrap()
-                except OSError:
-                    # Best-effort TLS shutdown; verification already passed.
-                    pass
-            finally:
-                ssock.close()
+                    tls.do_handshake()
+                    break
+                except ssl_module.SSLWantReadError:
+                    pending = outgoing.read()
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("TLS preflight probe handshake timed out") from None
+                    sock.settimeout(remaining)
+                    if pending:
+                        sock.sendall(pending)
+                    data = sock.recv(16384)
+                    if not data:
+                        raise OSError("connection closed during TLS preflight probe")
+                    incoming.write(data)
+            # Verification passed; send the last handshake flight and a
+            # close_notify on a best-effort basis.
+            try:
+                tls.unwrap()
+            except ssl_module.SSLError:
+                # Expected: with memory BIOs unwrap() wants the peer's reply.
+                pass
+            try:
+                sock.sendall(outgoing.read())
+            except OSError:
+                # The peer may already be gone; verification has passed.
+                pass
         finally:
             if sock is not None:
                 try:
