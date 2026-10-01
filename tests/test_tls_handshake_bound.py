@@ -104,12 +104,21 @@ def reset_before_client_hello(monkeypatch: pytest.MonkeyPatch) -> Any:
     reset deterministically lands between the TCP connect and the TLS start.
     """
     listener = socket.create_server((HOST, 0))
+    listener.settimeout(5.0)
+    client_owned = threading.Event()
     reset_done = threading.Event()
 
     def serve() -> None:
-        conn, _ = listener.accept()
-        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
-        conn.close()
+        try:
+            conn, _ = listener.accept()
+            with conn:
+                # Darwin can surface an immediate reset inside TCP connect,
+                # before the client wrapper has recorded an owned socket.
+                if not client_owned.wait(5.0):
+                    return  # the client's bounded reset_done assertion fails
+                conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        except OSError:
+            return  # listener teardown, or a reset_done assertion on failure
         reset_done.set()
 
     thread = threading.Thread(target=serve, daemon=True)
@@ -120,7 +129,8 @@ def reset_before_client_hello(monkeypatch: pytest.MonkeyPatch) -> Any:
     def create_connection(*args: Any, **kwargs: Any) -> socket.socket:
         sock = real_create_connection(*args, **kwargs)
         opened.append(sock)
-        reset_done.wait(5.0)
+        client_owned.set()
+        assert reset_done.wait(5.0), "peer did not reset the recorded probe socket"
         time.sleep(0.05)  # let the RST arrive
         return sock
 
@@ -128,8 +138,12 @@ def reset_before_client_hello(monkeypatch: pytest.MonkeyPatch) -> Any:
     try:
         yield listener.getsockname()[1], opened
     finally:
-        thread.join(5.0)
+        client_owned.set()  # release the peer if connection setup failed
         listener.close()
+        thread.join(5.0)
+        for sock in opened:
+            sock.close()  # after the test's strict fd/leak assertions
+        assert not thread.is_alive(), "reset peer did not finish its bounded cleanup"
 
 
 def test_probe_closes_socket_on_reset_before_client_hello(
