@@ -482,6 +482,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   talk to an in-process fake local server, not the configured live CUBRID
   endpoint, and either pass `no_backslash_escapes` explicitly or only
   exercise failure paths that never reach negotiation.
+- **Per-operation round-trip budgets for the sync/async replay harness
+  (#557)** — `tests/test_replay_parity.py` scenarios compared whole-session
+  request sequences, so both drivers growing the same extra request on a
+  single operation would stay green. `Observation.step_functions(i)` now
+  exposes the exact, ordered CAS functions sent while running one scenario
+  step alone, separate from connect/setup and every other step. Seven new
+  scenarios assert named budgets — `FIRST_INSERT_BUDGET`,
+  `REUSED_CURSOR_INSERT_BUDGET`, `SELECT_TO_INSERT_BUDGET`,
+  `MANUAL_INSERT_EXECUTE_BUDGET` / `MANUAL_INSERT_COMMIT_BUDGET`,
+  `FETCH_PAGINATION_BUDGET`, `ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` — for
+  a fresh cursor's first autocommitting INSERT, a second INSERT reusing the
+  same cursor, an autocommitting INSERT after a SELECT on the same cursor, a
+  manual-transaction INSERT and its explicit `commit()`, paginated `FETCH`
+  over a small `fetch_size`, and backslash-escape-mode negotiation resolved
+  explicitly versus automatically. Each budget is exact-list equality, so a
+  dropped safety request (e.g. a missing `CHECK_CAS` liveness probe) fails
+  the same as an added round trip; neither can pass as an "optimization".
+  Existing scenarios, their checks and the sync/async parity and
+  reconnect/no-replay coverage are unchanged. No production behavior changes
+  in this PR; these scenarios are the reproducibility baseline that later
+  round-trip-reduction work (#419/#488/#525) must not silently regress.
 
 ## [1.8.0] - 2026-09-29
 
