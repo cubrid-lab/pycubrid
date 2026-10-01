@@ -98,9 +98,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   order is not guaranteed and would make `Sequence`'s element order
   nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset`.
 
-- Internal typed collection binding wire contract (#482): prepared FC3
-  requests can carry an immutable SET/SEQUENCE/MULTISET value of INT or STRING
-  elements (NULL elements, empty collections), with exact per-element framing
+- **Internal: typed collection binding wire contract (#482)** — not
+  user-visible. Prepared FC3 requests can carry an immutable
+  SET/SEQUENCE/MULTISET value of INT or STRING elements (NULL elements, empty
+  collections), with exact per-element framing
   and rejection of mixed, nested and unsupported elements before any bytes are
   built. There is no public collection API yet (#440); ordinary sync/async
   execution and the public API are unchanged. Live 10.2/11.4 evidence: the

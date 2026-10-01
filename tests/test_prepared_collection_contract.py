@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import struct
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -75,7 +77,13 @@ def _broker_parse(value_arg: bytes) -> tuple[int | None, list[bytes | None], boo
         size = struct.unpack_from(">i", value_arg.ljust(cursor + 4, b"\x00"), cursor)[0]
         if size + 4 > remain:
             return element_type, elements, True
-        elements.append(value_arg[cursor + 4 : cursor + 4 + size] if size > 0 else None)
+        if size <= 0:
+            # netval_to_dbval() reads a length <= 0 as a NULL element and
+            # consumes only the length word.
+            elements.append(None)
+            size = 0
+        else:
+            elements.append(value_arg[cursor + 4 : cursor + 4 + size])
         cursor += size + 4
         remain -= size + 4
     return element_type, elements, False
@@ -114,6 +122,23 @@ def test_collection_and_scalar_bindings_share_one_frame() -> None:
         + b"\x00\x00\x00\x01\x00"
         + _int(0)
     )
+
+
+_CCI_GOLDEN = json.loads(
+    (Path(__file__).parent / "fixtures" / "cci_collection_golden.json").read_text("utf-8")
+)
+
+
+@pytest.mark.parametrize("kind", _KINDS, ids=["set", "multiset", "sequence"])
+@pytest.mark.parametrize("case", _CCI_GOLDEN["cases"], ids=lambda case: case["name"])
+def test_value_matches_cci_generated_golden(kind: int, case: dict[str, Any]) -> None:
+    # Independent of protocol.py: bytes produced by CCI cci_set_make() at
+    # the commit recorded in the fixture.
+    assert _CCI_GOLDEN["cci_commit"] == "79d0888"
+    binding = protocol._encode_prepared_collection(
+        tuple(case["values"]), kind, case["element_type"]
+    )
+    assert binding.payload == bytes.fromhex(case["cci_value_hex"])
 
 
 _INT_CASES = {
@@ -278,6 +303,9 @@ def test_broker_mirror_truncates_on_overrunning_element_length() -> None:
     # The hazard exact framing avoids: one bad length silently drops the rest.
     value = b"\x08" + _int(4) + _int(1) + _int(9) + _int(2)
     assert _broker_parse(value) == (8, [_int(1)], True)
+    # A negative length is a NULL element that advances only its length word
+    # (live: 08|-5|4|7 stores [None, 7]).
+    assert _broker_parse(b"\x08" + _int(-5) + _int(4) + _int(7)) == (8, [None, _int(7)], False)
     assert _broker_parse(b"") == (None, [], False)
     assert _broker_parse(b"\x08") == (8, [], False)
 
