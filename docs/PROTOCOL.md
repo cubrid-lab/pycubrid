@@ -441,7 +441,7 @@ NUL byte, not NULL. The optional `bind_count` must match the number of
 bindings. The forward-only byte follows effective autocommit: `1` in auto
 mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
 
-An internal typed collection binding (#482; no public API yet, see #440) uses
+The typed collection binding (#482) uses
 the same pair. The type argument is the collection kind: SET (`16`), MULTISET
 (`17`) or SEQUENCE (`18`). The value argument is one element-type byte, INT
 (`8`) or STRING (`2`, the byte the official driver sends), followed by one
@@ -458,6 +458,12 @@ without NUL. Mixed, nested, `bool`, `float` and `bytes` elements are rejected.
 On CUBRID 10.2 and 11.4 the broker rejects the MULTISET kind with error -454
 (it wraps the multiset with `db_make_set()`), and a SET value stored into a
 MULTISET column loses duplicates; a SEQUENCE value keeps them.
+
+The public `pycubrid.compat.native` `set.imports()` (#440) builds this pair
+the way the official driver does: every element is a STRING (`2`) element,
+whatever element type is requested (INT elements are their decimal text), and
+the default kind is SET (`16`), so its bytes equal the official request.
+`kind=MULTISET` is sent as SEQUENCE (`18`), never as `17`.
 
 For protocol version >1, an `include_column_info=1` response carries the
 full FC2 prepare-info tail before the shard ID and inline FETCH. The parser

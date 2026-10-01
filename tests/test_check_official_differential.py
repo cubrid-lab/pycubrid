@@ -176,7 +176,7 @@ def test_generated_docs_are_rewritten_and_stale_blocks_fail(
     assert len(gate.check_docs(DOC)) == 2
     assert gate.check_docs(DOC, write=True) == []
     assert gate.check_docs(DOC) == []
-    assert "**18**" in docs["en"].read_text(encoding="utf-8")
+    assert f"**{len(DOC['claims'])}**" in docs["en"].read_text(encoding="utf-8")
     docs["ko"].write_text("no markers", encoding="utf-8")
     with pytest.raises(ValueError, match="markers are missing"):
         gate.check_docs(DOC)

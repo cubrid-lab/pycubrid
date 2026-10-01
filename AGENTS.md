@@ -82,7 +82,8 @@ bytes even after a complete element raises DataError (#595). Later structural
 damage wins; complete collections retain the first conversion error. Opaque
 and unsupported nested member layouts keep their existing raw-byte contracts.
 
-Typed collection FC3 binds (#482, internal; no public API until #440) send
+Typed collection FC3 binds (#482; public only through `compat.native`
+`set.imports()`/`bind_set()`, #440) send
 the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument
 and `[element type][int32 len, payload]*` as the value, with no element count.
 INT elements are 4 bytes, STRING (`2`) elements are connection-charset bytes
@@ -90,7 +91,9 @@ plus NUL, and a NULL element has length 0. The broker silently keeps a partial
 collection when an element length overruns the value, so validate every
 element (flat tuple, no mixed/nested/bool/float/bytes) before building bytes.
 Whole SQL NULL stays the scalar NULL pair. 10.2/11.4 brokers reject the
-MULTISET kind with -454.
+MULTISET kind with -454. The public #440 `imports()` matches the official
+bytes: STRING elements whatever the requested type, default kind SET, and
+`kind=MULTISET` sent as SEQUENCE.
 
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
