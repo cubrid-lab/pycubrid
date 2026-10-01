@@ -3,9 +3,14 @@
 In autocommit mode a released handle (``cursor.close()``, re-``execute()``, or a
 cursor collected without ``close()``) is not closed with its own CLOSE_REQ: its
 id rides on the next ``PREPARE_AND_EXECUTE`` as a prepare argument after the
-auto-commit flag, which CAS frees before preparing (``fn_prepare_internal``, JDBC
-deferred close). That saves the CLOSE_REQ and the CHECK_CAS probe its OUT_TRAN
-predecessor would need, and lets collected cursors release their handles at all.
+auto-commit flag, which CAS frees before preparing (``fn_prepare_internal``, the
+wire mechanism of JDBC's deferred close; JDBC itself defers only statements
+without a result set). That saves the CLOSE_REQ and the CHECK_CAS probe its
+OUT_TRAN predecessor would need, and lets collected cursors release their handles
+at all; ``commit()``/``rollback()`` close any still queued with CLOSE_REQ.
+
+The replay broker allocates the lowest free handle id, as CAS does, so an id
+released too late or on the wrong session would collide with a live result.
 
 Only sessions whose broker reports statement pooling defer: without pooling CAS
 frees handles at every commit, so a later id could name a new result. Queued
@@ -20,15 +25,21 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import sys
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
 import pycubrid
 import pycubrid.aio
 from pycubrid import _connection_common
+from pycubrid.aio.cursor import AsyncCursor
+from pycubrid.constants import CUBRIDDataType
+from pycubrid.cursor import Cursor
 
+from .helpers.cas_reply import Column, ResultSet, int_
 from .helpers.fault_broker import build_open_db_body, framed
 from .helpers.replay_broker import (
     OUT_TRAN,
@@ -128,6 +139,7 @@ def _run(
     extra: Callable[[Request, Session], Reply | None] | None = None,
     options: dict[str, Any] | None = None,
     from_start: bool = False,
+    results: dict[str, Any] | None = None,
 ) -> tuple[list[Request], Any]:
     """Run ``steps`` against a fresh broker; return the requests after setup."""
     holder: dict[str, ReplayBroker] = {}
@@ -140,7 +152,7 @@ def _run(
                 return reply
         return base(request, session)
 
-    with run_replay_broker(script, statement_pooling=pooling) as broker:
+    with run_replay_broker(script, results=results, statement_pooling=pooling) as broker:
         holder["broker"] = broker
         driver = _Driver(asynchronous, broker.port, autocommit, options)
         start = 0 if from_start else len(broker.requests)
@@ -220,10 +232,9 @@ def test_unclosed_cursors_release_their_handles(asynchronous: bool) -> None:
     requests, _ = _run(asynchronous, steps)
     framed = _framed(requests)
     assert [function for function, _ in framed] == ["CHECK_CAS", FC41] * 50
-    released = [handle for _, deferred in framed for handle in deferred]
-    # Every handle but the last cursor's is released, each exactly once.
-    assert len(released) == len(set(released)) == 49
-    assert len(framed) == 100
+    # Each statement releases the previous cursor's handle (freed before the
+    # prepare, so the CAS reuses that lowest free id): the table never grows.
+    assert [deferred for function, deferred in framed if function == FC41] == [()] + [(1,)] * 49
 
 
 @ASYNC
@@ -382,7 +393,7 @@ def test_transport_failure_drops_the_queue(asynchronous: bool) -> None:
 
 
 @ASYNC
-def test_commit_keeps_queued_handles_of_a_pooling_session(asynchronous: bool) -> None:
+def test_commit_closes_queued_handles(asynchronous: bool) -> None:
     def steps(d: _Driver) -> int:
         cursor = d.cursor()
         d.select(cursor)
@@ -397,10 +408,13 @@ def test_commit_keeps_queued_handles_of_a_pooling_session(asynchronous: bool) ->
         ("CHECK_CAS", ()),
         (FC41, ()),
         ("CHECK_CAS", ()),
+        ("CLOSE_REQ_HANDLE", ()),
+        ("CHECK_CAS", ()),  # the CLOSE_REQ reply is OUT_TRAN, as before #488
         ("END_TRAN", ()),
         ("CHECK_CAS", ()),
-        (FC41, (handle,)),
+        (FC41, ()),
     ]
+    assert [r.int_arg(0) for r in requests if r.function == "CLOSE_REQ_HANDLE"] == [handle]
 
 
 def _state(monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -420,13 +434,21 @@ class _Dropped:
         self._handle_generation = 2
 
 
-def test_collected_cursors_beyond_the_bound_are_not_queued(
+def test_collected_cursors_beyond_the_bound_are_queued_and_sent_in_batches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     state = _state(monkeypatch)
     for handle in (5, None, 6, 7):
         state._defer_dropped_cursor_close(_Dropped(handle))
-    assert state._deferred_closes == [(2, 5), (2, 6)]
+    assert state._deferred_closes == [(2, 5), (2, 6), (2, 7)]
+    assert state._peek_deferred_closes() == (2, (5, 6))  # at most the limit per request
+    state._consume_deferred_closes(2)
+    assert state._take_deferred_closes() == (7,)
+    assert state._deferred_closes == []
+    state._statement_pooling = 0
+    state._deferred_closes[:] = [(2, 8)]
+    assert state._take_deferred_closes() == ()
+    assert state._deferred_closes == []
 
 
 def test_entries_of_an_earlier_session_are_taken_but_not_sent(
@@ -529,3 +551,119 @@ def test_escape_probe_of_a_replacement_session_closes_its_handle(asynchronous: b
         if r.function == FC41 and not (r.sql or "").startswith("SELECT CHAR_")
     ]
     assert statements == [(0, "SELECT 1", ()), (1, "SELECT 2", ())]
+
+
+@ASYNC
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+def test_boundary_closes_every_dropped_cursor_beyond_the_bound(
+    asynchronous: bool, boundary: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Manual commit, pooling on: dropping more cursors than the per-request
+    bound and ending the transaction leaves no handle allocated (as before
+    cursors were tracked weakly, when the boundary closed them all)."""
+    monkeypatch.setattr(_connection_common, "DEFERRED_CLOSE_LIMIT", 2)
+    holder: dict[str, Any] = {}
+
+    def remember(request: Request, session: Session) -> Reply | None:
+        holder["session"] = session
+        return None
+
+    def steps(d: _Driver) -> list[int]:
+        cursors = [d.cursor() for _ in range(5)]
+        for cursor in cursors:
+            d.select(cursor)
+        handles = [int(cursor._query_handle) for cursor in cursors]
+        del cursors, cursor
+        gc.collect()
+        d.run(getattr(d.conn, boundary)())
+        assert holder["session"].results == {}
+        return handles
+
+    requests, handles = _run(asynchronous, steps, autocommit=False, extra=remember)
+    framed = _framed(requests)
+    end = "END_TRAN"
+    assert [f for f, _ in framed] == [FC41] * 5 + ["CLOSE_REQ_HANDLE"] * 5 + [end]
+    closed = [r.int_arg(0) for r in requests if r.function == "CLOSE_REQ_HANDLE"]
+    assert sorted(closed) == sorted(handles)
+
+
+@ASYNC
+def test_dropped_cursors_beyond_the_bound_ride_on_later_statements(
+    asynchronous: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_connection_common, "DEFERRED_CLOSE_LIMIT", 2)
+
+    def steps(d: _Driver) -> None:
+        cursors = [d.cursor() for _ in range(5)]
+        for cursor in cursors:
+            d.select(cursor)
+        del cursors, cursor
+        gc.collect()
+        for sql in ("SELECT 2", "SELECT 3", "SELECT 4"):
+            d.select(d.cursor(), sql)
+
+    requests, _ = _run(asynchronous, steps)
+    batches = [r.deferred_closes for r in requests if r.function == FC41][5:]
+    assert [len(batch) for batch in batches] == [2, 2, 2]  # 5 dropped + 1 kept per statement
+    assert "CLOSE_REQ_HANDLE" not in [r.function for r in requests]
+
+
+@ASYNC
+def test_stale_id_never_frees_a_live_handle_of_the_replacement_session(
+    asynchronous: bool,
+) -> None:
+    """The replacement session reuses id 1 for a live paged result; the
+    collected cursor's id 1 of the old session must not free it."""
+    results = {"SELECT v FROM paged": (_paged(), 1)}
+
+    def steps(d: _Driver) -> list[Any]:
+        old = d.cursor()
+        d.select(old)
+        assert old._query_handle == 1
+        d.conn._cursors.discard(old)  # what the cycle collector does first
+        d.conn._drop_connection()
+        d.connect()
+        live = d.cursor()
+        d.execute(live, "SELECT v FROM paged")
+        assert live._query_handle == 1  # the same id on the new session
+        del old
+        gc.collect()
+        d.select(d.cursor(), "SELECT 2")
+        return list(d.run(live.fetchall()))
+
+    requests, rows = _run(asynchronous, steps, results=results)
+    assert rows == [(1,), (2,), (3,)]
+    assert all(r.deferred_closes == () for r in requests if r.session == 1)
+
+
+def _paged() -> Any:
+    return ResultSet(
+        "paged",
+        (Column("v", CUBRIDDataType.INT, precision=10),),
+        ((int_(1),), (int_(2),), (int_(3),)),
+    )
+
+
+class _Raises:
+    def _defer_dropped_cursor_close(self, cursor: Any) -> None:
+        raise RuntimeError("connection half torn down")
+
+
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor])
+def test_del_without_connection_is_silent(cursor_class: type) -> None:
+    cursor = cursor_class.__new__(cursor_class)  # __init__ never ran
+    cursor.__del__()
+
+
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor])
+def test_del_never_raises(cursor_class: type, caplog: pytest.LogCaptureFixture) -> None:
+    cursor = cursor_class.__new__(cursor_class)
+    cursor._connection = _Raises()
+    with caplog.at_level("DEBUG"):
+        cursor.__del__()
+    assert "Could not queue a collected cursor's handle" in caplog.text
+    module = sys.modules[cursor_class.__module__]
+    with patch.object(module, "_LOGGER") as logger:
+        logger.debug.side_effect = RuntimeError("logging torn down")
+        cursor.__del__()  # still silent
+    del cursor._connection

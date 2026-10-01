@@ -56,7 +56,8 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Most CLOSE_REQ handle ids held for the next PREPARE_AND_EXECUTE (#488).
+# Most handle ids one PREPARE_AND_EXECUTE carries, and most explicit releases
+# queued before CLOSE_REQ is sent at once (#488).
 DEFERRED_CLOSE_LIMIT = 256
 # OPEN_DATABASE broker_info db_type of a direct CUBRID CAS. A shard proxy
 # (CAS_PROXY_DBMS_*) ignores deferred-close prepare arguments.
@@ -461,29 +462,45 @@ class ConnectionCommonMixin:
         """Queue the handle of a cursor collected without ``close()`` (#488).
 
         Runs from ``__del__``, possibly while another request holds the session
-        lock, so it only appends. The entry carries the generation the handle
-        was opened on, not the current one: a cursor collected in a reference
-        cycle has already left ``_cursors``, so a retirement in between did not
-        clear its handle. A full queue leaves the handle to the end of the
-        session, as before.
+        lock, so it cannot send anything and only appends, in any mode and also
+        during session setup. The entry carries the generation the handle was
+        opened on, not the current one: a cursor collected in a reference cycle
+        has already left ``_cursors``, so a retirement in between did not clear
+        its handle. The entry is always queued, beyond
+        :data:`DEFERRED_CLOSE_LIMIT` too: each entry is a live CAS handle, so
+        the queue cannot outgrow the server's handle table. Each statement
+        carries at most :data:`DEFERRED_CLOSE_LIMIT` ids, and ``commit()`` /
+        ``rollback()`` close the rest with ``CLOSE_REQ``, as they closed
+        unreferenced cursors before.
         """
         handle = getattr(cursor, "_query_handle", None)
         if handle is None or not self._handles_survive_transactions():
             return
-        if len(self._deferred_closes) >= DEFERRED_CLOSE_LIMIT:
-            _LOGGER.debug("Deferred close queue full; handle %d stays open", handle)
-            return
         self._deferred_closes.append((getattr(cursor, "_handle_generation", 0), handle))
+
+    def _take_deferred_closes(self) -> tuple[int, ...]:
+        """Remove every queued entry; return this session's ids for ``CLOSE_REQ``.
+
+        Used at ``commit()`` / ``rollback()`` after the CHECK_CAS check, so a
+        transaction boundary leaves no handle of a dropped cursor allocated.
+        """
+        entries = list(self._deferred_closes)
+        self._consume_deferred_closes(len(entries))
+        if not self._handles_survive_transactions():
+            return ()
+        generation = self._physical_generation
+        return tuple(handle for gen, handle in entries if gen == generation)
 
     def _peek_deferred_closes(self) -> tuple[int, tuple[int, ...]]:
         """Return how many queued entries the next request takes, and its handles.
 
+        At most :data:`DEFERRED_CLOSE_LIMIT` entries are taken per request.
         Entries of an earlier physical session are taken but never sent. The
         caller consumes them with :meth:`_consume_deferred_closes` only once the
         request is about to leave, so a request that fails before sending
         keeps the queue.
         """
-        entries = list(self._deferred_closes)
+        entries = self._deferred_closes[:DEFERRED_CLOSE_LIMIT]
         if not entries:
             return 0, ()
         if not self._handles_survive_transactions():

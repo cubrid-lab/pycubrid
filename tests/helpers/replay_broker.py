@@ -184,6 +184,14 @@ class Session:
     # Functions received so far in this session, including the current one.
     functions: list[str] = field(default_factory=list)
 
+    def allocate_handle(self) -> int:
+        """The lowest free handle id, as CAS ``hm_new_srv_handle`` allocates."""
+        handle = 1
+        while handle in self.results:
+            handle += 1
+        self.next_handle = max(self.next_handle, handle + 1)
+        return handle
+
 
 Script = Callable[[Request, Session], "Reply | None"]
 
@@ -359,7 +367,9 @@ class ReplayBroker:
             )
         if function == "END_TRAN":
             session.status = OUT_TRAN
-            session.results.clear()
+            if not self._statement_pooling:
+                # CAS ux_end_tran frees every handle; with pooling it keeps them.
+                session.results.clear()
             return Reply(ok_body(OUT_TRAN))
         if function == "CON_CLOSE":
             return Reply(ok_body(OUT_TRAN), close=True)
@@ -377,8 +387,7 @@ class ReplayBroker:
             session.status = IN_TRAN
             return Reply(lob_new_reply().data)
         if function == "SCHEMA_INFO":
-            handle = session.next_handle
-            session.next_handle += 1
+            handle = session.allocate_handle()
             session.results[handle] = Result(SCHEMA_RESULT, 0)
             session.status = IN_TRAN
             return Reply(schema_reply(SCHEMA_RESULT, query_handle=handle).data)
@@ -393,8 +402,7 @@ class ReplayBroker:
             rs, inline = _single_int("length", 2), 1
         else:
             rs, inline = self._results.get(sql, (_single_int("value", 1), 1))
-        handle = session.next_handle
-        session.next_handle += 1
+        handle = session.allocate_handle()
         session.results[handle] = Result(rs, inline)
         session.status = IN_TRAN
         return Reply(execute_body(rs, handle=handle, inline=inline))
