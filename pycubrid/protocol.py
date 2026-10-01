@@ -31,7 +31,7 @@ from .exceptions import (
     OperationalError,
     ProgrammingError,
 )
-from .packet import PacketReader, PacketWriter, _codec_label, _encode_text
+from .packet import PacketReader, PacketWriter, _codec_label, _decode_text, _encode_text
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +134,146 @@ def _encode_prepared_scalar(value: Any, encoding: str = "utf-8") -> _PreparedSca
             raise DataError(f"prepared string cannot be encoded as {_codec_label(encoding)}")
         return _PreparedScalar(CUBRIDDataType.CHAR, encoded + b"\x00", encoding)
     raise ProgrammingError("unsupported prepared parameter type")
+
+
+_COLLECTION_TYPE_CODES = frozenset(
+    {CUBRIDDataType.SET, CUBRIDDataType.MULTISET, CUBRIDDataType.SEQUENCE}
+)
+_COLLECTION_ELEMENT_TYPES = frozenset({CUBRIDDataType.INT, CUBRIDDataType.STRING})
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedCollection:
+    """One validated typed collection for a prepared FC3 request (#482).
+
+    The value argument is ``[element type byte]`` followed by one
+    ``int32 length + payload`` per element, with no element count. A ``None``
+    element is a NULL element (length 0). Whole SQL NULL is a
+    ``_PreparedScalar``, never this type. The broker keeps a partial
+    collection when an element length overruns the argument, so every
+    element is checked here and the framing is always exact.
+    """
+
+    type_code: int
+    element_type: int
+    elements: tuple[bytes | None, ...]
+    encoding: str = "utf-8"
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.type_code, bool)
+            or not isinstance(self.type_code, int)
+            or self.type_code not in _COLLECTION_TYPE_CODES
+        ):
+            raise ProgrammingError("unsupported prepared collection type code")
+        if (
+            isinstance(self.element_type, bool)
+            or not isinstance(self.element_type, int)
+            or self.element_type not in _COLLECTION_ELEMENT_TYPES
+        ):
+            raise ProgrammingError("unsupported prepared collection element type")
+        if type(self.elements) is not tuple:
+            raise ProgrammingError("prepared collection elements must be a tuple")
+        for element in self.elements:
+            if element is None:
+                continue
+            if type(element) is not bytes:
+                raise ProgrammingError("invalid prepared collection element payload")
+            if self.element_type == CUBRIDDataType.INT:
+                if len(element) != 4:
+                    raise ProgrammingError("prepared INT element must have four value bytes")
+            else:
+                if not element.endswith(b"\x00") or b"\x00" in element[:-1]:
+                    raise ProgrammingError("prepared string element must have one terminal NUL")
+                try:
+                    # Server-compatible decoding: rejects EUC-KR makeup
+                    # sequences that _encode_text() never produces.
+                    _decode_text(element[:-1], self.encoding)
+                except UnicodeDecodeError:
+                    raise DataError(
+                        f"prepared string element is not valid {_codec_label(self.encoding)}"
+                    ) from None
+
+    @property
+    def payload(self) -> bytes:
+        """Return the exact FC3 value argument (without its own length prefix)."""
+        parts = [bytes((self.element_type,))]
+        for element in self.elements:
+            if element is None:
+                parts.append(b"\x00\x00\x00\x00")
+            else:
+                parts.append(struct.pack(">i", len(element)))
+                parts.append(element)
+        return b"".join(parts)
+
+
+def _collection_int(value: int | str) -> int:
+    """Return an INT element from an int or a canonical ASCII decimal string."""
+    if isinstance(value, str):
+        digits = value[1:] if value.startswith("-") else value
+        if (
+            not digits
+            or not digits.isascii()
+            or not digits.isdigit()
+            or (digits[0] == "0" and value != "0")
+        ):
+            raise ProgrammingError("prepared INT element string is not a canonical integer")
+        # Longer strings are out of range; this also stays below int()'s
+        # digit limit.
+        number = int(value) if len(digits) <= 10 else 2**31
+    else:
+        number = value
+    if not -(2**31) <= number < 2**31:
+        raise DataError("prepared INT element is outside signed 32-bit range")
+    return number
+
+
+def _encode_prepared_collection(
+    values: Any, type_code: int, element_type: int, encoding: str = "utf-8"
+) -> _PreparedCollection:
+    """Encode a flat tuple as one typed SET/MULTISET/SEQUENCE bind (#482).
+
+    INT elements accept ``int`` (not ``bool``), or canonical decimal strings
+    as the official call shape ``('1', '2')`` sends; one collection must not
+    mix the two. STRING elements accept ``str`` only and use ``encoding``, the
+    connection charset. ``None`` is a NULL element and an empty tuple is an
+    empty collection. Everything else, including nested containers, is
+    rejected before any bytes are built; messages never echo the value.
+    """
+    if type(values) is not tuple:
+        raise ProgrammingError("prepared collection must be a tuple")
+    # Validate the codes before the elements so a bad code is not reported
+    # as an element error.
+    _PreparedCollection(type_code, element_type, ())
+    encoded: list[bytes | None] = []
+    int_kind: type | None = None
+    for value in values:
+        if value is None:
+            encoded.append(None)
+            continue
+        if isinstance(value, (tuple, list, set, frozenset, dict)):
+            raise ProgrammingError("nested prepared collections are not supported")
+        if element_type == CUBRIDDataType.INT:
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                raise ProgrammingError("unsupported prepared INT element type")
+            kind = str if isinstance(value, str) else int
+            if int_kind is None:
+                int_kind = kind
+            elif int_kind is not kind:
+                raise ProgrammingError("prepared INT collection mixes int and string elements")
+            encoded.append(struct.pack(">i", _collection_int(value)))
+            continue
+        if not isinstance(value, str):
+            raise ProgrammingError("unsupported prepared string element type")
+        if "\x00" in value:
+            raise ProgrammingError("prepared string element contains NUL")
+        text, _position = _encode_text(value, encoding)
+        if text is None:
+            raise DataError(
+                f"prepared string element cannot be encoded as {_codec_label(encoding)}"
+            )
+        encoded.append(text + b"\x00")
+    return _PreparedCollection(type_code, element_type, tuple(encoded), encoding)
 
 
 # ---------------------------------------------------------------------------
@@ -1186,7 +1326,7 @@ class ExecutePacket(_CasPacket):
         decode_collections: bool = False,
         json_deserializer: Any = None,
         *,
-        bindings: Sequence[_PreparedScalar] = (),
+        bindings: Sequence[_PreparedScalar | _PreparedCollection] = (),
         bind_count: int | None = None,
         forward_only: bool | None = None,
     ) -> None:
@@ -1236,9 +1376,13 @@ class ExecutePacket(_CasPacket):
         writer.add_cache_time()
         writer.add_int(0)  # query timeout
         for binding in self.bindings:
-            if not isinstance(binding, _PreparedScalar):
+            if isinstance(binding, _PreparedScalar):
+                has_text = binding.type_code == CUBRIDDataType.CHAR
+            elif isinstance(binding, _PreparedCollection):
+                has_text = binding.element_type == CUBRIDDataType.STRING
+            else:
                 raise ProgrammingError("invalid prepared parameter encoding")
-            if binding.type_code == CUBRIDDataType.CHAR and binding.encoding != self.encoding:
+            if has_text and binding.encoding != self.encoding:
                 raise ProgrammingError("prepared string was encoded for a different charset")
             writer.add_byte(binding.type_code)
             writer.add_bytes(binding.payload)

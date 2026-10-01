@@ -408,6 +408,24 @@ NUL byte, not NULL. The optional `bind_count` must match the number of
 bindings. The forward-only byte follows effective autocommit: `1` in auto
 mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
 
+An internal typed collection binding (#482; no public API yet, see #440) uses
+the same pair. The type argument is the collection kind: SET (`16`), MULTISET
+(`17`) or SEQUENCE (`18`). The value argument is one element-type byte, INT
+(`8`) or STRING (`2`, the byte the official driver sends), followed by one
+`int32 length + payload` per element. There is no element count in the
+request. An INT element is four big-endian bytes, a string element is the
+connection-charset bytes plus NUL, and a NULL element has length 0. An empty
+collection is the element-type byte alone. Whole SQL NULL is the scalar NULL
+pair, not a collection. The broker stops parsing silently and keeps the
+partial collection when an element length overruns the argument
+(`cas_execute.c`), so elements are validated before any bytes are built:
+input must be a flat tuple; INT elements are `int` (not `bool`) or canonical
+decimal strings, not both in one collection; string elements are `str`
+without NUL. Mixed, nested, `bool`, `float` and `bytes` elements are rejected.
+On CUBRID 10.2 and 11.4 the broker rejects the MULTISET kind with error -454
+(it wraps the multiset with `db_make_set()`), and a SET value stored into a
+MULTISET column loses duplicates; a SEQUENCE value keeps them.
+
 For protocol version >1, an `include_column_info=1` response carries the
 full FC2 prepare-info tail before the shard ID and inline FETCH. The parser
 updates statement/bind/column metadata and rejects truncated tails. A

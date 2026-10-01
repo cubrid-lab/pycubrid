@@ -72,6 +72,16 @@ size (#523), or collection elements that do not fill their size, raise
 response from broker')` and closes. Trailing bytes after the last declared
 value are not checked; `DataError` is only for a complete reply (#492, #512).
 
+Typed collection FC3 binds (#482, internal; no public API until #440) send
+the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument
+and `[element type][int32 len, payload]*` as the value, with no element count.
+INT elements are 4 bytes, STRING (`2`) elements are connection-charset bytes
+plus NUL, and a NULL element has length 0. The broker silently keeps a partial
+collection when an element length overruns the value, so validate every
+element (flat tuple, no mixed/nested/bool/float/bytes) before building bytes.
+Whole SQL NULL stays the scalar NULL pair. 10.2/11.4 brokers reject the
+MULTISET kind with -454.
+
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
 session. Because the CAS may still close the socket after an OUT_TRAN reply
