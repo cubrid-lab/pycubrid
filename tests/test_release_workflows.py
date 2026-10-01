@@ -14,6 +14,8 @@ from typing import Any
 import pytest
 import yaml
 
+pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 PINNED = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")

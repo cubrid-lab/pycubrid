@@ -14,6 +14,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "pr-title.yml"
 BEGIN = "# BEGIN pr-title-validator"

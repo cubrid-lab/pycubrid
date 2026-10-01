@@ -13,6 +13,10 @@ import tempfile
 import textwrap
 import unittest
 
+import pytest
+
+pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = json.loads((ROOT / "tests/fixtures/docs-reason-events.json").read_text())
 WORKFLOW = ROOT / ".github/workflows/docs-sync.yml"

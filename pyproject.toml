@@ -116,6 +116,7 @@ markers = [
     "official_differential: claims-driven comparison with the pinned official CUBRIDdb driver (official-differential job, #446)",
     "benchmark: performance benchmark (requires a live CUBRID server)",
     "no_escape_pin: opt out of the autouse backslash-escape-mode default pin to exercise real negotiation (#524)",
+    "repo_tooling: repository policy/tooling check (docs, release scripts, CI workflow contracts, PR title) with no pycubrid driver behavior, run in the repo-tooling-tests job (#558)",
 ]
 
 [tool.mutmut]

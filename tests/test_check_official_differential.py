@@ -16,6 +16,8 @@ from scripts import check_official_differential as gate
 from scripts.check_integration_lanes import OFFICIAL_SKIP_REASON
 from tests.test_official_differential import SKIP_REASON, render
 
+pytestmark = pytest.mark.repo_tooling
+
 DOC = gate.load_claims()
 INVENTORY = gate.inventory_ids()
 SCENARIOS = gate.scenario_ids()
