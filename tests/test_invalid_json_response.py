@@ -176,6 +176,8 @@ def _mock_connection(asynchronous: bool) -> MagicMock:
     connection = MagicMock()
     connection._timing = None
     connection._cursors = set()
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    connection._defer_close = MagicMock(return_value=False)
     connection.autocommit = True
     connection._protocol_version = 8
     connection._decode_collections = False

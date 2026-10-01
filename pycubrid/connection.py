@@ -85,9 +85,9 @@ class Connection(ConnectionCommonMixin):
             enable_timing=kwargs.get("enable_timing"),
             charset=kwargs.get("charset", "utf-8"),
         )
-        # OPEN_DATABASE advertises this per physical broker session.  A
+        # OPEN_DATABASE advertises statement pooling per physical broker
+        # session (``_statement_pooling``, set up by _init_common_state). A
         # prepared handle may be reused only on a measured pooling-on lane.
-        self._statement_pooling: int | None = None
 
         # Applied by connect() on the session it opens (async parity).
         self._pending_autocommit = bool(autocommit)
@@ -330,6 +330,7 @@ class Connection(ConnectionCommonMixin):
             self._session_id = open_db_packet.session_id
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
+            self._broker_db_type = open_db_packet.broker_info.get("db_type")
             self._connected = True
             self._verified_cas_info = self._cas_info
             self._physical_generation += 1
@@ -929,10 +930,14 @@ class Connection(ConnectionCommonMixin):
         request_socket = self._socket
         attempted_send = False
         response_complete = False
+        deferred_count = 0
         try:
             # Every request on this connection uses its charset (#86); encoding
             # happens in write(), so an unencodable value sends nothing.
             packet.encoding = self._encoding
+            if isinstance(packet, PrepareAndExecutePacket):
+                # Release queued handles of this session with this request (#488).
+                deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
             try:
                 request_data = packet.write(self._cas_info)
             except struct.error as exc:
@@ -941,6 +946,8 @@ class Connection(ConnectionCommonMixin):
             # Re-check immediately before bytes can leave this socket.
             self._validate_prepared_session(expected_generation, request_socket)
             attempted_send = True
+            # Sent (or uncertain, which retires the session): never send them again.
+            self._consume_deferred_closes(deferred_count)
             request_socket.sendall(request_data)
             self._validate_prepared_session(expected_generation, request_socket)
             if _LOGGER.isEnabledFor(logging.DEBUG):

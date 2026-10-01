@@ -52,6 +52,8 @@ class AsyncCursor(_AsyncCursorBase):
         self._rowcount: int = -1
         self._arraysize: int = 1
         self._query_handle: int | None = None
+        # Physical session generation the query handle was opened on (#488).
+        self._handle_generation = 0
         self._columns: list[ColumnMetaData] = []
         self._rows: list[tuple[Any, ...]] = []
         self._row_index: int = 0
@@ -99,16 +101,28 @@ class AsyncCursor(_AsyncCursorBase):
             raise ProgrammingError("fetch_size must be an integer >= 1")
         self._fetch_size = value
 
+    def __del__(self) -> None:
+        # A cursor dropped without close() releases its handle later (#488).
+        connection = getattr(self, "_connection", None)
+        if connection is None:
+            return
+        try:
+            connection._defer_dropped_cursor_close(self)
+        except Exception:  # noqa: BLE001 - e.g. interpreter shutdown; never raise from __del__
+            _LOGGER.debug("Could not queue a collected cursor's handle", exc_info=True)
+
     async def close(self) -> None:
         if self._closed:
             return
         _LOGGER.debug("cursor.close (handle=%s)", self._query_handle)
         try:
-            if self._query_handle is not None:
+            handle = self._query_handle
+            if handle is not None:
                 self._connection._ensure_connected()
-                await self._connection._send_and_receive(
-                    CloseQueryPacket(self._query_handle), handle_owner=self
-                )
+                if not self._connection._defer_close(handle, self._handle_generation):
+                    await self._connection._send_and_receive(
+                        CloseQueryPacket(handle), handle_owner=self
+                    )
         except (InterfaceError, OperationalError, OSError):
             pass
         finally:
@@ -135,10 +149,13 @@ class AsyncCursor(_AsyncCursorBase):
         if _timing is not None:
             _start = time.perf_counter_ns()
 
-        if self._query_handle is not None:
-            await self._connection._send_and_receive(
-                CloseQueryPacket(self._query_handle), handle_owner=self
-            )
+        handle = self._query_handle
+        if handle is not None:
+            # In autocommit the CLOSE_REQ rides on this execute's request (#488).
+            if not self._connection._defer_close(handle, self._handle_generation):
+                await self._connection._send_and_receive(
+                    CloseQueryPacket(handle), handle_owner=self
+                )
             self._query_handle = None
 
         # Once the previous query is closed, a failed execute has no result set.
@@ -177,6 +194,7 @@ class AsyncCursor(_AsyncCursorBase):
             # the session is intact (#492). Own the server handle the reply
             # opened, with no result set, so the usual lifecycle releases it.
             self._query_handle = packet.query_handle or None
+            self._handle_generation = self._connection._physical_generation
             raise
         # Cleared only now: a reconnect before this send flags every cursor.
         self._invalidated_by_reconnect = False
@@ -189,6 +207,7 @@ class AsyncCursor(_AsyncCursorBase):
             )
 
         self._query_handle = packet.query_handle
+        self._handle_generation = self._connection._physical_generation
         self._statement_type = packet.statement_type
         self._columns = list(packet.columns)
         self._description = self._build_description(self._columns)

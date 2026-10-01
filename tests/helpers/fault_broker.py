@@ -36,6 +36,8 @@ def build_open_db_body(
     response_code: int = 0,
     protocol_version: int = 8,
     session_id: int = 1,
+    statement_pooling: int = 0,
+    db_type: int = 1,
 ) -> bytes:
     """Build a well-formed ``OPEN_DATABASE`` response *body*.
 
@@ -45,6 +47,8 @@ def build_open_db_body(
     broker_info = bytearray(DataSize.BROKER_INFO)
     # broker_info[4] low 6 bits carry the protocol version (see parse()).
     broker_info[4] = protocol_version & 0x3F
+    broker_info[0] = db_type  # 1: CUBRID CAS; 4-6: shard proxy
+    broker_info[2] = statement_pooling
     return (
         cas_info
         + struct.pack(">i", response_code)
