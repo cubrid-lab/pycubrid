@@ -248,6 +248,17 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `pycubrid.aio` already did. Nothing extra is sent when `autocommit` was never
   set explicitly. No public signature, dependency or supported-version change.
 
+- **Negative FC41 column metadata lengths and column counts are rejected
+  (#555)** — PATCH / correction of a protocol-robustness defect completing
+  #383. A `PREPARE_AND_EXECUTE` reply with a negative column name, real-name,
+  table-name or default length, or a negative column count, now raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection instead of decoding an empty string or a result with no columns,
+  matching FC2/FC3 metadata. A normal server does not send such replies. Valid
+  replies, zero-length metadata, the `DataError` classification of complete
+  replies (#492, #512), public signatures, dependencies and supported versions
+  are unchanged.
+
 - **Invalid JSON text in a complete reply raises `DataError` (#543)** — PATCH /
   correction of error classification, extending #492 and #512. A `JSON` column
   value that is not valid JSON, decoded with the built-in
