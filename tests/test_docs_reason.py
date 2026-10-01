@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import inspect
+import io
 import json
 import os
 from pathlib import Path
 import re
-import subprocess
-import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = json.loads((ROOT / "tests/fixtures/docs-reason-events.json").read_text())
@@ -805,12 +806,74 @@ class DocsReasonWorkflowTests(unittest.TestCase):
         )
         self.assertTrue(has_docs_not_needed_reason("Docs: not needed - tests only <!-- note -->"))
 
+    def test_known_docs_reason_helper_limitations(self) -> None:
+        """Lock in the outcome for the four cases tracked by #429.
+
+        Codex reported these against the final head of #425 (e94ee3d). Cases
+        1-3 were already corrected by later commits before #425 merged; only
+        case 4 (empty emphasis inside a caption) was still live on this
+        module and is fixed alongside this regression test (#429 decision:
+        harden the existing structure for this one remaining case, rather
+        than rewrite the helper — see the issue for the recorded rationale).
+        """
+        from scripts.check_docs_reason import has_docs_not_needed_reason
+
+        # Case 1: an unmatched backtick paragraph interrupted by a type-6 HTML
+        # block (`<div>`) must not pair across the block and hide a real
+        # reason. Already correct; guarded here against regressing.
+        self.assertTrue(
+            has_docs_not_needed_reason(
+                "`unmatched\n<div>\nDocs: not needed - tests only\n</div>\nlast `"
+            )
+        )
+
+        # Case 2: bracket-bearing HTML-only captions render no visible
+        # explanation and must be rejected. Already correct; guarded here.
+        for reason in (
+            "[<!--[-->](/issue)",
+            '[<span title="["></span>](/issue)',
+        ):
+            self.assertFalse(has_docs_not_needed_reason("Docs: not needed - " + reason))
+
+        # Case 3: compound empty-caption markup (adjacent or nested empty
+        # links/images) renders no visible explanation and must be rejected.
+        # Already correct; guarded here.
+        for reason in ("[]() []()", "[![](/img)](/issue)"):
+            self.assertFalse(has_docs_not_needed_reason("Docs: not needed - " + reason))
+
+        # Case 4: empty emphasis inside a caption (the delimiters are not
+        # themselves visible explanatory text) — fixed by this change.
+        for reason in ("[**<!-- empty -->**](/issue)", "[**![](/img)**](/issue)"):
+            self.assertFalse(has_docs_not_needed_reason("Docs: not needed - " + reason))
+
+        # A real reason still surviving an emphasis wrapper stays accepted.
+        self.assertTrue(has_docs_not_needed_reason("Docs: not needed - [**tests only**](/issue)"))
+
     def test_actual_event_json_and_py_source_globs(self) -> None:
+        # The embedded script is executed in-process (not re-spawned as a fresh
+        # `python -` subprocess per fixture case) so this test stays fast: a
+        # subprocess per case cost ~8.7s of the offline suite's ~22s runtime.
+        # It still runs the exact source text extracted from the workflow file,
+        # against a real `git` shim subprocess, so it exercises the same code
+        # path the workflow does; only the interpreter-startup cost is removed.
+        code = compile(workflow_python(), str(WORKFLOW), "exec")
+
+        def run_script() -> tuple[int, str]:
+            buffer = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(buffer):
+                    exec(code, {"__name__": "__docs_sync_under_test__"})
+            except SystemExit as exc:
+                return (exc.code if isinstance(exc.code, int) else 1), buffer.getvalue()
+            return 0, buffer.getvalue()
+
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
+            # A tiny shell shim (not a Python shebang script) so each of the many
+            # fixture cases below forks a shell instead of starting an interpreter.
             git = temporary / "git"
             git.write_text(
-                f"#!{sys.executable}\nimport os, sys\nif sys.argv[1] == 'diff':\n    sys.stdout.write(os.environ['DOCS_TEST_CHANGED'])\n"
+                '#!/bin/sh\nif [ "$1" = diff ]; then printf %s "$DOCS_TEST_CHANGED"; fi\n'
             )
             git.chmod(0o755)
             event = temporary / "event.json"
@@ -828,38 +891,20 @@ class DocsReasonWorkflowTests(unittest.TestCase):
             for case in FIXTURES:
                 with self.subTest(case=case["id"]):
                     event.write_text(json.dumps(case["event"]))
-                    run = subprocess.run(
-                        [sys.executable, "-"],
-                        input=workflow_python(),
-                        cwd=ROOT,
-                        env=env,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=10,
-                    )
-                    self.assertEqual(
-                        run.returncode == 0,
-                        case["expected_docs_exemption"],
-                        run.stdout + run.stderr,
-                    )
+                    with mock.patch.dict(os.environ, env, clear=True):
+                        returncode, output = run_script()
+                    self.assertEqual(returncode == 0, case["expected_docs_exemption"], output)
             event.write_text(json.dumps({"pull_request": {"body": None, "labels": []}}))
             for changed in (
                 "pycubrid/cursor.py\ndocs/API_REFERENCE.md\n",
                 "tests/test_cursor.py\n",
             ):
                 with self.subTest(changed=changed):
-                    run = subprocess.run(
-                        [sys.executable, "-"],
-                        input=workflow_python(),
-                        cwd=ROOT,
-                        env={**env, "DOCS_TEST_CHANGED": changed},
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=10,
-                    )
-                    self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                    with mock.patch.dict(
+                        os.environ, {**env, "DOCS_TEST_CHANGED": changed}, clear=True
+                    ):
+                        returncode, output = run_script()
+                    self.assertEqual(returncode, 0, output)
 
     def test_json_data_and_existing_translation_authorization_are_preserved(self) -> None:
         text = WORKFLOW.read_text()
