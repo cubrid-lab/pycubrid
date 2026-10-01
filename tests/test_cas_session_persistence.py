@@ -129,6 +129,7 @@ async def test_async_cancelled_reply_retires_transport() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.no_escape_pin
 @pytest.mark.asyncio
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=[adapter.kind for adapter in ADAPTERS])
 @pytest.mark.parametrize("boundary", ["commit", "rollback"])

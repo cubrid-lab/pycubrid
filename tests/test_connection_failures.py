@@ -66,6 +66,7 @@ def test_closed_port_is_refused() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.no_escape_pin
 def test_wrong_credentials_rejected() -> None:
     with pytest.raises(DatabaseError):
         pycubrid.connect(

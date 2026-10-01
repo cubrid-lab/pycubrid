@@ -64,7 +64,7 @@ DEFAULT_TRUST_FILE = os.environ.get("SSL_CERT_FILE")
 _plain_port = os.environ.get("CUBRID_TLS_TEST_PLAIN_PORT")
 PLAIN_PORT = int(_plain_port) if _plain_port else None
 
-pytestmark = [pytest.mark.integration, pytest.mark.tls]
+pytestmark = [pytest.mark.integration, pytest.mark.tls, pytest.mark.no_escape_pin]
 
 _TIMEOUT = 5.0
 
