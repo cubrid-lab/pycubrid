@@ -777,6 +777,17 @@ Prepare and execute a SQL statement.
 
 **Returns:** The cursor itself (for chaining).
 
+After closing the previous query handle, `execute()` clears its result state
+before binding parameters or sending the new statement, discarding buffered rows
+and any held fetch-page error. If binding or the request fails, `description` is
+`None`, `rowcount` is `-1`, `lastrowid` is `None`, and fetch methods raise
+`InterfaceError("No result set available")`. A later successful `execute()` can
+reuse the cursor. If closing the previous handle fails, `execute()` keeps the
+buffered result and its page error; connection invalidation or reconnect handling
+may still retire the handle. An undecodable replacement reply may open a new query
+handle, which stays tracked for cleanup. This behaviour applies to both `Cursor`
+and `AsyncCursor`.
+
 **Raises:**
 - `InterfaceError` if the cursor is closed
 - `ProgrammingError` on SQL errors or parameter mismatch
