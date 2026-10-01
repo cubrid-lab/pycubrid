@@ -38,6 +38,7 @@ from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.slow,
+    pytest.mark.no_escape_pin,
 ]
 
 

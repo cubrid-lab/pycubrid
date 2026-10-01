@@ -14,7 +14,7 @@ import pytest
 from pycubrid.exceptions import DataError
 from tests._parity_helpers import ADAPTERS, ParityAdapter, table_name
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 _MISSING = object()
 AMBIGUOUS = "2026-11-01 01:30:00.250 America/New_York"

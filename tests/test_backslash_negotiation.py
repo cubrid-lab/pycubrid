@@ -23,6 +23,8 @@ from .test_async import make_streams_for_connect
 from .test_connection import build_handshake_response, build_open_db_response, make_socket
 from .test_aio_ping import make_async_connection
 
+pytestmark = pytest.mark.no_escape_pin
+
 
 def _make_sync_conn(
     fetchone_result: object,
