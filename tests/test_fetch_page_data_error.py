@@ -11,6 +11,7 @@ and retries cannot loop on the server.
 
 from __future__ import annotations
 
+import asyncio
 import struct
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -20,8 +21,9 @@ import pytest
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.cursor import Cursor
-from pycubrid.exceptions import DataError
-from pycubrid.protocol import FetchPacket, PrepareAndExecutePacket
+from pycubrid.exceptions import DataError, ProgrammingError
+from pycubrid.protocol import CloseQueryPacket, FetchPacket, PrepareAndExecutePacket
+from tests.test_execute_failure import _assert_no_result, _call
 from tests.test_json_decode import _build_select_response
 from tests.test_zero_temporal_values import _ZERO_DATE, _fetch_body
 
@@ -78,8 +80,10 @@ def _connection(broker: _Broker, asynchronous: bool) -> MagicMock:
     if asynchronous:
         connection._send_and_receive = AsyncMock(side_effect=broker.reply)
         connection._wait_for_setup_if_needed = AsyncMock()
+        connection._generation_for_binding = AsyncMock(return_value=1)
     else:
         connection._send_and_receive = MagicMock(side_effect=broker.reply)
+        connection._generation_for_binding = MagicMock(return_value=1)
     return connection
 
 
@@ -247,3 +251,142 @@ async def test_execute_clears_held_page_error(kind: type) -> None:
     # A new result set must fetch across pages normally, not stop early.
     await cur.execute()
     assert [_day(row) for row in await cur.fetchmany(3)] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", CURSORS)
+@pytest.mark.parametrize("failure", ["binding", "sql"])
+async def test_failed_execute_clears_held_page_error(kind: type, failure: str) -> None:
+    broker = _Broker(bad_fetches=1)
+    cur = kind(broker)
+    await cur.execute()
+    with pytest.raises(DataError) as previous:
+        await cur.fetchall()
+    assert _day(await cur.fetchone()) == 1
+    cursor = cur.cursor
+    assert cursor._page_error is previous.value
+    assert cursor._row_index == 1
+    connection = cursor._connection
+    error = ProgrammingError("replacement failed")
+
+    def fail_replacement(packet: object, **kwargs: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            raise error
+        return broker.reply(packet, **kwargs)
+
+    connection._send_and_receive.reset_mock()
+    connection._send_and_receive.side_effect = fail_replacement
+    with pytest.raises(ProgrammingError) as raised:
+        await _call(
+            cursor,
+            "execute",
+            "SELECT ?" if failure == "binding" else "INVALID SQL",
+            (1, 2) if failure == "binding" else None,
+        )
+    assert raised.value is not previous.value
+    if failure == "sql":
+        assert raised.value is error
+    await _assert_no_result(cursor)
+    assert cursor._query_handle is None
+    packets = [call.args[0] for call in connection._send_and_receive.call_args_list]
+    assert isinstance(packets[0], CloseQueryPacket)
+    assert packets[0].query_handle == 1
+    assert len(packets) == (1 if failure == "binding" else 2)
+    assert broker.positions == [1, 3]
+
+    connection._send_and_receive.side_effect = broker.reply
+    await cur.execute()
+    assert [_day(row) for row in await cur.fetchall()] == [1, 2, 3, 4, 5]
+    assert broker.positions == [1, 3, 1, 3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", CURSORS)
+async def test_close_failure_preserves_held_page_error(kind: type) -> None:
+    broker = _Broker(bad_fetches=1)
+    cur = kind(broker)
+    await cur.execute()
+    with pytest.raises(DataError) as previous:
+        await cur.fetchall()
+    assert _day(await cur.fetchone()) == 1
+    cursor = cur.cursor
+    before = {
+        "_description": cursor._description,
+        "_columns": list(cursor._columns),
+        "_rows": list(cursor._rows),
+        "_row_index": cursor._row_index,
+        "_fetched_count": cursor._fetched_count,
+        "_total_tuple_count": cursor._total_tuple_count,
+        "_rowcount": cursor._rowcount,
+        "_lastrowid": cursor._lastrowid,
+        "_query_handle": cursor._query_handle,
+    }
+    connection = cursor._connection
+    error = ProgrammingError("close failed")
+    connection._send_and_receive.reset_mock()
+    connection._generation_for_binding.reset_mock()
+    connection._send_and_receive.side_effect = error
+    with pytest.raises(ProgrammingError) as raised:
+        await _call(cursor, "execute", "SELECT ?", (99,))
+    assert raised.value is error
+    assert {name: getattr(cursor, name) for name in before} == before
+    assert cursor._page_error is previous.value
+    connection._generation_for_binding.assert_not_called()
+    assert [_day(row) for row in await cur.fetchall()] == [2, 3]
+    for fetch in (cur.fetchone, lambda: cur.fetchmany(1), cur.fetchall):
+        with pytest.raises(DataError) as again:
+            await fetch()
+        assert again.value is previous.value
+    connection._send_and_receive.assert_called_once()
+    assert broker.positions == [1, 3]
+
+    connection._send_and_receive.side_effect = broker.reply
+    await cur.execute()
+    packets = [call.args[0] for call in connection._send_and_receive.call_args_list]
+    assert [packet.query_handle for packet in packets if isinstance(packet, CloseQueryPacket)] == [
+        1,
+        1,
+    ]
+    assert [_day(row) for row in await cur.fetchall()] == [1, 2, 3, 4, 5]
+    assert broker.positions == [1, 3, 1, 3]
+
+
+@pytest.mark.asyncio
+async def test_async_execute_cancellation_clears_held_page_error() -> None:
+    broker = _Broker(bad_fetches=1)
+    cur = _Async(broker)
+    await cur.execute()
+    with pytest.raises(DataError) as previous:
+        await cur.fetchall()
+    assert _day(await cur.fetchone()) == 1
+    cursor = cur.cursor
+    assert cursor._page_error is previous.value
+    connection = cursor._connection
+    connection._send_and_receive.reset_mock()
+    started = asyncio.Event()
+
+    async def wait_for_reply(packet: object, **kwargs: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            started.set()
+            await asyncio.Future()
+        return broker.reply(packet, **kwargs)
+
+    connection._send_and_receive.side_effect = wait_for_reply
+    task = asyncio.create_task(cursor.execute("SELECT 99"))
+    await asyncio.wait_for(started.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+    await _assert_no_result(cursor)
+    assert cursor._query_handle is None
+    packets = [call.args[0] for call in connection._send_and_receive.call_args_list]
+    assert len(packets) == 2
+    assert isinstance(packets[0], CloseQueryPacket)
+    assert packets[0].query_handle == 1
+    assert isinstance(packets[1], PrepareAndExecutePacket)
+    assert broker.positions == [1, 3]
+
+    connection._send_and_receive.side_effect = broker.reply
+    await cur.execute()
+    assert [_day(row) for row in await cur.fetchall()] == [1, 2, 3, 4, 5]
+    assert broker.positions == [1, 3, 1, 3]
