@@ -133,7 +133,7 @@ jobs:
         shell: bash
         run: |
           python -m pytest tests/ \
-            -m "not integration" \
+            -m "not integration and not repo_tooling" \
             -v --tb=short \
             --cov=pycubrid \
             --cov-report=term-missing \
@@ -149,6 +149,33 @@ jobs:
           fail_ci_if_error: false
         env:
           CODECOV_RETRIES: 3
+
+  repo-tooling-tests:
+    # Repository policy/tooling checks (docs-sync, PR-title, release scripts,
+    # workflow-YAML contracts, the shared quality gate, ...): no pycubrid
+    # driver behavior and excluded from `pycubrid`'s coverage source (#558),
+    # so they run here instead of in the offline-tests matrix, where their
+    # subprocess/importlib overhead otherwise lengthened routine driver
+    # feedback. A 2-OS x 1-Python matrix keeps the shell-dependent checks
+    # covered on both platforms without repeating all 5 Python versions.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run repository tooling tests
+        shell: bash
+        run: python -m pytest tests/ -m "repo_tooling" -v --tb=short
 
   packaging-smoke-test:
     runs-on: ubuntu-latest
@@ -512,7 +539,7 @@ jobs:
   ci-gate:
     name: CI Gate (all checks must pass)
     if: always()
-    needs: [lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, integration-charset, compat-check, integration-tls, official-differential]
+    needs: [lint, typecheck, offline-tests, repo-tooling-tests, packaging-smoke-test, integration-tests, integration-charset, compat-check, integration-tls, official-differential]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
@@ -520,6 +547,7 @@ jobs:
           R_LINT: ${{ needs.lint.result }}
           R_TYPECHECK: ${{ needs.typecheck.result }}
           R_OFFLINE: ${{ needs.offline-tests.result }}
+          R_REPO_TOOLING: ${{ needs.repo-tooling-tests.result }}
           R_PACKAGING: ${{ needs.packaging-smoke-test.result }}
           R_INTEGRATION: ${{ needs.integration-tests.result }}
           R_CHARSET: ${{ needs.integration-charset.result }}
@@ -529,7 +557,7 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
-          for var in R_LINT R_TYPECHECK R_OFFLINE R_PACKAGING R_COMPAT; do
+          for var in R_LINT R_TYPECHECK R_OFFLINE R_REPO_TOOLING R_PACKAGING R_COMPAT; do
             if [[ "${!var}" != "success" ]]; then
               echo "::error::Required job ${var#R_} result: ${!var}"
               fail=1
