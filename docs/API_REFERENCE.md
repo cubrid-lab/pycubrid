@@ -386,7 +386,10 @@ def commit(self) -> None
 Commit the current transaction. Sends `CLOSE_REQ` for query handles still held
 by unclosed cursors, then a `CommitPacket` to the server (#485). Rows already
 received stay readable. In autocommit mode no `END_TRAN` is sent, so close
-cursors to release their server handles. If the CAS recycled its session after an earlier
+cursors to release their server handles; with a statement-pooling broker the
+release rides on the next statement instead of its own `CLOSE_REQ`, and a cursor
+collected without `close()` is released the same way
+([deferred close](PROTOCOL.md), #488). If the CAS recycled its session after an earlier
 out-of-transaction reply, the request is preceded by the verified reconnect
 described in [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary).
 

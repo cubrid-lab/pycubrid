@@ -661,6 +661,7 @@ def test_cursor_owns_and_releases_the_handle_after_metadata_decode_failure() -> 
     connection._decode_collections = False
     connection._json_deserializer = None
     connection._send_and_receive = MagicMock(side_effect=reply)
+    connection._defer_close = MagicMock(return_value=False)  # pooling-off broker (#488)
     cursor = Cursor(connection)
     with pytest.raises(DataError, match="column metadata is not valid UTF-8"):
         cursor.execute("SELECT 1")
