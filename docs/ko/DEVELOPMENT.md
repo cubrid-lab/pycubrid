@@ -172,6 +172,13 @@ pytest tests/ -m "not integration" -v
 대체합니다 — 그곳에서는 마커 자체가 의미가 없기 때문입니다. pytest로만
 실행되는 모듈에는 이 보호 장치가 필요 없습니다.
 
+순수 스칼라 포맷 사례는 연결 없이 두 백슬래시 모드를 검사하는
+`tests/test_param_security.py`의 공유 골든 매트릭스에 모읍니다(#563).
+`tests/test_aio_cursor_parity.py`는 동기/비동기 포맷·바인딩 어댑터와 escape
+모드 협상 전 거부를 작은 검사로 유지합니다. 일반 복구 동작은 바인딩된 SQL과
+재생 세션으로 관찰하고, 세대 경계·손상된 응답 등 외부에서 관찰하기 어려운
+안전성 불변식은 화이트박스 테스트로 유지합니다.
+
 ### 동기/비동기 재생 패리티
 
 `tests/test_replay_parity.py`는 동기 `Connection`과 비동기 `AsyncConnection`이

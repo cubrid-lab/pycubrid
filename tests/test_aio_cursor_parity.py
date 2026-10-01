@@ -9,7 +9,8 @@ from pycubrid.aio import connect
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
-from pycubrid.exceptions import ProgrammingError
+from pycubrid.cursor import Cursor
+from pycubrid.exceptions import InterfaceError, ProgrammingError
 from pycubrid.protocol import ColumnMetaData, FetchPacket, PrepareAndExecutePacket
 
 
@@ -31,6 +32,38 @@ def make_connection() -> MagicMock:
     # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
     connection._defer_close = MagicMock(return_value=False)
     return connection
+
+
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor], ids=["sync", "async"])
+@pytest.mark.parametrize("literal_mode", [True, False], ids=["literal", "escaped"])
+def test_format_and_bind_adapters_use_the_connection_escape_mode(
+    cursor_class: type[Cursor | AsyncCursor],
+    literal_mode: bool,
+) -> None:
+    connection = make_connection()
+    connection._no_backslash_escapes = literal_mode
+    cursor = cursor_class(connection)
+    expected = "'O''Reilly\\path\r\n'" if literal_mode else "'O''Reilly\\\\path\\\r\\\n'"
+    value = "O'Reilly\\path\r\n"
+
+    assert cursor._format_parameter(value) == expected
+    assert cursor._bind_parameters("SELECT ?", (value,)) == "SELECT " + expected
+    connection._send_and_receive.assert_not_called()
+
+
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor], ids=["sync", "async"])
+def test_format_and_bind_adapters_require_a_negotiated_escape_mode(
+    cursor_class: type[Cursor | AsyncCursor],
+) -> None:
+    connection = make_connection()
+    connection._no_backslash_escapes = None
+    cursor = cursor_class(connection)
+
+    with pytest.raises(InterfaceError, match="escape mode not negotiated"):
+        cursor._format_parameter("value")
+    with pytest.raises(InterfaceError, match="escape mode not negotiated"):
+        cursor._bind_parameters("SELECT ?", ("value",))
+    connection._send_and_receive.assert_not_called()
 
 
 def test_async_connection_stores_parity_kwargs() -> None:
