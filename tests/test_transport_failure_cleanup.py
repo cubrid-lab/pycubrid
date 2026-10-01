@@ -332,3 +332,67 @@ async def test_async_caller_cancellation_retires_handles_without_replay() -> Non
         finally:
             await conn.close()
     assert [r.sql for r in broker.requests].count("SELECT 1") == 1
+
+
+# ---------------------------------------------------------------------------
+# Composition with the failed-execute reset (#373 / #531)
+# ---------------------------------------------------------------------------
+
+# Re-executing a cursor sends CLOSE_REQ for its open handle (the session's first
+# CLOSE_REQ) and then the new PREPARE_AND_EXECUTE (the session's second one).
+_REEXECUTE_FAULTS = [("CLOSE_REQ_HANDLE", 1), ("PREPARE_AND_EXECUTE", 2)]
+
+
+def _hang_up_on(function: str, occurrence: int) -> Any:
+    def script(request: Request, session: Session) -> Reply | None:
+        if request.function == function and session.functions.count(function) == occurrence:
+            return Reply(close=True)  # no reply: the connection is lost mid-request
+        return None
+
+    return script
+
+
+def _assert_reexecute_retired(conn: Any, cursor: Any, function: str) -> None:
+    assert conn._connected is False
+    assert cursor._query_handle is None
+    if function == "PREPARE_AND_EXECUTE":
+        # #531: the old result was released, so the failed execute has none.
+        assert cursor.description is None
+        assert cursor._rows == []
+
+
+@pytest.mark.parametrize(("function", "occurrence"), _REEXECUTE_FAULTS)
+def test_sync_reexecute_transport_failure_leaves_no_stale_handle(
+    function: str, occurrence: int
+) -> None:
+    with run_replay_broker(_hang_up_on(function, occurrence), results=_RESULTS) as broker:
+        conn = pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))
+        try:
+            cursor = conn.cursor()
+            cursor.execute(_PAGED_SQL)
+            with pytest.raises(OperationalError):
+                cursor.execute("SELECT 1")
+            _assert_reexecute_retired(conn, cursor, function)
+            cursor.close()  # sends nothing for the retired handle
+        finally:
+            conn.close()
+    assert [r.function for r in broker.requests].count("CLOSE_REQ_HANDLE") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("function", "occurrence"), _REEXECUTE_FAULTS)
+async def test_async_reexecute_transport_failure_leaves_no_stale_handle(
+    function: str, occurrence: int
+) -> None:
+    with run_replay_broker(_hang_up_on(function, occurrence), results=_RESULTS) as broker:
+        conn = await pycubrid.aio.connect(**_options(broker.port, read_timeout=_TIMEOUT))
+        try:
+            cursor = conn.cursor()
+            await cursor.execute(_PAGED_SQL)
+            with pytest.raises(OperationalError):
+                await cursor.execute("SELECT 1")
+            _assert_reexecute_retired(conn, cursor, function)
+            await cursor.close()
+        finally:
+            await conn.close()
+    assert [r.function for r in broker.requests].count("CLOSE_REQ_HANDLE") == 1
