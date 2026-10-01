@@ -247,6 +247,12 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Faster FETCH row parsing (#559)** — PATCH / internal performance change
+  with no behavior change. Row values, `DataError` / malformed-reply
+  classification, connection lifetime, request bytes, public signatures,
+  dependencies and supported versions are unchanged. The new offline
+  benchmark times nothing in required CI.
+
 - **Collection element validation continues after conversion errors (#595)** —
   PATCH / malformed-response correction. A complete first element `DataError`
   cannot hide a malformed later typed element. Complete collections retain
