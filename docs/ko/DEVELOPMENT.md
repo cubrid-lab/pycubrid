@@ -213,7 +213,9 @@ pytest tests/test_replay_parity.py -v
 `ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` 예산이 이 정확한 시퀀스에 이름을
 붙입니다. 각각 리스트 동등성으로 검사하므로, 누락된 안전 요청(예: 빠진
 `CHECK_CAS` 생존 확인)과 추가된 라운드트립을 똑같이 잡아냅니다 — 어느 쪽도
-"최적화"로 통과할 수 없습니다. 이들의 스크립트(`_autocommit_insert`,
+"최적화"로 통과할 수 없습니다. 각 예산은 작업 성공과 연결 재사용 가능 여부도
+확인하며, fetch 시나리오는 반환 행을 검사합니다. 따라서 요청 수가 같더라도
+잘못된 응답이나 결과로 성공할 수 없습니다. 이들의 스크립트(`_autocommit_insert`,
 `_manual_insert_last_insert_id`)는 INSERT의 `PREPARE_AND_EXECUTE`에
 명시적인 `OUT_TRAN`(autocommit: 암묵적 트랜잭션이 이미 커밋됨) 또는
 `IN_TRAN`(수동: `commit()`을 위해 열어둠) 상태로 응답하고,

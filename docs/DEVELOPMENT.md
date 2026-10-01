@@ -232,7 +232,10 @@ step. `FIRST_INSERT_BUDGET`, `REUSED_CURSOR_INSERT_BUDGET`,
 `ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` budgets name these exact sequences;
 each is asserted with list equality, which catches a dropped safety request
 (e.g. a missing `CHECK_CAS` liveness probe) exactly as it catches an added
-round trip — neither can pass as an "optimization". Their scripts
+round trip — neither can pass as an "optimization". Each budget also requires
+successful operation outcomes and a reusable session; fetch scenarios check the
+returned rows. This prevents a malformed reply or wrong result from passing just
+because its request count stayed within the budget. Their scripts
 (`_autocommit_insert`, `_manual_insert_last_insert_id`) reply to an INSERT's
 `PREPARE_AND_EXECUTE` with an explicit `OUT_TRAN` (autocommitting: the
 implicit transaction already committed) or `IN_TRAN` (manual: left open for

@@ -478,6 +478,29 @@ subclassed. Elements accept the same types as scalar parameters (`None`, `bool`,
 raise `ProgrammingError`. Both sync and async ordinary cursors support them. See
 [Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).
 
+A `dict` is rejected (`TypeError`) by all three classes — iterating it would
+silently use only its keys and drop the values. `Sequence` also rejects a
+`set`/`frozenset` (`TypeError`), since their iteration order is not
+guaranteed and would make an ordered collection's element order
+nondeterministic; `Set` and `Multiset` accept a `set`/`frozenset` since their
+own server-side semantics already discard order. The instances are safe to
+`copy.copy()` (always returns the same object), `copy.deepcopy()` (the same
+object when every element is itself immutable; an independent copy, with
+independently copied elements, when an element such as `bytearray` is
+mutable, so mutating the copy cannot alias back into the original) and
+`pickle` (round-trips to an equal instance), and re-invoking `__init__` on
+an existing instance cannot mutate it.
+
+`Set`, `Multiset` and `Sequence` are ordinary names in `pycubrid.types` and
+`pycubrid`, not `typing` aliases, but `Sequence` in particular is also a name
+from the standard `typing`/`collections.abc` modules. `from pycubrid import *`
+brings pycubrid's `Set` and `Sequence` into scope and shadows any
+`typing.Set`/`typing.Sequence` (or `collections.abc.Sequence`) imported the
+same way; prefer an explicit import such as
+`from pycubrid.types import Sequence as CubridSequence` (or import
+`pycubrid` and use `pycubrid.Sequence`) when both are needed in the same
+module.
+
 Decoding is unchanged: fetched collections are plain Python containers as in the
 table above (with `decode_collections=True`), never these parameter types.
 

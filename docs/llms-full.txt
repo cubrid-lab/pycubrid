@@ -451,6 +451,28 @@ driver waits without a limit. A broker that stalls or resets the connection duri
 handshake raises `OperationalError` within that bound
 ([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
 
+After the session is open, an uncertain transport failure on a request (a socket error, a
+timeout, a malformed reply, or an interrupt or task cancellation while a reply is outstanding)
+closes the connection and retires every cursor and schema result handle of that session in
+both drivers ([#556](https://github.com/cubrid-lab/pycubrid/issues/556)). Rows a cursor already
+buffered stay readable; the next fetch that needs the server raises, and no handle of the dead
+session is ever sent again. The request is not replayed: reconnect with `connect()` or
+`ping(reconnect=True)` and re-execute. The async `OperationalError` message says
+`read timeout: no complete round trip within read_timeout=...s` only when the `read_timeout` deadline expired;
+a timeout raised by the transport itself (for example `ETIMEDOUT`) is reported as
+`socket communication timed out`, and other socket errors as `socket communication failed`. The
+original exception is always chained as `__cause__`, and a cancelled task still raises
+`asyncio.CancelledError`. The sync `read_timeout` is a per-receive socket timeout and is reported
+as `socket communication failed`. An `OSError` (including `TimeoutError`) raised by a
+`json_deserializer` callback after the whole reply was read is not a transport failure: it
+propagates unchanged and the connection stays open. A `ValueError`-family error from a custom
+deserializer (for example an orjson or simplejson decode error) is still treated as a malformed
+reply: `OperationalError('malformed response from broker')`, and the session is retired.
+
+On Python 3.10, the distinct `asyncio.TimeoutError` class follows the same rule:
+transport timeouts retire the session, while a callback timeout after a complete
+reply propagates unchanged without closing it.
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of
@@ -2250,6 +2272,20 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 Concurrent awaiters on the same `AsyncConnection` are serialized with a per-connection
 `asyncio.Lock`, so shared use is safe but requests still execute one at a time.
 
+While `await conn.connect()` opens a session and configures it (backslash-escape probe,
+autocommit) — including the reconnect done by `ping(reconnect=True)` and `connect()` after
+`close()` — other tasks' operations on the same connection wait for that setup. If setup
+fails, the session is discarded and each waiting task raises its own exception (#554): a
+pycubrid error is re-raised as a new instance of the same class (or of the nearest
+`pycubrid.exceptions` class when a subclass has a different constructor) with the same
+`code`, `errno` and `sqlstate` and the original as `__cause__`; any other error as
+`OperationalError` naming it (`connection setup failed in another task: TimeoutError()`);
+and a cancelled setup as `OperationalError` — cancelling the task that runs `connect()`
+cancels only that task. A waiting task that is itself cancelled still raises
+`asyncio.CancelledError`. The CHECK_CAS recovery inside a request (#485) runs under the
+connection lock instead; its failure is raised in the request that triggered it, and
+later requests find the connection closed (`InterfaceError`).
+
 `AsyncConnection.__init__` accepts a keyword-only `autocommit: bool = False` argument, applied
 automatically the first time `await conn.connect()` completes — the same effect as
 `await conn.set_autocommit(True)`, but usable when constructing `AsyncConnection` directly
@@ -2801,9 +2837,23 @@ async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
   collection, raises `ProgrammingError`.
 - A single `str`/`bytes`/`bytearray` argument raises `TypeError`; subclassing
   raises `TypeError`; setting an attribute raises `AttributeError`.
+- A `dict` argument raises `TypeError` for all three classes (its keys would
+  be used silently and its values dropped). `Sequence` additionally raises
+  `TypeError` for a `set`/`frozenset` argument, since its iteration order is
+  not guaranteed; `Set` and `Multiset` accept a `set`/`frozenset`.
+- The instances are safe to `copy.copy()` (always returns the same object),
+  `copy.deepcopy()` (the same object when every element is itself immutable;
+  an independent copy, with independently copied elements, when an element
+  such as `bytearray` is mutable) and `pickle` (round-trips to an equal
+  instance). Re-invoking `__init__` on an existing instance is a no-op and
+  cannot mutate it.
 - Fetched collections are not returned as these classes: with
   `decode_collections=True` they stay `frozenset` (`SET`) and `list`
   (`MULTISET`/`SEQUENCE`).
+- `Sequence` is also a name in `typing`/`collections.abc`; `from pycubrid
+  import *` shadows it (and `Set`) with these classes. Prefer an explicit
+  import, e.g. `from pycubrid.types import Sequence as CubridSequence`, when
+  both are needed in the same module.
 
 ```python
 from pycubrid import Multiset, Sequence, Set
@@ -3299,6 +3349,29 @@ subclassed. Elements accept the same types as scalar parameters (`None`, `bool`,
 `datetime`) and are rendered by the same hardened renderer; nested collections
 raise `ProgrammingError`. Both sync and async ordinary cursors support them. See
 [Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).
+
+A `dict` is rejected (`TypeError`) by all three classes — iterating it would
+silently use only its keys and drop the values. `Sequence` also rejects a
+`set`/`frozenset` (`TypeError`), since their iteration order is not
+guaranteed and would make an ordered collection's element order
+nondeterministic; `Set` and `Multiset` accept a `set`/`frozenset` since their
+own server-side semantics already discard order. The instances are safe to
+`copy.copy()` (always returns the same object), `copy.deepcopy()` (the same
+object when every element is itself immutable; an independent copy, with
+independently copied elements, when an element such as `bytearray` is
+mutable, so mutating the copy cannot alias back into the original) and
+`pickle` (round-trips to an equal instance), and re-invoking `__init__` on
+an existing instance cannot mutate it.
+
+`Set`, `Multiset` and `Sequence` are ordinary names in `pycubrid.types` and
+`pycubrid`, not `typing` aliases, but `Sequence` in particular is also a name
+from the standard `typing`/`collections.abc` modules. `from pycubrid import *`
+brings pycubrid's `Set` and `Sequence` into scope and shadows any
+`typing.Set`/`typing.Sequence` (or `collections.abc.Sequence`) imported the
+same way; prefer an explicit import such as
+`from pycubrid.types import Sequence as CubridSequence` (or import
+`pycubrid` and use `pycubrid.Sequence`) when both are needed in the same
+module.
 
 Decoding is unchanged: fetched collections are plain Python containers as in the
 table above (with `decode_collections=True`), never these parameter types.
@@ -7671,7 +7744,10 @@ step. `FIRST_INSERT_BUDGET`, `REUSED_CURSOR_INSERT_BUDGET`,
 `ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` budgets name these exact sequences;
 each is asserted with list equality, which catches a dropped safety request
 (e.g. a missing `CHECK_CAS` liveness probe) exactly as it catches an added
-round trip — neither can pass as an "optimization". Their scripts
+round trip — neither can pass as an "optimization". Each budget also requires
+successful operation outcomes and a reusable session; fetch scenarios check the
+returned rows. This prevents a malformed reply or wrong result from passing just
+because its request count stayed within the budget. Their scripts
 (`_autocommit_insert`, `_manual_insert_last_insert_id`) reply to an INSERT's
 `PREPARE_AND_EXECUTE` with an explicit `OUT_TRAN` (autocommitting: the
 implicit transaction already committed) or `IN_TRAN` (manual: left open for
@@ -8359,7 +8435,7 @@ test that pins the behavior.
 | `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
-| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (`SET{}` when empty); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (each keyword renders as `KEYWORD{}` when empty, e.g. `SET{}`); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
 | anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
@@ -8501,7 +8577,20 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   converts the elements to the column's element type, as for a literal.
 - Nested collections are rejected (`ProgrammingError`): a typed collection
   inside another, or a plain `list`/`tuple`/`set`/`frozenset`/`dict` element.
-- `executemany()` accepts typed collections in each parameter set.
+- A `dict` is rejected at construction time (`TypeError`) for all three
+  classes: iterating it would silently use only its keys and drop the
+  values. `Sequence` additionally rejects a `set`/`frozenset` (`TypeError`):
+  their iteration order is not guaranteed, which would make `Sequence`'s
+  element order nondeterministic between runs. `Set` and `Multiset` accept a
+  `set`/`frozenset` since their own server-side semantics do not depend on
+  input order.
+- `executemany()` accepts typed collections in each parameter set, including
+  through the DML batch path (`EXECUTE_BATCH`).
+- The instances are immutable and safe to `copy.copy()` (always returns the
+  same object), `copy.deepcopy()` (the same object when every element is
+  itself immutable; an independent copy, with independently copied elements,
+  when an element such as `bytearray` is mutable) and `pickle`; re-invoking
+  `__init__` on an existing instance cannot mutate it either.
 - Fetching is unchanged: with `decode_collections=True` a `SET` column still
   decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
   otherwise). Decoded values are not wrapped back into these types; wrap them

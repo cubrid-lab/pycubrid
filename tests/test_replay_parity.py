@@ -45,20 +45,30 @@ import asyncio
 import datetime
 import struct
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pytest
 
 import pycubrid
 import pycubrid.aio
+from pycubrid._cursor_common import format_parameter
 from pycubrid.connection import Connection
 from pycubrid.constants import CCIDbParam
 from pycubrid.constants import CUBRIDDataType as T
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.types import Multiset, Sequence, Set
 
-from .helpers.cas_reply import Column, ResultSet, Value, date, int_, prepare_and_execute_reply
+from .helpers.cas_reply import (
+    BatchStatement,
+    Column,
+    ResultSet,
+    Value,
+    batch_reply,
+    date,
+    int_,
+    prepare_and_execute_reply,
+)
 from .helpers.replay_broker import (
     HANDSHAKE,
     IN_TRAN,
@@ -205,6 +215,8 @@ class _SyncReplay:
             return conn.get_server_version()
         elif op == "execute":
             self._cur().execute(*args)
+        elif op == "executemany":
+            self._cur().executemany(*args)
         elif op == "fetchone":
             return self._cur().fetchone()
         elif op == "fetchall":
@@ -278,6 +290,8 @@ class _AsyncReplay:
             return await conn.get_server_version()
         elif op == "execute":
             await self._cur().execute(*args)
+        elif op == "executemany":
+            await self._cur().executemany(*args)
         elif op == "fetchone":
             return await self._cur().fetchone()
         elif op == "fetchall":
@@ -828,8 +842,8 @@ REUSED_CURSOR_INSERT_BUDGET = [
 #: SELECT (not another INSERT): closing the SELECT's handle and sending the
 #: INSERT need no leading probe (a FETCH reply leaves the session IN_TRAN,
 #: already safe), only the probe before the identity lookup after the INSERT
-#: commits. Same total as REUSED_CURSOR_INSERT_BUDGET, different shape: the
-#: probe moves from before CLOSE_REQ_HANDLE to after PREPARE_AND_EXECUTE only.
+#: commits. This takes four requests rather than the six in
+#: REUSED_CURSOR_INSERT_BUDGET: no probes precede CLOSE_REQ_HANDLE or the INSERT.
 SELECT_TO_INSERT_BUDGET = [
     "CLOSE_REQ_HANDLE",
     "PREPARE_AND_EXECUTE",
@@ -871,41 +885,94 @@ ESCAPE_AUTOMATIC_SETUP_BUDGET = [
 ESCAPE_AUTOMATIC_QUERY_BUDGET = ["CHECK_CAS", "PREPARE_AND_EXECUTE"]
 
 
+def _check_budget_success(obs: Observation) -> None:
+    assert obs.outcomes and all(outcome[1] == "ok" for outcome in obs.outcomes), obs.outcomes
+    assert obs.reusable is True, obs.reusable
+
+
 def _check_first_insert_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
     assert obs.step_functions(1) == FIRST_INSERT_BUDGET
 
 
 def _check_reused_cursor_insert_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
     assert obs.step_functions(1) == FIRST_INSERT_BUDGET
     assert obs.step_functions(2) == REUSED_CURSOR_INSERT_BUDGET
 
 
 def _check_select_to_insert_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
     assert obs.step_functions(1) == ["CHECK_CAS", "PREPARE_AND_EXECUTE"]  # the SELECT
     assert obs.step_functions(2) == ["FETCH"]  # fetchall() of the remaining 2 rows
     assert obs.step_functions(3) == SELECT_TO_INSERT_BUDGET
 
 
 def _check_manual_commit_insert_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
     assert obs.step_functions(1) == MANUAL_INSERT_EXECUTE_BUDGET
     assert obs.step_functions(2) == MANUAL_INSERT_COMMIT_BUDGET
 
 
 def _check_fetch_pagination_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
     assert obs.step_functions(1) == ["PREPARE_AND_EXECUTE"]
     assert obs.step_functions(2) == FETCH_PAGINATION_BUDGET
 
 
 def _check_escape_negotiation_explicit_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
     assert obs.step_functions(0) == ESCAPE_EXPLICIT_SETUP_BUDGET
     assert obs.step_functions(1) == ESCAPE_EXPLICIT_QUERY_BUDGET
     assert obs.step_functions(2) == ["FETCH"]
 
 
 def _check_escape_negotiation_automatic_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
     assert obs.step_functions(0) == ESCAPE_AUTOMATIC_SETUP_BUDGET
     assert obs.step_functions(1) == ESCAPE_AUTOMATIC_QUERY_BUDGET
     assert obs.step_functions(2) == ["FETCH"]
+
+
+def _batch_sql(request: Request) -> list[str]:
+    """The SQL statements of an EXECUTE_BATCH request, in order (#568 review).
+
+    Unlike PREPARE_AND_EXECUTE, args[0] is the auto-commit byte and args[1]
+    the protocol>3 timeout int; every arg after that is one null-terminated
+    SQL string (``BatchExecutePacket.write``, ``pycubrid/protocol.py``).
+    """
+    return [a.rstrip(b"\x00").decode("utf-8") for a in request.args[2:]]
+
+
+def _check_executemany_typed_collections(obs: Observation) -> None:
+    # executemany() with typed collection parameters renders each row through
+    # the same hardened format_parameter() path as execute() and batches them
+    # into one EXECUTE_BATCH request (#568 review).
+    assert obs.outcomes[1] == ("executemany", "ok", None)
+    batch_requests = [r for r in obs.raw_requests if r.function == "EXECUTE_BATCH"]
+    assert len(batch_requests) == 1
+    assert _batch_sql(batch_requests[0]) == [
+        "INSERT INTO t VALUES (SET{1, 2})",
+        "INSERT INTO t VALUES (MULTISET{'a', 'a'})",
+        "INSERT INTO t VALUES (SEQUENCE{3, 1, 2})",
+    ]
+
+
+_BACKSLASH_SEQUENCE = Sequence(["a\\b"])
+
+
+def _check_collection_backslash_escape_processing(obs: Observation) -> None:
+    # With no_backslash_escapes=False (escape-processing mode), a backslash in
+    # a string *element* of a typed collection is doubled exactly like a
+    # scalar string parameter (#568 review).
+    assert obs.outcomes[1] == ("execute", "ok", None)
+    sent = [r.sql for r in obs.raw_requests if r.sql is not None]
+    expected_literal = format_parameter(_BACKSLASH_SEQUENCE, no_backslash_escapes=False)
+    assert sent == [f"INSERT INTO t VALUES ({expected_literal})"]
 
 
 def _truncated_execute(request: Request, state: Session) -> Reply:
@@ -1232,7 +1299,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         # An autocommitting INSERT reusing a cursor whose last statement was
         # a SELECT, not another INSERT (#557): a different budget shape than
-        # reused_cursor_insert_round_trip_budget despite the same total.
+        # reused_cursor_insert_round_trip_budget, with two fewer requests.
         "select_to_insert_round_trip_budget",
         (("open",), _SELECT, ("fetchall",), ("execute", _INSERT_1)),
         script=_autocommit_insert(_INSERT_1),
@@ -1280,6 +1347,41 @@ SCENARIOS: tuple[Scenario, ...] = (
         options={"no_backslash_escapes": None},
         check=_check_escape_negotiation_automatic_budget,
     ),
+    Scenario(
+        # executemany() batches typed collection parameters the same way it
+        # batches scalars (#568 review).
+        "executemany_typed_collection_parameters",
+        (
+            ("open",),
+            (
+                "executemany",
+                "INSERT INTO t VALUES (?)",
+                [(Set([1, 2]),), (Multiset(["a", "a"]),), (Sequence([3, 1, 2]),)],
+            ),
+        ),
+        script=_on(
+            "EXECUTE_BATCH",
+            lambda _r, _s: Reply(
+                body=batch_reply(
+                    (
+                        BatchStatement(CUBRIDStatementType.INSERT, 1),
+                        BatchStatement(CUBRIDStatementType.INSERT, 1),
+                        BatchStatement(CUBRIDStatementType.INSERT, 1),
+                    )
+                ).data
+            ),
+        ),
+        check=_check_executemany_typed_collections,
+    ),
+    Scenario(
+        # A backslash inside a typed collection's string element is doubled
+        # under no_backslash_escapes=False, exactly like a scalar parameter
+        # (#568 review).
+        "typed_collection_backslash_escape_processing",
+        (("open",), ("execute", "INSERT INTO t VALUES (?)", (_BACKSLASH_SEQUENCE,))),
+        options={"no_backslash_escapes": False},
+        check=_check_collection_backslash_escape_processing,
+    ),
 )
 
 
@@ -1317,6 +1419,34 @@ def test_sync_and_async_replay_the_same_scenario_identically(scenario: Scenario)
 def test_replays_are_deterministic(scenario: Scenario) -> None:
     assert replay_sync(scenario).aspects() == replay_sync(scenario).aspects()
     assert replay_async(scenario).aspects() == replay_async(scenario).aspects()
+
+
+@pytest.mark.parametrize("replay", [replay_sync, replay_async], ids=["sync", "async"])
+def test_insert_budget_rejects_a_retired_session(
+    replay: Callable[[Scenario], Observation],
+) -> None:
+    scenario = next(s for s in SCENARIOS if s.name == "first_insert_round_trip_budget")
+    malformed_id = _on("GET_LAST_INSERT_ID", lambda _r, s: Reply(ok_body(s.status)))
+    observation = replay(replace(scenario, script=_both(malformed_id, scenario.script)))
+    # Identity lookup errors are suppressed by execute(), but the malformed
+    # reply retires the session without changing its request sequence.
+    assert observation.outcomes[1] == ("execute", "ok", None)
+    assert observation.step_functions(1) == FIRST_INSERT_BUDGET
+    assert observation.reusable is False
+    with pytest.raises(AssertionError):
+        scenario.check(observation)
+
+
+@pytest.mark.parametrize("replay", [replay_sync, replay_async], ids=["sync", "async"])
+def test_fetch_budget_rejects_wrong_rows(replay: Callable[[Scenario], Observation]) -> None:
+    scenario = next(s for s in SCENARIOS if s.name == "fetch_pagination_round_trip_budget")
+    observation = replay(
+        replace(scenario, results={"SELECT n FROM t": (_ints("three", 9, 8, 7), 1)})
+    )
+    assert observation.step_functions(2) == FETCH_PAGINATION_BUDGET
+    assert observation.reusable is True
+    with pytest.raises(AssertionError):
+        scenario.check(observation)
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ from pycubrid._connection_common import (
 )
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import (
+    DatabaseError,
     DataError,
     Error,
     InterfaceError,
@@ -109,6 +110,9 @@ class AsyncConnection(ConnectionCommonMixin):
         )
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
+        # Whether the current request's reply was read in full (#556): an
+        # exception after that comes from parsing, not from the transport.
+        self._reply_complete = False
         self._lock = asyncio.Lock()
         # Applied in connect() (can't await a live SET_DB_PARAMETER round-trip
         # here — __init__ isn't a coroutine). See connect() below.
@@ -348,8 +352,7 @@ class AsyncConnection(ConnectionCommonMixin):
             )
             await self._send_and_receive_locked(CommitPacket(), allow_reconnect=False)
         except Exception as exc:
-            await self._close_streams()
-            self._connected = False
+            await self._retire_session_locked()
             raise OperationalError("failed to apply autocommit after connect") from exc
         self._autocommit = True
         self._autocommit_explicitly_set = True
@@ -824,9 +827,7 @@ class AsyncConnection(ConnectionCommonMixin):
                         return True
                 elif not reconnect:
                     return False
-                await self._close_streams()
-                self._connected = False
-                self._invalidate_query_handles_for_reconnect()
+                await self._retire_session_locked(for_reconnect=True)
                 if not reconnect:
                     return False
             break
@@ -1005,13 +1006,55 @@ class AsyncConnection(ConnectionCommonMixin):
         setup bypasses the wait so its own cursor-based probe does not deadlock
         against itself. If setup failed, the recorded error is re-raised here
         so waiters do not proceed against a half-initialized connection.
+
+        Each waiter raises its own exception (#554): the recorded error belongs
+        to the setup owner, so re-raising that one instance would cancel every
+        waiter when the owner is cancelled and append their frames to a shared
+        traceback. A cancelled or interrupted setup becomes
+        :class:`OperationalError`; a pycubrid error is copied with its class
+        (or the nearest :mod:`pycubrid.exceptions` class when a subclass
+        constructor differs), code, errno and sqlstate; any other error is wrapped in
+        :class:`OperationalError`. Non-cancellation originals are chained as
+        ``__cause__``. A waiter's own cancellation still propagates unchanged.
         """
         if self._setup_owner is asyncio.current_task():
             return
         if not self._setup_done.is_set():
             await self._setup_done.wait()
-            if self._setup_error is not None:
-                raise self._setup_error
+            error = self._setup_error
+            if error is None:
+                return
+            if not isinstance(error, Exception):
+                raise OperationalError(
+                    "connection setup was cancelled or interrupted in another task; retry operation"
+                ) from None
+            if isinstance(error, Error):
+                raise self._copy_setup_error(error) from error
+            raise OperationalError(f"connection setup failed in another task: {error!r}") from error
+
+    @staticmethod
+    def _copy_setup_error(error: Error) -> Error:
+        """Build a fresh instance of a setup owner's pycubrid error (#554).
+
+        A subclass whose constructor differs from ``Error``/``DatabaseError``
+        is rebuilt as the nearest class defined in :mod:`pycubrid.exceptions`.
+        """
+        msg = getattr(error, "msg", str(error))
+        code = getattr(error, "code", 0)
+        errno = getattr(error, "errno", None)
+        sqlstate = getattr(error, "sqlstate", None)
+        for cls in type(error).__mro__:
+            if not issubclass(cls, Error):
+                break
+            if cls is not type(error) and cls.__module__ != Error.__module__:
+                continue
+            try:
+                if issubclass(cls, DatabaseError):
+                    return cls(msg, code, errno, sqlstate)
+                return cls(msg, code)
+            except Exception:  # noqa: BLE001 - fall back to a pycubrid base class
+                _LOGGER.debug("Cannot rebuild setup error as %s", cls.__name__, exc_info=True)
+        return Error(msg, code)  # pragma: no cover - the loop always reaches Error
 
     async def _send_and_receive(
         self,
@@ -1087,18 +1130,43 @@ class AsyncConnection(ConnectionCommonMixin):
                 raise InterfaceError("connection is closed")
             self._validate_escape_generation(expected_escape_generation)
 
+        # On Python 3.11+ asyncio.TimeoutError is the built-in TimeoutError, an
+        # OSError subclass a transport or a parse callback can raise too
+        # (ETIMEDOUT): record whether one came from inside the round trip
+        # instead of inferring the read_timeout deadline from its type.
+        transport_timeout = False
+        self._reply_complete = False
+
+        async def round_trip() -> Any:
+            nonlocal transport_timeout
+            try:
+                return await self._do_send_and_receive(packet)
+            except (TimeoutError, asyncio.TimeoutError):
+                transport_timeout = True
+                raise
+
         try:
-            coro = self._do_send_and_receive(packet)
             if self._read_timeout is not None:
-                return await asyncio.wait_for(coro, timeout=self._read_timeout)
-            return await coro
-        except asyncio.TimeoutError as exc:
-            await self._close_streams()
-            self._connected = False
-            raise OperationalError("read timeout") from exc
-        except OSError as exc:
-            await self._close_streams()
-            self._connected = False
+                return await asyncio.wait_for(round_trip(), timeout=self._read_timeout)
+            return await round_trip()
+        except (asyncio.TimeoutError, OSError) as exc:
+            deadline = (
+                self._read_timeout is not None
+                and isinstance(exc, asyncio.TimeoutError)
+                and not transport_timeout
+            )
+            if self._reply_complete and not deadline:
+                # Raised by a parse callback (json_deserializer) after the whole
+                # reply was read: not a transport failure, the session is intact.
+                raise
+            await self._retire_session_locked()
+            if deadline:
+                raise OperationalError(
+                    "read timeout: no complete round trip within "
+                    f"read_timeout={self._read_timeout}s"
+                ) from exc
+            if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+                raise OperationalError("socket communication timed out") from exc
             raise OperationalError("socket communication failed") from exc
         except asyncio.CancelledError:
             # The reply may arrive after cancellation and poison the next read.
@@ -1132,11 +1200,14 @@ class AsyncConnection(ConnectionCommonMixin):
             raise
 
         self._cas_info = response_body[: DataSize.CAS_INFO]
+        self._reply_complete = True
         try:
             packet.parse(response_body)
         except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
-            await self._close_streams()
-            self._connected = False
+            # The session is uncertain again: a deadline or transport error
+            # while it shuts down is not a parse callback's exception.
+            self._reply_complete = False
+            await self._retire_session_locked()
             raise OperationalError("malformed response from broker") from exc
         return packet
 
@@ -1211,9 +1282,7 @@ class AsyncConnection(ConnectionCommonMixin):
             self._host,
             self._port,
         )
-        await self._close_streams()
-        self._connected = False
-        self._invalidate_query_handles_for_reconnect()
+        await self._retire_session_locked(for_reconnect=True)
         self._implicit_reconnect_suspended += 1
         try:
             await self._connect_locked()
@@ -1307,8 +1376,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 allow_reconnect=False,
             )
         except Exception as exc:
-            await self._close_streams()
-            self._connected = False
+            await self._retire_session_locked()
             raise OperationalError("failed to restore session state after reconnect") from exc
 
     async def _invoke_connect_locked(self) -> None:
@@ -1317,6 +1385,25 @@ class AsyncConnection(ConnectionCommonMixin):
             await self._connect_locked()
             return
         await connect_method()
+
+    async def _retire_session_locked(self, *, for_reconnect: bool = False) -> None:
+        """Retire the physical session after an uncertain I/O failure (#556).
+
+        Connection state and every cursor/schema handle are retired *before*
+        the stream shutdown is awaited, so a ``wait_closed()`` that fails or is
+        cancelled cannot leave live-looking handles on a dead session. A
+        shutdown failure is logged rather than replacing the caller's error;
+        cancellation still propagates as :class:`asyncio.CancelledError`.
+        """
+        self._connected = False
+        if for_reconnect:
+            self._invalidate_query_handles_for_reconnect()
+        else:
+            self._invalidate_query_handles()
+        try:
+            await self._close_streams()
+        except Exception:  # noqa: BLE001 - the session is already retired
+            _LOGGER.debug("Stream shutdown failed while retiring the session", exc_info=True)
 
     async def _close_streams(self) -> None:
         """Close the stream writer, await TLS shutdown, and clear references."""
