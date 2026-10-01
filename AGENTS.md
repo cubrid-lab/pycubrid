@@ -112,6 +112,12 @@ heterogeneous failover.
 
 1. **ClientInfoExchange**: Send 10 bytes (NO header) — magic `"CUBRS"` when `ssl` is requested (STARTTLS) or `"CUBRK"` plaintext, plus client type + version. Broker replies a 4-byte int32: `0`=ok, `<0`=fail-fast (`OperationalError`), `>0`=redirect port (reconnect on the new port WITHOUT repeating the handshake).
 2. **TLS upgrade (optional)**: If `ssl` was truthy, upgrade the live transport via `loop.start_tls()` (async) or `ssl.SSLContext.wrap_socket()` (sync) before `OPEN_DATABASE`.
+   The handshake uses `read_timeout` or a 10-second default; the default does not
+   limit later requests. On Python 3.10, the async certificate preflight uses
+   memory BIOs on an owned socket: each send/receive and completion share one
+   monotonic deadline, required final-flight failures propagate, and optional
+   close-notify cannot extend the deadline. The owned socket always closes.
+   The primary sync Python 3.10 reset limitation is documented in CONNECTION.md.
 3. **OpenDatabase**: Send db/user/password (628 bytes payload, no header — `PacketWriter(reserve_header=False)`)
 4. **PrepareAndExecute / Prepare+Execute → Fetch → CloseQuery → EndTran → CloseDatabase**
 

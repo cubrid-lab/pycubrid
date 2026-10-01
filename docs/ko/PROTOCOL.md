@@ -180,7 +180,17 @@ connect 호출에서 `ssl`이 참이었으면, 어떤 `OPEN_DATABASE` 바이트�
 - 동기 드라이버: `ssl.SSLContext.wrap_socket(sock, server_hostname=host)`
 - 비동기 드라이버: `loop.start_tls(transport, protocol, context, server_hostname=host, ssl_handshake_timeout=...)`
 
-실패한 핸드셰이크는 전송을 누수하지 않고 중단시킵니다.
+TLS 핸드셰이크에는 설정된 `read_timeout` 또는 기본 10초 제한을 적용합니다.
+이 기본값은 이후 요청을 제한하지 않으며, `connect_timeout`은 TCP 연결만 제한합니다.
+
+Python 3.10의 비동기 인증서 사전 검증은 소유한 원시 소켓에서 메모리 BIO를 사용합니다.
+송신·수신·핸드셰이크 완료는 하나의 단조 시계 기반 마감 시간을 공유합니다.
+필수 마지막 핸드셰이크 송신 실패는 전파하며, 선택적 close-notify는 같은 시간 예산
+안에서만 최선을 다해 처리합니다. 검증 소켓은 항상 닫습니다.
+
+실패한 핸드셰이크는 전송을 중단시킵니다. Python 3.10 동기 드라이버의 기본
+`wrap_socket()` 업그레이드에는 CPython의 리셋·리소스 경고 제한이 있습니다.
+[연결 설정](CONNECTION.md)을 참고하세요.
 
 ### 2단계: 데이터베이스 열기
 

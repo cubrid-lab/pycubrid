@@ -164,7 +164,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   still bounds only the TCP connect. On Python 3.10 the async driver's
   certificate preflight probe now runs its handshake over memory BIOs on a
   socket it owns, so a broker reset just before the ClientHello no longer
-  leaves the probe socket to the garbage collector (`ResourceWarning`). The
+  leaves the probe socket to the garbage collector (`ResourceWarning`).
+  Every probe I/O and handshake completion share one deadline, and failures
+  sending the final handshake flight propagate instead of being suppressed.
+  Best-effort close_notify cannot extend that deadline (#593). The
   same CPython 3.10 `ssl` behavior can still affect the sync driver's
   `wrap_socket()` upgrade on 3.10; `docs/CONNECTION.md` (+ Korean) documents it.
 - **Transport failures retire cursor handles; async timeout errors name their cause (#556)** —

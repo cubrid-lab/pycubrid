@@ -264,7 +264,9 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   10 seconds instead of waiting forever, matching the async
   `ssl_handshake_timeout` default; requests after the handshake are still
   unbounded. The Python 3.10 async preflight probe closes its socket on a peer
-  reset instead of leaving it to the garbage collector. `read_timeout` and
+  reset instead of leaving it to the garbage collector. Its BIO sends, reads
+  and completion use one total deadline (#593); final-flight transport failures
+  propagate, while optional shutdown remains inside the budget. `read_timeout` and
   `connect_timeout` semantics, successful TLS connects, public signatures,
   dependencies and supported versions are unchanged.
 
