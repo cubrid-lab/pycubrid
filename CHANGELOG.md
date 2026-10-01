@@ -756,6 +756,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `docs/DEVELOPMENT.md` (and its Korean translation) documents the fast-driver,
   repository-tooling and combined offline commands.
 
+### CI
+- **CI pip download caching and readiness path-filter fix (#564)** —
+  baseline measurements found 19 expanded jobs making separate editable dev
+  installs; `cache: pip` on the 10 `setup-python` YAML steps now permits
+  matching OS/Python jobs to reuse downloaded wheels without skipping the
+  installs. A warm same-head run had an observed cache hit and took 295s,
+  versus a 306s baseline and a 328s cold first attempt; runner and Docker
+  variance prevent attributing the entire difference to caching. Added
+  `scripts/wait_for_cubrid.py` to the `code:` filter so helper-only changes
+  select the required integration and official-differential lanes. A real
+  official comparison failure previously failed `CI Gate`, and new tests
+  preserve that fail-closed behavior and the docs-only skip exception. No
+  job, endpoint, release/nightly gate or required-check context changed.
+  Detailed data and limitations are in `docs/DEVELOPMENT.md`.
+
 ## [1.8.0] - 2026-09-29
 
 ### Upgrade notes
