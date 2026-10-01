@@ -269,9 +269,25 @@ class TestCopyAndPickle:
         assert copy.copy(value) is value
 
     @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
-    def test_deepcopy_returns_the_same_immutable_instance(self, kind: Any) -> None:
+    def test_deepcopy_with_immutable_elements_returns_the_same_instance(self, kind: Any) -> None:
+        # Every element here is itself immutable, so copy.deepcopy() of the
+        # elements tuple hands back that same tuple and this is a no-op.
         value = kind([1, 2])
         assert copy.deepcopy(value) is value
+
+    @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
+    def test_deepcopy_independently_copies_a_mutable_bytearray_element(self, kind: Any) -> None:
+        # bytearray is mutable (#568 review): deepcopy must not alias it,
+        # or mutating the copy would silently mutate the "immutable"
+        # original's stored element too.
+        original_bytes = bytearray(b"ab")
+        value = kind([original_bytes])
+        restored = copy.deepcopy(value)
+        assert restored is not value
+        assert restored == value
+        assert restored.elements[0] is not value.elements[0]
+        restored.elements[0][0] = 0
+        assert value.elements[0] == original_bytes
 
     @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
     @pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))

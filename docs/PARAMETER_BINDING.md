@@ -257,9 +257,11 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   input order.
 - `executemany()` accepts typed collections in each parameter set, including
   through the DML batch path (`EXECUTE_BATCH`).
-- The instances are immutable and safe to `copy.copy()`, `copy.deepcopy()`
-  (both return the same object) and `pickle`; re-invoking `__init__` on an
-  existing instance cannot mutate it either.
+- The instances are immutable and safe to `copy.copy()` (always returns the
+  same object), `copy.deepcopy()` (the same object when every element is
+  itself immutable; an independent copy, with independently copied elements,
+  when an element such as `bytearray` is mutable) and `pickle`; re-invoking
+  `__init__` on an existing instance cannot mutate it either.
 - Fetching is unchanged: with `decode_collections=True` a `SET` column still
   decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
   otherwise). Decoded values are not wrapped back into these types; wrap them

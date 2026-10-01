@@ -14,6 +14,7 @@ to their category, enabling ``cursor.description`` type comparison::
 
 from __future__ import annotations
 
+import copy
 import datetime
 from collections.abc import Iterable, Iterator
 from typing import Any
@@ -232,8 +233,8 @@ class _Collection:
         if isinstance(elements, dict):
             raise TypeError(
                 f"{cls.__name__}() does not accept a dict; iterating it would silently "
-                f"use only its keys and drop the values, pass list(d.items()) or "
-                f"d.values() explicitly"
+                f"use only its keys and drop the values, pass the keys (list(d)) or the "
+                f"values (list(d.values())) explicitly"
             )
         if cls._rejects_unordered and isinstance(elements, (set, frozenset)):
             raise TypeError(
@@ -280,12 +281,24 @@ class _Collection:
     def __repr__(self) -> str:
         return f"{type(self).__name__}({list(self._elements)!r})"
 
-    # Immutable, so a copy need not duplicate anything.
+    # A shallow copy shares the same element references either way, so this
+    # instance already behaves as its own shallow copy.
     def __copy__(self) -> _Collection:
         return self
 
     def __deepcopy__(self, memo: dict[int, Any]) -> _Collection:
-        return self
+        # Most accepted element types (None, bool, int, float, Decimal, str,
+        # bytes, date, time, datetime) are themselves immutable, so
+        # copy.deepcopy() of the elements tuple hands back that same tuple
+        # object and this is a no-op. A bytearray element is mutable, though
+        # (#568 review): deep-copying it independently keeps deepcopy's
+        # contract that mutating the copy must not affect the original.
+        elements = copy.deepcopy(self._elements, memo)
+        if elements is self._elements:
+            return self
+        new = type(self)(elements)
+        memo[id(self)] = new
+        return new
 
     def __reduce__(self) -> tuple[type[_Collection], tuple[tuple[Any, ...]]]:
         # Reconstructs through __new__ via the public constructor call, the

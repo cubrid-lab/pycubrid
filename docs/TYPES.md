@@ -484,9 +484,12 @@ silently use only its keys and drop the values. `Sequence` also rejects a
 guaranteed and would make an ordered collection's element order
 nondeterministic; `Set` and `Multiset` accept a `set`/`frozenset` since their
 own server-side semantics already discard order. The instances are safe to
-`copy.copy()`, `copy.deepcopy()` and `pickle` (all round-trip or return the
-same object), and re-invoking `__init__` on an existing instance cannot
-mutate it.
+`copy.copy()` (always returns the same object), `copy.deepcopy()` (the same
+object when every element is itself immutable; an independent copy, with
+independently copied elements, when an element such as `bytearray` is
+mutable, so mutating the copy cannot alias back into the original) and
+`pickle` (round-trips to an equal instance), and re-invoking `__init__` on
+an existing instance cannot mutate it.
 
 `Set`, `Multiset` and `Sequence` are ordinary names in `pycubrid.types` and
 `pycubrid`, not `typing` aliases, but `Sequence` in particular is also a name

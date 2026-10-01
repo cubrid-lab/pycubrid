@@ -80,8 +80,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   native prepared `bind_set`), so no differential claim is made.
   Construction happens entirely in `__new__`; re-invoking `__init__` on an
   existing instance (`obj.__init__(...)`) is a no-op and cannot mutate it or
-  change its hash (#568 review). The instances are safe to `copy.copy()`,
-  `copy.deepcopy()` (both return the same immutable object) and `pickle`
+  change its hash (#568 review). The instances are safe to `copy.copy()`
+  (returns the same object; sharing element references either way is already
+  what a shallow copy means), `copy.deepcopy()` (returns the same object when
+  every element is itself immutable, which `copy.deepcopy()` of the elements
+  tuple already detects; an independent copy, with its own independently
+  copied elements, when an element such as `bytearray` is mutable, so
+  mutating the copy cannot alias back into the original) and `pickle`
   (`__reduce__` round-trips through the public constructor instead of
   pickle's default slot restore, which would otherwise call `setattr()` on
   the immutable instance and raise). `format_parameter()` raises

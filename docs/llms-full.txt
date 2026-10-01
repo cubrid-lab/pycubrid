@@ -2794,10 +2794,12 @@ async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
   be used silently and its values dropped). `Sequence` additionally raises
   `TypeError` for a `set`/`frozenset` argument, since its iteration order is
   not guaranteed; `Set` and `Multiset` accept a `set`/`frozenset`.
-- The instances are safe to `copy.copy()`, `copy.deepcopy()` (both return the
-  same object) and `pickle` (round-trips to an equal instance).
-  Re-invoking `__init__` on an existing instance is a no-op and cannot
-  mutate it.
+- The instances are safe to `copy.copy()` (always returns the same object),
+  `copy.deepcopy()` (the same object when every element is itself immutable;
+  an independent copy, with independently copied elements, when an element
+  such as `bytearray` is mutable) and `pickle` (round-trips to an equal
+  instance). Re-invoking `__init__` on an existing instance is a no-op and
+  cannot mutate it.
 - Fetched collections are not returned as these classes: with
   `decode_collections=True` they stay `frozenset` (`SET`) and `list`
   (`MULTISET`/`SEQUENCE`).
@@ -3307,9 +3309,12 @@ silently use only its keys and drop the values. `Sequence` also rejects a
 guaranteed and would make an ordered collection's element order
 nondeterministic; `Set` and `Multiset` accept a `set`/`frozenset` since their
 own server-side semantics already discard order. The instances are safe to
-`copy.copy()`, `copy.deepcopy()` and `pickle` (all round-trip or return the
-same object), and re-invoking `__init__` on an existing instance cannot
-mutate it.
+`copy.copy()` (always returns the same object), `copy.deepcopy()` (the same
+object when every element is itself immutable; an independent copy, with
+independently copied elements, when an element such as `bytearray` is
+mutable, so mutating the copy cannot alias back into the original) and
+`pickle` (round-trips to an equal instance), and re-invoking `__init__` on
+an existing instance cannot mutate it.
 
 `Set`, `Multiset` and `Sequence` are ordinary names in `pycubrid.types` and
 `pycubrid`, not `typing` aliases, but `Sequence` in particular is also a name
@@ -8456,9 +8461,11 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   input order.
 - `executemany()` accepts typed collections in each parameter set, including
   through the DML batch path (`EXECUTE_BATCH`).
-- The instances are immutable and safe to `copy.copy()`, `copy.deepcopy()`
-  (both return the same object) and `pickle`; re-invoking `__init__` on an
-  existing instance cannot mutate it either.
+- The instances are immutable and safe to `copy.copy()` (always returns the
+  same object), `copy.deepcopy()` (the same object when every element is
+  itself immutable; an independent copy, with independently copied elements,
+  when an element such as `bytearray` is mutable) and `pickle`; re-invoking
+  `__init__` on an existing instance cannot mutate it either.
 - Fetching is unchanged: with `decode_collections=True` a `SET` column still
   decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
   otherwise). Decoded values are not wrapped back into these types; wrap them

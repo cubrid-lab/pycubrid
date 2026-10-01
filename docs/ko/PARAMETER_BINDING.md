@@ -202,7 +202,7 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 - 중첩 컬렉션은 거부됩니다(`ProgrammingError`): 다른 타입 지정 컬렉션 안의 타입 지정 컬렉션, 또는 일반 `list`/`tuple`/`set`/`frozenset`/`dict` 원소.
 - 세 클래스 모두 생성 시 `dict`를 거부합니다(`TypeError`): `dict`를 순회하면 키만 쓰이고 값은 조용히 버려지기 때문입니다. `Sequence`는 추가로 `set`/`frozenset`을 거부합니다(`TypeError`): 순회 순서가 보장되지 않아 실행마다 `Sequence`의 원소 순서가 달라질 수 있기 때문입니다. `Set`과 `Multiset`은 서버 측 의미 자체가 입력 순서에 의존하지 않으므로 `set`/`frozenset`을 그대로 받습니다.
 - `executemany()`도 각 파라미터 집합에서 타입 지정 컬렉션을 받으며, DML 배치 경로(`EXECUTE_BATCH`)도 포함합니다.
-- 이 인스턴스들은 불변이며 `copy.copy()`, `copy.deepcopy()`(둘 다 같은 객체를 반환), `pickle`에 안전합니다. 기존 인스턴스에서 `__init__`을 다시 호출해도 변경할 수 없습니다.
+- 이 인스턴스들은 불변이며 `copy.copy()`(항상 같은 객체를 반환), `copy.deepcopy()`(모든 원소가 그 자체로 불변이면 같은 객체를 반환하고, `bytearray`처럼 가변인 원소가 있으면 원소까지 독립적으로 복사한 별개의 객체를 반환해 복사본을 변경해도 원본에 되돌아가 영향을 주지 않음), `pickle`에 안전합니다. 기존 인스턴스에서 `__init__`을 다시 호출해도 변경할 수 없습니다.
 - 조회 동작은 바뀌지 않습니다: `decode_collections=True`이면 `SET` 컬럼은 여전히 `frozenset`으로, `MULTISET`/`SEQUENCE`는 `list`로 디코딩됩니다(아니면 raw `bytes`). 디코딩된 값은 이 타입으로 다시 감싸지지 않으므로, 바인딩하려면 다시 감싸세요(예: `Set(row[0])`).
 
 ### 바인딩 값으로 명시적으로 미지원

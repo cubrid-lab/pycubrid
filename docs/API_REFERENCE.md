@@ -1732,10 +1732,12 @@ async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
   be used silently and its values dropped). `Sequence` additionally raises
   `TypeError` for a `set`/`frozenset` argument, since its iteration order is
   not guaranteed; `Set` and `Multiset` accept a `set`/`frozenset`.
-- The instances are safe to `copy.copy()`, `copy.deepcopy()` (both return the
-  same object) and `pickle` (round-trips to an equal instance).
-  Re-invoking `__init__` on an existing instance is a no-op and cannot
-  mutate it.
+- The instances are safe to `copy.copy()` (always returns the same object),
+  `copy.deepcopy()` (the same object when every element is itself immutable;
+  an independent copy, with independently copied elements, when an element
+  such as `bytearray` is mutable) and `pickle` (round-trips to an equal
+  instance). Re-invoking `__init__` on an existing instance is a no-op and
+  cannot mutate it.
 - Fetched collections are not returned as these classes: with
   `decode_collections=True` they stay `frozenset` (`SET`) and `list`
   (`MULTISET`/`SEQUENCE`).
