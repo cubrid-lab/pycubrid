@@ -165,7 +165,12 @@ pytest tests/ -m "not integration" -v
 `pytestmark = pytest.mark.repo_tooling`으로 도구 레인에 포함됩니다. 따라서
 디스크에서 재구성할 필요가 없고 `pytest tests/`에서 조용히 빠지는 테스트도
 없습니다(모든 마커는 기본 수집에 추가적일 뿐이며, 실행 시 선택하거나
-제외하는 것은 `-m`뿐입니다).
+제외하는 것은 `-m`뿐입니다). `docs-sync.yml`은 의존성을 설치하지 않고
+`test_docs_reason.py`를 순수 `python -m unittest discover`로 실행하므로, 이
+모듈은(같은 위험이 있는 `test_pr_title.py`도) `pytest`를
+`try`/`except ModuleNotFoundError`로 가져오고, 없으면 빈 `pytestmark`로
+대체합니다 — 그곳에서는 마커 자체가 의미가 없기 때문입니다. pytest로만
+실행되는 모듈에는 이 보호 장치가 필요 없습니다.
 
 ### 동기/비동기 재생 패리티
 

@@ -181,7 +181,12 @@ A module opts into the tooling lane with an explicit `pytestmark = pytest.mark.r
 not a file move or a path-based collection rule, so nothing needs reorganizing
 on disk and nothing is silently dropped from `pytest tests/` (every marker is
 additive to the default collection; only `-m` selects or excludes it at run
-time).
+time). `docs-sync.yml` runs `test_docs_reason.py` with a bare
+`python -m unittest discover` and no dependency install, so that module (and
+`test_pr_title.py`, at risk of the same thing) imports `pytest` in a
+`try`/`except ModuleNotFoundError` and falls back to an empty `pytestmark`
+when it is missing — the marker would be meaningless there anyway. A module
+only ever run through pytest does not need this guard.
 
 ### Sync/Async Replay Parity
 

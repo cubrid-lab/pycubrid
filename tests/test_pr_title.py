@@ -14,9 +14,15 @@ import textwrap
 import unittest
 from pathlib import Path
 
-import pytest
-
-pytestmark = pytest.mark.repo_tooling
+try:
+    import pytest
+except ModuleNotFoundError:
+    # Not currently run with bare unittest in CI, but kept importable without
+    # pytest for the same reason as test_docs_reason.py (#558): the marker is
+    # then meaningless there anyway.
+    pytestmark: list[object] = []
+else:
+    pytestmark = pytest.mark.repo_tooling
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "pr-title.yml"
