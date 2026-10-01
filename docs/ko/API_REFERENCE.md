@@ -241,13 +241,16 @@ HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
 
 - `data`는 `tuple`이어야 합니다(그 밖의 값은 공식 드라이버처럼 `InterfaceError`).
   원소는 `str`, NULL 원소를 뜻하는 `None`, 또는 `type`이 INT일 때 부호 있는 64비트
-  범위의 `int`입니다(범위 밖은 `DataError`).
+  범위의 `int`입니다(범위 밖은 `DataError`). `int`와 숫자 문자열 원소는 모두
+  텍스트로 보내므로 섞어 쓸 수 있습니다.
   다른 원소 타입(`bool`, `float`, `bytes`, 중첩 컨테이너), NUL이 든 문자열, 인코딩할
   수 없는 문자열은 `ProgrammingError` 또는 `DataError`를 내고, set은 이전 값을
-  유지합니다.
-- `type`은 원소 타입인 CHAR(`1`), STRING/VARCHAR(`2`), INT(`8`)입니다. 예를 들어
-  `pycubrid.constants`의 `CUBRIDDataType.INT`를 씁니다. BIT/VARBIT을 포함한 다른
-  코드는 `NotSupportedError`를 냅니다.
+  유지합니다. `str` 하위 클래스는 먼저 일반 텍스트로 복사합니다.
+- `type`은 CHAR(`1`), STRING/VARCHAR(`2`), NUMERIC(`7`), INT(`8`), DATE(`13`) 같은
+  CCI 원소 타입 코드입니다. 예를 들어 `pycubrid.constants`의
+  `CUBRIDDataType.NUMERIC`을 씁니다. 공식 드라이버처럼 어떤 코드든 받으며 import의
+  표시일 뿐입니다. 공식 드라이버가 비트 문자열로 변환하는 BIT(`5`)와 VARBIT(`6`)은
+  `NotSupportedError`를, `int`가 아닌 코드는 `InterfaceError`를 냅니다.
 - 공식 드라이버처럼 모든 원소는 `type`과 관계없이 STRING(`2`) 원소로 보내며, 서버가
   컬럼의 원소 타입으로 변환합니다. `int` 원소는 10진 텍스트로 보내므로
   `imports((1, 2), INT)`는 공식 `imports(('1', '2'), INT)`와 같은 바이트를 보냅니다.
@@ -268,10 +271,19 @@ HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
   문자셋으로 import한 set에 `ProgrammingError`를 냅니다. 이전 세션·닫힌 커서
   규칙은 `bind_param()`과 같습니다.
 
-공식 드라이버와 의도적으로 다른 점은 각각 라이브 차등 비교 주장으로 고정되어
+공식 드라이버와 의도적으로 다른 점은 각각 라이브 차등 비교 주장
+(`tests/fixtures/official_differential_claims.json`의 `bind-*`)으로 고정되어
 있습니다. `None`이 NULL 원소이고 텍스트 `'NULL'`은 문자열로 남습니다(공식은
 `'NULL'`을 NULL 원소로 바꿈). 빈 문자열과 Python `int` 원소를 허용합니다(공식은
-`InterfaceError`). `kind`는 pycubrid 확장입니다(공식은 항상 SET으로 바인딩).
+`InterfaceError`). NUL이 든 원소는 `ProgrammingError`를 냅니다(공식은 조용히
+잘라냄). `kind`는 pycubrid 확장입니다(공식은 항상 SET으로 바인딩). 오류 클래스는
+#439 prepared 커서를 따릅니다. `float`/`bytes` 원소와 잘못된 `bind_set` 인덱스는
+`ProgrammingError`(공식 `InterfaceError`), 연결이 아닌 값을 받은 `native.set()`은
+`InterfaceError`(공식 `TypeError`), 서버 오류 -494는 드라이버 전체 매핑에 따라
+`ProgrammingError`(공식 `IntegrityError`)입니다.
+
+공식 모듈과 마찬가지로 `from pycubrid.compat.native import *`는 `set` 이름을
+`native.set`에 바인딩하므로 그 네임스페이스에서 내장 `set`을 가립니다.
 래퍼의 `execute(query, args, set_type)`와 `executemany()` 컬렉션 형태는 제공하지
 않으며, 일반 `pycubrid` 커서는 계속 타입 지정 `pycubrid.types.Set`/`Multiset`/
 `Sequence` 리터럴 파라미터(#567)를 사용합니다.

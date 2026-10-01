@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -181,6 +183,61 @@ def test_default_kind_into_multiset_and_sequence_columns_keeps_set_semantics(
     assert _stored(observer, table) == [(1, [1, 2, 3])]
 
 
+@pytest.mark.parametrize(
+    ("column", "expected"),
+    [("SET(INTEGER)", frozenset({1, 3})), ("SEQUENCE(INTEGER)", [3, 1, 3])],
+    ids=["set-column", "sequence-column"],
+)
+def test_multiset_kind_follows_the_column(
+    observer: Connection, table: str, column: str, expected: Any
+) -> None:
+    # kind=MULTISET is sent as SEQUENCE: a SET column still deduplicates and
+    # a SEQUENCE column keeps the order and duplicates.
+    _sql(observer, f"CREATE TABLE {table} (id INTEGER, c {column})")
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.prepare(f"INSERT INTO {table} VALUES (?, ?)")
+        s = conn.set()
+        s.imports((3, 1, 3), INT, kind=MULTISET)
+        cur.bind_param(1, 1)
+        cur.bind_set(2, s)
+        cur.execute()
+        cur.close()
+    finally:
+        conn.close()
+    assert _stored(observer, table) == [(1, expected)]
+
+
+def test_other_element_type_codes_are_sent_as_strings(observer: Connection, table: str) -> None:
+    # As in the official driver, a NUMERIC/DATE type code only labels the
+    # import; the STRING elements are converted by the server.
+    _sql(observer, f"CREATE TABLE {table} (id INTEGER, c SET(NUMERIC(5,2)), d SET(DATE))")
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.prepare(f"INSERT INTO {table} VALUES (?, ?, ?)")
+        numbers = conn.set()
+        numbers.imports(("1.5", "2"), CUBRIDDataType.NUMERIC)
+        dates = conn.set()
+        dates.imports(("2024-01-15",), CUBRIDDataType.DATE)
+        cur.bind_param(1, 1)
+        cur.bind_set(2, numbers)
+        cur.bind_set(3, dates)
+        cur.execute()
+        cur.close()
+    finally:
+        conn.close()
+    cursor = observer.cursor()
+    try:
+        cursor.execute(f"SELECT c, d FROM {table}")
+        assert cursor.fetchall() == [
+            (frozenset({Decimal("1.50"), Decimal("2.00")}), frozenset({date(2024, 1, 15)}))
+        ]
+    finally:
+        cursor.close()
+
+
 def test_elements_are_strings_on_the_wire_like_the_official_driver(
     observer: Connection, table: str
 ) -> None:
@@ -211,14 +268,18 @@ def test_server_rejection_keeps_the_handle_and_connection_usable(
         cur = conn.cursor()
         cur.prepare(f"INSERT INTO {table} VALUES (?, ?)")
         handle = cur._handle
-        for bad in (("x",), (2**40,)):
+        for attempt, bad in enumerate((("x",), (2**40,))):
             s = conn.set()
             s.imports(bad, INT)
             cur.bind_param(1, 1)
             cur.bind_set(2, s)
             with pytest.raises(DatabaseError) as caught:
                 cur.execute()
-            assert caught.value.errno is not None and caught.value.errno < 0
+            if attempt == 0:
+                assert caught.value.errno == -494  # Cannot coerce host var to type set.
+            else:
+                # A reused handle's next failure reports -1024 (#611).
+                assert caught.value.errno is not None and caught.value.errno < 0
             assert "x" not in str(caught.value)
         s = conn.set()
         s.imports((4, 4), INT)

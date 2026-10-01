@@ -1371,12 +1371,18 @@ sent until `execute()`, and the set holds no server resource.
 
 - `data` must be a `tuple` (anything else raises `InterfaceError`, as in the
   official driver). Elements are `str`, `None` for a NULL element, or, when
-  `type` is INT, `int` in signed 64-bit range (others raise `DataError`). Other element types (`bool`, `float`, `bytes`, nested
-  containers), a NUL in a string and an unencodable string raise
-  `ProgrammingError` or `DataError`, and the set keeps its previous value.
-- `type` is the element type: CHAR (`1`), STRING/VARCHAR (`2`) or INT (`8`),
-  for example `CUBRIDDataType.INT` from `pycubrid.constants`. Other codes,
-  including BIT/VARBIT, raise `NotSupportedError`.
+  `type` is INT, `int` in signed 64-bit range (others raise `DataError`);
+  `int` and digit-string elements may be mixed because both are sent as
+  text. Other element types (`bool`, `float`, `bytes`, nested containers), a
+  NUL in a string and an unencodable string raise `ProgrammingError` or
+  `DataError`, and the set keeps its previous value. A `str` subclass is
+  copied as plain text first.
+- `type` is a CCI element type code such as CHAR (`1`), STRING/VARCHAR
+  (`2`), NUMERIC (`7`), INT (`8`) or DATE (`13`), for example
+  `CUBRIDDataType.NUMERIC` from `pycubrid.constants`. As in the official
+  driver, any code is accepted and only labels the import; BIT (`5`) and
+  VARBIT (`6`), which the official driver converts to bit strings, raise
+  `NotSupportedError`, and a non-`int` code raises `InterfaceError`.
 - As in the official driver, every element is sent as a STRING (`2`)
   element whatever `type` is, and the server converts it to the column's
   element type. An `int` element is sent as its decimal text, so
@@ -1401,10 +1407,20 @@ sent until `execute()`, and the set holds no server resource.
   as for `bind_param()`.
 
 Deliberate differences from the official driver, each pinned by a live
-differential claim: `None` is the NULL element and the text `'NULL'` stays a
-string (official turns `'NULL'` into a NULL element); the empty string and
-Python `int` elements are accepted (official raises `InterfaceError`); and
-`kind` is a pycubrid extension (official always binds a SET). The wrapper
+differential claim (`bind-*` in `tests/fixtures/official_differential_claims.json`):
+`None` is the NULL element and the text `'NULL'` stays a string (official
+turns `'NULL'` into a NULL element); the empty string and Python `int`
+elements are accepted (official raises `InterfaceError`); an element with a
+NUL raises `ProgrammingError` (official silently truncates it); `kind` is a
+pycubrid extension (official always binds a SET); and error classes follow
+the #439 prepared cursor: a `float`/`bytes` element and a bad `bind_set`
+index raise `ProgrammingError` (official `InterfaceError`), `native.set()`
+with a non-connection raises `InterfaceError` (official `TypeError`), and
+server error -494 raises `ProgrammingError` by the driver-wide mapping
+(official `IntegrityError`).
+
+As with the official module, `from pycubrid.compat.native import *` binds the
+name `set` to `native.set`, shadowing the builtin `set` in that namespace. The wrapper
 `execute(query, args, set_type)` and `executemany()` collection shapes are not
 provided, and ordinary `pycubrid` cursors still use the typed
 `pycubrid.types.Set`/`Multiset`/`Sequence` literal parameters (#567).
@@ -9548,7 +9564,7 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Settings | Native autocommit/isolation_level/lock_timeout/max_string_len assignments change cached snapshots only. `set_autocommit(mode)` / `set_isolation_level(level)` perform server operations and update caches; max_string_len retains the source's read-failure fallback 0. Wrapper `.autocommit` is server-backed. Do not invent effective setters for snapshot members. |
 | Wrapper cursor | `cursor(dictCursor=None)`, `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None`; tuple/dict fetch and connection fetch-converter callback. Contradictory mapping-binding/default_cursor docstrings are not working capability promises. |
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
-| Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is CHAR/STRING/INT (else NotSupportedError). Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''` and Python int elements (INT only) are deliberate classified deviations. A never-imported set binds SQL NULL. Wrapper `execute(..., set_type)`/`executemany` collection shapes are not delivered. |
+| Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. Wrapper `execute(..., set_type)`/`executemany` collection shapes are not delivered (#610). |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
 | Extended metadata | `result_info(n=0, /)` returns tuple-of-15-tuples (one outer entry for n>=1), or None with no columns. Actual order: type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared. Preserve empty versus absent metadata; #445 must not fabricate unavailable fields. |
 | Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
@@ -9671,12 +9687,12 @@ claims without cases and oracle pins that differ from the build script.
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
 | Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
-| Native (`_cubrid`) | 9 | 6 | 15 |
-| **Total** | **21** | **8** | **29** |
+| Native (`_cubrid`) | 10 | 8 | 18 |
+| **Total** | **22** | **10** | **32** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - Required servers: CUBRID 10.2, CUBRID 11.4
-- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440)
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440)
 
 <!-- official-differential-summary:end -->
 

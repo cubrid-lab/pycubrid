@@ -313,7 +313,55 @@ def _set_wrong_objects() -> tuple[str, str]:
     return run(native.connect), run(_cubrid.connect)
 
 
-FIELD_INT, FIELD_STRING = 8, 2  # CUBRIDdb.FIELD_TYPE.INT / .STRING
+def _set_error_classes() -> tuple[str, str]:
+    """Client-side and server-side failure classes of the collection calls."""
+
+    def run(module: Any) -> str:
+        table = _table("ode")
+        verify = _ordinary()
+        vc = verify.cursor()
+        vc.execute(f"CREATE TABLE {table} (c SET(INTEGER))")
+        try:
+            conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+            try:
+                cur = conn.cursor()
+                cur.prepare(f"INSERT INTO {table} VALUES (?)")
+                good = conn.set()
+                good.imports(("1",), FIELD_INT)
+                bad = conn.set()
+                bad.imports(("x",), FIELD_INT)
+
+                def server_reject() -> None:
+                    cur.bind_set(1, bad)
+                    cur.execute()
+
+                outcomes = []
+                for call in (
+                    lambda: conn.set().imports((1.5,), FIELD_INT),
+                    lambda: conn.set().imports((b"1",), FIELD_INT),
+                    lambda: cur.bind_set(0, good),
+                    lambda: cur.bind_set(5, good),
+                    lambda: module.set(object()),
+                    server_reject,
+                ):
+                    try:
+                        call()
+                        outcomes.append("returns")
+                    except Exception as exc:  # compared by class name only
+                        outcomes.append(f"raises {type(exc).__name__}")
+                cur.close()
+                return render(outcomes)
+            finally:
+                conn.close()
+        finally:
+            vc.execute(f"DROP TABLE IF EXISTS {table}")
+            vc.close()
+            verify.close()
+
+    return run(native), run(_cubrid)
+
+
+FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
 KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
 
 
@@ -356,6 +404,9 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "bind-set-null-text": _set_case("SET(VARCHAR(20))", ("NULL", "a"), FIELD_STRING),
     "bind-set-empty-string": _set_case("SET(VARCHAR(20))", ("", "a"), FIELD_STRING),
     "bind-set-python-int": _set_case("SET(INTEGER)", (1, 2), FIELD_INT),
+    "bind-set-numeric-type": _set_case("SET(NUMERIC(5,2))", ("1.5", "2"), FIELD_NUMERIC),
+    "bind-set-nul-truncation": _set_case("SET(VARCHAR(20))", ("a\x00b", "c"), FIELD_STRING),
+    "bind-set-error-classes": _set_error_classes,
 }
 
 

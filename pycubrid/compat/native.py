@@ -410,8 +410,9 @@ class cursor:
             self._close_locked()
 
 
-# ``imports()`` element types: CHAR, STRING (VARCHAR) and INT.
-_IMPORT_TYPES = frozenset({CUBRIDDataType.CHAR, CUBRIDDataType.STRING, CUBRIDDataType.INT})
+# The official imports() converts BIT/VARBIT element text to bit strings;
+# every other element type code is sent as STRING elements.
+_BIT_TYPES = frozenset({CUBRIDDataType.BIT, CUBRIDDataType.VARBIT})
 # The 10.2/11.4 brokers reject the MULTISET bind kind with -454, and a SET
 # bind drops duplicates, so MULTISET is sent as SEQUENCE: the server stores
 # it into a MULTISET column with its duplicates.
@@ -451,23 +452,30 @@ class set:  # the official native type name shadows the builtin here
 
         Like the official driver, every element is sent as a STRING (type 2)
         element whatever ``type`` is, and the server converts it to the
-        column's element type. ``type`` is ``CHAR`` (1), ``STRING``/``VARCHAR``
-        (2) or ``INT`` (8). Elements are ``str``, ``None`` (a NULL element) or,
-        for ``INT``, ``int`` in signed 64-bit range (sent as its decimal text). ``kind`` is ``SET``
-        (16, the official bytes), ``MULTISET`` (17, sent as ``SEQUENCE``) or
-        ``SEQUENCE`` (18). Invalid input raises before anything changes.
+        column's element type. ``type`` is any CCI type code except ``BIT``
+        (5) and ``VARBIT`` (6), which are not supported. Elements are ``str``,
+        ``None`` (a NULL element) or, for ``INT`` (8), ``int`` in signed 64-bit
+        range (sent as its decimal text; it may be mixed with digit strings).
+        ``kind`` is ``SET`` (16, the official bytes), ``MULTISET`` (17, sent as
+        ``SEQUENCE``) or ``SEQUENCE`` (18). Invalid input raises before
+        anything changes.
         """
         if builtins.type(data) is not tuple:
             raise InterfaceError("imports() data must be a tuple")
         # int or an int enum such as CUBRIDDataType, never bool.
-        if isinstance(type, bool) or not isinstance(type, int) or type not in _IMPORT_TYPES:
-            raise NotSupportedError("unsupported collection element type")
+        if isinstance(type, bool) or not isinstance(type, int):
+            raise InterfaceError("collection element type must be an int type code")
+        if type in _BIT_TYPES:
+            raise NotSupportedError("BIT/VARBIT collection elements are not supported")
         if isinstance(kind, bool) or not isinstance(kind, int) or kind not in _WIRE_KINDS:
             raise ProgrammingError("unsupported collection kind")
         elements: list[str | None] = []
         for value in data:
-            if value is None or isinstance(value, str):
-                elements.append(value)
+            if value is None:
+                elements.append(None)
+            elif isinstance(value, str):
+                # A plain copy: a str subclass cannot choose the encoded bytes.
+                elements.append(str.__str__(value))
             elif type == CUBRIDDataType.INT and builtins.type(value) is int:
                 # No integer column holds more than BIGINT; this bound also
                 # keeps str() below Python's integer-string digit limit.

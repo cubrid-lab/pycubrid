@@ -255,10 +255,10 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `cursor.bind_set(index, s, /)`. The default `kind=SET` sends the official
   driver's request bytes (STRING elements whatever the element type); the
   `kind` keyword and the classified deviations (`None` NULL element, literal
-  `'NULL'`, empty string and Python `int` elements) are pinned by official
-  differential claims. Ordinary sync/async cursors, FC41 rendering, fetched
-  collection decoding, `bind_param()`, dependencies and supported versions
-  are unchanged; no async prepared API.
+  `'NULL'`, empty string and Python `int` elements, NUL rejection, error
+  classes) are pinned by official differential claims. Ordinary sync/async
+  cursors, FC41 rendering, fetched collection decoding, `bind_param()`,
+  dependencies and supported versions are unchanged; no async prepared API.
 
 - **Faster FETCH row parsing (#559)** — PATCH / internal performance change
   with no behavior change. Row values, `DataError` / malformed-reply

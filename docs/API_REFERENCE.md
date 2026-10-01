@@ -275,12 +275,18 @@ sent until `execute()`, and the set holds no server resource.
 
 - `data` must be a `tuple` (anything else raises `InterfaceError`, as in the
   official driver). Elements are `str`, `None` for a NULL element, or, when
-  `type` is INT, `int` in signed 64-bit range (others raise `DataError`). Other element types (`bool`, `float`, `bytes`, nested
-  containers), a NUL in a string and an unencodable string raise
-  `ProgrammingError` or `DataError`, and the set keeps its previous value.
-- `type` is the element type: CHAR (`1`), STRING/VARCHAR (`2`) or INT (`8`),
-  for example `CUBRIDDataType.INT` from `pycubrid.constants`. Other codes,
-  including BIT/VARBIT, raise `NotSupportedError`.
+  `type` is INT, `int` in signed 64-bit range (others raise `DataError`);
+  `int` and digit-string elements may be mixed because both are sent as
+  text. Other element types (`bool`, `float`, `bytes`, nested containers), a
+  NUL in a string and an unencodable string raise `ProgrammingError` or
+  `DataError`, and the set keeps its previous value. A `str` subclass is
+  copied as plain text first.
+- `type` is a CCI element type code such as CHAR (`1`), STRING/VARCHAR
+  (`2`), NUMERIC (`7`), INT (`8`) or DATE (`13`), for example
+  `CUBRIDDataType.NUMERIC` from `pycubrid.constants`. As in the official
+  driver, any code is accepted and only labels the import; BIT (`5`) and
+  VARBIT (`6`), which the official driver converts to bit strings, raise
+  `NotSupportedError`, and a non-`int` code raises `InterfaceError`.
 - As in the official driver, every element is sent as a STRING (`2`)
   element whatever `type` is, and the server converts it to the column's
   element type. An `int` element is sent as its decimal text, so
@@ -305,10 +311,20 @@ sent until `execute()`, and the set holds no server resource.
   as for `bind_param()`.
 
 Deliberate differences from the official driver, each pinned by a live
-differential claim: `None` is the NULL element and the text `'NULL'` stays a
-string (official turns `'NULL'` into a NULL element); the empty string and
-Python `int` elements are accepted (official raises `InterfaceError`); and
-`kind` is a pycubrid extension (official always binds a SET). The wrapper
+differential claim (`bind-*` in `tests/fixtures/official_differential_claims.json`):
+`None` is the NULL element and the text `'NULL'` stays a string (official
+turns `'NULL'` into a NULL element); the empty string and Python `int`
+elements are accepted (official raises `InterfaceError`); an element with a
+NUL raises `ProgrammingError` (official silently truncates it); `kind` is a
+pycubrid extension (official always binds a SET); and error classes follow
+the #439 prepared cursor: a `float`/`bytes` element and a bad `bind_set`
+index raise `ProgrammingError` (official `InterfaceError`), `native.set()`
+with a non-connection raises `InterfaceError` (official `TypeError`), and
+server error -494 raises `ProgrammingError` by the driver-wide mapping
+(official `IntegrityError`).
+
+As with the official module, `from pycubrid.compat.native import *` binds the
+name `set` to `native.set`, shadowing the builtin `set` in that namespace. The wrapper
 `execute(query, args, set_type)` and `executemany()` collection shapes are not
 provided, and ordinary `pycubrid` cursors still use the typed
 `pycubrid.types.Set`/`Multiset`/`Sequence` literal parameters (#567).

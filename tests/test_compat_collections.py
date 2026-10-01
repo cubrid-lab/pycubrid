@@ -99,7 +99,20 @@ def test_python_int_elements_send_the_official_digit_string_bytes(
 @pytest.mark.parametrize(
     ("kind", "wire"), [(SET, SET), (MULTISET, SEQUENCE), (SEQUENCE, SEQUENCE), (16, SET)]
 )
-@pytest.mark.parametrize("type_", [CHAR, STRING, INT])
+@pytest.mark.parametrize(
+    "type_",
+    [
+        CHAR,
+        STRING,
+        INT,
+        CUBRIDDataType.NUMERIC,
+        CUBRIDDataType.DATE,
+        CUBRIDDataType.DATETIME,
+        CUBRIDDataType.BIGINT,
+        0,
+        99,
+    ],
+)
 def test_kind_and_element_type_on_the_wire(
     fake_driver: FakeDriver, kind: int, wire: int, type_: int
 ) -> None:
@@ -110,6 +123,31 @@ def test_kind_and_element_type_on_the_wire(
         assert binding.type_code == wire
         assert binding.element_type == STRING
         assert binding.elements == (b"7\x00", None, b"7\x00")
+    finally:
+        conn.close()
+
+
+def test_int_and_digit_string_elements_may_be_mixed(fake_driver: FakeDriver) -> None:
+    conn, _cur = _owner(fake_driver)
+    try:
+        mixed = _imported(conn, (1, "2", None), INT)._binding
+        assert mixed == _imported(conn, ("1", "2", None), INT)._binding
+    finally:
+        conn.close()
+
+
+def test_str_subclass_cannot_choose_the_encoded_bytes(fake_driver: FakeDriver) -> None:
+    class Hostile(str):
+        def encode(self, *args: Any, **kwargs: Any) -> bytes:  # pragma: no cover - must not run
+            raise TypeError("hostile encode")
+
+        def __str__(self) -> str:  # pragma: no cover - must not run
+            return "other"
+
+    conn, _cur = _owner(fake_driver)
+    try:
+        binding = _imported(conn, (Hostile("a"),), STRING)._binding
+        assert binding.elements == (b"a\x00",)
     finally:
         conn.close()
 
@@ -131,9 +169,13 @@ def test_null_empty_and_literal_null_elements_are_kept(fake_driver: FakeDriver) 
         ("12", INT, SET, InterfaceError),
         (None, INT, SET, InterfaceError),
         (("1",), CUBRIDDataType.BIT, SET, NotSupportedError),
-        (("1",), CUBRIDDataType.NUMERIC, SET, NotSupportedError),
-        (("1",), True, SET, NotSupportedError),
-        (("1",), "8", SET, NotSupportedError),
+        (("1",), CUBRIDDataType.VARBIT, SET, NotSupportedError),
+        (("1",), 5, SET, NotSupportedError),
+        (("1",), True, SET, InterfaceError),
+        (("1",), "8", SET, InterfaceError),
+        (("1",), 8.0, SET, InterfaceError),
+        ((1,), CUBRIDDataType.NUMERIC, SET, ProgrammingError),
+        ((1,), CUBRIDDataType.BIGINT, SET, ProgrammingError),
         (("1",), INT, CUBRIDDataType.OBJECT, ProgrammingError),
         (("1",), INT, True, ProgrammingError),
         (("1",), INT, 16.0, ProgrammingError),
