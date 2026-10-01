@@ -4408,7 +4408,12 @@ defers only statements without a result set and closes SELECT/CALL/EVALUATE
 handles at once (`CLOSE_USTATEMENT`), while pycubrid defers result-set handles too.
 A native error in that statement still frees them. One statement carries at most
 256 ids; an explicit release while 256 are queued sends `CLOSE_REQ` at once, and
-collected cursors are always queued and ride on later statements. `commit()` and
+collected cursors are always queued and ride on later statements. FC20 batch
+requests do not carry queued IDs: a handle released by `executemany()` waits
+for a later FC41 or transaction boundary. Empty `executemany()` sends no batch
+SQL and does not flush the queue; when its previous handle can be deferred, it
+also sends no `CLOSE_REQ`. Existing immediate-close rules still apply when
+deferral is unavailable (including a full queue). `commit()` and
 `rollback()` close every id still queued for the session with `CLOSE_REQ` before
 `END_TRAN`, as they closed unreferenced cursors before. Queued ids
 belong to one physical session: they are dropped when it is retired or replaced
