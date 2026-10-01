@@ -655,6 +655,11 @@ class PacketReader:
             return self._parse_bytes(size)
 
         start_offset = self._offset
+        if size < DataSize.BYTE + DataSize.INT:
+            raise ValueError("malformed collection: truncated header")
+        collection_end = start_offset + size
+        if collection_end > len(self._buffer):
+            raise _out_of_bounds(size, start_offset, len(self._buffer))
         element_type = self._parse_byte()
         element_count = self._parse_int()
         if element_type == CUBRIDDataType.NULL:
@@ -688,33 +693,43 @@ class PacketReader:
 
         parser = getattr(self, method_name)
         values: list[object] = []
-        for index in range(element_count):
+        first_error: DataError | None = None
+        last_size_start = collection_end - DataSize.INT
+        for _ in range(element_count):
+            if self._offset > last_size_start:
+                raise ValueError("malformed collection: truncated element size")
             element_size = self._parse_int()
             if element_size <= 0:
                 values.append(None)
                 continue
             element_start = self._offset
+            element_end = element_start + element_size
+            if element_end > collection_end:
+                if first_error is None and element_end > len(self._buffer):
+                    raise _out_of_bounds(element_size, element_start, len(self._buffer))
+                raise ValueError("malformed collection: elements exceed its size")
             try:
-                values.append(parser(element_size))
-            except DataError:
-                # Report an unrepresentable element (#492, #512) only when the
-                # remaining elements fit the collection's declared size.
-                self._offset = element_start + element_size
-                for _ in range(index + 1, element_count):
-                    element_size = self._parse_int()
-                    if element_size > 0:
-                        self._offset += element_size
-                if self._offset > start_offset + size:
-                    raise ValueError("malformed collection: elements exceed its size") from None
-                if self._offset != start_offset + size:
+                value = parser(element_size)
+            except DataError as error:
+                if self._offset != element_end:
                     raise ValueError(
-                        "malformed collection: elements do not match its size"
+                        "malformed collection: element does not match its size"
                     ) from None
-                raise
-        if self._offset != start_offset + size:
+                if first_error is None:
+                    first_error = error
+                values.append(None)
+                # Continue real element decoders, not a shallow size-only walk,
+                # so a later malformed representation takes precedence (#595).
+            else:
+                if self._offset != element_end:
+                    raise ValueError("malformed collection: element does not match its size")
+                values.append(value)
+        if self._offset != collection_end:
             # The elements must fill the declared size exactly, or the next
             # value in the row would be read from the wrong place (#383).
             raise ValueError("malformed collection: elements do not match its size")
+        if first_error is not None:
+            raise first_error
         return values
 
     def _parse_object(self, size: int = 0) -> str:

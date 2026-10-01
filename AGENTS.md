@@ -77,6 +77,11 @@ inline rows have been validated without application hooks (#591). Later
 structural errors close the session; complete replies retain the first
 metadata DataError.
 
+Known decoded collection elements validate their declared sizes and consumed
+bytes even after a complete element raises DataError (#595). Later structural
+damage wins; complete collections retain the first conversion error. Opaque
+and unsupported nested member layouts keep their existing raw-byte contracts.
+
 Typed collection FC3 binds (#482, internal; no public API until #440) send
 the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument
 and `[element type][int32 len, payload]*` as the value, with no element count.
