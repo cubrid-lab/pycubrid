@@ -8341,7 +8341,70 @@ assets; pinning its caller is not a complete freeze of those assets.
 ### CI Matrix
 
 - **Offline**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **Integration**: Python {3.10, 3.12} × CUBRID {11.2, 11.4}
+- **Integration**: Python {3.10, 3.14} × CUBRID {10.2, 11.4} (reduced PR matrix;
+  the full 5×4 matrix runs in `integration-full.yml`)
+
+### PR verification cost (#564)
+
+Measured from real `ci.yml` runs (GitHub REST `actions/runs/{id}/jobs`,
+per-job `started_at`/`completed_at`), not estimates. Baseline run: a
+code-touching PR exercising every lane (push/PR event, all path filters
+true) on 2026-10-01 — [run 36929613502](https://github.com/cubrid-lab/pycubrid/actions/runs/36929613502),
+`run_duration_ms` 306,000 (≈5m06s wall clock).
+
+| Job group | Jobs | Wall time (longest job) | Notes |
+|---|---|---|---|
+| `offline-tests` matrix | 10 (2 OS × 5 Python) | 78s–124s | Dominant job *count*; macOS jobs consistently run 15–40% longer than Linux at the same Python version. |
+| `integration-tests` / `integration-charset` / `integration-tls` / `official-differential` | 5 | 65s–118s | Each pays ~20–30s for `Initialize containers` (Docker pulling `cubrid/cubrid:*`) plus ~18–25s reinstalling `pycubrid[dev]`. |
+| `repo-tooling-tests` matrix | 2 (ubuntu, macos) | 32s–51s | Runs the same `pip install -e ".[dev]"` a second time per OS. |
+| `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9s–24s | Each also reinstalls dependencies from a cold cache. |
+| `doc-lint` (reusable) | path-gated on docs changes | 2s–8s per sub-step | Skips entirely when no Markdown/`docs/**` changed. |
+
+Critical path = `detect-changes` → the slowest `offline-tests` matrix cell →
+`packaging-smoke-test` (needs all of `offline-tests`) → the slowest
+container-based job → `ci-gate`, all serialized by the `needs:` graph; every
+other job runs in parallel within that spine.
+
+**Dominant, fixable cost**: every one of the ~20 jobs in `ci.yml` ran its own
+cold `pip install -e ".[dev]"` (or `-e .`), independently, with no dependency
+cache — 15–25s of that per job, every run, every PR
+(`actions/setup-python` offered a built-in `cache: pip` input that `ci.yml`
+never used). This is the "duplicate setup" cost called out in #564/#566;
+Docker image pulls for the CUBRID service containers are a comparable cost
+but are not safely cacheable with the tooling already in this repo (no
+registry mirror), so they are left for a future issue rather than touched
+here.
+
+**Path-filter trigger audit**: spot-checked `detect-changes` outputs against
+actual job results across five recent PR runs.
+[PR #595](https://github.com/cubrid-lab/pycubrid/pull/595) (collection-error
+fix, no TLS-relevant paths touched) correctly produced a `skipped`
+`integration-tls` job while `integration-tests`, `integration-charset` and
+`official-differential` ran — the `tls:`/`code:` filters already gate
+correctly and `ci-gate` already accepts `skipped` only for these path-gated
+jobs (confirmed by reading `ci-gate`'s job-result checks, unchanged here).
+The audit found one real gap: `scripts/wait_for_cubrid.py` is invoked by
+every container-based job (`integration-tests`, `integration-charset`,
+`official-differential`) but was missing from the `code:` filter list, so a
+PR touching only that script would have skipped all integration coverage
+before merge. Added to `code:` — this only *adds* coverage, it cannot
+produce a new skip.
+
+**Changes made** (both additive/safe; no job removed, no coverage reduced, no
+required check or branch-protection context touched, `ci-gate`'s
+pass/fail logic for skipped vs. failed/cancelled required jobs is unchanged):
+
+1. `cache: pip` + `cache-dependency-path: pyproject.toml` added to every
+   `actions/setup-python` step in `ci.yml` (10 steps), so repeated installs
+   across the Python/OS matrix reuse pip's download cache instead of
+   re-fetching the same wheels every job.
+2. `scripts/wait_for_cubrid.py` added to the `code:` path filter (closes the
+   gap above).
+
+**After**: re-measured from this PR's own `ci.yml` run(s) — see the PR
+description for the before/after numbers once CI has run with the change
+(first run populates the cache; a second push/rerun shows the warm-cache
+timing).
 
 ---
 

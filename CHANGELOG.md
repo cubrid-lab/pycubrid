@@ -736,6 +736,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `docs/DEVELOPMENT.md` (and its Korean translation) documents the fast-driver,
   repository-tooling and combined offline commands.
 
+### CI
+- **`ci.yml` dependency caching and a path-filter gap closed, measured
+  before changing anything (#564)** — real `ci.yml` run timings (GitHub
+  REST `actions/runs/{id}/jobs`) showed every one of the ~20 jobs in the
+  workflow reinstalling `pycubrid[dev]` from a cold pip cache (15-25s each,
+  every PR); `cache: pip` + `cache-dependency-path: pyproject.toml` is now
+  set on every `actions/setup-python` step so the matrix reuses pip's
+  download cache instead. A path-filter trigger audit (confirmed against
+  real runs, e.g. #595 correctly skipping `integration-tls` on a
+  non-TLS PR) found `scripts/wait_for_cubrid.py` — used by every
+  container-based integration job — was missing from the `code:`
+  `detect-changes` filter, so a PR touching only that script would have
+  skipped all integration coverage before merge; added to close the gap.
+  No job removed, no coverage reduced, no required check or
+  branch-protection context changed, and `ci-gate`'s pass/fail handling of
+  skipped vs. failed/cancelled required jobs (including the required
+  `official-differential` gate) is unchanged. See `docs/DEVELOPMENT.md`
+  ("PR verification cost") for the measurements.
+
 ## [1.8.0] - 2026-09-29
 
 ### Upgrade notes
