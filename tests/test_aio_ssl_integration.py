@@ -43,7 +43,7 @@ TLS_MISMATCH_REASON = (
     "by the broker certificate"
 )
 
-pytestmark = [pytest.mark.integration, pytest.mark.tls]
+pytestmark = [pytest.mark.integration, pytest.mark.tls, pytest.mark.no_escape_pin]
 
 
 def _custom_ssl_context() -> ssl_module.SSLContext:

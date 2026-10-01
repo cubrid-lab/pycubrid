@@ -37,6 +37,7 @@ from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_
 
 pytestmark = [
     pytest.mark.integration,
+    pytest.mark.no_escape_pin,
 ]
 
 _CHUNK = 4096  # a representative chunk boundary for boundary sizing
