@@ -188,8 +188,11 @@ Last full dry run: [run 36862670587](https://github.com/cubrid-lab/pycubrid/acti
 dispatched `-f action=dry-run -f version=1.8.0` from `main` at commit
 [`bf53d2c`](https://github.com/cubrid-lab/pycubrid/commit/bf53d2ca45290533ad8d6b47cbb54c4a9ba533c5)
 (workflow file and scripts unchanged since
-[`834ae96`](https://github.com/cubrid-lab/pycubrid/commit/834ae96e8612dcaf2b3dd4dde08db4eac1fc440b),
-#546). No earlier recorded run had exercised the full path: the only prior
+[`45f3374`](https://github.com/cubrid-lab/pycubrid/commit/45f3374b4cfa9d191316c935b3801e827aa94b1b),
+#548, which updated `scripts/release_summary.py` after
+[`834ae96`](https://github.com/cubrid-lab/pycubrid/commit/834ae96e8612dcaf2b3dd4dde08db4eac1fc440b)/#546
+first wired the cookbook call into `release.yml`). No earlier recorded run
+had exercised the full path: the only prior
 run, [36778024615](https://github.com/cubrid-lab/pycubrid/actions/runs/36778024615),
 was an ordinary push on which `detect` found "no release", so `consistency`,
 `matrix`, `build`, `publish` and `verify-cookbook` were all skipped.
@@ -204,21 +207,24 @@ success (installed `1.8.0` == requested `1.8.0`), `summary` success with
 final state `dry run passed; nothing published; cookbook verification
 success`.
 
-Build artifact SHA-256 (built fresh by this run, not uploaded anywhere;
-recorded here only as dry-run evidence, 14-day run-artifact retention):
+Build artifact SHA-256 (built fresh by this run and uploaded only as the
+14-day `release-dist` run artifact, never to PyPI; recorded here as
+dry-run evidence):
 
 ```
 d1c32a3ea22d0be2e52345976c0d30e280347260305d16b726dc342b9cc01ca6  pycubrid-1.8.0-py3-none-any.whl
 c13207dae94aaf239bc84325ae0bfe986c5123b3dc00b841e39a630bedcbd04e  pycubrid-1.8.0.tar.gz
 ```
 
-**Limit:** `verify-cookbook` on a `dry-run` installs the already-published
+**Limit:** the `build` job's own smoke tests do install the freshly built
+wheel and sdist into clean virtual environments and check their imports and
+metadata, so a passing dry run proves the fresh artifacts install cleanly.
+What it does not prove is that those fresh artifacts pass the cookbook
+suite: `verify-cookbook` on a `dry-run` installs the already-published
 `pycubrid==1.8.0` from PyPI (the cookbook's release verification contract
-only ever installs from PyPI), never the wheel this dry run just built. A
-passing dry run shows that `consistency`, the full matrix, `build` and the
-cookbook-call plumbing still work at this commit; it does not prove that an
-unpublished, not-yet-released wheel installs cleanly — only `publish`
-followed by its own `verify-cookbook` does that.
+only ever installs from PyPI), never the wheel this dry run just built.
+Only `publish` followed by its own `verify-cookbook` verifies the newly
+built artifact through the cookbook.
 
 ## Repository settings this relies on
 
