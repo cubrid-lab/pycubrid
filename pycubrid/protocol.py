@@ -1030,7 +1030,7 @@ class PrepareAndExecutePacket(_CasPacket):
         self.decode_collections = decode_collections
         self.json_deserializer = json_deserializer
         # Handles the CAS releases before preparing this statement (#488): the
-        # prepare arguments after the auto-commit flag (JDBC deferred close).
+        # prepare arguments after the auto-commit flag (JDBC's wire format).
         self.deferred_close_handles: tuple[int, ...] = ()
 
         self.response_code: int = 0
