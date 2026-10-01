@@ -77,6 +77,8 @@ def _connection(broker: _Broker, asynchronous: bool) -> MagicMock:
     connection._decode_collections = False
     connection._json_deserializer = None
     connection._fetch_size = 2
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    connection._defer_close = MagicMock(return_value=False)
     if asynchronous:
         connection._send_and_receive = AsyncMock(side_effect=broker.reply)
         connection._wait_for_setup_if_needed = AsyncMock()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import time
@@ -58,6 +59,8 @@ class Cursor(_CursorBase):
         self._rowcount: int = -1
         self._arraysize: int = 1
         self._query_handle: int | None = None
+        # Physical session generation the query handle was opened on (#488).
+        self._handle_generation = 0
         self._columns: list[ColumnMetaData] = []
         self._rows: list[tuple[Any, ...]] = []
         self._row_index: int = 0
@@ -118,15 +121,41 @@ class Cursor(_CursorBase):
             raise ProgrammingError("fetch_size must be an integer >= 1")
         self._fetch_size = value
 
+    def __del__(self) -> None:
+        # A cursor dropped without close() releases its handle later (#488).
+        connection = getattr(self, "_connection", None)
+        if connection is None:
+            return
+        try:
+            connection._defer_dropped_cursor_close(self)
+        except Exception:  # noqa: BLE001 - e.g. interpreter shutdown; never raise from __del__
+            with contextlib.suppress(Exception):  # logging may be torn down too
+                _LOGGER.debug("Could not queue a collected cursor's handle", exc_info=True)
+
+    def _release_handle(self) -> None:
+        """Release the current result's handle before a new request (#488).
+
+        Deferred to the next ``PREPARE_AND_EXECUTE`` when the connection allows
+        it, otherwise closed now with ``CLOSE_REQ``.
+        """
+        handle = self._query_handle
+        if handle is None:
+            return
+        if not self._connection._defer_close(handle, self._handle_generation):
+            self._connection._send_and_receive(CloseQueryPacket(handle))
+        self._query_handle = None
+
     def close(self) -> None:
         """Close the cursor and release the active query handle if present."""
         if self._closed:
             return
         _LOGGER.debug("cursor.close (handle=%s)", self._query_handle)
         try:
-            if self._query_handle is not None:
+            handle = self._query_handle
+            if handle is not None:
                 self._connection._ensure_connected()
-                self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
+                if not self._connection._defer_close(handle, self._handle_generation):
+                    self._connection._send_and_receive(CloseQueryPacket(handle))
         except (InterfaceError, OperationalError, OSError):
             pass
         finally:
@@ -153,9 +182,8 @@ class Cursor(_CursorBase):
         if _timing is not None:
             _start = time.perf_counter_ns()
 
-        if self._query_handle is not None:
-            self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
-            self._query_handle = None
+        # In autocommit the CLOSE_REQ rides on this execute's request (#488).
+        self._release_handle()
 
         # Once the previous query is closed, a failed execute has no result set.
         self._description = None
@@ -191,6 +219,7 @@ class Cursor(_CursorBase):
             # the session is intact (#492). Own the server handle the reply
             # opened, with no result set, so the usual lifecycle releases it.
             self._query_handle = packet.query_handle or None
+            self._handle_generation = self._connection._physical_generation
             raise
         # Cleared only now: a reconnect before this send flags every cursor.
         self._invalidated_by_reconnect = False
@@ -203,6 +232,7 @@ class Cursor(_CursorBase):
             )
 
         self._query_handle = packet.query_handle
+        self._handle_generation = self._connection._physical_generation
         self._statement_type = packet.statement_type
         self._columns = list(packet.columns)
         self._description = self._build_description(self._columns)
@@ -252,9 +282,7 @@ class Cursor(_CursorBase):
         """
         self._check_closed()
         if not seq_of_parameters:
-            if self._query_handle is not None:
-                self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
-                self._query_handle = None
+            self._release_handle()
             self._description = None
             self._columns = []
             self._rows = []
@@ -278,9 +306,7 @@ class Cursor(_CursorBase):
         # --- DML batch path: render + single RPC --------------------------
         # Release the previous result first (as execute() does): its CLOSE_REQ
         # can end OUT_TRAN, and the pre-bind check must run after it (#485).
-        if self._query_handle is not None:
-            self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
-            self._query_handle = None
+        self._release_handle()
         bound_generation = self._connection._generation_for_binding()
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
@@ -325,9 +351,7 @@ class Cursor(_CursorBase):
         self._check_closed()
         self._connection._ensure_connected()
 
-        if self._query_handle is not None:
-            self._connection._send_and_receive(CloseQueryPacket(self._query_handle))
-            self._query_handle = None
+        self._release_handle()
 
         if sql_list:
             self._connection._last_insert_id = None

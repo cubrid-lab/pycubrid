@@ -100,6 +100,33 @@ may also justify explicit `ping(reconnect=True)` recovery, but an uncertain
 application request is never replayed automatically. Commit and rollback send
 `CLOSE_REQ` (FC=6) for open cursor query handles before `END_TRAN`.
 
+Deferred close (#488): when a direct CUBRID CAS reports statement pooling in
+`OPEN_DATABASE` (`broker_info[0] == 1` and `broker_info[2] == 1`), query handles survive `END_TRAN`, so in
+autocommit mode a handle released by `cursor.close()` or by re-executing a cursor,
+and in either mode the handle of a cursor collected without `close()`, is not
+closed with its own `CLOSE_REQ`. Its id is appended to the next FC41 request as
+extra prepare arguments after the auto-commit flag (the prepare argument count
+grows by one per id), and CAS frees those handles before preparing the statement.
+This is the wire mechanism of JDBC's deferred close, but the policy differs: JDBC
+defers only statements without a result set and closes SELECT/CALL/EVALUATE
+handles at once (`CLOSE_USTATEMENT`), while pycubrid defers result-set handles too.
+A native error in that statement still frees them. One statement carries at most
+256 ids; an explicit release while 256 are queued sends `CLOSE_REQ` at once, and
+collected cursors are always queued and ride on later statements. `commit()` and
+`rollback()` close every id still queued for the session with `CLOSE_REQ` before
+`END_TRAN`, as they closed unreferenced cursors before. Queued ids
+belong to one physical session: they are dropped when it is retired or replaced
+and never sent to another. Without statement pooling CAS frees handles at every
+commit, so `CLOSE_REQ` is sent at once as before and a collected cursor's handle is
+left to the next commit. A shard proxy (`broker_info[0]` other than `1`, CUBRID)
+ignores the extra arguments, so explicit releases still send `CLOSE_REQ` at once.
+Collected proxy cursor handles rely on proxy transaction/session cleanup. Explicit releases
+during session setup (the escape-mode probe and restored settings of a replacement
+session) are never deferred; a cursor collected on an eligible direct, pooling-enabled
+session may queue its handle during setup, since it cannot send anything.
+Each handle keeps the generation of the session that opened it, so a cursor collected
+after a reconnect cannot release a handle id on the new session.
+
 Automatic `no_backslash_escapes` detection is scoped to a physical session:
 new sessions are probed before parameter binding resumes, while a healthy
 same-session `CHECK_CAS` does not probe. Explicit mode remains pinned. If
@@ -159,7 +186,18 @@ If `ssl` was truthy on the connect call, the live transport is upgraded **before
 - Async driver: `loop.start_tls(transport, protocol, context, server_hostname=host,
   ssl_handshake_timeout=...)`
 
-A failed handshake aborts the transport rather than leaking it.
+The TLS handshake uses `read_timeout` when configured, otherwise a 10-second
+default. That default does not bound subsequent requests; `connect_timeout`
+still bounds only the TCP connect.
+
+On Python 3.10, the async certificate preflight uses memory BIOs on an owned
+raw socket. Sends, receives and handshake completion share one monotonic
+deadline. A failed required final-flight send propagates; optional close-notify
+is best-effort within the same budget. The probe always closes its socket.
+
+Failed handshakes abort the transport. The primary sync Python 3.10
+`wrap_socket()` upgrade has a documented CPython reset/resource-warning
+limitation; see [Connection configuration](CONNECTION.md).
 
 ### Phase 2: Open Database
 
@@ -380,6 +418,24 @@ connection charset (`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty 
 NUL byte, not NULL. The optional `bind_count` must match the number of
 bindings. The forward-only byte follows effective autocommit: `1` in auto
 mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
+
+An internal typed collection binding (#482; no public API yet, see #440) uses
+the same pair. The type argument is the collection kind: SET (`16`), MULTISET
+(`17`) or SEQUENCE (`18`). The value argument is one element-type byte, INT
+(`8`) or STRING (`2`, the byte the official driver sends), followed by one
+`int32 length + payload` per element. There is no element count in the
+request. An INT element is four big-endian bytes, a string element is the
+connection-charset bytes plus NUL, and a NULL element has length 0. An empty
+collection is the element-type byte alone. Whole SQL NULL is the scalar NULL
+pair, not a collection. The broker stops parsing silently and keeps the
+partial collection when an element length overruns the argument
+(`cas_execute.c`), so elements are validated before any bytes are built:
+input must be a flat tuple; INT elements are `int` (not `bool`) or canonical
+decimal strings, not both in one collection; string elements are `str`
+without NUL. Mixed, nested, `bool`, `float` and `bytes` elements are rejected.
+On CUBRID 10.2 and 11.4 the broker rejects the MULTISET kind with error -454
+(it wraps the multiset with `db_make_set()`), and a SET value stored into a
+MULTISET column loses duplicates; a SEQUENCE value keeps them.
 
 For protocol version >1, an `include_column_info=1` response carries the
 full FC2 prepare-info tail before the shard ID and inline FETCH. The parser
@@ -629,11 +685,34 @@ the value (#523), also when it re-walks a reply before raising `DataError`; a
 non-positive size is SQL `NULL`. A negative FETCH tuple count is malformed too, and
 so is a negative column count or column name, real-name, table-name or default
 length in FC2, FC3 or FC41 column metadata (#555); a zero length is an empty
-string. The
+string. FC41 also rejects a negative bind count, `total_tuple_count` or inline
+tuple count, and a column count the rest of the reply cannot hold (31 bytes per
+column at least), as FC2 does; FC3 rejects a negative inline tuple count (#581).
+Column metadata text that the connection codec cannot decode is deferred after
+the remaining metadata is walked by its declared lengths (#581). FC41 and FC3
+with refreshed columns then validate their remaining tail, counts and inline
+rows before re-raising the first metadata `DataError`; later structural damage
+still wins (#591). This error path does not call application JSON deserializers,
+and validates subsequent cells even if an earlier row value is unrepresentable.
+Known collection framing is checked even when normal results use opaque bytes;
+negative element counts are malformed. A partially present inline-fetch header
+is malformed; an absent optional header remains supported. The
 connection turns these exceptions into `OperationalError("malformed response
 from broker")` and closes; `DataError` stays reserved for a complete reply
 whose value Python cannot represent (#492, #512). Unread bytes after the last
 value a reply declares are not checked.
+
+For known decoded collection member types, each length word and payload must
+fit the collection and the value decoder must consume exactly its declared
+bytes. After a complete element raises `DataError`, later elements still run
+their real decoders: a malformed representation wins over the saved error
+(#595). A complete collection retains the first conversion error and its cause.
+NULL-only, opaque/disabled decoding and unsupported nested member layouts
+retain their existing contracts; no recursive decoding capability is added.
+
+Internal bounds re-walks use `PacketReader.mark()` and `seek(position)`.
+Seeking outside the reply or to a non-integer position raises `ValueError`
+without moving the reader; zero and the end of the reply are valid positions.
 
 ### Composite Parsers
 

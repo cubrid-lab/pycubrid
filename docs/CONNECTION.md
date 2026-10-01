@@ -236,22 +236,56 @@ cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_
 
 `connect_timeout` bounds only the TCP connect. The broker handshake, the TLS handshake and
 `OPEN_DATABASE` are bounded by `read_timeout` on both drivers; when `read_timeout` is unset the
-async TLS handshake still gives up after 10 seconds (`ssl_handshake_timeout`), while the sync
-driver waits without a limit. A broker that stalls or resets the connection during the TLS
-handshake raises `OperationalError` within that bound
-([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
+TLS handshake still gives up after 10 seconds on both drivers (`ssl_handshake_timeout` on async,
+a handshake-only socket timeout on sync,
+[#535](https://github.com/cubrid-lab/pycubrid/issues/535)), and the broker handshake and
+`OPEN_DATABASE` wait without a limit. The 10-second default covers only the TLS handshake:
+requests after it stay unbounded without `read_timeout`. A broker that stalls or resets the
+connection during the TLS handshake raises `OperationalError` within that bound
+([#513](https://github.com/cubrid-lab/pycubrid/issues/513)). On Python 3.10 the async driver's
+preflight certificate check closes its own socket when the broker resets the connection before
+the TLS handshake ([#535](https://github.com/cubrid-lab/pycubrid/issues/535)); the sync driver's
+`wrap_socket()` upgrade on 3.10 can still leave such a socket to the garbage collector (a
+`ResourceWarning`), a CPython 3.10 `ssl` limitation fixed in later versions.
+
+After the session is open, an uncertain transport failure on a request (a socket error, a
+timeout, a malformed reply, or an interrupt or task cancellation while a reply is outstanding)
+closes the connection and retires every cursor and schema result handle of that session in
+both drivers ([#556](https://github.com/cubrid-lab/pycubrid/issues/556)). Rows a cursor already
+buffered stay readable; the next fetch that needs the server raises, and no handle of the dead
+session is ever sent again. The request is not replayed: reconnect with `connect()` or
+`ping(reconnect=True)` and re-execute. The async `OperationalError` message says
+`read timeout: no complete round trip within read_timeout=...s` only when the `read_timeout` deadline expired;
+a timeout raised by the transport itself (for example `ETIMEDOUT`) is reported as
+`socket communication timed out`, and other socket errors as `socket communication failed`. The
+original exception is always chained as `__cause__`, and a cancelled task still raises
+`asyncio.CancelledError`. The sync `read_timeout` is a per-receive socket timeout and is reported
+as `socket communication failed`. An `OSError` (including `TimeoutError`) raised by a
+`json_deserializer` callback after the whole reply was read is not a transport failure: it
+propagates unchanged and the connection stays open. A `ValueError`-family error from a custom
+deserializer (for example an orjson or simplejson decode error) is still treated as a malformed
+reply: `OperationalError('malformed response from broker')`, and the session is retired.
+
+On Python 3.10, the distinct `asyncio.TimeoutError` class follows the same rule:
+transport timeouts retire the session, while a callback timeout after a complete
+reply propagates unchanged without closing it.
 
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of
     raising. As of [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156), the
-    async driver runs an automatic preflight `ssl.SSLContext.wrap_socket()` probe on Python
-    3.10 immediately before `loop.start_tls()`, using the same `SSLContext` and
-    `server_hostname=host`. Verification failures now raise `OperationalError` (chained from
-    `ssl.SSLError`) within the connect timeout, matching the 3.11+ behavior. The probe is a
-    no-op on Python 3.11+ and adds one extra TCP round-trip per connect on 3.10 only. Other
-    TLS error paths (peer unresponsive, timeout) remain bounded by `ssl_handshake_timeout`.
-    The issue does not affect the sync driver.
+    async driver runs an automatic preflight TLS handshake probe on Python 3.10 immediately
+    before `loop.start_tls()`, using the same `SSLContext` and `server_hostname=host`. The
+    probe drives the handshake over `ssl.SSLContext.wrap_bio()` memory BIOs on a socket it
+    owns and always closes ([#535](https://github.com/cubrid-lab/pycubrid/issues/535)).
+    Verification failures now raise `OperationalError` (chained from `ssl.SSLError`),
+    matching the 3.11+ behavior. The probe's TCP connect is bounded by `connect_timeout` and
+    its whole TLS handshake by `read_timeout` (10 seconds when unset), like the real upgrade's
+    `ssl_handshake_timeout`. The probe is a no-op on Python 3.11+ and adds one extra TCP
+    round-trip per connect on 3.10 only. The issue does not affect the sync driver.
+    Each probe send and receive uses the remaining total handshake budget;
+    completion after the deadline is rejected. The final handshake flight must
+    be sent successfully, while optional close_notify shares that same budget.
 
 ```python
 import pycubrid.aio

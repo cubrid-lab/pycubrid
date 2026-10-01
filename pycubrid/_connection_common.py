@@ -22,6 +22,7 @@ import socket
 import ssl as ssl_module
 import sys
 import warnings
+import weakref
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -54,6 +55,13 @@ if TYPE_CHECKING:
     from .timing import TimingStats
 
 _LOGGER = logging.getLogger(__name__)
+
+# Most handle ids one PREPARE_AND_EXECUTE carries, and most explicit releases
+# queued before CLOSE_REQ is sent at once (#488).
+DEFERRED_CLOSE_LIMIT = 256
+# OPEN_DATABASE broker_info db_type of a direct CUBRID CAS. A shard proxy
+# (CAS_PROXY_DBMS_*) ignores deferred-close prepare arguments.
+_CAS_DBMS_CUBRID = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,7 +370,15 @@ class ConnectionCommonMixin:
         self._session_id = 0
         self._autocommit = False
         self._autocommit_explicitly_set = False
-        self._cursors: set[Any] = set()
+        # Weak, so a cursor dropped without close() is collected and its
+        # handle queued for release instead of being kept alive here (#488).
+        self._cursors: weakref.WeakSet[Any] = weakref.WeakSet()
+        # (physical generation, handle) pairs awaiting release (#488).
+        self._deferred_closes: list[tuple[int, int]] = []
+        # OPEN_DATABASE broker_info statement pooling and db_type of the
+        # current session.
+        self._statement_pooling: int | None = None
+        self._broker_db_type: int | None = None
         self._schema_owner = object()
         self._schema_results: dict[GetSchemaPacket, _SchemaResult] = {}
         self._protocol_version: int = 1
@@ -407,6 +423,96 @@ class ConnectionCommonMixin:
             raise InterfaceError("schema result has been retired")
         self._ensure_connected()
         return result
+
+    def _handles_survive_transactions(self) -> bool:
+        """Return whether this session can release handles with a later FC41.
+
+        With broker statement pooling off, CAS frees every non-holdable handle
+        at each commit (``ux_end_tran``), so a later id may name a new result;
+        only a pooling session may release handles after a boundary (#488).
+        A shard proxy ignores the deferred-close prepare arguments.
+        """
+        return (
+            self._connected
+            and self._statement_pooling == 1
+            and self._broker_db_type == _CAS_DBMS_CUBRID
+        )
+
+    def _defer_close(self, handle: int, generation: int) -> bool:
+        """Queue CLOSE_REQ for a handle the caller is releasing in autocommit (#488).
+
+        ``generation`` is the physical session the handle was opened on. The
+        handle is released by the next ``PREPARE_AND_EXECUTE`` (the wire
+        mechanism of JDBC's deferred close, which JDBC itself uses only for
+        statements without a result set). That saves this CLOSE_REQ and the
+        CHECK_CAS probe an OUT_TRAN reply would need before it. Returns
+        ``False`` when the caller must send CLOSE_REQ now: manual-commit mode,
+        session setup in progress, statement pooling off, a shard proxy, or a
+        full queue.
+        """
+        if (
+            not self._autocommit
+            or self._configured_generation != self._physical_generation
+            or not self._handles_survive_transactions()
+            or len(self._deferred_closes) >= DEFERRED_CLOSE_LIMIT
+        ):
+            return False
+        self._deferred_closes.append((generation, handle))
+        return True
+
+    def _defer_dropped_cursor_close(self, cursor: Any) -> None:
+        """Queue the handle of a cursor collected without ``close()`` (#488).
+
+        Runs from ``__del__``, possibly while another request holds the session
+        lock, so it cannot send anything and only appends, in any mode and also
+        during session setup. The entry carries the generation the handle was
+        opened on, not the current one: a cursor collected in a reference cycle
+        has already left ``_cursors``, so a retirement in between did not clear
+        its handle. On an eligible session the entry is queued beyond
+        :data:`DEFERRED_CLOSE_LIMIT` too; stale-generation entries are discarded
+        before sending. Each statement
+        carries at most :data:`DEFERRED_CLOSE_LIMIT` ids, and ``commit()`` /
+        ``rollback()`` close the rest with ``CLOSE_REQ``, as they closed
+        unreferenced cursors before.
+        """
+        handle = getattr(cursor, "_query_handle", None)
+        if handle is None or not self._handles_survive_transactions():
+            return
+        self._deferred_closes.append((getattr(cursor, "_handle_generation", 0), handle))
+
+    def _take_deferred_closes(self) -> tuple[int, ...]:
+        """Remove every queued entry; return this session's ids for ``CLOSE_REQ``.
+
+        Used at ``commit()`` / ``rollback()`` after the CHECK_CAS check, so a
+        transaction boundary leaves no handle of a dropped cursor allocated.
+        """
+        entries = list(self._deferred_closes)
+        self._consume_deferred_closes(len(entries))
+        if not self._handles_survive_transactions():
+            return ()
+        generation = self._physical_generation
+        return tuple(handle for gen, handle in entries if gen == generation)
+
+    def _peek_deferred_closes(self) -> tuple[int, tuple[int, ...]]:
+        """Return how many queued entries the next request takes, and its handles.
+
+        At most :data:`DEFERRED_CLOSE_LIMIT` entries are taken per request.
+        Entries of an earlier physical session are taken but never sent. The
+        caller consumes them with :meth:`_consume_deferred_closes` only once the
+        request is about to leave, so a request that fails before sending
+        keeps the queue.
+        """
+        entries = self._deferred_closes[:DEFERRED_CLOSE_LIMIT]
+        if not entries:
+            return 0, ()
+        if not self._handles_survive_transactions():
+            return len(entries), ()
+        generation = self._physical_generation
+        return len(entries), tuple(handle for gen, handle in entries if gen == generation)
+
+    def _consume_deferred_closes(self, count: int) -> None:
+        # Entries appended (by a collected cursor) after the peek stay queued.
+        del self._deferred_closes[:count]
 
     def _invalidate_query_handles(self) -> None:
         """Invalidate all cursor query handles.
@@ -494,6 +600,8 @@ class ConnectionCommonMixin:
         """Close the socket safely, ignoring any OS errors."""
         self._last_insert_id = None
         self._schema_results.clear()
+        self._deferred_closes.clear()
+        self._broker_db_type = None
         if self._socket is not None:
             try:
                 self._socket.close()

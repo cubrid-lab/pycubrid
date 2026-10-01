@@ -481,6 +481,8 @@ def _make_mock_conn(autocommit: bool = False) -> MagicMock:
     conn._no_backslash_escapes = False
     conn._protocol_version = 1
     conn.autocommit = autocommit
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    conn._defer_close = MagicMock(return_value=False)
     return conn
 
 

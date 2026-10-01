@@ -247,6 +247,78 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Collection element validation continues after conversion errors (#595)** —
+  PATCH / malformed-response correction. A complete first element `DataError`
+  cannot hide a malformed later typed element. Complete collections retain
+  the first error and its cause; ordinary values, NULL-only diagnostics and
+  opaque/unsupported decoding contracts are unchanged. No new public surface.
+
+- **FC41/refreshed FC3 metadata errors wait for tail validation (#591)** —
+  PATCH / malformed-response correction. Framing faults after undecodable
+  metadata retire the connection rather than reporting a recoverable
+  `DataError`. Error-path validation excludes application hooks and continues
+  past unrepresentable cells. Complete replies retain the first metadata error;
+  normal decoding/hooks, absent optional inline headers and unused trailing
+  bytes are unchanged. Reader marks are internal, not public DB-API additions.
+
+- **Column metadata framing checked before `DataError`; FC41 counts (#581)** —
+  PATCH / correction of a protocol-robustness defect completing #555, #523 and
+  #383. A reply whose column metadata has undecodable text and framing damage
+  in a later column, or an FC41 reply with a negative bind, total or inline
+  tuple count or an impossible column count (or an FC3 reply with a negative
+  inline tuple count), now raises `OperationalError('malformed response from
+  broker')` and closes the connection instead of `DataError` with the session
+  kept, or being accepted. Valid replies, the `DataError` classification of
+  complete replies (#492, #512), public signatures, dependencies and supported
+  versions are unchanged; sync and async behave the same.
+
+- **Sync TLS handshake bound without `read_timeout`; 3.10 probe socket closed
+  (#535)** — PATCH / correction of a hang and a resource leak. Without
+  `read_timeout`, the sync TLS handshake now fails with `OperationalError` after
+  10 seconds instead of waiting forever, matching the async
+  `ssl_handshake_timeout` default; requests after the handshake are still
+  unbounded. The Python 3.10 async preflight probe closes its socket on a peer
+  reset instead of leaving it to the garbage collector. Its BIO sends, reads
+  and completion use one total deadline (#593); final-flight transport failures
+  propagate, while optional shutdown remains inside the budget. `read_timeout` and
+  `connect_timeout` semantics, successful TLS connects, public signatures,
+  dependencies and supported versions are unchanged.
+
+- **Deferred CLOSE_REQ for released cursor handles (#488)** — PATCH /
+  performance and resource-leak correction in both drivers, with no public API,
+  dependency or supported-version change. On a broker with statement pooling,
+  an autocommit `close()`/re-`execute()` and a cursor collected without
+  `close()` no longer send their own `CLOSE_REQ`. The handle is freed by the
+  next `PREPARE_AND_EXECUTE`, which is wire-visible (extra prepare arguments,
+  fewer requests) but does not change transaction or session state: CAS frees
+  the handle exactly as `CLOSE_REQ` does. Until that next statement the handle
+  stays allocated a little longer, until the next statement, `commit()` or
+  `rollback()` (which close queued ids with `CLOSE_REQ`), or the session end.
+  Connections no longer keep
+  unreferenced cursors alive. In manual-commit mode with pooling off, a cursor
+  dropped without `close()` is no longer closed by an explicit `CLOSE_REQ` at
+  the next `commit()`/`rollback()`: CAS frees it in that `END_TRAN`.
+
+- **Transport failures retire cursor handles; async timeout messages (#556)** —
+  PATCH / bug correction in both drivers. After an uncertain transport failure
+  the connection was already closed and raised `OperationalError`; now every
+  cursor and schema handle of that session is retired with it, so later cursor
+  calls fail with the existing invalidated-result errors instead of reaching a
+  closed connection with a stale handle id. A sync interrupt while a reply is
+  outstanding now closes the session (previously it stayed open with an unread
+  reply). The async `OperationalError` message for a `read_timeout` expiry
+  changes from `read timeout` to `read timeout: no complete round trip within
+  read_timeout=<n>s` (still starting with `read timeout`), and a transport
+  `TimeoutError` now reads `socket communication timed out`. An `OSError`
+  raised by a `json_deserializer` callback after a complete reply now
+  propagates unwrapped with the session kept, instead of `OperationalError`
+  with the session closed; a `ValueError`-family callback error is still a
+  malformed reply that retires the session. Python 3.10's distinct
+  `asyncio.TimeoutError` follows the same transport/callback distinction.
+  Other exception classes,
+  `__cause__`, `CancelledError` propagation and the no-replay rule are
+  unchanged; no public signature, dependency or supported-version change.
+
 - **Async setup failure isolated per waiting task (#554)** — PATCH / bug
   correction of cancellation and error propagation. Tasks waiting on
   `AsyncConnection.connect()` setup no longer re-raise the owner's exception

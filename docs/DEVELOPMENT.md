@@ -222,6 +222,40 @@ malformed and truncated replies (#533), `DataError` keeping the session (#512)
 and the fetch-page `DataError` contract (#536). Task cancellation exists only
 in `pycubrid.aio` and is covered by `tests/test_async_cancellation.py` instead.
 
+**Per-operation round-trip budgets (#557):** `Observation.step_functions(i)`
+returns the exact, ordered CAS functions sent while running `steps[i]` alone —
+separate from connect/setup (step 0, which includes any constructor
+autocommit setter and the backslash-escape-mode probe) and from every other
+step. `FIRST_INSERT_BUDGET`, `REUSED_CURSOR_INSERT_BUDGET`,
+`SELECT_TO_INSERT_BUDGET`, `MANUAL_INSERT_EXECUTE_BUDGET` /
+`MANUAL_INSERT_COMMIT_BUDGET`, `FETCH_PAGINATION_BUDGET`, and the
+`ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` budgets name these exact sequences;
+each is asserted with list equality, which catches a dropped safety request
+(e.g. a missing `CHECK_CAS` liveness probe) exactly as it catches an added
+round trip — neither can pass as an "optimization". Each budget also requires
+successful operation outcomes and a reusable session; fetch scenarios check the
+returned rows. This prevents a malformed reply or wrong result from passing just
+because its request count stayed within the budget. Their scripts
+(`_autocommit_insert`, `_manual_insert_last_insert_id`) reply to an INSERT's
+`PREPARE_AND_EXECUTE` with an explicit `OUT_TRAN` (autocommitting: the
+implicit transaction already committed) or `IN_TRAN` (manual: left open for
+`commit()`) status, and give `GET_LAST_INSERT_ID` a well-formed value — the
+broker's generic default reply for it is a bare response code, which the
+driver (correctly) rejects as malformed. These scenarios are the
+reproducibility baseline for future round-trip-reduction work (#419/#488/#525):
+production optimization and `CHECK_CAS` removal are out of scope here.
+
+The budgets above run against a broker that reports statement pooling off, where
+deferred close (#488) never applies, so they are unchanged by it.
+`Scenario.statement_pooling=1` makes the broker report pooling on:
+`REUSED_CURSOR_INSERT_POOLED_BUDGET` (the previous INSERT's `CLOSE_REQ_HANDLE`
+and the `CHECK_CAS` gating it are gone: 4 requests instead of 6) and
+`SELECT_TO_INSERT_POOLED_BUDGET` (`CLOSE_REQ_HANDLE` gone: 3 instead of 4) lock
+in what deferred close removes, and their checks assert that the next
+`PREPARE_AND_EXECUTE` carries exactly the released handle id.
+Additional deferred-close scenarios in `tests/test_deferred_close.py` verify
+queue overflow, transaction-boundary draining and reconnect safety.
+
 To add a scenario, append a `Scenario` to `SCENARIOS` with its steps, a script
 built from `_on(...)` (for example `_hang_up_after_ok` to recycle the CAS after a
 reply) and a `check`.

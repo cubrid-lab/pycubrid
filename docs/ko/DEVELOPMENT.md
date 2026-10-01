@@ -203,6 +203,31 @@ pytest tests/test_replay_parity.py -v
 `DataError` 계약(#536). 태스크 취소는 `pycubrid.aio`에만 있으므로 대신
 `tests/test_async_cancellation.py`에서 다룹니다.
 
+**작업별 라운드트립 예산(#557):** `Observation.step_functions(i)`는
+`steps[i]`만 실행하는 동안 보낸 정확하고 순서가 있는 CAS 함수 목록을
+반환합니다 — connect/setup(생성자 autocommit 세터와 백슬래시 이스케이프 모드
+프로브를 포함하는 0번 단계)과 다른 모든 단계로부터 분리됩니다.
+`FIRST_INSERT_BUDGET`, `REUSED_CURSOR_INSERT_BUDGET`,
+`SELECT_TO_INSERT_BUDGET`, `MANUAL_INSERT_EXECUTE_BUDGET` /
+`MANUAL_INSERT_COMMIT_BUDGET`, `FETCH_PAGINATION_BUDGET`,
+`ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` 예산이 이 정확한 시퀀스에 이름을
+붙입니다. 각각 리스트 동등성으로 검사하므로, 누락된 안전 요청(예: 빠진
+`CHECK_CAS` 생존 확인)과 추가된 라운드트립을 똑같이 잡아냅니다 — 어느 쪽도
+"최적화"로 통과할 수 없습니다. 각 예산은 작업 성공과 연결 재사용 가능 여부도
+확인하며, fetch 시나리오는 반환 행을 검사합니다. 따라서 요청 수가 같더라도
+잘못된 응답이나 결과로 성공할 수 없습니다. 이들의 스크립트(`_autocommit_insert`,
+`_manual_insert_last_insert_id`)는 INSERT의 `PREPARE_AND_EXECUTE`에
+명시적인 `OUT_TRAN`(autocommit: 암묵적 트랜잭션이 이미 커밋됨) 또는
+`IN_TRAN`(수동: `commit()`을 위해 열어둠) 상태로 응답하고,
+`GET_LAST_INSERT_ID`에 올바른 형식의 값을 줍니다 — 브로커의 일반 기본
+응답(단순 응답 코드)은 드라이버가 (정확하게) 손상된 응답으로 거부합니다.
+이 시나리오들은 향후 라운드트립 축소 작업(#419/#488/#525)의 재현 기준선이며,
+프로덕션 최적화와 `CHECK_CAS` 제거는 이 작업의 범위 밖입니다.
+
+위 예산은 statement pooling이 꺼져 있다고 알리는 브로커에서 실행되며, 지연 닫기(#488)는 그때 적용되지 않으므로 바뀌지 않습니다. `Scenario.statement_pooling=1`이면 브로커가 pooling을 켜짐으로 알립니다. `REUSED_CURSOR_INSERT_POOLED_BUDGET`(이전 INSERT의 `CLOSE_REQ_HANDLE`과 그 앞의 `CHECK_CAS`가 빠져 6개 대신 4개 요청)과 `SELECT_TO_INSERT_POOLED_BUDGET`(`CLOSE_REQ_HANDLE`이 빠져 4개 대신 3개)은 지연 닫기가 없애는 요청을 고정하며, 그 검사는 다음 `PREPARE_AND_EXECUTE`가 해제된 핸들 id를 정확히 싣는지 확인합니다.
+`tests/test_deferred_close.py`의 추가 시나리오는 대기열 초과, 트랜잭션 경계의
+전체 핸들 정리와 재접속 안전성을 검사합니다.
+
 시나리오를 추가하려면 `SCENARIOS`에 단계, `_on(...)`으로 만든 스크립트(예: 응답 후
 CAS를 재활용하는 `_hang_up_after_ok`), `check`를 갖춘 `Scenario`를 추가합니다.
 
