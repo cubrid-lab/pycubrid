@@ -224,6 +224,10 @@ pytest tests/test_replay_parity.py -v
 이 시나리오들은 향후 라운드트립 축소 작업(#419/#488/#525)의 재현 기준선이며,
 프로덕션 최적화와 `CHECK_CAS` 제거는 이 작업의 범위 밖입니다.
 
+위 예산은 statement pooling이 꺼져 있다고 알리는 브로커에서 실행되며, 지연 닫기(#488)는 그때 적용되지 않으므로 바뀌지 않습니다. `Scenario.statement_pooling=1`이면 브로커가 pooling을 켜짐으로 알립니다. `REUSED_CURSOR_INSERT_POOLED_BUDGET`(이전 INSERT의 `CLOSE_REQ_HANDLE`과 그 앞의 `CHECK_CAS`가 빠져 6개 대신 4개 요청)과 `SELECT_TO_INSERT_POOLED_BUDGET`(`CLOSE_REQ_HANDLE`이 빠져 4개 대신 3개)은 지연 닫기가 없애는 요청을 고정하며, 그 검사는 다음 `PREPARE_AND_EXECUTE`가 해제된 핸들 id를 정확히 싣는지 확인합니다.
+`tests/test_deferred_close.py`의 추가 시나리오는 대기열 초과, 트랜잭션 경계의
+전체 핸들 정리와 재접속 안전성을 검사합니다.
+
 시나리오를 추가하려면 `SCENARIOS`에 단계, `_on(...)`으로 만든 스크립트(예: 응답 후
 CAS를 재활용하는 `_hang_up_after_ok`), `check`를 갖춘 `Scenario`를 추가합니다.
 

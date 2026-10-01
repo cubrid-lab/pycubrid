@@ -247,6 +247,21 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Deferred CLOSE_REQ for released cursor handles (#488)** — PATCH /
+  performance and resource-leak correction in both drivers, with no public API,
+  dependency or supported-version change. On a broker with statement pooling,
+  an autocommit `close()`/re-`execute()` and a cursor collected without
+  `close()` no longer send their own `CLOSE_REQ`. The handle is freed by the
+  next `PREPARE_AND_EXECUTE`, which is wire-visible (extra prepare arguments,
+  fewer requests) but does not change transaction or session state: CAS frees
+  the handle exactly as `CLOSE_REQ` does. Until that next statement the handle
+  stays allocated a little longer, until the next statement, `commit()` or
+  `rollback()` (which close queued ids with `CLOSE_REQ`), or the session end.
+  Connections no longer keep
+  unreferenced cursors alive. In manual-commit mode with pooling off, a cursor
+  dropped without `close()` is no longer closed by an explicit `CLOSE_REQ` at
+  the next `commit()`/`rollback()`: CAS frees it in that `END_TRAN`.
+
 - **Transport failures retire cursor handles; async timeout messages (#556)** —
   PATCH / bug correction in both drivers. After an uncertain transport failure
   the connection was already closed and raised `OperationalError`; now every

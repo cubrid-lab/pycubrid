@@ -248,7 +248,8 @@ def test_sync_boundary_closes_open_handles_first(boundary: str) -> None:
 
 def test_sync_native_close_error_is_ignored_before_commit() -> None:
     conn, _ = make_connected_connection()
-    conn.cursor()._query_handle = 7
+    conn_cursor = conn.cursor()  # held: cursors are tracked weakly (#488)
+    conn_cursor._query_handle = 7
     sent: list[Any] = []
 
     def send(packet: Any) -> None:
@@ -263,7 +264,8 @@ def test_sync_native_close_error_is_ignored_before_commit() -> None:
 
 def test_sync_transport_failure_on_close_aborts_commit() -> None:
     conn, _ = make_connected_connection()
-    conn.cursor()._query_handle = 7
+    conn_cursor = conn.cursor()  # held: cursors are tracked weakly (#488)
+    conn_cursor._query_handle = 7
     sent: list[Any] = []
 
     def send(packet: Any) -> None:
@@ -526,7 +528,8 @@ async def test_async_requests_bound_to_the_replaced_session_are_not_sent() -> No
 @pytest.mark.asyncio
 async def test_async_close_never_probes_or_reconnects() -> None:
     conn, cas, open_connection = _async_out_tran()
-    conn.cursor()._query_handle = 4
+    conn_cursor = conn.cursor()  # held: cursors are tracked weakly (#488)
+    conn_cursor._query_handle = 4
 
     await conn.close()
 
@@ -557,7 +560,8 @@ async def test_async_boundary_closes_open_handles_first(boundary: str) -> None:
 async def test_async_close_errors_before_commit() -> None:
     conn, cas, _ = _async_out_tran()
     conn._cas_info = bytearray(IN_TRAN)
-    conn.cursor()._query_handle = 7
+    conn_cursor = conn.cursor()  # held: cursors are tracked weakly (#488)
+    conn_cursor._query_handle = 7
 
     async def native_error(packet: Any) -> Any:
         if isinstance(packet, CloseQueryPacket):
@@ -571,7 +575,8 @@ async def test_async_close_errors_before_commit() -> None:
 
     conn2, cas2, _ = _async_out_tran()
     conn2._cas_info = bytearray(IN_TRAN)
-    conn2.cursor()._query_handle = 7
+    conn2_cursor = conn2.cursor()  # held: cursors are tracked weakly (#488)
+    conn2_cursor._query_handle = 7
     cas2.dead = True
     with pytest.raises(OperationalError, match="connection lost"):
         await conn2.commit()

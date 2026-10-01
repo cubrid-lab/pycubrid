@@ -130,6 +130,18 @@ class Request:
             return None
         return self.args[1].rstrip(b"\x00").decode("utf-8")
 
+    @property
+    def deferred_closes(self) -> tuple[int, ...]:
+        """Handle ids a ``PREPARE_AND_EXECUTE`` asks the CAS to free first (#488).
+
+        They are the prepare arguments after the auto-commit flag, as in
+        CAS ``fn_prepare_internal`` (JDBC deferred close).
+        """
+        if self.function != "PREPARE_AND_EXECUTE" or not self.args:
+            return ()
+        prepare_argc = self.int_arg(0)
+        return tuple(struct.unpack(">i", arg)[0] for arg in self.args[4 : 1 + prepare_argc])
+
     def int_arg(self, position: int) -> int:
         value: int = struct.unpack(">i", self.args[position])[0]
         return value
@@ -172,6 +184,14 @@ class Session:
     # Functions received so far in this session, including the current one.
     functions: list[str] = field(default_factory=list)
 
+    def allocate_handle(self) -> int:
+        """The lowest free handle id, as CAS ``hm_new_srv_handle`` allocates."""
+        handle = 1
+        while handle in self.results:
+            handle += 1
+        self.next_handle = max(self.next_handle, handle + 1)
+        return handle
+
 
 Script = Callable[[Request, Session], "Reply | None"]
 
@@ -189,6 +209,8 @@ class ReplayBroker:
         results: Result set to return for a ``PREPARE_AND_EXECUTE`` of a given
             SQL text, as ``(result_set, inline_rows)``. SQL not listed returns
             one ``INT`` row. The escape-mode probe always returns ``2``.
+        statement_pooling: The broker_info statement-pooling byte of every
+            session (``0`` off, ``1`` on).
     """
 
     def __init__(
@@ -196,9 +218,11 @@ class ReplayBroker:
         script: Script = _no_script,
         *,
         results: dict[str, tuple[ResultSet, int]] | None = None,
+        statement_pooling: int = 0,
     ) -> None:
         self._script = script
         self._results = dict(results or {})
+        self._statement_pooling = statement_pooling
         self._lock = threading.Lock()
         self._requests: list[Request] = []
         self._threads: list[threading.Thread] = []
@@ -334,10 +358,18 @@ class ReplayBroker:
         if function == HANDSHAKE:
             return Reply(raw=struct.pack(">i", 0))
         if function == OPEN_DB:
-            return Reply(raw=framed(build_open_db_body(cas_info=cas_info(OUT_TRAN))))
+            return Reply(
+                raw=framed(
+                    build_open_db_body(
+                        cas_info=cas_info(OUT_TRAN), statement_pooling=self._statement_pooling
+                    )
+                )
+            )
         if function == "END_TRAN":
             session.status = OUT_TRAN
-            session.results.clear()
+            if not self._statement_pooling:
+                # CAS ux_end_tran frees every handle; with pooling it keeps them.
+                session.results.clear()
             return Reply(ok_body(OUT_TRAN))
         if function == "CON_CLOSE":
             return Reply(ok_body(OUT_TRAN), close=True)
@@ -355,8 +387,7 @@ class ReplayBroker:
             session.status = IN_TRAN
             return Reply(lob_new_reply().data)
         if function == "SCHEMA_INFO":
-            handle = session.next_handle
-            session.next_handle += 1
+            handle = session.allocate_handle()
             session.results[handle] = Result(SCHEMA_RESULT, 0)
             session.status = IN_TRAN
             return Reply(schema_reply(SCHEMA_RESULT, query_handle=handle).data)
@@ -364,13 +395,14 @@ class ReplayBroker:
         return Reply(ok_body(session.status))
 
     def _prepare_and_execute(self, request: Request, session: Session) -> Reply:
+        for handle in request.deferred_closes:  # freed before the prepare, as CAS does
+            session.results.pop(handle, None)
         sql = request.sql or ""
         if sql == ESCAPE_PROBE_SQL:
             rs, inline = _single_int("length", 2), 1
         else:
             rs, inline = self._results.get(sql, (_single_int("value", 1), 1))
-        handle = session.next_handle
-        session.next_handle += 1
+        handle = session.allocate_handle()
         session.results[handle] = Result(rs, inline)
         session.status = IN_TRAN
         return Reply(execute_body(rs, handle=handle, inline=inline))
@@ -418,9 +450,10 @@ def run_replay_broker(
     script: Script = _no_script,
     *,
     results: dict[str, tuple[ResultSet, int]] | None = None,
+    statement_pooling: int = 0,
 ) -> Iterator[ReplayBroker]:
     """Start a :class:`ReplayBroker`, yield it, and tear it down."""
-    broker = ReplayBroker(script, results=results)
+    broker = ReplayBroker(script, results=results, statement_pooling=statement_pooling)
     broker.start()
     try:
         yield broker

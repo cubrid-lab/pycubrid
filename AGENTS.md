@@ -81,6 +81,12 @@ that probe fails: once per request, before the request is first sent, restoring
 driver-owned state (#485). Explicit `ping(reconnect=True)` also recovers a
 confirmed CAS/transport failure; arbitrary SQL is never replayed automatically.
 Commit/rollback CLOSE_REQ open cursor handles before END_TRAN.
+With broker statement pooling on, autocommit releases (and cursors collected
+without close) queue their handle ids for the next FC41's extra prepare
+arguments (JDBC's wire mechanism, but result-set handles too, #488): at most 256
+per statement, per physical generation, CLOSE_REQ'd at commit/rollback, dropped
+on session retirement; pooling off keeps immediate CLOSE_REQ (CAS frees handles
+at commit, so ids may be reused).
 With `no_backslash_escapes` unset, probe each newly opened physical session
 before binding against it; explicit `True`/`False` remains pinned. Healthy
 same-session ping does not probe. A failed probe makes direct connect raise or

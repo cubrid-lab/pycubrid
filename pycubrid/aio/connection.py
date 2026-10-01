@@ -440,6 +440,8 @@ class AsyncConnection(ConnectionCommonMixin):
         self._cas_info = open_db_packet.cas_info
         self._session_id = open_db_packet.session_id
         self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
+        self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
+        self._broker_db_type = open_db_packet.broker_info.get("db_type")
 
     async def _upgrade_to_tls(self) -> None:
         """Upgrade the active stream from plaintext to TLS via ``loop.start_tls``.
@@ -712,12 +714,21 @@ class AsyncConnection(ConnectionCommonMixin):
             if handle is None:
                 continue
             cursor._query_handle = None
-            try:
-                await self._send_and_receive_locked(CloseQueryPacket(handle))
-            except Error:
-                if not self._connected:
-                    raise
-                _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
+            await self._close_handle_at_boundary_locked(handle)
+        # Handles of cursors collected without close() and queued (#488).
+        generation = self._physical_generation
+        for handle in self._take_deferred_closes():
+            if self._physical_generation != generation:
+                break  # replaced during an earlier CLOSE_REQ: nothing left to close
+            await self._close_handle_at_boundary_locked(handle)
+
+    async def _close_handle_at_boundary_locked(self, handle: int) -> None:
+        try:
+            await self._send_and_receive_locked(CloseQueryPacket(handle))
+        except Error:
+            if not self._connected:
+                raise
+            _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
 
     def cursor(self) -> Any:
         """Create and return a new async cursor bound to this connection."""
@@ -1181,10 +1192,16 @@ class AsyncConnection(ConnectionCommonMixin):
         # Every request on this connection uses its charset (#86); encoding
         # happens in write(), so an unencodable value sends nothing.
         packet.encoding = self._encoding
+        deferred_count = 0
+        if isinstance(packet, PrepareAndExecutePacket):
+            # Release queued handles of this session with this request (#488).
+            deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
         try:
             request_data = packet.write(self._cas_info)
         except struct.error as exc:
             raise DataError("parameter value too large to serialize into CAS request") from exc
+        # Sent (or uncertain, which retires the session): never send them again.
+        self._consume_deferred_closes(deferred_count)
         writer.write(request_data)
         await writer.drain()
 
@@ -1409,6 +1426,9 @@ class AsyncConnection(ConnectionCommonMixin):
         """Close the stream writer, await TLS shutdown, and clear references."""
         self._last_insert_id = None
         self._schema_results.clear()
+        self._deferred_closes.clear()
+        self._statement_pooling = None
+        self._broker_db_type = None
         if self._writer is not None:
             try:
                 self._writer.close()
@@ -1423,6 +1443,9 @@ class AsyncConnection(ConnectionCommonMixin):
         """Sync fallback for _close_streams (used by mixin's _safe_close_socket)."""
         self._last_insert_id = None
         self._schema_results.clear()
+        self._deferred_closes.clear()
+        self._statement_pooling = None
+        self._broker_db_type = None
         if self._writer is not None:
             try:
                 self._writer.close()

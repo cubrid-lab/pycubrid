@@ -98,6 +98,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   order is not guaranteed and would make `Sequence`'s element order
   nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset`.
 
+### Changed
+- **Autocommit cursor handles are released with the next statement (#488)** —
+  in autocommit mode only `commit()`/`rollback()` sent `CLOSE_REQ` for unclosed
+  cursors, the connection kept every cursor alive, and an explicit close cost a
+  `CLOSE_REQ` plus the `CHECK_CAS` probe of its OUT_TRAN predecessor. Live on
+  CUBRID 11.4.6 (statement pooling on), 5000 unclosed autocommit SELECTs pushed
+  handle ids past 1100 and forced 4-5 CAS memory restarts per run (each silently resets
+  SQL-set session state). Connections now track cursors weakly. When the broker
+  reports statement pooling, an autocommit `close()` or re-`execute()` and,
+  in any mode, a cursor collected without `close()` queue the handle id, and the
+  next `PREPARE_AND_EXECUTE` carries it as an extra prepare argument that CAS
+  frees before preparing (the wire mechanism of JDBC's deferred close; unlike
+  JDBC, which closes SELECT/CALL/EVALUATE handles at once, result-set handles
+  are deferred too). Measured live, sync and async:
+  5000 unclosed SELECTs keep the handle id at 1-2 with no restart; a SELECT then
+  `close()` takes 2 requests (1 `CHECK_CAS`) instead of 4 (2 `CHECK_CAS`); a reused
+  cursor's SELECT then INSERT takes 5 requests instead of 8. One statement
+  carries at most 256 ids (an explicit release while 256 are queued sends
+  `CLOSE_REQ` at once; collected cursors ride on later statements), and
+  `commit()`/`rollback()` close every id still queued with `CLOSE_REQ`, as they
+  closed unreferenced cursors before. The queue belongs
+  to one physical session and is dropped when that session is retired or
+  replaced, so no stale id is sent after a reconnect. Probes are unchanged, and a
+  request with queued ids is never replayed. Each handle keeps the generation of
+  the session that opened it, explicit releases during session setup are never
+  deferred, and a shard proxy
+  (which ignores the extra arguments) keeps immediate `CLOSE_REQ`. Without
+  statement pooling CAS frees
+  handles at every commit, so `CLOSE_REQ` is still sent at once and a collected
+  cursor's handle is left to that commit (in manual-commit mode it was
+  previously closed by the next `commit()`/`rollback()`).
+
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 

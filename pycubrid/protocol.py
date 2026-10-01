@@ -1029,6 +1029,9 @@ class PrepareAndExecutePacket(_CasPacket):
         self.protocol_version = protocol_version
         self.decode_collections = decode_collections
         self.json_deserializer = json_deserializer
+        # Handles the CAS releases before preparing this statement (#488): the
+        # prepare arguments after the auto-commit flag (JDBC's wire format).
+        self.deferred_close_handles: tuple[int, ...] = ()
 
         self.response_code: int = 0
         self.query_handle: int = 0
@@ -1046,10 +1049,12 @@ class PrepareAndExecutePacket(_CasPacket):
         """Serialize the prepare-and-execute request."""
         writer = PacketWriter(encoding=self.encoding)
         writer._write_byte(CASFunctionCode.PREPARE_AND_EXECUTE)
-        writer.add_int(3)  # arg count
+        writer.add_int(3 + len(self.deferred_close_handles))  # prepare arg count
         writer._write_null_terminated_string(self.sql)
         writer.add_byte(CCIPrepareOption.NORMAL)
         writer.add_byte(1 if self.auto_commit else 0)
+        for handle in self.deferred_close_handles:
+            writer.add_int(handle)
         writer.add_byte(CCIExecutionOption.QUERY_ALL)
         writer.add_int(0)  # max_col_size
         writer.add_int(0)  # max_row_size
