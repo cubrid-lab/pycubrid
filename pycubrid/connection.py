@@ -42,6 +42,10 @@ _LOGGER = logging.getLogger(__name__)
 # Re-export for backwards compatibility.
 _resolve_ssl_context = resolve_ssl_context
 
+# TLS handshake bound when ``read_timeout`` is unset; the async driver passes
+# the same value as ``ssl_handshake_timeout`` (#535).
+_DEFAULT_TLS_HANDSHAKE_TIMEOUT = 10.0
+
 
 class Connection(ConnectionCommonMixin):
     """PEP 249 DB-API connection for the CUBRID CAS protocol."""
@@ -848,18 +852,30 @@ class Connection(ConnectionCommonMixin):
         the ``CUBRS`` magic is sent in plaintext, and only on a ``0`` reply
         is the same socket wrapped in TLS.  Wrapping earlier (TLS from
         byte 0) is rejected by the broker.
+
+        The handshake is bounded by ``read_timeout``, or by 10 seconds when
+        ``read_timeout`` is unset (the async ``ssl_handshake_timeout``
+        default); the socket is blocking again afterwards in that case.
         """
         ssl_context = self._ssl_context
         if ssl_context is None:
             return sock
+        bound_by_default = self._read_timeout is None
         try:
-            return ssl_context.wrap_socket(sock, server_hostname=host)
+            if bound_by_default:
+                # A peer that stalls mid-handshake must not block forever (#535).
+                sock.settimeout(_DEFAULT_TLS_HANDSHAKE_TIMEOUT)
+            ssl_sock = ssl_context.wrap_socket(sock, server_hostname=host)
         except (OSError, ssl_module.SSLError):
             try:
                 sock.close()
             except OSError:
                 pass
             raise
+        if bound_by_default:
+            # Requests after the handshake stay unbounded, as without TLS.
+            ssl_sock.settimeout(None)
+        return ssl_sock
 
     def _send_and_receive(
         self,

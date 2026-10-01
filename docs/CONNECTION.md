@@ -236,10 +236,17 @@ cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_
 
 `connect_timeout` bounds only the TCP connect. The broker handshake, the TLS handshake and
 `OPEN_DATABASE` are bounded by `read_timeout` on both drivers; when `read_timeout` is unset the
-async TLS handshake still gives up after 10 seconds (`ssl_handshake_timeout`), while the sync
-driver waits without a limit. A broker that stalls or resets the connection during the TLS
-handshake raises `OperationalError` within that bound
-([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
+TLS handshake still gives up after 10 seconds on both drivers (`ssl_handshake_timeout` on async,
+a handshake-only socket timeout on sync,
+[#535](https://github.com/cubrid-lab/pycubrid/issues/535)), and the broker handshake and
+`OPEN_DATABASE` wait without a limit. The 10-second default covers only the TLS handshake:
+requests after it stay unbounded without `read_timeout`. A broker that stalls or resets the
+connection during the TLS handshake raises `OperationalError` within that bound
+([#513](https://github.com/cubrid-lab/pycubrid/issues/513)). On Python 3.10 the async driver's
+preflight certificate check closes its own socket when the broker resets the connection before
+the TLS handshake ([#535](https://github.com/cubrid-lab/pycubrid/issues/535)); the sync driver's
+`wrap_socket()` upgrade on 3.10 can still leave such a socket to the garbage collector (a
+`ResourceWarning`), a CPython 3.10 `ssl` limitation fixed in later versions.
 
 After the session is open, an uncertain transport failure on a request (a socket error, a
 timeout, a malformed reply, or an interrupt or task cancellation while a reply is outstanding)
