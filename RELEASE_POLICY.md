@@ -247,6 +247,17 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Column metadata framing checked before `DataError`; FC41 counts (#581)** —
+  PATCH / correction of a protocol-robustness defect completing #555, #523 and
+  #383. A reply whose column metadata has undecodable text and framing damage
+  in a later column, or an FC41 reply with a negative bind, total or inline
+  tuple count or an impossible column count (or an FC3 reply with a negative
+  inline tuple count), now raises `OperationalError('malformed response from
+  broker')` and closes the connection instead of `DataError` with the session
+  kept, or being accepted. Valid replies, the `DataError` classification of
+  complete replies (#492, #512), public signatures, dependencies and supported
+  versions are unchanged; sync and async behave the same.
+
 - **Sync TLS handshake bound without `read_timeout`; 3.10 probe socket closed
   (#535)** — PATCH / correction of a hang and a resource leak. Without
   `read_timeout`, the sync TLS handshake now fails with `OperationalError` after

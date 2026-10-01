@@ -142,6 +142,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Column metadata finishes its framing check before `DataError`; FC41 count gaps closed (#581)** —
+  column metadata text that is not valid in the connection codec raised
+  `DataError` at once in FC2, FC3 (refreshed columns) and FC41 replies, so
+  later metadata was never checked: a reply that also had a negative,
+  overrunning or truncated field in a later column kept the session. The
+  remaining metadata is now walked by its declared lengths first, and such a
+  reply raises `OperationalError('malformed response from broker')` and closes
+  the connection; a complete reply still raises `DataError` and keeps it. FC41
+  now rejects a negative bind count, `total_tuple_count` or inline tuple count
+  (previously ignored, passed through, or read as zero rows) and a column count
+  the reply cannot hold, as FC2 already did; FC3 rejects a negative inline
+  tuple count. Sync and async behave the same.
 - **Sync TLS handshake is bounded without `read_timeout`; the Python 3.10 TLS preflight probe closes its socket (#535)** —
   `pycubrid.connect(..., ssl=...)` without `read_timeout` waited forever when the
   broker (or a proxy in front of it) stalled during the TLS handshake. The
