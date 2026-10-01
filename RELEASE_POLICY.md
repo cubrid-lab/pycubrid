@@ -247,6 +247,12 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Collection element validation continues after conversion errors (#595)** —
+  PATCH / malformed-response correction. A complete first element `DataError`
+  cannot hide a malformed later typed element. Complete collections retain
+  the first error and its cause; ordinary values, NULL-only diagnostics and
+  opaque/unsupported decoding contracts are unchanged. No new public surface.
+
 - **FC41/refreshed FC3 metadata errors wait for tail validation (#591)** —
   PATCH / malformed-response correction. Framing faults after undecodable
   metadata retire the connection rather than reporting a recoverable

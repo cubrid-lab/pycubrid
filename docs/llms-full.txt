@@ -4998,9 +4998,13 @@ from broker")` and closes; `DataError` stays reserved for a complete reply
 whose value Python cannot represent (#492, #512). Unread bytes after the last
 value a reply declares are not checked.
 
-The pre-existing conversion-error remainder walk inside a collection is a
-separate limitation (#595): it does not yet validate every later element's
-typed representation after an earlier element raises `DataError`.
+For known decoded collection member types, each length word and payload must
+fit the collection and the value decoder must consume exactly its declared
+bytes. After a complete element raises `DataError`, later elements still run
+their real decoders: a malformed representation wins over the saved error
+(#595). A complete collection retains the first conversion error and its cause.
+NULL-only, opaque/disabled decoding and unsupported nested member layouts
+retain their existing contracts; no recursive decoding capability is added.
 
 Internal bounds re-walks use `PacketReader.mark()` and `seek(position)`.
 Seeking outside the reply or to a non-integer position raises `ValueError`
