@@ -331,7 +331,7 @@ def test_sync_out_tran_probe_keeps_tls_session(session: Any) -> None:
     client = session("sync")
     conn = client.conn
     original = conn._socket
-    conn._cas_info = bytes([conn._CAS_INFO_STATUS_INACTIVE, *conn._cas_info[1:]])
+    conn._record_reply_cas_info(bytes([conn._CAS_INFO_STATUS_INACTIVE, *conn._cas_info[1:]]))
 
     assert client.scalar("SELECT 1") == 1
     assert conn._socket is original

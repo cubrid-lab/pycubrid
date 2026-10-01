@@ -107,6 +107,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   MULTISET column drops duplicates while a SEQUENCE value keeps them.
 
 ### Changed
+- **Internal: explicit per-reply session verification and one escape-mode policy (#525)** —
+  refactor with no behavior change in either driver. Whether an OUT_TRAN reply
+  still needed a `CHECK_CAS` probe was decided by comparing CAS_INFO object
+  identity with the last verified reply. Each reply is now recorded explicitly
+  and is marked verified only after `OPEN_DATABASE`, a successful `CHECK_CAS`
+  or a healthy `ping()`. Verification stays per reply, not per session: the CAS
+  may close the socket after any OUT_TRAN reply, so every one still gets its own
+  probe. A reconnect-only generation counter (the original proposal) would skip
+  needed probes, and no `CHECK_CAS` is removed. The 46 sync/async replay
+  scenarios, including the #557 round-trip budgets, send identical request
+  sequences before and after the change. The backslash-escape probe SQL, result
+  interpretation and error messages, previously copied in the sync connect,
+  async connect and async recovery paths, are now one shared helper.
 - **Autocommit cursor handles are released with the next statement (#488)** —
   in autocommit mode only `commit()`/`rollback()` sent `CLOSE_REQ` for unclosed
   cursors, the connection kept every cursor alive, and an explicit close cost a

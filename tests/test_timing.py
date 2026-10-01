@@ -368,7 +368,7 @@ class TestCursorTiming:
         conn = MagicMock()
         conn.autocommit = False
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._cursors = set()
         conn._ensure_connected = MagicMock()
         conn._no_backslash_escapes = False
@@ -385,7 +385,7 @@ class TestCursorTiming:
         conn = MagicMock()
         conn.autocommit = False
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._cursors = set()
         conn._ensure_connected = MagicMock()
         conn._no_backslash_escapes = False

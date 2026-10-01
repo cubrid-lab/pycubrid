@@ -15,7 +15,7 @@ from pycubrid.protocol import CheckCasPacket
 def make_async_connection() -> tuple[AsyncConnection, MagicMock, MagicMock]:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")
     reader = MagicMock()
     writer = MagicMock()
     writer.close = MagicMock()
@@ -217,7 +217,7 @@ class TestAsyncConnectionPing:
     @pytest.mark.asyncio
     async def test_ping_inactive_cas_info_no_reconnect(self) -> None:
         conn, _, _ = make_async_connection()
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
         conn._send_and_receive_locked = AsyncMock(return_value=SimpleNamespace(response_code=0))
 
         assert await conn.ping(reconnect=False) is True
@@ -230,7 +230,7 @@ class TestAsyncConnectionPing:
     @pytest.mark.asyncio
     async def test_ping_out_tran_uses_same_session(self) -> None:
         conn, _, writer = make_async_connection()
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
         invalidate = MagicMock()
         conn._invalidate_query_handles_for_reconnect = invalidate
         conn._do_send_and_receive = AsyncMock(return_value=SimpleNamespace(response_code=0))
@@ -286,7 +286,7 @@ class TestAsyncConnectionPing:
     @pytest.mark.asyncio
     async def test_send_and_receive_skips_reconnect_when_disallowed(self) -> None:
         conn, _, writer = make_async_connection()
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
         conn.connect = AsyncMock()
         packet = SimpleNamespace(response_code=0)
         conn._do_send_and_receive = AsyncMock(return_value=packet)

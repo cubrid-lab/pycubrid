@@ -253,7 +253,7 @@ class TestWritePathSerializationErrors:
     async def test_async_write_overflow_raises_data_error(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._reader, conn._writer, _ = make_mock_stream_pair()
         packet = MagicMock()
         packet.write.side_effect = struct.error(
@@ -289,7 +289,7 @@ class TestAsyncConnectionNetworkEdgeCases:
     async def test_connection_reset_error_during_async_recv_raises_operational_error(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         reader, writer, _ = make_mock_stream_pair()
         reader.readexactly = AsyncMock(side_effect=ConnectionResetError("reset during recv"))
         conn._reader = reader
@@ -305,7 +305,7 @@ class TestAsyncConnectionNetworkEdgeCases:
     async def test_partial_async_read_zero_bytes_raises_operational_error(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         reader, writer, _ = make_mock_stream_pair()
         reader.readexactly = AsyncMock(
             side_effect=asyncio.IncompleteReadError(partial=b"", expected=4)
@@ -320,7 +320,7 @@ class TestAsyncConnectionNetworkEdgeCases:
     async def test_async_read_timeout_during_query_raises_operational_error(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.5)
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._reader, conn._writer, _ = make_mock_stream_pair()
 
         with patch(
@@ -337,7 +337,7 @@ class TestAsyncConnectionNetworkEdgeCases:
     async def test_partial_async_read_fewer_bytes_than_expected_is_retried(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         frame = build_simple_ok_response(b"\x01\x01\x02\x03")
         reader, writer, _ = make_mock_stream_pair([frame[:4], frame[4:]])
         conn._reader = reader
@@ -389,7 +389,7 @@ class TestExceptionCausePreservation:
     async def test_async_read_timeout_preserves_cause(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.5)
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._reader, conn._writer, _ = make_mock_stream_pair()
 
         async def _raise_timeout(coro: object, timeout: float | None = None) -> None:
@@ -427,7 +427,7 @@ class TestSessionStateRestoreOnReconnect:
 
         def reconnect() -> None:
             conn._socket = reconnect_sock
-            conn._cas_info = b"\x01\x01\x02\x03"
+            conn._record_reply_cas_info(b"\x01\x01\x02\x03")
             conn._connected = True
             conn._physical_generation += 1
 
@@ -451,7 +451,7 @@ class TestSessionStateRestoreOnReconnect:
 
         def reconnect() -> None:
             conn._socket = reconnect_sock
-            conn._cas_info = b"\x01\x01\x02\x03"
+            conn._record_reply_cas_info(b"\x01\x01\x02\x03")
             conn._connected = True
             conn._physical_generation += 1
 
@@ -517,7 +517,7 @@ class TestSessionStateRestoreOnReconnect:
     async def test_async_explicit_autocommit_is_tracked(self) -> None:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._reader, conn._writer, _ = make_mock_stream_pair()
         sending = AsyncMock(return_value=MagicMock())
         with patch.object(conn, "_send_and_receive_locked", sending):
@@ -703,7 +703,7 @@ class TestPingSingleAttemptContract:
         conn, _ = make_connected_connection()
         conn._autocommit = True
         conn._autocommit_explicitly_set = True
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
 
         connect_calls = 0
 
@@ -711,7 +711,7 @@ class TestPingSingleAttemptContract:
             nonlocal connect_calls
             connect_calls += 1
             conn._socket = MagicMock()
-            conn._cas_info = b"\x01\x01\x02\x03"
+            conn._record_reply_cas_info(b"\x01\x01\x02\x03")
             conn._connected = True
             conn._physical_generation += 1
 
@@ -735,7 +735,7 @@ class TestPingSingleAttemptContract:
         conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", no_backslash_escapes=False)
         conn._connected = True
         conn._physical_generation = 1
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
         conn._reader, conn._writer, _ = make_mock_stream_pair()
         conn._autocommit = True
         conn._autocommit_explicitly_set = True
@@ -748,7 +748,7 @@ class TestPingSingleAttemptContract:
             connect_calls += 1
             conn._connected = True
             conn._physical_generation += 1
-            conn._cas_info = b"\x01\x01\x02\x03"
+            conn._record_reply_cas_info(b"\x01\x01\x02\x03")
 
         async def failing_restore() -> None:
             nonlocal restore_calls
@@ -796,7 +796,7 @@ class TestAsyncPositiveRestoreOnReconnect:
             await release_connect.wait()
             conn._reader, conn._writer, _ = make_mock_stream_pair()
             conn._connected = True
-            conn._verified_cas_info = conn._cas_info  # fresh OPEN_DATABASE reply
+            conn._mark_cas_reply_verified()  # fresh OPEN_DATABASE reply
             conn._physical_generation += 1
             order.append("connect")
 
@@ -1007,7 +1007,7 @@ class TestAsyncPositiveRestoreOnReconnect:
         async def fake_connect_locked() -> None:
             conn._connected = True
             conn._physical_generation += 1
-            conn._cas_info = b"\x01\x01\x02\x03"
+            conn._record_reply_cas_info(b"\x01\x01\x02\x03")
 
         async def fake_send_locked(packet: object, *, allow_reconnect: bool = True) -> object:
             del allow_reconnect

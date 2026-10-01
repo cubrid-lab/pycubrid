@@ -142,7 +142,7 @@ class ParityAdapter:
 
     def mark_out_tran(self, conn: Connection | AsyncConnection) -> None:
         conn._ensure_connected()
-        conn._cas_info = bytes([0]) + bytes(conn._cas_info[1:])
+        conn._record_reply_cas_info(bytes([0]) + bytes(conn._cas_info[1:]))
 
     def transport_token(self, _conn: Connection | AsyncConnection) -> object | None:
         raise NotImplementedError

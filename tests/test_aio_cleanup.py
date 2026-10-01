@@ -40,7 +40,7 @@ def make_connected_async_connection(
 ) -> tuple[AsyncConnection, MagicMock, MagicMock]:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=read_timeout)
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")
     reader, writer = make_stream_pair(read_chunks)
     conn._reader = reader
     conn._writer = writer

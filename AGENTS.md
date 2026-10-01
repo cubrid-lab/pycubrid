@@ -98,7 +98,10 @@ session. Because the CAS may still close the socket after an OUT_TRAN reply
 (memory restart, broker reset, CHANGE CLIENT), probe with CHECK_CAS before the
 next request (JDBC `checkReconnect` parity) and replace the session only when
 that probe fails: once per request, before the request is first sent, restoring
-driver-owned state (#485). Explicit `ping(reconnect=True)` also recovers a
+driver-owned state (#485). Verification is explicit and per reply: every reply
+is recorded unverified, and only OPEN_DATABASE, a successful CHECK_CAS or a healthy
+ping marks it verified (#525); never key it on object identity, bytes or a
+reconnect-only generation. Explicit `ping(reconnect=True)` also recovers a
 confirmed CAS/transport failure; arbitrary SQL is never replayed automatically.
 Commit/rollback CLOSE_REQ open cursor handles before END_TRAN.
 With broker statement pooling on, autocommit releases (and cursors collected

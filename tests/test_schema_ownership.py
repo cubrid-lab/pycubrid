@@ -95,7 +95,7 @@ def connected(asynchronous: bool, peer: SchemaPeer) -> Connection | AsyncConnect
         conn._socket = MagicMock()
         conn._send_and_receive = peer.send
     conn._connected = True
-    conn._cas_info = CAS_INFO
+    conn._record_reply_cas_info(CAS_INFO)
     conn._session_id = 1234
     return conn
 
