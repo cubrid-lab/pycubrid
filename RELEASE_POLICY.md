@@ -249,12 +249,13 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   closed connection with a stale handle id. A sync interrupt while a reply is
   outstanding now closes the session (previously it stayed open with an unread
   reply). The async `OperationalError` message for a `read_timeout` expiry
-  changes from `read timeout` to `read timeout: no reply within
+  changes from `read timeout` to `read timeout: no complete round trip within
   read_timeout=<n>s` (still starting with `read timeout`), and a transport
   `TimeoutError` now reads `socket communication timed out`. An `OSError`
   raised by a `json_deserializer` callback after a complete reply now
   propagates unwrapped with the session kept, instead of `OperationalError`
-  with the session closed. Other exception classes,
+  with the session closed; a `ValueError`-family callback error is still a
+  malformed reply that retires the session. Other exception classes,
   `__cause__`, `CancelledError` propagation and the no-replay rule are
   unchanged; no public signature, dependency or supported-version change.
 

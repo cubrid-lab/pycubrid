@@ -434,3 +434,45 @@ async def test_async_parse_callback_os_error_keeps_session(
             assert await paged.fetchall() == [(1,), (2,), (3,)]
         finally:
             await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_async_deadline_during_malformed_reply_cleanup_is_a_read_timeout() -> None:
+    """The read_timeout deadline can fire while a malformed reply's session is
+    being shut down (a TLS peer that never sends close_notify): that is still a
+    pycubrid ``OperationalError``, never a bare ``TimeoutError``."""
+
+    def script(request: Request, session: Session) -> Reply | None:
+        if request.sql == "SELECT 1":
+            return Reply(body=cas_info(IN_TRAN) + b"\x00\x00\x00\x01\x01")
+        return None
+
+    with run_replay_broker(script, results=_RESULTS) as broker:
+        conn, paged = await _open_async(broker.port, read_timeout=0.2)
+        writer = conn._writer
+
+        async def slow_wait_closed() -> None:
+            await asyncio.sleep(1.0)
+
+        try:
+            with patch.object(writer, "wait_closed", side_effect=slow_wait_closed):
+                with pytest.raises(OperationalError, match="read timeout") as raised:
+                    await conn.cursor().execute("SELECT 1")
+            assert isinstance(raised.value.__cause__, asyncio.TimeoutError)
+            _assert_retired(conn, paged)
+        finally:
+            writer.close()
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_async_value_error_from_a_parse_callback_is_still_malformed() -> None:
+    with run_replay_broker(results=_RESULTS) as broker:
+        conn, paged = await _open_async(broker.port)
+        try:
+            with _parse_then_raise(ValueError("orjson decode error")):
+                with pytest.raises(OperationalError, match="malformed response"):
+                    await conn.cursor().execute("SELECT 1")
+            _assert_retired(conn, paged)
+        finally:
+            await conn.close()

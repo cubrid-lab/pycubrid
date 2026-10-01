@@ -1088,8 +1088,9 @@ class AsyncConnection(ConnectionCommonMixin):
             self._validate_escape_generation(expected_escape_generation)
 
         # On Python 3.11+ asyncio.TimeoutError is the built-in TimeoutError, an
-        # OSError subclass a transport can raise too (ETIMEDOUT): record which
-        # one fired instead of inferring the read_timeout deadline from type.
+        # OSError subclass a transport or a parse callback can raise too
+        # (ETIMEDOUT): record whether one came from inside the round trip
+        # instead of inferring the read_timeout deadline from its type.
         transport_timeout = False
         self._reply_complete = False
 
@@ -1106,14 +1107,16 @@ class AsyncConnection(ConnectionCommonMixin):
                 return await asyncio.wait_for(round_trip(), timeout=self._read_timeout)
             return await round_trip()
         except (asyncio.TimeoutError, OSError) as exc:
-            if self._reply_complete:
+            deadline = isinstance(exc, asyncio.TimeoutError) and not transport_timeout
+            if self._reply_complete and not deadline:
                 # Raised by a parse callback (json_deserializer) after the whole
                 # reply was read: not a transport failure, the session is intact.
                 raise
             await self._retire_session_locked()
-            if isinstance(exc, asyncio.TimeoutError) and not transport_timeout:
+            if deadline:
                 raise OperationalError(
-                    f"read timeout: no reply within read_timeout={self._read_timeout}s"
+                    "read timeout: no complete round trip within "
+                    f"read_timeout={self._read_timeout}s"
                 ) from exc
             if isinstance(exc, TimeoutError):
                 raise OperationalError("socket communication timed out") from exc
@@ -1154,6 +1157,9 @@ class AsyncConnection(ConnectionCommonMixin):
         try:
             packet.parse(response_body)
         except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
+            # The session is uncertain again: a deadline or transport error
+            # while it shuts down is not a parse callback's exception.
+            self._reply_complete = False
             await self._retire_session_locked()
             raise OperationalError("malformed response from broker") from exc
         return packet

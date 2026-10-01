@@ -248,14 +248,16 @@ both drivers ([#556](https://github.com/cubrid-lab/pycubrid/issues/556)). Rows a
 buffered stay readable; the next fetch that needs the server raises, and no handle of the dead
 session is ever sent again. The request is not replayed: reconnect with `connect()` or
 `ping(reconnect=True)` and re-execute. The async `OperationalError` message says
-`read timeout: no reply within read_timeout=...s` only when the `read_timeout` deadline expired;
+`read timeout: no complete round trip within read_timeout=...s` only when the `read_timeout` deadline expired;
 a timeout raised by the transport itself (for example `ETIMEDOUT`) is reported as
 `socket communication timed out`, and other socket errors as `socket communication failed`. The
 original exception is always chained as `__cause__`, and a cancelled task still raises
 `asyncio.CancelledError`. The sync `read_timeout` is a per-receive socket timeout and is reported
 as `socket communication failed`. An `OSError` (including `TimeoutError`) raised by a
 `json_deserializer` callback after the whole reply was read is not a transport failure: it
-propagates unchanged and the connection stays open.
+propagates unchanged and the connection stays open. A `ValueError`-family error from a custom
+deserializer (for example an orjson or simplejson decode error) is still treated as a malformed
+reply: `OperationalError('malformed response from broker')`, and the session is retired.
 
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)

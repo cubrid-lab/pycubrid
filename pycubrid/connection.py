@@ -1002,7 +1002,8 @@ class Connection(ConnectionCommonMixin):
             if expected_generation is not None and not attempted_send:
                 raise  # Local pre-byte failure cannot corrupt the broker reply.
             if expected_generation is None:
-                self._drop_connection()
+                if self._socket is request_socket:  # never a replacement session
+                    self._drop_connection()
             elif self._prepared_session_is_current(expected_generation, request_socket):
                 self._discard_uncertain_prepared_session()
             raise OperationalError("socket communication failed") from exc
