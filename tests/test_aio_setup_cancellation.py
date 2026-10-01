@@ -64,7 +64,7 @@ async def test_cancelled_setup_owner_does_not_cancel_waiters() -> None:
 
     owner.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await owner
+        _ = await owner
     assert owner.cancelled()
 
     results = await asyncio.gather(*waiters, return_exceptions=True)
@@ -101,7 +101,7 @@ async def test_ordinary_setup_failure_gives_each_waiter_a_fresh_exception() -> N
 
     setup.release.set()
     with pytest.raises(OperationalError) as owner_info:
-        await owner
+        _ = await owner
     assert owner_info.value is original
 
     results = await asyncio.gather(*waiters, return_exceptions=True)
@@ -127,7 +127,7 @@ async def test_non_dbapi_setup_failure_is_wrapped_for_waiters() -> None:
 
     setup.release.set()
     with pytest.raises(RuntimeError):
-        await owner
+        _ = await owner
     results = await asyncio.gather(*waiters, return_exceptions=True)
     for result in results:
         assert type(result) is OperationalError
@@ -144,10 +144,10 @@ async def test_waiter_cancellation_remains_cancellation() -> None:
 
     waiters[0].cancel()
     with pytest.raises(asyncio.CancelledError):
-        await waiters[0]
+        _ = await waiters[0]
 
     setup.release.set()
-    await owner
+    _ = await owner
     assert await waiters[1] == "query-1"
     assert setup.sent == ["query-1"]
 
@@ -159,7 +159,7 @@ async def test_reconnect_after_cancelled_setup_succeeds() -> None:
     owner, waiters = await _owner_and_waiters(conn, setup)
     owner.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await owner
+        _ = await owner
     await asyncio.gather(*waiters, return_exceptions=True)
 
     setup.started.clear()
@@ -180,7 +180,7 @@ async def test_interface_error_setup_failure_keeps_class_for_waiters() -> None:
 
     setup.release.set()
     with pytest.raises(InterfaceError):
-        await owner
+        _ = await owner
     results = await asyncio.gather(*waiters, return_exceptions=True)
     for result in results:
         assert type(result) is InterfaceError
