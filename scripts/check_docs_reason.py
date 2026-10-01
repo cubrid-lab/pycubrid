@@ -150,25 +150,9 @@ def _empty_composition(text: str, raw: str, origin: int, spans: list[tuple[int, 
         if not changed:
             if not _reason_text(unescape(text)):
                 return True
-            wrapper = re.fullmatch(r"(\*{1,3}|_{1,3})(.+)\1", raw.strip())
-            if wrapper:
-                inner = wrapper[2]
-                leading = len(raw) - len(raw.lstrip())
-                closing_escape = re.search(r"\\+$", inner)
-                if (
-                    not inner[0].isspace()
-                    and not inner[-1].isspace()
-                    and inner[0] != wrapper[1][0]
-                    and inner[-1] != wrapper[1][0]
-                    and not (closing_escape and len(closing_escape[0]) % 2)
-                    and not any(
-                        left < origin + len(raw) and origin < right for left, right in spans
-                    )
-                ):
-                    return not _reason_text(
-                        unescape(text[leading + wrapper.start(2) : leading + wrapper.end(2)])
-                    )
-            return False
+            if any(left < origin + len(raw) and origin < right for left, right in spans):
+                return False
+            return _empty_emphasis(raw, text)
         text = "".join(reduced)
 
 

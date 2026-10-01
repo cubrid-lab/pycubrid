@@ -858,14 +858,14 @@ class DocsReasonWorkflowTests(unittest.TestCase):
         # path the workflow does; only the interpreter-startup cost is removed.
         code = compile(workflow_python(), str(WORKFLOW), "exec")
 
-        def run_script() -> int:
+        def run_script() -> tuple[int, str]:
             buffer = io.StringIO()
             try:
                 with contextlib.redirect_stdout(buffer):
                     exec(code, {"__name__": "__docs_sync_under_test__"})
             except SystemExit as exc:
-                return exc.code if isinstance(exc.code, int) else 1
-            return 0
+                return (exc.code if isinstance(exc.code, int) else 1), buffer.getvalue()
+            return 0, buffer.getvalue()
 
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
@@ -892,8 +892,8 @@ class DocsReasonWorkflowTests(unittest.TestCase):
                 with self.subTest(case=case["id"]):
                     event.write_text(json.dumps(case["event"]))
                     with mock.patch.dict(os.environ, env, clear=True):
-                        returncode = run_script()
-                    self.assertEqual(returncode == 0, case["expected_docs_exemption"])
+                        returncode, output = run_script()
+                    self.assertEqual(returncode == 0, case["expected_docs_exemption"], output)
             event.write_text(json.dumps({"pull_request": {"body": None, "labels": []}}))
             for changed in (
                 "pycubrid/cursor.py\ndocs/API_REFERENCE.md\n",
@@ -903,8 +903,8 @@ class DocsReasonWorkflowTests(unittest.TestCase):
                     with mock.patch.dict(
                         os.environ, {**env, "DOCS_TEST_CHANGED": changed}, clear=True
                     ):
-                        returncode = run_script()
-                    self.assertEqual(returncode, 0)
+                        returncode, output = run_script()
+                    self.assertEqual(returncode, 0, output)
 
     def test_json_data_and_existing_translation_authorization_are_preserved(self) -> None:
         text = WORKFLOW.read_text()
