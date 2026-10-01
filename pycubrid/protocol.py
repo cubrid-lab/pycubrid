@@ -719,9 +719,34 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
 
     The text decoder reads a non-positive length as empty, so each metadata
     length is bounded here first: a negative one is framing damage (#555).
+
+    Text that the connection codec cannot decode raises ``DataError``, which is
+    only for a complete reply (#492, #512). Before re-raising it, walk the
+    whole metadata again by its declared lengths without decoding, so framing
+    damage in a later column still fails as malformed (#581).
     """
     if column_count < 0:
         raise ValueError("negative prepared column count")
+    start = reader._offset
+    try:
+        return _read_column_metadata(reader, column_count, decode=True)
+    except DataError:
+        reader._offset = start
+        _read_column_metadata(reader, column_count, decode=False)
+        raise
+
+
+def _read_column_metadata(
+    reader: PacketReader, column_count: int, *, decode: bool
+) -> list[ColumnMetaData]:
+    """Read ``column_count`` metadata entries; ``decode=False`` only checks bounds."""
+
+    def text(length: int) -> str:
+        if decode:
+            return reader._parse_metadata_text(length)
+        reader._skip_bytes(length)
+        return ""
+
     columns: list[ColumnMetaData] = []
     for _ in range(column_count):
         column_type = _parse_column_type(reader)
@@ -731,22 +756,22 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
         name_len = reader._parse_int()
         if name_len < 0 or name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column name length")
-        name = reader._parse_metadata_text(name_len)
+        name = text(name_len)
         real_name_len = reader._parse_int()
         if real_name_len < 0 or real_name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column real-name length")
-        real_name = reader._parse_metadata_text(real_name_len)
+        real_name = text(real_name_len)
         table_name_len = reader._parse_int()
         if table_name_len < 0 or table_name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column table-name length")
-        table_name = reader._parse_metadata_text(table_name_len)
+        table_name = text(table_name_len)
 
         # CAS sends is_non_null: zero means the column accepts NULL.
         is_nullable = reader._parse_byte() == 0
         default_len = reader._parse_int()
         if default_len < 0 or default_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column default length")
-        default_value = reader._parse_metadata_text(default_len)
+        default_value = text(default_len)
         is_auto_increment = reader._parse_byte() == 1
         is_unique_key = reader._parse_byte() == 1
         is_primary_key = reader._parse_byte() == 1
@@ -1223,14 +1248,13 @@ class PrepareAndExecutePacket(_CasPacket):
             _raise_error(reader, remaining)
 
         self.query_handle = self.response_code
-        _ = reader._parse_int()  # result cache lifetime
-        self.statement_type = reader._parse_byte()
-        self.bind_count = reader._parse_int()
-        _ = reader._parse_byte()  # is_updatable
-        self.column_count = reader._parse_int()
-        self.columns = _parse_column_metadata(reader, self.column_count)
+        # Same layout as the FC2 tail, so the same count checks apply (#581).
+        self.statement_type, self.bind_count, self.columns = _parse_prepare_info(reader)
+        self.column_count = len(self.columns)
 
         self.total_tuple_count = reader._parse_int()
+        if self.total_tuple_count < 0:
+            raise ValueError("negative total tuple count")
         _ = reader._parse_byte()  # cache_reusable
         self.result_count = reader._parse_int()
         self.result_infos = _parse_result_infos(reader, self.result_count)
@@ -1246,6 +1270,8 @@ class PrepareAndExecutePacket(_CasPacket):
             if reader.bytes_remaining() >= 8:
                 _ = reader._parse_int()  # fetch_code
                 self.tuple_count = reader._parse_int()
+                if self.tuple_count < 0:
+                    raise ValueError("negative tuple count")
                 if self.tuple_count > 0:
                     self.rows = _parse_row_data(
                         reader,
@@ -1422,6 +1448,8 @@ class ExecutePacket(_CasPacket):
             if reader.bytes_remaining() >= 8:
                 _ = reader._parse_int()  # fetch_code
                 self.tuple_count = reader._parse_int()
+                if self.tuple_count < 0:
+                    raise ValueError("negative tuple count")
                 if self.tuple_count > 0 and self.columns:
                     self.rows = _parse_row_data(
                         reader,
