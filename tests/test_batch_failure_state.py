@@ -18,6 +18,8 @@ from pycubrid.protocol import BatchExecutePacket, CloseQueryPacket
 @pytest.mark.parametrize("failure", ["transport", "parse", "close"])
 async def test_failed_batch_replaces_stale_state(asynchronous: bool, failure: str) -> None:
     conn = MagicMock()
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    conn._defer_close = MagicMock(return_value=False)
     conn._no_backslash_escapes = False
     conn._physical_generation = 1
     conn._wait_for_setup_if_needed = AsyncMock()

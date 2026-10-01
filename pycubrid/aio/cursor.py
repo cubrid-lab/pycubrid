@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import time
@@ -109,7 +110,21 @@ class AsyncCursor(_AsyncCursorBase):
         try:
             connection._defer_dropped_cursor_close(self)
         except Exception:  # noqa: BLE001 - e.g. interpreter shutdown; never raise from __del__
-            _LOGGER.debug("Could not queue a collected cursor's handle", exc_info=True)
+            with contextlib.suppress(Exception):  # logging may be torn down too
+                _LOGGER.debug("Could not queue a collected cursor's handle", exc_info=True)
+
+    async def _release_handle(self) -> None:
+        """Release the current result's handle before a new request (#488).
+
+        Deferred to the next ``PREPARE_AND_EXECUTE`` when the connection allows
+        it, otherwise closed now with ``CLOSE_REQ``.
+        """
+        handle = self._query_handle
+        if handle is None:
+            return
+        if not self._connection._defer_close(handle, self._handle_generation):
+            await self._connection._send_and_receive(CloseQueryPacket(handle), handle_owner=self)
+        self._query_handle = None
 
     async def close(self) -> None:
         if self._closed:
@@ -149,14 +164,8 @@ class AsyncCursor(_AsyncCursorBase):
         if _timing is not None:
             _start = time.perf_counter_ns()
 
-        handle = self._query_handle
-        if handle is not None:
-            # In autocommit the CLOSE_REQ rides on this execute's request (#488).
-            if not self._connection._defer_close(handle, self._handle_generation):
-                await self._connection._send_and_receive(
-                    CloseQueryPacket(handle), handle_owner=self
-                )
-            self._query_handle = None
+        # In autocommit the CLOSE_REQ rides on this execute's request (#488).
+        await self._release_handle()
 
         # Once the previous query is closed, a failed execute has no result set.
         self._description = None
@@ -249,11 +258,7 @@ class AsyncCursor(_AsyncCursorBase):
     ) -> AsyncCursor:
         self._check_closed()
         if not seq_of_parameters:
-            if self._query_handle is not None:
-                await self._connection._send_and_receive(
-                    CloseQueryPacket(self._query_handle), handle_owner=self
-                )
-                self._query_handle = None
+            await self._release_handle()
             self._description = None
             self._columns = []
             self._rows = []
@@ -286,11 +291,7 @@ class AsyncCursor(_AsyncCursorBase):
         self._connection._ensure_connected()
         # Release the previous result first (as execute() does): its CLOSE_REQ
         # can end OUT_TRAN, and the pre-bind check must run after it (#485).
-        if self._query_handle is not None:
-            await self._connection._send_and_receive(
-                CloseQueryPacket(self._query_handle), handle_owner=self
-            )
-            self._query_handle = None
+        await self._release_handle()
         expected_escape_generation = await self._connection._generation_for_binding()
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
@@ -319,11 +320,7 @@ class AsyncCursor(_AsyncCursorBase):
         await self._connection._wait_for_setup_if_needed()
         self._connection._ensure_connected()
 
-        if self._query_handle is not None:
-            await self._connection._send_and_receive(
-                CloseQueryPacket(self._query_handle), handle_owner=self
-            )
-            self._query_handle = None
+        await self._release_handle()
 
         if sql_list:
             self._connection._last_insert_id = None

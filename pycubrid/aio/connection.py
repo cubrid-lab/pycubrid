@@ -714,12 +714,21 @@ class AsyncConnection(ConnectionCommonMixin):
             if handle is None:
                 continue
             cursor._query_handle = None
-            try:
-                await self._send_and_receive_locked(CloseQueryPacket(handle))
-            except Error:
-                if not self._connected:
-                    raise
-                _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
+            await self._close_handle_at_boundary_locked(handle)
+        # Handles of cursors collected without close() and queued (#488).
+        generation = self._physical_generation
+        for handle in self._take_deferred_closes():
+            if self._physical_generation != generation:
+                break  # replaced during an earlier CLOSE_REQ: nothing left to close
+            await self._close_handle_at_boundary_locked(handle)
+
+    async def _close_handle_at_boundary_locked(self, handle: int) -> None:
+        try:
+            await self._send_and_receive_locked(CloseQueryPacket(handle))
+        except Error:
+            if not self._connected:
+                raise
+            _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
 
     def cursor(self) -> Any:
         """Create and return a new async cursor bound to this connection."""

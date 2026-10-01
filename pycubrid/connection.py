@@ -469,12 +469,21 @@ class Connection(ConnectionCommonMixin):
             if handle is None:
                 continue
             cursor._query_handle = None
-            try:
-                self._send_and_receive(CloseQueryPacket(handle))
-            except Error:
-                if not self._connected:
-                    raise
-                _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
+            self._close_handle_at_boundary(handle)
+        # Handles of cursors collected without close() and queued (#488).
+        generation = self._physical_generation
+        for handle in self._take_deferred_closes():
+            if self._physical_generation != generation:
+                break  # replaced during an earlier CLOSE_REQ: nothing left to close
+            self._close_handle_at_boundary(handle)
+
+    def _close_handle_at_boundary(self, handle: int) -> None:
+        try:
+            self._send_and_receive(CloseQueryPacket(handle))
+        except Error:
+            if not self._connected:
+                raise
+            _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
 
     def _check_reconnect(self, *, allow_reconnect: bool = True) -> bool:
         """Probe an OUT_TRAN CAS with CHECK_CAS and reconnect only if it is gone.
