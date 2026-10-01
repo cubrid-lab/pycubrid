@@ -995,6 +995,10 @@ class Connection(ConnectionCommonMixin):
                 _LOGGER.debug("recv: %d bytes", data_length + DataSize.CAS_INFO)
             return packet
         except OSError as exc:
+            if response_complete and expected_generation is None:
+                # Raised by a parse callback (json_deserializer) after the whole
+                # reply was read: not a transport failure, the session is intact.
+                raise
             if expected_generation is not None and not attempted_send:
                 raise  # Local pre-byte failure cannot corrupt the broker reply.
             if expected_generation is None:

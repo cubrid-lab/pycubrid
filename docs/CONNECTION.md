@@ -253,7 +253,9 @@ a timeout raised by the transport itself (for example `ETIMEDOUT`) is reported a
 `socket communication timed out`, and other socket errors as `socket communication failed`. The
 original exception is always chained as `__cause__`, and a cancelled task still raises
 `asyncio.CancelledError`. The sync `read_timeout` is a per-receive socket timeout and is reported
-as `socket communication failed`.
+as `socket communication failed`. An `OSError` (including `TimeoutError`) raised by a
+`json_deserializer` callback after the whole reply was read is not a transport failure: it
+propagates unchanged and the connection stays open.
 
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)

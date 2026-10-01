@@ -102,7 +102,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `TimeoutError`, including a transport `ETIMEDOUT` with `read_timeout` unset;
   it now reads `read timeout: no reply within read_timeout=<n>s` only when that
   deadline expired, and `socket communication timed out` for a transport
-  timeout. `__cause__` is preserved.
+  timeout. `__cause__` is preserved. An `OSError` (including `TimeoutError`)
+  raised by a `json_deserializer` callback after the whole reply was read was
+  treated as a transport failure by both drivers (session closed, wrapped in
+  `OperationalError`); it now propagates unchanged and the session stays open,
+  as for the callback's other exceptions.
 - **Negative FC41 column metadata lengths and column counts are rejected
   (#555)** — a `PREPARE_AND_EXECUTE` reply whose column name, real name, table
   name or default length was negative decoded that field as an empty string,

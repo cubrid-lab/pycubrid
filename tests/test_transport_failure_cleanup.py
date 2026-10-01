@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import socket
 import time
+from contextlib import closing
 from typing import Any
 from unittest.mock import patch
 
@@ -27,6 +28,7 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.constants import CUBRIDDataType as T
 from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.protocol import PrepareAndExecutePacket
 
 from .helpers.cas_reply import Column, ResultSet, int_
 from .helpers.replay_broker import IN_TRAN, Reply, Request, Session, cas_info, run_replay_broker
@@ -99,8 +101,7 @@ def test_sync_socket_error_retires_cursor_and_schema_handles(
     exc: BaseException, message: str
 ) -> None:
     with run_replay_broker(results=_RESULTS) as broker:
-        conn = pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))
-        try:
+        with closing(pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))) as conn:
             paged = conn.cursor()
             paged.execute(_PAGED_SQL)
             schema = conn.get_schema_info(1, "t")
@@ -118,8 +119,6 @@ def test_sync_socket_error_retires_cursor_and_schema_handles(
             with pytest.raises(InterfaceError, match="result set invalidated"):
                 paged.fetchone()
             conn.close_schema_info(schema)  # retired: no request on a dead session
-        finally:
-            conn.close()
     functions = [r.function for r in broker.requests]
     assert functions.count("CLOSE_REQ_HANDLE") == 0
     assert functions.count("FETCH") == 0
@@ -132,21 +131,17 @@ def test_sync_malformed_reply_retires_cursor_handles() -> None:
         return None
 
     with run_replay_broker(script, results=_RESULTS) as broker:
-        conn = pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))
-        try:
+        with closing(pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))) as conn:
             paged = conn.cursor()
             paged.execute(_PAGED_SQL)
             with pytest.raises(OperationalError, match="malformed response from broker"):
                 conn.cursor().execute("SELECT 1")
             _assert_retired(conn, paged)
-        finally:
-            conn.close()
 
 
 def test_sync_interrupt_while_reply_outstanding_retires_session() -> None:
     with run_replay_broker(results=_RESULTS) as broker:
-        conn = pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))
-        try:
+        with closing(pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))) as conn:
             paged = conn.cursor()
             paged.execute(_PAGED_SQL)
             conn._socket = _FailingRecvSocket(conn._socket, _Interrupt())
@@ -155,15 +150,12 @@ def test_sync_interrupt_while_reply_outstanding_retires_session() -> None:
             # The reply may still arrive; the session must not be reused.
             _assert_retired(conn, paged)
             assert conn._socket is None
-        finally:
-            conn.close()
 
 
 def test_sync_pre_send_local_failure_keeps_session() -> None:
     """Only an *attempted* send is uncertain; an encoding failure sends nothing."""
     with run_replay_broker(results=_RESULTS) as broker:
-        conn = pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))
-        try:
+        with closing(pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))) as conn:
             paged = conn.cursor()
             paged.execute(_PAGED_SQL)
             handle = paged._query_handle
@@ -171,8 +163,6 @@ def test_sync_pre_send_local_failure_keeps_session() -> None:
                 conn.cursor().execute("SELECT '\udcff'")
             assert conn._connected is True
             assert paged._query_handle == handle
-        finally:
-            conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -326,8 +316,9 @@ async def test_async_caller_cancellation_retires_handles_without_replay() -> Non
             task = asyncio.ensure_future(conn.cursor().execute("SELECT 1"))
             await asyncio.sleep(0.1)
             task.cancel()
+            await asyncio.wait({task})
             with pytest.raises(asyncio.CancelledError):
-                await task
+                task.result()
             _assert_retired(conn, paged)
         finally:
             await conn.close()
@@ -366,16 +357,13 @@ def test_sync_reexecute_transport_failure_leaves_no_stale_handle(
     function: str, occurrence: int
 ) -> None:
     with run_replay_broker(_hang_up_on(function, occurrence), results=_RESULTS) as broker:
-        conn = pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))
-        try:
+        with closing(pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))) as conn:
             cursor = conn.cursor()
             cursor.execute(_PAGED_SQL)
             with pytest.raises(OperationalError):
                 cursor.execute("SELECT 1")
             _assert_reexecute_retired(conn, cursor, function)
             cursor.close()  # sends nothing for the retired handle
-        finally:
-            conn.close()
     assert [r.function for r in broker.requests].count("CLOSE_REQ_HANDLE") == 1
 
 
@@ -396,3 +384,53 @@ async def test_async_reexecute_transport_failure_leaves_no_stale_handle(
         finally:
             await conn.close()
     assert [r.function for r in broker.requests].count("CLOSE_REQ_HANDLE") == 1
+
+
+# ---------------------------------------------------------------------------
+# A parse callback's OSError is not a transport failure
+# ---------------------------------------------------------------------------
+
+
+def _parse_then_raise(exc: BaseException) -> Any:
+    """Parse the complete reply, then fail as a ``json_deserializer`` callback would."""
+    original = PrepareAndExecutePacket.parse
+
+    def parse(packet: PrepareAndExecutePacket, data: Any) -> None:
+        original(packet, data)
+        if packet.query_handle and getattr(packet, "sql", "") == "SELECT 1":
+            raise exc
+
+    return patch.object(PrepareAndExecutePacket, "parse", parse)
+
+
+@pytest.mark.parametrize("exc", [TimeoutError("callback"), ConnectionError("callback")])
+def test_sync_parse_callback_os_error_keeps_session(exc: BaseException) -> None:
+    with run_replay_broker(results=_RESULTS) as broker:
+        with closing(pycubrid.connect(**_options(broker.port, read_timeout=_TIMEOUT))) as conn:
+            paged = conn.cursor()
+            paged.execute(_PAGED_SQL)
+            with _parse_then_raise(exc), pytest.raises(type(exc)) as raised:
+                conn.cursor().execute("SELECT 1")
+            assert raised.value is exc  # not wrapped
+            assert conn._connected is True
+            assert paged._query_handle is not None
+            assert paged.fetchall() == [(1,), (2,), (3,)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("read_timeout", [None, _TIMEOUT])
+@pytest.mark.parametrize("exc", [TimeoutError("callback"), ConnectionError("callback")])
+async def test_async_parse_callback_os_error_keeps_session(
+    exc: BaseException, read_timeout: float | None
+) -> None:
+    with run_replay_broker(results=_RESULTS) as broker:
+        conn, paged = await _open_async(broker.port, read_timeout=read_timeout)
+        try:
+            with _parse_then_raise(exc), pytest.raises(type(exc)) as raised:
+                await conn.cursor().execute("SELECT 1")
+            assert raised.value is exc  # not wrapped, not called a timeout
+            assert conn._connected is True
+            assert paged._query_handle is not None
+            assert await paged.fetchall() == [(1,), (2,), (3,)]
+        finally:
+            await conn.close()

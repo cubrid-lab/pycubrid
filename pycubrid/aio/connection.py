@@ -109,6 +109,9 @@ class AsyncConnection(ConnectionCommonMixin):
         )
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
+        # Whether the current request's reply was read in full (#556): an
+        # exception after that comes from parsing, not from the transport.
+        self._reply_complete = False
         self._lock = asyncio.Lock()
         # Applied in connect() (can't await a live SET_DB_PARAMETER round-trip
         # here — __init__ isn't a coroutine). See connect() below.
@@ -1088,6 +1091,7 @@ class AsyncConnection(ConnectionCommonMixin):
         # OSError subclass a transport can raise too (ETIMEDOUT): record which
         # one fired instead of inferring the read_timeout deadline from type.
         transport_timeout = False
+        self._reply_complete = False
 
         async def round_trip() -> Any:
             nonlocal transport_timeout
@@ -1102,6 +1106,10 @@ class AsyncConnection(ConnectionCommonMixin):
                 return await asyncio.wait_for(round_trip(), timeout=self._read_timeout)
             return await round_trip()
         except (asyncio.TimeoutError, OSError) as exc:
+            if self._reply_complete:
+                # Raised by a parse callback (json_deserializer) after the whole
+                # reply was read: not a transport failure, the session is intact.
+                raise
             await self._retire_session_locked()
             if isinstance(exc, asyncio.TimeoutError) and not transport_timeout:
                 raise OperationalError(
@@ -1142,6 +1150,7 @@ class AsyncConnection(ConnectionCommonMixin):
             raise
 
         self._cas_info = response_body[: DataSize.CAS_INFO]
+        self._reply_complete = True
         try:
             packet.parse(response_body)
         except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
