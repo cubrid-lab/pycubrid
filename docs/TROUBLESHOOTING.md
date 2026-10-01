@@ -34,6 +34,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Invalid UTF-8 in a Value or Error Message](#invalid-utf-8-in-a-value-or-error-message)
   - [Unresolved Time Zone in a TZ Value](#unresolved-time-zone-in-a-tz-value)
   - [Zero Date or Datetime Value](#zero-date-or-datetime-value)
+  - [Invalid JSON Text in a Value](#invalid-json-text-in-a-value)
 - [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
   - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
   - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)
@@ -881,6 +882,39 @@ broker`, even when it also contains a zero date.
 
 Earlier releases raised `OperationalError: malformed response from broker`
 and closed the connection (#512).
+
+### Invalid JSON Text in a Value
+
+```
+pycubrid.exceptions.DataError: JSON value is not valid JSON: Expecting value:
+line 1 column 1 (char 0)
+```
+
+With `json_deserializer=json.loads` (see [JSON Columns](TYPES.md#json-columns)),
+a `JSON` column value that is not valid JSON text raises `DataError`; the
+original `json.JSONDecodeError` is its `__cause__`. The reply was read in
+full, so the connection stays usable, whether the value is in the first page
+returned by `execute()` or in a later fetch page. After a failed `execute()`
+the cursor has no result set (`description` is `None`), but, exactly as for
+invalid UTF-8 (#492) and zero dates (#512), it still owns and releases its
+server handle. On a later fetch page the same #507 rules apply: the fetch
+call that reaches the page raises, rows it had already collected are kept,
+and every fetch after that raises the same `DataError` without asking the
+server again, until you execute a new query.
+
+Without `json_deserializer` (the default), a `JSON` column is returned as its
+raw `str`, so this does not apply: `str.__new__` never fails on the text
+CUBRID sends. Only the built-in `json.loads` path above is reclassified: a
+caller-supplied `json_deserializer` callable is invoked as-is, and whatever it
+raises is not turned into `DataError`.
+
+This is ordinary-cursor behavior. The explicit prepared API
+(`pycubrid.compat.native`), which threads the same `json_deserializer`, stays
+fail-closed as for invalid UTF-8 and zero dates: it raises `OperationalError`
+and retires the session.
+
+Earlier releases raised `OperationalError: malformed response from broker`
+and closed the connection (#543).
 
 ---
 
