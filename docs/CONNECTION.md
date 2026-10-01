@@ -283,6 +283,9 @@ reply propagates unchanged without closing it.
     its whole TLS handshake by `read_timeout` (10 seconds when unset), like the real upgrade's
     `ssl_handshake_timeout`. The probe is a no-op on Python 3.11+ and adds one extra TCP
     round-trip per connect on 3.10 only. The issue does not affect the sync driver.
+    Each probe send and receive uses the remaining total handshake budget;
+    completion after the deadline is rejected. The final handshake flight must
+    be sent successfully, while optional close_notify shares that same budget.
 
 ```python
 import pycubrid.aio

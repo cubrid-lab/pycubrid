@@ -616,31 +616,47 @@ class AsyncConnection(ConnectionCommonMixin):
             incoming = ssl_module.MemoryBIO()
             outgoing = ssl_module.MemoryBIO()
             tls = ssl_context.wrap_bio(incoming, outgoing, server_hostname=host)
+
+            def remaining_timeout() -> float:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("TLS preflight probe handshake timed out") from None
+                return remaining
+
             while True:
                 try:
                     tls.do_handshake()
-                    break
                 except ssl_module.SSLWantReadError:
                     pending = outgoing.read()
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise TimeoutError("TLS preflight probe handshake timed out") from None
-                    sock.settimeout(remaining)
                     if pending:
+                        sock.settimeout(remaining_timeout())
                         sock.sendall(pending)
+                    sock.settimeout(remaining_timeout())
                     data = sock.recv(16384)
                     if not data:
                         raise OSError("connection closed during TLS preflight probe")
                     incoming.write(data)
-            # Verification passed; send the last handshake flight and a
-            # close_notify on a best-effort basis.
+                else:
+                    # The BIO may still hold the final handshake flight.
+                    # Its send is required, unlike optional close_notify.
+                    pending = outgoing.read()
+                    sock.settimeout(remaining_timeout())
+                    if pending:
+                        sock.sendall(pending)
+                    remaining_timeout()  # reject a late successful completion
+                    break
+            # Verification passed; close_notify is best effort but may not
+            # extend the same total deadline.
             try:
                 tls.unwrap()
             except ssl_module.SSLError:
                 # Expected: with memory BIOs unwrap() wants the peer's reply.
                 pass
             try:
-                sock.sendall(outgoing.read())
+                pending = outgoing.read()
+                if pending:
+                    sock.settimeout(remaining_timeout())
+                    sock.sendall(pending)
             except OSError:
                 # The peer may already be gone; verification has passed.
                 pass

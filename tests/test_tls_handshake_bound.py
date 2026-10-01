@@ -23,6 +23,7 @@ import struct
 import threading
 import time
 import warnings
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -211,3 +212,107 @@ def test_probe_reports_certificate_verification_failure() -> None:
             AsyncConnection._probe_tls_verification_sync(
                 HOST, broker.port, client_context(), True, 2.0, 2.0
             )
+
+
+def _timed_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    hello_delay: float,
+    receive_delay: float,
+    completion_delay: float = 0.0,
+    shutdown_delay: float = 0.0,
+    fail_finished: bool = False,
+) -> Any:
+    """Exercise the actual probe with independent per-I/O socket deadlines."""
+    clock = [0.0]
+
+    class ProbeSocket:
+        closed = False
+        timeout = 0.0
+
+        def settimeout(self, timeout: float) -> None:
+            self.timeout = timeout
+
+        def wait(self, duration: float) -> None:
+            if duration > self.timeout:
+                clock[0] += self.timeout
+                raise TimeoutError("socket operation timed out")
+            clock[0] += duration
+
+        def sendall(self, data: bytes) -> None:
+            if b"client-finished" in data and fail_finished:
+                raise ConnectionResetError("peer reset during final flight")
+            self.wait(
+                shutdown_delay
+                if b"close-notify" in data
+                else hello_delay
+                if data == b"hello"
+                else 0.0
+            )
+
+        def recv(self, _size: int) -> bytes:
+            self.wait(receive_delay)
+            return b"server-flight"
+
+        def close(self) -> None:
+            self.closed = True
+
+    class ProbeTLS:
+        started = False
+
+        def __init__(self, outgoing: Any) -> None:
+            self.outgoing = outgoing
+
+        def do_handshake(self) -> None:
+            if not self.started:
+                self.started = True
+                self.outgoing.write(b"hello")
+                raise ssl.SSLWantReadError()
+            clock[0] += completion_delay
+            self.outgoing.write(b"client-finished")
+
+        def unwrap(self) -> None:
+            self.outgoing.write(b"close-notify")
+            raise ssl.SSLWantReadError()
+
+    class ProbeContext:
+        def wrap_bio(self, _incoming: Any, outgoing: Any, **_kwargs: Any) -> ProbeTLS:
+            return ProbeTLS(outgoing)
+
+    sock = ProbeSocket()
+    monkeypatch.setattr("pycubrid.aio.connection.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr("pycubrid.aio.connection.socket.create_connection", lambda *a, **k: sock)
+    return SimpleNamespace(socket=sock, context=ProbeContext(), now=lambda: clock[0])
+
+
+def test_probe_slow_send_does_not_extend_receive_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _timed_probe(monkeypatch, hello_delay=0.08, receive_delay=0.05)
+    with pytest.raises(TimeoutError):
+        AsyncConnection._probe_tls_verification_sync(HOST, 1, probe.context, False, 1.0, 0.1)
+    assert probe.socket.closed
+    assert probe.now() == pytest.approx(0.1)
+
+
+def test_probe_rejects_completion_after_total_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _timed_probe(monkeypatch, hello_delay=0.0, receive_delay=0.08, completion_delay=0.04)
+    with pytest.raises(TimeoutError):
+        AsyncConnection._probe_tls_verification_sync(HOST, 1, probe.context, False, 1.0, 0.1)
+    assert probe.socket.closed
+
+
+def test_probe_shutdown_does_not_extend_total_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    probe = _timed_probe(monkeypatch, hello_delay=0.02, receive_delay=0.06, shutdown_delay=0.05)
+    AsyncConnection._probe_tls_verification_sync(HOST, 1, probe.context, False, 1.0, 0.1)
+    assert probe.socket.closed
+    assert probe.now() <= 0.100001
+
+
+def test_probe_reports_final_handshake_send_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    probe = _timed_probe(monkeypatch, hello_delay=0.0, receive_delay=0.0, fail_finished=True)
+    with pytest.raises(ConnectionResetError):
+        AsyncConnection._probe_tls_verification_sync(HOST, 1, probe.context, False, 1.0, 0.1)
+    assert probe.socket.closed
