@@ -146,6 +146,9 @@ def test_null_empty_and_literal_null_elements_are_kept(fake_driver: FakeDriver) 
         ((1,), CHAR, SET, ProgrammingError),
         (("a\x00b",), STRING, SET, ProgrammingError),
         (("\ud800",), STRING, SET, DataError),
+        ((2**63,), INT, SET, DataError),
+        ((-(2**63) - 1,), INT, SET, DataError),
+        ((10**5000,), INT, SET, DataError),
     ],
 )
 def test_invalid_imports_raise_and_keep_the_previous_value(
@@ -295,7 +298,7 @@ def test_set_constructor_matches_connection_factory(fake_driver: FakeDriver) -> 
 
 
 _ELEMENT = st.one_of(
-    st.none(), st.integers(-(2**63), 2**63), st.text().filter(lambda t: "\x00" not in t)
+    st.none(), st.integers(-(2**63), 2**63 - 1), st.text().filter(lambda t: "\x00" not in t)
 )
 
 

@@ -275,7 +275,7 @@ sent until `execute()`, and the set holds no server resource.
 
 - `data` must be a `tuple` (anything else raises `InterfaceError`, as in the
   official driver). Elements are `str`, `None` for a NULL element, or, when
-  `type` is INT, `int`. Other element types (`bool`, `float`, `bytes`, nested
+  `type` is INT, `int` in signed 64-bit range (others raise `DataError`). Other element types (`bool`, `float`, `bytes`, nested
   containers), a NUL in a string and an unencodable string raise
   `ProgrammingError` or `DataError`, and the set keeps its previous value.
 - `type` is the element type: CHAR (`1`), STRING/VARCHAR (`2`) or INT (`8`),

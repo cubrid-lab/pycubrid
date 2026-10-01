@@ -453,7 +453,7 @@ class set:  # the official native type name shadows the builtin here
         element whatever ``type`` is, and the server converts it to the
         column's element type. ``type`` is ``CHAR`` (1), ``STRING``/``VARCHAR``
         (2) or ``INT`` (8). Elements are ``str``, ``None`` (a NULL element) or,
-        for ``INT``, ``int`` (sent as its decimal text). ``kind`` is ``SET``
+        for ``INT``, ``int`` in signed 64-bit range (sent as its decimal text). ``kind`` is ``SET``
         (16, the official bytes), ``MULTISET`` (17, sent as ``SEQUENCE``) or
         ``SEQUENCE`` (18). Invalid input raises before anything changes.
         """
@@ -469,6 +469,10 @@ class set:  # the official native type name shadows the builtin here
             if value is None or isinstance(value, str):
                 elements.append(value)
             elif type == CUBRIDDataType.INT and builtins.type(value) is int:
+                # No integer column holds more than BIGINT; this bound also
+                # keeps str() below Python's integer-string digit limit.
+                if not -(2**63) <= value < 2**63:
+                    raise DataError("collection INT element is outside signed 64-bit range")
                 elements.append(str(value))
             else:
                 raise ProgrammingError("unsupported collection element type")

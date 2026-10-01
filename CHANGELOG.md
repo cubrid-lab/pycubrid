@@ -24,12 +24,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   official driver, every element is sent as a STRING element whatever the
   element type (CHAR, STRING or INT; others raise `NotSupportedError`), and
   the default `kind=SET` sends the official request bytes, checked against a
-  captured official request. `kind=MULTISET` and `kind=SEQUENCE` keep
-  duplicates and order; MULTISET is sent as SEQUENCE because CUBRID 10.2/11.4
-  brokers reject the MULTISET bind kind (-454). `data` must be a tuple
-  (`InterfaceError` otherwise, as official); `None` is a NULL element, and the
-  text `'NULL'`, empty strings and Python `int` elements (INT only) are
-  accepted as classified deviations. A set that was never imported binds SQL
+  captured official request. `kind=MULTISET` keeps duplicates and
+  `kind=SEQUENCE` keeps duplicates and order; MULTISET is sent as SEQUENCE
+  because CUBRID 10.2/11.4 brokers reject the MULTISET bind kind (-454).
+  `data` must be a tuple (`InterfaceError` otherwise, as official); `None` is
+  a NULL element, and the text `'NULL'`, empty strings and Python `int`
+  elements (INT only, signed 64-bit) are accepted as classified deviations. A set that was never imported binds SQL
   NULL, as official. Invalid input fails before I/O and leaves the set and
   the bound slot unchanged; a server conversion error keeps the prepared
   handle usable. Eleven new official differential claims (six match, five

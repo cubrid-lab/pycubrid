@@ -240,7 +240,8 @@ HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
 않으며 set은 서버 자원을 갖지 않습니다.
 
 - `data`는 `tuple`이어야 합니다(그 밖의 값은 공식 드라이버처럼 `InterfaceError`).
-  원소는 `str`, NULL 원소를 뜻하는 `None`, 또는 `type`이 INT일 때 `int`입니다.
+  원소는 `str`, NULL 원소를 뜻하는 `None`, 또는 `type`이 INT일 때 부호 있는 64비트
+  범위의 `int`입니다(범위 밖은 `DataError`).
   다른 원소 타입(`bool`, `float`, `bytes`, 중첩 컨테이너), NUL이 든 문자열, 인코딩할
   수 없는 문자열은 `ProgrammingError` 또는 `DataError`를 내고, set은 이전 값을
   유지합니다.
