@@ -121,6 +121,18 @@ documented ordinary bug corrections remain **PATCH**. The staged work does not
 authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI
 publication or a security-support change.
 
+### Typed collection parameters (#567)
+
+`pycubrid.types.Set`, `Multiset` and `Sequence` (also exported from
+`pycubrid`) are a **MINOR** addition: new public classes and `__all__` entries
+that ordinary sync and async cursors render as `SET{...}`, `MULTISET{...}` and
+`SEQUENCE{...}` literals. Every input that binds or fails today keeps its
+literal and its exception class (plain `set`/`list`/`tuple` parameters still
+raise `ProgrammingError`; only the message now names the typed classes), and
+fetched collections keep their `decode_collections` containers. Changing a
+rendered keyword, element rendering or the rejection of nested collections is
+governed by the [parameter binding policy](docs/PARAMETER_BINDING.md#compatibility-policy-1x).
+
 ### What the gate does *not* detect
 
 The `compat-check` CI gate captures the structural surface — names,
@@ -235,6 +247,33 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `CHECK_CAS` recovery) re-sends an explicitly set `autocommit`, once, as
   `pycubrid.aio` already did. Nothing extra is sent when `autocommit` was never
   set explicitly. No public signature, dependency or supported-version change.
+
+- **Invalid JSON text in a complete reply raises `DataError` (#543)** — PATCH /
+  correction of error classification, extending #492 and #512. A `JSON` column
+  value that is not valid JSON, decoded with the built-in
+  `json_deserializer=json.loads`, now raises `DataError` (the
+  `json.JSONDecodeError` chained as its `__cause__`) instead of
+  `OperationalError('malformed response from broker')`, and an ordinary
+  connection and cursor stay usable, on `execute()` and on later fetch pages,
+  exactly as for invalid UTF-8 and unrepresentable temporal values. The
+  row-data completeness check (#383) still applies first, so a short reply
+  stays a fail-closed `OperationalError`. The explicit prepared API
+  (`pycubrid.compat.native`), which threads the same `json_deserializer`,
+  keeps its documented fail-closed behavior: it raises `OperationalError` and
+  retires the session, as for invalid UTF-8 and zero dates. A caller-supplied
+  `json_deserializer` is unaffected: its own exceptions are not wrapped. No
+  public signature, dependency or supported-version change.
+
+- **Autocommit setter keeps its two requests on one CAS session (#551)** — PATCH
+  / bug correction in both drivers. When the CAS is recycled between
+  `SET_DB_PARAMETER` and `COMMIT`, the replacement session now receives the new
+  value before the `COMMIT` instead of only the `COMMIT`; each call reconnects
+  at most once. A failed `COMMIT` in the setter now closes the connection, keeps
+  the previous `autocommit` value and raises `OperationalError` with the native
+  error as `__cause__`, instead of raising the native error with the session
+  open and the value unchanged while the server had already applied it. Code
+  that caught `DatabaseError` still catches it. A healthy session sends nothing
+  extra; no public signature, dependency or supported-version change.
 
 - **Sync constructor autocommit applied on one session (#521)** — PATCH / bug
   correction and sync/async parity. `connect(autocommit=True)` sends

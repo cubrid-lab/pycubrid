@@ -574,6 +574,8 @@ conn.autocommit = True
 | Getter | Returns current autocommit state |
 | Setter (`= True`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
 | Setter (`= False`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
+| CAS recycled between the two | The new value is restored on the replacement session before its `COMMIT`; at most one reconnect per call (#551) |
+| `COMMIT` fails | Connection closed, previous value kept, `OperationalError` raised |
 
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
@@ -1109,6 +1111,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [UnknownConnectionOptionWarning](#unknownconnectionoptionwarning)
 - [Type Objects](#type-objects)
 - [Type Constructors](#type-constructors)
+  - [Typed Collection Parameters](#typed-collection-parameters)
 
 ---
 
@@ -1731,7 +1734,7 @@ def autocommit(self) -> bool
 def autocommit(self, value: bool) -> None
 ```
 
-Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server.
+Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server. Both take effect on one CAS session: if the CAS is recycled between them, the new value is restored on the replacement session before the `COMMIT` is sent there (at most one reconnect per call). If the `COMMIT` fails, the connection is closed, the previous value is kept and `OperationalError` is raised with the cause chained (#551).
 
 ```python
 conn = pycubrid.connect(database="testdb")
@@ -1878,6 +1881,7 @@ cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 | `datetime.date`      | `DATE'YYYY-MM-DD'` |
 | `datetime.time`      | `TIME'HH:MM:SS'` |
 | `datetime.datetime`  | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` |
+| `Set` / `Multiset` / `Sequence` | `SET{...}` / `MULTISET{...}` / `SEQUENCE{...}` |
 
 ---
 
@@ -2262,7 +2266,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit` is read-only; use `await conn.set_autocommit(True)` to change it.
-Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
+Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket` on one CAS session, with the same recycle and failure behavior (#551).
 
 ### `ping(reconnect=True)`
 
@@ -2766,6 +2770,52 @@ ts = pycubrid.Timestamp(2025, 1, 15, 14, 30, 0)
 b = pycubrid.Binary(b"\x00\x01\x02")
 ```
 
+### Typed Collection Parameters
+
+```python
+class Set(elements: Iterable[Any] = ())
+class Multiset(elements: Iterable[Any] = ())
+class Sequence(elements: Iterable[Any] = ())
+```
+
+Defined in `pycubrid.types` and exported from `pycubrid` (added in #567). Each
+wraps its elements in an immutable `tuple` and binds as one typed CUBRID
+collection literal through `execute()`/`executemany()` on ordinary sync and
+async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
+
+| Class | Literal | Server semantics |
+|---|---|---|
+| `Set` | `SET{...}` | duplicates removed, order not kept |
+| `Multiset` | `MULTISET{...}` | duplicates kept, order not kept |
+| `Sequence` | `SEQUENCE{...}` (same type as `LIST{...}`) | duplicates and order kept |
+
+| Member | Description |
+|---|---|
+| `.elements` | The stored `tuple` of elements |
+| `iter()`, `len()` | Iterate over / count the elements |
+| `==`, `hash()` | Equal only to the same class with equal elements (order-sensitive for all three) |
+
+- Elements take the scalar parameter types (`None`, `bool`, `int`, `float`,
+  `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`) and are
+  rendered by the same hardened renderer; anything else, including a nested
+  collection, raises `ProgrammingError`.
+- A single `str`/`bytes`/`bytearray` argument raises `TypeError`; subclassing
+  raises `TypeError`; setting an attribute raises `AttributeError`.
+- Fetched collections are not returned as these classes: with
+  `decode_collections=True` they stay `frozenset` (`SET`) and `list`
+  (`MULTISET`/`SEQUENCE`).
+
+```python
+from pycubrid import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+```
+
+See [Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).
+
 ============================================================
 File: TYPES.md
 ============================================================
@@ -2794,6 +2844,7 @@ Complete reference for pycubrid's PEP 249 type objects, constructors, and CUBRID
 - [Collection Types](#collection-types)
   - [JSON Columns](#json-columns)
   - [`decode_collections`](#decode_collections)
+  - [Binding Collections](#binding-collections)
 - [Usage Examples](#usage-examples)
 
 ---
@@ -3222,6 +3273,35 @@ This opt-in behavior keeps fetches allocation-light when applications prefer to 
 |---|---|
 | `False` (default) | Return collection payloads as raw CAS wire `bytes` |
 | `True` | Decode supported `SET`, `MULTISET`, and `SEQUENCE` payloads into Python containers |
+
+### Binding Collections
+
+Plain Python `set`, `frozenset`, `list` and `tuple` values are rejected as
+parameters. To bind a collection, wrap its elements in one of the typed
+collection parameters (#567):
+
+| Class | Rendered literal | Server semantics |
+|---|---|---|
+| `pycubrid.types.Set` | `SET{...}` | duplicates removed, order not kept |
+| `pycubrid.types.Multiset` | `MULTISET{...}` | duplicates kept, order not kept |
+| `pycubrid.types.Sequence` | `SEQUENCE{...}` (same type as `LIST{...}`) | duplicates and order kept |
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute("INSERT INTO t VALUES (?, ?, ?)", (Set([1, 2]), Multiset(["a", "a"]), Sequence([3, 1])))
+```
+
+The classes are also exported from the top-level `pycubrid` package. Each one is
+immutable, stores its elements as a `tuple` (`.elements`) and cannot be
+subclassed. Elements accept the same types as scalar parameters (`None`, `bool`,
+`int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`,
+`datetime`) and are rendered by the same hardened renderer; nested collections
+raise `ProgrammingError`. Both sync and async ordinary cursors support them. See
+[Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).
+
+Decoding is unchanged: fetched collections are plain Python containers as in the
+table above (with `decode_collections=True`), never these parameter types.
 
 ---
 
@@ -5578,6 +5658,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Invalid UTF-8 in a Value or Error Message](#invalid-utf-8-in-a-value-or-error-message)
   - [Unresolved Time Zone in a TZ Value](#unresolved-time-zone-in-a-tz-value)
   - [Zero Date or Datetime Value](#zero-date-or-datetime-value)
+  - [Invalid JSON Text in a Value](#invalid-json-text-in-a-value)
 - [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
   - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
   - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)
@@ -6425,6 +6506,39 @@ broker`, even when it also contains a zero date.
 
 Earlier releases raised `OperationalError: malformed response from broker`
 and closed the connection (#512).
+
+### Invalid JSON Text in a Value
+
+```
+pycubrid.exceptions.DataError: JSON value is not valid JSON: Expecting value:
+line 1 column 1 (char 0)
+```
+
+With `json_deserializer=json.loads` (see [JSON Columns](TYPES.md#json-columns)),
+a `JSON` column value that is not valid JSON text raises `DataError`; the
+original `json.JSONDecodeError` is its `__cause__`. The reply was read in
+full, so the connection stays usable, whether the value is in the first page
+returned by `execute()` or in a later fetch page. After a failed `execute()`
+the cursor has no result set (`description` is `None`), but, exactly as for
+invalid UTF-8 (#492) and zero dates (#512), it still owns and releases its
+server handle. On a later fetch page the same #507 rules apply: the fetch
+call that reaches the page raises, rows it had already collected are kept,
+and every fetch after that raises the same `DataError` without asking the
+server again, until you execute a new query.
+
+Without `json_deserializer` (the default), a `JSON` column is returned as its
+raw `str`, so this does not apply: `str.__new__` never fails on the text
+CUBRID sends. Only the built-in `json.loads` path above is reclassified: a
+caller-supplied `json_deserializer` callable is invoked as-is, and whatever it
+raises is not turned into `DataError`.
+
+This is ordinary-cursor behavior. The explicit prepared API
+(`pycubrid.compat.native`), which threads the same `json_deserializer`, stays
+fail-closed as for invalid UTF-8 and zero dates: it raises `OperationalError`
+and retires the session.
+
+Earlier releases raised `OperationalError: malformed response from broker`
+and closed the connection (#543).
 
 ---
 
@@ -7520,10 +7634,13 @@ escape detection, a CAS recycled right after the probe's `ROLLBACK` made
 `connect()` fail before autocommit was applied; both drivers now verify that
 OUT_TRAN session with `CHECK_CAS` first and replace it once.
 
-Known and not yet fixed, shared by both drivers (strict `xfail` scenario
+Another shared gap was fixed in #551 (scenario
 `autocommit_setter_survives_recycle_after_set_db_parameter`): the public
-autocommit setter can send `SET_DB_PARAMETER` and its `COMMIT` on different CAS
-sessions when the CAS is recycled between them (#551).
+autocommit setter sent `SET_DB_PARAMETER` and its `COMMIT` on different CAS
+sessions when the CAS was recycled between them. The new value is now recorded
+before the `COMMIT`, so that request's single reconnect restores it on the
+replacement session first; a failed `COMMIT` closes the connection and keeps the
+previous value.
 
 ### Mutation Testing
 
@@ -7872,12 +7989,36 @@ filename-glob inventory:
 | Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and nightly bug hunt |
 | Slow | `integration and slow and not tls` | Nightly/manual bug hunt: soak, chaos, and concurrency stress |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
+| Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.10, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
 
 `python scripts/check_integration_lanes.py` collects the current marker inventory
 and checks that each lane has an executable workflow command. The JUnit audit
-(`--results FILE`) fails unknown skips or empty/all-skipped runs. Missing optional
-CUBRIDdb native-comparison dependencies and platforms without `/proc` have explicit
-skip categories; missing broker/TLS configuration is not an accepted CI skip.
+(`--results FILE`) fails unknown skips or empty/all-skipped runs. Outside its own
+lane the official-driver differential skips as `official-lane-only`, and platforms
+without `/proc` have an explicit skip category. Missing broker/TLS configuration
+is not an accepted CI skip. `--lane official` accepts no skip at all.
+
+The official-driver differential (#446) compares pycubrid with the official
+`CUBRIDdb`/`_cubrid` driver built from pinned source. To reproduce it locally
+(Linux x86_64, git, CMake 3.21 or newer, a C compiler and Python 3.10 headers),
+run:
+
+```bash
+python3.10 scripts/build_official_oracle.py --out .official-oracle
+PYTHONPATH=.official-oracle PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1 \
+  PYCUBRID_OFFICIAL_ORACLE_MANIFEST=.official-oracle/oracle.json \
+  PYCUBRID_DIFFERENTIAL_EVIDENCE=official-evidence.jsonl \
+  CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python3.10 -m pytest tests/ -m "integration and official_differential"
+python scripts/check_official_differential.py --evidence official-evidence.jsonl
+```
+
+A new or changed claim goes in `tests/fixtures/official_differential_claims.json`.
+Its case goes in `CASES` in `tests/test_official_differential.py`. Then run
+`python scripts/check_official_differential.py --write-docs`. A divergence is
+either fixed, or recorded as a `deviation` with a reason, an issue and both
+observed values. Never edit an expected value just to match current output. See
+[the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
 The nightly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
@@ -8054,6 +8195,7 @@ change to the rules below is a contract change governed by
 - [Placeholder Style](#placeholder-style)
 - [Type Mapping (Guarantees)](#type-mapping-guarantees)
   - [Decimal parameters](#decimal-parameters)
+  - [Typed collection parameters](#typed-collection-parameters)
 - [String Escaping](#string-escaping)
   - [Escape-mode negotiation](#escape-mode-negotiation)
   - [Literal mode](#literal-mode-no_backslash_escapestrue)
@@ -8142,6 +8284,7 @@ test that pins the behavior.
 | `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (`SET{}` when empty); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
 | anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
@@ -8252,6 +8395,43 @@ Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_decimal_
 and `::test_bind_decimal_plain_notation`, and live on CUBRID 10.2 and 11.4 (sync
 and async) by `tests/test_parity_integration.py::TestParityDecimalLiterals`.
 
+### Typed collection parameters
+
+Wrap the elements in `pycubrid.types.Set`, `Multiset` or `Sequence` (also
+exported as `pycubrid.Set`, `pycubrid.Multiset`, `pycubrid.Sequence`) to bind a
+CUBRID collection through an ordinary sync or async cursor (#567):
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
+```
+
+- Each type takes one iterable and stores its elements as a `tuple`
+  (`.elements`); the objects are immutable, compare equal only to the same type
+  with equal elements, and cannot be subclassed. A single `str`, `bytes` or
+  `bytearray` argument raises `TypeError` instead of being split into characters.
+- The literal keyword follows the type: `SET{...}`, `MULTISET{...}`,
+  `SEQUENCE{...}` (CUBRID's `LIST{...}` is the same type). The server applies the
+  collection semantics: `SET` drops duplicates, `MULTISET` keeps duplicates but
+  not their order, `SEQUENCE` keeps both.
+- Every element goes through the same override-proof renderer as a scalar
+  parameter, so the element types are exactly the scalar rows of the table above
+  (`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`,
+  `date`, `time`, `datetime`), including their subclass hardening. The server
+  converts the elements to the column's element type, as for a literal.
+- Nested collections are rejected (`ProgrammingError`): a typed collection
+  inside another, or a plain `list`/`tuple`/`set`/`frozenset`/`dict` element.
+- `executemany()` accepts typed collections in each parameter set.
+- Fetching is unchanged: with `decode_collections=True` a `SET` column still
+  decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
+  otherwise). Decoded values are not wrapped back into these types; wrap them
+  again (for example `Set(row[0])`) to bind them.
+
 ### Explicitly unsupported as a bound value
 
 - `datetime.timedelta` — no branch; raises `ProgrammingError("unsupported parameter type")`.
@@ -8261,9 +8441,11 @@ and async) by `tests/test_parity_integration.py::TestParityDecimalLiterals`.
   (`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
 - Collections (`list`, `tuple`, `set`, `frozenset`, `dict`) as a single bound
   value — raise `ProgrammingError` with an actionable message (current text:
-  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL`).
+  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL, or wrap the elements in pycubrid.types.Set, Multiset or Sequence to bind a CUBRID collection`).
   There is **no automatic `IN (?, ?, ?)`** expansion; expand placeholders
-  explicitly in the SQL.
+  explicitly in the SQL. To bind a CUBRID collection, wrap the elements in a
+  [typed collection parameter](#typed-collection-parameters); the message also
+  says so.
 - Arbitrary Python objects — raises
   `ProgrammingError("unsupported parameter type")`.
 
@@ -8515,6 +8697,9 @@ any of these are contract regressions:
   `Mapping`/`str` parameter rejection.
 - `tests/test_aio_cursor_parity.py` (lines 76-105) — sync/async parity for
   NUL rejection, default escaping, and `no_backslash_escapes` mode.
+- `tests/test_typed_collections.py` — typed `Set`/`Multiset`/`Sequence`
+  rendering, element hardening and nested-collection rejection; sync/async
+  parity in `tests/test_replay_parity.py::typed_collection_parameters`.
 
 Together these tests provide the executable specification of this contract.
 
@@ -8875,7 +9060,7 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
 | Extended metadata | `result_info(n=0, /)` returns tuple-of-15-tuples (one outer entry for n>=1), or None with no columns. Actual order: type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared. Preserve empty versus absent metadata; #445 must not fabricate unavailable fields. |
-| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; typed import/bind is #440. |
+| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; typed import/bind is #440. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
 | Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
 | Native LOB | Separate mutable byte-position object, initially unpopulated. `write(string, type omitted, /) -> None` accepts str/bytes (UTF-8 for str), creates BLOB by default or B/C when requested. `read(len=0, /) -> str` reads remaining bytes for omitted/0 and decodes strict UTF-8. `seek(offset, whence=SEEK_CUR, /) -> int`; SEEK_END is size-offset. #442/#443 own lifecycle/short transfer/file behavior; ordinary bytes methods are not replaced. |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. Exact unstable messages and native argument-parser crashes are not targets. |
@@ -8940,6 +9125,74 @@ These are explicit differential classifications, not blanket waivers or
 "unsupported therefore complete" entries. Unaffected behavior needs exact comparisons;
 NULL/data preservation needs tests. Missing stored-type evidence blocks that dimension's
 certification, not independent prepared-core work.
+
+### Official driver differential gate (#446)
+
+Each official behavior pycubrid claims is recorded in
+[`tests/fixtures/official_differential_claims.json`](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_differential_claims.json).
+A claim is either `match` (same Python type and value as the official driver) or
+`deviation` (a reason, an owning issue and the exact observations of both
+drivers). It names the inventory operations and upstream scenario ids it
+exercises. Each claim has one live case in `tests/test_official_differential.py`,
+which runs the same SQL, values and autocommit settings through pycubrid and
+the official driver on one server. A mismatch fails, and so does a classified
+deviation whose observed values change on either side.
+
+**Oracle provenance.** `scripts/build_official_oracle.py` fetches cubrid-python
+`e75ec36b2a92b8829a49a967a29a1fbb9d7c322b`, checks that its `cci-src` gitlink is
+`7d1eb8f40f04089b8218d08e36e2c24a2de11b24` and fetches that CCI commit. It builds
+the CCI static library with CMake directly, using CCI's tracked bundled OpenSSL
+1.1.1f libraries, and compiles the unchanged `cubrid_ext/python_cubrid.c`. The
+upstream `setup.py`/`build_cci.sh` wrapper is not run and no upstream file is
+patched, unlike the earlier maintainer-local #439 build. Only the upstream
+`version.h` template is rendered outside the source tree. The script records
+both commits, the toolchain and the extension SHA-256 in `oracle.json`. It
+supports Linux x86_64 only. TLS is not exercised through the oracle.
+
+**Required lanes.** The `official-differential` job in regular CI is part of the
+CI Gate. It is skipped only for docs-only changes. It runs Python 3.10 against
+CUBRID 10.2 and 11.4 and caches the oracle build, keyed by the build script
+hash, which contains both pins. The same job gates the nightly and release full
+matrix. With `PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1`, the following fail instead of
+skipping:
+
+- a missing driver or manifest, or an extension hash that differs from the manifest;
+- zero cases, or a claim without a result on either server;
+- a mismatch, or an unclassified divergence.
+
+The lane audit (`check_integration_lanes.py --lane official`) rejects every
+skip. The per-case JSON Lines evidence and its summary are uploaded as the
+`official-differential-evidence` artifact. The evidence records Python, server
+and driver versions, the pycubrid commit and every observation. Without
+`PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1` (offline, other integration lanes, local
+runs) the module skips even if some other `CUBRIDdb` build is importable. Such
+runs never certify a claim. The evidence check recomputes each outcome from
+the recorded observations and the ledger. It does not trust a recorded outcome
+label.
+
+The counts below are generated from the ledger. Do not edit them by hand. Run
+`python scripts/check_official_differential.py --write-docs` after changing a
+claim. The offline check fails on stale counts, unknown inventory or scenario ids,
+claims without cases and oracle pins that differ from the build script.
+
+<!-- official-differential-summary:start (generated by scripts/check_official_differential.py --write-docs) -->
+
+| Surface | Match | Classified deviation | Total |
+| --- | ---: | ---: | ---: |
+| Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
+| Native (`_cubrid`) | 3 | 1 | 4 |
+| **Total** | **15** | **3** | **18** |
+
+- Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
+- Required servers: CUBRID 10.2, CUBRID 11.4
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439)
+
+<!-- official-differential-summary:end -->
+
+These claims cover the first bounded slice: stored scalar fetches, a static scalar
+row and description, and the #439 prepared INT/string subset. Collections, LOBs,
+charset/HA, fault behavior and every other inventory operation remain uncertified
+until they have claims here. The claim counts are not a parity percentage.
 
 ### Migration targets and small delivery acceptance
 
@@ -9007,8 +9260,12 @@ python -m pytest tests/test_official_api_inventory.py -q
 
 They validate accounting and currently named targets, without importing the
 native driver, opening a database, or converting a mapping into parity proof.
-Actual source-scenario accounting and official comparison evidence remain
-separate deliverables (#437/#446).
+Source-scenario accounting (#437) is a separate deliverable. Official comparison
+evidence comes only from the live differential gate described above (#446):
+
+```bash
+python scripts/check_official_differential.py   # offline claims/docs structure
+```
 
 We acknowledge the official driver's maintainers and contributors. Descriptions
 here are independently paraphrased from the pinned source; no upstream source

@@ -40,11 +40,84 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   locale such as `"ko_KR.euckr"` is accepted. `get_schema_info()` checks its arguments before sending, so an
   unencodable table or column pattern no longer closes the connection. A new `integration-charset` CI job runs the live round trips
   against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr`.
+- **Official-driver differential gate (#446)** — official behavior that
+  pycubrid claims is now listed in `tests/fixtures/official_differential_claims.json`.
+  Each claim is a `match`, or a `deviation` with a reason, an issue and both
+  drivers' observations, and names its API inventory and upstream scenario ids.
+  The first 18 claims are the #344 stored-type fetches, a static scalar row and
+  its `description`, and the #439 prepared INT/string subset. They include
+  three classified deviations: MONETARY, description size/null_ok, and native
+  `bind_param(None)`. `tests/test_official_differential.py` (replacing
+  `tests/test_cubriddb_differential.py`) runs one live case per claim through
+  pycubrid and the official driver. `scripts/build_official_oracle.py` builds
+  that driver from verified cubrid-python `e75ec36` and CCI `7d1eb8f` pins
+  with CMake directly, without patching upstream, and records the extension
+  SHA-256. A new required `official-differential` CI job (Python 3.10, CUBRID
+  10.2 and 11.4, cached oracle, skipped only for docs-only changes) is part of
+  the CI Gate and of the nightly/release full matrix. In that job, a missing
+  driver, zero cases, any skip, a mismatch or an unclassified divergence fails.
+  Evidence is uploaded as the `official-differential-evidence` artifact.
+  `scripts/check_official_differential.py` validates the ledger offline and
+  the evidence in CI, and generates the claim counts in the compatibility
+  guides. `check_integration_lanes.py` gains an `official` lane, and
+  `--lane official` accepts no skip.
+- **Typed collection parameters for ordinary cursors (#567)** — new
+  `pycubrid.types.Set`, `Multiset` and `Sequence` (also exported from
+  `pycubrid`) wrap an immutable tuple of elements and bind through `execute()`
+  and `executemany()` on ordinary sync and async cursors as `SET{...}`,
+  `MULTISET{...}` and `SEQUENCE{...}` literals, so SQLAlchemy and other DB-API
+  callers can bind CUBRID collections (cubrid-lab/sqlalchemy-cubrid#484).
+  Every element goes through the hardened scalar renderer (#518, #528), so
+  element types are the scalar parameter types and overridden methods on an
+  element subclass never reach the SQL; nested collections raise
+  `ProgrammingError`, and the classes cannot be subclassed. Plain Python
+  `set`/`list`/`tuple` parameters stay rejected (the message now names the
+  typed classes). Fetching is unchanged: with `decode_collections=True`
+  collections still decode to `frozenset`/`list`. Round trips, including
+  MULTISET duplicates and SEQUENCE order, run live on CUBRID 10.2 and 11.4,
+  and a replay scenario pins sync/async parity. The official driver has no
+  equivalent ordinary-execute API (its wrapper binds plain lists through
+  native prepared `bind_set`), so no differential claim is made.
 
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Invalid JSON text in a complete reply raises `DataError` (#543)** — a
+  `JSON` column value that is not valid JSON, decoded with
+  `json_deserializer=json.loads`, raised `json.JSONDecodeError` — a
+  `ValueError` subclass — so the connection layer reported it as
+  `OperationalError('malformed response from broker')` and closed the
+  connection, although the reply had been read in full. Under the #492/#512
+  contract a complete reply holding a value the client cannot represent is a
+  data problem: `PacketReader._parse_json` now raises `DataError` (the
+  `JSONDecodeError` chained as `__cause__`), and the existing complete-reply
+  bounds check (#383) applies before it is re-raised, so an ordinary
+  connection and cursor stay usable, both on `execute()` (the cursor has no
+  result set, `description` is `None`, but still owns and releases its server
+  handle) and on a later fetch page (rows already collected are kept, #507); a
+  truncated reply around the same cell is still reported as `OperationalError`
+  and closes the connection. The explicit prepared API
+  (`pycubrid.compat.native`), which threads the same `json_deserializer`,
+  stays fail-closed as for invalid UTF-8 and zero dates: it raises
+  `OperationalError` and retires the session. A caller-supplied
+  `json_deserializer` is not wrapped: only the built-in `json.loads` path is
+  reclassified.
+- **The autocommit setter keeps `SET_DB_PARAMETER` and `COMMIT` on one CAS session (#551)** —
+  in both drivers, `conn.autocommit = v` / `await conn.set_autocommit(v)` sent
+  `COMMIT` with implicit reconnect after an OUT_TRAN `SET_DB_PARAMETER` reply,
+  so a CAS recycled between the two sent only the `COMMIT` to the replacement
+  session: `autocommit` reported the new value while that session had the
+  broker default (first change) or the previous value (later change). The new
+  value is now recorded before the `COMMIT`, so the `COMMIT`'s single
+  `CHECK_CAS` reconnect restores it on the replacement first. A call replaces
+  the session at most once: if `SET_DB_PARAMETER` itself needed a reconnect, the
+  `COMMIT` is not allowed another one. If the `COMMIT` fails (including a
+  native error), the connection is closed, the previous value is kept and
+  `OperationalError` is raised with the cause chained; a rejected
+  `SET_DB_PARAMETER` still raises its native error and keeps the session.
+  Found by the offline sync/async replay parity suite (#521), whose strict
+  `xfail` scenario now passes.
 - **Sync `Connection.connect()` after `close()` restores an explicit `autocommit` (#520)** —
   reopening a closed sync connection did not re-send `SET_DB_PARAMETER`
   (`AUTO_COMMIT`), so the new CAS session kept the broker default while

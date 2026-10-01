@@ -49,6 +49,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [UnknownConnectionOptionWarning](#unknownconnectionoptionwarning)
 - [Type Objects](#type-objects)
 - [Type Constructors](#type-constructors)
+  - [Typed Collection Parameters](#typed-collection-parameters)
 
 ---
 
@@ -671,7 +672,7 @@ def autocommit(self) -> bool
 def autocommit(self, value: bool) -> None
 ```
 
-Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server.
+Get or set the auto-commit mode. When enabled, each statement is committed immediately. Setting this property sends a `SetDbParameterPacket` and `CommitPacket` to flush the transaction state on the server. Both take effect on one CAS session: if the CAS is recycled between them, the new value is restored on the replacement session before the `COMMIT` is sent there (at most one reconnect per call). If the `COMMIT` fails, the connection is closed, the previous value is kept and `OperationalError` is raised with the cause chained (#551).
 
 ```python
 conn = pycubrid.connect(database="testdb")
@@ -818,6 +819,7 @@ cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 | `datetime.date`      | `DATE'YYYY-MM-DD'` |
 | `datetime.time`      | `TIME'HH:MM:SS'` |
 | `datetime.datetime`  | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` |
+| `Set` / `Multiset` / `Sequence` | `SET{...}` / `MULTISET{...}` / `SEQUENCE{...}` |
 
 ---
 
@@ -1202,7 +1204,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit` is read-only; use `await conn.set_autocommit(True)` to change it.
-Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket`.
+Like the sync setter, this sends both `SetDbParameterPacket` and `CommitPacket` on one CAS session, with the same recycle and failure behavior (#551).
 
 ### `ping(reconnect=True)`
 
@@ -1705,3 +1707,49 @@ t = pycubrid.Time(14, 30, 0)
 ts = pycubrid.Timestamp(2025, 1, 15, 14, 30, 0)
 b = pycubrid.Binary(b"\x00\x01\x02")
 ```
+
+### Typed Collection Parameters
+
+```python
+class Set(elements: Iterable[Any] = ())
+class Multiset(elements: Iterable[Any] = ())
+class Sequence(elements: Iterable[Any] = ())
+```
+
+Defined in `pycubrid.types` and exported from `pycubrid` (added in #567). Each
+wraps its elements in an immutable `tuple` and binds as one typed CUBRID
+collection literal through `execute()`/`executemany()` on ordinary sync and
+async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
+
+| Class | Literal | Server semantics |
+|---|---|---|
+| `Set` | `SET{...}` | duplicates removed, order not kept |
+| `Multiset` | `MULTISET{...}` | duplicates kept, order not kept |
+| `Sequence` | `SEQUENCE{...}` (same type as `LIST{...}`) | duplicates and order kept |
+
+| Member | Description |
+|---|---|
+| `.elements` | The stored `tuple` of elements |
+| `iter()`, `len()` | Iterate over / count the elements |
+| `==`, `hash()` | Equal only to the same class with equal elements (order-sensitive for all three) |
+
+- Elements take the scalar parameter types (`None`, `bool`, `int`, `float`,
+  `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`) and are
+  rendered by the same hardened renderer; anything else, including a nested
+  collection, raises `ProgrammingError`.
+- A single `str`/`bytes`/`bytearray` argument raises `TypeError`; subclassing
+  raises `TypeError`; setting an attribute raises `AttributeError`.
+- Fetched collections are not returned as these classes: with
+  `decode_collections=True` they stay `frozenset` (`SET`) and `list`
+  (`MULTISET`/`SEQUENCE`).
+
+```python
+from pycubrid import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+```
+
+See [Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).

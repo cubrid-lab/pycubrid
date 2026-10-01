@@ -50,6 +50,7 @@ CUBRID용 순수 Python DB-API 2.0 드라이버 pycubrid의 완전한 API 문서
   - [NotSupportedError](#notsupportederror)
 - [타입 객체](#타입-객체)
 - [타입 생성자](#타입-생성자)
+  - [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터)
 
 ---
 
@@ -631,7 +632,7 @@ def autocommit(self) -> bool
 def autocommit(self, value: bool) -> None
 ```
 
-자동 커밋 모드를 조회하거나 설정합니다. 활성화되면 각 문장이 즉시 커밋됩니다. 이 속성을 설정하면 서버에서 트랜잭션 상태를 플러시하기 위해 `SetDbParameterPacket`과 `CommitPacket`을 보냅니다.
+자동 커밋 모드를 조회하거나 설정합니다. 활성화되면 각 문장이 즉시 커밋됩니다. 이 속성을 설정하면 서버에서 트랜잭션 상태를 플러시하기 위해 `SetDbParameterPacket`과 `CommitPacket`을 보냅니다. 두 요청은 하나의 CAS 세션에 적용됩니다. 그 사이 CAS가 재활용되면 대체 세션에 새 값을 먼저 복원한 뒤 그 세션으로 `COMMIT`을 보냅니다(호출당 재접속은 최대 한 번). `COMMIT`이 실패하면 연결을 닫고 이전 값을 유지하며 원인을 연결한 `OperationalError`를 발생시킵니다(#551).
 
 ```python
 conn = pycubrid.connect(database="testdb")
@@ -774,6 +775,7 @@ cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 | `datetime.date`      | `DATE'YYYY-MM-DD'` |
 | `datetime.time`      | `TIME'HH:MM:SS'` |
 | `datetime.datetime`  | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` |
+| `Set` / `Multiset` / `Sequence` | `SET{...}` / `MULTISET{...}` / `SEQUENCE{...}` |
 
 ---
 
@@ -1146,7 +1148,7 @@ async with await pycubrid.aio.connect(database="testdb") as conn:
 ### `set_autocommit(value)`
 
 `AsyncConnection.autocommit`은 읽기 전용입니다. 변경하려면 `await conn.set_autocommit(True)`을 사용하세요.
-동기 세터처럼 `SetDbParameterPacket`과 `CommitPacket` 둘 다 보냅니다.
+동기 세터처럼 `SetDbParameterPacket`과 `CommitPacket`을 하나의 CAS 세션에서 보내며, CAS 재활용 및 실패 시 동작도 같습니다(#551).
 
 ### `ping(reconnect=True)`
 
@@ -1599,3 +1601,40 @@ t = pycubrid.Time(14, 30, 0)
 ts = pycubrid.Timestamp(2025, 1, 15, 14, 30, 0)
 b = pycubrid.Binary(b"\x00\x01\x02")
 ```
+
+### 타입 지정 컬렉션 파라미터
+
+```python
+class Set(elements: Iterable[Any] = ())
+class Multiset(elements: Iterable[Any] = ())
+class Sequence(elements: Iterable[Any] = ())
+```
+
+`pycubrid.types`에 정의되고 `pycubrid`에서 export됩니다(#567에서 추가). 각각 원소를 불변 `tuple`로 감싸며, 일반 동기/비동기 커서의 `execute()`/`executemany()`에서 타입이 지정된 CUBRID 컬렉션 리터럴 하나로 바인딩됩니다. 일반 `set`/`list`/`tuple` 파라미터는 계속 거부됩니다.
+
+| 클래스 | 리터럴 | 서버 의미 |
+|---|---|---|
+| `Set` | `SET{...}` | 중복 제거, 순서 유지 안 함 |
+| `Multiset` | `MULTISET{...}` | 중복 유지, 순서 유지 안 함 |
+| `Sequence` | `SEQUENCE{...}` (`LIST{...}`와 같은 타입) | 중복과 순서 유지 |
+
+| 멤버 | 설명 |
+|---|---|
+| `.elements` | 저장된 원소 `tuple` |
+| `iter()`, `len()` | 원소 순회 / 개수 |
+| `==`, `hash()` | 같은 클래스이면서 원소가 같을 때만 같음(세 타입 모두 순서를 구분) |
+
+- 원소는 스칼라 파라미터 타입(`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`)을 받으며 같은 보호된 렌더러로 렌더링됩니다. 중첩 컬렉션을 포함한 그 밖의 값은 `ProgrammingError`를 발생시킵니다.
+- 단일 `str`/`bytes`/`bytearray` 인자는 `TypeError`, 하위 클래스 생성은 `TypeError`, 속성 설정은 `AttributeError`를 발생시킵니다.
+- 조회한 컬렉션은 이 클래스로 반환되지 않습니다: `decode_collections=True`이면 여전히 `frozenset`(`SET`)과 `list`(`MULTISET`/`SEQUENCE`)입니다.
+
+```python
+from pycubrid import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+```
+
+[파라미터 바인딩](PARAMETER_BINDING.md#타입-지정-컬렉션-파라미터)을 참고하세요.

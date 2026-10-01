@@ -731,21 +731,40 @@ class AsyncConnection(ConnectionCommonMixin):
         return self._autocommit
 
     async def set_autocommit(self, value: bool) -> None:
-        """Set auto-commit mode on the server."""
+        """Set auto-commit mode on the server.
+
+        Same contract as the sync ``Connection.autocommit`` setter (#551):
+        ``SET_DB_PARAMETER`` and its ``COMMIT`` take effect on one CAS session,
+        a CAS recycled between them is replaced at most once with the new value
+        restored before the ``COMMIT``, and a failed ``COMMIT`` retires the
+        session, keeps the previous value and raises :class:`OperationalError`.
+        """
         await self._wait_for_setup_if_needed()
         async with self._lock:
             self._ensure_connected()
             enabled = bool(value)
+            generation = self._physical_generation
             await self._close_schema_results_locked()
             await self._send_and_receive_locked(
                 SetDbParameterPacket(
                     parameter=CCIDbParam.AUTO_COMMIT,
                     value=1 if enabled else 0,
-                )
+                ),
+                allow_reconnect=self._physical_generation == generation,
             )
-            await self._send_and_receive_locked(CommitPacket())
+            previous = (self._autocommit, self._autocommit_explicitly_set)
             self._autocommit = enabled
             self._autocommit_explicitly_set = True
+            try:
+                await self._send_and_receive_locked(
+                    CommitPacket(), allow_reconnect=self._physical_generation == generation
+                )
+            except BaseException as exc:
+                self._autocommit, self._autocommit_explicitly_set = previous
+                self._drop_connection()
+                if isinstance(exc, Exception):
+                    raise OperationalError("failed to commit the autocommit change") from exc
+                raise
 
     async def get_server_version(self) -> str:
         self._ensure_connected()

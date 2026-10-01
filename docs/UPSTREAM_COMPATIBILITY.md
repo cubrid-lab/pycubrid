@@ -91,7 +91,7 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
 | Extended metadata | `result_info(n=0, /)` returns tuple-of-15-tuples (one outer entry for n>=1), or None with no columns. Actual order: type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared. Preserve empty versus absent metadata; #445 must not fabricate unavailable fields. |
-| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; typed import/bind is #440. |
+| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; typed import/bind is #440. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
 | Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
 | Native LOB | Separate mutable byte-position object, initially unpopulated. `write(string, type omitted, /) -> None` accepts str/bytes (UTF-8 for str), creates BLOB by default or B/C when requested. `read(len=0, /) -> str` reads remaining bytes for omitted/0 and decodes strict UTF-8. `seek(offset, whence=SEEK_CUR, /) -> int`; SEEK_END is size-offset. #442/#443 own lifecycle/short transfer/file behavior; ordinary bytes methods are not replaced. |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. Exact unstable messages and native argument-parser crashes are not targets. |
@@ -156,6 +156,74 @@ These are explicit differential classifications, not blanket waivers or
 "unsupported therefore complete" entries. Unaffected behavior needs exact comparisons;
 NULL/data preservation needs tests. Missing stored-type evidence blocks that dimension's
 certification, not independent prepared-core work.
+
+### Official driver differential gate (#446)
+
+Each official behavior pycubrid claims is recorded in
+[`tests/fixtures/official_differential_claims.json`](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_differential_claims.json).
+A claim is either `match` (same Python type and value as the official driver) or
+`deviation` (a reason, an owning issue and the exact observations of both
+drivers). It names the inventory operations and upstream scenario ids it
+exercises. Each claim has one live case in `tests/test_official_differential.py`,
+which runs the same SQL, values and autocommit settings through pycubrid and
+the official driver on one server. A mismatch fails, and so does a classified
+deviation whose observed values change on either side.
+
+**Oracle provenance.** `scripts/build_official_oracle.py` fetches cubrid-python
+`e75ec36b2a92b8829a49a967a29a1fbb9d7c322b`, checks that its `cci-src` gitlink is
+`7d1eb8f40f04089b8218d08e36e2c24a2de11b24` and fetches that CCI commit. It builds
+the CCI static library with CMake directly, using CCI's tracked bundled OpenSSL
+1.1.1f libraries, and compiles the unchanged `cubrid_ext/python_cubrid.c`. The
+upstream `setup.py`/`build_cci.sh` wrapper is not run and no upstream file is
+patched, unlike the earlier maintainer-local #439 build. Only the upstream
+`version.h` template is rendered outside the source tree. The script records
+both commits, the toolchain and the extension SHA-256 in `oracle.json`. It
+supports Linux x86_64 only. TLS is not exercised through the oracle.
+
+**Required lanes.** The `official-differential` job in regular CI is part of the
+CI Gate. It is skipped only for docs-only changes. It runs Python 3.10 against
+CUBRID 10.2 and 11.4 and caches the oracle build, keyed by the build script
+hash, which contains both pins. The same job gates the nightly and release full
+matrix. With `PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1`, the following fail instead of
+skipping:
+
+- a missing driver or manifest, or an extension hash that differs from the manifest;
+- zero cases, or a claim without a result on either server;
+- a mismatch, or an unclassified divergence.
+
+The lane audit (`check_integration_lanes.py --lane official`) rejects every
+skip. The per-case JSON Lines evidence and its summary are uploaded as the
+`official-differential-evidence` artifact. The evidence records Python, server
+and driver versions, the pycubrid commit and every observation. Without
+`PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1` (offline, other integration lanes, local
+runs) the module skips even if some other `CUBRIDdb` build is importable. Such
+runs never certify a claim. The evidence check recomputes each outcome from
+the recorded observations and the ledger. It does not trust a recorded outcome
+label.
+
+The counts below are generated from the ledger. Do not edit them by hand. Run
+`python scripts/check_official_differential.py --write-docs` after changing a
+claim. The offline check fails on stale counts, unknown inventory or scenario ids,
+claims without cases and oracle pins that differ from the build script.
+
+<!-- official-differential-summary:start (generated by scripts/check_official_differential.py --write-docs) -->
+
+| Surface | Match | Classified deviation | Total |
+| --- | ---: | ---: | ---: |
+| Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
+| Native (`_cubrid`) | 3 | 1 | 4 |
+| **Total** | **15** | **3** | **18** |
+
+- Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
+- Required servers: CUBRID 10.2, CUBRID 11.4
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439)
+
+<!-- official-differential-summary:end -->
+
+These claims cover the first bounded slice: stored scalar fetches, a static scalar
+row and description, and the #439 prepared INT/string subset. Collections, LOBs,
+charset/HA, fault behavior and every other inventory operation remain uncertified
+until they have claims here. The claim counts are not a parity percentage.
 
 ### Migration targets and small delivery acceptance
 
@@ -223,8 +291,12 @@ python -m pytest tests/test_official_api_inventory.py -q
 
 They validate accounting and currently named targets, without importing the
 native driver, opening a database, or converting a mapping into parity proof.
-Actual source-scenario accounting and official comparison evidence remain
-separate deliverables (#437/#446).
+Source-scenario accounting (#437) is a separate deliverable. Official comparison
+evidence comes only from the live differential gate described above (#446):
+
+```bash
+python scripts/check_official_differential.py   # offline claims/docs structure
+```
 
 We acknowledge the official driver's maintainers and contributors. Descriptions
 here are independently paraphrased from the pinned source; no upstream source

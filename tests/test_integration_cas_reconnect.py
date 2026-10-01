@@ -25,6 +25,8 @@ import subprocess  # nosec B404 - fixed docker CLI argv, no shell on the host
 import time
 import uuid
 from collections.abc import Iterator
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -32,6 +34,7 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
+from pycubrid.protocol import SetDbParameterPacket
 
 from ._parity_helpers import ADAPTERS, ParityAdapter, connect_kwargs
 
@@ -188,6 +191,72 @@ async def test_broker_reset_reconnects_and_restores_autocommit(adapter: ParityAd
         drop.execute(f"DROP TABLE IF EXISTS {table}")
         drop.close()
         observer.close()
+
+
+@needs_broker_control
+@PARAMS
+async def test_autocommit_setter_recycled_between_its_requests_restores_value(
+    adapter: ParityAdapter,
+) -> None:
+    """#551: a CAS recycled after SET_DB_PARAMETER gets the value before COMMIT."""
+    conn = await _connect(adapter, no_backslash_escapes=True)
+    sent: list[tuple[int, str, int | None]] = []
+
+    def record(packet: Any) -> bool:
+        value = packet.value if isinstance(packet, SetDbParameterPacket) else None
+        sent.append((conn._physical_generation, type(packet).__name__, value))
+        return isinstance(packet, SetDbParameterPacket) and len(sent) == 1
+
+    def recycle() -> None:
+        _broker_cli(["cubrid", "broker", "reset", BROKER])
+
+    try:
+        start = conn._physical_generation
+        if isinstance(conn, AsyncConnection):
+            async_conn = conn
+            send_locked = async_conn._send_and_receive_locked
+
+            async def async_spy(packet: Any, **kwargs: Any) -> Any:
+                first_set = record(packet)
+                result = await send_locked(packet, **kwargs)
+                if first_set:
+                    recycle()
+                    await _wait_until_cas_closed(async_conn)
+                return result
+
+            with patch.object(async_conn, "_send_and_receive_locked", async_spy):
+                await async_conn.set_autocommit(True)
+        else:
+            sync_conn = conn
+            send = sync_conn._send_and_receive_locked
+
+            def sync_spy(packet: Any, **kwargs: Any) -> Any:
+                first_set = record(packet)
+                result = send(packet, **kwargs)
+                if first_set:
+                    recycle()
+                    sock = sync_conn._socket
+                    assert sock is not None
+                    deadline = time.monotonic() + 30
+                    while time.monotonic() < deadline:
+                        readable, _, _ = select.select([sock], [], [], 0.1)
+                        if readable and sock.recv(1, socket.MSG_PEEK) == b"":
+                            break
+                    else:
+                        raise AssertionError("CAS did not close the idle client socket")
+                return result
+
+            with patch.object(sync_conn, "_send_and_receive_locked", sync_spy):
+                sync_conn.autocommit = True
+
+        assert conn._physical_generation == start + 1
+        assert adapter.autocommit_state(conn) is True
+        # The replacement session received the new value (the reconnect
+        # restore) inside the COMMIT's single reconnect.
+        assert (start + 1, "SetDbParameterPacket", 1) in sent
+        assert await _query(adapter, conn, "SELECT 1 FROM db_root") == (1,)
+    finally:
+        await adapter.close_connection(conn)
 
 
 @needs_broker_control
