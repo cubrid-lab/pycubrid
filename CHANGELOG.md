@@ -515,6 +515,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   talk to an in-process fake local server, not the configured live CUBRID
   endpoint, and either pass `no_backslash_escapes` explicitly or only
   exercise failure paths that never reach negotiation.
+- **Repository policy/tooling checks run in a separate required CI job
+  instead of the default offline-tests matrix (#558)** — the offline suite
+  mixed mocked driver-behavior tests with subprocess-/importlib-heavy
+  repository policy checks (docs-sync, PR-title, release scripts,
+  workflow-YAML contracts, the shared quality gate, and similar), which
+  unnecessarily lengthened routine driver feedback: on this machine, the
+  default offline run dropped from 79.9s to 50.2s (2,671 tests), with the
+  305 moved tests taking 29.0-30.6s of either figure, run count unchanged
+  (2,976 passed both before and after). The fifteen modules in question
+  (`test_docs_reason.py`, `test_pr_title.py`, `test_quality_tools.py`,
+  `test_release_detect.py`, `test_readiness_workflows.py`,
+  `test_prepare_release.py`, `test_release_summary.py`,
+  `test_release_workflows.py`, `test_pypi_duplicate_guard.py`,
+  `test_upstream_scenario_ledger.py`, `test_check_public_api.py`,
+  `test_issue_metadata.py`, `test_collect_repro.py`,
+  `test_integration_lanes.py`, `test_check_official_differential.py`) now
+  carry an explicit `pytestmark = pytest.mark.repo_tooling` (the marker is
+  registered in `pyproject.toml`, the same explicit-marker convention used
+  elsewhere in the suite) instead of relying on file location; nothing moved
+  on disk, so recursive pytest discovery still collects them and no check
+  silently disappears. `offline-tests` now runs
+  `-m "not integration and not repo_tooling"`; a new `repo-tooling-tests` CI
+  job runs `-m "repo_tooling"` on a 2-OS (ubuntu, macos) x 1-Python matrix,
+  keeping shell-dependent checks covered on both platforms without repeating
+  all five Python versions. `repo-tooling-tests` is a required job in the CI
+  Gate, alongside `offline-tests`, `lint`, `typecheck`, `packaging-smoke-test`
+  and `compat-check` — no CI requirement is weakened or dropped.
+  `docs/DEVELOPMENT.md` (and its Korean translation) documents the fast-driver,
+  repository-tooling and combined offline commands.
 
 ## [1.8.0] - 2026-09-29
 

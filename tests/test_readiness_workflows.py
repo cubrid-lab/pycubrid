@@ -15,6 +15,8 @@ import pytest
 
 import pycubrid
 
+pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

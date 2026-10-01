@@ -154,6 +154,40 @@ matched unrelated modules (#524, e.g. `"test_integration"` matched every
 `test_integration_*.py` file). Mark the module explicitly instead of adding a
 new filename fragment.
 
+### Fast Driver Tests vs. Repository Tooling Checks
+
+Among the offline tests, a `repo_tooling`-marked subset (registered in
+`pyproject.toml`) checks repository policy and tooling — the docs-sync script,
+the PR-title validator, the release scripts, workflow-YAML contracts, the
+shared quality gate, and similar (#558). These carry no pycubrid driver
+behavior and are excluded from `pycubrid`'s own coverage, so they run in the
+dedicated `repo-tooling-tests` CI job instead of the `offline-tests` matrix,
+keeping routine driver feedback fast. Moving the check does not change
+whether CI requires it: `repo-tooling-tests` is still a required job in the
+CI Gate, just like `offline-tests`.
+
+```bash
+# Fast driver lane — mocked driver behavior only (what offline-tests runs)
+pytest tests/ -m "not integration and not repo_tooling" -v
+
+# Repository tooling lane — policy/tooling checks (what repo-tooling-tests runs)
+pytest tests/ -m "repo_tooling" -v
+
+# Both lanes together, still offline (no live CUBRID server)
+pytest tests/ -m "not integration" -v
+```
+
+A module opts into the tooling lane with an explicit `pytestmark = pytest.mark.repo_tooling`,
+not a file move or a path-based collection rule, so nothing needs reorganizing
+on disk and nothing is silently dropped from `pytest tests/` (every marker is
+additive to the default collection; only `-m` selects or excludes it at run
+time). `docs-sync.yml` runs `test_docs_reason.py` with a bare
+`python -m unittest discover` and no dependency install, so that module (and
+`test_pr_title.py`, at risk of the same thing) imports `pytest` in a
+`try`/`except ModuleNotFoundError` and falls back to an empty `pytestmark`
+when it is missing — the marker would be meaningless there anyway. A module
+only ever run through pytest does not need this guard.
+
 ### Sync/Async Replay Parity
 
 `tests/test_replay_parity.py` checks, offline and in a few seconds, that the

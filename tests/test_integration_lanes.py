@@ -14,6 +14,8 @@ from scripts.check_integration_lanes import (
     verify_workflows,
 )
 
+pytestmark = pytest.mark.repo_tooling
+
 
 def test_workflows_have_executable_normal_slow_and_tls_paths() -> None:
     verify_workflows()

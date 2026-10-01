@@ -14,6 +14,16 @@ import textwrap
 import unittest
 from unittest import mock
 
+try:
+    import pytest
+except ModuleNotFoundError:
+    # docs-sync.yml runs this module with a bare `python -m unittest discover`
+    # (no checkout of dev dependencies), so the module must stay importable
+    # without pytest; the marker is then meaningless there anyway (#558).
+    pytestmark: list[object] = []
+else:
+    pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = json.loads((ROOT / "tests/fixtures/docs-reason-events.json").read_text())
 WORKFLOW = ROOT / ".github/workflows/docs-sync.yml"
