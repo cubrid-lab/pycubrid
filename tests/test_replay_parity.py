@@ -836,12 +836,9 @@ def _check_typed_collections(obs: Observation) -> None:
 FIRST_INSERT_BUDGET = ["CHECK_CAS", "PREPARE_AND_EXECUTE", "CHECK_CAS", "GET_LAST_INSERT_ID"]
 
 #: A second autocommitting INSERT reusing the same cursor: the same budget as
-#: the first, plus a leading probe and the close of the still-open handle
-#: from the previous INSERT (closing a handle is itself gated by CHECK_CAS,
-#: same as any other request after an unverified OUT_TRAN reply).
+#: the first. Pooling-off CAS already freed the preceding INSERT's handle,
+#: so its stale CLOSE_REQ and preceding probe must not be sent (#584).
 REUSED_CURSOR_INSERT_BUDGET = [
-    "CHECK_CAS",
-    "CLOSE_REQ_HANDLE",
     "CHECK_CAS",
     "PREPARE_AND_EXECUTE",
     "CHECK_CAS",
@@ -852,8 +849,10 @@ REUSED_CURSOR_INSERT_BUDGET = [
 #: SELECT (not another INSERT): closing the SELECT's handle and sending the
 #: INSERT need no leading probe (a FETCH reply leaves the session IN_TRAN,
 #: already safe), only the probe before the identity lookup after the INSERT
-#: commits. This takes four requests rather than the six in
-#: REUSED_CURSOR_INSERT_BUDGET: no probes precede CLOSE_REQ_HANDLE or the INSERT.
+#: commits. This fixture keeps the SELECT's FETCH reply IN_TRAN, so the
+#: still-live SELECT handle is closed without a preceding probe. Its four
+#: requests differ from REUSED_CURSOR_INSERT_BUDGET, where no old INSERT
+#: handle survives the autocommit reply (#584).
 SELECT_TO_INSERT_BUDGET = [
     "CLOSE_REQ_HANDLE",
     "PREPARE_AND_EXECUTE",
@@ -1353,7 +1352,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         # An autocommitting INSERT reusing a cursor whose last statement was
         # a SELECT, not another INSERT (#557): a different budget shape than
-        # reused_cursor_insert_round_trip_budget, with two fewer requests.
+        # reused_cursor_insert_round_trip_budget, with a different sequence.
         "select_to_insert_round_trip_budget",
         (("open",), _SELECT, ("fetchall",), ("execute", _INSERT_1)),
         script=_autocommit_insert(_INSERT_1),

@@ -108,8 +108,11 @@ With broker statement pooling on, autocommit releases (and cursors collected
 without close) queue their handle ids for the next FC41's extra prepare
 arguments (JDBC's wire mechanism, but result-set handles too, #488): at most 256
 per statement, per physical generation, CLOSE_REQ'd at commit/rollback, dropped
-on session retirement; pooling off keeps immediate CLOSE_REQ (CAS frees handles
-at commit, so ids may be reused).
+on session retirement. With pooling off, known transaction-ending OUT_TRAN
+replies retire existing handle ownership before parsing or identity lookup
+(#584); FC41 success/DataError adoption cannot restore the already-freed ID.
+Cached rows/counts remain usable, and only still-owned handles use immediate
+CLOSE_REQ. Other OUT_TRAN echoes and schema/manual FETCH are not boundaries.
 With `no_backslash_escapes` unset, probe each newly opened physical session
 before binding against it; explicit `True`/`False` remains pinned. Healthy
 same-session ping does not probe. A failed probe makes direct connect raise or

@@ -1254,6 +1254,8 @@ class PrepareAndExecutePacket(_CasPacket):
         # Handles the CAS releases before preparing this statement (#488): the
         # prepare arguments after the auto-commit flag (JDBC's wire format).
         self.deferred_close_handles: tuple[int, ...] = ()
+        # Set by the transport when this reply's transaction freed its ID (#584).
+        self._query_handle_retired = False
 
         self.response_code: int = 0
         self.query_handle: int = 0

@@ -200,9 +200,11 @@ class AsyncCursor(_AsyncCursorBase):
                 )
         except DataError:
             # A row value failed to decode after the whole reply was read, so
-            # the session is intact (#492). Own the server handle the reply
-            # opened, with no result set, so the usual lifecycle releases it.
-            self._query_handle = packet.query_handle or None
+            # the session is intact (#492). Own the reply's handle only if an
+            # automatic transaction boundary did not already free it (#584).
+            self._query_handle = (
+                None if packet._query_handle_retired else packet.query_handle or None
+            )
             self._handle_generation = self._connection._physical_generation
             raise
         # Cleared only now: a reconnect before this send flags every cursor.
@@ -215,7 +217,7 @@ class AsyncCursor(_AsyncCursorBase):
                 packet.total_tuple_count,
             )
 
-        self._query_handle = packet.query_handle
+        self._query_handle = None if packet._query_handle_retired else packet.query_handle
         self._handle_generation = self._connection._physical_generation
         self._statement_type = packet.statement_type
         self._columns = list(packet.columns)

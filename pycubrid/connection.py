@@ -910,6 +910,8 @@ class Connection(ConnectionCommonMixin):
         expected_generation: int | None,
         bound_generation: int | None = None,
     ) -> Any:
+        if isinstance(packet, PrepareAndExecutePacket):
+            packet._query_handle_retired = False
         self._validate_prepared_generation(expected_generation)
         self._validate_bound_generation(bound_generation)
         if self._check_reconnect(
@@ -979,6 +981,7 @@ class Connection(ConnectionCommonMixin):
             response_cas_info = response_body[: DataSize.CAS_INFO]
             if expected_generation is None:
                 self._record_reply_cas_info(response_cas_info)
+            self._retire_pooling_off_reply_handles(packet, response_body)
 
             try:
                 packet.parse(response_body)

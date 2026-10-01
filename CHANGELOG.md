@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Deferred-close flush safety matrix (#585)** — real TCP replay checks four
+  generation/reconnect/native-error/transport-error properties for sync and
+  async commit and rollback. Removing the generation filter or flush guards
+  now fails these regressions; production behavior and dependencies are unchanged.
 - **`charset` connection option (#86)** — `pycubrid.connect()`,
   `pycubrid.aio.connect()`, `pycubrid.compat.native.connect()` and
   `cubriddb.Connection(charset=...)` (previously `"utf8"` only) accept
@@ -173,6 +177,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   subsequent members still run their decoders; later structural damage retires
   the sync/async session. Complete collections keep the first error and cause.
   NULL-only, opaque/disabled decoding and unsupported nested layouts are unchanged.
+- **Pooling-off autocommit replies retire freed handle ownership (#584)** —
+  Direct CUBRID CAS reuses handle IDs after an automatic transaction end.
+  Sync and async drivers now invalidate cursor/schema ownership on the actual
+  known-boundary OUT_TRAN reply, before parsing or a later INSERT identity RPC.
+  Current FC41 results cannot re-adopt already freed IDs on success or DataError.
+  Buffered rows and normal completed EOF remain available; unfinished results
+  fail explicitly rather than closing or fetching another cursor's reused ID.
+  Final ordinary autocommit FETCH and error replies follow the same rule.
+  Physical-session generation, pooling-on/manual/schema behavior and liveness
+  probes are preserved; arbitrary OUT_TRAN echoes and batch replies are excluded.
 - **Metadata text errors cannot hide damaged FC41/FC3 tails (#591)** —
   Undecodable metadata retains column types for validation of remaining
   counts, fields and inline rows before the original `DataError` is raised.
@@ -924,7 +938,12 @@ unchanged):
 - Full integration validation selects current pytest markers instead of filename globs. Normal, TLS, and nightly slow lanes cover the declared integration inventory, including concurrency stress; unknown skips and missing workflow paths fail the lane audit. TLS provisioning runs broker commands as the service owner. (#397)
 - Integration CI now uses the shared CUBRID readiness probe with host/port connection fields and fails before running tests when all retries are exhausted. (#411)
 - **`Connection.get_last_insert_id()` / `AsyncConnection.get_last_insert_id()` no longer return an ambiguous empty string after `commit()` (#381)** — cache the broker identity captured after INSERT so it survives commit/rollback and SELECT. Successful values remain strings; unavailable identities return `None`. A new INSERT attempt, nonempty batch, or physical connection change clears the cache; failed, empty, or malformed identity retrieval leaves it unavailable. The broker can report an earlier identity after a non-auto-increment INSERT, so an ID does not prove the current statement generated it or that a row exists after rollback. Migration: replace `value == ""` with `value is None` and check for `None` before `int(value)`; `cursor.lastrowid` remains `int | None`. This is a documented bug correction, not an annotation-only change.
-- **Empty `executemany()` clears previous results (#376)** — sync and async cursors close any previous query handle and reset result state to `description=None`, `rowcount=0`, and `lastrowid=None`. No SQL is executed; query-close failures propagate without discarding the handle.
+- **Empty `executemany()` clears previous results (#376)** — sync and async cursors
+  release the previous query handle and reset result state to `description=None`,
+  `rowcount=0`, and `lastrowid=None`. No SQL is executed; immediate query-close
+  failures propagate without discarding the handle. With deferred close (#488),
+  an eligible previous handle is queued without a request and an empty call
+  does not flush the queue; FC20 batches likewise do not carry queued IDs (#585).
 - Failed batch execution no longer exposes stale cursor result state (#375): sync and async executemany_batch clear prior result metadata, row counts, and last-insert IDs before the batch request, including per-statement, transport, and response-parse failure paths. If closing the previous query handle fails, no batch is sent and the handle remains tracked.
 - **`Cursor.arraysize` now rejects non-integer values in sync and async cursors (#370).** Floats, booleans, and other non-integers raise `ProgrammingError` without changing the previous value; positive integers remain valid.
 - **Batch execution closes an existing query handle (#374)** — `executemany_batch()` now releases an active server-side query handle before sending a batch request, matching `execute()` and preventing the prior result-set handle from leaking. Sync and async cursors keep the same behavior.
