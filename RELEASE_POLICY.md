@@ -247,6 +247,41 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Deferred CLOSE_REQ for released cursor handles (#488)** — PATCH /
+  performance and resource-leak correction in both drivers, with no public API,
+  dependency or supported-version change. On a broker with statement pooling,
+  an autocommit `close()`/re-`execute()` and a cursor collected without
+  `close()` no longer send their own `CLOSE_REQ`. The handle is freed by the
+  next `PREPARE_AND_EXECUTE`, which is wire-visible (extra prepare arguments,
+  fewer requests) but does not change transaction or session state: CAS frees
+  the handle exactly as `CLOSE_REQ` does. Until that next statement the handle
+  stays allocated a little longer, until the next statement, `commit()` or
+  `rollback()` (which close queued ids with `CLOSE_REQ`), or the session end.
+  Connections no longer keep
+  unreferenced cursors alive. In manual-commit mode with pooling off, a cursor
+  dropped without `close()` is no longer closed by an explicit `CLOSE_REQ` at
+  the next `commit()`/`rollback()`: CAS frees it in that `END_TRAN`.
+
+- **Transport failures retire cursor handles; async timeout messages (#556)** —
+  PATCH / bug correction in both drivers. After an uncertain transport failure
+  the connection was already closed and raised `OperationalError`; now every
+  cursor and schema handle of that session is retired with it, so later cursor
+  calls fail with the existing invalidated-result errors instead of reaching a
+  closed connection with a stale handle id. A sync interrupt while a reply is
+  outstanding now closes the session (previously it stayed open with an unread
+  reply). The async `OperationalError` message for a `read_timeout` expiry
+  changes from `read timeout` to `read timeout: no complete round trip within
+  read_timeout=<n>s` (still starting with `read timeout`), and a transport
+  `TimeoutError` now reads `socket communication timed out`. An `OSError`
+  raised by a `json_deserializer` callback after a complete reply now
+  propagates unwrapped with the session kept, instead of `OperationalError`
+  with the session closed; a `ValueError`-family callback error is still a
+  malformed reply that retires the session. Python 3.10's distinct
+  `asyncio.TimeoutError` follows the same transport/callback distinction.
+  Other exception classes,
+  `__cause__`, `CancelledError` propagation and the no-replay rule are
+  unchanged; no public signature, dependency or supported-version change.
+
 - **Async setup failure isolated per waiting task (#554)** — PATCH / bug
   correction of cancellation and error propagation. Tasks waiting on
   `AsyncConnection.connect()` setup no longer re-raise the owner's exception

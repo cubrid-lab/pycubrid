@@ -106,10 +106,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   broker rejects the MULTISET kind (error -454), and a SET value stored into a
   MULTISET column drops duplicates while a SEQUENCE value keeps them.
 
+### Changed
+- **Autocommit cursor handles are released with the next statement (#488)** —
+  in autocommit mode only `commit()`/`rollback()` sent `CLOSE_REQ` for unclosed
+  cursors, the connection kept every cursor alive, and an explicit close cost a
+  `CLOSE_REQ` plus the `CHECK_CAS` probe of its OUT_TRAN predecessor. Live on
+  CUBRID 11.4.6 (statement pooling on), 5000 unclosed autocommit SELECTs pushed
+  handle ids past 1100 and forced 4-5 CAS memory restarts per run (each silently resets
+  SQL-set session state). Connections now track cursors weakly. When the broker
+  reports statement pooling, an autocommit `close()` or re-`execute()` and,
+  in any mode, a cursor collected without `close()` queue the handle id, and the
+  next `PREPARE_AND_EXECUTE` carries it as an extra prepare argument that CAS
+  frees before preparing (the wire mechanism of JDBC's deferred close; unlike
+  JDBC, which closes SELECT/CALL/EVALUATE handles at once, result-set handles
+  are deferred too). Measured live, sync and async:
+  5000 unclosed SELECTs keep the handle id at 1-2 with no restart; a SELECT then
+  `close()` takes 2 requests (1 `CHECK_CAS`) instead of 4 (2 `CHECK_CAS`); a reused
+  cursor's SELECT then INSERT takes 5 requests instead of 8. One statement
+  carries at most 256 ids (an explicit release while 256 are queued sends
+  `CLOSE_REQ` at once; collected cursors ride on later statements), and
+  `commit()`/`rollback()` close every id still queued with `CLOSE_REQ`, as they
+  closed unreferenced cursors before. The queue belongs
+  to one physical session and is dropped when that session is retired or
+  replaced, so no stale id is sent after a reconnect. Probes are unchanged, and a
+  request with queued ids is never replayed. Each handle keeps the generation of
+  the session that opened it, explicit releases during session setup are never
+  deferred, and a shard proxy
+  (which ignores the extra arguments) keeps immediate `CLOSE_REQ`. Without
+  statement pooling CAS frees
+  handles at every commit, so `CLOSE_REQ` is still sent at once and a collected
+  cursor's handle is left to that commit (in manual-commit mode it was
+  previously closed by the next `commit()`/`rollback()`).
+
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Transport failures retire cursor handles; async timeout errors name their cause (#556)** —
+  an uncertain transport failure closed the connection but left cursors
+  holding the dead session's query handle ids: the sync socket-error and
+  malformed-reply paths and the async timeout, socket-error and malformed-reply
+  paths (also `ping()`, CHECK_CAS recovery and failed session restores) closed
+  the streams and marked the connection closed without invalidating handles,
+  and the async invalidation could be skipped entirely when `wait_closed()`
+  failed or was cancelled. Every such path now retires the connection and all
+  cursor and schema handles first, then shuts the stream down (async still
+  awaits `wait_closed()`; its failure is logged, and cancellation still raises
+  `CancelledError`). An interrupt (a non-`Exception` `BaseException` such as
+  `KeyboardInterrupt`) while a sync reply is outstanding now retires the
+  session too, as async cancellation already did. Buffered rows remain
+  readable and the next required FETCH fails explicitly; nothing is replayed.
+  The sync prepared-generation fence and pre-send local failures are
+  unchanged. The async `OperationalError('read timeout')` was raised for any
+  `TimeoutError`, including a transport `ETIMEDOUT` with `read_timeout` unset;
+  it now reads `read timeout: no complete round trip within read_timeout=<n>s` only when that
+  deadline expired, and `socket communication timed out` for a transport
+  timeout. Python 3.10's distinct `asyncio.TimeoutError` follows the same
+  transport/callback distinction. `__cause__` is preserved. An `OSError` (including `TimeoutError`)
+  raised by a `json_deserializer` callback after the whole reply was read was
+  treated as a transport failure by both drivers (session closed, wrapped in
+  `OperationalError`); it now propagates unchanged and the session stays open.
+  A `ValueError`-family error from a custom deserializer (orjson, simplejson)
+  is still treated as a malformed reply and retires the session.
 - **Negative FC41 column metadata lengths and column counts are rejected
   (#555)** — a `PREPARE_AND_EXECUTE` reply whose column name, real name, table
   name or default length was negative decoded that field as an empty string,
@@ -556,6 +614,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   talk to an in-process fake local server, not the configured live CUBRID
   endpoint, and either pass `no_backslash_escapes` explicitly or only
   exercise failure paths that never reach negotiation.
+- **Per-operation round-trip budgets for the sync/async replay harness
+  (#557)** — `tests/test_replay_parity.py` scenarios compared whole-session
+  request sequences, so both drivers growing the same extra request on a
+  single operation would stay green. `Observation.step_functions(i)` now
+  exposes the exact, ordered CAS functions sent while running one scenario
+  step alone, separate from connect/setup and every other step. Seven new
+  scenarios assert named budgets — `FIRST_INSERT_BUDGET`,
+  `REUSED_CURSOR_INSERT_BUDGET`, `SELECT_TO_INSERT_BUDGET`,
+  `MANUAL_INSERT_EXECUTE_BUDGET` / `MANUAL_INSERT_COMMIT_BUDGET`,
+  `FETCH_PAGINATION_BUDGET`, `ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` — for
+  a fresh cursor's first autocommitting INSERT, a second INSERT reusing the
+  same cursor, an autocommitting INSERT after a SELECT on the same cursor, a
+  manual-transaction INSERT and its explicit `commit()`, paginated `FETCH`
+  over a small `fetch_size`, and backslash-escape-mode negotiation resolved
+  explicitly versus automatically. Each budget is exact-list equality, so a
+  dropped safety request (e.g. a missing `CHECK_CAS` liveness probe) fails
+  the same as an added round trip; neither can pass as an "optimization".
+  Budget scenarios also require successful outcomes, a reusable session and
+  expected fetched rows, so malformed replies and wrong results cannot pass
+  solely by preserving the request count.
+  Existing scenarios, their checks and the sync/async parity and
+  reconnect/no-replay coverage are unchanged. No production behavior changes
+  in this PR; these scenarios are the reproducibility baseline that later
+  round-trip-reduction work (#419/#488/#525) must not silently regress.
 - **Repository policy/tooling checks run in a separate required CI job
   instead of the default offline-tests matrix (#558)** — the offline suite
   mixed mocked driver-behavior tests with subprocess-/importlib-heavy

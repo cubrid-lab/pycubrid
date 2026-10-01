@@ -28,6 +28,8 @@ def make_connection() -> MagicMock:
     connection._ensure_connected = MagicMock()
     connection._wait_for_setup_if_needed = AsyncMock()
     connection._send_and_receive = AsyncMock()
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    connection._defer_close = MagicMock(return_value=False)
     return connection
 
 
