@@ -49,7 +49,7 @@ except ImportError as exc:  # collected everywhere; skipped or failed by ``envir
 else:
     IMPORT_ERROR = None
 
-pytestmark = [pytest.mark.integration, pytest.mark.official_differential]
+pytestmark = [pytest.mark.integration, pytest.mark.official_differential, pytest.mark.no_escape_pin]
 
 CLAIMS: list[dict[str, Any]] = json.loads(CLAIMS_PATH.read_text(encoding="utf-8"))["claims"]
 URL = f"CUBRID:{TEST_HOST}:{TEST_PORT}:{TEST_DB}:::"

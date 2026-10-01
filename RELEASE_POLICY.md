@@ -254,6 +254,17 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `pycubrid.aio` already did. Nothing extra is sent when `autocommit` was never
   set explicitly. No public signature, dependency or supported-version change.
 
+- **Negative FC41 column metadata lengths and column counts are rejected
+  (#555)** — PATCH / correction of a protocol-robustness defect completing
+  #383. A `PREPARE_AND_EXECUTE` reply with a negative column name, real-name,
+  table-name or default length, or a negative column count, now raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection instead of decoding an empty string or a result with no columns,
+  matching FC2/FC3 metadata. A normal server does not send such replies. Valid
+  replies, zero-length metadata, the `DataError` classification of complete
+  replies (#492, #512), public signatures, dependencies and supported versions
+  are unchanged.
+
 - **Invalid JSON text in a complete reply raises `DataError` (#543)** — PATCH /
   correction of error classification, extending #492 and #512. A `JSON` column
   value that is not valid JSON, decoded with the built-in
@@ -590,6 +601,15 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   the tracked handle and propagates its exception.
 
 - Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
+
+- **Failed `execute()` calls clear previous result state (#373)**: PATCH /
+  backward-compatible bug fix. After the previous query handle closes, binding
+  or request failures leave no result metadata, row count, last inserted ID
+  or fetchable rows from that query, and discard any held fetch-page error.
+  If closing the previous query fails, both cursor implementations keep the
+  buffered result and its page error; connection invalidation or reconnect
+  handling may still retire the handle. Handles opened by undecodable replacement
+  replies remain tracked for cleanup. Public signatures are unchanged.
 
 - **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
   PATCH / backward-compatible bug fix. The public signatures are unchanged;

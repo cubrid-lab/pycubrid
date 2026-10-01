@@ -102,6 +102,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Negative FC41 column metadata lengths and column counts are rejected
+  (#555)** — a `PREPARE_AND_EXECUTE` reply whose column name, real name, table
+  name or default length was negative decoded that field as an empty string,
+  and a negative column count decoded as a result with no columns, although
+  `PREPARE` (FC2) and refreshed `EXECUTE` (FC3) metadata already rejected both.
+  The shared column-metadata parser now checks every length and the column
+  count before reading, so such a reply raises `OperationalError('malformed
+  response from broker')` on the sync and async connections and closes the
+  connection, like other framing damage (#383, #533). A normal server does not
+  send such replies. Zero-length metadata, valid FC2/FC3/FC41 replies and the
+  session-keeping `DataError` for a complete reply (#492, #512) are unchanged.
 - **Invalid JSON text in a complete reply raises `DataError` (#543)** — a
   `JSON` column value that is not valid JSON, decoded with
   `json_deserializer=json.loads`, raised `json.JSONDecodeError` — a
@@ -180,6 +191,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   without reconnecting, and later calls raise `InterfaceError` until
   `connect()` or `ping(reconnect=True)`. A healthy ping, a closed connection
   and `ping(reconnect=True)` are unchanged.
+- Clear previous results in synchronous and asynchronous `execute()` calls
+  after closing the old query handle (#373). A subsequent binding or request
+  failure leaves `description=None`, `rowcount=-1`, `lastrowid=None` and no
+  fetchable rows or held fetch-page error. If closing the old handle fails,
+  `execute()` keeps the buffered result and its page error; connection invalidation
+  or reconnect handling may still retire the handle.
 - **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
   under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
   type header `0x80 | collection bits | charset`, type, the layout of column
@@ -461,6 +478,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `scripts/check_quality_tools.py` was updated to match. This fixes Dependabot's
   routine `pip`-ecosystem Ruff/Mypy bumps, which previously left the pre-commit
   hook revision stale and failed the quality-tool consistency gate (#476).
+
+### Tests
+- **`tests/test_docs_reason.py` runs the docs-sync script in-process instead
+  of spawning a fresh `python -` subprocess per fixture case, and the fake
+  `git` shim is a shell script instead of a Python one (#429)** — the event
+  JSON regression test took ~8.7s of the offline suite's ~22s runtime; it now
+  runs in well under a second, exercising the exact script text extracted
+  from the workflow file against the same fake `git` subprocess, just without
+  the per-case interpreter startup cost.
+- **`scripts/check_docs_reason.py` reduces empty emphasis inside a caption
+  before deciding it is populated (#429)** — a reason whose only content is a
+  caption like `[**<!-- empty -->**](/issue)` rendered no visible
+  explanation, but the `**` emphasis delimiters around the (invisible)
+  comment were counted as real content and the reason was accepted. Of the
+  four cases Codex reported against the final head of #425 (`e94ee3d`), this
+  was the only one still reproducible on `main`; the other three (an
+  unmatched backtick pairing across a type-6 HTML block, bracket-bearing
+  HTML-only captions, and compound empty-caption markup) were already fixed
+  by later commits before #425 merged. All four now have a regression
+  fixture. This is the smaller "harden the existing structure" option the
+  issue offered as an alternative to rewriting the helper; see the issue for
+  the recorded decision. The helper is shared byte-for-byte with
+  sqlalchemy-cubrid and cubrid-cookbook-python (#429), so the same fix needs
+  the same follow-up PR in each.
+- **The backslash-escape-mode pin opts out on an explicit marker, not a
+  filename guess (#524)** — `tests/conftest.py`'s autouse fixture used to skip
+  the pin for any module whose path matched one of 17 hardcoded filename
+  substrings; `"test_integration"` is a prefix of every `test_integration_*.py`
+  module, so all of them opted out whether or not they actually negotiate
+  against a live server. Opt-out is now `pytest.mark.no_escape_pin`
+  (registered in `pyproject.toml`), carried directly by every module that
+  needs it — alongside the existing `integration` marker for the ones that
+  also gate on a live server. `tests/test_integration_lanes.py` (a workflow-YAML
+  regression test that never builds a `Connection`) no longer opts out; every
+  other previously-opted-out module keeps the same behavior. Auditing every
+  `integration`-marked module (not just the ones the old filename list
+  happened to catch) found eight more that open real connections without an
+  explicit `no_backslash_escapes` and were silently pinned instead of
+  negotiating: `test_parity_integration.py`, `test_stress_concurrency.py`,
+  `test_compat_prepared_integration.py`, `test_compat_factories_integration.py`,
+  `test_tls_matrix_integration.py`, `test_aio_ssl_integration.py`, and one
+  function each in `test_cas_session_persistence.py` and
+  `test_connection_failures.py`; these now carry the marker too (a real
+  behavior change, fixing a latent bug predating this PR). Two further
+  `integration`-marked modules, `test_schema_integration.py` and
+  `test_schema_matrix.py`, were checked and correctly excluded: every
+  connection they open passes `no_backslash_escapes=True` explicitly, so the
+  pin was always a no-op for them. A follow-up review pass widened the audit
+  beyond `integration`-marked modules to every test that opens a live
+  connection: `test_benchmarks.py` (`pytest.mark.benchmark`, gated on
+  `CUBRID_TEST_URL` rather than `integration`) also negotiates for real and
+  now carries the marker too. `test_fault_broker.py` and
+  `test_aio_tls_handshake_hang.py` were checked and correctly excluded: both
+  talk to an in-process fake local server, not the configured live CUBRID
+  endpoint, and either pass `no_backslash_escapes` explicitly or only
+  exercise failure paths that never reach negotiation.
+- **Repository policy/tooling checks run in a separate required CI job
+  instead of the default offline-tests matrix (#558)** — the offline suite
+  mixed mocked driver-behavior tests with subprocess-/importlib-heavy
+  repository policy checks (docs-sync, PR-title, release scripts,
+  workflow-YAML contracts, the shared quality gate, and similar), which
+  unnecessarily lengthened routine driver feedback: on this machine, the
+  default offline run dropped from 79.9s to 50.2s (2,671 tests), with the
+  305 moved tests taking 29.0-30.6s of either figure, run count unchanged
+  (2,976 passed both before and after). The fifteen modules in question
+  (`test_docs_reason.py`, `test_pr_title.py`, `test_quality_tools.py`,
+  `test_release_detect.py`, `test_readiness_workflows.py`,
+  `test_prepare_release.py`, `test_release_summary.py`,
+  `test_release_workflows.py`, `test_pypi_duplicate_guard.py`,
+  `test_upstream_scenario_ledger.py`, `test_check_public_api.py`,
+  `test_issue_metadata.py`, `test_collect_repro.py`,
+  `test_integration_lanes.py`, `test_check_official_differential.py`) now
+  carry an explicit `pytestmark = pytest.mark.repo_tooling` (the marker is
+  registered in `pyproject.toml`, the same explicit-marker convention used
+  elsewhere in the suite) instead of relying on file location; nothing moved
+  on disk, so recursive pytest discovery still collects them and no check
+  silently disappears. `offline-tests` now runs
+  `-m "not integration and not repo_tooling"`; a new `repo-tooling-tests` CI
+  job runs `-m "repo_tooling"` on a 2-OS (ubuntu, macos) x 1-Python matrix,
+  keeping shell-dependent checks covered on both platforms without repeating
+  all five Python versions. `repo-tooling-tests` is a required job in the CI
+  Gate, alongside `offline-tests`, `lint`, `typecheck`, `packaging-smoke-test`
+  and `compat-check` — no CI requirement is weakened or dropped.
+  `docs/DEVELOPMENT.md` (and its Korean translation) documents the fast-driver,
+  repository-tooling and combined offline commands.
 
 ## [1.8.0] - 2026-09-29
 

@@ -33,6 +33,7 @@ from tests._parity_helpers import (
 
 pytestmark = [
     pytest.mark.integration,
+    pytest.mark.no_escape_pin,
 ]
 
 approx = cast(Callable[..., object], getattr(pytest, "approx"))

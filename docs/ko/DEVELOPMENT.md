@@ -138,6 +138,40 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 make test
 ```
 
+### 빠른 드라이버 테스트 vs. 저장소 도구 점검
+
+오프라인 테스트 중 `repo_tooling` 마커가 붙은 하위 집합(`pyproject.toml`에
+등록됨)은 저장소 정책과 도구를 점검합니다 — docs-sync 스크립트, PR 제목
+검증기, 릴리스 스크립트, 워크플로 YAML 계약, 공유 품질 게이트 등입니다(#558).
+이들은 pycubrid 드라이버 동작을 전혀 포함하지 않고 `pycubrid` 자체의
+커버리지에서도 제외되므로, `offline-tests` 매트릭스 대신 전용
+`repo-tooling-tests` CI job에서 실행되어 일상적인 드라이버 피드백 속도를
+유지합니다. 점검을 옮겨도 CI가 그것을 요구하는지 여부는 바뀌지 않습니다:
+`repo-tooling-tests`는 `offline-tests`와 마찬가지로 CI Gate에서 여전히 필수
+job입니다.
+
+```bash
+# 빠른 드라이버 레인 — 목킹된 드라이버 동작만 (offline-tests가 실행하는 것)
+pytest tests/ -m "not integration and not repo_tooling" -v
+
+# 저장소 도구 레인 — 정책/도구 점검 (repo-tooling-tests가 실행하는 것)
+pytest tests/ -m "repo_tooling" -v
+
+# 두 레인을 모두, 여전히 오프라인으로 (실제 CUBRID 서버 없이)
+pytest tests/ -m "not integration" -v
+```
+
+모듈은 파일 이동이나 경로 기반 수집 규칙이 아니라 명시적인
+`pytestmark = pytest.mark.repo_tooling`으로 도구 레인에 포함됩니다. 따라서
+디스크에서 재구성할 필요가 없고 `pytest tests/`에서 조용히 빠지는 테스트도
+없습니다(모든 마커는 기본 수집에 추가적일 뿐이며, 실행 시 선택하거나
+제외하는 것은 `-m`뿐입니다). `docs-sync.yml`은 의존성을 설치하지 않고
+`test_docs_reason.py`를 순수 `python -m unittest discover`로 실행하므로, 이
+모듈은(같은 위험이 있는 `test_pr_title.py`도) `pytest`를
+`try`/`except ModuleNotFoundError`로 가져오고, 없으면 빈 `pytestmark`로
+대체합니다 — 그곳에서는 마커 자체가 의미가 없기 때문입니다. pytest로만
+실행되는 모듈에는 이 보호 장치가 필요 없습니다.
+
 ### 동기/비동기 재생 패리티
 
 `tests/test_replay_parity.py`는 동기 `Connection`과 비동기 `AsyncConnection`이

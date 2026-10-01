@@ -141,6 +141,17 @@ class AsyncCursor(_AsyncCursorBase):
             )
             self._query_handle = None
 
+        # Once the previous query is closed, a failed execute has no result set.
+        self._description = None
+        self._columns = []
+        self._rows = []
+        self._row_index = 0
+        self._fetched_count = 0
+        self._page_error = None
+        self._total_tuple_count = 0
+        self._rowcount = -1
+        self._lastrowid = None
+
         sql = operation
         expected_escape_generation = None
         if parameters is not None:
@@ -166,15 +177,6 @@ class AsyncCursor(_AsyncCursorBase):
             # the session is intact (#492). Own the server handle the reply
             # opened, with no result set, so the usual lifecycle releases it.
             self._query_handle = packet.query_handle or None
-            self._description = None
-            self._columns = []
-            self._rows = []
-            self._row_index = 0
-            self._fetched_count = 0
-            self._page_error = None
-            self._total_tuple_count = 0
-            self._rowcount = -1
-            self._lastrowid = None
             raise
         # Cleared only now: a reconnect before this send flags every cursor.
         self._invalidated_by_reconnect = False

@@ -734,6 +734,17 @@ SQL 문을 준비하고 실행합니다.
 
 **반환:** 커서 자신 (체이닝용).
 
+이전 쿼리 핸들을 닫은 뒤 `execute()`는 파라미터를 바인딩하거나 새 문장을 보내기
+전에 결과 상태를 초기화하며, 버퍼에 남은 행과 보관 중인 FETCH 페이지 오류도
+버립니다. 바인딩이나 요청이 실패하면 `description`은 `None`, `rowcount`는 `-1`,
+`lastrowid`는 `None`이 되고, fetch 메서드는
+`InterfaceError("No result set available")`를 발생시킵니다. 이후 `execute()`가
+성공하면 커서를 다시 사용할 수 있습니다. 이전 핸들을 닫는 데 실패하면
+`execute()`는 버퍼에 남은 결과와 페이지 오류를 유지하지만, 연결 무효화나 재접속
+처리가 핸들을 해제할 수 있습니다. 새 요청의 응답을 디코딩할 수 없더라도 그 응답이
+새 쿼리 핸들을 열었다면 정리를 위해 계속 추적합니다. 이 동작은 `Cursor`와
+`AsyncCursor`에 모두 적용됩니다.
+
 **발생:**
 - 커서가 닫혔으면 `InterfaceError`
 - SQL 오류나 파라미터 불일치 시 `ProgrammingError`

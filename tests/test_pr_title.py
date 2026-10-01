@@ -14,6 +14,16 @@ import textwrap
 import unittest
 from pathlib import Path
 
+try:
+    import pytest
+except ModuleNotFoundError:
+    # Not currently run with bare unittest in CI, but kept importable without
+    # pytest for the same reason as test_docs_reason.py (#558): the marker is
+    # then meaningless there anyway.
+    pytestmark: list[object] = []
+else:
+    pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "pr-title.yml"
 BEGIN = "# BEGIN pr-title-validator"
@@ -121,6 +131,20 @@ class PrTitleValidatorTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("::warning title=PR title::", result.stdout)
 
+    def test_invalid_header_error_lists_all_title_forms(self) -> None:
+        result = _run("improve cursor handling")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "'type: description', 'type(scope): description', "
+            "'type!: description', or 'type(scope)!: description'",
+            result.stdout,
+        )
+        self.assertIn(
+            "Format: type: description | type(scope): description | "
+            "type!: description | type(scope)!: description",
+            result.stdout,
+        )
+
     def test_workflow_is_unprivileged_and_stable(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("  pull_request:\n    types: [opened, edited, reopened, synchronize]", text)
@@ -134,8 +158,8 @@ class PrTitleValidatorTest(unittest.TestCase):
 
     def test_type_list_matches_workflow(self) -> None:
         match = re.search(r"TYPES = \((.*?)\)", _validator(), re.DOTALL)
-        if match is None:
-            self.fail("the title validator must define a TYPES tuple")
+        self.assertIsNotNone(match)
+        assert match is not None
         self.assertEqual(tuple(re.findall(r'"([a-z]+)"', match[1])), TYPES)
 
 
