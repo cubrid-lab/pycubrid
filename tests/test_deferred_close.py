@@ -266,12 +266,13 @@ def test_queued_handles_are_never_sent_to_a_replacement_session(asynchronous: bo
 
 
 @ASYNC
-def test_pooling_off_closes_immediately(asynchronous: bool) -> None:
-    """Without statement pooling CAS frees handles at commit: nothing is deferred."""
+def test_pooling_off_completed_results_need_no_stale_close(asynchronous: bool) -> None:
+    """The autocommitting reply already freed the handle (#584)."""
 
     def steps(d: _Driver) -> None:
         cursor = d.cursor()
         d.select(cursor)
+        assert cursor._query_handle is None
         d.close(cursor)
         dropped = d.cursor()
         d.select(dropped)
@@ -284,10 +285,8 @@ def test_pooling_off_closes_immediately(asynchronous: bool) -> None:
         ("CHECK_CAS", ()),
         (FC41, ()),
         ("CHECK_CAS", ()),
-        ("CLOSE_REQ_HANDLE", ()),
-        ("CHECK_CAS", ()),
         (FC41, ()),
-        # The collected cursor's handle is left to the server's commit.
+        # Each complete result was freed by its own autocommit reply.
         ("CHECK_CAS", ()),
         (FC41, ()),
     ]
