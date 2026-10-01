@@ -442,11 +442,13 @@ class ConnectionCommonMixin:
         """Queue CLOSE_REQ for a handle the caller is releasing in autocommit (#488).
 
         ``generation`` is the physical session the handle was opened on. The
-        handle is released by the next ``PREPARE_AND_EXECUTE`` (JDBC deferred
-        close), which saves this CLOSE_REQ and the CHECK_CAS probe an OUT_TRAN
-        reply would need before it. Returns ``False`` when the caller must send
-        CLOSE_REQ now: manual-commit mode, session setup in progress, statement
-        pooling off, a shard proxy, or a full queue.
+        handle is released by the next ``PREPARE_AND_EXECUTE`` (the wire
+        mechanism of JDBC's deferred close, which JDBC itself uses only for
+        statements without a result set). That saves this CLOSE_REQ and the
+        CHECK_CAS probe an OUT_TRAN reply would need before it. Returns
+        ``False`` when the caller must send CLOSE_REQ now: manual-commit mode,
+        session setup in progress, statement pooling off, a shard proxy, or a
+        full queue.
         """
         if (
             not self._autocommit

@@ -249,8 +249,9 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   next `PREPARE_AND_EXECUTE`, which is wire-visible (extra prepare arguments,
   fewer requests) but does not change transaction or session state: CAS frees
   the handle exactly as `CLOSE_REQ` does. Until that next statement the handle
-  stays allocated a little longer; a handle that is never followed by another
-  statement is freed when the session ends. Connections no longer keep
+  stays allocated a little longer, until the next statement, `commit()` or
+  `rollback()` (which close queued ids with `CLOSE_REQ`), or the session end.
+  Connections no longer keep
   unreferenced cursors alive. In manual-commit mode with pooling off, a cursor
   dropped without `close()` is no longer closed by an explicit `CLOSE_REQ` at
   the next `commit()`/`rollback()`: CAS frees it in that `END_TRAN`.

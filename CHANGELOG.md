@@ -90,15 +90,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   reports statement pooling, an autocommit `close()` or re-`execute()` and,
   in any mode, a cursor collected without `close()` queue the handle id, and the
   next `PREPARE_AND_EXECUTE` carries it as an extra prepare argument that CAS
-  frees before preparing (JDBC deferred close). Measured live, sync and async:
+  frees before preparing (the wire mechanism of JDBC's deferred close; unlike
+  JDBC, which closes SELECT/CALL/EVALUATE handles at once, result-set handles
+  are deferred too). Measured live, sync and async:
   5000 unclosed SELECTs keep the handle id at 1-2 with no restart; a SELECT then
   `close()` takes 2 requests (1 `CHECK_CAS`) instead of 4 (2 `CHECK_CAS`); a reused
-  cursor's SELECT then INSERT takes 5 requests instead of 8. The queue holds at
-  most 256 ids (an explicit release beyond that sends `CLOSE_REQ` at once), belongs
+  cursor's SELECT then INSERT takes 5 requests instead of 8. One statement
+  carries at most 256 ids (an explicit release while 256 are queued sends
+  `CLOSE_REQ` at once; collected cursors ride on later statements), and
+  `commit()`/`rollback()` close every id still queued with `CLOSE_REQ`, as they
+  closed unreferenced cursors before. The queue belongs
   to one physical session and is dropped when that session is retired or
   replaced, so no stale id is sent after a reconnect. Probes are unchanged, and a
   request with queued ids is never replayed. Each handle keeps the generation of
-  the session that opened it, session setup never defers, and a shard proxy
+  the session that opened it, explicit releases during session setup are never
+  deferred, and a shard proxy
   (which ignores the extra arguments) keeps immediate `CLOSE_REQ`. Without
   statement pooling CAS frees
   handles at every commit, so `CLOSE_REQ` is still sent at once and a collected

@@ -83,7 +83,8 @@ confirmed CAS/transport failure; arbitrary SQL is never replayed automatically.
 Commit/rollback CLOSE_REQ open cursor handles before END_TRAN.
 With broker statement pooling on, autocommit releases (and cursors collected
 without close) queue their handle ids for the next FC41's extra prepare
-arguments (JDBC deferred close, #488): bounded, per physical generation, dropped
+arguments (JDBC's wire mechanism, but result-set handles too, #488): at most 256
+per statement, per physical generation, CLOSE_REQ'd at commit/rollback, dropped
 on session retirement; pooling off keeps immediate CLOSE_REQ (CAS frees handles
 at commit, so ids may be reused).
 With `no_backslash_escapes` unset, probe each newly opened physical session
