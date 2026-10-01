@@ -412,7 +412,7 @@ def test_recv_exact_sync_returns_bytes_and_raises_on_eof() -> None:
 def test_probe_sync_replays_handshake_and_wraps_socket(monkeypatch: pytest.MonkeyPatch) -> None:
     """On the no-redirect path the sync probe must (1) replay the
     plaintext ``CUBRS`` handshake, (2) when the broker returns 0 (no
-    redirect), proceed straight to :meth:`ssl.SSLContext.wrap_socket`
+    redirect), proceed straight to the TLS handshake (#535: over ``wrap_bio``)
     on the same socket. Skipping step 1 would have the broker reject
     raw TLS bytes; skipping step 2 would defeat the verification probe
     entirely."""
@@ -422,9 +422,8 @@ def test_probe_sync_replays_handshake_and_wraps_socket(monkeypatch: pytest.Monke
         "pycubrid.aio.connection.socket.create_connection", MagicMock(return_value=raw_sock)
     )
 
-    ssock = MagicMock(name="ssock")
     ctx = MagicMock(spec=ssl_module.SSLContext)
-    ctx.wrap_socket = MagicMock(return_value=ssock)
+    ctx.wrap_bio = MagicMock(return_value=MagicMock(name="tls"))
 
     AsyncConnection._probe_tls_verification_sync(
         "broker.example.com",
@@ -435,25 +434,25 @@ def test_probe_sync_replays_handshake_and_wraps_socket(monkeypatch: pytest.Monke
         5.0,
     )
 
-    ctx.wrap_socket.assert_called_once_with(raw_sock, server_hostname="broker.example.com")
-    ssock.close.assert_called_once_with()
-    raw_sock.sendall.assert_called_once()
-    sent = raw_sock.sendall.call_args.args[0]
+    ctx.wrap_bio.assert_called_once()
+    assert ctx.wrap_bio.call_args.kwargs == {"server_hostname": "broker.example.com"}
+    ctx.wrap_bio.return_value.do_handshake.assert_called_once_with()
+    raw_sock.close.assert_called_once_with()
+    sent = raw_sock.sendall.call_args_list[0].args[0]
     assert b"CUBRS" in sent, "TLS-requested handshake replay must use CUBRS magic"
 
 
 def test_probe_sync_no_replay_when_followed_redirect(monkeypatch: pytest.MonkeyPatch) -> None:
     """When the real connection already followed a broker redirect, the
-    probe must skip the CUBRS handshake replay and call wrap_socket on
-    the already-TLS-expecting worker port directly."""
+    probe must skip the CUBRS handshake replay and start TLS on the
+    already-TLS-expecting worker port directly."""
     raw_sock = MagicMock(name="raw_sock")
     monkeypatch.setattr(
         "pycubrid.aio.connection.socket.create_connection", MagicMock(return_value=raw_sock)
     )
 
-    ssock = MagicMock(name="ssock")
     ctx = MagicMock(spec=ssl_module.SSLContext)
-    ctx.wrap_socket = MagicMock(return_value=ssock)
+    ctx.wrap_bio = MagicMock(return_value=MagicMock(name="tls"))
 
     AsyncConnection._probe_tls_verification_sync(
         "broker.example.com",
@@ -464,24 +463,30 @@ def test_probe_sync_no_replay_when_followed_redirect(monkeypatch: pytest.MonkeyP
         5.0,
     )
 
-    raw_sock.sendall.assert_not_called()
-    ctx.wrap_socket.assert_called_once_with(raw_sock, server_hostname="broker.example.com")
+    assert all(b"CUBRS" not in c.args[0] for c in raw_sock.sendall.call_args_list)
+    raw_sock.recv.assert_not_called()
+    ctx.wrap_bio.return_value.do_handshake.assert_called_once_with()
+    raw_sock.close.assert_called_once_with()
 
 
 def test_probe_sync_follows_broker_redirect_during_replay(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the broker returns ``new_connection_port > 0`` during the
     replay, the probe must close the first socket, reconnect to the
-    redirected worker port, and wrap **that** socket. Otherwise it
-    would TLS-wrap the broker port that just told it to go elsewhere."""
+    redirected worker port, and run TLS on **that** socket. Otherwise it
+    would start TLS on the broker port that just told it to go elsewhere."""
     first_sock = MagicMock(name="first_sock")
     first_sock.recv = MagicMock(side_effect=[struct.pack(">i", 33101)])
     second_sock = MagicMock(name="second_sock")
     create = MagicMock(side_effect=[first_sock, second_sock])
     monkeypatch.setattr("pycubrid.aio.connection.socket.create_connection", create)
 
-    ssock = MagicMock(name="ssock")
+    tls = MagicMock(name="tls")
     ctx = MagicMock(spec=ssl_module.SSLContext)
-    ctx.wrap_socket = MagicMock(return_value=ssock)
+    ctx.wrap_bio = MagicMock(return_value=tls)
+    # The first handshake step wants the server's reply: the ClientHello must
+    # go out on the redirected socket and the reply must be read from it.
+    tls.do_handshake = MagicMock(side_effect=[ssl_module.SSLWantReadError(), None])
+    second_sock.recv = MagicMock(return_value=b"server-flight")
 
     AsyncConnection._probe_tls_verification_sync(
         "broker.example.com",
@@ -495,12 +500,15 @@ def test_probe_sync_follows_broker_redirect_during_replay(monkeypatch: pytest.Mo
     assert create.call_args_list[0].args[0] == ("broker.example.com", 33000)
     assert create.call_args_list[1].args[0] == ("broker.example.com", 33101)
     first_sock.close.assert_called_once_with()
-    ctx.wrap_socket.assert_called_once_with(second_sock, server_hostname="broker.example.com")
+    first_sock.sendall.assert_called_once()  # the CUBRS replay only
+    second_sock.recv.assert_called_once()
+    assert tls.do_handshake.call_count == 2
+    second_sock.close.assert_called_once_with()
 
 
 def test_probe_sync_returns_on_broker_negative_status(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the broker rejects the handshake (``new_connection_port < 0``)
-    the probe must return cleanly without attempting wrap_socket — the
+    the probe must return cleanly without starting TLS — the
     rejection is a non-TLS problem and must be surfaced by the real
     handshake, not by the probe."""
     raw_sock = MagicMock(name="raw_sock")
@@ -510,7 +518,7 @@ def test_probe_sync_returns_on_broker_negative_status(monkeypatch: pytest.Monkey
     )
 
     ctx = MagicMock(spec=ssl_module.SSLContext)
-    ctx.wrap_socket = MagicMock()
+    ctx.wrap_bio = MagicMock()
 
     AsyncConnection._probe_tls_verification_sync(
         "broker.example.com",
@@ -521,12 +529,12 @@ def test_probe_sync_returns_on_broker_negative_status(monkeypatch: pytest.Monkey
         5.0,
     )
 
-    ctx.wrap_socket.assert_not_called()
+    ctx.wrap_bio.assert_not_called()
     raw_sock.close.assert_called_once_with()
 
 
 def test_probe_sync_propagates_ssl_verification_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cert verification failure inside ``wrap_socket`` must propagate as
+    """Cert verification failure inside the TLS handshake must propagate as
     ``ssl.SSLError`` so the caller chain wraps it as
     ``OperationalError`` — the entire point of the workaround."""
     raw_sock = MagicMock(name="raw_sock")
@@ -536,7 +544,8 @@ def test_probe_sync_propagates_ssl_verification_failure(monkeypatch: pytest.Monk
 
     boom = ssl_module.SSLError("CERTIFICATE_VERIFY_FAILED")
     ctx = MagicMock(spec=ssl_module.SSLContext)
-    ctx.wrap_socket = MagicMock(side_effect=boom)
+    ctx.wrap_bio = MagicMock(return_value=MagicMock(name="tls"))
+    ctx.wrap_bio.return_value.do_handshake = MagicMock(side_effect=boom)
 
     with pytest.raises(ssl_module.SSLError) as excinfo:
         AsyncConnection._probe_tls_verification_sync(

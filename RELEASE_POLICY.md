@@ -247,6 +247,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Sync TLS handshake bound without `read_timeout`; 3.10 probe socket closed
+  (#535)** — PATCH / correction of a hang and a resource leak. Without
+  `read_timeout`, the sync TLS handshake now fails with `OperationalError` after
+  10 seconds instead of waiting forever, matching the async
+  `ssl_handshake_timeout` default; requests after the handshake are still
+  unbounded. The Python 3.10 async preflight probe closes its socket on a peer
+  reset instead of leaving it to the garbage collector. `read_timeout` and
+  `connect_timeout` semantics, successful TLS connects, public signatures,
+  dependencies and supported versions are unchanged.
+
 - **Deferred CLOSE_REQ for released cursor handles (#488)** — PATCH /
   performance and resource-leak correction in both drivers, with no public API,
   dependency or supported-version change. On a broker with statement pooling,
