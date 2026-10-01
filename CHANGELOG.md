@@ -107,6 +107,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   MULTISET column drops duplicates while a SEQUENCE value keeps them.
 
 ### Changed
+- **Faster FETCH row parsing (#559)** — a new offline microbenchmark,
+  `tests/test_bench_fetch_parsing.py` (2000-row scalar, text, mixed and
+  collection replies), guided two changes to the common row loop. The SET
+  conversion now runs only for SET columns, because every other type returned
+  the value unchanged. Each cell's size word is read inline instead of through
+  a method call. Median parse time drops by 13–23% for the scalar, text, mixed
+  and raw-collection workloads and by 5–6% for decoded collections (CPython
+  3.10, two runs); peak allocation is unchanged. Parsed values, errors and malformed-reply handling are unchanged. A
+  differential run of the old and new parser over 10,490 seed, truncated and
+  byte-mutated FETCH replies gave identical rows and identical exception types
+  and messages. Without `--benchmark-enable`, the benchmark runs only as a
+  correctness check.
 - **Internal: explicit per-reply session verification and one escape-mode policy (#525)** —
   refactor with no behavior change in either driver. Whether an OUT_TRAN reply
   still needed a `CHECK_CAS` probe was decided by comparing CAS_INFO object

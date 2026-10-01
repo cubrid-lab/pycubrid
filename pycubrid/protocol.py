@@ -31,7 +31,14 @@ from .exceptions import (
     OperationalError,
     ProgrammingError,
 )
-from .packet import PacketReader, PacketWriter, _codec_label, _decode_text, _encode_text
+from .packet import (
+    _STRUCT_INT,
+    PacketReader,
+    PacketWriter,
+    _codec_label,
+    _decode_text,
+    _encode_text,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1023,6 +1030,9 @@ def _parse_row_data(
     _null_type = CUBRIDDataType.NULL
     _oid_size = DataSize.OID
     _get = _TYPE_METHOD_NAMES.get
+    _unpack_int = _STRUCT_INT.unpack_from
+    _int_size = DataSize.INT
+    buffer = reader._buffer
     _getattr = getattr
 
     if is_call_type or _null_type in col_types:
@@ -1037,6 +1047,9 @@ def _parse_row_data(
     # size past the end of the reply, or one that disagrees with the type's
     # width, was silently accepted; check it before reading (#383, #523).
     widths = [_FIXED_CELL_WIDTHS.get(ct) for ct in col_types]
+    # Only a SET column converts its value (#559): every other type returns the
+    # value unchanged from _convert_collection_value, so skip that call.
+    converts = [ct == CUBRIDDataType.SET for ct in col_types]
 
     rows: list[tuple[Any, ...]] = []
     _rows_append = rows.append
@@ -1049,12 +1062,18 @@ def _parse_row_data(
             row: list[Any] = [None] * ncols
             if col_readers is not None:
                 for i in range(ncols):
-                    size = _parse_int()
+                    # Inline _parse_int(): one call frame less per cell (#559).
+                    offset = reader._offset
+                    size = _unpack_int(buffer, offset)[0]
+                    reader._offset = offset + _int_size
                     if size > 0:
                         width = widths[i]
                         if width is not None and (size != width if width > 0 else size < -width):
                             raise _cell_size_mismatch(col_types[i], size)
-                        row[i] = _convert_collection_value(col_types[i], col_readers[i](size))
+                        value = col_readers[i](size)
+                        row[i] = (
+                            _convert_collection_value(col_types[i], value) if converts[i] else value
+                        )
             else:
                 for i in range(ncols):
                     size = _parse_int()
