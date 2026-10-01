@@ -83,6 +83,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Negative FC41 column metadata lengths and column counts are rejected
+  (#555)** — a `PREPARE_AND_EXECUTE` reply whose column name, real name, table
+  name or default length was negative decoded that field as an empty string,
+  and a negative column count decoded as a result with no columns, although
+  `PREPARE` (FC2) and refreshed `EXECUTE` (FC3) metadata already rejected both.
+  The shared column-metadata parser now checks every length and the column
+  count before reading, so such a reply raises `OperationalError('malformed
+  response from broker')` on the sync and async connections and closes the
+  connection, like other framing damage (#383, #533). A normal server does not
+  send such replies. Zero-length metadata, valid FC2/FC3/FC41 replies and the
+  session-keeping `DataError` for a complete reply (#492, #512) are unchanged.
 - **Invalid JSON text in a complete reply raises `DataError` (#543)** — a
   `JSON` column value that is not valid JSON, decoded with
   `json_deserializer=json.loads`, raised `json.JSONDecodeError` — a
