@@ -7834,6 +7834,13 @@ time). `docs-sync.yml` runs `test_docs_reason.py` with a bare
 when it is missing — the marker would be meaningless there anyway. A module
 only ever run through pytest does not need this guard.
 
+Pure scalar-formatting cases live in `tests/test_param_security.py`'s shared
+golden matrix, which checks both backslash modes without a connection (#563).
+`tests/test_aio_cursor_parity.py` keeps small sync/async format/bind adapter
+checks, including rejection before escape-mode negotiation. Ordinary recovery
+tests prefer observable bound SQL and replay sessions; generation fences,
+malformed replies and other unobservable safety invariants remain white-box tests.
+
 ### Sync/Async Replay Parity
 
 `tests/test_replay_parity.py` checks, offline and in a few seconds, that the
