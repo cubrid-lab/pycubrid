@@ -722,65 +722,99 @@ assets; pinning its caller is not a complete freeze of those assets.
 
 ### PR verification cost (#564)
 
-Measured from real `ci.yml` runs (GitHub REST `actions/runs/{id}/jobs`,
-per-job `started_at`/`completed_at`), not estimates. Baseline run: a
-code-touching PR exercising every lane (push/PR event, all path filters
-true) on 2026-10-01 — [run 36929613502](https://github.com/cubrid-lab/pycubrid/actions/runs/36929613502),
-`run_duration_ms` 306,000 (≈5m06s wall clock).
+Measured from real `ci.yml` runs (GitHub REST `/actions/runs/{id}/timing`
+`run_duration_ms`, and job-step `started_at`/`completed_at`), not estimates.
+The ordinary run object omits `run_duration_ms`; the `/timing` endpoint
+provides it. Baseline code PR:
+[run 36929613502](https://github.com/cubrid-lab/pycubrid/actions/runs/36929613502),
+2026-10-01, 306s (5m06s), with all integration paths selected. A separate
+docs-only example, [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)
+(`RELEASING.md` only), took 419s in
+[run 36865409050](https://github.com/cubrid-lab/pycubrid/actions/runs/36865409050):
+all four code/TLS-gated integration jobs skipped and doc-lint passed. Its
+`detect-changes` job did not start until about three minutes after the workflow,
+so that elapsed time mainly illustrates queue variance, not a cache comparison.
 
 | Job group | Jobs | Wall time (longest job) | Notes |
 |---|---|---|---|
-| `offline-tests` matrix | 10 (2 OS × 5 Python) | 78s–124s | Dominant job *count*; macOS jobs consistently run 15–40% longer than Linux at the same Python version. |
-| `integration-tests` / `integration-charset` / `integration-tls` / `official-differential` | 5 | 65s–118s | Each pays ~20–30s for `Initialize containers` (Docker pulling `cubrid/cubrid:*`) plus ~18–25s reinstalling `pycubrid[dev]`. |
-| `repo-tooling-tests` matrix | 2 (ubuntu, macos) | 32s–51s | Runs the same `pip install -e ".[dev]"` a second time per OS. |
-| `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9s–24s | Each also reinstalls dependencies from a cold cache. |
+| `offline-tests` matrix | 10 (2 OS × 5 Python) | 78s–124s | Editable dev installs took 11–23s; macOS was 9–51% slower than Linux by Python version in this one run, not a stable ratio. |
+| `integration-tests` / `integration-charset` / `integration-tls` / `official-differential` | 5 jobs, 6 CUBRID containers | 65s–118s | Service-container initialization took 15–41s where present; TLS starts Docker inside its own step. Editable dev installs took 17–22s. |
+| `repo-tooling-tests` matrix | 2 (ubuntu, macos) | 32s–51s | Editable dev installs took 14–15s. |
+| `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9s–24s | Lint/typecheck install dev tools; compat installs the package only (3s), packaging installs `build` (2s). |
 | `doc-lint` (reusable) | path-gated on docs changes | 2s–8s per sub-step | Skips entirely when no Markdown/`docs/**` changed. |
 
-Critical path = `detect-changes` → the slowest `offline-tests` matrix cell →
-`packaging-smoke-test` (needs all of `offline-tests`) → the slowest
-container-based job → `ci-gate`, all serialized by the `needs:` graph; every
-other job runs in parallel within that spine.
+The `needs:` graph has parallel roots: `detect-changes`, the offline matrix,
+lint, typecheck, repository tooling and compat-check. In the baseline run,
+offline jobs started *before* `detect-changes` finished. Packaging waits for
+all offline cells; the container-based jobs then wait for packaging, offline,
+lint, typecheck and `detect-changes`, and `ci-gate` waits for their results.
+Queue time and the slowest prerequisite branch also affect workflow elapsed
+time; a simple sum of job durations is not the critical path.
 
-**Dominant, fixable cost**: every one of the ~20 jobs in `ci.yml` ran its own
-cold `pip install -e ".[dev]"` (or `-e .`), independently, with no dependency
-cache — 15–25s of that per job, every run, every PR
-(`actions/setup-python` offered a built-in `cache: pip` input that `ci.yml`
-never used). This is the "duplicate setup" cost called out in #564/#566;
-Docker image pulls for the CUBRID service containers are a comparable cost
-but are not safely cacheable with the tooling already in this repo (no
-registry mirror), so they are left for a future issue rather than touched
-here.
+**Fixable setup cost**: the baseline expanded to 21 jobs using
+`actions/setup-python`; 19 performed an editable dev install, while compat
+installed `-e .` and packaging installed `build`. Each job still needs its
+own install. The new `cache: pip` input caches pip's global download cache,
+**not** the installed environment. Its key includes OS, Python version and
+the dependency-file hash: matching OS/Python jobs can reuse downloads once a
+cache is saved, including on later runs, but distinct matrix cells do not
+share a single cache. Concurrent first-run jobs can all miss. See the
+[setup-python caching guide](https://github.com/actions/setup-python#caching-packages-dependencies).
+The first changed-head run had a pip cache miss for Ubuntu/Python 3.10 and
+saved the cache afterward; it took 328s versus the 306s baseline. That cold
+run does **not** demonstrate an overall speedup. Docker startup is also a
+substantial cost and remains unchanged here.
 
 **Path-filter trigger audit**: spot-checked `detect-changes` outputs against
-actual job results across five recent PR runs.
-[PR #595](https://github.com/cubrid-lab/pycubrid/pull/595) (collection-error
-fix, no TLS-relevant paths touched) correctly produced a `skipped`
-`integration-tls` job while `integration-tests`, `integration-charset` and
-`official-differential` ran — the `tls:`/`code:` filters already gate
-correctly and `ci-gate` already accepts `skipped` only for these path-gated
-jobs (confirmed by reading `ci-gate`'s job-result checks, unchanged here).
+actual job results across recent PR runs.
+[PR #597](https://github.com/cubrid-lab/pycubrid/pull/597), which fixes
+[issue #595](https://github.com/cubrid-lab/pycubrid/issues/595) without
+touching TLS paths, produced a `skipped` `integration-tls` job in
+[run 36879861578](https://github.com/cubrid-lab/pycubrid/actions/runs/36879861578),
+while both regular integration cells, charset and official differential
+passed. Docs-only [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)
+skipped all four code/TLS-gated integration jobs as intended. The unchanged
+`ci-gate` accepts `skipped` only for these path-gated jobs, not a failed or
+cancelled one.
 The audit found one real gap: `scripts/wait_for_cubrid.py` is invoked by
 every container-based job (`integration-tests`, `integration-charset`,
 `official-differential`) but was missing from the `code:` filter list, so a
-PR touching only that script would have skipped all integration coverage
-before merge. Added to `code:` — this only *adds* coverage, it cannot
-produce a new skip.
+PR touching only that script would have skipped all code-gated integration
+coverage before merge. Added to `code:` and locked by a repository-tooling
+test, so this only *adds* coverage and cannot produce a new skip.
+
+The failure gate also has real evidence: in
+[run 36776514307](https://github.com/cubrid-lab/pycubrid/actions/runs/36776514307),
+a claimed official behavior comparison failed and the `CI Gate` failed.
+A repository-tooling test now executes the unchanged gate shell with synthetic
+`failure`/`cancelled` official and integration results; each exits nonzero,
+while expected docs-only skips pass. Neither the official comparison nor the
+gate was weakened.
 
 **Changes made** (both additive/safe; no job removed, no coverage reduced, no
 required check or branch-protection context touched, `ci-gate`'s
 pass/fail logic for skipped vs. failed/cancelled required jobs is unchanged):
 
 1. `cache: pip` + `cache-dependency-path: pyproject.toml` added to every
-   `actions/setup-python` step in `ci.yml` (10 steps), so repeated installs
-   across the Python/OS matrix reuse pip's download cache instead of
-   re-fetching the same wheels every job.
+   `actions/setup-python` step in `ci.yml` (10 YAML steps, 21 expanded jobs).
+   Jobs with a matching OS/Python/cache key can reuse downloaded wheels once
+   an earlier job or run has saved them; the editable install still runs.
 2. `scripts/wait_for_cubrid.py` added to the `code:` path filter (closes the
    gap above).
 
-**After**: re-measured from this PR's own `ci.yml` run(s) — see the PR
-description for the before/after numbers once CI has run with the change
-(first run populates the cache; a second push/rerun shows the warm-cache
-timing).
+**After**: this PR's first changed-head run,
+[36932083505 attempt 1](https://github.com/cubrid-lab/pycubrid/actions/runs/36932083505),
+missed the Ubuntu/Python 3.10 pip cache and saved it afterward. Its elapsed
+time was about 328s, *longer* than the 306s baseline. One rerun of the
+same head (attempt 2) logged a cache hit and successful restore for that
+OS/Python key and finished in 295s by `/timing`: 11s (about 3.6%) below
+the baseline and about 33s below its cold attempt. Across the same 19
+editable-dev install steps, the sum of per-job durations was 321s baseline,
+275s cold and 266s warm. Those jobs overlap, so their sum is **not**
+wall-clock time saved; individual installs varied (the warm lint install
+was slower). The observed result supports a modest, targeted setup gain,
+not a guaranteed per-PR speedup or proof that the cache alone caused the
+workflow-level difference. Runner queue and Docker startup also varied.
 
 ---
 

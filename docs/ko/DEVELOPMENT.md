@@ -622,62 +622,96 @@ main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 �
 
 ### PR 검증 비용 (#564)
 
-실제 `ci.yml` 실행(GitHub REST `actions/runs/{id}/jobs`, 작업별
-`started_at`/`completed_at`)에서 측정한 값이며 추정치가 아닙니다. 기준 실행:
-모든 레인이 실행되는(푸시/PR 이벤트, 모든 경로 필터 true) 코드 변경 PR,
-2026-10-01 — [실행 36929613502](https://github.com/cubrid-lab/pycubrid/actions/runs/36929613502),
-`run_duration_ms` 306,000 (약 5분 6초의 실제 경과 시간).
+실제 `ci.yml` 실행(GitHub REST `/actions/runs/{id}/timing`의
+`run_duration_ms`와 작업 단계별 `started_at`/`completed_at`)에서 측정한
+값이며 추정치가 아닙니다. 일반 실행 응답에는 `run_duration_ms`가 없고
+`/timing` 응답에 있습니다. 코드 변경 기준 실행
+[36929613502](https://github.com/cubrid-lab/pycubrid/actions/runs/36929613502)은
+2026-10-01에 모든 통합 경로가 선택되어 306초(5분 6초) 걸렸습니다.
+문서만 변경한 [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)
+(`RELEASING.md`만 변경)의
+[실행 36865409050](https://github.com/cubrid-lab/pycubrid/actions/runs/36865409050)은
+419초였고 코드/TLS 경로 게이팅 통합 작업 4개가 모두 건너뛰어졌으며
+문서 린트는 통과했습니다. 이 실행의 `detect-changes`는 시작 후 약 3분이
+지나서야 실행되어 대기열 변동을 보여줄 뿐, 캐시 비교 기준은 아닙니다.
 
 | 작업 그룹 | 작업 수 | 실행 시간 (가장 느린 작업) | 비고 |
 |---|---|---|---|
-| `offline-tests` 매트릭스 | 10 (OS 2종 × Python 5종) | 78초–124초 | 작업 *개수*의 지배적 비중; 같은 Python 버전에서도 macOS 작업이 Linux보다 15–40% 더 오래 걸림. |
-| `integration-tests` / `integration-charset` / `integration-tls` / `official-differential` | 5 | 65초–118초 | 각 작업이 `Initialize containers`(Docker의 `cubrid/cubrid:*` 풀)에 약 20–30초, `pycubrid[dev]` 재설치에 약 18–25초를 소비. |
-| `repo-tooling-tests` 매트릭스 | 2 (ubuntu, macos) | 32초–51초 | OS당 동일한 `pip install -e ".[dev]"`를 한 번 더 실행. |
-| `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9초–24초 | 각각 캐시 없이 의존성을 다시 설치. |
+| `offline-tests` 매트릭스 | 10 (OS 2종 × Python 5종) | 78초–124초 | 개발용 editable 설치는 11–23초. 이 한 실행에서 macOS는 같은 Python의 Linux보다 9–51% 느렸으며 일정한 비율은 아님. |
+| `integration-tests` / `integration-charset` / `integration-tls` / `official-differential` | 작업 5개, CUBRID 컨테이너 6개 | 65초–118초 | 서비스 컨테이너 초기화 단계가 있는 작업에서는 15–41초, 개발용 editable 설치는 17–22초. TLS는 자체 단계에서 Docker를 시작함. |
+| `repo-tooling-tests` 매트릭스 | 2 (ubuntu, macos) | 32초–51초 | 개발용 editable 설치는 14–15초. |
+| `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9초–24초 | lint/typecheck는 개발 도구, compat는 패키지만 설치(3초), packaging은 `build` 설치(2초). |
 | `doc-lint` (재사용 워크플로) | 문서 변경 시에만 경로 게이팅 | 하위 단계당 2초–8초 | 문서(`docs/**`)/Markdown 변경이 없으면 전부 건너뜀. |
 
-크리티컬 패스 = `detect-changes` → 가장 느린 `offline-tests` 매트릭스 셀 →
-`packaging-smoke-test`(모든 `offline-tests` 필요) → 가장 느린 컨테이너 기반
-작업 → `ci-gate` 순으로 `needs:` 그래프에 의해 직렬화되며, 그 외 작업은 이
-축을 따라 병렬로 실행됩니다.
+`needs:` 그래프의 시작점은 `detect-changes`, 오프라인 매트릭스, lint,
+typecheck, 저장소 도구 검사, compat-check로 병렬입니다. 기준 실행에서는
+오프라인 작업들이 `detect-changes` 완료 *전*에 시작했습니다. Packaging은
+모든 오프라인 셀을 기다리고, 컨테이너 기반 작업은 packaging, 오프라인,
+lint, typecheck, `detect-changes`를 기다린 뒤 시작하며 `ci-gate`는 그
+결과를 기다립니다. 대기열 시간과 가장 느린 선행 분기도 전체 경과 시간에
+영향을 주므로 작업 시간을 단순 합산한 값이 크리티컬 패스는 아닙니다.
 
-**지배적이고 고칠 수 있는 비용**: `ci.yml`의 약 20개 작업 전부가 의존성
-캐시 없이 각자 `pip install -e ".[dev]"`(또는 `-e .`)를 콜드 상태로
-실행했습니다 — 작업당 15–25초, 모든 실행, 모든 PR마다
-(`actions/setup-python`이 기본 제공하는 `cache: pip` 입력을 `ci.yml`이 쓰지
-않고 있었습니다). 이것이 #564/#566에서 지적한 "중복 설치" 비용입니다.
-CUBRID 서비스 컨테이너의 Docker 이미지 풀도 비슷한 비용이지만, 이 저장소에
-이미 있는 도구로는 안전하게 캐시할 수 없어(레지스트리 미러 없음) 여기서는
-건드리지 않고 별도 이슈로 남겨둡니다.
+**줄일 수 있는 설치 비용**: 기준 실행에서는 `actions/setup-python`을 쓰는
+확장 작업이 21개였고, 그중 19개가 개발용 editable 설치를 했습니다.
+compat는 `-e .`, packaging은 `build`만 설치합니다. 각 작업의 설치
+자체는 계속 필요합니다. 새 `cache: pip`는 설치된 환경이 아니라 pip의
+전역 **다운로드 캐시**를 저장합니다. 키에는 OS, Python 버전, 의존성
+파일 해시가 포함되므로 일치하는 OS/Python 작업은 먼저 저장된 캐시를
+같은 실행의 후속 작업이나 이후 실행에서 재사용할 수 있지만, 다른 매트릭스
+셀 사이에 하나의 캐시가 공유되지는 않습니다. 첫 실행의 동시 작업은 모두
+캐시를 놓칠 수 있습니다. [setup-python 캐시 설명](https://github.com/actions/setup-python#caching-packages-dependencies)을
+참조하세요. 변경 헤드의 첫 실행은 Ubuntu/Python 3.10 pip 캐시를 찾지
+못해 나중에 저장했고, 기준 306초보다 긴 328초가 걸렸습니다. 이 콜드
+실행은 전체 속도 향상을 보여주지 않습니다. Docker 시작 비용도 그대로입니다.
 
-**경로 필터 트리거 감사**: 최근 PR 실행 5건에서 `detect-changes` 출력과 실제
-작업 결과를 대조했습니다. [PR #595](https://github.com/cubrid-lab/pycubrid/pull/595)
-(TLS 관련 경로를 건드리지 않은 컬렉션 오류 수정)는 `integration-tls` 작업을
-정확히 `skipped`로 만들었고, `integration-tests`, `integration-charset`,
-`official-differential`은 실행되었습니다 — `tls:`/`code:` 필터는 이미
-정확하게 게이팅하고 있고, `ci-gate`도 이런 경로 게이팅 작업에 한해서만
-`skipped`를 허용합니다(`ci-gate`의 작업 결과 검사 코드를 직접 확인했으며
-이번에 변경하지 않았습니다). 감사에서 실제 공백을 하나 발견했습니다:
+**경로 필터 트리거 감사**: 최근 PR 실행에서 `detect-changes` 출력과 실제
+작업 결과를 대조했습니다. [이슈 #595](https://github.com/cubrid-lab/pycubrid/issues/595)를
+해결한 [PR #597](https://github.com/cubrid-lab/pycubrid/pull/597)은 TLS
+관련 경로를 건드리지 않았고,
+[실행 36879861578](https://github.com/cubrid-lab/pycubrid/actions/runs/36879861578)에서
+`integration-tls`는 `skipped`, 일반 통합 2셀·charset·official
+differential은 성공했습니다. 문서 전용 PR #587에서는 코드/TLS로 경로
+게이팅된 통합 작업 4개가 모두 의도대로 건너뛰어졌습니다. 변경하지 않은
+`ci-gate`는 이들 작업의 `skipped`만 허용하고 실패/취소는 허용하지
+않습니다. 감사에서 실제 공백을 하나 발견했습니다:
 `scripts/wait_for_cubrid.py`는 컨테이너 기반 작업
 (`integration-tests`, `integration-charset`, `official-differential`)
 전부가 호출하는데도 `code:` 필터 목록에 빠져 있어, 이 스크립트만 변경하는
-PR은 병합 전 통합 커버리지를 전부 건너뛸 수 있었습니다. `code:`에 추가했으며
-— 이는 커버리지를 *추가*할 뿐이므로 새로운 skip을 만들어낼 수 없습니다.
+PR은 병합 전 코드 경로의 통합 커버리지를 전부 건너뛸 수 있었습니다.
+`code:`에 추가하고 저장소 도구 회귀 테스트로 잠갔으며, 이는 커버리지를
+*추가*할 뿐이므로 새로운 skip을 만들지 않습니다.
+
+실제 실패 전파 증거도 있습니다.
+[실행 36776514307](https://github.com/cubrid-lab/pycubrid/actions/runs/36776514307)에서
+공식 드라이버와의 공개 동작 비교가 실패했고 `CI Gate`도 실패했습니다.
+추가한 저장소 도구 테스트는 변경하지 않은 게이트 셸을 직접 실행하여
+official/일반 통합/charset/TLS 결과의 `failure`와 `cancelled`에서 모두
+0이 아닌 종료 코드를, 문서 전용 경로의 예상 `skipped`에서는 성공을
+확인합니다. 공식 비교나 게이트 자체는 완화하지 않았습니다.
 
 **변경 사항** (둘 다 추가적/안전한 변경이며, 작업 제거나 커버리지 축소,
 필수 체크나 브랜치 보호 컨텍스트 변경은 없고, 건너뛴 작업과 실패/취소된
 필수 작업을 구분하는 `ci-gate`의 통과/실패 로직은 그대로입니다):
 
-1. `ci.yml`의 모든 `actions/setup-python` 단계(10곳)에
-   `cache: pip` + `cache-dependency-path: pyproject.toml`을 추가하여,
-   Python/OS 매트릭스 전반의 반복 설치가 매번 동일한 wheel을 새로 받는 대신
-   pip 다운로드 캐시를 재사용하도록 했습니다.
+1. `ci.yml`의 모든 `actions/setup-python` 단계(YAML 10곳, 확장 작업
+   21개)에 `cache: pip` + `cache-dependency-path: pyproject.toml`을
+   추가했습니다. 일치하는 OS/Python/캐시 키를 가진 작업은 앞서 저장된
+   wheel 다운로드를 재사용할 수 있지만 editable 설치는 계속 실행합니다.
 2. 위에서 발견한 공백을 메우기 위해 `scripts/wait_for_cubrid.py`를 `code:`
    경로 필터에 추가했습니다.
 
-**이후**: 이 PR 자체의 `ci.yml` 실행에서 다시 측정합니다 — 변경 반영 후의
-전후 수치는 CI가 실행된 뒤 PR 설명에서 확인하세요(첫 실행은 캐시를 채우고,
-이후 재실행/재푸시에서 캐시가 적용된 시간을 보여줍니다).
+**변경 후**: 이 PR의 첫 실행인
+[36932083505 시도 1](https://github.com/cubrid-lab/pycubrid/actions/runs/36932083505)은
+Ubuntu/Python 3.10 pip 캐시를 찾지 못하고 나중에 저장했으며 약 328초가
+걸려 기준 306초보다 느렸습니다. 동일 헤드를 한 번 재실행한 시도 2에서는
+해당 OS/Python 키의 캐시 적중·복원을 로그에서 확인했고, `/timing` 기준
+295초였습니다. 기준보다 11초(약 3.6%), 콜드 시도보다 약 33초 짧습니다.
+같은 개발용 editable 설치 19개의 작업별 시간 합은 기준 321초,
+콜드 275초, 웜 266초였습니다. 작업이 병렬로 겹치므로 이 합을 실제
+경과 시간 절감으로 해석할 수 없고 개별 설치의 변동도 있었습니다(웜
+lint 설치는 오히려 느림). 관측값은 제한적인 설치 비용 개선을 뒷받침하지만
+매 PR의 속도 향상을 보장하거나 전체 차이가 캐시만의 효과임을 증명하지는
+않습니다. 러너 대기열과 Docker 시작 시간도 변동했습니다.
 
 ---
 
