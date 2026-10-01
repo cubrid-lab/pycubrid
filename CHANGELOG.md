@@ -99,13 +99,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the setup gate re-raised the setup owner's exception instance, so cancelling
   the task running `connect()` also cancelled every waiting task and appended
   their frames to one shared traceback. Each waiter now raises a fresh
-  exception: a pycubrid error keeps its class, `code`, `errno` and `sqlstate`
-  (the original chained as `__cause__`), any other error becomes
-  `OperationalError`, and a cancelled or interrupted setup becomes
+  exception: a pycubrid error keeps its class (or the nearest
+  `pycubrid.exceptions` class when a subclass has a different constructor),
+  `code`, `errno` and `sqlstate` (the original chained as `__cause__`), any
+  other error becomes `OperationalError` naming it by `repr()`, and a cancelled or interrupted setup becomes
   `OperationalError("connection setup was cancelled or interrupted in another
   task; retry operation")`. The setup owner still raises its own exception
   (including `CancelledError`), a waiter's own cancellation is unchanged, and
-  the failed session is still discarded before the gate opens.
+  the failed session is still discarded before the gate opens. This covers
+  `connect()`, including the reconnect of `ping(reconnect=True)`.
 - **Invalid JSON text in a complete reply raises `DataError` (#543)** — a
   `JSON` column value that is not valid JSON, decoded with
   `json_deserializer=json.loads`, raised `json.JSONDecodeError` — a

@@ -1011,8 +1011,9 @@ class AsyncConnection(ConnectionCommonMixin):
         to the setup owner, so re-raising that one instance would cancel every
         waiter when the owner is cancelled and append their frames to a shared
         traceback. A cancelled or interrupted setup becomes
-        :class:`OperationalError`; a pycubrid error is copied with its class,
-        code, errno and sqlstate; any other error is wrapped in
+        :class:`OperationalError`; a pycubrid error is copied with its class
+        (or the nearest :mod:`pycubrid.exceptions` class when a subclass
+        constructor differs), code, errno and sqlstate; any other error is wrapped in
         :class:`OperationalError`. Non-cancellation originals are chained as
         ``__cause__``. A waiter's own cancellation still propagates unchanged.
         """
@@ -1027,13 +1028,33 @@ class AsyncConnection(ConnectionCommonMixin):
                 raise OperationalError(
                     "connection setup was cancelled or interrupted in another task; retry operation"
                 ) from None
-            if isinstance(error, DatabaseError):
-                raise type(error)(error.msg, error.code, error.errno, error.sqlstate) from error
             if isinstance(error, Error):
-                raise type(error)(error.msg, error.code) from error
-            raise OperationalError(
-                f"connection setup failed in another task: {type(error).__name__}: {error}"
-            ) from error
+                raise self._copy_setup_error(error) from error
+            raise OperationalError(f"connection setup failed in another task: {error!r}") from error
+
+    @staticmethod
+    def _copy_setup_error(error: Error) -> Error:
+        """Build a fresh instance of a setup owner's pycubrid error (#554).
+
+        A subclass whose constructor differs from ``Error``/``DatabaseError``
+        is rebuilt as the nearest class defined in :mod:`pycubrid.exceptions`.
+        """
+        msg = getattr(error, "msg", str(error))
+        code = getattr(error, "code", 0)
+        errno = getattr(error, "errno", None)
+        sqlstate = getattr(error, "sqlstate", None)
+        for cls in type(error).__mro__:
+            if not issubclass(cls, Error):
+                break
+            if cls is not type(error) and cls.__module__ != Error.__module__:
+                continue
+            try:
+                if issubclass(cls, DatabaseError):
+                    return cls(msg, code, errno, sqlstate)
+                return cls(msg, code)
+            except Exception:  # noqa: BLE001 - fall back to a pycubrid base class
+                _LOGGER.debug("Cannot rebuild setup error as %s", cls.__name__, exc_info=True)
+        return Error(msg, code)  # pragma: no cover - the loop always reaches Error
 
     async def _send_and_receive(
         self,

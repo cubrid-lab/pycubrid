@@ -189,3 +189,53 @@ async def test_interface_error_setup_failure_keeps_class_for_waiters() -> None:
         assert result.code == 7
         assert result.__cause__ is original
     assert results[0] is not results[1]
+
+
+class _AppOperationalError(OperationalError):
+    """An application subclass outside ``pycubrid.exceptions``."""
+
+
+class _DetailedOperationalError(_AppOperationalError):
+    """A subclass whose constructor differs from ``DatabaseError``."""
+
+    def __init__(self, msg: str, *, detail: str) -> None:
+        super().__init__(msg, -5, errno=-21003, sqlstate="08S01")
+        self.detail = detail
+
+
+@pytest.mark.asyncio
+async def test_subclass_with_other_constructor_falls_back_to_pycubrid_class() -> None:
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+    original = _DetailedOperationalError("probe failed", detail="x")
+    setup = _GatedSetup(conn, error=original)
+    owner, waiters = await _owner_and_waiters(conn, setup)
+
+    setup.release.set()
+    with pytest.raises(_DetailedOperationalError):
+        _ = await owner
+    results = await asyncio.gather(*waiters, return_exceptions=True)
+    for result in results:
+        assert type(result) is OperationalError
+        assert result.msg == "probe failed"
+        assert result.code == -5
+        assert result.errno == -21003
+        assert result.sqlstate == "08S01"
+        assert result.__cause__ is original
+    assert results[0] is not results[1]
+
+
+@pytest.mark.asyncio
+async def test_wrapped_setup_error_with_empty_text_names_its_type() -> None:
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+    original = TimeoutError()
+    setup = _GatedSetup(conn, error=original)
+    owner, waiters = await _owner_and_waiters(conn, setup)
+
+    setup.release.set()
+    with pytest.raises(TimeoutError):
+        _ = await owner
+    results = await asyncio.gather(*waiters, return_exceptions=True)
+    for result in results:
+        assert type(result) is OperationalError
+        assert str(result) == "connection setup failed in another task: TimeoutError()"
+        assert result.__cause__ is original

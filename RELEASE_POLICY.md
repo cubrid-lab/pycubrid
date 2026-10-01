@@ -246,7 +246,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `AsyncConnection.connect()` setup no longer re-raise the owner's exception
   instance: a cancelled setup surfaces in waiters as `OperationalError` instead
   of `CancelledError`, pycubrid errors are re-raised as fresh instances of the
-  same class and codes, and other errors as `OperationalError`. The setup
+  same class (or nearest `pycubrid.exceptions` class) and codes, and other
+  errors as `OperationalError`. The setup
   owner's exception and a waiter's own cancellation are unchanged. No public
   signature, dependency or supported-version change.
 
