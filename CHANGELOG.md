@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   generation/reconnect/native-error/transport-error properties for sync and
   async commit and rollback. Removing the generation filter or flush guards
   now fails these regressions; production behavior and dependencies are unchanged.
+- **Shared scalar-formatting coverage and observable escape recovery (#563)** —
+  Duplicate async scalar examples now use the existing pure-function golden
+  matrix under both escape modes, with small sync/async adapter wiring checks.
+  Explicit-mode recovery cases observe bound SQL and TCP sessions instead of
+  incidental private flags. Hostile inputs, unknown-mode rejection, generation
+  fences and malformed-reply safety tests remain; runtime behavior is unchanged.
 - **`charset` connection option (#86)** — `pycubrid.connect()`,
   `pycubrid.aio.connect()`, `pycubrid.compat.native.connect()` and
   `cubriddb.Connection(charset=...)` (previously `"utf8"` only) accept
@@ -759,6 +765,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and `compat-check` — no CI requirement is weakened or dropped.
   `docs/DEVELOPMENT.md` (and its Korean translation) documents the fast-driver,
   repository-tooling and combined offline commands.
+
+### CI
+- **CI pip download caching and readiness path-filter fix (#564)** —
+  baseline measurements found 19 expanded jobs making separate editable dev
+  installs; `cache: pip` on the 10 `setup-python` YAML steps now permits
+  matching OS/Python jobs to reuse downloaded wheels without skipping the
+  installs. A warm same-head run had an observed cache hit and took 295s,
+  versus a 306s baseline and a 328s cold first attempt; runner and Docker
+  variance prevent attributing the entire difference to caching. Added
+  `scripts/wait_for_cubrid.py` to the `code:` filter so helper-only changes
+  select the required integration and official-differential lanes. A real
+  official comparison failure previously failed `CI Gate`, and new tests
+  preserve that fail-closed behavior and the docs-only skip exception. No
+  job, endpoint, release/nightly gate or required-check context changed.
+  Detailed data and limitations are in `docs/DEVELOPMENT.md`.
 
 ## [1.8.0] - 2026-09-29
 

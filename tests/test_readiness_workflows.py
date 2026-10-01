@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import runpy
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -18,6 +20,84 @@ import pycubrid
 pytestmark = pytest.mark.repo_tooling
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_readiness_helper_change_selects_required_code_lanes() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    filters = workflow.split("          filters: |\n", 1)[1].split("\n  doc-lint:", 1)[0]
+    code_filter = filters.split("            code:\n", 1)[1]
+    assert "              - 'scripts/wait_for_cubrid.py'" in code_filter
+
+    for job in ("integration-tests", "integration-charset", "official-differential"):
+        match = re.search(rf"(?ms)^  {job}:\n(.*?)(?=^  [\w-]+:\n|\Z)", workflow)
+        assert match is not None, job
+        assert "if: needs.detect-changes.outputs.code == 'true'" in match.group(1)
+
+
+def _ci_gate_script(workflow: str) -> str:
+    gate = workflow.split("  ci-gate:\n", 1)[1]
+    assert "R_OFFICIAL: ${{ needs.official-differential.result }}" in gate
+    return textwrap.dedent(gate.split("        run: |\n", 1)[1])
+
+
+@pytest.mark.parametrize("failed_job", ["R_OFFICIAL", "R_INTEGRATION", "R_CHARSET", "R_TLS"])
+@pytest.mark.parametrize("result", ["failure", "cancelled"])
+def test_required_integration_failure_blocks_ci_gate(failed_job: str, result: str) -> None:
+    if shutil.which("bash") is None:
+        pytest.skip("GitHub workflow shell requires bash")
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    statuses = {
+        "R_LINT": "success",
+        "R_TYPECHECK": "success",
+        "R_OFFLINE": "success",
+        "R_REPO_TOOLING": "success",
+        "R_PACKAGING": "success",
+        "R_INTEGRATION": "success",
+        "R_CHARSET": "success",
+        "R_COMPAT": "success",
+        "R_TLS": "success",
+        "R_OFFICIAL": "success",
+    }
+    statuses[failed_job] = result
+    completed = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", _ci_gate_script(workflow)],
+        cwd=ROOT,
+        env={**os.environ, **statuses},
+        text=True,
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert result in completed.stdout
+
+
+def test_docs_only_path_gated_skips_still_pass_ci_gate() -> None:
+    if shutil.which("bash") is None:
+        pytest.skip("GitHub workflow shell requires bash")
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    statuses = {
+        "R_LINT": "success",
+        "R_TYPECHECK": "success",
+        "R_OFFLINE": "success",
+        "R_REPO_TOOLING": "success",
+        "R_PACKAGING": "success",
+        "R_INTEGRATION": "skipped",
+        "R_CHARSET": "skipped",
+        "R_COMPAT": "success",
+        "R_TLS": "skipped",
+        "R_OFFICIAL": "skipped",
+    }
+    completed = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", _ci_gate_script(workflow)],
+        cwd=ROOT,
+        env={**os.environ, **statuses},
+        text=True,
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 @pytest.mark.parametrize("workflow", ["ci.yml", "integration-full.yml"])
