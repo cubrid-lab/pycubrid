@@ -142,6 +142,8 @@ class Scenario:
     results: dict[str, tuple[ResultSet, int]] = field(default_factory=dict)
     options: dict[str, Any] = field(default_factory=dict)
     check: Callable[[Observation], None] = _no_check
+    # broker_info statement pooling the broker reports (#488 defers only then)
+    statement_pooling: int = 0
     # aspect -> reason the drivers are meant to differ there
     intended: dict[str, str] = field(default_factory=dict)
     # A known, not yet fixed divergence: the scenario is a strict xfail.
@@ -323,7 +325,11 @@ class _AsyncReplay:
 
 
 def replay_sync(scenario: Scenario) -> Observation:
-    with run_replay_broker(scenario.script, results=scenario.results) as broker:
+    with run_replay_broker(
+        scenario.script,
+        results=scenario.results,
+        statement_pooling=scenario.statement_pooling,
+    ) as broker:
         driver = _SyncReplay(_options(scenario, broker.port))
         try:
             outcomes = []
@@ -342,7 +348,11 @@ def replay_sync(scenario: Scenario) -> Observation:
 
 def replay_async(scenario: Scenario) -> Observation:
     async def run() -> Observation:
-        with run_replay_broker(scenario.script, results=scenario.results) as broker:
+        with run_replay_broker(
+            scenario.script,
+            results=scenario.results,
+            statement_pooling=scenario.statement_pooling,
+        ) as broker:
             driver = _AsyncReplay(_options(scenario, broker.port))
             try:
                 outcomes = []
@@ -890,6 +900,50 @@ def _check_budget_success(obs: Observation) -> None:
     assert obs.reusable is True, obs.reusable
 
 
+#: REUSED_CURSOR_INSERT_BUDGET on a broker with statement pooling (#488): the
+#: previous INSERT's handle rides on the new PREPARE_AND_EXECUTE as a deferred
+#: close, so its CLOSE_REQ_HANDLE and the CHECK_CAS that gated it are gone.
+#: Every remaining probe stays (none may be skipped as an optimization).
+REUSED_CURSOR_INSERT_POOLED_BUDGET = [
+    "CHECK_CAS",
+    "PREPARE_AND_EXECUTE",
+    "CHECK_CAS",
+    "GET_LAST_INSERT_ID",
+]
+
+#: SELECT_TO_INSERT_BUDGET on a broker with statement pooling (#488): the
+#: SELECT's handle rides on the INSERT, so CLOSE_REQ_HANDLE is gone.
+SELECT_TO_INSERT_POOLED_BUDGET = [
+    "PREPARE_AND_EXECUTE",
+    "CHECK_CAS",
+    "GET_LAST_INSERT_ID",
+]
+
+
+def _deferred_on_step(obs: Observation, step: int) -> list[tuple[int, ...]]:
+    return [
+        r.deferred_closes for r in obs.step_requests[step] if r.function == "PREPARE_AND_EXECUTE"
+    ]
+
+
+def _check_reused_cursor_insert_pooled_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.step_functions(1) == FIRST_INSERT_BUDGET
+    assert obs.step_functions(2) == REUSED_CURSOR_INSERT_POOLED_BUDGET
+    first_handle = [r for r in obs.step_requests[1] if r.function == "PREPARE_AND_EXECUTE"][0]
+    assert first_handle.deferred_closes == ()
+    assert _deferred_on_step(obs, 2) == [(1,)]  # the first INSERT's handle
+
+
+def _check_select_to_insert_pooled_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
+    assert obs.step_functions(1) == ["CHECK_CAS", "PREPARE_AND_EXECUTE"]  # the SELECT
+    assert obs.step_functions(2) == ["FETCH"]
+    assert obs.step_functions(3) == SELECT_TO_INSERT_POOLED_BUDGET
+    assert _deferred_on_step(obs, 3) == [(1,)]  # the SELECT's handle
+
+
 def _check_first_insert_budget(obs: Observation) -> None:
     _check_budget_success(obs)
     assert obs.step_functions(1) == FIRST_INSERT_BUDGET
@@ -1306,6 +1360,27 @@ SCENARIOS: tuple[Scenario, ...] = (
         results=_THREE,
         options={"autocommit": True, "no_backslash_escapes": True},
         check=_check_select_to_insert_budget,
+    ),
+    Scenario(
+        # reused_cursor_insert_round_trip_budget on a pooling broker: the
+        # deferred close (#488) drops CLOSE_REQ_HANDLE and its CHECK_CAS.
+        "reused_cursor_insert_pooled_round_trip_budget",
+        (("open",), ("execute", _INSERT_1), ("execute", _INSERT_2)),
+        script=_autocommit_insert(_INSERT_1, _INSERT_2),
+        options={"autocommit": True, "no_backslash_escapes": True},
+        statement_pooling=1,
+        check=_check_reused_cursor_insert_pooled_budget,
+    ),
+    Scenario(
+        # select_to_insert_round_trip_budget on a pooling broker: the
+        # deferred close (#488) drops CLOSE_REQ_HANDLE.
+        "select_to_insert_pooled_round_trip_budget",
+        (("open",), _SELECT, ("fetchall",), ("execute", _INSERT_1)),
+        script=_autocommit_insert(_INSERT_1),
+        results=_THREE,
+        options={"autocommit": True, "no_backslash_escapes": True},
+        statement_pooling=1,
+        check=_check_select_to_insert_pooled_budget,
     ),
     Scenario(
         # A manual-transaction (autocommit off) INSERT and its explicit
