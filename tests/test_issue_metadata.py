@@ -9,6 +9,8 @@ import pytest
 
 from scripts.check_issue_metadata import main, metadata_gaps
 
+pytestmark = pytest.mark.repo_tooling
+
 _VALID = ("bug", "priority: high", "size: M", "area: protocol")
 
 

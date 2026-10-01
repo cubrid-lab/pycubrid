@@ -2815,9 +2815,23 @@ async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
   collection, raises `ProgrammingError`.
 - A single `str`/`bytes`/`bytearray` argument raises `TypeError`; subclassing
   raises `TypeError`; setting an attribute raises `AttributeError`.
+- A `dict` argument raises `TypeError` for all three classes (its keys would
+  be used silently and its values dropped). `Sequence` additionally raises
+  `TypeError` for a `set`/`frozenset` argument, since its iteration order is
+  not guaranteed; `Set` and `Multiset` accept a `set`/`frozenset`.
+- The instances are safe to `copy.copy()` (always returns the same object),
+  `copy.deepcopy()` (the same object when every element is itself immutable;
+  an independent copy, with independently copied elements, when an element
+  such as `bytearray` is mutable) and `pickle` (round-trips to an equal
+  instance). Re-invoking `__init__` on an existing instance is a no-op and
+  cannot mutate it.
 - Fetched collections are not returned as these classes: with
   `decode_collections=True` they stay `frozenset` (`SET`) and `list`
   (`MULTISET`/`SEQUENCE`).
+- `Sequence` is also a name in `typing`/`collections.abc`; `from pycubrid
+  import *` shadows it (and `Set`) with these classes. Prefer an explicit
+  import, e.g. `from pycubrid.types import Sequence as CubridSequence`, when
+  both are needed in the same module.
 
 ```python
 from pycubrid import Multiset, Sequence, Set
@@ -3313,6 +3327,29 @@ subclassed. Elements accept the same types as scalar parameters (`None`, `bool`,
 `datetime`) and are rendered by the same hardened renderer; nested collections
 raise `ProgrammingError`. Both sync and async ordinary cursors support them. See
 [Parameter Binding](PARAMETER_BINDING.md#typed-collection-parameters).
+
+A `dict` is rejected (`TypeError`) by all three classes — iterating it would
+silently use only its keys and drop the values. `Sequence` also rejects a
+`set`/`frozenset` (`TypeError`), since their iteration order is not
+guaranteed and would make an ordered collection's element order
+nondeterministic; `Set` and `Multiset` accept a `set`/`frozenset` since their
+own server-side semantics already discard order. The instances are safe to
+`copy.copy()` (always returns the same object), `copy.deepcopy()` (the same
+object when every element is itself immutable; an independent copy, with
+independently copied elements, when an element such as `bytearray` is
+mutable, so mutating the copy cannot alias back into the original) and
+`pickle` (round-trips to an equal instance), and re-invoking `__init__` on
+an existing instance cannot mutate it.
+
+`Set`, `Multiset` and `Sequence` are ordinary names in `pycubrid.types` and
+`pycubrid`, not `typing` aliases, but `Sequence` in particular is also a name
+from the standard `typing`/`collections.abc` modules. `from pycubrid import *`
+brings pycubrid's `Set` and `Sequence` into scope and shadows any
+`typing.Set`/`typing.Sequence` (or `collections.abc.Sequence`) imported the
+same way; prefer an explicit import such as
+`from pycubrid.types import Sequence as CubridSequence` (or import
+`pycubrid` and use `pycubrid.Sequence`) when both are needed in the same
+module.
 
 Decoding is unchanged: fetched collections are plain Python containers as in the
 table above (with `decode_collections=True`), never these parameter types.
@@ -7607,6 +7644,40 @@ matched unrelated modules (#524, e.g. `"test_integration"` matched every
 `test_integration_*.py` file). Mark the module explicitly instead of adding a
 new filename fragment.
 
+### Fast Driver Tests vs. Repository Tooling Checks
+
+Among the offline tests, a `repo_tooling`-marked subset (registered in
+`pyproject.toml`) checks repository policy and tooling — the docs-sync script,
+the PR-title validator, the release scripts, workflow-YAML contracts, the
+shared quality gate, and similar (#558). These carry no pycubrid driver
+behavior and are excluded from `pycubrid`'s own coverage, so they run in the
+dedicated `repo-tooling-tests` CI job instead of the `offline-tests` matrix,
+keeping routine driver feedback fast. Moving the check does not change
+whether CI requires it: `repo-tooling-tests` is still a required job in the
+CI Gate, just like `offline-tests`.
+
+```bash
+# Fast driver lane — mocked driver behavior only (what offline-tests runs)
+pytest tests/ -m "not integration and not repo_tooling" -v
+
+# Repository tooling lane — policy/tooling checks (what repo-tooling-tests runs)
+pytest tests/ -m "repo_tooling" -v
+
+# Both lanes together, still offline (no live CUBRID server)
+pytest tests/ -m "not integration" -v
+```
+
+A module opts into the tooling lane with an explicit `pytestmark = pytest.mark.repo_tooling`,
+not a file move or a path-based collection rule, so nothing needs reorganizing
+on disk and nothing is silently dropped from `pytest tests/` (every marker is
+additive to the default collection; only `-m` selects or excludes it at run
+time). `docs-sync.yml` runs `test_docs_reason.py` with a bare
+`python -m unittest discover` and no dependency install, so that module (and
+`test_pr_title.py`, at risk of the same thing) imports `pytest` in a
+`try`/`except ModuleNotFoundError` and falls back to an empty `pytestmark`
+when it is missing — the marker would be meaningless there anyway. A module
+only ever run through pytest does not need this guard.
+
 ### Sync/Async Replay Parity
 
 `tests/test_replay_parity.py` checks, offline and in a few seconds, that the
@@ -8319,7 +8390,7 @@ test that pins the behavior.
 | `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
-| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (`SET{}` when empty); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (each keyword renders as `KEYWORD{}` when empty, e.g. `SET{}`); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
 | anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
@@ -8461,7 +8532,20 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   converts the elements to the column's element type, as for a literal.
 - Nested collections are rejected (`ProgrammingError`): a typed collection
   inside another, or a plain `list`/`tuple`/`set`/`frozenset`/`dict` element.
-- `executemany()` accepts typed collections in each parameter set.
+- A `dict` is rejected at construction time (`TypeError`) for all three
+  classes: iterating it would silently use only its keys and drop the
+  values. `Sequence` additionally rejects a `set`/`frozenset` (`TypeError`):
+  their iteration order is not guaranteed, which would make `Sequence`'s
+  element order nondeterministic between runs. `Set` and `Multiset` accept a
+  `set`/`frozenset` since their own server-side semantics do not depend on
+  input order.
+- `executemany()` accepts typed collections in each parameter set, including
+  through the DML batch path (`EXECUTE_BATCH`).
+- The instances are immutable and safe to `copy.copy()` (always returns the
+  same object), `copy.deepcopy()` (the same object when every element is
+  itself immutable; an independent copy, with independently copied elements,
+  when an element such as `bytearray` is mutable) and `pickle`; re-invoking
+  `__init__` on an existing instance cannot mutate it either.
 - Fetching is unchanged: with `decode_collections=True` a `SET` column still
   decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
   otherwise). Decoded values are not wrapped back into these types; wrap them
