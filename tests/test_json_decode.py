@@ -232,7 +232,7 @@ def test_cursor_threads_json_deserializer_to_packets() -> None:
     connection = MagicMock()
     connection.autocommit = False
     connection._connected = True
-    connection._cas_info = DEFAULT_CAS_INFO
+    connection._record_reply_cas_info(DEFAULT_CAS_INFO)
     connection._cursors = set()
     connection._ensure_connected = MagicMock()
     connection._protocol_version = 8

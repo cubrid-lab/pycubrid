@@ -308,7 +308,7 @@ async def test_out_tran_keeps_identity_until_physical_reconnect(
     connection: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     connection._last_insert_id = "99"
-    connection._cas_info = b"\x00\x00\x00\x00"
+    connection._record_reply_cas_info(b"\x00\x00\x00\x00")
     if isinstance(connection, AsyncConnection):
         connection._writer = MagicMock()
         connection._writer.wait_closed = AsyncMock()
