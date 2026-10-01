@@ -76,7 +76,7 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 | `datetime.datetime` (tz 포함, 하위 클래스 포함) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` — `<tz>`는 `tzinfo.key`가 있으면 그 값(예: `Asia/Seoul`), 없으면 `±HH:MM` 숫자 오프셋. 비어 있지 않은 `key`는 `[A-Za-z0-9_+/-]+`에 맞는 일반 `str`이어야 하며, 아니면 `ProgrammingError` 발생 (현재 메시지: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (하위 클래스 포함) | `DATE'YYYY-MM-DD'` — 연도는 4자리로 0 채움 | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (하위 클래스 포함) | `TIME'HH:MM:SS'` — 마이크로초와 `tzinfo` 버림 | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
-| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (비어 있으면 `SET{}`); 각 원소는 연결의 이스케이프 모드로 이 표의 행에 따라 렌더링. 중첩된 타입 지정 컬렉션은 `ProgrammingError` 발생 (현재 메시지: `"nested collection parameters are not supported"`); 원소로 쓴 일반 컨테이너는 아래와 같이 거부. [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터) 참고 | `_cursor_common.py` `format_parameter`의 타입 지정 컬렉션 분기 | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (각 키워드는 비어 있으면 `KEYWORD{}`로 렌더링됨, 예: `SET{}`); 각 원소는 연결의 이스케이프 모드로 이 표의 행에 따라 렌더링. 중첩된 타입 지정 컬렉션은 `ProgrammingError` 발생 (현재 메시지: `"nested collection parameters are not supported"`); 원소로 쓴 일반 컨테이너는 아래와 같이 거부. [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터) 참고 | `_cursor_common.py` `format_parameter`의 타입 지정 컬렉션 분기 | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
 | 그 외 전부 (`__class__`로만 지원 타입인 척하는 객체 포함) | `ProgrammingError` (현재 메시지: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 정수는 `float`로 변환하지 않고 바로 10진수 문자열로 변환합니다.
@@ -200,7 +200,9 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 - 리터럴 키워드는 타입을 따릅니다: `SET{...}`, `MULTISET{...}`, `SEQUENCE{...}`(CUBRID의 `LIST{...}`와 같은 타입). 컬렉션 의미는 서버가 적용합니다: `SET`은 중복을 제거하고, `MULTISET`은 중복은 유지하지만 순서는 유지하지 않으며, `SEQUENCE`는 둘 다 유지합니다.
 - 모든 원소는 스칼라 파라미터와 같은 재정의 방지 렌더러를 거치므로, 원소 타입은 위 표의 스칼라 행(`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`)과 정확히 같고 하위 클래스 보호도 동일합니다. 원소는 리터럴과 마찬가지로 서버가 컬럼의 원소 타입으로 변환합니다.
 - 중첩 컬렉션은 거부됩니다(`ProgrammingError`): 다른 타입 지정 컬렉션 안의 타입 지정 컬렉션, 또는 일반 `list`/`tuple`/`set`/`frozenset`/`dict` 원소.
-- `executemany()`도 각 파라미터 집합에서 타입 지정 컬렉션을 받습니다.
+- 세 클래스 모두 생성 시 `dict`를 거부합니다(`TypeError`): `dict`를 순회하면 키만 쓰이고 값은 조용히 버려지기 때문입니다. `Sequence`는 추가로 `set`/`frozenset`을 거부합니다(`TypeError`): 순회 순서가 보장되지 않아 실행마다 `Sequence`의 원소 순서가 달라질 수 있기 때문입니다. `Set`과 `Multiset`은 서버 측 의미 자체가 입력 순서에 의존하지 않으므로 `set`/`frozenset`을 그대로 받습니다.
+- `executemany()`도 각 파라미터 집합에서 타입 지정 컬렉션을 받으며, DML 배치 경로(`EXECUTE_BATCH`)도 포함합니다.
+- 이 인스턴스들은 불변이며 `copy.copy()`(항상 같은 객체를 반환), `copy.deepcopy()`(모든 원소가 그 자체로 불변이면 같은 객체를 반환하고, `bytearray`처럼 가변인 원소가 있으면 원소까지 독립적으로 복사한 별개의 객체를 반환해 복사본을 변경해도 원본에 되돌아가 영향을 주지 않음), `pickle`에 안전합니다. 기존 인스턴스에서 `__init__`을 다시 호출해도 변경할 수 없습니다.
 - 조회 동작은 바뀌지 않습니다: `decode_collections=True`이면 `SET` 컬럼은 여전히 `frozenset`으로, `MULTISET`/`SEQUENCE`는 `list`로 디코딩됩니다(아니면 raw `bytes`). 디코딩된 값은 이 타입으로 다시 감싸지지 않으므로, 바인딩하려면 다시 감싸세요(예: `Set(row[0])`).
 
 ### 바인딩 값으로 명시적으로 미지원

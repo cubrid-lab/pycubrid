@@ -78,6 +78,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and a replay scenario pins sync/async parity. The official driver has no
   equivalent ordinary-execute API (its wrapper binds plain lists through
   native prepared `bind_set`), so no differential claim is made.
+  Construction happens entirely in `__new__`; re-invoking `__init__` on an
+  existing instance (`obj.__init__(...)`) is a no-op and cannot mutate it or
+  change its hash (#568 review). The instances are safe to `copy.copy()`
+  (returns the same object; sharing element references either way is already
+  what a shallow copy means), `copy.deepcopy()` (returns the same object when
+  every element is itself immutable, which `copy.deepcopy()` of the elements
+  tuple already detects; an independent copy, with its own independently
+  copied elements, when an element such as `bytearray` is mutable, so
+  mutating the copy cannot alias back into the original) and `pickle`
+  (`__reduce__` round-trips through the public constructor instead of
+  pickle's default slot restore, which would otherwise call `setattr()` on
+  the immutable instance and raise). `format_parameter()` raises
+  `ProgrammingError` instead of leaking `AttributeError` for an instance that
+  bypassed `__new__` (for example `object.__new__(Set)`). A `dict` argument
+  is rejected (`TypeError`) by all three classes — iterating it would use
+  only its keys and silently drop the values — and `Sequence` additionally
+  rejects a `set`/`frozenset` argument (`TypeError`), since its iteration
+  order is not guaranteed and would make `Sequence`'s element order
+  nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset`.
 
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.

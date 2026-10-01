@@ -14,6 +14,7 @@ to their category, enabling ``cursor.description`` type comparison::
 
 from __future__ import annotations
 
+import copy
 import datetime
 from collections.abc import Iterable, Iterator
 from typing import Any
@@ -200,23 +201,56 @@ class _Collection:
     to choose the collection type explicitly. The classes cannot be subclassed,
     and the renderer reads the stored tuple directly, so the SQL text depends
     only on the elements (#567).
+
+    A ``dict`` is rejected: iterating it yields only its keys, so its values
+    would be silently dropped. :class:`Sequence` additionally rejects a
+    ``set``/``frozenset``, since its iteration order is not guaranteed and
+    would make an ordered collection's element order nondeterministic.
     """
 
     __slots__ = ("_elements",)
     _elements: tuple[Any, ...]
+    # Overridden by Sequence: order matters there, so a set/frozenset (whose
+    # iteration order is not guaranteed) is rejected rather than silently
+    # frozen into one arbitrary order.
+    _rejects_unordered = False
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         if cls.__bases__ != (_Collection,):
             raise TypeError(f"{cls.__mro__[1].__name__} cannot be subclassed")
         super().__init_subclass__(**kwargs)
 
-    def __init__(self, elements: Iterable[Any] = ()) -> None:
+    def __new__(cls, elements: Iterable[Any] = ()) -> _Collection:
+        # Construction happens here, not in __init__: __setattr__ is
+        # overridden to keep instances immutable, and __init__ runs again
+        # whenever someone calls instance.__init__(...) directly, which must
+        # not be able to mutate an existing instance (#568 review).
         if isinstance(elements, (str, bytes, bytearray)):
             raise TypeError(
-                f"{type(self).__name__}() takes an iterable of elements, not a single "
+                f"{cls.__name__}() takes an iterable of elements, not a single "
                 f"{type(elements).__name__}; wrap it in a list"
             )
+        if isinstance(elements, dict):
+            raise TypeError(
+                f"{cls.__name__}() does not accept a dict; iterating it would silently "
+                f"use only its keys and drop the values, pass the keys (list(d)) or the "
+                f"values (list(d.values())) explicitly"
+            )
+        if cls._rejects_unordered and isinstance(elements, (set, frozenset)):
+            raise TypeError(
+                f"{cls.__name__}() does not accept a set/frozenset; their iteration "
+                f"order is not guaranteed, which would make this ordered collection's "
+                f"element order nondeterministic, pass a list or tuple instead"
+            )
+        self = object.__new__(cls)
         object.__setattr__(self, "_elements", tuple(elements))
+        return self
+
+    def __init__(self, elements: Iterable[Any] = ()) -> None:
+        # No-op: all construction happens in __new__ above. Keeping this
+        # method a no-op means re-invoking __init__ on an already-built
+        # instance (``obj.__init__(other_elements)``) cannot mutate it.
+        pass
 
     @property
     def elements(self) -> tuple[Any, ...]:
@@ -247,6 +281,32 @@ class _Collection:
     def __repr__(self) -> str:
         return f"{type(self).__name__}({list(self._elements)!r})"
 
+    # A shallow copy shares the same element references either way, so this
+    # instance already behaves as its own shallow copy.
+    def __copy__(self) -> _Collection:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> _Collection:
+        # Most accepted element types (None, bool, int, float, Decimal, str,
+        # bytes, date, time, datetime) are themselves immutable, so
+        # copy.deepcopy() of the elements tuple hands back that same tuple
+        # object and this is a no-op. A bytearray element is mutable, though
+        # (#568 review): deep-copying it independently keeps deepcopy's
+        # contract that mutating the copy must not affect the original.
+        elements = copy.deepcopy(self._elements, memo)
+        if elements is self._elements:
+            return self
+        new = type(self)(elements)
+        memo[id(self)] = new
+        return new
+
+    def __reduce__(self) -> tuple[type[_Collection], tuple[tuple[Any, ...]]]:
+        # Reconstructs through __new__ via the public constructor call, the
+        # same path a fresh Set(...)/Multiset(...)/Sequence(...) call takes;
+        # pickle's default slot-restoring __setstate__ would otherwise call
+        # setattr() on the restored instance and hit __setattr__ above.
+        return (type(self), (self._elements,))
+
 
 class Set(_Collection):
     """A CUBRID ``SET`` parameter, rendered as ``SET{...}``.
@@ -273,3 +333,4 @@ class Sequence(_Collection):
     """
 
     __slots__ = ()
+    _rejects_unordered = True

@@ -52,12 +52,14 @@ import pytest
 
 import pycubrid
 import pycubrid.aio
+from pycubrid._cursor_common import format_parameter
 from pycubrid.connection import Connection
 from pycubrid.constants import CCIDbParam
 from pycubrid.constants import CUBRIDDataType as T
+from pycubrid.constants import CUBRIDStatementType
 from pycubrid.types import Multiset, Sequence, Set
 
-from .helpers.cas_reply import Column, ResultSet, Value, date, int_
+from .helpers.cas_reply import BatchStatement, Column, ResultSet, Value, batch_reply, date, int_
 from .helpers.replay_broker import (
     HANDSHAKE,
     IN_TRAN,
@@ -191,6 +193,8 @@ class _SyncReplay:
             return conn.get_server_version()
         elif op == "execute":
             self._cur().execute(*args)
+        elif op == "executemany":
+            self._cur().executemany(*args)
         elif op == "fetchone":
             return self._cur().fetchone()
         elif op == "fetchall":
@@ -264,6 +268,8 @@ class _AsyncReplay:
             return await conn.get_server_version()
         elif op == "execute":
             await self._cur().execute(*args)
+        elif op == "executemany":
+            await self._cur().executemany(*args)
         elif op == "fetchone":
             return await self._cur().fetchone()
         elif op == "fetchall":
@@ -698,6 +704,43 @@ def _check_typed_collections(obs: Observation) -> None:
     )
 
 
+def _batch_sql(request: Request) -> list[str]:
+    """The SQL statements of an EXECUTE_BATCH request, in order (#568 review).
+
+    Unlike PREPARE_AND_EXECUTE, args[0] is the auto-commit byte and args[1]
+    the protocol>3 timeout int; every arg after that is one null-terminated
+    SQL string (``BatchExecutePacket.write``, ``pycubrid/protocol.py``).
+    """
+    return [a.rstrip(b"\x00").decode("utf-8") for a in request.args[2:]]
+
+
+def _check_executemany_typed_collections(obs: Observation) -> None:
+    # executemany() with typed collection parameters renders each row through
+    # the same hardened format_parameter() path as execute() and batches them
+    # into one EXECUTE_BATCH request (#568 review).
+    assert obs.outcomes[1] == ("executemany", "ok", None)
+    batch_requests = [r for r in obs.raw_requests if r.function == "EXECUTE_BATCH"]
+    assert len(batch_requests) == 1
+    assert _batch_sql(batch_requests[0]) == [
+        "INSERT INTO t VALUES (SET{1, 2})",
+        "INSERT INTO t VALUES (MULTISET{'a', 'a'})",
+        "INSERT INTO t VALUES (SEQUENCE{3, 1, 2})",
+    ]
+
+
+_BACKSLASH_SEQUENCE = Sequence(["a\\b"])
+
+
+def _check_collection_backslash_escape_processing(obs: Observation) -> None:
+    # With no_backslash_escapes=False (escape-processing mode), a backslash in
+    # a string *element* of a typed collection is doubled exactly like a
+    # scalar string parameter (#568 review).
+    assert obs.outcomes[1] == ("execute", "ok", None)
+    sent = [r.sql for r in obs.raw_requests if r.sql is not None]
+    expected_literal = format_parameter(_BACKSLASH_SEQUENCE, no_backslash_escapes=False)
+    assert sent == [f"INSERT INTO t VALUES ({expected_literal})"]
+
+
 def _truncated_execute(request: Request, state: Session) -> Reply:
     body = execute_body(_ints("t", 7), handle=1, inline=1)
     return Reply(body[:-6])  # well framed, but the row cell runs past the end (#533)
@@ -1001,6 +1044,41 @@ SCENARIOS: tuple[Scenario, ...] = (
             ("execute", _COLLECTION_INSERT, ([1], 1, 2)),
         ),
         check=_check_typed_collections,
+    ),
+    Scenario(
+        # executemany() batches typed collection parameters the same way it
+        # batches scalars (#568 review).
+        "executemany_typed_collection_parameters",
+        (
+            ("open",),
+            (
+                "executemany",
+                "INSERT INTO t VALUES (?)",
+                [(Set([1, 2]),), (Multiset(["a", "a"]),), (Sequence([3, 1, 2]),)],
+            ),
+        ),
+        script=_on(
+            "EXECUTE_BATCH",
+            lambda _r, _s: Reply(
+                body=batch_reply(
+                    (
+                        BatchStatement(CUBRIDStatementType.INSERT, 1),
+                        BatchStatement(CUBRIDStatementType.INSERT, 1),
+                        BatchStatement(CUBRIDStatementType.INSERT, 1),
+                    )
+                ).data
+            ),
+        ),
+        check=_check_executemany_typed_collections,
+    ),
+    Scenario(
+        # A backslash inside a typed collection's string element is doubled
+        # under no_backslash_escapes=False, exactly like a scalar parameter
+        # (#568 review).
+        "typed_collection_backslash_escape_processing",
+        (("open",), ("execute", "INSERT INTO t VALUES (?)", (_BACKSLASH_SEQUENCE,))),
+        options={"no_backslash_escapes": False},
+        check=_check_collection_backslash_escape_processing,
     ),
 )
 

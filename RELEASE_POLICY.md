@@ -132,6 +132,12 @@ raise `ProgrammingError`; only the message now names the typed classes), and
 fetched collections keep their `decode_collections` containers. Changing a
 rendered keyword, element rendering or the rejection of nested collections is
 governed by the [parameter binding policy](docs/PARAMETER_BINDING.md#compatibility-policy-1x).
+Unreleased follow-up hardening (immutability against re-`__init__`,
+`copy`/`pickle` support, a `ProgrammingError` instead of a leaked
+`AttributeError` for a bypassed-`__new__` instance, and rejecting `dict`/
+unordered-`Sequence` constructor arguments) stays part of this same
+unreleased **MINOR** entry rather than a separate release note, since #567
+has not shipped in a release yet.
 
 ### What the gate does *not* detect
 

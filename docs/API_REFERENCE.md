@@ -1739,9 +1739,23 @@ async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
   collection, raises `ProgrammingError`.
 - A single `str`/`bytes`/`bytearray` argument raises `TypeError`; subclassing
   raises `TypeError`; setting an attribute raises `AttributeError`.
+- A `dict` argument raises `TypeError` for all three classes (its keys would
+  be used silently and its values dropped). `Sequence` additionally raises
+  `TypeError` for a `set`/`frozenset` argument, since its iteration order is
+  not guaranteed; `Set` and `Multiset` accept a `set`/`frozenset`.
+- The instances are safe to `copy.copy()` (always returns the same object),
+  `copy.deepcopy()` (the same object when every element is itself immutable;
+  an independent copy, with independently copied elements, when an element
+  such as `bytearray` is mutable) and `pickle` (round-trips to an equal
+  instance). Re-invoking `__init__` on an existing instance is a no-op and
+  cannot mutate it.
 - Fetched collections are not returned as these classes: with
   `decode_collections=True` they stay `frozenset` (`SET`) and `list`
   (`MULTISET`/`SEQUENCE`).
+- `Sequence` is also a name in `typing`/`collections.abc`; `from pycubrid
+  import *` shadows it (and `Set`) with these classes. Prefer an explicit
+  import, e.g. `from pycubrid.types import Sequence as CubridSequence`, when
+  both are needed in the same module.
 
 ```python
 from pycubrid import Multiset, Sequence, Set
