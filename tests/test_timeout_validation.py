@@ -27,6 +27,7 @@ def test_sync_rejects_invalid_timeout_before_socket(field: str, value: float) ->
             _sync_connection(**{field: value})
     create_connection.assert_not_called()
 
+
 @pytest.mark.parametrize("field", ("connect_timeout", "read_timeout"))
 @pytest.mark.parametrize("value", INVALID_TIMEOUTS)
 def test_async_rejects_invalid_timeout_during_init(field: str, value: float) -> None:
@@ -39,7 +40,5 @@ def test_async_rejects_invalid_timeout_during_init(field: str, value: float) -> 
 def test_common_timeout_validation_preserves_supported_values(
     field: str, value: float | None
 ) -> None:
-    conn = AsyncConnection(
-        "localhost", 33000, "testdb", "dba", "", **{field: value}
-    )
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", **{field: value})
     assert getattr(conn, f"_{field}") == value
