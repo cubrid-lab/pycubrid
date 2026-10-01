@@ -63,6 +63,43 @@ DEFERRED_CLOSE_LIMIT = 256
 # (CAS_PROXY_DBMS_*) ignores deferred-close prepare arguments.
 _CAS_DBMS_CUBRID = 1
 
+# Backslash-escape mode detection: one policy for the sync probe, the async
+# setup probe and the async lock-held recovery probe (#471, #525). SQL literal
+# '\\' is two backslash characters.
+ESCAPE_PROBE_SQL = "SELECT CHAR_LENGTH('\\\\')"
+ESCAPE_PROBE_FAILED = (
+    "Failed to detect CUBRID backslash-escape mode; refusing to "
+    "guess because a wrong mode silently corrupts string escaping. "
+    "Pass no_backslash_escapes explicitly to skip detection."
+)
+ESCAPE_PROBE_ROLLBACK_FAILED = (
+    "Failed to roll back the CUBRID backslash-escape probe "
+    "transaction; the connection may be in an unknown "
+    "transaction state and has been closed. Pass "
+    "no_backslash_escapes explicitly to skip detection."
+)
+
+
+def no_backslash_escapes_from_probe(length: Any) -> bool:
+    """Interpret the :data:`ESCAPE_PROBE_SQL` result as ``no_backslash_escapes``.
+
+    ``2`` means literal mode (the server default): backslashes must not be
+    doubled, so ``True``. ``1`` means the server unescaped the pair, i.e.
+    backslash-escape processing is on, so ``False``. Anything else raises
+    :class:`OperationalError`: a wrong mode silently corrupts string escaping
+    (and can enable SQL injection), so detection never guesses.
+    """
+    if length == 2:
+        return True
+    if length == 1:
+        return False
+    raise OperationalError(
+        "Could not detect CUBRID backslash-escape mode "
+        f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
+        "because a wrong mode silently corrupts string escaping. Pass "
+        "no_backslash_escapes explicitly to skip detection."
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class _SchemaResult:
@@ -359,11 +396,12 @@ class ConnectionCommonMixin:
         # Connection state
         self._socket: socket.socket | None = None
         self._connected = False
+        # CAS_INFO of the latest reply; set only by _record_reply_cas_info().
         self._cas_info: bytes | bytearray = b"\x00\x00\x00\x00"
-        # CAS_INFO object whose OUT_TRAN status is already known to be live:
-        # the OPEN_DATABASE reply or a successful CHECK_CAS. Any later reply
-        # replaces ``_cas_info`` and requires a fresh probe (#485).
-        self._verified_cas_info: bytes | bytearray | None = None
+        # Whether the OUT_TRAN status of that reply is known to be live: set
+        # after OPEN_DATABASE or a successful CHECK_CAS, cleared by every
+        # later reply, which requires a fresh probe (#485, #525).
+        self._cas_reply_verified = False
         # Depth of scopes (close, implicit-reconnect setup) whose requests must
         # never probe or reconnect; a counter so overlapping scopes nest safely.
         self._implicit_reconnect_suspended = 0
@@ -554,12 +592,27 @@ class ConnectionCommonMixin:
             and self._cas_status_unverified()
         )
 
+    def _record_reply_cas_info(self, cas_info: bytes | bytearray) -> None:
+        """Adopt the CAS_INFO of a new reply; its status is not verified yet.
+
+        Verification is per reply, not per physical session: the CAS may close
+        the socket after any OUT_TRAN reply, so each one needs its own proof
+        of liveness, even when its bytes equal an earlier verified reply.
+        """
+        self._cas_info = cas_info
+        self._cas_reply_verified = False
+
+    def _mark_cas_reply_verified(self) -> None:
+        """Record that the latest reply proves the session live.
+
+        Call only right after the OPEN_DATABASE reply or a non-negative
+        CHECK_CAS reply has been recorded on the current session.
+        """
+        self._cas_reply_verified = True
+
     def _cas_status_unverified(self) -> bool:
         """Return whether the last reply was OUT_TRAN and not yet verified live."""
-        return (
-            self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE
-            and self._cas_info is not self._verified_cas_info
-        )
+        return self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and not self._cas_reply_verified
 
     @staticmethod
     def _skip_request_after_reconnect(packet: Any) -> bool:

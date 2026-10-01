@@ -796,7 +796,7 @@ class TestAsyncPositiveRestoreOnReconnect:
             await release_connect.wait()
             conn._reader, conn._writer, _ = make_mock_stream_pair()
             conn._connected = True
-            conn._verified_cas_info = conn._cas_info  # fresh OPEN_DATABASE reply
+            conn._mark_cas_reply_verified()  # fresh OPEN_DATABASE reply
             conn._physical_generation += 1
             order.append("connect")
 
