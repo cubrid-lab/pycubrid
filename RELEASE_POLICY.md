@@ -247,6 +247,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Async setup failure isolated per waiting task (#554)** — PATCH / bug
+  correction of cancellation and error propagation. Tasks waiting on
+  `AsyncConnection.connect()` setup no longer re-raise the owner's exception
+  instance: a cancelled setup surfaces in waiters as `OperationalError` instead
+  of `CancelledError`, pycubrid errors are re-raised as fresh instances of the
+  same class (or nearest `pycubrid.exceptions` class) and codes, and other
+  errors as `OperationalError`. The setup
+  owner's exception and a waiter's own cancellation are unchanged. No public
+  signature, dependency or supported-version change.
+
 - **Sync `connect()` after `close()` restores explicit autocommit (#520)** — PATCH /
   bug correction and sync/async parity. A new physical session opened by
   `connect()` after an earlier one (also on `ping(reconnect=True)` and

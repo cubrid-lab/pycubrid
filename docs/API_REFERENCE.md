@@ -1188,6 +1188,20 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 Concurrent awaiters on the same `AsyncConnection` are serialized with a per-connection
 `asyncio.Lock`, so shared use is safe but requests still execute one at a time.
 
+While `await conn.connect()` opens a session and configures it (backslash-escape probe,
+autocommit) — including the reconnect done by `ping(reconnect=True)` and `connect()` after
+`close()` — other tasks' operations on the same connection wait for that setup. If setup
+fails, the session is discarded and each waiting task raises its own exception (#554): a
+pycubrid error is re-raised as a new instance of the same class (or of the nearest
+`pycubrid.exceptions` class when a subclass has a different constructor) with the same
+`code`, `errno` and `sqlstate` and the original as `__cause__`; any other error as
+`OperationalError` naming it (`connection setup failed in another task: TimeoutError()`);
+and a cancelled setup as `OperationalError` — cancelling the task that runs `connect()`
+cancels only that task. A waiting task that is itself cancelled still raises
+`asyncio.CancelledError`. The CHECK_CAS recovery inside a request (#485) runs under the
+connection lock instead; its failure is raised in the request that triggered it, and
+later requests find the connection closed (`InterfaceError`).
+
 `AsyncConnection.__init__` accepts a keyword-only `autocommit: bool = False` argument, applied
 automatically the first time `await conn.connect()` completes — the same effect as
 `await conn.set_autocommit(True)`, but usable when constructing `AsyncConnection` directly
