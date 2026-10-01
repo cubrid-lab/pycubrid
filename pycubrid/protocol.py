@@ -31,7 +31,7 @@ from .exceptions import (
     OperationalError,
     ProgrammingError,
 )
-from .packet import PacketReader, PacketWriter, _codec_label, _encode_text
+from .packet import PacketReader, PacketWriter, _codec_label, _decode_text, _encode_text
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +186,9 @@ class _PreparedCollection:
                 if not element.endswith(b"\x00") or b"\x00" in element[:-1]:
                     raise ProgrammingError("prepared string element must have one terminal NUL")
                 try:
-                    element[:-1].decode(self.encoding)
+                    # Server-compatible decoding: rejects EUC-KR makeup
+                    # sequences that _encode_text() never produces.
+                    _decode_text(element[:-1], self.encoding)
                 except UnicodeDecodeError:
                     raise DataError(
                         f"prepared string element is not valid {_codec_label(self.encoding)}"

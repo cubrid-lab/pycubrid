@@ -161,9 +161,24 @@ def test_euc_kr_string_elements_use_the_connection_charset() -> None:
     binding = protocol._encode_prepared_collection(("한",), _SET, _STRING, "euc_kr")
     packet = protocol.ExecutePacket(7, CUBRIDStatementType.SELECT, bindings=(binding,))
     packet.encoding = "euc_kr"
-    assert packet.write(_CAS_INFO).endswith(
-        _int(8) + b"\x02" + _int(3) + "한".encode("euc_kr") + b"\x00"
-    )
+    frame = packet.write(_CAS_INFO)
+    assert frame.endswith(_int(8) + b"\x02" + _int(3) + "한".encode("euc_kr") + b"\x00")
+
+
+def test_euc_kr_payloads_are_checked_the_way_the_server_reads_them() -> None:
+    # CUBRID reads each EUC-KR pair as one KS X 1001 character: a lone Hangul
+    # filler is valid (CPython's euc_kr rejects it), and the 8-byte makeup
+    # sequence CPython decodes as 똠 is four jamo. A CP949-only character is
+    # still rejected.
+    filler = protocol._PreparedCollection(_SET, _STRING, (b"\xa4\xd4\x00",), "euc_kr")
+    makeup = "똠".encode("euc_kr") + b"\x00"
+    jamo = protocol._PreparedCollection(_SET, _STRING, (makeup,), "euc_kr")
+    assert (filler.elements, jamo.elements) == ((b"\xa4\xd4\x00",), (makeup,))
+    assert protocol._encode_prepared_collection(("\u3164ㄸㅗㅁ",), _SET, _STRING, "euc_kr") == jamo
+    with pytest.raises(DataError):
+        protocol._PreparedCollection(
+            _SET, _STRING, (b"\xa4\xd4" + "똠".encode("cp949") + b"\x00",), "euc_kr"
+        )
 
 
 def test_string_elements_encoded_for_another_charset_are_rejected() -> None:
