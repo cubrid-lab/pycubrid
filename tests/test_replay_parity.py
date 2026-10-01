@@ -45,7 +45,7 @@ import asyncio
 import datetime
 import struct
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pytest
@@ -59,15 +59,26 @@ from pycubrid.constants import CUBRIDDataType as T
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.types import Multiset, Sequence, Set
 
-from .helpers.cas_reply import BatchStatement, Column, ResultSet, Value, batch_reply, date, int_
+from .helpers.cas_reply import (
+    BatchStatement,
+    Column,
+    ResultSet,
+    Value,
+    batch_reply,
+    date,
+    int_,
+    prepare_and_execute_reply,
+)
 from .helpers.replay_broker import (
     HANDSHAKE,
     IN_TRAN,
     OUT_TRAN,
     Reply,
     Request,
+    Result,
     Script,
     Session,
+    cas_info,
     error_body,
     execute_body,
     ok_body,
@@ -90,6 +101,12 @@ class Observation:
     reusable: object
     sessions: int
     raw_requests: list[Request] = field(default_factory=list)
+    # The requests sent while running each of ``scenario.steps``, in order
+    # (#557): index 0 is connect/setup (the ``open`` step, including any
+    # constructor autocommit setter and backslash-escape-mode probe), the
+    # last is whatever step the scenario ends on (a final ``ping`` or
+    # ``close`` included), and every step in between is its own round trip.
+    step_requests: list[list[Request]] = field(default_factory=list)
     driver: str = ""
 
     def aspects(self) -> dict[str, object]:
@@ -102,6 +119,11 @@ class Observation:
 
     def functions(self, session: int | None = None) -> list[str]:
         return [r.function for r in self.raw_requests if session is None or r.session == session]
+
+    def step_functions(self, step: int) -> list[str]:
+        """The exact, ordered CAS functions sent while running ``steps[step]``
+        alone — a per-operation round-trip budget (#557)."""
+        return [r.function for r in self.step_requests[step]]
 
 
 def _no_script(_request: Request, _session: Session) -> Reply | None:
@@ -304,12 +326,18 @@ def replay_sync(scenario: Scenario) -> Observation:
     with run_replay_broker(scenario.script, results=scenario.results) as broker:
         driver = _SyncReplay(_options(scenario, broker.port))
         try:
-            outcomes = [driver.step(step) for step in scenario.steps]
-            requests = broker.requests
+            outcomes = []
+            step_requests: list[list[Request]] = []
+            seen = 0
+            for step in scenario.steps:
+                outcomes.append(driver.step(step))
+                requests = broker.requests
+                step_requests.append(requests[seen:])
+                seen = len(requests)
             reusable = driver.reusable()
         finally:
             driver.teardown()
-    return _observation("sync", outcomes, requests, reusable)
+    return _observation("sync", outcomes, requests, reusable, step_requests)
 
 
 def replay_async(scenario: Scenario) -> Observation:
@@ -317,24 +345,35 @@ def replay_async(scenario: Scenario) -> Observation:
         with run_replay_broker(scenario.script, results=scenario.results) as broker:
             driver = _AsyncReplay(_options(scenario, broker.port))
             try:
-                outcomes = [await driver.step(step) for step in scenario.steps]
-                requests = broker.requests
+                outcomes = []
+                step_requests: list[list[Request]] = []
+                seen = 0
+                for step in scenario.steps:
+                    outcomes.append(await driver.step(step))
+                    requests = broker.requests
+                    step_requests.append(requests[seen:])
+                    seen = len(requests)
                 reusable = await driver.reusable()
             finally:
                 await driver.teardown()
-        return _observation("async", outcomes, requests, reusable)
+        return _observation("async", outcomes, requests, reusable, step_requests)
 
     return asyncio.run(run())
 
 
 def _observation(
-    driver: str, outcomes: list[Outcome], requests: list[Request], reusable: object
+    driver: str,
+    outcomes: list[Outcome],
+    requests: list[Request],
+    reusable: object,
+    step_requests: list[list[Request]],
 ) -> Observation:
     return Observation(
         driver=driver,
         outcomes=outcomes,
         requests=[r.key() for r in requests],
         reusable=reusable,
+        step_requests=step_requests,
         sessions=len({r.session for r in requests}),
         raw_requests=requests,
     )
@@ -404,6 +443,69 @@ def _dates(*cells: Value) -> ResultSet:
 
 _THREE = {"SELECT n FROM t": (_ints("three", 1, 2, 3), 1)}
 _SELECT = ("execute", "SELECT n FROM t")
+
+# ---------------------------------------------------------------------------
+# INSERT scripts for per-operation round-trip budgets (#557)
+# ---------------------------------------------------------------------------
+
+_INSERT_1 = "INSERT INTO t VALUES (1)"
+_INSERT_2 = "INSERT INTO t VALUES (2)"
+_INSERT_RESULT = ResultSet("insert", (), (), statement_type=CUBRIDStatementType.INSERT)
+
+
+def _last_insert_id_body(value: str, status: int) -> bytes:
+    """A well-formed ``GET_LAST_INSERT_ID`` reply.
+
+    The broker's generic default reply (CAS_INFO and a bare response code) is
+    not: ``GetLastInsertIdPacket.parse()`` then reads a dbval that is not
+    there, and the driver (correctly) treats that as a malformed reply and
+    closes the session (#557), rather than the benign lookup failure a
+    missing-but-well-formed value would be.
+    """
+    payload = value.encode("ascii") + b"\x00"
+    type_byte = 1  # legacy single-byte type header (high bit clear)
+    value_size = 1 + len(payload)
+    return (
+        cas_info(status)
+        + struct.pack(">i", 0)
+        + struct.pack(">i", value_size)
+        + bytes([type_byte])
+        + payload
+    )
+
+
+def _autocommit_insert(*sqls: str) -> Script:
+    """Script an autocommitting INSERT of each of ``sqls``: a fresh query
+    handle, an immediate OUT_TRAN (the implicit transaction already
+    committed), and a real ``GET_LAST_INSERT_ID`` value (#557)."""
+
+    def script(request: Request, session: Session) -> Reply | None:
+        if request.function == "PREPARE_AND_EXECUTE" and request.sql in sqls:
+            handle = session.next_handle
+            session.next_handle += 1
+            session.results[handle] = Result(_INSERT_RESULT, 0)
+            session.status = OUT_TRAN
+            body = prepare_and_execute_reply(_INSERT_RESULT, query_handle=handle, total=1).data
+            return Reply(with_status(body, OUT_TRAN))
+        if request.function == "GET_LAST_INSERT_ID":
+            return Reply(_last_insert_id_body("1", session.status))
+        return None
+
+    return script
+
+
+def _manual_insert_last_insert_id() -> Script:
+    """Give ``GET_LAST_INSERT_ID`` a real value for a manual-transaction
+    INSERT (#557); the INSERT itself uses ``Scenario.results`` and the
+    broker's default IN_TRAN reply, matching a transaction left open for an
+    explicit ``commit()``."""
+
+    def script(request: Request, session: Session) -> Reply | None:
+        if request.function == "GET_LAST_INSERT_ID":
+            return Reply(_last_insert_id_body("1", session.status))
+        return None
+
+    return script
 
 
 def _set_autocommit_args(value: int) -> tuple[bytes, ...]:
@@ -702,6 +804,138 @@ def _check_typed_collections(obs: Observation) -> None:
     assert sent == ["INSERT INTO t VALUES (SET{3, 1, 1}, MULTISET{'a', 'a'}, SEQUENCE{3, 1, 2})"], (
         sent
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-operation round-trip budgets (#557)
+#
+# Each budget is the exact, ordered list of CAS functions one operation sends,
+# isolated from connect/setup (step 0) and from any other step by
+# ``Observation.step_functions``. Exact-list equality enforces both the
+# maximum request count and the required ordering together: a missing safety
+# request (e.g. a dropped CHECK_CAS) changes the list just as a silently added
+# round trip would, so neither can pass as an "optimization". No production
+# behavior changes here (#557 scope); these lock in what #419/#488/#525 must
+# not silently grow.
+# ---------------------------------------------------------------------------
+
+#: A fresh cursor's first autocommitting INSERT: a liveness probe (the CAS
+#: was last verified OUT_TRAN at connect/setup), the statement itself (which
+#: commits immediately, OUT_TRAN again), a second probe before the identity
+#: lookup is safe to send, then the lookup.
+FIRST_INSERT_BUDGET = ["CHECK_CAS", "PREPARE_AND_EXECUTE", "CHECK_CAS", "GET_LAST_INSERT_ID"]
+
+#: A second autocommitting INSERT reusing the same cursor: the same budget as
+#: the first, plus a leading probe and the close of the still-open handle
+#: from the previous INSERT (closing a handle is itself gated by CHECK_CAS,
+#: same as any other request after an unverified OUT_TRAN reply).
+REUSED_CURSOR_INSERT_BUDGET = [
+    "CHECK_CAS",
+    "CLOSE_REQ_HANDLE",
+    "CHECK_CAS",
+    "PREPARE_AND_EXECUTE",
+    "CHECK_CAS",
+    "GET_LAST_INSERT_ID",
+]
+
+#: An autocommitting INSERT reusing a cursor whose last statement was a
+#: SELECT (not another INSERT): closing the SELECT's handle and sending the
+#: INSERT need no leading probe (a FETCH reply leaves the session IN_TRAN,
+#: already safe), only the probe before the identity lookup after the INSERT
+#: commits. This takes four requests rather than the six in
+#: REUSED_CURSOR_INSERT_BUDGET: no probes precede CLOSE_REQ_HANDLE or the INSERT.
+SELECT_TO_INSERT_BUDGET = [
+    "CLOSE_REQ_HANDLE",
+    "PREPARE_AND_EXECUTE",
+    "CHECK_CAS",
+    "GET_LAST_INSERT_ID",
+]
+
+#: A manual-transaction (autocommit off) INSERT: the statement and the
+#: identity lookup, no probe (IN_TRAN needs none).
+MANUAL_INSERT_EXECUTE_BUDGET = ["PREPARE_AND_EXECUTE", "GET_LAST_INSERT_ID"]
+
+#: The explicit ``commit()`` that follows it: close the cursor's open handle,
+#: then end the transaction.
+MANUAL_INSERT_COMMIT_BUDGET = ["CLOSE_REQ_HANDLE", "END_TRAN"]
+
+#: Fetching the remaining rows of a 3-row SELECT with ``fetch_size=1``: one
+#: FETCH per remaining row (the first row came back inline with the
+#: statement), not one FETCH for the whole remainder.
+FETCH_PAGINATION_BUDGET = ["FETCH", "FETCH"]
+
+#: Connect/setup, and then the first query, with escape-mode negotiation
+#: already resolved explicitly (``no_backslash_escapes=True``): no probe, just
+#: the handshake and the session open.
+ESCAPE_EXPLICIT_SETUP_BUDGET = [HANDSHAKE, "OPEN_DB"]
+ESCAPE_EXPLICIT_QUERY_BUDGET = ["PREPARE_AND_EXECUTE"]
+
+#: The same query with automatic negotiation (``no_backslash_escapes=None``):
+#: connect/setup also pays for the probe itself (a throwaway statement,
+#: closing its handle, ending its transaction), which leaves the session
+#: OUT_TRAN, so the first real query needs a leading probe that the explicit
+#: case does not.
+ESCAPE_AUTOMATIC_SETUP_BUDGET = [
+    HANDSHAKE,
+    "OPEN_DB",
+    "PREPARE_AND_EXECUTE",
+    "CLOSE_REQ_HANDLE",
+    "END_TRAN",
+]
+ESCAPE_AUTOMATIC_QUERY_BUDGET = ["CHECK_CAS", "PREPARE_AND_EXECUTE"]
+
+
+def _check_budget_success(obs: Observation) -> None:
+    assert obs.outcomes and all(outcome[1] == "ok" for outcome in obs.outcomes), obs.outcomes
+    assert obs.reusable is True, obs.reusable
+
+
+def _check_first_insert_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.step_functions(1) == FIRST_INSERT_BUDGET
+
+
+def _check_reused_cursor_insert_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.step_functions(1) == FIRST_INSERT_BUDGET
+    assert obs.step_functions(2) == REUSED_CURSOR_INSERT_BUDGET
+
+
+def _check_select_to_insert_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
+    assert obs.step_functions(1) == ["CHECK_CAS", "PREPARE_AND_EXECUTE"]  # the SELECT
+    assert obs.step_functions(2) == ["FETCH"]  # fetchall() of the remaining 2 rows
+    assert obs.step_functions(3) == SELECT_TO_INSERT_BUDGET
+
+
+def _check_manual_commit_insert_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.step_functions(1) == MANUAL_INSERT_EXECUTE_BUDGET
+    assert obs.step_functions(2) == MANUAL_INSERT_COMMIT_BUDGET
+
+
+def _check_fetch_pagination_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
+    assert obs.step_functions(1) == ["PREPARE_AND_EXECUTE"]
+    assert obs.step_functions(2) == FETCH_PAGINATION_BUDGET
+
+
+def _check_escape_negotiation_explicit_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
+    assert obs.step_functions(0) == ESCAPE_EXPLICIT_SETUP_BUDGET
+    assert obs.step_functions(1) == ESCAPE_EXPLICIT_QUERY_BUDGET
+    assert obs.step_functions(2) == ["FETCH"]
+
+
+def _check_escape_negotiation_automatic_budget(obs: Observation) -> None:
+    _check_budget_success(obs)
+    assert obs.outcomes[2] == ("fetchall", "ok", [(1,), (2,), (3,)])
+    assert obs.step_functions(0) == ESCAPE_AUTOMATIC_SETUP_BUDGET
+    assert obs.step_functions(1) == ESCAPE_AUTOMATIC_QUERY_BUDGET
+    assert obs.step_functions(2) == ["FETCH"]
 
 
 def _batch_sql(request: Request) -> list[str]:
@@ -1046,6 +1280,74 @@ SCENARIOS: tuple[Scenario, ...] = (
         check=_check_typed_collections,
     ),
     Scenario(
+        # Per-operation round-trip budgets (#557): a fresh cursor's first
+        # autocommitting INSERT.
+        "first_insert_round_trip_budget",
+        (("open",), ("execute", _INSERT_1)),
+        script=_autocommit_insert(_INSERT_1),
+        options={"autocommit": True, "no_backslash_escapes": True},
+        check=_check_first_insert_budget,
+    ),
+    Scenario(
+        # A second autocommitting INSERT reusing the same cursor (#557).
+        "reused_cursor_insert_round_trip_budget",
+        (("open",), ("execute", _INSERT_1), ("execute", _INSERT_2)),
+        script=_autocommit_insert(_INSERT_1, _INSERT_2),
+        options={"autocommit": True, "no_backslash_escapes": True},
+        check=_check_reused_cursor_insert_budget,
+    ),
+    Scenario(
+        # An autocommitting INSERT reusing a cursor whose last statement was
+        # a SELECT, not another INSERT (#557): a different budget shape than
+        # reused_cursor_insert_round_trip_budget, with two fewer requests.
+        "select_to_insert_round_trip_budget",
+        (("open",), _SELECT, ("fetchall",), ("execute", _INSERT_1)),
+        script=_autocommit_insert(_INSERT_1),
+        results=_THREE,
+        options={"autocommit": True, "no_backslash_escapes": True},
+        check=_check_select_to_insert_budget,
+    ),
+    Scenario(
+        # A manual-transaction (autocommit off) INSERT and its explicit
+        # commit() (#557).
+        "manual_commit_insert_round_trip_budget",
+        (("open",), ("execute", _INSERT_1), ("commit",)),
+        script=_manual_insert_last_insert_id(),
+        results={_INSERT_1: (_INSERT_RESULT, 0)},
+        options={"no_backslash_escapes": True},
+        check=_check_manual_commit_insert_budget,
+    ),
+    Scenario(
+        # Fetching the remaining rows of a 3-row SELECT with fetch_size=1:
+        # one FETCH per remaining row, not one FETCH for the whole
+        # remainder (#557).
+        "fetch_pagination_round_trip_budget",
+        (("open",), _SELECT, ("fetchall",)),
+        results=_THREE,
+        options={"no_backslash_escapes": True, "fetch_size": 1},
+        check=_check_fetch_pagination_budget,
+    ),
+    Scenario(
+        # Escape-mode negotiation resolved explicitly: no probe (#557).
+        # Paired with escape_negotiation_automatic_round_trip_budget below,
+        # same steps and results, only no_backslash_escapes differs.
+        "escape_negotiation_explicit_round_trip_budget",
+        (("open",), _SELECT, ("fetchall",)),
+        results=_THREE,
+        options={"no_backslash_escapes": True},
+        check=_check_escape_negotiation_explicit_budget,
+    ),
+    Scenario(
+        # Escape-mode negotiation resolved automatically: the probe itself is
+        # paid for in connect/setup, and leaves the session needing one more
+        # probe before the first real query (#557).
+        "escape_negotiation_automatic_round_trip_budget",
+        (("open",), _SELECT, ("fetchall",)),
+        results=_THREE,
+        options={"no_backslash_escapes": None},
+        check=_check_escape_negotiation_automatic_budget,
+    ),
+    Scenario(
         # executemany() batches typed collection parameters the same way it
         # batches scalars (#568 review).
         "executemany_typed_collection_parameters",
@@ -1117,6 +1419,34 @@ def test_sync_and_async_replay_the_same_scenario_identically(scenario: Scenario)
 def test_replays_are_deterministic(scenario: Scenario) -> None:
     assert replay_sync(scenario).aspects() == replay_sync(scenario).aspects()
     assert replay_async(scenario).aspects() == replay_async(scenario).aspects()
+
+
+@pytest.mark.parametrize("replay", [replay_sync, replay_async], ids=["sync", "async"])
+def test_insert_budget_rejects_a_retired_session(
+    replay: Callable[[Scenario], Observation],
+) -> None:
+    scenario = next(s for s in SCENARIOS if s.name == "first_insert_round_trip_budget")
+    malformed_id = _on("GET_LAST_INSERT_ID", lambda _r, s: Reply(ok_body(s.status)))
+    observation = replay(replace(scenario, script=_both(malformed_id, scenario.script)))
+    # Identity lookup errors are suppressed by execute(), but the malformed
+    # reply retires the session without changing its request sequence.
+    assert observation.outcomes[1] == ("execute", "ok", None)
+    assert observation.step_functions(1) == FIRST_INSERT_BUDGET
+    assert observation.reusable is False
+    with pytest.raises(AssertionError):
+        scenario.check(observation)
+
+
+@pytest.mark.parametrize("replay", [replay_sync, replay_async], ids=["sync", "async"])
+def test_fetch_budget_rejects_wrong_rows(replay: Callable[[Scenario], Observation]) -> None:
+    scenario = next(s for s in SCENARIOS if s.name == "fetch_pagination_round_trip_budget")
+    observation = replay(
+        replace(scenario, results={"SELECT n FROM t": (_ints("three", 9, 8, 7), 1)})
+    )
+    assert observation.step_functions(2) == FETCH_PAGINATION_BUDGET
+    assert observation.reusable is True
+    with pytest.raises(AssertionError):
+        scenario.check(observation)
 
 
 # ---------------------------------------------------------------------------
