@@ -1144,6 +1144,8 @@ class AsyncConnection(ConnectionCommonMixin):
         allow_reconnect: bool = True,
         expected_escape_generation: int | None = None,
     ) -> Any:
+        if isinstance(packet, PrepareAndExecutePacket):
+            packet._query_handle_retired = False
         if not self._setup_done.is_set() and self._setup_owner is not asyncio.current_task():
             # A caller may have passed the outer gate before recovery began.
             # Never send its prebuilt SQL while the new mode is unverified.
@@ -1246,6 +1248,7 @@ class AsyncConnection(ConnectionCommonMixin):
 
         self._record_reply_cas_info(response_body[: DataSize.CAS_INFO])
         self._reply_complete = True
+        self._retire_pooling_off_reply_handles(packet, response_body)
         try:
             packet.parse(response_body)
         except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:

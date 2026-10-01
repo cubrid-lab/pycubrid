@@ -43,11 +43,17 @@ from .exceptions import (
 from .packet import _codec_label, _encode_text, _unencodable_message
 from .protocol import (
     CloseQueryPacket,
+    CommitPacket,
+    ExecutePacket,
     FetchPacket,
+    GetEngineVersionPacket,
     GetLastInsertIdPacket,
     GetSchemaPacket,
     LOBReadPacket,
     LOBWritePacket,
+    PrepareAndExecutePacket,
+    PreparePacket,
+    RollbackPacket,
     _SchemaColumn,
 )
 
@@ -563,6 +569,47 @@ class ConnectionCommonMixin:
         for cursor in self._cursors:
             cursor._query_handle = None
         self._schema_results.clear()
+
+    def _retire_pooling_off_reply_handles(self, packet: Any, reply: bytes | bytearray) -> None:
+        """Retire IDs freed by a known transaction-ending CAS reply (#584).
+
+        OUT_TRAN alone is not a boundary: CHECK_CAS, CLOSE_REQ and parameter
+        replies can echo it. A pooling-off direct CAS frees its handle table
+        at END_TRAN or an autocommitting execution/version/final cursor FETCH.
+        Schema FETCH has no auto-commit flag on its server handle.
+        """
+        if (
+            self._statement_pooling != 0
+            or self._broker_db_type != _CAS_DBMS_CUBRID
+            or not reply
+            or reply[0] != self._CAS_INFO_STATUS_INACTIVE
+        ):
+            return
+        ends_transaction = isinstance(packet, (CommitPacket, RollbackPacket))
+        if isinstance(packet, (PrepareAndExecutePacket, ExecutePacket, GetEngineVersionPacket)):
+            ends_transaction = packet.auto_commit
+        elif isinstance(packet, PreparePacket):
+            # ux_prepare's error path auto-rolls back; a successful prepare
+            # does not end a transaction merely because it echoes OUT_TRAN.
+            ends_transaction = (
+                packet.auto_commit
+                and len(reply) >= DataSize.CAS_INFO + DataSize.INT
+                and int.from_bytes(
+                    reply[DataSize.CAS_INFO : DataSize.CAS_INFO + DataSize.INT], "big", signed=True
+                )
+                < 0
+            )
+        elif isinstance(packet, FetchPacket):
+            ends_transaction = self._autocommit and not any(
+                result.handle == packet.query_handle for result in self._schema_results.values()
+            )
+        if not ends_transaction:
+            return
+        self._invalidate_query_handles()
+        self._deferred_closes.clear()
+        if isinstance(packet, PrepareAndExecutePacket):
+            # Its reply can still contain an ID which CAS has already freed.
+            packet._query_handle_retired = True
 
     def _invalidate_query_handles_for_reconnect(self) -> None:
         """Invalidate query handles and mark cursors as reconnect-invalidated.

@@ -173,6 +173,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   subsequent members still run their decoders; later structural damage retires
   the sync/async session. Complete collections keep the first error and cause.
   NULL-only, opaque/disabled decoding and unsupported nested layouts are unchanged.
+- **Pooling-off autocommit replies retire freed handle ownership (#584)** —
+  Direct CUBRID CAS reuses handle IDs after an automatic transaction end.
+  Sync and async drivers now invalidate cursor/schema ownership on the actual
+  known-boundary OUT_TRAN reply, before parsing or a later INSERT identity RPC.
+  Current FC41 results cannot re-adopt already freed IDs on success or DataError.
+  Buffered rows and normal completed EOF remain available; unfinished results
+  fail explicitly rather than closing or fetching another cursor's reused ID.
+  Final ordinary autocommit FETCH and error replies follow the same rule.
+  Physical-session generation, pooling-on/manual/schema behavior and liveness
+  probes are preserved; arbitrary OUT_TRAN echoes and batch replies are excluded.
 - **Metadata text errors cannot hide damaged FC41/FC3 tails (#591)** —
   Undecodable metadata retains column types for validation of remaining
   counts, fields and inline rows before the original `DataError` is raised.

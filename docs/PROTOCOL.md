@@ -127,6 +127,23 @@ session may queue its handle during setup, since it cannot send anything.
 Each handle keeps the generation of the session that opened it, so a cursor collected
 after a reconnect cannot release a handle id on the new session.
 
+Pooling-off ownership (#584): a direct CUBRID CAS with statement pooling
+explicitly disabled frees all ordinary cursor and schema handles at a transaction
+boundary, and can immediately reuse their IDs on the same physical session.
+The driver retires ownership when the actual reply is OUT_TRAN for END_TRAN,
+an autocommitting FC41/FC3 or version request, a failed autocommit FC2 which
+auto-rolls back, or the final ordinary autocommit FETCH. Successful FC2 prepare
+does not establish a boundary. This runs before parsing the reply and before an
+INSERT's identity RPC:
+that subsequent RPC can return IN_TRAN although the preceding commit freed the
+handles. The current FC41 result is not adopted when its reply already freed it,
+including a complete-reply `DataError`. Buffered rows remain readable; a required
+FETCH from an unfinished invalidated result raises `InterfaceError`, while a
+completed result retains normal EOF. Physical generation and session verification
+are unchanged. OUT_TRAN echoes from CHECK_CAS, CLOSE_REQ, parameters, schema
+requests/fetches and batch replies do not independently prove this boundary;
+manual FETCH and pooling-enabled/proxy sessions keep their existing behavior.
+
 Automatic `no_backslash_escapes` detection is scoped to a physical session:
 new sessions are probed before parameter binding resumes, while a healthy
 same-session `CHECK_CAS` does not probe. Explicit mode remains pinned. If
