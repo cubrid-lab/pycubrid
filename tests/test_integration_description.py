@@ -28,7 +28,7 @@ def _table_name() -> str:
     return "pycubrid_desc_%s" % uuid.uuid4().hex[:8]
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
 @pytest.fixture

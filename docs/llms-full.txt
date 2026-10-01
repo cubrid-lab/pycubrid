@@ -7572,6 +7572,24 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 make test
 ```
 
+### Backslash-escape-mode pin
+
+`tests/conftest.py` autouse-pins `no_backslash_escapes` to its legacy default
+for every test, because most tests build a `Connection`/`AsyncConnection`
+over a scripted fake socket that cannot answer the live `CHAR_LENGTH` escape
+probe. A module that needs the *real* probe (against a live server, or a
+scripted fake broker that answers it) opts out with `pytest.mark.no_escape_pin`,
+registered alongside the module's other markers, e.g.:
+
+```python
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
+```
+
+Opt-out used to be a hardcoded list of filename substrings, which silently
+matched unrelated modules (#524, e.g. `"test_integration"` matched every
+`test_integration_*.py` file). Mark the module explicitly instead of adding a
+new filename fragment.
+
 ### Sync/Async Replay Parity
 
 `tests/test_replay_parity.py` checks, offline and in a few seconds, that the

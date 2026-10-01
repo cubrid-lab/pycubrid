@@ -39,6 +39,7 @@ def _create_basic_table(cur: Cursor, table_name: str) -> None:
 
 pytestmark = [
     pytest.mark.integration,
+    pytest.mark.no_escape_pin,
 ]
 
 

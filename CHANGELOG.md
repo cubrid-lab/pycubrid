@@ -449,6 +449,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   routine `pip`-ecosystem Ruff/Mypy bumps, which previously left the pre-commit
   hook revision stale and failed the quality-tool consistency gate (#476).
 
+### Tests
+- **The backslash-escape-mode pin opts out on an explicit marker, not a
+  filename guess (#524)** — `tests/conftest.py`'s autouse fixture used to skip
+  the pin for any module whose path matched one of 17 hardcoded filename
+  substrings; `"test_integration"` is a prefix of every `test_integration_*.py`
+  module, so all of them opted out whether or not they actually negotiate
+  against a live server. Opt-out is now `pytest.mark.no_escape_pin`
+  (registered in `pyproject.toml`), carried directly by every module that
+  needs it — alongside the existing `integration` marker for the ones that
+  also gate on a live server. `tests/test_integration_lanes.py` (a workflow-YAML
+  regression test that never builds a `Connection`) no longer opts out; every
+  other previously-opted-out module keeps the same behavior. Auditing every
+  `integration`-marked module (not just the ones the old filename list
+  happened to catch) found eight more that open real connections without an
+  explicit `no_backslash_escapes` and were silently pinned instead of
+  negotiating: `test_parity_integration.py`, `test_stress_concurrency.py`,
+  `test_compat_prepared_integration.py`, `test_compat_factories_integration.py`,
+  `test_tls_matrix_integration.py`, `test_aio_ssl_integration.py`, and one
+  function each in `test_cas_session_persistence.py` and
+  `test_connection_failures.py`; these now carry the marker too (a real
+  behavior change, fixing a latent bug predating this PR). Two further
+  `integration`-marked modules, `test_schema_integration.py` and
+  `test_schema_matrix.py`, were checked and correctly excluded: every
+  connection they open passes `no_backslash_escapes=True` explicitly, so the
+  pin was always a no-op for them. A follow-up review pass widened the audit
+  beyond `integration`-marked modules to every test that opens a live
+  connection: `test_benchmarks.py` (`pytest.mark.benchmark`, gated on
+  `CUBRID_TEST_URL` rather than `integration`) also negotiates for real and
+  now carries the marker too. `test_fault_broker.py` and
+  `test_aio_tls_handshake_hang.py` were checked and correctly excluded: both
+  talk to an in-process fake local server, not the configured live CUBRID
+  endpoint, and either pass `no_backslash_escapes` explicitly or only
+  exercise failure paths that never reach negotiation.
+
 ## [1.8.0] - 2026-09-29
 
 ### Upgrade notes
