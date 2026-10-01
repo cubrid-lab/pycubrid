@@ -1135,6 +1135,16 @@ with conn.cursor() as cur:
 `AsyncConnection`은 동기 `Connection.ping()`과 동등한 비동기 `ping()`을 노출합니다. `create_lob()`은 동기 전용으로 유지됩니다.
 같은 `AsyncConnection`의 동시 awaiter는 연결별 `asyncio.Lock`으로 직렬화되므로 공유 사용이 안전하지만, 요청은 여전히 한 번에 하나씩 실행됩니다.
 
+`await conn.connect()`가 세션을 열고 설정(백슬래시 이스케이프 probe, autocommit)하는 동안 — `ping(reconnect=True)`와
+`close()` 후 `connect()`의 재연결도 포함 — 같은 연결에 대한 다른 task의 작업은 설정이 끝날 때까지 대기합니다.
+설정이 실패하면 세션은 폐기되고 대기 중인 각 task는 자신만의 예외를 발생시킵니다(#554). pycubrid 오류는 같은
+클래스(하위 클래스의 생성자가 다르면 가장 가까운 `pycubrid.exceptions` 클래스)와 같은 `code`, `errno`,
+`sqlstate`를 가진 새 인스턴스로(원래 예외는 `__cause__`), 그 밖의 오류는 그 오류를 명시한 `OperationalError`
+(`connection setup failed in another task: TimeoutError()`)로, 취소된 설정은 `OperationalError`로 발생합니다.
+즉 `connect()`를 실행하는 task를 취소해도 그 task만 취소됩니다. 대기 중인 task 자체가 취소되면 여전히
+`asyncio.CancelledError`가 발생합니다. 요청 내부의 CHECK_CAS 복구(#485)는 대신 연결 lock 아래에서 실행되며,
+그 실패는 복구를 일으킨 요청에서 발생하고, 이후 요청은 연결이 닫힌 상태(`InterfaceError`)를 봅니다.
+
 `AsyncConnection.__init__`은 키워드 전용 `autocommit: bool = False` 인자를 받으며, `await conn.connect()`가 처음 완료될 때 자동 적용됩니다 — `await conn.set_autocommit(True)`과 같은 효과이지만, `pycubrid.aio.connect()` 팩토리를 거치지 않고 `AsyncConnection`을 직접 생성할 때도 사용할 수 있습니다.
 
 ```python
@@ -1626,7 +1636,10 @@ class Sequence(elements: Iterable[Any] = ())
 
 - 원소는 스칼라 파라미터 타입(`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`)을 받으며 같은 보호된 렌더러로 렌더링됩니다. 중첩 컬렉션을 포함한 그 밖의 값은 `ProgrammingError`를 발생시킵니다.
 - 단일 `str`/`bytes`/`bytearray` 인자는 `TypeError`, 하위 클래스 생성은 `TypeError`, 속성 설정은 `AttributeError`를 발생시킵니다.
+- `dict` 인자는 세 클래스 모두에서 `TypeError`를 발생시킵니다(키만 조용히 쓰이고 값은 버려지기 때문). `Sequence`는 `set`/`frozenset` 인자에도 `TypeError`를 발생시킵니다(순회 순서가 보장되지 않기 때문). `Set`과 `Multiset`은 `set`/`frozenset`을 그대로 받습니다.
+- 이 인스턴스들은 `copy.copy()`(항상 같은 객체를 반환), `copy.deepcopy()`(모든 원소가 그 자체로 불변이면 같은 객체를 반환하고, `bytearray`처럼 가변인 원소가 있으면 원소까지 독립적으로 복사한 별개의 객체를 반환)와 `pickle`(동등한 인스턴스로 왕복)에 안전합니다. 기존 인스턴스에서 `__init__`을 다시 호출해도 아무 효과가 없으며 변경할 수 없습니다.
 - 조회한 컬렉션은 이 클래스로 반환되지 않습니다: `decode_collections=True`이면 여전히 `frozenset`(`SET`)과 `list`(`MULTISET`/`SEQUENCE`)입니다.
+- `Sequence`는 `typing`/`collections.abc`에도 있는 이름입니다. `from pycubrid import *`는 (`Set`과 함께) 이 이름을 이 클래스들로 가립니다. 같은 모듈에서 둘 다 필요하다면 `from pycubrid.types import Sequence as CubridSequence`처럼 명시적으로 import하세요.
 
 ```python
 from pycubrid import Multiset, Sequence, Set

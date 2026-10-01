@@ -78,6 +78,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and a replay scenario pins sync/async parity. The official driver has no
   equivalent ordinary-execute API (its wrapper binds plain lists through
   native prepared `bind_set`), so no differential claim is made.
+  Construction happens entirely in `__new__`; re-invoking `__init__` on an
+  existing instance (`obj.__init__(...)`) is a no-op and cannot mutate it or
+  change its hash (#568 review). The instances are safe to `copy.copy()`
+  (returns the same object; sharing element references either way is already
+  what a shallow copy means), `copy.deepcopy()` (returns the same object when
+  every element is itself immutable, which `copy.deepcopy()` of the elements
+  tuple already detects; an independent copy, with its own independently
+  copied elements, when an element such as `bytearray` is mutable, so
+  mutating the copy cannot alias back into the original) and `pickle`
+  (`__reduce__` round-trips through the public constructor instead of
+  pickle's default slot restore, which would otherwise call `setattr()` on
+  the immutable instance and raise). `format_parameter()` raises
+  `ProgrammingError` instead of leaking `AttributeError` for an instance that
+  bypassed `__new__` (for example `object.__new__(Set)`). A `dict` argument
+  is rejected (`TypeError`) by all three classes — iterating it would use
+  only its keys and silently drop the values — and `Sequence` additionally
+  rejects a `set`/`frozenset` argument (`TypeError`), since its iteration
+  order is not guaranteed and would make `Sequence`'s element order
+  nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset`.
 
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
@@ -102,7 +121,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `TimeoutError`, including a transport `ETIMEDOUT` with `read_timeout` unset;
   it now reads `read timeout: no complete round trip within read_timeout=<n>s` only when that
   deadline expired, and `socket communication timed out` for a transport
-  timeout. `__cause__` is preserved. An `OSError` (including `TimeoutError`)
+  timeout. Python 3.10's distinct `asyncio.TimeoutError` follows the same
+  transport/callback distinction. `__cause__` is preserved. An `OSError` (including `TimeoutError`)
   raised by a `json_deserializer` callback after the whole reply was read was
   treated as a transport failure by both drivers (session closed, wrapped in
   `OperationalError`); it now propagates unchanged and the session stays open.
@@ -119,6 +139,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   connection, like other framing damage (#383, #533). A normal server does not
   send such replies. Zero-length metadata, valid FC2/FC3/FC41 replies and the
   session-keeping `DataError` for a complete reply (#492, #512) are unchanged.
+- **Async setup failure no longer leaks into waiting tasks (#554)** — while
+  `AsyncConnection.connect()` configured a new session, other tasks waiting on
+  the setup gate re-raised the setup owner's exception instance, so cancelling
+  the task running `connect()` also cancelled every waiting task and appended
+  their frames to one shared traceback. Each waiter now raises a fresh
+  exception: a pycubrid error keeps its class (or the nearest
+  `pycubrid.exceptions` class when a subclass has a different constructor),
+  `code`, `errno` and `sqlstate` (the original chained as `__cause__`), any
+  other error becomes `OperationalError` naming it by `repr()`, and a cancelled or interrupted setup becomes
+  `OperationalError("connection setup was cancelled or interrupted in another
+  task; retry operation")`. The setup owner still raises its own exception
+  (including `CancelledError`), a waiter's own cancellation is unchanged, and
+  the failed session is still discarded before the gate opens. This covers
+  `connect()`, including the reconnect of `ping(reconnect=True)`.
 - **Invalid JSON text in a complete reply raises `DataError` (#543)** — a
   `JSON` column value that is not valid JSON, decoded with
   `json_deserializer=json.loads`, raised `json.JSONDecodeError` — a
@@ -540,6 +574,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   talk to an in-process fake local server, not the configured live CUBRID
   endpoint, and either pass `no_backslash_escapes` explicitly or only
   exercise failure paths that never reach negotiation.
+- **Repository policy/tooling checks run in a separate required CI job
+  instead of the default offline-tests matrix (#558)** — the offline suite
+  mixed mocked driver-behavior tests with subprocess-/importlib-heavy
+  repository policy checks (docs-sync, PR-title, release scripts,
+  workflow-YAML contracts, the shared quality gate, and similar), which
+  unnecessarily lengthened routine driver feedback: on this machine, the
+  default offline run dropped from 79.9s to 50.2s (2,671 tests), with the
+  305 moved tests taking 29.0-30.6s of either figure, run count unchanged
+  (2,976 passed both before and after). The fifteen modules in question
+  (`test_docs_reason.py`, `test_pr_title.py`, `test_quality_tools.py`,
+  `test_release_detect.py`, `test_readiness_workflows.py`,
+  `test_prepare_release.py`, `test_release_summary.py`,
+  `test_release_workflows.py`, `test_pypi_duplicate_guard.py`,
+  `test_upstream_scenario_ledger.py`, `test_check_public_api.py`,
+  `test_issue_metadata.py`, `test_collect_repro.py`,
+  `test_integration_lanes.py`, `test_check_official_differential.py`) now
+  carry an explicit `pytestmark = pytest.mark.repo_tooling` (the marker is
+  registered in `pyproject.toml`, the same explicit-marker convention used
+  elsewhere in the suite) instead of relying on file location; nothing moved
+  on disk, so recursive pytest discovery still collects them and no check
+  silently disappears. `offline-tests` now runs
+  `-m "not integration and not repo_tooling"`; a new `repo-tooling-tests` CI
+  job runs `-m "repo_tooling"` on a 2-OS (ubuntu, macos) x 1-Python matrix,
+  keeping shell-dependent checks covered on both platforms without repeating
+  all five Python versions. `repo-tooling-tests` is a required job in the CI
+  Gate, alongside `offline-tests`, `lint`, `typecheck`, `packaging-smoke-test`
+  and `compat-check` — no CI requirement is weakened or dropped.
+  `docs/DEVELOPMENT.md` (and its Korean translation) documents the fast-driver,
+  repository-tooling and combined offline commands.
 
 ## [1.8.0] - 2026-09-29
 

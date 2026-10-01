@@ -259,6 +259,10 @@ propagates unchanged and the connection stays open. A `ValueError`-family error 
 deserializer (for example an orjson or simplejson decode error) is still treated as a malformed
 reply: `OperationalError('malformed response from broker')`, and the session is retired.
 
+On Python 3.10, the distinct `asyncio.TimeoutError` class follows the same rule:
+transport timeouts retire the session, while a callback timeout after a complete
+reply propagates unchanged without closing it.
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of

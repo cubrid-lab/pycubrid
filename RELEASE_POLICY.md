@@ -132,6 +132,12 @@ raise `ProgrammingError`; only the message now names the typed classes), and
 fetched collections keep their `decode_collections` containers. Changing a
 rendered keyword, element rendering or the rejection of nested collections is
 governed by the [parameter binding policy](docs/PARAMETER_BINDING.md#compatibility-policy-1x).
+Unreleased follow-up hardening (immutability against re-`__init__`,
+`copy`/`pickle` support, a `ProgrammingError` instead of a leaked
+`AttributeError` for a bypassed-`__new__` instance, and rejecting `dict`/
+unordered-`Sequence` constructor arguments) stays part of this same
+unreleased **MINOR** entry rather than a separate release note, since #567
+has not shipped in a release yet.
 
 ### What the gate does *not* detect
 
@@ -255,9 +261,21 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   raised by a `json_deserializer` callback after a complete reply now
   propagates unwrapped with the session kept, instead of `OperationalError`
   with the session closed; a `ValueError`-family callback error is still a
-  malformed reply that retires the session. Other exception classes,
+  malformed reply that retires the session. Python 3.10's distinct
+  `asyncio.TimeoutError` follows the same transport/callback distinction.
+  Other exception classes,
   `__cause__`, `CancelledError` propagation and the no-replay rule are
   unchanged; no public signature, dependency or supported-version change.
+
+- **Async setup failure isolated per waiting task (#554)** — PATCH / bug
+  correction of cancellation and error propagation. Tasks waiting on
+  `AsyncConnection.connect()` setup no longer re-raise the owner's exception
+  instance: a cancelled setup surfaces in waiters as `OperationalError` instead
+  of `CancelledError`, pycubrid errors are re-raised as fresh instances of the
+  same class (or nearest `pycubrid.exceptions` class) and codes, and other
+  errors as `OperationalError`. The setup
+  owner's exception and a waiter's own cancellation are unchanged. No public
+  signature, dependency or supported-version change.
 
 - **Sync `connect()` after `close()` restores explicit autocommit (#520)** — PATCH /
   bug correction and sync/async parity. A new physical session opened by
