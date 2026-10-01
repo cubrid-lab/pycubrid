@@ -195,6 +195,12 @@ conn = pycubrid.connect(
 
 `connect_timeout`은 TCP 연결만 제한합니다. 브로커 핸드셰이크, TLS 핸드셰이크, `OPEN_DATABASE`는 두 드라이버 모두 `read_timeout`으로 제한됩니다. `read_timeout`을 설정하지 않으면 비동기 TLS 핸드셰이크는 10초(`ssl_handshake_timeout`) 후 포기하고, 동기 드라이버는 제한 없이 기다립니다. TLS 핸드셰이크 도중 브로커가 멈추거나 연결을 리셋하면 그 제한 안에 `OperationalError`가 발생합니다([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
 
+세션이 열린 뒤 요청 중에 불확실한 전송 실패(소켓 오류, 타임아웃, 잘못된 응답, 응답을 기다리는 동안의 인터럽트나 태스크 취소)가 발생하면, 두 드라이버 모두 연결을 닫고 그 세션의 모든 커서·스키마 결과 핸들을 폐기합니다([#556](https://github.com/cubrid-lab/pycubrid/issues/556)). 커서가 이미 버퍼에 받아 둔 행은 계속 읽을 수 있고, 서버가 필요한 다음 fetch는 예외를 발생시키며, 끊긴 세션의 핸들은 다시 전송되지 않습니다. 요청은 재실행되지 않습니다: `connect()` 또는 `ping(reconnect=True)`로 다시 연결한 뒤 다시 실행하세요. 비동기 `OperationalError` 메시지는 `read_timeout` 기한이 만료된 경우에만 `read timeout: no complete round trip within read_timeout=...s`이고, 전송 계층 자체의 타임아웃(예: `ETIMEDOUT`)은 `socket communication timed out`, 그 밖의 소켓 오류는 `socket communication failed`로 보고됩니다. 원래 예외는 항상 `__cause__`로 체이닝되며, 취소된 태스크는 여전히 `asyncio.CancelledError`를 발생시킵니다. 동기 `read_timeout`은 수신 단위 소켓 타임아웃이며 `socket communication failed`로 보고됩니다. 응답을 모두 읽은 뒤 `json_deserializer` 콜백이 발생시킨 `OSError`(`TimeoutError` 포함)는 전송 실패가 아니므로 그대로 전파되고 연결은 열린 채로 유지됩니다. 커스텀 디시리얼라이저의 `ValueError` 계열 오류(예: orjson, simplejson 디코드 오류)는 여전히 잘못된 응답으로 처리되어 `OperationalError('malformed response from broker')`가 발생하고 세션은 폐기됩니다.
+
+Python 3.10의 별도 `asyncio.TimeoutError` 클래스에도 같은 규칙이 적용됩니다.
+전송 계층의 타임아웃은 세션을 폐기하지만, 완전한 응답을 읽은 뒤 콜백이 낸
+타임아웃은 연결을 닫지 않고 그대로 전파됩니다.
+
 !!! note "Python 3.10 비동기 TLS 사전 점검 프로브"
     Python 3.10의 `asyncio.loop.start_tls()`에는 알려진 CPython 버그(3.13/3.14에서 수정)가 있어, **인증서 검증** 실패 시 예외를 던지는 대신 무한히 멈출 수 있습니다. [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156)부터 비동기 드라이버는 Python 3.10에서 `loop.start_tls()` 직전에 같은 `SSLContext`와 `server_hostname=host`로 `ssl.SSLContext.wrap_socket()` 사전 점검 프로브를 자동 실행합니다. 검증 실패는 이제 연결 타임아웃 내에 `OperationalError`(`ssl.SSLError`에서 체이닝)로 발생하며, 3.11+ 동작과 일치합니다. 프로브는 Python 3.11+에서는 no-op이고, 3.10에서만 연결당 TCP 왕복 한 번이 추가됩니다. 다른 TLS 오류 경로(응답 없음, 타임아웃)는 여전히 `ssl_handshake_timeout`으로 제한됩니다. 이 이슈는 동기 드라이버에 영향을 주지 않습니다.
 

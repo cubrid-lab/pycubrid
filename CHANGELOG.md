@@ -102,6 +102,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Transport failures retire cursor handles; async timeout errors name their cause (#556)** —
+  an uncertain transport failure closed the connection but left cursors
+  holding the dead session's query handle ids: the sync socket-error and
+  malformed-reply paths and the async timeout, socket-error and malformed-reply
+  paths (also `ping()`, CHECK_CAS recovery and failed session restores) closed
+  the streams and marked the connection closed without invalidating handles,
+  and the async invalidation could be skipped entirely when `wait_closed()`
+  failed or was cancelled. Every such path now retires the connection and all
+  cursor and schema handles first, then shuts the stream down (async still
+  awaits `wait_closed()`; its failure is logged, and cancellation still raises
+  `CancelledError`). An interrupt (a non-`Exception` `BaseException` such as
+  `KeyboardInterrupt`) while a sync reply is outstanding now retires the
+  session too, as async cancellation already did. Buffered rows remain
+  readable and the next required FETCH fails explicitly; nothing is replayed.
+  The sync prepared-generation fence and pre-send local failures are
+  unchanged. The async `OperationalError('read timeout')` was raised for any
+  `TimeoutError`, including a transport `ETIMEDOUT` with `read_timeout` unset;
+  it now reads `read timeout: no complete round trip within read_timeout=<n>s` only when that
+  deadline expired, and `socket communication timed out` for a transport
+  timeout. Python 3.10's distinct `asyncio.TimeoutError` follows the same
+  transport/callback distinction. `__cause__` is preserved. An `OSError` (including `TimeoutError`)
+  raised by a `json_deserializer` callback after the whole reply was read was
+  treated as a transport failure by both drivers (session closed, wrapped in
+  `OperationalError`); it now propagates unchanged and the session stays open.
+  A `ValueError`-family error from a custom deserializer (orjson, simplejson)
+  is still treated as a malformed reply and retires the session.
 - **Negative FC41 column metadata lengths and column counts are rejected
   (#555)** — a `PREPARE_AND_EXECUTE` reply whose column name, real name, table
   name or default length was negative decoded that field as an empty string,
