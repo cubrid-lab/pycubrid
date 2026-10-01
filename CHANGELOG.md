@@ -83,6 +83,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Invalid JSON text in a complete reply raises `DataError` (#543)** — a
+  `JSON` column value that is not valid JSON, decoded with
+  `json_deserializer=json.loads`, raised `json.JSONDecodeError` — a
+  `ValueError` subclass — so the connection layer reported it as
+  `OperationalError('malformed response from broker')` and closed the
+  connection, although the reply had been read in full. Under the #492/#512
+  contract a complete reply holding a value the client cannot represent is a
+  data problem: `PacketReader._parse_json` now raises `DataError` (the
+  `JSONDecodeError` chained as `__cause__`), and the existing complete-reply
+  bounds check (#383) applies before it is re-raised, so an ordinary
+  connection and cursor stay usable, both on `execute()` (the cursor has no
+  result set, `description` is `None`, but still owns and releases its server
+  handle) and on a later fetch page (rows already collected are kept, #507); a
+  truncated reply around the same cell is still reported as `OperationalError`
+  and closes the connection. The explicit prepared API
+  (`pycubrid.compat.native`), which threads the same `json_deserializer`,
+  stays fail-closed as for invalid UTF-8 and zero dates: it raises
+  `OperationalError` and retires the session. A caller-supplied
+  `json_deserializer` is not wrapped: only the built-in `json.loads` path is
+  reclassified.
 - **The autocommit setter keeps `SET_DB_PARAMETER` and `COMMIT` on one CAS session (#551)** —
   in both drivers, `conn.autocommit = v` / `await conn.set_autocommit(v)` sent
   `COMMIT` with implicit reconnect after an OUT_TRAN `SET_DB_PARAMETER` reply,
