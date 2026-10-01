@@ -90,12 +90,9 @@ def test_sync_tls_session_keeps_read_timeout_after_handshake(
         sync_connection, "_DEFAULT_TLS_HANDSHAKE_TIMEOUT", SHORT_DEFAULT, raising=False
     )
     with run_tls_broker(TLS_OK) as broker:
-        conn = _connect(broker.port, read_timeout=read_timeout)
-        try:
+        with _connect(broker.port, read_timeout=read_timeout) as conn:
             assert conn._socket.version() is not None
             assert conn._socket.gettimeout() == read_timeout
-        finally:
-            conn.close()
 
 
 @pytest.fixture
@@ -153,6 +150,48 @@ def test_probe_closes_socket_on_reset_before_client_hello(
     assert [sock.fileno() for sock in opened] == [-1]
     leaked = [str(w.message) for w in caught if issubclass(w.category, ResourceWarning)]
     assert not leaked, leaked
+
+
+def test_probe_handshake_timeout_is_a_total_deadline() -> None:
+    """A peer that trickles handshake bytes must not reset the probe's timeout.
+
+    ``wrap_socket()`` bounds the whole handshake by the socket timeout; the
+    memory-BIO handshake must keep that total deadline, not turn it into a
+    per-``recv()`` inactivity timeout.
+    """
+    listener = socket.create_server((HOST, 0))
+    stop = threading.Event()
+
+    def serve() -> None:
+        conn, _ = listener.accept()
+        with conn:
+            conn.recv(10)  # CUBRS
+            conn.sendall(struct.pack(">i", 0))
+            # A TLS handshake record header announcing 16 KiB, then one byte of
+            # it every 0.1 s: never a complete record, never a quiet period.
+            conn.sendall(bytes([0x16, 0x03, 0x03, 0x40, 0x00]))
+            give_up = time.monotonic() + 3.0  # a regression fails instead of hanging
+            while not stop.wait(0.1) and time.monotonic() < give_up:
+                try:
+                    conn.sendall(b"\x00")
+                except OSError:
+                    return
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            AsyncConnection._probe_tls_verification_sync(
+                HOST, listener.getsockname()[1], client_context(), True, 2.0, SHORT_DEFAULT
+            )
+        elapsed = time.monotonic() - started
+    finally:
+        stop.set()
+        thread.join(5.0)
+        listener.close()
+
+    assert elapsed < SHORT_DEFAULT + 1.0, elapsed
 
 
 def test_probe_completes_real_tls_handshake() -> None:

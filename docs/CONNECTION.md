@@ -274,13 +274,15 @@ reply propagates unchanged without closing it.
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of
     raising. As of [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156), the
-    async driver runs an automatic preflight `ssl.SSLContext.wrap_socket()` probe on Python
-    3.10 immediately before `loop.start_tls()`, using the same `SSLContext` and
-    `server_hostname=host`. Verification failures now raise `OperationalError` (chained from
-    `ssl.SSLError`) within the connect timeout, matching the 3.11+ behavior. The probe is a
-    no-op on Python 3.11+ and adds one extra TCP round-trip per connect on 3.10 only. Other
-    TLS error paths (peer unresponsive, timeout) remain bounded by `ssl_handshake_timeout`.
-    The issue does not affect the sync driver.
+    async driver runs an automatic preflight TLS handshake probe on Python 3.10 immediately
+    before `loop.start_tls()`, using the same `SSLContext` and `server_hostname=host`. The
+    probe drives the handshake over `ssl.SSLContext.wrap_bio()` memory BIOs on a socket it
+    owns and always closes ([#535](https://github.com/cubrid-lab/pycubrid/issues/535)).
+    Verification failures now raise `OperationalError` (chained from `ssl.SSLError`),
+    matching the 3.11+ behavior. The probe's TCP connect is bounded by `connect_timeout` and
+    its whole TLS handshake by `read_timeout` (10 seconds when unset), like the real upgrade's
+    `ssl_handshake_timeout`. The probe is a no-op on Python 3.11+ and adds one extra TCP
+    round-trip per connect on 3.10 only. The issue does not affect the sync driver.
 
 ```python
 import pycubrid.aio

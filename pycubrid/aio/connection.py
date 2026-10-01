@@ -610,6 +610,9 @@ class AsyncConnection(ConnectionCommonMixin):
             # on a peer reset before the ClientHello without closing it, which
             # left the socket to the garbage collector (#535). This way the
             # probe keeps owning the socket and the finally below closes it.
+            # handshake_timeout bounds the whole handshake, as it does for
+            # wrap_socket(), not each socket operation.
+            deadline = time.monotonic() + handshake_timeout
             incoming = ssl_module.MemoryBIO()
             outgoing = ssl_module.MemoryBIO()
             tls = ssl_context.wrap_bio(incoming, outgoing, server_hostname=host)
@@ -619,6 +622,10 @@ class AsyncConnection(ConnectionCommonMixin):
                     break
                 except ssl_module.SSLWantReadError:
                     pending = outgoing.read()
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("TLS preflight probe handshake timed out") from None
+                    sock.settimeout(remaining)
                     if pending:
                         sock.sendall(pending)
                     data = sock.recv(16384)
@@ -630,10 +637,12 @@ class AsyncConnection(ConnectionCommonMixin):
             try:
                 tls.unwrap()
             except ssl_module.SSLError:
+                # Expected: with memory BIOs unwrap() wants the peer's reply.
                 pass
             try:
                 sock.sendall(outgoing.read())
             except OSError:
+                # The peer may already be gone; verification has passed.
                 pass
         finally:
             if sock is not None:

@@ -202,7 +202,7 @@ Python 3.10의 별도 `asyncio.TimeoutError` 클래스에도 같은 규칙이 �
 타임아웃은 연결을 닫지 않고 그대로 전파됩니다.
 
 !!! note "Python 3.10 비동기 TLS 사전 점검 프로브"
-    Python 3.10의 `asyncio.loop.start_tls()`에는 알려진 CPython 버그(3.13/3.14에서 수정)가 있어, **인증서 검증** 실패 시 예외를 던지는 대신 무한히 멈출 수 있습니다. [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156)부터 비동기 드라이버는 Python 3.10에서 `loop.start_tls()` 직전에 같은 `SSLContext`와 `server_hostname=host`로 `ssl.SSLContext.wrap_socket()` 사전 점검 프로브를 자동 실행합니다. 검증 실패는 이제 연결 타임아웃 내에 `OperationalError`(`ssl.SSLError`에서 체이닝)로 발생하며, 3.11+ 동작과 일치합니다. 프로브는 Python 3.11+에서는 no-op이고, 3.10에서만 연결당 TCP 왕복 한 번이 추가됩니다. 다른 TLS 오류 경로(응답 없음, 타임아웃)는 여전히 `ssl_handshake_timeout`으로 제한됩니다. 이 이슈는 동기 드라이버에 영향을 주지 않습니다.
+    Python 3.10의 `asyncio.loop.start_tls()`에는 알려진 CPython 버그(3.13/3.14에서 수정)가 있어, **인증서 검증** 실패 시 예외를 던지는 대신 무한히 멈출 수 있습니다. [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156)부터 비동기 드라이버는 Python 3.10에서 `loop.start_tls()` 직전에 같은 `SSLContext`와 `server_hostname=host`로 TLS 핸드셰이크 사전 점검 프로브를 자동 실행합니다. 프로브는 자신이 소유하고 항상 닫는 소켓 위에서 `ssl.SSLContext.wrap_bio()` 메모리 BIO로 핸드셰이크를 진행합니다([#535](https://github.com/cubrid-lab/pycubrid/issues/535)). 검증 실패는 이제 `OperationalError`(`ssl.SSLError`에서 체이닝)로 발생하며, 3.11+ 동작과 일치합니다. 프로브의 TCP 연결은 `connect_timeout`으로, TLS 핸드셰이크 전체는 실제 업그레이드의 `ssl_handshake_timeout`과 같이 `read_timeout`(설정하지 않으면 10초)으로 제한됩니다. 프로브는 Python 3.11+에서는 no-op이고, 3.10에서만 연결당 TCP 왕복 한 번이 추가됩니다. 이 이슈는 동기 드라이버에 영향을 주지 않습니다.
 
 ```python
 import pycubrid.aio
