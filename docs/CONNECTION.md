@@ -241,6 +241,20 @@ driver waits without a limit. A broker that stalls or resets the connection duri
 handshake raises `OperationalError` within that bound
 ([#513](https://github.com/cubrid-lab/pycubrid/issues/513)).
 
+After the session is open, an uncertain transport failure on a request (a socket error, a
+timeout, a malformed reply, or an interrupt or task cancellation while a reply is outstanding)
+closes the connection and retires every cursor and schema result handle of that session in
+both drivers ([#556](https://github.com/cubrid-lab/pycubrid/issues/556)). Rows a cursor already
+buffered stay readable; the next fetch that needs the server raises, and no handle of the dead
+session is ever sent again. The request is not replayed: reconnect with `connect()` or
+`ping(reconnect=True)` and re-execute. The async `OperationalError` message says
+`read timeout: no reply within read_timeout=...s` only when the `read_timeout` deadline expired;
+a timeout raised by the transport itself (for example `ETIMEDOUT`) is reported as
+`socket communication timed out`, and other socket errors as `socket communication failed`. The
+original exception is always chained as `__cause__`, and a cancelled task still raises
+`asyncio.CancelledError`. The sync `read_timeout` is a per-receive socket timeout and is reported
+as `socket communication failed`.
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of

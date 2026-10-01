@@ -348,8 +348,7 @@ class AsyncConnection(ConnectionCommonMixin):
             )
             await self._send_and_receive_locked(CommitPacket(), allow_reconnect=False)
         except Exception as exc:
-            await self._close_streams()
-            self._connected = False
+            await self._retire_session_locked()
             raise OperationalError("failed to apply autocommit after connect") from exc
         self._autocommit = True
         self._autocommit_explicitly_set = True
@@ -824,9 +823,7 @@ class AsyncConnection(ConnectionCommonMixin):
                         return True
                 elif not reconnect:
                     return False
-                await self._close_streams()
-                self._connected = False
-                self._invalidate_query_handles_for_reconnect()
+                await self._retire_session_locked(for_reconnect=True)
                 if not reconnect:
                     return False
             break
@@ -1087,18 +1084,31 @@ class AsyncConnection(ConnectionCommonMixin):
                 raise InterfaceError("connection is closed")
             self._validate_escape_generation(expected_escape_generation)
 
+        # On Python 3.11+ asyncio.TimeoutError is the built-in TimeoutError, an
+        # OSError subclass a transport can raise too (ETIMEDOUT): record which
+        # one fired instead of inferring the read_timeout deadline from type.
+        transport_timeout = False
+
+        async def round_trip() -> Any:
+            nonlocal transport_timeout
+            try:
+                return await self._do_send_and_receive(packet)
+            except TimeoutError:
+                transport_timeout = True
+                raise
+
         try:
-            coro = self._do_send_and_receive(packet)
             if self._read_timeout is not None:
-                return await asyncio.wait_for(coro, timeout=self._read_timeout)
-            return await coro
-        except asyncio.TimeoutError as exc:
-            await self._close_streams()
-            self._connected = False
-            raise OperationalError("read timeout") from exc
-        except OSError as exc:
-            await self._close_streams()
-            self._connected = False
+                return await asyncio.wait_for(round_trip(), timeout=self._read_timeout)
+            return await round_trip()
+        except (asyncio.TimeoutError, OSError) as exc:
+            await self._retire_session_locked()
+            if isinstance(exc, asyncio.TimeoutError) and not transport_timeout:
+                raise OperationalError(
+                    f"read timeout: no reply within read_timeout={self._read_timeout}s"
+                ) from exc
+            if isinstance(exc, TimeoutError):
+                raise OperationalError("socket communication timed out") from exc
             raise OperationalError("socket communication failed") from exc
         except asyncio.CancelledError:
             # The reply may arrive after cancellation and poison the next read.
@@ -1135,8 +1145,7 @@ class AsyncConnection(ConnectionCommonMixin):
         try:
             packet.parse(response_body)
         except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
-            await self._close_streams()
-            self._connected = False
+            await self._retire_session_locked()
             raise OperationalError("malformed response from broker") from exc
         return packet
 
@@ -1211,9 +1220,7 @@ class AsyncConnection(ConnectionCommonMixin):
             self._host,
             self._port,
         )
-        await self._close_streams()
-        self._connected = False
-        self._invalidate_query_handles_for_reconnect()
+        await self._retire_session_locked(for_reconnect=True)
         self._implicit_reconnect_suspended += 1
         try:
             await self._connect_locked()
@@ -1307,8 +1314,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 allow_reconnect=False,
             )
         except Exception as exc:
-            await self._close_streams()
-            self._connected = False
+            await self._retire_session_locked()
             raise OperationalError("failed to restore session state after reconnect") from exc
 
     async def _invoke_connect_locked(self) -> None:
@@ -1317,6 +1323,25 @@ class AsyncConnection(ConnectionCommonMixin):
             await self._connect_locked()
             return
         await connect_method()
+
+    async def _retire_session_locked(self, *, for_reconnect: bool = False) -> None:
+        """Retire the physical session after an uncertain I/O failure (#556).
+
+        Connection state and every cursor/schema handle are retired *before*
+        the stream shutdown is awaited, so a ``wait_closed()`` that fails or is
+        cancelled cannot leave live-looking handles on a dead session. A
+        shutdown failure is logged rather than replacing the caller's error;
+        cancellation still propagates as :class:`asyncio.CancelledError`.
+        """
+        self._connected = False
+        if for_reconnect:
+            self._invalidate_query_handles_for_reconnect()
+        else:
+            self._invalidate_query_handles()
+        try:
+            await self._close_streams()
+        except Exception:  # noqa: BLE001 - the session is already retired
+            _LOGGER.debug("Stream shutdown failed while retiring the session", exc_info=True)
 
     async def _close_streams(self) -> None:
         """Close the stream writer, await TLS shutdown, and clear references."""

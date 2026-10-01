@@ -968,8 +968,7 @@ class Connection(ConnectionCommonMixin):
                 packet.parse(response_body)
             except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
                 if expected_generation is None:
-                    self._safe_close_socket()
-                    self._connected = False
+                    self._drop_connection()
                 elif self._prepared_session_is_current(expected_generation, request_socket):
                     self._discard_uncertain_prepared_session()
                 raise OperationalError("malformed response from broker") from exc
@@ -999,8 +998,7 @@ class Connection(ConnectionCommonMixin):
             if expected_generation is not None and not attempted_send:
                 raise  # Local pre-byte failure cannot corrupt the broker reply.
             if expected_generation is None:
-                self._safe_close_socket()
-                self._connected = False
+                self._drop_connection()
             elif self._prepared_session_is_current(expected_generation, request_socket):
                 self._discard_uncertain_prepared_session()
             raise OperationalError("socket communication failed") from exc
@@ -1008,6 +1006,15 @@ class Connection(ConnectionCommonMixin):
         # codeql[py/catch-base-exception]
         except BaseException as exc:
             if (
+                expected_generation is None
+                and attempted_send
+                and not response_complete
+                and not isinstance(exc, Exception)
+                and self._socket is request_socket
+            ):
+                # An interrupt while the reply is outstanding leaves it unread.
+                self._discard_uncertain_prepared_session()
+            elif (
                 expected_generation is not None
                 and attempted_send
                 and (not response_complete or not isinstance(exc, Exception))

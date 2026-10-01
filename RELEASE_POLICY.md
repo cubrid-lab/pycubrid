@@ -241,6 +241,20 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Transport failures retire cursor handles; async timeout messages (#556)** —
+  PATCH / bug correction in both drivers. After an uncertain transport failure
+  the connection was already closed and raised `OperationalError`; now every
+  cursor and schema handle of that session is retired with it, so later cursor
+  calls fail with the existing invalidated-result errors instead of reaching a
+  closed connection with a stale handle id. A sync interrupt while a reply is
+  outstanding now closes the session (previously it stayed open with an unread
+  reply). The async `OperationalError` message for a `read_timeout` expiry
+  changes from `read timeout` to `read timeout: no reply within
+  read_timeout=<n>s` (still starting with `read timeout`), and a transport
+  `TimeoutError` now reads `socket communication timed out`. Exception classes,
+  `__cause__`, `CancelledError` propagation and the no-replay rule are
+  unchanged; no public signature, dependency or supported-version change.
+
 - **Sync `connect()` after `close()` restores explicit autocommit (#520)** — PATCH /
   bug correction and sync/async parity. A new physical session opened by
   `connect()` after an earlier one (also on `ping(reconnect=True)` and
