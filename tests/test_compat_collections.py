@@ -77,7 +77,8 @@ def test_default_kind_is_byte_identical_to_the_official_driver(
         packet = _packets(fake_driver, ExecutePacket)[0]
         assert _bind_pair(packet.bindings[0]) == bytes.fromhex(pair)
         # The pair is what the request frame carries.
-        assert bytes.fromhex(pair) in packet.write(b"\x00" * 4)
+        frame = packet.write(b"\x00" * 4)
+        assert bytes.fromhex(pair) in frame
     finally:
         conn.close()
 
