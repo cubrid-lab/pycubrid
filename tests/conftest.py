@@ -106,7 +106,7 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     to. ``test_backslash_negotiation.py`` and ``test_replay_parity.py`` carry
     the marker directly to exercise the real probe against a scripted broker;
     every module that negotiates against a live CUBRID server carries it
-    alongside its existing ``integration`` marker.
+    alongside its existing ``integration`` or ``benchmark`` marker.
     """
     if request.node.get_closest_marker("no_escape_pin") is not None:
         return

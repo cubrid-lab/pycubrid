@@ -467,7 +467,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `integration`-marked modules, `test_schema_integration.py` and
   `test_schema_matrix.py`, were checked and correctly excluded: every
   connection they open passes `no_backslash_escapes=True` explicitly, so the
-  pin was always a no-op for them.
+  pin was always a no-op for them. A follow-up review pass widened the audit
+  beyond `integration`-marked modules to every test that opens a live
+  connection: `test_benchmarks.py` (`pytest.mark.benchmark`, gated on
+  `CUBRID_TEST_URL` rather than `integration`) also negotiates for real and
+  now carries the marker too. `test_fault_broker.py` and
+  `test_aio_tls_handshake_hang.py` were checked and correctly excluded: both
+  talk to an in-process fake local server, not the configured live CUBRID
+  endpoint, and either pass `no_backslash_escapes` explicitly or only
+  exercise failure paths that never reach negotiation.
 
 ## [1.8.0] - 2026-09-29
 
