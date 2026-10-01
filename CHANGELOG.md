@@ -11,6 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   generation/reconnect/native-error/transport-error properties for sync and
   async commit and rollback. Removing the generation filter or flush guards
   now fails these regressions; production behavior and dependencies are unchanged.
+- **Shared scalar-formatting coverage and observable escape recovery (#563)** —
+  Duplicate async scalar examples now use the existing pure-function golden
+  matrix under both escape modes, with small sync/async adapter wiring checks.
+  Explicit-mode recovery cases observe bound SQL and TCP sessions instead of
+  incidental private flags. Hostile inputs, unknown-mode rejection, generation
+  fences and malformed-reply safety tests remain; runtime behavior is unchanged.
 - **`charset` connection option (#86)** — `pycubrid.connect()`,
   `pycubrid.aio.connect()`, `pycubrid.compat.native.connect()` and
   `cubriddb.Connection(charset=...)` (previously `"utf8"` only) accept

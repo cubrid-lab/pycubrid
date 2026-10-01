@@ -551,6 +551,12 @@ def _spoof(cls: type) -> object:
 
 # Plain values and their exact literals on main before #528 (golden output).
 _GOLDEN_PLAIN = [
+    (None, "NULL", None),
+    (True, "1", None),
+    (False, "0", None),
+    (42, "42", None),
+    (2.5, "2.5", None),
+    (Decimal("3.14"), "3.14", None),
     ("", "''", "''"),
     ("hello", "'hello'", "'hello'"),
     ("it's", "'it''s'", "'it''s'"),
@@ -567,6 +573,11 @@ _GOLDEN_PLAIN = [
     (datetime.time(1, 2, 3, tzinfo=datetime.timezone.utc), "TIME'01:02:03'", None),
     (datetime.datetime(2026, 1, 15, 13, 45, 30, 999999), "DATETIME'2026-01-15 13:45:30.999'", None),
     (datetime.datetime(1000, 1, 1), "DATETIME'1000-01-01 00:00:00.000'", None),
+    (
+        datetime.datetime(2026, 1, 15, 10, 30, tzinfo=datetime.timezone.utc),
+        "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'",
+        None,
+    ),
     (
         datetime.datetime(
             2026, 1, 15, 10, 30, tzinfo=datetime.timezone(-datetime.timedelta(hours=3, minutes=30))

@@ -20,6 +20,7 @@ from pycubrid.connection import Connection
 from pycubrid.exceptions import OperationalError
 from pycubrid.protocol import PrepareAndExecutePacket
 
+from .helpers.replay_broker import Reply, Request, Session, run_replay_broker
 from .test_async import make_streams_for_connect
 from .test_connection import build_handshake_response, build_open_db_response, make_socket
 from .test_aio_ping import make_async_connection
@@ -260,39 +261,66 @@ async def test_async_recovery_reprobes_automatic_mode(
 
 @pytest.mark.parametrize("mode", [False, True])
 def test_sync_explicit_mode_survives_recovery_without_probe(mode: bool) -> None:
-    open_db = build_open_db_response()
-    sockets = [
-        make_socket([build_handshake_response(), open_db[:4], open_db[4:]]) for _ in range(2)
-    ]
-    with patch("socket.create_connection", side_effect=sockets):
-        conn = Connection("localhost", 33000, "testdb", "dba", "", no_backslash_escapes=mode)
-        conn._drop_connection()
-        assert conn.ping(reconnect=True) is True
+    with run_replay_broker(_recycle_first_ping) as broker:
+        conn = Connection(
+            "127.0.0.1",
+            broker.port,
+            "testdb",
+            "dba",
+            "",
+            no_backslash_escapes=mode,
+            connect_timeout=2,
+            read_timeout=2,
+        )
+        try:
+            assert conn.ping(reconnect=True) is True
+            cursor = conn.cursor()
+            cursor.execute("SELECT ?", (r"one\two",))
+            assert cursor.fetchone() == (1,)
+        finally:
+            conn.close()
 
-    assert conn._no_backslash_escapes is mode
-    assert conn._no_backslash_escapes_explicit is True
-    assert conn._physical_generation == 2
-    assert [sock.sendall.call_count for sock in sockets] == [2, 2]
+    expected = r"SELECT 'one\two'" if mode else r"SELECT 'one\\two'"
+    sqls = [r.sql for r in broker.requests if r.sql is not None]
+    assert sqls == [expected]
+    assert ESCAPE_PROBE_SQL not in sqls
+    assert {r.session for r in broker.requests} == {0, 1}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", [False, True])
 async def test_async_explicit_mode_survives_recovery_without_probe(mode: bool) -> None:
-    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", no_backslash_escapes=mode)
-    first_reader, first_writer, _ = make_streams_for_connect()
-    next_reader, next_writer, _ = make_streams_for_connect()
-    conn._open_connection = AsyncMock(
-        side_effect=[(first_reader, first_writer), (next_reader, next_writer)]
-    )
+    with run_replay_broker(_recycle_first_ping) as broker:
+        conn = AsyncConnection(
+            "127.0.0.1",
+            broker.port,
+            "testdb",
+            "dba",
+            "",
+            no_backslash_escapes=mode,
+            connect_timeout=2,
+            read_timeout=2,
+        )
+        try:
+            await conn.connect()
+            assert await conn.ping(reconnect=True) is True
+            cursor = conn.cursor()
+            await cursor.execute("SELECT ?", (r"one\two",))
+            assert await cursor.fetchone() == (1,)
+        finally:
+            await conn.close()
 
-    await conn.connect()
-    conn._drop_connection()
-    assert await conn.ping(reconnect=True) is True
+    expected = r"SELECT 'one\two'" if mode else r"SELECT 'one\\two'"
+    sqls = [r.sql for r in broker.requests if r.sql is not None]
+    assert sqls == [expected]
+    assert ESCAPE_PROBE_SQL not in sqls
+    assert {r.session for r in broker.requests} == {0, 1}
 
-    assert conn._no_backslash_escapes is mode
-    assert conn._no_backslash_escapes_explicit is True
-    assert conn._physical_generation == 2
-    assert [writer.write.call_count for writer in (first_writer, next_writer)] == [2, 2]
+
+def _recycle_first_ping(request: Request, session: Session) -> Reply | None:
+    if request.function == "CHECK_CAS" and session.number == 0:
+        return Reply(close=True)
+    return None
 
 
 def test_sync_healthy_ping_does_not_reprobe(monkeypatch: pytest.MonkeyPatch) -> None:
