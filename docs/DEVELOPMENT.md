@@ -717,7 +717,7 @@ assets; pinning its caller is not a complete freeze of those assets.
 ### CI Matrix
 
 - **Offline**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **Integration**: Python {3.10, 3.14} × CUBRID {10.2, 11.4} (reduced PR matrix;
+- **Integration**: two selected cells, Python 3.14 / CUBRID 11.4 and Python 3.10 / CUBRID 10.2 (reduced PR matrix;
   the full 5×4 matrix runs in `integration-full.yml`)
 
 ### PR verification cost (#564)
