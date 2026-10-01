@@ -1,27 +1,54 @@
 """Exact wire-byte coverage for the remaining CAS request packets (#562).
 
-``test_prepared_packet_contract.py`` already freezes FC2/FC3 (``PreparePacket``
-and ``ExecutePacket`` scalar bindings, including NULL, empty strings and
-int32 boundaries) and ``test_prepared_collection_contract.py`` already
-freezes the FC3 typed collection payload (#482). This module covers every
-other ``_CasPacket`` request class in ``pycubrid.protocol`` that only had
-function-code or partial-field checks in ``test_protocol.py``: FC41
-(including the #488 deferred-close id list), FETCH, END_TRAN, CON_CLOSE,
-CLOSE_REQ_HANDLE, GET_DB_VERSION, SCHEMA_INFO, EXECUTE_BATCH, LOB_NEW,
-LOB_WRITE, LOB_READ, GET_LAST_INSERT_ID, GET_DB_PARAMETER, CHECK_CAS and
-SET_DB_PARAMETER.
+Existing coverage inventoried before adding cases here (per #562's
+acceptance criteria):
 
-Expected bytes are derived independently from the CAS broker source at the
+- ``test_prepared_packet_contract.py`` already freezes FC2/FC3
+  (``PreparePacket`` and ``ExecutePacket`` scalar bindings, including NULL,
+  empty strings and int32 boundaries) and ``test_prepared_collection_contract.py``
+  already freezes the FC3 typed collection payload (#482). Reused via the
+  ``_arguments()`` helper imported below, not duplicated.
+- ``test_charset.py`` (``_GOLDEN_PREPARE_AND_EXECUTE``/``_GOLDEN_BATCH``/
+  ``_GOLDEN_SCHEMA``, lines ~219-247) already freezes one full exact frame
+  each for FC41, FC20 and FC9 — captured from a known-good run to pin #86
+  charset regressions, not derived from CAS source. It exercises FC41 with
+  zero deferred-close handles and FC20/FC9 at the default protocol version
+  only, so it does not cover the #488 deferred-close id list or the
+  protocol-version-gated fields below.
+- ``test_schema_wire.py`` (``test_schema_request_nullable_strings_and_versions``
+  and ``test_schema_request_default_version_and_shard``, lines ~83-116)
+  already asserts exact FC9 bytes across ``protocol_version`` in
+  ``[4, 5, 8]`` and every combination of ``None``/``""``/real-text
+  ``arg1``/``arg2`` — the entire NULL/empty/shard-id matrix this file would
+  otherwise re-cover. Its expected bytes are built with a hand-rolled
+  ``_string()`` helper that mirrors the encoder's own NULL-vs-length-prefix
+  logic rather than citing CAS source, so this file adds one CAS-source-cited
+  FC9 case instead of repeating that matrix.
+
+This module covers every other ``_CasPacket`` request class in
+``pycubrid.protocol`` that only had function-code or partial-field checks in
+``test_protocol.py``: FC41 (specifically the #488 deferred-close id list,
+not already covered above), FETCH, END_TRAN, CON_CLOSE, CLOSE_REQ_HANDLE,
+GET_DB_VERSION, one independently-sourced SCHEMA_INFO case, the
+protocol-version boundary of EXECUTE_BATCH, LOB_NEW, LOB_WRITE, LOB_READ,
+GET_LAST_INSERT_ID, GET_DB_PARAMETER, CHECK_CAS and SET_DB_PARAMETER.
+
+Expected bytes are derived independently from the CAS/CCI C source at the
 commits already pinned by this repo for request-byte work (see
 ``docs/PREPARED_BINDING_DESIGN.md``): CUBRID/cubrid
 ``11.4 6b2bc75527c8bad94d9ad8aba961638efdfb3269`` and
-``10.2 d56a158c06ee6ef917c9db7c52b778c63871bdd7``, both under
-``src/broker/``. Each test cites the exact ``cas_function.c``/``cas_net_buf.c``
-function and line range read while writing it, never ``pycubrid.protocol``
-itself. The general "argument = 4-byte big-endian length + payload" framing
-is the same one ``_arguments()`` (imported below) already decodes for the
-FC2/FC3 contract tests; every CAS ``fn_*`` handler reads its arguments with
-the matching ``net_arg_get_*`` macro/function from ``cas_net_buf.h``.
+``10.2 d56a158c06ee6ef917c9db7c52b778c63871bdd7`` (``src/broker/``), and
+CUBRID/cubrid-cci ``7d1eb8f40f04089b8218d08e36e2c24a2de11b24``
+(``src/cci/cas_cci.h``). Every function code and protocol constant used
+below is therefore a plain ``int`` literal taken straight from that C
+source — never imported from ``pycubrid.constants`` — so that a wrong value
+in ``pycubrid.constants`` (which both the packet under test and a
+same-named-enum expectation would otherwise share) cannot make a request
+byte and its expectation drift together and still pass. The general
+"argument = 4-byte big-endian length + payload" framing is the same one
+``_arguments()`` (imported below) already decodes for the FC2/FC3 contract
+tests; every CAS ``fn_*`` handler reads its arguments with the matching
+``net_arg_get_*`` macro/function from ``cas_net_buf.h``.
 """
 
 from __future__ import annotations
@@ -31,16 +58,27 @@ import struct
 import pytest
 
 from pycubrid import protocol
-from pycubrid.constants import (
-    CASFunctionCode,
-    CCIDbParam,
-    CCILOBType,
-    CCISchemaType,
-    CCITransactionType,
-)
 from pycubrid.exceptions import DataError
 
 from .test_prepared_packet_contract import _CAS_INFO, _arguments
+
+# CAS_FC_* request function codes, src/broker/cas_protocol.h (11.4:170-221;
+# identical in 10.2). Plain ints, not pycubrid.constants.CASFunctionCode.
+_FC_END_TRAN = 1
+_FC_GET_DB_PARAMETER = 4
+_FC_SET_DB_PARAMETER = 5
+_FC_CLOSE_REQ_HANDLE = 6
+_FC_FETCH = 8
+_FC_SCHEMA_INFO = 9
+_FC_GET_DB_VERSION = 15
+_FC_EXECUTE_BATCH = 20
+_FC_CON_CLOSE = 31
+_FC_CHECK_CAS = 32
+_FC_LOB_NEW = 35
+_FC_LOB_WRITE = 36
+_FC_LOB_READ = 37
+_FC_GET_LAST_INSERT_ID = 40
+_FC_PREPARE_AND_EXECUTE = 41
 
 
 # ---------------------------------------------------------------------------
@@ -70,17 +108,25 @@ from .test_prepared_packet_contract import _CAS_INFO, _arguments
 # 10.2:551-556). That is 6 wire arguments, not 10: PREPARE_AND_EXECUTE's
 # embedded EXECUTE never sends query_handle, fetch_flag, auto_commit or
 # forward_only as separate arguments the way standalone FC3 does.
+#
+# test_charset.py's _GOLDEN_PREPARE_AND_EXECUTE already pins one such frame
+# with zero deferred-close handles; the two tests below add the #488 case it
+# doesn't cover.
 
 
-def test_prepare_and_execute_exact_request_without_deferred_close() -> None:
-    packet = protocol.PrepareAndExecutePacket("SELECT 1", auto_commit=True)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.PREPARE_AND_EXECUTE)
+def test_prepare_and_execute_exact_request_with_deferred_close_ids() -> None:
+    packet = protocol.PrepareAndExecutePacket("SELECT * FROM t")
+    packet.deferred_close_handles = (101, 202, 303)
+    args = _arguments(packet.write(_CAS_INFO), _FC_PREPARE_AND_EXECUTE)
     assert args == [
-        struct.pack(">i", 3),  # prepare arg count = 3 fixed + 0 deferred handles
-        b"SELECT 1\x00",
-        b"\x00",  # prepare flag: CCIPrepareOption.NORMAL
-        b"\x01",  # auto_commit
-        b"\x02",  # execution option: CCIExecutionOption.QUERY_ALL
+        struct.pack(">i", 6),  # 3 fixed + 3 deferred handles
+        b"SELECT * FROM t\x00",
+        b"\x00",  # prepare flag: CCI_PREPARE_NORMAL
+        b"\x00",  # auto_commit defaults to False
+        struct.pack(">i", 101),
+        struct.pack(">i", 202),
+        struct.pack(">i", 303),
+        b"\x02",  # execution option: CCI_EXEC_QUERY_ALL
         b"\x00" * 4,  # max_col_size
         b"\x00" * 4,  # max_row_size
         b"",  # NULL param_mode (zero-length arg, net_arg_get_str size<=0)
@@ -89,32 +135,11 @@ def test_prepare_and_execute_exact_request_without_deferred_close() -> None:
     ]
 
 
-def test_prepare_and_execute_exact_request_with_deferred_close_ids() -> None:
-    packet = protocol.PrepareAndExecutePacket("SELECT * FROM t")
-    packet.deferred_close_handles = (101, 202, 303)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.PREPARE_AND_EXECUTE)
-    assert args == [
-        struct.pack(">i", 6),  # 3 fixed + 3 deferred handles
-        b"SELECT * FROM t\x00",
-        b"\x00",
-        b"\x00",  # auto_commit defaults to False
-        struct.pack(">i", 101),
-        struct.pack(">i", 202),
-        struct.pack(">i", 303),
-        b"\x02",
-        b"\x00" * 4,
-        b"\x00" * 4,
-        b"",
-        b"\x00" * 8,
-        b"\x00" * 4,
-    ]
-
-
 def test_prepare_and_execute_exact_request_with_single_deferred_close_id() -> None:
     """One queued handle: the count field is 3+1 and exactly one int follows."""
     packet = protocol.PrepareAndExecutePacket("DELETE FROM t")
     packet.deferred_close_handles = (7,)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.PREPARE_AND_EXECUTE)
+    args = _arguments(packet.write(_CAS_INFO), _FC_PREPARE_AND_EXECUTE)
     assert args[0] == struct.pack(">i", 4)
     assert args[4] == struct.pack(">i", 7)  # the deferred-close id itself
     assert args[5] == b"\x02"  # execution option follows immediately after
@@ -131,7 +156,7 @@ def test_prepare_and_execute_exact_request_with_single_deferred_close_id() -> No
 
 def test_fetch_exact_request() -> None:
     packet = protocol.FetchPacket(query_handle=7, current_tuple_count=9, fetch_size=50)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.FETCH)
+    args = _arguments(packet.write(_CAS_INFO), _FC_FETCH)
     assert args == [
         struct.pack(">i", 7),
         struct.pack(">i", 10),  # cursor_pos = current_tuple_count + 1
@@ -144,7 +169,7 @@ def test_fetch_exact_request() -> None:
 def test_fetch_exact_request_at_zero_tuple_count() -> None:
     """Boundary: the first fetch of a result set (current_tuple_count == 0)."""
     packet = protocol.FetchPacket(query_handle=1, current_tuple_count=0, fetch_size=1)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.FETCH)
+    args = _arguments(packet.write(_CAS_INFO), _FC_FETCH)
     assert args[1] == struct.pack(">i", 1)  # cursor_pos starts at 1, not 0
 
 
@@ -154,17 +179,17 @@ def test_fetch_exact_request_at_zero_tuple_count() -> None:
 #
 # fn_end_tran (11.4:162-179, 10.2:152-169) reads exactly one argument,
 # tran_type, as a char via net_arg_get_char and rejects anything other than
-# CCI_TRAN_COMMIT/CCI_TRAN_ROLLBACK.
+# CCI_TRAN_COMMIT(1)/CCI_TRAN_ROLLBACK(2) (src/cci/cas_cci.h:152-153).
 
 
 def test_commit_exact_request() -> None:
-    args = _arguments(protocol.CommitPacket().write(_CAS_INFO), CASFunctionCode.END_TRAN)
-    assert args == [bytes((CCITransactionType.COMMIT,))]
+    args = _arguments(protocol.CommitPacket().write(_CAS_INFO), _FC_END_TRAN)
+    assert args == [b"\x01"]  # CCI_TRAN_COMMIT
 
 
 def test_rollback_exact_request() -> None:
-    args = _arguments(protocol.RollbackPacket().write(_CAS_INFO), CASFunctionCode.END_TRAN)
-    assert args == [bytes((CCITransactionType.ROLLBACK,))]
+    args = _arguments(protocol.RollbackPacket().write(_CAS_INFO), _FC_END_TRAN)
+    assert args == [b"\x02"]  # CCI_TRAN_ROLLBACK
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +201,7 @@ def test_rollback_exact_request() -> None:
 
 
 def test_close_database_exact_request() -> None:
-    args = _arguments(protocol.CloseDatabasePacket().write(_CAS_INFO), CASFunctionCode.CON_CLOSE)
+    args = _arguments(protocol.CloseDatabasePacket().write(_CAS_INFO), _FC_CON_CLOSE)
     assert args == []
 
 
@@ -191,7 +216,7 @@ def test_close_database_exact_request() -> None:
 
 def test_close_query_exact_request() -> None:
     packet = protocol.CloseQueryPacket(query_handle=42)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.CLOSE_REQ_HANDLE)
+    args = _arguments(packet.write(_CAS_INFO), _FC_CLOSE_REQ_HANDLE)
     assert args == [struct.pack(">i", 42)]
 
 
@@ -206,7 +231,7 @@ def test_close_query_exact_request() -> None:
 @pytest.mark.parametrize("auto_commit", [True, False])
 def test_get_engine_version_exact_request(auto_commit: bool) -> None:
     packet = protocol.GetEngineVersionPacket(auto_commit=auto_commit)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.GET_DB_VERSION)
+    args = _arguments(packet.write(_CAS_INFO), _FC_GET_DB_VERSION)
     assert args == [b"\x01" if auto_commit else b"\x00"]
 
 
@@ -221,43 +246,28 @@ def test_get_engine_version_exact_request(auto_commit: bool) -> None:
 # zero-or-negative length argument as NULL (``*value = NULL``) and anything
 # with length > 0 — including a 1-byte "just the NUL terminator" argument
 # for an empty Python string — as a real (non-NULL) string.
+#
+# test_schema_wire.py already asserts this exact byte shape across every
+# protocol_version/None/""/text combination; this is the one CAS-source-cited
+# case this file adds (CCI_SCH_CLASS=1, src/cci/cas_cci.h:421).
 
 
 def test_get_schema_exact_request_with_table_pattern_and_shard_id() -> None:
     packet = protocol.GetSchemaPacket(
-        CCISchemaType.CLASS,
+        1,  # CCI_SCH_CLASS
         table_name="my_table",
         pattern_match_flag=1,
         arg2="pat%",
         protocol_version=5,
     )
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.SCHEMA_INFO)
+    args = _arguments(packet.write(_CAS_INFO), _FC_SCHEMA_INFO)
     assert args == [
-        struct.pack(">i", CCISchemaType.CLASS),
+        struct.pack(">i", 1),  # CCI_SCH_CLASS
         b"my_table\x00",
         b"pat%\x00",
         b"\x01",
         struct.pack(">i", 0),  # shard_id, sent only for protocol_version >= 5
     ]
-
-
-def test_get_schema_exact_request_null_arg2_omits_shard_id_below_v5() -> None:
-    packet = protocol.GetSchemaPacket(CCISchemaType.ATTRIBUTE, table_name="t", protocol_version=4)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.SCHEMA_INFO)
-    assert args == [
-        struct.pack(">i", CCISchemaType.ATTRIBUTE),
-        b"t\x00",
-        b"",  # arg2=None: zero-length NULL argument, not a string
-        b"\x01",
-    ]
-
-
-def test_get_schema_exact_request_empty_table_name_is_not_null() -> None:
-    """Boundary: table_name="" must send a non-NULL (length>0) argument."""
-    packet = protocol.GetSchemaPacket(CCISchemaType.CLASS, table_name="", protocol_version=4)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.SCHEMA_INFO)
-    assert args[1] == b"\x00"  # length 1 (NUL terminator only): not the NULL marker (b"")
-    assert args[1] != b""
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +277,9 @@ def test_get_schema_exact_request_empty_table_name_is_not_null() -> None:
 # fn_execute_batch (11.4:1689-1711, 10.2:1587-1609) reads auto_commit_mode
 # (char) first, then query_timeout (int) only if the client advertises
 # PROTOCOL_V4; every remaining argument is one SQL statement string, read by
-# ux_execute_batch from argv + arg_index.
+# ux_execute_batch from argv + arg_index. test_charset.py's _GOLDEN_BATCH
+# already pins one frame at the default (>= PROTOCOL_V4) protocol version;
+# the case below adds the omitted-timeout side of that boundary.
 
 
 def test_batch_execute_exact_request_below_v4_omits_timeout() -> None:
@@ -276,7 +288,7 @@ def test_batch_execute_exact_request_below_v4_omits_timeout() -> None:
         auto_commit=True,
         protocol_version=3,
     )
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.EXECUTE_BATCH)
+    args = _arguments(packet.write(_CAS_INFO), _FC_EXECUTE_BATCH)
     assert args == [
         b"\x01",
         b"INSERT INTO t VALUES(1)\x00",
@@ -284,20 +296,10 @@ def test_batch_execute_exact_request_below_v4_omits_timeout() -> None:
     ]
 
 
-def test_batch_execute_exact_request_at_v4_includes_timeout() -> None:
-    packet = protocol.BatchExecutePacket(["SELECT 1"], auto_commit=False, protocol_version=4)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.EXECUTE_BATCH)
-    assert args == [
-        b"\x00",
-        struct.pack(">i", 0),  # query timeout, sent only for protocol_version > 3
-        b"SELECT 1\x00",
-    ]
-
-
 def test_batch_execute_exact_request_empty_statement_list() -> None:
     """Boundary: no SQL statements still sends the two fixed arguments."""
     packet = protocol.BatchExecutePacket([], auto_commit=False, protocol_version=4)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.EXECUTE_BATCH)
+    args = _arguments(packet.write(_CAS_INFO), _FC_EXECUTE_BATCH)
     assert args == [b"\x00", struct.pack(">i", 0)]
 
 
@@ -313,22 +315,28 @@ def test_batch_execute_rejects_unencodable_statement_before_any_bytes() -> None:
 # ---------------------------------------------------------------------------
 #
 # fn_lob_new (11.4:2599-2625, 10.2:2445-2471) reads exactly one int,
-# lob_type. fn_lob_write (11.4:2643-2666, 10.2:2489-2512) reads a LOB value
-# (the packed handle), a bigint offset, then a str (the data). fn_lob_read
-# (11.4:2685-2707, 10.2:2531-2553) reads the same handle and offset, then an
-# int length instead of a str.
+# lob_type, and rejects anything other than CCI_U_TYPE_BLOB(23)/
+# CCI_U_TYPE_CLOB(24) (src/cci/cas_cci.h:357-358 — the production
+# pycubrid.lob.Lob.create() path validates the same two values via
+# CUBRIDDataType.BLOB/CLOB, pycubrid/lob.py:52-53; pycubrid.constants also
+# defines an unrelated, unused CCILOBType with different numbers (33/34)
+# that no production code path feeds into LOBNewPacket).  fn_lob_write
+# (11.4:2643-2666, 10.2:2489-2512) reads a LOB value (the packed handle), a
+# bigint offset, then a str (the data). fn_lob_read (11.4:2685-2707,
+# 10.2:2531-2553) reads the same handle and offset, then an int length
+# instead of a str.
 
 
-@pytest.mark.parametrize("lob_type", [CCILOBType.BLOB, CCILOBType.CLOB])
+@pytest.mark.parametrize("lob_type", [23, 24])  # CCI_U_TYPE_BLOB, CCI_U_TYPE_CLOB
 def test_lob_new_exact_request(lob_type: int) -> None:
-    args = _arguments(protocol.LOBNewPacket(lob_type).write(_CAS_INFO), CASFunctionCode.LOB_NEW)
+    args = _arguments(protocol.LOBNewPacket(lob_type).write(_CAS_INFO), _FC_LOB_NEW)
     assert args == [struct.pack(">i", lob_type)]
 
 
 def test_lob_write_exact_request() -> None:
     handle = b"\x00\x00\x00\x21lob-locator-bytes"
     packet = protocol.LOBWritePacket(handle, offset=12345, data=b"payload-bytes")
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.LOB_WRITE)
+    args = _arguments(packet.write(_CAS_INFO), _FC_LOB_WRITE)
     assert args == [handle, struct.pack(">q", 12345), b"payload-bytes"]
 
 
@@ -336,14 +344,14 @@ def test_lob_write_exact_request_empty_data() -> None:
     """Boundary: a zero-length write still sends a (present, empty) data argument."""
     handle = b"handle"
     packet = protocol.LOBWritePacket(handle, offset=0, data=b"")
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.LOB_WRITE)
+    args = _arguments(packet.write(_CAS_INFO), _FC_LOB_WRITE)
     assert args == [handle, struct.pack(">q", 0), b""]
 
 
 def test_lob_read_exact_request() -> None:
     handle = b"\x00\x00\x00\x22lob-locator-bytes"
     packet = protocol.LOBReadPacket(handle, offset=99, length=256)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.LOB_READ)
+    args = _arguments(packet.write(_CAS_INFO), _FC_LOB_READ)
     assert args == [handle, struct.pack(">q", 99), struct.pack(">i", 256)]
 
 
@@ -358,7 +366,7 @@ def test_lob_read_exact_request() -> None:
 
 def test_get_last_insert_id_exact_request() -> None:
     packet = protocol.GetLastInsertIdPacket()
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.GET_LAST_INSERT_ID)
+    args = _arguments(packet.write(_CAS_INFO), _FC_GET_LAST_INSERT_ID)
     assert args == []
 
 
@@ -370,31 +378,28 @@ def test_get_last_insert_id_exact_request() -> None:
 # param_name. fn_set_db_parameter (11.4:961-980, 10.2:867-?) reads
 # param_name (int) then a second int whose meaning depends on param_name
 # (isolation level, lock timeout, ...); pycubrid always sends exactly two
-# ints regardless of which parameter is addressed.
+# ints regardless of which parameter is addressed. Parameter codes are
+# CCI_PARAM_ISOLATION_LEVEL=1, CCI_PARAM_LOCK_TIMEOUT=2,
+# CCI_PARAM_MAX_STRING_LENGTH=3 (src/cci/cas_cci.h:408-410).
 
 
-@pytest.mark.parametrize(
-    "parameter", [CCIDbParam.ISOLATION_LEVEL, CCIDbParam.LOCK_TIMEOUT, CCIDbParam.MAX_STRING_LENGTH]
-)
+@pytest.mark.parametrize("parameter", [1, 2, 3])
 def test_get_db_parameter_exact_request(parameter: int) -> None:
     packet = protocol.GetDbParameterPacket(parameter)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.GET_DB_PARAMETER)
+    args = _arguments(packet.write(_CAS_INFO), _FC_GET_DB_PARAMETER)
     assert args == [struct.pack(">i", parameter)]
 
 
 def test_set_db_parameter_exact_request() -> None:
-    packet = protocol.SetDbParameterPacket(CCIDbParam.LOCK_TIMEOUT, 5000)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.SET_DB_PARAMETER)
-    assert args == [
-        struct.pack(">i", CCIDbParam.LOCK_TIMEOUT),
-        struct.pack(">i", 5000),
-    ]
+    packet = protocol.SetDbParameterPacket(2, 5000)  # CCI_PARAM_LOCK_TIMEOUT
+    args = _arguments(packet.write(_CAS_INFO), _FC_SET_DB_PARAMETER)
+    assert args == [struct.pack(">i", 2), struct.pack(">i", 5000)]
 
 
 def test_set_db_parameter_exact_request_negative_value() -> None:
     """Boundary: a negative value (e.g. lock_timeout=-1, infinite wait) round-trips as-is."""
-    packet = protocol.SetDbParameterPacket(CCIDbParam.LOCK_TIMEOUT, -1)
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.SET_DB_PARAMETER)
+    packet = protocol.SetDbParameterPacket(2, -1)  # CCI_PARAM_LOCK_TIMEOUT
+    args = _arguments(packet.write(_CAS_INFO), _FC_SET_DB_PARAMETER)
     assert args[1] == struct.pack(">i", -1)
 
 
@@ -410,5 +415,5 @@ def test_set_db_parameter_exact_request_negative_value() -> None:
 
 def test_check_cas_exact_request() -> None:
     packet = protocol.CheckCasPacket()
-    args = _arguments(packet.write(_CAS_INFO), CASFunctionCode.CHECK_CAS)
+    args = _arguments(packet.write(_CAS_INFO), _FC_CHECK_CAS)
     assert args == []
