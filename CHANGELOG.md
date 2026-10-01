@@ -461,6 +461,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Tests
+- **`tests/test_docs_reason.py` runs the docs-sync script in-process instead
+  of spawning a fresh `python -` subprocess per fixture case, and the fake
+  `git` shim is a shell script instead of a Python one (#429)** — the event
+  JSON regression test took ~8.7s of the offline suite's ~22s runtime; it now
+  runs in well under a second, exercising the exact script text extracted
+  from the workflow file against the same fake `git` subprocess, just without
+  the per-case interpreter startup cost.
+- **`scripts/check_docs_reason.py` reduces empty emphasis inside a caption
+  before deciding it is populated (#429)** — a reason whose only content is a
+  caption like `[**<!-- empty -->**](/issue)` rendered no visible
+  explanation, but the `**` emphasis delimiters around the (invisible)
+  comment were counted as real content and the reason was accepted. Of the
+  four cases Codex reported against the final head of #425 (`e94ee3d`), this
+  was the only one still reproducible on `main`; the other three (an
+  unmatched backtick pairing across a type-6 HTML block, bracket-bearing
+  HTML-only captions, and compound empty-caption markup) were already fixed
+  by later commits before #425 merged. All four now have a regression
+  fixture. This is the smaller "harden the existing structure" option the
+  issue offered as an alternative to rewriting the helper; see the issue for
+  the recorded decision. The helper is shared byte-for-byte with
+  sqlalchemy-cubrid and cubrid-cookbook-python (#429), so the same fix needs
+  the same follow-up PR in each.
 - **The backslash-escape-mode pin opts out on an explicit marker, not a
   filename guess (#524)** — `tests/conftest.py`'s autouse fixture used to skip
   the pin for any module whose path matched one of 17 hardcoded filename
