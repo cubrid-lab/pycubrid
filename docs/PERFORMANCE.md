@@ -173,6 +173,24 @@ python scripts/profile_fetch.py --rows 5000 --iterations 20 --fetch-size 100
 python scripts/profile_fetch.py --output fetch.prof
 ```
 
+#### Fetch reply parsing (offline)
+
+`tests/test_bench_fetch_parsing.py` times FC8 FETCH reply parsing with no
+server (#559). It covers 2000-row synthetic replies for scalar, text, mixed
+(with NULLs) and collection workloads, built with the fuzz seed builders, and
+checks every parse against their exact expected rows. Without
+`--benchmark-enable` each workload is parsed once as a correctness test, so
+required CI has no timing threshold.
+
+```bash
+# Time it (30 rounds after 3 warmup rounds), with peak allocation in extra_info:
+pytest tests/test_bench_fetch_parsing.py --benchmark-enable \
+    --benchmark-json=fetch-parse.json
+
+# Compare two runs:
+python scripts/bench_regression.py --baseline before.json --current after.json
+```
+
 #### Visualising .prof files with snakeviz
 
 ```bash

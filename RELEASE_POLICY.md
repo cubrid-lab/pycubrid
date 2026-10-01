@@ -247,6 +247,12 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Faster FETCH row parsing (#559)** — PATCH / internal performance change
+  with no behavior change. Row values, `DataError` / malformed-reply
+  classification, connection lifetime, request bytes, public signatures,
+  dependencies and supported versions are unchanged. The new offline
+  benchmark times nothing in required CI.
+
 - **Collection element validation continues after conversion errors (#595)** —
   PATCH / malformed-response correction. A complete first element `DataError`
   cannot hide a malformed later typed element. Complete collections retain
@@ -260,6 +266,15 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   past unrepresentable cells. Complete replies retain the first metadata error;
   normal decoding/hooks, absent optional inline headers and unused trailing
   bytes are unchanged. Reader marks are internal, not public DB-API additions.
+
+- **Pooling-off autocommit result ownership (#584)** — PATCH / cursor safety
+  correction. Known transaction-ending OUT_TRAN replies retire ordinary
+  cursor/schema IDs already freed by direct CUBRID CAS before they can be reused.
+  The current FC41 result cannot adopt a freed ID, including after DataError.
+  Buffered rows/counts, completed EOF, physical generation and liveness checks
+  remain unchanged; an unfinished invalidated result uses the existing
+  InterfaceError contract. Pooling-on/manual/schema/proxy behavior and batch
+  replies are excluded. No public signature, dependency or support-matrix change.
 
 - **Column metadata framing checked before `DataError`; FC41 counts (#581)** —
   PATCH / correction of a protocol-robustness defect completing #555, #523 and

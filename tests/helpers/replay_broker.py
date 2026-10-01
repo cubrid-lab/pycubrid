@@ -31,7 +31,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 
-from pycubrid.constants import CASFunctionCode, CUBRIDDataType, DataSize
+from pycubrid.constants import CASFunctionCode, CUBRIDDataType, CUBRIDStatementType, DataSize
 
 from .cas_reply import (
     SCHEMA_RESULT,
@@ -171,6 +171,7 @@ class Result:
 
     rs: ResultSet
     inline: int
+    auto_commit: bool = False
 
 
 @dataclass
@@ -211,6 +212,9 @@ class ReplayBroker:
             one ``INT`` row. The escape-mode probe always returns ``2``.
         statement_pooling: The broker_info statement-pooling byte of every
             session (``0`` off, ``1`` on).
+        free_on_autocommit: Opt in to transaction-ending FC41/final-FETCH/version
+            replies, freeing every handle when pooling is off (#584). Disabled
+            by default so existing scripted parity fixtures keep their statuses.
     """
 
     def __init__(
@@ -219,10 +223,12 @@ class ReplayBroker:
         *,
         results: dict[str, tuple[ResultSet, int]] | None = None,
         statement_pooling: int = 0,
+        free_on_autocommit: bool = False,
     ) -> None:
         self._script = script
         self._results = dict(results or {})
         self._statement_pooling = statement_pooling
+        self._free_on_autocommit = free_on_autocommit
         self._lock = threading.Lock()
         self._requests: list[Request] = []
         self._threads: list[threading.Thread] = []
@@ -378,7 +384,9 @@ class ReplayBroker:
             return Reply(ok_body(session.status))
         if function == "GET_DB_VERSION":
             session.status = IN_TRAN
-            return Reply(ok_body(IN_TRAN) + b"11.4.0.0000\x00")
+            if self._free_on_autocommit and request.args[0] == b"\x01":
+                self._auto_commit(session)
+            return Reply(ok_body(session.status) + b"11.4.0.0000\x00")
         if function == "PREPARE_AND_EXECUTE":
             return self._prepare_and_execute(request, session)
         if function == "FETCH":
@@ -403,9 +411,22 @@ class ReplayBroker:
         else:
             rs, inline = self._results.get(sql, (_single_int("value", 1), 1))
         handle = session.allocate_handle()
-        session.results[handle] = Result(rs, inline)
+        auto_commit = request.args[3] == b"\x01"
+        session.results[handle] = Result(rs, inline, auto_commit)
         session.status = IN_TRAN
-        return Reply(execute_body(rs, handle=handle, inline=inline))
+        body = execute_body(rs, handle=handle, inline=inline)
+        if (
+            self._free_on_autocommit
+            and auto_commit
+            and (rs.statement_type != CUBRIDStatementType.SELECT or inline >= len(rs.rows))
+        ):
+            self._auto_commit(session)
+        return Reply(with_status(body, session.status))
+
+    def _auto_commit(self, session: Session) -> None:
+        session.status = OUT_TRAN
+        if not self._statement_pooling:
+            session.results.clear()
 
     def _fetch(self, request: Request, session: Session) -> Reply:
         handle, start, size = request.int_arg(0), request.int_arg(1), request.int_arg(2)
@@ -413,7 +434,14 @@ class ReplayBroker:
         if result is None:
             return Reply(error_body(session.status, -10004, "invalid query handle"))
         rows = result.rs.rows[start - 1 : start - 1 + size]
-        return Reply(page_body(result.rs, rows))
+        body = page_body(result.rs, rows)
+        if (
+            self._free_on_autocommit
+            and result.auto_commit
+            and start - 1 + len(rows) >= len(result.rs.rows)
+        ):
+            self._auto_commit(session)
+        return Reply(with_status(body, session.status))
 
 
 def _single_int(name: str, value: int) -> ResultSet:
@@ -451,9 +479,15 @@ def run_replay_broker(
     *,
     results: dict[str, tuple[ResultSet, int]] | None = None,
     statement_pooling: int = 0,
+    free_on_autocommit: bool = False,
 ) -> Iterator[ReplayBroker]:
     """Start a :class:`ReplayBroker`, yield it, and tear it down."""
-    broker = ReplayBroker(script, results=results, statement_pooling=statement_pooling)
+    broker = ReplayBroker(
+        script,
+        results=results,
+        statement_pooling=statement_pooling,
+        free_on_autocommit=free_on_autocommit,
+    )
     broker.start()
     try:
         yield broker

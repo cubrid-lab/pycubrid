@@ -168,6 +168,23 @@ python scripts/profile_fetch.py --rows 5000 --iterations 20 --fetch-size 100
 python scripts/profile_fetch.py --output fetch.prof
 ```
 
+#### FETCH 응답 파싱 (오프라인)
+
+`tests/test_bench_fetch_parsing.py`는 서버 없이 FC8 FETCH 응답 파싱 시간을
+측정합니다(#559). 스칼라, 텍스트, 혼합(NULL 포함), 컬렉션 워크로드에 대해 fuzz
+시드 빌더로 만든 2000행 합성 응답을 사용하고, 모든 파싱 결과를 빌더가 정한 정확한
+기대 행과 비교합니다. `--benchmark-enable` 없이 실행하면 각 워크로드를 한 번만
+파싱하는 정확성 테스트가 되므로, 필수 CI에는 시간 임계값이 없습니다.
+
+```bash
+# 시간 측정 (워밍업 3회 후 30라운드), 최대 할당량은 extra_info에 기록:
+pytest tests/test_bench_fetch_parsing.py --benchmark-enable \
+    --benchmark-json=fetch-parse.json
+
+# 두 실행 비교:
+python scripts/bench_regression.py --baseline before.json --current after.json
+```
+
 #### snakeviz로 .prof 파일 시각화
 
 ```bash
