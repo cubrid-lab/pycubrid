@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from .constants import (
     CASFunctionCode,
@@ -725,15 +725,29 @@ def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[Colu
     whole metadata again by its declared lengths without decoding, so framing
     damage in a later column still fails as malformed (#581).
     """
+    columns, error = _parse_column_metadata_deferred(reader, column_count)
+    if error is not None:
+        raise error
+    return columns
+
+
+def _parse_column_metadata_deferred(
+    reader: PacketReader, column_count: int
+) -> tuple[list[ColumnMetaData], DataError | None]:
+    """Retain column types and defer text errors until the packet is framed.
+
+    Malformed metadata wins immediately: the bounds walk may raise ValueError,
+    IndexError or struct.error. Only a complete metadata block returns a saved
+    DataError for the packet parser to report after checking its remaining tail.
+    """
     if column_count < 0:
         raise ValueError("negative prepared column count")
-    start = reader._offset
+    start = reader.mark()
     try:
-        return _read_column_metadata(reader, column_count, decode=True)
-    except DataError:
-        reader._offset = start
-        _read_column_metadata(reader, column_count, decode=False)
-        raise
+        return _read_column_metadata(reader, column_count, decode=True), None
+    except DataError as error:
+        reader.seek(start)
+        return _read_column_metadata(reader, column_count, decode=False), error
 
 
 def _read_column_metadata(
@@ -802,7 +816,9 @@ def _read_column_metadata(
     return columns
 
 
-def _parse_prepare_info(reader: PacketReader) -> tuple[int, int, list[ColumnMetaData]]:
+def _parse_prepare_info(
+    reader: PacketReader,
+) -> tuple[int, int, list[ColumnMetaData], DataError | None]:
     """Parse the FC2 tail also reused by FC3 refreshed-column responses."""
     if reader.bytes_remaining() < 14:
         raise ValueError("truncated prepared column metadata")
@@ -815,11 +831,8 @@ def _parse_prepare_info(reader: PacketReader) -> tuple[int, int, list[ColumnMeta
         raise ValueError("negative prepared bind or column count")
     if column_count > reader.bytes_remaining() // 31:
         raise ValueError("truncated prepared column metadata")
-    return (
-        statement_type,
-        bind_count,
-        _parse_column_metadata(reader, column_count),
-    )
+    columns, error = _parse_column_metadata_deferred(reader, column_count)
+    return statement_type, bind_count, columns, error
 
 
 # ---------------------------------------------------------------------------
@@ -930,11 +943,11 @@ def _parse_cell_type(reader: PacketReader, size: int) -> tuple[int, int]:
     one type byte. The header counts in the cell size, so a header longer than
     the size is a malformed reply.
     """
-    start = reader._offset
+    start = reader.mark()
     column_type = _parse_column_type(reader)
-    header_size = reader._offset - start
+    header_size = reader.mark() - start
     if header_size > size:
-        reader._offset = start
+        reader.seek(start)
         raise ValueError(f"row cell size {size} is shorter than its {header_size}-byte type")
     return column_type, size - header_size
 
@@ -953,7 +966,7 @@ def _check_row_data_bounds(
     too (#523). ``typed`` marks CALL/NULL-typed columns, whose cells start with
     their own one- or two-byte type header, counted in the size (#542).
     """
-    reader._offset = rows_start
+    reader.seek(rows_start)
     for _ in range(tuple_count):
         reader._parse_int()
         reader._skip_bytes(DataSize.OID)
@@ -969,11 +982,31 @@ def _check_row_data_bounds(
             reader._skip_bytes(size)
 
 
+def _deferred_value_reader(
+    reader: PacketReader, parse_value: Callable[[int], Any]
+) -> Callable[[int], Any]:
+    """Keep validating later cells when metadata already holds a DataError."""
+
+    def read(size: int) -> Any:
+        start = reader.mark()
+        try:
+            return parse_value(size)
+        except DataError:
+            # Value readers validate their own declared payload before a
+            # DataError. Resume at the next cell, not a shallow row re-walk.
+            reader.seek(start + size)
+            return None
+
+    return read
+
+
 def _parse_row_data(
     reader: PacketReader,
     tuple_count: int,
     columns: Sequence[ColumnMetaData | _SchemaColumn],
     statement_type: int,
+    *,
+    defer_data_errors: bool = False,
 ) -> list[tuple[Any, ...]]:
     """Parse row data from the reader."""
     is_call_type = statement_type in (
@@ -996,6 +1029,8 @@ def _parse_row_data(
         col_readers = None
     else:
         col_readers = [_resolve_reader(reader, ct) for ct in col_types]
+        if defer_data_errors:
+            col_readers = [_deferred_value_reader(reader, parse) for parse in col_readers]
 
     # Every cell value must use exactly the bytes its size word declares. The
     # fixed-width readers (INT, DATE, OID, ...) do not look at the size, so a
@@ -1006,7 +1041,7 @@ def _parse_row_data(
     rows: list[tuple[Any, ...]] = []
     _rows_append = rows.append
 
-    rows_start = reader._offset
+    rows_start = reader.mark()
     try:
         for _ in range(tuple_count):
             _parse_int()
@@ -1033,7 +1068,10 @@ def _parse_row_data(
                     _check_cell_size(ct, size)
                     method_name = _get(ct)
                     if method_name is not None:
-                        row[i] = _convert_collection_value(ct, _getattr(reader, method_name)(size))
+                        parse = _getattr(reader, method_name)
+                        if defer_data_errors:
+                            parse = _deferred_value_reader(reader, parse)
+                        row[i] = _convert_collection_value(ct, parse(size))
                     else:
                         row[i] = _parse_bytes(size)
             _rows_append(tuple(row))
@@ -1249,8 +1287,17 @@ class PrepareAndExecutePacket(_CasPacket):
 
         self.query_handle = self.response_code
         # Same layout as the FC2 tail, so the same count checks apply (#581).
-        self.statement_type, self.bind_count, self.columns = _parse_prepare_info(reader)
+        self.statement_type, self.bind_count, self.columns, metadata_error = _parse_prepare_info(
+            reader
+        )
         self.column_count = len(self.columns)
+
+        if metadata_error is not None:
+            position = reader.mark()
+            # Validate without application hooks or opaque collection results.
+            # Neither can bypass framing after metadata is already invalid.
+            reader = PacketReader(data, decode_collections=True, encoding=self.encoding)
+            reader.seek(position)
 
         self.total_tuple_count = reader._parse_int()
         if self.total_tuple_count < 0:
@@ -1267,6 +1314,8 @@ class PrepareAndExecutePacket(_CasPacket):
 
         # If SELECT, parse inline fetch data
         if self.statement_type == CUBRIDStatementType.SELECT:
+            if 0 < reader.bytes_remaining() < 8:
+                raise ValueError("truncated inline fetch header")
             if reader.bytes_remaining() >= 8:
                 _ = reader._parse_int()  # fetch_code
                 self.tuple_count = reader._parse_int()
@@ -1278,7 +1327,10 @@ class PrepareAndExecutePacket(_CasPacket):
                         self.tuple_count,
                         self.columns,
                         self.statement_type,
+                        defer_data_errors=metadata_error is not None,
                     )
+        if metadata_error is not None:
+            raise metadata_error
 
 
 class PreparePacket(_CasPacket):
@@ -1336,8 +1388,12 @@ class PreparePacket(_CasPacket):
             _raise_error(reader, remaining)
 
         self.query_handle = self.response_code
-        self.statement_type, self.bind_count, self.columns = _parse_prepare_info(reader)
+        self.statement_type, self.bind_count, self.columns, metadata_error = _parse_prepare_info(
+            reader
+        )
         self.column_count = len(self.columns)
+        if metadata_error is not None:
+            raise metadata_error
 
 
 class ExecutePacket(_CasPacket):
@@ -1431,6 +1487,7 @@ class ExecutePacket(_CasPacket):
             _raise_error(reader, remaining)
 
         self.total_tuple_count = response_code
+        metadata_error = None
         _ = reader._parse_byte()  # cache_reusable
         self.result_count = reader._parse_int()
         self.result_infos = _parse_result_infos(reader, self.result_count, prepared=True)
@@ -1440,11 +1497,19 @@ class ExecutePacket(_CasPacket):
             if includes_column_info not in (0, 1):
                 raise ValueError("invalid refreshed-column-info flag")
             if includes_column_info:
-                self.statement_type, self.bind_count, self.columns = _parse_prepare_info(reader)
+                self.statement_type, self.bind_count, self.columns, metadata_error = (
+                    _parse_prepare_info(reader)
+                )
+        if metadata_error is not None:
+            position = reader.mark()
+            reader = PacketReader(data, decode_collections=True, encoding=self.encoding)
+            reader.seek(position)
         if self.protocol_version > 4:
             _ = reader._parse_int()  # shard_id
 
         if self.statement_type == CUBRIDStatementType.SELECT:
+            if 0 < reader.bytes_remaining() < 8:
+                raise ValueError("truncated inline fetch header")
             if reader.bytes_remaining() >= 8:
                 _ = reader._parse_int()  # fetch_code
                 self.tuple_count = reader._parse_int()
@@ -1456,7 +1521,10 @@ class ExecutePacket(_CasPacket):
                         self.tuple_count,
                         self.columns,
                         self.statement_type,
+                        defer_data_errors=metadata_error is not None,
                     )
+        if metadata_error is not None:
+            raise metadata_error
 
 
 class FetchPacket(_CasPacket):

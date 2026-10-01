@@ -142,6 +142,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **Metadata text errors cannot hide damaged FC41/FC3 tails (#591)** —
+  Undecodable metadata retains column types for validation of remaining
+  counts, fields and inline rows before the original `DataError` is raised.
+  Later structural damage closes sync/async connections with `OperationalError`.
+  This error path excludes application JSON hooks and continues through later
+  cells after an unrepresentable row value, including collection and LOB
+  validation. Negative collection element counts and partial inline-fetch
+  headers are rejected; absent optional headers and undeclared trailing bytes
+  retain their contracts. Bounds re-walks use checked reader marks.
 - **Column metadata finishes its framing check before `DataError`; FC41 count gaps closed (#581)** —
   column metadata text that is not valid in the connection codec raised
   `DataError` at once in FC2, FC3 (refreshed columns) and FC41 replies, so

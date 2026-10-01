@@ -4984,13 +4984,27 @@ length in FC2, FC3 or FC41 column metadata (#555); a zero length is an empty
 string. FC41 also rejects a negative bind count, `total_tuple_count` or inline
 tuple count, and a column count the rest of the reply cannot hold (31 bytes per
 column at least), as FC2 does; FC3 rejects a negative inline tuple count (#581).
-Column metadata text that the connection codec cannot decode raises `DataError`
-only after the remaining metadata was walked by its declared lengths, so a later
-negative, overrunning or truncated field is still malformed (#581). The
+Column metadata text that the connection codec cannot decode is deferred after
+the remaining metadata is walked by its declared lengths (#581). FC41 and FC3
+with refreshed columns then validate their remaining tail, counts and inline
+rows before re-raising the first metadata `DataError`; later structural damage
+still wins (#591). This error path does not call application JSON deserializers,
+and validates subsequent cells even if an earlier row value is unrepresentable.
+Known collection framing is checked even when normal results use opaque bytes;
+negative element counts are malformed. A partially present inline-fetch header
+is malformed; an absent optional header remains supported. The
 connection turns these exceptions into `OperationalError("malformed response
 from broker")` and closes; `DataError` stays reserved for a complete reply
 whose value Python cannot represent (#492, #512). Unread bytes after the last
 value a reply declares are not checked.
+
+The pre-existing conversion-error remainder walk inside a collection is a
+separate limitation (#595): it does not yet validate every later element's
+typed representation after an earlier element raises `DataError`.
+
+Internal bounds re-walks use `PacketReader.mark()` and `seek(position)`.
+Seeking outside the reply or to a non-integer position raises `ValueError`
+without moving the reader; zero and the end of the reply are valid positions.
 
 ### Composite Parsers
 

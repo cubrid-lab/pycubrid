@@ -421,6 +421,20 @@ class PacketReader:
         # Protocol text (NUMERIC, timezone names, version) and JSON stay UTF-8.
         self._encoding: str = encoding
 
+    def mark(self) -> int:
+        """Return the current offset for a subsequent bounds-only re-walk."""
+        return self._offset
+
+    def seek(self, position: int) -> None:
+        """Restore an offset inside this reply; rejection leaves it unchanged."""
+        if (
+            isinstance(position, bool)
+            or not isinstance(position, int)
+            or not 0 <= position <= len(self._buffer)
+        ):
+            raise ValueError("invalid position in broker reply")
+        self._offset = position
+
     def _parse_byte(self) -> int:
         value = self._buffer[self._offset]
         self._offset += DataSize.BYTE
@@ -657,6 +671,8 @@ class PacketReader:
                 if self._parse_int() not in (-1, 0):
                     raise ValueError("malformed NULL-only collection: invalid element length")
             return [None] * element_count
+        if element_count < 0:
+            raise ValueError("negative collection element count")
         if element_type in (
             CUBRIDDataType.SET,
             CUBRIDDataType.MULTISET,
