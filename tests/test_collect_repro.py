@@ -9,6 +9,8 @@ import pytest
 
 from scripts import collect_repro
 
+pytestmark = pytest.mark.repo_tooling
+
 MATRIX = "10.2=localhost:33102,11.4=localhost:33114"
 
 

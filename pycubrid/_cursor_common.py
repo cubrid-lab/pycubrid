@@ -345,7 +345,17 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
     # Typed collections (#567). The classes cannot be subclassed; they are
     # matched by identity and each element goes through this same renderer.
     if cls is Set or cls is Multiset or cls is SequenceParam:
-        elements = _COLLECTION_ELEMENTS(value)
+        try:
+            elements = _COLLECTION_ELEMENTS(value)
+        except AttributeError:
+            # object.__new__(Set) (or an unpickled/forged instance) never ran
+            # _Collection.__new__, so the _elements slot was never set (#568
+            # review). Surface this as the same exception family as every
+            # other binding failure instead of leaking the raw AttributeError.
+            raise ProgrammingError(
+                f"{cls.__name__} parameter is missing its elements; it was not "
+                f"constructed through {cls.__name__}(...)"
+            ) from None
         if type(elements) is not tuple:
             raise ProgrammingError("collection parameter elements must be a tuple")
         rendered = []

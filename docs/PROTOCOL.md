@@ -100,8 +100,8 @@ may also justify explicit `ping(reconnect=True)` recovery, but an uncertain
 application request is never replayed automatically. Commit and rollback send
 `CLOSE_REQ` (FC=6) for open cursor query handles before `END_TRAN`.
 
-Deferred close (#488): when the broker reports statement pooling in
-`OPEN_DATABASE` (`broker_info[2] == 1`), query handles survive `END_TRAN`, so in
+Deferred close (#488): when a direct CUBRID CAS reports statement pooling in
+`OPEN_DATABASE` (`broker_info[0] == 1` and `broker_info[2] == 1`), query handles survive `END_TRAN`, so in
 autocommit mode a handle released by `cursor.close()` or by re-executing a cursor,
 and in either mode the handle of a cursor collected without `close()`, is not
 closed with its own `CLOSE_REQ`. Its id is appended to the next FC41 request as
@@ -119,10 +119,11 @@ belong to one physical session: they are dropped when it is retired or replaced
 and never sent to another. Without statement pooling CAS frees handles at every
 commit, so `CLOSE_REQ` is sent at once as before and a collected cursor's handle is
 left to the next commit. A shard proxy (`broker_info[0]` other than `1`, CUBRID)
-ignores the extra arguments, so it also gets `CLOSE_REQ` at once. Explicit releases
+ignores the extra arguments, so explicit releases still send `CLOSE_REQ` at once.
+Collected proxy cursor handles rely on proxy transaction/session cleanup. Explicit releases
 during session setup (the escape-mode probe and restored settings of a replacement
-session) are never deferred; a cursor collected at any time is queued, since it
-cannot send anything.
+session) are never deferred; a cursor collected on an eligible direct, pooling-enabled
+session may queue its handle during setup, since it cannot send anything.
 Each handle keeps the generation of the session that opened it, so a cursor collected
 after a reconnect cannot release a handle id on the new session.
 

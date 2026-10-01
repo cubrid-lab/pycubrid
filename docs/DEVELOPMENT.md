@@ -154,6 +154,40 @@ matched unrelated modules (#524, e.g. `"test_integration"` matched every
 `test_integration_*.py` file). Mark the module explicitly instead of adding a
 new filename fragment.
 
+### Fast Driver Tests vs. Repository Tooling Checks
+
+Among the offline tests, a `repo_tooling`-marked subset (registered in
+`pyproject.toml`) checks repository policy and tooling — the docs-sync script,
+the PR-title validator, the release scripts, workflow-YAML contracts, the
+shared quality gate, and similar (#558). These carry no pycubrid driver
+behavior and are excluded from `pycubrid`'s own coverage, so they run in the
+dedicated `repo-tooling-tests` CI job instead of the `offline-tests` matrix,
+keeping routine driver feedback fast. Moving the check does not change
+whether CI requires it: `repo-tooling-tests` is still a required job in the
+CI Gate, just like `offline-tests`.
+
+```bash
+# Fast driver lane — mocked driver behavior only (what offline-tests runs)
+pytest tests/ -m "not integration and not repo_tooling" -v
+
+# Repository tooling lane — policy/tooling checks (what repo-tooling-tests runs)
+pytest tests/ -m "repo_tooling" -v
+
+# Both lanes together, still offline (no live CUBRID server)
+pytest tests/ -m "not integration" -v
+```
+
+A module opts into the tooling lane with an explicit `pytestmark = pytest.mark.repo_tooling`,
+not a file move or a path-based collection rule, so nothing needs reorganizing
+on disk and nothing is silently dropped from `pytest tests/` (every marker is
+additive to the default collection; only `-m` selects or excludes it at run
+time). `docs-sync.yml` runs `test_docs_reason.py` with a bare
+`python -m unittest discover` and no dependency install, so that module (and
+`test_pr_title.py`, at risk of the same thing) imports `pytest` in a
+`try`/`except ModuleNotFoundError` and falls back to an empty `pytestmark`
+when it is missing — the marker would be meaningless there anyway. A module
+only ever run through pytest does not need this guard.
+
 ### Sync/Async Replay Parity
 
 `tests/test_replay_parity.py` checks, offline and in a few seconds, that the
@@ -187,6 +221,33 @@ escape-mode re-probe) and a failed recovery, SQL bound to a replaced session
 malformed and truncated replies (#533), `DataError` keeping the session (#512)
 and the fetch-page `DataError` contract (#536). Task cancellation exists only
 in `pycubrid.aio` and is covered by `tests/test_async_cancellation.py` instead.
+
+**Per-operation round-trip budgets (#557):** `Observation.step_functions(i)`
+returns the exact, ordered CAS functions sent while running `steps[i]` alone —
+separate from connect/setup (step 0, which includes any constructor
+autocommit setter and the backslash-escape-mode probe) and from every other
+step. `FIRST_INSERT_BUDGET`, `REUSED_CURSOR_INSERT_BUDGET`,
+`SELECT_TO_INSERT_BUDGET`, `MANUAL_INSERT_EXECUTE_BUDGET` /
+`MANUAL_INSERT_COMMIT_BUDGET`, `FETCH_PAGINATION_BUDGET`, and the
+`ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` budgets name these exact sequences;
+each is asserted with list equality, which catches a dropped safety request
+(e.g. a missing `CHECK_CAS` liveness probe) exactly as it catches an added
+round trip — neither can pass as an "optimization". Each budget also requires
+successful operation outcomes and a reusable session; fetch scenarios check the
+returned rows. This prevents a malformed reply or wrong result from passing just
+because its request count stayed within the budget. Their scripts
+(`_autocommit_insert`, `_manual_insert_last_insert_id`) reply to an INSERT's
+`PREPARE_AND_EXECUTE` with an explicit `OUT_TRAN` (autocommitting: the
+implicit transaction already committed) or `IN_TRAN` (manual: left open for
+`commit()`) status, and give `GET_LAST_INSERT_ID` a well-formed value — the
+broker's generic default reply for it is a bare response code, which the
+driver (correctly) rejects as malformed. These scenarios are the
+reproducibility baseline for future round-trip-reduction work (#419/#488/#525):
+production optimization and `CHECK_CAS` removal are out of scope here.
+
+These budgets retain the statement-pooling-off baseline. The pooling-on
+deferred-close scenarios in `tests/test_deferred_close.py` check the optimized
+request sequences, required probes and actual piggybacked handle ids (#488).
 
 To add a scenario, append a `Scenario` to `SCENARIOS` with its steps, a script
 built from `_on(...)` (for example `_hang_up_after_ok` to recycle the CAS after a

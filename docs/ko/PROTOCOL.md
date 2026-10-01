@@ -101,8 +101,8 @@ IN_TRAN입니다. `END_TRAN`이나 자동 커밋 요청 뒤 OUT_TRAN이 되어�
 commit과 rollback은 `END_TRAN` 전에 열린 커서의 쿼리 핸들에 `CLOSE_REQ`(FC=6)를
 보냅니다.
 
-지연 닫기(#488): 브로커가 `OPEN_DATABASE`에서 statement pooling을 알리면
-(`broker_info[2] == 1`) 쿼리 핸들이 `END_TRAN` 뒤에도 남으므로, autocommit 모드에서
+지연 닫기(#488): 직접 연결된 CUBRID CAS가 `OPEN_DATABASE`에서 statement pooling을 알리면
+(`broker_info[0] == 1` 및 `broker_info[2] == 1`) 쿼리 핸들이 `END_TRAN` 뒤에도 남으므로, autocommit 모드에서
 `cursor.close()`나 커서 재실행으로 해제되는 핸들과, 모드와 관계없이 `close()` 없이
 수거된 커서의 핸들은 별도의 `CLOSE_REQ`로 닫지 않습니다. 그 id는 다음 FC41 요청의
 auto-commit 플래그 뒤에 추가 prepare 인자로 붙고(id마다 prepare 인자 수가 하나씩
@@ -117,9 +117,10 @@ SELECT/CALL/EVALUATE 핸들은 바로 닫지만(`CLOSE_USTATEMENT`), pycubrid는
 폐기되거나 교체되면 버려지고 다른 세션으로는 절대 보내지 않습니다. statement
 pooling이 꺼져 있으면 CAS가 커밋마다 핸들을 해제하므로 예전처럼 `CLOSE_REQ`를 바로
 보내고, 수거된 커서의 핸들은 다음 커밋에 맡깁니다. 샤드 프록시(`broker_info[0]`이
-CUBRID를 뜻하는 `1`이 아닌 경우)는 추가 인자를 무시하므로 역시 `CLOSE_REQ`를 바로
-보냅니다. 세션 설정(교체 세션의 escape 모드 감지와 설정 복원) 중의 명시적 해제는
-지연하지 않으며, 수거된 커서는 아무것도 보낼 수 없으므로 언제든 대기열에 들어갑니다.
+CUBRID를 뜻하는 `1`이 아닌 경우)는 추가 인자를 무시하므로 명시적 해제는 `CLOSE_REQ`를 바로
+보냅니다. 수거된 프록시 커서의 핸들은 프록시 트랜잭션·세션 정리에 맡깁니다.
+세션 설정(교체 세션의 escape 모드 감지와 설정 복원) 중의 명시적 해제는 지연하지 않습니다.
+직접 연결된 pooling 활성 세션의 수거된 커서는 아무것도 보낼 수 없으므로 설정 중에도 핸들을 대기열에 넣을 수 있습니다.
 각 핸들은 자신을 연 세션의 세대를 기억하므로, 재접속 뒤에 수거된 커서가 새 세션의
 핸들 id를 해제하는 일은 없습니다.
 

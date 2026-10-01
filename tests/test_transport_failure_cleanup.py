@@ -189,11 +189,15 @@ def _fail_reads(conn: Any, exc: BaseException) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("read_timeout", [None, _TIMEOUT])
+@pytest.mark.parametrize(
+    "timeout_type", [TimeoutError, asyncio.TimeoutError], ids=["socket", "asyncio"]
+)
 async def test_async_transport_timeout_is_not_called_a_read_timeout(
     read_timeout: float | None,
+    timeout_type: type[Exception],
 ) -> None:
     """A transport TimeoutError (e.g. ETIMEDOUT) is not the read_timeout deadline."""
-    exc = TimeoutError(110, "Connection timed out")
+    exc = timeout_type(110, "Connection timed out")
     with run_replay_broker(results=_RESULTS) as broker:
         conn, paged = await _open_async(broker.port, read_timeout=read_timeout)
         try:
@@ -419,7 +423,11 @@ def test_sync_parse_callback_os_error_keeps_session(exc: BaseException) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("read_timeout", [None, _TIMEOUT])
-@pytest.mark.parametrize("exc", [TimeoutError("callback"), ConnectionError("callback")])
+@pytest.mark.parametrize(
+    "exc",
+    [TimeoutError("callback"), asyncio.TimeoutError("callback"), ConnectionError("callback")],
+    ids=["socket-timeout", "asyncio-timeout", "connection-error"],
+)
 async def test_async_parse_callback_os_error_keeps_session(
     exc: BaseException, read_timeout: float | None
 ) -> None:

@@ -106,7 +106,7 @@ test that pins the behavior.
 | `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
-| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (`SET{}` when empty); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (each keyword renders as `KEYWORD{}` when empty, e.g. `SET{}`); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
 | anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
@@ -248,7 +248,20 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   converts the elements to the column's element type, as for a literal.
 - Nested collections are rejected (`ProgrammingError`): a typed collection
   inside another, or a plain `list`/`tuple`/`set`/`frozenset`/`dict` element.
-- `executemany()` accepts typed collections in each parameter set.
+- A `dict` is rejected at construction time (`TypeError`) for all three
+  classes: iterating it would silently use only its keys and drop the
+  values. `Sequence` additionally rejects a `set`/`frozenset` (`TypeError`):
+  their iteration order is not guaranteed, which would make `Sequence`'s
+  element order nondeterministic between runs. `Set` and `Multiset` accept a
+  `set`/`frozenset` since their own server-side semantics do not depend on
+  input order.
+- `executemany()` accepts typed collections in each parameter set, including
+  through the DML batch path (`EXECUTE_BATCH`).
+- The instances are immutable and safe to `copy.copy()` (always returns the
+  same object), `copy.deepcopy()` (the same object when every element is
+  itself immutable; an independent copy, with independently copied elements,
+  when an element such as `bytearray` is mutable) and `pickle`; re-invoking
+  `__init__` on an existing instance cannot mutate it either.
 - Fetching is unchanged: with `decode_collections=True` a `SET` column still
   decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
   otherwise). Decoded values are not wrapped back into these types; wrap them

@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "tests/fixtures/upstream_scenarios.csv"
 CLASSIFICATIONS = {

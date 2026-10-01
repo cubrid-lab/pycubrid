@@ -1191,6 +1191,20 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 Concurrent awaiters on the same `AsyncConnection` are serialized with a per-connection
 `asyncio.Lock`, so shared use is safe but requests still execute one at a time.
 
+While `await conn.connect()` opens a session and configures it (backslash-escape probe,
+autocommit) — including the reconnect done by `ping(reconnect=True)` and `connect()` after
+`close()` — other tasks' operations on the same connection wait for that setup. If setup
+fails, the session is discarded and each waiting task raises its own exception (#554): a
+pycubrid error is re-raised as a new instance of the same class (or of the nearest
+`pycubrid.exceptions` class when a subclass has a different constructor) with the same
+`code`, `errno` and `sqlstate` and the original as `__cause__`; any other error as
+`OperationalError` naming it (`connection setup failed in another task: TimeoutError()`);
+and a cancelled setup as `OperationalError` — cancelling the task that runs `connect()`
+cancels only that task. A waiting task that is itself cancelled still raises
+`asyncio.CancelledError`. The CHECK_CAS recovery inside a request (#485) runs under the
+connection lock instead; its failure is raised in the request that triggered it, and
+later requests find the connection closed (`InterfaceError`).
+
 `AsyncConnection.__init__` accepts a keyword-only `autocommit: bool = False` argument, applied
 automatically the first time `await conn.connect()` completes — the same effect as
 `await conn.set_autocommit(True)`, but usable when constructing `AsyncConnection` directly
@@ -1742,9 +1756,23 @@ async cursors. Plain `set`/`list`/`tuple` parameters stay rejected.
   collection, raises `ProgrammingError`.
 - A single `str`/`bytes`/`bytearray` argument raises `TypeError`; subclassing
   raises `TypeError`; setting an attribute raises `AttributeError`.
+- A `dict` argument raises `TypeError` for all three classes (its keys would
+  be used silently and its values dropped). `Sequence` additionally raises
+  `TypeError` for a `set`/`frozenset` argument, since its iteration order is
+  not guaranteed; `Set` and `Multiset` accept a `set`/`frozenset`.
+- The instances are safe to `copy.copy()` (always returns the same object),
+  `copy.deepcopy()` (the same object when every element is itself immutable;
+  an independent copy, with independently copied elements, when an element
+  such as `bytearray` is mutable) and `pickle` (round-trips to an equal
+  instance). Re-invoking `__init__` on an existing instance is a no-op and
+  cannot mutate it.
 - Fetched collections are not returned as these classes: with
   `decode_collections=True` they stay `frozenset` (`SET`) and `list`
   (`MULTISET`/`SEQUENCE`).
+- `Sequence` is also a name in `typing`/`collections.abc`; `from pycubrid
+  import *` shadows it (and `Set`) with these classes. Prefer an explicit
+  import, e.g. `from pycubrid.types import Sequence as CubridSequence`, when
+  both are needed in the same module.
 
 ```python
 from pycubrid import Multiset, Sequence, Set

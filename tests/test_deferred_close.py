@@ -17,8 +17,9 @@ frees handles at every commit, so a later id could name a new result. Queued
 ids belong to one physical session and are dropped, never sent, when it is
 replaced.
 
-#557 (per-operation round-trip budgets) has not landed, so every scenario here
-asserts its exact request sequence, not only an upper bound.
+#557's replay budgets retain the pooling-off baseline. These pooling-on
+scenarios assert their optimized request sequences and piggybacked handle ids,
+not only an upper bound.
 """
 
 from __future__ import annotations

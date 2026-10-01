@@ -468,9 +468,9 @@ class ConnectionCommonMixin:
         during session setup. The entry carries the generation the handle was
         opened on, not the current one: a cursor collected in a reference cycle
         has already left ``_cursors``, so a retirement in between did not clear
-        its handle. The entry is always queued, beyond
-        :data:`DEFERRED_CLOSE_LIMIT` too: each entry is a live CAS handle, so
-        the queue cannot outgrow the server's handle table. Each statement
+        its handle. On an eligible session the entry is queued beyond
+        :data:`DEFERRED_CLOSE_LIMIT` too; stale-generation entries are discarded
+        before sending. Each statement
         carries at most :data:`DEFERRED_CLOSE_LIMIT` ids, and ``commit()`` /
         ``rollback()`` close the rest with ``CLOSE_REQ``, as they closed
         unreferenced cursors before.

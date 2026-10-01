@@ -8,7 +8,9 @@ hostile element subclass cannot change the SQL text.
 
 from __future__ import annotations
 
+import copy
 import datetime
+import pickle
 from decimal import Decimal
 from typing import Any, cast
 
@@ -69,10 +71,40 @@ class TestConstruction:
         assert value.elements == (1,)
 
     @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
+    def test_reinvoking_init_does_not_mutate(self, kind: Any) -> None:
+        # Construction happens in __new__; __init__ is a no-op, so calling it
+        # again on a live instance cannot replace its elements or its hash
+        # (#568 review).
+        value = kind([1])
+        original_hash = hash(value)
+        value.__init__([9, 9, 9])
+        assert value.elements == (1,)
+        assert hash(value) == original_hash
+
+    @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
     @pytest.mark.parametrize("single", ["ab", b"ab", bytearray(b"ab")])
     def test_rejects_a_single_string_or_bytes(self, kind: Any, single: object) -> None:
         with pytest.raises(TypeError, match="iterable of elements"):
             kind(single)
+
+    @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
+    def test_rejects_a_dict(self, kind: Any) -> None:
+        # Iterating a dict yields only its keys; the values would otherwise
+        # be silently dropped (#568 review).
+        with pytest.raises(TypeError, match="does not accept a dict"):
+            kind({"a": 1, "b": 2})
+
+    @pytest.mark.parametrize("kind", [Set, Multiset])
+    @pytest.mark.parametrize("unordered", [{1, 2}, frozenset({1, 2})])
+    def test_set_and_multiset_accept_set_or_frozenset(self, kind: Any, unordered: object) -> None:
+        assert set(kind(unordered).elements) == {1, 2}
+
+    @pytest.mark.parametrize("unordered", [{1, 2}, frozenset({1, 2})])
+    def test_sequence_rejects_a_set_or_frozenset(self, unordered: object) -> None:
+        # A set/frozenset's iteration order is not guaranteed, which would
+        # make Sequence's element order nondeterministic (#568 review).
+        with pytest.raises(TypeError, match="does not accept a set/frozenset"):
+            Sequence(unordered)
 
     @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
     def test_cannot_be_subclassed(self, kind: Any) -> None:
@@ -217,3 +249,52 @@ class TestHostileElements:
         forged = type("Set", (base,), {"__slots__": ()})
         with pytest.raises(ProgrammingError, match="unsupported parameter type"):
             format_parameter(forged([1]))
+
+    @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
+    def test_uninitialized_instance_raises_programming_error(self, kind: Any) -> None:
+        # object.__new__(kind) bypasses _Collection.__new__ entirely, so the
+        # _elements slot is never set. format_parameter() must not leak the
+        # resulting AttributeError (#568 review).
+        broken = object.__new__(kind)
+        with pytest.raises(ProgrammingError, match="missing its elements"):
+            format_parameter(broken)
+
+
+class TestCopyAndPickle:
+    """copy.copy, copy.deepcopy and pickle must round-trip (#568 review)."""
+
+    @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
+    def test_copy_returns_the_same_immutable_instance(self, kind: Any) -> None:
+        value = kind([1, 2])
+        assert copy.copy(value) is value
+
+    @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
+    def test_deepcopy_with_immutable_elements_returns_the_same_instance(self, kind: Any) -> None:
+        # Every element here is itself immutable, so copy.deepcopy() of the
+        # elements tuple hands back that same tuple and this is a no-op.
+        value = kind([1, 2])
+        assert copy.deepcopy(value) is value
+
+    @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
+    def test_deepcopy_independently_copies_a_mutable_bytearray_element(self, kind: Any) -> None:
+        # bytearray is mutable (#568 review): deepcopy must not alias it,
+        # or mutating the copy would silently mutate the "immutable"
+        # original's stored element too.
+        original_bytes = bytearray(b"ab")
+        value = kind([original_bytes])
+        restored = copy.deepcopy(value)
+        assert restored is not value
+        assert restored == value
+        assert restored.elements[0] is not value.elements[0]
+        restored.elements[0][0] = 0
+        assert value.elements[0] == original_bytes
+
+    @pytest.mark.parametrize("kind", [Set, Multiset, Sequence])
+    @pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
+    def test_pickle_round_trips(self, kind: Any, protocol: int) -> None:
+        value = kind([3, 1, 1])
+        restored = pickle.loads(pickle.dumps(value, protocol=protocol))
+        assert restored == value
+        assert restored.elements == value.elements
+        assert hash(restored) == hash(value)
+        assert type(restored) is kind
