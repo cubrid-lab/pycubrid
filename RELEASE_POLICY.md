@@ -247,6 +247,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **FC41/refreshed FC3 metadata errors wait for tail validation (#591)** —
+  PATCH / malformed-response correction. Framing faults after undecodable
+  metadata retire the connection rather than reporting a recoverable
+  `DataError`. Error-path validation excludes application hooks and continues
+  past unrepresentable cells. Complete replies retain the first metadata error;
+  normal decoding/hooks, absent optional inline headers and unused trailing
+  bytes are unchanged. Reader marks are internal, not public DB-API additions.
+
 - **Column metadata framing checked before `DataError`; FC41 counts (#581)** —
   PATCH / correction of a protocol-robustness defect completing #555, #523 and
   #383. A reply whose column metadata has undecodable text and framing damage

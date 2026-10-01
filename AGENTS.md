@@ -72,7 +72,10 @@ size (#523), or collection elements that do not fill their size, raise
 response from broker')` and closes. Trailing bytes after the last declared
 value are not checked; `DataError` is only for a complete reply (#492, #512):
 undecodable column metadata text re-walks the remaining metadata by length
-before raising it (#581).
+(#581), and FC41/refreshed FC3 defer that error until their declared tail and
+inline rows have been validated without application hooks (#591). Later
+structural errors close the session; complete replies retain the first
+metadata DataError.
 
 Typed collection FC3 binds (#482, internal; no public API until #440) send
 the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument
