@@ -17,8 +17,9 @@ frees handles at every commit, so a later id could name a new result. Queued
 ids belong to one physical session and are dropped, never sent, when it is
 replaced.
 
-#557 (per-operation round-trip budgets) has not landed, so every scenario here
-asserts its exact request sequence, not only an upper bound.
+Like the #557 round-trip budgets in ``tests/test_replay_parity.py`` (which
+cover the pooling-on INSERT budgets), every scenario here asserts its exact
+request sequence, not only an upper bound.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ import pytest
 
 import pycubrid
 import pycubrid.aio
-from pycubrid import _connection_common
+import pycubrid._connection_common as _connection_common
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.cursor import Cursor
@@ -649,21 +650,32 @@ class _Raises:
         raise RuntimeError("connection half torn down")
 
 
+def _collect(cursor_class: type, connection: Any = None) -> list[Any]:
+    """Create a cursor without ``__init__`` and let the collector finalize it;
+    return what reached ``sys.unraisablehook`` (an exception escaping
+    ``__del__``)."""
+    unraisable: list[Any] = []
+    with patch.object(sys, "unraisablehook", unraisable.append):
+        cursor = cursor_class.__new__(cursor_class)  # __init__ never ran
+        if connection is not None:
+            cursor._connection = connection
+        del cursor
+        gc.collect()
+    return unraisable
+
+
 @pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor])
 def test_del_without_connection_is_silent(cursor_class: type) -> None:
-    cursor = cursor_class.__new__(cursor_class)  # __init__ never ran
-    cursor.__del__()
+    assert _collect(cursor_class) == []
 
 
 @pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor])
 def test_del_never_raises(cursor_class: type, caplog: pytest.LogCaptureFixture) -> None:
-    cursor = cursor_class.__new__(cursor_class)
-    cursor._connection = _Raises()
     with caplog.at_level("DEBUG"):
-        cursor.__del__()
+        assert _collect(cursor_class, _Raises()) == []
     assert "Could not queue a collected cursor's handle" in caplog.text
     module = sys.modules[cursor_class.__module__]
     with patch.object(module, "_LOGGER") as logger:
         logger.debug.side_effect = RuntimeError("logging torn down")
-        cursor.__del__()  # still silent
-    del cursor._connection
+        assert _collect(cursor_class, _Raises()) == []  # still silent
+        logger.debug.assert_called_once()
