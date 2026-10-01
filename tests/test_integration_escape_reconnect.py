@@ -6,7 +6,7 @@ import pytest
 
 from ._parity_helpers import ADAPTERS, ParityAdapter
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.no_escape_pin]
 
 
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=[adapter.kind for adapter in ADAPTERS])

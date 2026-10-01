@@ -27,8 +27,10 @@ the documented contract:
 * an unmutated seed decodes to exactly the values it was built from;
 * a mutated reply either parses, raises a structural error (reported as
   ``OperationalError('malformed response from broker')``, session closed), a
-  server error, or ``DataError`` only when the reply is complete (#383, #512);
-* a parsed FETCH reply never has cells whose declared sizes overrun it.
+  server error, or ``DataError`` only when the reply is complete (#383, #512, #543);
+* a parsed FETCH reply never has cells whose declared sizes overrun it;
+* a negative column-metadata length or column count in an FC41, FC2 or FC3
+  reply is always a structural error, never an empty name or no columns (#555).
 
 Mutations aim at framing: truncation at field and cell boundaries, length and
 count words that disagree with their payload, collection element types and
@@ -335,9 +337,20 @@ def _assert_documented(
       replies, whose rows start at a fixed offset; execute replies share the
       same ``_parse_row_data`` completeness check).
 
-    A structural error is not further classified: invalid JSON text in a
-    complete reply currently closes the session like framing damage (#543).
+    A structural error is not further classified, with one exception:
+    ``json.JSONDecodeError`` is a ``ValueError`` subclass, so it would
+    otherwise pass the ``STRUCTURAL_CAUGHT`` check below even though invalid
+    JSON text in a complete reply (``json_deserializer=json.loads``) must be
+    classified as ``DataError`` like any other unrepresentable value, not as
+    a structural error (#543). It is checked first and explicitly rejected:
+    a bare (unwrapped) ``JSONDecodeError`` escaping ``parse()`` is always a
+    regression, never a documented outcome.
     """
+    if isinstance(exc, json.JSONDecodeError):
+        raise AssertionError(
+            f"json.JSONDecodeError escaped parse() unwrapped instead of being "
+            f"raised as DataError (#543): {exc!r}"
+        ) from exc
     if exc is None or isinstance(exc, STRUCTURAL_CAUGHT):
         return
     if isinstance(exc, DBAPIError) and getattr(exc, "_cas_server_error", False):
@@ -405,6 +418,21 @@ def _framing_mutation(draw: st.DrawFn, seed: cas_reply.Seed) -> bytes:
     if draw(st.booleans()):
         return draw(_mutated(bytes(b)))
     return bytes(b)
+
+
+@st.composite
+def _negative_metadata_field(draw: st.DrawFn, seed: cas_reply.Seed) -> tuple[bytes, int]:
+    """Rewrite one column-metadata text length or column count to a negative value (#555).
+
+    Nothing else changes, so the reply stays coherent around that one field: the
+    only acceptable outcome is a structural error (``OperationalError``, session
+    closed), never an empty name or an empty column list.
+    """
+    pos = draw(st.sampled_from(seed.metadata_lengths + seed.column_counts))
+    value = draw(st.sampled_from([-1, -2, -(2**31)]) | st.integers(-(2**31), -1))
+    b = bytearray(seed.data)
+    _put_int(b, pos, value)
+    return bytes(b), pos
 
 
 _Case = tuple[cas_reply.ResultSet, cas_reply.Seed]
@@ -649,6 +677,9 @@ class TestExecuteReplyFuzz:
         )
         exc = _outcome(lambda: pkt.parse(reply))
         _assert_documented(exc)
+        if exc is None:
+            # A negative column count is framing damage, never "no columns" (#555).
+            assert pkt.column_count == len(pkt.columns)
         if exc is None and pkt.tuple_count > 0 and pkt.rows:
             assert len(pkt.rows) == pkt.tuple_count
             assert all(len(row) == len(pkt.columns) for row in pkt.rows)
@@ -681,6 +712,56 @@ class TestExecuteReplyFuzz:
         if exc is None:
             assert pkt.bind_count >= 0
             assert pkt.column_count == len(pkt.columns)
+
+
+class TestNegativeColumnMetadataFuzz:
+    """Negative metadata lengths and column counts are rejected on every execute path (#555)."""
+
+    @given(
+        case=_cases(
+            _PAE_SEEDS
+            + _PREPARE_SEEDS
+            + [c for c in _EXECUTE_SEEDS if c[1].name.startswith("execute_refreshed")]
+        ),
+        data=st.data(),
+    )
+    @settings(deadline=None)
+    def test_negative_metadata_field_is_malformed(self, case: _Case, data: st.DataObject) -> None:
+        rs, seed = case
+        assert seed.metadata_lengths and seed.column_counts, seed.name
+        reply, pos = data.draw(_negative_metadata_field(seed))
+        note(f"{seed.name} @ {pos}")
+        if seed.name.startswith("prepare_and_execute"):
+            pae = protocol.PrepareAndExecutePacket(sql="SELECT 1", decode_collections=True)
+            exc = _outcome(lambda: pae.parse(reply))
+        elif seed.name.startswith("prepare/"):
+            exc = _outcome(lambda: protocol.PreparePacket(sql="SELECT 1").parse(reply))
+        else:
+            execute = protocol.ExecutePacket(query_handle=5, statement_type=rs.statement_type)
+            exc = _outcome(lambda: execute.parse(reply, columns=None))
+        assert isinstance(exc, STRUCTURAL_CAUGHT), f"{seed.name} @ {pos}: {exc!r}"
+        assert not isinstance(exc, DataError)
+
+    @given(case=_cases(_PAE_SEEDS), use_async=st.booleans(), data=st.data())
+    @settings(deadline=None)
+    def test_negative_fc41_metadata_field_closes_the_connection(
+        self, case: _Case, use_async: bool, data: st.DataObject
+    ) -> None:
+        _, seed = case
+        reply, pos = data.draw(_negative_metadata_field(seed))
+        note(f"{seed.name} @ {pos}")
+        pkt = protocol.PrepareAndExecutePacket(sql="SELECT 1", decode_collections=True)
+        conn: Connection | AsyncConnection
+        if use_async:
+            conn = _async_connection_with_reply(reply)
+            exc = _outcome(lambda: asyncio.run(conn._send_and_receive(pkt)))
+        else:
+            conn, _ = _sync_connection(reply)
+            exc = _outcome(lambda: conn._send_and_receive(pkt))
+        assert isinstance(exc, OperationalError), repr(exc)
+        assert exc.msg == "malformed response from broker"
+        assert isinstance(exc.__cause__, ValueError)
+        assert conn._connected is False
 
 
 class TestBatchAndLobReplyFuzz:
@@ -771,6 +852,13 @@ class TestFetchThroughConnection:
         elif isinstance(exc, OperationalError):
             assert exc.msg == "malformed response from broker"
             assert isinstance(exc.__cause__, STRUCTURAL_CAUGHT)
+            # json.JSONDecodeError is a ValueError, so it would otherwise pass
+            # the check above even though it must be wrapped as DataError, not
+            # left to close the connection as framing damage (#543).
+            assert not isinstance(exc.__cause__, json.JSONDecodeError), (
+                f"invalid JSON text closed the connection instead of raising "
+                f"DataError (#543): {exc.__cause__!r}"
+            )
             assert conn._connected is False
         elif isinstance(exc, DataError):
             assert conn._connected is True

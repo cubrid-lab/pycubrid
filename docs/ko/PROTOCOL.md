@@ -612,7 +612,9 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 합니다. 고정 폭 값(`INT`, `DATE`, `OBJECT` 등)은 크기를 직접 읽지 않으므로 행
 파서가 값을 읽기 전에 타입의 폭과 비교합니다(#523). `DataError`를 발생시키기 전에
 응답을 다시 훑을 때도 같습니다. 0 이하의 크기는 SQL `NULL`입니다. 음수인 FETCH
-튜플 수도 잘못된 형식입니다. 연결은 이
+튜플 수도 잘못된 형식이며, FC2, FC3, FC41 컬럼 메타데이터의 음수 컬럼 수와 음수
+컬럼 이름, 실제 이름, 테이블 이름, 기본값 길이도 마찬가지입니다(#555). 길이 0은
+빈 문자열입니다. 연결은 이
 예외들을 `OperationalError("malformed response from broker")`로 바꾸고 연결을
 닫습니다. `DataError`는 응답은 완전하지만 Python이 값을 표현할 수 없는 경우에만
 사용합니다(#492, #512). 응답이 선언한 마지막 값 뒤에 남은 바이트는 검사하지

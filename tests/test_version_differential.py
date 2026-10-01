@@ -64,6 +64,7 @@ pytestmark = [
         not MATRIX_RAW,
         reason=f"{ENV_VAR} not set: the version differential runs only in the multi-version lane",
     ),
+    pytest.mark.no_escape_pin,
 ]
 
 LIVE = settings(

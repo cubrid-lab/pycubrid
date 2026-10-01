@@ -8,15 +8,44 @@ import pytest
 
 import pycubrid
 import pycubrid.aio
-from pycubrid.exceptions import InterfaceError
+from pycubrid.exceptions import InterfaceError, ProgrammingError
 from tests._parity_helpers import ADAPTERS, ParityAdapter, connect_kwargs, table_name
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
 @pytest.fixture(params=ADAPTERS, ids=[adapter.kind for adapter in ADAPTERS])
 def adapter(request: pytest.FixtureRequest) -> ParityAdapter:
     return cast(ParityAdapter, request.param)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["sql", "binding"])
+async def test_failed_execute_discards_previous_rows(adapter: ParityAdapter, failure: str) -> None:
+    connection = await adapter.connect()
+    cursor = adapter.cursor(connection)
+    try:
+        await adapter.execute(cursor, "SELECT 1 AS id UNION ALL SELECT 2 UNION ALL SELECT 3")
+        assert await adapter.fetchone(cursor) == (1,)
+        with pytest.raises(ProgrammingError):
+            if failure == "sql":
+                await adapter.execute(cursor, "SELECT missing_column FROM db_root")
+            else:
+                await adapter.execute(cursor, "SELECT ?", (1, 2))
+        assert cursor.description is None
+        assert cursor.rowcount == -1
+        assert cursor.lastrowid is None
+        with pytest.raises(InterfaceError, match="No result set available"):
+            await adapter.fetchone(cursor)
+        with pytest.raises(InterfaceError, match="No result set available"):
+            await adapter.fetchmany(cursor, 2)
+        with pytest.raises(InterfaceError, match="No result set available"):
+            await adapter.fetchall(cursor)
+        await adapter.execute(cursor, "SELECT 42")
+        assert await adapter.fetchall(cursor) == [(42,)]
+    finally:
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)
 
 
 @pytest.mark.asyncio

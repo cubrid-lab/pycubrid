@@ -18,7 +18,7 @@ from pycubrid.protocol import (
 
 from ._parity_helpers import connect_kwargs, table_name
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
 @pytest.mark.parametrize("autocommit", [False, True], ids=["manual", "auto"])

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.repo_tooling
+
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "check_public_api.py"
 
 

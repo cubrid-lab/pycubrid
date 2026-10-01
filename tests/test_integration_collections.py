@@ -22,7 +22,7 @@ from pycubrid.types import Multiset, Sequence, Set
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
 def _connect(**kwargs: Any) -> Connection:

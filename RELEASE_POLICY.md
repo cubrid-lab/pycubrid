@@ -132,6 +132,12 @@ raise `ProgrammingError`; only the message now names the typed classes), and
 fetched collections keep their `decode_collections` containers. Changing a
 rendered keyword, element rendering or the rejection of nested collections is
 governed by the [parameter binding policy](docs/PARAMETER_BINDING.md#compatibility-policy-1x).
+Unreleased follow-up hardening (immutability against re-`__init__`,
+`copy`/`pickle` support, a `ProgrammingError` instead of a leaked
+`AttributeError` for a bypassed-`__new__` instance, and rejecting `dict`/
+unordered-`Sequence` constructor arguments) stays part of this same
+unreleased **MINOR** entry rather than a separate release note, since #567
+has not shipped in a release yet.
 
 ### What the gate does *not* detect
 
@@ -241,12 +247,49 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Async setup failure isolated per waiting task (#554)** — PATCH / bug
+  correction of cancellation and error propagation. Tasks waiting on
+  `AsyncConnection.connect()` setup no longer re-raise the owner's exception
+  instance: a cancelled setup surfaces in waiters as `OperationalError` instead
+  of `CancelledError`, pycubrid errors are re-raised as fresh instances of the
+  same class (or nearest `pycubrid.exceptions` class) and codes, and other
+  errors as `OperationalError`. The setup
+  owner's exception and a waiter's own cancellation are unchanged. No public
+  signature, dependency or supported-version change.
+
 - **Sync `connect()` after `close()` restores explicit autocommit (#520)** — PATCH /
   bug correction and sync/async parity. A new physical session opened by
   `connect()` after an earlier one (also on `ping(reconnect=True)` and
   `CHECK_CAS` recovery) re-sends an explicitly set `autocommit`, once, as
   `pycubrid.aio` already did. Nothing extra is sent when `autocommit` was never
   set explicitly. No public signature, dependency or supported-version change.
+
+- **Negative FC41 column metadata lengths and column counts are rejected
+  (#555)** — PATCH / correction of a protocol-robustness defect completing
+  #383. A `PREPARE_AND_EXECUTE` reply with a negative column name, real-name,
+  table-name or default length, or a negative column count, now raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection instead of decoding an empty string or a result with no columns,
+  matching FC2/FC3 metadata. A normal server does not send such replies. Valid
+  replies, zero-length metadata, the `DataError` classification of complete
+  replies (#492, #512), public signatures, dependencies and supported versions
+  are unchanged.
+
+- **Invalid JSON text in a complete reply raises `DataError` (#543)** — PATCH /
+  correction of error classification, extending #492 and #512. A `JSON` column
+  value that is not valid JSON, decoded with the built-in
+  `json_deserializer=json.loads`, now raises `DataError` (the
+  `json.JSONDecodeError` chained as its `__cause__`) instead of
+  `OperationalError('malformed response from broker')`, and an ordinary
+  connection and cursor stay usable, on `execute()` and on later fetch pages,
+  exactly as for invalid UTF-8 and unrepresentable temporal values. The
+  row-data completeness check (#383) still applies first, so a short reply
+  stays a fail-closed `OperationalError`. The explicit prepared API
+  (`pycubrid.compat.native`), which threads the same `json_deserializer`,
+  keeps its documented fail-closed behavior: it raises `OperationalError` and
+  retires the session, as for invalid UTF-8 and zero dates. A caller-supplied
+  `json_deserializer` is unaffected: its own exceptions are not wrapped. No
+  public signature, dependency or supported-version change.
 
 - **Autocommit setter keeps its two requests on one CAS session (#551)** — PATCH
   / bug correction in both drivers. When the CAS is recycled between
@@ -573,6 +616,15 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   the tracked handle and propagates its exception.
 
 - Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
+
+- **Failed `execute()` calls clear previous result state (#373)**: PATCH /
+  backward-compatible bug fix. After the previous query handle closes, binding
+  or request failures leave no result metadata, row count, last inserted ID
+  or fetchable rows from that query, and discard any held fetch-page error.
+  If closing the previous query fails, both cursor implementations keep the
+  buffered result and its page error; connection invalidation or reconnect
+  handling may still retire the handle. Handles opened by undecodable replacement
+  replies remain tracked for cleanup. Public signatures are unchanged.
 
 - **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
   PATCH / backward-compatible bug fix. The public signatures are unchanged;
