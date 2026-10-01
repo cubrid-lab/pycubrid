@@ -31,7 +31,13 @@ This module covers every other ``_CasPacket`` request class in
 not already covered above), FETCH, END_TRAN, CON_CLOSE, CLOSE_REQ_HANDLE,
 GET_DB_VERSION, one independently-sourced SCHEMA_INFO case, the
 protocol-version boundary of EXECUTE_BATCH, LOB_NEW, LOB_WRITE, LOB_READ,
-GET_LAST_INSERT_ID, GET_DB_PARAMETER, CHECK_CAS and SET_DB_PARAMETER.
+GET_LAST_INSERT_ID, GET_DB_PARAMETER, CHECK_CAS and SET_DB_PARAMETER. Two
+invalid-input cases (an unencodable EXECUTE_BATCH statement and an
+unencodable FC41 SQL string) assert that write() raises before returning
+anything to send; the FC41 one goes further and drives the real
+``Connection._send_and_receive`` path to assert ``sock.sendall`` is never
+called and the session stays usable, the way
+test_prepared_collection_contract.py's invalid-binding case does for FC3.
 
 Expected bytes are derived independently from the CAS/CCI C source at the
 commits already pinned by this repo for request-byte work (see
@@ -60,6 +66,7 @@ import pytest
 from pycubrid import protocol
 from pycubrid.exceptions import DataError
 
+from .test_network_edge_cases import make_connected_connection
 from .test_prepared_packet_contract import _CAS_INFO, _arguments
 
 # CAS_FC_* request function codes, src/broker/cas_protocol.h (11.4:170-221;
@@ -81,13 +88,28 @@ _FC_GET_LAST_INSERT_ID = 40
 _FC_PREPARE_AND_EXECUTE = 41
 
 
+def _packed_lob_handle(db_type: int, lob_size: int, locator: bytes) -> bytes:
+    """Build a realistic packed LOB handle.
+
+    Mirrors net_arg_get_lob_handle's read order (cas_net_buf.c 11.4:733-757,
+    10.2:736-760): db_type (int), lob_size (bigint), locator_size (int, the
+    locator's byte length *including* its NUL terminator per
+    net_buf_cp_lob_handle's own comment, 11.4:257-269), then the
+    NUL-terminated locator itself. This is the payload LOBWritePacket/
+    LOBReadPacket's ``packed_lob_handle`` argument carries unchanged from
+    whatever LOBNewPacket.lob_handle the broker returned.
+    """
+    terminated = locator + b"\x00"
+    return struct.pack(">iqi", db_type, lob_size, len(terminated)) + terminated
+
+
 # ---------------------------------------------------------------------------
 # FC41 PREPARE_AND_EXECUTE, including the #488 deferred-close id list
 # ---------------------------------------------------------------------------
 #
 # cas_function.c fn_prepare_and_execute (11.4:843-867, 10.2:746-770) reads
 # argv[0] as the prepare-argument count, hands fn_prepare_internal
-# (11.4:324-443, 10.2:301-?) that many args starting at argv+1, then always
+# (11.4:325-439, 10.2:302-399) that many args starting at argv+1, then always
 # calls fn_execute_internal with a *hardcoded* argc of 10 starting right
 # after the prepare args (11.4:858, 10.2:761).
 #
@@ -143,6 +165,26 @@ def test_prepare_and_execute_exact_request_with_single_deferred_close_id() -> No
     assert args[0] == struct.pack(">i", 4)
     assert args[4] == struct.pack(">i", 7)  # the deferred-close id itself
     assert args[5] == b"\x02"  # execution option follows immediately after
+
+
+def test_prepare_and_execute_unencodable_sql_sends_nothing() -> None:
+    """Invalid input through the real send path: no bytes ever reach the socket.
+
+    ``write()`` raising before ``finalize()`` returns is necessary but not
+    sufficient; this exercises the actual ``Connection._send_and_receive``
+    path (like test_prepared_collection_contract.py's
+    ``test_invalid_collection_binding_sends_nothing_and_keeps_session``) and
+    asserts ``sock.sendall`` is never called and the session stays usable.
+    """
+    conn, sock = make_connected_connection()
+    sock.sendall.reset_mock()
+    generation = conn._physical_generation
+    packet = protocol.PrepareAndExecutePacket("SELECT '\ud800'")
+    with pytest.raises(DataError):
+        conn._send_and_receive(packet, expected_generation=generation)
+    sock.sendall.assert_not_called()
+    assert conn._connected is True
+    assert conn._physical_generation == generation
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +376,7 @@ def test_lob_new_exact_request(lob_type: int) -> None:
 
 
 def test_lob_write_exact_request() -> None:
-    handle = b"\x00\x00\x00\x21lob-locator-bytes"
+    handle = _packed_lob_handle(23, 1024, b"/cubrid_lob/550e8400-abc123")  # CCI_U_TYPE_BLOB
     packet = protocol.LOBWritePacket(handle, offset=12345, data=b"payload-bytes")
     args = _arguments(packet.write(_CAS_INFO), _FC_LOB_WRITE)
     assert args == [handle, struct.pack(">q", 12345), b"payload-bytes"]
@@ -342,14 +384,14 @@ def test_lob_write_exact_request() -> None:
 
 def test_lob_write_exact_request_empty_data() -> None:
     """Boundary: a zero-length write still sends a (present, empty) data argument."""
-    handle = b"handle"
+    handle = _packed_lob_handle(24, 0, b"/cubrid_lob/empty-clob")  # CCI_U_TYPE_CLOB
     packet = protocol.LOBWritePacket(handle, offset=0, data=b"")
     args = _arguments(packet.write(_CAS_INFO), _FC_LOB_WRITE)
     assert args == [handle, struct.pack(">q", 0), b""]
 
 
 def test_lob_read_exact_request() -> None:
-    handle = b"\x00\x00\x00\x22lob-locator-bytes"
+    handle = _packed_lob_handle(24, 2048, b"/cubrid_lob/660f9511-def456")  # CCI_U_TYPE_CLOB
     packet = protocol.LOBReadPacket(handle, offset=99, length=256)
     args = _arguments(packet.write(_CAS_INFO), _FC_LOB_READ)
     assert args == [handle, struct.pack(">q", 99), struct.pack(">i", 256)]
@@ -375,7 +417,7 @@ def test_get_last_insert_id_exact_request() -> None:
 # ---------------------------------------------------------------------------
 #
 # fn_get_db_parameter (11.4:871-883, 10.2:774-786) reads one int,
-# param_name. fn_set_db_parameter (11.4:961-980, 10.2:867-?) reads
+# param_name. fn_set_db_parameter (11.4:961-1050, 10.2:867-956) reads
 # param_name (int) then a second int whose meaning depends on param_name
 # (isolation level, lock timeout, ...); pycubrid always sends exactly two
 # ints regardless of which parameter is addressed. Parameter codes are
