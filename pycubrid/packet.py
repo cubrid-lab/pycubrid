@@ -619,7 +619,17 @@ class PacketReader:
         if self._json_deserializer is None:
             return value
         if self._json_deserializer is json.loads:
-            return json.loads(value)
+            # Invalid JSON text in a complete reply is a data problem, not a
+            # framing problem (#543): raise ``DataError`` so ``_parse_row_data``
+            # applies the same complete-reply check as for invalid UTF-8
+            # (#492) and unrepresentable temporal values (#512), and the
+            # connection stays usable. A caller-supplied ``json_deserializer``
+            # is not wrapped here: its failures are between the application
+            # and its own deserializer.
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise DataError(f"JSON value is not valid JSON: {exc}") from exc
         return self._json_deserializer(value)
 
     def _parse_collection(self, size: int) -> object:

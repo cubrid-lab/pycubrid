@@ -27,7 +27,7 @@ the documented contract:
 * an unmutated seed decodes to exactly the values it was built from;
 * a mutated reply either parses, raises a structural error (reported as
   ``OperationalError('malformed response from broker')``, session closed), a
-  server error, or ``DataError`` only when the reply is complete (#383, #512);
+  server error, or ``DataError`` only when the reply is complete (#383, #512, #543);
 * a parsed FETCH reply never has cells whose declared sizes overrun it.
 
 Mutations aim at framing: truncation at field and cell boundaries, length and
@@ -335,9 +335,20 @@ def _assert_documented(
       replies, whose rows start at a fixed offset; execute replies share the
       same ``_parse_row_data`` completeness check).
 
-    A structural error is not further classified: invalid JSON text in a
-    complete reply currently closes the session like framing damage (#543).
+    A structural error is not further classified, with one exception:
+    ``json.JSONDecodeError`` is a ``ValueError`` subclass, so it would
+    otherwise pass the ``STRUCTURAL_CAUGHT`` check below even though invalid
+    JSON text in a complete reply (``json_deserializer=json.loads``) must be
+    classified as ``DataError`` like any other unrepresentable value, not as
+    a structural error (#543). It is checked first and explicitly rejected:
+    a bare (unwrapped) ``JSONDecodeError`` escaping ``parse()`` is always a
+    regression, never a documented outcome.
     """
+    if isinstance(exc, json.JSONDecodeError):
+        raise AssertionError(
+            f"json.JSONDecodeError escaped parse() unwrapped instead of being "
+            f"raised as DataError (#543): {exc!r}"
+        ) from exc
     if exc is None or isinstance(exc, STRUCTURAL_CAUGHT):
         return
     if isinstance(exc, DBAPIError) and getattr(exc, "_cas_server_error", False):
@@ -771,6 +782,13 @@ class TestFetchThroughConnection:
         elif isinstance(exc, OperationalError):
             assert exc.msg == "malformed response from broker"
             assert isinstance(exc.__cause__, STRUCTURAL_CAUGHT)
+            # json.JSONDecodeError is a ValueError, so it would otherwise pass
+            # the check above even though it must be wrapped as DataError, not
+            # left to close the connection as framing damage (#543).
+            assert not isinstance(exc.__cause__, json.JSONDecodeError), (
+                f"invalid JSON text closed the connection instead of raising "
+                f"DataError (#543): {exc.__cause__!r}"
+            )
             assert conn._connected is False
         elif isinstance(exc, DataError):
             assert conn._connected is True
