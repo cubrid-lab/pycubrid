@@ -72,7 +72,15 @@ size (#523), or collection elements that do not fill their size, raise
 response from broker')` and closes. Trailing bytes after the last declared
 value are not checked; `DataError` is only for a complete reply (#492, #512):
 undecodable column metadata text re-walks the remaining metadata by length
-before raising it (#581).
+(#581), and FC41/refreshed FC3 defer that error until their declared tail and
+inline rows have been validated without application hooks (#591). Later
+structural errors close the session; complete replies retain the first
+metadata DataError.
+
+Known decoded collection elements validate their declared sizes and consumed
+bytes even after a complete element raises DataError (#595). Later structural
+damage wins; complete collections retain the first conversion error. Opaque
+and unsupported nested member layouts keep their existing raw-byte contracts.
 
 Typed collection FC3 binds (#482, internal; no public API until #440) send
 the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument
@@ -115,6 +123,12 @@ heterogeneous failover.
 
 1. **ClientInfoExchange**: Send 10 bytes (NO header) — magic `"CUBRS"` when `ssl` is requested (STARTTLS) or `"CUBRK"` plaintext, plus client type + version. Broker replies a 4-byte int32: `0`=ok, `<0`=fail-fast (`OperationalError`), `>0`=redirect port (reconnect on the new port WITHOUT repeating the handshake).
 2. **TLS upgrade (optional)**: If `ssl` was truthy, upgrade the live transport via `loop.start_tls()` (async) or `ssl.SSLContext.wrap_socket()` (sync) before `OPEN_DATABASE`.
+   The handshake uses `read_timeout` or a 10-second default; the default does not
+   limit later requests. On Python 3.10, the async certificate preflight uses
+   memory BIOs on an owned socket: each send/receive and completion share one
+   monotonic deadline, required final-flight failures propagate, and optional
+   close-notify cannot extend the deadline. The owned socket always closes.
+   The primary sync Python 3.10 reset limitation is documented in CONNECTION.md.
 3. **OpenDatabase**: Send db/user/password (628 bytes payload, no header — `PacketWriter(reserve_header=False)`)
 4. **PrepareAndExecute / Prepare+Execute → Fetch → CloseQuery → EndTran → CloseDatabase**
 

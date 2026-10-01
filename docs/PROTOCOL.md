@@ -186,7 +186,18 @@ If `ssl` was truthy on the connect call, the live transport is upgraded **before
 - Async driver: `loop.start_tls(transport, protocol, context, server_hostname=host,
   ssl_handshake_timeout=...)`
 
-A failed handshake aborts the transport rather than leaking it.
+The TLS handshake uses `read_timeout` when configured, otherwise a 10-second
+default. That default does not bound subsequent requests; `connect_timeout`
+still bounds only the TCP connect.
+
+On Python 3.10, the async certificate preflight uses memory BIOs on an owned
+raw socket. Sends, receives and handshake completion share one monotonic
+deadline. A failed required final-flight send propagates; optional close-notify
+is best-effort within the same budget. The probe always closes its socket.
+
+Failed handshakes abort the transport. The primary sync Python 3.10
+`wrap_socket()` upgrade has a documented CPython reset/resource-warning
+limitation; see [Connection configuration](CONNECTION.md).
 
 ### Phase 2: Open Database
 
@@ -677,13 +688,31 @@ length in FC2, FC3 or FC41 column metadata (#555); a zero length is an empty
 string. FC41 also rejects a negative bind count, `total_tuple_count` or inline
 tuple count, and a column count the rest of the reply cannot hold (31 bytes per
 column at least), as FC2 does; FC3 rejects a negative inline tuple count (#581).
-Column metadata text that the connection codec cannot decode raises `DataError`
-only after the remaining metadata was walked by its declared lengths, so a later
-negative, overrunning or truncated field is still malformed (#581). The
+Column metadata text that the connection codec cannot decode is deferred after
+the remaining metadata is walked by its declared lengths (#581). FC41 and FC3
+with refreshed columns then validate their remaining tail, counts and inline
+rows before re-raising the first metadata `DataError`; later structural damage
+still wins (#591). This error path does not call application JSON deserializers,
+and validates subsequent cells even if an earlier row value is unrepresentable.
+Known collection framing is checked even when normal results use opaque bytes;
+negative element counts are malformed. A partially present inline-fetch header
+is malformed; an absent optional header remains supported. The
 connection turns these exceptions into `OperationalError("malformed response
 from broker")` and closes; `DataError` stays reserved for a complete reply
 whose value Python cannot represent (#492, #512). Unread bytes after the last
 value a reply declares are not checked.
+
+For known decoded collection member types, each length word and payload must
+fit the collection and the value decoder must consume exactly its declared
+bytes. After a complete element raises `DataError`, later elements still run
+their real decoders: a malformed representation wins over the saved error
+(#595). A complete collection retains the first conversion error and its cause.
+NULL-only, opaque/disabled decoding and unsupported nested member layouts
+retain their existing contracts; no recursive decoding capability is added.
+
+Internal bounds re-walks use `PacketReader.mark()` and `seek(position)`.
+Seeking outside the reply or to a non-integer position raises `ValueError`
+without moving the reader; zero and the end of the reply are valid positions.
 
 ### Composite Parsers
 
