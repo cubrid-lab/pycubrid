@@ -8,7 +8,7 @@ import pycubrid
 from pycubrid.constants import CUBRIDDataType
 from tests._parity_helpers import connect_kwargs
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
 @pytest.mark.parametrize(

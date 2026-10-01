@@ -12,7 +12,7 @@ import pycubrid.aio
 from pycubrid.exceptions import DataError
 from tests._parity_helpers import ADAPTERS, ParityAdapter, connect_kwargs
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 ROWS_BEFORE_ZERO = 1000
 

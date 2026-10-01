@@ -11,7 +11,7 @@ import pycubrid.aio
 from pycubrid.exceptions import InterfaceError, ProgrammingError
 from tests._parity_helpers import ADAPTERS, ParityAdapter, connect_kwargs, table_name
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
 @pytest.fixture(params=ADAPTERS, ids=[adapter.kind for adapter in ADAPTERS])

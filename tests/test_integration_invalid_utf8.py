@@ -9,7 +9,7 @@ import pytest
 from pycubrid.exceptions import DataError, ProgrammingError
 from tests._parity_helpers import ADAPTERS, ParityAdapter
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 WIDE = "\U00010000" * 60
 

@@ -73,6 +73,8 @@ from .helpers.replay_broker import (
     with_status,
 )
 
+pytestmark = pytest.mark.no_escape_pin
+
 _TIMEOUT = 5.0
 
 Step = tuple[Any, ...]

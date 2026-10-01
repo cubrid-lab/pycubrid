@@ -9,7 +9,7 @@ from pycubrid.compat import cubriddb, native
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PORT
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
 @pytest.mark.parametrize(
