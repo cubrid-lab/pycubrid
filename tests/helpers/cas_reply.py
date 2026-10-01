@@ -50,6 +50,11 @@ class Wire:
     counts: list[int] = field(default_factory=list)  # int32 count words
     element_types: list[int] = field(default_factory=list)  # collection element-type bytes
     boundaries: list[int] = field(default_factory=list)  # field / cell / row starts
+    # Column-metadata text length words (name, real name, table, default) and
+    # column-count words of execute/prepare replies: negative values there are
+    # malformed framing, never an empty string or an empty column list (#555).
+    metadata_lengths: list[int] = field(default_factory=list)
+    column_counts: list[int] = field(default_factory=list)
 
     def mark(self) -> None:
         self.boundaries.append(len(self.buf))
@@ -77,6 +82,14 @@ class Wire:
         self.counts.append(len(self.buf))
         self.i32(value)
 
+    def column_count(self, value: int) -> None:
+        self.column_counts.append(len(self.buf))
+        self.count(value)
+
+    def metadata_text(self, value: str) -> None:
+        self.metadata_lengths.append(len(self.buf))
+        self.text(value)
+
     def element_type(self, value: int) -> None:
         self.element_types.append(len(self.buf))
         self.byte(value)
@@ -95,6 +108,8 @@ class Wire:
         self.counts += [base + offset for offset in other.counts]
         self.element_types += [base + offset for offset in other.element_types]
         self.boundaries += [base + offset for offset in other.boundaries]
+        self.metadata_lengths += [base + offset for offset in other.metadata_lengths]
+        self.column_counts += [base + offset for offset in other.column_counts]
 
     def seed(self, name: str) -> Seed:
         return Seed(
@@ -104,6 +119,8 @@ class Wire:
             counts=tuple(self.counts),
             element_types=tuple(self.element_types),
             boundaries=tuple(sorted(set(self.boundaries))),
+            metadata_lengths=tuple(self.metadata_lengths),
+            column_counts=tuple(self.column_counts),
         )
 
 
@@ -117,6 +134,8 @@ class Seed:
     counts: tuple[int, ...] = ()
     element_types: tuple[int, ...] = ()
     boundaries: tuple[int, ...] = ()
+    metadata_lengths: tuple[int, ...] = ()
+    column_counts: tuple[int, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -368,11 +387,11 @@ def write_column_metadata(w: Wire, columns: Sequence[Column]) -> None:
         col.write_type(w)
         w.i16(col.scale)
         w.i32(col.precision)
-        w.text(col.name)
-        w.text(col.name)  # real name
-        w.text(col.table)
+        w.metadata_text(col.name)
+        w.metadata_text(col.name)  # real name
+        w.metadata_text(col.table)
         w.byte(0 if col.nullable else 1)  # is_non_null
-        w.text(col.default)
+        w.metadata_text(col.default)
         pk = 1 if col.primary_key else 0
         for flag in (0, pk, pk, 0, 0, 0, 0):  # auto_inc, unique, pk, rev idx/uniq, fk, shared
             w.byte(flag)
@@ -717,7 +736,7 @@ def prepare_and_execute_reply(
     w.byte(rs.statement_type)
     w.i32(0)  # bind count
     w.byte(0)  # is_updatable
-    w.count(len(rs.columns))
+    w.column_count(len(rs.columns))
     write_column_metadata(w, rs.columns)
     w.mark()
     w.i32(total_rows)  # total tuple count
@@ -740,7 +759,7 @@ def prepare_info(w: Wire, rs: ResultSet, *, bind_count: int = 0) -> None:
     w.byte(rs.statement_type)
     w.count(bind_count)
     w.byte(0)  # is_updatable
-    w.count(len(rs.columns))
+    w.column_count(len(rs.columns))
     write_column_metadata(w, rs.columns)
 
 

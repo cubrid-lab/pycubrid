@@ -574,10 +574,14 @@ def _parse_schema_column_metadata(reader: PacketReader, column_count: int) -> li
     return columns
 
 
-def _parse_column_metadata(
-    reader: PacketReader, column_count: int, *, strict_lengths: bool = False
-) -> list[ColumnMetaData]:
-    """Parse column metadata entries from the reader."""
+def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[ColumnMetaData]:
+    """Parse FC2/FC3/FC41 column metadata entries from the reader.
+
+    The text decoder reads a non-positive length as empty, so each metadata
+    length is bounded here first: a negative one is framing damage (#555).
+    """
+    if column_count < 0:
+        raise ValueError("negative prepared column count")
     columns: list[ColumnMetaData] = []
     for _ in range(column_count):
         column_type = _parse_column_type(reader)
@@ -585,22 +589,22 @@ def _parse_column_metadata(
         precision = reader._parse_int()
 
         name_len = reader._parse_int()
-        if strict_lengths and (name_len < 0 or name_len > reader.bytes_remaining()):
+        if name_len < 0 or name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column name length")
         name = reader._parse_metadata_text(name_len)
         real_name_len = reader._parse_int()
-        if strict_lengths and (real_name_len < 0 or real_name_len > reader.bytes_remaining()):
+        if real_name_len < 0 or real_name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column real-name length")
         real_name = reader._parse_metadata_text(real_name_len)
         table_name_len = reader._parse_int()
-        if strict_lengths and (table_name_len < 0 or table_name_len > reader.bytes_remaining()):
+        if table_name_len < 0 or table_name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column table-name length")
         table_name = reader._parse_metadata_text(table_name_len)
 
         # CAS sends is_non_null: zero means the column accepts NULL.
         is_nullable = reader._parse_byte() == 0
         default_len = reader._parse_int()
-        if strict_lengths and (default_len < 0 or default_len > reader.bytes_remaining()):
+        if default_len < 0 or default_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column default length")
         default_value = reader._parse_metadata_text(default_len)
         is_auto_increment = reader._parse_byte() == 1
@@ -649,7 +653,7 @@ def _parse_prepare_info(reader: PacketReader) -> tuple[int, int, list[ColumnMeta
     return (
         statement_type,
         bind_count,
-        _parse_column_metadata(reader, column_count, strict_lengths=True),
+        _parse_column_metadata(reader, column_count),
     )
 
 
