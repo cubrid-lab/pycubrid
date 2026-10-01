@@ -674,7 +674,12 @@ the value (#523), also when it re-walks a reply before raising `DataError`; a
 non-positive size is SQL `NULL`. A negative FETCH tuple count is malformed too, and
 so is a negative column count or column name, real-name, table-name or default
 length in FC2, FC3 or FC41 column metadata (#555); a zero length is an empty
-string. The
+string. FC41 also rejects a negative bind count, `total_tuple_count` or inline
+tuple count, and a column count the rest of the reply cannot hold (31 bytes per
+column at least), as FC2 does; FC3 rejects a negative inline tuple count (#581).
+Column metadata text that the connection codec cannot decode raises `DataError`
+only after the remaining metadata was walked by its declared lengths, so a later
+negative, overrunning or truncated field is still malformed (#581). The
 connection turns these exceptions into `OperationalError("malformed response
 from broker")` and closes; `DataError` stays reserved for a complete reply
 whose value Python cannot represent (#492, #512). Unread bytes after the last

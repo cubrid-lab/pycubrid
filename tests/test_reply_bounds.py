@@ -26,6 +26,7 @@ from pycubrid.exceptions import DataError, OperationalError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import (
     ColumnMetaData,
+    ExecutePacket,
     FetchPacket,
     LOBReadPacket,
     PrepareAndExecutePacket,
@@ -759,3 +760,190 @@ async def test_async_fc41_valid_and_unrepresentable_metadata_keep_connection() -
     with pytest.raises(DataError, match="column metadata is not valid"):
         await conn._send_and_receive(_fc41_packet())
     assert conn._connected is True
+
+
+# --- an earlier DataError must not hide later metadata damage (#581) ----------
+#
+# Column metadata used to raise DataError at the first undecodable name, so the
+# remaining metadata was never checked: a reply that was also damaged in a later
+# column kept the session as "complete". The metadata is now walked to its end
+# by declared lengths before the DataError is re-raised.
+
+METADATA_DAMAGE = ["negative_length", "overrun_length", "truncated"]
+
+
+def _invalid_first_name_then(seed: cas_reply.Seed, damage: str) -> bytes:
+    """Column 0's name is not valid UTF-8 and column 1's metadata is damaged."""
+    reply = bytearray(seed.data)
+    reply[seed.metadata_lengths[0] + 4] = 0xFF  # first byte of column 0's name
+    pos = seed.metadata_lengths[len(_FC41_FIELDS)]  # column 1's name length
+    old = struct.unpack_from(">i", reply, pos)[0]
+    if damage == "negative_length":
+        reply[pos : pos + 4 + old] = struct.pack(">i", -1)
+    elif damage == "overrun_length":
+        struct.pack_into(">i", reply, pos, len(reply))
+    else:
+        del reply[pos + 2 :]
+    return bytes(reply)
+
+
+def _fc41_invalid_first_name_then(damage: str) -> bytes:
+    return _invalid_first_name_then(cas_reply.prepare_and_execute_reply(_FC41_RS), damage)
+
+
+def test_fc41_invalid_first_name_alone_is_data_error() -> None:
+    seed = cas_reply.prepare_and_execute_reply(_FC41_RS)
+    reply = bytearray(seed.data)
+    reply[seed.metadata_lengths[0] + 4] = 0xFF
+    with pytest.raises(DataError, match="column metadata is not valid"):
+        _fc41_packet().parse(bytes(reply))
+
+
+@pytest.mark.parametrize("damage", METADATA_DAMAGE)
+def test_fc41_data_error_does_not_hide_later_metadata_damage(damage: str) -> None:
+    with pytest.raises(ValueError) as raised:
+        _fc41_packet().parse(_fc41_invalid_first_name_then(damage))
+    assert not isinstance(raised.value, DataError)
+
+
+@pytest.mark.parametrize("damage", METADATA_DAMAGE)
+def test_fc2_data_error_does_not_hide_later_metadata_damage(damage: str) -> None:
+    reply = _invalid_first_name_then(cas_reply.prepare_reply(_FC41_RS), damage)
+    with pytest.raises(ValueError) as raised:
+        PreparePacket("SELECT * FROM fuzz_t").parse(reply)
+    assert not isinstance(raised.value, DataError)
+
+
+@pytest.mark.parametrize("damage", METADATA_DAMAGE)
+def test_fc3_refreshed_data_error_does_not_hide_later_metadata_damage(damage: str) -> None:
+    seed = cas_reply.execute_reply(_FC41_RS, refresh_columns=True)
+    packet = ExecutePacket(query_handle=5, statement_type=CUBRIDStatementType.SELECT)
+    with pytest.raises(ValueError) as raised:
+        packet.parse(_invalid_first_name_then(seed, damage), columns=None)
+    assert not isinstance(raised.value, DataError)
+
+
+@pytest.mark.parametrize("damage", METADATA_DAMAGE)
+def test_sync_fc41_data_error_with_later_damage_closes_connection(
+    damage: str,
+    socket_queue: list[MagicMock],  # noqa: F811
+) -> None:
+    conn, sock = _connection_with_reply(socket_queue, _fc41_invalid_first_name_then(damage))
+    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
+        conn._send_and_receive(_fc41_packet())
+    assert isinstance(raised.value.__cause__, ValueError)
+    assert not isinstance(raised.value.__cause__, DataError)
+    assert conn._connected is False
+    sock.close.assert_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", METADATA_DAMAGE)
+async def test_async_fc41_data_error_with_later_damage_closes_connection(damage: str) -> None:
+    conn = _async_connection_with_reply(_fc41_invalid_first_name_then(damage))
+    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
+        await conn._send_and_receive(_fc41_packet())
+    assert isinstance(raised.value.__cause__, ValueError)
+    assert not isinstance(raised.value.__cause__, DataError)
+    assert conn._connected is False
+
+
+# --- FC41 counts follow FC2 and FETCH (#581) -----------------------------------
+#
+# FC41 accepted a negative bind count (FC2 rejects it), read a negative inline
+# tuple count as zero rows, passed a negative total_tuple_count through, and had
+# no upper bound on the column count. All are framing damage.
+
+_FC41_COUNTS = ("bind_count", "total_tuple_count", "tuple_count")
+
+
+def _fc41_count_offset(seed: cas_reply.Seed, field: str) -> int:
+    if field == "bind_count":
+        pos = 13  # CAS_INFO, handle, cache lifetime, statement type
+        expected = 0
+    elif field == "total_tuple_count":
+        last = seed.metadata_lengths[-1]  # the last column's default length
+        pos = last + 4 + struct.unpack_from(">i", seed.data, last)[0] + 7  # + 7 flag bytes
+        expected = len(_FC41_RS.rows)
+    else:
+        pos = seed.counts[-1]
+        expected = len(_FC41_RS.rows)
+    assert struct.unpack_from(">i", seed.data, pos)[0] == expected, field
+    return pos
+
+
+def _fc41_negative_count(field: str, value: int) -> bytes:
+    seed = cas_reply.prepare_and_execute_reply(_FC41_RS)
+    reply = bytearray(seed.data)
+    struct.pack_into(">i", reply, _fc41_count_offset(seed, field), value)
+    return bytes(reply)
+
+
+FC41_NEGATIVE_COUNTS = [
+    pytest.param(field, value, id=f"{field}{value}")
+    for field in _FC41_COUNTS
+    for value in (-1, -(2**31))
+]
+
+
+@pytest.mark.parametrize(("field", "value"), FC41_NEGATIVE_COUNTS)
+def test_fc41_negative_count_is_malformed(field: str, value: int) -> None:
+    with pytest.raises(ValueError, match="negative") as raised:
+        _fc41_packet().parse(_fc41_negative_count(field, value))
+    assert not isinstance(raised.value, DataError)
+
+
+@pytest.mark.parametrize(("field", "value"), FC41_NEGATIVE_COUNTS)
+def test_sync_fc41_negative_count_closes_connection(
+    field: str,
+    value: int,
+    socket_queue: list[MagicMock],  # noqa: F811
+) -> None:
+    conn, sock = _connection_with_reply(socket_queue, _fc41_negative_count(field, value))
+    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
+        conn._send_and_receive(_fc41_packet())
+    assert isinstance(raised.value.__cause__, ValueError)
+    assert conn._connected is False
+    sock.close.assert_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("field", "value"), FC41_NEGATIVE_COUNTS)
+async def test_async_fc41_negative_count_closes_connection(field: str, value: int) -> None:
+    conn = _async_connection_with_reply(_fc41_negative_count(field, value))
+    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
+        await conn._send_and_receive(_fc41_packet())
+    assert isinstance(raised.value.__cause__, ValueError)
+    assert conn._connected is False
+
+
+def test_fc41_zero_counts_are_valid() -> None:
+    packet = _fc41_packet()
+    packet.parse(_fc41_negative_count("bind_count", 0))
+    assert packet.bind_count == 0
+    assert len(packet.rows) == len(_FC41_RS.rows)
+
+
+def test_fc3_negative_inline_tuple_count_is_malformed() -> None:
+    seed = cas_reply.execute_reply(_FC41_RS, refresh_columns=True)
+    reply = bytearray(seed.data)
+    pos = seed.counts[-1]
+    assert struct.unpack_from(">i", reply, pos)[0] == len(_FC41_RS.rows)
+    struct.pack_into(">i", reply, pos, -1)
+    packet = ExecutePacket(query_handle=5, statement_type=CUBRIDStatementType.SELECT)
+    with pytest.raises(ValueError, match="negative"):
+        packet.parse(bytes(reply), columns=None)
+
+
+@pytest.mark.parametrize("excess", [1, 2**31 - 1])
+def test_fc41_column_count_beyond_the_reply_is_rejected_before_parsing(excess: int) -> None:
+    # Every column entry takes at least 31 bytes; FC2 already rejects a count the
+    # rest of the reply cannot hold before reading any column.
+    seed = cas_reply.prepare_and_execute_reply(_FC41_RS)
+    (pos,) = seed.column_counts
+    reply = bytearray(seed.data)
+    remaining = len(reply) - (pos + 4)
+    struct.pack_into(">i", reply, pos, min(remaining // 31 + excess, 2**31 - 1))
+    with pytest.raises(ValueError, match="truncated prepared column metadata") as raised:
+        _fc41_packet().parse(bytes(reply))
+    assert not isinstance(raised.value, DataError)
