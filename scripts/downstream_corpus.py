@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.metadata as metadata
 import json
 import os
 import platform
 import re
 import sys
-from importlib import metadata
 from pathlib import Path
 from typing import Any
 
