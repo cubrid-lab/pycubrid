@@ -285,8 +285,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   handle exposed by `Lob.lob_handle` carries the written size (as CCI keeps
   it) instead of the size at creation, and later `write()`/`read()` requests
   carry that handle as CCI's do. Return values, exception classes, public
-  signatures, dependencies and supported versions are unchanged. The BLOB/CLOB FC3 binding is internal;
-  no public LOB binding API is added by this change.
+  signatures, dependencies and supported versions are unchanged. The BLOB/CLOB
+  FC3 binding is internal; no public LOB binding API is added by this change.
 
 - **Faster FETCH row parsing (#559)** — PATCH / internal performance change
   with no behavior change. Row values, `DataError` / malformed-reply

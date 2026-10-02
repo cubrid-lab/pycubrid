@@ -320,12 +320,16 @@ class _PreparedLob:
     value argument is the packed handle as the server sent it, the same
     bytes CCI sends for ``CCI_A_TYPE_BLOB``/``CLOB``. The broker builds the
     stored value from the handle's own type, size and locator, so the
-    framing is checked exactly. ``generation`` is the physical session the
-    handle came from; a handle from another session must not be sent.
+    framing is checked exactly. ``owner`` (the driver connection, compared
+    by identity) and ``generation`` (its physical-session counter) together
+    name the one physical session the binding was made for; generation
+    numbers alone repeat across connections. The binding must not be sent
+    on any other session.
     """
 
     type_code: int
     packed_handle: bytes
+    owner: object
     generation: int
 
     def __post_init__(self) -> None:
@@ -350,8 +354,8 @@ class _PreparedLob:
             or b"\x00" in locator[:-1]
         ):
             raise ProgrammingError("invalid prepared LOB handle")
-        if type(self.generation) is not int:
-            raise ProgrammingError("invalid prepared LOB session generation")
+        if self.owner is None or type(self.generation) is not int:
+            raise ProgrammingError("invalid prepared LOB session owner")
 
     @property
     def payload(self) -> bytes:

@@ -326,8 +326,10 @@ class cursor:
             for binding in bindings:
                 # A LOB handle is valid only on the physical session it came
                 # from; never send it to a replacement session.
-                if isinstance(binding, _PreparedLob) and binding.generation != generation:
-                    raise InterfaceError("LOB handle belongs to an earlier physical session")
+                if isinstance(binding, _PreparedLob) and (
+                    binding.owner is not driver or binding.generation != generation
+                ):
+                    raise InterfaceError("LOB binding belongs to another physical session")
             packet = ExecutePacket(
                 handle,
                 self._statement_type,

@@ -24,6 +24,7 @@ from .test_compat_prepared import FakeDriver, _owner, _packets, fake_driver  # n
 from .test_prepared_collection_contract import _frame, _int
 
 BLOB, CLOB = CUBRIDDataType.BLOB, CUBRIDDataType.CLOB
+OWNER = object()  # stands in for the owning driver connection
 _CAS_INFO = b"\x01\x00\x00\x00"
 
 # Captured through a TCP proxy in front of a CUBRID 11.4 broker from the pinned
@@ -45,15 +46,55 @@ OFFICIAL_BIND_PAIRS = [
     (BLOB, FETCHED_BLOB, "000000011700000048" + FETCHED_BLOB.hex()),
     (CLOB, FETCHED_CLOB, "000000011800000048" + FETCHED_CLOB.hex()),
 ]
-# The same capture: `lob = con.lob(); lob.write(b"0123456789", "B");
-# lob.write(b"abc", "B"); cur.bind_lob(1, lob)`. CCI rewrites the size field
-# after each LOB_WRITE (cci_query_execute.c qe_lob_write), so the handle sent
-# with the second write says 10 and the bound handle says 13.
-_LOCATOR = b"file:ces_599/ces_temp.00001790901074695017_6946\x00"  # 48 bytes with NUL
-NEW_BLOB = struct.pack(">iqi", 33, 0, len(_LOCATOR)) + _LOCATOR
-OFFICIAL_SECOND_WRITE_HANDLE = struct.pack(">iqi", 33, 10, len(_LOCATOR)) + _LOCATOR
-OFFICIAL_BOUND_WRITTEN_HANDLE = struct.pack(">iqi", 33, 13, len(_LOCATOR)) + _LOCATOR
-OFFICIAL_WRITTEN_BIND_PAIR = "000000011700000040" + OFFICIAL_BOUND_WRITTEN_HANDLE.hex()
+# The same proxy (two captures), raw: `lob = con.lob(); lob.write(first, T);
+# lob.write(second, T); cur.bind_lob(1, lob)` for BLOB ("B") and CLOB ("C").
+# The handles are the ones each LOB_WRITE request carried, and the pair is
+# the FC3 bind. CCI raises the size field after each LOB_WRITE
+# (cci_query_execute.c qe_lob_write): 0 -> 10 -> 13 and 0 -> 6 -> 9.
+OFFICIAL_WRITTEN = [
+    (
+        BLOB,
+        (b"0123456789", b"abc"),
+        bytes.fromhex(
+            "00000021000000000000000000000030"
+            "66696c653a6365735f3539392f6365735f74656d702e3030303031373930"
+            "3930313037343639353031375f3639343600"
+        ),
+        bytes.fromhex(
+            "0000002100000000000000"
+            "0a00000030"
+            "66696c653a6365735f3539392f6365735f74656d702e3030303031373930"
+            "3930313037343639353031375f3639343600"
+        ),
+        "0000000117000000400000002100000000000000"
+        "0d00000030"
+        "66696c653a6365735f3539392f6365735f74656d702e3030303031373930"
+        "3930313037343639353031375f3639343600",
+    ),
+    (
+        CLOB,
+        ("한글".encode("utf-8"), b"abc"),
+        bytes.fromhex(
+            "00000022000000000000000000000030"
+            "66696c653a6365735f3239362f6365735f74656d702e3030303031373930"
+            "3931303830383432363430385f3034323300"
+        ),
+        bytes.fromhex(
+            "0000002200000000000000"
+            "0600000030"
+            "66696c653a6365735f3239362f6365735f74656d702e3030303031373930"
+            "3931303830383432363430385f3034323300"
+        ),
+        "0000000118000000400000002200000000000000"
+        "0900000030"
+        "66696c653a6365735f3239362f6365735f74656d702e3030303031373930"
+        "3931303830383432363430385f3034323300",
+    ),
+]
+NEW_BLOB = OFFICIAL_WRITTEN[0][2]
+OFFICIAL_SECOND_WRITE_HANDLE = OFFICIAL_WRITTEN[0][3]
+OFFICIAL_WRITTEN_BIND_PAIR = OFFICIAL_WRITTEN[0][4]
+OFFICIAL_BOUND_WRITTEN_HANDLE = bytes.fromhex(OFFICIAL_WRITTEN_BIND_PAIR)[9:]
 
 
 def _bind_pair(binding: Any) -> bytes:
@@ -72,7 +113,7 @@ def _handle(db_type: int = 33, size: int = 0, locator: bytes = b"file:x\x00") ->
 def test_bind_pair_is_byte_identical_to_the_official_driver(
     lob_type: int, handle: bytes, pair: str
 ) -> None:
-    binding = protocol._PreparedLob(lob_type, handle, 1)
+    binding = protocol._PreparedLob(lob_type, handle, OWNER, 1)
     assert _bind_pair(binding) == bytes.fromhex(pair)
     frame = ExecutePacket(7, CUBRIDStatementType.INSERT, bindings=(binding,), bind_count=1).write(
         _CAS_INFO
@@ -81,7 +122,7 @@ def test_bind_pair_is_byte_identical_to_the_official_driver(
 
 
 def test_full_frame_mixes_lob_and_scalar_bindings() -> None:
-    blob = protocol._PreparedLob(BLOB, FETCHED_BLOB, 1)
+    blob = protocol._PreparedLob(BLOB, FETCHED_BLOB, OWNER, 1)
     frame = ExecutePacket(
         7,
         CUBRIDStatementType.SELECT,
@@ -109,7 +150,7 @@ def test_lob_binding_needs_no_charset_match() -> None:
     packet = ExecutePacket(
         7,
         CUBRIDStatementType.INSERT,
-        bindings=(protocol._PreparedLob(CLOB, FETCHED_CLOB, 1),),
+        bindings=(protocol._PreparedLob(CLOB, FETCHED_CLOB, OWNER, 1),),
         bind_count=1,
     )
     packet.encoding = "euc-kr"
@@ -145,11 +186,16 @@ def test_lob_binding_needs_no_charset_match() -> None:
 )
 def test_malformed_lob_bindings_are_rejected(type_code: Any, handle: Any, generation: Any) -> None:
     with pytest.raises(ProgrammingError):
-        protocol._PreparedLob(type_code, handle, generation)
+        protocol._PreparedLob(type_code, handle, OWNER, generation)
+
+
+def test_lob_binding_needs_an_owner() -> None:
+    with pytest.raises(ProgrammingError, match="owner"):
+        protocol._PreparedLob(BLOB, FETCHED_BLOB, None, 1)
 
 
 def test_lob_binding_is_immutable() -> None:
-    binding = protocol._PreparedLob(BLOB, FETCHED_BLOB, 1)
+    binding = protocol._PreparedLob(BLOB, FETCHED_BLOB, OWNER, 1)
     with pytest.raises(AttributeError):
         setattr(binding, "packed_handle", b"")
 
@@ -208,27 +254,39 @@ def lob_connection() -> MagicMock:
     return connection
 
 
-def test_lob_write_updates_the_size_field_like_cci(lob_connection: MagicMock) -> None:
-    lob = Lob(lob_connection, BLOB, NEW_BLOB)
-    written = lob.write(b"0123456789", 0)
-    assert written == 10
-    assert lob.lob_handle == OFFICIAL_SECOND_WRITE_HANDLE
-    written = lob.write(b"abc", 10)
-    assert written == 3
+@pytest.mark.parametrize(
+    ("lob_type", "chunks", "first", "second", "pair"), OFFICIAL_WRITTEN, ids=["blob", "clob"]
+)
+def test_lob_write_updates_the_size_field_like_cci(
+    lob_connection: MagicMock,
+    lob_type: int,
+    chunks: tuple[bytes, bytes],
+    first: bytes,
+    second: bytes,
+    pair: str,
+) -> None:
+    lob = Lob(lob_connection, lob_type, first)
+    written = lob.write(chunks[0], 0)
+    assert written == len(chunks[0])
+    assert lob.lob_handle == second
+    written = lob.write(chunks[1], len(chunks[0]))
+    assert written == len(chunks[1])
     # Each LOB_WRITE carries the handle as it was before that write, as CCI's do.
-    assert lob_connection.sent_handles == [NEW_BLOB, OFFICIAL_SECOND_WRITE_HANDLE]
-    assert lob.lob_handle == OFFICIAL_BOUND_WRITTEN_HANDLE
-    binding = protocol._PreparedLob(BLOB, lob.lob_handle, 1)
-    assert _bind_pair(binding) == bytes.fromhex(OFFICIAL_WRITTEN_BIND_PAIR)
+    assert lob_connection.sent_handles == [first, second]
+    binding = protocol._PreparedLob(lob_type, lob.lob_handle, OWNER, 1)
+    assert _bind_pair(binding) == bytes.fromhex(pair)
 
 
-def test_lob_write_inside_existing_content_keeps_the_size(lob_connection: MagicMock) -> None:
+# Client arithmetic only: the server accepts a LOB_WRITE only at the current
+# size (any other offset fails with -1016), but the size rule must not
+# depend on that.
+def test_size_arithmetic_for_a_write_inside_the_value(lob_connection: MagicMock) -> None:
     lob = Lob(lob_connection, BLOB, OFFICIAL_BOUND_WRITTEN_HANDLE)
     lob.write(b"xy", 2)
     assert lob.lob_handle == OFFICIAL_BOUND_WRITTEN_HANDLE
 
 
-def test_lob_write_past_the_end_extends_the_size(lob_connection: MagicMock) -> None:
+def test_size_arithmetic_for_a_write_past_the_end(lob_connection: MagicMock) -> None:
     lob = Lob(lob_connection, CLOB, _handle(db_type=34, size=3))
     lob.write(b"abc", 100)
     assert protocol._packed_lob_size(lob.lob_handle) == 103
@@ -249,6 +307,23 @@ def test_truncated_lob_write_records_the_bytes_written(lob_connection: MagicMock
     assert protocol._packed_lob_size(lob.lob_handle) == 6
 
 
+@pytest.mark.parametrize("reported", [6, 2**31 - 1])
+def test_over_reported_lob_write_keeps_the_handle(lob_connection: MagicMock, reported: int) -> None:
+    # CCI rejects bytes_written > length without touching the size
+    # (cci_query_execute.c qe_lob_write); so does Lob.write().
+    lob = Lob(lob_connection, BLOB, NEW_BLOB)
+
+    def over(packet: object) -> object:
+        if isinstance(packet, LOBWritePacket):
+            packet.bytes_written = reported
+        return packet
+
+    lob_connection._send_and_receive.side_effect = over
+    with pytest.raises(OperationalError, match="LOB write truncated"):
+        lob.write(b"hello", 0)
+    assert lob.lob_handle == NEW_BLOB
+
+
 def test_failed_or_empty_lob_write_keeps_the_handle(lob_connection: MagicMock) -> None:
     lob = Lob(lob_connection, BLOB, NEW_BLOB)
     written = lob.write(b"", 50)
@@ -263,19 +338,22 @@ def test_failed_or_empty_lob_write_keeps_the_handle(lob_connection: MagicMock) -
 # --- the reconnect fence in the native prepared cursor ----------------------
 
 
-def test_native_execute_rejects_a_lob_binding_from_another_generation(
+def test_native_execute_rejects_a_lob_binding_from_another_session(
     fake_driver: FakeDriver,  # noqa: F811
 ) -> None:
     conn, cur = _owner(fake_driver)
+    other = FakeDriver(autocommit=True)  # another connection, also at generation 1
     try:
         cur.prepare("INSERT INTO t VALUES (?)")
-        # Internal binding (no public bind_lob yet) made for generation 0.
-        cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, 0)
-        with pytest.raises(InterfaceError, match="earlier physical session"):
-            cur.execute()
+        assert other._physical_generation == fake_driver._physical_generation
+        # Internal bindings (no public bind_lob yet): an earlier session of
+        # this connection, then the same generation number on another one.
+        for owner, generation in ((fake_driver, 0), (other, 1), (OWNER, 1)):
+            cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, owner, generation)
+            with pytest.raises(InterfaceError, match="another physical session"):
+                cur.execute()
         assert _packets(fake_driver, ExecutePacket) == []
-        # The binding is not consumed: it stays unusable until replaced.
-        cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, 1)
+        cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, fake_driver, 1)
         count = cur.execute()
         assert count == 1
         sent = _packets(fake_driver, ExecutePacket)[0]

@@ -131,7 +131,7 @@ def test_written_blob_handle_binds_with_its_written_length(
     try:
         packet = insert.execute(
             _encode_prepared_scalar(1),
-            _PreparedLob(BLOB, lob.lob_handle, insert.generation),
+            _PreparedLob(BLOB, lob.lob_handle, conn, insert.generation),
         )
         assert packet.total_tuple_count == 1
     finally:
@@ -148,7 +148,7 @@ def test_written_clob_handle_keeps_utf8_cjk_text(
     insert = _Prepared(conn, f"INSERT INTO {table} (id, c) VALUES (?, ?)")
     try:
         insert.execute(
-            _encode_prepared_scalar(1), _PreparedLob(CLOB, lob.lob_handle, insert.generation)
+            _encode_prepared_scalar(1), _PreparedLob(CLOB, lob.lob_handle, conn, insert.generation)
         )
     finally:
         insert.close()
@@ -156,13 +156,16 @@ def test_written_clob_handle_keeps_utf8_cjk_text(
 
 
 def test_rejected_write_leaves_the_handle_unchanged(conn: Connection) -> None:
-    # The server only appends: a write inside the value fails, and the size
-    # field must not move.
+    # The server only appends: a write at any offset other than the current
+    # size (inside the value or past its end) fails, and the size field must
+    # not move.
     lob = _written(conn, BLOB, [(0, b"0123456789")])
     before = lob.lob_handle
-    with pytest.raises(pycubrid.DatabaseError):
-        lob.write(b"ab", 2)
-    assert lob.lob_handle == before
+    for offset in (2, 11, 100):
+        with pytest.raises(pycubrid.DatabaseError) as info:
+            lob.write(b"ab", offset)
+        assert info.value.errno == -1016
+        assert lob.lob_handle == before
 
 
 def test_stale_size_field_would_store_the_wrong_length(
@@ -173,7 +176,9 @@ def test_stale_size_field_would_store_the_wrong_length(
     stale = lob.lob_handle[:4] + (0).to_bytes(8, "big") + lob.lob_handle[12:]
     insert = _Prepared(conn, f"INSERT INTO {table} (id, b) VALUES (?, ?)")
     try:
-        insert.execute(_encode_prepared_scalar(1), _PreparedLob(BLOB, stale, insert.generation))
+        insert.execute(
+            _encode_prepared_scalar(1), _PreparedLob(BLOB, stale, conn, insert.generation)
+        )
     finally:
         insert.close()
     stored = _stored(observer, table, "b")[1]
@@ -196,8 +201,8 @@ def test_fetched_handles_copy_with_nulls_and_repeated_execution(
     insert = _Prepared(conn, f"INSERT INTO {table} VALUES (?, ?, ?)")
     try:
         gen = insert.generation
-        b = _PreparedLob(BLOB, b_cell["packed_lob_handle"], gen)
-        c = _PreparedLob(CLOB, c_cell["packed_lob_handle"], gen)
+        b = _PreparedLob(BLOB, b_cell["packed_lob_handle"], conn, gen)
+        c = _PreparedLob(CLOB, c_cell["packed_lob_handle"], conn, gen)
         null = _encode_prepared_scalar(None)
         # One FC2 handle executed repeatedly with mixed LOB, NULL and INT binds.
         insert.execute(_encode_prepared_scalar(2), b, c)
@@ -235,7 +240,7 @@ def test_server_error_after_a_fetched_handle_bind_leaves_it_reusable(
         cursor.close()
     insert = _Prepared(conn, f"INSERT INTO {table} (id, b) VALUES (?, ?)")
     try:
-        bound = _PreparedLob(BLOB, cell["packed_lob_handle"], insert.generation)
+        bound = _PreparedLob(BLOB, cell["packed_lob_handle"], conn, insert.generation)
         # A BLOB bound where an INTEGER is expected fails on the server (-494).
         with pytest.raises(pycubrid.ProgrammingError):
             insert.execute(bound, bound)
@@ -258,7 +263,7 @@ def test_created_handle_is_consumed_by_its_first_autocommit_statement(
     try:
         for fail_first in (False, True):
             lob = _written(conn, BLOB, [(0, b"temp")])
-            bound = _PreparedLob(BLOB, lob.lob_handle, insert.generation)
+            bound = _PreparedLob(BLOB, lob.lob_handle, conn, insert.generation)
             if fail_first:
                 with pytest.raises(pycubrid.ProgrammingError):
                     insert.execute(bound, bound)
@@ -267,6 +272,7 @@ def test_created_handle_is_consumed_by_its_first_autocommit_statement(
             with pytest.raises(pycubrid.DatabaseError) as info:
                 insert.execute(_encode_prepared_scalar(2), bound)
             assert info.value.errno == -1016
+            assert "No such file" in str(info.value)
     finally:
         insert.close()
     assert _stored(observer, table, "b") == {1: (4, b"temp")}

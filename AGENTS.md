@@ -99,10 +99,14 @@ Typed LOB-handle FC3 binds (#441, internal) send BLOB `23`/CLOB `24` as the
 type argument and the packed handle `[int32 db_type 33/34][int64 size][int32
 locator length][locator NUL]` as the value, the official `bind_lob()` bytes.
 The broker trusts the embedded size, so `Lob.write()` raises it to
-`offset + bytes_written` after each write, as CCI does. Bind a handle only on
-its own physical session. A fetched handle is copied into the row and is
-reusable; a LOB_NEW temp handle is taken over by its first autocommit
-statement, even a failed one.
+`offset + bytes_written` after each write, as CCI does (and leaves it alone
+when the reply claims more bytes than were sent). `_PreparedLob` records the
+driver connection (by identity) and its physical generation; the native
+cursor sends it only on that exact session, because generation numbers alone
+repeat across connections. The server only appends (any other offset is
+-1016). A fetched handle is copied into the row and is reusable; a LOB_NEW
+temp handle is taken over by its first autocommit statement, even a failed
+one.
 
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical

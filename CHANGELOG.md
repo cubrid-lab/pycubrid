@@ -150,8 +150,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Prepared FC3 requests can carry an immutable BLOB/CLOB handle binding whose
   bytes equal the official driver's `bind_lob()` request (checked against a
   captured official request). The handle framing and its BLOB/CLOB type are
-  validated before any bytes are built, and the native prepared cursor never
-  sends a handle that came from an earlier physical session. There is no
+  validated before any bytes are built. Each binding records the connection
+  and physical session it was made for, and the native prepared cursor sends
+  it only on that session (never on a replacement session or another
+  connection that happens to have the same generation number). There is no
   public LOB binding API yet; ordinary sync/async execution is unchanged.
 
 ### Changed
@@ -220,8 +222,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   trusts when the handle is sent back. `write()` left it at the size the
   handle had when it was created (usually 0), so a bound written handle would
   store the wrong length. It now raises the field to `offset + bytes written`
-  after each write, never lowering it, as CCI does (also after a truncated
-  write). Later `write()`/`read()` requests carry the updated handle, as
+  after each write, never lowering it, as CCI does (also after a short
+  write; a reply that claims more bytes than were sent raises before the
+  handle changes). Later `write()`/`read()` requests carry the updated handle, as
   CCI's do; return values and errors are unchanged. Live 10.2/11.4 evidence:
   written BLOB/CLOB handles up to 1 MB, bound through the internal binding
   below, store their full length.

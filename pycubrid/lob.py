@@ -100,6 +100,11 @@ class Lob:
                 raise DataError("parameter value too large to serialize into CAS request") from exc
             return 0
         self._connection._send_and_receive(packet)
+        if packet.bytes_written > len(data):
+            # CCI rejects this reply without touching the handle's size.
+            raise OperationalError(
+                f"LOB write truncated: wrote {packet.bytes_written} of {len(data)} bytes"
+            )
         # Keep the handle's size field current, as CCI does, so the handle
         # stays correct when it is sent back (for example as a bound value).
         self._lob_handle = _packed_lob_handle_after_write(
