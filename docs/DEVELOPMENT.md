@@ -690,7 +690,7 @@ the checkout. The existing `scripts/wait_for_cubrid.py` checks the live broker.
 | Downstream | Selected real workload | Accepted skips |
 |---|---|---|
 | `sqlalchemy-cubrid` | ORM dogfood and sync/async pool-stress files, in separate pytest runs | None |
-| `cubrid-mcp-server` | Live integration tool cases, including a real read query and composite-PK schema case | Only cases requiring user tables when the fresh database has none; their reasons are reported |
+| `cubrid-mcp-server` | Live integration tool cases plus a separately selected shared-session concurrency case | Empty-schema skips only in the general `mcp.xml` report; none in `mcp-concurrency.xml` |
 | `cubrid-cookbook-python` | Five AI-agent scripts (including MCP stdio) and the async-worker database tasks, in separate pytest processes | None |
 
 Each selected workload needs at least one passed JUnit case; a missing report,
@@ -701,8 +701,20 @@ CUBRID server version, and per-workload pass/skip/failure counts. Job-level
 `continue-on-error` keeps
 this exploratory corpus out of PR and release gates, but the evidence states
 failure rather than claiming a false success. This is a bounded sample of real
-downstream behavior, not those repositories' complete suites or a test of MCP
-concurrent access; SQLAlchemy pool stress supplies the concurrent driver use.
+downstream behavior, not those repositories' complete suites.
+
+The MCP step also selects
+`tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session`
+in a second pytest process and writes `mcp-concurrency.xml`. That report must
+contain a passed case and no skips, failures or errors, even if a skip reason
+would be accepted in the general `mcp.xml` report. Both runs execute, and either
+pytest failure makes the recorded step outcome fail. The selected case exercises
+simultaneous in-process MCP handlers sharing one cached physical `Database`
+connection through its existing `RLock`: trace and query work must not interleave,
+responses must remain distinct and correct, and real cursors must close. This
+bounded claim does not cover MCP stdio concurrency, pooling, per-request
+transaction isolation or throughput; SQLAlchemy supplies the separate pool-stress
+workload.
 
 `tests/test_protocol_fuzz.py` mutates realistic broker replies built by
 `tests/helpers/cas_reply.py` (#523): execute and FETCH replies with column

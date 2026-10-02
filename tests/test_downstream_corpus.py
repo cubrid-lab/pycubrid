@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,6 +83,7 @@ def test_each_required_workload_needs_a_pass(tmp_path: Path) -> None:
 
 
 def test_mcp_known_empty_schema_skips_are_visible(tmp_path: Path) -> None:
+    _junit(tmp_path / "mcp-concurrency.xml", '<testcase name="concurrent"/>')
     _junit(
         tmp_path / "mcp.xml",
         '<testcase name="connect"/><testcase name="list"><skipped message="no user tables in database"/></testcase>',
@@ -89,6 +92,55 @@ def test_mcp_known_empty_schema_skips_are_visible(tmp_path: Path) -> None:
     assert summary["status"] == "success"
     assert summary["workloads"]["mcp"]["passed"] == 1
     assert summary["workloads"]["mcp"]["skipped"] == 1
+    assert summary["workloads"]["mcp-concurrency"]["passed"] == 1
+
+
+def test_mcp_concurrency_report_is_required(tmp_path: Path) -> None:
+    _junit(tmp_path / "mcp.xml", '<testcase name="connect"/>')
+    summary = collect_reports("mcp", tmp_path)
+    assert summary["status"] == "failure"
+    assert any("mcp-concurrency" in reason for reason in summary["reasons"])
+
+
+@pytest.mark.parametrize(
+    "cases",
+    [
+        "",
+        '<testcase name="concurrent"><failure message="interleaved"/></testcase>',
+        '<testcase name="concurrent"><error message="broken"/></testcase>',
+        '<testcase name="concurrent"><skipped message="no user tables"/></testcase>',
+        '<testcase name="concurrent"><skipped message="no user tables in database"/></testcase>',
+        '<testcase name="concurrent"><skipped message="broker unavailable"/></testcase>',
+    ],
+)
+def test_mcp_concurrency_needs_a_pass(tmp_path: Path, cases: str) -> None:
+    _junit(tmp_path / "mcp.xml", '<testcase name="connect"/>')
+    _junit(tmp_path / "mcp-concurrency.xml", cases)
+    summary = collect_reports("mcp", tmp_path)
+    assert summary["status"] == "failure"
+    assert any("mcp-concurrency" in reason for reason in summary["reasons"])
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        '<failure message="interleaved"/>',
+        '<error message="broken"/>',
+        '<skipped message="no user tables"/>',
+        '<skipped message="no user tables in database"/>',
+        '<skipped message="broker unavailable"/>',
+    ],
+)
+def test_mcp_concurrency_rejects_partial_failure_or_any_skip(tmp_path: Path, case: str) -> None:
+    _junit(tmp_path / "mcp.xml", '<testcase name="connect"/>')
+    _junit(
+        tmp_path / "mcp-concurrency.xml",
+        f'<testcase name="concurrent"/><testcase name="other">{case}</testcase>',
+    )
+    summary = collect_reports("mcp", tmp_path)
+    assert summary["status"] == "failure"
+    assert summary["workloads"]["mcp-concurrency"]["passed"] == 1
+    assert any("mcp-concurrency" in reason for reason in summary["reasons"])
 
 
 @pytest.mark.parametrize(
@@ -101,11 +153,13 @@ def test_mcp_known_empty_schema_skips_are_visible(tmp_path: Path) -> None:
     ],
 )
 def test_mcp_missing_pass_or_failure_cannot_be_green(tmp_path: Path, cases: str) -> None:
+    _junit(tmp_path / "mcp-concurrency.xml", '<testcase name="concurrent"/>')
     _junit(tmp_path / "mcp.xml", cases)
     assert collect_reports("mcp", tmp_path)["status"] == "failure"
 
 
 def test_missing_or_entity_junit_cannot_be_green(tmp_path: Path) -> None:
+    _junit(tmp_path / "mcp-concurrency.xml", '<testcase name="concurrent"/>')
     assert collect_reports("mcp", tmp_path)["status"] == "failure"
     (tmp_path / "mcp.xml").write_text(
         '<!DOCTYPE testsuite [<!ENTITY x "bad">]><testsuite><testcase name="x"/></testsuite>',
@@ -117,6 +171,7 @@ def test_missing_or_entity_junit_cannot_be_green(tmp_path: Path) -> None:
 def test_failed_report_keeps_real_case_counts_in_json_and_markdown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _junit(tmp_path / "mcp-concurrency.xml", '<testcase name="concurrent"/>')
     _junit(
         tmp_path / "mcp.xml",
         '<testcase name="connect"/><testcase name="query"><failure message="wrong row"/></testcase>',
@@ -157,9 +212,11 @@ def test_failed_report_keeps_real_case_counts_in_json_and_markdown(
     assert result["workloads"]["mcp"]["passed"] == 1
     assert result["workloads"]["mcp"]["failures"] == 1
     assert "| mcp | 2 | 1 | 0 | 1 | 0 |" in (tmp_path / "summary.md").read_text()
+    assert "| mcp-concurrency | 1 | 1 | 0 | 0 | 0 |" in (tmp_path / "summary.md").read_text()
 
 
 def test_unexpected_skip_preserves_positive_and_skip_counts(tmp_path: Path) -> None:
+    _junit(tmp_path / "mcp-concurrency.xml", '<testcase name="concurrent"/>')
     _junit(
         tmp_path / "mcp.xml",
         '<testcase name="connect"/><testcase name="query"><skipped message="broker unavailable"/></testcase>',
@@ -223,6 +280,7 @@ def test_failure_still_writes_machine_and_human_evidence(tmp_path: Path) -> None
 
 
 def test_report_rejects_forged_origin_even_with_passing_junit(tmp_path: Path) -> None:
+    _junit(tmp_path / "mcp-concurrency.xml", '<testcase name="concurrent"/>')
     _junit(tmp_path / "mcp.xml", '<testcase name="connect"/>')
     (tmp_path / "driver.json").write_text(
         json.dumps(
@@ -265,6 +323,7 @@ def test_report_rejects_forged_origin_even_with_passing_junit(tmp_path: Path) ->
 def test_report_records_python_and_downstream_package_versions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _junit(tmp_path / "mcp-concurrency.xml", '<testcase name="concurrent"/>')
     _junit(tmp_path / "mcp.xml", '<testcase name="connect"/>')
     (tmp_path / "driver.json").write_text(
         json.dumps(
@@ -299,6 +358,7 @@ def test_report_records_python_and_downstream_package_versions(
     assert code == 0
     result = json.loads((tmp_path / "summary.json").read_text())
     assert result["python_version"]
+    assert result["workloads"]["mcp-concurrency"]["passed"] == 1
     assert result["package_versions"] == {
         "cubrid-mcp-server": "4.0.0",
         "fastmcp": "4.0.0",
@@ -310,6 +370,7 @@ def test_report_records_python_and_downstream_package_versions(
 def test_report_rejects_non_success_step_outcome_with_passing_junit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
 ) -> None:
+    _junit(tmp_path / "mcp-concurrency.xml", '<testcase name="concurrent"/>')
     _junit(tmp_path / "mcp.xml", '<testcase name="connect"/>')
     (tmp_path / "driver.json").write_text(
         json.dumps(
@@ -344,6 +405,7 @@ def test_report_rejects_non_success_step_outcome_with_passing_junit(
     assert code == 1
     result = json.loads((tmp_path / "summary.json").read_text())
     assert result["workloads"]["mcp"]["passed"] == 1
+    assert result["workloads"]["mcp-concurrency"]["passed"] == 1
     assert "selected test step outcome" in " ".join(result["reasons"])
 
 
@@ -371,5 +433,41 @@ def test_bug_hunt_runs_only_selected_advisory_downstream_workloads() -> None:
         assert f"id: {step_id}" in corpus
         assert f"steps.{step_id}.outcome" in corpus
     assert '--test-outcome "$test_outcome"' in corpus
+    mcp_step = corpus.split("id: mcp_tests", 1)[1].split("- name: Run cookbook", 1)[0]
+    assert (
+        "tests/test_integration.py::TestCubridIntegration::"
+        "test_concurrent_tool_calls_serialize_shared_session"
+    ) in mcp_step
+    assert '--junitxml="$RUNNER_TEMP/downstream-corpus/mcp.xml" || status=1' in mcp_step
+    assert '--junitxml="$RUNNER_TEMP/downstream-corpus/mcp-concurrency.xml" || status=1' in mcp_step
+    assert 'exit "$status"' in mcp_step
     assert "if: always()" in corpus.split("- name: Summarize downstream evidence", 1)[1]
     assert "if: always()" in corpus.split("- name: Upload downstream evidence", 1)[1]
+
+
+@pytest.mark.parametrize("general_exit,concurrency_exit", [(0, 0), (1, 0), (0, 1), (1, 1)])
+def test_mcp_step_runs_both_workloads_and_preserves_either_failure(
+    general_exit: int, concurrency_exit: int
+) -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/bug-hunt.yml").read_text()
+    mcp_step = workflow.split("id: mcp_tests", 1)[1].split("- name: Run cookbook", 1)[0]
+    run = textwrap.dedent(mcp_step.split("run: |\n", 1)[1])
+    # Execute the actual step shell with pytest replaced by controlled exit codes.
+    stub = f"""
+RUNNER_TEMP=/unused
+python() {{
+  case "$*" in
+    *mcp-concurrency.xml*) printf 'concurrency\\n'; return {concurrency_exit} ;;
+    *) printf 'general\\n'; return {general_exit} ;;
+  esac
+}}
+"""
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", stub + run],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert result.stdout.splitlines() == ["general", "concurrency"]
+    assert result.returncode == int(bool(general_exit or concurrency_exit))
