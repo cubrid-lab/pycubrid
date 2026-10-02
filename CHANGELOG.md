@@ -746,6 +746,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Tests
+- **One fatal statement no longer fails the whole version differential, and
+  the report no longer hides the versions behind the first one (#614)** — the
+  `servers` fixture is module-scoped and every test reused one connection per
+  endpoint, so when a statement left the session unusable `_assert_session_survives`
+  failed that test and the remaining 15 in the module then failed with
+  `InterfaceError: connection is closed`. Worse, the report named only the first
+  version to die: with CUBRID 10.2 first in the matrix, `SELECT IF(1=0, SET{1},
+  0.000)` was attributed to 10.2 alone, while `csql` reproduces the same SIGSEGV
+  deterministically on 10.2.18.9024, 11.0.16.0419, 11.2.9.0866 and 11.4.6.1963 —
+  the suite's own structure concealed that the crash affects every supported
+  version. `Server` now opens its session through `_open()`, `run()` calls
+  `ensure_session()` before each workload, and `_assert_session_survives()`
+  reopens a dead session before raising. The contract is unchanged: losing a
+  session still fails its own test, and the message now also reports when
+  reopening failed. Scratch tables survive a reopen (DDL runs with autocommit
+  on), so `created` stays accurate and `ensure_table` still skips them. New
+  offline module `tests/test_version_differential_isolation.py` drives `Server`
+  against a scripted connection, since the real lane needs four live servers: a
+  fatal statement fails once, the next workload runs on a fresh session, three
+  consecutive kills open exactly three replacements, an error the session
+  survives opens none, and a reopen does not recreate scratch tables. The
+  underlying CUBRID crash is not fixed here — it is a server-side defect to
+  report upstream, tracked in #614.
 - **`tests/test_docs_reason.py` runs the docs-sync script in-process instead
   of spawning a fresh `python -` subprocess per fixture case, and the fake
   `git` shim is a shell script instead of a Python one (#429)** — the event
