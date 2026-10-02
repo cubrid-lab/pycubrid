@@ -809,6 +809,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   repository-tooling and combined offline commands.
 
 ### CI
+- **Mutation lane migrated to mutmut 3 after 14 consecutive crashed runs (#612)** —
+  `[tool.mutmut]` still used the 2.x keys. With `mutmut>=3.0` resolving to 3.8,
+  `tests_dir` (a string) was concatenated onto a list at
+  `mutmut/configuration.py:155`, raising `TypeError: can only concatenate list
+  (not "str") to list` from the first `config()` call, which runs at CLI import
+  time — so every subcommand died, `mutmut --version` included, and the nightly
+  `mutation testing (driver core, offline)` job produced no measurement from
+  2026-09-18 through 2026-10-01. A second defect was hiding behind it: in
+  `pyproject.toml` mutmut returns TOML values verbatim, so the comma-joined
+  `paths_to_mutate` string became one `Path` per character (66 of them), meaning
+  the mutated-file list had never been read as intended either. The config now
+  uses TOML arrays with the mutmut 3 keys (`source_paths`, `only_mutate`,
+  `also_copy`, `pytest_add_cli_args`, `pytest_add_cli_args_test_selection`,
+  `process_isolation`), and the requirement is `mutmut>=3.8,<4`. Three follow-on
+  problems were found by running the lane rather than by inspection, and each is
+  documented inline where it is configured: mutmut copies only `source_paths`
+  plus a built-in list into `mutants/`, so the offline suite needs `scripts`,
+  `.github` and `docs` in `also_copy`; two tests in
+  `tests/test_unknown_options.py` inspect pycubrid's own source (warning
+  `stacklevel`, `inspect.signature`) and cannot hold against mutmut's function
+  trampolines, so they are deselected for this lane only; and default `fork`
+  isolation forks from a process that has already run the suite, which trips
+  Hypothesis `HealthCheck.differing_executors`, so the lane uses `forkserver`.
+  `tests/test_compat_factories.py`'s public-API gate moved to the `repo_tooling`
+  marker, where it belongs — it compares `api-baseline.json` against the live
+  surface, which a mutated package can never match. That moves one test from
+  CI's offline job to its repo-tooling job (3316 to 3315, and 322 to 323); `make
+  test` still runs it. Also cleaned up 2.x leftovers: the workflow uploaded
+  `.mutmut-cache` (mutmut 3 writes `mutants/`), `.gitignore` did not list
+  `mutants/` so the sandbox could have been committed, and `make clean` left it
+  behind. Measured on Python 3.12 with mutmut 3.8.0: 5509 of 6878 mutants
+  killed (80.1%), 1301 survived, 53 timed out, 15 reached no test; the run took
+  about 58 minutes wall clock at 1.97 mutations/second on 8 workers, which is the
+  lane's first known cost and worth weighing against the nine-file `only_mutate`
+  scope.
+  Offline coverage of the nine mutated files is 97.66% (3962/4057 statements),
+  unchanged by this commit. The job stays `continue-on-error` and non-gating.
 - **CI pip download caching and readiness path-filter fix (#564)** —
   baseline measurements found 19 expanded jobs making separate editable dev
   installs; `cache: pip` on the 10 `setup-python` YAML steps now permits
