@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -19,6 +21,22 @@ from pycubrid.protocol import (
 )
 
 from .test_compat_prepared import DSN, FakeDriver
+
+
+@pytest.mark.parametrize(
+    "imports",
+    (
+        "from pycubrid.compat import cubriddb; import pycubrid.compat.cursors as cursors",
+        "import pycubrid.compat.cursors as cursors; from pycubrid.compat import cubriddb",
+    ),
+)
+def test_wrapper_module_import_order_in_fresh_process(imports: str) -> None:
+    code = (
+        imports
+        + "; assert cursors.Cursor.__module__ == 'pycubrid.compat.cursors'"
+        + "; assert cubriddb.Connection.cursor.__name__ == 'cursor'"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
 
 
 class RowsDriver(FakeDriver):

@@ -13,7 +13,7 @@ from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import InterfaceError, NotSupportedError, ProgrammingError
 
 if TYPE_CHECKING:
-    from pycubrid.compat.cubriddb import Connection
+    from . import cubriddb
     from pycubrid.compat.native import cursor as NativeCursor
 
 Description = tuple[tuple[str, int, int, int, int, int, int], ...]
@@ -31,7 +31,7 @@ _ROWCOUNT_TYPES = frozenset(
 class _CursorBase:
     """Shared fetch mechanics; only the qualified concrete classes are public."""
 
-    def __init__(self, conn: Connection) -> None:
+    def __init__(self, conn: cubriddb.Connection) -> None:
         self.con = conn
         self._cs: NativeCursor | None = conn.connection.cursor()
         self.arraysize = 1
