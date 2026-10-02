@@ -308,6 +308,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   ordinary literals, public APIs and dependencies are unchanged. Offline
   regressions include fresh subprocesses with `_datetime` and `_zoneinfo`
   disabled, alongside hostile callback and offset cases.
+- **Reserved-word hints describe the diagnostic position (#509)** — an
+  `unexpected 'VARCHAR'` syntax message no longer claims that `VARCHAR` is the
+  offending identifier. The appended hint says an identifier at or before the
+  reported token may be reserved, with the existing quoting advice and link.
+  Original server text, error metadata, hint triggers and SQL behavior are
+  unchanged. Offline regressions use messages captured on CUBRID 10.2, 11.2
+  and 11.4 brokers.
 - **Interrupted deferred CLOSE flush retains unsent handles (#601)** — sync
   and async `commit()`/`rollback()` no longer remove the entire deferred-close
   queue before sending its first `CLOSE_REQ`. Each same-session queued ID is

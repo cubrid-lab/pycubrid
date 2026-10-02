@@ -269,6 +269,12 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   valid timezone keys, naive rendering and ordinary literal results remain
   unchanged. No new public API, wire, dependency or supported-version change.
 
+- **Reserved-word diagnostic hint (#509)** — PATCH / error-message correction.
+  The appended hint treats the unexpected token as a diagnostic location and
+  suggests that an identifier at or before it may be reserved, without naming
+  an offending identifier. Original server text, exception class, error code,
+  SQLSTATE, hint triggers, public API and SQL execution are unchanged.
+
 - **Interrupted deferred CLOSE flush (#601)** — PATCH / resource-ownership
   correction in both drivers. A boundary consumes each queued same-session
   handle at the existing attempted-send point, not before the whole flush.

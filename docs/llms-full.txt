@@ -6768,6 +6768,15 @@ cur.execute("SELECT * FROM users WHERE name = ?", ("Alice",))
 
 ### Reserved Word Conflicts
 
+The token reported after `unexpected` marks the server's diagnostic position;
+it may follow the offending identifier. For example,
+`CREATE TABLE t (key VARCHAR(50))` reports `unexpected 'VARCHAR'` on captured
+CUBRID 10.2, 11.2 and 11.4 brokers. pycubrid's appended hint therefore says an
+identifier at or before that position **may** be reserved. It does not identify
+the offending name or tell you to quote the datatype `VARCHAR`; inspect the
+identifier near that position and quote or rename it. The original server
+message and error metadata are preserved.
+
 **Common CUBRID reserved words** that often clash with column/table names:
 
 | Reserved Word | Safe Alternative |
