@@ -195,6 +195,11 @@ conn = pycubrid.connect(
 
 `connect_timeout`은 TCP 연결만 제한합니다. 브로커 핸드셰이크, TLS 핸드셰이크, `OPEN_DATABASE`는 두 드라이버 모두 `read_timeout`으로 제한됩니다. `read_timeout`을 설정하지 않아도 두 드라이버 모두 TLS 핸드셰이크는 10초 후 포기하고(비동기는 `ssl_handshake_timeout`, 동기는 핸드셰이크 동안만 적용되는 소켓 타임아웃, [#535](https://github.com/cubrid-lab/pycubrid/issues/535)), 브로커 핸드셰이크와 `OPEN_DATABASE`는 제한 없이 기다립니다. 10초 기본값은 TLS 핸드셰이크에만 적용되며, `read_timeout`이 없으면 그 뒤의 요청은 계속 제한 없이 기다립니다. TLS 핸드셰이크 도중 브로커가 멈추거나 연결을 리셋하면 그 제한 안에 `OperationalError`가 발생합니다([#513](https://github.com/cubrid-lab/pycubrid/issues/513)). Python 3.10에서 비동기 드라이버의 사전 인증서 검사는 TLS 핸드셰이크 전에 브로커가 연결을 리셋하면 자신의 소켓을 직접 닫습니다([#535](https://github.com/cubrid-lab/pycubrid/issues/535)). 다만 3.10의 동기 드라이버 `wrap_socket()` 업그레이드에서는 이런 소켓이 여전히 가비지 컬렉터에 남을 수 있으며(`ResourceWarning`), 이는 이후 버전에서 수정된 CPython 3.10 `ssl`의 한계입니다.
 
+TLS 핸드셰이크에 기본 10초보다 긴 시간을 허용하려면 `read_timeout=30.0`처럼
+더 큰 `read_timeout`을 설정하세요. 이 값은 이후 요청의 읽기 타임아웃도 30초로
+설정합니다. 동기는 수신별 소켓 타임아웃을 사용하고, 비동기는 전체 네트워크
+왕복 시간을 제한합니다. `connect_timeout`은 바뀌지 않습니다.
+
 세션이 열린 뒤 요청 중에 불확실한 전송 실패(소켓 오류, 타임아웃, 잘못된 응답, 응답을 기다리는 동안의 인터럽트나 태스크 취소)가 발생하면, 두 드라이버 모두 연결을 닫고 그 세션의 모든 커서·스키마 결과 핸들을 폐기합니다([#556](https://github.com/cubrid-lab/pycubrid/issues/556)). 커서가 이미 버퍼에 받아 둔 행은 계속 읽을 수 있고, 서버가 필요한 다음 fetch는 예외를 발생시키며, 끊긴 세션의 핸들은 다시 전송되지 않습니다. 요청은 재실행되지 않습니다: `connect()` 또는 `ping(reconnect=True)`로 다시 연결한 뒤 다시 실행하세요. 비동기 `OperationalError` 메시지는 `read_timeout` 기한이 만료된 경우에만 `read timeout: no complete round trip within read_timeout=...s`이고, 전송 계층 자체의 타임아웃(예: `ETIMEDOUT`)은 `socket communication timed out`, 그 밖의 소켓 오류는 `socket communication failed`로 보고됩니다. 원래 예외는 항상 `__cause__`로 체이닝되며, 취소된 태스크는 여전히 `asyncio.CancelledError`를 발생시킵니다. 동기 `read_timeout`은 수신 단위 소켓 타임아웃이며 `socket communication failed`로 보고됩니다. 응답을 모두 읽은 뒤 `json_deserializer` 콜백이 발생시킨 `OSError`(`TimeoutError` 포함)는 전송 실패가 아니므로 그대로 전파되고 연결은 열린 채로 유지됩니다. 커스텀 디시리얼라이저의 `ValueError` 계열 오류(예: orjson, simplejson 디코드 오류)는 여전히 잘못된 응답으로 처리되어 `OperationalError('malformed response from broker')`가 발생하고 세션은 폐기됩니다.
 
 Python 3.10의 별도 `asyncio.TimeoutError` 클래스에도 같은 규칙이 적용됩니다.
@@ -207,6 +212,10 @@ Python 3.10의 별도 `asyncio.TimeoutError` 클래스에도 같은 규칙이 �
     프로브의 각 송신과 수신에는 전체 핸드셰이크 제한 중 남은 시간을 적용하며,
     기한 뒤에 완료된 핸드셰이크는 거부합니다. 마지막 핸드셰이크 데이터의 송신은
     성공해야 하고, 선택적인 close_notify도 같은 시간 예산을 공유합니다.
+    치명적인 TLS 오류가 발생하면 대기 중인 alert를 남은 시간 안에 가능한 한
+    전송합니다. alert 송신 실패가 원래 TLS 오류를 대체하지 않습니다. 수신
+    타임아웃은 원래 예외 객체, 메시지, errno를 보존하며, 표시되는 traceback에서
+    내부 `SSLWantReadError` 컨텍스트를 숨깁니다.
 
 ```python
 import pycubrid.aio
