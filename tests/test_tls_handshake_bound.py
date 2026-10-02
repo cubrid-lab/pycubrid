@@ -22,6 +22,7 @@ import ssl
 import struct
 import threading
 import time
+import traceback
 import warnings
 from types import SimpleNamespace
 from typing import Any
@@ -167,46 +168,66 @@ def test_probe_closes_socket_on_reset_before_client_hello(
     assert not leaked, leaked
 
 
-def test_probe_handshake_timeout_is_a_total_deadline() -> None:
-    """A peer that trickles handshake bytes must not reset the probe's timeout.
+@pytest.mark.parametrize("path", ["probe", "sync-default", "sync-explicit"])
+def test_probe_handshake_timeout_is_a_total_deadline(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """A peer that trickles bytes must not reset a probe or sync TLS timeout.
 
     ``wrap_socket()`` bounds the whole handshake by the socket timeout; the
     memory-BIO handshake must keep that total deadline, not turn it into a
     per-``recv()`` inactivity timeout.
     """
+    monkeypatch.setattr(sync_connection, "_DEFAULT_TLS_HANDSHAKE_TIMEOUT", SHORT_DEFAULT)
     listener = socket.create_server((HOST, 0))
+    listener.settimeout(2.0)
+    port = listener.getsockname()[1]
     stop = threading.Event()
+    accepted = threading.Event()
+    peer_errors: list[Exception] = []
 
     def serve() -> None:
-        conn, _ = listener.accept()
-        with conn:
-            conn.recv(10)  # CUBRS
-            conn.sendall(struct.pack(">i", 0))
-            # A TLS handshake record header announcing 16 KiB, then one byte of
-            # it every 0.1 s: never a complete record, never a quiet period.
-            conn.sendall(bytes([0x16, 0x03, 0x03, 0x40, 0x00]))
-            give_up = time.monotonic() + 3.0  # a regression fails instead of hanging
-            while not stop.wait(0.1) and time.monotonic() < give_up:
-                try:
-                    conn.sendall(b"\x00")
-                except OSError:
-                    return
+        try:
+            conn, _ = listener.accept()
+            accepted.set()
+            with conn:
+                conn.settimeout(2.0)
+                conn.recv(10)  # CUBRS
+                conn.sendall(struct.pack(">i", 0))
+                # An incomplete 16 KiB record with a byte every 0.1 s.
+                conn.sendall(bytes([0x16, 0x03, 0x03, 0x40, 0x00]))
+                give_up = time.monotonic() + 3.0  # fail instead of hanging
+                while not stop.wait(0.1) and time.monotonic() < give_up:
+                    try:
+                        conn.sendall(b"\x00")
+                    except (BrokenPipeError, ConnectionResetError):
+                        return  # expected when the client times out and closes
+        except Exception as exc:
+            peer_errors.append(exc)
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     try:
         started = time.monotonic()
-        with pytest.raises(TimeoutError):
-            AsyncConnection._probe_tls_verification_sync(
-                HOST, listener.getsockname()[1], client_context(), True, 2.0, SHORT_DEFAULT
-            )
+        with pytest.raises(TimeoutError if path == "probe" else OperationalError) as caught:
+            if path == "probe":
+                AsyncConnection._probe_tls_verification_sync(
+                    HOST, port, client_context(), True, 2.0, SHORT_DEFAULT
+                )
+            else:
+                _connect(port, read_timeout=SHORT_DEFAULT if path == "sync-explicit" else None)
         elapsed = time.monotonic() - started
+        if path != "probe":
+            assert isinstance(caught.value.__cause__, TimeoutError)
     finally:
         stop.set()
-        thread.join(5.0)
         listener.close()
+        thread.join(5.0)
+        assert not thread.is_alive(), "trickle peer did not finish bounded cleanup"
+        assert not peer_errors, peer_errors
 
-    assert elapsed < SHORT_DEFAULT + 1.0, elapsed
+    assert accepted.is_set()
+    assert SHORT_DEFAULT * 0.9 <= elapsed < SHORT_DEFAULT + 1.0, elapsed
 
 
 def test_probe_completes_real_tls_handshake() -> None:
@@ -236,6 +257,9 @@ def _timed_probe(
     completion_delay: float = 0.0,
     shutdown_delay: float = 0.0,
     fail_finished: bool = False,
+    fatal_error: ssl.SSLError | None = None,
+    receive_error: TimeoutError | None = None,
+    fail_alert: bool = False,
 ) -> Any:
     """Exercise the actual probe with independent per-I/O socket deadlines."""
     clock = [0.0]
@@ -243,6 +267,7 @@ def _timed_probe(
     class ProbeSocket:
         closed = False
         timeout = 0.0
+        sent: list[bytes] = []
 
         def settimeout(self, timeout: float) -> None:
             self.timeout = timeout
@@ -254,6 +279,9 @@ def _timed_probe(
             clock[0] += duration
 
         def sendall(self, data: bytes) -> None:
+            self.sent.append(data)
+            if data == b"fatal-alert" and fail_alert:
+                raise ConnectionResetError("peer reset during fatal alert")
             if b"client-finished" in data and fail_finished:
                 raise ConnectionResetError("peer reset during final flight")
             self.wait(
@@ -266,6 +294,8 @@ def _timed_probe(
 
         def recv(self, _size: int) -> bytes:
             self.wait(receive_delay)
+            if receive_error is not None:
+                raise receive_error
             return b"server-flight"
 
         def close(self) -> None:
@@ -283,6 +313,9 @@ def _timed_probe(
                 self.outgoing.write(b"hello")
                 raise ssl.SSLWantReadError()
             clock[0] += completion_delay
+            if fatal_error is not None:
+                self.outgoing.write(b"fatal-alert")
+                raise fatal_error
             self.outgoing.write(b"client-finished")
 
         def unwrap(self) -> None:
@@ -329,4 +362,52 @@ def test_probe_reports_final_handshake_send_failure(monkeypatch: pytest.MonkeyPa
     probe = _timed_probe(monkeypatch, hello_delay=0.0, receive_delay=0.0, fail_finished=True)
     with pytest.raises(ConnectionResetError):
         AsyncConnection._probe_tls_verification_sync(HOST, 1, probe.context, False, 1.0, 0.1)
+    assert probe.socket.closed
+
+
+@pytest.mark.parametrize(
+    "completion_delay, fail_alert, attempts_alert",
+    [(0.0, False, True), (0.12, False, False), (0.0, True, True)],
+    ids=["sent", "deadline-expired", "send-failed"],
+)
+def test_probe_fatal_alert_preserves_original_error_and_socket_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    completion_delay: float,
+    fail_alert: bool,
+    attempts_alert: bool,
+) -> None:
+    original = ssl.SSLError(1, "fatal TLS failure")
+    probe = _timed_probe(
+        monkeypatch,
+        hello_delay=0.0,
+        receive_delay=0.0,
+        completion_delay=completion_delay,
+        fatal_error=original,
+        fail_alert=fail_alert,
+    )
+    with pytest.raises(ssl.SSLError) as caught:
+        AsyncConnection._probe_tls_verification_sync(HOST, 1, probe.context, False, 1.0, 0.1)
+    assert caught.value is original
+    assert caught.value.args == (1, "fatal TLS failure")
+    assert probe.socket.closed
+    assert (b"fatal-alert" in probe.socket.sent) is attempts_alert
+    assert probe.now() == pytest.approx(completion_delay)
+
+
+def test_probe_receive_timeout_suppresses_want_read_displayed_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = TimeoutError(110, "custom receive timeout")
+    probe = _timed_probe(monkeypatch, hello_delay=0.0, receive_delay=0.0, receive_error=original)
+    with pytest.raises(TimeoutError) as caught:
+        AsyncConnection._probe_tls_verification_sync(HOST, 1, probe.context, False, 1.0, 0.1)
+    assert caught.value is original
+    assert caught.value.args == (110, "custom receive timeout")
+    assert caught.value.errno == 110
+    assert caught.value.__suppress_context__ is True
+    assert isinstance(caught.value.__context__, ssl.SSLWantReadError)
+    displayed = "".join(
+        traceback.format_exception(type(original), original, original.__traceback__)
+    )
+    assert "SSLWantReadError" not in displayed
     assert probe.socket.closed

@@ -611,15 +611,29 @@ class AsyncConnection(ConnectionCommonMixin):
                 try:
                     tls.do_handshake()
                 except ssl_module.SSLWantReadError:
-                    pending = outgoing.read()
-                    if pending:
+                    try:
+                        pending = outgoing.read()
+                        if pending:
+                            sock.settimeout(remaining_timeout())
+                            sock.sendall(pending)
                         sock.settimeout(remaining_timeout())
-                        sock.sendall(pending)
-                    sock.settimeout(remaining_timeout())
-                    data = sock.recv(16384)
+                        data = sock.recv(16384)
+                    except TimeoutError as exc:
+                        raise exc from None
                     if not data:
                         raise OSError("connection closed during TLS preflight probe")
                     incoming.write(data)
+                except ssl_module.SSLError:
+                    # OpenSSL may have queued a fatal alert; send it within the
+                    # same budget without replacing the original TLS failure.
+                    try:
+                        pending = outgoing.read()
+                        if pending:
+                            sock.settimeout(remaining_timeout())
+                            sock.sendall(pending)
+                    except OSError:  # nosec B110 - best-effort alert; re-raise TLS failure
+                        pass
+                    raise
                 else:
                     # The BIO may still hold the final handshake flight.
                     # Its send is required, unlike optional close_notify.

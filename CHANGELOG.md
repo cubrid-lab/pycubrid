@@ -297,6 +297,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **TLS preflight fatal alerts and timeout context (#592)** — the Python 3.10
+  async certificate probe sends queued fatal alert bytes best effort within
+  its existing deadline, then re-raises the original TLS error even if alert
+  sending fails. Probe I/O timeouts retain the same error object, message and
+  errno while suppressing internal WantRead context in displayed traces. The
+  existing trickle-peer regression now covers sync default and explicit
+  handshake budgets too. Socket cleanup, required final-flight failures,
+  optional shutdown bounds, defaults, dependencies and public APIs are unchanged.
 - **Hostile timezone errors and pure-Python temporal fallback (#530)** — datetime
   parameter timezone callbacks, key lookup and offset-field errors now raise
   `ProgrammingError("invalid tzinfo on datetime parameter")` with the original
@@ -412,7 +420,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   handshake now gives up after 10 seconds, the same default the async driver
   passes as `ssl_handshake_timeout`, and raises `OperationalError`; the socket is
   blocking again once the handshake is done, so later requests stay unbounded
-  as before. With `read_timeout` set nothing changes, and `connect_timeout`
+  as before. To allow a handshake longer than 10 seconds, set a larger
+  `read_timeout`, for example `30.0`; this also sets later request read timeouts
+  to 30 seconds (sync per-receive, async round-trip). With `read_timeout` set
+  nothing changes, and `connect_timeout`
   still bounds only the TCP connect. On Python 3.10 the async driver's
   certificate preflight probe now runs its handshake over memory BIOs on a
   socket it owns, so a broker reset just before the ClientHello no longer

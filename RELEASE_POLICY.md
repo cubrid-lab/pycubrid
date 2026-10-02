@@ -259,6 +259,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **TLS preflight alerts and timeout context (#592)** — PATCH / diagnostic
+  and error-path correction. Fatal alert bytes use only the existing probe
+  deadline, and best-effort alert-send failures retain the original TLS error.
+  Probe I/O timeouts retain their identity, message and errno with internal
+  WantRead context suppressed in displayed traces. Sync deadline coverage and
+  the larger-`read_timeout` workaround are clarified; defaults, successful TLS
+  behavior, socket ownership, public APIs and dependencies are unchanged.
+
 - **Hostile timezone and pure-Python temporal parameters (#530)** — PATCH /
   error-normalization and fallback safety correction in the shared literal
   binder. Ordinary timezone callback, key lookup and offset-field exceptions
