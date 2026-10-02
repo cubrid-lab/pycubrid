@@ -243,6 +243,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- `DBAPIType` comparison no longer reads `bool` values as integer type codes:
+  `STRING == True` and `STRING != False` are now `False` and `True`. Integer
+  subclasses such as `enum.IntEnum` still compare equal by value, so
+  `STRING == CUBRIDDataType.STRING` is unchanged. (#369)
 - **`Lob.write()` keeps the handle's size field current (#441)** — the packed
   handle returned by `Lob.lob_handle` embeds the LOB size, which the server
   trusts when the handle is sent back. `write()` left it at the size the
