@@ -112,7 +112,8 @@ def _stored(observer: Connection, table: str, column: str) -> dict[int, tuple[in
 def _written(conn: Connection, lob_type: int, chunks: list[tuple[int, bytes]]) -> Lob:
     lob = Lob.create(conn, lob_type)
     for offset, data in chunks:
-        assert lob.write(data, offset) == len(data)
+        written = lob.write(data, offset)
+        assert written == len(data)
     return lob
 
 

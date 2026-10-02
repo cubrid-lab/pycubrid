@@ -113,7 +113,8 @@ def test_lob_binding_needs_no_charset_match() -> None:
         bind_count=1,
     )
     packet.encoding = "euc-kr"
-    assert FETCHED_CLOB in packet.write(_CAS_INFO)
+    frame = packet.write(_CAS_INFO)
+    assert FETCHED_CLOB in frame
 
 
 # --- validation ------------------------------------------------------------
@@ -209,9 +210,11 @@ def lob_connection() -> MagicMock:
 
 def test_lob_write_updates_the_size_field_like_cci(lob_connection: MagicMock) -> None:
     lob = Lob(lob_connection, BLOB, NEW_BLOB)
-    assert lob.write(b"0123456789", 0) == 10
+    written = lob.write(b"0123456789", 0)
+    assert written == 10
     assert lob.lob_handle == OFFICIAL_SECOND_WRITE_HANDLE
-    assert lob.write(b"abc", 10) == 3
+    written = lob.write(b"abc", 10)
+    assert written == 3
     # Each LOB_WRITE carries the handle as it was before that write, as CCI's do.
     assert lob_connection.sent_handles == [NEW_BLOB, OFFICIAL_SECOND_WRITE_HANDLE]
     assert lob.lob_handle == OFFICIAL_BOUND_WRITTEN_HANDLE
@@ -248,7 +251,8 @@ def test_truncated_lob_write_records_the_bytes_written(lob_connection: MagicMock
 
 def test_failed_or_empty_lob_write_keeps_the_handle(lob_connection: MagicMock) -> None:
     lob = Lob(lob_connection, BLOB, NEW_BLOB)
-    assert lob.write(b"", 50) == 0
+    written = lob.write(b"", 50)
+    assert written == 0
     assert lob.lob_handle == NEW_BLOB
     lob_connection._send_and_receive.side_effect = OperationalError("server error")
     with pytest.raises(OperationalError):
@@ -272,7 +276,8 @@ def test_native_execute_rejects_a_lob_binding_from_another_generation(
         assert _packets(fake_driver, ExecutePacket) == []
         # The binding is not consumed: it stays unusable until replaced.
         cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, 1)
-        assert cur.execute() == 1
+        count = cur.execute()
+        assert count == 1
         sent = _packets(fake_driver, ExecutePacket)[0]
         assert _bind_pair(sent.bindings[0]) == bytes.fromhex(OFFICIAL_BIND_PAIRS[0][2])
     finally:
