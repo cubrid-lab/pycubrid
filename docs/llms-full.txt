@@ -1507,8 +1507,10 @@ Python. The server copies the value when the statement runs, so after
   valid UTF-8; use ordinary [`Lob.read()`](#readlength-offset) for arbitrary
   binary bytes. A split UTF-8 character raises `UnicodeDecodeError` after the
   position advances by the bytes received. Empty values, EOF and requests
-  longer than the remaining size safely return `""` or the available text;
-  the official CCI wrapper can instead error at EOF or read past its declared
+  longer than the remaining size safely return `""` or the available text.
+  If a later chunk fails, bytes accepted from earlier replies remain reflected
+  in the position (a live session can resume from there).
+  The official CCI wrapper can instead error at EOF or read past its declared
   buffer. Those unsafe edge behaviors are not emulated.
 - `lob.seek(offset, whence=SEEK_CUR, /) -> int` changes the byte position.
   `native.SEEK_SET`, `SEEK_CUR` and `SEEK_END` are exported; as in the official

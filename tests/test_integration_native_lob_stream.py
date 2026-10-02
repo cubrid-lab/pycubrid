@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from contextlib import closing
 from typing import Any
 
 import pytest
@@ -25,11 +26,8 @@ def _native() -> native.connection:
 
 @pytest.fixture
 def observer() -> Generator[Connection, None, None]:
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=True)
-    try:
+    with closing(pycubrid.connect(**connect_kwargs(), autocommit=True)) as conn:
         yield conn
-    finally:
-        conn.close()
 
 
 def _sql(conn: Connection, sql: str, params: Any = None) -> None:
@@ -73,26 +71,39 @@ def test_created_blob_and_clob_stream_bind_once(observer: Connection, table: str
     conn = _native()
     try:
         blob, clob = conn.lob(), conn.lob()
-        assert blob.write(b"abc") is None
-        assert blob.seek(0, native.SEEK_END) == 3
-        assert blob.write("d") is None
-        assert blob.seek(0, native.SEEK_SET) == 0
-        assert blob.read(2) == "ab"
-        assert blob.read() == "cd"
+        written = blob.write(b"abc")
+        assert written is None
+        position = blob.seek(0, native.SEEK_END)
+        assert position == 3
+        written = blob.write("d")
+        assert written is None
+        position = blob.seek(0, native.SEEK_SET)
+        assert position == 0
+        value = blob.read(2)
+        assert value == "ab"
+        value = blob.read()
+        assert value == "cd"
 
-        assert clob.write("A한é", "C") is None
-        assert clob.seek(0) == 6
-        assert clob.write("B") is None
-        assert clob.seek(0, native.SEEK_SET) == 0
-        assert clob.read(1) == "A"
-        assert clob.read() == "한éB"
+        written = clob.write("A한é", "C")
+        assert written is None
+        position = clob.seek(0)
+        assert position == 6
+        written = clob.write("B")
+        assert written is None
+        position = clob.seek(0, native.SEEK_SET)
+        assert position == 0
+        value = clob.read(1)
+        assert value == "A"
+        value = clob.read()
+        assert value == "한éB"
 
         cur = conn.cursor()
         try:
             cur.prepare(f"INSERT INTO {table} VALUES (1, ?, ?)")
             cur.bind_lob(1, blob)
             cur.bind_lob(2, clob)
-            assert cur.execute() == 1
+            count = cur.execute()
+            assert count == 1
         finally:
             cur.close()
         assert _stored(observer, table) == {1: (b"abcd", "A한éB".encode("utf-8"))}
@@ -116,15 +127,20 @@ def test_fetched_clob_append_keeps_original_declared_size_and_binds_edited_handl
         source.execute()
         clob = conn.lob()
         source.fetch_lob(1, clob)
-        assert clob.seek(0, native.SEEK_END) == 3
-        assert clob.write("d") is None
-        assert clob.seek(0, native.SEEK_SET) == 0
-        assert clob.read() == "abcd"
+        position = clob.seek(0, native.SEEK_END)
+        assert position == 3
+        written = clob.write("d")
+        assert written is None
+        position = clob.seek(0, native.SEEK_SET)
+        assert position == 0
+        value = clob.read()
+        assert value == "abcd"
 
         dest = conn.cursor()
         dest.prepare(f"INSERT INTO {table} (id, c) VALUES (2, ?)")
         dest.bind_lob(1, clob)
-        assert dest.execute() == 1
+        count = dest.execute()
+        assert count == 1
         source.close()
         dest.close()
     finally:
@@ -139,15 +155,20 @@ def test_large_created_stream_crosses_broker_read_and_write_chunks(
     conn = _native()
     try:
         clob = conn.lob()
-        assert clob.write(text, "C") is None
-        assert clob.seek(0) == len(text.encode("utf-8"))
-        assert clob.seek(0, native.SEEK_SET) == 0
-        assert clob.read() == text
+        written = clob.write(text, "C")
+        assert written is None
+        position = clob.seek(0)
+        assert position == len(text.encode("utf-8"))
+        position = clob.seek(0, native.SEEK_SET)
+        assert position == 0
+        value = clob.read()
+        assert value == text
         cur = conn.cursor()
         try:
             cur.prepare(f"INSERT INTO {table} (id, c) VALUES (3, ?)")
             cur.bind_lob(1, clob)
-            assert cur.execute() == 1
+            count = cur.execute()
+            assert count == 1
         finally:
             cur.close()
     finally:
@@ -159,14 +180,18 @@ def test_empty_created_stream_is_readable_and_bindable(observer: Connection, tab
     conn = _native()
     try:
         blob = conn.lob()
-        assert blob.write(b"") is None
-        assert blob.seek(0, native.SEEK_END) == 0
-        assert blob.read() == ""
+        written = blob.write(b"")
+        assert written is None
+        position = blob.seek(0, native.SEEK_END)
+        assert position == 0
+        value = blob.read()
+        assert value == ""
         cur = conn.cursor()
         try:
             cur.prepare(f"INSERT INTO {table} (id, b) VALUES (4, ?)")
             cur.bind_lob(1, blob)
-            assert cur.execute() == 1
+            count = cur.execute()
+            assert count == 1
         finally:
             cur.close()
     finally:
@@ -187,16 +212,23 @@ def test_fetching_another_row_keeps_the_official_byte_position(
             cur.execute()
             lob = conn.lob()
             cur.fetch_lob(1, lob)
-            assert lob.seek(2, native.SEEK_SET) == 2
+            position = lob.seek(2, native.SEEK_SET)
+            assert position == 2
             cur.fetch_lob(1, lob)
-            assert lob.seek(0) == 2
-            assert lob.read() == "yz"
+            position = lob.seek(0)
+            assert position == 2
+            value = lob.read()
+            assert value == "yz"
             cur.fetch_lob(1, lob)  # NULL clears the value, not the position
-            assert lob.seek(0) == 4
+            position = lob.seek(0)
+            assert position == 4
             cur.fetch_lob(1, lob)
-            assert lob.seek(0) == 4
-            assert lob.seek(0, native.SEEK_SET) == 0
-            assert lob.read() == "1234"
+            position = lob.seek(0)
+            assert position == 4
+            position = lob.seek(0, native.SEEK_SET)
+            assert position == 0
+            value = lob.read()
+            assert value == "1234"
         finally:
             cur.close()
     finally:

@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   CLOB text is UTF-8 as in the official Python 3 extension; seek positions
   count bytes and SEEK_END subtracts its offset. Writes create a BLOB or CLOB
   lazily and append only at the tracked end; reads span the broker's chunk cap.
+  A successful short read advances the byte position immediately, even if a
+  later LOB_READ reply fails, so a still-live session resumes without repeating
+  accepted bytes.
   The existing physical-session/origin fences apply to read/write as well as
   bind, and created temporary handles remain single-use after autocommit bind.
   Deliberate safe differences are local rejection of non-end writes and invalid

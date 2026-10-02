@@ -31,6 +31,8 @@ class StreamDriver(FakeDriver):
         self.bad_new_handle = False
         self.discarded = False
         self.read_cap = 3
+        self.read_plan: list[bytes | tuple[int, bytes] | Exception] = []
+        self.drop_on_read_error = False
         self.fail_write_call: int | None = None
         self.write_calls = 0
 
@@ -75,10 +77,21 @@ class StreamDriver(FakeDriver):
             self.values[locator] = before + packet.data[: packet.bytes_written]
         else:
             locator = packet.packed_lob_handle[16:]
-            packet.lob_data = self.values[locator][
-                packet.offset : packet.offset + min(packet.length, self.read_cap)
-            ]
-            packet.bytes_read = len(packet.lob_data)
+            if self.read_plan:
+                reply = self.read_plan.pop(0)
+                if isinstance(reply, Exception):
+                    if self.drop_on_read_error:
+                        self._connected = False
+                        self._socket = None
+                    raise reply
+                packet.bytes_read, packet.lob_data = (
+                    reply if isinstance(reply, tuple) else (len(reply), reply)
+                )
+            else:
+                packet.lob_data = self.values[locator][
+                    packet.offset : packet.offset + min(packet.length, self.read_cap)
+                ]
+                packet.bytes_read = len(packet.lob_data)
         return packet
 
 
@@ -99,29 +112,45 @@ def test_created_blob_writes_and_reads_from_a_byte_position(
     # LOB packets carry bytes/offsets, not SQL literals, under either mode.
     conn._driver._no_backslash_escapes = escape_mode
     lob = conn.lob()
-    assert lob.write(b"abc") is None
+    written = lob.write(b"abc")
+    assert written is None
     assert lob._origin == native._CREATED
-    assert lob.seek(0, native.SEEK_CUR) == 3
-    assert lob.write("def") is None
-    assert lob.seek(0, native.SEEK_SET) == 0
-    assert lob.read(2) == "ab"
-    assert lob.seek(0) == 2  # default SEEK_CUR, no separate tell method
-    assert lob.read() == "cdef"
-    assert lob.read() == ""  # safe EOF, unlike the official CCI error
-    assert lob.seek(1, native.SEEK_END) == 5  # end minus offset
-    assert lob.read(1) == "f"
+    position = lob.seek(0, native.SEEK_CUR)
+    assert position == 3
+    written = lob.write("def")
+    assert written is None
+    position = lob.seek(0, native.SEEK_SET)
+    assert position == 0
+    value = lob.read(2)
+    assert value == "ab"
+    position = lob.seek(0)  # default SEEK_CUR, no separate tell method
+    assert position == 2
+    value = lob.read()
+    assert value == "cdef"
+    value = lob.read()  # safe EOF, unlike the official CCI error
+    assert value == ""
+    position = lob.seek(1, native.SEEK_END)  # end minus offset
+    assert position == 5
+    value = lob.read(1)
+    assert value == "f"
 
 
 def test_clob_utf8_split_error_advances_the_byte_position(conn: native.connection) -> None:
     lob = conn.lob()
-    assert lob.write("A한éB", "C") is None
-    assert lob.seek(0) == 7
-    assert lob.seek(1, native.SEEK_SET) == 1
+    written = lob.write("A한éB", "C")
+    assert written is None
+    position = lob.seek(0)
+    assert position == 7
+    position = lob.seek(1, native.SEEK_SET)
+    assert position == 1
     with pytest.raises(UnicodeDecodeError):
         lob.read(1)
-    assert lob.seek(0) == 2
-    assert lob.seek(0, native.SEEK_SET) == 0
-    assert lob.read() == "A한éB"
+    position = lob.seek(0)
+    assert position == 2
+    position = lob.seek(0, native.SEEK_SET)
+    assert position == 0
+    value = lob.read()
+    assert value == "A한éB"
 
 
 def test_non_append_write_and_closed_stream_fail_before_io(conn: native.connection) -> None:
@@ -129,7 +158,8 @@ def test_non_append_write_and_closed_stream_fail_before_io(conn: native.connecti
     empty.seek(2, native.SEEK_SET)
     with pytest.raises(NotSupportedError, match="append"):
         empty.write(b"x")
-    assert empty.seek(0) == 2
+    position = empty.seek(0)
+    assert position == 2
     assert conn._driver.requests == []
 
     lob = conn.lob()
@@ -139,7 +169,8 @@ def test_non_append_write_and_closed_stream_fail_before_io(conn: native.connecti
     with pytest.raises(NotSupportedError, match="append"):
         lob.write(b"z")
     assert len(conn._driver.requests) == count
-    assert lob.seek(0) == 1
+    position = lob.seek(0)
+    assert position == 1
     lob.close()
     with pytest.raises(InterfaceError, match="closed"):
         lob.read()
@@ -152,9 +183,12 @@ def test_seek_past_end_is_a_virtual_position_without_a_hole_write(
 ) -> None:
     lob = conn.lob()
     lob.write(b"abc")
-    assert lob.seek(100, native.SEEK_SET) == 100
-    assert lob.read() == ""
-    assert lob.seek(0) == 100
+    position = lob.seek(100, native.SEEK_SET)
+    assert position == 100
+    value = lob.read()
+    assert value == ""
+    position = lob.seek(0)
+    assert position == 100
     count = len(conn._driver.requests)
     with pytest.raises(NotSupportedError, match="append"):
         lob.write(b"z")
@@ -163,11 +197,14 @@ def test_seek_past_end_is_a_virtual_position_without_a_hole_write(
 
 def test_empty_write_creates_a_bindable_handle_without_write_io(conn: native.connection) -> None:
     lob = conn.lob()
-    assert lob.write(b"", "C") is None
+    written = lob.write(b"", "C")
+    assert written is None
     assert lob._lob_type == CUBRIDDataType.CLOB
     assert lob._origin == native._CREATED
-    assert lob.seek(0, native.SEEK_END) == 0
-    assert lob.read() == ""
+    position = lob.seek(0, native.SEEK_END)
+    assert position == 0
+    value = lob.read()
+    assert value == ""
     assert [type(packet) for packet, _ in conn._driver.requests] == [LOBNewPacket]
     cur = conn.cursor()
     cur.prepare("INSERT INTO t (c) VALUES (?)")
@@ -205,7 +242,8 @@ def test_invalid_values_fail_before_creating_or_reading_a_handle(conn: native.co
         lob.seek(0, 9)
     with pytest.raises(InterfaceError, match="out of range"):
         lob.seek(-1, native.SEEK_SET)
-    assert lob.seek(0) == 3
+    position = lob.seek(0)
+    assert position == 3
     assert len(conn._driver.requests) == count
 
 
@@ -238,8 +276,10 @@ def test_full_read_caps_wire_lengths_and_advances_only_received_bytes(
         (conn._driver, conn._driver._physical_generation),
         committed=True,
     )
-    assert lob.read() == "xyz"
-    assert lob.seek(0) == 3
+    value = lob.read()
+    assert value == "xyz"
+    position = lob.seek(0)
+    assert position == 3
     lengths = [
         packet.length for packet, _ in conn._driver.requests if isinstance(packet, LOBReadPacket)
     ]
@@ -268,11 +308,15 @@ def test_short_write_keeps_confirmed_size_and_position(conn: native.connection) 
     with pytest.raises(OperationalError, match="LOB write truncated"):
         lob.write(b"abcd")
     assert lob._origin == native._CREATED
-    assert lob.seek(0) == 2
+    position = lob.seek(0)
+    assert position == 2
     assert struct.unpack_from(">q", lob._handle, 4)[0] == 2
-    assert lob.write(b"cd") is None
-    assert lob.seek(0, native.SEEK_SET) == 0
-    assert lob.read() == "abcd"
+    written = lob.write(b"cd")
+    assert written is None
+    position = lob.seek(0, native.SEEK_SET)
+    assert position == 0
+    value = lob.read()
+    assert value == "abcd"
 
 
 def test_new_handle_with_bad_framing_retires_the_session(conn: native.connection) -> None:
@@ -304,11 +348,14 @@ def test_large_value_uses_bounded_write_and_read_requests(conn: native.connectio
     conn._driver.read_cap = 80_000
     lob = conn.lob()
     value = "A" * 70_000
-    assert lob.write(value) is None
+    written = lob.write(value)
+    assert written is None
     writes = [packet for packet, _ in conn._driver.requests if isinstance(packet, LOBWritePacket)]
     assert [len(packet.data) for packet in writes] == [65_536, 4_464]
-    assert lob.seek(0, native.SEEK_SET) == 0
-    assert lob.read() == value
+    position = lob.seek(0, native.SEEK_SET)
+    assert position == 0
+    observed = lob.read()
+    assert observed == value
     reads = [packet for packet, _ in conn._driver.requests if isinstance(packet, LOBReadPacket)]
     assert [packet.length for packet in reads] == [65_536, 4_464]
 
@@ -318,7 +365,72 @@ def test_later_chunk_server_error_keeps_earlier_confirmed_bytes(conn: native.con
     lob = conn.lob()
     with pytest.raises(DatabaseError, match="second LOB_WRITE failed"):
         lob.write(b"A" * 70_000)
-    assert lob.seek(0) == 65_536
+    position = lob.seek(0)
+    assert position == 65_536
     assert struct.unpack_from(">q", lob._handle, 4)[0] == 65_536
-    assert lob.write(b"z") is None
-    assert lob.seek(0) == 65_537
+    written = lob.write(b"z")
+    assert written is None
+    position = lob.seek(0)
+    assert position == 65_537
+
+
+def test_short_reply_then_server_error_keeps_position_and_resumes_at_next_byte(
+    conn: native.connection,
+) -> None:
+    lob = conn.lob()
+    lob.write(b"abcdef")
+    lob.seek(0, native.SEEK_SET)
+    conn._driver.read_plan = [b"abc", DatabaseError("read failed", errno=-1016), b"def"]
+    with pytest.raises(DatabaseError, match="read failed"):
+        lob.read(6)
+    position = lob.seek(0)
+    assert position == 3
+    value = lob.read()
+    assert value == "def"
+    reads = [packet for packet, _ in conn._driver.requests if isinstance(packet, LOBReadPacket)]
+    assert [packet.offset for packet in reads] == [0, 3, 3]
+
+
+def test_short_reply_then_transport_error_preserves_prefix_but_retires_io(
+    conn: native.connection,
+) -> None:
+    lob = conn.lob()
+    lob.write(b"abcdef")
+    lob.seek(0, native.SEEK_SET)
+    conn._driver.read_plan = [b"abc", OperationalError("transport lost")]
+    conn._driver.drop_on_read_error = True
+    with pytest.raises(OperationalError, match="transport lost"):
+        lob.read(6)
+    assert lob._position == 3
+    count = len(conn._driver.requests)
+    with pytest.raises(InterfaceError, match="earlier physical session"):
+        lob.read()
+    assert len(conn._driver.requests) == count
+
+
+def test_overlong_or_mismatched_read_reply_never_counts_its_own_bytes(
+    conn: native.connection,
+) -> None:
+    lob = conn.lob()
+    lob.write(b"abcdef")
+    lob.seek(0, native.SEEK_SET)
+    conn._driver.read_plan = [b"abc", (4, b"defg")]
+    with pytest.raises(OperationalError, match="exceeding requested"):
+        lob.read(6)
+    assert lob._position == 3
+    conn._driver.read_plan = [(2, b"def")]
+    with pytest.raises(OperationalError, match="count does not match"):
+        lob.read()
+    assert lob._position == 3
+
+
+def test_short_utf8_replies_decode_only_after_joining_accepted_bytes(
+    conn: native.connection,
+) -> None:
+    lob = conn.lob()
+    lob.write("A한B", "C")
+    lob.seek(0, native.SEEK_SET)
+    conn._driver.read_plan = [b"A\xed", b"\x95\x9cB"]
+    value = lob.read()
+    assert value == "A한B"
+    assert lob._position == 5

@@ -36,6 +36,7 @@ from pycubrid.protocol import (
     CloseQueryPacket,
     ExecutePacket,
     FetchPacket,
+    LOBReadPacket,
     PreparePacket,
     _PreparedCollection,
     _PreparedLob,
@@ -838,21 +839,30 @@ class lob:  # the official native type name
         if type(length) is not int or length < 0:
             raise InterfaceError("lob read length must be a non-negative int")
         with self._connection._session_lock:
-            transport, lob_type, handle, _origin, _committed = self._io()
+            transport, _lob_type, handle, _origin, _committed = self._io()
             size = struct.unpack_from(">q", handle, 4)[0]
             remaining = max(0, size - self._position)
             requested = remaining if length == 0 else min(length, remaining)
             if requested == 0:
                 return ""
-            ordinary = _OrdinaryLob(transport, lob_type, handle)
             chunks: list[bytes] = []
             while requested > 0:
-                data = ordinary.read(min(requested, _LOB_IO_CHUNK), self._position)
-                if not data:
+                packet = LOBReadPacket(handle, self._position, min(requested, _LOB_IO_CHUNK))
+                transport._send_and_receive(packet)
+                got, data = packet.bytes_read, packet.lob_data
+                if type(got) is not int or got < 0 or type(data) is not bytes:
+                    raise OperationalError("LOB read returned an invalid byte count or payload")
+                if got > packet.length:
+                    raise OperationalError(
+                        f"LOB read returned {got} bytes exceeding requested {packet.length}"
+                    )
+                if len(data) != got:
+                    raise OperationalError("LOB read byte count does not match payload")
+                if got == 0:
                     break
                 chunks.append(data)
-                self._position += len(data)
-                requested -= len(data)
+                self._position += got
+                requested -= got
             return b"".join(chunks).decode("utf-8")
 
     def seek(self, offset: int, whence: int = SEEK_CUR, /) -> int:
