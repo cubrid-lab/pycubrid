@@ -17,6 +17,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Explicit-mode recovery cases observe bound SQL and TCP sessions instead of
   incidental private flags. Hostile inputs, unknown-mode rejection, generation
   fences and malformed-reply safety tests remain; runtime behavior is unchanged.
+- **Native collection binding (#440)** — `pycubrid.compat.native` binds
+  SET, MULTISET and SEQUENCE parameter values with the official names:
+  `connection.set()` (or `native.set(conn)`), `set.imports(data, type, /, *,
+  kind=SET)` and `cursor.bind_set(index, s, /)`, sync only. As in the
+  official driver, every element is sent as a STRING element whatever the
+  element type code (any code except BIT/VARBIT, which raise
+  `NotSupportedError`), and the default `kind=SET` sends the official request
+  bytes, checked against a captured official request. `kind=MULTISET` keeps
+  duplicates and `kind=SEQUENCE` keeps duplicates and order; MULTISET is sent
+  as SEQUENCE because CUBRID 10.2/11.4 brokers reject the MULTISET bind kind
+  (-454). `data` must be a tuple (`InterfaceError` otherwise, as official);
+  `None` is a NULL element, and the text `'NULL'`, empty strings and Python
+  `int` elements (INT only, signed 64-bit) are accepted, while an element
+  with a NUL is rejected, as classified deviations. A set that was never
+  imported binds SQL NULL, as official. Invalid input fails before I/O and
+  leaves the set and the bound slot unchanged; a server conversion error
+  keeps the prepared handle usable. Fourteen new official differential
+  claims (seven match, seven classified deviations, including the error
+  classes) pass on CUBRID 10.2 and 11.4. The wrapper
+  `execute(..., set_type)`/`executemany` collection shapes are not provided
+  (#610).
 - **`charset` connection option (#86)** — `pycubrid.connect()`,
   `pycubrid.aio.connect()`, `pycubrid.compat.native.connect()` and
   `cubriddb.Connection(charset=...)` (previously `"utf8"` only) accept

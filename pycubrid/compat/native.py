@@ -1,19 +1,22 @@
 """Explicit native-style compatibility subset over the pure Python driver.
 
-Only the sync prepared INT, string and NULL cursor is supported here. Strings
-use the connection charset (UTF-8 unless ``charset`` says otherwise).
-Ordinary DB-API cursors continue to use their existing FC41 path.
+Only the sync prepared INT, string and NULL cursor and SET/MULTISET/SEQUENCE
+collection binding (``connection.set()``, ``set.imports()``,
+``cursor.bind_set()``) are supported here. Strings use the connection charset
+(UTF-8 unless ``charset`` says otherwise). Ordinary DB-API cursors continue to
+use their existing FC41 path.
 """
 
 from __future__ import annotations
 
+import builtins
 import logging
 import re
 from threading import RLock
 from typing import Any
 
 from pycubrid.connection import Connection as _DriverConnection
-from pycubrid.constants import CCIPrepareOption, CUBRIDStatementType
+from pycubrid.constants import CCIPrepareOption, CUBRIDDataType, CUBRIDStatementType
 from pycubrid.exceptions import (
     DataError,
     DatabaseError,
@@ -28,7 +31,9 @@ from pycubrid.protocol import (
     ExecutePacket,
     FetchPacket,
     PreparePacket,
+    _PreparedCollection,
     _PreparedScalar,
+    _encode_prepared_collection,
     _encode_prepared_scalar,
 )
 
@@ -104,7 +109,7 @@ class connection:
         self._driver = driver
         self._closed = False
         self._session_lock = getattr(driver, "_session_lock", RLock())
-        self._prepared_owners: set[cursor] = set()
+        self._prepared_owners: builtins.set[cursor] = builtins.set()
 
     def cursor(self) -> cursor:
         """Create an explicit sync prepared cursor; no SQL is sent yet."""
@@ -114,6 +119,10 @@ class connection:
             owner = cursor(self)
             self._prepared_owners.add(owner)
             return owner
+
+    def set(self) -> _NativeSet:
+        """Create an empty collection value for ``cursor.bind_set()``; no I/O."""
+        return _NativeSet(self)
 
     def commit(self) -> None:
         """Commit, then notify prepared results only after a successful boundary."""
@@ -158,7 +167,7 @@ class cursor:
         self._statement_type = 0
         self._bind_count = 0
         self._columns: list[Any] = []
-        self._bindings: list[_PreparedScalar | None] = []
+        self._bindings: list[_PreparedScalar | _PreparedCollection | None] = []
         self._rows: list[tuple[Any, ...]] = []
         self._row_index = 0
         self._fetched_count = 0
@@ -283,6 +292,25 @@ class cursor:
             binding = _encode_prepared_scalar(value, driver._encoding)
             self._bindings[index - 1] = binding
 
+    def bind_set(self, index: int, s: _NativeSet, /) -> None:
+        """Bind a one-based collection snapshot from ``connection.set()``; no I/O.
+
+        A set that was never imported binds SQL NULL, as the official driver does.
+        """
+        with self._connection._session_lock:
+            driver, _handle, _generation = self._check_handle()
+            if type(index) is not int or not 1 <= index <= self._bind_count:
+                raise ProgrammingError("prepared parameter index is out of range")
+            if not isinstance(s, _NativeSet):
+                raise InterfaceError("bind_set() requires a set from connection.set()")
+            binding = s._binding
+            if binding is None:
+                self._bindings[index - 1] = _encode_prepared_scalar(None)
+                return
+            if binding.encoding != driver._encoding:
+                raise ProgrammingError("collection was imported for a different charset")
+            self._bindings[index - 1] = binding
+
     def execute(self, option: int = 0, max_col_size: int = 0, /) -> int:
         """Execute the current handle once with a complete typed binding snapshot."""
         with self._connection._session_lock:
@@ -382,6 +410,88 @@ class cursor:
             self._close_locked()
 
 
+# The official imports() converts BIT/VARBIT element text to bit strings;
+# every other element type code is sent as STRING elements.
+_BIT_TYPES = frozenset({CUBRIDDataType.BIT, CUBRIDDataType.VARBIT})
+# The 10.2/11.4 brokers reject the MULTISET bind kind with -454, and a SET
+# bind drops duplicates, so MULTISET is sent as SEQUENCE: the server stores
+# it into a MULTISET column with its duplicates.
+_WIRE_KINDS: dict[int, int] = {
+    CUBRIDDataType.SET: CUBRIDDataType.SET,
+    CUBRIDDataType.MULTISET: CUBRIDDataType.SEQUENCE,
+    CUBRIDDataType.SEQUENCE: CUBRIDDataType.SEQUENCE,
+}
+
+
+class set:  # the official native type name shadows the builtin here
+    """A collection value for ``cursor.bind_set()``, created by ``connection.set()``.
+
+    It holds no server resource. ``imports()`` replaces the value; a bind
+    keeps the value it was given.
+    """
+
+    def __init__(self, conn: connection, /) -> None:
+        if not isinstance(conn, connection):
+            raise InterfaceError("set() requires a compatibility connection")
+        with conn._session_lock:
+            if conn._closed or not getattr(conn._driver, "_connected", True):
+                raise InterfaceError("compatibility connection is closed")
+            # Elements are encoded at import time with the connection charset.
+            self._encoding: str = conn._driver._encoding
+        self._binding: _PreparedCollection | None = None
+
+    def imports(
+        self,
+        data: tuple[Any, ...],
+        type: int,  # the official positional name; builtins.type is used below
+        /,
+        *,
+        kind: int = CUBRIDDataType.SET,
+    ) -> None:
+        """Set the value from a tuple of elements; no I/O.
+
+        Like the official driver, every element is sent as a STRING (type 2)
+        element whatever ``type`` is, and the server converts it to the
+        column's element type. ``type`` is any CCI type code except ``BIT``
+        (5) and ``VARBIT`` (6), which are not supported. Elements are ``str``,
+        ``None`` (a NULL element) or, for ``INT`` (8), ``int`` in signed 64-bit
+        range (sent as its decimal text; it may be mixed with digit strings).
+        ``kind`` is ``SET`` (16, the official bytes), ``MULTISET`` (17, sent as
+        ``SEQUENCE``) or ``SEQUENCE`` (18). Invalid input raises before
+        anything changes.
+        """
+        if builtins.type(data) is not tuple:
+            raise InterfaceError("imports() data must be a tuple")
+        # int or an int enum such as CUBRIDDataType, never bool.
+        if isinstance(type, bool) or not isinstance(type, int):
+            raise InterfaceError("collection element type must be an int type code")
+        if type in _BIT_TYPES:
+            raise NotSupportedError("BIT/VARBIT collection elements are not supported")
+        if isinstance(kind, bool) or not isinstance(kind, int) or kind not in _WIRE_KINDS:
+            raise ProgrammingError("unsupported collection kind")
+        elements: list[str | None] = []
+        for value in data:
+            if value is None:
+                elements.append(None)
+            elif isinstance(value, str):
+                # A plain copy: a str subclass cannot choose the encoded bytes.
+                elements.append(str.__str__(value))
+            elif type == CUBRIDDataType.INT and builtins.type(value) is int:
+                # No integer column holds more than BIGINT; this bound also
+                # keeps str() below Python's integer-string digit limit.
+                if not -(2**63) <= value < 2**63:
+                    raise DataError("collection INT element is outside signed 64-bit range")
+                elements.append(str(value))
+            else:
+                raise ProgrammingError("unsupported collection element type")
+        self._binding = _encode_prepared_collection(
+            tuple(elements), _WIRE_KINDS[kind], CUBRIDDataType.STRING, self._encoding
+        )
+
+
+_NativeSet = set
+
+
 def connect(
     url: str,
     user: str = "public",
@@ -393,4 +503,4 @@ def connect(
     return connection(url, user, passwd, charset=charset)
 
 
-__all__ = ["connection", "connect", "cursor"]
+__all__ = ["connection", "connect", "cursor", "set"]

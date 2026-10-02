@@ -180,6 +180,160 @@
       "issue": "#439",
       "reason": "The official extension returns NULL from bind_param without setting an exception (SystemError). The #439 compatibility cursor deliberately binds explicit SQL NULL instead of reproducing the crash-shaped failure.",
       "expected": {"pycubrid": "(int(1), (NoneType(None),))", "native": "raises SystemError"}
+    },
+    {
+      "id": "bind-set-int",
+      "surface": "native",
+      "classification": "match",
+      "summary": "imports(('3', '1', '3', '2'), INT) bound with bind_set into a SET(INTEGER) column stores the same deduplicated integers as _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440"
+    },
+    {
+      "id": "bind-set-string",
+      "surface": "native",
+      "classification": "match",
+      "summary": "imports(('b', 'a', '한', 'b'), STRING) bound with bind_set into a SET(VARCHAR) column stores the same strings as _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440"
+    },
+    {
+      "id": "bind-set-elements-sent-as-string",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Like _cubrid, imports(('1', '2'), INT) sends STRING (2) elements whatever the requested element type, so an untyped SET column stores the strings '1' and '2', not integers. The default kind=SET request bytes equal the captured official bytes (tests/test_compat_collections.py).",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440"
+    },
+    {
+      "id": "bind-set-empty",
+      "surface": "native",
+      "classification": "match",
+      "summary": "imports((), INT) binds an empty SET, stored as an empty set, as in _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440"
+    },
+    {
+      "id": "bind-set-not-imported",
+      "surface": "native",
+      "classification": "match",
+      "summary": "bind_set with a set that was never imported binds SQL NULL, as in _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440"
+    },
+    {
+      "id": "bind-set-wrong-object",
+      "surface": "native",
+      "classification": "match",
+      "summary": "bind_set(1, ('1',)) with a tuple instead of a set, and imports(['1'], INT) with a list instead of a tuple, both raise InterfaceError, as in _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440"
+    },
+    {
+      "id": "bind-multiset-duplicates",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "With kind=MULTISET, a MULTISET(INTEGER) column keeps duplicates ([1, 3, 3]); _cubrid has no kind and always binds a SET, which drops them ([1, 3]).",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440",
+      "reason": "The official bind_set always sends the SET kind, so duplicates are lost silently. The broker rejects the MULTISET bind kind (-454), so pycubrid sends kind=MULTISET as SEQUENCE, which the server stores into a MULTISET column with its duplicates. The default kind=SET keeps the official bytes and result.",
+      "expected": {"pycubrid": "(int(1), [([int(1), int(3), int(3)],)])", "native": "(int(1), [([int(1), int(3)],)])"}
+    },
+    {
+      "id": "bind-sequence-order",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "With kind=SEQUENCE, a SEQUENCE(INTEGER) column keeps order and duplicates ([3, 1, 3, 2]); _cubrid always binds a SET, which sorts and deduplicates ([1, 2, 3]).",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440",
+      "reason": "The official bind_set always sends the SET kind, so order and duplicates are lost silently. kind=SEQUENCE is an explicit pycubrid extension; the default kind=SET keeps the official bytes and result.",
+      "expected": {"pycubrid": "(int(1), [([int(3), int(1), int(3), int(2)],)])", "native": "(int(1), [([int(1), int(2), int(3)],)])"}
+    },
+    {
+      "id": "bind-set-null-text",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "The element 'NULL' stays the string 'NULL' in pycubrid; _cubrid turns it into a NULL element.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440",
+      "reason": "The official imports() treats the text 'NULL' as a NULL element, so the string 'NULL' cannot be stored. pycubrid uses None for a NULL element (same bytes) and keeps 'NULL' as text.",
+      "expected": {"pycubrid": "(int(1), [(frozenset({str('NULL'), str('a')}),)])", "native": "(int(1), [(frozenset({NoneType(None), str('a')}),)])"}
+    },
+    {
+      "id": "bind-set-empty-string",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "An empty string element is stored in pycubrid; _cubrid's imports() raises InterfaceError for it.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440",
+      "reason": "The official imports() rejects any empty element. An empty string is a valid VARCHAR value, so pycubrid sends it.",
+      "expected": {"pycubrid": "(int(1), [(frozenset({str(''), str('a')}),)])", "native": "raises InterfaceError"}
+    },
+    {
+      "id": "bind-set-python-int",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "imports((1, 2), INT) accepts Python int elements in pycubrid and sends their decimal text (the official '1', '2' bytes); _cubrid raises InterfaceError for non-str elements.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440",
+      "reason": "Accepting int elements for the INT element type is an additive convenience: the request bytes equal the official call with digit strings, so no stored result differs.",
+      "expected": {"pycubrid": "(int(1), [(frozenset({int(1), int(2)}),)])", "native": "raises InterfaceError"}
+    },
+    {
+      "id": "bind-set-numeric-type",
+      "surface": "native",
+      "classification": "match",
+      "summary": "imports(('1.5', '2'), NUMERIC) is accepted like any element type code other than BIT/VARBIT, sent as STRING elements, and stored into a SET(NUMERIC(5,2)) column as the same Decimals as _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440"
+    },
+    {
+      "id": "bind-set-nul-truncation",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "An element containing NUL raises ProgrammingError in pycubrid before any I/O; _cubrid silently truncates it at the NUL ('a\\x00b' is stored as 'a').",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440",
+      "reason": "The official imports() copies elements as C strings, so text after a NUL is lost silently. pycubrid rejects the element instead of storing a different value.",
+      "expected": {"pycubrid": "raises ProgrammingError", "native": "(int(1), [(frozenset({str('a'), str('c')}),)])"}
+    },
+    {
+      "id": "bind-set-error-classes",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "Failure classes for a float element, a bytes element, bind_set index 0 and 5 (one parameter), set(object()) and a server conversion error (-494) are ProgrammingError, ProgrammingError, ProgrammingError, ProgrammingError, InterfaceError and ProgrammingError in pycubrid; _cubrid raises InterfaceError x4, TypeError and IntegrityError.",
+      "inventory_ids": ["documented_cubrid.connection.set", "documented_cubrid.set.imports", "documented_cubrid.cursor.bind_set", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream collection scenarios (tests3/test_set.py, tests2/python/_09_unittest/set.py) use the wrapper execute(query, args, set_type)/executemany shapes, tracked by #610; no pinned scenario calls native imports/bind_set directly. Measured by #440.",
+      "issue": "#440",
+      "reason": "pycubrid keeps the classes of its existing #439 prepared cursor: invalid values and indexes are ProgrammingError, a non-connection owner is InterfaceError, and server error -494 follows the driver-wide errno mapping (ProgrammingError) rather than the official extension's IntegrityError list. Every client-side failure happens before I/O and leaves the set and slot unchanged.",
+      "expected": {"pycubrid": "[str('raises ProgrammingError'), str('raises ProgrammingError'), str('raises ProgrammingError'), str('raises ProgrammingError'), str('raises InterfaceError'), str('raises ProgrammingError')]", "native": "[str('raises InterfaceError'), str('raises InterfaceError'), str('raises InterfaceError'), str('raises InterfaceError'), str('raises TypeError'), str('raises IntegrityError')]"}
     }
   ]
 }

@@ -62,6 +62,10 @@ def render(value: object) -> str:
         return f"({inner},)" if len(value) == 1 else f"({inner})"
     if isinstance(value, list):
         return "[" + ", ".join(render(item) for item in value) + "]"
+    if isinstance(value, (set, frozenset)):
+        # Sorted, so a set's iteration order never decides agreement.
+        inner = ", ".join(sorted(render(item) for item in value))
+        return f"{type(value).__name__}({{{inner}}})"
     return f"{type(value).__name__}({value!r})"
 
 
@@ -224,6 +228,143 @@ def _prepared_null() -> tuple[str, str]:
     return run(native.connect), run(_cubrid.connect)
 
 
+_NOT_IMPORTED = object()
+
+
+def _set_bind(
+    connect: Callable[..., Any],
+    ddl: str,
+    data: Any,
+    element_type: int,
+    kind: int | None = None,
+) -> str:
+    """Bind one ``imports()`` value with ``bind_set`` and read it back via pycubrid."""
+    table = _table("ods")
+    verify = pycubrid.connect(
+        host=TEST_HOST,
+        port=TEST_PORT,
+        database=TEST_DB,
+        user=TEST_USER,
+        password=TEST_PASSWORD,
+        autocommit=True,
+        decode_collections=True,
+    )
+    vc = verify.cursor()
+    vc.execute(f"CREATE TABLE {table} (c {ddl})")
+    try:
+        conn = connect(URL, TEST_USER, TEST_PASSWORD)
+        try:
+            cur = conn.cursor()
+            try:
+                cur.prepare(f"INSERT INTO {table} VALUES (?)")
+                s = conn.set()
+                if data is not _NOT_IMPORTED:
+                    if kind is None:
+                        s.imports(data, element_type)
+                    else:
+                        s.imports(data, element_type, kind=kind)
+                cur.bind_set(1, s)
+                count = cur.execute()
+            except Exception as exc:  # the official extension raises InterfaceError
+                return f"raises {type(exc).__name__}"
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+        vc.execute(f"SELECT c FROM {table}")
+        return render((count, [tuple(row) for row in vc.fetchall()]))
+    finally:
+        vc.execute(f"DROP TABLE IF EXISTS {table}")
+        vc.close()
+        verify.close()
+
+
+def _set_case(
+    ddl: str, data: Any, element_type: int, kind: int | None = None
+) -> Callable[[], tuple[str, str]]:
+    """``kind`` goes to pycubrid only; the official ``imports`` has no such option."""
+    return lambda: (
+        _set_bind(native.connect, ddl, data, element_type, kind),
+        _set_bind(_cubrid.connect, ddl, data, element_type),
+    )
+
+
+def _set_wrong_objects() -> tuple[str, str]:
+    def run(connect: Callable[..., Any]) -> str:
+        conn = connect(URL, TEST_USER, TEST_PASSWORD)
+        outcomes = []
+        try:
+            cur = conn.cursor()
+            cur.prepare("SELECT ?")
+            for call in (
+                lambda: cur.bind_set(1, ("1",)),
+                lambda: conn.set().imports(["1"], FIELD_INT),
+            ):
+                try:
+                    call()
+                    outcomes.append("returns")
+                except Exception as exc:  # compared by class name only
+                    outcomes.append(f"raises {type(exc).__name__}")
+            cur.close()
+            return render(outcomes)
+        finally:
+            conn.close()
+
+    return run(native.connect), run(_cubrid.connect)
+
+
+def _set_error_classes() -> tuple[str, str]:
+    """Client-side and server-side failure classes of the collection calls."""
+
+    def run(module: Any) -> str:
+        table = _table("ode")
+        verify = _ordinary()
+        vc = verify.cursor()
+        vc.execute(f"CREATE TABLE {table} (c SET(INTEGER))")
+        try:
+            conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+            try:
+                cur = conn.cursor()
+                cur.prepare(f"INSERT INTO {table} VALUES (?)")
+                good = conn.set()
+                good.imports(("1",), FIELD_INT)
+                bad = conn.set()
+                bad.imports(("x",), FIELD_INT)
+
+                def server_reject() -> None:
+                    cur.bind_set(1, bad)
+                    cur.execute()
+
+                outcomes = []
+                for call in (
+                    lambda: conn.set().imports((1.5,), FIELD_INT),
+                    lambda: conn.set().imports((b"1",), FIELD_INT),
+                    lambda: cur.bind_set(0, good),
+                    lambda: cur.bind_set(5, good),
+                    lambda: module.set(object()),
+                    server_reject,
+                ):
+                    try:
+                        call()
+                        outcomes.append("returns")
+                    except Exception as exc:  # compared by class name only
+                        outcomes.append(f"raises {type(exc).__name__}")
+                cur.close()
+                return render(outcomes)
+            finally:
+                conn.close()
+        finally:
+            vc.execute(f"DROP TABLE IF EXISTS {table}")
+            vc.close()
+            verify.close()
+
+    return run(native), run(_cubrid)
+
+
+FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
+KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
+
+
 CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "fetch-integer": _stored("INTEGER", "42"),
     "fetch-bigint": _stored("BIGINT", "9223372036854775807"),
@@ -248,6 +389,24 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
         _prepared_insert(_cubrid.connect),
     ),
     "prepared-bind-null": _prepared_null,
+    "bind-set-int": _set_case("SET(INTEGER)", ("3", "1", "3", "2"), FIELD_INT),
+    "bind-set-string": _set_case("SET(VARCHAR(20))", ("b", "a", "한", "b"), FIELD_STRING),
+    "bind-set-elements-sent-as-string": _set_case("SET", ("1", "2"), FIELD_INT),
+    "bind-set-empty": _set_case("SET(INTEGER)", (), FIELD_INT),
+    "bind-set-not-imported": _set_case("SET(INTEGER)", _NOT_IMPORTED, FIELD_INT),
+    "bind-set-wrong-object": _set_wrong_objects,
+    "bind-multiset-duplicates": _set_case(
+        "MULTISET(INTEGER)", ("3", "1", "3"), FIELD_INT, KIND_MULTISET
+    ),
+    "bind-sequence-order": _set_case(
+        "SEQUENCE(INTEGER)", ("3", "1", "3", "2"), FIELD_INT, KIND_SEQUENCE
+    ),
+    "bind-set-null-text": _set_case("SET(VARCHAR(20))", ("NULL", "a"), FIELD_STRING),
+    "bind-set-empty-string": _set_case("SET(VARCHAR(20))", ("", "a"), FIELD_STRING),
+    "bind-set-python-int": _set_case("SET(INTEGER)", (1, 2), FIELD_INT),
+    "bind-set-numeric-type": _set_case("SET(NUMERIC(5,2))", ("1.5", "2"), FIELD_NUMERIC),
+    "bind-set-nul-truncation": _set_case("SET(VARCHAR(20))", ("a\x00b", "c"), FIELD_STRING),
+    "bind-set-error-classes": _set_error_classes,
 }
 
 

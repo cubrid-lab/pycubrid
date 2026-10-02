@@ -186,7 +186,8 @@ conn = pycubrid.connect(
 ## 명시적 네이티브 호환 기능
 
 옵트인 `pycubrid.compat.native`는 순수 Python 동기 전송 위에 INT32,
-문자열, SQL NULL만 지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
+문자열, SQL NULL과 [SET/MULTISET/SEQUENCE 컬렉션 값](#컬렉션-바인딩-set-imports-bind_set)만
+지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
 문자셋을 사용합니다.
 기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
 사용합니다. `pycubrid.compat.cubriddb` 래퍼는 아직 연결 생성·종료만
@@ -210,9 +211,9 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 다른 백엔드, HA/TLS URL 옵션과 초과 인자는 연결 전에 거부하며 오류에 계정 정보가 담긴 DSN
 원문을 노출하지 않습니다.
 
-네이티브 연결은 `cursor()`, `commit()`, `rollback()`, `close()`를 제공합니다.
+네이티브 연결은 `cursor()`, `set()`, `commit()`, `rollback()`, `close()`를 제공합니다.
 커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
-bind_type=0)`, `execute(option=0, max_col_size=0) -> int`, 튜플만 반환하는
+bind_type=0)`, `bind_set(index, s)`, `execute(option=0, max_col_size=0) -> int`, 튜플만 반환하는
 `fetch_row(how=0)`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
 Python 값 형식은 실행 전 거부합니다. 브로커가 현재 세션의 statement
 pooling을 알리지 않거나 비활성화한 경우 FC2 전에 거부합니다. 핸들은
@@ -229,6 +230,85 @@ HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
 [typed CAS 설계](../PREPARED_BINDING_DESIGN.md)와
 [호환성 가이드](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)를
 참고하세요.
+
+### 컬렉션 바인딩 (`set`, `imports`, `bind_set`)
+
+#440부터 네이티브 기능은 공식 이름으로 SET, MULTISET, SEQUENCE 파라미터 값을
+바인딩합니다. `conn.set()`(또는 `native.set(conn)`)은 빈 `native.set`을 반환하고,
+`s.imports(data, type, /, *, kind=SET)`가 값을 정하며, `cur.bind_set(index, s)`가
+그 값을 1부터 시작하는 파라미터에 바인딩합니다. `execute()` 전에는 아무것도 보내지
+않으며 set은 서버 자원을 갖지 않습니다.
+
+- `data`는 `tuple`이어야 합니다(그 밖의 값은 공식 드라이버처럼 `InterfaceError`).
+  원소는 `str`, NULL 원소를 뜻하는 `None`, 또는 `type`이 INT일 때 부호 있는 64비트
+  범위의 `int`입니다(범위 밖은 `DataError`). `int`와 숫자 문자열 원소는 모두
+  텍스트로 보내므로 섞어 쓸 수 있습니다.
+  다른 원소 타입(`bool`, `float`, `bytes`, 중첩 컨테이너), NUL이 든 문자열, 인코딩할
+  수 없는 문자열은 `ProgrammingError` 또는 `DataError`를 내고, set은 이전 값을
+  유지합니다. `str` 하위 클래스는 먼저 일반 텍스트로 복사합니다.
+- `type`은 CHAR(`1`), STRING/VARCHAR(`2`), NUMERIC(`7`), INT(`8`), DATE(`13`) 같은
+  CCI 원소 타입 코드입니다. 예를 들어 `pycubrid.constants`의
+  `CUBRIDDataType.NUMERIC`을 씁니다. 공식 드라이버처럼 어떤 코드든 받으며 import의
+  표시일 뿐입니다. 공식 드라이버가 비트 문자열로 변환하는 BIT(`5`)와 VARBIT(`6`)은
+  `NotSupportedError`를, `int`가 아닌 코드는 `InterfaceError`를 냅니다.
+- 공식 드라이버처럼 모든 원소는 `type`과 관계없이 STRING(`2`) 원소로 보내며, 서버가
+  컬럼의 원소 타입으로 변환합니다. `int` 원소는 10진 텍스트로 보내므로
+  `imports((1, 2), INT)`는 공식 `imports(('1', '2'), INT)`와 같은 바이트를 보냅니다.
+  컬럼이 담을 수 없는 값은 `execute()` 때 서버에서 실패하며 prepared 핸들은 계속
+  쓸 수 있습니다. 원소가 문자열이므로 원소 타입이 없는 `SET` 컬럼에는 문자열로
+  저장됩니다.
+- `kind`는 SET(`16`, 기본값), MULTISET(`17`), SEQUENCE(`18`)입니다. 기본값은 공식
+  바이트를 그대로 보내므로 MULTISET이나 SEQUENCE 컬럼에도 SET 의미가 적용되어
+  중복이 사라지고 순서가 유지되지 않습니다. 중복을 유지하려면 `kind=MULTISET`,
+  순서와 중복을 유지하려면 `kind=SEQUENCE`를 넘깁니다. CUBRID 10.2와 11.4
+  브로커는 MULTISET 바인드 종류를 거부하므로(오류 -454) `kind=MULTISET`은
+  SEQUENCE로 보내며, 서버는 이를 MULTISET 컬럼에 중복과 함께 저장합니다.
+- `imports()`는 값을 교체합니다. `bind_set()`은 그 시점의 값을 바인딩하므로 이후의
+  `imports()`는 앞선 바인딩을 바꾸지 않습니다. 한 번도 import하지 않은 set은
+  공식 드라이버처럼 SQL NULL을 바인딩하며, `bind_param(index, None)`도 SQL NULL을
+  바인딩합니다.
+- `bind_set()`은 `native.set`이 아닌 값에 `InterfaceError`를, 잘못된 인덱스나 다른
+  문자셋으로 import한 set에 `ProgrammingError`를 냅니다. 이전 세션·닫힌 커서
+  규칙은 `bind_param()`과 같습니다.
+
+공식 드라이버와 의도적으로 다른 점은 각각 라이브 차등 비교 주장
+(`tests/fixtures/official_differential_claims.json`의 `bind-*`)으로 고정되어
+있습니다. `None`이 NULL 원소이고 텍스트 `'NULL'`은 문자열로 남습니다(공식은
+`'NULL'`을 NULL 원소로 바꿈). 빈 문자열과 Python `int` 원소를 허용합니다(공식은
+`InterfaceError`). NUL이 든 원소는 `ProgrammingError`를 냅니다(공식은 조용히
+잘라냄). `kind`는 pycubrid 확장입니다(공식은 항상 SET으로 바인딩). 오류 클래스는
+#439 prepared 커서를 따릅니다. `float`/`bytes` 원소와 잘못된 `bind_set` 인덱스는
+`ProgrammingError`(공식 `InterfaceError`), 연결이 아닌 값을 받은 `native.set()`은
+`InterfaceError`(공식 `TypeError`), 서버 오류 -494는 드라이버 전체 매핑에 따라
+`ProgrammingError`(공식 `IntegrityError`)입니다.
+
+공식 모듈과 마찬가지로 `from pycubrid.compat.native import *`는 `set` 이름을
+`native.set`에 바인딩하므로 그 네임스페이스에서 내장 `set`을 가립니다.
+래퍼의 `execute(query, args, set_type)`와 `executemany()` 컬렉션 형태는 제공하지
+않으며, 일반 `pycubrid` 커서는 계속 타입 지정 `pycubrid.types.Set`/`Multiset`/
+`Sequence` 리터럴 파라미터(#567)를 사용합니다.
+
+```python
+from pycubrid.compat import native
+from pycubrid.constants import CUBRIDDataType
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        cur.prepare("INSERT INTO t (tags, scores) VALUES (?, ?)")
+        tags = conn.set()
+        tags.imports(("a", "b"), CUBRIDDataType.STRING)  # SET(VARCHAR)
+        scores = conn.set()
+        scores.imports((3, 1, 3), CUBRIDDataType.INT, kind=CUBRIDDataType.MULTISET)
+        cur.bind_set(1, tags)
+        cur.bind_set(2, scores)
+        cur.execute()
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
 
 ---
 

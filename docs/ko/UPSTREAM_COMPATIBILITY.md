@@ -51,7 +51,7 @@
 | --- | --- |
 | 생성자, autocommit, 스레딩 | 네이티브 초기화는 autocommit을 켭니다. 기존 pycubrid는 수동 commit과 `threadsafety=1`을 유지합니다. #465는 명시적 CUBRID/UTF-8 생성자와 별칭만 제공하며 공유·설정·CCI URL/HA 옵션은 별도 작업입니다. |
 | 문자셋, dict 커서, 변환기 | 공식 래퍼는 이 옵션들을 노출합니다. #86부터 `pycubrid.connect(charset=...)`, `pycubrid.aio.connect(charset=...)`, `compat.native`, `cubriddb.Connection(charset=...)` 생성자가 선택한 코덱으로 인코딩·디코딩하며, EUC-KR 데이터베이스에서 실제로 검증했습니다. 연결에 `charset` 속성은 유지하지 않습니다. dict 커서와 변환기에는 동등한 표면이 없습니다. UTF-8 기본값은 바뀌지 않습니다. |
-| Prepare/타입 지정 바인딩 | 패킷 클래스가 존재해도 공개 네이티브 prepare/bind/execute 기능은 없습니다. #418/#439, 타입 지정 컬렉션 핸들은 #440, LOB 핸들은 #441에서 추적합니다. |
+| Prepare/타입 지정 바인딩 | 일반 커서에는 공개 prepare/bind/execute가 없습니다. 명시적 `compat.native` 커서는 동기 스칼라 바인딩(#439)과 컬렉션 바인딩(#440)을 제공하며, LOB 핸들은 #441에서 추적합니다. |
 | LOB 커서·파일 동작 | pycubrid는 명시적 오프셋으로 bytes를 읽고 쓰며, 공식 드라이버의 변경 가능한 위치·암묵적 생성 인터페이스와 다릅니다. seek와 읽기·쓰기 계약은 #442, 파일 가져오기·내보내기는 #443입니다. |
 | 결과 탐색과 메타데이터 | 절대·상대 seek와 위치는 #444, 15필드 결과 메타데이터는 #398과 함께 #445에서 추적합니다. 네이티브 next_result는 존재하지만, 래퍼의 nextset 스텁과 pycubrid의 미지원 nextset이 그 기능을 제공하지는 않습니다. |
 | 스키마 행 | #412가 스키마 결과 소비와 핸들 정리를 추적합니다. 반환된 프로토콜 패킷은 네이티브 스키마 행 반환 계약과 같지 않습니다. |
@@ -61,7 +61,7 @@
 
 2026-09-28 메인테이너가 선택한 설계는 기존 pycubrid를 유지하고 별도의
 `pycubrid.compat.cubriddb`(래퍼)와 `pycubrid.compat.native`(네이티브)를 추가합니다.
-#465에서 가져와 생성·종료할 수 있지만 아래의 다른 행은 아직 목표 계약입니다. 되돌릴 수 있는
+#465에서 가져와 생성·종료할 수 있고, 명시적 네이티브 동기 prepared 스칼라 커서(#439)와 컬렉션 바인딩(#440)도 제공되지만 아래의 다른 행은 아직 목표 계약입니다. 되돌릴 수 있는
 이 additive 설계는 1.x 기본값 대체, 2.0 대체 도입, 릴리스 발행을 허가하지 않습니다.
 전역 스위치, `CUBRIDdb`/`_cubrid` 이름 가리기, 기존
 `Cursor.execute`의 오버로딩은 선택하지 않습니다. 래퍼와 네이티브의 실행 형태는
@@ -88,7 +88,8 @@ execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, B
 | 네이티브 prepared 커서 | `prepare(sql) -> None`; 1부터 시작하는 인덱스의 `bind_param(index, value, bind_type=0, /) -> None`; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)`는 튜플/dict 또는 None입니다. 옵션 기본값은 docstring QUERY_ALL이 아니라 파싱된 0이며 #418/#439가 코어를 구현합니다. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`에서 null_ok는 정수 0/1이고 precision은 쿼리별 값이며 네이티브 플래그 타입을 유지합니다. 값과 Python 타입을 함께 검증하고 컬렉션 16→32를 무조건 변환하지 않습니다. |
 | 확장 메타데이터 | `result_info(n=0, /)`는 15필드 튜플들의 튜플(n>=1도 바깥 항목 하나)을 반환하며 컬럼이 없으면 None입니다. 실제 순서는 type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared입니다. 빈 값과 없는 메타데이터를 구별하고 #445가 없는 필드를 만들어 내지 않아야 합니다. |
-| 컬렉션 | 저장된 SET의 목표는 변경 가능한 set, MULTISET/SEQUENCE는 list입니다. 비NULL 요소는 검증된 타입별 텍스트 변환을 사용하고 중복·순서·빈 값을 보존합니다. 전체 SQL NULL과 NULL 요소는 아래 안전성 차이에 따라 None입니다. 중괄호 리터럴은 저장된 SET의 증거가 아니며 타입 지정 import/bind는 #440입니다. 일반 커서용 `pycubrid.types.Set`/`Multiset`/`Sequence` 파라미터(#567)에는 공식 대응물이 없습니다. 공식 wrapper `execute(query, args, set_type)`는 일반 list를 네이티브 prepared `bind_set`으로 바인딩하며 pycubrid는 이를 제공하지 않으므로, 이 파라미터에 대해서는 차등 비교 주장을 하지 않습니다. |
+| 네이티브 컬렉션 바인딩 (#440) | 동기 전용으로 제공됩니다. `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None`, `cursor.bind_set(index, set, /) -> None`. `data`는 tuple이어야 하고(아니면 InterfaceError) `type`은 BIT/VARBIT(NotSupportedError)을 제외한 모든 int 타입 코드이며, 공식 드라이버처럼 import의 표시일 뿐입니다. 공식 드라이버처럼 모든 원소는 `type`과 관계없이 STRING(2)으로 보내며, 기본 종류 SET은 공식 바이트를 보냅니다. `kind=MULTISET`은 중복을 유지하고(브로커가 MULTISET을 -454로 거부하므로 SEQUENCE로 보내며, 컬럼은 순서를 유지하지 않음) `kind=SEQUENCE`는 중복과 순서를 유지합니다. None이 NULL 원소이며, `'NULL'`, `''`, Python int 원소(INT 전용), NUL 거부, #439 오류 클래스는 의도적으로 분류된 차이입니다. import하지 않은 set은 SQL NULL을 바인딩합니다. 래퍼 `execute(..., set_type)`/`executemany` 컬렉션 형태는 제공하지 않습니다(#610). |
+| 컬렉션 | 저장된 SET의 목표는 변경 가능한 set, MULTISET/SEQUENCE는 list입니다. 비NULL 요소는 검증된 타입별 텍스트 변환을 사용하고 중복·순서·빈 값을 보존합니다. 전체 SQL NULL과 NULL 요소는 아래 안전성 차이에 따라 None입니다. 중괄호 리터럴은 저장된 SET의 증거가 아니며 네이티브 타입 지정 import/bind는 위의 #440 행입니다. 일반 커서용 `pycubrid.types.Set`/`Multiset`/`Sequence` 파라미터(#567)에는 공식 대응물이 없습니다. 공식 wrapper `execute(query, args, set_type)`는 일반 list를 네이티브 prepared `bind_set`으로 바인딩하며 pycubrid는 이를 제공하지 않으므로, 이 파라미터에 대해서는 차등 비교 주장을 하지 않습니다. |
 | Identity / 스키마 | 네이티브 `insert_id() -> int \| None`은 기존 INSERT 캐시의 형변환이 아니라 현재 브로커 identity를 조회합니다. `schema_info(schema_type, class_name, attr_name 생략, /)`는 키워드/플래그/명시적 None 없이 첫 행의 list 또는 None을 반환합니다. CLASS/VCLASS 플래그 1, ATTRIBUTE/CLASS_ATTRIBUTE 2, 나머지 0을 추론합니다. #456의 전체 소비·정리가 제공되면 재사용하며 기존 소비 API는 계속 모든 행을 반환합니다. |
 | 네이티브 LOB | 처음에는 값이 없는 별도의 변경 가능한 바이트 위치 객체입니다. `write(string, type 생략, /) -> None`은 str/bytes(str은 UTF-8)를 받고 기본 BLOB 또는 요청된 B/C를 생성합니다. `read(len=0, /) -> str`은 생략/0에서 남은 바이트를 읽고 엄격한 UTF-8로 디코딩합니다. `seek(offset, whence=SEEK_CUR, /) -> int`의 SEEK_END는 size-offset입니다. #442/#443이 수명주기·짧은 전송·파일을 담당하며 기존 bytes 메서드를 대체하지 않습니다. |
 | 예외 | 네임스페이스별 PEP 249 어댑터는 `(numeric_code, formatted_message)` args와 code/errno/SQLSTATE 증거를 유지하며 기존 예외 identity/args는 바꾸지 않습니다. 불안정한 메시지의 완전 일치나 네이티브 인자 파서 충돌은 목표가 아닙니다. |
@@ -180,17 +181,18 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 | 표면 | 일치 | 분류된 차이 | 합계 |
 | --- | ---: | ---: | ---: |
 | 래퍼 (`CUBRIDdb`) | 12 | 2 | 14 |
-| 네이티브 (`_cubrid`) | 3 | 1 | 4 |
-| **합계** | **15** | **3** | **18** |
+| 네이티브 (`_cubrid`) | 10 | 8 | 18 |
+| **합계** | **22** | **10** | **32** |
 
 - 오라클: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - 필수 서버: CUBRID 10.2, CUBRID 11.4
-- 분류된 차이: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439)
+- 분류된 차이: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440)
 
 <!-- official-differential-summary:end -->
 
 이 주장들은 첫 번째 제한된 범위입니다. 저장된 스칼라 조회, 정적 스칼라 행과
-description, #439 prepared INT/문자열 부분집합을 다룹니다. 컬렉션, LOB, 문자셋/HA,
+description, #439 prepared INT/문자열 부분집합, #440 네이티브 컬렉션 바인딩을 다룹니다.
+래퍼 컬렉션 형태, LOB, 문자셋/HA,
 실패 동작과 나머지 인벤토리 연산은 여기에 주장이 생길 때까지 인증되지 않습니다.
 주장 수는 패리티 비율이 아닙니다.
 
@@ -208,7 +210,7 @@ description, #439 prepared INT/문자열 부분집합을 다룹니다. 컬렉션
 | 잠정 구현 단위 | 수용 기준 / 디펜던시 |
 | --- | --- |
 | M 팩터리 / M 공유 | #465는 명시적 생성·종료, 별칭, DSN/user/autocommit 기본값과 래퍼-네이티브 관계를 제공하면서 기존 동작을 유지합니다. 공유·수명주기 직렬화는 별도이며 threadsafety=2를 게이팅합니다. prepared 엔진이나 전역 스위치는 제공하지 않습니다. |
-| M prepared / 타입 바인딩 | #439는 #418과 이 계약 뒤에 count/반환/위치 인자/NULL/오류를 검증하고 #440 컬렉션과 #441 LOB 바인딩이 코어 뒤를 따릅니다. |
+| M prepared / 타입 바인딩 | #439는 #418과 이 계약 뒤에 count/반환/위치 인자/NULL/오류를 검증하고, #440 네이티브 컬렉션 바인딩은 라이브 차등 비교 주장과 함께 제공되며, #441 LOB 바인딩이 코어 뒤를 따릅니다. |
 | M 변환 / 문자셋 / HA | 별도 dictCursor/converter 단위, #86으로 제공된 문자셋 인코딩(래퍼의 `charset` 속성 유지는 아직 없음), 실제 failover 증거를 가진 HA/URL 옵션 단위입니다. 옵션 파싱이나 upstream default_cursor 스텁만으로는 미완료입니다. |
 | S 배치 / 예외 / identity | 기존 임의 SQL 전송을 이용하는 네이티브 배치 레코드, 네임스페이스 예외/export 어댑터, fresh/트랜잭션/CALL/non-auto 제어를 갖춘 브로커 identity를 각각 분리합니다. 기존 첫 오류·캐시 문자열 동작은 유지합니다. |
 | M 설정 / 탐색 | 실제 서버 연산과 네 캐시 멤버를 구별합니다. #444 seek/position과 별도 next_result/실행 옵션/쿼리 계획 단위이며 스텁·플래그만으로 완성하지 않습니다. |

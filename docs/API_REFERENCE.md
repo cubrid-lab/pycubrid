@@ -201,7 +201,8 @@ conn = pycubrid.connect(
 
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
 It now provides a bounded **sync-only prepared cursor** for INT32, string
-and SQL NULL values; strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
+and SQL NULL values and [SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set);
+strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
 through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
 and close subset; it does not expose a wrapper cursor, DB-API globals, a
@@ -225,9 +226,9 @@ plain CUBRID backend is accepted; alternate backends, HA/TLS URL options and
 excess arguments fail before connection work. Errors
 never echo the raw credential-bearing DSN.
 
-The native connection adds `cursor()`, `commit()`, `rollback()` and `close()`.
+The native connection adds `cursor()`, `set()`, `commit()`, `rollback()` and `close()`.
 Its cursor supports `prepare(sql)`, one-based
-`bind_param(index, value, bind_type=0)`, `execute(option=0,
+`bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `execute(option=0,
 max_col_size=0) -> int`, tuple-only `fetch_row(how=0)` and `close()`.
 Nondefault flags and other Python value types fail before a prepared execute.
 Preparation requires the current broker session to advertise statement
@@ -258,6 +259,92 @@ try:
         cur.bind_param(1, 42)
         cur.execute()
         assert cur.fetch_row() == (42,)
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
+
+### Collection binding (`set`, `imports`, `bind_set`)
+
+Since #440, the native subset binds SET, MULTISET and SEQUENCE parameter values
+with the official names: `conn.set()` (or `native.set(conn)`) returns an empty
+`native.set`, `s.imports(data, type, /, *, kind=SET)` gives it a value, and
+`cur.bind_set(index, s)` binds that value to a one-based parameter. Nothing is
+sent until `execute()`, and the set holds no server resource.
+
+- `data` must be a `tuple` (anything else raises `InterfaceError`, as in the
+  official driver). Elements are `str`, `None` for a NULL element, or, when
+  `type` is INT, `int` in signed 64-bit range (others raise `DataError`);
+  `int` and digit-string elements may be mixed because both are sent as
+  text. Other element types (`bool`, `float`, `bytes`, nested containers), a
+  NUL in a string and an unencodable string raise `ProgrammingError` or
+  `DataError`, and the set keeps its previous value. A `str` subclass is
+  copied as plain text first.
+- `type` is a CCI element type code such as CHAR (`1`), STRING/VARCHAR
+  (`2`), NUMERIC (`7`), INT (`8`) or DATE (`13`), for example
+  `CUBRIDDataType.NUMERIC` from `pycubrid.constants`. As in the official
+  driver, any code is accepted and only labels the import; BIT (`5`) and
+  VARBIT (`6`), which the official driver converts to bit strings, raise
+  `NotSupportedError`, and a non-`int` code raises `InterfaceError`.
+- As in the official driver, every element is sent as a STRING (`2`)
+  element whatever `type` is, and the server converts it to the column's
+  element type. An `int` element is sent as its decimal text, so
+  `imports((1, 2), INT)` sends the same bytes as the official
+  `imports(('1', '2'), INT)`. A value the column cannot hold fails on the
+  server at `execute()`, and the prepared handle stays usable. Because the
+  elements are strings, an untyped `SET` column stores them as strings.
+- `kind` is SET (`16`, the default), MULTISET (`17`) or SEQUENCE (`18`). The
+  default sends exactly the official bytes, so SET semantics apply even for a
+  MULTISET or SEQUENCE column: duplicates are dropped and order is not kept.
+  Pass `kind=MULTISET` to keep duplicates or `kind=SEQUENCE` to keep order
+  and duplicates. CUBRID 10.2 and 11.4 brokers reject the MULTISET bind kind
+  (error -454), so `kind=MULTISET` is sent as SEQUENCE, which the server
+  stores into a MULTISET column with its duplicates.
+- `imports()` replaces the value. `bind_set()` binds the value the set has
+  at that moment, so a later `imports()` does not change an earlier bind.
+  A set that was never imported binds SQL NULL, as in the official driver;
+  `bind_param(index, None)` also binds SQL NULL.
+- `bind_set()` raises `InterfaceError` for anything that is not a
+  `native.set`, and `ProgrammingError` for a bad index or a set imported
+  under another charset. Stale-session and closed-cursor rules are the same
+  as for `bind_param()`.
+
+Deliberate differences from the official driver, each pinned by a live
+differential claim (`bind-*` in `tests/fixtures/official_differential_claims.json`):
+`None` is the NULL element and the text `'NULL'` stays a string (official
+turns `'NULL'` into a NULL element); the empty string and Python `int`
+elements are accepted (official raises `InterfaceError`); an element with a
+NUL raises `ProgrammingError` (official silently truncates it); `kind` is a
+pycubrid extension (official always binds a SET); and error classes follow
+the #439 prepared cursor: a `float`/`bytes` element and a bad `bind_set`
+index raise `ProgrammingError` (official `InterfaceError`), `native.set()`
+with a non-connection raises `InterfaceError` (official `TypeError`), and
+server error -494 raises `ProgrammingError` by the driver-wide mapping
+(official `IntegrityError`).
+
+As with the official module, `from pycubrid.compat.native import *` binds the
+name `set` to `native.set`, shadowing the builtin `set` in that namespace. The wrapper
+`execute(query, args, set_type)` and `executemany()` collection shapes are not
+provided, and ordinary `pycubrid` cursors still use the typed
+`pycubrid.types.Set`/`Multiset`/`Sequence` literal parameters (#567).
+
+```python
+from pycubrid.compat import native
+from pycubrid.constants import CUBRIDDataType
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        cur.prepare("INSERT INTO t (tags, scores) VALUES (?, ?)")
+        tags = conn.set()
+        tags.imports(("a", "b"), CUBRIDDataType.STRING)  # SET(VARCHAR)
+        scores = conn.set()
+        scores.imports((3, 1, 3), CUBRIDDataType.INT, kind=CUBRIDDataType.MULTISET)
+        cur.bind_set(1, tags)
+        cur.bind_set(2, scores)
+        cur.execute()
     finally:
         cur.close()
 finally:
