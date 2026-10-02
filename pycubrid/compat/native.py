@@ -329,6 +329,9 @@ class cursor:
         """
         with self._connection._session_lock:
             self._check_open()
+            # The official PyArg_ParseTuple("iO!") order: index, then lob.
+            if not isinstance(index, int):
+                raise TypeError("bind_lob() index must be an int")
             if not isinstance(lob, _NativeLob):
                 raise TypeError("bind_lob() requires a lob from connection.lob()")
             driver, _handle, generation = self._check_handle()
@@ -340,13 +343,21 @@ class cursor:
     def fetch_lob(self, col: int, lob: _NativeLob, /) -> None:
         """Fetch the next row and put its BLOB/CLOB handle at ``col`` into ``lob``.
 
-        ``col`` is one-based and its own column type decides BLOB or CLOB. At
-        the end of the result it returns ``None`` and changes nothing, before
-        ``col`` or ``lob`` is checked, as the official driver does. Otherwise
+        ``col`` is one-based and its own column type decides BLOB or CLOB. A
+        non-int ``col`` or a non-lob ``lob`` raises ``TypeError`` first, in
+        the official argument-parsing order. At the end of the result it
+        returns ``None`` and changes nothing, before the column range or type
+        or the lob's state is checked, as the official driver does. Otherwise
         a column that is not BLOB/CLOB raises ``ProgrammingError`` without
         consuming the row, and ``lob`` must be open and belong to this
         connection. A NULL cell consumes the row and leaves ``lob`` without
         a value. Returns ``None``, like the official driver.
+
+        A complete reply whose cell at ``col`` is not a LOB handle of the
+        column's type raises ``DataError``; the row is not consumed, ``lob``
+        is unchanged and the session stays usable (``fetch_row()`` still
+        returns that row). A handle with damaged framing raises
+        ``OperationalError`` and retires the uncertain physical session.
         """
         with self._connection._session_lock:
             self._check_open()
@@ -379,12 +390,17 @@ class cursor:
             if cell is None:
                 lob._set(lob_type, None, None, None)
                 return None
-            # Validate the broker-supplied cell and handle framing before the
-            # lob keeps it; a malformed reply retires the uncertain session.
+            if not isinstance(cell, dict) or cell.get("lob_type") != lob_type:
+                # A complete reply holding a value of another type is a data
+                # problem (#492/#512), not framing damage: keep the session,
+                # and leave the row unread like the other rejections here.
+                self._row_index -= 1
+                raise DataError("prepared LOB cell does not match its column type")
+            # The handle bytes come from the broker; damaged framing means an
+            # uncertain reply, so the session is retired.
             try:
-                if not isinstance(cell, dict) or cell.get("lob_type") != lob_type:
-                    raise ProgrammingError("LOB cell does not match its column type")
-                binding = _PreparedLob(lob_type, cell["packed_lob_handle"], driver, generation)
+                packed: Any = cell.get("packed_lob_handle")  # validated by _PreparedLob
+                binding = _PreparedLob(lob_type, packed, driver, generation)
             except ProgrammingError:
                 self._invalidate_result()
                 driver._discard_uncertain_prepared_session()

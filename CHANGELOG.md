@@ -43,7 +43,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   another connection and after its own connection closed or reconnected, as
   official; the server stores a copy. An empty or closed lob raises
   `InterfaceError` before any request, and `fetch_lob()` fills only an open
-  lob of its own connection. Live 10.2/11.4 round trips cover BLOB and
+  lob of its own connection. Arguments are checked in the official order
+  (`TypeError` for a non-int index or column first). A complete reply whose
+  cell is not a handle of the column's LOB type raises `DataError` without
+  consuming the row and keeps the session; damaged handle framing raises
+  `OperationalError` and retires the uncertain physical session. Live 10.2/11.4 round trips cover BLOB and
   UTF-8/CJK CLOB values from 0 bytes to 1 MB (above the broker's single-read
   cap), NULL and mixed columns, repeated execution, cross-connection binds
   and reconnect. Fourteen new official differential claims (eleven match, three

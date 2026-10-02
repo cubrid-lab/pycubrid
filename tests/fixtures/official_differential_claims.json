@@ -409,7 +409,7 @@
       "id": "lob-bind-wrong-type",
       "surface": "native",
       "classification": "match",
-      "summary": "bind_lob with bytes, str or None, fetch_lob with a non-lob object and lob(object()) raise TypeError, as in _cubrid.",
+      "summary": "bind_lob with bytes, str or None, fetch_lob with a non-lob object, lob(object()) and bind_lob with a non-int index and a non-lob value raise TypeError, as in _cubrid (the index is parsed before the lob).",
       "inventory_ids": ["documented_cubrid.lob", "documented_cubrid.connection.lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.fetch_lob"],
       "scenario_ids": [],
       "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",

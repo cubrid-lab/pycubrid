@@ -329,13 +329,16 @@ finally:
   않습니다. 그 밖에는 BLOB/CLOB가 아니거나 범위를 벗어난 컬럼이 행을 소비하지
   않고 `ProgrammingError`를, 닫힌 `lob`이나 다른 연결이 만든 `lob`이
   `InterfaceError`를 냅니다. 공식 드라이버처럼 `None`을 반환합니다. NULL 셀은
-  행을 소비하고 `lob`을 값이 없는 상태로 둡니다.
+  행을 소비하고 `lob`을 값이 없는 상태로 둡니다. 서버가 보낸 `col` 셀이 컬럼의
+  LOB 타입 핸들이 아니면 행을 소비하지 않고 `DataError`를 내며 연결은 계속 쓸 수
+  있습니다. 핸들 구조가 손상되었으면 `OperationalError`를 내고 물리 세션을
+  폐기합니다.
 - `bind_lob(index, lob)`은 그 시점에 `lob`이 가진 핸들을 바인딩하며
   `execute()` 전까지 아무것도 보내지 않습니다. 조회한 핸들은 서버가 새 행에
   복사하는 커밋된 저장 값을 가리키므로, 공식 드라이버처럼 다시 바인딩할 수 있고,
   열려 있는 다른 연결에서도, 원래 연결이 닫히거나 재접속한 뒤에도 바인딩할 수
-  있습니다. `native.lob`이 아닌 값은 공식과 같이 `TypeError`, 잘못된 인덱스는
-  `ProgrammingError`입니다. 닫힌 `lob`, 값이 없는 `lob`(채운 적이 없거나 NULL
+  있습니다. `native.lob`이 아닌 값은 공식과 같이 `TypeError`(공식 인자 파서처럼 int가
+  아닌 인덱스를 먼저 보고), 범위를 벗어난 인덱스는 `ProgrammingError`입니다. 닫힌 `lob`, 값이 없는 `lob`(채운 적이 없거나 NULL
   셀에서 채움), 닫힌 커서나 연결은 요청 전에 `InterfaceError`를 냅니다. SQL
   NULL은 `bind_param(index, None)`으로 바인딩합니다.
 - `lob.close()`는 핸들을 로컬에서만 버리고 아무것도 보내지 않습니다. CAS

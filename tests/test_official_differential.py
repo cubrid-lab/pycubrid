@@ -503,6 +503,7 @@ def _lob_wrong_type() -> tuple[str, str]:
             _outcome(lambda: ins.bind_lob(1, None)),
             _outcome(lambda: cur.fetch_lob(1, object())),
             _outcome(lambda: module.lob(object())),
+            _outcome(lambda: ins.bind_lob("1", b"x")),  # the index is parsed first
         ]
         cur.close()
         ins.close()

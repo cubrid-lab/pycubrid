@@ -10,7 +10,7 @@ import pytest
 
 from pycubrid.compat import native
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
-from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
+from pycubrid.exceptions import DataError, InterfaceError, OperationalError, ProgrammingError
 from pycubrid.protocol import ColumnMetaData, ExecutePacket, FetchPacket, PreparePacket
 
 from .test_compat_prepared import DSN, FakeDriver, _packets
@@ -296,18 +296,42 @@ def _bad_handle(handle: bytes) -> bytes:
 
 @pytest.mark.parametrize(
     "cell",
-    [
-        CLOB_CELL,
-        "text",
-        {**BLOB_CELL, "packed_lob_handle": _bad_handle(FETCHED_BLOB)},
-        {**BLOB_CELL, "packed_lob_handle": FETCHED_BLOB[:-1]},
-    ],
-    ids=["other-type", "not-a-handle", "db-type", "framing"],
+    [CLOB_CELL, "text", 7, {"lob_type": INT}],
+    ids=["other-lob-type", "text", "int", "non-lob-dict"],
 )
-def test_malformed_lob_cell_retires_the_session(
+def test_mismatched_complete_cell_is_a_data_error(
     driver: LobDriver, monkeypatch: pytest.MonkeyPatch, cell: Any
 ) -> None:
-    monkeypatch.setattr(LobDriver, "result", [(1, cell, CLOB_CELL)])
+    # A complete reply holding a value of another type (#492/#512): the
+    # session and the row survive, as for the other fetch_lob rejections.
+    monkeypatch.setattr(LobDriver, "result", [(1, cell, CLOB_CELL), (2, None, None)])
+    conn = _conn(driver)
+    try:
+        cur = _selected(conn)
+        lob = conn.lob()
+        with pytest.raises(DataError, match="does not match"):
+            cur.fetch_lob(2, lob)
+        assert lob._handle is None
+        assert driver.discarded == 0
+        row = cur.fetch_row()
+        assert row == (1, cell, CLOB_CELL)
+        cur.fetch_lob(3, lob)  # the session and result stay usable
+        assert lob._handle is None  # row 2 has a NULL cell
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    "handle",
+    [_bad_handle(FETCHED_BLOB), FETCHED_BLOB[:-1], b"", None],
+    ids=["db-type", "framing", "empty", "missing"],
+)
+def test_damaged_handle_framing_retires_the_session(
+    driver: LobDriver, monkeypatch: pytest.MonkeyPatch, handle: Any
+) -> None:
+    monkeypatch.setattr(
+        LobDriver, "result", [(1, {**BLOB_CELL, "packed_lob_handle": handle}, CLOB_CELL)]
+    )
     conn = _conn(driver)
     try:
         cur = _selected(conn)
@@ -334,6 +358,10 @@ def test_arguments_are_parsed_before_cursor_state(driver: LobDriver) -> None:
             cur.fetch_lob(2, object())
         with pytest.raises(TypeError):
             cur.bind_lob(1, object())
+        # The official "iO!" parses the index before the lob.
+        for index in ("1", 1.5, None):
+            with pytest.raises(TypeError, match="index"):
+                cur.bind_lob(index, object())
         cur.prepare("SELECT id, b, c FROM t")
         with pytest.raises(TypeError):
             cur.fetch_lob("2", conn.lob())  # result not executed yet

@@ -373,14 +373,19 @@ Python. The server copies the value when the statement runs, so after
   column that is not BLOB/CLOB or out of range raises `ProgrammingError`
   without consuming the row, and a closed `lob` or a `lob` created by another
   connection raises `InterfaceError`. It returns `None`, as in the official
-  driver. A NULL cell consumes the row and leaves `lob` without a value.
+  driver. A NULL cell consumes the row and leaves `lob` without a value. If
+  the server's cell at `col` is not a handle of the column's LOB type,
+  `DataError` is raised without consuming the row and the connection stays
+  usable; a handle with damaged framing raises `OperationalError` and the
+  physical session is retired.
 - `bind_lob(index, lob)` binds the handle `lob` holds at that moment and sends
   nothing until `execute()`. A fetched handle names a committed stored
   value that the server copies into the new row, so, as in the official
   driver, it can be bound again, on another open connection, and even after
   its own connection has closed or reconnected. Anything that is not a
-  `native.lob` raises `TypeError` (as official), and a bad index raises
-  `ProgrammingError`. `InterfaceError` is raised, before any request, for a
+  `native.lob` raises `TypeError` (as official; a non-int index is reported
+  first, as the official argument parser does), and an out-of-range index
+  raises `ProgrammingError`. `InterfaceError` is raised, before any request, for a
   closed `lob`, a `lob` without a value (never filled, or filled from a NULL
   cell), and a closed cursor or connection. Bind SQL NULL with
   `bind_param(index, None)`.
