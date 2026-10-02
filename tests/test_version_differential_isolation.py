@@ -26,8 +26,10 @@ from .helpers.version_matrix import Endpoint
 
 version_differential = pytest.importorskip("tests.test_version_differential")
 Server = version_differential.Server
+SessionLost = version_differential.SessionLost
 Stmt = version_differential.Stmt
 Workload = version_differential.Workload
+compare = version_differential.compare
 normalize_value = version_differential.normalize_value
 
 #: What ``Server._observe`` records for the scripted ``SELECT 1`` probe. Built
@@ -204,3 +206,84 @@ def test_scratch_tables_are_not_recreated_after_a_reopen(server: Any, broker: _B
     before = list(broker.opened[-1].executed)
     server.ensure_table("t_isolation", "CREATE TABLE %s (a INT)")
     assert broker.opened[-1].executed == before, "the table already exists on the server"
+
+
+# ---------------------------------------------------------------------------
+# Attribution across the matrix (#614)
+#
+# Session recovery alone does not fix *which* versions a fatal statement is
+# reported against: compare() used to build its observations in a dict
+# comprehension, so the first endpoint to lose its session aborted the rest and
+# the report named only that version.
+# ---------------------------------------------------------------------------
+
+MATRIX = ("10.2", "11.0", "11.2", "11.4")
+
+
+def _matrix(monkeypatch: pytest.MonkeyPatch, kills: set[str]) -> tuple[list[Any], _Broker]:
+    broker = _Broker(kills=kills)
+    monkeypatch.setattr(pycubrid, "connect", broker.connect)
+    servers = []
+    for version in MATRIX:
+        broker.version = f"{version}.0"
+        servers.append(Server(Endpoint(version=version, host="localhost", port=33000)))
+    return servers, broker
+
+
+def test_every_endpoint_runs_when_one_loses_its_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    servers, broker = _matrix(monkeypatch, kills={FATAL_SQL})
+
+    with pytest.raises(AssertionError) as caught:
+        compare(servers, Workload(statements=[Stmt(sql=FATAL_SQL)]))
+
+    message = str(caught.value)
+    for version in MATRIX:
+        assert version in message, f"{version} is missing from the report"
+    # Every endpoint attempted the statement, not just the first one.
+    for server in servers:
+        assert any(FATAL_SQL in sql for conn in broker.opened for sql in conn.executed)
+        assert server.open_sessions == 2, f"{server.version} should have been reopened once"
+
+
+def test_only_the_affected_versions_are_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A statement fatal on one version must not be reported against the others."""
+    broker = _Broker(kills=set())
+    monkeypatch.setattr(pycubrid, "connect", broker.connect)
+    servers = []
+    for version in MATRIX:
+        broker.version = f"{version}.0"
+        servers.append(Server(Endpoint(version=version, host="localhost", port=33000)))
+    # Only 11.2's connections treat the statement as fatal.
+    for conn in broker.opened:
+        if conn.version.startswith("11.2"):
+            conn.kills = {FATAL_SQL}
+
+    with pytest.raises(AssertionError) as caught:
+        compare(servers, Workload(statements=[Stmt(sql=FATAL_SQL)]))
+
+    message = str(caught.value)
+    assert "11.2" in message
+    assert "completed: 10.2, 11.0, 11.4" in message
+
+
+def test_a_matrix_with_no_fatal_statement_reaches_the_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    servers, broker = _matrix(monkeypatch, kills=set())
+    # Identical observations on every endpoint, so classify() finds no divergence.
+    compare(servers, Workload(statements=[Stmt(sql="SELECT 1")]))
+    assert [s.open_sessions for s in servers] == [1, 1, 1, 1]
+
+
+def test_an_unreported_dead_session_fails_visibly(server: Any, broker: _Broker) -> None:
+    """A session that dies outside a statement must not be healed in silence."""
+    broker.opened[-1].alive = False
+
+    with pytest.raises(SessionLost, match="already unusable before this workload ran"):
+        server.run(Workload(statements=[Stmt(sql="SELECT 1")]))
+
+    # It is reported *and* repaired, so the next workload still runs.
+    assert server.run(Workload(statements=[Stmt(sql="SELECT 1")]))[0]["rows"] == ALIVE_ROWS
+    assert server.open_sessions == 2

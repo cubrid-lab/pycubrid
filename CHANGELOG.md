@@ -746,28 +746,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Tests
-- **One fatal statement no longer fails the whole version differential, and
-  the report no longer hides the versions behind the first one (#614)** — the
-  `servers` fixture is module-scoped and every test reused one connection per
-  endpoint, so when a statement left the session unusable `_assert_session_survives`
-  failed that test and the remaining 15 in the module then failed with
-  `InterfaceError: connection is closed`. Worse, the report named only the first
-  version to die: with CUBRID 10.2 first in the matrix, `SELECT IF(1=0, SET{1},
-  0.000)` was attributed to 10.2 alone, while `csql` reproduces the same SIGSEGV
+- **A fatal statement now fails one test and names every version it affects,
+  instead of cascading and reporting only the first endpoint to die (#614)** —
+  two separate defects. First, the `servers` fixture is module-scoped and every
+  test reused one connection per endpoint, so when a statement left a session
+  unusable that test failed and the remaining 15 in the module then failed with
+  `InterfaceError: connection is closed`. Second, `compare()` built its
+  observations in a dict comprehension, so the first endpoint to raise aborted
+  the rest: with CUBRID 10.2 first in the matrix, `SELECT IF(1=0, SET{1}, 0.000)`
+  was attributed to 10.2 alone, while `csql` reproduces the same SIGSEGV
   deterministically on 10.2.18.9024, 11.0.16.0419, 11.2.9.0866 and 11.4.6.1963 —
   the suite's own structure concealed that the crash affects every supported
-  version. `Server` now opens its session through `_open()`, `run()` calls
-  `ensure_session()` before each workload, and `_assert_session_survives()`
-  reopens a dead session before raising. The contract is unchanged: losing a
-  session still fails its own test, and the message now also reports when
-  reopening failed. Scratch tables survive a reopen (DDL runs with autocommit
-  on), so `created` stays accurate and `ensure_table` still skips them. New
-  offline module `tests/test_version_differential_isolation.py` drives `Server`
-  against a scripted connection, since the real lane needs four live servers: a
-  fatal statement fails once, the next workload runs on a fresh session, three
-  consecutive kills open exactly three replacements, an error the session
-  survives opens none, and a reopen does not recreate scratch tables. The
-  underlying CUBRID crash is not fixed here — it is a server-side defect to
+  version. `Server` now opens its session through `_open()`; a session that died
+  without any statement reporting it fails visibly through
+  `_require_live_session()` rather than being healed in silence; and
+  `_assert_session_survives()` reopens before raising the new
+  `SessionLost(AssertionError)`. `compare()` runs every endpoint, collects the
+  endpoints that lost a session, and raises one report that lists each of them
+  with the versions that completed. The contract is unchanged: losing a session
+  still fails its own test, and the message now also reports when reopening
+  failed. Scratch tables survive a reopen (DDL runs with autocommit on), so
+  `created` stays accurate and `ensure_table` still skips them. New offline
+  module `tests/test_version_differential_isolation.py` drives `Server` and
+  `compare()` against scripted connections, since the real lane needs four live
+  servers: a fatal statement fails once, the next workload runs on a fresh
+  session, three consecutive kills open exactly three replacements, an error the
+  session survives opens none, a reopen does not recreate scratch tables, an
+  unreported dead session fails visibly, a four-endpoint matrix names all four
+  when all are fatal, and names only the affected one when a single version is.
+  The underlying CUBRID crash is not fixed here — it is a server-side defect to
   report upstream, tracked in #614.
 - **`tests/test_docs_reason.py` runs the docs-sync script in-process instead
   of spawning a fresh `python -` subprocess per fixture case, and the fake
