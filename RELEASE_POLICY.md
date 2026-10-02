@@ -259,6 +259,15 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Native prepared handle refresh after a complete execute error (#611)** —
+  PATCH / correction in the opt-in sync compatibility cursor. The failed
+  caller receives its original redacted server error; no SQL is retried in
+  that call. On a later explicit user execution, a non-LOB handle is refreshed
+  on the same physical session and its current bindings are sent once, fixing
+  the repeated `-1024` instead of the conversion `-494`. Uncertain transport,
+  changed sessions, failed close/prepare and LOB snapshots do not trigger
+  automatic replay. No ordinary/async API or public signature changes.
+
 - **`Lob.read()`/`Lob.write()` reject non-int and boolean offset/length
   (#449)** — MINOR / behavior change, not a PATCH. `offset` (`read`/`write`)
   and `length` (`read`) must now be a concrete Python `int`

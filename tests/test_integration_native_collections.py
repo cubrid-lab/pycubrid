@@ -14,6 +14,7 @@ from pycubrid.compat import native
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import DatabaseError
+from pycubrid.protocol import CommitPacket
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 from ._parity_helpers import connect_kwargs, table_name
@@ -259,7 +260,7 @@ def test_elements_are_strings_on_the_wire_like_the_official_driver(
     assert _stored(observer, table) == [(1, frozenset({"1", "2"}))]
 
 
-def test_server_rejection_keeps_the_handle_and_connection_usable(
+def test_server_rejection_refreshes_handle_and_connection_remains_usable(
     observer: Connection, table: str
 ) -> None:
     _sql(observer, f"CREATE TABLE {table} (id INTEGER, c SET(INTEGER))")
@@ -267,30 +268,92 @@ def test_server_rejection_keeps_the_handle_and_connection_usable(
     try:
         cur = conn.cursor()
         cur.prepare(f"INSERT INTO {table} VALUES (?, ?)")
-        handle = cur._handle
-        for attempt, bad in enumerate((("x",), (2**40,))):
+        for bad in (("x",), (2**40,)):
             s = conn.set()
             s.imports(bad, INT)
             cur.bind_param(1, 1)
             cur.bind_set(2, s)
             with pytest.raises(DatabaseError) as caught:
                 cur.execute()
-            if attempt == 0:
-                assert caught.value.errno == -494  # Cannot coerce host var to type set.
-            else:
-                # A reused handle's next failure reports -1024 (#611).
-                assert caught.value.errno is not None and caught.value.errno < 0
+            assert caught.value.errno == -494  # Cannot coerce host var to type set.
             assert "x" not in str(caught.value)
         s = conn.set()
         s.imports((4, 4), INT)
         cur.bind_param(1, 2)
         cur.bind_set(2, s)
-        assert cur.execute() == 1
-        assert cur._handle == handle
+        result = cur.execute()
+        assert result == 1
         cur.close()
     finally:
         conn.close()
     assert _stored(observer, table) == [(2, frozenset({4}))]
+
+
+def test_repeated_scalar_conversion_failure_refreshes_before_next_call(
+    observer: Connection, table: str
+) -> None:
+    _sql(observer, f"CREATE TABLE {table} (v INTEGER)")
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.prepare(f"INSERT INTO {table} VALUES (?)")
+        for bad in ("x", "y"):
+            cur.bind_param(1, bad)
+            with pytest.raises(DatabaseError) as caught:
+                cur.execute()
+            assert caught.value.errno == -494
+        cur.bind_param(1, "3")
+        result = cur.execute()
+        assert result == 1
+        cur.close()
+    finally:
+        conn.close()
+    cursor = observer.cursor()
+    try:
+        cursor.execute(f"SELECT v FROM {table}")
+        rows = cursor.fetchall()
+        assert rows == [(3,)]
+    finally:
+        cursor.close()
+
+
+def test_refresh_does_not_commit_pending_manual_insert(observer: Connection, table: str) -> None:
+    _sql(observer, f"CREATE TABLE {table} (id INTEGER, c SET(INTEGER))")
+    conn = _connect()
+    try:
+        conn.set_autocommit(False)
+        driver = conn._driver
+        packets: list[object] = []
+        original = driver._send_and_receive
+
+        def capture(packet: Any, **kwargs: Any) -> Any:
+            packets.append(packet)
+            return original(packet, **kwargs)
+
+        driver._send_and_receive = capture
+        cur = conn.cursor()
+        cur.prepare(f"INSERT INTO {table} VALUES (?, ?)")
+        for id_, value in ((1, "1"), (9, "x"), (2, "2")):
+            s = conn.set()
+            s.imports((value,), INT)
+            cur.bind_param(1, id_)
+            cur.bind_set(2, s)
+            if id_ == 9:
+                with pytest.raises(DatabaseError) as caught:
+                    cur.execute()
+                assert caught.value.errno == -494
+            else:
+                result = cur.execute()
+                assert result == 1
+            observed = _stored(observer, table)
+            assert observed == []
+            assert not any(isinstance(packet, CommitPacket) for packet in packets)
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+    observed = _stored(observer, table)
+    assert observed == [(1, frozenset({1})), (2, frozenset({2}))]
 
 
 def test_collection_bind_in_a_select_predicate(observer: Connection, table: str) -> None:

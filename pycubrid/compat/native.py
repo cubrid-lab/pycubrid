@@ -278,6 +278,9 @@ class cursor:
         self._closed = False
         self._handle: int | None = None
         self._generation: int | None = None
+        self._prepared_driver: _DriverConnection | None = None
+        self._prepared_sql: str | None = None
+        self._needs_reprepare = False
         self._statement_type = 0
         self._bind_count = 0
         self._columns: list[Any] = []
@@ -301,6 +304,9 @@ class cursor:
         generation = self._generation
         if handle is None or generation is None:
             raise InterfaceError("prepared cursor has no current statement")
+        if self._prepared_driver is not driver:
+            self._invalidate_result()
+            raise InterfaceError("prepared statement belongs to another connection")
         if generation != driver._physical_generation:
             self._invalidate_result()
             raise InterfaceError("prepared statement belongs to an earlier physical session")
@@ -317,6 +323,9 @@ class cursor:
     def _clear_statement(self) -> None:
         self._handle = None
         self._generation = None
+        self._prepared_driver = None
+        self._prepared_sql = None
+        self._needs_reprepare = False
         self._statement_type = 0
         self._bind_count = 0
         self._columns = []
@@ -341,6 +350,7 @@ class cursor:
                 errno=exc.errno,
                 sqlstate=exc.sqlstate,
             )
+            setattr(redacted_error, "_cas_server_error", True)
         if redacted_error is not None:
             # Raise outside the except suite: `from None` still retains the
             # original broker message in __context__ for error collectors.
@@ -355,6 +365,7 @@ class cursor:
                 handle is not None
                 and generation is not None
                 and getattr(driver, "_connected", False)
+                and self._prepared_driver is driver
                 and generation == driver._physical_generation
             ):
                 self._request(CloseQueryPacket(handle), generation, allow_reconnect=allow_reconnect)
@@ -391,6 +402,9 @@ class cursor:
             self._request(packet, generation)
             self._handle = packet.query_handle
             self._generation = generation
+            self._prepared_driver = driver
+            self._prepared_sql = sql
+            self._needs_reprepare = False
             self._statement_type = packet.statement_type
             self._bind_count = packet.bind_count
             self._columns = list(packet.columns)
@@ -527,8 +541,55 @@ class cursor:
             )
             return None
 
+    def _assert_refresh_session(
+        self, driver: _DriverConnection, generation: int, autocommit: bool
+    ) -> None:
+        if (
+            self._connection._driver is not driver
+            or driver._physical_generation != generation
+            or driver.autocommit is not autocommit
+        ):
+            raise InterfaceError("prepared session changed during statement refresh")
+
+    def _refresh_for_explicit_execute(
+        self,
+        driver: _DriverConnection,
+        generation: int,
+        autocommit: bool,
+        bindings: tuple[_PreparedScalar | _PreparedCollection | _PreparedLob, ...],
+    ) -> int:
+        """Replace an errored pooled handle before this new user execution."""
+        sql = self._prepared_sql
+        if sql is None:
+            raise InterfaceError("prepared cursor has no retained statement")
+        if driver._statement_pooling != 1:
+            raise NotSupportedError("prepared statements require broker statement pooling")
+        self._assert_refresh_session(driver, generation, autocommit)
+        self._release_handle(allow_reconnect=False)
+        self._assert_refresh_session(driver, generation, autocommit)
+        packet = PreparePacket(
+            sql,
+            auto_commit=autocommit,
+            prepare_flag=CCIPrepareOption.HOLDABLE,
+        )
+        self._request(packet, generation, allow_reconnect=False)
+        self._handle = packet.query_handle
+        self._generation = generation
+        self._prepared_driver = driver
+        self._prepared_sql = sql
+        self._statement_type = packet.statement_type
+        self._bind_count = packet.bind_count
+        self._columns = list(packet.columns)
+        self._bindings = [None] * packet.bind_count
+        self._invalidate_result()
+        self._assert_refresh_session(driver, generation, autocommit)
+        if packet.bind_count != len(bindings):
+            raise ProgrammingError("refreshed prepared parameter count changed; rebind")
+        self._bindings = list(bindings)
+        return packet.query_handle
+
     def execute(self, option: int = 0, max_col_size: int = 0, /) -> int:
-        """Execute the current handle once with a complete typed binding snapshot."""
+        """Execute once; an earlier complete error refreshes only this new call."""
         with self._connection._session_lock:
             driver, handle, generation = self._check_handle()
             if type(option) is not int or option != 0:
@@ -545,10 +606,21 @@ class cursor:
                     binding.owner is not driver or binding.generation != generation
                 ):
                     raise InterfaceError("LOB binding belongs to another physical session")
+            autocommit = driver.autocommit
+            refreshed = False
+            if self._needs_reprepare:
+                if any(isinstance(binding, _PreparedLob) for binding in bindings):
+                    raise InterfaceError(
+                        "LOB binding needs explicit prepare and rebind after error"
+                    )
+                handle = self._refresh_for_explicit_execute(
+                    driver, generation, autocommit, bindings
+                )
+                refreshed = True
             packet = ExecutePacket(
                 handle,
                 self._statement_type,
-                auto_commit=driver.autocommit,
+                auto_commit=autocommit,
                 protocol_version=driver._protocol_version,
                 decode_collections=driver._decode_collections,
                 json_deserializer=driver._json_deserializer,
@@ -560,7 +632,14 @@ class cursor:
             # result, even if the physical prepared handle remains reusable.
             # Local option/binding failures above preserve the old result.
             self._invalidate_result()
-            self._request(packet, generation)
+            try:
+                self._request(packet, generation, allow_reconnect=not refreshed)
+            except DatabaseError as exc:
+                if getattr(exc, "_cas_server_error", False) and not any(
+                    isinstance(binding, _PreparedLob) for binding in bindings
+                ):
+                    self._needs_reprepare = True
+                raise
             self._statement_type = packet.statement_type
             self._columns = list(packet.columns)
             self._rows = list(packet.rows)

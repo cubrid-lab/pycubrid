@@ -107,6 +107,19 @@ failing-first test IDs. It is a design, not an available execution API or
 proof of full official-driver parity. Ordinary 1.x literal binding remains
 [unchanged](PARAMETER_BINDING.md).
 
+The #611 prepared-handle correction is deliberately narrower than CCI's
+same-call invalid-plan retry: only after a complete broker execution error,
+the *next explicit user execute* refreshes a non-LOB handle on its original
+session and sends one FC3. The original error is still visible. This avoids
+replaying a statement that might have taken effect; transport errors and LOB
+bindings are not automatically retried. The legacy `-1024` wire error is
+CCI's normalized `CAS_ER_STMT_POOLING=-10024`, not this project's older
+`ER_STMT_POOLING=-15` constant; neither integer alone authorizes replay.
+See the pinned [CCI retry path](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cas_cci.c#L1411-L1424)
+and the [10.2](https://github.com/CUBRID/cubrid/blob/v10.2.13.8953/src/broker/cas_execute.c#L1265-L1275)
+and [11.4](https://github.com/CUBRID/cubrid/blob/v11.4.6.1963/src/broker/cas_execute.c#L1647-L1689)
+broker paths that can surface pooling errors after entering execution.
+
 ### Evidence and intentional safety deviations
 
 Source contracts follow the pinned wrapper/native implementations, not conflicting
