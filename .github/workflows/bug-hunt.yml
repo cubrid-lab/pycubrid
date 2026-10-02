@@ -289,7 +289,7 @@ jobs:
           python -m pytest test/test_stress_pool.py -m integration -v --tb=short \
             --junitxml="$RUNNER_TEMP/downstream-corpus/pool.xml" || status=1
           exit "$status"
-      - name: Run MCP live tool workload
+      - name: Run MCP live tool and shared-session concurrency workloads
         id: mcp_tests
         if: matrix.lane == 'mcp'
         env:
@@ -300,8 +300,13 @@ jobs:
           CUBRID_DATABASE: testdb
         working-directory: downstream
         run: |
+          status=0
           python -m pytest tests/test_integration.py -m integration -v --tb=short \
-            --junitxml="$RUNNER_TEMP/downstream-corpus/mcp.xml"
+            --junitxml="$RUNNER_TEMP/downstream-corpus/mcp.xml" || status=1
+          python -m pytest tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session \
+            -m integration -v --tb=short \
+            --junitxml="$RUNNER_TEMP/downstream-corpus/mcp-concurrency.xml" || status=1
+          exit "$status"
       - name: Run cookbook AI and worker workloads
         id: cookbook_tests
         if: matrix.lane == 'cookbook'

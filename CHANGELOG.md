@@ -64,8 +64,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   legitimate empty-schema MCP skips are reported. Each lane verifies the
   installed driver's Git origin/commit and import path after all dependencies
   are installed, records the downstream commit and server version, and uploads
-  evidence even on failure. This does not change PR, release or full-matrix gates,
-  and does not claim MCP concurrency coverage.
+  evidence even on failure. The MCP step also requires a separate no-skip
+  `mcp-concurrency.xml` report from simultaneous in-process tool handlers sharing
+  one physical `Database` connection under its existing `RLock`. Either pytest
+  run failing keeps the step failed. This bounded check covers trace/query
+  serialization, distinct correct responses and real cursor cleanup, not stdio
+  concurrency, pooling or per-request transaction isolation. PR, release and
+  full-matrix gates, driver behavior and dependencies are unchanged.
 - **Deferred-close flush safety matrix (#585)** — real TCP replay checks four
   generation/reconnect/native-error/transport-error properties for sync and
   async commit and rollback. Removing the generation filter or flush guards

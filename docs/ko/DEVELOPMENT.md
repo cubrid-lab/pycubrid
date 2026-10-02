@@ -572,7 +572,7 @@ Python 3.12와 CUBRID 11.4의 독립된 세 셀을 실행합니다. 정확한 py
 | Downstream | 선택한 실사용 테스트 | 허용 스킵 |
 |---|---|---|
 | `sqlalchemy-cubrid` | ORM dogfood와 동기/비동기 풀 stress 파일을 별도 pytest 실행 | 없음 |
-| `cubrid-mcp-server` | 실제 도구 통합 사례(읽기 쿼리, 복합 PK 스키마 포함) | 새 DB에 사용자 테이블이 없어 이를 요구하는 사례만 허용하고 사유 기록 |
+| `cubrid-mcp-server` | 실제 도구 통합 사례와 별도로 선택한 공유 세션 동시 실행 사례 | 일반 `mcp.xml` 결과에서만 빈 스키마 스킵 허용; `mcp-concurrency.xml`에서는 없음 |
 | `cubrid-cookbook-python` | MCP stdio를 포함한 AI-agent 스크립트 5개와 async-worker DB 작업을 별도 pytest 프로세스로 실행 | 없음 |
 
 선택한 각 테스트 작업의 JUnit 결과에는 통과가 1건 이상 있어야 합니다.
@@ -582,9 +582,19 @@ downstream 커밋, Python 및 설치된 패키지 버전, 드라이버 출처,
 실제 CUBRID 서버 버전, 작업별 통과·스킵·실패 수를 기록합니다.
 작업 단위 `continue-on-error`로
 PR·릴리스 게이트에는 넣지 않지만, 증거에는 실패를 성공으로 표시하지 않습니다.
-이는 downstream 전체 스위트가 아니라 제한된 실제 사용 표본이며, MCP
-동시 접근을 검증한다는 주장은 하지 않습니다. 드라이버 동시 사용은 SQLAlchemy
-풀 stress 사례가 검증합니다.
+이는 downstream 전체 스위트가 아니라 제한된 실제 사용 표본입니다.
+
+MCP 단계는 두 번째 pytest 프로세스에서
+`tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session`
+사례를 별도로 선택하여 `mcp-concurrency.xml`에 기록합니다. 이 결과에는
+통과 사례가 있어야 하며 스킵, 실패, 오류는 모두 거부합니다. 일반 `mcp.xml`에서
+허용하는 스킵 사유도 여기서는 허용하지 않습니다. 두 실행을 모두 수행하며,
+어느 하나라도 pytest가 실패하면 실제 단계 결과를 실패로 기록합니다.
+선택한 사례는 동일 프로세스에서 동시에 실행되는 MCP 핸들러가 기존 `RLock`을
+통해 캐시된 하나의 물리적 `Database` 연결을 공유하는 동작을 검증합니다.
+trace와 query 작업이 서로 끼어들지 않고, 응답이 각각 정확하며 실제 커서가
+닫혀야 합니다. MCP stdio 동시 실행, 풀, 요청별 트랜잭션 격리, 처리량은
+이 검증 범위에 포함하지 않습니다. SQLAlchemy는 별도의 풀 stress 작업을 제공합니다.
 
 공식 드라이버 차분(#446)은 고정 소스에서 빌드한 공식 `CUBRIDdb`/`_cubrid`
 드라이버와 pycubrid를 비교합니다. 로컬에서 재현하려면(Linux x86_64, git,
