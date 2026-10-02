@@ -201,7 +201,8 @@ conn = pycubrid.connect(
 
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
 It now provides a bounded **sync-only prepared cursor** for INT32, string
-and SQL NULL values and [SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set);
+and SQL NULL values, [SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set)
+and [fetched BLOB/CLOB handles](#lob-handles-lob-fetch_lob-bind_lob);
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
 through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
@@ -226,10 +227,11 @@ plain CUBRID backend is accepted; alternate backends, HA/TLS URL options and
 excess arguments fail before connection work. Errors
 never echo the raw credential-bearing DSN.
 
-The native connection adds `cursor()`, `set()`, `commit()`, `rollback()` and `close()`.
+The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()` and `close()`.
 Its cursor supports `prepare(sql)`, one-based
-`bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `execute(option=0,
-max_col_size=0) -> int`, tuple-only `fetch_row(how=0)` and `close()`.
+`bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
+`execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
+`fetch_lob(col, lob)` and `close()`.
 Nondefault flags and other Python value types fail before a prepared execute.
 Preparation requires the current broker session to advertise statement
 pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
@@ -347,6 +349,87 @@ try:
         cur.execute()
     finally:
         cur.close()
+finally:
+    conn.close()
+```
+
+### LOB handles (`lob`, `fetch_lob`, `bind_lob`)
+
+Since #441, the native subset fetches and binds BLOB/CLOB handles with the
+official names: `conn.lob()` (or `native.lob(conn)`) returns an empty
+`native.lob`, `cur.fetch_lob(col, lob)` fills it from the next row, and
+`cur.bind_lob(index, lob)` binds its handle to a one-based parameter. The
+typical use copies a stored LOB into another row without reading it into
+Python. The server copies the value when the statement runs, so after
+`execute()` the source row can change or be deleted.
+
+- `fetch_lob(col, lob)` consumes the next row of the current SELECT result,
+  like `fetch_row()` (including FETCH paging), and puts the handle at the
+  one-based column `col` into `lob`. The type of that column decides BLOB or
+  CLOB. A `col` that is not an `int` raises `TypeError` first, as the official
+  argument parser does. At the end of the result it returns `None` and
+  changes nothing, before the column range or type or the lob's state is
+  checked, as in the official driver. Otherwise a
+  column that is not BLOB/CLOB or out of range raises `ProgrammingError`
+  without consuming the row, and a closed `lob` or a `lob` created by another
+  connection raises `InterfaceError`. It returns `None`, as in the official
+  driver. A NULL cell consumes the row and leaves `lob` without a value. If
+  the server's cell at `col` is not a handle of the column's LOB type,
+  `DataError` is raised without consuming the row and the connection stays
+  usable; a handle with damaged framing raises `OperationalError` and the
+  physical session is retired.
+- `bind_lob(index, lob)` binds the handle `lob` holds at that moment and sends
+  nothing until `execute()`. A fetched handle names a committed stored
+  value that the server copies into the new row, so, as in the official
+  driver, it can be bound again, on another open connection, and even after
+  its own connection has closed or reconnected. Anything that is not a
+  `native.lob` raises `TypeError` (as official; a non-int index is reported
+  first, as the official argument parser does), and an out-of-range index
+  raises `ProgrammingError`. `InterfaceError` is raised, before any request, for a
+  closed `lob`, a `lob` without a value (never filled, or filled from a NULL
+  cell), and a closed cursor or connection. Bind SQL NULL with
+  `bind_param(index, None)`.
+- `lob.close()` drops the handle locally and sends nothing: the CAS protocol
+  has no LOB free request, and the server keeps a fetched value with its row.
+  A binding made before `close()` stays valid. A closed `lob` cannot be filled
+  or bound again; create a new one with `conn.lob()`.
+- The native connection is autocommit-only, so every fetched row is
+  committed, `rollback()` has no transaction to undo, and an already fetched
+  handle stays usable.
+- `lob` has no `read()`, `write()`, `seek()`, `imports()` or `export()` yet;
+  those come with #442 and #443. To read a value, use an ordinary
+  `pycubrid` cursor and [`Lob.read()`](#readlength-offset). There is no async
+  LOB API.
+
+Deliberate differences from the official driver, each pinned by a live
+differential claim (`lob-*` in `tests/fixtures/official_differential_claims.json`):
+binding a `lob` without a value or a closed `lob` raises `InterfaceError`
+(official binds a NULL handle and stores SQL NULL); `fetch_lob()` into a
+closed `lob` or a `lob` created by another connection raises `InterfaceError`
+(official fills it, and its `close()` is reusable); and a non-LOB column in
+`fetch_lob()` or a bad `bind_lob()` index raises `ProgrammingError` (official
+`InterfaceError`). The official driver types the handle from column 1
+instead of `col`, so its bind type byte can differ; the broker uses the
+handle's own type, and on CUBRID 10.2 and 11.4 the stored copy is the same.
+
+```python
+from pycubrid.compat import native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    src, dst = conn.cursor(), conn.cursor()
+    try:
+        src.prepare("SELECT id, photo FROM images WHERE id = 1")
+        src.execute()
+        photo = conn.lob()
+        src.fetch_lob(2, photo)  # column 2 is a BLOB
+        dst.prepare("INSERT INTO archive (photo) VALUES (?)")
+        dst.bind_lob(1, photo)
+        dst.execute()
+        photo.close()
+    finally:
+        src.close()
+        dst.close()
 finally:
     conn.close()
 ```

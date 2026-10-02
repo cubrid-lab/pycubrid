@@ -107,13 +107,15 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
 includes construction-only `pycubrid.compat.cubriddb` (#465) and the bounded
 sync prepared INT32/string/NULL cursor in `pycubrid.compat.native` (#439),
 with its SET/MULTISET/SEQUENCE binding (`connection.set()`, `native.set`,
-`set.imports()`, `cursor.bind_set()`, #440).
+`set.imports()`, `cursor.bind_set()`, #440) and BLOB/CLOB handle fetch and bind
+(`connection.lob()`, `native.lob`, `lob.close()`, `cursor.fetch_lob()`,
+`cursor.bind_lob()`, #441).
 Only their implemented factories, connection and cursor methods are public;
 no wrapper cursor, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
@@ -279,6 +281,18 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   classes) are pinned by official differential claims. Ordinary sync/async
   cursors, FC41 rendering, fetched collection decoding, `bind_param()`,
   dependencies and supported versions are unchanged; no async prepared API.
+
+- **Native LOB handle fetch and bind (#441)** — MINOR / additive. New
+  `pycubrid.compat.native.lob` class (and `__all__` entry), `connection.lob()`,
+  `lob.close()`, `cursor.fetch_lob(col, lob, /)` and
+  `cursor.bind_lob(index, lob, /)`, sync only. Bind bytes equal the official
+  driver's when its lob type matches the column, and fetched handles bind
+  across connections as in the official driver. The classified deviations
+  (binding an empty or closed lob, filling a closed or another connection's
+  lob, and the error classes raise instead of binding NULL or filling the
+  lob) are pinned by official differential claims. Ordinary
+  sync/async cursors, the ordinary `Lob` class and fetched LOB dicts,
+  dependencies and supported versions are unchanged; no async LOB API.
 
 - **`Lob.write()` size field and internal LOB-handle binding (#441)** —
   PATCH / correction plus internal wire work. After a write, the packed

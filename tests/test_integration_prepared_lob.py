@@ -272,7 +272,9 @@ def test_created_handle_is_consumed_by_its_first_autocommit_statement(
             with pytest.raises(pycubrid.DatabaseError) as info:
                 insert.execute(_encode_prepared_scalar(2), bound)
             assert info.value.errno == -1016
-            assert "No such file" in str(info.value)
+            # The text after the code is the server's locale-dependent strerror.
+            text = str(info.value)
+            assert "No such file" in text or "external storage" in text
     finally:
         insert.close()
     assert _stored(observer, table, "b") == {1: (4, b"temp")}
