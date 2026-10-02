@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Advisory nightly downstream corpus (#356)** — `bug-hunt.yml` now runs three
+  isolated CUBRID 11.4 dogfood lanes against the exact pycubrid workflow commit:
+  SQLAlchemy ORM and pool tests, MCP live tool tests, and Cookbook AI-agent and
+  async-worker tests. The selected test workloads use separate JUnit reports;
+  missing, failed or all-skipped workloads fail their advisory lane, while
+  legitimate empty-schema MCP skips are reported. Each lane verifies the
+  installed driver's Git origin/commit and import path after all dependencies
+  are installed, records the downstream commit and server version, and uploads
+  evidence even on failure. This does not change PR, release or full-matrix gates,
+  and does not claim MCP concurrency coverage.
 - **Deferred-close flush safety matrix (#585)** — real TCP replay checks four
   generation/reconnect/native-error/transport-error properties for sync and
   async commit and rollback. Removing the generation filter or flush guards
@@ -215,6 +225,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   CCI's do; return values and errors are unchanged. Live 10.2/11.4 evidence:
   written BLOB/CLOB handles up to 1 MB, bound through the internal binding
   below, store their full length.
+- **`Lob.read()`/`Lob.write()` reject non-int and boolean offset/length
+  (#449)** — `offset` (`read`/`write`) and `length` (`read`) must now be a
+  concrete Python `int`: `type(value) is not int` is rejected, so `bool` (a
+  subclass of `int`), `float`, `str` and any other `int` subclass (including
+  an `IntEnum` member) raise `InterfaceError("<name> must be an int, got
+  <type>")` before `_ensure_connected()` or any packet is built; the existing
+  non-negative check is unchanged. Previously only `value < 0` was checked,
+  so `lob.write(b"", offset=True)` silently returned `0` through the #394
+  empty-write shortcut, and a `float` offset passed that check and only
+  failed later, inside wire serialization, with `DataError`. Both now raise
+  `InterfaceError` before any I/O. Valid non-negative `int` offsets/lengths,
+  the empty-write shortcut's return value, and the `DataError` raised for an
+  in-range `int` too large to serialize (e.g. `offset=2**63`) are unchanged.
+  The regression suite's closed-LOB-precedes-invalid-arguments ordering test
+  is adapted from heyadhithya's PR #458.
 - **Missing-timezone test fixtures isolate cached wheel resources (#605)** —
   Offline and integration helpers hide cached `tzdata.*` modules as well as
   system timezone paths, then restore the original modules and exact caller

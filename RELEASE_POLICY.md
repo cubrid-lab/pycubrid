@@ -249,6 +249,26 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`Lob.read()`/`Lob.write()` reject non-int and boolean offset/length
+  (#449)** — MINOR / behavior change, not a PATCH. `offset` (`read`/`write`)
+  and `length` (`read`) must now be a concrete Python `int`
+  (`type(value) is not int` is rejected); the pre-existing non-negative check
+  is unchanged. This is classified MINOR rather than PATCH because it changes
+  observable results for inputs that previously completed without error:
+  before this change, `lob.write(b"", offset=True)` silently returned `0`
+  (`bool`, a subclass of `int`, satisfied the old `offset < 0` check and then
+  the #394 empty-write shortcut), and a `float` offset passed that same check
+  and only failed later, inside wire serialization, with `DataError`. Both
+  now raise `InterfaceError` before `_ensure_connected()` or any packet is
+  built, i.e. before any I/O — a stricter, earlier and differently-typed
+  failure than before for those two cases. Accepting `bool` as an offset was
+  a bug (the cursor `arraysize` contract already requires `type(value) is
+  int`), and the old behavior for both cases was itself pinned by the #394
+  test suite, which this change updates. Valid non-negative `int` arguments,
+  the empty-write shortcut's return value, and the existing `DataError` for
+  an in-range `int` too large to serialize (e.g. `offset=2**63`) are
+  unchanged. No public signature, dependency or supported-version change.
+
 - **Native collection binding (#440)** — MINOR / additive. New
   `pycubrid.compat.native.set` class (and `__all__` entry),
   `connection.set()`, `set.imports(data, type, /, *, kind=SET)` and

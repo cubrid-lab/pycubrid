@@ -561,6 +561,31 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 `--lane official`은 어떤 스킵도 허용하지 않습니다. 나이틀리 bug hunt의 별도 오프라인 protocol, fault-broker,
 placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
 
+나이틀리/수동 `bug-hunt.yml`의 `downstream-corpus`는 **권고용** 작업으로,
+Python 3.12와 CUBRID 11.4의 독립된 세 셀을 실행합니다. 정확한 pycubrid
+워크플로 커밋과 각 downstream 저장소의 현재 `main` 커밋을 별도 디렉터리에
+체크아웃합니다. 모든 의존성 설치에 드라이버 Git 커밋 제약을 적용하고, 설치가
+끝난 뒤 `scripts/downstream_corpus.py`가 다른 Git 출처/커밋, PyPI·로컬
+교체, 소스 체크아웃이 설치 패키지 import를 가리는 상황을 거부합니다.
+기존 `scripts/wait_for_cubrid.py`로 실제 브로커 준비 상태를 확인합니다.
+
+| Downstream | 선택한 실사용 테스트 | 허용 스킵 |
+|---|---|---|
+| `sqlalchemy-cubrid` | ORM dogfood와 동기/비동기 풀 stress 파일을 별도 pytest 실행 | 없음 |
+| `cubrid-mcp-server` | 실제 도구 통합 사례(읽기 쿼리, 복합 PK 스키마 포함) | 새 DB에 사용자 테이블이 없어 이를 요구하는 사례만 허용하고 사유 기록 |
+| `cubrid-cookbook-python` | MCP stdio를 포함한 AI-agent 스크립트 5개와 async-worker DB 작업을 별도 pytest 프로세스로 실행 | 없음 |
+
+선택한 각 테스트 작업의 JUnit 결과에는 통과가 1건 이상 있어야 합니다.
+결과 파일 누락, 테스트 실패, 예상 밖 스킵, 전체 스킵은 해당 권고용 셀을
+실패시킵니다. 단계 요약과 실패 시에도 업로드하는 아티팩트에는 드라이버와
+downstream 커밋, Python 및 설치된 패키지 버전, 드라이버 출처,
+실제 CUBRID 서버 버전, 작업별 통과·스킵·실패 수를 기록합니다.
+작업 단위 `continue-on-error`로
+PR·릴리스 게이트에는 넣지 않지만, 증거에는 실패를 성공으로 표시하지 않습니다.
+이는 downstream 전체 스위트가 아니라 제한된 실제 사용 표본이며, MCP
+동시 접근을 검증한다는 주장은 하지 않습니다. 드라이버 동시 사용은 SQLAlchemy
+풀 stress 사례가 검증합니다.
+
 공식 드라이버 차분(#446)은 고정 소스에서 빌드한 공식 `CUBRIDdb`/`_cubrid`
 드라이버와 pycubrid를 비교합니다. 로컬에서 재현하려면(Linux x86_64, git,
 CMake 3.21 이상, C 컴파일러, Python 3.10 헤더 필요) 다음을 실행합니다.

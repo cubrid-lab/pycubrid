@@ -1342,7 +1342,11 @@ def write(self, data: bytes, offset: int = 0) -> int
 
 `offset`부터 LOB에 바이트를 씁니다.
 
-빈 `bytes` 값은 기존 열린 LOB·음수 offset·연결 상태 검사를 거친 뒤 브로커
+`offset`은 음수가 아닌 Python `int`여야 합니다. `type(offset) is not int`이면
+거부되므로, `bool`(`int`의 서브클래스)과 `float`, `str` 등 다른 타입은 열린
+LOB 검사 이후 연결 확인이나 패킷 전송 전에 `InterfaceError`를 발생시킵니다.
+
+빈 `bytes` 값은 기존 열린 LOB·offset 타입/범위·연결 상태 검사를 거친 뒤 브로커
 요청 없이 `0`을 반환합니다. 이 로컬 반환 전에 기존 와이어 인자 검증도
 유지합니다. LOB의 바이트와 핸들은 바뀌지 않으며, 비어 있지 않은 쓰기는
 서버 ACK 검사를 유지합니다. 새로운 offset/데이터 타입 정책이나 비동기
@@ -1362,6 +1366,10 @@ def read(self, length: int, offset: int = 0) -> bytes
 ```
 
 `offset`부터 LOB에서 최대 `length`바이트를 읽습니다.
+
+`length`와 `offset`은 음수가 아닌 Python `int`여야 합니다. `bool`과 `float`,
+`str` 등 다른 타입은 연결 확인이나 패킷 전송 전에 `InterfaceError`를
+발생시킵니다.
 
 **반환:** 읽은 바이트.
 
