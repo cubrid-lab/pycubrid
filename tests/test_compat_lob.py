@@ -37,6 +37,11 @@ class LobDriver(FakeDriver):
 
     columns: list[ColumnMetaData] = []
     result: list[tuple[Any, ...]] = []
+    discarded = 0
+
+    def _discard_uncertain_prepared_session(self) -> None:
+        self.discarded += 1
+        self._connected = False
 
     def _send_and_receive(self, packet: Any, *, expected_generation: int | None = None) -> Any:
         if expected_generation != self._physical_generation:
@@ -284,17 +289,57 @@ def test_fetch_lob_after_rollback_is_invalidated(driver: LobDriver) -> None:
         conn.close()
 
 
-def test_cell_that_does_not_match_its_column_is_a_protocol_error(
-    driver: LobDriver, monkeypatch: pytest.MonkeyPatch
+def _bad_handle(handle: bytes) -> bytes:
+    # db_type 34 (CLOB) inside a BLOB cell.
+    return struct.pack(">i", 34) + handle[4:]
+
+
+@pytest.mark.parametrize(
+    "cell",
+    [
+        CLOB_CELL,
+        "text",
+        {**BLOB_CELL, "packed_lob_handle": _bad_handle(FETCHED_BLOB)},
+        {**BLOB_CELL, "packed_lob_handle": FETCHED_BLOB[:-1]},
+    ],
+    ids=["other-type", "not-a-handle", "db-type", "framing"],
+)
+def test_malformed_lob_cell_retires_the_session(
+    driver: LobDriver, monkeypatch: pytest.MonkeyPatch, cell: Any
 ) -> None:
-    monkeypatch.setattr(LobDriver, "result", [(1, CLOB_CELL, "text")])
+    monkeypatch.setattr(LobDriver, "result", [(1, cell, CLOB_CELL)])
     conn = _conn(driver)
     try:
         cur = _selected(conn)
         lob = conn.lob()
-        with pytest.raises(OperationalError, match="does not match"):
+        with pytest.raises(OperationalError, match="malformed response from broker"):
             cur.fetch_lob(2, lob)
         assert lob._handle is None
+        assert driver.discarded == 1
+        with pytest.raises(InterfaceError):
+            cur.fetch_row()
+    finally:
+        conn.close()
+
+
+def test_arguments_are_parsed_before_cursor_state(driver: LobDriver) -> None:
+    # PyArg_ParseTuple("iO!") runs before the official cursor looks at its
+    # result, so argument TypeErrors win over result-state errors.
+    conn = _conn(driver)
+    try:
+        cur = conn.cursor()
+        with pytest.raises(TypeError):
+            cur.fetch_lob("2", conn.lob())  # not even prepared
+        with pytest.raises(TypeError):
+            cur.fetch_lob(2, object())
+        with pytest.raises(TypeError):
+            cur.bind_lob(1, object())
+        cur.prepare("SELECT id, b, c FROM t")
+        with pytest.raises(TypeError):
+            cur.fetch_lob("2", conn.lob())  # result not executed yet
+        cur.close()
+        with pytest.raises(InterfaceError):
+            cur.fetch_lob("2", conn.lob())  # a closed cursor is checked first
     finally:
         conn.close()
 

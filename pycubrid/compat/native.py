@@ -321,15 +321,17 @@ class cursor:
     def bind_lob(self, index: int, lob: _NativeLob, /) -> None:
         """Bind a one-based BLOB/CLOB handle held by ``lob``; no I/O.
 
-        The handle must come from ``fetch_lob()``, and the physical session
-        it was fetched on must still be current. A fetched handle may be
-        bound on another open connection: the server copies the committed
-        value into the new row. The binding keeps the handle it was given.
+        The handle must come from ``fetch_lob()``. A fetched handle names a
+        committed stored value that the server copies into the new row, so it
+        may be bound again, on another open connection, and after its own
+        connection closed or reconnected. The binding keeps the handle it was
+        given and belongs to this cursor's current physical session.
         """
         with self._connection._session_lock:
-            driver, _handle, generation = self._check_handle()
+            self._check_open()
             if not isinstance(lob, _NativeLob):
                 raise TypeError("bind_lob() requires a lob from connection.lob()")
+            driver, _handle, generation = self._check_handle()
             if type(index) is not int or not 1 <= index <= self._bind_count:
                 raise ProgrammingError("prepared parameter index is out of range")
             lob_type, handle = lob._bindable(self._connection)
@@ -347,16 +349,18 @@ class cursor:
         a value. Returns ``None``, like the official driver.
         """
         with self._connection._session_lock:
-            driver, _handle, generation = self._check_handle()
+            self._check_open()
+            # The official PyArg_ParseTuple("iO!") order: col, then lob,
+            # before any cursor or result state is looked at.
+            if type(col) is not int:
+                raise TypeError("fetch_lob() column must be an int")
             if not isinstance(lob, _NativeLob):
                 raise TypeError("fetch_lob() requires a lob from connection.lob()")
+            driver, _handle, generation = self._check_handle()
             if self._result_invalidated:
                 raise InterfaceError("prepared result was invalidated")
             if not self._has_result:
                 raise InterfaceError("prepared cursor has no SELECT result")
-            if type(col) is not int:
-                # The official argument parser rejects this before anything.
-                raise TypeError("fetch_lob() column must be an int")
             if (
                 self._row_index >= len(self._rows)
                 and self._fetched_count >= self._total_tuple_count
@@ -375,10 +379,16 @@ class cursor:
             if cell is None:
                 lob._set(lob_type, None, None, None)
                 return None
-            if not isinstance(cell, dict) or cell.get("lob_type") != lob_type:
-                raise OperationalError("prepared LOB cell does not match its column type")
-            # Validates the handle framing before the lob keeps it.
-            binding = _PreparedLob(lob_type, cell["packed_lob_handle"], driver, generation)
+            # Validate the broker-supplied cell and handle framing before the
+            # lob keeps it; a malformed reply retires the uncertain session.
+            try:
+                if not isinstance(cell, dict) or cell.get("lob_type") != lob_type:
+                    raise ProgrammingError("LOB cell does not match its column type")
+                binding = _PreparedLob(lob_type, cell["packed_lob_handle"], driver, generation)
+            except ProgrammingError:
+                self._invalidate_result()
+                driver._discard_uncertain_prepared_session()
+                raise OperationalError("malformed response from broker") from None
             lob._set(
                 lob_type,
                 binding.packed_handle,
@@ -655,6 +665,8 @@ class lob:  # the official native type name
         if self._closed:
             raise InterfaceError("lob is closed")
         if handle is None or session is None:
+            raise InterfaceError("lob has no value")
+        if origin not in (_FETCHED, _CREATED):
             raise InterfaceError("lob has no value")
         if origin == _FETCHED:
             # The server copies the stored file into the new row, whatever
