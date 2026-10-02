@@ -845,7 +845,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   lane's first known cost and worth weighing against the nine-file `only_mutate`
   scope.
   Offline coverage of the nine mutated files is 97.66% (3962/4057 statements),
-  unchanged by this commit. The job stays `continue-on-error` and non-gating.
+  unchanged by this commit. The job's failure policy is unchanged and is not what
+  this commit claims to set: the `mutation` job carries no `continue-on-error`,
+  so a failure turns the nightly run red, though `bug-hunt.yml` has no gate job
+  and is schedule/on-demand only, so nothing blocks a PR or a release. Whether
+  the lane should become advisory is a policy decision recorded in #612, not
+  something this migration changes.
 - **CI pip download caching and readiness path-filter fix (#564)** —
   baseline measurements found 19 expanded jobs making separate editable dev
   installs; `cache: pip` on the 10 `setup-python` YAML steps now permits
