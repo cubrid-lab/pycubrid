@@ -8,7 +8,12 @@ from typing import Any, Literal, Protocol
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
 from .exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
-from .protocol import LOBNewPacket, LOBReadPacket, LOBWritePacket
+from .protocol import (
+    LOBNewPacket,
+    LOBReadPacket,
+    LOBWritePacket,
+    _packed_lob_handle_after_write,
+)
 
 
 class _ConnectionLike(Protocol):
@@ -87,6 +92,11 @@ class Lob:
                 raise DataError("parameter value too large to serialize into CAS request") from exc
             return 0
         self._connection._send_and_receive(packet)
+        # Keep the handle's size field current, as CCI does, so the handle
+        # stays correct when it is sent back (for example as a bound value).
+        self._lob_handle = _packed_lob_handle_after_write(
+            self._lob_handle, offset + packet.bytes_written
+        )
         if packet.bytes_written != len(data):
             raise OperationalError(
                 f"LOB write truncated: wrote {packet.bytes_written} of {len(data)} bytes"

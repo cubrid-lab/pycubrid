@@ -136,6 +136,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   execution and the public API are unchanged. Live 10.2/11.4 evidence: the
   broker rejects the MULTISET kind (error -454), and a SET value stored into a
   MULTISET column drops duplicates while a SEQUENCE value keeps them.
+- **Internal: LOB-handle binding wire contract (#441)** — not user-visible.
+  Prepared FC3 requests can carry an immutable BLOB/CLOB handle binding whose
+  bytes equal the official driver's `bind_lob()` request (checked against a
+  captured official request). The handle framing and its BLOB/CLOB type are
+  validated before any bytes are built, and the native prepared cursor never
+  sends a handle that came from an earlier physical session. There is no
+  public LOB binding API yet; ordinary sync/async execution is unchanged.
 
 ### Changed
 - **Faster FETCH row parsing (#559)** — a new offline microbenchmark,
@@ -198,6 +205,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **`Lob.write()` keeps the handle's size field current (#441)** — the packed
+  handle returned by `Lob.lob_handle` embeds the LOB size, which the server
+  trusts when the handle is sent back. `write()` left it at the size the
+  handle had when it was created (usually 0), so a bound written handle would
+  store the wrong length. It now raises the field to `offset + bytes written`
+  after each write, never lowering it, as CCI does (also after a truncated
+  write). Later `write()`/`read()` requests carry the updated handle, as
+  CCI's do; return values and errors are unchanged. Live 10.2/11.4 evidence:
+  written BLOB/CLOB handles up to 1 MB, bound through the internal binding
+  below, store their full length.
 - **Missing-timezone test fixtures isolate cached wheel resources (#605)** —
   Offline and integration helpers hide cached `tzdata.*` modules as well as
   system timezone paths, then restore the original modules and exact caller

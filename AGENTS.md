@@ -95,6 +95,15 @@ MULTISET kind with -454. The public #440 `imports()` matches the official
 bytes: STRING elements whatever the requested type, default kind SET, and
 `kind=MULTISET` sent as SEQUENCE.
 
+Typed LOB-handle FC3 binds (#441, internal) send BLOB `23`/CLOB `24` as the
+type argument and the packed handle `[int32 db_type 33/34][int64 size][int32
+locator length][locator NUL]` as the value, the official `bind_lob()` bytes.
+The broker trusts the embedded size, so `Lob.write()` raises it to
+`offset + bytes_written` after each write, as CCI does. Bind a handle only on
+its own physical session. A fetched handle is copied into the row and is
+reusable; a LOB_NEW temp handle is taken over by its first autocommit
+statement, even a failed one.
+
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
 session. Because the CAS may still close the socket after an OUT_TRAN reply

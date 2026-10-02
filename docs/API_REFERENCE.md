@@ -1452,6 +1452,12 @@ def lob_handle(self) -> bytes
 
 The raw LOB handle bytes used for server communication.
 
+The handle embeds the LOB size, which the server trusts when a handle is sent
+back. After each successful (or partly successful) `write()`, the size field is
+raised to `offset + bytes written`, never lowered, as the official CCI driver
+does (#441). Before this fix a written handle kept the size it had when it was
+created (usually `0`).
+
 ---
 
 #### `lob_type`

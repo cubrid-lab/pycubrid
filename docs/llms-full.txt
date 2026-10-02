@@ -2548,6 +2548,12 @@ def lob_handle(self) -> bytes
 
 The raw LOB handle bytes used for server communication.
 
+The handle embeds the LOB size, which the server trusts when a handle is sent
+back. After each successful (or partly successful) `write()`, the size field is
+raised to `offset + bytes written`, never lowered, as the official CCI driver
+does (#441). Before this fix a written handle kept the size it had when it was
+created (usually `0`).
+
 ---
 
 #### `lob_type`
@@ -4848,6 +4854,20 @@ whatever element type is requested (INT elements are their decimal text), and
 the default kind is SET (`16`), so its bytes equal the official request.
 `kind=MULTISET` is sent as SEQUENCE (`18`), never as `17`.
 
+An internal LOB-handle binding (#441; no public API yet) uses the same pair.
+The type argument is BLOB (`23`) or CLOB (`24`) and the value argument is the
+packed handle `[int32 db_type][int64 size][int32 locator length][locator
+NUL]`, byte for byte what the official driver sends for `bind_lob()`. The
+`db_type` must match the type argument (BLOB `33`, CLOB `34`), and the
+locator length must cover the rest of the handle exactly. The broker builds
+the stored value from the handle's own size field (`caslob_to_dblob` in
+`cas_execute.c`), so a handle with a stale size stores the wrong length. CCI
+raises that field to the end of each LOB_WRITE, and `Lob.write()` now does
+the same. A handle is bound only on the physical session it came from. On
+CUBRID 10.2 and 11.4 a fetched handle is copied into the new row and can be
+bound again, while a handle from LOB_NEW names a temporary file that its first
+autocommit statement takes over, even when that statement fails.
+
 For protocol version >1, an `include_column_info=1` response carries the
 full FC2 prepare-info tail before the shard ID and inline FETCH. The parser
 updates statement/bind/column metadata and rejects truncated tails. A
@@ -4981,6 +5001,15 @@ and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63a
 ### LOBWritePacket
 
 **Write LOB data** (FC=36).
+
+| Attribute       | Type  | Description |
+|-----------------|-------|-------------|
+| `bytes_written` | `int` | Bytes the server wrote |
+
+The request carries the packed handle, an `int64` offset and the data. The
+server only appends: a write that starts inside the current value fails. After
+a successful write, `Lob.write()` raises the handle's size field to
+`offset + bytes_written` (never lowers it), as CCI does.
 
 ---
 
