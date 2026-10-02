@@ -463,6 +463,13 @@ that were already received stay readable; an unfinished result still raises
 `InterfaceError` at its next required FETCH. In autocommit mode no `END_TRAN` is
 sent, so unclosed cursors still accumulate server handles until `commit()`,
 `rollback()` or `close()`: close cursors (or use them as context managers).
+For handles queued by closed or collected cursors, a boundary transfers each
+current-session ID out of the queue only when its `CLOSE_REQ` is about to be
+sent. If `commit()`/`rollback()` is interrupted before the next send, unsent
+IDs remain queued in FIFO order on that same live physical session; IDs whose
+send began are not replayed. An uncertain transport retires the session and
+its queued IDs instead of carrying them to a replacement CAS. A cursor
+collected during a flush is queued behind the batch already in progress.
 
 ### Session-state restoration after explicit ping recovery
 

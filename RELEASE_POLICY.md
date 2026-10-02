@@ -259,6 +259,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Interrupted deferred CLOSE flush (#601)** — PATCH / resource-ownership
+  correction in both drivers. A boundary consumes each queued same-session
+  handle at the existing attempted-send point, not before the whole flush.
+  A pre-send interrupt retains unsent FIFO entries on the live session;
+  completed or uncertain sends are never replayed, and a retired physical
+  session never lends its IDs to a replacement. No public signature, SQL
+  result, wire format, dependency or supported-version change.
+
 - **Native prepared handle refresh after a complete execute error (#611)** —
   PATCH / correction in the opt-in sync compatibility cursor. The failed
   caller receives its original redacted server error; no SQL is retried in

@@ -460,10 +460,20 @@ class Connection(ConnectionCommonMixin):
             self._close_handle_at_boundary(handle)
         # Handles of cursors collected without close() and queued (#488).
         generation = self._physical_generation
-        for handle in self._take_deferred_closes():
+        initial_count = len(self._deferred_closes)
+        for _ in range(initial_count):
             if self._physical_generation != generation:
                 break  # replaced during an earlier CLOSE_REQ: nothing left to close
+            if not self._deferred_closes:
+                break  # retirement may have cleared the batch without replacing generation
+            head = self._deferred_closes[0]
+            handle = self._peek_boundary_deferred_close()
+            if handle is None:
+                self._consume_deferred_closes(1)  # stale or pooling-off: no wire ownership
+                continue
             self._close_handle_at_boundary(handle)
+            if self._deferred_closes and self._deferred_closes[0] is head:
+                break  # a handled pre-send error left the head unsent
 
     def _close_handle_at_boundary(self, handle: int) -> None:
         try:
@@ -949,6 +959,13 @@ class Connection(ConnectionCommonMixin):
             if isinstance(packet, PrepareAndExecutePacket):
                 # Release queued handles of this session with this request (#488).
                 deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
+            elif (
+                isinstance(packet, CloseQueryPacket)
+                and self._peek_boundary_deferred_close() == packet.query_handle
+            ):
+                # The same send-time ownership transfer as FC41, but one FIFO
+                # CLOSE_REQ at a boundary. No extra wire argument is added.
+                deferred_count = 1
             try:
                 request_data = packet.write(self._cas_info)
             except struct.error as exc:
