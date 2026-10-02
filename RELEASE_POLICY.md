@@ -121,7 +121,9 @@ stream (`lob.write()`/`read()`/`seek()` and `SEEK_*`, #442).
 Native cached settings and separate effective autocommit/isolation setters
 are the additional #467 subset. #466 adds qualified
 `pycubrid.compat.cursors.Cursor/DictCursor` row cursors and connection-local
-conversion over only the existing native scalar prepared path.
+conversion over only the existing native scalar prepared path. Abandoned
+wrapper cursors receive best-effort same-session cleanup; deterministic
+resource release still requires explicit close.
 Only their implemented factories, connection and cursor methods are public;
 no wrapper collection/LOB execute, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover

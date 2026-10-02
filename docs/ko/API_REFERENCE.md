@@ -309,6 +309,9 @@ SELECT가 아닌 경우 `description=None`을 안정적으로 설정합니다. �
 참이지만 호출 불가능한 값은 행을 소비한 뒤 `TypeError`를 냅니다. 변환기 예외도
 행을 소비합니다. 공식 래퍼처럼 `fetchmany()`/`fetchall()`은 거짓인 변환 결과를
 소비하고 멈추지만 반복자는 `None`에서만 멈추며 이후 fetch로 재개할 수 있습니다.
+핸들을 확실히 해제하려면 `close()`를 호출하세요. 버려진 래퍼 커서는 GC 때 같은
+세션에서 커밋·재연결 없이 정리를 시도하지만, 이 정리는 최선 노력이며 I/O에서
+지연되거나 실패할 수 있어 명시적인 종료를 대체하지 못합니다.
 
 ```python
 from pycubrid.compat import cubriddb

@@ -18,7 +18,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   collections/LOB arguments and `executemany` are not added. Non-SELECT
   description stays safely `None` instead of reproducing the official
   extension's missing-attribute state after reprepare. Ordinary and async
-  APIs, dependencies and release publication are unchanged. Offline, owned
+  APIs, dependencies and release publication are unchanged. Collected wrapper
+  cursors now attempt best-effort same-session native-handle cleanup without
+  commit or reconnect; explicit close remains the deterministic path. Offline, owned
   CUBRID 10.2/11.4 and pinned official differential cases cover this subset.
 - **Native cached settings and effective mode setters (#467)** — the explicit
   sync `pycubrid.compat.native.connection` now exposes writable cached

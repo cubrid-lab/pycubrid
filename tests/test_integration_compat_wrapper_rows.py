@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gc
+import weakref
 from collections.abc import Generator
 from contextlib import closing
 from typing import Any
@@ -12,7 +14,7 @@ import pycubrid
 from pycubrid.compat import cubriddb
 from pycubrid.compat.cursors import Cursor, DictCursor
 from pycubrid.connection import Connection
-from pycubrid.protocol import FetchPacket
+from pycubrid.protocol import CloseQueryPacket, CommitPacket, FetchPacket
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 from ._parity_helpers import connect_kwargs, table_name
@@ -92,6 +94,81 @@ def test_exact_tuple_dict_metadata(table: str) -> None:
         assert list(row) == ["MiXeD", "dup", "CaseKeep"]
         dict_cursor.close()
         tuple_cursor.close()
+    finally:
+        wrapper.close()
+
+
+@pytest.mark.parametrize("dict_cursor", (False, True))
+def test_abandoned_wrapper_releases_live_handle_without_reconnect(
+    table: str, dict_cursor: bool
+) -> None:
+    wrapper = _wrapper()
+    try:
+        driver = wrapper.connection._driver
+        packets: list[tuple[object, dict[str, Any]]] = []
+        original = driver._send_and_receive
+
+        def capture(packet: Any, **kwargs: Any) -> Any:
+            packets.append((packet, kwargs))
+            return original(packet, **kwargs)
+
+        driver._send_and_receive = capture
+        cur = wrapper.cursor(dict_cursor)
+        count = cur.execute(f"SELECT id FROM {table} ORDER BY id")
+        assert count == 3
+        initial_generation = driver._physical_generation
+        before = len(packets)
+        ref = weakref.ref(cur)
+        del cur
+        gc.collect()
+        assert ref() is None
+        assert not wrapper.connection._prepared_owners
+        released = [entry for entry in packets[before:] if isinstance(entry[0], CloseQueryPacket)]
+        assert len(released) == 1
+        assert released[0][1]["allow_reconnect"] is False
+        assert driver._physical_generation == initial_generation
+        follow = wrapper.cursor()
+        try:
+            follow.execute(f"SELECT COUNT(*) FROM {table}")
+            result = follow.fetchone()
+            assert result == (3,)
+        finally:
+            follow.close()
+    finally:
+        wrapper.close()
+
+
+def test_abandoned_wrapper_does_not_commit_manual_dml(observer: Connection, table: str) -> None:
+    wrapper = _wrapper()
+    try:
+        wrapper.autocommit = False
+        driver = wrapper.connection._driver
+        packets: list[object] = []
+        original = driver._send_and_receive
+
+        def capture(packet: Any, **kwargs: Any) -> Any:
+            packets.append(packet)
+            return original(packet, **kwargs)
+
+        driver._send_and_receive = capture
+        cur = wrapper.cursor()
+        cur.execute(f"INSERT INTO {table} VALUES (?, ?, ?)", (99, "pending", None))
+        start = len(packets)
+        del cur
+        gc.collect()
+        released = packets[start:]
+        assert len([packet for packet in released if isinstance(packet, CloseQueryPacket)]) == 1
+        assert not any(isinstance(packet, CommitPacket) for packet in released)
+        assert _sql(observer, f"SELECT id FROM {table} WHERE id = 99") is None
+        own = wrapper.cursor()
+        try:
+            own.execute(f"SELECT id FROM {table} WHERE id = 99")
+            row = own.fetchone()
+            assert row == (99,)
+        finally:
+            own.close()
+        wrapper.connection.rollback()
+        assert _sql(observer, f"SELECT id FROM {table} WHERE id = 99") is None
     finally:
         wrapper.close()
 

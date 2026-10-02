@@ -7,15 +7,17 @@ converter behavior while reusing the already-supported native FC2/FC3 subset.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterator
+import logging
+from typing import TYPE_CHECKING, Any, Iterator, Protocol
 
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import InterfaceError, NotSupportedError, ProgrammingError
 
 if TYPE_CHECKING:
-    from . import cubriddb
+    from pycubrid.compat.native import connection as NativeConnection
     from pycubrid.compat.native import cursor as NativeCursor
 
+_LOGGER = logging.getLogger(__name__)
 Description = tuple[tuple[str, int, int, int, int, int, int], ...]
 _ROWCOUNT_TYPES = frozenset(
     {
@@ -28,10 +30,19 @@ _ROWCOUNT_TYPES = frozenset(
 )
 
 
+class _RowCursorOwner(Protocol):
+    """Only the connection state consumed by the qualified row cursors."""
+
+    @property
+    def connection(self) -> NativeConnection: ...
+
+    fetch_value_converter: Any
+
+
 class _CursorBase:
     """Shared fetch mechanics; only the qualified concrete classes are public."""
 
-    def __init__(self, conn: cubriddb.Connection) -> None:
+    def __init__(self, conn: _RowCursorOwner) -> None:
         self.con = conn
         self._cs: NativeCursor | None = conn.connection.cursor()
         self.arraysize = 1
@@ -49,6 +60,22 @@ class _CursorBase:
         cursor = self._open()
         cursor.close()
         self._cs = None
+
+    def __del__(self) -> None:
+        # Native prepared owners are strongly registered on their connection.
+        # Detach first; a destructor must not reconnect or raise during GC.
+        try:
+            cursor = getattr(self, "_cs", None)
+            if cursor is None:
+                return
+            self._cs = None
+            cursor._close_collected_wrapper()
+        except BaseException:
+            try:
+                # Shutdown may have dismantled logging; never emit SQL or errors.
+                _LOGGER.warning("Failed to release a collected wrapper cursor")
+            except BaseException:
+                return
 
     def execute(self, query: str, args: Any = None, set_type: Any = None) -> int:
         """Run only scalars that the existing native prepared cursor can bind."""

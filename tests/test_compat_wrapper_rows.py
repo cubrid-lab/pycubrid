@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import importlib
+import gc
+import logging
 import subprocess
 import sys
+import weakref
 from typing import Any
 
 import pytest
 
 from pycubrid.compat import cubriddb, native
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
-from pycubrid.exceptions import InterfaceError, NotSupportedError, ProgrammingError
+from pycubrid.exceptions import (
+    InterfaceError,
+    NotSupportedError,
+    OperationalError,
+    ProgrammingError,
+)
 from pycubrid.protocol import (
     ColumnMetaData,
+    CloseQueryPacket,
     ExecutePacket,
     FetchPacket,
     GetDbParameterPacket,
@@ -45,6 +54,10 @@ class RowsDriver(FakeDriver):
     columns: list[ColumnMetaData] = []
     result: list[tuple[Any, ...]] = []
 
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.close_reconnect_flags: list[bool] = []
+
     def _send_and_receive(
         self,
         packet: Any,
@@ -57,7 +70,12 @@ class RowsDriver(FakeDriver):
                 packet, allow_reconnect=allow_reconnect, expected_generation=expected_generation
             )
         assert expected_generation == self._physical_generation
+        if isinstance(packet, CloseQueryPacket):
+            self.close_reconnect_flags.append(allow_reconnect)
         self.requests.append((packet, expected_generation))
+        if self.fail_packet_type is not None and isinstance(packet, self.fail_packet_type):
+            assert self.fail_packet_error is not None
+            raise self.fail_packet_error
         if isinstance(packet, PreparePacket):
             packet.query_handle = 41
             packet.bind_count = packet.sql.count("?")
@@ -114,6 +132,182 @@ def _module() -> Any:
 
 def _selected(cursor: Any) -> int:
     return cursor.execute('SELECT id AS "MiXeD", txt AS dup, opt AS dup, txt AS "CaseKeep" FROM t')
+
+
+def _close_packets(driver: RowsDriver) -> list[CloseQueryPacket]:
+    return [packet for packet, _ in driver.requests if isinstance(packet, CloseQueryPacket)]
+
+
+@pytest.mark.parametrize("dict_cursor", (False, True))
+def test_collected_wrapper_releases_exact_native_owner_without_commit_or_reconnect(
+    wrapped: cubriddb.Connection, dict_cursor: bool
+) -> None:
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor(dict_cursor)
+    _selected(cur)
+    wrapper_ref = weakref.ref(cur)
+    owner_ref = weakref.ref(cur._cs)
+    assert len(wrapped.connection._prepared_owners) == 1
+    del cur
+    gc.collect()
+    assert wrapper_ref() is None
+    assert owner_ref() is None
+    assert not wrapped.connection._prepared_owners
+    assert len(_close_packets(driver)) == 1
+    assert driver.close_reconnect_flags == [False]
+    assert driver.commit_calls == 0
+
+
+def test_explicit_close_then_gc_does_not_release_twice(wrapped: cubriddb.Connection) -> None:
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor()
+    _selected(cur)
+    cur.close()
+    assert len(_close_packets(driver)) == 1
+    ref = weakref.ref(cur)
+    del cur
+    gc.collect()
+    assert ref() is None
+    assert len(_close_packets(driver)) == 1
+
+
+def test_explicit_close_still_exposes_release_failure(wrapped: cubriddb.Connection) -> None:
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor()
+    _selected(cur)
+    driver.fail_packet_type = CloseQueryPacket
+    driver.fail_packet_error = OperationalError("explicit release failed")
+    with pytest.raises(OperationalError, match="explicit release failed"):
+        cur.close()
+    assert not wrapped.connection._prepared_owners
+    assert len(_close_packets(driver)) == 1
+    del cur
+    gc.collect()
+    assert len(_close_packets(driver)) == 1
+
+
+def test_gc_after_parent_close_never_sends_stale_close(
+    wrapped: cubriddb.Connection,
+) -> None:
+    driver = wrapped.connection._driver
+    first = wrapped.cursor()
+    _selected(first)
+    wrapped.connection.close()
+    prior = len(_close_packets(driver))
+    del first
+    gc.collect()
+    assert len(_close_packets(driver)) == prior == 1
+
+
+def test_gc_after_physical_generation_change_detaches_without_old_close(
+    wrapped: cubriddb.Connection,
+) -> None:
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor()
+    _selected(cur)
+    driver._physical_generation += 1
+    del cur
+    gc.collect()
+    assert not wrapped.connection._prepared_owners
+    assert _close_packets(driver) == []
+    assert driver.commit_calls == 0
+
+
+def test_gc_closes_original_native_owner_after_public_connection_replacement(
+    wrapped: cubriddb.Connection,
+) -> None:
+    first_driver = wrapped.connection._driver
+    other = cubriddb.Connection(DSN)
+    try:
+        other_driver = other.connection._driver
+        cur = wrapped.cursor()
+        _selected(cur)
+        cur.con = other
+        del cur
+        gc.collect()
+        assert not wrapped.connection._prepared_owners
+        assert not other.connection._prepared_owners
+        assert len(_close_packets(first_driver)) == 1
+        assert _close_packets(other_driver) == []
+    finally:
+        other.close()
+
+
+def test_partial_wrapper_construction_has_no_unraisable_finalizer(
+    wrapped: cubriddb.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_cursor(self: native.connection) -> None:
+        raise RuntimeError("constructor interrupted")
+
+    unraisable: list[object] = []
+    monkeypatch.setattr(native.connection, "cursor", fail_cursor)
+    monkeypatch.setattr(sys, "unraisablehook", unraisable.append)
+    with pytest.raises(RuntimeError, match="constructor interrupted"):
+        wrapped.cursor()
+    gc.collect()
+    assert unraisable == []
+
+
+def test_failed_gc_close_is_contained_and_redacted(
+    wrapped: cubriddb.Connection, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor()
+    _selected(cur)
+    driver.fail_packet_type = CloseQueryPacket
+    driver.fail_packet_error = OperationalError("secret SQL must not reach logs")
+    unraisable: list[object] = []
+    monkeypatch.setattr(sys, "unraisablehook", unraisable.append)
+    with caplog.at_level(logging.WARNING, logger="pycubrid.compat.cursors"):
+        del cur
+        gc.collect()
+    assert not wrapped.connection._prepared_owners
+    assert len(_close_packets(driver)) == 1
+    assert unraisable == []
+    assert "secret SQL" not in caplog.text
+    assert "Failed to release a collected wrapper cursor" in caplog.text
+
+
+def test_gc_logging_teardown_does_not_raise_unraisable(
+    wrapped: cubriddb.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor()
+    _selected(cur)
+    driver.fail_packet_type = CloseQueryPacket
+    driver.fail_packet_error = OperationalError("close failed")
+    unraisable: list[object] = []
+    monkeypatch.setattr(sys, "unraisablehook", unraisable.append)
+    module = _module()
+
+    def fail_logging(message: str) -> None:
+        raise RuntimeError("logger torn down")
+
+    monkeypatch.setattr(module._LOGGER, "warning", fail_logging)
+    del cur
+    gc.collect()
+    assert unraisable == []
+    assert not wrapped.connection._prepared_owners
+
+
+def test_gc_module_globals_teardown_does_not_raise_unraisable(
+    wrapped: cubriddb.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor()
+    _selected(cur)
+    driver.fail_packet_type = CloseQueryPacket
+    driver.fail_packet_error = OperationalError("close failed")
+    unraisable: list[object] = []
+    monkeypatch.setattr(sys, "unraisablehook", unraisable.append)
+    module = _module()
+    # Model interpreter shutdown; the old contextlib guard failed before entry.
+    monkeypatch.setattr(module, "contextlib", None, raising=False)
+    monkeypatch.setattr(module, "_LOGGER", None)
+    del cur
+    gc.collect()
+    assert unraisable == []
+    assert not wrapped.connection._prepared_owners
 
 
 def test_cursor_choice_direct_constructors_and_initial_state(wrapped: cubriddb.Connection) -> None:
