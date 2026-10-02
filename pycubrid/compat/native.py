@@ -32,6 +32,7 @@ from pycubrid.protocol import (
     FetchPacket,
     PreparePacket,
     _PreparedCollection,
+    _PreparedLob,
     _PreparedScalar,
     _encode_prepared_collection,
     _encode_prepared_scalar,
@@ -167,7 +168,7 @@ class cursor:
         self._statement_type = 0
         self._bind_count = 0
         self._columns: list[Any] = []
-        self._bindings: list[_PreparedScalar | _PreparedCollection | None] = []
+        self._bindings: list[_PreparedScalar | _PreparedCollection | _PreparedLob | None] = []
         self._rows: list[tuple[Any, ...]] = []
         self._row_index = 0
         self._fetched_count = 0
@@ -322,6 +323,13 @@ class cursor:
             if any(binding is None for binding in self._bindings):
                 raise ProgrammingError("prepared parameter is unbound")
             bindings = tuple(binding for binding in self._bindings if binding is not None)
+            for binding in bindings:
+                # A LOB handle is valid only on the physical session it came
+                # from; never send it to a replacement session.
+                if isinstance(binding, _PreparedLob) and (
+                    binding.owner is not driver or binding.generation != generation
+                ):
+                    raise InterfaceError("LOB binding belongs to another physical session")
             packet = ExecutePacket(
                 handle,
                 self._statement_type,

@@ -283,6 +283,86 @@ def _encode_prepared_collection(
     return _PreparedCollection(type_code, element_type, tuple(encoded), encoding)
 
 
+# Packed LOB handle: [int32 db_type][int64 size][int32 locator length][locator NUL].
+# db_type is the server DB_TYPE (BLOB 33, CLOB 34), not the CCI u_type.
+_LOB_HANDLE_HEADER = struct.Struct(">iqi")
+_LOB_DB_TYPES: dict[int, int] = {CUBRIDDataType.BLOB: 33, CUBRIDDataType.CLOB: 34}
+
+
+def _packed_lob_size(packed_handle: bytes) -> int:
+    """Return the size field (bytes 4..12) of a packed LOB handle."""
+    _db_type, size, _locator_size = _LOB_HANDLE_HEADER.unpack_from(packed_handle)
+    return int(size)
+
+
+def _packed_lob_handle_after_write(packed_handle: bytes, end: int) -> bytes:
+    """Return the handle with its size raised to ``end`` after a LOB_WRITE.
+
+    CCI does the same after every LOB_WRITE (cci_query_execute.c qe_lob_write):
+    the size never shrinks. The broker trusts this field when the handle is
+    bound (cas_execute.c caslob_to_dblob), so a stale size would store a wrong
+    length. A handle that does not parse is returned unchanged.
+    """
+    header = _LOB_HANDLE_HEADER.size
+    if len(packed_handle) < header:
+        return packed_handle
+    db_type, size, locator_size = _LOB_HANDLE_HEADER.unpack_from(packed_handle)
+    if locator_size != len(packed_handle) - header or end <= size:
+        return packed_handle
+    return _LOB_HANDLE_HEADER.pack(db_type, end, locator_size) + packed_handle[header:]
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedLob:
+    """One BLOB/CLOB handle bound in a prepared FC3 request (#441).
+
+    The type argument is the CCI u_type (BLOB ``23``, CLOB ``24``) and the
+    value argument is the packed handle as the server sent it, the same
+    bytes CCI sends for ``CCI_A_TYPE_BLOB``/``CLOB``. The broker builds the
+    stored value from the handle's own type, size and locator, so the
+    framing is checked exactly. ``owner`` (the driver connection, compared
+    by identity) and ``generation`` (its physical-session counter) together
+    name the one physical session the binding was made for; generation
+    numbers alone repeat across connections. The binding must not be sent
+    on any other session.
+    """
+
+    type_code: int
+    packed_handle: bytes
+    owner: object
+    generation: int
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.type_code, bool)
+            or not isinstance(self.type_code, int)
+            or self.type_code not in _LOB_DB_TYPES
+        ):
+            raise ProgrammingError("unsupported prepared LOB type code")
+        if type(self.packed_handle) is not bytes:
+            raise ProgrammingError("invalid prepared LOB handle")
+        header = _LOB_HANDLE_HEADER.size
+        if len(self.packed_handle) <= header:
+            raise ProgrammingError("invalid prepared LOB handle")
+        db_type, size, locator_size = _LOB_HANDLE_HEADER.unpack_from(self.packed_handle)
+        locator = self.packed_handle[header:]
+        if (
+            db_type != _LOB_DB_TYPES[self.type_code]
+            or size < 0
+            or locator_size != len(locator)
+            or not locator.endswith(b"\x00")
+            or b"\x00" in locator[:-1]
+        ):
+            raise ProgrammingError("invalid prepared LOB handle")
+        if self.owner is None or type(self.generation) is not int:
+            raise ProgrammingError("invalid prepared LOB session owner")
+
+    @property
+    def payload(self) -> bytes:
+        """Return the exact FC3 value argument (without its own length prefix)."""
+        return self.packed_handle
+
+
 # ---------------------------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------------------------
@@ -1429,7 +1509,7 @@ class ExecutePacket(_CasPacket):
         decode_collections: bool = False,
         json_deserializer: Any = None,
         *,
-        bindings: Sequence[_PreparedScalar | _PreparedCollection] = (),
+        bindings: Sequence[_PreparedScalar | _PreparedCollection | _PreparedLob] = (),
         bind_count: int | None = None,
         forward_only: bool | None = None,
     ) -> None:
@@ -1479,13 +1559,16 @@ class ExecutePacket(_CasPacket):
         writer.add_cache_time()
         writer.add_int(0)  # query timeout
         for binding in self.bindings:
+            text_encoding: str | None = None
             if isinstance(binding, _PreparedScalar):
-                has_text = binding.type_code == CUBRIDDataType.CHAR
+                if binding.type_code == CUBRIDDataType.CHAR:
+                    text_encoding = binding.encoding
             elif isinstance(binding, _PreparedCollection):
-                has_text = binding.element_type == CUBRIDDataType.STRING
-            else:
+                if binding.element_type == CUBRIDDataType.STRING:
+                    text_encoding = binding.encoding
+            elif not isinstance(binding, _PreparedLob):  # a LOB handle is not text
                 raise ProgrammingError("invalid prepared parameter encoding")
-            if has_text and binding.encoding != self.encoding:
+            if text_encoding is not None and text_encoding != self.encoding:
                 raise ProgrammingError("prepared string was encoded for a different charset")
             writer.add_byte(binding.type_code)
             writer.add_bytes(binding.payload)
