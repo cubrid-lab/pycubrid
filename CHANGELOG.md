@@ -208,6 +208,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
 ### Fixed
+- **`Lob.read()`/`Lob.write()` reject non-int and boolean offset/length
+  (#449)** — `offset` (`read`/`write`) and `length` (`read`) must now be a
+  concrete Python `int`: `type(value) is not int` is rejected, so `bool` (a
+  subclass of `int`), `float`, `str` and any other `int` subclass (including
+  an `IntEnum` member) raise `InterfaceError("<name> must be an int, got
+  <type>")` before `_ensure_connected()` or any packet is built; the existing
+  non-negative check is unchanged. Previously only `value < 0` was checked,
+  so `lob.write(b"", offset=True)` silently returned `0` through the #394
+  empty-write shortcut, and a `float` offset passed that check and only
+  failed later, inside wire serialization, with `DataError`. Both now raise
+  `InterfaceError` before any I/O. Valid non-negative `int` offsets/lengths,
+  the empty-write shortcut's return value, and the `DataError` raised for an
+  in-range `int` too large to serialize (e.g. `offset=2**63`) are unchanged.
+  The regression suite's closed-LOB-precedes-invalid-arguments ordering test
+  is adapted from heyadhithya's PR #458.
 - **Missing-timezone test fixtures isolate cached wheel resources (#605)** —
   Offline and integration helpers hide cached `tzdata.*` modules as well as
   system timezone paths, then restore the original modules and exact caller

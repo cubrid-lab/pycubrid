@@ -1411,8 +1411,13 @@ def write(self, data: bytes, offset: int = 0) -> int
 
 Write bytes to the LOB starting from `offset`.
 
+`offset` must be a non-negative Python `int`; `type(offset) is not int` is
+rejected, so `bool` (a subclass of `int`) and other types such as `float` or
+`str` raise `InterfaceError` before the open-LOB check's connection step or
+any packet send.
+
 An empty `bytes` value returns `0` without a broker request after the same
-open-LOB, negative-offset and connected-connection checks. Existing wire
+open-LOB, offset-type-and-range and connected-connection checks. Existing wire
 argument validation still applies before this local return. The LOB's bytes
 and handle are unchanged; nonempty writes retain server-acknowledgement checks.
 Signed-64-bit packing failures still raise `DataError`, as they do through the
@@ -1430,6 +1435,10 @@ def read(self, length: int, offset: int = 0) -> bytes
 ```
 
 Read up to `length` bytes from the LOB starting from `offset`.
+
+`length` and `offset` must be non-negative Python `int` values; `bool` and
+other types such as `float` or `str` raise `InterfaceError` before the
+connection check or any packet send.
 
 The read is issued in as many round-trips as the broker requires: CUBRID caps a
 single `LOB_READ` response at a fixed size, so `read()` loops internally,

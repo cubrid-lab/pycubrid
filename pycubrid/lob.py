@@ -35,6 +35,15 @@ def _reject_async_connection(connection: _ConnectionLike) -> None:
         )
 
 
+def _require_non_negative_int(value: object, name: str) -> int:
+    """Reject non-ints (including bool) and negative values before wire packing."""
+    if type(value) is not int:
+        raise InterfaceError(f"{name} must be an int, got {type(value).__name__}")
+    if value < 0:
+        raise InterfaceError(f"{name} must be non-negative, got {value}")
+    return value
+
+
 class Lob:
     """Represents a CUBRID Large Object (BLOB or CLOB).
 
@@ -75,8 +84,7 @@ class Lob:
         requested (e.g. disk full, quota exceeded).
         """
         self._check_open()
-        if offset < 0:
-            raise InterfaceError(f"offset must be non-negative, got {offset}")
+        _require_non_negative_int(offset, "offset")
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
         if isinstance(data, bytes) and len(data) == 0:
@@ -104,10 +112,8 @@ class Lob:
         broker signals end-of-LOB by returning zero bytes.
         """
         self._check_open()
-        if offset < 0:
-            raise InterfaceError(f"offset must be non-negative, got {offset}")
-        if length < 0:
-            raise InterfaceError(f"length must be non-negative, got {length}")
+        _require_non_negative_int(offset, "offset")
+        _require_non_negative_int(length, "length")
         self._connection._ensure_connected()
 
         chunks: list[bytes] = []
