@@ -51,6 +51,7 @@ from pycubrid.protocol import (
     ResultInfo,
     RollbackPacket,
     SetDbParameterPacket,
+    _add_error_hints,
     _parse_column_metadata,
     _parse_result_infos,
     _parse_row_data,
@@ -258,6 +259,63 @@ class TestRaiseError:
         reader = PacketReader(error_body)
         with pytest.raises(ProgrammingError, match="Unknown class"):
             _raise_error(reader, len(error_body))
+
+
+class TestReservedWordErrorHints:
+    # Captured by executing CREATE TABLE codex509_reserved_ident(key VARCHAR(50))
+    # against the owned brokers with only _add_error_hints bypassed. All three
+    # versions returned the same raw message, including its trailing space.
+    @pytest.mark.parametrize("server_version", ["10.2.18.9024", "11.2.9.0866", "11.4.6.1963"])
+    def test_captured_following_token_is_a_location(self, server_version: str) -> None:
+        raw = "Syntax: In line 1, column 43 before '(50))'\nSyntax error: unexpected 'VARCHAR' "
+        hinted = _add_error_hints(raw)
+        assert hinted == raw + (
+            " [Hint: Near token 'VARCHAR', an identifier at or before this position "
+            "may be a CUBRID reserved word. "
+            "Use double-quotes around the identifier or rename it. "
+            "See: https://github.com/cubrid-lab/.github/issues/5]"
+        ), server_version
+        assert "'VARCHAR' is a CUBRID reserved word" not in hinted
+        assert "KEY" not in hinted
+
+        response = _build_error_response(DEFAULT_CAS_INFO, -493, raw)
+        reader = PacketReader(response[8:])
+        with pytest.raises(ProgrammingError) as caught:
+            _raise_error(reader, len(response) - 8)
+        error = caught.value
+        assert error.msg == hinted
+        assert error.code == error.errno == -493
+        assert error.sqlstate == "42000"
+        assert getattr(error, "_cas_server_error") is True
+        assert reader.bytes_remaining() == 0
+
+    def test_unexpected_reserved_identifier_keeps_neutral_hint(self) -> None:
+        raw = "Syntax error: unexpected 'KEY'"
+        hinted = _add_error_hints(raw)
+        assert hinted.startswith(raw + " [Hint: Near token 'KEY',")
+        assert "may be a CUBRID reserved word" in hinted
+        assert "Use double-quotes around the identifier or rename it." in hinted
+        assert "'KEY' is a CUBRID reserved word" not in hinted
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Syntax error: unexpected 'not_a_reserved_identifier'",
+            "Syntax error at line 1",
+            "unexpected 'VARCHAR'",
+            "Unknown class 'missing_table'",
+        ],
+    )
+    def test_unrelated_messages_get_no_reserved_hint(self, message: str) -> None:
+        assert _add_error_hints(message) == message
+
+    def test_cardinality_hint_is_unchanged(self) -> None:
+        raw = "CARDINALITY function not found"
+        assert _add_error_hints(raw) == raw + (
+            " [Hint: CARDINALITY() has a known bug in CUBRID 11.x and may not work. "
+            "Use a subquery with COUNT(*) on TABLE(column) instead. "
+            "See: https://github.com/cubrid-lab/.github/issues/3]"
+        )
 
 
 class TestRaiseErrorCodeDispatch:
