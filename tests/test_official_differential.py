@@ -674,6 +674,29 @@ def _lob_error_classes() -> tuple[str, str]:
     return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
 
 
+def _lob_stream(payload: str | bytes, kind: str) -> tuple[str, str]:
+    """Compare only in-range byte-position operations safe in the C extension."""
+
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        lob = conn.lob()
+        try:
+            written = lob.write(payload, kind)
+            end = lob.seek(0, module.SEEK_CUR)
+            start = lob.seek(0, module.SEEK_SET)
+            first = lob.read(1)  # ASCII prefix, never split a UTF-8 character
+            after_first = lob.seek(0, module.SEEK_CUR)
+            rest = lob.read()  # strictly before EOF
+            last_pos = lob.seek(1, module.SEEK_END)
+            last = lob.read(1)
+            return render((written, end, start, first, after_first, rest, last_pos, last))
+        finally:
+            lob.close()
+            conn.close()
+
+    return observe(native), observe(_cubrid)
+
+
 FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
 KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
 
@@ -734,6 +757,8 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "lob-bind-cross-connection": _lob_cross_connection,
     "lob-bind-after-source-close": _lob_bind_after_source_close,
     "lob-error-classes": _lob_error_classes,
+    "lob-stream-blob": lambda: _lob_stream(b"AhelloB", "B"),
+    "lob-stream-clob": lambda: _lob_stream("A한éB", "C"),
 }
 
 

@@ -183,6 +183,28 @@ def test_null_cell_consumes_the_row_and_empties_the_lob(driver: LobDriver) -> No
         conn.close()
 
 
+def test_fetch_refill_and_null_keep_the_existing_stream_position(driver: LobDriver) -> None:
+    conn = _conn(driver)
+    locator = b"second-lob\x00"
+    replacement = struct.pack(">iqi", 33, 7, len(locator)) + locator
+    driver.result = [
+        (1, BLOB_CELL, CLOB_CELL),
+        (2, None, None),
+        (3, _cell(BLOB, replacement), CLOB_CELL),
+    ]
+    try:
+        cur = _selected(conn)
+        lob = conn.lob()
+        cur.fetch_lob(2, lob)
+        assert lob.seek(2, native.SEEK_SET) == 2
+        cur.fetch_lob(2, lob)  # NULL changes the value, not the byte position.
+        assert lob._handle is None and lob.seek(0) == 2
+        cur.fetch_lob(2, lob)
+        assert lob._handle == replacement and lob.seek(0) == 2
+    finally:
+        conn.close()
+
+
 def test_end_of_result_returns_none_and_keeps_the_lob(driver: LobDriver) -> None:
     conn = _conn(driver)
     try:

@@ -2918,6 +2918,9 @@
   },
   "pycubrid.compat.native": {
     "__all__": [
+      "SEEK_CUR",
+      "SEEK_END",
+      "SEEK_SET",
       "connect",
       "connection",
       "cursor",
@@ -2925,6 +2928,18 @@
       "set"
     ],
     "entries": {
+      "SEEK_CUR": {
+        "kind": "attribute",
+        "type": "int"
+      },
+      "SEEK_END": {
+        "kind": "attribute",
+        "type": "int"
+      },
+      "SEEK_SET": {
+        "kind": "attribute",
+        "type": "int"
+      },
       "connect": {
         "kind": "callable",
         "signature": {
@@ -3280,6 +3295,67 @@
                   "has_default": false,
                   "kind": "POSITIONAL_OR_KEYWORD",
                   "name": "self"
+                }
+              ]
+            }
+          },
+          "read": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "length"
+                }
+              ]
+            }
+          },
+          "seek": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "offset"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "whence"
+                }
+              ]
+            }
+          },
+          "write": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "data"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "type"
                 }
               ]
             }
@@ -3669,6 +3745,67 @@
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "self"
+            }
+          ]
+        }
+      },
+      "read": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_ONLY",
+              "name": "length"
+            }
+          ]
+        }
+      },
+      "seek": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "offset"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_ONLY",
+              "name": "whence"
+            }
+          ]
+        }
+      },
+      "write": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "data"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_ONLY",
+              "name": "type"
             }
           ]
         }

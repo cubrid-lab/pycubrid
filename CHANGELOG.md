@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Explicit native LOB byte-position stream (#442)** — `pycubrid.compat.native.lob`
+  now adds sync-only `write(data, type="B")`, `read(length=0)` and
+  `seek(offset, whence=SEEK_CUR)`, plus the three `SEEK_*` constants. BLOB and
+  CLOB text is UTF-8 as in the official Python 3 extension; seek positions
+  count bytes and SEEK_END subtracts its offset. Writes create a BLOB or CLOB
+  lazily and append only at the tracked end; reads span the broker's chunk cap.
+  A successful short read advances the byte position immediately, even if a
+  later LOB_READ reply fails, so a still-live session resumes without repeating
+  accepted bytes.
+  The existing physical-session/origin fences apply to read/write as well as
+  bind, and created temporary handles remain single-use after autocommit bind.
+  Deliberate safe differences are local rejection of non-end writes and invalid
+  positions, empty/EOF returning `""`, and clamping oversized reads; terminal
+  close remains unchanged. Ordinary `Lob.read(length, offset=0)` and
+  `write(bytes, offset=0)`, async, file import/export and dependencies are
+  unchanged. Focused offline tests, CUBRID 10.2/11.4 live storage checks and
+  safe official C-extension differential cases cover the new surface.
 - **Advisory nightly downstream corpus (#356)** — `bug-hunt.yml` now runs three
   isolated CUBRID 11.4 dogfood lanes against the exact pycubrid workflow commit:
   SQLAlchemy ORM and pool tests, MCP live tool tests, and Cookbook AI-agent and
