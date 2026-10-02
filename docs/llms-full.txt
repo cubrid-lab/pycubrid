@@ -8418,6 +8418,31 @@ observed values. Never edit an expected value just to match current output. See
 The nightly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
+Its `downstream-corpus` job is **advisory** (nightly or manual only), with three
+isolated CUBRID 11.4 / Python 3.12 cells. It checks out the exact pycubrid
+workflow commit and the current `main` commit of each downstream repository in
+different directories. Every dependency install is constrained to the driver
+Git commit; after the final install, `scripts/downstream_corpus.py` rejects a
+different Git origin/commit, a PyPI/local replacement or an import shadowed by
+the checkout. The existing `scripts/wait_for_cubrid.py` checks the live broker.
+
+| Downstream | Selected real workload | Accepted skips |
+|---|---|---|
+| `sqlalchemy-cubrid` | ORM dogfood and sync/async pool-stress files, in separate pytest runs | None |
+| `cubrid-mcp-server` | Live integration tool cases, including a real read query and composite-PK schema case | Only cases requiring user tables when the fresh database has none; their reasons are reported |
+| `cubrid-cookbook-python` | Five AI-agent scripts (including MCP stdio) and the async-worker database tasks, in separate pytest processes | None |
+
+Each selected workload needs at least one passed JUnit case; a missing report,
+failed case, unexpected skip or all-skipped workload fails that advisory cell.
+The step summary and always-uploaded artifact record the driver and downstream
+commit hashes, Python and installed package versions, driver origin, actual
+CUBRID server version, and per-workload pass/skip/failure counts. Job-level
+`continue-on-error` keeps
+this exploratory corpus out of PR and release gates, but the evidence states
+failure rather than claiming a false success. This is a bounded sample of real
+downstream behavior, not those repositories' complete suites or a test of MCP
+concurrent access; SQLAlchemy pool stress supplies the concurrent driver use.
+
 `tests/test_protocol_fuzz.py` mutates realistic broker replies built by
 `tests/helpers/cas_reply.py` (#523): execute and FETCH replies with column
 metadata and populated rows for every common type, plus schema, batch and LOB

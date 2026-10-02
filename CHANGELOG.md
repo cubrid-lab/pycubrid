@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Advisory nightly downstream corpus (#356)** — `bug-hunt.yml` now runs three
+  isolated CUBRID 11.4 dogfood lanes against the exact pycubrid workflow commit:
+  SQLAlchemy ORM and pool tests, MCP live tool tests, and Cookbook AI-agent and
+  async-worker tests. The selected test workloads use separate JUnit reports;
+  missing, failed or all-skipped workloads fail their advisory lane, while
+  legitimate empty-schema MCP skips are reported. Each lane verifies the
+  installed driver's Git origin/commit and import path after all dependencies
+  are installed, records the downstream commit and server version, and uploads
+  evidence even on failure. This does not change PR, release or full-matrix gates,
+  and does not claim MCP concurrency coverage.
 - **Deferred-close flush safety matrix (#585)** — real TCP replay checks four
   generation/reconnect/native-error/transport-error properties for sync and
   async commit and rollback. Removing the generation filter or flush guards
