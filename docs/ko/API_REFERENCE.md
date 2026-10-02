@@ -1103,6 +1103,9 @@ def callproc(
 ```
 
 저장 프로시저를 호출합니다. `CALL procname(?, ?, ...)` 문을 구성해 실행합니다.
+`procname`은 단일 식별자이거나 비어 있지 않은 식별자를 점으로 구분한 이름이어야 합니다
+(예: `schema.my_procedure`). `schema..proc`처럼 빈 부분이 있으면 SQL을 실행하기 전에
+`ProgrammingError`가 발생합니다.
 
 **반환:** 원본 `parameters` 시퀀스 (PEP 249에 따라).
 

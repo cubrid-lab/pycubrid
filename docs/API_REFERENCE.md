@@ -1171,6 +1171,9 @@ def callproc(
 ```
 
 Call a stored procedure. Constructs and executes a `CALL procname(?, ?, ...)` statement.
+`procname` must be a single identifier or non-empty dot-separated identifiers
+(for example, `schema.my_procedure`). Empty segments such as `schema..proc`
+raise `ProgrammingError` before any SQL is executed.
 
 **Returns:** The original `parameters` sequence (as per PEP 249).
 

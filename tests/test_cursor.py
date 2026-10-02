@@ -677,6 +677,25 @@ def test_callproc_without_parameters(cursor: Cursor, mock_connection: MagicMock)
     assert captured_sql == ["CALL my_proc()"]
 
 
+@pytest.mark.parametrize("procname", ["foo..bar", "foo.", "foo.1bar", ".foo"])
+def test_callproc_rejects_invalid_qualified_name(cursor: Cursor, procname: str) -> None:
+    cursor.execute = MagicMock()
+
+    with pytest.raises(ProgrammingError, match="Invalid stored procedure name"):
+        cursor.callproc(procname)
+
+    cursor.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("procname", ["foo", "schema.proc", "_schema._proc2"])
+def test_callproc_accepts_valid_qualified_name(cursor: Cursor, procname: str) -> None:
+    cursor.execute = MagicMock()
+
+    assert cursor.callproc(procname) == ()
+
+    cursor.execute.assert_called_once_with(f"CALL {procname}()", ())
+
+
 def test_iterator_protocol(cursor: Cursor, mock_connection: MagicMock) -> None:
     def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
