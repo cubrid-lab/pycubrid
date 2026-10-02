@@ -33,6 +33,7 @@ import pytest
 
 import pycubrid
 from pycubrid.compat import native
+from pycubrid.lob import Lob
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
@@ -361,6 +362,317 @@ def _set_error_classes() -> tuple[str, str]:
     return run(native), run(_cubrid)
 
 
+# -- native LOB handles: lob() / fetch_lob() / bind_lob() (#441) ----------------------
+
+LOB_BLOB = bytes(range(256)) * 400  # 102400 bytes, above the ~80 KB LOB_READ cap
+LOB_CLOB = "한글 CLOB ✓ " * 7000  # about 105 KB of UTF-8 text
+
+
+def _lob_stored(observer: pycubrid.Connection, table: str, column: str) -> list[Any]:
+    """Each stored LOB as (length, content or its SHA-256) read via an ordinary ``Lob``."""
+    vc = observer.cursor()
+    try:
+        vc.execute(f"SELECT {column} FROM {table} ORDER BY id")
+        cells = [row[0] for row in vc.fetchall()]
+    finally:
+        vc.close()
+    stored: list[Any] = []
+    for cell in cells:
+        if cell is None:
+            stored.append(None)
+            continue
+        lob = Lob(observer, cell["lob_type"], cell["packed_lob_handle"])
+        content = lob.read(cell["lob_length"] + 16)
+        if len(content) > 64:  # keep large values out of the evidence records
+            content_text: object = "sha256:" + hashlib.sha256(content).hexdigest()
+        else:
+            content_text = content
+        stored.append((cell["lob_length"], content_text))
+    return stored
+
+
+def _lob_run(
+    module: Any,
+    rows: tuple[tuple[Any, ...], ...],
+    body: Callable[[Any, Any, str, str], object],
+    dst_column: str,
+) -> str:
+    """Create a source table with ``rows`` and an empty copy target, run ``body``.
+
+    ``body(module, conn, src, dst)`` returns its observations; the rendered
+    result also carries the ``dst_column`` values stored in the target.
+    """
+    src, dst = _table("odl"), _table("odl")
+    verify = _ordinary()
+    vc = verify.cursor()
+    try:
+        for name in (src, dst):
+            vc.execute(f"CREATE TABLE {name} (id INT, b BLOB, c CLOB)")
+        for row in rows:
+            vc.execute(f"INSERT INTO {src} VALUES (?, ?, ?)", row)
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        try:
+            observed = body(module, conn, src, dst)
+        finally:
+            conn.close()
+        return render((observed, _lob_stored(verify, dst, dst_column)))
+    finally:
+        for name in (src, dst):
+            vc.execute(f"DROP TABLE IF EXISTS {name}")
+        vc.close()
+        verify.close()
+
+
+def _outcome(call: Callable[[], object]) -> object:
+    try:
+        return call()
+    except Exception as exc:  # compared by class name only
+        return f"raises {type(exc).__name__}"
+
+
+def _lob_copy(select: str, col: int, dst_column: str) -> Callable[[], tuple[str, str]]:
+    """Fetch the handle at ``col`` of ``SELECT {select}`` and bind it into ``dst_column``."""
+
+    def body(_module: Any, conn: Any, src: str, dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT {select} FROM {src}")
+        cur.execute()
+        lob = conn.lob()
+        fetched = cur.fetch_lob(col, lob)
+        ins = conn.cursor()
+        ins.prepare(f"INSERT INTO {dst} (id, {dst_column}) VALUES (1, ?)")
+        ins.bind_lob(1, lob)
+        count = ins.execute()
+        lob.close()
+        cur.close()
+        ins.close()
+        return (fetched, count)
+
+    rows = ((1, LOB_BLOB, LOB_CLOB),)
+    return lambda: (
+        _lob_run(native, rows, body, dst_column),
+        _lob_run(_cubrid, rows, body, dst_column),
+    )
+
+
+def _lob_fetch_end() -> tuple[str, str]:
+    def body(_module: Any, conn: Any, src: str, dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT b FROM {src}")
+        cur.execute()
+        lob = conn.lob()
+        first = cur.fetch_lob(1, lob)
+        at_end = cur.fetch_lob(1, lob)  # returns None and keeps the handle
+        ins = conn.cursor()
+        ins.prepare(f"INSERT INTO {dst} (id, b) VALUES (1, ?)")
+        ins.bind_lob(1, lob)
+        count = ins.execute()
+        cur.close()
+        ins.close()
+        return (first, at_end, count)
+
+    rows = ((1, b"only row", None),)
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
+def _lob_fetch_null_cell() -> tuple[str, str]:
+    def body(_module: Any, conn: Any, src: str, _dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT b, id FROM {src} ORDER BY id")
+        cur.execute()
+        fetched = cur.fetch_lob(1, conn.lob())
+        # The NULL row was consumed: the next row is id 2.
+        following = cur.fetch_row()[1]
+        cur.close()
+        return (fetched, following)
+
+    rows = ((1, None, None), (2, b"x", None))
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
+def _lob_wrong_type() -> tuple[str, str]:
+    def body(module: Any, conn: Any, src: str, dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT b FROM {src}")
+        cur.execute()
+        ins = conn.cursor()
+        ins.prepare(f"INSERT INTO {dst} (id, b) VALUES (1, ?)")
+        outcomes = [
+            _outcome(lambda: ins.bind_lob(1, b"x")),
+            _outcome(lambda: ins.bind_lob(1, "x")),
+            _outcome(lambda: ins.bind_lob(1, None)),
+            _outcome(lambda: cur.fetch_lob(1, object())),
+            _outcome(lambda: module.lob(object())),
+        ]
+        cur.close()
+        ins.close()
+        return outcomes
+
+    rows = ((1, b"x", None),)
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
+def _lob_without_value() -> tuple[str, str]:
+    def body(_module: Any, conn: Any, src: str, dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT b FROM {src}")
+        cur.execute()
+        closed = conn.lob()
+        cur.fetch_lob(1, closed)
+        closed.close()
+        ins = conn.cursor()
+        outcomes = []
+        for row_id, lob in ((1, conn.lob()), (2, closed)):
+            ins.prepare(f"INSERT INTO {dst} (id, b) VALUES ({row_id}, ?)")
+
+            def bind_and_execute(target: Any = lob) -> object:
+                ins.bind_lob(1, target)
+                return ins.execute()
+
+            outcomes.append(_outcome(bind_and_execute))
+        cur.close()
+        ins.close()
+        return outcomes
+
+    rows = ((1, b"x", None),)
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
+def _lob_cross_connection() -> tuple[str, str]:
+    def body(module: Any, conn: Any, src: str, dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT b FROM {src}")
+        cur.execute()
+        lob = conn.lob()
+        cur.fetch_lob(1, lob)
+        other = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        try:
+            ins = other.cursor()
+            ins.prepare(f"INSERT INTO {dst} (id, b) VALUES (1, ?)")
+
+            def bind_and_execute() -> object:
+                ins.bind_lob(1, lob)
+                return ins.execute()
+
+            outcome = _outcome(bind_and_execute)
+            ins.close()
+        finally:
+            other.close()
+        cur.close()
+        return outcome
+
+    rows = ((1, b"committed", None),)
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
+def _lob_fetch_into_closed_or_foreign() -> tuple[str, str]:
+    def body(module: Any, conn: Any, src: str, dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT b FROM {src} ORDER BY id")
+        cur.execute()
+        closed = conn.lob()
+        cur.fetch_lob(1, closed)
+        closed.close()
+        other = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        try:
+            foreign = other.lob()
+            outcomes = [
+                _outcome(lambda: cur.fetch_lob(1, closed)),  # row 2
+                _outcome(lambda: cur.fetch_lob(1, foreign)),  # row 3
+            ]
+            ins = conn.cursor()
+            for row_id, lob in ((1, closed), (2, foreign)):
+                ins.prepare(f"INSERT INTO {dst} (id, b) VALUES ({row_id}, ?)")
+
+                def bind_and_execute(target: Any = lob) -> object:
+                    ins.bind_lob(1, target)
+                    return ins.execute()
+
+                outcomes.append(_outcome(bind_and_execute))
+            ins.close()
+        finally:
+            other.close()
+        cur.close()
+        return outcomes
+
+    rows = ((1, b"one", None), (2, b"two", None), (3, b"three", None))
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
+def _lob_fetch_end_before_checks() -> tuple[str, str]:
+    def body(_module: Any, conn: Any, src: str, _dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT id, b FROM {src}")
+        cur.execute()
+        cur.fetch_row()
+        closed = conn.lob()
+        closed.close()
+        outcomes = [
+            _outcome(lambda: cur.fetch_lob(1, conn.lob())),  # INTEGER column
+            _outcome(lambda: cur.fetch_lob(0, conn.lob())),
+            _outcome(lambda: cur.fetch_lob(9, conn.lob())),
+            _outcome(lambda: cur.fetch_lob(2, closed)),
+            _outcome(lambda: cur.fetch_lob("2", conn.lob())),  # argument parsing first
+        ]
+        cur.close()
+        return outcomes
+
+    rows = ((1, b"x", None),)
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
+def _lob_bind_after_source_close() -> tuple[str, str]:
+    def body(module: Any, conn: Any, src: str, dst: str) -> object:
+        source = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        cur = source.cursor()
+        cur.prepare(f"SELECT b FROM {src}")
+        cur.execute()
+        lob = source.lob()
+        cur.fetch_lob(1, lob)
+        cur.close()
+        source.close()
+        ins = conn.cursor()
+        ins.prepare(f"INSERT INTO {dst} (id, b) VALUES (1, ?)")
+
+        def bind_and_execute() -> object:
+            ins.bind_lob(1, lob)
+            return ins.execute()
+
+        outcome = _outcome(bind_and_execute)
+        ins.close()
+        return outcome
+
+    rows = ((1, b"committed", None),)
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
+def _lob_error_classes() -> tuple[str, str]:
+    def body(_module: Any, conn: Any, src: str, dst: str) -> object:
+        cur = conn.cursor()
+        cur.prepare(f"SELECT id, b FROM {src}")
+        cur.execute()
+        lob = conn.lob()
+        non_lob = _outcome(lambda: cur.fetch_lob(1, lob))
+        # The rejected call did not consume row 1.
+        following = cur.fetch_row()[0]
+        cur.execute()
+        cur.fetch_lob(2, lob)
+        ins = conn.cursor()
+        ins.prepare(f"INSERT INTO {dst} (id, b) VALUES (1, ?)")
+        outcomes = [
+            non_lob,
+            following,
+            _outcome(lambda: ins.bind_lob(0, lob)),
+            _outcome(lambda: ins.bind_lob(2, lob)),
+        ]
+        cur.close()
+        ins.close()
+        return outcomes
+
+    rows = ((1, b"x", None),)
+    return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
+
+
 FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
 KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
 
@@ -407,6 +719,20 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "bind-set-numeric-type": _set_case("SET(NUMERIC(5,2))", ("1.5", "2"), FIELD_NUMERIC),
     "bind-set-nul-truncation": _set_case("SET(VARCHAR(20))", ("a\x00b", "c"), FIELD_STRING),
     "bind-set-error-classes": _set_error_classes,
+    "lob-fetch-bind-copy-blob": _lob_copy("b", 1, "b"),
+    "lob-fetch-bind-copy-clob": _lob_copy("c", 1, "c"),
+    "lob-fetch-non-first-column": _lob_copy("c, b", 2, "b"),
+    "lob-fetch-non-first-column-int-first": _lob_copy("id, b", 2, "b"),
+    "lob-fetch-non-first-column-blob-first": _lob_copy("b, c", 2, "c"),
+    "lob-fetch-end-before-checks": _lob_fetch_end_before_checks,
+    "lob-fetch-into-closed-or-foreign": _lob_fetch_into_closed_or_foreign,
+    "lob-fetch-end": _lob_fetch_end,
+    "lob-fetch-null-cell": _lob_fetch_null_cell,
+    "lob-bind-wrong-type": _lob_wrong_type,
+    "lob-bind-without-value": _lob_without_value,
+    "lob-bind-cross-connection": _lob_cross_connection,
+    "lob-bind-after-source-close": _lob_bind_after_source_close,
+    "lob-error-classes": _lob_error_classes,
 }
 
 

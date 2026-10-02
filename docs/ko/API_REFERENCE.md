@@ -186,7 +186,8 @@ conn = pycubrid.connect(
 ## 명시적 네이티브 호환 기능
 
 옵트인 `pycubrid.compat.native`는 순수 Python 동기 전송 위에 INT32,
-문자열, SQL NULL과 [SET/MULTISET/SEQUENCE 컬렉션 값](#컬렉션-바인딩-set-imports-bind_set)만
+문자열, SQL NULL, [SET/MULTISET/SEQUENCE 컬렉션 값](#컬렉션-바인딩-set-imports-bind_set)과
+[조회한 BLOB/CLOB 핸들](#lob-핸들-lob-fetch_lob-bind_lob)만
 지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
 문자셋을 사용합니다.
 기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
@@ -211,10 +212,10 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 다른 백엔드, HA/TLS URL 옵션과 초과 인자는 연결 전에 거부하며 오류에 계정 정보가 담긴 DSN
 원문을 노출하지 않습니다.
 
-네이티브 연결은 `cursor()`, `set()`, `commit()`, `rollback()`, `close()`를 제공합니다.
+네이티브 연결은 `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`, `close()`를 제공합니다.
 커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
-bind_type=0)`, `bind_set(index, s)`, `execute(option=0, max_col_size=0) -> int`, 튜플만 반환하는
-`fetch_row(how=0)`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
+bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`, `execute(option=0, max_col_size=0) -> int`,
+튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
 Python 값 형식은 실행 전 거부합니다. 브로커가 현재 세션의 statement
 pooling을 알리지 않거나 비활성화한 경우 FC2 전에 거부합니다. 핸들은
 물리 CAS 세션에 묶이며 재접속 뒤 자동 재실행하지 않습니다. `commit()`은
@@ -306,6 +307,75 @@ try:
         cur.execute()
     finally:
         cur.close()
+finally:
+    conn.close()
+```
+
+### LOB 핸들 (`lob`, `fetch_lob`, `bind_lob`)
+
+#441부터 네이티브 기능은 공식 이름으로 BLOB/CLOB 핸들을 조회하고 바인딩합니다.
+`conn.lob()`(또는 `native.lob(conn)`)은 비어 있는 `native.lob`을 반환하고,
+`cur.fetch_lob(col, lob)`은 다음 행에서 핸들을 가져와 채우며,
+`cur.bind_lob(index, lob)`은 그 핸들을 1부터 시작하는 매개변수에 바인딩합니다.
+주된 용도는 저장된 LOB를 Python으로 읽지 않고 다른 행에 복사하는 것입니다.
+서버는 문장을 실행할 때 값을 복사하므로 `execute()` 뒤에는 원본 행을 바꾸거나
+삭제해도 됩니다.
+
+- `fetch_lob(col, lob)`은 `fetch_row()`처럼(FETCH 페이징 포함) 현재 SELECT
+  결과의 다음 행을 소비하고, 1부터 시작하는 `col` 컬럼의 핸들을 `lob`에
+  넣습니다. 그 컬럼의 타입이 BLOB/CLOB를 정합니다. `int`가 아닌 `col`은 공식
+  인자 파서처럼 가장 먼저 `TypeError`를 냅니다. 결과의 끝에서는 공식 드라이버처럼
+  컬럼 범위·타입이나 lob 상태를 검사하기 전에 `None`을 반환하고 아무것도 바꾸지
+  않습니다. 그 밖에는 BLOB/CLOB가 아니거나 범위를 벗어난 컬럼이 행을 소비하지
+  않고 `ProgrammingError`를, 닫힌 `lob`이나 다른 연결이 만든 `lob`이
+  `InterfaceError`를 냅니다. 공식 드라이버처럼 `None`을 반환합니다. NULL 셀은
+  행을 소비하고 `lob`을 값이 없는 상태로 둡니다.
+- `bind_lob(index, lob)`은 그 시점에 `lob`이 가진 핸들을 바인딩하며
+  `execute()` 전까지 아무것도 보내지 않습니다. 조회한 핸들은 서버가 새 행에
+  복사하는 커밋된 저장 값을 가리키므로, 공식 드라이버처럼 다시 바인딩할 수 있고,
+  열려 있는 다른 연결에서도, 원래 연결이 닫히거나 재접속한 뒤에도 바인딩할 수
+  있습니다. `native.lob`이 아닌 값은 공식과 같이 `TypeError`, 잘못된 인덱스는
+  `ProgrammingError`입니다. 닫힌 `lob`, 값이 없는 `lob`(채운 적이 없거나 NULL
+  셀에서 채움), 닫힌 커서나 연결은 요청 전에 `InterfaceError`를 냅니다. SQL
+  NULL은 `bind_param(index, None)`으로 바인딩합니다.
+- `lob.close()`는 핸들을 로컬에서만 버리고 아무것도 보내지 않습니다. CAS
+  프로토콜에는 LOB 해제 요청이 없고, 조회한 값은 서버의 행에 남습니다.
+  `close()` 전에 만든 바인딩은 그대로 유효합니다. 닫힌 `lob`은 다시 채우거나
+  바인딩할 수 없으므로 `conn.lob()`으로 새로 만드세요.
+- 네이티브 연결은 autocommit 전용이므로 조회한 행은 모두 커밋된 행이고,
+  `rollback()`이 되돌릴 트랜잭션이 없으며, 이미 조회한 핸들은 계속 쓸 수 있습니다.
+- `lob`에는 아직 `read()`, `write()`, `seek()`, `imports()`, `export()`가
+  없으며 #442, #443에서 다룹니다. 값을 읽으려면 일반 `pycubrid` 커서와
+  [`Lob.read()`](#readlength-offset)를 사용하세요. 비동기 LOB API는 없습니다.
+
+공식 드라이버와 의도적으로 다른 점은 모두 라이브 차등 주장(`tests/fixtures/official_differential_claims.json`의
+`lob-*`)으로 고정되어 있습니다. 값이 없거나 닫힌 `lob`을 바인딩하면
+`InterfaceError`를 냅니다(공식은 NULL 핸들을 바인딩해 SQL NULL을 저장). 닫힌
+`lob`이나 다른 연결이 만든 `lob`으로 `fetch_lob()`하면 `InterfaceError`를
+냅니다(공식은 채우며, 공식 `close()`는 다시 쓸 수 있음). `fetch_lob()`의 LOB가
+아닌 컬럼과 잘못된 `bind_lob()` 인덱스는 `ProgrammingError`를 냅니다(공식은
+`InterfaceError`). 공식 드라이버는 `col`이 아니라 1번 컬럼으로 핸들 타입을 정하므로
+바인딩 타입 바이트가 다를 수 있지만, 브로커는 핸들의 타입을 쓰며 CUBRID 10.2와
+11.4에서 저장되는 복사본은 같습니다.
+
+```python
+from pycubrid.compat import native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    src, dst = conn.cursor(), conn.cursor()
+    try:
+        src.prepare("SELECT id, photo FROM images WHERE id = 1")
+        src.execute()
+        photo = conn.lob()
+        src.fetch_lob(2, photo)  # 2번 컬럼은 BLOB
+        dst.prepare("INSERT INTO archive (photo) VALUES (?)")
+        dst.bind_lob(1, photo)
+        dst.execute()
+        photo.close()
+    finally:
+        src.close()
+        dst.close()
 finally:
     conn.close()
 ```

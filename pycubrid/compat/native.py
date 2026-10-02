@@ -1,10 +1,12 @@
 """Explicit native-style compatibility subset over the pure Python driver.
 
-Only the sync prepared INT, string and NULL cursor and SET/MULTISET/SEQUENCE
+Only the sync prepared INT, string and NULL cursor, SET/MULTISET/SEQUENCE
 collection binding (``connection.set()``, ``set.imports()``,
-``cursor.bind_set()``) are supported here. Strings use the connection charset
-(UTF-8 unless ``charset`` says otherwise). Ordinary DB-API cursors continue to
-use their existing FC41 path.
+``cursor.bind_set()``) and BLOB/CLOB handle fetch and bind
+(``connection.lob()``, ``cursor.fetch_lob()``, ``cursor.bind_lob()``) are
+supported here. Strings use the connection charset (UTF-8 unless ``charset``
+says otherwise). Ordinary DB-API cursors continue to use their existing FC41
+path.
 """
 
 from __future__ import annotations
@@ -124,6 +126,10 @@ class connection:
     def set(self) -> _NativeSet:
         """Create an empty collection value for ``cursor.bind_set()``; no I/O."""
         return _NativeSet(self)
+
+    def lob(self) -> _NativeLob:
+        """Create an empty LOB handle holder for ``cursor.fetch_lob()``; no I/O."""
+        return _NativeLob(self)
 
     def commit(self) -> None:
         """Commit, then notify prepared results only after a successful boundary."""
@@ -312,6 +318,76 @@ class cursor:
                 raise ProgrammingError("collection was imported for a different charset")
             self._bindings[index - 1] = binding
 
+    def bind_lob(self, index: int, lob: _NativeLob, /) -> None:
+        """Bind a one-based BLOB/CLOB handle held by ``lob``; no I/O.
+
+        The handle must come from ``fetch_lob()``, and the physical session
+        it was fetched on must still be current. A fetched handle may be
+        bound on another open connection: the server copies the committed
+        value into the new row. The binding keeps the handle it was given.
+        """
+        with self._connection._session_lock:
+            driver, _handle, generation = self._check_handle()
+            if not isinstance(lob, _NativeLob):
+                raise TypeError("bind_lob() requires a lob from connection.lob()")
+            if type(index) is not int or not 1 <= index <= self._bind_count:
+                raise ProgrammingError("prepared parameter index is out of range")
+            lob_type, handle = lob._bindable(self._connection)
+            self._bindings[index - 1] = _PreparedLob(lob_type, handle, driver, generation)
+
+    def fetch_lob(self, col: int, lob: _NativeLob, /) -> None:
+        """Fetch the next row and put its BLOB/CLOB handle at ``col`` into ``lob``.
+
+        ``col`` is one-based and its own column type decides BLOB or CLOB. At
+        the end of the result it returns ``None`` and changes nothing, before
+        ``col`` or ``lob`` is checked, as the official driver does. Otherwise
+        a column that is not BLOB/CLOB raises ``ProgrammingError`` without
+        consuming the row, and ``lob`` must be open and belong to this
+        connection. A NULL cell consumes the row and leaves ``lob`` without
+        a value. Returns ``None``, like the official driver.
+        """
+        with self._connection._session_lock:
+            driver, _handle, generation = self._check_handle()
+            if not isinstance(lob, _NativeLob):
+                raise TypeError("fetch_lob() requires a lob from connection.lob()")
+            if self._result_invalidated:
+                raise InterfaceError("prepared result was invalidated")
+            if not self._has_result:
+                raise InterfaceError("prepared cursor has no SELECT result")
+            if type(col) is not int:
+                # The official argument parser rejects this before anything.
+                raise TypeError("fetch_lob() column must be an int")
+            if (
+                self._row_index >= len(self._rows)
+                and self._fetched_count >= self._total_tuple_count
+            ):
+                return None
+            if not 1 <= col <= len(self._columns):
+                raise ProgrammingError("prepared column index is out of range")
+            lob_type = self._columns[col - 1].column_type
+            if lob_type not in _LOB_TYPES:
+                raise ProgrammingError("prepared column is not a BLOB or CLOB")
+            lob._check_fillable(self._connection)
+            row = self.fetch_row()
+            if row is None:
+                return None
+            cell = row[col - 1]
+            if cell is None:
+                lob._set(lob_type, None, None, None)
+                return None
+            if not isinstance(cell, dict) or cell.get("lob_type") != lob_type:
+                raise OperationalError("prepared LOB cell does not match its column type")
+            # Validates the handle framing before the lob keeps it.
+            binding = _PreparedLob(lob_type, cell["packed_lob_handle"], driver, generation)
+            lob._set(
+                lob_type,
+                binding.packed_handle,
+                _FETCHED,
+                (driver, generation),
+                committed=driver.autocommit is True,
+            )
+            return None
+
     def execute(self, option: int = 0, max_col_size: int = 0, /) -> int:
         """Execute the current handle once with a complete typed binding snapshot."""
         with self._connection._session_lock:
@@ -499,6 +575,120 @@ class set:  # the official native type name shadows the builtin here
 
 _NativeSet = set
 
+_LOB_TYPES = frozenset({CUBRIDDataType.BLOB, CUBRIDDataType.CLOB})
+
+
+# Where a lob's handle came from: fetched from a stored row, or (with #442,
+# not reachable yet) created by LOB_NEW and written. A created handle names a
+# temporary file of its own session, so it must stay on that session; a
+# fetched handle of a committed row may be bound anywhere, because the server
+# copies the stored file.
+_FETCHED = "fetched"
+_CREATED = "created"  # #442: lob.write() sets this origin
+
+
+class lob:  # the official native type name
+    """A BLOB/CLOB handle holder, created by ``connection.lob()``.
+
+    ``cursor.fetch_lob()`` fills it with a fetched handle and
+    ``cursor.bind_lob()`` binds that handle. The lob records the connection
+    that created it, where its handle came from and the physical session it
+    was fetched on. ``close()`` is local only: the CAS protocol has no LOB
+    free request.
+    """
+
+    def __init__(self, conn: connection, /) -> None:
+        if not isinstance(conn, connection):
+            raise TypeError("lob() requires a compatibility connection")
+        with conn._session_lock:
+            if conn._closed or not getattr(conn._driver, "_connected", True):
+                raise InterfaceError("compatibility connection is closed")
+        self._connection = conn
+        # (lob type, handle, origin, session, committed), replaced as one
+        # tuple so a bind on another connection always reads a consistent
+        # snapshot without taking this connection's lock. ``committed`` says
+        # the handle was fetched in autocommit mode, so its row was
+        # committed; the native connection is autocommit-only today. The
+        # official lob starts empty in BLOB mode.
+        self._state: tuple[int, bytes | None, str | None, tuple[object, int] | None, bool] = (
+            CUBRIDDataType.BLOB,
+            None,
+            None,
+            None,
+            False,
+        )
+        self._closed = False
+
+    @property
+    def _lob_type(self) -> int:
+        return self._state[0]
+
+    @property
+    def _handle(self) -> bytes | None:
+        return self._state[1]
+
+    @property
+    def _origin(self) -> str | None:
+        return self._state[2]
+
+    def _set(
+        self,
+        lob_type: int,
+        handle: bytes | None,
+        origin: str | None,
+        session: tuple[object, int] | None,
+        *,
+        committed: bool = False,
+    ) -> None:
+        self._state = (lob_type, handle, origin, session, committed)
+
+    def _check_fillable(self, conn: connection) -> None:
+        if self._closed:
+            raise InterfaceError("lob is closed")
+        if self._connection is not conn:
+            raise InterfaceError("lob belongs to another connection")
+
+    def _bindable(self, conn: connection) -> tuple[int, bytes]:
+        """Return the (lob type, handle) to bind on ``conn``, or raise."""
+        source = self._connection
+        lob_type, handle, origin, session, committed = self._state
+        if self._closed:
+            raise InterfaceError("lob is closed")
+        if handle is None or session is None:
+            raise InterfaceError("lob has no value")
+        if origin == _FETCHED:
+            # The server copies the stored file into the new row, whatever
+            # happened to the source session since the fetch; that is safe
+            # only for a committed row (an uncommitted one would be copied
+            # permanently).
+            if source is not conn and not committed:
+                raise InterfaceError("lob was not fetched from a committed row")
+            return lob_type, handle
+        # A created (temporary) handle stays on its own physical session.
+        driver, generation = session
+        if source is not conn:
+            raise InterfaceError("lob belongs to another connection")
+        if (
+            source._closed
+            or not getattr(source._driver, "_connected", True)
+            or source._driver is not driver
+            or source._driver._physical_generation != generation
+        ):
+            raise InterfaceError("lob handle belongs to an earlier physical session")
+        return lob_type, handle
+
+    def close(self) -> None:
+        """Drop the handle locally; no I/O. Later use raises ``InterfaceError``.
+
+        A binding already made from this lob keeps its handle.
+        """
+        with self._connection._session_lock:
+            self._closed = True
+            self._set(self._lob_type, None, None, None)
+
+
+_NativeLob = lob
+
 
 def connect(
     url: str,
@@ -511,4 +701,4 @@ def connect(
     return connection(url, user, passwd, charset=charset)
 
 
-__all__ = ["connection", "connect", "cursor", "set"]
+__all__ = ["connection", "connect", "cursor", "lob", "set"]

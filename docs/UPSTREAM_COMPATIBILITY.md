@@ -52,7 +52,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 | --- | --- |
 | Constructors, autocommit, threading | Native initialization enables autocommit; ordinary pycubrid defaults to manual commit and declares `threadsafety=1`. Explicit CUBRID/UTF-8 construction and aliases are available in #465; sharing, settings and CCI URL/HA options remain separate work. |
 | Charset, dict cursors, converters | The official wrapper exposes these options. Since #86, `pycubrid.connect(charset=...)`, `pycubrid.aio.connect(charset=...)`, `compat.native` and the `cubriddb.Connection(charset=...)` constructor encode and decode with the selected codec, verified live against an EUC-KR database; no `charset` attribute is retained on the connection. Dict cursors and converters have no equivalent surface. UTF-8 defaults remain unchanged. |
-| Prepare/typed binding | Ordinary cursors have no public prepare/bind/execute. The explicit `compat.native` cursor delivers sync scalar binding (#439) and collection binding (#440); LOB handles remain #441. |
+| Prepare/typed binding | Ordinary cursors have no public prepare/bind/execute. The explicit `compat.native` cursor delivers sync scalar binding (#439), collection binding (#440) and fetched LOB handle fetch/bind (#441). |
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
 | Result navigation and metadata | Absolute/relative seek and position are #444; 15-field result metadata is #445 with #398. Native next_result exists; the wrapper nextset stub and pycubrid's unsupported nextset do not supply that capability. |
 | Schema rows | #412 retains schema result-consumption/handle-cleanup work. A returned protocol packet is not the native schema-row return contract. |
@@ -63,7 +63,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 Maintainer-selected design, 2026-09-28: preserve ordinary pycubrid and add separate
 `pycubrid.compat.cubriddb` (wrapper) and `pycubrid.compat.native` (native) namespaces.
 Construction/close (#465), the explicit native sync prepared scalar cursor
-(#439) and its collection binding (#440) are delivered; other rows below remain targets, not delivered capabilities.
+(#439), its collection binding (#440) and LOB handle fetch/bind (#441) are delivered; other rows below remain targets, not delivered capabilities.
 This reversible additive design
 does not authorize replacing 1.x defaults, adopting a
 2.0 replacement, or publishing a release. A global switch,
@@ -94,6 +94,7 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Extended metadata | `result_info(n=0, /)` returns tuple-of-15-tuples (one outer entry for n>=1), or None with no columns. Actual order: type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared. Preserve empty versus absent metadata; #445 must not fabricate unavailable fields. |
 | Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
 | Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
+| Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a bad index raises ProgrammingError. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in autocommit mode (always, today), since only committed rows may cross connections. Writing, reading, seeking and files are the next row (#442/#443). |
 | Native LOB | Separate mutable byte-position object, initially unpopulated. `write(string, type omitted, /) -> None` accepts str/bytes (UTF-8 for str), creates BLOB by default or B/C when requested. `read(len=0, /) -> str` reads remaining bytes for omitted/0 and decodes strict UTF-8. `seek(offset, whence=SEEK_CUR, /) -> int`; SEEK_END is size-offset. #442/#443 own lifecycle/short transfer/file behavior; ordinary bytes methods are not replaced. |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. Exact unstable messages and native argument-parser crashes are not targets. |
 
@@ -212,24 +213,24 @@ claims without cases and oracle pins that differ from the build script.
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
 | Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
-| Native (`_cubrid`) | 10 | 8 | 18 |
-| **Total** | **22** | **10** | **32** |
+| Native (`_cubrid`) | 21 | 11 | 32 |
+| **Total** | **33** | **13** | **46** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - Required servers: CUBRID 10.2, CUBRID 11.4
-- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440)
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441)
 
 <!-- official-differential-summary:end -->
 
 These claims cover the first bounded slice: stored scalar fetches, a static scalar
-row and description, the #439 prepared INT/string subset and #440 native
-collection binding. Wrapper collection shapes, LOBs, charset/HA, fault behavior and every other inventory operation remain uncertified
+row and description, the #439 prepared INT/string subset, #440 native
+collection binding and #441 native LOB handle fetch/bind. Wrapper collection shapes, LOB read/write/seek/files, charset/HA, fault behavior and every other inventory operation remain uncertified
 until they have claims here. The claim counts are not a parity percentage.
 
 ### Migration targets and small delivery acceptance
 
 For ordinary queries keep existing imports unchanged. The explicit native
-namespace now supports only its bounded sync scalar and collection prepared cursor; the
+namespace now supports only its bounded sync scalar, collection and LOB-handle prepared cursor; the
 wrapper still constructs and closes connections without cursor execution.
 Once later capabilities exist, wrapper migration is
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`; native migration
@@ -242,7 +243,7 @@ empty strings. Binary LOB users retain ordinary bytes APIs, not compatibility Un
 | Provisional leaf | Acceptance / dependency |
 | --- | --- |
 | M factories / M sharing | #465 delivers explicit construction/close, aliases, DSN/user/autocommit defaults and native-wrapper identity without changing ordinary behavior. Sharing/lifecycle serialization remains separate and gates threadsafety=2; no prepared engine or global switch is implied. |
-| M prepared / typed binding | #439 after #418 and this contract: exact count/return/positional/NULL/error checks; #440 native collection binding is delivered with live differential claims; #441 LOB binding follows core. |
+| M prepared / typed binding | #439 after #418 and this contract: exact count/return/positional/NULL/error checks; #440 native collection binding and #441 native LOB handle fetch/bind are delivered with live differential claims. |
 | M conversion / charset / HA | Separate dictCursor/converter leaf; charset encoding delivered by #86 (a retained wrapper `charset` attribute is still absent); separate HA/URL-option leaf with actual failover evidence. Parsing options or upstream default_cursor stubs alone are incomplete. |
 | S batch / errors / identity | Separate native batch records using existing arbitrary-SQL transport, namespace exception/export adapters, and broker-driven identity leaf with fresh/transaction/CALL/non-auto controls. Preserve ordinary first-error and cached-string behavior. |
 | M settings / navigation | Effective server operations versus four cached members; #444 seek/position; separate next_result/execute-option/query-plan leaves. Stubs/flags do not complete capabilities. |

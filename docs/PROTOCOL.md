@@ -465,10 +465,14 @@ whatever element type is requested (INT elements are their decimal text), and
 the default kind is SET (`16`), so its bytes equal the official request.
 `kind=MULTISET` is sent as SEQUENCE (`18`), never as `17`.
 
-An internal LOB-handle binding (#441; no public API yet) uses the same pair.
+A LOB-handle binding (#441; public only through `pycubrid.compat.native`
+`fetch_lob()`/`bind_lob()`) uses the same pair.
 The type argument is BLOB (`23`) or CLOB (`24`) and the value argument is the
 packed handle `[int32 db_type][int64 size][int32 locator length][locator
-NUL]`, byte for byte what the official driver sends for `bind_lob()`. The
+NUL]`. This is byte for byte what the official driver sends for `bind_lob()`
+when its lob type matches the column; the official driver takes the type byte
+from result column 1, and the broker ignores that byte in favor of the
+handle's own `db_type`. The
 `db_type` must match the type argument (BLOB `33`, CLOB `34`), and the
 locator length must cover the rest of the handle exactly. The broker builds
 the stored value from the handle's own size field (`caslob_to_dblob` in

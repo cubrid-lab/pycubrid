@@ -334,6 +334,152 @@
       "issue": "#440",
       "reason": "pycubrid keeps the classes of its existing #439 prepared cursor: invalid values and indexes are ProgrammingError, a non-connection owner is InterfaceError, and server error -494 follows the driver-wide errno mapping (ProgrammingError) rather than the official extension's IntegrityError list. Every client-side failure happens before I/O and leaves the set and slot unchanged.",
       "expected": {"pycubrid": "[str('raises ProgrammingError'), str('raises ProgrammingError'), str('raises ProgrammingError'), str('raises ProgrammingError'), str('raises InterfaceError'), str('raises ProgrammingError')]", "native": "[str('raises InterfaceError'), str('raises InterfaceError'), str('raises InterfaceError'), str('raises InterfaceError'), str('raises TypeError'), str('raises IntegrityError')]"}
+    },
+    {
+      "id": "lob-fetch-bind-copy-blob",
+      "surface": "native",
+      "classification": "match",
+      "summary": "A BLOB handle fetched with fetch_lob(1, lob) and bound with bind_lob into another row stores the same 102400 bytes as _cubrid; the value is above the broker's single LOB_READ cap.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute", "documented_cubrid.lob.close"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-fetch-bind-copy-clob",
+      "surface": "native",
+      "classification": "match",
+      "summary": "A CLOB handle with about 110 KB of UTF-8 Korean text, fetched with fetch_lob and bound with bind_lob, stores the same text as _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute", "documented_cubrid.lob.close"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-fetch-non-first-column",
+      "surface": "native",
+      "classification": "match",
+      "summary": "fetch_lob(2, lob) on SELECT c, b (CLOB first, BLOB requested) followed by bind_lob into a BLOB column stores the same bytes as _cubrid. _cubrid types the handle from column 1 (python_cubrid.c:2891), so its bind type byte can differ from pycubrid's, which follows the requested column; the broker builds the value from the handle's own type, and the stored value is the same on both servers.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute", "documented_cubrid.lob.close"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-fetch-non-first-column-int-first",
+      "surface": "native",
+      "classification": "match",
+      "summary": "fetch_lob(2, lob) on SELECT id, b (INTEGER first, BLOB requested) followed by bind_lob stores the same bytes as _cubrid, although _cubrid types the handle as CLOB from column 1.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute", "documented_cubrid.lob.close"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-fetch-non-first-column-blob-first",
+      "surface": "native",
+      "classification": "match",
+      "summary": "fetch_lob(2, lob) on SELECT b, c (BLOB first, CLOB requested) followed by bind_lob into a CLOB column stores the same text as _cubrid, although _cubrid types the handle as BLOB from column 1.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute", "documented_cubrid.lob.close"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-fetch-end",
+      "surface": "native",
+      "classification": "match",
+      "summary": "At the end of the result fetch_lob returns None and keeps the handle from the last row, so a following bind_lob stores that value, as in _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-fetch-null-cell",
+      "surface": "native",
+      "classification": "match",
+      "summary": "fetch_lob on a NULL cell returns None and consumes the row, as in _cubrid; the next fetch_row returns the following row.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.fetch_row"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-bind-wrong-type",
+      "surface": "native",
+      "classification": "match",
+      "summary": "bind_lob with bytes, str or None, fetch_lob with a non-lob object and lob(object()) raise TypeError, as in _cubrid.",
+      "inventory_ids": ["documented_cubrid.lob", "documented_cubrid.connection.lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.fetch_lob"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-bind-without-value",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "Binding a lob that was never filled, or one that was closed after fetch_lob, raises InterfaceError in pycubrid; _cubrid binds a NULL handle and stores SQL NULL.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute", "documented_cubrid.lob.close"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441",
+      "reason": "A lob without a handle has no value to bind; pycubrid rejects it before any request instead of silently storing NULL. SQL NULL stays available through bind_param(index, None).",
+      "expected": {"pycubrid": "([str('raises InterfaceError'), str('raises InterfaceError')], [])", "native": "([int(1), int(1)], [NoneType(None), NoneType(None)])"}
+    },
+    {
+      "id": "lob-bind-cross-connection",
+      "surface": "native",
+      "classification": "match",
+      "summary": "A handle fetched from a committed row on one connection and bound with bind_lob on another stores an independent copy, as in _cubrid.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-error-classes",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "fetch_lob on an INTEGER column and bind_lob with index 0 or 2 (one parameter) raise ProgrammingError in pycubrid and InterfaceError in _cubrid; in both drivers the rejected fetch_lob does not consume the row.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute", "documented_cubrid.cursor.fetch_row"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441",
+      "reason": "pycubrid keeps the classes of its #439 prepared cursor: an invalid column or parameter index is ProgrammingError, raised before any request. _cubrid reports the CCI errors -20008 (type conversion) and -20009 (index out of range) as InterfaceError.",
+      "expected": {"pycubrid": "([str('raises ProgrammingError'), int(1), str('raises ProgrammingError'), str('raises ProgrammingError')], [])", "native": "([str('raises InterfaceError'), int(1), str('raises InterfaceError'), str('raises InterfaceError')], [])"}
+    },
+    {
+      "id": "lob-fetch-end-before-checks",
+      "surface": "native",
+      "classification": "match",
+      "summary": "At the end of the result fetch_lob returns None before checking the column range or type or the lob's state, as in _cubrid: an INTEGER column, column 0, column 9 and a closed lob all return None, while a non-int column still raises TypeError from argument parsing.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.lob.close"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
+    },
+    {
+      "id": "lob-fetch-into-closed-or-foreign",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "fetch_lob into a closed lob, or into a lob created by another connection, raises InterfaceError in pycubrid and binding either lob then raises too; _cubrid fills both (close() is reusable there) and their binds store the fetched values.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute", "documented_cubrid.lob.close"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441",
+      "reason": "In pycubrid close() is terminal and a lob is filled only by cursors of the connection that created it, so a handle's owner is always known; both rules fail before any request. A fetched handle may still be bound on another connection (lob-bind-cross-connection).",
+      "expected": {"pycubrid": "([str('raises InterfaceError'), str('raises InterfaceError'), str('raises InterfaceError'), str('raises InterfaceError')], [])", "native": "([NoneType(None), NoneType(None), int(1), int(1)], [(int(3), bytes(b'two')), (int(5), bytes(b'three'))])"}
+    },
+    {
+      "id": "lob-bind-after-source-close",
+      "surface": "native",
+      "classification": "match",
+      "summary": "A handle fetched on a connection that is then closed still binds on another connection and stores the committed value, as in _cubrid: the server copies the stored file.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob", "documented_cubrid.cursor.fetch_lob", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.execute"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
+      "issue": "#441"
     }
   ]
 }

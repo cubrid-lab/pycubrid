@@ -1,7 +1,6 @@
 """Internal typed FC3 LOB-handle binds and the packed-handle size field (#441).
 
-No public LOB binding API: these pin the wire contract the native
-``bind_lob()`` builds on.
+These pin the wire contract that the native ``bind_lob()`` builds on.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ import pytest
 from hypothesis import given, strategies as st
 
 from pycubrid import protocol
-from pycubrid.compat import native
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
 from pycubrid.lob import Lob
@@ -360,9 +358,3 @@ def test_native_execute_rejects_a_lob_binding_from_another_session(
         assert _bind_pair(sent.bindings[0]) == bytes.fromhex(OFFICIAL_BIND_PAIRS[0][2])
     finally:
         conn.close()
-
-
-def test_native_cursor_module_exposes_no_lob_binding_yet() -> None:
-    assert not hasattr(native.cursor, "bind_lob")
-    assert not hasattr(native.cursor, "fetch_lob")
-    assert not hasattr(native.connection, "lob")

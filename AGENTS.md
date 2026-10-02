@@ -95,9 +95,15 @@ MULTISET kind with -454. The public #440 `imports()` matches the official
 bytes: STRING elements whatever the requested type, default kind SET, and
 `kind=MULTISET` sent as SEQUENCE.
 
-Typed LOB-handle FC3 binds (#441, internal) send BLOB `23`/CLOB `24` as the
+Typed LOB-handle FC3 binds (#441; public only through `compat.native`
+`lob()`/`fetch_lob()`/`bind_lob()`) send BLOB `23`/CLOB `24` as the
 type argument and the packed handle `[int32 db_type 33/34][int64 size][int32
-locator length][locator NUL]` as the value, the official `bind_lob()` bytes.
+locator length][locator NUL]` as the value: the official `bind_lob()` bytes
+whenever the official lob type matches the column (official takes the type
+byte from result column 1; the broker uses the handle's own `db_type`).
+Fetched handles of committed rows may be bound on another connection (the
+server copies them); a native lob records its origin (fetched/created) so
+#442 can keep created temp handles on their own session.
 The broker trusts the embedded size, so `Lob.write()` raises it to
 `offset + bytes_written` after each write, as CCI does (and leaves it alone
 when the reply claims more bytes than were sent). `_PreparedLob` records the
