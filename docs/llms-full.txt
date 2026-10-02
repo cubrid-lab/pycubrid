@@ -1302,7 +1302,7 @@ and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bi
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
 through FC41. The wrapper `pycubrid.compat.cubriddb` offers construction,
-close and autocommit access but no wrapper cursor, DB-API globals, a
+close, autocommit access and qualified row cursors but no DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
@@ -1415,6 +1415,54 @@ try:
     wrapper.autocommit = False   # effective setter, unlike native raw assignment
 finally:
     wrapper.close()
+```
+
+### Qualified wrapper row cursors (#466)
+
+`cubriddb.Connection.cursor(dictCursor=None)` returns a tuple-row cursor for a
+falsey argument and a dictionary-row cursor for a truthy argument. Direct
+construction is available as `pycubrid.compat.cursors.Cursor(conn)` and
+`DictCursor(conn)`; these classes are not added to the package-level exports.
+The cursor starts with `arraysize=1`, `rowcount=-1` and `description=None`.
+`execute(query, args=None, set_type=None)` delegates only the existing native
+INT32, string and SQL NULL prepared-binding subset. A non-`None` `set_type`,
+mapping arguments and unsupported native values fail before execution;
+`executemany`, collection/LOB arguments and broad DB-API execution are not
+part of this wrapper slice.
+
+For a SELECT, `description` contains seven-field tuples
+`(name, native_type, 0, 0, precision, scale, null_ok)` with integer `null_ok`.
+Dictionary keys preserve the exact column name and case; duplicate names
+overwrite earlier values without moving their original key position. SQL NULL
+remains `None`, distinct from an empty string. The public `description` is a
+writable snapshot, but row keys and converter arguments come from the private
+execution metadata even if a caller overwrites that public attribute.
+For non-SELECT statements this facade consistently sets `description=None`;
+the official extension can instead leave the attribute missing after a
+reprepare. This is a deliberate safe deviation.
+
+`conn.set_fetch_value_converter(func)` stores a connection-local value read
+by existing cursors at each fetch. A truthy converter is called with the
+already shaped tuple/dictionary and its native-style description; its result
+is returned unchanged, including falsey values or `None`. A falsey converter
+disables conversion; a truthy non-callable raises `TypeError` after consuming
+the row. Callback errors also consume that row. Matching the official wrapper,
+`fetchmany()` and `fetchall()` stop after consuming any falsey converted result,
+while iteration stops only on `None`; a later fetch may resume after either.
+
+```python
+from pycubrid.compat import cubriddb
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor(dictCursor=True)
+    try:
+        cur.execute('SELECT CAST(1 AS INTEGER) AS "ItemID"')
+        row = cur.fetchone()  # {"ItemID": 1}
+    finally:
+        cur.close()
+finally:
+    conn.close()
 ```
 
 ### Collection binding (`set`, `imports`, `bind_set`)
@@ -9783,7 +9831,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 | Surface | Existing pycubrid path or outstanding work |
 | --- | --- |
 | Constructors, autocommit, threading | Native initialization enables autocommit; ordinary pycubrid defaults to manual commit and declares `threadsafety=1`. Explicit CUBRID/UTF-8 construction and aliases are available in #465; sharing, settings and CCI URL/HA options remain separate work. |
-| Charset, dict cursors, converters | The official wrapper exposes these options. Since #86, `pycubrid.connect(charset=...)`, `pycubrid.aio.connect(charset=...)`, `compat.native` and the `cubriddb.Connection(charset=...)` constructor encode and decode with the selected codec, verified live against an EUC-KR database; no `charset` attribute is retained on the connection. Dict cursors and converters have no equivalent surface. UTF-8 defaults remain unchanged. |
+| Charset, dict cursors, converters | Since #86 the ordinary, async and explicit compatibility constructors accept a selected codec, verified live against EUC-KR; no `charset` attribute is retained. #466 adds qualified tuple/dict cursors and a connection-local converter over the existing native scalar subset. UTF-8 defaults remain unchanged. |
 | Prepare/typed binding | Ordinary cursors have no public prepare/bind/execute. The explicit `compat.native` cursor delivers sync scalar binding (#439), collection binding (#440) and fetched LOB handle fetch/bind (#441). |
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
 | Result navigation and metadata | Absolute/relative seek and position are #444; 15-field result metadata is #445 with #398. Native next_result exists; the wrapper nextset stub and pycubrid's unsupported nextset do not supply that capability. |
@@ -9817,10 +9865,10 @@ and an omitted optional argument is not interchangeable with explicit None.
 
 | Surface | Selected contract / delivery boundary |
 | --- | --- |
-| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close and #467 autocommit access are delivered; excess positional/unsupported keyword or DSN options are rejected. Selectable charset/HA and wrapper cursor execution are not delivered. |
+| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close, #467 autocommit access, #86 selectable charset and #466 bounded row cursors are delivered; HA and unsupported DSN options remain rejected. |
 | Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require wrapper cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The compatibility modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. The native subset's private RLock is not a general thread-sharing promise. |
 | Settings (#467) | Delivered as writable raw native snapshots (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and separate effective `set_autocommit(mode, /)` / `set_isolation_level(level, /)`. Raw assignment accepts objects and sends nothing. The bool autocommit setter changes local CCI-equivalent mode; only a changed mode during an active transaction commits. Isolation SET (4/5/6) does not commit and skips an already effective level on the same physical session. The wrapper `.autocommit` property delegates its bool setter but its getter reads the raw native cache. Constructor reads actual lock/max/isolation; a complete max-string server error alone falls back to 0, and initial numeric level 4 retains the pinned official `CUBRID_TRAN_UNKNOWN_ISOLATION` text quirk. No effective lock/max setters, ordinary-default change or unsafe native parser parity. |
-| Wrapper cursor | `cursor(dictCursor=None)`, `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None`; tuple/dict fetch and connection fetch-converter callback. Contradictory mapping-binding/default_cursor docstrings are not working capability promises. |
+| Wrapper cursor (#466) | Delivered as qualified `pycubrid.compat.cursors.Cursor/DictCursor` and `Connection.cursor(dictCursor=None)`. `execute(query, args=None, set_type=None) -> int` delegates only native INT32/string/NULL scalar binding; non-None `set_type` and mappings fail before I/O. SELECT seven-field description, exact-name tuple/dict rows (last duplicate wins), and the current per-connection converter are supported. Falsey converter results stop bulk fetch after consuming a row; iteration stops only on None. `executemany`, collection/LOB args and mapping/default_cursor docstrings are not delivered. Non-SELECT description remains stable None rather than the official extension's possibly missing attribute after reprepare. |
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
 | Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. Wrapper `execute(..., set_type)`/`executemany` collection shapes are not delivered (#610). |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
@@ -9945,9 +9993,9 @@ claims without cases and oracle pins that differ from the build script.
 
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
-| Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
+| Wrapper (`CUBRIDdb`) | 13 | 2 | 15 |
 | Native (`_cubrid`) | 24 | 11 | 35 |
-| **Total** | **36** | **13** | **49** |
+| **Total** | **37** | **13** | **50** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - Required servers: CUBRID 10.2, CUBRID 11.4
@@ -9956,10 +10004,10 @@ claims without cases and oracle pins that differ from the build script.
 <!-- official-differential-summary:end -->
 
 These claims cover the bounded measured slices: stored scalar fetches, a static scalar
-row and description, the #439 prepared INT/string subset, #440 native
+row and description, the #466 qualified wrapper row-conversion subset, the #439 prepared INT/string subset, #440 native
 collection binding, #441/#442 native LOB handle/stream behavior and #467
 cached settings with safe effective setter values. Wrapper collection shapes,
-LOB file I/O, charset/HA, fault behavior and every other inventory operation remain uncertified
+LOB file I/O, HA, fault behavior and every other inventory operation remain uncertified
 until they have claims here. The claim counts are not a parity percentage.
 
 ### Migration targets and small delivery acceptance
@@ -9967,8 +10015,8 @@ until they have claims here. The claim counts are not a parity percentage.
 For ordinary queries keep existing imports unchanged. The explicit native
 namespace now supports bounded sync scalar, collection and LOB prepared execution
 plus the #467 settings subset; the wrapper constructs/closes connections and
-delegates autocommit but still has no cursor execution.
-Once later capabilities exist, wrapper migration is
+delegates autocommit and offers the bounded #466 row cursor over native scalar binding.
+For callers within that subset, wrapper migration is
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`; native migration
 is `import _cubrid` → `from pycubrid.compat import native as _cubrid`.
 For manual transactions, wrapper callers use `conn.autocommit = False`; native
@@ -9980,7 +10028,7 @@ empty strings. Binary LOB users retain ordinary bytes APIs, not compatibility Un
 | --- | --- |
 | M factories / M sharing | #465 delivers explicit construction/close, aliases, DSN/user/autocommit defaults and native-wrapper identity without changing ordinary behavior. Sharing/lifecycle serialization remains separate and gates threadsafety=2; no prepared engine or global switch is implied. |
 | M prepared / typed binding | #439 after #418 and this contract: exact count/return/positional/NULL/error checks; #440 native collection binding and #441 native LOB handle fetch/bind are delivered with live differential claims. |
-| M conversion / charset / HA | Separate dictCursor/converter leaf; charset encoding delivered by #86 (a retained wrapper `charset` attribute is still absent); separate HA/URL-option leaf with actual failover evidence. Parsing options or upstream default_cursor stubs alone are incomplete. |
+| M conversion / charset / HA | #466 delivers tuple/dict rows and connection-local converters over the scalar subset; #86 delivers charset encoding (without a retained wrapper `charset` attribute). HA/URL options remain a separate leaf requiring failover evidence. Parsing options or upstream default_cursor stubs alone are incomplete. |
 | S batch / errors / identity | Separate native batch records using existing arbitrary-SQL transport, namespace exception/export adapters, and broker-driven identity leaf with fresh/transaction/CALL/non-auto controls. Preserve ordinary first-error and cached-string behavior. |
 | M settings / navigation | Effective server operations versus four cached members; #444 seek/position; separate next_result/execute-option/query-plan leaves. Stubs/flags do not complete capabilities. |
 | S/M metadata / schema / LOB | #445 value/type/15-field metadata; #412/#455–457 owned schema reuse; #442 actual byte-position/short transfers; #443 files. Each is a focused slice, not a monolithic facade PR. |

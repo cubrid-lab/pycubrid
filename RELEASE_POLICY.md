@@ -107,7 +107,7 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
 includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
@@ -119,9 +119,11 @@ with its SET/MULTISET/SEQUENCE binding (`connection.set()`, `native.set`,
 `cursor.bind_lob()`, #441), followed by the native-only LOB byte-position
 stream (`lob.write()`/`read()`/`seek()` and `SEEK_*`, #442).
 Native cached settings and separate effective autocommit/isolation setters
-are the additional #467 subset.
+are the additional #467 subset. #466 adds qualified
+`pycubrid.compat.cursors.Cursor/DictCursor` row cursors and connection-local
+conversion over only the existing native scalar prepared path.
 Only their implemented factories, connection and cursor methods are public;
-no wrapper cursor, public async prepared API, threadsafety declaration or
+no wrapper collection/LOB execute, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
 both explicit modules and returned classes.
 These are **MINOR** additions while ordinary behavior stays unchanged;

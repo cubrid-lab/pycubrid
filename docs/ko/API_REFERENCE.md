@@ -192,7 +192,7 @@ conn = pycubrid.connect(
 문자셋을 사용합니다.
 기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
 사용합니다. `pycubrid.compat.cubriddb` 래퍼는 연결 생성·종료와 autocommit 설정을
-지원하며 래퍼 커서, DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
+지원하며 한정된 래퍼 행 커서도 제공합니다. DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
 확장과의 완전한 동등성은 제공하지 않습니다.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")`는 `native.connection`을
@@ -282,6 +282,47 @@ try:
     wrapper.autocommit = False   # 직접 캐시 대입과 달리 실제 설정자 호출
 finally:
     wrapper.close()
+```
+
+### 래퍼 행 커서 (#466)
+
+`cubriddb.Connection.cursor(dictCursor=None)`는 인자가 거짓이면 튜플 커서,
+참이면 사전 커서를 만듭니다. `pycubrid.compat.cursors.Cursor(conn)`와
+`DictCursor(conn)`로 직접 생성할 수도 있지만 패키지 전역 내보내기에는
+추가하지 않습니다. 초기값은 `arraysize=1`, `rowcount=-1`, `description=None`입니다.
+`execute(query, args=None, set_type=None)`는 기존 네이티브 준비 실행의 INT32,
+문자열, SQL NULL만 사용합니다. `set_type`이 `None`이 아니거나 매핑 인자·미지원
+값이면 실행 전에 실패합니다. `executemany`, 컬렉션/LOB 인자와 범용 DB-API 실행은
+이번 범위에 포함되지 않습니다.
+
+SELECT의 `description`은 `(name, native_type, 0, 0, precision, scale,
+null_ok)`의 7필드 튜플이며 `null_ok`는 정수입니다. 사전 키는 컬럼 이름과 대소문자를
+그대로 보존하고 같은 이름이 반복되면 마지막 값이 앞 값을 덮습니다. SQL NULL의
+`None`과 빈 문자열은 구분됩니다. 공개 `description`은 쓰기 가능한 스냅샷이지만,
+이를 호출자가 바꿔도 키와 변환기 인자는 내부 실행 메타데이터를 사용합니다.
+SELECT가 아닌 경우 `description=None`을 안정적으로 설정합니다. 공식 확장은
+재준비 후 속성이 사라질 수도 있어 이 부분은 의도적인 안전성 차이입니다.
+
+`conn.set_fetch_value_converter(func)`는 연결별 값을 저장하고 기존 커서도 매번
+최신 값을 읽습니다. 참인 변환기는 이미 구성된 튜플/사전 행과 원래 설명을 받아
+반환값을 `None` 등 거짓 값까지 그대로 전달합니다. 거짓 변환기 값은 변환을 끄고,
+참이지만 호출 불가능한 값은 행을 소비한 뒤 `TypeError`를 냅니다. 변환기 예외도
+행을 소비합니다. 공식 래퍼처럼 `fetchmany()`/`fetchall()`은 거짓인 변환 결과를
+소비하고 멈추지만 반복자는 `None`에서만 멈추며 이후 fetch로 재개할 수 있습니다.
+
+```python
+from pycubrid.compat import cubriddb
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor(dictCursor=True)
+    try:
+        cur.execute('SELECT CAST(1 AS INTEGER) AS "ItemID"')
+        row = cur.fetchone()  # {"ItemID": 1}
+    finally:
+        cur.close()
+finally:
+    conn.close()
 ```
 
 ### 컬렉션 바인딩 (`set`, `imports`, `bind_set`)

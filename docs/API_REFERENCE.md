@@ -206,7 +206,7 @@ and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bi
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
 through FC41. The wrapper `pycubrid.compat.cubriddb` offers construction,
-close and autocommit access but no wrapper cursor, DB-API globals, a
+close, autocommit access and qualified row cursors but no DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
@@ -319,6 +319,54 @@ try:
     wrapper.autocommit = False   # effective setter, unlike native raw assignment
 finally:
     wrapper.close()
+```
+
+### Qualified wrapper row cursors (#466)
+
+`cubriddb.Connection.cursor(dictCursor=None)` returns a tuple-row cursor for a
+falsey argument and a dictionary-row cursor for a truthy argument. Direct
+construction is available as `pycubrid.compat.cursors.Cursor(conn)` and
+`DictCursor(conn)`; these classes are not added to the package-level exports.
+The cursor starts with `arraysize=1`, `rowcount=-1` and `description=None`.
+`execute(query, args=None, set_type=None)` delegates only the existing native
+INT32, string and SQL NULL prepared-binding subset. A non-`None` `set_type`,
+mapping arguments and unsupported native values fail before execution;
+`executemany`, collection/LOB arguments and broad DB-API execution are not
+part of this wrapper slice.
+
+For a SELECT, `description` contains seven-field tuples
+`(name, native_type, 0, 0, precision, scale, null_ok)` with integer `null_ok`.
+Dictionary keys preserve the exact column name and case; duplicate names
+overwrite earlier values without moving their original key position. SQL NULL
+remains `None`, distinct from an empty string. The public `description` is a
+writable snapshot, but row keys and converter arguments come from the private
+execution metadata even if a caller overwrites that public attribute.
+For non-SELECT statements this facade consistently sets `description=None`;
+the official extension can instead leave the attribute missing after a
+reprepare. This is a deliberate safe deviation.
+
+`conn.set_fetch_value_converter(func)` stores a connection-local value read
+by existing cursors at each fetch. A truthy converter is called with the
+already shaped tuple/dictionary and its native-style description; its result
+is returned unchanged, including falsey values or `None`. A falsey converter
+disables conversion; a truthy non-callable raises `TypeError` after consuming
+the row. Callback errors also consume that row. Matching the official wrapper,
+`fetchmany()` and `fetchall()` stop after consuming any falsey converted result,
+while iteration stops only on `None`; a later fetch may resume after either.
+
+```python
+from pycubrid.compat import cubriddb
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor(dictCursor=True)
+    try:
+        cur.execute('SELECT CAST(1 AS INTEGER) AS "ItemID"')
+        row = cur.fetchone()  # {"ItemID": 1}
+    finally:
+        cur.close()
+finally:
+    conn.close()
 ```
 
 ### Collection binding (`set`, `imports`, `bind_set`)

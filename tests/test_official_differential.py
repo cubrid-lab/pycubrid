@@ -32,7 +32,7 @@ from typing import Any
 import pytest
 
 import pycubrid
-from pycubrid.compat import native
+from pycubrid.compat import cubriddb, native
 from pycubrid.lob import Lob
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
@@ -80,6 +80,48 @@ def _ordinary() -> pycubrid.Connection:
 
 def _table(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+def _wrapper_row_conversion() -> tuple[str, str]:
+    table = _table("owr")
+    observer = _ordinary()
+    setup = observer.cursor()
+    try:
+        setup.execute(
+            f"CREATE TABLE {table} (id INTEGER NOT NULL, txt VARCHAR(40), opt VARCHAR(40))"
+        )
+        setup.execute(f"INSERT INTO {table} VALUES (1, '한', NULL)")
+        setup.execute(f"INSERT INTO {table} VALUES (2, '', '')")
+        query = f'SELECT id AS "MiXeD", txt AS dup, opt AS dup FROM {table} ORDER BY id'
+
+        def observe(connect: Callable[..., Any]) -> str:
+            conn = connect(URL, TEST_USER, TEST_PASSWORD)
+            try:
+                tuples = conn.cursor()
+                dicts = conn.cursor(dictCursor=True)
+                converted = conn.cursor(dictCursor=True)
+                try:
+                    tuples.execute(query)
+                    desc = tuples.description
+                    tuple_rows = tuples.fetchall()
+                    dicts.execute(query)
+                    dict_rows = dicts.fetchall()
+                    conn.set_fetch_value_converter(lambda row, metadata: (row, metadata))
+                    converted.execute(query)
+                    converted_row = converted.fetchone()
+                    return render((desc, tuple_rows, dict_rows, converted_row))
+                finally:
+                    tuples.close()
+                    dicts.close()
+                    converted.close()
+            finally:
+                conn.close()
+
+        return observe(cubriddb.connect), observe(CUBRIDdb.connect)
+    finally:
+        setup.execute(f"DROP TABLE IF EXISTS {table}")
+        setup.close()
+        observer.close()
 
 
 # -- wrapper surface: ordinary pycubrid DB-API versus CUBRIDdb ---------------------------
@@ -749,6 +791,7 @@ KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENC
 
 
 CASES: dict[str, Callable[[], tuple[str, str]]] = {
+    "wrapper-row-conversion": _wrapper_row_conversion,
     "fetch-integer": _stored("INTEGER", "42"),
     "fetch-bigint": _stored("BIGINT", "9223372036854775807"),
     "fetch-numeric": _stored("NUMERIC(10,2)", "12.34"),

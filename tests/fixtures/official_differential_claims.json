@@ -10,6 +10,15 @@
   "required_servers": ["10.2", "11.4"],
   "claims": [
     {
+      "id": "wrapper-row-conversion",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "Qualified tuple/dict cursors preserve exact aliases, duplicate-key overwrite, Unicode, SQL NULL, empty text, seven-field metadata and connection-local conversion on the supported scalar path.",
+      "inventory_ids": ["CUBRIDdb.connections.Connection.cursor", "CUBRIDdb.connections.Connection.set_fetch_value_converter", "CUBRIDdb.cursors.BaseCursor.fetchone", "CUBRIDdb.cursors.BaseCursor.fetchall"],
+      "scenario_ids": ["tests3/test_fetchone.py::test_fetchone", "tests3/test_fetchall.py::test_fetchall_multiple_columns"],
+      "issue": "#466"
+    },
+    {
       "id": "fetch-integer",
       "surface": "wrapper",
       "classification": "match",
