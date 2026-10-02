@@ -2820,9 +2820,39 @@
                 }
               ]
             }
+          },
+          "get_autocommit": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "set_autocommit": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "value"
+                }
+              ]
+            }
           }
         },
         "properties": [
+          "autocommit",
           "connection"
         ]
       },
@@ -2910,9 +2940,39 @@
             }
           ]
         }
+      },
+      "get_autocommit": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "set_autocommit": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "value"
+            }
+          ]
+        }
       }
     },
     "properties": [
+      "autocommit",
       "connection"
     ]
   },
@@ -3072,6 +3132,40 @@
                   "has_default": false,
                   "kind": "POSITIONAL_OR_KEYWORD",
                   "name": "self"
+                }
+              ]
+            }
+          },
+          "set_autocommit": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "mode"
+                }
+              ]
+            }
+          },
+          "set_isolation_level": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "level"
                 }
               ]
             }
@@ -3522,6 +3616,40 @@
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "self"
+            }
+          ]
+        }
+      },
+      "set_autocommit": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "mode"
+            }
+          ]
+        }
+      },
+      "set_isolation_level": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "level"
             }
           ]
         }

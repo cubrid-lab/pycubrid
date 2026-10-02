@@ -7,7 +7,9 @@ stream operations (``connection.lob()``, ``cursor.fetch_lob()``,
 ``cursor.bind_lob()``, ``lob.write/read/seek``) are supported here. Prepared
 scalar strings use the connection charset (UTF-8 unless ``charset`` says
 otherwise); native LOB stream text uses UTF-8 like the official Python 3
-extension. Ordinary DB-API cursors continue to use their existing FC41 path.
+extension. Writable cached connection settings are distinct from effective
+autocommit/isolation setters. Ordinary DB-API cursors continue to use their
+existing FC41 path.
 """
 
 from __future__ import annotations
@@ -21,7 +23,13 @@ from threading import RLock
 from typing import Any
 
 from pycubrid.connection import Connection as _DriverConnection
-from pycubrid.constants import CCIPrepareOption, CUBRIDDataType, CUBRIDStatementType
+from pycubrid.constants import (
+    CCIDbParam,
+    CCIPrepareOption,
+    CUBRIDDataType,
+    CUBRIDIsolationLevel,
+    CUBRIDStatementType,
+)
 from pycubrid.exceptions import (
     DataError,
     DatabaseError,
@@ -36,8 +44,10 @@ from pycubrid.protocol import (
     CloseQueryPacket,
     ExecutePacket,
     FetchPacket,
+    GetDbParameterPacket,
     LOBReadPacket,
     PreparePacket,
+    SetDbParameterPacket,
     _PreparedCollection,
     _PreparedLob,
     _PreparedScalar,
@@ -53,6 +63,12 @@ SEEK_CUR = os.SEEK_CUR
 SEEK_END = os.SEEK_END
 _LOB_IO_CHUNK = 64 * 1024
 _MAX_LOB_POSITION = (1 << 63) - 1
+_UNKNOWN_ISOLATION = "CUBRID_TRAN_UNKNOWN_ISOLATION"
+_ISOLATION_NAMES = {
+    4: "CUBRID_REP_CLASS_COMMIT_INSTANCE",
+    5: "CUBRID_REP_CLASS_REP_INSTANCE",
+    6: "CUBRID_SERIALIZABLE",
+}
 
 
 def _parse_url(url: str) -> tuple[str, int, str]:
@@ -110,6 +126,33 @@ class connection:
                 autocommit=True,
                 charset=charset,
             )
+            generation = driver._physical_generation
+
+            def read_parameter(parameter: CCIDbParam) -> int:
+                packet = GetDbParameterPacket(parameter)
+                driver._send_and_receive(
+                    packet, allow_reconnect=False, expected_generation=generation
+                )
+                return packet.value
+
+            lock_timeout = read_parameter(CCIDbParam.LOCK_TIMEOUT)
+            try:
+                max_string_len = read_parameter(CCIDbParam.MAX_STRING_LENGTH)
+            except DatabaseError as exc:
+                # The official C extension falls back only for a complete
+                # server rejection, never for a lost or malformed reply.
+                if not getattr(exc, "_cas_server_error", False):
+                    raise
+                max_string_len = 0
+            isolation = read_parameter(CCIDbParam.ISOLATION_LEVEL)
+            # On supported brokers these GETs leave CAS OUT_TRAN. If another
+            # broker reports IN_TRAN, finish the constructor on a clean session.
+            if driver._cas_info[0] == 1:
+                driver.commit()
+            if driver._physical_generation != generation:
+                raise OperationalError("native settings session changed during initialization")
+            if driver._cas_info[0] == 1:
+                raise OperationalError("native settings left an active transaction")
         except BaseException:
             if hasattr(driver, "_socket"):
                 try:
@@ -123,6 +166,60 @@ class connection:
         self._closed = False
         self._session_lock = getattr(driver, "_session_lock", RLock())
         self._prepared_owners: builtins.set[cursor] = builtins.set()
+        self.autocommit: Any = driver._autocommit
+        self.lock_timeout: Any = lock_timeout
+        self.max_string_len: Any = max_string_len
+        # Match the pinned extension's initial READ COMMITTED text bug. The
+        # effective numeric value stays separate and set_isolation_level(4)
+        # repairs the visible name without sending an unnecessary SET.
+        self.isolation_level: Any = (
+            _UNKNOWN_ISOLATION
+            if isolation == 4
+            else _ISOLATION_NAMES.get(isolation, _UNKNOWN_ISOLATION)
+        )
+        self._effective_isolation = (driver, driver._physical_generation, isolation)
+
+    def set_autocommit(self, mode: bool, /) -> None:
+        """Change the effective CCI-style mode; raw cache assignment does not."""
+        if type(mode) is not bool:
+            raise InterfaceError("autocommit mode must be a bool")
+        with self._session_lock:
+            driver = self._driver
+            if self._closed or not getattr(driver, "_connected", True):
+                raise InterfaceError("compatibility connection is closed")
+            if driver._autocommit != mode and driver._cas_info[0] == 1:
+                try:
+                    self.commit()
+                except BaseException:
+                    try:
+                        driver._drop_connection()
+                    except BaseException:
+                        _LOGGER.warning("Failed to discard session after autocommit boundary")
+                    raise
+            driver._autocommit = mode
+            driver._autocommit_explicitly_set = True
+            self.autocommit = mode
+
+    def set_isolation_level(self, level: int, /) -> None:
+        """Set supported MVCC isolation without committing the transaction."""
+        if type(level) not in (int, CUBRIDIsolationLevel) or int(level) not in _ISOLATION_NAMES:
+            raise InterfaceError("isolation level must be a supported MVCC int (4, 5 or 6)")
+        selected = int(level)
+        with self._session_lock:
+            driver = self._driver
+            if self._closed or not getattr(driver, "_connected", True):
+                raise InterfaceError("compatibility connection is closed")
+            driver._check_reconnect()
+            generation = driver._physical_generation
+            owner, known_generation, known_level = self._effective_isolation
+            if not (owner is driver and known_generation == generation and known_level == selected):
+                driver._send_and_receive(
+                    SetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL, selected),
+                    allow_reconnect=False,
+                    expected_generation=generation,
+                )
+                self._effective_isolation = (driver, generation, selected)
+            self.isolation_level = _ISOLATION_NAMES[selected]
 
     def cursor(self) -> cursor:
         """Create an explicit sync prepared cursor; no SQL is sent yet."""
@@ -331,9 +428,11 @@ class cursor:
     def bind_lob(self, index: int, lob: _NativeLob, /) -> None:
         """Bind a one-based BLOB/CLOB handle held by ``lob``; no I/O.
 
-        A fetched handle names a committed stored value that the server copies
-        into the new row, so it may be bound again, on another open connection,
-        and after its own connection closed or reconnected. A newly written
+        A handle fetched in effective autocommit mode names a committed stored
+        value that the server copies into the new row, so it may be bound again,
+        on another open connection, and after its own connection closed or
+        reconnected. A manual-mode fetch stays on its own connection until a
+        fresh autocommit fetch confirms a committed row. A newly written
         handle is temporary and may be bound only on its original live session;
         its first autocommit statement consumes that temporary file. The
         binding keeps the handle snapshot it was given and belongs to this
@@ -669,8 +768,8 @@ class lob:  # the official native type name
         # (lob type, handle, origin, session, committed), replaced as one
         # tuple so a bind on another connection always reads a consistent
         # snapshot without taking this connection's lock. ``committed`` says
-        # the handle was fetched in autocommit mode, so its row was
-        # committed; the native connection is autocommit-only today. The
+        # the handle was fetched in effective autocommit mode; a manual-mode
+        # fetch stays conservative even after a later commit. The
         # official lob starts empty in BLOB mode.
         self._state: tuple[int, bytes | None, str | None, tuple[object, int] | None, bool] = (
             CUBRIDDataType.BLOB,

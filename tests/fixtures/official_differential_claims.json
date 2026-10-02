@@ -499,6 +499,16 @@
       "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob.write", "documented_cubrid.lob.read", "documented_cubrid.lob.seek", "documented_cubrid.SEEK_SET", "documented_cubrid.SEEK_CUR", "documented_cubrid.SEEK_END"],
       "scenario_ids": ["tests3/test_cubrid.py::test_lob_string"],
       "issue": "#442"
+    },
+    {
+      "id": "native-cached-settings",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Fresh cached autocommit/isolation/lock/max values, raw object-identity assignments and supported bool/MVCC setter return values and symbolic names match the pinned _cubrid extension on each required server.",
+      "inventory_ids": ["documented_cubrid.connection.autocommit", "documented_cubrid.connection.isolation_level", "documented_cubrid.connection.lock_timeout", "documented_cubrid.connection.max_string_len", "documented_cubrid.connection.set_autocommit", "documented_cubrid.connection.set_isolation_level"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_autocommit", "tests3/test_cubrid.py::test_isolation_level"],
+      "scenario_gap": "The safe differential measures cached-member identity and supported setter results/names, not every upstream error path or transaction boundary; those have separate focused and owned live tests in #467.",
+      "issue": "#467"
     }
   ]
 }

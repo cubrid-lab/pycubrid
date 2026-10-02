@@ -1298,11 +1298,11 @@ conn = pycubrid.connect(
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
 It now provides a bounded **sync-only prepared cursor** for INT32, string
 and SQL NULL values, [SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set)
-and [fetched BLOB/CLOB handles](#lob-handles-lob-fetch_lob-bind_lob);
+and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bind_lob);
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
-through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
-and close subset; it does not expose a wrapper cursor, DB-API globals, a
+through FC41. The wrapper `pycubrid.compat.cubriddb` offers construction,
+close and autocommit access but no wrapper cursor, DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
@@ -1323,7 +1323,8 @@ plain CUBRID backend is accepted; alternate backends, HA/TLS URL options and
 excess arguments fail before connection work. Errors
 never echo the raw credential-bearing DSN.
 
-The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()` and `close()`.
+The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`,
+`set_autocommit(bool)`, `set_isolation_level(level)` and `close()`.
 Its cursor supports `prepare(sql)`, one-based
 `bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
@@ -1339,8 +1340,7 @@ SQLSTATE, but their text is redacted because the broker may echo SQL or values.
 Unlike the pinned official native extension, which raises `SystemError` on
 `bind_param(None)`, this subset binds SQL NULL explicitly; this is a documented
 safety deviation rather than an exact native-NULL parity claim.
-The initial public connection still starts with autocommit enabled; effective
-`set_autocommit()` is separate #467 work. Do not treat this subset as a
+The initial public connection still starts with autocommit enabled. Do not treat this subset as a
 general DB-API cursor or a public async prepared API. See the
 [typed CAS contract](PREPARED_BINDING_DESIGN.md) and
 [compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
@@ -1361,6 +1361,60 @@ try:
         cur.close()
 finally:
     conn.close()
+```
+
+### Cached settings versus effective setters
+
+The four writable `native.connection` members `autocommit`,
+`isolation_level`, `lock_timeout` and `max_string_len` are **cached snapshots**.
+Assigning any Python object to them preserves that object but sends no packet
+and changes no effective setting. The initial values come from the connection's
+effective autocommit mode and database-parameter reads for the other three;
+only a complete server error while reading `max_string_len` maps to `0`.
+Transport or malformed-reply failures abort construction. As in the pinned
+official extension, a fresh server at numeric READ COMMITTED level 4 reports
+`"CUBRID_TRAN_UNKNOWN_ISOLATION"` in its initial *text* cache; the effective
+level remains 4, and calling `set_isolation_level(4)` repairs the text.
+
+Use `conn.set_autocommit(mode, /)` with `True` or `False` to change the effective mode. It
+accepts an exact `bool`, returns `None` and updates the cache after success.
+Like CCI, a same-effective-mode call is local, and a mode transition sends a
+COMMIT only if a transaction is active; the new mode governs subsequent
+prepared execution. This is not the ordinary `Connection.autocommit` setter,
+which retains its existing SET+COMMIT behavior. `set_isolation_level(level, /)`
+accepts `4`, `5`, `6` or the corresponding `CUBRIDIsolationLevel` members,
+returns `None`, and changes the actual session level with SET_DB_PARAMETER
+without committing the current transaction. A same-effective-level call
+updates only the symbolic cache; after physical-session replacement it sets
+the requested level again. Other input types and legacy levels are rejected
+before I/O rather than reproducing unsafe C-extension parser behavior.
+There are no effective `lock_timeout` or `max_string_len` setters here.
+
+The wrapper's `get_autocommit()` and `.autocommit` getter return the native
+cached member, even if it was overwritten with another object. In contrast,
+`wrapper.set_autocommit(value)` and `wrapper.autocommit = value` require a
+`bool` (`ValueError` otherwise) and delegate the effective native setter.
+For migration, replace official raw member assignments intended to change
+behavior with an explicit setter; keep cached reads separate from effective
+state checks. Ordinary `pycubrid.connect()` still defaults to manual commit.
+
+```python
+from pycubrid.compat import cubriddb, native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    conn.autocommit = False       # cache only; SQL still autocommits
+    conn.set_autocommit(False)   # effective manual transaction mode
+    conn.set_isolation_level(5)  # REPEATABLE READ, no implicit commit
+    conn.rollback()
+finally:
+    conn.close()
+
+wrapper = cubriddb.Connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    wrapper.autocommit = False   # effective setter, unlike native raw assignment
+finally:
+    wrapper.close()
 ```
 
 ### Collection binding (`set`, `imports`, `bind_set`)
@@ -1522,9 +1576,12 @@ Python. The server copies the value when the statement runs, so after
   position, as in the official extension; use `seek(0, SEEK_SET)` to restart.
   A nonnegative position past EOF is virtual: reads return `""` and writes
   remain append-only, so it cannot create a hole.
-- The native connection is autocommit-only, so every fetched row is
-  committed, `rollback()` has no transaction to undo, and an already fetched
-  handle stays bindable. A new LOB_NEW handle is temporary and belongs to its
+- The native connection starts in autocommit mode, but `set_autocommit(False)`
+  allows manual transactions. A LOB fetched while autocommit is enabled can be
+  bound on another connection; one fetched in manual mode keeps a conservative
+  non-transferable flag even after a later `commit()`. Re-fetch it in confirmed
+  autocommit mode before cross-connection binding. A new LOB_NEW handle is
+  temporary and belongs to its
   original live physical session: the first autocommit statement that binds
   it consumes its temporary file (also if that statement fails). Reusing that
   handle then receives the server's stale-locator error; fetch the committed
@@ -9686,8 +9743,9 @@ This is source accounting. It does not certify functional parity, successful
 official-driver execution, or a complete API superset. Similar names and existing
 packet classes are insufficient evidence. The selected additive design for
 [#438](https://github.com/cubrid-lab/pycubrid/issues/438) is recorded below;
-its namespaces now provide construction and close only (#465). The catalog does
-not certify future execution APIs or native parity; ordinary 1.x defaults stay
+its explicit namespaces now provide the bounded delivered slices described
+below (#465/#439/#440/#441/#442/#467). The catalog does not certify the
+remaining APIs or complete native parity; ordinary 1.x defaults stay
 unchanged.
 The catalog's target mappings remain a historical baseline; later #465
 construction is described here without rewriting that source snapshot.
@@ -9736,8 +9794,9 @@ does not enumerate every inherited built-in method as a new driver operation.
 
 Maintainer-selected design, 2026-09-28: preserve ordinary pycubrid and add separate
 `pycubrid.compat.cubriddb` (wrapper) and `pycubrid.compat.native` (native) namespaces.
-Construction/close (#465), the explicit native sync prepared scalar cursor
-(#439), its collection binding (#440) and LOB handle fetch/bind (#441) are delivered; other rows below remain targets, not delivered capabilities.
+Construction/close (#465), native prepared scalars (#439), collection binding
+(#440), LOB handle/stream operations (#441/#442) and cached/effective settings
+(#467) are delivered; other rows below remain targets, not delivered capabilities.
 This reversible additive design
 does not authorize replacing 1.x defaults, adopting a
 2.0 replacement, or publishing a release. A global switch,
@@ -9758,9 +9817,9 @@ and an omitted optional argument is not interchangeable with explicit None.
 
 | Surface | Selected contract / delivery boundary |
 | --- | --- |
-| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close are delivered; excess positional/unsupported keyword or DSN options are rejected. Selectable charset/HA and wrapper cursor execution are not delivered. |
+| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close and #467 autocommit access are delivered; excess positional/unsupported keyword or DSN options are rejected. Selectable charset/HA and wrapper cursor execution are not delivered. |
 | Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require wrapper cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The compatibility modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. The native subset's private RLock is not a general thread-sharing promise. |
-| Settings | Native autocommit/isolation_level/lock_timeout/max_string_len assignments change cached snapshots only. `set_autocommit(mode)` / `set_isolation_level(level)` perform server operations and update caches; max_string_len retains the source's read-failure fallback 0. Wrapper `.autocommit` is server-backed. Do not invent effective setters for snapshot members. |
+| Settings (#467) | Delivered as writable raw native snapshots (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and separate effective `set_autocommit(mode, /)` / `set_isolation_level(level, /)`. Raw assignment accepts objects and sends nothing. The bool autocommit setter changes local CCI-equivalent mode; only a changed mode during an active transaction commits. Isolation SET (4/5/6) does not commit and skips an already effective level on the same physical session. The wrapper `.autocommit` property delegates its bool setter but its getter reads the raw native cache. Constructor reads actual lock/max/isolation; a complete max-string server error alone falls back to 0, and initial numeric level 4 retains the pinned official `CUBRID_TRAN_UNKNOWN_ISOLATION` text quirk. No effective lock/max setters, ordinary-default change or unsafe native parser parity. |
 | Wrapper cursor | `cursor(dictCursor=None)`, `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None`; tuple/dict fetch and connection fetch-converter callback. Contradictory mapping-binding/default_cursor docstrings are not working capability promises. |
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
 | Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. Wrapper `execute(..., set_type)`/`executemany` collection shapes are not delivered (#610). |
@@ -9768,7 +9827,7 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Extended metadata | `result_info(n=0, /)` returns tuple-of-15-tuples (one outer entry for n>=1), or None with no columns. Actual order: type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared. Preserve empty versus absent metadata; #445 must not fabricate unavailable fields. |
 | Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
 | Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
-| Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in autocommit mode (always, today), since only committed rows may cross connections. Stream operations are delivered in #442 below; file import/export remains #443. |
+| Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in effective autocommit mode; a manually fetched holder remains non-transferable after a later commit until re-fetched in autocommit mode. Stream operations are delivered in #442 below; file import/export remains #443. |
 | Native LOB stream (#442) | Delivered sync-only: `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`, plus exported `SEEK_*` constants. Position and size count bytes; UTF-8 text is returned for BLOB and CLOB. SEEK_END computes size-offset. Writes create a BLOB/CLOB lazily and append only at the end. Safe deviations: non-end writes and invalid resulting positions fail before I/O, while empty/EOF and oversized reads return available text instead of reproducing unsafe CCI behavior. The native holder's close remains terminal; created handles stay on their original session and first autocommit bind consumes their temp file. Ordinary absolute-offset `Lob` and file I/O (#443) are unchanged. |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. Exact unstable messages and native argument-parser crashes are not targets. |
 
@@ -9887,8 +9946,8 @@ claims without cases and oracle pins that differ from the build script.
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
 | Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
-| Native (`_cubrid`) | 23 | 11 | 34 |
-| **Total** | **35** | **13** | **48** |
+| Native (`_cubrid`) | 24 | 11 | 35 |
+| **Total** | **36** | **13** | **49** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - Required servers: CUBRID 10.2, CUBRID 11.4
@@ -9896,16 +9955,19 @@ claims without cases and oracle pins that differ from the build script.
 
 <!-- official-differential-summary:end -->
 
-These claims cover the first bounded slice: stored scalar fetches, a static scalar
+These claims cover the bounded measured slices: stored scalar fetches, a static scalar
 row and description, the #439 prepared INT/string subset, #440 native
-collection binding and #441 native LOB handle fetch/bind. Wrapper collection shapes, LOB read/write/seek/files, charset/HA, fault behavior and every other inventory operation remain uncertified
+collection binding, #441/#442 native LOB handle/stream behavior and #467
+cached settings with safe effective setter values. Wrapper collection shapes,
+LOB file I/O, charset/HA, fault behavior and every other inventory operation remain uncertified
 until they have claims here. The claim counts are not a parity percentage.
 
 ### Migration targets and small delivery acceptance
 
 For ordinary queries keep existing imports unchanged. The explicit native
-namespace now supports only its bounded sync scalar, collection and LOB-handle prepared cursor; the
-wrapper still constructs and closes connections without cursor execution.
+namespace now supports bounded sync scalar, collection and LOB prepared execution
+plus the #467 settings subset; the wrapper constructs/closes connections and
+delegates autocommit but still has no cursor execution.
 Once later capabilities exist, wrapper migration is
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`; native migration
 is `import _cubrid` → `from pycubrid.compat import native as _cubrid`.

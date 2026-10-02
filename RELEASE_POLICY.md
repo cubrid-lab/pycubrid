@@ -107,16 +107,19 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-includes construction-only `pycubrid.compat.cubriddb` (#465) and the bounded
+includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
+(#467), plus the bounded
 sync prepared INT32/string/NULL cursor in `pycubrid.compat.native` (#439),
 with its SET/MULTISET/SEQUENCE binding (`connection.set()`, `native.set`,
 `set.imports()`, `cursor.bind_set()`, #440) and BLOB/CLOB handle fetch and bind
 (`connection.lob()`, `native.lob`, `lob.close()`, `cursor.fetch_lob()`,
 `cursor.bind_lob()`, #441), followed by the native-only LOB byte-position
 stream (`lob.write()`/`read()`/`seek()` and `SEEK_*`, #442).
+Native cached settings and separate effective autocommit/isolation setters
+are the additional #467 subset.
 Only their implemented factories, connection and cursor methods are public;
 no wrapper cursor, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
@@ -309,6 +312,26 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   Ordinary `pycubrid.lob.Lob` offsets, signatures and byte return values,
   ordinary cursors, async, file operations, dependencies and supported versions
   do not change. No tag/PyPI publication follows automatically from this entry.
+
+- **Native cached settings and effective setters (#467)** — MINOR / additive.
+  `pycubrid.compat.native.connection` gains four writable snapshot members
+  (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and
+  positional-only `set_autocommit(bool)` / `set_isolation_level(4|5|6)` methods.
+  Direct member assignment never changes effective mode. The bool setter
+  changes the local prepared-execution mode and conditionally commits only
+  when changing mode during an active transaction; isolation SET changes the
+  current session without an implicit commit and its effective cache is
+  physical-session owned. Initial snapshot reads are fail-closed except for
+  the official complete-server-error max-string fallback to 0. The pinned
+  official extension's initial level-4 `UNKNOWN` text quirk is retained and
+  repaired by `set_isolation_level(4)`. The wrapper adds keyword-capable
+  bool-validated autocommit getter/setter/property. Unsupported native input
+  classes and legacy levels fail safely before I/O, rather than invoking the
+  extension's unsafe parser path. Fetched LOBs keep their fetch-time committed
+  provenance; a manual fetch does not become cross-connection transferable
+  merely because of a later commit. Ordinary sync/async defaults and setters,
+  cursor APIs, dependencies and supported versions are unchanged. This entry
+  does not authorize a release or tag.
 
 - **`Lob.write()` size field and internal LOB-handle binding (#441)** —
   PATCH / correction plus internal wire work. After a write, the packed

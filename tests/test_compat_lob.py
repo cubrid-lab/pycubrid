@@ -11,7 +11,13 @@ import pytest
 from pycubrid.compat import native
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.exceptions import DataError, InterfaceError, OperationalError, ProgrammingError
-from pycubrid.protocol import ColumnMetaData, ExecutePacket, FetchPacket, PreparePacket
+from pycubrid.protocol import (
+    ColumnMetaData,
+    ExecutePacket,
+    FetchPacket,
+    GetDbParameterPacket,
+    PreparePacket,
+)
 
 from .test_compat_prepared import DSN, FakeDriver, _packets
 from .test_prepared_lob_contract import FETCHED_BLOB, FETCHED_CLOB, OFFICIAL_BIND_PAIRS, _bind_pair
@@ -43,7 +49,17 @@ class LobDriver(FakeDriver):
         self.discarded += 1
         self._connected = False
 
-    def _send_and_receive(self, packet: Any, *, expected_generation: int | None = None) -> Any:
+    def _send_and_receive(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool = True,
+        expected_generation: int | None = None,
+    ) -> Any:
+        if isinstance(packet, GetDbParameterPacket):
+            return super()._send_and_receive(
+                packet, allow_reconnect=allow_reconnect, expected_generation=expected_generation
+            )
         if expected_generation != self._physical_generation:
             raise InterfaceError("stale prepared owner")
         self.requests.append((packet, expected_generation))
@@ -573,12 +589,13 @@ def test_fetch_records_the_autocommit_source(
         conn.close()
 
 
-def test_native_connection_stays_autocommit_only() -> None:
-    # Cross-connection binds of fetched handles rely on the source being
-    # autocommit (its rows committed). Adding an autocommit setter must
-    # revisit lob._bindable(), so make that change fail here first.
-    for name in ("autocommit", "set_autocommit"):
-        assert not hasattr(native.connection, name)
+def test_native_mode_change_is_explicit_without_changing_factory_defaults() -> None:
+    # Manual mode is now available via an explicit setter. Fetched LOBs still
+    # record the effective mode at fetch time (tested immediately above), so
+    # a manually fetched handle never becomes cross-connection bindable just
+    # because a later commit succeeds.
+    assert hasattr(native.connection, "set_autocommit")
+    assert hasattr(native.connection, "set_isolation_level")
     for factory in (native.connection.__init__, native.connect):
         assert "autocommit" not in inspect.signature(factory).parameters
 
