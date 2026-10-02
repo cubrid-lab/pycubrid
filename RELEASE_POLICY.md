@@ -259,6 +259,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Hostile timezone and pure-Python temporal parameters (#530)** — PATCH /
+  error-normalization and fallback safety correction in the shared literal
+  binder. Ordinary timezone callback, key lookup and offset-field exceptions
+  become `ProgrammingError` with the original cause and fixed safe message.
+  Without the active C `_datetime` implementation, temporal subclasses and
+  returned `timedelta` subclasses are rejected before driver field reads can
+  consume forged attributes. Exact fallback values, C-backed subclasses,
+  valid timezone keys, naive rendering and ordinary literal results remain
+  unchanged. No new public API, wire, dependency or supported-version change.
+
 - **Interrupted deferred CLOSE flush (#601)** — PATCH / resource-ownership
   correction in both drivers. A boundary consumes each queued same-session
   handle at the existing attempted-send point, not before the whole flush.

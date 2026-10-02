@@ -63,6 +63,9 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 
 > 각 오류 사례에서 발생하는 **예외 클래스**(예: `ProgrammingError`)는 계약의 일부이며, 표에 보이는 **메시지 문구**는 예시일 뿐이며 1.x 내에서 다듬어질 수 있습니다. [비보장과 명시적 한계](#비보장과-명시적-한계)를 참고하세요.
 
+표의 날짜/시간 하위 클래스는 활성 C `_datetime` 구현이 있어야 합니다.
+아래 대체 구현 제한을 참고하세요.
+
 | Python 타입 | SQL 리터럴 | 구현 | 고정 테스트 |
 |---|---|---|---|
 | `None` | `NULL` | `_cursor_common.py:254-255` | `tests/test_param_security.py:95-97` |
@@ -127,6 +130,13 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
   리터럴은 바뀌지 않습니다. UTC 오프셋은 기반 클래스의
   `datetime.datetime.utcoffset()`으로 얻고, 그 `days`/`seconds`/`microseconds`
   필드도 같은 방식으로 읽습니다.
+- 활성 C `_datetime` 구현이 없으면 순수 Python 디스크립터가 `_year`, `_seconds`
+  등의 속성을 읽으므로 하위 클래스가 값을 위조할 수 있습니다. 따라서 `date`,
+  `datetime`, `time` 하위 클래스는 필드 읽기나 시간대 콜백 전에 `ProgrammingError`로
+  거부하며, 정확한 기반 클래스 값을 전달해야 합니다. `tzinfo.utcoffset()`이 반환한
+  `timedelta` 하위 클래스도 key 조회나 드라이버의 오프셋 필드 읽기 전에 거부합니다.
+  일반 대체 구현 날짜/시간 값과 일반 `timedelta` 오프셋은 허용하며, C 구현을 쓰는
+  하위 클래스의 동작은 그대로 유지됩니다.
 - 1000 미만의 연도는 4자리로 0 채움됩니다(`date(99, 1, 2)`는 `DATE'0099-01-02'`로
   전송). Linux에서 `strftime("%Y")`는 이를 채우지 않고, CUBRID는 `DATE'99-01-02'`를
   1999-01-02로 읽기 때문에 두 자리 연도가 잘못된 연도로 조용히 저장되었습니다(#519).
@@ -136,6 +146,12 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
   `America/Port-au-Prince` 등 모든 IANA 이름이 해당). 그 외에는 `ProgrammingError`가
   발생합니다. key가 없거나 `None` 또는 빈 문자열이면 이전처럼 `±HH:MM` 숫자
   오프셋을 사용합니다.
+- 시간대 콜백, key 조회, 오프셋 필드 읽기에서 발생한 일반 예외는 원래 예외를
+  원인으로 보존하는 `ProgrammingError`로 보고합니다(현재 메시지:
+  `"invalid tzinfo on datetime parameter"`). 호출자가 제어하는 예외 텍스트를
+  포맷하지 않습니다. 잘못된 key 값은 위의 구체적인 오류를 유지하며, 오프셋이
+  `None`이면 key를 읽지 않고 계속 naive `DATETIME`으로 렌더링합니다.
+  `BaseException` 중단은 그대로 전달됩니다.
 
 타입 판별은 재정의된 `__class__`도 믿는 `isinstance()`가 아니라 `type(value)`를
 사용합니다. `__class__`로만 지원 타입인 척하는 객체(예: 투명 프록시)는
@@ -145,6 +161,7 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 일반 값의 렌더링은 연도 0 채움을 제외하면 이전과 같습니다.
 `tests/test_param_security.py::TestPlainLiteralsUnchanged`, `::TestStrSubclassEscaping`,
 `::TestBinarySubclassRendering`, `::TestTemporalSubclassRendering`, `::TestTzinfoKey`,
+`::TestHostileTzinfo`, `::test_temporal_subclasses_in_real_pure_python_fallback`,
 `::TestClassSpoofing`, 그리고 CUBRID 10.2와 11.4(sync, async)에서
 `tests/test_parity_integration.py::TestParityLiteralHardening`이 이 동작을 고정합니다.
 

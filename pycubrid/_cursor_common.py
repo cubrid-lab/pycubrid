@@ -14,6 +14,7 @@ import datetime
 import math
 import re
 from decimal import Decimal
+from importlib import import_module
 from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 
 from .exceptions import DataError, InterfaceError, ProgrammingError
@@ -29,6 +30,13 @@ try:
     _CDecimal = _decimal.Decimal
 except ImportError:  # pragma: no cover - CPython builds without the C module
     _CDecimal = None
+
+# The active datetime classes may instead come from the pure-Python fallback.
+_CDateTime: type[datetime.datetime] | None
+try:
+    _CDateTime = import_module("_datetime").datetime
+except ImportError:  # pragma: no cover - exercised in a fresh subprocess
+    _CDateTime = None
 
 if TYPE_CHECKING:
     from .protocol import ColumnMetaData
@@ -239,18 +247,27 @@ def escape_string(value: str, *, no_backslash_escapes: bool = True) -> str:
 
 def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
     """Return the DATETIMETZ zone for an aware *value*, or ``None`` if naive."""
-    # The unbound call bypasses a subclass utcoffset(); the C implementation
-    # guarantees the tzinfo returns None or a timedelta, whose fields are read
-    # through the base-class descriptors.
-    offset = datetime.datetime.utcoffset(value)
-    if offset is None:
-        return None
-    tz_key = getattr(tzinfo, "key", None)
+    # The unbound call bypasses a datetime subclass override, but tzinfo
+    # callbacks and key lookup remain caller-controlled.
+    try:
+        offset = datetime.datetime.utcoffset(value)
+        if offset is None:
+            return None
+        if datetime.datetime is not _CDateTime and type(offset) is not datetime.timedelta:
+            raise TypeError("timedelta subclasses require the C datetime module")
+        tz_key = getattr(tzinfo, "key", None)
+    except Exception as exc:
+        raise ProgrammingError("invalid tzinfo on datetime parameter") from exc
     if tz_key is not None and not (type(tz_key) is str and tz_key == ""):
         if type(tz_key) is not str or not _RE_TZ_KEY.fullmatch(tz_key):
             raise ProgrammingError("time zone key must be an IANA name matching [A-Za-z0-9_+/-]+")
         return tz_key
-    total_us = (_TD_DAYS(offset) * 86400 + _TD_SECONDS(offset)) * 1000000 + _TD_MICROSECONDS(offset)
+    try:
+        total_us = (_TD_DAYS(offset) * 86400 + _TD_SECONDS(offset)) * 1000000 + _TD_MICROSECONDS(
+            offset
+        )
+    except Exception as exc:
+        raise ProgrammingError("invalid tzinfo on datetime parameter") from exc
     # Truncate toward zero, as int(offset.total_seconds()) did.
     total_seconds = abs(total_us) // 1000000
     sign = "-" if total_us < 0 and total_seconds else "+"
@@ -276,6 +293,14 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
         return "X'%s'" % bytes.hex(value)
     if issubclass(cls, bytearray):
         return "X'%s'" % bytearray.hex(value)
+    # Pure-Python descriptors read attributes such as _year, which a subclass
+    # can forge. Refuse those subclasses before any field read or callback.
+    if datetime.datetime is not _CDateTime and issubclass(cls, (datetime.date, datetime.time)):
+        if cls is not datetime.datetime and cls is not datetime.date and cls is not datetime.time:
+            raise ProgrammingError(
+                "date/time subclass parameters require the C datetime module; "
+                "pass a plain date, datetime or time"
+            )
     # Dates and times are built from their integer fields, read through the
     # base-class descriptors, instead of strftime(): a subclass can override
     # strftime() or the field properties (#528), and %Y does not zero-pad

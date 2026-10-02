@@ -93,6 +93,9 @@ test that pins the behavior.
 > illustrative only and may be refined within 1.x. See
 > [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 
+Temporal subclasses in this table require the active C `_datetime`
+implementation; see the fallback restrictions below.
+
 | Python type | SQL literal | Implementation | Pinned by |
 |---|---|---|---|
 | `None` | `NULL` | `_cursor_common.py:254-255` | `tests/test_param_security.py:95-97` |
@@ -158,6 +161,13 @@ through methods the subclass can override (#528):
   change the literal. The UTC offset comes from `datetime.datetime.utcoffset()`
   called on the base class, and its `days`/`seconds`/`microseconds` fields are
   read the same way.
+- Without the active C `_datetime` implementation, its pure-Python descriptors
+  read attributes such as `_year` and `_seconds`, which subclasses can forge.
+  `date`, `datetime` and `time` subclasses therefore raise `ProgrammingError`
+  before any field read or timezone callback; pass exact base-class values.
+  A `timedelta` subclass returned by `tzinfo.utcoffset()` is also rejected before
+  key lookup or driver offset-field reads. Plain fallback temporal values and
+  plain `timedelta` offsets remain accepted; C-backed subclasses are unchanged.
 - Years below 1000 are zero-padded to four digits (`date(99, 1, 2)` is sent as
   `DATE'0099-01-02'`). `strftime("%Y")` does not pad them on Linux, and CUBRID
   reads `DATE'99-01-02'` as 1999-01-02, so two-digit years were silently
@@ -168,6 +178,12 @@ through methods the subclass can override (#528):
   as `Asia/Seoul`, `Etc/GMT+5` or `America/Port-au-Prince`, qualifies);
   anything else raises `ProgrammingError`. A missing, `None` or empty key still
   falls back to the numeric `±HH:MM` offset.
+- Ordinary exceptions from timezone callbacks, key lookup or offset-field
+  reads raise `ProgrammingError` (current message: `"invalid tzinfo on datetime
+  parameter"`) with the original exception as the cause, without formatting
+  caller-controlled exception text. Invalid key values keep their specific
+  error above, and an offset of `None` still renders a naive `DATETIME` without
+  reading the key. `BaseException` interruptions propagate.
 
 Dispatch uses `type(value)`, not `isinstance()`, which also trusts an
 overridden `__class__`. An object that only claims to be one of the supported
@@ -178,7 +194,8 @@ types through `__class__` (for example a transparent proxy) raises
 Plain values render exactly as before, except the year padding.
 Pinned by `tests/test_param_security.py::TestPlainLiteralsUnchanged`,
 `::TestStrSubclassEscaping`, `::TestBinarySubclassRendering`,
-`::TestTemporalSubclassRendering`, `::TestTzinfoKey`, `::TestClassSpoofing`,
+`::TestTemporalSubclassRendering`, `::TestTzinfoKey`, `::TestHostileTzinfo`,
+`::test_temporal_subclasses_in_real_pure_python_fallback`, `::TestClassSpoofing`,
 and live on CUBRID 10.2 and 11.4 (sync and async) by
 `tests/test_parity_integration.py::TestParityLiteralHardening`.
 
