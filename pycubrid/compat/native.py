@@ -2,18 +2,21 @@
 
 Only the sync prepared INT, string and NULL cursor, SET/MULTISET/SEQUENCE
 collection binding (``connection.set()``, ``set.imports()``,
-``cursor.bind_set()``) and BLOB/CLOB handle fetch and bind
-(``connection.lob()``, ``cursor.fetch_lob()``, ``cursor.bind_lob()``) are
-supported here. Strings use the connection charset (UTF-8 unless ``charset``
-says otherwise). Ordinary DB-API cursors continue to use their existing FC41
-path.
+``cursor.bind_set()``), and BLOB/CLOB handle fetch, bind and byte-position
+stream operations (``connection.lob()``, ``cursor.fetch_lob()``,
+``cursor.bind_lob()``, ``lob.write/read/seek``) are supported here. Prepared
+scalar strings use the connection charset (UTF-8 unless ``charset`` says
+otherwise); native LOB stream text uses UTF-8 like the official Python 3
+extension. Ordinary DB-API cursors continue to use their existing FC41 path.
 """
 
 from __future__ import annotations
 
 import builtins
 import logging
+import os
 import re
+import struct
 from threading import RLock
 from typing import Any
 
@@ -27,6 +30,7 @@ from pycubrid.exceptions import (
     OperationalError,
     ProgrammingError,
 )
+from pycubrid.lob import Lob as _OrdinaryLob
 from pycubrid.packet import _codec_label, _encode_text
 from pycubrid.protocol import (
     CloseQueryPacket,
@@ -43,6 +47,11 @@ from pycubrid.protocol import (
 _LOGGER = logging.getLogger(__name__)
 _HOST = re.compile(r"[A-Za-z0-9_.-]+\Z")
 _PORT = re.compile(r"[0-9]+\Z")
+SEEK_SET = os.SEEK_SET
+SEEK_CUR = os.SEEK_CUR
+SEEK_END = os.SEEK_END
+_LOB_IO_CHUNK = 64 * 1024
+_MAX_LOB_POSITION = (1 << 63) - 1
 
 
 def _parse_url(url: str) -> tuple[str, int, str]:
@@ -321,11 +330,13 @@ class cursor:
     def bind_lob(self, index: int, lob: _NativeLob, /) -> None:
         """Bind a one-based BLOB/CLOB handle held by ``lob``; no I/O.
 
-        The handle must come from ``fetch_lob()``. A fetched handle names a
-        committed stored value that the server copies into the new row, so it
-        may be bound again, on another open connection, and after its own
-        connection closed or reconnected. The binding keeps the handle it was
-        given and belongs to this cursor's current physical session.
+        A fetched handle names a committed stored value that the server copies
+        into the new row, so it may be bound again, on another open connection,
+        and after its own connection closed or reconnected. A newly written
+        handle is temporary and may be bound only on its original live session;
+        its first autocommit statement consumes that temporary file. The
+        binding keeps the handle snapshot it was given and belongs to this
+        cursor's current physical session.
         """
         with self._connection._session_lock:
             self._check_open()
@@ -604,13 +615,37 @@ _NativeSet = set
 _LOB_TYPES = frozenset({CUBRIDDataType.BLOB, CUBRIDDataType.CLOB})
 
 
-# Where a lob's handle came from: fetched from a stored row, or (with #442,
-# not reachable yet) created by LOB_NEW and written. A created handle names a
+# Where a lob's handle came from: fetched from a stored row, or created by
+# LOB_NEW and written. A created handle names a
 # temporary file of its own session, so it must stay on that session; a
 # fetched handle of a committed row may be bound anywhere, because the server
 # copies the stored file.
 _FETCHED = "fetched"
 _CREATED = "created"  # #442: lob.write() sets this origin
+
+
+class _SessionLobTransport:
+    """Give ordinary LOB I/O a fixed native physical-session boundary."""
+
+    def __init__(self, owner: connection, driver: _DriverConnection, generation: int) -> None:
+        self._owner = owner
+        self._driver = driver
+        self._generation = generation
+
+    def _ensure_connected(self) -> None:
+        if (
+            self._owner._closed
+            or self._owner._driver is not self._driver
+            or not getattr(self._driver, "_connected", True)
+            or self._driver._physical_generation != self._generation
+        ):
+            raise InterfaceError("lob handle belongs to an earlier physical session")
+
+    def _send_and_receive(self, packet: Any) -> Any:
+        self._ensure_connected()
+        return self._driver._send_and_receive(
+            packet, allow_reconnect=False, expected_generation=self._generation
+        )
 
 
 class lob:  # the official native type name
@@ -644,6 +679,7 @@ class lob:  # the official native type name
             False,
         )
         self._closed = False
+        self._position = 0
 
     @property
     def _lob_type(self) -> int:
@@ -705,6 +741,146 @@ class lob:  # the official native type name
             raise InterfaceError("lob handle belongs to an earlier physical session")
         return lob_type, handle
 
+    def _io(self) -> tuple[_SessionLobTransport, int, bytes, str, bool]:
+        """Require the handle's original live physical session for read/write."""
+        if self._closed:
+            raise InterfaceError("lob is closed")
+        source = self._connection
+        lob_type, handle, origin, session, committed = self._state
+        if handle is None or session is None or origin not in (_FETCHED, _CREATED):
+            raise InterfaceError("lob has no value")
+        driver, generation = session
+        if source._driver is not driver:
+            raise InterfaceError("lob handle belongs to an earlier physical session")
+        transport = _SessionLobTransport(source, driver, generation)
+        transport._ensure_connected()
+        return transport, lob_type, handle, origin, committed
+
+    def _adopt_written(
+        self,
+        ordinary: _OrdinaryLob,
+        origin: str,
+        transport: _SessionLobTransport,
+        committed: bool,
+    ) -> None:
+        """Keep each confirmed chunk, even if a later broker request fails."""
+        handle = ordinary.lob_handle
+        self._set(
+            ordinary.lob_type,
+            handle,
+            origin,
+            (transport._driver, transport._generation),
+            committed=committed,
+        )
+        self._position = int(struct.unpack_from(">q", handle, 4)[0])
+
+    def write(self, data: str | bytes, type: str = "B", /) -> None:
+        """Append UTF-8 text or bytes and advance the byte position (#442).
+
+        The first write creates a BLOB by default or a CLOB with ``type='C'``.
+        An existing handle keeps its type. CUBRID's external storage accepts
+        writes only at the current end; seeking elsewhere cannot overwrite it.
+        """
+        # Avoid user-defined subclass hooks changing session/position while a
+        # value is being encoded or sized for several broker requests.
+        if builtins.type(data) not in (str, bytes):
+            raise TypeError("lob.write() data must be str or bytes")
+        if builtins.type(type) is not str:
+            raise TypeError("lob.write() type must be a string")
+        payload = data.encode("utf-8") if isinstance(data, str) else data
+        with self._connection._session_lock:
+            if self._closed:
+                raise InterfaceError("lob is closed")
+            if self._handle is None:
+                if type.upper() not in {"B", "C"} or len(type) != 1:
+                    raise ProgrammingError("lob type must be B or C")
+                if self._position != 0:
+                    raise NotSupportedError("LOB writes are append-only; seek to the end first")
+                source = self._connection
+                if source._closed or not getattr(source._driver, "_connected", True):
+                    raise InterfaceError("compatibility connection is closed")
+                driver = source._driver
+                driver._check_reconnect()
+                generation = driver._physical_generation
+                transport = _SessionLobTransport(source, driver, generation)
+                lob_type: int = CUBRIDDataType.BLOB if type.upper() == "B" else CUBRIDDataType.CLOB
+                ordinary = _OrdinaryLob.create(transport, lob_type)
+                try:
+                    _PreparedLob(lob_type, ordinary.lob_handle, driver, generation)
+                except ProgrammingError:
+                    driver._discard_uncertain_prepared_session()
+                    raise OperationalError("malformed response from broker") from None
+                self._set(lob_type, ordinary.lob_handle, _CREATED, (driver, generation))
+                origin, committed = _CREATED, False
+            else:
+                transport, lob_type, handle, origin, committed = self._io()
+                ordinary = _OrdinaryLob(transport, lob_type, handle)
+
+            size = struct.unpack_from(">q", ordinary.lob_handle, 4)[0]
+            if self._position != size:
+                raise NotSupportedError("LOB writes are append-only; seek to the end first")
+            if size + len(payload) > _MAX_LOB_POSITION:
+                raise InterfaceError("lob write would exceed the maximum byte position")
+            if not payload:
+                ordinary.write(b"", self._position)
+                return
+            for start in range(0, len(payload), _LOB_IO_CHUNK):
+                try:
+                    ordinary.write(payload[start : start + _LOB_IO_CHUNK], size + start)
+                except OperationalError:
+                    # Ordinary Lob.write keeps a confirmed short write's size.
+                    self._adopt_written(ordinary, origin, transport, committed)
+                    raise
+                self._adopt_written(ordinary, origin, transport, committed)
+
+    def read(self, length: int = 0, /) -> str:
+        """Read UTF-8 text from the current byte position; zero means remaining."""
+        if type(length) is not int or length < 0:
+            raise InterfaceError("lob read length must be a non-negative int")
+        with self._connection._session_lock:
+            transport, lob_type, handle, _origin, _committed = self._io()
+            size = struct.unpack_from(">q", handle, 4)[0]
+            remaining = max(0, size - self._position)
+            requested = remaining if length == 0 else min(length, remaining)
+            if requested == 0:
+                return ""
+            ordinary = _OrdinaryLob(transport, lob_type, handle)
+            chunks: list[bytes] = []
+            while requested > 0:
+                data = ordinary.read(min(requested, _LOB_IO_CHUNK), self._position)
+                if not data:
+                    break
+                chunks.append(data)
+                self._position += len(data)
+                requested -= len(data)
+            return b"".join(chunks).decode("utf-8")
+
+    def seek(self, offset: int, whence: int = SEEK_CUR, /) -> int:
+        """Move a byte position; SEEK_END subtracts its offset as in _cubrid."""
+        if type(offset) is not int or type(whence) is not int:
+            raise TypeError("lob seek offset and whence must be ints")
+        if whence not in (SEEK_SET, SEEK_CUR, SEEK_END):
+            raise ProgrammingError("unsupported lob seek whence")
+        with self._connection._session_lock:
+            if self._closed:
+                raise InterfaceError("lob is closed")
+            if self._connection._closed or not getattr(
+                self._connection._driver, "_connected", True
+            ):
+                raise InterfaceError("compatibility connection is closed")
+            if self._handle is not None:
+                self._io()
+            if whence == SEEK_END:
+                _transport, _lob_type, handle, _origin, _committed = self._io()
+                base = int(struct.unpack_from(">q", handle, 4)[0])
+                position = base - offset
+            else:
+                position = offset if whence == SEEK_SET else self._position + offset
+            if not 0 <= position <= _MAX_LOB_POSITION:
+                raise InterfaceError("lob seek position is out of range")
+            self._position = position
+            return position
+
     def close(self) -> None:
         """Drop the handle locally; no I/O. Later use raises ``InterfaceError``.
 
@@ -729,4 +905,4 @@ def connect(
     return connection(url, user, passwd, charset=charset)
 
 
-__all__ = ["connection", "connect", "cursor", "lob", "set"]
+__all__ = ["connection", "connect", "cursor", "lob", "set", "SEEK_SET", "SEEK_CUR", "SEEK_END"]

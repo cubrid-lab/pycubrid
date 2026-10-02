@@ -107,7 +107,7 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
 includes construction-only `pycubrid.compat.cubriddb` (#465) and the bounded
@@ -115,7 +115,8 @@ sync prepared INT32/string/NULL cursor in `pycubrid.compat.native` (#439),
 with its SET/MULTISET/SEQUENCE binding (`connection.set()`, `native.set`,
 `set.imports()`, `cursor.bind_set()`, #440) and BLOB/CLOB handle fetch and bind
 (`connection.lob()`, `native.lob`, `lob.close()`, `cursor.fetch_lob()`,
-`cursor.bind_lob()`, #441).
+`cursor.bind_lob()`, #441), followed by the native-only LOB byte-position
+stream (`lob.write()`/`read()`/`seek()` and `SEEK_*`, #442).
 Only their implemented factories, connection and cursor methods are public;
 no wrapper cursor, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
@@ -293,6 +294,21 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   lob) are pinned by official differential claims. Ordinary
   sync/async cursors, the ordinary `Lob` class and fetched LOB dicts,
   dependencies and supported versions are unchanged; no async LOB API.
+
+- **Native LOB stream (#442)** — MINOR / additive. The explicit sync-only
+  `pycubrid.compat.native.lob` gains positional `write(data, type="B") -> None`,
+  `read(length=0) -> str`, `seek(offset, whence=SEEK_CUR) -> int` and exported
+  `SEEK_SET`/`SEEK_CUR`/`SEEK_END`. Position and packed size count bytes; str
+  writes and both BLOB/CLOB reads use strict UTF-8, matching the official
+  Python 3 extension on valid in-range values. Safe documented differences
+  include append-only preflight, EOF/empty-string and bounded short-read
+  handling, and rejection of negative resulting positions. A closed native
+  lob remains terminal. Created LOB_NEW handles still depend on their original
+  physical session and their temp file is consumed by the first autocommit
+  bind; fetched committed handles retain #441 cross-connection bind behavior.
+  Ordinary `pycubrid.lob.Lob` offsets, signatures and byte return values,
+  ordinary cursors, async, file operations, dependencies and supported versions
+  do not change. No tag/PyPI publication follows automatically from this entry.
 
 - **`Lob.write()` size field and internal LOB-handle binding (#441)** —
   PATCH / correction plus internal wire work. After a write, the packed

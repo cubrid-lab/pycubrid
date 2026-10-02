@@ -353,7 +353,7 @@ finally:
     conn.close()
 ```
 
-### LOB handles (`lob`, `fetch_lob`, `bind_lob`)
+### Native LOB streams and handles (`lob`, `fetch_lob`, `bind_lob`)
 
 Since #441, the native subset fetches and binds BLOB/CLOB handles with the
 official names: `conn.lob()` (or `native.lob(conn)`) returns an empty
@@ -393,13 +393,54 @@ Python. The server copies the value when the statement runs, so after
   has no LOB free request, and the server keeps a fetched value with its row.
   A binding made before `close()` stays valid. A closed `lob` cannot be filled
   or bound again; create a new one with `conn.lob()`.
+- `lob.write(data, type="B", /) -> None` accepts `str` (encoded as UTF-8,
+  independent of the connection charset) or `bytes`. The first write creates
+  a BLOB by default; use `"C"` for a CLOB. Later type arguments do not change
+  the handle's type. Even an empty first write creates the handle, without a
+  LOB_WRITE request. Position and packed size advance by confirmed byte count.
+  CUBRID external storage is append-only: seek to the current end before a
+  write. A non-end write raises `NotSupportedError` before broker I/O; it does
+  not overwrite or fill a hole. Appending to a fetched handle updates that
+  handle's size; the source row keeps its old declared size, but an ordinary
+  explicit-offset read beyond that size can observe the shared file's extra
+  bytes. Bind the updated handle to a new row for the new logical size.
+- `lob.read(length=0, /) -> str` reads at the current **byte** position and
+  advances by bytes actually received. Omitted or zero length reads the
+  remainder, with bounded wire chunks for large values. Both BLOB and CLOB
+  return strict UTF-8 text, matching the official Python 3 extension for
+  valid UTF-8; use ordinary [`Lob.read()`](#readlength-offset) for arbitrary
+  binary bytes. A split UTF-8 character raises `UnicodeDecodeError` after the
+  position advances by the bytes received. Empty values, EOF and requests
+  longer than the remaining size safely return `""` or the available text;
+  the official CCI wrapper can instead error at EOF or read past its declared
+  buffer. Those unsafe edge behaviors are not emulated.
+- `lob.seek(offset, whence=SEEK_CUR, /) -> int` changes the byte position.
+  `native.SEEK_SET`, `SEEK_CUR` and `SEEK_END` are exported; as in the official
+  driver, SEEK_END computes `size - offset` (a positive offset moves backward).
+  `seek(0, SEEK_CUR)` reports the current position; there is no separate
+  `tell()`. Invalid whence or a resulting negative/out-of-range position is
+  rejected without changing position, unlike the official driver's unchecked
+  negative seek. Filling the same holder from another row preserves its byte
+  position, as in the official extension; use `seek(0, SEEK_SET)` to restart.
+  A nonnegative position past EOF is virtual: reads return `""` and writes
+  remain append-only, so it cannot create a hole.
 - The native connection is autocommit-only, so every fetched row is
   committed, `rollback()` has no transaction to undo, and an already fetched
-  handle stays usable.
-- `lob` has no `read()`, `write()`, `seek()`, `imports()` or `export()` yet;
-  those come with #442 and #443. To read a value, use an ordinary
-  `pycubrid` cursor and [`Lob.read()`](#readlength-offset). There is no async
-  LOB API.
+  handle stays bindable. A new LOB_NEW handle is temporary and belongs to its
+  original live physical session: the first autocommit statement that binds
+  it consumes its temporary file (also if that statement fails). Reusing that
+  handle then receives the server's stale-locator error; fetch the committed
+  row into a fresh `lob` for another bind. `bind_lob()` snapshots the handle
+  at bind time, so bind again after a later append. Read/write/seek require
+  the handle's original live session; a committed fetched handle may still be
+  bound from another connection as described above.
+- Migrating from official `_cubrid.lob`: use this explicit sync namespace,
+  retain byte-based seek positions and the official `SEEK_END` direction, and
+  replace a closed holder with `conn.lob()` rather than writing after close.
+  Ordinary `pycubrid.lob.Lob.read(length, offset=0)` and
+  `write(bytes, offset=0)` remain absolute-offset byte APIs; they did not
+  become stateful. File `imports()`/`export()` (#443) and async LOBs are not
+  provided by this facade.
 
 Deliberate differences from the official driver, each pinned by a live
 differential claim (`lob-*` in `tests/fixtures/official_differential_claims.json`):

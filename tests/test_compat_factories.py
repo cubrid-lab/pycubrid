@@ -238,7 +238,16 @@ def test_secondary_drop_failure_cannot_mask_setup_error_or_log_dsn(
 
 def test_namespace_is_partial_and_ordinary_contract_is_unchanged() -> None:
     assert cubriddb.__all__ == ["Connection", "Connect", "connect", "connection"]
-    assert native.__all__ == ["connection", "connect", "cursor", "lob", "set"]
+    assert native.__all__ == [
+        "connection",
+        "connect",
+        "cursor",
+        "lob",
+        "set",
+        "SEEK_SET",
+        "SEEK_CUR",
+        "SEEK_END",
+    ]
     for name in ("apilevel", "paramstyle", "threadsafety"):
         assert not hasattr(cubriddb, name)
     assert hasattr(native.connection, "cursor")

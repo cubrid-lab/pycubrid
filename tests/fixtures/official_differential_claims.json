@@ -480,6 +480,25 @@
       "scenario_ids": [],
       "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
       "issue": "#441"
+    },
+    {
+      "id": "lob-stream-blob",
+      "surface": "native",
+      "classification": "match",
+      "summary": "For a valid UTF-8 BLOB, native write/read/seek returns the same Unicode text, byte positions and end-minus-offset position as _cubrid across sequential in-range operations.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob.write", "documented_cubrid.lob.read", "documented_cubrid.lob.seek", "documented_cubrid.SEEK_SET", "documented_cubrid.SEEK_CUR", "documented_cubrid.SEEK_END"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream BLOB scenario tests file imports/exports, not direct in-range write/read/seek. This direct safe subset is measured by #442; file I/O remains #443.",
+      "issue": "#442"
+    },
+    {
+      "id": "lob-stream-clob",
+      "surface": "native",
+      "classification": "match",
+      "summary": "For a UTF-8 CLOB containing multibyte Korean text, native write/read/seek returns the same Unicode text and byte-counted positions as _cubrid across sequential in-range operations.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob.write", "documented_cubrid.lob.read", "documented_cubrid.lob.seek", "documented_cubrid.SEEK_SET", "documented_cubrid.SEEK_CUR", "documented_cubrid.SEEK_END"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_lob_string"],
+      "issue": "#442"
     }
   ]
 }
