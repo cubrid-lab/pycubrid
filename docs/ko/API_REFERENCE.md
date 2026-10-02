@@ -191,7 +191,7 @@ conn = pycubrid.connect(
 지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
 문자셋을 사용합니다.
 기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
-사용합니다. `pycubrid.compat.cubriddb` 래퍼는 아직 연결 생성·종료만
+사용합니다. `pycubrid.compat.cubriddb` 래퍼는 연결 생성·종료와 autocommit 설정을
 지원하며 래퍼 커서, DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
 확장과의 완전한 동등성은 제공하지 않습니다.
 
@@ -212,7 +212,8 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 다른 백엔드, HA/TLS URL 옵션과 초과 인자는 연결 전에 거부하며 오류에 계정 정보가 담긴 DSN
 원문을 노출하지 않습니다.
 
-네이티브 연결은 `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`, `close()`를 제공합니다.
+네이티브 연결은 `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`,
+`set_autocommit(bool)`, `set_isolation_level(level)`, `close()`를 제공합니다.
 커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
 bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`, `execute(option=0, max_col_size=0) -> int`,
 튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
@@ -220,8 +221,7 @@ Python 값 형식은 실행 전 거부합니다. 브로커가 현재 세션의 s
 pooling을 알리지 않거나 비활성화한 경우 FC2 전에 거부합니다. 핸들은
 물리 CAS 세션에 묶이며 재접속 뒤 자동 재실행하지 않습니다. `commit()`은
 HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
-무효화합니다. 연결은 기본적으로 autocommit이 켜져 있으며 효과적인
-`set_autocommit()`은 별도 #467 작업입니다. 브로커가 반환한 prepared
+무효화합니다. 연결은 기본적으로 autocommit이 켜져 있습니다. 브로커가 반환한 prepared
 오류는 DB-API 예외 종류·코드·errno·SQLSTATE를 유지하지만 SQL이나
 값이 포함될 수 있는 오류 문구는 가립니다. 고정된 공식 네이티브 확장은
 `bind_param(None)`에서 `SystemError`를 내지만 이 제한된 구현은 SQL NULL을
@@ -231,6 +231,58 @@ HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
 [typed CAS 설계](../PREPARED_BINDING_DESIGN.md)와
 [호환성 가이드](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)를
 참고하세요.
+
+### 캐시된 설정과 실제 설정자
+
+네이티브 연결의 `autocommit`, `isolation_level`, `lock_timeout`,
+`max_string_len`은 쓰기 가능한 **캐시 스냅샷**입니다. 임의의 Python 객체를
+직접 대입해도 그 객체만 보존하고 브로커 요청이나 실제 설정 변경은 하지 않습니다.
+초기 autocommit은 실제 연결 모드에서, 나머지 세 값은 DB 파라미터 조회로 얻습니다.
+`max_string_len` 조회에 대해 서버가 완전한 오류 응답을 준 경우에만 `0`으로
+처리하며, 전송·응답 구조 오류는 연결 생성을 실패시킵니다. 고정된 공식 확장처럼
+서버의 실제 READ COMMITTED 숫자 수준이 4인 새 연결도 초기 **문자열 캐시**에는
+`"CUBRID_TRAN_UNKNOWN_ISOLATION"`을 표시합니다. `set_isolation_level(4)`를
+부르면 실제 수준을 불필요하게 다시 설정하지 않고 표기가 고쳐집니다.
+
+실제 모드는 `conn.set_autocommit(mode, /)`에 `True` 또는 `False`를 전달해
+바꿉니다. 정확한 `bool`만 받고 성공 시 `None`을 반환하며 캐시도 갱신합니다.
+CCI와 같이 실제 모드가 같으면 로컬에서 끝나고, 모드가 달라질 때 활성
+트랜잭션이 있는 경우에만 COMMIT을 보냅니다. 이후 prepared 실행은 새 모드를
+사용합니다. 일반 `Connection.autocommit` 세터의 기존 SET+COMMIT 동작은
+바뀌지 않습니다. `set_isolation_level(level, /)`은 숫자 `4`, `5`, `6`이나
+해당 `CUBRIDIsolationLevel` 멤버를 받고 `None`을 반환합니다. 실제 세션 수준을
+SET_DB_PARAMETER로 바꾸되 현재 트랜잭션은 커밋하지 않습니다. 실제 수준이
+같으면 문자열 캐시만 갱신하며 물리 세션이 교체되면 요청 수준을 다시 설정합니다.
+다른 입력 형식과 과거 격리 수준은 안전하지 않은 공식 C 인자 파서 동작을
+따르지 않고 요청 전에 거부합니다. `lock_timeout`/`max_string_len`의 실제
+설정자는 제공하지 않습니다.
+
+래퍼의 `get_autocommit()`과 `.autocommit` getter는 직접 대입된 객체까지
+네이티브 캐시 값을 그대로 반환합니다. 반대로
+`wrapper.set_autocommit(value)`와 `wrapper.autocommit = value`는 `bool`만
+받고(그 외에는 `ValueError`) 네이티브의 실제 설정자에 위임합니다. 공식
+드라이버에서 실제 동작 변경을 의도한 멤버 직접 대입은 명시적 설정자 호출로
+바꾸고 캐시 조회와 실제 상태 확인을 구분하세요. 일반
+`pycubrid.connect()`의 수동 커밋 기본값은 변하지 않습니다.
+
+```python
+from pycubrid.compat import cubriddb, native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    conn.autocommit = False       # 캐시만 변경, SQL은 여전히 자동 커밋
+    conn.set_autocommit(False)   # 실제 수동 트랜잭션 모드
+    conn.set_isolation_level(5)  # REPEATABLE READ, 암묵적 커밋 없음
+    conn.rollback()
+finally:
+    conn.close()
+
+wrapper = cubriddb.Connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    wrapper.autocommit = False   # 직접 캐시 대입과 달리 실제 설정자 호출
+finally:
+    wrapper.close()
+```
 
 ### 컬렉션 바인딩 (`set`, `imports`, `bind_set`)
 
@@ -376,9 +428,12 @@ finally:
   다시 채워도 공식 확장처럼 바이트 위치는 유지됩니다. 처음부터 읽으려면
   `seek(0, SEEK_SET)`을 호출하세요. EOF 이후의 음수가 아닌 위치는 가상 위치로
   허용되지만 읽으면 `""`이며, 쓰기는 끝에만 가능하므로 빈 공간을 만들지 않습니다.
-- 네이티브 연결은 autocommit 전용이므로 조회한 행은 모두 커밋된 행이고,
-  `rollback()`이 되돌릴 트랜잭션이 없으며, 이미 조회한 핸들은 계속 바인딩할 수 있습니다.
-  그러나 LOB_NEW로 만든 핸들은 원래 물리 세션의 임시 파일이며, 처음 바인딩한
+- 네이티브 연결은 autocommit으로 시작하지만 `set_autocommit(False)`로
+  수동 트랜잭션을 사용할 수 있습니다. autocommit 상태에서 조회한 LOB는
+  다른 연결에서 바인딩할 수 있습니다. 수동 모드에서 조회한 LOB의 보수적인
+  비전달 표시기는 나중에 `commit()`해도 그대로이므로, 연결을 넘어 바인딩하려면
+  확실한 autocommit 모드에서 다시 조회하세요. LOB_NEW로 만든 핸들은 원래
+  물리 세션의 임시 파일이며, 처음 바인딩한
   autocommit 문장이 실패해도 그 파일을 소비합니다. 이후 같은 핸들을 재사용하면
   서버의 오래된 locator 오류가 납니다. 다시 바인딩하려면 커밋된 행을 새 `lob`으로
   조회하세요. `bind_lob()`은 바인딩 시점의 핸들을 복사하므로 추가 쓰기 뒤에는

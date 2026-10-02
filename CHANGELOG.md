@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Native cached settings and effective mode setters (#467)** — the explicit
+  sync `pycubrid.compat.native.connection` now exposes writable cached
+  `autocommit`, `isolation_level`, `lock_timeout` and `max_string_len` members;
+  direct assignment sends no packet. Separate positional-only
+  `set_autocommit(bool)` and `set_isolation_level(4/5/6)` change the effective
+  mode and symbolic cache only on success. Matching pinned CCI, autocommit
+  changes are local unless the actual mode changes during an active
+  transaction, when it commits first; an isolation change does not commit.
+  Initial lock/max/isolation values come from the broker, with only a complete
+  max-string server error falling back to 0. The pinned official extension's
+  fresh level-4 `UNKNOWN` text quirk is retained and corrected by its setter.
+  The `compat.cubriddb` wrapper adds a bool-validated effective autocommit
+  setter/property and a raw-cache getter. Manual-mode LOB fetches retain their
+  conservative non-transferable provenance after later commit. Ordinary
+  driver defaults, ordinary/async setting APIs, dependencies and release
+  publication are unchanged. Offline and owned CUBRID 10.2/11.4 cases plus a
+  pinned official-driver differential record the bounded behavior.
 - **Explicit native LOB byte-position stream (#442)** — `pycubrid.compat.native.lob`
   now adds sync-only `write(data, type="B")`, `read(length=0)` and
   `seek(offset, whence=SEEK_CUR)`, plus the three `SEEK_*` constants. BLOB and

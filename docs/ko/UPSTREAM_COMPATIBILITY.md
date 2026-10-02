@@ -12,8 +12,9 @@
 실행, 완전한 API 상위 집합을 인증하지 않습니다. 비슷한 이름이나 기존 패킷
 클래스만으로는 충분한 증거가 되지 않습니다.
 [#438](https://github.com/cubrid-lab/pycubrid/issues/438)의 선택된 additive 설계를
-아래에 기록합니다. 명시적 네임스페이스는 이제 생성·종료만 제공합니다(#465).
-이 카탈로그는 후속 실행 API나 네이티브 동등성을 인증하지 않으며 기존 1.x
+아래에 기록합니다. 명시적 네임스페이스는 아래의 제한된 구현 범위
+(#465/#439/#440/#441/#442/#467)를 제공합니다. 이 카탈로그는 남은 API나
+완전한 네이티브 동등성을 인증하지 않으며 기존 1.x
 기본값도 바꾸지 않습니다.
 카탈로그의 대상 매핑은 과거 기준선으로 유지하며 #465의 생성 기능은
 이 가이드에 따로 기록합니다.
@@ -61,7 +62,9 @@
 
 2026-09-28 메인테이너가 선택한 설계는 기존 pycubrid를 유지하고 별도의
 `pycubrid.compat.cubriddb`(래퍼)와 `pycubrid.compat.native`(네이티브)를 추가합니다.
-#465에서 가져와 생성·종료할 수 있고, 명시적 네이티브 동기 prepared 스칼라 커서(#439), 컬렉션 바인딩(#440), LOB 핸들 조회·바인딩(#441)도 제공되지만 아래의 다른 행은 아직 목표 계약입니다. 되돌릴 수 있는
+#465의 생성·종료, 네이티브 prepared 스칼라(#439), 컬렉션 바인딩(#440),
+LOB 핸들·스트림(#441/#442), 캐시와 실제 설정자(#467)를 제공하지만
+아래의 다른 행은 아직 목표 계약입니다. 되돌릴 수 있는
 이 additive 설계는 1.x 기본값 대체, 2.0 대체 도입, 릴리스 발행을 허가하지 않습니다.
 전역 스위치, `CUBRIDdb`/`_cubrid` 이름 가리기, 기존
 `Cursor.execute`의 오버로딩은 선택하지 않습니다. 래퍼와 네이티브의 실행 형태는
@@ -81,9 +84,9 @@ execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, B
 
 | 표면 | 선택된 계약 / 구현 경계 |
 | --- | --- |
-| 팩터리 (#465) | 래퍼 `Connect/connect/connection(*args, **kwargs)`는 `Connection(dsn='', user='public', password='', charset='utf8')`에 위임합니다. 위치 인자 최대 세 개가 dsn/user/password 키워드를 덮어씁니다. 네이티브 `connect(url, user='public', passwd='')`와 소문자 connection 생성은 autocommit=True로 시작합니다. 래퍼 `.connection`은 정확히 그 호환성 네이티브 객체입니다. 생성·종료만 제공하며 초과 위치 인자·미지원 키워드/DSN 옵션을 거절합니다. 문자셋 선택·HA·커서 실행은 제공하지 않습니다. |
-| 공유 / 전역 값 (향후) | 래퍼 apilevel='2.0', paramstyle='qmark', threadsafety=2에는 실제 커서와 연결별 요청·수명주기 직렬화 및 두 스레드 테스트가 먼저 필요합니다. 생성 전용 모듈은 이 전역 값을 내보내지 않습니다. 락 없는 기존 객체와 전역 threadsafety=1은 유지합니다. |
-| 설정 | 네이티브 autocommit/isolation_level/lock_timeout/max_string_len 대입은 캐시 스냅샷만 바꿉니다. `set_autocommit(mode)` / `set_isolation_level(level)`은 서버 연산과 캐시 갱신을 수행하며 max_string_len은 소스의 조회 실패 시 0 폴백을 유지합니다. 래퍼 `.autocommit`은 서버에 반영되는 속성입니다. 스냅샷 멤버에 실제 서버 설정자를 만들어 붙이지 않습니다. |
+| 팩터리 (#465) | 래퍼 `Connect/connect/connection(*args, **kwargs)`는 `Connection(dsn='', user='public', password='', charset='utf8')`에 위임합니다. 위치 인자 최대 세 개가 dsn/user/password 키워드를 덮어씁니다. 네이티브 `connect(url, user='public', passwd='')`와 소문자 connection 생성은 autocommit=True로 시작합니다. 래퍼 `.connection`은 정확히 그 호환성 네이티브 객체입니다. 생성·종료와 #467 autocommit 접근을 제공하며 초과 위치 인자·미지원 키워드/DSN 옵션을 거절합니다. 문자셋 선택·HA·커서 실행은 제공하지 않습니다. |
+| 공유 / 전역 값 (향후) | 래퍼 apilevel='2.0', paramstyle='qmark', threadsafety=2에는 실제 커서와 연결별 요청·수명주기 직렬화 및 두 스레드 테스트가 먼저 필요합니다. 현재의 제한된 호환 모듈은 이 전역 값을 내보내지 않습니다. 락 없는 기존 객체와 전역 threadsafety=1은 유지합니다. |
+| 설정 (#467) | 네이티브의 `autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`은 직접 대입이 브로커 요청을 보내지 않는 쓰기 가능한 캐시이며, 실제 설정은 별도 `set_autocommit(mode, /)` / `set_isolation_level(level, /)`로 바꿉니다. bool autocommit 설정자는 로컬 CCI 대응 모드를 바꾸며, 실제 모드가 바뀌고 활성 트랜잭션이 있을 때만 커밋합니다. 격리 수준 4/5/6의 SET은 커밋하지 않으며 같은 물리 세션의 실제 수준이 같으면 생략합니다. 래퍼 `.autocommit`의 세터는 bool을 검증·위임하고 getter는 원시 캐시를 읽습니다. 생성자는 lock/max/isolation의 실제 값을 읽고 max-string 서버의 완전한 오류에만 0을 적용하며, 숫자 수준 4의 초기 문자열은 공식 확장의 `CUBRID_TRAN_UNKNOWN_ISOLATION` 표기를 유지합니다. lock/max 실제 세터·일반 기본값 변경·위험한 네이티브 파서 패리티는 없습니다. |
 | 래퍼 커서 | `cursor(dictCursor=None)`, `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None`; 튜플/dict fetch와 연결의 fetch-converter 콜백을 유지합니다. 모순되는 mapping 바인딩/default_cursor docstring은 작동하는 기능 약속이 아닙니다. |
 | 네이티브 prepared 커서 | `prepare(sql) -> None`; 1부터 시작하는 인덱스의 `bind_param(index, value, bind_type=0, /) -> None`; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)`는 튜플/dict 또는 None입니다. 옵션 기본값은 docstring QUERY_ALL이 아니라 파싱된 0이며 #418/#439가 코어를 구현합니다. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`에서 null_ok는 정수 0/1이고 precision은 쿼리별 값이며 네이티브 플래그 타입을 유지합니다. 값과 Python 타입을 함께 검증하고 컬렉션 16→32를 무조건 변환하지 않습니다. |
@@ -91,7 +94,7 @@ execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, B
 | 네이티브 컬렉션 바인딩 (#440) | 동기 전용으로 제공됩니다. `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None`, `cursor.bind_set(index, set, /) -> None`. `data`는 tuple이어야 하고(아니면 InterfaceError) `type`은 BIT/VARBIT(NotSupportedError)을 제외한 모든 int 타입 코드이며, 공식 드라이버처럼 import의 표시일 뿐입니다. 공식 드라이버처럼 모든 원소는 `type`과 관계없이 STRING(2)으로 보내며, 기본 종류 SET은 공식 바이트를 보냅니다. `kind=MULTISET`은 중복을 유지하고(브로커가 MULTISET을 -454로 거부하므로 SEQUENCE로 보내며, 컬럼은 순서를 유지하지 않음) `kind=SEQUENCE`는 중복과 순서를 유지합니다. None이 NULL 원소이며, `'NULL'`, `''`, Python int 원소(INT 전용), NUL 거부, #439 오류 클래스는 의도적으로 분류된 차이입니다. import하지 않은 set은 SQL NULL을 바인딩합니다. 래퍼 `execute(..., set_type)`/`executemany` 컬렉션 형태는 제공하지 않습니다(#610). |
 | 컬렉션 | 저장된 SET의 목표는 변경 가능한 set, MULTISET/SEQUENCE는 list입니다. 비NULL 요소는 검증된 타입별 텍스트 변환을 사용하고 중복·순서·빈 값을 보존합니다. 전체 SQL NULL과 NULL 요소는 아래 안전성 차이에 따라 None입니다. 중괄호 리터럴은 저장된 SET의 증거가 아니며 네이티브 타입 지정 import/bind는 위의 #440 행입니다. 일반 커서용 `pycubrid.types.Set`/`Multiset`/`Sequence` 파라미터(#567)에는 공식 대응물이 없습니다. 공식 wrapper `execute(query, args, set_type)`는 일반 list를 네이티브 prepared `bind_set`으로 바인딩하며 pycubrid는 이를 제공하지 않으므로, 이 파라미터에 대해서는 차등 비교 주장을 하지 않습니다. |
 | Identity / 스키마 | 네이티브 `insert_id() -> int \| None`은 기존 INSERT 캐시의 형변환이 아니라 현재 브로커 identity를 조회합니다. `schema_info(schema_type, class_name, attr_name 생략, /)`는 키워드/플래그/명시적 None 없이 첫 행의 list 또는 None을 반환합니다. CLASS/VCLASS 플래그 1, ATTRIBUTE/CLASS_ATTRIBUTE 2, 나머지 0을 추론합니다. #456의 전체 소비·정리가 제공되면 재사용하며 기존 소비 API는 계속 모든 행을 반환합니다. |
-| 네이티브 LOB 핸들 조회·바인딩 (#441) | 동기 전용으로 제공됩니다. `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None`(로컬 전용, 서버 해제 요청 없음, 그 전에 만든 바인딩은 유효), `cursor.fetch_lob(col, lob, /) -> None`, `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob`은 `fetch_row`처럼 다음 행을 소비하고 BLOB/CLOB 타입을 `col`에서 정합니다(공식은 1번 컬럼을 읽지만 10.2/11.4에서 저장되는 복사본은 같음). int가 아닌 `col`은 공식 인자 파서처럼 먼저 TypeError를 내고, 결과 끝에서는 공식과 같이 컬럼 범위·타입이나 lob 상태를 검사하기 전에 None을 반환하며, 그 밖에는 LOB가 아니거나 범위를 벗어난 컬럼이 행을 소비하지 않고 ProgrammingError를 내며, NULL 셀은 공식과 같이 행을 소비하고 lob을 비웁니다. `bind_lob`은 공식과 같이 lob이 아니면 TypeError를 내고, 공식과 같이 커밋된 행에서 조회한 핸들을 다시, 다른 연결에서, 원래 연결이 닫히거나 재접속한 뒤에도 바인딩합니다(서버가 복사본 저장). 닫히거나 빈 lob은 요청 전에 InterfaceError를 내며(공식은 NULL 바인딩), 닫힌 lob이나 다른 연결의 lob으로 `fetch_lob`하면 InterfaceError입니다(공식은 채움). int가 아닌 인덱스는 공식과 같이 lob보다 먼저 TypeError를 내고, 범위를 벗어난 인덱스는 ProgrammingError입니다. 완전한 응답의 셀이 컬럼 LOB 타입의 핸들이 아니면 행을 소비하지 않고 DataError를 내며, 핸들 구조가 손상되었으면 OperationalError를 내고 세션을 폐기합니다. 각 lob은 출처(fetched/created)를 기록하므로 #442가 생성한 임시 핸들을 자기 세션에 묶을 수 있고, autocommit 모드에서 조회했는지(현재는 항상)도 기록합니다. 커밋된 행만 연결을 넘을 수 있기 때문입니다. 스트림 작업은 아래 #442에서 제공하며, 파일 입출력은 #443으로 남습니다. |
+| 네이티브 LOB 핸들 조회·바인딩 (#441) | 동기 전용으로 제공됩니다. `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None`(로컬 전용, 서버 해제 요청 없음, 그 전에 만든 바인딩은 유효), `cursor.fetch_lob(col, lob, /) -> None`, `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob`은 `fetch_row`처럼 다음 행을 소비하고 BLOB/CLOB 타입을 `col`에서 정합니다(공식은 1번 컬럼을 읽지만 10.2/11.4에서 저장되는 복사본은 같음). int가 아닌 `col`은 공식 인자 파서처럼 먼저 TypeError를 내고, 결과 끝에서는 공식과 같이 컬럼 범위·타입이나 lob 상태를 검사하기 전에 None을 반환하며, 그 밖에는 LOB가 아니거나 범위를 벗어난 컬럼이 행을 소비하지 않고 ProgrammingError를 내며, NULL 셀은 공식과 같이 행을 소비하고 lob을 비웁니다. `bind_lob`은 공식과 같이 lob이 아니면 TypeError를 내고, 공식과 같이 커밋된 행에서 조회한 핸들을 다시, 다른 연결에서, 원래 연결이 닫히거나 재접속한 뒤에도 바인딩합니다(서버가 복사본 저장). 닫히거나 빈 lob은 요청 전에 InterfaceError를 내며(공식은 NULL 바인딩), 닫힌 lob이나 다른 연결의 lob으로 `fetch_lob`하면 InterfaceError입니다(공식은 채움). int가 아닌 인덱스는 공식과 같이 lob보다 먼저 TypeError를 내고, 범위를 벗어난 인덱스는 ProgrammingError입니다. 완전한 응답의 셀이 컬럼 LOB 타입의 핸들이 아니면 행을 소비하지 않고 DataError를 내며, 핸들 구조가 손상되었으면 OperationalError를 내고 세션을 폐기합니다. 각 lob은 출처(fetched/created)를 기록하므로 #442가 생성한 임시 핸들을 자기 세션에 묶을 수 있고, 실제 autocommit 모드에서 조회했는지도 기록합니다. 수동 모드에서 조회한 핸들은 나중에 커밋해도 다른 연결로 넘기지 않으며, autocommit 모드에서 다시 조회해야 합니다. 스트림 작업은 아래 #442에서 제공하며, 파일 입출력은 #443으로 남습니다. |
 | 네이티브 LOB 스트림 (#442) | 동기 전용으로 `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`와 `SEEK_*` 상수를 제공합니다. 위치와 크기는 바이트 단위이고 BLOB/CLOB 모두 UTF-8 텍스트를 반환하며 SEEK_END는 크기-offset입니다. 첫 쓰기는 BLOB/CLOB을 만들고 이후 쓰기는 끝에만 추가합니다. 안전상 중간 쓰기·유효하지 않은 위치는 요청 전에 거부하고 빈 값·EOF·초과 읽기는 공식 CCI의 위험한 동작 대신 가능한 문자열을 반환합니다. 네이티브 객체의 close는 계속 종료 상태이고, 생성 핸들은 원래 세션에 묶이며 첫 autocommit 바인딩이 임시 파일을 소비합니다. 일반 절대 오프셋 `Lob`과 파일 입출력(#443)은 변하지 않습니다. |
 | 예외 | 네임스페이스별 PEP 249 어댑터는 `(numeric_code, formatted_message)` args와 code/errno/SQLSTATE 증거를 유지하며 기존 예외 identity/args는 바꾸지 않습니다. 불안정한 메시지의 완전 일치나 네이티브 인자 파서 충돌은 목표가 아닙니다. |
 
@@ -182,8 +185,8 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 | 표면 | 일치 | 분류된 차이 | 합계 |
 | --- | ---: | ---: | ---: |
 | 래퍼 (`CUBRIDdb`) | 12 | 2 | 14 |
-| 네이티브 (`_cubrid`) | 23 | 11 | 34 |
-| **합계** | **35** | **13** | **48** |
+| 네이티브 (`_cubrid`) | 24 | 11 | 35 |
+| **합계** | **36** | **13** | **49** |
 
 - 오라클: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - 필수 서버: CUBRID 10.2, CUBRID 11.4
@@ -191,16 +194,18 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 
 <!-- official-differential-summary:end -->
 
-이 주장들은 첫 번째 제한된 범위입니다. 저장된 스칼라 조회, 정적 스칼라 행과
-description, #439 prepared INT/문자열 부분집합, #440 네이티브 컬렉션 바인딩, #441 네이티브 LOB 핸들
-조회·바인딩을 다룹니다. 래퍼 컬렉션 형태, LOB 읽기·쓰기·seek·파일, 문자셋/HA,
+이 주장들은 측정한 제한된 범위입니다. 저장된 스칼라 조회, 정적 스칼라 행과
+description, #439 prepared INT/문자열 부분집합, #440 네이티브 컬렉션 바인딩,
+#441/#442 네이티브 LOB 핸들·스트림, #467 캐시와 안전한 실제 설정자 값을
+다룹니다. 래퍼 컬렉션 형태, LOB 파일 입출력, 문자셋/HA,
 실패 동작과 나머지 인벤토리 연산은 여기에 주장이 생길 때까지 인증되지 않습니다.
 주장 수는 패리티 비율이 아닙니다.
 
 ### 이행 목표와 작은 구현 단위의 수용 기준
 
-실제 쿼리에는 기존 import를 유지하세요. 새 모듈은 아직 연결 생성·종료만
-제공합니다. 후속 기능이 갖춰지면 래퍼 이행은
+실제 쿼리에는 기존 import를 유지하세요. 명시적 네이티브 모듈은 제한된
+동기 prepared·LOB 실행과 #467 설정을 지원하며, 래퍼는 연결 생성·종료와
+autocommit 위임만 제공하고 커서 실행은 없습니다. 래퍼 이행은
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`, 네이티브는
 `import _cubrid` → `from pycubrid.compat import native as _cubrid`입니다.
 수동 트랜잭션에서 래퍼는 `conn.autocommit = False`, 네이티브는

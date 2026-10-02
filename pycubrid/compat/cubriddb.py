@@ -1,4 +1,4 @@
-"""Construction-only CUBRIDdb-style wrapper over the explicit native surface."""
+"""Bounded CUBRIDdb-style construction and autocommit wrapper over native."""
 
 from __future__ import annotations
 
@@ -31,6 +31,18 @@ class Connection:
     def close(self) -> None:
         """Close the one underlying connection."""
         self._connection.close()
+
+    def set_autocommit(self, value: bool) -> None:
+        """Change effective mode; unlike raw native member assignment."""
+        if type(value) is not bool:
+            raise ValueError("Parameter should be a boolean value")
+        self._connection.set_autocommit(value)
+
+    def get_autocommit(self) -> Any:
+        """Return the native cached member, including a caller-assigned value."""
+        return self._connection.autocommit
+
+    autocommit = property(get_autocommit, set_autocommit)
 
 
 def Connect(*args: Any, **kwargs: Any) -> Connection:

@@ -697,6 +697,53 @@ def _lob_stream(payload: str | bytes, kind: str) -> tuple[str, str]:
     return observe(native), observe(_cubrid)
 
 
+def _native_settings_cache_and_setters() -> tuple[str, str]:
+    """Compare safe cached members and valid effective setter values (#467)."""
+
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        try:
+            initial = (
+                conn.autocommit,
+                conn.isolation_level,
+                conn.lock_timeout,
+                conn.max_string_len,
+            )
+            names = ("autocommit", "isolation_level", "lock_timeout", "max_string_len")
+            markers = [object() for _ in names]
+            for name, marker in zip(names, markers):
+                setattr(conn, name, marker)
+            identities = tuple(
+                getattr(conn, name) is marker for name, marker in zip(names, markers)
+            )
+            auto_result = conn.set_autocommit(False)
+            auto_after = conn.autocommit
+            iso_result = conn.set_isolation_level(4)
+            iso_after_four = conn.isolation_level
+            conn.set_isolation_level(5)
+            iso_after_five = conn.isolation_level
+            conn.set_isolation_level(6)
+            iso_after_six = conn.isolation_level
+            conn.set_autocommit(True)
+            return render(
+                (
+                    initial,
+                    identities,
+                    auto_result,
+                    auto_after,
+                    iso_result,
+                    iso_after_four,
+                    iso_after_five,
+                    iso_after_six,
+                    conn.autocommit,
+                )
+            )
+        finally:
+            conn.close()
+
+    return observe(native), observe(_cubrid)
+
+
 FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
 KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
 
@@ -759,6 +806,7 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "lob-error-classes": _lob_error_classes,
     "lob-stream-blob": lambda: _lob_stream(b"AhelloB", "B"),
     "lob-stream-clob": lambda: _lob_stream("A한éB", "C"),
+    "native-cached-settings": _native_settings_cache_and_setters,
 }
 
 

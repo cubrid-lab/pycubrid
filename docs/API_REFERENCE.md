@@ -202,11 +202,11 @@ conn = pycubrid.connect(
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
 It now provides a bounded **sync-only prepared cursor** for INT32, string
 and SQL NULL values, [SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set)
-and [fetched BLOB/CLOB handles](#lob-handles-lob-fetch_lob-bind_lob);
+and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bind_lob);
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
-through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
-and close subset; it does not expose a wrapper cursor, DB-API globals, a
+through FC41. The wrapper `pycubrid.compat.cubriddb` offers construction,
+close and autocommit access but no wrapper cursor, DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
@@ -227,7 +227,8 @@ plain CUBRID backend is accepted; alternate backends, HA/TLS URL options and
 excess arguments fail before connection work. Errors
 never echo the raw credential-bearing DSN.
 
-The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()` and `close()`.
+The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`,
+`set_autocommit(bool)`, `set_isolation_level(level)` and `close()`.
 Its cursor supports `prepare(sql)`, one-based
 `bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
@@ -243,8 +244,7 @@ SQLSTATE, but their text is redacted because the broker may echo SQL or values.
 Unlike the pinned official native extension, which raises `SystemError` on
 `bind_param(None)`, this subset binds SQL NULL explicitly; this is a documented
 safety deviation rather than an exact native-NULL parity claim.
-The initial public connection still starts with autocommit enabled; effective
-`set_autocommit()` is separate #467 work. Do not treat this subset as a
+The initial public connection still starts with autocommit enabled. Do not treat this subset as a
 general DB-API cursor or a public async prepared API. See the
 [typed CAS contract](PREPARED_BINDING_DESIGN.md) and
 [compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
@@ -265,6 +265,60 @@ try:
         cur.close()
 finally:
     conn.close()
+```
+
+### Cached settings versus effective setters
+
+The four writable `native.connection` members `autocommit`,
+`isolation_level`, `lock_timeout` and `max_string_len` are **cached snapshots**.
+Assigning any Python object to them preserves that object but sends no packet
+and changes no effective setting. The initial values come from the connection's
+effective autocommit mode and database-parameter reads for the other three;
+only a complete server error while reading `max_string_len` maps to `0`.
+Transport or malformed-reply failures abort construction. As in the pinned
+official extension, a fresh server at numeric READ COMMITTED level 4 reports
+`"CUBRID_TRAN_UNKNOWN_ISOLATION"` in its initial *text* cache; the effective
+level remains 4, and calling `set_isolation_level(4)` repairs the text.
+
+Use `conn.set_autocommit(mode, /)` with `True` or `False` to change the effective mode. It
+accepts an exact `bool`, returns `None` and updates the cache after success.
+Like CCI, a same-effective-mode call is local, and a mode transition sends a
+COMMIT only if a transaction is active; the new mode governs subsequent
+prepared execution. This is not the ordinary `Connection.autocommit` setter,
+which retains its existing SET+COMMIT behavior. `set_isolation_level(level, /)`
+accepts `4`, `5`, `6` or the corresponding `CUBRIDIsolationLevel` members,
+returns `None`, and changes the actual session level with SET_DB_PARAMETER
+without committing the current transaction. A same-effective-level call
+updates only the symbolic cache; after physical-session replacement it sets
+the requested level again. Other input types and legacy levels are rejected
+before I/O rather than reproducing unsafe C-extension parser behavior.
+There are no effective `lock_timeout` or `max_string_len` setters here.
+
+The wrapper's `get_autocommit()` and `.autocommit` getter return the native
+cached member, even if it was overwritten with another object. In contrast,
+`wrapper.set_autocommit(value)` and `wrapper.autocommit = value` require a
+`bool` (`ValueError` otherwise) and delegate the effective native setter.
+For migration, replace official raw member assignments intended to change
+behavior with an explicit setter; keep cached reads separate from effective
+state checks. Ordinary `pycubrid.connect()` still defaults to manual commit.
+
+```python
+from pycubrid.compat import cubriddb, native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    conn.autocommit = False       # cache only; SQL still autocommits
+    conn.set_autocommit(False)   # effective manual transaction mode
+    conn.set_isolation_level(5)  # REPEATABLE READ, no implicit commit
+    conn.rollback()
+finally:
+    conn.close()
+
+wrapper = cubriddb.Connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    wrapper.autocommit = False   # effective setter, unlike native raw assignment
+finally:
+    wrapper.close()
 ```
 
 ### Collection binding (`set`, `imports`, `bind_set`)
@@ -426,9 +480,12 @@ Python. The server copies the value when the statement runs, so after
   position, as in the official extension; use `seek(0, SEEK_SET)` to restart.
   A nonnegative position past EOF is virtual: reads return `""` and writes
   remain append-only, so it cannot create a hole.
-- The native connection is autocommit-only, so every fetched row is
-  committed, `rollback()` has no transaction to undo, and an already fetched
-  handle stays bindable. A new LOB_NEW handle is temporary and belongs to its
+- The native connection starts in autocommit mode, but `set_autocommit(False)`
+  allows manual transactions. A LOB fetched while autocommit is enabled can be
+  bound on another connection; one fetched in manual mode keeps a conservative
+  non-transferable flag even after a later `commit()`. Re-fetch it in confirmed
+  autocommit mode before cross-connection binding. A new LOB_NEW handle is
+  temporary and belongs to its
   original live physical session: the first autocommit statement that binds
   it consumes its temporary file (also if that statement fails). Reusing that
   handle then receives the server's stale-locator error; fetch the committed
