@@ -1,14 +1,16 @@
-"""Bounded CUBRIDdb-style construction and autocommit wrapper over native."""
+"""Bounded CUBRIDdb-style connection and qualified row cursor wrapper."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from . import native
+from .cursors import Cursor as _WrapperCursor
+from .cursors import DictCursor as _WrapperDictCursor
 
 
 class Connection:
-    """Own one native-style object; wrapper cursor operations are not yet available."""
+    """Own one native-style object and its per-connection fetch converter."""
 
     def __init__(
         self,
@@ -22,6 +24,7 @@ class Connection:
         # Validated by the driver before any socket work; CUBRID spellings
         # such as "euckr" are accepted (#86).
         self._connection = native.connection(dsn, user, password, charset=charset)
+        self.fetch_value_converter: Any = None
 
     @property
     def connection(self) -> native.connection:
@@ -31,6 +34,15 @@ class Connection:
     def close(self) -> None:
         """Close the one underlying connection."""
         self._connection.close()
+
+    def cursor(self, dictCursor: Any = None) -> _WrapperCursor | _WrapperDictCursor:
+        """Choose exact-name dict rows for truthy values, tuple rows otherwise."""
+        cls = _WrapperDictCursor if dictCursor else _WrapperCursor
+        return cls(self)
+
+    def set_fetch_value_converter(self, func: Any) -> None:
+        """Store the current callback for cursors of this connection."""
+        self.fetch_value_converter = func
 
     def set_autocommit(self, value: bool) -> None:
         """Change effective mode; unlike raw native member assignment."""

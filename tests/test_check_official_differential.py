@@ -166,10 +166,14 @@ def test_generated_docs_are_rewritten_and_stale_blocks_fail(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     docs = {}
+    wrapper_matches = sum(
+        claim["surface"] == "wrapper" and claim["classification"] == "match"
+        for claim in DOC["claims"]
+    )
     for lang, path in gate.DOCS.items():
         copy_path = tmp_path / f"{lang}.md"
         text = path.read_text(encoding="utf-8")
-        copy_path.write_text(text.replace("| 12 |", "| 99 |", 1), encoding="utf-8")
+        copy_path.write_text(text.replace(f"| {wrapper_matches} |", "| 99 |", 1), encoding="utf-8")
         docs[lang] = copy_path
     monkeypatch.setattr(gate, "DOCS", docs)
     monkeypatch.setattr(gate, "ROOT", tmp_path)

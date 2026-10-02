@@ -323,11 +323,13 @@ class cursor:
         self._bindings = []
         self._invalidate_result()
 
-    def _request(self, packet: Any, generation: int) -> None:
+    def _request(self, packet: Any, generation: int, *, allow_reconnect: bool = True) -> None:
         """Keep broker-controlled text out of the explicit prepared API."""
         redacted_error: DatabaseError | None = None
         try:
-            self._connection._driver._send_and_receive(packet, expected_generation=generation)
+            self._connection._driver._send_and_receive(
+                packet, allow_reconnect=allow_reconnect, expected_generation=generation
+            )
         except DatabaseError as exc:
             if not getattr(exc, "_cas_server_error", False):
                 raise
@@ -344,7 +346,7 @@ class cursor:
             # original broker message in __context__ for error collectors.
             raise redacted_error
 
-    def _release_handle(self) -> None:
+    def _release_handle(self, *, allow_reconnect: bool = True) -> None:
         driver = self._connection._driver
         handle = self._handle
         generation = self._generation
@@ -355,7 +357,7 @@ class cursor:
                 and getattr(driver, "_connected", False)
                 and generation == driver._physical_generation
             ):
-                self._request(CloseQueryPacket(handle), generation)
+                self._request(CloseQueryPacket(handle), generation, allow_reconnect=allow_reconnect)
         finally:
             # FC6 may have succeeded remotely before its reply failed. Never
             # expose buffered rows or reuse an uncertain owner after that.
@@ -616,11 +618,11 @@ class cursor:
         if self._has_result:
             self._invalidate_result()
 
-    def _close_locked(self) -> None:
+    def _close_locked(self, *, allow_reconnect: bool = True) -> None:
         if self._closed:
             return
         try:
-            self._release_handle()
+            self._release_handle(allow_reconnect=allow_reconnect)
         finally:
             self._closed = True
             self._connection._prepared_owners.discard(self)
@@ -629,6 +631,11 @@ class cursor:
         """Release only the handle owned by this physical CAS generation."""
         with self._connection._session_lock:
             self._close_locked()
+
+    def _close_collected_wrapper(self) -> None:
+        """Best-effort same-session close for an abandoned qualified wrapper."""
+        with self._connection._session_lock:
+            self._close_locked(allow_reconnect=False)
 
 
 # The official imports() converts BIT/VARBIT element text to bit strings;

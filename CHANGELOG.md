@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Qualified wrapper row cursors (#466)** — `cubriddb.Connection.cursor()` now
+  selects tuple or exact-name dictionary rows; direct qualified
+  `pycubrid.compat.cursors.Cursor/DictCursor` construction and connection-local
+  fetch conversion are available. SELECT uses the official seven-field
+  description, preserving Unicode, SQL NULL versus empty text, duplicate-name
+  overwrite, and the official falsey bulk-fetch versus `None` iteration stop.
+  The small `execute(query, args=None, set_type=None)` bridge reuses existing
+  native INT32/string/NULL prepared binding; non-None `set_type`, mappings,
+  collections/LOB arguments and `executemany` are not added. Non-SELECT
+  description stays safely `None` instead of reproducing the official
+  extension's missing-attribute state after reprepare. Ordinary and async
+  APIs, dependencies and release publication are unchanged. Collected wrapper
+  cursors now attempt best-effort same-session native-handle cleanup without
+  commit or reconnect; explicit close remains the deterministic path. Offline, owned
+  CUBRID 10.2/11.4 and pinned official differential cases cover this subset.
 - **Native cached settings and effective mode setters (#467)** — the explicit
   sync `pycubrid.compat.native.connection` now exposes writable cached
   `autocommit`, `isolation_level`, `lock_timeout` and `max_string_len` members;
