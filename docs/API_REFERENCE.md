@@ -241,6 +241,17 @@ turn a failed transaction into a retry. `commit()` preserves an active
 HOLDABLE SELECT result; `rollback()` invalidates it, including buffered rows.
 Broker-originated prepared errors retain their DB-API class, code, errno and
 SQLSTATE, but their text is redacted because the broker may echo SQL or values.
+After a **complete broker execute error** on a non-LOB prepared statement,
+that call raises its original redacted error and sends no second execute. The
+next explicit user `execute()` closes the old handle, prepares the same SQL on
+the same physical session, restores its already-bound scalar/collection values
+if the parameter count still matches, then sends one execute for that new
+call. This corrects repeated conversion errors without replaying a possibly
+effective statement inside the failing call. It is deliberately not CCI's
+same-call invalid-plan retry. A transport failure, a changed session, a failed
+close/prepare or a changed parameter count fails closed; LOB-bound statements
+require explicit `prepare()` and rebind after an error because temporary LOB
+handles may have been consumed. No ordinary FC41 or async behavior changes.
 Unlike the pinned official native extension, which raises `SystemError` on
 `bind_param(None)`, this subset binds SQL NULL explicitly; this is a documented
 safety deviation rather than an exact native-NULL parity claim.

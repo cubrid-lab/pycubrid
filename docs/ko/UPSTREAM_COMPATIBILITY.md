@@ -103,6 +103,18 @@ prepared 커서의 첫 스칼라 범위(#439), FC2/FC3/FC6 형식, 핸들·결�
 statement pooling이 켜진 환경에서 측정한 경계를 명시합니다. 아직 실행 API나
 공식 드라이버 전체 패리티의 증거가 아니며, 기존 1.x 리터럴 바인딩은 유지됩니다.
 
+#611의 준비 핸들 보정은 CCI의 같은 호출 내 invalid-plan 재시도보다
+의도적으로 좁습니다. 완전한 브로커 실행 오류가 발생한 뒤 **다음 명시적인
+사용자 execute**에서만 LOB이 없는 핸들을 원래 세션에서 다시 준비하고 FC3을
+한 번 보냅니다. 원래 오류는 그대로 전달합니다. 이미 효과가 생겼을 수도
+있는 문장을 실패한 호출 안에서 재실행하지 않으며 전송 오류·LOB 바인딩은
+자동 재시도하지 않습니다. 구형 wire 오류 `-1024`는 CCI에서 정규화한
+`CAS_ER_STMT_POOLING=-10024`이고 이 프로젝트의 오래된
+`ER_STMT_POOLING=-15` 상수와 다릅니다. 정수 코드만으로 재실행하지 않습니다.
+근거는 고정된 [CCI 재시도 경로](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cas_cci.c#L1411-L1424)와
+실행 진입 뒤에도 pooling 오류를 낼 수 있는 [10.2](https://github.com/CUBRID/cubrid/blob/v10.2.13.8953/src/broker/cas_execute.c#L1265-L1275)·[11.4](https://github.com/CUBRID/cubrid/blob/v11.4.6.1963/src/broker/cas_execute.c#L1647-L1689)
+브로커 경로입니다.
+
 ### 증거와 의도적인 안전성 차이
 
 소스 계약은 모순되는 docstring보다 고정된 실제 구현을 따릅니다.
