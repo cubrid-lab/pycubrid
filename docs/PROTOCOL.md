@@ -881,13 +881,50 @@ graph LR
     code["Error Code (4B int)"] --> message["Error Message (null-terminated string)"]
 ```
 
-pycubrid classifies errors automatically:
+The negative outer response indicator identifies the error domain (CAS `-1`
+or DBMS `-2`); the following **inner error code** is a separate number.
+`_raise_error()` first looks up that inner numeric code in the existing error
+mapping. Only an unmapped inner code exactly `-1` uses the text fallback below;
+an outer CAS indicator of `-1` does not select that fallback. Other unmapped
+codes raise `DatabaseError`, regardless of their message text. Exceptions retain
+the received inner number unchanged in `code` and `errno`; the outer domain is
+not exposed as a public exception attribute.
+
+Text fallback for inner code `-1` only:
 
 | Error pattern | Exception |
 |---------------|-----------|
 | `unique`, `duplicate`, `foreign key`, `constraint violation` | `IntegrityError` |
 | `syntax`, `unknown class`, `does not exist`, `not found` | `ProgrammingError` |
-| All other errors | `DatabaseError` |
+| Other fallback text | `DatabaseError` |
+
+### Renewed CAS numbers: evaluation decision (#505)
+
+Keep the current handshake function byte (zero-based index 7) at `0`, for both
+plaintext and STARTTLS requests, and preserve raw public `code`/`errno`.
+Renewed-code bit `0x80` is supported by the researched brokers, but enabling it
+or adding an opt-in requires a separate domain-aware consumer/migration contract.
+This deferral does **not** resolve existing numeric ambiguity. Legacy CAS
+communication `-1003` overlaps engine
+`ER_SM_CONSTRAINT_HAS_DIFFERENT_TYPE=-1003`; do not infer a domain or normalize
+numbers by adding/subtracting 9000 alone. The pinned
+[broker serializer](https://github.com/CUBRID/cubrid/blob/0e7d3c11e62ed8a4d354d0c951412f739e6be9ce/src/broker/cas_net_buf.c#L292-L314)
+and [CCI conversion](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_network.c#L665-L681)
+use domain/protocol/capability conditions, not just numeric ranges; the
+[engine collision](https://github.com/CUBRID/cubrid/blob/0e7d3c11e62ed8a4d354d0c951412f739e6be9ce/src/base/error_code.h#L1255-L1260)
+is source-proven, not reproduced live. The separate holdable bit `0x40` in the
+function byte is outside this evaluation and remains disabled.
+
+On 2026-10-03, frozen driver `984d3a2c9e30d613936d69195719a3439e1c08e1`
+with Python 3.12.13 compared flag 0 versus `0x80` on owned builds
+10.2.18.9024, 11.0.16.0419, 11.2.9.0866 and 11.4.6.1963. A **validly framed FC4
+request with unsupported parameter ID 255** returned outer CAS domain `-1` and
+inner `-1011` versus `-10011`; each surfaced unchanged as `DatabaseError.code`
+and `errno`. The DBMS syntax control retained outer `-2`, inner `-493` and
+`ProgrammingError` under both flags. Same-session health queries succeeded
+without replay or reconnect. This proves only that producer on those builds,
+not every patch or auth/embedded/batch/TLS/redirect/reconnect path, the live
+numeric collision or downstream migration. No negotiation/API behavior changed.
 
 ---
 

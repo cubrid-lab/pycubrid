@@ -393,6 +393,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Documentation
+- **Renewed CAS error-code evaluation (#505)** — document numeric-code-first
+  dispatch, inner-code `-1`-only text fallback and raw `code`/`errno` preservation.
+  Retain the flag-zero compatibility contract despite the bounded four-build
+  renewed-code producer proof; numeric-only normalization is unsafe because
+  legacy CAS and engine numbers overlap. Negotiation, consumer migration,
+  handshake/API behavior and the separate holdable feature remain unchanged.
 - **Current verification guidance (#415)** — replace volatile current version,
   module and test/coverage counts with existing source, measured coverage and
   CI policy references in the README/translations, agent and development guides,
