@@ -848,13 +848,48 @@ graph LR
     code["Error Code (4B int)"] --> message["Error Message (null-terminated string)"]
 ```
 
-pycubrid는 오류를 자동 분류합니다:
+음수 외부 응답 인디케이터는 오류 도메인(CAS `-1` 또는 DBMS `-2`)을 나타내며,
+그 뒤의 **내부 오류 코드**와는 다른 숫자입니다. `_raise_error()`는 먼저 내부
+숫자 코드를 기존 오류 매핑에서 찾습니다. 매핑되지 않은 내부 코드가 정확히
+`-1`일 때만 아래 텍스트 폴백을 쓰며, 외부 CAS 인디케이터 `-1`이 폴백을
+선택하는 것은 아닙니다. 나머지 미매핑 코드는 메시지와 관계없이 `DatabaseError`를
+냅니다. 받은 내부 숫자는 예외의 `code`와 `errno`에 그대로 남으며 외부 도메인은
+공개 예외 속성으로 제공하지 않습니다.
+
+내부 코드 `-1` 전용 텍스트 폴백:
 
 | 오류 패턴 | 예외 |
 |---------------|------|
 | `unique`, `duplicate`, `foreign key`, `constraint violation` | `IntegrityError` |
 | `syntax`, `unknown class`, `does not exist`, `not found` | `ProgrammingError` |
-| 그 외 모든 오류 | `DatabaseError` |
+| 그 외 폴백 텍스트 | `DatabaseError` |
+
+### 갱신 CAS 번호: 평가 결정 (#505)
+
+평문과 STARTTLS 요청 모두 현재 핸드셰이크 함수 바이트(0 기준 인덱스 7)를
+`0`으로 유지하고 공개 `code`/`errno` 원시 값을 보존합니다. 조사한 브로커는
+갱신 코드 비트 `0x80`을 지원하지만, 활성화나 opt-in 추가에는 별도의 도메인
+인식 소비자·이행 계약이 필요합니다. 보류가 기존 숫자 모호성을 해결하는 것은
+**아닙니다**. 이전 CAS 통신 코드 `-1003`은 엔진의
+`ER_SM_CONSTRAINT_HAS_DIFFERENT_TYPE=-1003`과 겹칩니다. 숫자만으로 도메인을
+추정하거나 9000을 더하고 빼서 정규화하지 마세요. 고정된
+[브로커 직렬화](https://github.com/CUBRID/cubrid/blob/0e7d3c11e62ed8a4d354d0c951412f739e6be9ce/src/broker/cas_net_buf.c#L292-L314)와
+[CCI 변환](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cci_network.c#L665-L681)은
+숫자 범위만이 아닌 도메인·프로토콜·기능 조건을 사용합니다.
+[엔진 충돌](https://github.com/CUBRID/cubrid/blob/0e7d3c11e62ed8a4d354d0c951412f739e6be9ce/src/base/error_code.h#L1255-L1260)은
+소스로 확인했으며 실서버에서 재현한 것은 아닙니다. 함수 바이트의 별도
+holdable 비트 `0x40`은 이 평가 범위 밖이며 활성화하지 않습니다.
+
+2026-10-03에 불변 드라이버 `984d3a2c9e30d613936d69195719a3439e1c08e1`과
+Python 3.12.13으로 소유한 10.2.18.9024, 11.0.16.0419, 11.2.9.0866,
+11.4.6.1963 빌드에서 flag 0과 `0x80`을 비교했습니다. **지원하지 않는 파라미터
+ID 255를 넣은 정상 프레임 FC4 요청**은 외부 CAS 도메인 `-1`, 내부 `-1011`과
+`-10011`을 반환했고 각각 `DatabaseError.code`와 `errno`에 그대로 남았습니다.
+DBMS 구문 제어는 두 플래그 모두 외부 `-2`, 내부 `-493`과 `ProgrammingError`를
+유지했습니다. 동일 세션 건강 확인은 재실행·재접속 없이 성공했습니다. 이는
+해당 빌드의 그 생산자만 확인하며 모든 패치, 인증·내장·배치·TLS·리다이렉트·
+재접속 경로, 실서버 숫자 충돌이나 소비자 이행을 입증하지 않습니다.
+협상이나 API 동작은 바꾸지 않았습니다.
 
 ---
 
