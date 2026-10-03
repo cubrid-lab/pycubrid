@@ -20,7 +20,8 @@ they cannot be parameter-bound and their end-to-end decode needs separate
 investigation (tracked under the type/collection work), so pinning them in this
 contract matrix would encode unverified behavior.
 
-Skipped when no CUBRID server is reachable.
+Skipped when no CUBRID server is configured; errors when a configured one is
+unreachable (see the shared ``tests/conftest.py`` gate).
 """
 
 from __future__ import annotations
@@ -38,11 +39,11 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.no_escape_pin,
 ]
 
 

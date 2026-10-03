@@ -10,6 +10,8 @@ from hypothesis import HealthCheck, settings
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
 
+from ._cubrid_endpoint import is_configured, probe, resolve_endpoint
+
 # Hypothesis profiles for the bug-hunt suites. "dev"/"pr" keep CI fast and
 # deterministic; "nightly" widens exploration. Select with the env var
 # HYPOTHESIS_PROFILE (defaults to "pr"). Per-test @settings still override the
@@ -28,30 +30,64 @@ settings.register_profile("nightly", max_examples=1000, deadline=None, print_blo
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "pr"))
 
 
-def _cubrid_is_configured() -> bool:
-    """True when the environment points at a CUBRID test server.
+_UNCONFIGURED_REASON = (
+    "requires a live CUBRID server (set CUBRID_TEST_URL or CUBRID_TEST_HOST, "
+    "or run `make integration`)"
+)
+# Outcome of the one live probe per session: None = not probed yet, "" = reachable,
+# otherwise the error message every plain integration test reports.
+_probe_error: str | None = None
 
-    A live integration run is expected whenever CUBRID_TEST_URL or the
-    per-field CUBRID_TEST_HOST override is set; otherwise a local `pytest`
-    without any DB config just skips the integration-marked tests.
-    """
-    return bool(os.getenv("CUBRID_TEST_URL") or os.getenv("CUBRID_TEST_HOST"))
+
+def _endpoint_error() -> str:
+    global _probe_error
+    if _probe_error is None:
+        try:
+            endpoint = resolve_endpoint()
+        except ValueError as exc:
+            _probe_error = f"CUBRID test endpoint is misconfigured: {exc}"
+            return _probe_error
+        try:
+            probe(endpoint)
+        except Exception as exc:  # noqa: BLE001 - any probe failure means "not reachable"
+            _probe_error = (
+                f"CUBRID test endpoint {endpoint.describe()} is configured but unreachable: "
+                f"{type(exc).__name__}: {exc}. Start the server (or fix CUBRID_TEST_URL / "
+                "CUBRID_TEST_HOST / CUBRID_TEST_PORT); unset both CUBRID_TEST_URL and "
+                "CUBRID_TEST_HOST to skip the integration tests instead."
+            )
+        else:
+            _probe_error = ""
+    return _probe_error
 
 
-@pytest.fixture(autouse=True)
-def _require_cubrid_for_integration(request: pytest.FixtureRequest) -> None:
+def pytest_runtest_setup(item: pytest.Item) -> None:
     """Gate integration-marked tests on a configured, reachable CUBRID.
 
-    Classification lives entirely in the ``integration`` marker. When no DB is
-    configured the test skips (so a bare `pytest` stays green locally); when a
-    DB *is* configured but unreachable it must not silently skip — that would
-    hide a broken CI service — so the individual test's own connection attempt
-    is left to fail loudly.
+    Classification lives entirely in the ``integration`` marker; no test module
+    probes the server at import time (#522). This hook runs after ``skipif``
+    markers are evaluated but before any fixture is set up (including
+    module-scoped connection fixtures):
+
+    * no endpoint configured (neither ``CUBRID_TEST_URL`` nor ``CUBRID_TEST_HOST``):
+      skip, so a bare ``pytest`` stays green locally;
+    * endpoint configured but unreachable: error, never skip (#411, #522). The
+      server is probed once per session and every plain integration test
+      reports the same clear error instead of silently degrading to skips.
+
+    ``tls`` tests talk to a separately configured SSL broker
+    (``CUBRID_TLS_TEST_*``) that may refuse a plaintext probe, so they only get
+    the unconfigured skip here and gate on their own TLS configuration.
     """
-    if request.node.get_closest_marker("integration") is None:
+    if item.get_closest_marker("integration") is None:
         return
-    if not _cubrid_is_configured():
-        pytest.skip("requires a live CUBRID server (set CUBRID_TEST_URL or run `make integration`)")
+    if not is_configured():
+        pytest.skip(_UNCONFIGURED_REASON)
+    if item.get_closest_marker("tls") is not None:
+        return
+    error = _endpoint_error()
+    if error:
+        pytest.fail(error, pytrace=False)
 
 
 @pytest.fixture(autouse=True)
@@ -62,29 +98,17 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     socket that does not queue a ``CHAR_LENGTH`` probe response. Escape-mode
     negotiation now fails loud on an unreadable probe (issue #263), so pin the
     flag to its legacy default here instead of probing the exhausted socket.
-    The dedicated ``test_backslash_negotiation.py`` module opts out to exercise
-    the real probe, and ``test_integration.py`` opts out because it negotiates
-    against a live CUBRID server.
+
+    Opt-out is an explicit ``no_escape_pin`` marker (registered in
+    ``pyproject.toml``), not a filename guess (#524): a bare filename
+    substring match on e.g. ``"test_integration"`` silently opted out every
+    ``test_integration_*.py`` module too, whether or not it actually needed
+    to. ``test_backslash_negotiation.py`` and ``test_replay_parity.py`` carry
+    the marker directly to exercise the real probe against a scripted broker;
+    every module that negotiates against a live CUBRID server carries it
+    alongside its existing ``integration`` or ``benchmark`` marker.
     """
-    fspath = str(request.fspath)
-    _live_optouts = (
-        "test_backslash_negotiation",
-        "test_integration",
-        "test_property_live_values",
-        "test_connection_state_machine",
-        "test_metamorphic_parity",
-        "test_transaction_matrix",
-        "test_type_contract",
-        "test_batch_semantics",
-        "test_lob_adversarial",
-        "test_async_cancellation",
-        "test_cubriddb_differential",
-        "test_resource_leaks",
-        "test_pep249_runtime",
-        "test_soak",
-        "test_chaos",
-    )
-    if any(name in fspath for name in _live_optouts):
+    if request.node.get_closest_marker("no_escape_pin") is not None:
         return
 
     def _pin_sync(self: Connection) -> None:

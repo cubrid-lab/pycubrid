@@ -63,6 +63,7 @@ def test_connection_create_socket_never_wraps_ssl() -> None:
 def test_connection_wrap_ssl_wraps_with_server_hostname() -> None:
     conn = Connection.__new__(Connection)
     conn._ssl_context = MagicMock()
+    conn._read_timeout = 5.0
     raw_sock = MagicMock()
     wrapped_sock = MagicMock()
     conn._ssl_context.wrap_socket.return_value = wrapped_sock
@@ -70,9 +71,28 @@ def test_connection_wrap_ssl_wraps_with_server_hostname() -> None:
     result = Connection._wrap_ssl(conn, raw_sock, "db.example.com")
 
     assert result is wrapped_sock
+    raw_sock.settimeout.assert_not_called()
+    wrapped_sock.settimeout.assert_not_called()
     conn._ssl_context.wrap_socket.assert_called_once_with(
         raw_sock, server_hostname="db.example.com"
     )
+
+
+def test_connection_wrap_ssl_bounds_handshake_without_read_timeout() -> None:
+    """#535: without ``read_timeout`` the handshake gets the 10-second default
+    and the TLS socket is blocking again afterwards."""
+    conn = Connection.__new__(Connection)
+    conn._ssl_context = MagicMock()
+    conn._read_timeout = None
+    raw_sock = MagicMock()
+    wrapped_sock = MagicMock()
+    conn._ssl_context.wrap_socket.return_value = wrapped_sock
+
+    result = Connection._wrap_ssl(conn, raw_sock, "db.example.com")
+
+    assert result is wrapped_sock
+    raw_sock.settimeout.assert_called_once_with(10.0)
+    wrapped_sock.settimeout.assert_called_once_with(None)
 
 
 def test_connection_wrap_ssl_noop_when_disabled() -> None:

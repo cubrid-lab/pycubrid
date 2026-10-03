@@ -2,7 +2,8 @@
 
 This module provides the five required DB-API 2.0 type objects
 (``STRING``, ``BINARY``, ``NUMBER``, ``DATETIME``, ``ROWID``) and
-the seven required constructor functions.
+the seven required constructor functions, plus the typed collection
+parameters :class:`Set`, :class:`Multiset` and :class:`Sequence`.
 
 Type objects compare equal to CUBRID CCI_U_TYPE codes that belong
 to their category, enabling ``cursor.description`` type comparison::
@@ -13,7 +14,10 @@ to their category, enabling ``cursor.description`` type comparison::
 
 from __future__ import annotations
 
+import copy
 import datetime
+from collections.abc import Iterable, Iterator
+from typing import Any
 
 
 class DBAPIType:
@@ -28,14 +32,14 @@ class DBAPIType:
         self.values = values
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, int):
+        if isinstance(other, int) and not isinstance(other, bool):
             return other in self.values
         if isinstance(other, DBAPIType):
             return self.values == other.values
         return NotImplemented  # noqa: PYI034
 
     def __ne__(self, other: object) -> bool:
-        if isinstance(other, int):
+        if isinstance(other, int) and not isinstance(other, bool):
             return other not in self.values
         if isinstance(other, DBAPIType):
             return self.values != other.values
@@ -182,3 +186,151 @@ def Binary(value: bytes | bytearray | str) -> bytes:
         return value.encode("utf-8")
     msg = f"Binary() argument must be bytes, bytearray, or str, not {type(value).__name__}"
     raise TypeError(msg)
+
+
+# ---------------------------------------------------------------------------
+# Typed collection parameters
+# ---------------------------------------------------------------------------
+
+
+class _Collection:
+    """Immutable tuple of elements bound as one typed CUBRID collection literal.
+
+    Plain Python ``set``/``list``/``tuple`` values stay rejected as parameters;
+    wrap the elements in :class:`Set`, :class:`Multiset` or :class:`Sequence`
+    to choose the collection type explicitly. The classes cannot be subclassed,
+    and the renderer reads the stored tuple directly, so the SQL text depends
+    only on the elements (#567).
+
+    A ``dict`` is rejected: iterating it yields only its keys, so its values
+    would be silently dropped. :class:`Sequence` additionally rejects a
+    ``set``/``frozenset``, since its iteration order is not guaranteed and
+    would make an ordered collection's element order nondeterministic.
+    """
+
+    __slots__ = ("_elements",)
+    _elements: tuple[Any, ...]
+    # Overridden by Sequence: order matters there, so a set/frozenset (whose
+    # iteration order is not guaranteed) is rejected rather than silently
+    # frozen into one arbitrary order.
+    _rejects_unordered = False
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        if cls.__bases__ != (_Collection,):
+            raise TypeError(f"{cls.__mro__[1].__name__} cannot be subclassed")
+        super().__init_subclass__(**kwargs)
+
+    def __new__(cls, elements: Iterable[Any] = ()) -> _Collection:
+        # Construction happens here, not in __init__: __setattr__ is
+        # overridden to keep instances immutable, and __init__ runs again
+        # whenever someone calls instance.__init__(...) directly, which must
+        # not be able to mutate an existing instance (#568 review).
+        if isinstance(elements, (str, bytes, bytearray)):
+            raise TypeError(
+                f"{cls.__name__}() takes an iterable of elements, not a single "
+                f"{type(elements).__name__}; wrap it in a list"
+            )
+        if isinstance(elements, dict):
+            raise TypeError(
+                f"{cls.__name__}() does not accept a dict; iterating it would silently "
+                f"use only its keys and drop the values, pass the keys (list(d)) or the "
+                f"values (list(d.values())) explicitly"
+            )
+        if cls._rejects_unordered and isinstance(elements, (set, frozenset)):
+            raise TypeError(
+                f"{cls.__name__}() does not accept a set/frozenset; their iteration "
+                f"order is not guaranteed, which would make this ordered collection's "
+                f"element order nondeterministic, pass a list or tuple instead"
+            )
+        self = object.__new__(cls)
+        object.__setattr__(self, "_elements", tuple(elements))
+        return self
+
+    def __init__(self, elements: Iterable[Any] = ()) -> None:
+        # No-op: all construction happens in __new__ above. Keeping this
+        # method a no-op means re-invoking __init__ on an already-built
+        # instance (``obj.__init__(other_elements)``) cannot mutate it.
+        pass
+
+    @property
+    def elements(self) -> tuple[Any, ...]:
+        """The elements, in the order given."""
+        return self._elements
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
+
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self._elements)
+
+    def __len__(self) -> int:
+        return len(self._elements)
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self):
+            return NotImplemented
+        assert isinstance(other, _Collection)
+        return self._elements == other._elements
+
+    def __hash__(self) -> int:
+        return hash((type(self).__name__, self._elements))
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({list(self._elements)!r})"
+
+    # A shallow copy shares the same element references either way, so this
+    # instance already behaves as its own shallow copy.
+    def __copy__(self) -> _Collection:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> _Collection:
+        # Most accepted element types (None, bool, int, float, Decimal, str,
+        # bytes, date, time, datetime) are themselves immutable, so
+        # copy.deepcopy() of the elements tuple hands back that same tuple
+        # object and this is a no-op. A bytearray element is mutable, though
+        # (#568 review): deep-copying it independently keeps deepcopy's
+        # contract that mutating the copy must not affect the original.
+        elements = copy.deepcopy(self._elements, memo)
+        if elements is self._elements:
+            return self
+        new = type(self)(elements)
+        memo[id(self)] = new
+        return new
+
+    def __reduce__(self) -> tuple[type[_Collection], tuple[tuple[Any, ...]]]:
+        # Reconstructs through __new__ via the public constructor call, the
+        # same path a fresh Set(...)/Multiset(...)/Sequence(...) call takes;
+        # pickle's default slot-restoring __setstate__ would otherwise call
+        # setattr() on the restored instance and hit __setattr__ above.
+        return (type(self), (self._elements,))
+
+
+class Set(_Collection):
+    """A CUBRID ``SET`` parameter, rendered as ``SET{...}``.
+
+    The server removes duplicate elements and does not keep their order.
+    """
+
+    __slots__ = ()
+
+
+class Multiset(_Collection):
+    """A CUBRID ``MULTISET`` parameter, rendered as ``MULTISET{...}``.
+
+    The server keeps duplicate elements but not their order.
+    """
+
+    __slots__ = ()
+
+
+class Sequence(_Collection):
+    """A CUBRID ``SEQUENCE`` (``LIST``) parameter, rendered as ``SEQUENCE{...}``.
+
+    The server keeps duplicate elements and their order.
+    """
+
+    __slots__ = ()
+    _rejects_unordered = True

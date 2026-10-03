@@ -15,6 +15,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [연결이 예기치 않게 닫힘](#연결이-예기치-않게-닫힘)
   - [브로커 포트 리다이렉트 실패](#브로커-포트-리다이렉트-실패)
   - [Python 3.10에서 비동기 TLS 핸드셰이크 멈춤](#python-310에서-비동기-tls-핸드셰이크-멈춤)
+  - [핸드셰이크가 멈추거나 리셋된 뒤 비동기 TLS 연결 멈춤](#핸드셰이크가-멈추거나-리셋된-뒤-비동기-tls-연결-멈춤)
 - [쿼리 문제](#쿼리-문제)
   - [ProgrammingError: SQL 구문](#programmingerror-sql-구문)
   - [파라미터 바인딩 오류](#파라미터-바인딩-오류)
@@ -31,6 +32,10 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [NULL 처리](#null-처리)
   - [불리언 값](#불리언-값)
   - [유니코드 / NCHAR 인코딩](#유니코드--nchar-인코딩)
+  - [값 또는 오류 메시지의 잘못된 UTF-8](#값-또는-오류-메시지의-잘못된-utf-8)
+  - [TZ 값의 타임존을 해석할 수 없음](#tz-값의-타임존을-해석할-수-없음)
+  - [0 날짜 또는 날짜시간 값](#0-날짜-또는-날짜시간-값)
+  - [값의 잘못된 JSON 텍스트](#값의-잘못된-json-텍스트)
 - [LOB (CLOB/BLOB) 문제](#lob-clobblob-문제)
   - [LOB 컬럼이 데이터가 아니라 dict를 반환](#lob-컬럼이-데이터가-아니라-dict를-반환)
   - [Lob 객체를 파라미터로 전달할 수 없음](#lob-객체를-파라미터로-전달할-수-없음)
@@ -40,7 +45,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [fetchone()이 예기치 않게 None 반환](#fetchone이-예기치-않게-none-반환)
   - [SELECT 후 rowcount가 -1](#rowcount가--1-after-select)
   - [executemany() 성능](#executemany-성능)
-- [Prepared Statement 문제](#prepared-statement-문제)
+- [파라미터화 쿼리 문제](#파라미터화-쿼리-문제)
   - [execute(sql, params) 패턴](#executesql-params-패턴)
   - [파라미터화 실행과 직접 실행 혼용](#파라미터화-실행과-직접-실행-혼용)
 - [Docker 문제](#docker-문제)
@@ -127,10 +132,10 @@ ConnectionRefusedError: [Errno 111] Connection refused
    docker compose ps
 
    # 헬스 체크 대기
-   docker compose up -d
-   sleep 5  # 브로커 초기화 대기
+   docker compose up -d --wait
 
-   # 로그로 확인
+   # 대기 시간이 초과되면 서비스 상태와 로그 확인
+   docker compose ps
    docker compose logs cubrid | tail -20
    ```
 
@@ -233,6 +238,17 @@ InterfaceError: Connection is closed
 - **브로커 재시작** — 브로커가 재시작되면 기존 연결이 모두 종료됩니다.
 - **네트워크 중단** — 일시적인 네트워크 장애가 TCP 연결을 끊습니다.
 - **유휴 연결 정리** — 브로커가 자원을 freeing하기 위해 유휴 연결을 닫을 수 있습니다.
+- **잘못된 형식의 브로커 응답** — 호출 자체가
+  `OperationalError: malformed response from broker`를 발생시켰다면 응답을
+  온전히 읽을 수 없었던 것입니다. 길이 필드(`BIT`/`VARBIT`, 문자열, `NUMERIC`,
+  컬렉션 또는 LOB 바이트 수)가 음수이거나 응답 끝을 넘어서는 경우, 행 셀의 값이
+  선언된 크기를 정확히 사용하지 않는 경우(#523), 또는 컬렉션 원소가 선언된
+  크기와 정확히 맞지 않는 경우입니다. 다음 응답의 경계를 알 수
+  없으므로 드라이버는 연결을 닫고, 이후 호출은 `InterfaceError`를 발생시킵니다.
+  응답이 선언한 마지막 값 뒤의 바이트는 오류가 아닙니다. 응답은 완전하지만
+  Python이 표현할 수 없는 값이 있으면 대신 `DataError`를 발생시키고 연결을
+  유지합니다(유효하지 않은 UTF-8, 0 날짜 항목 참고). 이전 릴리스는 잘린 필드를
+  짧아진 값으로 반환하고 연결을 유지했습니다(#383).
 
 **해결:** 이 오류가 발생하면 새 연결을 만드세요:
 
@@ -340,6 +356,16 @@ OperationalError: ... (during connection handshake)
 - **커스텀 `ssl.SSLContext` 전달** — 시스템 신뢰 저장소에 의존하지 말고 올바른 CA 번들을 로드(`context.load_verify_locations(cafile=...)`)해 가장 흔한 검증 실패를 제거.
 
 **진단**: 제어 가능한 브로커에서 재현 가능하면 패킷 트레이스를 캡처하세요(tcpdump/Wireshark, 포트 33000) — 평문 `CUBRS` 교환이 완료되고 TLS ClientHello가 나간 뒤 클라이언트 측에서 ServerHello 처리가 없는 것이 보일 것입니다. 그것이 3.10 전용 비동기 TLS 핸드셰이크 버그의 시그니처입니다.
+
+---
+
+### 핸드셰이크가 멈추거나 리셋된 뒤 비동기 TLS 연결 멈춤
+
+**증상** ([#513](https://github.com/cubrid-lab/pycubrid/issues/513) 수정 이전 pycubrid 릴리스): Python 3.11+에서 브로커(또는 그 앞의 프록시·미들박스)가 평문 `CUBRS` 핸드셰이크는 받았지만 TLS 핸드셰이크가 끝나기 전에 멈추거나 연결을 리셋하면, `read_timeout`을 설정해도 `await pycubrid.aio.connect(..., ssl=...)`가 반환되지 않습니다.
+
+**원인**: TLS 핸드셰이크는 의도대로 타임아웃되거나 실패했지만, asyncio의 `SSLProtocol`이 핸드셰이크 도중에는 연결 끊김을 스트림에 알리지 않아 연결 정리 과정이 스트림이 닫히기를 무한히 기다렸습니다.
+
+**해결**: pycubrid를 업그레이드하세요. 이제 비동기 드라이버는 `read_timeout`(설정하지 않았으면 10초 `ssl_handshake_timeout`) 안에 `OperationalError`를 발생시키고 소켓을 닫습니다. `connect_timeout`은 TCP 연결만 제한하므로 TLS 핸드셰이크를 제한하려면 `read_timeout`을 설정하세요. 동기 드라이버는 영향을 받지 않았습니다.
 
 ---
 
@@ -456,6 +482,15 @@ cur.execute("SELECT * FROM users WHERE name = ?", ("Alice",))
 ---
 
 ### 예약어 충돌
+
+서버 메시지에서 `unexpected` 다음 토큰은 오류 진단 위치를 나타내며, 문제가 된
+식별자 뒤의 토큰일 수 있습니다. 예를 들어 `CREATE TABLE t (key VARCHAR(50))`은
+캡처한 CUBRID 10.2, 11.2, 11.4 브로커에서 `unexpected 'VARCHAR'`를 보고합니다.
+따라서 pycubrid가 덧붙이는 힌트는 해당 위치 또는 그 앞의 식별자가 예약어일
+**수 있다**고 안내합니다. 문제가 된 이름을 단정하거나 데이터 타입 `VARCHAR`를
+따옴표로 감싸라고 안내하지 않습니다. 그 위치 주변의 식별자를 확인하여
+큰따옴표로 감싸거나 이름을 바꾸세요. 원래 서버 메시지와 오류 메타데이터는
+보존됩니다.
 
 컬럼/테이블 이름과 자주 충돌하는 **CUBRID 예약어**:
 
@@ -684,6 +719,151 @@ for row in cur:
     print(row[0])  # 올바르게 출력: 김영선, 日本語テスト
 ```
 
+이는 UTF-8 데이터베이스(기본값)를 가정합니다. 다른 문자셋으로 만든 데이터베이스는 그
+문자셋으로 연결하세요. 예를 들어 `ko_KR.euckr`에는 `charset="euckr"`를 사용합니다.
+브로커는 변환하지 않으므로 문자셋이 맞지 않는 클라이언트는 값을 인코딩하거나 응답을
+디코딩하지 못해 `DataError`를 발생시킵니다. [문자 인코딩](CONNECTION.md#문자-인코딩)을
+참고하세요.
+
+### 값 또는 오류 메시지의 잘못된 UTF-8
+
+CUBRID는 `VARCHAR(n)` 크기와 일부 오류 메시지에 포함되는 값을 바이트 단위로 자르므로
+멀티바이트 문자 중간에서 문자열이 잘릴 수 있습니다. 예를 들어 CUBRID 10.2는
+`'\U00010000' * 13`을 `VARCHAR(50)`에 50바이트로 저장하며, 마지막 문자는 절반만 남습니다.
+
+- **오류 메시지:** 잘못된 바이트는 `U+FFFD`로 대체되고, 실제 CUBRID 오류가 `errno`,
+  `sqlstate`와 함께 발생합니다.
+- **컬럼 값:** 유효한 UTF-8이 아닌 `CHAR`/`VARCHAR`/`NCHAR`/`ENUM`/`JSON` 값은
+  `DataError`를 발생시키며, 원래의 `UnicodeDecodeError`는 `__cause__`에 있습니다.
+  연결은 계속 사용할 수 있습니다. 저장된 바이트를 확인하려면 `HEX(col)`을 조회한 뒤
+  저장된 값을 수정하세요.
+- **문자셋 불일치:** 같은 `DataError`가 연결 코덱을 명시합니다. 예를 들어 EUC-KR
+  데이터베이스의 기본 클라이언트는 `column value is not valid UTF-8`, `charset="euckr"`로
+  `CHARSET utf8` 컬럼을 읽으면 `column value is not valid euc_kr`입니다. 데이터베이스
+  문자셋으로 연결하거나 SQL에서 `CAST(col AS VARCHAR(n) CHARSET euckr)`로 변환하세요.
+  디코딩할 수 없는 컬럼 이름도 같은 방식으로 `DataError`를 발생시킵니다(#86). `JSON`은
+  항상 UTF-8입니다.
+
+이전 릴리스에서는 두 경우 모두 `OperationalError: malformed response from broker`가
+발생하고 연결이 닫혔습니다.
+
+### TZ 값의 타임존을 해석할 수 없음
+
+```
+pycubrid.exceptions.DataError: cannot resolve CUBRID timezone 'Asia/Seoul': it is
+not in the client's IANA time zone database (install the 'tzdata' package or
+update the system zoneinfo)
+```
+
+`TIMESTAMPTZ`, `TIMESTAMPLTZ`, `DATETIMETZ`, `DATETIMELTZ` 값의 리전을 Python
+`zoneinfo`가 찾지 못한 경우입니다. LTZ 타입은 세션 타임존을 보내므로 `UTC`도
+데이터베이스가 필요합니다. 주요 원인은 다음과 같습니다.
+
+- **클라이언트에 타임존 데이터베이스가 없음** — 최소 구성 컨테이너 이미지
+  (`python:*-slim`, distroless, `tzdata`가 없는 Alpine). `pip install tzdata`를
+  실행하거나 OS의 `tzdata` 패키지를 설치하세요. Windows에서는 pycubrid가 이미
+  `tzdata`에 의존합니다.
+- **클라이언트 데이터베이스가 서버보다 오래됨** — `tzdata` 또는 OS 패키지를
+  업데이트하세요.
+- **`PYTHONTZPATH`가 빈 경로를 가리킴** — 설정을 해제하거나 경로를 수정하세요.
+
+연결은 계속 사용할 수 있습니다. `+09:00` 같은 오프셋은 데이터베이스가 필요 없으며,
+±24시간을 벗어난 오프셋은 `DataError: cannot resolve CUBRID timezone offset ...`을
+발생시킵니다. 명시적 prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8과
+마찬가지로 fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다.
+타임존 해석 없이 값을 읽으려면 `SELECT TO_CHAR(col)`처럼 텍스트로 조회하세요.
+
+이전 릴리스에서는 `Unknown timezone token`을 로그에 남기고 naive `datetime`을
+반환하여 타임존을 조용히 버렸습니다 (#413).
+
+### 0 날짜 또는 날짜시간 값
+
+```
+pycubrid.exceptions.DataError: CUBRID DATE value (0, 0, 0) cannot be represented
+in Python: year 0 is out of range
+```
+
+CUBRID는 `DATE'0000-00-00'`, `DATETIME'0000-00-00 00:00:00'` 같은 0 값을
+허용합니다(`TIMESTAMP`와 TZ/LTZ 타입도 마찬가지). 예를 들어
+`CAST('0000-00-00' AS DATE)`나 다른 시스템에서 적재한 데이터에서 나올 수 있습니다.
+Python `datetime`에는 0년이 없으므로, pycubrid는 이런 값을 가져올 때
+`execute()`가 반환한 첫 페이지든 이후 fetch 페이지든 `DataError`를 발생시킵니다.
+응답은 모두 읽었으므로 연결은 계속 사용할 수 있습니다. `execute()`가 실패한 뒤
+커서에는 결과 집합이 없지만(`description`은 `None`), 잘못된 UTF-8과 마찬가지로
+서버 핸들을 소유하고 해제합니다.
+
+이후 fetch 페이지에서는 그 페이지에 도달한 fetch 호출이 오류를 발생시키고 페이지
+전체가 반환되지 않지만, 그 호출이 이미 모은 행은 유지됩니다. 다음
+`fetchmany()`/`fetchall()`이 그 행을 반환하고, 그 뒤의 모든 fetch는 새 쿼리를
+실행하기 전까지 서버에 다시 요청하지 않고 같은 `DataError`를 발생시킵니다(#507).
+예:
+
+```python
+cur.execute("SELECT id, d FROM t ORDER BY id")
+try:
+    rows = cur.fetchall()
+except pycubrid.DataError:
+    rows = cur.fetchall()  # 실패한 페이지 전의 행
+    # 이제 cur.fetchone()은 같은 DataError를 발생시킵니다. 나머지를 읽으려면
+    # 아래처럼 컬럼을 변환해 다시 실행하세요.
+```
+
+잘못된 텍스트(#492)와 해석할 수 없는 타임존(#413)도 같습니다. 이전 릴리스는 그
+호출이 모은 행을 버리고 재시도할 때마다 페이지를 다시 요청했으며, autocommit
+모드에서는 브로커가 이미 결과를 닫아 CAS 오류 `-1012`로 실패할 수 있었습니다.
+
+pycubrid에는 0 날짜를 `None`이나 텍스트로 반환하는 옵션이 없습니다. 대신 SQL에서
+변환하세요.
+
+```sql
+SELECT id, NULLIF(d, DATE'0000-00-00') AS d FROM t;              -- 0 값 -> NULL
+SELECT id, CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END FROM t;
+SELECT id, TO_CHAR(d, 'YYYY-MM-DD') AS d FROM t;                 -- '0000-00-00'
+SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- 0 값 찾기
+```
+
+다른 타입에는 `DATETIME'0000-00-00 00:00:00'`(또는 해당 타입)을 사용하세요.
+명시적 prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8과 마찬가지로
+fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다. 도중에
+잘린 응답은 0 날짜가 들어 있더라도 여전히
+`OperationalError: malformed response from broker`입니다.
+
+이전 릴리스에서는 `OperationalError: malformed response from broker`를 발생시키고
+연결을 닫았습니다 (#512).
+
+### 값의 잘못된 JSON 텍스트
+
+```
+pycubrid.exceptions.DataError: JSON value is not valid JSON: Expecting value:
+line 1 column 1 (char 0)
+```
+
+`json_deserializer=json.loads`를 사용할 때([JSON 컬럼](TYPES.md#json-컬럼) 참고),
+유효한 JSON 텍스트가 아닌 `JSON` 컬럼 값은 `DataError`를 발생시킵니다. 원래의
+`json.JSONDecodeError`는 그 `__cause__`가 됩니다. 응답은 모두 읽었으므로
+연결은 계속 사용할 수 있습니다. 그 값이 `execute()`가 반환한 첫 페이지에
+있든 이후 fetch 페이지에 있든 마찬가지입니다. `execute()`가 실패하면
+커서에는 결과 집합이 없지만(`description`은 `None`), 잘못된 UTF-8(#492)이나
+0 날짜(#512)와 마찬가지로 서버 핸들을 소유하고 해제합니다. 이후 fetch
+페이지에서는 #507과 같은 규칙이 적용됩니다: 그 페이지에 도달한 fetch
+호출이 오류를 발생시키고, 그 호출이 이미 모은 행은 유지되며, 그 뒤의
+모든 fetch는 새 쿼리를 실행하기 전까지 서버에 다시 요청하지 않고 같은
+`DataError`를 발생시킵니다.
+
+`json_deserializer`를 지정하지 않으면(기본값) `JSON` 컬럼은 원본 `str`로
+반환되므로 이 문제가 적용되지 않습니다: CUBRID가 보내는 텍스트에 대해
+`str.__new__`는 실패하지 않습니다. 위의 재분류는 내장 `json.loads` 경로에만
+적용됩니다: 호출자가 지정한 `json_deserializer` 콜러블은 그대로 호출되며,
+그것이 발생시키는 예외는 `DataError`로 바뀌지 않습니다.
+
+이는 일반 커서의 동작입니다. 같은 `json_deserializer`를 사용하는 명시적
+prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8이나 0 날짜와
+마찬가지로 fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을
+폐기합니다.
+
+이전 릴리스에서는 `OperationalError: malformed response from broker`를 발생시키고
+연결을 닫았습니다 (#543).
+
 ---
 
 ## LOB (CLOB/BLOB) 문제
@@ -846,7 +1026,7 @@ cur.executemany_batch(sql_list)
 
 ---
 
-## Prepared Statement 문제
+## 파라미터화 쿼리 문제
 
 ### execute(sql, params) 패턴
 
@@ -867,7 +1047,7 @@ marketers = cur.fetchall()
 
 - 항상 SQL 문자열을 `execute()`의 첫 인자로 전달
 - 파라미터 값을 둘째 인자로 전달
-- 각 호출은 CAS `PREPARE_AND_EXECUTE`를 사용 — 별도 prepare 단계가 필요 없음
+- 드라이버가 파라미터를 클라이언트에서 SQL 리터럴로 렌더링하고, 호출마다 완성된 SQL을 CAS `PREPARE_AND_EXECUTE`로 전송합니다. `cursor.prepare()`, 타입 값 페이로드, 드라이버 측 문장 핸들 캐시는 없습니다([파라미터 바인딩](PARAMETER_BINDING.md) 참고)
 
 ---
 
@@ -909,8 +1089,11 @@ docker compose ps
 **확인 2: 초기화 대기** — CUBRID는 시작에 몇 초 걸립니다:
 
 ```bash
-docker compose up -d
-sleep 10  # 전체 초기화 대기
+docker compose up -d --wait
+
+# 대기 시간이 초과되면 서비스 상태와 로그 확인
+docker compose ps
+docker compose logs cubrid
 
 # 연결 테스트
 python3 -c "

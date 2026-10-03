@@ -23,7 +23,7 @@ graph TD
     types[types.py - PEP 249 type objects and constructors]
     constants[constants.py - CAS protocol constants]
     packet[packet.py - PacketReader/PacketWriter binary serialization]
-    protocol["protocol.py - CAS protocol packets (18 packet classes)"]
+    protocol["protocol.py - CAS protocol packets (20 packet classes)"]
     connection[connection.py - PEP 249 Connection class]
     cursor[cursor.py - PEP 249 Cursor class]
     lob[lob.py - LOB support]
@@ -47,10 +47,10 @@ graph TD
 |---|---|
 | `__init__.py` | PEP 249 module globals (`apilevel`, `threadsafety`, `paramstyle`), `connect()`, re-exports |
 | `exceptions.py` | `Warning`, `Error`, `InterfaceError`, `DatabaseError` + 6 subclasses |
-| `types.py` | `DBAPIType` class, `STRING`/`BINARY`/`NUMBER`/`DATETIME`/`ROWID` type objects, constructors |
+| `types.py` | `DBAPIType` class, `STRING`/`BINARY`/`NUMBER`/`DATETIME`/`ROWID` type objects, constructors, typed `Set`/`Multiset`/`Sequence` parameters |
 | `constants.py` | `CASFunctionCode` (41 funcs), `CUBRIDDataType` (27+ types), `CUBRIDStatementType`, protocol/data-size constants |
 | `packet.py` | Low-level binary read/write with big-endian byte ordering |
-| `protocol.py` | High-level CAS packet classes for each function code (18 packet types) |
+| `protocol.py` | High-level CAS packet classes for each function code (20 packet types) |
 | `connection.py` | `Connection` — TCP socket management, transactions, autocommit, LOB creation, schema info |
 | `cursor.py` | `Cursor` — execute, executemany, fetch, callproc, description, iteration |
 | `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |
@@ -65,10 +65,95 @@ graph TD
 [8:]   PAYLOAD      (variable length)
 ```
 
+Reply parsing never reads past the end of a reply (#383): a negative or
+overrunning length, a row cell whose value does not use exactly its declared
+size (#523), or collection elements that do not fill their size, raise
+`ValueError`, which the connection reports as `OperationalError('malformed
+response from broker')` and closes. Trailing bytes after the last declared
+value are not checked; `DataError` is only for a complete reply (#492, #512):
+undecodable column metadata text re-walks the remaining metadata by length
+(#581), and FC41/refreshed FC3 defer that error until their declared tail and
+inline rows have been validated without application hooks (#591). Later
+structural errors close the session; complete replies retain the first
+metadata DataError.
+
+Known decoded collection elements validate their declared sizes and consumed
+bytes even after a complete element raises DataError (#595). Later structural
+damage wins; complete collections retain the first conversion error. Opaque
+and unsupported nested member layouts keep their existing raw-byte contracts.
+
+Typed collection FC3 binds (#482; public only through `compat.native`
+`set.imports()`/`bind_set()`, #440) send
+the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument
+and `[element type][int32 len, payload]*` as the value, with no element count.
+INT elements are 4 bytes, STRING (`2`) elements are connection-charset bytes
+plus NUL, and a NULL element has length 0. The broker silently keeps a partial
+collection when an element length overruns the value, so validate every
+element (flat tuple, no mixed/nested/bool/float/bytes) before building bytes.
+Whole SQL NULL stays the scalar NULL pair. 10.2/11.4 brokers reject the
+MULTISET kind with -454. The public #440 `imports()` matches the official
+bytes: STRING elements whatever the requested type, default kind SET, and
+`kind=MULTISET` sent as SEQUENCE.
+
+Typed LOB-handle FC3 binds (#441; public only through `compat.native`
+`lob()`/`fetch_lob()`/`bind_lob()`) send BLOB `23`/CLOB `24` as the
+type argument and the packed handle `[int32 db_type 33/34][int64 size][int32
+locator length][locator NUL]` as the value: the official `bind_lob()` bytes
+whenever the official lob type matches the column (official takes the type
+byte from result column 1; the broker uses the handle's own `db_type`).
+Fetched handles of committed rows may be bound on another connection (the
+server copies them); a native lob records its origin (fetched/created) so
+#442 can keep created temp handles on their own session.
+The broker trusts the embedded size, so `Lob.write()` raises it to
+`offset + bytes_written` after each write, as CCI does (and leaves it alone
+when the reply claims more bytes than were sent). `_PreparedLob` records the
+driver connection (by identity) and its physical generation; the native
+cursor sends it only on that exact session, because generation numbers alone
+repeat across connections. The server only appends (any other offset is
+-1016). A fetched handle is copied into the row and is reusable; a LOB_NEW
+temp handle is taken over by its first autocommit statement, even a failed
+one.
+
+`CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
+OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
+session. Because the CAS may still close the socket after an OUT_TRAN reply
+(memory restart, broker reset, CHANGE CLIENT), probe with CHECK_CAS before the
+next request (JDBC `checkReconnect` parity) and replace the session only when
+that probe fails: once per request, before the request is first sent, restoring
+driver-owned state (#485). Verification is explicit and per reply: every reply
+is recorded unverified, and only OPEN_DATABASE, a successful CHECK_CAS or a healthy
+ping marks it verified (#525); never key it on object identity, bytes or a
+reconnect-only generation. Explicit `ping(reconnect=True)` also recovers a
+confirmed CAS/transport failure; arbitrary SQL is never replayed automatically.
+Commit/rollback CLOSE_REQ open cursor handles before END_TRAN.
+With broker statement pooling on, autocommit releases (and cursors collected
+without close) queue their handle ids for the next FC41's extra prepare
+arguments (JDBC's wire mechanism, but result-set handles too, #488): at most 256
+per statement, per physical generation, CLOSE_REQ'd at commit/rollback, dropped
+on session retirement. With pooling off, known transaction-ending OUT_TRAN
+replies retire existing handle ownership before parsing or identity lookup
+(#584); FC41 success/DataError adoption cannot restore the already-freed ID.
+Cached rows/counts remain usable, and only still-owned handles use immediate
+CLOSE_REQ. Other OUT_TRAN echoes and schema/manual FETCH are not boundaries.
+With `no_backslash_escapes` unset, probe each newly opened physical session
+before binding against it; explicit `True`/`False` remains pinned. Healthy
+same-session ping does not probe. A failed probe makes direct connect raise or
+ping recovery return `False` after retiring the session. Async SQL already
+bound under a prior session generation must be rejected before send, not
+rebound or replayed. The CUBRID 10.2/11.4 manuals do not mark this setting
+as dynamically changeable; do not claim a per-session `SET` toggle or verified
+heterogeneous failover.
+
 ### Handshake Flow
 
 1. **ClientInfoExchange**: Send 10 bytes (NO header) — magic `"CUBRS"` when `ssl` is requested (STARTTLS) or `"CUBRK"` plaintext, plus client type + version. Broker replies a 4-byte int32: `0`=ok, `<0`=fail-fast (`OperationalError`), `>0`=redirect port (reconnect on the new port WITHOUT repeating the handshake).
 2. **TLS upgrade (optional)**: If `ssl` was truthy, upgrade the live transport via `loop.start_tls()` (async) or `ssl.SSLContext.wrap_socket()` (sync) before `OPEN_DATABASE`.
+   The handshake uses `read_timeout` or a 10-second default; the default does not
+   limit later requests. On Python 3.10, the async certificate preflight uses
+   memory BIOs on an owned socket: each send/receive and completion share one
+   monotonic deadline, required final-flight failures propagate, and optional
+   close-notify cannot extend the deadline. The owned socket always closes.
+   The primary sync Python 3.10 reset limitation is documented in CONNECTION.md.
 3. **OpenDatabase**: Send db/user/password (628 bytes payload, no header — `PacketWriter(reserve_header=False)`)
 4. **PrepareAndExecute / Prepare+Execute → Fetch → CloseQuery → EndTran → CloseDatabase**
 
@@ -78,6 +163,25 @@ graph TD
 - Client type: `CAS_CLIENT_JDBC = 3`
 - Protocol version: `8` (since CUBRID 10.2)
 - Byte order: Big-endian throughout
+- Text: no charset is negotiated and the broker converts nothing. The `charset`
+  option (default UTF-8, #86) is stamped on every packet as `packet.encoding` and
+  used for SQL, credentials, character values, metadata names, error text and
+  LOB locators (lenient); fetched JSON, NUMERIC, TZ names and version strings
+  stay UTF-8. Python euc_kr makeup sequences (Hangul outside KS X 1001) are
+  rejected as unencodable.
+- Column nullability is transmitted as `is_non_null`: zero permits NULL,
+  nonzero means NOT NULL. Normalize it to `is_nullable` / DB-API `null_ok`.
+- Column metadata keeps first-byte collection flags (`0x60`) distinct from the
+  scalar/element type; `0x80` marks a full second type byte, not a scalar-only column.
+- Cells of CALL/EVALUATE results and of NULL-typed columns carry their own type
+  header, counted in the cell size, in the same layout: two bytes
+  (`0x80 | collection bits | charset`, type) under protocol 7+, one byte from older
+  brokers (#542). The row parser and the bounds re-walk before `DataError` read it
+  with one helper; a header longer than its cell is malformed.
+- FC9 schema metadata is condensed: type, scale, precision and name only, without
+  SELECT constraint fields. Schema packets are owned by their original connection:
+  consume with fetch_schema_info or abandon with close_schema_info, never replay
+  their handles after transaction invalidation or physical-session replacement.
 
 ## Development
 
@@ -95,7 +199,7 @@ make install          # pip install -e ".[dev]"
 make test             # Offline tests with 95% coverage threshold
 make lint             # ruff check + format
 make format           # Auto-fix lint/format
-make integration      # Docker → integration tests → cleanup
+make integration      # Docker → readiness wait → integration tests → skip audit → cleanup
 ```
 
 ### Test Commands (manual)
@@ -105,10 +209,10 @@ make integration      # Docker → integration tests → cleanup
 pytest tests/ -v --ignore=tests/test_integration.py \
   --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
 
-# Integration (requires Docker)
-docker compose up -d
-export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
-pytest tests/test_integration.py -v
+# Integration (requires Docker; waits for readiness, always cleans up)
+make integration CUBRID_TEST_PORT=33522   # any free port; default 33000
+# Existing server: CUBRID_TEST_HOST/CUBRID_TEST_PORT (win over CUBRID_TEST_URL).
+# Configured but unreachable -> tests error; unconfigured -> tests skip.
 ```
 
 ### Test Stats
@@ -146,34 +250,45 @@ All non-trivial work across cubrid-lab repositories MUST follow this 4-phase cyc
 
 Skipping any phase requires explicit justification. Trivial changes (typos, single-line fixes) may skip phases 1 and 4.
 
+Maintainers coordinate Oracle/agent tooling, integration evidence, release
+classification and the final review record. Outside contributors provide ordinary
+motivation, code, tests and affected docs; internal Oracle/agent installation or
+access is not a prerequisite for proposing a contribution.
+
+## Agent PR scope and review guardrails
+
+- Before editing, record one acceptance contract, affected files, explicit non-goals
+  and the validation plan. Keep each PR to one independently reviewable change.
+  Separate contributor guidance, CI configuration and new validator behavior.
+- Triage AI findings against that contract, a supported-environment reproduction
+  and impact. AI severity is not authority to add capabilities or widen the contract;
+  obtain explicit maintainer direction or defer out-of-scope work to a separate issue.
+- Batch accepted fixes locally and run relevant checks before publishing a review
+  head. Deduplicate agent-initiated review requests by head SHA and review purpose.
+- Default to two published AI review rounds total per scoped PR/task: the initial
+  review and one corrective re-review. New commits do not reset this budget.
+  Further rounds or scope expansion require explicit maintainer direction.
+- If unresolved work needs another round at the limit, stop automatic revisions;
+  keep the PR Draft and report incomplete work, blockers and a proposed split.
+  Never merge with unresolved critical/security defects or failed required CI.
+- Maintain one editable, agent-owned English status comment. Avoid bot mentions in
+  routine updates, per-finding progress replies and repeated review requests.
+  Preserve contributor history; revisit external PRs only after an author-updated head SHA.
+
 ## Release Process
 
-Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`.
-`pyproject.toml` derives it dynamically (`dynamic = ["version"]` + `version = {attr = "pycubrid.__version__"}`),
-so there is only one place to bump.
-
-Steps:
-1. `make release VERSION=x.y.z` (bumps `__init__.py`, validates)
-2. Add a dated changelog entry in `CHANGELOG.md` (`## [x.y.z] - YYYY-MM-DD`)
-3. Commit: `release: vx.y.z — <summary>`
-4. Open a PR and merge to `main`
-5. Push the tag on the merged commit: `git tag vx.y.z <merged-sha> && git push origin vx.y.z`
-6. The tag push triggers `.github/workflows/integration-full.yml`, which runs the **full
-   5×4 Python × CUBRID compatibility matrix** on the release commit. PR CI only runs a
-   reduced 2-cell matrix, so this tag run is the authoritative full-compatibility check.
-7. The tag push also triggers `.github/workflows/create-release.yml`, which extracts the
-   `## [x.y.z] - YYYY-MM-DD` section from `CHANGELOG.md` (fail-closed — no fallback)
-   and creates the GitHub Release titled `vx.y.z` with that body, after verifying the
-   tag is an ancestor of `origin/main`.
-8. Publishing the GitHub Release triggers `.github/workflows/publish-pypi.yml`,
-   which rebuilds, verifies (tag == version, dated CHANGELOG, tag on main, smoke tests,
-   **and that a successful `integration-full.yml` run exists for the release commit** —
-   PyPI publish is blocked until the full matrix passes), and publishes to PyPI via
-   Trusted Publisher (OIDC).
-
-Release notes are never hand-written: `CHANGELOG.md` is the single source of truth and
-`scripts/extract_release_notes.py` renders the Release body. To re-create a release body,
-re-run `create-release.yml` via `workflow_dispatch` with `update_existing: true`.
+Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`
+(`pyproject.toml` reads it dynamically). Merging a reviewed release PR is the only
+normal way to release: `release-please.yml` opens it (curated + Conventional Commit dated CHANGELOG section +
+version bump, checked by `make release-check VERSION=x.y.z`), and after the
+squash-merge `release.yml` detects the version change and runs consistency → full
+matrix → build → tag/Release/PyPI → cookbook verification (the cookbook smoke test
+called as a pinned reusable workflow, no token) → summary on its own.
+Freeze a release candidate with `autorelease: review` before branch-only note edits; wait for in-flight preparation to finish. Unfrozen notes come from main Unreleased. GITHUB_TOKEN updates require maintainer-triggered CI at the final head. Pending labels are reconciled only after successful publication and cookbook verification.
+Ordinary PRs never change `__version__` or date a CHANGELOG section. Never push
+tags or publish by hand; the only manual entry point is the narrow recovery
+dispatch of `release.yml`. Procedure, failure matrix and recovery:
+[`RELEASING.md`](RELEASING.md).
 
 ## CI Matrix
 
@@ -181,15 +296,19 @@ re-run `create-release.yml` via `workflow_dispatch` with `update_existing: true`
 
 | File | Trigger | Purpose |
 |---|---|---|
-| `.github/workflows/ci.yml` | Push to main, PRs | Lint + offline tests (Py 3.10–3.14) + regular integration matrix |
-| `.github/workflows/integration-full.yml` | Nightly (03:00 UTC), tag push, manual dispatch | Full Python × CUBRID compatibility matrix |
-| `.github/workflows/publish-pypi.yml` | GitHub Release published | Build, verify, and publish to PyPI |
+| `.github/workflows/ci.yml` | PR, main, weekly, manual | Minimum PR smoke and representative integration; see docs/CI_POLICY.md |
+| `.github/workflows/integration-full.yml` | Manual dispatch, release workflow_call | Full supported compatibility matrix |
+| `.github/workflows/release-please.yml` | Push main or manual dispatch | Prepare a PR-only release candidate (version + generated notes + canonical curated CHANGELOG) |
+| `.github/workflows/release.yml` | Push to main; recovery dispatch (`resume` / `verify-only` / `dry-run`) | Detect a merged release, then matrix, build, tag + GitHub Release + PyPI, cookbook verification, summary |
 
-### Matrix Shape
+### CI Matrix
 
-- **Offline (every PR/push)**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **Integration (every PR/push)**: Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} — 8 jobs
-- **Integration full (nightly + tag push + dispatch)**: Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} — 20 jobs
+- PR runtime smoke: Ubuntu/Python 3.12 only, selected for code changes.
+- High-risk PR offline: full existing regressions on the same single lane, no coverage.
+- High-risk PR integration: Python 3.14/CUBRID 11.4; targeted extra lanes.
+- main and changed-weekly: one full offline coverage lane, oldest/newest live endpoints.
+- Full integration: manual and every release; no automatic nightly full matrix.
+- Details, change classification and gate requirements: [CI policy](docs/CI_POLICY.md).
 
 ## Test Structure
 
@@ -255,13 +374,58 @@ graph TD
     docs --> ru
 ```
 
+## Issue specification and ownership
+
+An issue body is the current work specification, not a session transcript.
+Before implementation, maintainers/agents must ensure it states the problem
+and impact, evidence with a revision/environment, reproducible steps or the
+investigation question, expected behavior, scope/non-goals, relevant files,
+verifiable completion criteria, validation method and actual dependencies.
+Say "not verified" when evidence is missing; never invent a reproduction,
+server result, release availability or test command. Small docs tasks need
+only the applicable fields. Research issues close on a recorded decision;
+implementation follows the agreed contract.
+
+- Keep priority/size in canonical labels and execution order in the backlog
+  tracker. Do not prepend repeated triage banners to individual issue bodies.
+- Put dated progress, pause/resume instructions and review outcomes in issue
+  comments. Keep historical reproductions and source links in the body with
+  their original revision/date and clear evidence limits.
+- Reconcile completed work and closed dependencies when scope changes, a
+  related PR merges, work is handed over or the issue is closed. Closed work
+  is reference evidence, not a blocker. A merged upstream PR is not proof
+  that a compatible release is available.
+- Set the actual implementer in GitHub Assignees before implementation.
+  Comments alone do not replace assignment. Preserve existing contributor
+  claims and open PRs; agree a handoff before changing ownership. If assignment
+  permission is missing, request maintainer assignment before starting.
+- On handoff, update Assignees; unassign when returning unfinished work.
+  Preserve a contributor's evidence and scope when editing their issue.
+- Before saving an issue edit, check for contradictory current statuses,
+  stale dependency/checklist entries, duplicate criteria and unproven claims.
+  Re-read the issue after saving. Never mark a tracker complete just because
+  its children merged; confirm its integration acceptance separately.
+
 ## Issue Labeling (cubrid-lab org standard)
 
-When creating an issue in **any cubrid-lab repository**, assign exactly one
-`priority: <value>` label and exactly one `size: <value>` label at creation time,
+Write GitHub issues, PRs and comments in English; localized documentation remains
+welcome, and no specific translation tool is required.
+
+Maintainers or triagers assign exactly one
+`priority: <value>` label and exactly one `size: <value>` label for each new issue,
 alongside a type label (`bug`/`enhancement`/`documentation`/`chore`/`ci`/…) and an
 `area:` label when applicable. These must be GitHub labels, not just text in the
-issue title or body.
+issue title or body. Reporters describe urgency and effort without needing label
+permissions. Maintainer-created issues receive these labels at creation; permissionless
+reports receive them during initial maintainer triage.
+
+Issue titles use the same `type(scope): description` format as pull request
+titles (see [CONTRIBUTING.md](CONTRIBUTING.md#pull-request-and-commit-titles)).
+`.github/workflows/issue-triage.yml` flags incomplete human-submitted issue
+titles or labels as `status: needs triage` without posting a comment or
+guessing priority/size. Maintainers remove that label once triage is complete.
+Agents and workflows creating issues through CLI/API must supply canonical
+metadata at creation; `GITHUB_TOKEN`-created issues do not retrigger this guard.
 
 Use the following exact names, with **one space after the colon**:
 
@@ -270,7 +434,7 @@ Use the following exact names, with **one space after the colon**:
 
 Do not introduce variants such as `priority:high`, `priority-high`, `P1`, or
 `size:S`. Reuse the repository's canonical labels; if a required label is missing,
-create it with the exact name above before filing the issue. This policy governs
+maintainers create it with the exact name above before filing or triaging the issue. This policy governs
 new issue creation, not bulk renaming or relabeling existing issues unless
 explicitly requested.
 
@@ -288,7 +452,7 @@ helps contributors pick appropriately scoped work.
 Rules:
 
 1. **Size reflects effort, not importance** — a one-line fix for a critical bug is still `size: XS`.
-2. **Assign both `priority:` and `size:` when filing the issue.** If scope or impact
+2. **Maintainers assign both `priority:` and `size:` at creation/initial triage.** If scope or impact
    is uncertain, use a provisional estimate, explain the uncertainty in the body,
    and add `status: needs triage` (or the repo's equivalent). Refine the estimates
    during triage rather than omitting either required label.
@@ -296,15 +460,46 @@ Rules:
    past `size: S`, re-scope it or drop the `good first issue` label.
 4. **`size: XL` is a signal to split**, not a green light to start a sprawling change.
 
+### Good first issue lifecycle
+
+- Unclaimed: `good first issue`.
+- A PR is opened for it: remove `good first issue`, add `status: in progress`.
+- PR merged: the issue closes.
+- PR closed without merging: first check that no other open PR still addresses the issue. Only if none remains, remove `status: in progress` and restore `good first issue`; otherwise keep it in progress.
+- Keep 3–5 genuinely unclaimed good first issues per repository; a good first issue should have a small blast radius and an existing pattern or reference PR to follow, not just a small diff.
+
 ## Documentation definition of done
 
 Any change that affects public behavior, compatibility, installation, configuration, APIs, supported versions, error handling, or SQL behavior MUST update the matching documentation in the **same PR**. At minimum keep in sync: `CHANGELOG.md`, the relevant files under `docs/` (e.g. `PARAMETER_BINDING.md`), and the `RELEASE_POLICY.md` behavior/release classification.
 
-If no documentation change is needed, state the reason explicitly in the PR body as `Docs: not needed - <reason>` or apply the `docs-not-needed` label. This is enforced by the `docs-sync` CI check.
+If no documentation change is needed, provide a populated standalone physical source line
+beginning `Docs: not needed -`, or obtain the existing maintainer `docs-not-needed`
+label exception. Empty reasons, `<reason>`, quotes, comments and fenced examples
+are rejected by docs-sync. The line may be adjacent to ordinary prose without its
+own paragraph. This exception applies only to the docs gate.
+
+Contributors may request translation help in the PR body with missing language(s)
+and a reason. Only explicit maintainer approval through `translations-deferred`
+authorizes deferral; maintainers own the recorded follow-up. Korean synchronization
+remains required and other community translations remain advisory. Keep executed
+commands/results, checks not run with reasons, and optional AI review feedback distinct.
 
 Do not mark work complete until code, tests, and documentation are consistent.
 
 ## Commit Convention
+
+Issue titles, pull request titles and commit subjects follow
+[CONTRIBUTING.md - Pull request and commit titles](CONTRIBUTING.md#pull-request-and-commit-titles):
+`type(scope)!: description` with types `feat`, `fix`, `docs`, `test`, `perf`,
+`refactor`, `ci`, `build`, `chore`, `style`, `revert`; English, lowercase start
+unless the first word is an API name, acronym, or proper noun; no trailing
+period, no issue numbers in pull request titles (use `Closes #N` /
+`Refs #N` in the body). Pull requests are squash-merged and the pull request
+title becomes the commit title. The `PR title` check enforces it.
+
+Preserve actual contributor authorship and existing credits. The following tool
+attribution applies to commits actually produced with that tool; it is not a
+required footer for outside contributors' commits.
 
 ```
 <type>: <description>
@@ -314,8 +509,6 @@ Do not mark work complete until code, tests, and documentation are consistent.
 Ultraworked with [Sisyphus](https://github.com/code-yeongyu/oh-my-opencode)
 Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
 ```
-
-Types: `feat`, `fix`, `docs`, `chore`, `ci`, `style`, `test`, `refactor`
 
 ## Project Context — Performance Loop System
 

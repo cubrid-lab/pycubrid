@@ -13,8 +13,8 @@ both the sync and async drivers. The matrix asserts the durable contract:
   toggle become visible) and subsequent statements self-commit;
 * sync and async behave identically for every cell.
 
-Skipped when no CUBRID server is reachable (same gate as the integration
-tests). Visibility is checked from an independent connection so we test real
+Skipped when no CUBRID server is configured and errors when a configured one
+is unreachable (same gate as the integration tests). Visibility is checked from an independent connection so we test real
 transaction isolation, not just local cursor state.
 """
 
@@ -30,11 +30,11 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.no_escape_pin,
 ]
 
 

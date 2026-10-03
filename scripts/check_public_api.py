@@ -49,10 +49,17 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = ROOT / "api-baseline.json"
 
-# Modules whose public surface is tracked. Both modules are checked together;
+# Modules whose public surface is tracked. All are checked together;
 # the JSON file is written with sort_keys=True so on-disk order is alphabetical
 # regardless of the order declared here.
-TRACKED_MODULES = ("pycubrid", "pycubrid.aio")
+TRACKED_MODULES = (
+    "pycubrid",
+    "pycubrid.aio",
+    "pycubrid.compat",
+    "pycubrid.compat.cubriddb",
+    "pycubrid.compat.cursors",
+    "pycubrid.compat.native",
+)
 
 # Classes that are not listed in any ``__all__`` but are part of the de facto
 # public API because users receive them as return values (``pycubrid.connect()``
@@ -65,6 +72,13 @@ TRACKED_CLASSES: tuple[tuple[str, str], ...] = (
     ("pycubrid.aio.connection", "AsyncConnection"),
     ("pycubrid.aio.cursor", "AsyncCursor"),
     ("pycubrid.lob", "Lob"),
+    ("pycubrid.compat.cubriddb", "Connection"),
+    ("pycubrid.compat.cursors", "Cursor"),
+    ("pycubrid.compat.cursors", "DictCursor"),
+    ("pycubrid.compat.native", "connection"),
+    ("pycubrid.compat.native", "cursor"),
+    ("pycubrid.compat.native", "set"),
+    ("pycubrid.compat.native", "lob"),
 )
 
 # Dunder methods we *do* protect on tracked classes. Anything not on this list

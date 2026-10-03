@@ -2,59 +2,163 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full commit SHA; dispatch the branch at this exact commit"
+        required: true
+        type: string
+      pr_number:
+        description: "Optional PR number; reject outdated head evidence"
+        required: false
+        type: string
+  schedule:
+    - cron: "0 3 * * 1"
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  validate-target:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify requested manual commit and current PR head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            if (context.eventName !== 'workflow_dispatch') return;
+            const inputs = context.payload.inputs || {};
+            const sha = (inputs.sha || '').toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sha) || sha !== context.sha.toLowerCase()) {
+              throw new Error('Dispatch branch must point at the requested full commit SHA');
+            }
+            const pr = inputs.pr_number || '';
+            if (pr) {
+              if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr))) {
+                throw new Error('PR number must be a positive integer');
+              }
+              const {data} = await github.rest.pulls.get({...context.repo, pull_number: Number(pr)});
+              const repo = `${context.repo.owner}/${context.repo.repo}`;
+              if (data.base.repo.full_name !== repo || data.state !== 'open' || data.head.sha.toLowerCase() !== sha) {
+                throw new Error('Requested commit is no longer the current open PR head');
+              }
+            }
+            await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();
+
   detect-changes:
+    needs: validate-target
     name: Detect changed paths
     runs-on: ubuntu-latest
     outputs:
-      tls: ${{ steps.filter.outputs.tls }}
+      code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
-      code: ${{ steps.filter.outputs.code }}
+      tooling: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.tooling == 'true' }}
+      risk: ${{ steps.filter.outputs.risk }}
+      live: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
+      extended: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && github.event_name != 'pull_request' }}
+      tls: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
+      charset: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
+      official: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          fetch-depth: 0
+      - name: Select weekly comparison base
+        id: activity
+        if: github.event_name == 'schedule'
+        run: |
+          base=$(git rev-list -1 --before="7 days ago" HEAD)
+          echo "base=${base:-$(git rev-list --max-parents=0 HEAD)}" >> "$GITHUB_OUTPUT"
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
         id: filter
         with:
+          base: ${{ steps.activity.outputs.base || github.event.repository.default_branch }}
           filters: |
-            tls:
-              - 'pycubrid/aio/**'
-              - 'pycubrid/connection.py'
-              - 'pycubrid/_connection_common.py'
-              - '.github/workflows/**'
             docs:
               - '**/*.md'
               - 'docs/**'
             code:
+              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes}'
+            risk:
               - 'pycubrid/**'
               - 'tests/**'
               - 'pyproject.toml'
+              - 'setup.cfg'
+              - 'Makefile'
+              - 'docker-compose.yml'
+              - 'scripts/**'
+              - '.github/workflows/**'
+            tooling:
+              - 'scripts/**'
+              - '.github/**'
+              - 'Makefile'
+              - 'pyproject.toml'
+              - 'setup.cfg'
+              - 'tests/test_*workflow*.py'
+              - 'tests/test_ci_policy.py'
+            tls:
+              - 'pycubrid/aio/**'
+              - 'pycubrid/connection.py'
+              - 'pycubrid/_connection_common.py'
+              - 'pycubrid/protocol.py'
+              - 'tests/test_*ssl*.py'
+              - 'tests/test_tls_*.py'
+              - '.github/workflows/**'
+              - 'tests/helpers/tls_*.py'
+              - 'tests/fixtures/tls/**'
+              - 'pycubrid/__init__.py'
+              - 'scripts/check_integration_lanes.py'
+            charset:
+              - 'pycubrid/packet.py'
+              - 'pycubrid/protocol.py'
+              - 'pycubrid/connection.py'
+              - 'pycubrid/_connection_common.py'
+              - 'tests/test_integration_charset.py'
+              - '.github/workflows/**'
+              - 'pycubrid/aio/**'
+              - 'pycubrid/_cursor_common.py'
+            official:
+              - 'pycubrid/compat/**'
+              - 'pycubrid/protocol.py'
+              - 'pycubrid/cursor.py'
+              - 'tests/test_official*.py'
+              - 'tests/fixtures/official*'
+              - 'scripts/**'
               - '.github/workflows/**'
 
+              - 'pycubrid/_cursor_common.py'
   doc-lint:
     name: Documentation lint
     needs: detect-changes
     if: needs.detect-changes.outputs.docs == 'true'
-    uses: cubrid-lab/.github/.github/workflows/doc-lint.yml@main
+    uses: cubrid-lab/.github/.github/workflows/doc-lint.yml@f7d8c0f6c28392c10306f367de38b40f13eed4b7
     with:
       exclude: "node_modules/,vendor/"
       fail-on-issue: false  # advisory mode during initial rollout
 
 
   compat-check:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code == 'true'
     name: Public API compatibility
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install pycubrid (import-only)
         run: |
           python -m pip install --upgrade pip
@@ -63,63 +167,98 @@ jobs:
         run: python scripts/check_public_api.py
 
   lint:
+    needs: validate-target
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install pinned ruff from pyproject.toml
         run: pip install -e ".[dev]"
-      - name: Ruff check
-        run: ruff check pycubrid/ tests/
-      - name: Ruff format check
-        run: ruff format --check pycubrid/ tests/
+      - name: Check tool consistency, lint, and format maintained Python
+        run: make lint
+      - name: Lint CHANGELOG structure
+        run: python scripts/lint_changelog.py
+      - name: llms-full.txt and root llms.txt are in sync with source docs
+        run: |
+          python scripts/generate_llms_full.py
+          # --porcelain also reports a generated file that was deleted from the
+          # commit and recreated untracked, which `git diff` would miss.
+          if [ -n "$(git status --porcelain -- docs/llms-full.txt llms.txt)" ]; then
+            echo "::error::docs/llms-full.txt or llms.txt is stale or missing. Edit docs/llms.txt (the canonical index), run 'python scripts/generate_llms_full.py' and commit the result."
+            git status --short -- docs/llms-full.txt llms.txt
+            git diff -- docs/llms-full.txt llms.txt
+            exit 1
+          fi
 
   typecheck:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Mypy strict
-        run: mypy pycubrid/ --strict
+        run: make typecheck
 
   offline-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        os: [ubuntu-latest]
+        python-version: ["3.12"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install dependencies
         shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
           pip install pytest-cov
+      - name: Run representative PR smoke tests
+        if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true'
+        run: python -m pytest tests/test_pep249.py tests/test_exceptions.py tests/test_types.py -m "not integration and not repo_tooling" -q --tb=short
+      - name: Run relevant PR offline regressions with conservative fallback
+        if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk == 'true'
+        run: python -m pytest tests/ -m "not integration and not repo_tooling" -q --tb=short
       - name: Run offline tests with coverage
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           python -m pytest tests/ \
-            -m "not integration" \
+            -m "not integration and not repo_tooling" \
             -v --tb=short \
             --cov=pycubrid \
             --cov-report=term-missing \
             --cov-report=xml \
             --cov-fail-under=95
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -129,14 +268,52 @@ jobs:
         env:
           CODECOV_RETRIES: 3
 
-  packaging-smoke-test:
-    runs-on: ubuntu-latest
-    needs: [offline-tests]
+  repo-tooling-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.tooling == 'true'
+    # Repository policy/tooling checks (docs-sync, PR-title, release scripts,
+    # workflow-YAML contracts, the shared quality gate, ...): no pycubrid
+    # driver behavior and excluded from `pycubrid`'s coverage source (#558),
+    # so they run here instead of in the offline-tests matrix, where their
+    # subprocess/importlib overhead otherwise lengthened routine driver
+    # feedback. A 2-OS x 1-Python matrix keeps the shell-dependent checks
+    # covered on both platforms without repeating all 5 Python versions.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run repository tooling tests
+        shell: bash
+        run: python -m pytest tests/ -m "repo_tooling" -v --tb=short
+
+  packaging-smoke-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.live == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install build tool
         run: |
           python -m pip install --upgrade pip
@@ -159,20 +336,12 @@ jobs:
           /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
 
   integration-tests:
+    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
+    if: needs.detect-changes.outputs.live == 'true'
     runs-on: ubuntu-latest
-    needs: [detect-changes, lint, typecheck, offline-tests, packaging-smoke-test]
-    if: needs.detect-changes.outputs.code == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        # Reduced PR matrix: newest (3.14 x 11.4) + oldest (3.10 x 10.2)
-        # supported combinations. The full 5x4 matrix runs nightly / on tags
-        # via integration-full.yml.
-        include:
-          - python-version: "3.14"
-            cubrid-version: "11.4"
-          - python-version: "3.10"
-            cubrid-version: "10.2"
+      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"python-version":"3.14","cubrid-version":"11.4"}]}' || '{"include":[{"python-version":"3.14","cubrid-version":"11.4"},{"python-version":"3.10","cubrid-version":"10.2"}]}') }}
     services:
       cubrid:
         image: cubrid/cubrid:${{ matrix.cubrid-version }}
@@ -188,49 +357,82 @@ jobs:
           --health-start-period 30s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install pycubrid
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Wait for CUBRID readiness
-        run: |
-          for i in $(seq 1 30); do
-            if python -c "
-          from pycubrid import connect
-          try:
-              conn = connect('CUBRID:localhost:33000:testdb:::', user='dba', password='')
-              cur = conn.cursor()
-              cur.execute('SELECT 1')
-              cur.close()
-              conn.close()
-              print('CUBRID ready')
-              exit(0)
-          except Exception as e:
-              print(f'Not ready: {e}')
-              exit(1)
-          "; then
-              break
-            fi
-            echo "Waiting for CUBRID... (attempt $i/30)"
-            sleep 5
-          done
+        run: python scripts/wait_for_cubrid.py
       - name: Run integration tests
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+          # Broker-control regressions (#485) run broker_changer/broker reset here.
+          CUBRID_TEST_DOCKER_CONTAINER: ${{ job.services.cubrid.id }}
         run: |
-          python -m pytest tests/ -m integration -v --tb=short
+          python scripts/check_integration_lanes.py
+          python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \
+            --junitxml=normal-results.xml
+          python scripts/check_integration_lanes.py --results normal-results.xml
+
+  integration-charset:
+    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
+    if: needs.detect-changes.outputs.charset == 'true'
+    # EUC-KR database lane (#86): the same CUBRID image with
+    # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
+    # charset="euckr" round-trip tests that skip against a UTF-8 database.
+    runs-on: ubuntu-latest
+    services:
+      cubrid:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+          CUBRID_LOCALE: ko_KR.euckr
+        ports:
+          - 33000:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Wait for CUBRID readiness
+        run: python scripts/wait_for_cubrid.py
+      - name: Run EUC-KR charset integration tests
+        env:
+          CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+        run: |
+          python -m pytest tests/test_integration_charset.py -m integration -v --tb=short \
+            --junitxml=charset-results.xml
+          python scripts/check_integration_lanes.py --results charset-results.xml
 
   integration-tls:
+    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
+    if: needs.detect-changes.outputs.tls == 'true'
     # Per-PR TLS lane (issue #159) — gated on changes to TLS-relevant code
     # paths. Mirrors the integration-tls job in integration-full.yml but with
     # a single anchored matrix entry (3.14 × 11.4) to keep per-PR cost low
     # while still catching regressions BEFORE merge. integration-full.yml
     # remains the source of truth for the full TLS matrix.
-    needs: [detect-changes, lint, typecheck, offline-tests, packaging-smoke-test]
-    if: needs.detect-changes.outputs.tls == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -239,9 +441,13 @@ jobs:
         cubrid-version: ["11.4"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install pycubrid
         run: |
           python -m pip install --upgrade pip
@@ -259,9 +465,10 @@ jobs:
           docker run -d --rm --name cubrid-tls \
             -e CUBRID_DB=testdb \
             -p 33000:33000 \
+            -p 30000:30000 \
             cubrid/cubrid:${{ matrix.cubrid-version }}
           for i in $(seq 1 40); do
-            if docker exec cubrid-tls bash -lc "cubrid broker status BROKER1 >/dev/null 2>&1"; then
+            if docker exec --user cubrid cubrid-tls bash -lc "cubrid broker status | grep -q '^% broker1'"; then
               echo "BROKER1 reachable"
               break
             fi
@@ -271,7 +478,7 @@ jobs:
           docker cp "$RUNNER_TEMP/tls/cas_ssl_cert.crt" cubrid-tls:/home/cubrid/CUBRID/conf/cas_ssl_cert.crt
           docker cp "$RUNNER_TEMP/tls/cas_ssl_cert.key" cubrid-tls:/home/cubrid/CUBRID/conf/cas_ssl_cert.key
           docker exec cubrid-tls bash -lc "chown cubrid:cubrid /home/cubrid/CUBRID/conf/cas_ssl_cert.* && chmod 600 /home/cubrid/CUBRID/conf/cas_ssl_cert.key"
-          docker exec cubrid-tls bash -lc "
+          docker exec --user cubrid cubrid-tls bash -lc "
             set -eux
             conf=\$CUBRID/conf/cubrid_broker.conf
             sed -i '/^\[%BROKER1\]/,/^\[/ s/^\s*SSL\s*=\s*OFF/SSL=ON/' \$conf
@@ -350,19 +557,17 @@ jobs:
           CUBRID_TLS_TEST_PASSWORD: ""
           CUBRID_TLS_TEST_CA_FILE: ${{ runner.temp }}/cas_ssl_cert.crt
           CUBRID_TLS_TEST_MISMATCH_HOST: "127.0.0.1"
+          # Stock SSL=OFF query_editor broker on the same server: TLS-to-plaintext
+          # refusal coverage in tests/test_tls_matrix_integration.py (#350).
+          CUBRID_TLS_TEST_PLAIN_PORT: "30000"
           SSL_CERT_FILE: ${{ runner.temp }}/cas_ssl_cert.crt
         run: |
           set -euxo pipefail
-          python -m pytest tests/test_aio_ssl_integration.py -v --tb=short \
+          python -m pytest tests/ -m "integration and tls" -v --tb=short \
             -o addopts="" -p no:cacheprovider \
+            --junitxml=tls-results.xml \
             --no-header --no-summary -rN 2>&1 | tee tls-run.log
-          unexpected_skips=$(grep -E " SKIPPED " tls-run.log \
-            | grep -v "tests/test_aio_ssl_integration.py::test_aio_ssl_handshake_failure" || true)
-          if [ -n "$unexpected_skips" ]; then
-            echo "::error::TLS integration tests skipped unexpectedly — broker provisioning is incomplete"
-            echo "$unexpected_skips"
-            exit 1
-          fi
+          python scripts/check_integration_lanes.py --results tls-results.xml
       - name: Capture TLS broker logs on failure
         if: failure()
         run: docker logs cubrid-tls || true
@@ -370,44 +575,181 @@ jobs:
         if: always()
         run: docker stop cubrid-tls || true
 
+  official-differential:
+    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
+    if: needs.detect-changes.outputs.official == 'true'
+    # Claims-driven differential against the pinned official CUBRIDdb driver
+    # (#446): tests/fixtures/official_differential_claims.json, one live case
+    # per claim, both servers, no accepted skip. The oracle build is cached by
+    # the build script hash, which holds both source pins.
+    name: official differential (Python 3.10 / CUBRID 10.2 + 11.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      cubrid102:
+        image: cubrid/cubrid:10.2
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33102:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+      cubrid114:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33114:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        id: python
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Restore the official oracle build
+        id: oracle-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
+        with:
+          path: ${{ runner.temp }}/official-oracle
+          key: official-oracle-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('scripts/build_official_oracle.py') }}
+      - name: Build the pinned official oracle
+        if: steps.oracle-cache.outputs.cache-hit != 'true'
+        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --work "$RUNNER_TEMP/official-oracle-work"
+      - name: Verify the official oracle
+        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --verify
+      - name: Wait for CUBRID 10.2 and 11.4
+        run: |
+          set -euo pipefail
+          for port in 33102 33114; do
+            CUBRID_TEST_PORT="$port" python scripts/wait_for_cubrid.py
+          done
+      - name: Run the official differential
+        env:
+          CUBRID_TEST_HOST: localhost
+          PYCUBRID_OFFICIAL_ORACLE_REQUIRED: "1"
+          PYCUBRID_DIFFERENTIAL_EVIDENCE: official-evidence.jsonl
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$RUNNER_TEMP/official-oracle"
+          export PYCUBRID_OFFICIAL_ORACLE_MANIFEST="$RUNNER_TEMP/official-oracle/oracle.json"
+          python scripts/check_official_differential.py
+          python scripts/check_integration_lanes.py
+          for port in 33102 33114; do
+            export CUBRID_TEST_PORT="$port"
+            python -m pytest tests/ -m "integration and official_differential" -v --tb=short \
+              --junitxml="official-$port-results.xml"
+            python scripts/check_integration_lanes.py --lane official --results "official-$port-results.xml"
+          done
+          python scripts/check_official_differential.py --evidence official-evidence.jsonl \
+            --json-out official-evidence-summary.json --summary-out "$GITHUB_STEP_SUMMARY"
+      - name: Upload differential evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: official-differential-evidence
+          path: |
+            official-evidence.jsonl
+            official-evidence-summary.json
+            official-*-results.xml
+            ${{ runner.temp }}/official-oracle/oracle.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   ci-gate:
     name: CI Gate (all checks must pass)
     if: always()
-    needs: [lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, compat-check, integration-tls]
     runs-on: ubuntu-latest
+    needs: [validate-target, detect-changes, lint, doc-lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, compat-check, integration-charset, integration-tls, official-differential]
     steps:
-      - name: Check job results
+      - name: Check selected job results
         env:
+          R_VALIDATE_TARGET: ${{ needs.validate-target.result }}
+          E_VALIDATE_TARGET: 'true'
+          R_DETECT_CHANGES: ${{ needs.detect-changes.result }}
+          E_DETECT_CHANGES: 'true'
           R_LINT: ${{ needs.lint.result }}
+          E_LINT: 'true'
+          R_DOC_LINT: ${{ needs.doc-lint.result }}
+          E_DOC_LINT: ${{ needs.detect-changes.outputs.docs }}
           R_TYPECHECK: ${{ needs.typecheck.result }}
-          R_OFFLINE: ${{ needs.offline-tests.result }}
-          R_PACKAGING: ${{ needs.packaging-smoke-test.result }}
-          R_INTEGRATION: ${{ needs.integration-tests.result }}
-          R_COMPAT: ${{ needs.compat-check.result }}
-          R_TLS: ${{ needs.integration-tls.result }}
+          E_TYPECHECK: ${{ needs.detect-changes.outputs.code }}
+          R_OFFLINE_TESTS: ${{ needs.offline-tests.result }}
+          E_OFFLINE_TESTS: ${{ needs.detect-changes.outputs.code }}
+          R_PACKAGING_SMOKE_TEST: ${{ needs.packaging-smoke-test.result }}
+          E_PACKAGING_SMOKE_TEST: ${{ needs.detect-changes.outputs.live }}
+          R_INTEGRATION_TESTS: ${{ needs.integration-tests.result }}
+          E_INTEGRATION_TESTS: ${{ needs.detect-changes.outputs.live }}
+          R_REPO_TOOLING_TESTS: ${{ needs.repo-tooling-tests.result }}
+          E_REPO_TOOLING_TESTS: ${{ needs.detect-changes.outputs.tooling }}
+          R_COMPAT_CHECK: ${{ needs.compat-check.result }}
+          E_COMPAT_CHECK: ${{ needs.detect-changes.outputs.code }}
+          R_INTEGRATION_CHARSET: ${{ needs.integration-charset.result }}
+          E_INTEGRATION_CHARSET: ${{ needs.detect-changes.outputs.charset }}
+          R_INTEGRATION_TLS: ${{ needs.integration-tls.result }}
+          E_INTEGRATION_TLS: ${{ needs.detect-changes.outputs.tls }}
+          R_OFFICIAL_DIFFERENTIAL: ${{ needs.official-differential.result }}
+          E_OFFICIAL_DIFFERENTIAL: ${{ needs.detect-changes.outputs.official }}
         run: |
           set -euo pipefail
-          fail=0
-          for var in R_LINT R_TYPECHECK R_OFFLINE R_PACKAGING R_COMPAT; do
-            if [[ "${!var}" != "success" ]]; then
-              echo "::error::Required job ${var#R_} result: ${!var}"
-              fail=1
+          check() {
+            local job="$1" result="$2" expected="$3"
+            if [[ "$expected" == "true" ]]; then
+              [[ "$result" == "success" ]] || { echo "::error::$job expected success, got $result"; return 1; }
+            else
+              [[ "$result" == "success" || "$result" == "skipped" ]] || { echo "::error::$job got $result"; return 1; }
             fi
-          done
-          # integration-tests is path-gated on code changes; `skipped` is
-          # acceptable for docs-only PRs, but failure/cancelled must fail.
-          if [[ "$R_INTEGRATION" != "success" && "$R_INTEGRATION" != "skipped" ]]; then
-            echo "::error::integration-tests result: $R_INTEGRATION"
-            fail=1
-          fi
-          # integration-tls is path-gated (issue #159); `skipped` is acceptable
-          # when no TLS-relevant files changed, but any other non-success state
-          # (failure, cancelled) must fail the gate.
-          if [[ "$R_TLS" != "success" && "$R_TLS" != "skipped" ]]; then
-            echo "::error::integration-tls result: $R_TLS"
-            fail=1
-          fi
-          if [[ "$fail" -ne 0 ]]; then
-            exit 1
-          fi
-          echo 'All CI checks passed ✓'
+          }
+          check validate-target "$R_VALIDATE_TARGET" "$E_VALIDATE_TARGET"
+          check detect-changes "$R_DETECT_CHANGES" "$E_DETECT_CHANGES"
+          check lint "$R_LINT" "$E_LINT"
+          check doc-lint "$R_DOC_LINT" "$E_DOC_LINT"
+          check typecheck "$R_TYPECHECK" "$E_TYPECHECK"
+          check offline-tests "$R_OFFLINE_TESTS" "$E_OFFLINE_TESTS"
+          check packaging-smoke-test "$R_PACKAGING_SMOKE_TEST" "$E_PACKAGING_SMOKE_TEST"
+          check integration-tests "$R_INTEGRATION_TESTS" "$E_INTEGRATION_TESTS"
+          check repo-tooling-tests "$R_REPO_TOOLING_TESTS" "$E_REPO_TOOLING_TESTS"
+          check compat-check "$R_COMPAT_CHECK" "$E_COMPAT_CHECK"
+          check integration-charset "$R_INTEGRATION_CHARSET" "$E_INTEGRATION_CHARSET"
+          check integration-tls "$R_INTEGRATION_TLS" "$E_INTEGRATION_TLS"
+          check official-differential "$R_OFFICIAL_DIFFERENTIAL" "$E_OFFICIAL_DIFFERENTIAL"
+
+      - name: Verify requested manual commit and current PR head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            if (context.eventName !== 'workflow_dispatch') return;
+            const inputs = context.payload.inputs || {};
+            const sha = (inputs.sha || '').toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sha) || sha !== context.sha.toLowerCase()) {
+              throw new Error('Dispatch branch must point at the requested full commit SHA');
+            }
+            const pr = inputs.pr_number || '';
+            if (pr) {
+              if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr))) {
+                throw new Error('PR number must be a positive integer');
+              }
+              const {data} = await github.rest.pulls.get({...context.repo, pull_number: Number(pr)});
+              const repo = `${context.repo.owner}/${context.repo.repo}`;
+              if (data.base.repo.full_name !== repo || data.state !== 'open' || data.head.sha.toLowerCase() !== sha) {
+                throw new Error('Requested commit is no longer the current open PR head');
+              }
+            }
+            await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();

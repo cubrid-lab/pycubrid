@@ -10,7 +10,6 @@ calls because pycubrid connections/cursors are not thread-safe enough for
 
 from __future__ import annotations
 
-import os
 import socket
 import uuid
 from collections.abc import Callable, Sequence
@@ -22,6 +21,8 @@ from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.connection import Connection
 from pycubrid.cursor import Cursor
+
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 JsonDeserializer = Callable[[str], object]
 Row = tuple[object, ...]
@@ -35,13 +36,6 @@ class ConnectKwargs(TypedDict, total=False):
     password: str
     fetch_size: int
     json_deserializer: JsonDeserializer
-
-
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
 
 
 def connect_kwargs(
@@ -61,21 +55,6 @@ def connect_kwargs(
     if json_deserializer is not None:
         kwargs["json_deserializer"] = json_deserializer
     return kwargs
-
-
-def can_connect() -> bool:
-    try:
-        conn = pycubrid.connect(
-            host=TEST_HOST,
-            port=TEST_PORT,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-        )
-    except Exception:
-        return False
-    conn.close()
-    return True
 
 
 def table_name(prefix: str = "parity") -> str:
@@ -117,7 +96,7 @@ class ParityAdapter:
     async def get_server_version(self, _conn: Connection | AsyncConnection) -> str:
         raise NotImplementedError
 
-    async def get_last_insert_id(self, _conn: Connection | AsyncConnection) -> str:
+    async def get_last_insert_id(self, _conn: Connection | AsyncConnection) -> str | None:
         raise NotImplementedError
 
     async def execute(
@@ -161,9 +140,9 @@ class ParityAdapter:
     def lastrowid(self, cur: Cursor | AsyncCursor) -> int | None:
         return cur.lastrowid
 
-    def mark_cas_inactive(self, conn: Connection | AsyncConnection) -> None:
+    def mark_out_tran(self, conn: Connection | AsyncConnection) -> None:
         conn._ensure_connected()
-        conn._cas_info = bytes([0]) + bytes(conn._cas_info[1:])
+        conn._record_reply_cas_info(bytes([0]) + bytes(conn._cas_info[1:]))
 
     def transport_token(self, _conn: Connection | AsyncConnection) -> object | None:
         raise NotImplementedError
@@ -214,7 +193,7 @@ class SyncParityAdapter(ParityAdapter):
         assert isinstance(conn, Connection)
         return conn.get_server_version()
 
-    async def get_last_insert_id(self, conn: Connection | AsyncConnection) -> str:
+    async def get_last_insert_id(self, conn: Connection | AsyncConnection) -> str | None:
         assert isinstance(conn, Connection)
         return conn.get_last_insert_id()
 
@@ -320,7 +299,7 @@ class AsyncParityAdapter(ParityAdapter):
         assert isinstance(conn, AsyncConnection)
         return await conn.get_server_version()
 
-    async def get_last_insert_id(self, conn: Connection | AsyncConnection) -> str:
+    async def get_last_insert_id(self, conn: Connection | AsyncConnection) -> str | None:
         assert isinstance(conn, AsyncConnection)
         return await conn.get_last_insert_id()
 
@@ -500,11 +479,11 @@ async def ping_after_drop(adapter: ParityAdapter, reconnect: bool) -> tuple[bool
         await adapter.close_connection(conn)
 
 
-async def reconnect_after_inactive_cas(adapter: ParityAdapter) -> tuple[bool, Row, str]:
+async def reuse_session_after_out_tran(adapter: ParityAdapter) -> tuple[bool, Row, str]:
     conn = await adapter.connect()
     before = adapter.transport_token(conn)
     try:
-        adapter.mark_cas_inactive(conn)
+        adapter.mark_out_tran(conn)
         version = await adapter.get_server_version(conn)
         cur = adapter.cursor(conn)
         try:
@@ -514,7 +493,7 @@ async def reconnect_after_inactive_cas(adapter: ParityAdapter) -> tuple[bool, Ro
             await adapter.close_cursor(cur)
         if row is None:
             raise AssertionError("SELECT 1 must return a row")
-        return before is not adapter.transport_token(conn), row, version
+        return before is adapter.transport_token(conn), row, version
     finally:
         await adapter.close_connection(conn)
 
@@ -532,7 +511,7 @@ async def autocommit_transitions(adapter: ParityAdapter) -> tuple[bool, bool, bo
         await adapter.close_connection(conn)
 
 
-async def insert_identity_values(adapter: ParityAdapter) -> tuple[int | None, str]:
+async def insert_identity_values(adapter: ParityAdapter) -> tuple[int | None, str | None]:
     table = table_name("identity")
     conn = await adapter.connect()
     await adapter.set_autocommit(conn, False)

@@ -31,6 +31,7 @@ pytestmark = [
         reason="Set CUBRID_TEST_URL to run benchmarks",
     ),
     pytest.mark.benchmark,
+    pytest.mark.no_escape_pin,
 ]
 
 TABLE = "bench_pycubrid_micro"

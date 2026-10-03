@@ -2,14 +2,10 @@
 
 ## Supported Versions
 
-The following versions of pycubrid are currently supported for security updates:
-
-| Version | Status |
-|---------|--------|
-| 1.7.x   | ✅ Supported |
-| < 1.7   | ❌ Not Supported |
-
-Security patches will be applied to supported versions only. Users are strongly encouraged to upgrade to the latest version.
+Security fixes target the latest minor release, as defined in
+[Release Policy §5](RELEASE_POLICY.md#5-yanking-and-security-releases).
+Older minor lines are not back-ported automatically; upgrade to the latest
+minor release for security updates.
 
 ## Reporting a Vulnerability
 
@@ -84,3 +80,36 @@ Recommended configurations, in order of preference:
    chained to a publicly-trusted CA.
 2. **Custom `ssl.SSLContext` with pinned CA bundle** — for self-signed or
    private-CA brokers, load the CA explicitly:
+
+   ```python
+   import ssl
+   ctx = ssl.create_default_context(cafile="/etc/ssl/cubrid-ca.pem")
+   ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+   pycubrid.connect(..., ssl=ctx)
+   ```
+
+3. **Never disable hostname/certificate verification** (`check_hostname=False`,
+   `verify_mode=CERT_NONE`) in production — that defeats the purpose of TLS
+   and is treated as a security issue under this policy.
+
+### Known Limitation
+
+Python 3.10's asynchronous TLS upgrade can hang on certificate verification
+failures in older releases. Current pycubrid uses a preflight verification
+probe before the upgrade, with the same SSL context and server hostname, to
+surface verification failures within the TLS handshake deadline. This adds one
+extra TCP connection on Python 3.10; certificate and hostname verification
+remain required. See [TLS troubleshooting](docs/TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310)
+for the workaround and timeout behavior. Report a reproducible hang on a
+current release through the reporting process above.
+
+## Disclosure Policy
+
+Once a security vulnerability is fixed:
+
+1. A security patch will be released
+2. The vulnerability will be disclosed in release notes
+3. An advisory may be published on GitHub Security Advisories
+4. Credit will be given to the reporter (if requested)
+
+We appreciate your responsible disclosure and help in keeping pycubrid secure.

@@ -84,16 +84,49 @@ sequenceDiagram
 
 ## CAS Reconnection
 
+`CAS_INFO[0]` is transaction state (`0` = OUT_TRAN, `1` = IN_TRAN), not
+connection liveness. A normal commit, rollback, or autocommit response with
+OUT_TRAN keeps the same physical session. An ordinary SQL request is never
+replayed on another connection after an uncertain transport failure.
+
+The CAS may still close the socket right after an OUT_TRAN reply: a CAS
+memory restart (`APPL_SERVER_MAX_SIZE`), `cubrid broker reset`, or CHANGE
+CLIENT when more clients than CAS processes are waiting. Like JDBC
+`UClientSideConnection.checkReconnect`, the driver therefore sends `CHECK_CAS`
+before the next request when the last reply was OUT_TRAN (#485). A live CAS
+keeps the session. Only a failed probe replaces it: once per request, with the
+escape-mode probe and autocommit restored and no SQL replayed. A `CLOSE_REQ`
+for a handle of the lost session is skipped, a FETCH of its result raises
+`OperationalError`, and a failed reconnect raises `OperationalError`. Commit and rollback first send `CLOSE_REQ` for query
+handles still held by unclosed cursors, so handles do not accumulate in a CAS
+session that now outlives transactions.
+
 ```mermaid
 sequenceDiagram
+    participant App
     participant Connection
     participant Broker
     participant CAS
 
-    Connection->>Connection: _check_reconnect() inspects CAS_INFO[0]
-    alt CAS status == INACTIVE
-      Connection->>Connection: _drop_connection()
-      Connection->>Connection: self.connect() (full re-handshake to broker)
+    App->>Connection: commit()/rollback()
+    Connection->>CAS: CLOSE_REQ for each open cursor handle, then END_TRAN
+    CAS-->>Connection: CAS_INFO[0]=0 (OUT_TRAN)
+    App->>Connection: next request
+    Connection->>CAS: CHECK_CAS (FC=32)
+    alt CAS alive
+      CAS-->>Connection: Healthy
+      note over Connection,CAS: Same socket and session remain in use
+    else CAS closed the socket (restart, reset, CHANGE CLIENT)
+      Connection->>Broker: Reconnect once, probe escape mode, restore autocommit
+      note over Connection: Original request is sent once on the new session
+    end
+    App->>Connection: ping(reconnect=True)
+    opt Existing socket is connected
+      Connection->>CAS: CHECK_CAS (FC=32)
+      CAS-->>Connection: Healthy or negative (CAS-to-DB link broken)
+    end
+    opt Disconnected, negative CHECK_CAS, or transport/protocol failure
+      Connection->>Connection: Discard old transport and query handles
       Connection->>Broker: ClientInfoExchange ("CUBRK"/"CUBRS")
       Broker-->>Connection: status int32 (0 / >0 redirect / <0 fail)
       opt status > 0 (redirect)
@@ -104,11 +137,14 @@ sequenceDiagram
       end
       Connection->>CAS: OpenDatabase
       CAS-->>Connection: New session
-      note over Connection: Session restored transparently
-    else CAS status == ACTIVE
-      note over Connection: No action needed
+      note over Connection: Restore explicitly set autocommit only
     end
 ```
+
+`ping(reconnect=False)` still checks an open socket but never reconnects,
+including when `CHECK_CAS` returns a negative code.
+Recovery through `ping(reconnect=True)` is explicit and limited to one attempt;
+the caller decides whether to retry interrupted SQL.
 
 ## Module Boundaries
 
@@ -145,7 +181,7 @@ flowchart TD
 - **`connection.py` — TCP Socket & Transaction Management**: Manages the physical TCP connection to the CAS, handles transactions (commit/rollback), and acts as the owner for LOB operations.
 - **`cursor.py` — SQL Execution & Result Fetching**: Implements the `Cursor` object, handling SQL preparation, execution, and the various fetch operations while maintaining state of results.
 - **`protocol.py` — CAS Packet Classes**: Defines 18 specialized packet classes that map to CUBRID CAS function codes, handling the serialization and deserialization of specific requests and responses.
-- **`packet.py` — PacketReader / PacketWriter**: Provides low-level utilities for reading from and writing to the wire format, handling byte order and primitive type serialization.
+- **`packet.py` — PacketReader / PacketWriter**: Provides low-level utilities for reading from and writing to the wire format, handling byte order and primitive type serialization. Both carry the connection `charset` codec (#86): the connection sets it on every packet before `write()`, so SQL text, credentials, character values, column names, error text and LOB locators use the database charset, while fetched JSON, NUMERIC and timezone names stay UTF-8. See [Character Encoding](CONNECTION.md#character-encoding).
 - **`constants.py` — CAS Constants**: Contains enumeration for CAS function codes, CUBRID data types, and other protocol-level constants.
 - **`types.py` — DB-API Types**: Defines the type objects required by PEP 249 and manages the mapping between CUBRID types and Python types.
 - **`exceptions.py` — PEP 249 Exceptions**: Implements the standard hierarchy of exceptions required by the DB-API 2.0 specification.
@@ -172,7 +208,7 @@ flowchart TD
     
     wire --> dispatch
     
-    dispatch -->|"1-4, 25"| str["str<br/>(UTF-8 decoded)"]
+    dispatch -->|"1-4, 25"| str["str<br/>(connection charset,<br/>default UTF-8)"]
     dispatch -->|"5, 6"| bytes["bytes<br/>(raw binary)"]
     dispatch -->|"7"| decimal["Decimal<br/>(string-parsed)"]
     dispatch -->|"8"| int32["int<br/>(4B signed)"]
@@ -249,4 +285,3 @@ client over TCP was unaffected. No copyleft obligations reach this codebase.
 
 The `cubrid/cubrid` Docker images (10.2-11.4) are used in CI strictly to run
 integration tests against a live server; they are not distributed with pycubrid.
-

@@ -24,6 +24,7 @@ pycubrid의 PEP 249 타입 객체·생성자·CUBRID CCI 데이터 타입 코드
 - [컬렉션 타입](#컬렉션-타입)
   - [JSON 컬럼](#json-컬럼)
   - [`decode_collections`](#decode_collections)
+  - [컬렉션 바인딩](#컬렉션-바인딩)
 - [사용 예제](#사용-예제)
 
 ---
@@ -278,7 +279,7 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 
 | CUBRID 타입 | CCI 코드 | Python 타입 | 비고 |
 |---|---|---|---|
-| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null 종단, UTF-8 디코딩 |
+| `CHAR`, `VARCHAR`, `NCHAR`, `NCHAR VARYING`, `ENUM` | 1–4, 25 | `str` | Null 종단, 연결 `charset`(기본 UTF-8)으로 디코딩; 디코딩할 수 없는 바이트는 코덱 이름을 담은 `DataError` 발생 (연결은 유지). EUC-KR 데이터베이스에서 `CHAR(n)`은 U+3000으로 채움 |
 | `SHORT` (SMALLINT) | 9 | `int` | 16비트 부호 있는 정수 |
 | `INTEGER` | 8 | `int` | 32비트 부호 있는 정수 |
 | `BIGINT` | 21 | `int` | 64비트 부호 있는 정수 |
@@ -292,12 +293,62 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | 타임존 포함 타임스탬프 (초 정밀도, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | 타임존 포함 datetime (밀리초 정밀도) |
 | `BIT`, `BIT VARYING` | 5, 6 | `bytes` | raw 바이너리 데이터 |
-| `JSON` | 34 | `str` 또는 `Any` | 기본은 raw JSON 문자열; `json_deserializer=` 설정 시 디코딩됨 |
+| `JSON` | 34 | `str` 또는 `Any` | 기본은 raw JSON 문자열; `json_deserializer=` 설정 시 디코딩됨. 연결 `charset`과 무관하게 항상 UTF-8 |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` 또는 디코딩된 컬렉션 | `decode_collections=True`일 때만 디코딩 |
 | `OBJECT` (OID) | 19 | `str` | 형식: `"OID:@page\|slot\|volume"` |
 | `BLOB` | 23 | `dict` | LOB 핸들 (아래 참고) |
-| `CLOB` | 24 | `dict` | LOB 핸들 (아래 참고) |
+| `CLOB` | 24 | `dict` | LOB 핸들 (아래 참고); `Lob.read()`는 `charset`으로 디코딩하지 않은 컬럼 문자셋의 바이트 반환 |
 | `NULL` / `UNKNOWN` | 0 | `None` | — |
+
+> **로컬 타임존 타입:** `TIMESTAMPLTZ`와 `DATETIMELTZ` 값은 값을 저장할 때의
+> 타임존이 아니라 **세션 타임존** 기준의 aware datetime으로 반환됩니다. 세션
+> 타임존은 `SET TIME ZONE '<zone>'`으로 설정합니다. pycubrid 1.8.0부터 CAS
+> 세션이 유지되는 동안에는 `commit()`/`rollback()` 이후에도 타임존이
+> 유지됩니다. 트랜잭션 경계 후 CAS가 소켓을 닫으면(CAS 재시작, CHANGE CLIENT,
+> `cubrid broker reset`) 드라이버가 재연결하고 새 세션은 서버 기본 타임존을
+> 사용하므로, 다른 SQL 세션 상태와 마찬가지로 `SET TIME ZONE`을 다시 적용해야
+> 합니다([연결 가이드의 "트랜잭션 경계에서 CAS가 재활용되는 경우"](CONNECTION.md)
+> 참고). 세션 타임존이 바뀌면 같은 저장 시점(instant)이 다른 UTC 오프셋으로
+> 반환됩니다. `TIMESTAMPTZ`와 `DATETIMETZ`는 값 자체의 타임존을 가집니다.
+
+> **0 날짜 (#512):** CUBRID는 `DATE'0000-00-00'`, `DATETIME'0000-00-00 00:00:00'`
+> 및 0 값의 `TIMESTAMP`, `TIMESTAMPTZ`, `TIMESTAMPLTZ`, `DATETIMETZ`,
+> `DATETIMELTZ`를 허용하지만 Python `datetime`에는 0년이 없습니다. 이런 값을
+> 가져오면 `execute()`에서든 이후 fetch 페이지에서든 CUBRID 타입과 필드 값을 담은
+> `DataError`가 발생합니다. 연결은 계속 사용할 수 있으며, 잘못된 UTF-8(#492)과
+> 마찬가지로 커서는 서버 핸들을 유지합니다. 이후 페이지에서 발생한 경우 그 페이지
+> 전에 가져온 행은 그대로 반환되고, 그 뒤의 fetch는 다음 `execute()` 전까지 같은
+> `DataError`를 계속 발생시킵니다(#507). Python이 표현할 수 없는 다른 날짜/시간
+> 필드 값도 같은 방식으로 보고됩니다. `None`이나 텍스트로 반환하는 옵션은
+> 없으므로 SQL에서 변환하세요. 예: `NULLIF(d, DATE'0000-00-00')`(0 값은 `NULL`),
+> `CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END`,
+> `TO_CHAR(d, 'YYYY-MM-DD')`(`'0000-00-00'` 반환). 명시적 prepared
+> API(`pycubrid.compat.native`)는 fail-closed로 동작하여 `OperationalError`를
+> 발생시키고 세션을 폐기합니다.
+> [0 날짜 또는 날짜시간 값](TROUBLESHOOTING.md#0-날짜-또는-날짜시간-값)을 참고하세요.
+
+> **타임존 디코딩 (#413):** CUBRID는 각 값의 타임존을 텍스트로 보냅니다. 오프셋
+> (`+05:30`)이거나, 리전 이름과 그 시점의 약어(`Asia/Seoul KST`, LTZ 타입은
+> `UTC UTC`)입니다. pycubrid는 다음과 같이 해석합니다.
+>
+> - 오프셋은 고정 `datetime.timezone`으로 변환합니다.
+> - 리전은 `zoneinfo.ZoneInfo(region)`으로 변환합니다. 서머타임이 끝나 같은 벽시계
+>   시각이 두 번 나타나면 약어로 `fold`를 고릅니다. 따라서 2026-11-01 01:30의
+>   `America/New_York EST`는 UTC-05:00(`fold=1`), `EDT`는 UTC-04:00입니다.
+>   약어가 없거나 알 수 없는 경우, 또는 두 시점이 같은 약어를 쓰는 경우
+>   (2014-10-26의 `Europe/Moscow MSK`)에는 `fold=0`을 유지합니다.
+> - 빈 타임존은 naive `datetime`으로 반환합니다.
+>
+> 클라이언트의 타임존 데이터베이스가 모르는 리전이나, 형식이 잘못되었거나 ±24시간
+> 범위를 벗어난 오프셋은 naive 값을 조용히 반환하지 않고, 해당 타임존을 담은
+> `DataError`를 발생시킵니다. 연결은 계속 사용할 수 있습니다. 명시적 prepared
+> API(`pycubrid.compat.native`)는 잘못된 UTF-8(#492)과 마찬가지로 fail-closed로
+> 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다. `zoneinfo`는 시스템 데이터베이스 또는
+> [`tzdata`](https://pypi.org/project/tzdata/) 패키지를 읽습니다. Windows에서는
+> pycubrid가 `tzdata`를 자동으로 설치하며, 최소 구성 Linux 이미지에서는 `tzdata`를
+> (pip 또는 OS 패키지로) 설치하세요.
+> [TZ 값의 타임존을 해석할 수 없음](TROUBLESHOOTING.md#tz-값의-타임존을-해석할-수-없음)을
+> 참고하세요.
 
 ---
 
@@ -358,6 +409,15 @@ CUBRID의 컬렉션 타입(`SET`, `MULTISET`, `SEQUENCE`)은 하위 호환을 �
 
 참고:
 
+- `cursor.description`은 요소 타입이 아니라 컬렉션 코드(16, 17, 18)를 반환합니다.
+  정수 요소는 Python `int`를 유지하며 MULTISET은 중복, SEQUENCE는 순서를 보존합니다.
+  동기·비동기 fetch에 동일한 디코딩 규칙이 적용됩니다.
+- description의 마지막 `null_ok` 필드는 PEP 249 의미로 NULL 허용 컬럼이면
+  `True`, NOT NULL/기본키 컬럼이면 `False`입니다. CAS의 반대 의미 플래그
+  `is_non_null`을 그대로 노출하지 않습니다.
+- 모든 요소가 SQL NULL인 비어 있지 않은 컬렉션(예: `{NULL}`, `{NULL, NULL}`)은
+  `MULTISET`/`SEQUENCE`에서 `[None, ...]`, `SET`에서 `frozenset({None})`으로 디코딩됩니다.
+  빈 컬렉션은 `[]` / `frozenset()`으로 디코딩됩니다.
 - 중첩 컬렉션 페이로드는 raw `bytes`로 유지됩니다.
 - 알 수 없는 컬렉션 요소 타입은 raw `bytes`로 폴백됩니다.
 - `SET` 값은 모든 디코딩된 요소가 해시 가능하면 `frozenset`으로 정규화됩니다.
@@ -383,6 +443,30 @@ JSON 컬럼은 CUBRID 타입 코드 `34`를 사용합니다.
 |---|---|
 | `False` (기본) | 컬렉션 페이로드를 raw CAS 와이어 `bytes`로 반환 |
 | `True` | 지원되는 `SET`, `MULTISET`, `SEQUENCE` 페이로드를 Python 컨테이너로 디코딩 |
+
+### 컬렉션 바인딩
+
+일반 Python `set`, `frozenset`, `list`, `tuple` 값은 파라미터로 거부됩니다. 컬렉션을 바인딩하려면 원소를 타입 지정 컬렉션 파라미터로 감싸세요(#567):
+
+| 클래스 | 렌더링되는 리터럴 | 서버 의미 |
+|---|---|---|
+| `pycubrid.types.Set` | `SET{...}` | 중복 제거, 순서 유지 안 함 |
+| `pycubrid.types.Multiset` | `MULTISET{...}` | 중복 유지, 순서 유지 안 함 |
+| `pycubrid.types.Sequence` | `SEQUENCE{...}` (`LIST{...}`와 같은 타입) | 중복과 순서 유지 |
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute("INSERT INTO t VALUES (?, ?, ?)", (Set([1, 2]), Multiset(["a", "a"]), Sequence([3, 1])))
+```
+
+이 클래스들은 최상위 `pycubrid` 패키지에서도 export됩니다. 각각 불변이고, 원소를 `tuple`(`.elements`)로 저장하며, 하위 클래스를 만들 수 없습니다. 원소는 스칼라 파라미터와 같은 타입(`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`, `date`, `time`, `datetime`)을 받으며 같은 보호된 렌더러로 렌더링됩니다. 중첩 컬렉션은 `ProgrammingError`를 발생시킵니다. 동기와 비동기 일반 커서 모두 지원합니다. [파라미터 바인딩](PARAMETER_BINDING.md#타입-지정-컬렉션-파라미터)을 참고하세요.
+
+세 클래스 모두 `dict`를 거부합니다(`TypeError`) — `dict`를 순회하면 키만 쓰이고 값은 조용히 버려지기 때문입니다. `Sequence`는 추가로 `set`/`frozenset`을 거부합니다(`TypeError`): 순회 순서가 보장되지 않아 순서가 있는 컬렉션의 원소 순서가 실행마다 달라질 수 있기 때문입니다. `Set`과 `Multiset`은 서버 측 의미가 이미 순서를 버리므로 `set`/`frozenset`을 그대로 받습니다. 이 인스턴스들은 `copy.copy()`(항상 같은 객체를 반환), `copy.deepcopy()`(모든 원소가 그 자체로 불변이면 같은 객체를 반환하고, `bytearray`처럼 가변인 원소가 있으면 원소까지 독립적으로 복사한 별개의 객체를 반환해 복사본을 변경해도 원본에 되돌아가 영향을 주지 않음), `pickle`(동등한 인스턴스로 왕복)에 안전하며, 기존 인스턴스에서 `__init__`을 다시 호출해도 변경할 수 없습니다.
+
+`Set`, `Multiset`, `Sequence`는 `pycubrid.types`와 `pycubrid`의 평범한 이름일 뿐 `typing`의 별칭이 아니지만, 그중 `Sequence`는 표준 `typing`/`collections.abc` 모듈에도 있는 이름입니다. `from pycubrid import *`를 쓰면 pycubrid의 `Set`과 `Sequence`가 스코프에 들어와 같은 방식으로 import한 `typing.Set`/`typing.Sequence`(또는 `collections.abc.Sequence`)를 가립니다. 같은 모듈에서 둘 다 필요하다면 `from pycubrid.types import Sequence as CubridSequence`처럼 명시적으로 import하거나(또는 `pycubrid`를 import해서 `pycubrid.Sequence`로 사용) 하세요.
+
+디코딩은 바뀌지 않습니다: 조회한 컬렉션은 위 표와 같이(`decode_collections=True`일 때) 일반 Python 컨테이너이며, 이 파라미터 타입이 아닙니다.
 
 ---
 
@@ -436,6 +520,22 @@ cur.execute(
 conn.commit()
 cur.close()
 conn.close()
+```
+
+### Decimal 파라미터
+
+`Decimal` 파라미터는 고정소수점 리터럴(E 표기 사용 안 함)로 전송되므로 CUBRID가
+작성된 scale 그대로 `NUMERIC`으로 유지합니다. `Decimal("0.0000001")`은 `float`가
+아니라 `Decimal`로 조회됩니다. 고정소수점 리터럴이 CUBRID `NUMERIC` 최대
+정밀도인 38자리를 넘는 값은 `DOUBLE`이 되지 않고 `DataError`를 발생시킵니다.
+[파라미터 바인딩: Decimal 파라미터](PARAMETER_BINDING.md#decimal-파라미터)를 참고하세요.
+
+```python
+from decimal import Decimal
+
+cur.execute("SELECT ?", [Decimal("0.0000001")])  # 0.0000001로 전송
+assert cur.fetchone()[0] == Decimal("0.0000001")
+assert cur.description[0][1] == pycubrid.constants.CUBRIDDataType.NUMERIC
 ```
 
 ### CUBRIDDataType enum 사용
