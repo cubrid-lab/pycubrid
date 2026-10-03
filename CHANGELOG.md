@@ -11,6 +11,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
 
 ### Added
+- **Real terminal walkthroughs (#320)** — replace the illustrative README GIF
+  with a recorded sync/async query run and add a Quick Start CRUD/context-manager
+  video. Editable VHS tapes, asserted demo code and source-wheel provenance
+  distinguish local-build evidence from a PyPI release or full compatibility
+  certificate. No driver API, dependency, support or publication change.
 - **Wrapper transaction delegates (#662)** — the opt-in sync CUBRIDdb-style
   connection gains zero-argument `commit()` and `rollback()`, forwarding once to
   its native owner with `None` returns and unchanged error propagation. Existing
