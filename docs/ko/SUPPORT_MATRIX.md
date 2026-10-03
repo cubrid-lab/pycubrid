@@ -4,7 +4,7 @@
 
 pycubrid 릴리스의 호환성과 기능 지원.
 
-> **참조:** 현재 버전 `1.8.0`. 릴리스별 상세는 [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)를 참고하세요.
+> **참조:** 현재 소스 버전은 [`pycubrid/__init__.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py)의 `pycubrid.__version__`입니다. 게시된 릴리스 상세는 [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)와 [릴리스](https://github.com/cubrid-lab/pycubrid/releases)를 참고하세요.
 
 ---
 
@@ -182,13 +182,12 @@ pycubrid 릴리스의 호환성과 기능 지원.
 
 | 지표 | 값 |
 |---|---|
-| 오프라인 테스트 | 770 |
-| 전체 테스트 | 811 |
+| 오프라인 회귀 검사 | `make test`; 현재 사례는 [테스트 트리](https://github.com/cubrid-lab/pycubrid/tree/main/tests) 참조 |
 | 대표 통합 검사 | 고위험 PR: 최신 조합; main/변경이 있는 주간 실행: 최저·최신 조합 |
 | 전체 통합 (릴리스 workflow_call + 수동 dispatch) | 20 (Python 5버전 × CUBRID 4버전) |
 | 스트레스 테스트 | 스레드 (워커 16 × insert 25, 리더 32) 및 `asyncio.gather` (워커 16, 리더 32) |
-| 재연결 / 네트워크 엣지 케이스 | 리셋·타임아웃·broken pipe·부분 읽기를 다루는 17개 테스트 |
-| 커버리지 하한 | 95% (CI 강제) |
+| 재연결 / 네트워크 엣지 케이스 | 현재 테스트 트리의 리셋·타임아웃·broken pipe·부분 읽기 회귀 검사 |
+| 전체 실행 커버리지 | 강제되는 95% 하한; [측정 결과](https://codecov.io/gh/cubrid-lab/pycubrid)이며 일반 PR 스모크의 주장은 아님 |
 
 ---
 

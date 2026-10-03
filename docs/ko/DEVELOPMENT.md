@@ -67,7 +67,7 @@ make install
 graph TD
     root[pycubrid/]
 
-    pkg["pycubrid/ - Main package (9 modules)"]
+    pkg["pycubrid/ - Main package"]
     tests[tests/ - Test suite]
     docs[docs/ - Documentation]
     pyproject[pyproject.toml - Package configuration]
@@ -131,7 +131,7 @@ graph TD
 
 ```bash
 # 커버리지와 함께 모든 오프라인 테스트 실행
-pytest tests/ -v --ignore=tests/test_integration.py \
+pytest tests/ -v -m "not integration" \
   --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
 
 # 또는 Makefile 사용
@@ -393,21 +393,17 @@ TLS 관련 경로가 변경될 때만 Python 3.14 × CUBRID 11.4 단일 레인�
 
 ### 코드 커버리지
 
-현재 테스트 지표:
-
-| 지표 | 값 |
-|--------|-------|
-| 오프라인 테스트 | 471 |
-| 통합 테스트 | 41 |
-| 문장 커버리지 | 99.88% |
-| 문장 수 | 1,134 |
-| 미커버 | 1 |
-| CI 임계값 | 95% |
+현재 오프라인 검사와 강제되는 **95% 커버리지 하한**은 `make test`로
+확인합니다. [측정된 커버리지](https://codecov.io/gh/cubrid-lab/pycubrid)는 각
+전체 커버리지 실행의 결과이며, 일반 PR 스모크와 고위험 PR 회귀 검사는
+커버리지를 측정하지 않습니다. 실행 선택은 [CI 실행 정책](CI_POLICY.md)을
+참고하세요. 테스트 수는 [현재 테스트](https://github.com/cubrid-lab/pycubrid/tree/main/tests)에
+따라 바뀌며 문서의 고정 기준값이 아닙니다.
 
 ```bash
 # HTML 커버리지 리포트 생성
-pytest tests/ --ignore=tests/test_integration.py \
-  --cov=pycubrid --cov-report=html
+pytest tests/ -m "not integration" \
+  --cov=pycubrid --cov-report=html --cov-fail-under=95
 
 # 브라우저에서 열기
 open htmlcov/index.html

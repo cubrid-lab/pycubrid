@@ -7961,7 +7961,7 @@ File: SUPPORT_MATRIX.md
 
 Compatibility and feature support for pycubrid releases.
 
-> **Reference:** Current version `1.8.0`. For per-release detail see [`CHANGELOG.md`](../CHANGELOG.md).
+> **Reference:** The current source version is `pycubrid.__version__` in [`pycubrid/__init__.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py). For published release details see [`CHANGELOG.md`](../CHANGELOG.md) and [releases](https://github.com/cubrid-lab/pycubrid/releases).
 
 ---
 
@@ -8168,13 +8168,12 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 
 | Metric | Value |
 |---|---|
-| Offline tests | 770 |
-| Total tests | 811 |
+| Offline regressions | `make test`; current cases in the [test tree](https://github.com/cubrid-lab/pycubrid/tree/main/tests) |
 | Representative integration | High-risk PR: newest endpoint; main/changed-weekly: oldest/newest endpoints |
 | Full integration (release workflow_call + manual dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
-| Reconnect / network edge cases | 17 tests covering reset, timeout, broken pipe, partial reads |
-| Coverage threshold | 95% (CI-enforced) |
+| Reconnect / network edge cases | Reset, timeout, broken pipe and partial-read regressions in the current test tree |
+| Full-run coverage | Enforced 95% floor; [measured results](https://codecov.io/gh/cubrid-lab/pycubrid), not a routine PR-smoke claim |
 
 ---
 
@@ -8255,7 +8254,7 @@ make install
 graph TD
     root[pycubrid/]
 
-    pkg["pycubrid/ - Main package (9 modules)"]
+    pkg["pycubrid/ - Main package"]
     tests[tests/ - Test suite]
     docs[docs/ - Documentation]
     pyproject[pyproject.toml - Package configuration]
@@ -8319,7 +8318,7 @@ Most tests are **offline** — they mock the CUBRID connection and test packet s
 
 ```bash
 # Run all offline tests with coverage
-pytest tests/ -v --ignore=tests/test_integration.py \
+pytest tests/ -v -m "not integration" \
   --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
 
 # Or use the Makefile
@@ -8672,21 +8671,17 @@ routine PRs do not pay for it.
 
 ### Code Coverage
 
-Current test metrics:
-
-| Metric | Value |
-|--------|-------|
-| Offline tests | 471 |
-| Integration tests | 41 |
-| Statement coverage | 99.88% |
-| Statements | 1,134 |
-| Missed | 1 |
-| CI threshold | 95% |
+Use `make test` for the current offline suite and its enforced **95% coverage
+floor**. [Measured coverage](https://codecov.io/gh/cubrid-lab/pycubrid) comes from
+individual full coverage runs; routine PR smoke and high-risk PR regressions do
+not measure coverage. See [CI execution policy](CI_POLICY.md) for event selection.
+Test counts change with the [current tests](https://github.com/cubrid-lab/pycubrid/tree/main/tests)
+and are not fixed documentation baselines.
 
 ```bash
 # Generate HTML coverage report
-pytest tests/ --ignore=tests/test_integration.py \
-  --cov=pycubrid --cov-report=html
+pytest tests/ -m "not integration" \
+  --cov=pycubrid --cov-report=html --cov-fail-under=95
 
 # Open in browser
 open htmlcov/index.html

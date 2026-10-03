@@ -951,6 +951,20 @@ class CurrentDocumentationTests(unittest.TestCase):
     """Guard prominent live claims, not historical metrics or all Markdown."""
 
     def test_current_guidance_uses_sources_instead_of_volatile_metrics(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        confidence = next(
+            line for line in readme.splitlines() if "coverage" in line and line.startswith("- ")
+        )
+        self.assertIn("https://codecov.io/gh/cubrid-lab/pycubrid", confidence)
+        self.assertIn("docs/CI_POLICY.md", confidence)
+        self.assertNotRegex(confidence, r"\d+\+? offline tests|\d+%\+ code coverage")
+        roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
+        baseline = roadmap.split("## Current Baseline", 1)[1].split("## Future", 1)[0]
+        self.assertTrue(
+            baseline.startswith("\n"), "do not hardcode the current version in the heading"
+        )
+        self.assertIn("pycubrid.__version__", baseline)
+        self.assertIn("pycubrid/aio/connection.py", baseline)
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         overview = agents.split("## Architecture", 1)[0]
         self.assertIn("pycubrid.__version__", overview)

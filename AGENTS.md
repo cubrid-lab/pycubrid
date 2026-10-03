@@ -11,13 +11,17 @@ or native CCI library.
 - **Language**: Python 3.10+
 - **Protocol**: CUBRID CAS binary protocol (version 8, since CUBRID 10.2+)
 - **License**: MIT
-- **Version**: 1.1.0
+- **Version source**: `pycubrid.__version__` in [`pycubrid/__init__.py`](pycubrid/__init__.py)
 
 ## Architecture
 
+The [current package tree](https://github.com/cubrid-lab/pycubrid/tree/main/pycubrid)
+includes the sync core, `aio` and opt-in `compat` namespaces. The diagram below
+summarizes the core responsibilities, not a complete module count.
+
 ```mermaid
 graph TD
-    root["pycubrid/ - Main package (9 modules)"]
+    root["pycubrid/ - Main package"]
     init["__init__.py - Public API, PEP 249 globals, connect(), exports"]
     exceptions["exceptions.py - Full PEP 249 exception hierarchy (10 classes)"]
     types[types.py - PEP 249 type objects and constructors]
@@ -206,7 +210,7 @@ make integration      # Docker → readiness wait → integration tests → skip
 
 ```bash
 # Offline (no DB needed)
-pytest tests/ -v --ignore=tests/test_integration.py \
+pytest tests/ -v -m "not integration" \
   --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
 
 # Integration (requires Docker; waits for readiness, always cleans up)
@@ -217,8 +221,10 @@ make integration CUBRID_TEST_PORT=33522   # any free port; default 33000
 
 ### Test Stats
 
-- **471 offline tests + 41 integration tests**, **99.88% coverage** (1654 statements, 2 missed)
-- Coverage threshold: 95% (CI-enforced)
+- Use `make test` for the current marker-selected offline regression suite.
+- [Measured coverage](https://codecov.io/gh/cubrid-lab/pycubrid) is reported per run;
+  the enforced floor is 95% on full coverage runs, not routine PR smoke.
+- Selection and full versus representative validation: [CI execution policy](docs/CI_POLICY.md).
 
 ## Code Conventions
 
