@@ -221,6 +221,73 @@ def test_detail_limit_is_utf8_bytes_not_unicode_character_count(bundle: Path) ->
     assert record["detail_truncated"] is True
 
 
+@pytest.mark.parametrize("scheme", ["cubrid", "https"])
+def test_unconfigured_url_password_with_at_sign_cannot_leak_its_suffix(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, scheme: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.delenv("CUBRID_TEST_URL", raising=False)
+    url = f"{scheme}://u:p@ss@host/testdb"
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", f"URL {url}")
+    monkeypatch.setenv("CUBRID_VERSION_MATRIX", url)
+    report = bundle.parent / "authority.xml"
+    report.write_text(
+        '<testsuite><testcase file="tests/test_example.py" classname="tests.test_example" '
+        f'name="test_x"><failure message="{url}">URL {url}</failure></testcase></testsuite>'
+    )
+    meta = _collect(bundle, "--junit", str(report))
+    persisted = (bundle / "metadata.json").read_text() + (bundle / "reproduce.md").read_text()
+    assert "ss@host" not in persisted
+    redacted = f"{scheme}://u:***@host/testdb"
+    assert meta["failure_traceback"] == f"URL {redacted}"
+    assert meta["failures"][0]["message"] == redacted
+    assert meta["failures"][0]["detail"] == f"URL {redacted}"
+    assert redacted in (bundle / "reproduce.md").read_text()
+
+
+@pytest.mark.parametrize("encoded", ["%C3%a9", "%c3%A9"])
+def test_mixed_percent_hex_credentials_are_redacted_without_folding_literal_case(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, encoded: str
+) -> None:
+    monkeypatch.setenv("CUBRID_TEST_PASSWORD", "é")
+    monkeypatch.delenv("CUBRID_TEST_URL", raising=False)
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", f"encoded {encoded}; literal É")
+    monkeypatch.setenv("CUBRID_VERSION_MATRIX", encoded)
+    report = bundle.parent / "percent.xml"
+    report.write_text(
+        '<testsuite><testcase file="tests/test_example.py" classname="tests.test_example" '
+        f'name="test_x"><failure message="{encoded}">{encoded}</failure></testcase></testsuite>',
+        encoding="utf-8",
+    )
+    meta = _collect(bundle, "--junit", str(report))
+    persisted = (bundle / "metadata.json").read_text() + (bundle / "reproduce.md").read_text()
+    assert encoded not in persisted
+    assert meta["failures"][0]["message"] == "***"
+    assert meta["failures"][0]["detail"] == "***"
+    assert meta["failure_traceback"].endswith("literal É")
+
+
+def test_url_only_malformed_authority_still_redacts_standalone_credential_hints(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", "cubrid://user:syntheticsecret@[bad]/db")
+    monkeypatch.setenv("BUG_HUNT_FAILING_TEST", "tests/test_example.py::test_x[syntheticsecret]")
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", "standalone credential syntheticsecret")
+    report = bundle.parent / "malformed-authority.xml"
+    report.write_text(
+        '<testsuite><testcase file="tests/test_example.py" classname="tests.test_example" '
+        'name="test_x[syntheticsecret]"><failure message="syntheticsecret">'
+        "standalone credential syntheticsecret</failure></testcase></testsuite>"
+    )
+    meta = _collect(bundle, "--junit", str(report))
+    persisted = (bundle / "metadata.json").read_text() + (bundle / "reproduce.md").read_text()
+    assert "syntheticsecret" not in persisted
+    assert meta["failures"][0]["identity_status"] == "unresolved"
+    assert meta["cubrid_test_url"] == "<unparseable-url-redacted>"
+    assert "unavailable" in (bundle / "reproduce.md").read_text().lower()
+
+
 @pytest.mark.parametrize(
     "state", ["missing", "malformed", "sha", "endpoint", "unavailable", "redacted", "observed"]
 )
