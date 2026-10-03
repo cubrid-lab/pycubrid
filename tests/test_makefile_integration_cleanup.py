@@ -14,6 +14,10 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.skipif(
+    os.name != "posix", reason="Command stubs and signal delivery require a POSIX shell"
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 MAKEFILE = ROOT / "Makefile"
 
