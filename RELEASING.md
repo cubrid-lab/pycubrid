@@ -8,51 +8,116 @@ version files) with the sibling cubrid-lab repositories.
 Key invariants:
 
 - The version is single-sourced from `pycubrid/__init__.py` (`__version__`).
-- `CHANGELOG.md` is hand-curated and the only source of release notes,
+- `CHANGELOG.md` combines curated notes with generated Conventional Commit notes and is the only source of published release notes,
   including the Upgrade notes and the [`RELEASE_POLICY.md`](RELEASE_POLICY.md)
-  classification. It is not generated.
+  classification. Upgrade notes and history are preserved by the composer.
 - A release is decided from git facts on `main`, never from a PR title.
 - The workflows never delete PyPI files, never move a tag and never create a
   version that was not merged through a release PR.
 
 ## Normal flow
 
-```text
-prepare-release.yml  ->  release PR (review, edit notes)  ->  squash-merge  ->  release.yml
-```
+`release-please.yml` prepares a release PR on pushes to `main` or manual dispatch.
+Reviewed squash merge starts the unchanged guarded `release.yml` publisher.
+The old `prepare-release.yml` entry point is removed in the same cutover.
 
-### 1. Prepare the release PR
+### 1. Prepare and regenerate
 
 ```bash
-gh workflow run prepare-release.yml -f version=X.Y.Z
+gh workflow run release-please.yml
 ```
 
-The workflow (dispatch it from `main`) validates `X.Y.Z` (greater than the
-current `__version__`, no existing tag or `release/vX.Y.Z` branch), then
-`scripts/prepare_release.py`:
+The official action is pinned at v5.0.0 commit
+`45996ed1f6d02564a971a2fa1b5860e934307cf7` (bundled core 17.6.0).
+`always-update: true` forces output even when commit-derived notes are unchanged, so curated-note-only updates and failed composition retries are rebuilt.
+Root manifest `.` starts at 1.8.0, bootstrapped from published `v1.8.0`
+commit `aaaef71deb4f1475f2f6d0dd9d49b146a6d44366`. This bootstrap SHA is a
+first-adoption fallback; later published releases determine the next boundary.
+Python strategy updates `pycubrid/__init__.py` and leaves dynamic
+`pyproject.toml` version metadata unchanged. Tags remain `vX.Y.Z`.
 
-- moves everything under `## [Unreleased]` into `## [X.Y.Z] - <UTC date>` and
-  leaves an empty `## [Unreleased]` above it;
-- sets `__version__ = "X.Y.Z"` in `pycubrid/__init__.py`.
+Conventional `fix` proposes patch, `feat` minor, breaking changes major.
+Python strategy also treats `docs` as a patch release; hidden `chore` alone
+creates no candidate. Review these proposals against RELEASE_POLICY §7;
+commit spelling does not replace compatibility review. A maintainer-approved
+Conventional Commit body containing `Release-As: X.Y.Z` overrides a proposal;
+remove/correct an erroneous override through a reviewed commit, never by
+editing the manifest on main. Historical versions and tags are immutable.
 
-It runs `make release-check VERSION=X.Y.Z` on the result and only then pushes
-`release/vX.Y.Z` and opens the PR **`chore: release vX.Y.Z`**.
+release-please writes linked headings in `RELEASE_CHANGELOG.md`. The composer
+rebuilds canonical `CHANGELOG.md` from the generator's main SHA: it moves all
+curated Unreleased text, including Upgrade notes, under the strict dated
+`## [X.Y.Z] - YYYY-MM-DD` header and appends generated notes under
+`### Conventional commits`. Generated subheadings are demoted, keeping the
+curated heading namespaces separate. Historical notes are copied unchanged.
+Unknown format, candidate mismatch, invalid date, or stale main fail closed.
+Main is checked before generation, composition and push. The old preparer
+script/tests remain as historical offline utilities; they have no workflow
+entry point and must not be used to open a second production release PR.
 
-### 2. Review the release PR
+### 2. Freeze, review and validate the release PR
 
-- Edit the CHANGELOG section as needed (Upgrade notes, wording, the
-  RELEASE_POLICY classification) by pushing to `release/vX.Y.Z`. You can also
-  correct the date there; the release reads whatever dated section is merged.
-- **Start CI.** The PR is created with `GITHUB_TOKEN`, and GitHub does not start
-  workflows for events caused by `GITHUB_TOKEN`, so CI does not run on it by
-  itself. Close and reopen the PR, or push any commit (including your edits, or
-  `git commit --allow-empty -m "ci: run checks"`) to the branch. No extra
-  secret is needed; a maintainer PAT is not required.
-- Local re-check if you edit by hand: `make release-check VERSION=X.Y.Z`.
+- Before editing candidate notes, add **`autorelease: review`** to the release
+  PR (create that label once if absent). The generator checks this label before
+  invoking release-please and before pushing composed notes. Wait for any
+  in-flight preparation run to finish before editing. Removing the label
+  authorizes regeneration; unfrozen branch-only edits can be overwritten.
+- While unfrozen, put curated Upgrade/policy notes in main's Unreleased section
+  through ordinary reviewed PRs. At a fixed main/generated input, composition
+  is deterministic; a new upstream generation may change its generated date.
+- Check manifest, `__version__`, classification, generated notes and curated
+  Upgrade notes together. Do not merge incomplete/uncomposed candidates.
+- **Start CI after the final bot update.** GITHUB_TOKEN events do not trigger
+  other workflows. Close/reopen the candidate with your own account or push a
+  reviewed commit. No PAT/App credential is introduced. Require all usual PR
+  checks at the final head and run `make release-check VERSION=X.Y.Z` after edits.
 
-### 3. Squash-merge
+### 3. Squash-merge and next-candidate lifecycle
 
-Keep the title `chore: release vX.Y.Z`. The merge commit starts `release.yml`.
+Merge only the reviewed candidate. Git version facts, rather than its title,
+start `release.yml`. release-please is **PR-only** (`skip-github-release: true`);
+it cannot tag, create a Release or publish to PyPI.
+
+Before another generation, `reconcile_release_labels.py` changes a merged PR
+from `autorelease: pending` to `autorelease: tagged` only when the manifest at
+its merge SHA matches a published nondraft GitHub Release, the dereferenced
+tag points at that SHA, and a successful `release.yml` run at that SHA has
+both **Tag, GitHub Release and PyPI** and **Require a verified release** jobs
+successful. A dry run or partial publication cannot clear pending. Until
+publication completes, upstream release-please blocks a subsequent candidate.
+If preparation happened before the publisher finished, dispatch preparation
+again after success. Recovery runs dispatched at a different workflow head
+are intentionally not automatically reconciled: after checking the release
+summary, exact tag SHA, artifact hashes and cookbook success, a maintainer
+may apply tagged/remove pending manually. Never clear pending merely to
+unblock automation while verification is failing.
+
+### Offline migration validation
+
+Install upstream outside this Python repository, without lifecycle scripts:
+
+```bash
+npm install --prefix /tmp/release-please-check --ignore-scripts release-please@17.6.0
+node scripts/check_release_please.cjs /tmp/release-please-check/node_modules/release-please
+python scripts/compose_release_changelog.py --base-changelog CHANGELOG.md \
+  --generated-changelog /tmp/pycubrid-release-please-candidate/RELEASE_CHANGELOG.md \
+  --version 1.9.0 --output /tmp/pycubrid-release-please-candidate/CHANGELOG.md
+pytest tests/test_compose_release_changelog.py tests/test_reconcile_release_labels.py \
+  tests/test_release_workflows.py tests/test_release_detect.py tests/test_release_summary.py \
+  tests/test_pypi_duplicate_guard.py -q
+```
+
+The upstream check parses the real manifest/config and invokes the pinned
+upstream Python strategy/updaters against synthetic commits and read-only
+local SCM. It verifies fix/feature/breaking/docs/hidden-chore/override behavior
+and writes an actual generated candidate into `/tmp`; it never calls GitHub
+or publishes. This proves strategy/file generation, not authenticated live
+GitHub PR creation, repository settings or a full broker matrix. Test-generated
+1.9.0 is a fixture, not the approved next release version. The existing full
+publisher dry-run evidence below covers unchanged publisher code only.
+Fresh wheel/sdist metadata/install smoke and the full live matrix remain
+required publisher gates; PyPI cookbook verification checks the published
+version, not an unpublished local candidate artifact.
 
 ### 4. Automatic release (`release.yml`)
 
@@ -230,7 +295,7 @@ built artifact through the cookbook.
 
 - Squash merge only; the PR title becomes the commit title.
 - Settings → Actions → General: "Allow GitHub Actions to create and approve
-  pull requests" (for `prepare-release.yml`).
+  pull requests" (for `release-please.yml`).
 - Environment `pypi`: deployment branches limited to `main`; PyPI Trusted
   Publisher for `cubrid-lab/pycubrid`, workflow `release.yml`, environment
   `pypi` (<https://pypi.org/manage/project/pycubrid/settings/publishing/>).

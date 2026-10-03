@@ -32,14 +32,14 @@ class DBAPIType:
         self.values = values
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, int):
+        if isinstance(other, int) and not isinstance(other, bool):
             return other in self.values
         if isinstance(other, DBAPIType):
             return self.values == other.values
         return NotImplemented  # noqa: PYI034
 
     def __ne__(self, other: object) -> bool:
-        if isinstance(other, int):
+        if isinstance(other, int) and not isinstance(other, bool):
             return other not in self.values
         if isinstance(other, DBAPIType):
             return self.values != other.values

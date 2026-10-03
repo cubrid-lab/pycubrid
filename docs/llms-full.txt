@@ -458,6 +458,11 @@ the TLS handshake ([#535](https://github.com/cubrid-lab/pycubrid/issues/535)); t
 `wrap_socket()` upgrade on 3.10 can still leave such a socket to the garbage collector (a
 `ResourceWarning`), a CPython 3.10 `ssl` limitation fixed in later versions.
 
+To allow a TLS handshake longer than the 10-second default, set a larger
+`read_timeout`, for example `read_timeout=30.0`. This also sets later request
+read timeouts to 30 seconds: sync uses a per-receive socket timeout, while async
+bounds the complete network round trip. It does not change `connect_timeout`.
+
 After the session is open, an uncertain transport failure on a request (a socket error, a
 timeout, a malformed reply, or an interrupt or task cancellation while a reply is outstanding)
 closes the connection and retires every cursor and schema result handle of that session in
@@ -496,6 +501,10 @@ reply propagates unchanged without closing it.
     Each probe send and receive uses the remaining total handshake budget;
     completion after the deadline is rejected. The final handshake flight must
     be sent successfully, while optional close_notify shares that same budget.
+    On fatal TLS failure, any queued alert is sent best effort within the
+    remaining budget; alert-send failure cannot replace the original TLS error.
+    Receive timeouts retain their original error object, message and errno,
+    with the internal `SSLWantReadError` context suppressed in displayed traces.
 
 ```python
 import pycubrid.aio
@@ -673,6 +682,13 @@ that were already received stay readable; an unfinished result still raises
 `InterfaceError` at its next required FETCH. In autocommit mode no `END_TRAN` is
 sent, so unclosed cursors still accumulate server handles until `commit()`,
 `rollback()` or `close()`: close cursors (or use them as context managers).
+For handles queued by closed or collected cursors, a boundary transfers each
+current-session ID out of the queue only when its `CLOSE_REQ` is about to be
+sent. If `commit()`/`rollback()` is interrupted before the next send, unsent
+IDs remain queued in FIFO order on that same live physical session; IDs whose
+send began are not replayed. An uncertain transport retires the session and
+its queued IDs instead of carrying them to a replacement CAS. A cursor
+collected during a flush is queued behind the batch already in progress.
 
 ### Session-state restoration after explicit ping recovery
 
@@ -1298,11 +1314,11 @@ conn = pycubrid.connect(
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
 It now provides a bounded **sync-only prepared cursor** for INT32, string
 and SQL NULL values, [SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set)
-and [fetched BLOB/CLOB handles](#lob-handles-lob-fetch_lob-bind_lob);
+and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bind_lob);
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
-through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
-and close subset; it does not expose a wrapper cursor, DB-API globals, a
+through FC41. The wrapper `pycubrid.compat.cubriddb` offers construction,
+close, autocommit access and qualified row cursors but no DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
@@ -1323,11 +1339,12 @@ plain CUBRID backend is accepted; alternate backends, HA/TLS URL options and
 excess arguments fail before connection work. Errors
 never echo the raw credential-bearing DSN.
 
-The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()` and `close()`.
+The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`,
+`set_autocommit(bool)`, `set_isolation_level(level)` and `close()`.
 Its cursor supports `prepare(sql)`, one-based
 `bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
-`fetch_lob(col, lob)` and `close()`.
+`fetch_lob(col, lob)`, `result_info([n])` and `close()`.
 Nondefault flags and other Python value types fail before a prepared execute.
 Preparation requires the current broker session to advertise statement
 pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
@@ -1336,11 +1353,21 @@ turn a failed transaction into a retry. `commit()` preserves an active
 HOLDABLE SELECT result; `rollback()` invalidates it, including buffered rows.
 Broker-originated prepared errors retain their DB-API class, code, errno and
 SQLSTATE, but their text is redacted because the broker may echo SQL or values.
+After a **complete broker execute error** on a non-LOB prepared statement,
+that call raises its original redacted error and sends no second execute. The
+next explicit user `execute()` closes the old handle, prepares the same SQL on
+the same physical session, restores its already-bound scalar/collection values
+if the parameter count still matches, then sends one execute for that new
+call. This corrects repeated conversion errors without replaying a possibly
+effective statement inside the failing call. It is deliberately not CCI's
+same-call invalid-plan retry. A transport failure, a changed session, a failed
+close/prepare or a changed parameter count fails closed; LOB-bound statements
+require explicit `prepare()` and rebind after an error because temporary LOB
+handles may have been consumed. No ordinary FC41 or async behavior changes.
 Unlike the pinned official native extension, which raises `SystemError` on
 `bind_param(None)`, this subset binds SQL NULL explicitly; this is a documented
 safety deviation rather than an exact native-NULL parity claim.
-The initial public connection still starts with autocommit enabled; effective
-`set_autocommit()` is separate #467 work. Do not treat this subset as a
+The initial public connection still starts with autocommit enabled. Do not treat this subset as a
 general DB-API cursor or a public async prepared API. See the
 [typed CAS contract](PREPARED_BINDING_DESIGN.md) and
 [compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
@@ -1357,6 +1384,154 @@ try:
         cur.bind_param(1, 42)
         cur.execute()
         assert cur.fetch_row() == (42,)
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
+
+### Extended column metadata (`result_info`)
+
+`native.cursor.result_info()` reads the last successful prepared execution's
+cached metadata without a server request or row movement. Omitted `n` or `0`
+returns a tuple of all column tuples; a one-based selector returns a one-item
+outer tuple. A SELECT with zero rows still has metadata. Successfully executed
+zero-column DML returns `None`, even for a negative or large in-range selector.
+Integer conversion happens first: `bool` and `__index__` are accepted, while
+`None`, strings, floats and `__int__` alone are not; signed C-int32 overflow
+raises `OverflowError`. Only zero/one positional argument is accepted.
+
+Each column tuple contains exactly these 15 fields, in the implemented official
+order, not its differing docstring order:
+
+```text
+(cci_type, not_null, scale, precision, name, real_attribute, class_name,
+ default_value, auto_increment, unique_key, primary_key, foreign_key,
+ reverse_index, reverse_unique, shared)
+```
+
+Types and flags are integers, not booleans. `cci_type` is the measured extended
+CCI type, not the normalized ordinary DB-API type: owned 10.2/11.4 observations
+include 40/72/104 for INTEGER SET/MULTISET/SEQUENCE and 130 for JSON. Attribute,
+class and default strings are returned as actually supplied; absent textual
+metadata is `""`, not `None`. No attribute name is guessed from an alias, and a
+default string such as `"NULL"` is not converted into a Python value.
+
+Fresh and prepare-only cursors or invalid indices raise `InterfaceError` with
+`.code == -30006`; a closed cursor has `.code == -30019` and is checked before
+positional arity/conversion. Keywords raise `TypeError` before the body, including
+on a closed cursor. These local errors retain pycubrid's message-only `args`,
+not the native extension's `(code, message)` pair; `InterfaceError` has `.code`,
+not an invented `.errno` field.
+
+EOF, same-owner commit and rollback retain cached metadata even when rollback
+invalidates rows. Local execution preflight errors preserve it; an attempted
+execute failure hides it until another execution succeeds. Closed/disconnected,
+foreign or stale physical-session owners fail safely, without probing or
+reconnecting. Ordinary/qualified-wrapper `description` is unchanged. Text keeps
+the connection codec; the pinned official UTF-8/Unicode comparisons do not certify
+non-UTF-8 parity. This is a sync native-only addition, not a schema or positioning API.
+
+### Cached settings versus effective setters
+
+The four writable `native.connection` members `autocommit`,
+`isolation_level`, `lock_timeout` and `max_string_len` are **cached snapshots**.
+Assigning any Python object to them preserves that object but sends no packet
+and changes no effective setting. The initial values come from the connection's
+effective autocommit mode and database-parameter reads for the other three;
+only a complete server error while reading `max_string_len` maps to `0`.
+Transport or malformed-reply failures abort construction. As in the pinned
+official extension, a fresh server at numeric READ COMMITTED level 4 reports
+`"CUBRID_TRAN_UNKNOWN_ISOLATION"` in its initial *text* cache; the effective
+level remains 4, and calling `set_isolation_level(4)` repairs the text.
+
+Use `conn.set_autocommit(mode, /)` with `True` or `False` to change the effective mode. It
+accepts an exact `bool`, returns `None` and updates the cache after success.
+Like CCI, a same-effective-mode call is local, and a mode transition sends a
+COMMIT only if a transaction is active; the new mode governs subsequent
+prepared execution. This is not the ordinary `Connection.autocommit` setter,
+which retains its existing SET+COMMIT behavior. `set_isolation_level(level, /)`
+accepts `4`, `5`, `6` or the corresponding `CUBRIDIsolationLevel` members,
+returns `None`, and changes the actual session level with SET_DB_PARAMETER
+without committing the current transaction. A same-effective-level call
+updates only the symbolic cache; after physical-session replacement it sets
+the requested level again. Other input types and legacy levels are rejected
+before I/O rather than reproducing unsafe C-extension parser behavior.
+There are no effective `lock_timeout` or `max_string_len` setters here.
+
+The wrapper's `get_autocommit()` and `.autocommit` getter return the native
+cached member, even if it was overwritten with another object. In contrast,
+`wrapper.set_autocommit(value)` and `wrapper.autocommit = value` require a
+`bool` (`ValueError` otherwise) and delegate the effective native setter.
+For migration, replace official raw member assignments intended to change
+behavior with an explicit setter; keep cached reads separate from effective
+state checks. Ordinary `pycubrid.connect()` still defaults to manual commit.
+
+```python
+from pycubrid.compat import cubriddb, native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    conn.autocommit = False       # cache only; SQL still autocommits
+    conn.set_autocommit(False)   # effective manual transaction mode
+    conn.set_isolation_level(5)  # REPEATABLE READ, no implicit commit
+    conn.rollback()
+finally:
+    conn.close()
+
+wrapper = cubriddb.Connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    wrapper.autocommit = False   # effective setter, unlike native raw assignment
+finally:
+    wrapper.close()
+```
+
+### Qualified wrapper row cursors (#466)
+
+`cubriddb.Connection.cursor(dictCursor=None)` returns a tuple-row cursor for a
+falsey argument and a dictionary-row cursor for a truthy argument. Direct
+construction is available as `pycubrid.compat.cursors.Cursor(conn)` and
+`DictCursor(conn)`; these classes are not added to the package-level exports.
+The cursor starts with `arraysize=1`, `rowcount=-1` and `description=None`.
+`execute(query, args=None, set_type=None)` delegates only the existing native
+INT32, string and SQL NULL prepared-binding subset. A non-`None` `set_type`,
+mapping arguments and unsupported native values fail before execution;
+`executemany`, collection/LOB arguments and broad DB-API execution are not
+part of this wrapper slice.
+
+For a SELECT, `description` contains seven-field tuples
+`(name, native_type, 0, 0, precision, scale, null_ok)` with integer `null_ok`.
+Dictionary keys preserve the exact column name and case; duplicate names
+overwrite earlier values without moving their original key position. SQL NULL
+remains `None`, distinct from an empty string. The public `description` is a
+writable snapshot, but row keys and converter arguments come from the private
+execution metadata even if a caller overwrites that public attribute.
+For non-SELECT statements this facade consistently sets `description=None`;
+the official extension can instead leave the attribute missing after a
+reprepare. This is a deliberate safe deviation.
+
+`conn.set_fetch_value_converter(func)` stores a connection-local value read
+by existing cursors at each fetch. A truthy converter is called with the
+already shaped tuple/dictionary and its native-style description; its result
+is returned unchanged, including falsey values or `None`. A falsey converter
+disables conversion; a truthy non-callable raises `TypeError` after consuming
+the row. Callback errors also consume that row. Matching the official wrapper,
+`fetchmany()` and `fetchall()` stop after consuming any falsey converted result,
+while iteration stops only on `None`; a later fetch may resume after either.
+Call `close()` for deterministic handle release. An abandoned wrapper cursor
+attempts same-session cleanup during garbage collection without committing or
+reconnecting, but that cleanup is best-effort, can block on I/O and cannot
+replace an explicit close.
+
+```python
+from pycubrid.compat import cubriddb
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor(dictCursor=True)
+    try:
+        cur.execute('SELECT CAST(1 AS INTEGER) AS "ItemID"')
+        row = cur.fetchone()  # {"ItemID": 1}
     finally:
         cur.close()
 finally:
@@ -1449,7 +1624,7 @@ finally:
     conn.close()
 ```
 
-### LOB handles (`lob`, `fetch_lob`, `bind_lob`)
+### Native LOB streams and handles (`lob`, `fetch_lob`, `bind_lob`)
 
 Since #441, the native subset fetches and binds BLOB/CLOB handles with the
 official names: `conn.lob()` (or `native.lob(conn)`) returns an empty
@@ -1489,13 +1664,59 @@ Python. The server copies the value when the statement runs, so after
   has no LOB free request, and the server keeps a fetched value with its row.
   A binding made before `close()` stays valid. A closed `lob` cannot be filled
   or bound again; create a new one with `conn.lob()`.
-- The native connection is autocommit-only, so every fetched row is
-  committed, `rollback()` has no transaction to undo, and an already fetched
-  handle stays usable.
-- `lob` has no `read()`, `write()`, `seek()`, `imports()` or `export()` yet;
-  those come with #442 and #443. To read a value, use an ordinary
-  `pycubrid` cursor and [`Lob.read()`](#readlength-offset). There is no async
-  LOB API.
+- `lob.write(data, type="B", /) -> None` accepts `str` (encoded as UTF-8,
+  independent of the connection charset) or `bytes`. The first write creates
+  a BLOB by default; use `"C"` for a CLOB. Later type arguments do not change
+  the handle's type. Even an empty first write creates the handle, without a
+  LOB_WRITE request. Position and packed size advance by confirmed byte count.
+  CUBRID external storage is append-only: seek to the current end before a
+  write. A non-end write raises `NotSupportedError` before broker I/O; it does
+  not overwrite or fill a hole. Appending to a fetched handle updates that
+  handle's size; the source row keeps its old declared size, but an ordinary
+  explicit-offset read beyond that size can observe the shared file's extra
+  bytes. Bind the updated handle to a new row for the new logical size.
+- `lob.read(length=0, /) -> str` reads at the current **byte** position and
+  advances by bytes actually received. Omitted or zero length reads the
+  remainder, with bounded wire chunks for large values. Both BLOB and CLOB
+  return strict UTF-8 text, matching the official Python 3 extension for
+  valid UTF-8; use ordinary [`Lob.read()`](#readlength-offset) for arbitrary
+  binary bytes. A split UTF-8 character raises `UnicodeDecodeError` after the
+  position advances by the bytes received. Empty values, EOF and requests
+  longer than the remaining size safely return `""` or the available text.
+  If a later chunk fails, bytes accepted from earlier replies remain reflected
+  in the position (a live session can resume from there).
+  The official CCI wrapper can instead error at EOF or read past its declared
+  buffer. Those unsafe edge behaviors are not emulated.
+- `lob.seek(offset, whence=SEEK_CUR, /) -> int` changes the byte position.
+  `native.SEEK_SET`, `SEEK_CUR` and `SEEK_END` are exported; as in the official
+  driver, SEEK_END computes `size - offset` (a positive offset moves backward).
+  `seek(0, SEEK_CUR)` reports the current position; there is no separate
+  `tell()`. Invalid whence or a resulting negative/out-of-range position is
+  rejected without changing position, unlike the official driver's unchecked
+  negative seek. Filling the same holder from another row preserves its byte
+  position, as in the official extension; use `seek(0, SEEK_SET)` to restart.
+  A nonnegative position past EOF is virtual: reads return `""` and writes
+  remain append-only, so it cannot create a hole.
+- The native connection starts in autocommit mode, but `set_autocommit(False)`
+  allows manual transactions. A LOB fetched while autocommit is enabled can be
+  bound on another connection; one fetched in manual mode keeps a conservative
+  non-transferable flag even after a later `commit()`. Re-fetch it in confirmed
+  autocommit mode before cross-connection binding. A new LOB_NEW handle is
+  temporary and belongs to its
+  original live physical session: the first autocommit statement that binds
+  it consumes its temporary file (also if that statement fails). Reusing that
+  handle then receives the server's stale-locator error; fetch the committed
+  row into a fresh `lob` for another bind. `bind_lob()` snapshots the handle
+  at bind time, so bind again after a later append. Read/write/seek require
+  the handle's original live session; a committed fetched handle may still be
+  bound from another connection as described above.
+- Migrating from official `_cubrid.lob`: use this explicit sync namespace,
+  retain byte-based seek positions and the official `SEEK_END` direction, and
+  replace a closed holder with `conn.lob()` rather than writing after close.
+  Ordinary `pycubrid.lob.Lob.read(length, offset=0)` and
+  `write(bytes, offset=0)` remain absolute-offset byte APIs; they did not
+  become stateful. File `imports()`/`export()` (#443) and async LOBs are not
+  provided by this facade.
 
 Deliberate differences from the official driver, each pinned by a live
 differential claim (`lob-*` in `tests/fixtures/official_differential_claims.json`):
@@ -2267,6 +2488,9 @@ def callproc(
 ```
 
 Call a stored procedure. Constructs and executes a `CALL procname(?, ?, ...)` statement.
+`procname` must be a single identifier or non-empty dot-separated identifiers
+(for example, `schema.my_procedure`). Empty segments such as `schema..proc`
+raise `ProgrammingError` before any SQL is executed.
 
 **Returns:** The original `parameters` sequence (as per PEP 249).
 
@@ -6595,6 +6819,15 @@ cur.execute("SELECT * FROM users WHERE name = ?", ("Alice",))
 
 ### Reserved Word Conflicts
 
+The token reported after `unexpected` marks the server's diagnostic position;
+it may follow the offending identifier. For example,
+`CREATE TABLE t (key VARCHAR(50))` reports `unexpected 'VARCHAR'` on captured
+CUBRID 10.2, 11.2 and 11.4 brokers. pycubrid's appended hint therefore says an
+identifier at or before that position **may** be reserved. It does not identify
+the offending name or tell you to quote the datatype `VARCHAR`; inspect the
+identifier near that position and quote or rename it. The original server
+message and error metadata are preserved.
+
 **Common CUBRID reserved words** that often clash with column/table names:
 
 | Reserved Word | Safe Alternative |
@@ -7667,13 +7900,13 @@ Compatibility and feature support for pycubrid releases.
 
 ### CI Matrix
 
-| Dimension | PR / push | Nightly + tag + dispatch |
-|---|---|---|
-| Offline tests | Python 3.10, 3.11, 3.12, 3.13, 3.14 | Same |
-| Integration tests | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8 jobs | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20 jobs |
-| Version differential | — | One job: the same generated workloads against CUBRID 10.2, 11.0, 11.2 and 11.4 at once |
+| Validation | Routine execution | Full compatibility |
+| --- | --- | --- |
+| Offline | PR smoke on Ubuntu/Python 3.12; high-risk PR full regressions without coverage; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
+| Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
-The 5 × 4 full integration matrix is run by `.github/workflows/integration-full.yml` on a nightly schedule, on tagged releases, and on demand via `workflow_dispatch`.
+See [CI execution policy](CI_POLICY.md). Supported versions are unchanged;
+representative PR checks are not evidence for every supported combination.
 
 ### Server Behavior Differences Between CUBRID Versions
 
@@ -7847,8 +8080,8 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 |---|---|
 | Offline tests | 770 |
 | Total tests | 811 |
-| Integration jobs (PR / push) | 8 (Python {3.10, 3.14} × CUBRID 4 versions) |
-| Integration jobs (nightly + tag + dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
+| Representative integration | High-risk PR: newest endpoint; main/changed-weekly: oldest/newest endpoints |
+| Full integration (release workflow_call + manual dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
 | Reconnect / network edge cases | 17 tests covering reset, timeout, broken pipe, partial reads |
 | Coverage threshold | 95% (CI-enforced) |
@@ -8029,9 +8262,9 @@ the PR-title validator, the release scripts, workflow-YAML contracts, the
 shared quality gate, and similar (#558). These carry no pycubrid driver
 behavior and are excluded from `pycubrid`'s own coverage, so they run in the
 dedicated `repo-tooling-tests` CI job instead of the `offline-tests` matrix,
-keeping routine driver feedback fast. Moving the check does not change
-whether CI requires it: `repo-tooling-tests` is still a required job in the
-CI Gate, just like `offline-tests`.
+keeping routine driver feedback fast. Tooling paths select this single Linux
+lane; the CI Gate requires `repo-tooling-tests` and `offline-tests` to succeed
+when selected, and permits only intentional unselected skips.
 
 ```bash
 # Fast driver lane — mocked driver behavior only (what offline-tests runs)
@@ -8336,7 +8569,7 @@ You do not need to run the steps above locally for routine development —
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
-(nightly, via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
+(via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
 lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
 TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
 `pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
@@ -8510,8 +8743,8 @@ filename-glob inventory:
 
 | Lane | Selection | Executable workflow path |
 |---|---|---|
-| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and nightly bug hunt |
-| Slow | `integration and slow and not tls` | Nightly/manual bug hunt: soak, chaos, and concurrency stress |
+| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and weekly bug hunt |
+| Slow | `integration and slow and not tls` | Weekly/manual bug hunt: soak, chaos, and concurrency stress |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
 | Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.10, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
 
@@ -8543,10 +8776,10 @@ Its case goes in `CASES` in `tests/test_official_differential.py`. Then run
 either fixed, or recorded as a `deviation` with a reason, an issue and both
 observed values. Never edit an expected value just to match current output. See
 [the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
-The nightly bug hunt also retains separate offline protocol, fault-broker, and
+The weekly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
-Its `downstream-corpus` job is **advisory** (nightly or manual only), with three
+Its `downstream-corpus` job is **advisory** (weekly or manual only), with three
 isolated CUBRID 11.4 / Python 3.12 cells. It checks out the exact pycubrid
 workflow commit and the current `main` commit of each downstream repository in
 different directories. Every dependency install is constrained to the driver
@@ -8557,7 +8790,7 @@ the checkout. The existing `scripts/wait_for_cubrid.py` checks the live broker.
 | Downstream | Selected real workload | Accepted skips |
 |---|---|---|
 | `sqlalchemy-cubrid` | ORM dogfood and sync/async pool-stress files, in separate pytest runs | None |
-| `cubrid-mcp-server` | Live integration tool cases, including a real read query and composite-PK schema case | Only cases requiring user tables when the fresh database has none; their reasons are reported |
+| `cubrid-mcp-server` | Live integration tool cases plus a separately selected shared-session concurrency case | Empty-schema skips only in the general `mcp.xml` report; none in `mcp-concurrency.xml` |
 | `cubrid-cookbook-python` | Five AI-agent scripts (including MCP stdio) and the async-worker database tasks, in separate pytest processes | None |
 
 Each selected workload needs at least one passed JUnit case; a missing report,
@@ -8568,8 +8801,20 @@ CUBRID server version, and per-workload pass/skip/failure counts. Job-level
 `continue-on-error` keeps
 this exploratory corpus out of PR and release gates, but the evidence states
 failure rather than claiming a false success. This is a bounded sample of real
-downstream behavior, not those repositories' complete suites or a test of MCP
-concurrent access; SQLAlchemy pool stress supplies the concurrent driver use.
+downstream behavior, not those repositories' complete suites.
+
+The MCP step also selects
+`tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session`
+in a second pytest process and writes `mcp-concurrency.xml`. That report must
+contain a passed case and no skips, failures or errors, even if a skip reason
+would be accepted in the general `mcp.xml` report. Both runs execute, and either
+pytest failure makes the recorded step outcome fail. The selected case exercises
+simultaneous in-process MCP handlers sharing one cached physical `Database`
+connection through its existing `RLock`: trace and query work must not interleave,
+responses must remain distinct and correct, and real cursors must close. This
+bounded claim does not cover MCP stdio concurrency, pooling, per-request
+transaction isolation or throughput; SQLAlchemy supplies the separate pool-stress
+workload.
 
 `tests/test_protocol_fuzz.py` mutates realistic broker replies built by
 `tests/helpers/cas_reply.py` (#523): execute and FETCH replies with column
@@ -8608,16 +8853,21 @@ assets; pinning its caller is not a complete freeze of those assets.
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.14) + integration |
-| `integration-full.yml` | Nightly, manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
-| `prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
+| `ci.yml` | PRs, main, weekly, manual | Minimum PR smoke; main/weekly coverage and representative integration |
+| `integration-full.yml` | Manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
+| `release-please.yml` | Push main or manual dispatch | Open/update PR-only release candidate (version + generated/curated notes) |
 | `release.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
 
 ### CI Matrix
 
-- **Offline**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **Integration**: two selected cells, Python 3.14 / CUBRID 11.4 and Python 3.10 / CUBRID 10.2 (reduced PR matrix;
-  the full 5×4 matrix runs in `integration-full.yml`)
+Routine CI uses one Ubuntu/Python 3.12 offline lane and representative live
+combinations rather than the full matrix. PRs run smoke tests; main and changed
+weekly runs retain the full offline suite with 95% coverage. High-risk PRs run the full existing offline regressions without coverage on that
+same lane and select newest integration, while main/weekly use oldest/newest endpoints. Repository
+tooling is path-selected on one Linux lane. Full integration is explicit/manual
+and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
+validation requirements. Historical cost measurements below describe the earlier
+workflow, not current job counts or new savings.
 
 ### PR verification cost (#564)
 
@@ -8813,10 +9063,71 @@ To support a new CUBRID data type:
 ## Release Process
 
 Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md):
-`prepare-release.yml` opens a release PR (version bump + dated CHANGELOG section, checked
+`release-please.yml` opens a release PR (version bump + dated CHANGELOG section, checked
 with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `release.yml`
 runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
 automatically. Nobody pushes tags or publishes by hand.
+
+============================================================
+File: CI_POLICY.md
+============================================================
+
+# CI execution policy
+
+Routine CI uses representative combinations instead of a Cartesian version/OS matrix.
+
+| Trigger | Runtime validation |
+| --- | --- |
+| Documentation-only PR | Documentation and policy checks; no runtime suite or CUBRID provisioning |
+| Ordinary code PR | One Ubuntu/Python 3.12 offline smoke lane; no full coverage claim |
+| High-risk PR | One full offline regression lane without coverage plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
+| Code push to main | One Ubuntu/Python 3.12 full offline suite with the existing 95% coverage floor; oldest/newest live endpoints |
+| Monday 03:00 UTC | Same representative policy, comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests |
+| Explicit full dispatch or release | Existing full Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes |
+
+The PR smoke suite is deliberately bounded. Contributors must run the regression
+checks relevant to their change locally and record commands/results in the PR.
+Passing smoke is not evidence that the whole offline suite or coverage floor ran.
+`make test` and `make integration` remain available without changing their scope.
+
+Change selection is in `ci.yml`'s `detect-changes` job. Non-documentation paths
+are code by default, so new source/configuration files do not silently become docs.
+All driver and test paths, including new modules, plus dependency, build, script
+and workflow changes conservatively select representative pre-merge integration
+and the existing offline regression suite on one Linux/Python lane. Other code
+changes retain the bounded smoke suite. Repository tooling tests run in one Linux lane when tooling changes.
+The static lint job continues on all events, including generated documentation checks.
+
+The aggregate required-check name stays stable and includes change detection.
+Selected jobs must succeed: skipped, failed or cancelled selected checks fail the
+gate. Only intentionally unselected jobs may skip. Keep branch protection on the
+aggregate gate; do not require every old matrix cell name after reducing matrices.
+Branch protection must be inspected before merge. No protection-setting change
+is part of this PR.
+
+Full verification has no automatic nightly schedule. `integration-full.yml`
+retains manual dispatch and the release `workflow_call` with the immutable candidate
+SHA. Both manual workflows require a full `sha` input matching the dispatched
+branch commit. Supply `pr_number` when collecting PR evidence: preflight and the
+final gate reject a closed PR, an API failure or a superseded head. Every checkout
+uses the immutable requested/run SHA, which the guard reports in the summary.
+Routine CI manual dispatch forces all representative runtime/tooling lanes, even
+with an empty default-branch diff; the full workflow forces the full matrix. No release publisher/generator is changed.
+
+Concurrency isolates event/ref groups and still cancels superseded PR runs. Main pushes and PR merge refs are
+not assumed to have identical SHAs. Weekly change selection uses the previous
+seven days, not a persisted last-success cache; a failed weekly run must be
+rerun or followed by manual validation rather than treated as successful evidence.
+
+GitHub charges have not been attributed to a workflow or runner SKU. Reduced job
+counts establish less repeated work; they are not a measured monetary saving.
+Compare subsequent Actions jobs/runner minutes and the actual billing category
+before making a cost claim.
+
+The deep bug-hunt workflow runs weekly with one Python 3.12/CUBRID 11.4 cell,
+skipping unchanged weeks and retaining its mutation/performance/downstream checks and wide Hypothesis profile.
+TLS, EUC-KR and official differential jobs are selected by related paths on PRs;
+they remain available in main, changed-weekly and full release validation.
 
 ============================================================
 File: PARAMETER_BINDING.md
@@ -8909,7 +9220,7 @@ not a replacement for this ordinary 1.x contract; see its bounded
 ## Type Mapping (Guarantees)
 
 The following table is the **authoritative type-to-literal mapping** for 1.x.
-Every row cites the implementing line in `pycubrid/_cursor_common.py` and the
+Every row cites the implementing function in `pycubrid/_cursor_common.py` and the
 test that pins the behavior.
 
 > The **exception class** raised for each error case (e.g. `ProgrammingError`)
@@ -8917,21 +9228,24 @@ test that pins the behavior.
 > illustrative only and may be refined within 1.x. See
 > [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 
+Temporal subclasses in this table require the active C `_datetime`
+implementation; see the fallback restrictions below.
+
 | Python type | SQL literal | Implementation | Pinned by |
 |---|---|---|---|
-| `None` | `NULL` | `_cursor_common.py:254-255` | `tests/test_param_security.py:95-97` |
-| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:260-261` | `tests/test_param_security.py:98-102` |
-| `int` (and subclasses such as `IntEnum`/`IntFlag`) | `int.__repr__(value)` (decimal digits of the value). See [Numeric subclasses](#numeric-subclasses) | `_cursor_common.py:330-331` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
-| `float` (and subclasses) | `float.__repr__(value)` (shortest round-trip form, identical to `str()` of a plain `float`, e.g. `1e+20`); `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:332-335` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
-| `decimal.Decimal` (and subclasses) | Plain fixed-point digits (`format(value, "f")` on the value converted to a plain `Decimal`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`); subclasses raise `ProgrammingError` when the C `decimal` module is unavailable. See [Decimal parameters](#decimal-parameters) and [Numeric subclasses](#numeric-subclasses) | `_cursor_common.py:301-329` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`, `::TestPureDecimalFallback`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
-| `str` (and subclasses) | Single-quoted literal; escaping per [String Escaping](#string-escaping), applied to a plain `str` copy of the value; NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). See [Text, binary and temporal subclasses](#text-binary-and-temporal-subclasses) | `_cursor_common.py:262-263, 194-228` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
-| `bytes`, `bytearray` (and subclasses) | `X'<hex>'` (lowercase hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.py:266-269` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
-| `datetime.datetime` (naive, and subclasses) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — year zero-padded to 4 digits; microseconds truncated to milliseconds (`microsecond // 1000`) | `_cursor_common.py:274-288` | `tests/test_param_security.py:124-127`, `::TestTemporalSubclassRendering` |
-| `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.py:231-249, 274-287` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
-| `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.py:289-290` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
-| `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.py:291-294` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
+| `None` | `NULL` | `_cursor_common.format_parameter` | `tests/test_param_security.py:95-97` |
+| `bool` | `1` (True) / `0` (False) | `_cursor_common.format_parameter` | `tests/test_param_security.py:98-102` |
+| `int` (and subclasses such as `IntEnum`/`IntFlag`) | `int.__repr__(value)` (decimal digits of the value). See [Numeric subclasses](#numeric-subclasses) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
+| `float` (and subclasses) | `float.__repr__(value)` (shortest round-trip form, identical to `str()` of a plain `float`, e.g. `1e+20`); `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
+| `decimal.Decimal` (and subclasses) | Plain fixed-point digits (`format(value, "f")` on the value converted to a plain `Decimal`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`); subclasses raise `ProgrammingError` when the C `decimal` module is unavailable. See [Decimal parameters](#decimal-parameters) and [Numeric subclasses](#numeric-subclasses) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`, `::TestPureDecimalFallback`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
+| `str` (and subclasses) | Single-quoted literal; escaping per [String Escaping](#string-escaping), applied to a plain `str` copy of the value; NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). See [Text, binary and temporal subclasses](#text-binary-and-temporal-subclasses) | `_cursor_common.format_parameter` / `_cursor_common.escape_string` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
+| `bytes`, `bytearray` (and subclasses) | `X'<hex>'` (lowercase hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
+| `datetime.datetime` (naive, and subclasses) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — year zero-padded to 4 digits; microseconds truncated to milliseconds (`microsecond // 1000`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:124-127`, `::TestTemporalSubclassRendering` |
+| `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.format_parameter` / `_cursor_common._format_tz` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
+| `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.format_parameter` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
+| `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.format_parameter` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
 | `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (each keyword renders as `KEYWORD{}` when empty, e.g. `SET{}`); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
-| anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:342` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
+| anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
 including values such as `10**1000` and `-(10**1000)` that exceed the float range.
@@ -8982,6 +9296,13 @@ through methods the subclass can override (#528):
   change the literal. The UTC offset comes from `datetime.datetime.utcoffset()`
   called on the base class, and its `days`/`seconds`/`microseconds` fields are
   read the same way.
+- Without the active C `_datetime` implementation, its pure-Python descriptors
+  read attributes such as `_year` and `_seconds`, which subclasses can forge.
+  `date`, `datetime` and `time` subclasses therefore raise `ProgrammingError`
+  before any field read or timezone callback; pass exact base-class values.
+  A `timedelta` subclass returned by `tzinfo.utcoffset()` is also rejected before
+  key lookup or driver offset-field reads. Plain fallback temporal values and
+  plain `timedelta` offsets remain accepted; C-backed subclasses are unchanged.
 - Years below 1000 are zero-padded to four digits (`date(99, 1, 2)` is sent as
   `DATE'0099-01-02'`). `strftime("%Y")` does not pad them on Linux, and CUBRID
   reads `DATE'99-01-02'` as 1999-01-02, so two-digit years were silently
@@ -8992,6 +9313,12 @@ through methods the subclass can override (#528):
   as `Asia/Seoul`, `Etc/GMT+5` or `America/Port-au-Prince`, qualifies);
   anything else raises `ProgrammingError`. A missing, `None` or empty key still
   falls back to the numeric `±HH:MM` offset.
+- Ordinary exceptions from timezone callbacks, key lookup or offset-field
+  reads raise `ProgrammingError` (current message: `"invalid tzinfo on datetime
+  parameter"`) with the original exception as the cause, without formatting
+  caller-controlled exception text. Invalid key values keep their specific
+  error above, and an offset of `None` still renders a naive `DATETIME` without
+  reading the key. `BaseException` interruptions propagate.
 
 Dispatch uses `type(value)`, not `isinstance()`, which also trusts an
 overridden `__class__`. An object that only claims to be one of the supported
@@ -9002,7 +9329,8 @@ types through `__class__` (for example a transparent proxy) raises
 Plain values render exactly as before, except the year padding.
 Pinned by `tests/test_param_security.py::TestPlainLiteralsUnchanged`,
 `::TestStrSubclassEscaping`, `::TestBinarySubclassRendering`,
-`::TestTemporalSubclassRendering`, `::TestTzinfoKey`, `::TestClassSpoofing`,
+`::TestTemporalSubclassRendering`, `::TestTzinfoKey`, `::TestHostileTzinfo`,
+`::test_temporal_subclasses_in_real_pure_python_fallback`, `::TestClassSpoofing`,
 and live on CUBRID 10.2 and 11.4 (sync and async) by
 `tests/test_parity_integration.py::TestParityLiteralHardening`.
 
@@ -9640,8 +9968,9 @@ This is source accounting. It does not certify functional parity, successful
 official-driver execution, or a complete API superset. Similar names and existing
 packet classes are insufficient evidence. The selected additive design for
 [#438](https://github.com/cubrid-lab/pycubrid/issues/438) is recorded below;
-its namespaces now provide construction and close only (#465). The catalog does
-not certify future execution APIs or native parity; ordinary 1.x defaults stay
+its explicit namespaces now provide the bounded delivered slices described
+below (#465/#439/#440/#441/#442/#467). The catalog does not certify the
+remaining APIs or complete native parity; ordinary 1.x defaults stay
 unchanged.
 The catalog's target mappings remain a historical baseline; later #465
 construction is described here without rewriting that source snapshot.
@@ -9679,7 +10008,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 | Surface | Existing pycubrid path or outstanding work |
 | --- | --- |
 | Constructors, autocommit, threading | Native initialization enables autocommit; ordinary pycubrid defaults to manual commit and declares `threadsafety=1`. Explicit CUBRID/UTF-8 construction and aliases are available in #465; sharing, settings and CCI URL/HA options remain separate work. |
-| Charset, dict cursors, converters | The official wrapper exposes these options. Since #86, `pycubrid.connect(charset=...)`, `pycubrid.aio.connect(charset=...)`, `compat.native` and the `cubriddb.Connection(charset=...)` constructor encode and decode with the selected codec, verified live against an EUC-KR database; no `charset` attribute is retained on the connection. Dict cursors and converters have no equivalent surface. UTF-8 defaults remain unchanged. |
+| Charset, dict cursors, converters | Since #86 the ordinary, async and explicit compatibility constructors accept a selected codec, verified live against EUC-KR; no `charset` attribute is retained. #466 adds qualified tuple/dict cursors and a connection-local converter over the existing native scalar subset. UTF-8 defaults remain unchanged. |
 | Prepare/typed binding | Ordinary cursors have no public prepare/bind/execute. The explicit `compat.native` cursor delivers sync scalar binding (#439), collection binding (#440) and fetched LOB handle fetch/bind (#441). |
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
 | Result navigation and metadata | Absolute/relative seek and position are #444; 15-field result metadata is #445 with #398. Native next_result exists; the wrapper nextset stub and pycubrid's unsupported nextset do not supply that capability. |
@@ -9690,8 +10019,9 @@ does not enumerate every inherited built-in method as a new driver operation.
 
 Maintainer-selected design, 2026-09-28: preserve ordinary pycubrid and add separate
 `pycubrid.compat.cubriddb` (wrapper) and `pycubrid.compat.native` (native) namespaces.
-Construction/close (#465), the explicit native sync prepared scalar cursor
-(#439), its collection binding (#440) and LOB handle fetch/bind (#441) are delivered; other rows below remain targets, not delivered capabilities.
+Construction/close (#465), native prepared scalars (#439), collection binding
+(#440), LOB handle/stream operations (#441/#442) and cached/effective settings
+(#467) are delivered; other rows below remain targets, not delivered capabilities.
 This reversible additive design
 does not authorize replacing 1.x defaults, adopting a
 2.0 replacement, or publishing a release. A global switch,
@@ -9712,19 +10042,32 @@ and an omitted optional argument is not interchangeable with explicit None.
 
 | Surface | Selected contract / delivery boundary |
 | --- | --- |
-| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close are delivered; excess positional/unsupported keyword or DSN options are rejected. Selectable charset/HA and wrapper cursor execution are not delivered. |
+| Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close, #467 autocommit access, #86 selectable charset and #466 bounded row cursors are delivered; HA and unsupported DSN options remain rejected. |
 | Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require wrapper cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The compatibility modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. The native subset's private RLock is not a general thread-sharing promise. |
-| Settings | Native autocommit/isolation_level/lock_timeout/max_string_len assignments change cached snapshots only. `set_autocommit(mode)` / `set_isolation_level(level)` perform server operations and update caches; max_string_len retains the source's read-failure fallback 0. Wrapper `.autocommit` is server-backed. Do not invent effective setters for snapshot members. |
-| Wrapper cursor | `cursor(dictCursor=None)`, `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None`; tuple/dict fetch and connection fetch-converter callback. Contradictory mapping-binding/default_cursor docstrings are not working capability promises. |
+| Settings (#467) | Delivered as writable raw native snapshots (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and separate effective `set_autocommit(mode, /)` / `set_isolation_level(level, /)`. Raw assignment accepts objects and sends nothing. The bool autocommit setter changes local CCI-equivalent mode; only a changed mode during an active transaction commits. Isolation SET (4/5/6) does not commit and skips an already effective level on the same physical session. The wrapper `.autocommit` property delegates its bool setter but its getter reads the raw native cache. Constructor reads actual lock/max/isolation; a complete max-string server error alone falls back to 0, and initial numeric level 4 retains the pinned official `CUBRID_TRAN_UNKNOWN_ISOLATION` text quirk. No effective lock/max setters, ordinary-default change or unsafe native parser parity. |
+| Wrapper cursor (#466) | Delivered as qualified `pycubrid.compat.cursors.Cursor/DictCursor` and `Connection.cursor(dictCursor=None)`. `execute(query, args=None, set_type=None) -> int` delegates only native INT32/string/NULL scalar binding; non-None `set_type` and mappings fail before I/O. SELECT seven-field description, exact-name tuple/dict rows (last duplicate wins), and the current per-connection converter are supported. Falsey converter results stop bulk fetch after consuming a row; iteration stops only on None. `executemany`, collection/LOB args and mapping/default_cursor docstrings are not delivered. Non-SELECT description remains stable None rather than the official extension's possibly missing attribute after reprepare. |
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
 | Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. Wrapper `execute(..., set_type)`/`executemany` collection shapes are not delivered (#610). |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
-| Extended metadata | `result_info(n=0, /)` returns tuple-of-15-tuples (one outer entry for n>=1), or None with no columns. Actual order: type, not_null, scale, precision, name, attribute, class, default, auto_increment, unique, primary, foreign, reverse_index, reverse_unique, shared. Preserve empty versus absent metadata; #445 must not fabricate unavailable fields. |
+| Extended metadata (#445) | Delivered native-only `cursor.result_info([n])` reads cached successful-execution metadata, returning tuple-of-15-tuples (one outer entry for a one-based selector), or None for executed zero-column statements. It uses measured CCI types, integer flags and actual strings in the implemented official order. Supported CUBRID producers encode absent text as an empty string, not None; no attribute/default value is inferred. Ordinary/wrapper description and row position are unchanged. |
 | Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
 | Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
-| Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in autocommit mode (always, today), since only committed rows may cross connections. Writing, reading, seeking and files are the next row (#442/#443). |
-| Native LOB | Separate mutable byte-position object, initially unpopulated. `write(string, type omitted, /) -> None` accepts str/bytes (UTF-8 for str), creates BLOB by default or B/C when requested. `read(len=0, /) -> str` reads remaining bytes for omitted/0 and decodes strict UTF-8. `seek(offset, whence=SEEK_CUR, /) -> int`; SEEK_END is size-offset. #442/#443 own lifecycle/short transfer/file behavior; ordinary bytes methods are not replaced. |
-| Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. Exact unstable messages and native argument-parser crashes are not targets. |
+| Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in effective autocommit mode; a manually fetched holder remains non-transferable after a later commit until re-fetched in autocommit mode. Stream operations are delivered in #442 below; file import/export remains #443. |
+| Native LOB stream (#442) | Delivered sync-only: `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`, plus exported `SEEK_*` constants. Position and size count bytes; UTF-8 text is returned for BLOB and CLOB. SEEK_END computes size-offset. Writes create a BLOB/CLOB lazily and append only at the end. Safe deviations: non-end writes and invalid resulting positions fail before I/O, while empty/EOF and oversized reads return available text instead of reproducing unsafe CCI behavior. The native holder's close remains terminal; created handles stay on their original session and first autocommit bind consumes their temp file. Ordinary absolute-offset `Lob` and file I/O (#443) are unchanged. |
+| Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. The delivered result_info local errors retain pycubrid message-only args as classified below; broader adapters remain separate. Exact unstable messages and native argument-parser crashes are not targets. |
+
+The #445 metadata slice follows the pinned
+[tuple construction](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L2119-L2213),
+not its differing docstring. Fresh/prepare-only and invalid-index errors carry
+`.code == -30006`; closed-cursor errors carry `-30019`. Their existing pycubrid
+message-only `args` differ from the native integer/message pair, as the separate
+differential claim records. Integer conversion and closed/keyword precedence
+are measured separately without parsing codes out of messages or inventing errno.
+Cached metadata survives EOF and same-owner commit/rollback even when rows are
+invalidated. Failed execution attempts hide old metadata; disconnected/foreign/
+stale owners fail closed rather than risking CCI pointers. Metadata text retains
+the connection codec; the pinned UTF-8 comparison is not non-UTF-8 parity.
+See [API details](API_REFERENCE.md#extended-column-metadata-result_info).
 
 The reviewed [typed CAS design for #418](PREPARED_BINDING_DESIGN.md) defines
 the first sync-only prepared scalar slice (#439), its FC2/FC3/FC6 bytes,
@@ -9732,6 +10075,19 @@ handle/result/transaction ownership, measured pooling-on boundary, and
 failing-first test IDs. It is a design, not an available execution API or
 proof of full official-driver parity. Ordinary 1.x literal binding remains
 [unchanged](PARAMETER_BINDING.md).
+
+The #611 prepared-handle correction is deliberately narrower than CCI's
+same-call invalid-plan retry: only after a complete broker execution error,
+the *next explicit user execute* refreshes a non-LOB handle on its original
+session and sends one FC3. The original error is still visible. This avoids
+replaying a statement that might have taken effect; transport errors and LOB
+bindings are not automatically retried. The legacy `-1024` wire error is
+CCI's normalized `CAS_ER_STMT_POOLING=-10024`, not this project's older
+`ER_STMT_POOLING=-15` constant; neither integer alone authorizes replay.
+See the pinned [CCI retry path](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/cas_cci.c#L1411-L1424)
+and the [10.2](https://github.com/CUBRID/cubrid/blob/v10.2.13.8953/src/broker/cas_execute.c#L1265-L1275)
+and [11.4](https://github.com/CUBRID/cubrid/blob/v11.4.6.1963/src/broker/cas_execute.c#L1647-L1689)
+broker paths that can surface pooling errors after entering execution.
 
 ### Evidence and intentional safety deviations
 
@@ -9840,27 +10196,30 @@ claims without cases and oracle pins that differ from the build script.
 
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
-| Wrapper (`CUBRIDdb`) | 12 | 2 | 14 |
-| Native (`_cubrid`) | 21 | 11 | 32 |
-| **Total** | **33** | **13** | **46** |
+| Wrapper (`CUBRIDdb`) | 13 | 2 | 15 |
+| Native (`_cubrid`) | 27 | 12 | 39 |
+| **Total** | **40** | **14** | **54** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - Required servers: CUBRID 10.2, CUBRID 11.4
-- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441)
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445)
 
 <!-- official-differential-summary:end -->
 
-These claims cover the first bounded slice: stored scalar fetches, a static scalar
-row and description, the #439 prepared INT/string subset, #440 native
-collection binding and #441 native LOB handle fetch/bind. Wrapper collection shapes, LOB read/write/seek/files, charset/HA, fault behavior and every other inventory operation remain uncertified
+These claims cover the bounded measured slices: stored scalar fetches, a static scalar
+row and description, the #466 qualified wrapper row-conversion subset, the #439 prepared INT/string subset, #440 native
+collection binding, #441/#442 native LOB handle/stream behavior and #467
+cached settings with safe effective setter values. Wrapper collection shapes,
+LOB file I/O, HA, fault behavior and every other inventory operation remain uncertified
 until they have claims here. The claim counts are not a parity percentage.
 
 ### Migration targets and small delivery acceptance
 
 For ordinary queries keep existing imports unchanged. The explicit native
-namespace now supports only its bounded sync scalar, collection and LOB-handle prepared cursor; the
-wrapper still constructs and closes connections without cursor execution.
-Once later capabilities exist, wrapper migration is
+namespace now supports bounded sync scalar, collection and LOB prepared execution
+plus the #467 settings subset; the wrapper constructs/closes connections and
+delegates autocommit and offers the bounded #466 row cursor over native scalar binding.
+For callers within that subset, wrapper migration is
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`; native migration
 is `import _cubrid` → `from pycubrid.compat import native as _cubrid`.
 For manual transactions, wrapper callers use `conn.autocommit = False`; native
@@ -9872,7 +10231,7 @@ empty strings. Binary LOB users retain ordinary bytes APIs, not compatibility Un
 | --- | --- |
 | M factories / M sharing | #465 delivers explicit construction/close, aliases, DSN/user/autocommit defaults and native-wrapper identity without changing ordinary behavior. Sharing/lifecycle serialization remains separate and gates threadsafety=2; no prepared engine or global switch is implied. |
 | M prepared / typed binding | #439 after #418 and this contract: exact count/return/positional/NULL/error checks; #440 native collection binding and #441 native LOB handle fetch/bind are delivered with live differential claims. |
-| M conversion / charset / HA | Separate dictCursor/converter leaf; charset encoding delivered by #86 (a retained wrapper `charset` attribute is still absent); separate HA/URL-option leaf with actual failover evidence. Parsing options or upstream default_cursor stubs alone are incomplete. |
+| M conversion / charset / HA | #466 delivers tuple/dict rows and connection-local converters over the scalar subset; #86 delivers charset encoding (without a retained wrapper `charset` attribute). HA/URL options remain a separate leaf requiring failover evidence. Parsing options or upstream default_cursor stubs alone are incomplete. |
 | S batch / errors / identity | Separate native batch records using existing arbitrary-SQL transport, namespace exception/export adapters, and broker-driven identity leaf with fresh/transaction/CALL/non-auto controls. Preserve ordinary first-error and cached-string behavior. |
 | M settings / navigation | Effective server operations versus four cached members; #444 seek/position; separate next_result/execute-option/query-plan leaves. Stubs/flags do not complete capabilities. |
 | S/M metadata / schema / LOB | #445 value/type/15-field metadata; #412/#455–457 owned schema reuse; #442 actual byte-position/short transfers; #443 files. Each is a focused slice, not a monolithic facade PR. |

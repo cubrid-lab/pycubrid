@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import struct
-import sys
-import types
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -43,9 +41,7 @@ def build_server_version_response(
 
 @pytest.fixture
 def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
-    import pycubrid.connection as _conn_mod
-
-    module = types.ModuleType("pycubrid.cursor")
+    import pycubrid.cursor as _cursor_mod
 
     class DummyCursor:
         def __init__(self, connection: Connection) -> None:
@@ -55,9 +51,7 @@ def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
         def close(self) -> None:
             self.closed = True
 
-    setattr(module, "Cursor", DummyCursor)
-    monkeypatch.setitem(sys.modules, "pycubrid.cursor", module)
-    monkeypatch.setattr(_conn_mod, "_CursorClass", None)
+    monkeypatch.setattr(_cursor_mod, "Cursor", DummyCursor)
     return DummyCursor
 
 

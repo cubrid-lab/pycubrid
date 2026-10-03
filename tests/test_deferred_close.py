@@ -443,11 +443,13 @@ def test_collected_cursors_beyond_the_bound_are_queued_and_sent_in_batches(
     assert state._deferred_closes == [(2, 5), (2, 6), (2, 7)]
     assert state._peek_deferred_closes() == (2, (5, 6))  # at most the limit per request
     state._consume_deferred_closes(2)
-    assert state._take_deferred_closes() == (7,)
+    assert state._peek_boundary_deferred_close() == 7
+    state._consume_deferred_closes(1)
     assert state._deferred_closes == []
     state._statement_pooling = 0
     state._deferred_closes[:] = [(2, 8)]
-    assert state._take_deferred_closes() == ()
+    assert state._peek_boundary_deferred_close() is None
+    state._consume_deferred_closes(1)
     assert state._deferred_closes == []
 
 

@@ -524,18 +524,17 @@ class ConnectionCommonMixin:
             return
         self._deferred_closes.append((getattr(cursor, "_handle_generation", 0), handle))
 
-    def _take_deferred_closes(self) -> tuple[int, ...]:
-        """Remove every queued entry; return this session's ids for ``CLOSE_REQ``.
+    def _peek_boundary_deferred_close(self) -> int | None:
+        """Return the current-session FIFO head without transferring ownership.
 
-        Used at ``commit()`` / ``rollback()`` after the CHECK_CAS check, so a
-        transaction boundary leaves no handle of a dropped cursor allocated.
+        A boundary sends it with CLOSE_REQ. The transport consumes that head
+        only when the request is about to leave; pre-send interruption retains
+        it, while a completed or uncertain send cannot replay it (#601).
         """
-        entries = list(self._deferred_closes)
-        self._consume_deferred_closes(len(entries))
-        if not self._handles_survive_transactions():
-            return ()
-        generation = self._physical_generation
-        return tuple(handle for gen, handle in entries if gen == generation)
+        if not self._deferred_closes or not self._handles_survive_transactions():
+            return None
+        generation, handle = self._deferred_closes[0]
+        return handle if generation == self._physical_generation else None
 
     def _peek_deferred_closes(self) -> tuple[int, tuple[int, ...]]:
         """Return how many queued entries the next request takes, and its handles.

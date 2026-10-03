@@ -32,7 +32,7 @@ from typing import Any
 import pytest
 
 import pycubrid
-from pycubrid.compat import native
+from pycubrid.compat import cubriddb, native
 from pycubrid.lob import Lob
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
@@ -80,6 +80,48 @@ def _ordinary() -> pycubrid.Connection:
 
 def _table(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+def _wrapper_row_conversion() -> tuple[str, str]:
+    table = _table("owr")
+    observer = _ordinary()
+    setup = observer.cursor()
+    try:
+        setup.execute(
+            f"CREATE TABLE {table} (id INTEGER NOT NULL, txt VARCHAR(40), opt VARCHAR(40))"
+        )
+        setup.execute(f"INSERT INTO {table} VALUES (1, '한', NULL)")
+        setup.execute(f"INSERT INTO {table} VALUES (2, '', '')")
+        query = f'SELECT id AS "MiXeD", txt AS dup, opt AS dup FROM {table} ORDER BY id'
+
+        def observe(connect: Callable[..., Any]) -> str:
+            conn = connect(URL, TEST_USER, TEST_PASSWORD)
+            try:
+                tuples = conn.cursor()
+                dicts = conn.cursor(dictCursor=True)
+                converted = conn.cursor(dictCursor=True)
+                try:
+                    tuples.execute(query)
+                    desc = tuples.description
+                    tuple_rows = tuples.fetchall()
+                    dicts.execute(query)
+                    dict_rows = dicts.fetchall()
+                    conn.set_fetch_value_converter(lambda row, metadata: (row, metadata))
+                    converted.execute(query)
+                    converted_row = converted.fetchone()
+                    return render((desc, tuple_rows, dict_rows, converted_row))
+                finally:
+                    tuples.close()
+                    dicts.close()
+                    converted.close()
+            finally:
+                conn.close()
+
+        return observe(cubriddb.connect), observe(CUBRIDdb.connect)
+    finally:
+        setup.execute(f"DROP TABLE IF EXISTS {table}")
+        setup.close()
+        observer.close()
 
 
 # -- wrapper surface: ordinary pycubrid DB-API versus CUBRIDdb ---------------------------
@@ -674,11 +716,276 @@ def _lob_error_classes() -> tuple[str, str]:
     return _lob_run(native, rows, body, "b"), _lob_run(_cubrid, rows, body, "b")
 
 
+def _lob_stream(payload: str | bytes, kind: str) -> tuple[str, str]:
+    """Compare only in-range byte-position operations safe in the C extension."""
+
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        lob = conn.lob()
+        try:
+            written = lob.write(payload, kind)
+            end = lob.seek(0, module.SEEK_CUR)
+            start = lob.seek(0, module.SEEK_SET)
+            first = lob.read(1)  # ASCII prefix, never split a UTF-8 character
+            after_first = lob.seek(0, module.SEEK_CUR)
+            rest = lob.read()  # strictly before EOF
+            last_pos = lob.seek(1, module.SEEK_END)
+            last = lob.read(1)
+            return render((written, end, start, first, after_first, rest, last_pos, last))
+        finally:
+            lob.close()
+            conn.close()
+
+    return observe(native), observe(_cubrid)
+
+
+def _native_settings_cache_and_setters() -> tuple[str, str]:
+    """Compare safe cached members and valid effective setter values (#467)."""
+
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        try:
+            initial = (
+                conn.autocommit,
+                conn.isolation_level,
+                conn.lock_timeout,
+                conn.max_string_len,
+            )
+            names = ("autocommit", "isolation_level", "lock_timeout", "max_string_len")
+            markers = [object() for _ in names]
+            for name, marker in zip(names, markers):
+                setattr(conn, name, marker)
+            identities = tuple(
+                getattr(conn, name) is marker for name, marker in zip(names, markers)
+            )
+            auto_result = conn.set_autocommit(False)
+            auto_after = conn.autocommit
+            iso_result = conn.set_isolation_level(4)
+            iso_after_four = conn.isolation_level
+            conn.set_isolation_level(5)
+            iso_after_five = conn.isolation_level
+            conn.set_isolation_level(6)
+            iso_after_six = conn.isolation_level
+            conn.set_autocommit(True)
+            return render(
+                (
+                    initial,
+                    identities,
+                    auto_result,
+                    auto_after,
+                    iso_result,
+                    iso_after_four,
+                    iso_after_five,
+                    iso_after_six,
+                    conn.autocommit,
+                )
+            )
+        finally:
+            conn.close()
+
+    return observe(native), observe(_cubrid)
+
+
+def _result_info_outcome(call: Callable[[], object]) -> object:
+    """Compare only result_info errors, without changing older claim observations."""
+    try:
+        return call()
+    except Exception as exc:  # numeric code is .code here, not pycubrid's errno
+        code = getattr(exc, "code", None)
+        if type(code) is not int:
+            code = exc.args[0] if exc.args and type(exc.args[0]) is int else None
+        return "raises", type(exc).__name__, code
+
+
+def _native_result_info_columns() -> tuple[str, str]:
+    """Read full metadata without fetching NUMERIC/collection/JSON values."""
+    observer = _ordinary()
+    setup = observer.cursor()
+    parent_created = table_created = False
+    try:
+        setup.execute(
+            "SELECT class_name FROM db_class WHERE class_name IN ('odri445_parent', 'odri445_meta')"
+        )
+        assert not setup.fetchall(), "result_info fixture tables already exist"
+        setup.execute("CREATE TABLE odri445_parent (id INTEGER PRIMARY KEY)")
+        parent_created = True
+        setup.execute(
+            "CREATE TABLE odri445_meta ("
+            "id INTEGER AUTO_INCREMENT PRIMARY KEY, "
+            "txt VARCHAR(40) DEFAULT '한' NOT NULL, num NUMERIC(10,2) DEFAULT 1.25, "
+            "unique_txt VARCHAR(20) UNIQUE, parent_id INTEGER, "
+            "rev_txt VARCHAR(20), rev_unique_txt VARCHAR(20), shared_num INTEGER SHARED 7, "
+            "set_val SET(INTEGER), multi_val MULTISET(INTEGER), "
+            "seq_val SEQUENCE(INTEGER), json_val JSON, "
+            "CONSTRAINT fk_odri445 FOREIGN KEY (parent_id) REFERENCES odri445_parent(id))"
+        )
+        table_created = True
+        setup.execute("CREATE REVERSE INDEX odri445_rev ON odri445_meta (rev_txt)")
+        setup.execute(
+            "CREATE REVERSE UNIQUE INDEX odri445_rev_unique ON odri445_meta (rev_unique_txt)"
+        )
+
+        def observe(module: Any) -> str:
+            conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+            cur = conn.cursor()
+            try:
+                cur.prepare("SELECT * FROM odri445_meta WHERE 1=0")
+                assert cur.execute() == 0
+                all_columns = cur.result_info()
+                assert len(all_columns) == 12
+                assert all(len(column) == 15 for column in all_columns)
+                assert all(type(column[0]) is int for column in all_columns)
+                for index, flag in (
+                    (0, 8),
+                    (0, 10),
+                    (1, 1),
+                    (3, 9),
+                    (4, 11),
+                    (5, 12),
+                    (6, 13),
+                    (7, 14),
+                ):
+                    assert all_columns[index][flag] == 1
+                selected = cur.result_info(1)
+                assert selected == (all_columns[0],)
+                assert len(selected) == 1 and selected[0][4] == "id"
+                cur.prepare("SELECT id, txt FROM odri445_meta WHERE 1=0")
+                cur.execute()
+                basic = cur.result_info()
+                # Assess the original result_info scenario's four assertions.
+                assert len(basic) == 2 and basic[0][10] == 1
+                cur.prepare(
+                    'SELECT id AS "MiXeD", txt AS "한글", CAST(1 AS INTEGER) AS expr '
+                    "FROM odri445_meta WHERE 1=0"
+                )
+                cur.execute()
+                aliases = cur.result_info()
+                cur.prepare("UPDATE odri445_meta SET txt=txt WHERE 1=0")
+                cur.execute()
+                dml = tuple(
+                    _result_info_outcome(lambda n=n: cur.result_info(n))
+                    for n in (0, -1, -(2**31), 2**31 - 1, None, 2**31)
+                )
+                return render((all_columns, selected, basic, aliases, dml))
+            finally:
+                try:
+                    cur.close()
+                finally:
+                    conn.close()
+
+        return observe(native), observe(_cubrid)
+    finally:
+        try:
+            if table_created:
+                setup.execute("DROP TABLE odri445_meta")
+            if parent_created:
+                setup.execute("DROP TABLE odri445_parent")
+        finally:
+            try:
+                setup.close()
+            finally:
+                observer.close()
+
+
+def _native_result_info_selectors() -> tuple[str, str]:
+    class IndexOne:
+        def __index__(self) -> int:
+            return 1
+
+    class IntOnly:
+        def __int__(self) -> int:
+            return 1
+
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        cur = conn.cursor()
+        cursor_closed = False
+        try:
+            fresh = _result_info_outcome(cur.result_info)
+            cur.prepare("SELECT 1 AS id FROM db_root WHERE 1=0")
+            prepared = _result_info_outcome(cur.result_info)
+            cur.execute()
+            selected = tuple(cur.result_info(n) for n in (False, True, IndexOne()))
+            errors = tuple(
+                _result_info_outcome(lambda n=n: cur.result_info(n))
+                for n in (-1, 2, None, "1", 1.5, IntOnly(), 2**31, -(2**31) - 1)
+            )
+            arity = _result_info_outcome(lambda: cur.result_info(0, 1))
+            keyword = _result_info_outcome(lambda: cur.result_info(n=0))
+            cur.close()
+            cursor_closed = True
+            closed = (
+                _result_info_outcome(cur.result_info),
+                _result_info_outcome(lambda: cur.result_info(None)),
+                _result_info_outcome(lambda: cur.result_info(0, 1)),
+                _result_info_outcome(lambda: cur.result_info(n=0)),
+            )
+            return render((fresh, prepared, selected, errors, arity, keyword, closed))
+        finally:
+            # Native close is terminal and its second close raises; avoid it.
+            try:
+                if not cursor_closed:
+                    cur.close()
+            finally:
+                conn.close()
+
+    return observe(native), observe(_cubrid)
+
+
+def _native_result_info_position_and_boundaries() -> tuple[str, str]:
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        cur = conn.cursor()
+        try:
+            conn.set_autocommit(False)
+            cur.prepare(
+                "SELECT 1 AS id, 'one' AS txt FROM db_root "
+                "UNION ALL SELECT 2 AS id, 'two' AS txt FROM db_root ORDER BY id"
+            )
+            cur.execute()
+            before = cur.result_info()
+            first = cur.fetch_row()
+            middle = cur.result_info(2)
+            second = cur.fetch_row()
+            eof = cur.fetch_row()
+            after = cur.result_info()
+            conn.commit()
+            committed = cur.result_info()
+            conn.rollback()
+            rolled_back = cur.result_info()
+            return render((before, first, middle, second, eof, after, committed, rolled_back))
+        finally:
+            try:
+                cur.close()
+            finally:
+                conn.close()
+
+    return observe(native), observe(_cubrid)
+
+
+def _native_result_info_error_args() -> tuple[str, str]:
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        cur = conn.cursor()
+        try:
+            cur.close()
+            try:
+                cur.result_info()
+            except Exception as exc:  # retain the explicit exception-args deviation
+                return render((len(exc.args), tuple(type(arg).__name__ for arg in exc.args)))
+            raise AssertionError("closed result_info did not fail")
+        finally:
+            conn.close()
+
+    return observe(native), observe(_cubrid)
+
+
 FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
 KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
 
 
 CASES: dict[str, Callable[[], tuple[str, str]]] = {
+    "wrapper-row-conversion": _wrapper_row_conversion,
     "fetch-integer": _stored("INTEGER", "42"),
     "fetch-bigint": _stored("BIGINT", "9223372036854775807"),
     "fetch-numeric": _stored("NUMERIC(10,2)", "12.34"),
@@ -734,6 +1041,13 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "lob-bind-cross-connection": _lob_cross_connection,
     "lob-bind-after-source-close": _lob_bind_after_source_close,
     "lob-error-classes": _lob_error_classes,
+    "lob-stream-blob": lambda: _lob_stream(b"AhelloB", "B"),
+    "lob-stream-clob": lambda: _lob_stream("A한éB", "C"),
+    "native-cached-settings": _native_settings_cache_and_setters,
+    "native-result-info-columns": _native_result_info_columns,
+    "native-result-info-selectors": _native_result_info_selectors,
+    "native-result-info-position-and-boundaries": _native_result_info_position_and_boundaries,
+    "native-result-info-error-args": _native_result_info_error_args,
 }
 
 

@@ -45,6 +45,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 .mutmut-cache
+mutants/
 bug-hunt-repro/
 
 # Environments

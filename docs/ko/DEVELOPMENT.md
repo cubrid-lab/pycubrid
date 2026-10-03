@@ -146,9 +146,9 @@ make test
 이들은 pycubrid 드라이버 동작을 전혀 포함하지 않고 `pycubrid` 자체의
 커버리지에서도 제외되므로, `offline-tests` 매트릭스 대신 전용
 `repo-tooling-tests` CI job에서 실행되어 일상적인 드라이버 피드백 속도를
-유지합니다. 점검을 옮겨도 CI가 그것을 요구하는지 여부는 바뀌지 않습니다:
-`repo-tooling-tests`는 `offline-tests`와 마찬가지로 CI Gate에서 여전히 필수
-job입니다.
+유지합니다. 도구 관련 경로가 변경되면 Linux 단일 레인이 선택됩니다.
+CI Gate는 선택된 `repo-tooling-tests`와 `offline-tests`의 성공을 요구하며,
+의도적으로 선택되지 않은 잡의 스킵만 허용합니다.
 
 ```bash
 # 빠른 드라이버 레인 — 목킹된 드라이버 동작만 (offline-tests가 실행하는 것)
@@ -381,7 +381,12 @@ pytest tests/test_aio_ssl_integration.py -v
 > 누락으로 인한 스킵은 허용하지 않습니다. 브로커 상태 확인 및 재시작은 서비스 소유자
 > `cubrid`로 실행해 실제 브로커를 제어합니다.
 
-이 잡은 `integration-full`의 나머지와 같은 트리거(나이틀리, `workflow_dispatch`, 그리고 `release.yml`이 호출하는 릴리스 게이트)로 실행됩니다.
+이 잡은 `integration-full`의 나머지와 같은 트리거(수동 `workflow_dispatch`,
+그리고 `release.yml`이 호출하는 릴리스 게이트)로 실행됩니다. 일반 PR에서는
+TLS 관련 경로가 변경될 때만 Python 3.14 × CUBRID 11.4 단일 레인이
+선택됩니다. 연결 모듈, `pycubrid/__init__.py`, `pycubrid/protocol.py`,
+`pycubrid/aio/`, TLS/SSL 테스트와 도우미·픽스처, 레인 감사 스크립트 또는
+워크플로 변경이 해당됩니다.
 
 ### 코드 커버리지
 
@@ -548,8 +553,8 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 
 | 레인 | 선택식 | 실행 워크플로 |
 |---|---|---|
-| 일반 | `integration and not slow and not tls` | PR/push CI, 전체 호환성 매트릭스, 나이틀리 bug hunt |
-| 장시간 | `integration and slow and not tls` | 나이틀리/수동 bug hunt의 soak, chaos, 동시성 stress |
+| 일반 | `integration and not slow and not tls` | 선택된 PR/push CI, 전체 호환성 매트릭스, 주간 bug hunt |
+| 장시간 | `integration and slow and not tls` | 주간/수동 bug hunt의 soak, chaos, 동시성 stress |
 | TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
 | 공식 드라이버 차분 | `integration and official_differential` | 일반 CI와 전체 워크플로의 필수 `official-differential` 잡 (Python 3.10, CUBRID 10.2와 11.4) |
 
@@ -558,10 +563,10 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 빈 실행 또는 전체 스킵을 실패 처리합니다. 공식 드라이버 차분이 자기 레인 밖에서
 스킵되는 경우는 `official-lane-only`로, `/proc`가 없는 플랫폼도 명시적으로
 분류합니다. 브로커/TLS 설정 누락은 CI에서 허용하는 스킵이 아니며,
-`--lane official`은 어떤 스킵도 허용하지 않습니다. 나이틀리 bug hunt의 별도 오프라인 protocol, fault-broker,
+`--lane official`은 어떤 스킵도 허용하지 않습니다. 주간 bug hunt의 별도 오프라인 protocol, fault-broker,
 placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
 
-나이틀리/수동 `bug-hunt.yml`의 `downstream-corpus`는 **권고용** 작업으로,
+주간/수동 `bug-hunt.yml`의 `downstream-corpus`는 **권고용** 작업으로,
 Python 3.12와 CUBRID 11.4의 독립된 세 셀을 실행합니다. 정확한 pycubrid
 워크플로 커밋과 각 downstream 저장소의 현재 `main` 커밋을 별도 디렉터리에
 체크아웃합니다. 모든 의존성 설치에 드라이버 Git 커밋 제약을 적용하고, 설치가
@@ -572,7 +577,7 @@ Python 3.12와 CUBRID 11.4의 독립된 세 셀을 실행합니다. 정확한 py
 | Downstream | 선택한 실사용 테스트 | 허용 스킵 |
 |---|---|---|
 | `sqlalchemy-cubrid` | ORM dogfood와 동기/비동기 풀 stress 파일을 별도 pytest 실행 | 없음 |
-| `cubrid-mcp-server` | 실제 도구 통합 사례(읽기 쿼리, 복합 PK 스키마 포함) | 새 DB에 사용자 테이블이 없어 이를 요구하는 사례만 허용하고 사유 기록 |
+| `cubrid-mcp-server` | 실제 도구 통합 사례와 별도로 선택한 공유 세션 동시 실행 사례 | 일반 `mcp.xml` 결과에서만 빈 스키마 스킵 허용; `mcp-concurrency.xml`에서는 없음 |
 | `cubrid-cookbook-python` | MCP stdio를 포함한 AI-agent 스크립트 5개와 async-worker DB 작업을 별도 pytest 프로세스로 실행 | 없음 |
 
 선택한 각 테스트 작업의 JUnit 결과에는 통과가 1건 이상 있어야 합니다.
@@ -582,9 +587,19 @@ downstream 커밋, Python 및 설치된 패키지 버전, 드라이버 출처,
 실제 CUBRID 서버 버전, 작업별 통과·스킵·실패 수를 기록합니다.
 작업 단위 `continue-on-error`로
 PR·릴리스 게이트에는 넣지 않지만, 증거에는 실패를 성공으로 표시하지 않습니다.
-이는 downstream 전체 스위트가 아니라 제한된 실제 사용 표본이며, MCP
-동시 접근을 검증한다는 주장은 하지 않습니다. 드라이버 동시 사용은 SQLAlchemy
-풀 stress 사례가 검증합니다.
+이는 downstream 전체 스위트가 아니라 제한된 실제 사용 표본입니다.
+
+MCP 단계는 두 번째 pytest 프로세스에서
+`tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session`
+사례를 별도로 선택하여 `mcp-concurrency.xml`에 기록합니다. 이 결과에는
+통과 사례가 있어야 하며 스킵, 실패, 오류는 모두 거부합니다. 일반 `mcp.xml`에서
+허용하는 스킵 사유도 여기서는 허용하지 않습니다. 두 실행을 모두 수행하며,
+어느 하나라도 pytest가 실패하면 실제 단계 결과를 실패로 기록합니다.
+선택한 사례는 동일 프로세스에서 동시에 실행되는 MCP 핸들러가 기존 `RLock`을
+통해 캐시된 하나의 물리적 `Database` 연결을 공유하는 동작을 검증합니다.
+trace와 query 작업이 서로 끼어들지 않고, 응답이 각각 정확하며 실제 커서가
+닫혀야 합니다. MCP stdio 동시 실행, 풀, 요청별 트랜잭션 격리, 처리량은
+이 검증 범위에 포함하지 않습니다. SQLAlchemy는 별도의 풀 stress 작업을 제공합니다.
 
 공식 드라이버 차분(#446)은 고정 소스에서 빌드한 공식 `CUBRIDdb`/`_cubrid`
 드라이버와 pycubrid를 비교합니다. 로컬에서 재현하려면(Linux x86_64, git,
@@ -641,16 +656,22 @@ main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 �
 
 | 워크플로 | 트리거 | 설명 |
 |----------|---------|-------------|
-| `ci.yml` | main 푸시, PR | 린트 + 오프라인 테스트 (Python 3.10–3.14) + 통합 |
-| `integration-full.yml` | 야간, 수동 실행, `release.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
-| `prepare-release.yml` | 수동 실행 (`-f version=X.Y.Z`) | `chore: release vX.Y.Z` PR 생성 (날짜가 있는 CHANGELOG 섹션 + 버전 갱신) |
+| `ci.yml` | PR, main 푸시, 주간, 수동 실행 | 최소 PR 스모크; main/주간 커버리지와 대표 통합 검사 |
+| `integration-full.yml` | 수동 실행, `release.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
+| `release-please.yml` | main push 또는 수동 실행 | release-please 릴리스 후보 PR 생성 (날짜가 있는 CHANGELOG 섹션 + 버전 갱신) |
 | `release.yml` | main 푸시, 복구용 수동 실행 | 병합된 릴리스 PR 감지 후 전체 매트릭스, 빌드, 태그 + GitHub Release + PyPI, cookbook 검증 |
 
 ### CI 매트릭스
 
-- **오프라인**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **통합**: Python 3.14 / CUBRID 11.4와 Python 3.10 / CUBRID 10.2의 두 셀 (축소된 PR 매트릭스;
-  전체 5×4 매트릭스는 `integration-full.yml`에서 실행)
+일상 CI는 Ubuntu/Python 3.12 오프라인 단일 레인과 대표 통합 조합을 사용합니다.
+PR은 스모크 검사를, main과 최근 변경이 있는 주간 실행은 전체 오프라인
+검사와 95% 커버리지를 유지합니다. 고위험 PR은 같은 단일 레인에서 전체 오프라인 회귀 검사(커버리지 제외)와
+최신 통합 조합을 선택하고,
+main/주간 실행은 최저·최신 조합을 사용합니다. 저장소 도구 검사는 관련 경로에
+따라 Linux 단일 레인에서 실행합니다. 전체 통합 검사는 명시적 수동 실행과
+릴리스에서 유지합니다. 정확한 선택 조건과 검증 요건은 [CI 실행 정책](CI_POLICY.md)을
+참고하세요. 아래 비용 측정은 이전 워크플로의 이력이며, 현재 잡 수나 새로운
+절감액을 나타내지 않습니다.
 
 ### PR 검증 비용 (#564)
 
@@ -843,6 +864,6 @@ graph TD
 ## 릴리스 절차
 
 릴리스는 유지보수자 전용이며 [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 따릅니다:
-`prepare-release.yml`이 릴리스 PR(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인)을
+`release-please.yml`이 릴리스 PR(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인)을
 엽니다. 검토 후 squash 병합하면 `release.yml`이 전체 매트릭스, 한 번의 빌드, 태그, PyPI 게시, cookbook 검증을
 자동으로 수행합니다. 태그 푸시나 게시를 수동으로 하지 않습니다.

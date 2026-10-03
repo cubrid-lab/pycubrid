@@ -1,16 +1,19 @@
-"""Construction-only compatibility surfaces do not change the 1.x driver."""
+"""Explicit compatibility factories/settings leave ordinary 1.x defaults alone."""
 
 from __future__ import annotations
 
 import inspect
 import json
+from threading import RLock
 from typing import Any
 
 import pytest
 
 import pycubrid
 from pycubrid.compat import cubriddb, native
+from pycubrid.constants import CCIDbParam
 from pycubrid.exceptions import InterfaceError, NotSupportedError
+from pycubrid.protocol import GetDbParameterPacket
 
 
 DSN = "CUBRID:127.0.0.1:33000:testdb:::"
@@ -23,12 +26,37 @@ def fake_driver(monkeypatch: pytest.MonkeyPatch) -> type:
 
         def __init__(self, **kwargs: Any) -> None:
             self.options = kwargs
+            self._session_lock = RLock()
+            self._physical_generation = 1
+            self._cas_info = b"\x00\x00\x00\x00"
+            self._autocommit = kwargs["autocommit"]
+            self._connected = True
+            self._socket = object()
+            self.initial_requests: list[GetDbParameterPacket] = []
             self.close_calls = 0
             self.drop_calls = 0
             self.created.append(self)
 
+        def _send_and_receive(
+            self,
+            packet: Any,
+            *,
+            allow_reconnect: bool = True,
+            expected_generation: int | None = None,
+        ) -> Any:
+            assert isinstance(packet, GetDbParameterPacket)
+            assert expected_generation == self._physical_generation
+            self.initial_requests.append(packet)
+            packet.value = {
+                CCIDbParam.LOCK_TIMEOUT: -1,
+                CCIDbParam.MAX_STRING_LENGTH: 1_073_741_823,
+                CCIDbParam.ISOLATION_LEVEL: 4,
+            }[packet.parameter]
+            return packet
+
         def close(self) -> None:
             self.close_calls += 1
+            self._connected = False
 
         def _drop_connection(self) -> None:
             self.drop_calls += 1
@@ -52,6 +80,11 @@ def test_native_defaults_own_one_autocommitting_transport(fake_driver: type) -> 
         "autocommit": True,
         "charset": "utf-8",
     }
+    assert [packet.parameter for packet in connection._driver.initial_requests] == [
+        CCIDbParam.LOCK_TIMEOUT,
+        CCIDbParam.MAX_STRING_LENGTH,
+        CCIDbParam.ISOLATION_LEVEL,
+    ]
     connection.close()
     connection.close()
     assert connection._driver.close_calls == 1
@@ -238,7 +271,16 @@ def test_secondary_drop_failure_cannot_mask_setup_error_or_log_dsn(
 
 def test_namespace_is_partial_and_ordinary_contract_is_unchanged() -> None:
     assert cubriddb.__all__ == ["Connection", "Connect", "connect", "connection"]
-    assert native.__all__ == ["connection", "connect", "cursor", "lob", "set"]
+    assert native.__all__ == [
+        "connection",
+        "connect",
+        "cursor",
+        "lob",
+        "set",
+        "SEEK_SET",
+        "SEEK_CUR",
+        "SEEK_END",
+    ]
     for name in ("apilevel", "paramstyle", "threadsafety"):
         assert not hasattr(cubriddb, name)
     assert hasattr(native.connection, "cursor")
@@ -246,6 +288,7 @@ def test_namespace_is_partial_and_ordinary_contract_is_unchanged() -> None:
     assert inspect.signature(pycubrid.connect).parameters["user"].default == "dba"
 
 
+@pytest.mark.repo_tooling
 def test_new_namespace_is_covered_by_the_existing_public_api_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

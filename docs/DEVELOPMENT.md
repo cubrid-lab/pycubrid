@@ -162,9 +162,9 @@ the PR-title validator, the release scripts, workflow-YAML contracts, the
 shared quality gate, and similar (#558). These carry no pycubrid driver
 behavior and are excluded from `pycubrid`'s own coverage, so they run in the
 dedicated `repo-tooling-tests` CI job instead of the `offline-tests` matrix,
-keeping routine driver feedback fast. Moving the check does not change
-whether CI requires it: `repo-tooling-tests` is still a required job in the
-CI Gate, just like `offline-tests`.
+keeping routine driver feedback fast. Tooling paths select this single Linux
+lane; the CI Gate requires `repo-tooling-tests` and `offline-tests` to succeed
+when selected, and permits only intentional unselected skips.
 
 ```bash
 # Fast driver lane — mocked driver behavior only (what offline-tests runs)
@@ -469,7 +469,7 @@ You do not need to run the steps above locally for routine development —
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
-(nightly, via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
+(via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
 lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
 TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
 `pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
@@ -643,8 +643,8 @@ filename-glob inventory:
 
 | Lane | Selection | Executable workflow path |
 |---|---|---|
-| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and nightly bug hunt |
-| Slow | `integration and slow and not tls` | Nightly/manual bug hunt: soak, chaos, and concurrency stress |
+| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and weekly bug hunt |
+| Slow | `integration and slow and not tls` | Weekly/manual bug hunt: soak, chaos, and concurrency stress |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
 | Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.10, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
 
@@ -676,10 +676,10 @@ Its case goes in `CASES` in `tests/test_official_differential.py`. Then run
 either fixed, or recorded as a `deviation` with a reason, an issue and both
 observed values. Never edit an expected value just to match current output. See
 [the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
-The nightly bug hunt also retains separate offline protocol, fault-broker, and
+The weekly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
-Its `downstream-corpus` job is **advisory** (nightly or manual only), with three
+Its `downstream-corpus` job is **advisory** (weekly or manual only), with three
 isolated CUBRID 11.4 / Python 3.12 cells. It checks out the exact pycubrid
 workflow commit and the current `main` commit of each downstream repository in
 different directories. Every dependency install is constrained to the driver
@@ -690,7 +690,7 @@ the checkout. The existing `scripts/wait_for_cubrid.py` checks the live broker.
 | Downstream | Selected real workload | Accepted skips |
 |---|---|---|
 | `sqlalchemy-cubrid` | ORM dogfood and sync/async pool-stress files, in separate pytest runs | None |
-| `cubrid-mcp-server` | Live integration tool cases, including a real read query and composite-PK schema case | Only cases requiring user tables when the fresh database has none; their reasons are reported |
+| `cubrid-mcp-server` | Live integration tool cases plus a separately selected shared-session concurrency case | Empty-schema skips only in the general `mcp.xml` report; none in `mcp-concurrency.xml` |
 | `cubrid-cookbook-python` | Five AI-agent scripts (including MCP stdio) and the async-worker database tasks, in separate pytest processes | None |
 
 Each selected workload needs at least one passed JUnit case; a missing report,
@@ -701,8 +701,20 @@ CUBRID server version, and per-workload pass/skip/failure counts. Job-level
 `continue-on-error` keeps
 this exploratory corpus out of PR and release gates, but the evidence states
 failure rather than claiming a false success. This is a bounded sample of real
-downstream behavior, not those repositories' complete suites or a test of MCP
-concurrent access; SQLAlchemy pool stress supplies the concurrent driver use.
+downstream behavior, not those repositories' complete suites.
+
+The MCP step also selects
+`tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session`
+in a second pytest process and writes `mcp-concurrency.xml`. That report must
+contain a passed case and no skips, failures or errors, even if a skip reason
+would be accepted in the general `mcp.xml` report. Both runs execute, and either
+pytest failure makes the recorded step outcome fail. The selected case exercises
+simultaneous in-process MCP handlers sharing one cached physical `Database`
+connection through its existing `RLock`: trace and query work must not interleave,
+responses must remain distinct and correct, and real cursors must close. This
+bounded claim does not cover MCP stdio concurrency, pooling, per-request
+transaction isolation or throughput; SQLAlchemy supplies the separate pool-stress
+workload.
 
 `tests/test_protocol_fuzz.py` mutates realistic broker replies built by
 `tests/helpers/cas_reply.py` (#523): execute and FETCH replies with column
@@ -741,16 +753,21 @@ assets; pinning its caller is not a complete freeze of those assets.
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.14) + integration |
-| `integration-full.yml` | Nightly, manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
-| `prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
+| `ci.yml` | PRs, main, weekly, manual | Minimum PR smoke; main/weekly coverage and representative integration |
+| `integration-full.yml` | Manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
+| `release-please.yml` | Push main or manual dispatch | Open/update PR-only release candidate (version + generated/curated notes) |
 | `release.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
 
 ### CI Matrix
 
-- **Offline**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **Integration**: two selected cells, Python 3.14 / CUBRID 11.4 and Python 3.10 / CUBRID 10.2 (reduced PR matrix;
-  the full 5×4 matrix runs in `integration-full.yml`)
+Routine CI uses one Ubuntu/Python 3.12 offline lane and representative live
+combinations rather than the full matrix. PRs run smoke tests; main and changed
+weekly runs retain the full offline suite with 95% coverage. High-risk PRs run the full existing offline regressions without coverage on that
+same lane and select newest integration, while main/weekly use oldest/newest endpoints. Repository
+tooling is path-selected on one Linux lane. Full integration is explicit/manual
+and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
+validation requirements. Historical cost measurements below describe the earlier
+workflow, not current job counts or new savings.
 
 ### PR verification cost (#564)
 
@@ -946,7 +963,7 @@ To support a new CUBRID data type:
 ## Release Process
 
 Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md):
-`prepare-release.yml` opens a release PR (version bump + dated CHANGELOG section, checked
+`release-please.yml` opens a release PR (version bump + dated CHANGELOG section, checked
 with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `release.yml`
 runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
 automatically. Nobody pushes tags or publishes by hand.

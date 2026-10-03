@@ -81,7 +81,7 @@ def test_sync_cursor_registration_is_owned_by_connection() -> None:
     conn = make_connection_stub()
     direct_cursor = Cursor(conn)
 
-    with patch("pycubrid.connection._CursorClass", Cursor):
+    with patch("pycubrid.cursor.Cursor", Cursor):
         factory_cursor = conn.cursor()
 
     assert direct_cursor not in conn._cursors

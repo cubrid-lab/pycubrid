@@ -202,11 +202,11 @@ conn = pycubrid.connect(
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
 It now provides a bounded **sync-only prepared cursor** for INT32, string
 and SQL NULL values, [SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set)
-and [fetched BLOB/CLOB handles](#lob-handles-lob-fetch_lob-bind_lob);
+and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bind_lob);
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
-through FC41. The wrapper `pycubrid.compat.cubriddb` retains its construction
-and close subset; it does not expose a wrapper cursor, DB-API globals, a
+through FC41. The wrapper `pycubrid.compat.cubriddb` offers construction,
+close, autocommit access and qualified row cursors but no DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
@@ -227,11 +227,12 @@ plain CUBRID backend is accepted; alternate backends, HA/TLS URL options and
 excess arguments fail before connection work. Errors
 never echo the raw credential-bearing DSN.
 
-The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()` and `close()`.
+The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`,
+`set_autocommit(bool)`, `set_isolation_level(level)` and `close()`.
 Its cursor supports `prepare(sql)`, one-based
 `bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
-`fetch_lob(col, lob)` and `close()`.
+`fetch_lob(col, lob)`, `result_info([n])` and `close()`.
 Nondefault flags and other Python value types fail before a prepared execute.
 Preparation requires the current broker session to advertise statement
 pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
@@ -240,11 +241,21 @@ turn a failed transaction into a retry. `commit()` preserves an active
 HOLDABLE SELECT result; `rollback()` invalidates it, including buffered rows.
 Broker-originated prepared errors retain their DB-API class, code, errno and
 SQLSTATE, but their text is redacted because the broker may echo SQL or values.
+After a **complete broker execute error** on a non-LOB prepared statement,
+that call raises its original redacted error and sends no second execute. The
+next explicit user `execute()` closes the old handle, prepares the same SQL on
+the same physical session, restores its already-bound scalar/collection values
+if the parameter count still matches, then sends one execute for that new
+call. This corrects repeated conversion errors without replaying a possibly
+effective statement inside the failing call. It is deliberately not CCI's
+same-call invalid-plan retry. A transport failure, a changed session, a failed
+close/prepare or a changed parameter count fails closed; LOB-bound statements
+require explicit `prepare()` and rebind after an error because temporary LOB
+handles may have been consumed. No ordinary FC41 or async behavior changes.
 Unlike the pinned official native extension, which raises `SystemError` on
 `bind_param(None)`, this subset binds SQL NULL explicitly; this is a documented
 safety deviation rather than an exact native-NULL parity claim.
-The initial public connection still starts with autocommit enabled; effective
-`set_autocommit()` is separate #467 work. Do not treat this subset as a
+The initial public connection still starts with autocommit enabled. Do not treat this subset as a
 general DB-API cursor or a public async prepared API. See the
 [typed CAS contract](PREPARED_BINDING_DESIGN.md) and
 [compatibility guide](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
@@ -261,6 +272,154 @@ try:
         cur.bind_param(1, 42)
         cur.execute()
         assert cur.fetch_row() == (42,)
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
+
+### Extended column metadata (`result_info`)
+
+`native.cursor.result_info()` reads the last successful prepared execution's
+cached metadata without a server request or row movement. Omitted `n` or `0`
+returns a tuple of all column tuples; a one-based selector returns a one-item
+outer tuple. A SELECT with zero rows still has metadata. Successfully executed
+zero-column DML returns `None`, even for a negative or large in-range selector.
+Integer conversion happens first: `bool` and `__index__` are accepted, while
+`None`, strings, floats and `__int__` alone are not; signed C-int32 overflow
+raises `OverflowError`. Only zero/one positional argument is accepted.
+
+Each column tuple contains exactly these 15 fields, in the implemented official
+order, not its differing docstring order:
+
+```text
+(cci_type, not_null, scale, precision, name, real_attribute, class_name,
+ default_value, auto_increment, unique_key, primary_key, foreign_key,
+ reverse_index, reverse_unique, shared)
+```
+
+Types and flags are integers, not booleans. `cci_type` is the measured extended
+CCI type, not the normalized ordinary DB-API type: owned 10.2/11.4 observations
+include 40/72/104 for INTEGER SET/MULTISET/SEQUENCE and 130 for JSON. Attribute,
+class and default strings are returned as actually supplied; absent textual
+metadata is `""`, not `None`. No attribute name is guessed from an alias, and a
+default string such as `"NULL"` is not converted into a Python value.
+
+Fresh and prepare-only cursors or invalid indices raise `InterfaceError` with
+`.code == -30006`; a closed cursor has `.code == -30019` and is checked before
+positional arity/conversion. Keywords raise `TypeError` before the body, including
+on a closed cursor. These local errors retain pycubrid's message-only `args`,
+not the native extension's `(code, message)` pair; `InterfaceError` has `.code`,
+not an invented `.errno` field.
+
+EOF, same-owner commit and rollback retain cached metadata even when rollback
+invalidates rows. Local execution preflight errors preserve it; an attempted
+execute failure hides it until another execution succeeds. Closed/disconnected,
+foreign or stale physical-session owners fail safely, without probing or
+reconnecting. Ordinary/qualified-wrapper `description` is unchanged. Text keeps
+the connection codec; the pinned official UTF-8/Unicode comparisons do not certify
+non-UTF-8 parity. This is a sync native-only addition, not a schema or positioning API.
+
+### Cached settings versus effective setters
+
+The four writable `native.connection` members `autocommit`,
+`isolation_level`, `lock_timeout` and `max_string_len` are **cached snapshots**.
+Assigning any Python object to them preserves that object but sends no packet
+and changes no effective setting. The initial values come from the connection's
+effective autocommit mode and database-parameter reads for the other three;
+only a complete server error while reading `max_string_len` maps to `0`.
+Transport or malformed-reply failures abort construction. As in the pinned
+official extension, a fresh server at numeric READ COMMITTED level 4 reports
+`"CUBRID_TRAN_UNKNOWN_ISOLATION"` in its initial *text* cache; the effective
+level remains 4, and calling `set_isolation_level(4)` repairs the text.
+
+Use `conn.set_autocommit(mode, /)` with `True` or `False` to change the effective mode. It
+accepts an exact `bool`, returns `None` and updates the cache after success.
+Like CCI, a same-effective-mode call is local, and a mode transition sends a
+COMMIT only if a transaction is active; the new mode governs subsequent
+prepared execution. This is not the ordinary `Connection.autocommit` setter,
+which retains its existing SET+COMMIT behavior. `set_isolation_level(level, /)`
+accepts `4`, `5`, `6` or the corresponding `CUBRIDIsolationLevel` members,
+returns `None`, and changes the actual session level with SET_DB_PARAMETER
+without committing the current transaction. A same-effective-level call
+updates only the symbolic cache; after physical-session replacement it sets
+the requested level again. Other input types and legacy levels are rejected
+before I/O rather than reproducing unsafe C-extension parser behavior.
+There are no effective `lock_timeout` or `max_string_len` setters here.
+
+The wrapper's `get_autocommit()` and `.autocommit` getter return the native
+cached member, even if it was overwritten with another object. In contrast,
+`wrapper.set_autocommit(value)` and `wrapper.autocommit = value` require a
+`bool` (`ValueError` otherwise) and delegate the effective native setter.
+For migration, replace official raw member assignments intended to change
+behavior with an explicit setter; keep cached reads separate from effective
+state checks. Ordinary `pycubrid.connect()` still defaults to manual commit.
+
+```python
+from pycubrid.compat import cubriddb, native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    conn.autocommit = False       # cache only; SQL still autocommits
+    conn.set_autocommit(False)   # effective manual transaction mode
+    conn.set_isolation_level(5)  # REPEATABLE READ, no implicit commit
+    conn.rollback()
+finally:
+    conn.close()
+
+wrapper = cubriddb.Connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    wrapper.autocommit = False   # effective setter, unlike native raw assignment
+finally:
+    wrapper.close()
+```
+
+### Qualified wrapper row cursors (#466)
+
+`cubriddb.Connection.cursor(dictCursor=None)` returns a tuple-row cursor for a
+falsey argument and a dictionary-row cursor for a truthy argument. Direct
+construction is available as `pycubrid.compat.cursors.Cursor(conn)` and
+`DictCursor(conn)`; these classes are not added to the package-level exports.
+The cursor starts with `arraysize=1`, `rowcount=-1` and `description=None`.
+`execute(query, args=None, set_type=None)` delegates only the existing native
+INT32, string and SQL NULL prepared-binding subset. A non-`None` `set_type`,
+mapping arguments and unsupported native values fail before execution;
+`executemany`, collection/LOB arguments and broad DB-API execution are not
+part of this wrapper slice.
+
+For a SELECT, `description` contains seven-field tuples
+`(name, native_type, 0, 0, precision, scale, null_ok)` with integer `null_ok`.
+Dictionary keys preserve the exact column name and case; duplicate names
+overwrite earlier values without moving their original key position. SQL NULL
+remains `None`, distinct from an empty string. The public `description` is a
+writable snapshot, but row keys and converter arguments come from the private
+execution metadata even if a caller overwrites that public attribute.
+For non-SELECT statements this facade consistently sets `description=None`;
+the official extension can instead leave the attribute missing after a
+reprepare. This is a deliberate safe deviation.
+
+`conn.set_fetch_value_converter(func)` stores a connection-local value read
+by existing cursors at each fetch. A truthy converter is called with the
+already shaped tuple/dictionary and its native-style description; its result
+is returned unchanged, including falsey values or `None`. A falsey converter
+disables conversion; a truthy non-callable raises `TypeError` after consuming
+the row. Callback errors also consume that row. Matching the official wrapper,
+`fetchmany()` and `fetchall()` stop after consuming any falsey converted result,
+while iteration stops only on `None`; a later fetch may resume after either.
+Call `close()` for deterministic handle release. An abandoned wrapper cursor
+attempts same-session cleanup during garbage collection without committing or
+reconnecting, but that cleanup is best-effort, can block on I/O and cannot
+replace an explicit close.
+
+```python
+from pycubrid.compat import cubriddb
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor(dictCursor=True)
+    try:
+        cur.execute('SELECT CAST(1 AS INTEGER) AS "ItemID"')
+        row = cur.fetchone()  # {"ItemID": 1}
     finally:
         cur.close()
 finally:
@@ -353,7 +512,7 @@ finally:
     conn.close()
 ```
 
-### LOB handles (`lob`, `fetch_lob`, `bind_lob`)
+### Native LOB streams and handles (`lob`, `fetch_lob`, `bind_lob`)
 
 Since #441, the native subset fetches and binds BLOB/CLOB handles with the
 official names: `conn.lob()` (or `native.lob(conn)`) returns an empty
@@ -393,13 +552,59 @@ Python. The server copies the value when the statement runs, so after
   has no LOB free request, and the server keeps a fetched value with its row.
   A binding made before `close()` stays valid. A closed `lob` cannot be filled
   or bound again; create a new one with `conn.lob()`.
-- The native connection is autocommit-only, so every fetched row is
-  committed, `rollback()` has no transaction to undo, and an already fetched
-  handle stays usable.
-- `lob` has no `read()`, `write()`, `seek()`, `imports()` or `export()` yet;
-  those come with #442 and #443. To read a value, use an ordinary
-  `pycubrid` cursor and [`Lob.read()`](#readlength-offset). There is no async
-  LOB API.
+- `lob.write(data, type="B", /) -> None` accepts `str` (encoded as UTF-8,
+  independent of the connection charset) or `bytes`. The first write creates
+  a BLOB by default; use `"C"` for a CLOB. Later type arguments do not change
+  the handle's type. Even an empty first write creates the handle, without a
+  LOB_WRITE request. Position and packed size advance by confirmed byte count.
+  CUBRID external storage is append-only: seek to the current end before a
+  write. A non-end write raises `NotSupportedError` before broker I/O; it does
+  not overwrite or fill a hole. Appending to a fetched handle updates that
+  handle's size; the source row keeps its old declared size, but an ordinary
+  explicit-offset read beyond that size can observe the shared file's extra
+  bytes. Bind the updated handle to a new row for the new logical size.
+- `lob.read(length=0, /) -> str` reads at the current **byte** position and
+  advances by bytes actually received. Omitted or zero length reads the
+  remainder, with bounded wire chunks for large values. Both BLOB and CLOB
+  return strict UTF-8 text, matching the official Python 3 extension for
+  valid UTF-8; use ordinary [`Lob.read()`](#readlength-offset) for arbitrary
+  binary bytes. A split UTF-8 character raises `UnicodeDecodeError` after the
+  position advances by the bytes received. Empty values, EOF and requests
+  longer than the remaining size safely return `""` or the available text.
+  If a later chunk fails, bytes accepted from earlier replies remain reflected
+  in the position (a live session can resume from there).
+  The official CCI wrapper can instead error at EOF or read past its declared
+  buffer. Those unsafe edge behaviors are not emulated.
+- `lob.seek(offset, whence=SEEK_CUR, /) -> int` changes the byte position.
+  `native.SEEK_SET`, `SEEK_CUR` and `SEEK_END` are exported; as in the official
+  driver, SEEK_END computes `size - offset` (a positive offset moves backward).
+  `seek(0, SEEK_CUR)` reports the current position; there is no separate
+  `tell()`. Invalid whence or a resulting negative/out-of-range position is
+  rejected without changing position, unlike the official driver's unchecked
+  negative seek. Filling the same holder from another row preserves its byte
+  position, as in the official extension; use `seek(0, SEEK_SET)` to restart.
+  A nonnegative position past EOF is virtual: reads return `""` and writes
+  remain append-only, so it cannot create a hole.
+- The native connection starts in autocommit mode, but `set_autocommit(False)`
+  allows manual transactions. A LOB fetched while autocommit is enabled can be
+  bound on another connection; one fetched in manual mode keeps a conservative
+  non-transferable flag even after a later `commit()`. Re-fetch it in confirmed
+  autocommit mode before cross-connection binding. A new LOB_NEW handle is
+  temporary and belongs to its
+  original live physical session: the first autocommit statement that binds
+  it consumes its temporary file (also if that statement fails). Reusing that
+  handle then receives the server's stale-locator error; fetch the committed
+  row into a fresh `lob` for another bind. `bind_lob()` snapshots the handle
+  at bind time, so bind again after a later append. Read/write/seek require
+  the handle's original live session; a committed fetched handle may still be
+  bound from another connection as described above.
+- Migrating from official `_cubrid.lob`: use this explicit sync namespace,
+  retain byte-based seek positions and the official `SEEK_END` direction, and
+  replace a closed holder with `conn.lob()` rather than writing after close.
+  Ordinary `pycubrid.lob.Lob.read(length, offset=0)` and
+  `write(bytes, offset=0)` remain absolute-offset byte APIs; they did not
+  become stateful. File `imports()`/`export()` (#443) and async LOBs are not
+  provided by this facade.
 
 Deliberate differences from the official driver, each pinned by a live
 differential claim (`lob-*` in `tests/fixtures/official_differential_claims.json`):
@@ -1171,6 +1376,9 @@ def callproc(
 ```
 
 Call a stored procedure. Constructs and executes a `CALL procname(?, ?, ...)` statement.
+`procname` must be a single identifier or non-empty dot-separated identifiers
+(for example, `schema.my_procedure`). Empty segments such as `schema..proc`
+raise `ProgrammingError` before any SQL is executed.
 
 **Returns:** The original `parameters` sequence (as per PEP 249).
 

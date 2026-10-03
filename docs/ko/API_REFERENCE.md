@@ -191,8 +191,8 @@ conn = pycubrid.connect(
 지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
 문자셋을 사용합니다.
 기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
-사용합니다. `pycubrid.compat.cubriddb` 래퍼는 아직 연결 생성·종료만
-지원하며 래퍼 커서, DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
+사용합니다. `pycubrid.compat.cubriddb` 래퍼는 연결 생성·종료와 autocommit 설정을
+지원하며 한정된 래퍼 행 커서도 제공합니다. DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
 확장과의 완전한 동등성은 제공하지 않습니다.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")`는 `native.connection`을
@@ -212,18 +212,28 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 다른 백엔드, HA/TLS URL 옵션과 초과 인자는 연결 전에 거부하며 오류에 계정 정보가 담긴 DSN
 원문을 노출하지 않습니다.
 
-네이티브 연결은 `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`, `close()`를 제공합니다.
+네이티브 연결은 `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`,
+`set_autocommit(bool)`, `set_isolation_level(level)`, `close()`를 제공합니다.
 커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
 bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`, `execute(option=0, max_col_size=0) -> int`,
-튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
+튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `result_info([n])`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
 Python 값 형식은 실행 전 거부합니다. 브로커가 현재 세션의 statement
 pooling을 알리지 않거나 비활성화한 경우 FC2 전에 거부합니다. 핸들은
 물리 CAS 세션에 묶이며 재접속 뒤 자동 재실행하지 않습니다. `commit()`은
 HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
-무효화합니다. 연결은 기본적으로 autocommit이 켜져 있으며 효과적인
-`set_autocommit()`은 별도 #467 작업입니다. 브로커가 반환한 prepared
+무효화합니다. 연결은 기본적으로 autocommit이 켜져 있습니다. 브로커가 반환한 prepared
 오류는 DB-API 예외 종류·코드·errno·SQLSTATE를 유지하지만 SQL이나
-값이 포함될 수 있는 오류 문구는 가립니다. 고정된 공식 네이티브 확장은
+값이 포함될 수 있는 오류 문구는 가립니다.
+LOB이 없는 준비 문장의 **완전한 브로커 실행 오류**가 나면 현재 호출은 원래의
+가려진 오류를 발생시키고 실행을 다시 보내지 않습니다. 다음 명시적인 사용자
+`execute()`에서만 같은 물리 세션의 이전 핸들을 닫고 동일 SQL을 다시 준비한 뒤,
+파라미터 개수가 같으면 이미 바인딩된 스칼라/컬렉션 값을 복원하고 그 새 호출을
+한 번 실행합니다. 따라서 실패한 호출에서 부작용이 있을 수도 있는 문장을
+자동 재실행하지 않습니다. 이는 CCI의 같은 호출 내 invalid-plan 재시도와
+의도적으로 다릅니다. 전송 오류, 세션 교체, 핸들 닫기/준비 실패, 파라미터
+개수 변경은 안전하게 실패합니다. 임시 LOB 핸들이 소비됐을 수 있으므로 LOB
+바인딩은 오류 뒤 명시적으로 다시 `prepare()`하고 바인딩해야 합니다. 일반
+FC41과 비동기 동작은 바뀌지 않습니다. 고정된 공식 네이티브 확장은
 `bind_param(None)`에서 `SystemError`를 내지만 이 제한된 구현은 SQL NULL을
 명시적으로 바인딩합니다. 이는 네이티브 NULL 동등성 주장이 아닌 안전한
 차이입니다. 이는 범용 DB-API 커서나
@@ -231,6 +241,145 @@ HOLDABLE SELECT 결과를 유지하고 `rollback()`은 버퍼에 든 행까지
 [typed CAS 설계](../PREPARED_BINDING_DESIGN.md)와
 [호환성 가이드](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)를
 참고하세요.
+
+<a id="확장-컬럼-메타데이터-result_info"></a>
+
+### 확장 컬럼 메타데이터 (`result_info`)
+
+`native.cursor.result_info()`는 서버 요청이나 행 이동 없이 마지막으로 성공한
+준비 실행의 캐시된 메타데이터를 읽습니다. `n` 생략 또는 `0`은 모든 컬럼 튜플을
+담은 튜플을 반환하고, 1부터 시작하는 번호는 컬럼 하나를 담은 바깥 튜플을
+반환합니다. 행이 없는 SELECT도 메타데이터를 가집니다. 성공한 컬럼 없는 DML은
+음수나 큰 범위 내 번호에도 `None`을 반환합니다. 정수 변환은 먼저 수행합니다.
+`bool`과 `__index__`는 허용하지만 `None`, 문자열, 실수와 `__int__`만 있는 객체는
+허용하지 않으며 signed C-int32 범위를 벗어나면 `OverflowError`가 납니다.
+위치 인자 0개 또는 1개만 받습니다.
+
+컬럼마다 공식 구현의 순서대로 아래 15개 값을 반환합니다. 공식 docstring의
+다른 순서는 사용하지 않습니다.
+
+```text
+(cci_type, not_null, scale, precision, name, real_attribute, class_name,
+ default_value, auto_increment, unique_key, primary_key, foreign_key,
+ reverse_index, reverse_unique, shared)
+```
+
+타입과 플래그는 bool이 아닌 정수입니다. `cci_type`은 일반 DB-API의 정규화된
+타입이 아닌 실제 CCI 확장 타입입니다. 소유한 10.2/11.4 서버에서 INTEGER
+SET/MULTISET/SEQUENCE는 40/72/104, JSON은 130으로 관측했습니다. 속성·클래스·
+기본값 문자열을 실제 전달값 그대로 반환하며 없는 텍스트는 `None`이 아닌
+`""`입니다. 별칭으로 실제 속성 이름을 추측하거나 `"NULL"` 같은 기본값 문자열을
+Python 값으로 변환하지 않습니다.
+
+새 커서·준비만 한 커서·잘못된 번호는 `.code == -30006`인 `InterfaceError`를
+내고, 닫힌 커서는 위치 인자 개수·변환보다 먼저 `.code == -30019`로 실패합니다.
+키워드는 닫힌 커서에서도 본문 진입 전에 `TypeError`를 냅니다. 이러한 로컬 오류의
+`args`는 공식 확장의 `(code, message)`가 아닌 pycubrid의 메시지 하나이며,
+`InterfaceError`는 `.code`를 가지지만 `.errno`를 새로 만들어 붙이지 않습니다.
+
+EOF와 동일 소유자 commit·rollback은 메타데이터를 유지하며 rollback으로 행이
+무효화돼도 조회할 수 있습니다. 실행 전 로컬 검증 실패는 이전 메타데이터를
+유지하지만 실제 실행 시도의 실패는 다음 실행 성공까지 숨깁니다. 닫힌·끊긴 연결,
+다른 소유자와 오래된 물리 세션은 탐지 요청이나 재접속 없이 안전하게 실패합니다.
+일반 커서·한정된 래퍼의 `description`은 바뀌지 않습니다. 텍스트는 연결 코덱을
+유지하며 고정 공식 드라이버와의 UTF-8·Unicode 비교로 비UTF-8 동등성을 주장하지
+않습니다. 스키마나 위치 이동 API가 아닌 동기 네이티브 전용 추가 기능입니다.
+
+### 캐시된 설정과 실제 설정자
+
+네이티브 연결의 `autocommit`, `isolation_level`, `lock_timeout`,
+`max_string_len`은 쓰기 가능한 **캐시 스냅샷**입니다. 임의의 Python 객체를
+직접 대입해도 그 객체만 보존하고 브로커 요청이나 실제 설정 변경은 하지 않습니다.
+초기 autocommit은 실제 연결 모드에서, 나머지 세 값은 DB 파라미터 조회로 얻습니다.
+`max_string_len` 조회에 대해 서버가 완전한 오류 응답을 준 경우에만 `0`으로
+처리하며, 전송·응답 구조 오류는 연결 생성을 실패시킵니다. 고정된 공식 확장처럼
+서버의 실제 READ COMMITTED 숫자 수준이 4인 새 연결도 초기 **문자열 캐시**에는
+`"CUBRID_TRAN_UNKNOWN_ISOLATION"`을 표시합니다. `set_isolation_level(4)`를
+부르면 실제 수준을 불필요하게 다시 설정하지 않고 표기가 고쳐집니다.
+
+실제 모드는 `conn.set_autocommit(mode, /)`에 `True` 또는 `False`를 전달해
+바꿉니다. 정확한 `bool`만 받고 성공 시 `None`을 반환하며 캐시도 갱신합니다.
+CCI와 같이 실제 모드가 같으면 로컬에서 끝나고, 모드가 달라질 때 활성
+트랜잭션이 있는 경우에만 COMMIT을 보냅니다. 이후 prepared 실행은 새 모드를
+사용합니다. 일반 `Connection.autocommit` 세터의 기존 SET+COMMIT 동작은
+바뀌지 않습니다. `set_isolation_level(level, /)`은 숫자 `4`, `5`, `6`이나
+해당 `CUBRIDIsolationLevel` 멤버를 받고 `None`을 반환합니다. 실제 세션 수준을
+SET_DB_PARAMETER로 바꾸되 현재 트랜잭션은 커밋하지 않습니다. 실제 수준이
+같으면 문자열 캐시만 갱신하며 물리 세션이 교체되면 요청 수준을 다시 설정합니다.
+다른 입력 형식과 과거 격리 수준은 안전하지 않은 공식 C 인자 파서 동작을
+따르지 않고 요청 전에 거부합니다. `lock_timeout`/`max_string_len`의 실제
+설정자는 제공하지 않습니다.
+
+래퍼의 `get_autocommit()`과 `.autocommit` getter는 직접 대입된 객체까지
+네이티브 캐시 값을 그대로 반환합니다. 반대로
+`wrapper.set_autocommit(value)`와 `wrapper.autocommit = value`는 `bool`만
+받고(그 외에는 `ValueError`) 네이티브의 실제 설정자에 위임합니다. 공식
+드라이버에서 실제 동작 변경을 의도한 멤버 직접 대입은 명시적 설정자 호출로
+바꾸고 캐시 조회와 실제 상태 확인을 구분하세요. 일반
+`pycubrid.connect()`의 수동 커밋 기본값은 변하지 않습니다.
+
+```python
+from pycubrid.compat import cubriddb, native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    conn.autocommit = False       # 캐시만 변경, SQL은 여전히 자동 커밋
+    conn.set_autocommit(False)   # 실제 수동 트랜잭션 모드
+    conn.set_isolation_level(5)  # REPEATABLE READ, 암묵적 커밋 없음
+    conn.rollback()
+finally:
+    conn.close()
+
+wrapper = cubriddb.Connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    wrapper.autocommit = False   # 직접 캐시 대입과 달리 실제 설정자 호출
+finally:
+    wrapper.close()
+```
+
+### 래퍼 행 커서 (#466)
+
+`cubriddb.Connection.cursor(dictCursor=None)`는 인자가 거짓이면 튜플 커서,
+참이면 사전 커서를 만듭니다. `pycubrid.compat.cursors.Cursor(conn)`와
+`DictCursor(conn)`로 직접 생성할 수도 있지만 패키지 전역 내보내기에는
+추가하지 않습니다. 초기값은 `arraysize=1`, `rowcount=-1`, `description=None`입니다.
+`execute(query, args=None, set_type=None)`는 기존 네이티브 준비 실행의 INT32,
+문자열, SQL NULL만 사용합니다. `set_type`이 `None`이 아니거나 매핑 인자·미지원
+값이면 실행 전에 실패합니다. `executemany`, 컬렉션/LOB 인자와 범용 DB-API 실행은
+이번 범위에 포함되지 않습니다.
+
+SELECT의 `description`은 `(name, native_type, 0, 0, precision, scale,
+null_ok)`의 7필드 튜플이며 `null_ok`는 정수입니다. 사전 키는 컬럼 이름과 대소문자를
+그대로 보존하고 같은 이름이 반복되면 마지막 값이 앞 값을 덮습니다. SQL NULL의
+`None`과 빈 문자열은 구분됩니다. 공개 `description`은 쓰기 가능한 스냅샷이지만,
+이를 호출자가 바꿔도 키와 변환기 인자는 내부 실행 메타데이터를 사용합니다.
+SELECT가 아닌 경우 `description=None`을 안정적으로 설정합니다. 공식 확장은
+재준비 후 속성이 사라질 수도 있어 이 부분은 의도적인 안전성 차이입니다.
+
+`conn.set_fetch_value_converter(func)`는 연결별 값을 저장하고 기존 커서도 매번
+최신 값을 읽습니다. 참인 변환기는 이미 구성된 튜플/사전 행과 원래 설명을 받아
+반환값을 `None` 등 거짓 값까지 그대로 전달합니다. 거짓 변환기 값은 변환을 끄고,
+참이지만 호출 불가능한 값은 행을 소비한 뒤 `TypeError`를 냅니다. 변환기 예외도
+행을 소비합니다. 공식 래퍼처럼 `fetchmany()`/`fetchall()`은 거짓인 변환 결과를
+소비하고 멈추지만 반복자는 `None`에서만 멈추며 이후 fetch로 재개할 수 있습니다.
+핸들을 확실히 해제하려면 `close()`를 호출하세요. 버려진 래퍼 커서는 GC 때 같은
+세션에서 커밋·재연결 없이 정리를 시도하지만, 이 정리는 최선 노력이며 I/O에서
+지연되거나 실패할 수 있어 명시적인 종료를 대체하지 못합니다.
+
+```python
+from pycubrid.compat import cubriddb
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor(dictCursor=True)
+    try:
+        cur.execute('SELECT CAST(1 AS INTEGER) AS "ItemID"')
+        row = cur.fetchone()  # {"ItemID": 1}
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
 
 ### 컬렉션 바인딩 (`set`, `imports`, `bind_set`)
 
@@ -311,7 +460,7 @@ finally:
     conn.close()
 ```
 
-### LOB 핸들 (`lob`, `fetch_lob`, `bind_lob`)
+### 네이티브 LOB 스트림과 핸들 (`lob`, `fetch_lob`, `bind_lob`)
 
 #441부터 네이티브 기능은 공식 이름으로 BLOB/CLOB 핸들을 조회하고 바인딩합니다.
 `conn.lob()`(또는 `native.lob(conn)`)은 비어 있는 `native.lob`을 반환하고,
@@ -345,11 +494,53 @@ finally:
   프로토콜에는 LOB 해제 요청이 없고, 조회한 값은 서버의 행에 남습니다.
   `close()` 전에 만든 바인딩은 그대로 유효합니다. 닫힌 `lob`은 다시 채우거나
   바인딩할 수 없으므로 `conn.lob()`으로 새로 만드세요.
-- 네이티브 연결은 autocommit 전용이므로 조회한 행은 모두 커밋된 행이고,
-  `rollback()`이 되돌릴 트랜잭션이 없으며, 이미 조회한 핸들은 계속 쓸 수 있습니다.
-- `lob`에는 아직 `read()`, `write()`, `seek()`, `imports()`, `export()`가
-  없으며 #442, #443에서 다룹니다. 값을 읽으려면 일반 `pycubrid` 커서와
-  [`Lob.read()`](#readlength-offset)를 사용하세요. 비동기 LOB API는 없습니다.
+- `lob.write(data, type="B", /) -> None`은 `str`(연결 문자셋과 관계없이 UTF-8로
+  인코딩) 또는 `bytes`를 받습니다. 첫 쓰기는 기본 BLOB을 만들고 `"C"`를 주면
+  CLOB을 만듭니다. 이후의 타입 인자는 기존 핸들 타입을 바꾸지 않습니다. 첫 빈
+  쓰기도 핸들을 만들지만 LOB_WRITE 요청은 보내지 않습니다. 위치와 핸들 크기는
+  확인된 바이트 수만큼 증가합니다. CUBRID 외부 저장소는 끝에만 쓸 수 있으므로
+  먼저 끝으로 이동해야 합니다. 중간이나 끝 너머의 쓰기는 브로커 요청 전에
+  `NotSupportedError`를 내며 덮어쓰기나 빈 공간 채우기는 하지 않습니다.
+  조회한 핸들에 추가하면 그 핸들의 크기는 늘어나지만 원본 행의 선언된 크기는
+  그대로입니다. 다만 일반 절대 오프셋 읽기로 그 크기를 넘겨 읽으면 공유된
+  외부 파일의 추가 바이트가 보일 수 있습니다. 새 논리 크기로 저장하려면
+  갱신한 핸들을 새 행에 바인딩하세요.
+- `lob.read(length=0, /) -> str`은 현재 **바이트** 위치에서 읽고 실제 수신한
+  바이트만큼 이동합니다. 길이를 생략하거나 0을 주면 남은 부분을 읽으며, 큰 값은
+  제한된 크기의 요청으로 나눕니다. BLOB과 CLOB 모두 유효한 UTF-8에서는 공식
+  Python 3 확장과 같이 엄격하게 디코딩한 문자열을 반환합니다. 임의 바이너리는
+  일반 [`Lob.read()`](#readlength-offset)를 사용하세요. 문자를 중간에서 나눠
+  읽으면 위치가 수신 바이트만큼 이동한 뒤 `UnicodeDecodeError`가 납니다.
+  빈 값, EOF, 남은 길이를 넘는 읽기는 안전하게 `""` 또는 가능한 텍스트를
+  반환합니다. 뒤 청크에서 오류가 나도 앞선 응답에서 확인된 바이트만큼의 위치는
+  유지되며, 세션이 살아 있다면 그 위치에서 다시 읽을 수 있습니다. EOF 오류나
+  선언 범위를 넘는 버퍼 읽기 같은 공식 CCI 래퍼의
+  위험한 가장자리 동작은 재현하지 않습니다.
+- `lob.seek(offset, whence=SEEK_CUR, /) -> int`는 바이트 위치를 바꿉니다.
+  `native.SEEK_SET`, `SEEK_CUR`, `SEEK_END`를 내보냅니다. 공식 드라이버와 같이
+  SEEK_END는 `크기 - offset`이며 양수 offset은 뒤로 이동합니다.
+  `seek(0, SEEK_CUR)`가 현재 위치 조회를 대신하므로 별도 `tell()`은 없습니다.
+  잘못된 whence나 음수·범위 초과 위치는 위치를 바꾸지 않고 거부합니다. 공식
+  드라이버의 무검사 음수 seek는 따르지 않습니다. 같은 객체에 다른 행의 핸들을
+  다시 채워도 공식 확장처럼 바이트 위치는 유지됩니다. 처음부터 읽으려면
+  `seek(0, SEEK_SET)`을 호출하세요. EOF 이후의 음수가 아닌 위치는 가상 위치로
+  허용되지만 읽으면 `""`이며, 쓰기는 끝에만 가능하므로 빈 공간을 만들지 않습니다.
+- 네이티브 연결은 autocommit으로 시작하지만 `set_autocommit(False)`로
+  수동 트랜잭션을 사용할 수 있습니다. autocommit 상태에서 조회한 LOB는
+  다른 연결에서 바인딩할 수 있습니다. 수동 모드에서 조회한 LOB의 보수적인
+  비전달 표시기는 나중에 `commit()`해도 그대로이므로, 연결을 넘어 바인딩하려면
+  확실한 autocommit 모드에서 다시 조회하세요. LOB_NEW로 만든 핸들은 원래
+  물리 세션의 임시 파일이며, 처음 바인딩한
+  autocommit 문장이 실패해도 그 파일을 소비합니다. 이후 같은 핸들을 재사용하면
+  서버의 오래된 locator 오류가 납니다. 다시 바인딩하려면 커밋된 행을 새 `lob`으로
+  조회하세요. `bind_lob()`은 바인딩 시점의 핸들을 복사하므로 추가 쓰기 뒤에는
+  다시 바인딩해야 합니다. 읽기·쓰기·seek는 원래 살아 있는 물리 세션이 필요하지만,
+  커밋된 조회 핸들은 위 설명처럼 다른 연결에서 바인딩할 수 있습니다.
+- 공식 `_cubrid.lob`에서 이행할 때는 이 명시적인 동기 네임스페이스를 쓰고,
+  바이트 위치와 공식 SEEK_END 방향을 유지하세요. 닫힌 객체에 다시 쓰지 말고
+  `conn.lob()`으로 새 객체를 만드세요. 일반 `pycubrid.lob.Lob.read(length,
+  offset=0)`/`write(bytes, offset=0)`은 종전의 절대 오프셋 바이트 API로 남습니다.
+  파일 `imports()`/`export()`(#443)와 비동기 LOB는 이 facade에 없습니다.
 
 공식 드라이버와 의도적으로 다른 점은 모두 라이브 차등 주장(`tests/fixtures/official_differential_claims.json`의
 `lob-*`)으로 고정되어 있습니다. 값이 없거나 닫힌 `lob`을 바인딩하면
@@ -1103,6 +1294,9 @@ def callproc(
 ```
 
 저장 프로시저를 호출합니다. `CALL procname(?, ?, ...)` 문을 구성해 실행합니다.
+`procname`은 단일 식별자이거나 비어 있지 않은 식별자를 점으로 구분한 이름이어야 합니다
+(예: `schema.my_procedure`). `schema..proc`처럼 빈 부분이 있으면 SQL을 실행하기 전에
+`ProgrammingError`가 발생합니다.
 
 **반환:** 원본 `parameters` 시퀀스 (PEP 249에 따라).
 

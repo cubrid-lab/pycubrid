@@ -16,7 +16,13 @@ from pycubrid._cursor_common import (
     _raise_batch_error,
 )
 from pycubrid.constants import CUBRIDStatementType
-from pycubrid.exceptions import DataError, InterfaceError, OperationalError, ProgrammingError
+from pycubrid.exceptions import (
+    DataError,
+    InterfaceError,
+    NotSupportedError,
+    OperationalError,
+    ProgrammingError,
+)
 
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -30,7 +36,7 @@ from pycubrid.protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 # Identifier validation for stored procedure names (prevents SQL injection).
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
+_IDENTIFIER_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*")
 
 
 if TYPE_CHECKING:
@@ -423,7 +429,7 @@ class AsyncCursor(_AsyncCursorBase):
 
     async def callproc(self, procname: str, parameters: Sequence[Any] = ()) -> Sequence[Any]:
         """Call a stored procedure and return the original parameters."""
-        if not _IDENTIFIER_RE.match(procname):
+        if not _IDENTIFIER_RE.fullmatch(procname):
             raise ProgrammingError(f"Invalid stored procedure name: {procname!r}")
         placeholders = ", ".join(["?"] * len(parameters))
         if placeholders:
@@ -436,8 +442,6 @@ class AsyncCursor(_AsyncCursorBase):
     async def nextset(self) -> None:
         """Not supported — CUBRID does not have multiple result sets."""
         self._check_closed()
-        from pycubrid.exceptions import NotSupportedError
-
         raise NotSupportedError("CUBRID does not support multiple result sets")
 
     def __aiter__(self) -> AsyncCursor:

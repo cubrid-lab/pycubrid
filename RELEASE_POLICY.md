@@ -11,7 +11,7 @@ declared public API surface fails CI unless the baseline is regenerated and
 committed in the same change, which forces every surface change to surface
 explicitly in pull-request review.
 
-Every release ships the same way: a reviewed release PR (hand-curated
+Every release ships the same way: a reviewed release-please PR (generated commits plus curated
 `CHANGELOG.md` section, including the Upgrade notes and the classification in
 §7) is merged, and `release.yml` releases it. There is no manual tag or publish
 step; see [`RELEASING.md`](RELEASING.md).
@@ -107,17 +107,27 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-includes construction-only `pycubrid.compat.cubriddb` (#465) and the bounded
+includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
+(#467), plus the bounded
 sync prepared INT32/string/NULL cursor in `pycubrid.compat.native` (#439),
 with its SET/MULTISET/SEQUENCE binding (`connection.set()`, `native.set`,
 `set.imports()`, `cursor.bind_set()`, #440) and BLOB/CLOB handle fetch and bind
 (`connection.lob()`, `native.lob`, `lob.close()`, `cursor.fetch_lob()`,
-`cursor.bind_lob()`, #441).
+`cursor.bind_lob()`, #441), followed by the native-only LOB byte-position
+stream (`lob.write()`/`read()`/`seek()` and `SEEK_*`, #442).
+Native cached settings and separate effective autocommit/isolation setters
+are the additional #467 subset. #466 adds qualified
+`pycubrid.compat.cursors.Cursor/DictCursor` row cursors and connection-local
+conversion over only the existing native scalar prepared path. Abandoned
+wrapper cursors receive best-effort same-session cleanup; deterministic
+resource release still requires explicit close.
+#445 adds native-only `cursor.result_info([n])` over measured cached 15-field
+metadata without changing ordinary/wrapper descriptions, row position or APIs.
 Only their implemented factories, connection and cursor methods are public;
-no wrapper cursor, public async prepared API, threadsafety declaration or
+no wrapper collection/LOB execute, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
 both explicit modules and returned classes.
 These are **MINOR** additions while ordinary behavior stays unchanged;
@@ -179,7 +189,7 @@ for landing one is:
    describing what changed, why, and how users migrate. The entry must include
    a `Migration` subsection with concrete before/after code.
 6. Land the change on `main`, then prepare the release PR with
-   `gh workflow run prepare-release.yml -f version=X.0.0`: it bumps
+   `gh workflow run release-please.yml` after a reviewed breaking commit or `Release-As: X.0.0` override: it proposes
    `__version__` in `pycubrid/__init__.py` (the single source that
    `pyproject.toml` reads) and dates the CHANGELOG section.
 7. Merging the reviewed release PR releases `vX.0.0` automatically
@@ -251,6 +261,47 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **TLS preflight alerts and timeout context (#592)** — PATCH / diagnostic
+  and error-path correction. Fatal alert bytes use only the existing probe
+  deadline, and best-effort alert-send failures retain the original TLS error.
+  Probe I/O timeouts retain their identity, message and errno with internal
+  WantRead context suppressed in displayed traces. Sync deadline coverage and
+  the larger-`read_timeout` workaround are clarified; defaults, successful TLS
+  behavior, socket ownership, public APIs and dependencies are unchanged.
+
+- **Hostile timezone and pure-Python temporal parameters (#530)** — PATCH /
+  error-normalization and fallback safety correction in the shared literal
+  binder. Ordinary timezone callback, key lookup and offset-field exceptions
+  become `ProgrammingError` with the original cause and fixed safe message.
+  Without the active C `_datetime` implementation, temporal subclasses and
+  returned `timedelta` subclasses are rejected before driver field reads can
+  consume forged attributes. Exact fallback values, C-backed subclasses,
+  valid timezone keys, naive rendering and ordinary literal results remain
+  unchanged. No new public API, wire, dependency or supported-version change.
+
+- **Reserved-word diagnostic hint (#509)** — PATCH / error-message correction.
+  The appended hint treats the unexpected token as a diagnostic location and
+  suggests that an identifier at or before it may be reserved, without naming
+  an offending identifier. Original server text, exception class, error code,
+  SQLSTATE, hint triggers, public API and SQL execution are unchanged.
+
+- **Interrupted deferred CLOSE flush (#601)** — PATCH / resource-ownership
+  correction in both drivers. A boundary consumes each queued same-session
+  handle at the existing attempted-send point, not before the whole flush.
+  A pre-send interrupt retains unsent FIFO entries on the live session;
+  completed or uncertain sends are never replayed, and a retired physical
+  session never lends its IDs to a replacement. No public signature, SQL
+  result, wire format, dependency or supported-version change.
+
+- **Native prepared handle refresh after a complete execute error (#611)** —
+  PATCH / correction in the opt-in sync compatibility cursor. The failed
+  caller receives its original redacted server error; no SQL is retried in
+  that call. On a later explicit user execution, a non-LOB handle is refreshed
+  on the same physical session and its current bindings are sent once, fixing
+  the repeated `-1024` instead of the conversion `-494`. Uncertain transport,
+  changed sessions, failed close/prepare and LOB snapshots do not trigger
+  automatic replay. No ordinary/async API or public signature changes.
+
 - **`Lob.read()`/`Lob.write()` reject non-int and boolean offset/length
   (#449)** — MINOR / behavior change, not a PATCH. `offset` (`read`/`write`)
   and `length` (`read`) must now be a concrete Python `int`
@@ -293,6 +344,54 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   lob) are pinned by official differential claims. Ordinary
   sync/async cursors, the ordinary `Lob` class and fetched LOB dicts,
   dependencies and supported versions are unchanged; no async LOB API.
+
+- **Native LOB stream (#442)** — MINOR / additive. The explicit sync-only
+  `pycubrid.compat.native.lob` gains positional `write(data, type="B") -> None`,
+  `read(length=0) -> str`, `seek(offset, whence=SEEK_CUR) -> int` and exported
+  `SEEK_SET`/`SEEK_CUR`/`SEEK_END`. Position and packed size count bytes; str
+  writes and both BLOB/CLOB reads use strict UTF-8, matching the official
+  Python 3 extension on valid in-range values. Safe documented differences
+  include append-only preflight, EOF/empty-string and bounded short-read
+  handling, and rejection of negative resulting positions. A closed native
+  lob remains terminal. Created LOB_NEW handles still depend on their original
+  physical session and their temp file is consumed by the first autocommit
+  bind; fetched committed handles retain #441 cross-connection bind behavior.
+  Ordinary `pycubrid.lob.Lob` offsets, signatures and byte return values,
+  ordinary cursors, async, file operations, dependencies and supported versions
+  do not change. No tag/PyPI publication follows automatically from this entry.
+
+- **Native cached settings and effective setters (#467)** — MINOR / additive.
+  `pycubrid.compat.native.connection` gains four writable snapshot members
+  (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and
+  positional-only `set_autocommit(bool)` / `set_isolation_level(4|5|6)` methods.
+  Direct member assignment never changes effective mode. The bool setter
+  changes the local prepared-execution mode and conditionally commits only
+  when changing mode during an active transaction; isolation SET changes the
+  current session without an implicit commit and its effective cache is
+  physical-session owned. Initial snapshot reads are fail-closed except for
+  the official complete-server-error max-string fallback to 0. The pinned
+  official extension's initial level-4 `UNKNOWN` text quirk is retained and
+  repaired by `set_isolation_level(4)`. The wrapper adds keyword-capable
+  bool-validated autocommit getter/setter/property. Unsupported native input
+  classes and legacy levels fail safely before I/O, rather than invoking the
+  extension's unsafe parser path. Fetched LOBs keep their fetch-time committed
+  provenance; a manual fetch does not become cross-connection transferable
+  merely because of a later commit. Ordinary sync/async defaults and setters,
+  cursor APIs, dependencies and supported versions are unchanged. This entry
+  does not authorize a release or tag.
+
+- **Native extended column metadata (#445)** — MINOR / additive.
+  `pycubrid.compat.native.cursor.result_info([n])` adds zero/one positional
+  selection over the last successful execution's 15-field column metadata.
+  CCI types are measured, flags are integers and absent textual metadata is
+  the actual empty string. The getter performs no wire request, row movement
+  or description mutation. C-int32 conversion, fresh/prepared/DML/closed states
+  and owner fences are explicit; local InterfaceError codes preserve the
+  existing message-only args rather than introducing global native adapters.
+  Row invalidation at rollback is separate from cached metadata availability;
+  failed execution attempts hide old metadata. UTF-8 comparisons do not certify
+  non-UTF-8 parity. Ordinary/async/wrapper APIs, dependencies and supported
+  versions are unchanged; no version bump, tag or publication is authorized.
 
 - **`Lob.write()` size field and internal LOB-handle binding (#441)** —
   PATCH / correction plus internal wire work. After a write, the packed
@@ -583,6 +682,11 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   exponent, public signatures, dependencies and supported versions are
   unchanged.
 
+- **Qualified `callproc()` names reject empty segments (#372)** — PATCH /
+  backward-compatible validation fix. Sync and async cursors reject malformed
+  names before executing SQL; valid single and dot-qualified identifiers and
+  public signatures are unchanged.
+
 - **Unresolved TZ zones raise `DataError` (#413)** — PATCH / correction to the
   documented type contract (`TIMESTAMPTZ`/`LTZ` and `DATETIMETZ`/`LTZ` return
   timezone-aware values). A region the client's IANA database cannot resolve
@@ -817,3 +921,11 @@ git commit
 If `compat-check` fails on a pull request that did not intend to change the
 surface, the failure is signaling an accidental break — fix the code, do not
 update the baseline.
+
+## Routine CI selection
+
+The [CI execution policy](docs/CI_POLICY.md) reduces routine execution frequency
+and representative matrix cells. This CI-only maintenance changes no runtime API,
+supported-version declaration or release publisher; it does not require a MINOR
+version by itself. Candidate releases still invoke the full compatibility workflow
+at their immutable SHA before publication.

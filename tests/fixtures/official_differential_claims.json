@@ -10,6 +10,15 @@
   "required_servers": ["10.2", "11.4"],
   "claims": [
     {
+      "id": "wrapper-row-conversion",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "Qualified tuple/dict cursors preserve exact aliases, duplicate-key overwrite, Unicode, SQL NULL, empty text, seven-field metadata and connection-local conversion on the supported scalar path.",
+      "inventory_ids": ["CUBRIDdb.connections.Connection.cursor", "CUBRIDdb.connections.Connection.set_fetch_value_converter", "CUBRIDdb.cursors.BaseCursor.fetchone", "CUBRIDdb.cursors.BaseCursor.fetchall"],
+      "scenario_ids": ["tests3/test_fetchone.py::test_fetchone", "tests3/test_fetchall.py::test_fetchall_multiple_columns"],
+      "issue": "#466"
+    },
+    {
       "id": "fetch-integer",
       "surface": "wrapper",
       "classification": "match",
@@ -480,6 +489,76 @@
       "scenario_ids": [],
       "scenario_gap": "Upstream LOB scenarios (tests3/test_cubrid.py::test_lob_file/test_lob_string and their tests2 copies) create the bound value with lob.imports()/lob.write() and check it with lob.export()/lob.read(), which belong to #442/#443; no pinned scenario binds a fetched handle. Measured by #441.",
       "issue": "#441"
+    },
+    {
+      "id": "lob-stream-blob",
+      "surface": "native",
+      "classification": "match",
+      "summary": "For a valid UTF-8 BLOB, native write/read/seek returns the same Unicode text, byte positions and end-minus-offset position as _cubrid across sequential in-range operations.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob.write", "documented_cubrid.lob.read", "documented_cubrid.lob.seek", "documented_cubrid.SEEK_SET", "documented_cubrid.SEEK_CUR", "documented_cubrid.SEEK_END"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream BLOB scenario tests file imports/exports, not direct in-range write/read/seek. This direct safe subset is measured by #442; file I/O remains #443.",
+      "issue": "#442"
+    },
+    {
+      "id": "lob-stream-clob",
+      "surface": "native",
+      "classification": "match",
+      "summary": "For a UTF-8 CLOB containing multibyte Korean text, native write/read/seek returns the same Unicode text and byte-counted positions as _cubrid across sequential in-range operations.",
+      "inventory_ids": ["documented_cubrid.connection.lob", "documented_cubrid.lob.write", "documented_cubrid.lob.read", "documented_cubrid.lob.seek", "documented_cubrid.SEEK_SET", "documented_cubrid.SEEK_CUR", "documented_cubrid.SEEK_END"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_lob_string"],
+      "issue": "#442"
+    },
+    {
+      "id": "native-cached-settings",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Fresh cached autocommit/isolation/lock/max values, raw object-identity assignments and supported bool/MVCC setter return values and symbolic names match the pinned _cubrid extension on each required server.",
+      "inventory_ids": ["documented_cubrid.connection.autocommit", "documented_cubrid.connection.isolation_level", "documented_cubrid.connection.lock_timeout", "documented_cubrid.connection.max_string_len", "documented_cubrid.connection.set_autocommit", "documented_cubrid.connection.set_isolation_level"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_autocommit", "tests3/test_cubrid.py::test_isolation_level"],
+      "scenario_gap": "The safe differential measures cached-member identity and supported setter results/names, not every upstream error path or transaction boundary; those have separate focused and owned live tests in #467.",
+      "issue": "#467"
+    },
+    {
+      "id": "native-result-info-columns",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Full15-field tuples, all/one selection and zero-row metadata retain actual names, Unicode aliases, empty attribute/default text, native collection/JSON types and table constraint flags; no-column DML returns None after integer conversion.",
+      "inventory_ids": ["documented_cubrid.cursor.result_info"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_result_info"],
+      "issue": "#445"
+    },
+    {
+      "id": "native-result-info-selectors",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Fresh/prepare-only and invalid selectors match InterfaceError numeric codes, while bool/index conversion, positional/keyword dispatch, C-int32 overflow and closed-cursor precedence match the pinned extension; only the result_info error observations normalize native integer args against pycubrid .code.",
+      "inventory_ids": ["documented_cubrid.cursor.result_info"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream result_info scenario covers four basic metadata assertions, not selector/state errors. These safe argument and state cases are measured separately by #445.",
+      "issue": "#445"
+    },
+    {
+      "id": "native-result-info-position-and-boundaries",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Metadata calls between two scalar row fetches leave row order unchanged; cached metadata remains available at EOF and after same-session commit/rollback without fetching rows after transaction closure.",
+      "inventory_ids": ["documented_cubrid.cursor.result_info"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream result_info scenario does not assert row-position or transaction-boundary behavior. The safe cached-metadata subset is measured by #445.",
+      "issue": "#445"
+    },
+    {
+      "id": "native-result-info-error-args",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "A closed result_info raises InterfaceError on both sides, but pycubrid preserves message-only args while the native extension uses integer-code/message args.",
+      "inventory_ids": ["documented_cubrid.cursor.result_info"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream result_info scenario does not inspect exception args. This source-backed difference is independently measured by #445.",
+      "issue": "#445",
+      "reason": "The new metadata API preserves pycubrid InterfaceError's existing constructor and message-only args; its source-compatible numeric code is exposed in .code, not a fabricated errno or global exception adapter.",
+      "expected": {"pycubrid": "(int(1), (str('str'),))", "native": "(int(2), (str('int'), str('str')))"}
     }
   ]
 }

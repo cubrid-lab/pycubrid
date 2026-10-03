@@ -24,7 +24,7 @@ from xml.etree import ElementTree  # nosec B405
 ORIGIN = "https://github.com/cubrid-lab/pycubrid.git"
 WORKLOADS = {
     "sqlalchemy": ("dogfood", "pool"),
-    "mcp": ("mcp",),
+    "mcp": ("mcp", "mcp-concurrency"),
     "cookbook": ("ai", "worker"),
 }
 VERSION_PACKAGES = {
@@ -157,7 +157,7 @@ def collect_reports(lane: str, report_dir: Path) -> dict[str, Any]:
     for name in WORKLOADS[lane]:
         path = report_dir / f"{name}.xml"
         try:
-            counts = _junit_counts(path, allow_mcp_empty_schema=lane == "mcp")
+            counts = _junit_counts(path, allow_mcp_empty_schema=name == "mcp")
             workloads[name] = counts
             reasons.extend(f"{name}: {violation}" for violation in counts["violations"])
         except (OSError, ValueError, ElementTree.ParseError) as exc:

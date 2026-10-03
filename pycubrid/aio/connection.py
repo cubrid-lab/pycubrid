@@ -611,15 +611,29 @@ class AsyncConnection(ConnectionCommonMixin):
                 try:
                     tls.do_handshake()
                 except ssl_module.SSLWantReadError:
-                    pending = outgoing.read()
-                    if pending:
+                    try:
+                        pending = outgoing.read()
+                        if pending:
+                            sock.settimeout(remaining_timeout())
+                            sock.sendall(pending)
                         sock.settimeout(remaining_timeout())
-                        sock.sendall(pending)
-                    sock.settimeout(remaining_timeout())
-                    data = sock.recv(16384)
+                        data = sock.recv(16384)
+                    except TimeoutError as exc:
+                        raise exc from None
                     if not data:
                         raise OSError("connection closed during TLS preflight probe")
                     incoming.write(data)
+                except ssl_module.SSLError:
+                    # OpenSSL may have queued a fatal alert; send it within the
+                    # same budget without replacing the original TLS failure.
+                    try:
+                        pending = outgoing.read()
+                        if pending:
+                            sock.settimeout(remaining_timeout())
+                            sock.sendall(pending)
+                    except OSError:  # nosec B110 - best-effort alert; re-raise TLS failure
+                        pass
+                    raise
                 else:
                     # The BIO may still hold the final handshake flight.
                     # Its send is required, unlike optional close_notify.
@@ -745,10 +759,20 @@ class AsyncConnection(ConnectionCommonMixin):
             await self._close_handle_at_boundary_locked(handle)
         # Handles of cursors collected without close() and queued (#488).
         generation = self._physical_generation
-        for handle in self._take_deferred_closes():
+        initial_count = len(self._deferred_closes)
+        for _ in range(initial_count):
             if self._physical_generation != generation:
                 break  # replaced during an earlier CLOSE_REQ: nothing left to close
+            if not self._deferred_closes:
+                break  # retirement may have cleared the batch without replacing generation
+            head = self._deferred_closes[0]
+            handle = self._peek_boundary_deferred_close()
+            if handle is None:
+                self._consume_deferred_closes(1)  # stale or pooling-off: no wire ownership
+                continue
             await self._close_handle_at_boundary_locked(handle)
+            if self._deferred_closes and self._deferred_closes[0] is head:
+                break  # a handled pre-send error left the head unsent
 
     async def _close_handle_at_boundary_locked(self, handle: int) -> None:
         try:
@@ -1226,6 +1250,12 @@ class AsyncConnection(ConnectionCommonMixin):
         if isinstance(packet, PrepareAndExecutePacket):
             # Release queued handles of this session with this request (#488).
             deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
+        elif (
+            isinstance(packet, CloseQueryPacket)
+            and self._peek_boundary_deferred_close() == packet.query_handle
+        ):
+            # Consume one FIFO boundary CLOSE at the existing send boundary.
+            deferred_count = 1
         try:
             request_data = packet.write(self._cas_info)
         except struct.error as exc:
@@ -1413,13 +1443,6 @@ class AsyncConnection(ConnectionCommonMixin):
         except Exception as exc:
             await self._retire_session_locked()
             raise OperationalError("failed to restore session state after reconnect") from exc
-
-    async def _invoke_connect_locked(self) -> None:
-        connect_method = self.connect
-        if getattr(connect_method, "__func__", None) is AsyncConnection.connect:
-            await self._connect_locked()
-            return
-        await connect_method()
 
     async def _retire_session_locked(self, *, for_reconnect: bool = False) -> None:
         """Retire the physical session after an uncertain I/O failure (#556).

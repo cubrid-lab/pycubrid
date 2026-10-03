@@ -248,6 +248,11 @@ the TLS handshake ([#535](https://github.com/cubrid-lab/pycubrid/issues/535)); t
 `wrap_socket()` upgrade on 3.10 can still leave such a socket to the garbage collector (a
 `ResourceWarning`), a CPython 3.10 `ssl` limitation fixed in later versions.
 
+To allow a TLS handshake longer than the 10-second default, set a larger
+`read_timeout`, for example `read_timeout=30.0`. This also sets later request
+read timeouts to 30 seconds: sync uses a per-receive socket timeout, while async
+bounds the complete network round trip. It does not change `connect_timeout`.
+
 After the session is open, an uncertain transport failure on a request (a socket error, a
 timeout, a malformed reply, or an interrupt or task cancellation while a reply is outstanding)
 closes the connection and retires every cursor and schema result handle of that session in
@@ -286,6 +291,10 @@ reply propagates unchanged without closing it.
     Each probe send and receive uses the remaining total handshake budget;
     completion after the deadline is rejected. The final handshake flight must
     be sent successfully, while optional close_notify shares that same budget.
+    On fatal TLS failure, any queued alert is sent best effort within the
+    remaining budget; alert-send failure cannot replace the original TLS error.
+    Receive timeouts retain their original error object, message and errno,
+    with the internal `SSLWantReadError` context suppressed in displayed traces.
 
 ```python
 import pycubrid.aio
@@ -463,6 +472,13 @@ that were already received stay readable; an unfinished result still raises
 `InterfaceError` at its next required FETCH. In autocommit mode no `END_TRAN` is
 sent, so unclosed cursors still accumulate server handles until `commit()`,
 `rollback()` or `close()`: close cursors (or use them as context managers).
+For handles queued by closed or collected cursors, a boundary transfers each
+current-session ID out of the queue only when its `CLOSE_REQ` is about to be
+sent. If `commit()`/`rollback()` is interrupted before the next send, unsent
+IDs remain queued in FIFO order on that same live physical session; IDs whose
+send began are not replayed. An uncertain transport retires the session and
+its queued IDs instead of carrying them to a replacement CAS. A cursor
+collected during a flush is queued behind the batch already in progress.
 
 ### Session-state restoration after explicit ping recovery
 

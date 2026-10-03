@@ -138,7 +138,7 @@ def test_ledger_accounting_and_references(
         "tests3": 184,
     }
     related = {node for row in ledger for node in row["related_nodes"].split("|") if node}
-    assert len(related) == 41
+    assert len(related) == 42
     assert any(row["function"] == "test_" for row in declarations)
 
 

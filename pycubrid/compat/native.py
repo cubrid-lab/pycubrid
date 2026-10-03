@@ -2,23 +2,36 @@
 
 Only the sync prepared INT, string and NULL cursor, SET/MULTISET/SEQUENCE
 collection binding (``connection.set()``, ``set.imports()``,
-``cursor.bind_set()``) and BLOB/CLOB handle fetch and bind
-(``connection.lob()``, ``cursor.fetch_lob()``, ``cursor.bind_lob()``) are
-supported here. Strings use the connection charset (UTF-8 unless ``charset``
-says otherwise). Ordinary DB-API cursors continue to use their existing FC41
-path.
+``cursor.bind_set()``), and BLOB/CLOB handle fetch, bind and byte-position
+stream operations (``connection.lob()``, ``cursor.fetch_lob()``,
+``cursor.bind_lob()``, ``lob.write/read/seek``), and cached column metadata
+(``cursor.result_info()``) are supported here. Prepared
+scalar strings use the connection charset (UTF-8 unless ``charset`` says
+otherwise); native LOB stream text uses UTF-8 like the official Python 3
+extension. Writable cached connection settings are distinct from effective
+autocommit/isolation setters. Ordinary DB-API cursors continue to use their
+existing FC41 path.
 """
 
 from __future__ import annotations
 
 import builtins
 import logging
+import operator
+import os
 import re
+import struct
 from threading import RLock
-from typing import Any
+from typing import Any, SupportsIndex
 
 from pycubrid.connection import Connection as _DriverConnection
-from pycubrid.constants import CCIPrepareOption, CUBRIDDataType, CUBRIDStatementType
+from pycubrid.constants import (
+    CCIDbParam,
+    CCIPrepareOption,
+    CUBRIDDataType,
+    CUBRIDIsolationLevel,
+    CUBRIDStatementType,
+)
 from pycubrid.exceptions import (
     DataError,
     DatabaseError,
@@ -27,12 +40,16 @@ from pycubrid.exceptions import (
     OperationalError,
     ProgrammingError,
 )
+from pycubrid.lob import Lob as _OrdinaryLob
 from pycubrid.packet import _codec_label, _encode_text
 from pycubrid.protocol import (
     CloseQueryPacket,
     ExecutePacket,
     FetchPacket,
+    GetDbParameterPacket,
+    LOBReadPacket,
     PreparePacket,
+    SetDbParameterPacket,
     _PreparedCollection,
     _PreparedLob,
     _PreparedScalar,
@@ -43,6 +60,17 @@ from pycubrid.protocol import (
 _LOGGER = logging.getLogger(__name__)
 _HOST = re.compile(r"[A-Za-z0-9_.-]+\Z")
 _PORT = re.compile(r"[0-9]+\Z")
+SEEK_SET = os.SEEK_SET
+SEEK_CUR = os.SEEK_CUR
+SEEK_END = os.SEEK_END
+_LOB_IO_CHUNK = 64 * 1024
+_MAX_LOB_POSITION = (1 << 63) - 1
+_UNKNOWN_ISOLATION = "CUBRID_TRAN_UNKNOWN_ISOLATION"
+_ISOLATION_NAMES = {
+    4: "CUBRID_REP_CLASS_COMMIT_INSTANCE",
+    5: "CUBRID_REP_CLASS_REP_INSTANCE",
+    6: "CUBRID_SERIALIZABLE",
+}
 
 
 def _parse_url(url: str) -> tuple[str, int, str]:
@@ -100,6 +128,33 @@ class connection:
                 autocommit=True,
                 charset=charset,
             )
+            generation = driver._physical_generation
+
+            def read_parameter(parameter: CCIDbParam) -> int:
+                packet = GetDbParameterPacket(parameter)
+                driver._send_and_receive(
+                    packet, allow_reconnect=False, expected_generation=generation
+                )
+                return packet.value
+
+            lock_timeout = read_parameter(CCIDbParam.LOCK_TIMEOUT)
+            try:
+                max_string_len = read_parameter(CCIDbParam.MAX_STRING_LENGTH)
+            except DatabaseError as exc:
+                # The official C extension falls back only for a complete
+                # server rejection, never for a lost or malformed reply.
+                if not getattr(exc, "_cas_server_error", False):
+                    raise
+                max_string_len = 0
+            isolation = read_parameter(CCIDbParam.ISOLATION_LEVEL)
+            # On supported brokers these GETs leave CAS OUT_TRAN. If another
+            # broker reports IN_TRAN, finish the constructor on a clean session.
+            if driver._cas_info[0] == 1:
+                driver.commit()
+            if driver._physical_generation != generation:
+                raise OperationalError("native settings session changed during initialization")
+            if driver._cas_info[0] == 1:
+                raise OperationalError("native settings left an active transaction")
         except BaseException:
             if hasattr(driver, "_socket"):
                 try:
@@ -113,6 +168,60 @@ class connection:
         self._closed = False
         self._session_lock = getattr(driver, "_session_lock", RLock())
         self._prepared_owners: builtins.set[cursor] = builtins.set()
+        self.autocommit: Any = driver._autocommit
+        self.lock_timeout: Any = lock_timeout
+        self.max_string_len: Any = max_string_len
+        # Match the pinned extension's initial READ COMMITTED text bug. The
+        # effective numeric value stays separate and set_isolation_level(4)
+        # repairs the visible name without sending an unnecessary SET.
+        self.isolation_level: Any = (
+            _UNKNOWN_ISOLATION
+            if isolation == 4
+            else _ISOLATION_NAMES.get(isolation, _UNKNOWN_ISOLATION)
+        )
+        self._effective_isolation = (driver, driver._physical_generation, isolation)
+
+    def set_autocommit(self, mode: bool, /) -> None:
+        """Change the effective CCI-style mode; raw cache assignment does not."""
+        if type(mode) is not bool:
+            raise InterfaceError("autocommit mode must be a bool")
+        with self._session_lock:
+            driver = self._driver
+            if self._closed or not getattr(driver, "_connected", True):
+                raise InterfaceError("compatibility connection is closed")
+            if driver._autocommit != mode and driver._cas_info[0] == 1:
+                try:
+                    self.commit()
+                except BaseException:
+                    try:
+                        driver._drop_connection()
+                    except BaseException:
+                        _LOGGER.warning("Failed to discard session after autocommit boundary")
+                    raise
+            driver._autocommit = mode
+            driver._autocommit_explicitly_set = True
+            self.autocommit = mode
+
+    def set_isolation_level(self, level: int, /) -> None:
+        """Set supported MVCC isolation without committing the transaction."""
+        if type(level) not in (int, CUBRIDIsolationLevel) or int(level) not in _ISOLATION_NAMES:
+            raise InterfaceError("isolation level must be a supported MVCC int (4, 5 or 6)")
+        selected = int(level)
+        with self._session_lock:
+            driver = self._driver
+            if self._closed or not getattr(driver, "_connected", True):
+                raise InterfaceError("compatibility connection is closed")
+            driver._check_reconnect()
+            generation = driver._physical_generation
+            owner, known_generation, known_level = self._effective_isolation
+            if not (owner is driver and known_generation == generation and known_level == selected):
+                driver._send_and_receive(
+                    SetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL, selected),
+                    allow_reconnect=False,
+                    expected_generation=generation,
+                )
+                self._effective_isolation = (driver, generation, selected)
+            self.isolation_level = _ISOLATION_NAMES[selected]
 
     def cursor(self) -> cursor:
         """Create an explicit sync prepared cursor; no SQL is sent yet."""
@@ -171,6 +280,9 @@ class cursor:
         self._closed = False
         self._handle: int | None = None
         self._generation: int | None = None
+        self._prepared_driver: _DriverConnection | None = None
+        self._prepared_sql: str | None = None
+        self._needs_reprepare = False
         self._statement_type = 0
         self._bind_count = 0
         self._columns: list[Any] = []
@@ -181,6 +293,7 @@ class cursor:
         self._total_tuple_count = 0
         self._has_result = False
         self._result_invalidated = False
+        self._metadata_ready = False
 
     def _check_open(self) -> None:
         driver = self._connection._driver
@@ -194,6 +307,9 @@ class cursor:
         generation = self._generation
         if handle is None or generation is None:
             raise InterfaceError("prepared cursor has no current statement")
+        if self._prepared_driver is not driver:
+            self._invalidate_result()
+            raise InterfaceError("prepared statement belongs to another connection")
         if generation != driver._physical_generation:
             self._invalidate_result()
             raise InterfaceError("prepared statement belongs to an earlier physical session")
@@ -210,17 +326,23 @@ class cursor:
     def _clear_statement(self) -> None:
         self._handle = None
         self._generation = None
+        self._prepared_driver = None
+        self._prepared_sql = None
+        self._needs_reprepare = False
         self._statement_type = 0
         self._bind_count = 0
         self._columns = []
+        self._metadata_ready = False
         self._bindings = []
         self._invalidate_result()
 
-    def _request(self, packet: Any, generation: int) -> None:
+    def _request(self, packet: Any, generation: int, *, allow_reconnect: bool = True) -> None:
         """Keep broker-controlled text out of the explicit prepared API."""
         redacted_error: DatabaseError | None = None
         try:
-            self._connection._driver._send_and_receive(packet, expected_generation=generation)
+            self._connection._driver._send_and_receive(
+                packet, allow_reconnect=allow_reconnect, expected_generation=generation
+            )
         except DatabaseError as exc:
             if not getattr(exc, "_cas_server_error", False):
                 raise
@@ -232,12 +354,13 @@ class cursor:
                 errno=exc.errno,
                 sqlstate=exc.sqlstate,
             )
+            setattr(redacted_error, "_cas_server_error", True)
         if redacted_error is not None:
             # Raise outside the except suite: `from None` still retains the
             # original broker message in __context__ for error collectors.
             raise redacted_error
 
-    def _release_handle(self) -> None:
+    def _release_handle(self, *, allow_reconnect: bool = True) -> None:
         driver = self._connection._driver
         handle = self._handle
         generation = self._generation
@@ -246,9 +369,10 @@ class cursor:
                 handle is not None
                 and generation is not None
                 and getattr(driver, "_connected", False)
+                and self._prepared_driver is driver
                 and generation == driver._physical_generation
             ):
-                self._request(CloseQueryPacket(handle), generation)
+                self._request(CloseQueryPacket(handle), generation, allow_reconnect=allow_reconnect)
         finally:
             # FC6 may have succeeded remotely before its reply failed. Never
             # expose buffered rows or reuse an uncertain owner after that.
@@ -282,9 +406,13 @@ class cursor:
             self._request(packet, generation)
             self._handle = packet.query_handle
             self._generation = generation
+            self._prepared_driver = driver
+            self._prepared_sql = sql
+            self._needs_reprepare = False
             self._statement_type = packet.statement_type
             self._bind_count = packet.bind_count
             self._columns = list(packet.columns)
+            self._metadata_ready = False
             self._bindings = [None] * packet.bind_count
             self._invalidate_result()
 
@@ -321,11 +449,15 @@ class cursor:
     def bind_lob(self, index: int, lob: _NativeLob, /) -> None:
         """Bind a one-based BLOB/CLOB handle held by ``lob``; no I/O.
 
-        The handle must come from ``fetch_lob()``. A fetched handle names a
-        committed stored value that the server copies into the new row, so it
-        may be bound again, on another open connection, and after its own
-        connection closed or reconnected. The binding keeps the handle it was
-        given and belongs to this cursor's current physical session.
+        A handle fetched in effective autocommit mode names a committed stored
+        value that the server copies into the new row, so it may be bound again,
+        on another open connection, and after its own connection closed or
+        reconnected. A manual-mode fetch stays on its own connection until a
+        fresh autocommit fetch confirms a committed row. A newly written
+        handle is temporary and may be bound only on its original live session;
+        its first autocommit statement consumes that temporary file. The
+        binding keeps the handle snapshot it was given and belongs to this
+        cursor's current physical session.
         """
         with self._connection._session_lock:
             self._check_open()
@@ -414,8 +546,56 @@ class cursor:
             )
             return None
 
+    def _assert_refresh_session(
+        self, driver: _DriverConnection, generation: int, autocommit: bool
+    ) -> None:
+        if (
+            self._connection._driver is not driver
+            or driver._physical_generation != generation
+            or driver.autocommit is not autocommit
+        ):
+            raise InterfaceError("prepared session changed during statement refresh")
+
+    def _refresh_for_explicit_execute(
+        self,
+        driver: _DriverConnection,
+        generation: int,
+        autocommit: bool,
+        bindings: tuple[_PreparedScalar | _PreparedCollection | _PreparedLob, ...],
+    ) -> int:
+        """Replace an errored pooled handle before this new user execution."""
+        sql = self._prepared_sql
+        if sql is None:
+            raise InterfaceError("prepared cursor has no retained statement")
+        if driver._statement_pooling != 1:
+            raise NotSupportedError("prepared statements require broker statement pooling")
+        self._assert_refresh_session(driver, generation, autocommit)
+        self._release_handle(allow_reconnect=False)
+        self._assert_refresh_session(driver, generation, autocommit)
+        packet = PreparePacket(
+            sql,
+            auto_commit=autocommit,
+            prepare_flag=CCIPrepareOption.HOLDABLE,
+        )
+        self._request(packet, generation, allow_reconnect=False)
+        self._handle = packet.query_handle
+        self._generation = generation
+        self._prepared_driver = driver
+        self._prepared_sql = sql
+        self._statement_type = packet.statement_type
+        self._bind_count = packet.bind_count
+        self._columns = list(packet.columns)
+        self._metadata_ready = False
+        self._bindings = [None] * packet.bind_count
+        self._invalidate_result()
+        self._assert_refresh_session(driver, generation, autocommit)
+        if packet.bind_count != len(bindings):
+            raise ProgrammingError("refreshed prepared parameter count changed; rebind")
+        self._bindings = list(bindings)
+        return packet.query_handle
+
     def execute(self, option: int = 0, max_col_size: int = 0, /) -> int:
-        """Execute the current handle once with a complete typed binding snapshot."""
+        """Execute once; an earlier complete error refreshes only this new call."""
         with self._connection._session_lock:
             driver, handle, generation = self._check_handle()
             if type(option) is not int or option != 0:
@@ -432,10 +612,21 @@ class cursor:
                     binding.owner is not driver or binding.generation != generation
                 ):
                     raise InterfaceError("LOB binding belongs to another physical session")
+            autocommit = driver.autocommit
+            refreshed = False
+            if self._needs_reprepare:
+                if any(isinstance(binding, _PreparedLob) for binding in bindings):
+                    raise InterfaceError(
+                        "LOB binding needs explicit prepare and rebind after error"
+                    )
+                handle = self._refresh_for_explicit_execute(
+                    driver, generation, autocommit, bindings
+                )
+                refreshed = True
             packet = ExecutePacket(
                 handle,
                 self._statement_type,
-                auto_commit=driver.autocommit,
+                auto_commit=autocommit,
                 protocol_version=driver._protocol_version,
                 decode_collections=driver._decode_collections,
                 json_deserializer=driver._json_deserializer,
@@ -447,7 +638,15 @@ class cursor:
             # result, even if the physical prepared handle remains reusable.
             # Local option/binding failures above preserve the old result.
             self._invalidate_result()
-            self._request(packet, generation)
+            self._metadata_ready = False
+            try:
+                self._request(packet, generation, allow_reconnect=not refreshed)
+            except DatabaseError as exc:
+                if getattr(exc, "_cas_server_error", False) and not any(
+                    isinstance(binding, _PreparedLob) for binding in bindings
+                ):
+                    self._needs_reprepare = True
+                raise
             self._statement_type = packet.statement_type
             self._columns = list(packet.columns)
             self._rows = list(packet.rows)
@@ -459,7 +658,61 @@ class cursor:
             if self._has_result and self._fetched_count > self._total_tuple_count:
                 self._invalidate_result()
                 raise OperationalError("prepared result contains more rows than advertised")
+            self._metadata_ready = True
             return packet.total_tuple_count
+
+    def result_info(self, *args: SupportsIndex) -> tuple[tuple[int | str, ...], ...] | None:
+        """Return cached 15-field column tuples for all columns or one-based n."""
+        with self._connection._session_lock:
+            if self._closed:
+                raise InterfaceError("prepared cursor is closed", code=-30019)
+            if len(args) > 1:
+                raise TypeError("result_info() accepts at most one positional argument")
+            n = operator.index(args[0]) if args else 0
+            if not -(2**31) <= n < 2**31:
+                raise OverflowError("result_info() selector is outside the C int range")
+            # __index__ can reenter the RLock and change cursor/session ownership.
+            if self._closed:
+                raise InterfaceError("prepared cursor is closed", code=-30019)
+            self._check_open()
+            driver = self._connection._driver
+            if self._handle is None or self._generation is None:
+                raise InterfaceError("prepared cursor has no executed metadata", code=-30006)
+            if self._prepared_driver is not driver:
+                raise InterfaceError("prepared statement belongs to another connection")
+            if self._generation != driver._physical_generation:
+                raise InterfaceError("prepared statement belongs to an earlier physical session")
+            if not self._metadata_ready:
+                raise InterfaceError("prepared cursor has no executed metadata", code=-30006)
+            if not self._columns:
+                return None
+            if n < 0 or n > len(self._columns):
+                raise InterfaceError("prepared column index is out of range", code=-30006)
+            columns = self._columns if n == 0 else self._columns[n - 1 : n]
+            result: list[tuple[int | str, ...]] = []
+            for column in columns:
+                if column._cci_type is None:
+                    raise InterfaceError("prepared column has no measured native type")
+                result.append(
+                    (
+                        column._cci_type,
+                        int(not column.is_nullable),
+                        column.scale,
+                        column.precision,
+                        column.name,
+                        column.real_name,
+                        column.table_name,
+                        column.default_value,
+                        int(column.is_auto_increment),
+                        int(column.is_unique_key),
+                        int(column.is_primary_key),
+                        int(column.is_foreign_key),
+                        int(column.is_reverse_index),
+                        int(column.is_reverse_unique),
+                        int(column.is_shared),
+                    )
+                )
+            return tuple(result)
 
     def fetch_row(self, how: int = 0, /) -> tuple[Any, ...] | None:
         """Fetch the next tuple; unsupported row shapes fail before I/O."""
@@ -505,11 +758,11 @@ class cursor:
         if self._has_result:
             self._invalidate_result()
 
-    def _close_locked(self) -> None:
+    def _close_locked(self, *, allow_reconnect: bool = True) -> None:
         if self._closed:
             return
         try:
-            self._release_handle()
+            self._release_handle(allow_reconnect=allow_reconnect)
         finally:
             self._closed = True
             self._connection._prepared_owners.discard(self)
@@ -518,6 +771,11 @@ class cursor:
         """Release only the handle owned by this physical CAS generation."""
         with self._connection._session_lock:
             self._close_locked()
+
+    def _close_collected_wrapper(self) -> None:
+        """Best-effort same-session close for an abandoned qualified wrapper."""
+        with self._connection._session_lock:
+            self._close_locked(allow_reconnect=False)
 
 
 # The official imports() converts BIT/VARBIT element text to bit strings;
@@ -604,13 +862,37 @@ _NativeSet = set
 _LOB_TYPES = frozenset({CUBRIDDataType.BLOB, CUBRIDDataType.CLOB})
 
 
-# Where a lob's handle came from: fetched from a stored row, or (with #442,
-# not reachable yet) created by LOB_NEW and written. A created handle names a
+# Where a lob's handle came from: fetched from a stored row, or created by
+# LOB_NEW and written. A created handle names a
 # temporary file of its own session, so it must stay on that session; a
 # fetched handle of a committed row may be bound anywhere, because the server
 # copies the stored file.
 _FETCHED = "fetched"
 _CREATED = "created"  # #442: lob.write() sets this origin
+
+
+class _SessionLobTransport:
+    """Give ordinary LOB I/O a fixed native physical-session boundary."""
+
+    def __init__(self, owner: connection, driver: _DriverConnection, generation: int) -> None:
+        self._owner = owner
+        self._driver = driver
+        self._generation = generation
+
+    def _ensure_connected(self) -> None:
+        if (
+            self._owner._closed
+            or self._owner._driver is not self._driver
+            or not getattr(self._driver, "_connected", True)
+            or self._driver._physical_generation != self._generation
+        ):
+            raise InterfaceError("lob handle belongs to an earlier physical session")
+
+    def _send_and_receive(self, packet: Any) -> Any:
+        self._ensure_connected()
+        return self._driver._send_and_receive(
+            packet, allow_reconnect=False, expected_generation=self._generation
+        )
 
 
 class lob:  # the official native type name
@@ -633,8 +915,8 @@ class lob:  # the official native type name
         # (lob type, handle, origin, session, committed), replaced as one
         # tuple so a bind on another connection always reads a consistent
         # snapshot without taking this connection's lock. ``committed`` says
-        # the handle was fetched in autocommit mode, so its row was
-        # committed; the native connection is autocommit-only today. The
+        # the handle was fetched in effective autocommit mode; a manual-mode
+        # fetch stays conservative even after a later commit. The
         # official lob starts empty in BLOB mode.
         self._state: tuple[int, bytes | None, str | None, tuple[object, int] | None, bool] = (
             CUBRIDDataType.BLOB,
@@ -644,6 +926,7 @@ class lob:  # the official native type name
             False,
         )
         self._closed = False
+        self._position = 0
 
     @property
     def _lob_type(self) -> int:
@@ -705,6 +988,155 @@ class lob:  # the official native type name
             raise InterfaceError("lob handle belongs to an earlier physical session")
         return lob_type, handle
 
+    def _io(self) -> tuple[_SessionLobTransport, int, bytes, str, bool]:
+        """Require the handle's original live physical session for read/write."""
+        if self._closed:
+            raise InterfaceError("lob is closed")
+        source = self._connection
+        lob_type, handle, origin, session, committed = self._state
+        if handle is None or session is None or origin not in (_FETCHED, _CREATED):
+            raise InterfaceError("lob has no value")
+        driver, generation = session
+        if source._driver is not driver:
+            raise InterfaceError("lob handle belongs to an earlier physical session")
+        transport = _SessionLobTransport(source, driver, generation)
+        transport._ensure_connected()
+        return transport, lob_type, handle, origin, committed
+
+    def _adopt_written(
+        self,
+        ordinary: _OrdinaryLob,
+        origin: str,
+        transport: _SessionLobTransport,
+        committed: bool,
+    ) -> None:
+        """Keep each confirmed chunk, even if a later broker request fails."""
+        handle = ordinary.lob_handle
+        self._set(
+            ordinary.lob_type,
+            handle,
+            origin,
+            (transport._driver, transport._generation),
+            committed=committed,
+        )
+        self._position = int(struct.unpack_from(">q", handle, 4)[0])
+
+    def write(self, data: str | bytes, type: str = "B", /) -> None:
+        """Append UTF-8 text or bytes and advance the byte position (#442).
+
+        The first write creates a BLOB by default or a CLOB with ``type='C'``.
+        An existing handle keeps its type. CUBRID's external storage accepts
+        writes only at the current end; seeking elsewhere cannot overwrite it.
+        """
+        # Avoid user-defined subclass hooks changing session/position while a
+        # value is being encoded or sized for several broker requests.
+        if builtins.type(data) not in (str, bytes):
+            raise TypeError("lob.write() data must be str or bytes")
+        if builtins.type(type) is not str:
+            raise TypeError("lob.write() type must be a string")
+        payload = data.encode("utf-8") if isinstance(data, str) else data
+        with self._connection._session_lock:
+            if self._closed:
+                raise InterfaceError("lob is closed")
+            if self._handle is None:
+                if type.upper() not in {"B", "C"} or len(type) != 1:
+                    raise ProgrammingError("lob type must be B or C")
+                if self._position != 0:
+                    raise NotSupportedError("LOB writes are append-only; seek to the end first")
+                source = self._connection
+                if source._closed or not getattr(source._driver, "_connected", True):
+                    raise InterfaceError("compatibility connection is closed")
+                driver = source._driver
+                driver._check_reconnect()
+                generation = driver._physical_generation
+                transport = _SessionLobTransport(source, driver, generation)
+                lob_type: int = CUBRIDDataType.BLOB if type.upper() == "B" else CUBRIDDataType.CLOB
+                ordinary = _OrdinaryLob.create(transport, lob_type)
+                try:
+                    _PreparedLob(lob_type, ordinary.lob_handle, driver, generation)
+                except ProgrammingError:
+                    driver._discard_uncertain_prepared_session()
+                    raise OperationalError("malformed response from broker") from None
+                self._set(lob_type, ordinary.lob_handle, _CREATED, (driver, generation))
+                origin, committed = _CREATED, False
+            else:
+                transport, lob_type, handle, origin, committed = self._io()
+                ordinary = _OrdinaryLob(transport, lob_type, handle)
+
+            size = struct.unpack_from(">q", ordinary.lob_handle, 4)[0]
+            if self._position != size:
+                raise NotSupportedError("LOB writes are append-only; seek to the end first")
+            if size + len(payload) > _MAX_LOB_POSITION:
+                raise InterfaceError("lob write would exceed the maximum byte position")
+            if not payload:
+                ordinary.write(b"", self._position)
+                return
+            for start in range(0, len(payload), _LOB_IO_CHUNK):
+                try:
+                    ordinary.write(payload[start : start + _LOB_IO_CHUNK], size + start)
+                except OperationalError:
+                    # Ordinary Lob.write keeps a confirmed short write's size.
+                    self._adopt_written(ordinary, origin, transport, committed)
+                    raise
+                self._adopt_written(ordinary, origin, transport, committed)
+
+    def read(self, length: int = 0, /) -> str:
+        """Read UTF-8 text from the current byte position; zero means remaining."""
+        if type(length) is not int or length < 0:
+            raise InterfaceError("lob read length must be a non-negative int")
+        with self._connection._session_lock:
+            transport, _lob_type, handle, _origin, _committed = self._io()
+            size = struct.unpack_from(">q", handle, 4)[0]
+            remaining = max(0, size - self._position)
+            requested = remaining if length == 0 else min(length, remaining)
+            if requested == 0:
+                return ""
+            chunks: list[bytes] = []
+            while requested > 0:
+                packet = LOBReadPacket(handle, self._position, min(requested, _LOB_IO_CHUNK))
+                transport._send_and_receive(packet)
+                got, data = packet.bytes_read, packet.lob_data
+                if type(got) is not int or got < 0 or type(data) is not bytes:
+                    raise OperationalError("LOB read returned an invalid byte count or payload")
+                if got > packet.length:
+                    raise OperationalError(
+                        f"LOB read returned {got} bytes exceeding requested {packet.length}"
+                    )
+                if len(data) != got:
+                    raise OperationalError("LOB read byte count does not match payload")
+                if got == 0:
+                    break
+                chunks.append(data)
+                self._position += got
+                requested -= got
+            return b"".join(chunks).decode("utf-8")
+
+    def seek(self, offset: int, whence: int = SEEK_CUR, /) -> int:
+        """Move a byte position; SEEK_END subtracts its offset as in _cubrid."""
+        if type(offset) is not int or type(whence) is not int:
+            raise TypeError("lob seek offset and whence must be ints")
+        if whence not in (SEEK_SET, SEEK_CUR, SEEK_END):
+            raise ProgrammingError("unsupported lob seek whence")
+        with self._connection._session_lock:
+            if self._closed:
+                raise InterfaceError("lob is closed")
+            if self._connection._closed or not getattr(
+                self._connection._driver, "_connected", True
+            ):
+                raise InterfaceError("compatibility connection is closed")
+            if self._handle is not None:
+                self._io()
+            if whence == SEEK_END:
+                _transport, _lob_type, handle, _origin, _committed = self._io()
+                base = int(struct.unpack_from(">q", handle, 4)[0])
+                position = base - offset
+            else:
+                position = offset if whence == SEEK_SET else self._position + offset
+            if not 0 <= position <= _MAX_LOB_POSITION:
+                raise InterfaceError("lob seek position is out of range")
+            self._position = position
+            return position
+
     def close(self) -> None:
         """Drop the handle locally; no I/O. Later use raises ``InterfaceError``.
 
@@ -729,4 +1161,4 @@ def connect(
     return connection(url, user, passwd, charset=charset)
 
 
-__all__ = ["connection", "connect", "cursor", "lob", "set"]
+__all__ = ["connection", "connect", "cursor", "lob", "set", "SEEK_SET", "SEEK_CUR", "SEEK_END"]

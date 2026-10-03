@@ -8,7 +8,7 @@ parse() for response deserialization.
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 from .constants import (
@@ -65,6 +65,7 @@ class ColumnMetaData:
     is_reverse_unique: bool = False
     is_foreign_key: bool = False
     is_shared: bool = False
+    _cci_type: int | None = field(default=None, init=False, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -695,13 +696,15 @@ def _add_error_hints(error_message: str) -> str:
     if "syntax" in msg_lower and "unexpected" in msg_lower:
         import re
 
-        # Extract the token after "unexpected" — that's the problematic identifier
+        # The unexpected token marks the diagnostic position, which may follow
+        # the reserved identifier; the message does not identify that identifier.
         match = re.search(r"unexpected\s+'(\w+)'", error_message)
         if match:
             token = match.group(1)
             if token.lower() in _CUBRID_RESERVED_WORDS:
                 error_message += (
-                    f" [Hint: '{token}' is a CUBRID reserved word. "
+                    f" [Hint: Near token '{token}', an identifier at or before this position "
+                    f"may be a CUBRID reserved word. "
                     f"Use double-quotes around the identifier or rename it. "
                     f"See: https://github.com/cubrid-lab/.github/issues/5]"
                 )
@@ -850,7 +853,14 @@ def _read_column_metadata(
 
     columns: list[ColumnMetaData] = []
     for _ in range(column_count):
+        type_start = reader.mark()
         column_type = _parse_column_type(reader)
+        first_type = reader._buffer[type_start]
+        if first_type & 0x80:
+            second_type = reader._buffer[type_start + 1]
+            cci_type = ((second_type & 0x20) << 2) | (first_type & 0x60) | (second_type & 0x1F)
+        else:
+            cci_type = first_type
         scale = reader._parse_short()
         precision = reader._parse_int()
 
@@ -881,25 +891,25 @@ def _read_column_metadata(
         is_foreign_key = reader._parse_byte() == 1
         is_shared = reader._parse_byte() == 1
 
-        columns.append(
-            ColumnMetaData(
-                column_type=column_type,
-                scale=scale,
-                precision=precision,
-                name=name,
-                real_name=real_name,
-                table_name=table_name,
-                is_nullable=is_nullable,
-                default_value=default_value,
-                is_auto_increment=is_auto_increment,
-                is_unique_key=is_unique_key,
-                is_primary_key=is_primary_key,
-                is_reverse_index=is_reverse_index,
-                is_reverse_unique=is_reverse_unique,
-                is_foreign_key=is_foreign_key,
-                is_shared=is_shared,
-            )
+        column = ColumnMetaData(
+            column_type=column_type,
+            scale=scale,
+            precision=precision,
+            name=name,
+            real_name=real_name,
+            table_name=table_name,
+            is_nullable=is_nullable,
+            default_value=default_value,
+            is_auto_increment=is_auto_increment,
+            is_unique_key=is_unique_key,
+            is_primary_key=is_primary_key,
+            is_reverse_index=is_reverse_index,
+            is_reverse_unique=is_reverse_unique,
+            is_foreign_key=is_foreign_key,
+            is_shared=is_shared,
         )
+        column._cci_type = cci_type
+        columns.append(column)
     return columns
 
 
@@ -1242,6 +1252,15 @@ class _CasPacket:
     """
 
     encoding: str = "utf-8"
+
+    def _parse_response(self, data: bytes | bytearray) -> tuple[PacketReader, int]:
+        """Read the common prefix of a simple reply and raise server errors."""
+        reader = PacketReader(data, encoding=self.encoding)
+        reader._skip_bytes(DataSize.CAS_INFO)
+        response_code = reader._parse_int()
+        if response_code < 0:
+            _raise_error(reader, len(data) - 8)
+        return reader, response_code
 
 
 class ClientInfoExchangePacket:
@@ -1710,12 +1729,7 @@ class CommitPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the commit response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class RollbackPacket(_CasPacket):
@@ -1730,12 +1744,7 @@ class RollbackPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the rollback response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class CloseDatabasePacket(_CasPacket):
@@ -1749,12 +1758,7 @@ class CloseDatabasePacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close database response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class CloseQueryPacket(_CasPacket):
@@ -1772,12 +1776,7 @@ class CloseQueryPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close query response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class GetEngineVersionPacket(_CasPacket):
@@ -1796,12 +1795,7 @@ class GetEngineVersionPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get engine version response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         # response_code is 0 on success; version string follows
         version_len = len(data) - DataSize.CAS_INFO - DataSize.INT
         self.engine_version = reader._parse_null_terminated_string(version_len)
@@ -1955,12 +1949,7 @@ class LOBNewPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB new response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         # Remaining bytes are the LOB handle
         self.lob_handle = reader._parse_bytes(reader.bytes_remaining())
 
@@ -1988,12 +1977,7 @@ class LOBWritePacket(_CasPacket):
 
         On success, ``response_code`` doubles as ``bytes_written`` per CAS protocol.
         """
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        _, response_code = self._parse_response(data)
         self.bytes_written = response_code
 
 
@@ -2019,12 +2003,7 @@ class LOBReadPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB read response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, response_code = self._parse_response(data)
         # A count past the end of the reply raises before any field is set (#383).
         if response_code > 0:
             self.lob_data = reader._parse_bytes(response_code)
@@ -2084,12 +2063,7 @@ class GetDbParameterPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get db parameter response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         self.value = reader._parse_int()
 
 
@@ -2143,9 +2117,4 @@ class SetDbParameterPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the set db parameter response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
