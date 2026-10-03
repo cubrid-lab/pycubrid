@@ -18,6 +18,8 @@
 
 ---
 
+<a id="개요"></a>
+
 ## 개요
 
 `pycubrid`는 CAS 바이너리 프로토콜로 CUBRID와 통신하는 순수 Python DBAPI2 드라이버입니다.
@@ -41,6 +43,8 @@ flowchart TD
 
 ---
 
+<a id="벤치마크-결과"></a>
+
 ## 벤치마크 결과
 
 출처: [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)
@@ -49,7 +53,7 @@ flowchart TD
 
 워크로드: Python `pycubrid` vs `PyMySQL`, 10000행 × 5라운드.
 
-| 시나리오 | CUBRID (pycubrid) | MySQL (PyMySQL) | 비율 (CUBRID/MySQL) |
+| Scenario | CUBRID (pycubrid) | MySQL (PyMySQL) | Ratio (CUBRID/MySQL) |
 |---|---:|---:|---:|
 | insert_sequential | 10.47s | 1.74s | 6.0x |
 | select_by_pk | 15.99s | 3.52s | 4.5x |
@@ -58,6 +62,8 @@ flowchart TD
 | delete_sequential | 10.75s | 2.10s | 5.1x |
 
 ---
+
+<a id="성능-특성"></a>
 
 ## 성능 특성
 
@@ -68,6 +74,8 @@ flowchart TD
 - 호출을 배치하고 트랜잭션 경계를 제어하면 처리량이 개선됩니다.
 
 ---
+
+<a id="최적화-팁"></a>
 
 ## 최적화 팁
 
@@ -89,6 +97,8 @@ flowchart TD
 ```
 
 ---
+
+<a id="성능-조사"></a>
 
 ## 성능 조사
 
@@ -168,6 +178,23 @@ python scripts/profile_fetch.py --rows 5000 --iterations 20 --fetch-size 100
 python scripts/profile_fetch.py --output fetch.prof
 ```
 
+#### FETCH 응답 파싱 (오프라인)
+
+`tests/test_bench_fetch_parsing.py`는 서버 없이 FC8 FETCH 응답 파싱 시간을
+측정합니다(#559). 스칼라, 텍스트, 혼합(NULL 포함), 컬렉션 워크로드에 대해 fuzz
+시드 빌더로 만든 2000행 합성 응답을 사용하고, 모든 파싱 결과를 빌더가 정한 정확한
+기대 행과 비교합니다. `--benchmark-enable` 없이 실행하면 각 워크로드를 한 번만
+파싱하는 정확성 테스트가 되므로, 필수 CI에는 시간 임계값이 없습니다.
+
+```bash
+# 시간 측정 (워밍업 3회 후 30라운드), 최대 할당량은 extra_info에 기록:
+pytest tests/test_bench_fetch_parsing.py --benchmark-enable \
+    --benchmark-json=fetch-parse.json
+
+# 두 실행 비교:
+python scripts/bench_regression.py --baseline before.json --current after.json
+```
+
 #### snakeviz로 .prof 파일 시각화
 
 ```bash
@@ -178,6 +205,8 @@ snakeviz profile_output.prof
 snakeviz는 브라우저에서 인터랙티브 플레임 그래프를 열어 중첩 호출 스택을 파고들기 쉽게 합니다.
 
 ---
+
+<a id="타이밍--프로파일링-훅"></a>
 
 ## 타이밍·프로파일링 훅
 
@@ -270,6 +299,8 @@ if conn.timing_stats is not None:
 - `ping()`과 `commit()` / `rollback()`은 현재 타이밍에 포함되지 않습니다.
 
 ---
+
+<a id="벤치마크-실행"></a>
 
 ## 벤치마크 실행
 

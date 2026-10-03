@@ -28,6 +28,9 @@ from pycubrid.types import (
     Binary,
     Date,
     DateFromTicks,
+    Multiset,
+    Sequence,
+    Set,
     Time,
     Timestamp,
     TimestampFromTicks,
@@ -56,6 +59,7 @@ def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> Connection:
     """Create a new database connection.
@@ -68,6 +72,10 @@ def connect(
         database: Database name.
         user: Database user (default ``"dba"``).
         password: Database password (default ``""``).
+        charset: Python codec (or CUBRID name ``utf8``/``euckr``/``iso88591``)
+            for SQL text, bound strings, credentials, character values,
+            metadata names and error messages; set it to the database
+            charset. JSON is always UTF-8. Default ``"utf-8"``.
         **kwargs: Additional connection parameters (``autocommit``,
             ``fetch_size``, ``connect_timeout``, ``read_timeout``,
             ``no_backslash_escapes``, ``enable_timing``). An unrecognised
@@ -89,6 +97,7 @@ def connect(
         "password": password,
         "decode_collections": decode_collections,
         "json_deserializer": json_deserializer,
+        "charset": charset,
         **kwargs,
     }
     if ssl is not None:
@@ -141,6 +150,10 @@ __all__ = [
     "TimeFromTicks",
     "TimestampFromTicks",
     "Binary",
+    # Typed collection parameters
+    "Set",
+    "Multiset",
+    "Sequence",
     "Lob",
     "TimingStats",
 ]

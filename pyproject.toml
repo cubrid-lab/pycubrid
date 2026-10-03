@@ -31,7 +31,11 @@ classifiers = [
     "Topic :: Database :: Front-Ends",
     "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    # Windows ships no IANA time zone database; zoneinfo needs it for
+    # TIMESTAMPTZ/DATETIMETZ region names (#413).
+    "tzdata; sys_platform == 'win32'",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -49,7 +53,7 @@ dev = [
     "hypothesis>=6.0",
 ]
 mutation = [
-    "mutmut>=3.0",
+    "mutmut>=3.8,<4",
 ]
 
 [project.urls]
@@ -108,7 +112,11 @@ markers = [
     "integration: requires a live CUBRID server",
     "slow: long-running tests (soak, stress, chaos) excluded from the standard full matrix",
     "tls: TLS-specific integration tests run in the dedicated integration-tls job",
+    "version_matrix: cross-version differential run against every CUBRID in CUBRID_VERSION_MATRIX (version-differential job)",
+    "official_differential: claims-driven comparison with the pinned official CUBRIDdb driver (official-differential job, #446)",
     "benchmark: performance benchmark (requires a live CUBRID server)",
+    "no_escape_pin: opt out of the autouse backslash-escape-mode default pin to exercise real negotiation (#524)",
+    "repo_tooling: repository policy/tooling check (docs, release scripts, CI workflow contracts, PR title) with no pycubrid driver behavior, run in the repo-tooling-tests job (#558)",
 ]
 
 [tool.mutmut]
@@ -116,6 +124,56 @@ markers = [
 # flipped comparison, or dropped cleanup silently corrupts data or leaks
 # resources. The offline suite is the test command (no DB), so mutants are
 # killed by the property/protocol/state-machine tests, not live integration.
-paths_to_mutate = "pycubrid/packet.py,pycubrid/protocol.py,pycubrid/_cursor_common.py,pycubrid/_connection_common.py,pycubrid/cursor.py,pycubrid/connection.py,pycubrid/lob.py,pycubrid/aio/connection.py,pycubrid/aio/cursor.py"
-tests_dir = "tests/"
-runner = "python -m pytest -x -q -m 'not integration' -p no:cacheprovider"
+#
+# mutmut 3 keys (#612). The 2.x spelling (paths_to_mutate / tests_dir / runner)
+# crashed mutmut 3 on import, and its comma-joined strings were read as one
+# Path per character, so nothing was ever measured.
+source_paths = ["pycubrid"]
+only_mutate = [
+    "pycubrid/packet.py",
+    "pycubrid/protocol.py",
+    "pycubrid/_cursor_common.py",
+    "pycubrid/_connection_common.py",
+    "pycubrid/cursor.py",
+    "pycubrid/connection.py",
+    "pycubrid/lob.py",
+    "pycubrid/aio/connection.py",
+    "pycubrid/aio/cursor.py",
+]
+# Into mutants/ mutmut copies source_paths plus a built-in list (tests/, test/,
+# pyproject.toml, lock files) and nothing else; entries here are added to that
+# list, not substituted for it. The offline suite imports scripts/ and reads
+# .github/workflows/ and docs/, so the sandbox needs them.
+also_copy = ["scripts", ".github", "docs"]
+# mutmut 3 adds -x -q itself. repo_tooling checks exercise repository policy and
+# carry no driver behavior (see the marker definition above), so they cannot kill
+# a driver mutant; they only lengthen the run. This is the same selection CI's
+# offline job uses.
+#
+# The two deselected tests inspect pycubrid's own source rather than its
+# behavior, so mutmut's trampoline wrapping defeats them no matter which mutant
+# is active: the first asserts an UnknownConnectionOptionWarning is blamed on the
+# caller's file and gets pycubrid/_connection_common.py (the trampoline adds a
+# frame, shifting stacklevel); the second compares the hand-written option
+# allow-list against inspect.signature() of the connection constructors, which
+# the trampoline rewrites. Running the offline lane inside mutants/ without -x
+# shows these are the only two, so the rest of the lane stays selected. Both are
+# covered normally by every other lane.
+pytest_add_cli_args = [
+    "-m",
+    "not integration and not repo_tooling",
+    "-p",
+    "no:cacheprovider",
+    "--deselect",
+    "tests/test_unknown_options.py::TestUnknownOptionsWarn::test_warning_points_at_the_caller_not_at_pycubrid",
+    "--deselect",
+    "tests/test_unknown_options.py::TestAllowListDoesNotDrift::test_allow_list_matches_public_signatures_and_kwargs_reads",
+]
+pytest_add_cli_args_test_selection = ["tests"]
+# Default "fork" isolation forks each mutant from a process that has already run
+# the suite, so Hypothesis sees the same test executed under a second executor and
+# fails HealthCheck.differing_executors (observed on
+# tests/test_property.py::TestRoundTripProperties::test_byte_round_trip during the
+# clean-test phase). forkserver forks from a process that has collected but not run
+# the tests, which keeps that state out of the children.
+process_isolation = "forkserver"

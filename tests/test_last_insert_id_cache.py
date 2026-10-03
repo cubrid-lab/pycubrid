@@ -308,7 +308,7 @@ async def test_out_tran_keeps_identity_until_physical_reconnect(
     connection: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     connection._last_insert_id = "99"
-    connection._cas_info = b"\x00\x00\x00\x00"
+    connection._record_reply_cas_info(b"\x00\x00\x00\x00")
     if isinstance(connection, AsyncConnection):
         connection._writer = MagicMock()
         connection._writer.wait_closed = AsyncMock()
@@ -338,9 +338,16 @@ async def test_out_tran_keeps_identity_until_physical_reconnect(
         connection._connected = False
     else:
         connection._socket = MagicMock()
-        connect = MagicMock(side_effect=lambda: setattr(connection, "_connected", True))
+        connection._physical_generation = 1
+
+        def physical_open() -> None:
+            connection._connected = True
+            connection._physical_generation += 1
+
+        # Fake only the physical open: connect() itself restores state (#520).
+        connect = MagicMock(side_effect=physical_open)
         restore = MagicMock()
-        monkeypatch.setattr(connection, "connect", connect)
+        monkeypatch.setattr(connection, "_connect_locked", connect)
         monkeypatch.setattr(connection, "_restore_session_state", restore)
         # A live OUT_TRAN CAS answers the CHECK_CAS probe (#485).
         probe = MagicMock(return_value=SimpleNamespace(response_code=0))

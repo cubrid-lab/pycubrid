@@ -20,7 +20,8 @@ like DML. The model therefore tracks whether the test table is committed or
 only pending in the open transaction, and table-dependent rules run only when
 the table is known to exist (issue #487).
 
-Skipped when no CUBRID server is reachable. Budget follows the active Hypothesis
+Skipped when no CUBRID server is configured (errors when a configured one is
+unreachable; see the shared ``tests/conftest.py`` gate). Budget follows the active Hypothesis
 profile; stateful tests also honour ``stateful_step_count``.
 """
 
@@ -36,11 +37,11 @@ from hypothesis.stateful import RuleBasedStateMachine, invariant, precondition, 
 import pycubrid
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.no_escape_pin,
 ]
 
 

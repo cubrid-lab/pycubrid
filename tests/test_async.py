@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import struct
-from decimal import Decimal
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -481,6 +479,8 @@ def _make_mock_conn(autocommit: bool = False) -> MagicMock:
     conn._no_backslash_escapes = False
     conn._protocol_version = 1
     conn.autocommit = autocommit
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    conn._defer_close = MagicMock(return_value=False)
     return conn
 
 
@@ -970,6 +970,27 @@ class TestAsyncCursorMisc:
         await cur.callproc("myproc")
         assert captured["sql"] == "CALL myproc()"
 
+    @pytest.mark.parametrize("procname", ["foo..bar", "foo.", "foo.1bar", ".foo"])
+    @pytest.mark.asyncio
+    async def test_callproc_rejects_invalid_qualified_name(self, procname: str) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        cur.execute = AsyncMock()
+
+        with pytest.raises(ProgrammingError, match="Invalid stored procedure name"):
+            await cur.callproc(procname)
+
+        cur.execute.assert_not_awaited()
+
+    @pytest.mark.parametrize("procname", ["foo", "schema.proc", "_schema._proc2"])
+    @pytest.mark.asyncio
+    async def test_callproc_accepts_valid_qualified_name(self, procname: str) -> None:
+        cur = AsyncCursor(_make_mock_conn())
+        cur.execute = AsyncMock()
+
+        assert await cur.callproc(procname) == ()
+
+        cur.execute.assert_awaited_once_with(f"CALL {procname}()", ())
+
 
 class TestAsyncCursorBindParametersExtra:
     def test_bind_with_mapping_raises(self) -> None:
@@ -981,70 +1002,6 @@ class TestAsyncCursorBindParametersExtra:
         cur = AsyncCursor(_make_mock_conn())
         with pytest.raises(Exception, match="parameters must be a sequence"):
             cur._bind_parameters("SELECT ?", "abc")
-
-
-class TestAsyncCursorFormatParameter:
-    def _cur(self) -> AsyncCursor:
-        return AsyncCursor(_make_mock_conn())
-
-    def test_none(self) -> None:
-        assert self._cur()._format_parameter(None) == "NULL"
-
-    def test_bool_true(self) -> None:
-        assert self._cur()._format_parameter(True) == "1"
-
-    def test_bool_false(self) -> None:
-        assert self._cur()._format_parameter(False) == "0"
-
-    def test_string_escapes_quote(self) -> None:
-        assert self._cur()._format_parameter("a'b") == "'a''b'"
-
-    def test_bytes(self) -> None:
-        assert self._cur()._format_parameter(b"\xab\xcd") == "X'abcd'"
-
-    def test_datetime(self) -> None:
-        dt = datetime.datetime(2026, 4, 18, 12, 34, 56, 789000)
-        assert self._cur()._format_parameter(dt) == "DATETIME'2026-04-18 12:34:56.789'"
-
-    def test_date(self) -> None:
-        assert self._cur()._format_parameter(datetime.date(2026, 4, 18)) == "DATE'2026-04-18'"
-
-    def test_time(self) -> None:
-        assert self._cur()._format_parameter(datetime.time(12, 34, 56)) == "TIME'12:34:56'"
-
-    def test_decimal(self) -> None:
-        assert self._cur()._format_parameter(Decimal("3.14")) == "3.14"
-
-    def test_int(self) -> None:
-        assert self._cur()._format_parameter(42) == "42"
-
-    def test_float(self) -> None:
-        assert self._cur()._format_parameter(2.5) == "2.5"
-
-    def test_unsupported_raises(self) -> None:
-        with pytest.raises(Exception, match="unsupported parameter type"):
-            self._cur()._format_parameter(object())
-
-    def test_float_nan_raises(self) -> None:
-        with pytest.raises(Exception, match="nan and inf"):
-            self._cur()._format_parameter(float("nan"))
-
-    def test_float_inf_raises(self) -> None:
-        with pytest.raises(Exception, match="nan and inf"):
-            self._cur()._format_parameter(float("inf"))
-
-    def test_bytearray(self) -> None:
-        assert self._cur()._format_parameter(bytearray(b"\xca\xfe")) == "X'cafe'"
-
-    def test_datetime_tz_iana(self) -> None:
-        from zoneinfo import ZoneInfo
-
-        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=ZoneInfo("Asia/Seoul"))
-        assert self._cur()._format_parameter(dt) == "DATETIMETZ'2026-01-15 10:30:00.123 Asia/Seoul'"
-
-    def test_datetime_tz_utc(self) -> None:
-        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
-        assert self._cur()._format_parameter(dt) == "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'"
 
 
 class TestAsyncCursorBuildDescription:
@@ -1088,6 +1045,7 @@ class TestAsyncConnectModule:
                 password="",
                 decode_collections=False,
                 json_deserializer=None,
+                charset="utf-8",
                 autocommit=True,
             )
             instance.connect.assert_awaited()

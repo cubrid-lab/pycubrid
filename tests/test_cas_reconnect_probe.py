@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from pycubrid._connection_common import ConnectionCommonMixin
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
 from pycubrid.constants import CASFunctionCode
@@ -66,7 +67,7 @@ def _script(sock: MagicMock, chunks: list[bytes]) -> None:
 
 def _sync_out_tran() -> tuple[Connection, MagicMock]:
     conn, sock = make_connected_connection()
-    conn._cas_info = bytearray(OUT_TRAN)  # a fresh, unverified END_TRAN reply
+    conn._record_reply_cas_info(bytearray(OUT_TRAN))  # a fresh, unverified END_TRAN reply
     return conn, sock
 
 
@@ -124,9 +125,9 @@ def test_sync_verified_or_in_tran_status_is_not_probed_again() -> None:
 
     assert conn._check_reconnect() is False
     assert conn._check_reconnect() is False  # same CAS_INFO already verified live
-    conn._cas_info = bytearray(IN_TRAN)
+    conn._record_reply_cas_info(bytearray(IN_TRAN))
     assert conn._check_reconnect() is False  # IN_TRAN never probes
-    conn._cas_info = bytearray(OUT_TRAN)
+    conn._record_reply_cas_info(bytearray(OUT_TRAN))
     assert conn._check_reconnect(allow_reconnect=False) is False
 
     assert _function_codes(sock, start) == [CASFunctionCode.CHECK_CAS]
@@ -134,8 +135,8 @@ def test_sync_verified_or_in_tran_status_is_not_probed_again() -> None:
 
 def test_sync_fresh_session_and_healthy_ping_count_as_verified() -> None:
     conn, sock = make_connected_connection()
-    assert conn._cas_info is conn._verified_cas_info  # OPEN_DATABASE reply
-    conn._cas_info = bytearray(OUT_TRAN)
+    assert conn._cas_reply_verified  # OPEN_DATABASE reply
+    conn._record_reply_cas_info(bytearray(OUT_TRAN))
     _script(sock, _frames(build_simple_ok_response(OUT_TRAN)))
     start = sock.sendall.call_count
 
@@ -248,7 +249,8 @@ def test_sync_boundary_closes_open_handles_first(boundary: str) -> None:
 
 def test_sync_native_close_error_is_ignored_before_commit() -> None:
     conn, _ = make_connected_connection()
-    conn.cursor()._query_handle = 7
+    conn_cursor = conn.cursor()  # held: cursors are tracked weakly (#488)
+    conn_cursor._query_handle = 7
     sent: list[Any] = []
 
     def send(packet: Any) -> None:
@@ -263,7 +265,8 @@ def test_sync_native_close_error_is_ignored_before_commit() -> None:
 
 def test_sync_transport_failure_on_close_aborts_commit() -> None:
     conn, _ = make_connected_connection()
-    conn.cursor()._query_handle = 7
+    conn_cursor = conn.cursor()  # held: cursors are tracked weakly (#488)
+    conn_cursor._query_handle = 7
     sent: list[Any] = []
 
     def send(packet: Any) -> None:
@@ -319,7 +322,7 @@ class _FakeCas:
         if isinstance(packet, PrepareAndExecutePacket):
             packet.rows = [] if self.escape_length is None else [(self.escape_length,)]
             packet.query_handle = 5
-        self.conn._cas_info = bytearray(self.reply)
+        self.conn._record_reply_cas_info(bytearray(self.reply))
         return packet
 
     def kinds(self) -> list[tuple[int, type]]:
@@ -336,7 +339,7 @@ def _async_out_tran(**kwargs: Any) -> tuple[AsyncConnection, _FakeCas, AsyncMock
     conn._reader = MagicMock()
     conn._writer = MagicMock()
     conn._writer.wait_closed = AsyncMock()
-    conn._cas_info = bytearray(OUT_TRAN)
+    conn._record_reply_cas_info(bytearray(OUT_TRAN))
     cas = _FakeCas(conn)
     conn._do_send_and_receive = cas  # type: ignore[method-assign]
 
@@ -346,7 +349,7 @@ def _async_out_tran(**kwargs: Any) -> tuple[AsyncConnection, _FakeCas, AsyncMock
 
     async def handshake(reader: Any, stream_writer: Any) -> None:
         conn._reader, conn._writer = reader, stream_writer
-        conn._cas_info = bytearray(OUT_TRAN)
+        conn._record_reply_cas_info(bytearray(OUT_TRAN))
 
     conn._open_connection = open_connection  # type: ignore[method-assign]
     conn._do_connect_handshake = handshake  # type: ignore[method-assign]
@@ -369,9 +372,9 @@ async def test_async_verified_or_in_tran_status_is_not_probed_again() -> None:
 
     assert await conn._check_reconnect() is False
     assert await conn._check_reconnect() is False
-    conn._cas_info = bytearray(IN_TRAN)
+    conn._record_reply_cas_info(bytearray(IN_TRAN))
     assert await conn._check_reconnect() is False
-    conn._cas_info = bytearray(OUT_TRAN)
+    conn._record_reply_cas_info(bytearray(OUT_TRAN))
     assert await conn._check_reconnect(allow_reconnect=False) is False
     assert cas.kinds() == [(1, CheckCasPacket)]
 
@@ -526,7 +529,8 @@ async def test_async_requests_bound_to_the_replaced_session_are_not_sent() -> No
 @pytest.mark.asyncio
 async def test_async_close_never_probes_or_reconnects() -> None:
     conn, cas, open_connection = _async_out_tran()
-    conn.cursor()._query_handle = 4
+    conn_cursor = conn.cursor()  # held: cursors are tracked weakly (#488)
+    conn_cursor._query_handle = 4
 
     await conn.close()
 
@@ -539,7 +543,7 @@ async def test_async_close_never_probes_or_reconnects() -> None:
 @pytest.mark.parametrize("boundary", ["commit", "rollback"])
 async def test_async_boundary_closes_open_handles_first(boundary: str) -> None:
     conn, cas, _ = _async_out_tran()
-    conn._cas_info = bytearray(IN_TRAN)
+    conn._record_reply_cas_info(bytearray(IN_TRAN))
     cas.reply = IN_TRAN
     open_cursor, closed_cursor = conn.cursor(), conn.cursor()
     open_cursor._query_handle = 7
@@ -556,8 +560,9 @@ async def test_async_boundary_closes_open_handles_first(boundary: str) -> None:
 @pytest.mark.asyncio
 async def test_async_close_errors_before_commit() -> None:
     conn, cas, _ = _async_out_tran()
-    conn._cas_info = bytearray(IN_TRAN)
-    conn.cursor()._query_handle = 7
+    conn._record_reply_cas_info(bytearray(IN_TRAN))
+    conn_cursor = conn.cursor()  # held: cursors are tracked weakly (#488)
+    conn_cursor._query_handle = 7
 
     async def native_error(packet: Any) -> Any:
         if isinstance(packet, CloseQueryPacket):
@@ -570,8 +575,9 @@ async def test_async_close_errors_before_commit() -> None:
     assert cas.kinds() == [(1, CloseQueryPacket), (1, CommitPacket)]
 
     conn2, cas2, _ = _async_out_tran()
-    conn2._cas_info = bytearray(IN_TRAN)
-    conn2.cursor()._query_handle = 7
+    conn2._record_reply_cas_info(bytearray(IN_TRAN))
+    conn2_cursor = conn2.cursor()  # held: cursors are tracked weakly (#488)
+    conn2_cursor._query_handle = 7
     cas2.dead = True
     with pytest.raises(OperationalError, match="connection lost"):
         await conn2.commit()
@@ -724,7 +730,7 @@ async def test_async_execute_clears_reconnect_flag_for_its_new_result() -> None:
 async def test_async_handle_released_while_waiting_is_never_sent(by_reconnect: bool) -> None:
     """Another task's boundary frees handle 5 while this FETCH waits for _lock."""
     conn, cas, _ = _async_out_tran()
-    conn._cas_info = bytearray(IN_TRAN)
+    conn._record_reply_cas_info(bytearray(IN_TRAN))
     cas.reply = IN_TRAN
     cursor = conn.cursor()
     cursor._query_handle = 5
@@ -968,7 +974,7 @@ def test_sync_stale_bound_sql_is_rejected_before_any_probe() -> None:
 @pytest.mark.asyncio
 async def test_async_reconnect_between_bind_and_send_rejects_bound_sql() -> None:
     conn, cas, _ = _async_out_tran()
-    conn._cas_info = bytearray(IN_TRAN)  # no pre-bind probe
+    conn._record_reply_cas_info(bytearray(IN_TRAN))  # no pre-bind probe
     conn._autocommit = True
     schema = GetSchemaPacket(schema_type=1)
     schema.query_handle, schema.tuple_count, schema.columns = 4, 1, []
@@ -986,3 +992,213 @@ async def test_async_reconnect_between_bind_and_send_rejects_bound_sql() -> None
     ]
     assert statements == []
     assert conn._physical_generation == 2
+
+
+# -- autocommit setter keeps SET_DB_PARAMETER and COMMIT on one session (#551) --
+
+
+def _native_error_response(cas_info: bytes = IN_TRAN) -> bytes:
+    body = cas_info + struct.pack(">ii", -1, -1) + b"denied\x00"
+    return struct.pack(">i", len(body) - 4) + body
+
+
+def test_sync_setter_recycle_before_commit_restores_new_value_on_replacement() -> None:
+    conn, old = make_connected_connection()
+    # SET_DB_PARAMETER is answered OUT_TRAN, then the CAS closes the socket.
+    _script(old, _frames(build_simple_ok_response(OUT_TRAN)))
+    ok = build_simple_ok_response()
+    new = _replacement_socket(ok, ok)
+    old_start = old.sendall.call_count
+
+    with patch("socket.create_connection", return_value=new) as create:
+        conn.autocommit = True
+
+    create.assert_called_once()
+    assert conn.autocommit is True
+    assert _function_codes(old, old_start) == [
+        CASFunctionCode.SET_DB_PARAMETER,
+        CASFunctionCode.CHECK_CAS,
+    ]
+    # The replacement receives the new value before the COMMIT.
+    assert _function_codes(new, 2) == [CASFunctionCode.SET_DB_PARAMETER, CASFunctionCode.END_TRAN]
+    assert new.sendall.call_args_list[2].args[0][-4:] == struct.pack(">i", 1)
+
+
+def test_sync_setter_replaces_the_session_at_most_once() -> None:
+    conn, old = _sync_out_tran()
+    _script(old, [])  # the SET_DB_PARAMETER probe finds the CAS gone
+    # The replacement answers SET_DB_PARAMETER OUT_TRAN and is recycled too.
+    new = _replacement_socket(build_simple_ok_response(OUT_TRAN))
+
+    with patch("socket.create_connection", return_value=new) as create:
+        with pytest.raises(OperationalError, match="autocommit change"):
+            conn.autocommit = True
+
+    create.assert_called_once()
+    assert _function_codes(new, 2) == [CASFunctionCode.SET_DB_PARAMETER, CASFunctionCode.END_TRAN]
+    assert conn._connected is False
+    assert conn._autocommit is False
+    assert conn._autocommit_explicitly_set is False
+
+
+def test_sync_setter_commit_error_retires_session_and_keeps_previous_value() -> None:
+    conn, sock = make_connected_connection()
+    conn._autocommit_explicitly_set = True  # an earlier explicit False
+    _script(sock, _frames(build_simple_ok_response(), _native_error_response()))
+
+    with pytest.raises(OperationalError, match="autocommit change") as info:
+        conn.autocommit = True
+
+    assert type(info.value.__cause__).__name__ == "DatabaseError"
+    assert conn._connected is False
+    assert conn._socket is None
+    assert (conn._autocommit, conn._autocommit_explicitly_set) == (False, True)
+
+
+def test_sync_setter_native_set_error_keeps_session_and_value() -> None:
+    conn, sock = make_connected_connection()
+    _script(sock, _frames(_native_error_response()))
+    start = sock.sendall.call_count
+
+    with pytest.raises(Exception) as info:
+        conn.autocommit = True
+
+    assert not isinstance(info.value, OperationalError)
+    assert _function_codes(sock, start) == [CASFunctionCode.SET_DB_PARAMETER]
+    assert conn._connected is True
+    assert conn._autocommit is False
+    assert conn._autocommit_explicitly_set is False
+
+
+def test_sync_setter_interrupted_commit_retires_session_and_keeps_previous_value() -> None:
+    conn, sock = make_connected_connection()
+    _script(sock, _frames(build_simple_ok_response()))
+    original = conn._send_and_receive_locked
+
+    def interrupt_commit(packet: Any, **kwargs: Any) -> Any:
+        if isinstance(packet, CommitPacket):
+            raise KeyboardInterrupt
+        return original(packet, **kwargs)
+
+    with patch.object(conn, "_send_and_receive_locked", interrupt_commit):
+        with pytest.raises(KeyboardInterrupt):
+            conn.autocommit = True
+
+    assert conn._connected is False
+    assert conn._autocommit is False
+    assert conn._autocommit_explicitly_set is False
+
+
+@pytest.mark.asyncio
+async def test_async_setter_recycle_before_commit_restores_new_value_on_replacement() -> None:
+    conn, cas, open_connection = _async_out_tran(no_backslash_escapes=True)
+    cas.fail_on = {2}  # the COMMIT's CHECK_CAS finds the CAS recycled
+
+    await conn.set_autocommit(True)
+
+    open_connection.assert_awaited_once()
+    assert conn.autocommit is True
+    assert cas.kinds() == [
+        (1, CheckCasPacket),
+        (1, SetDbParameterPacket),
+        (1, CheckCasPacket),
+        (2, SetDbParameterPacket),  # restored before the COMMIT
+        (2, CheckCasPacket),
+        (2, CommitPacket),
+    ]
+    assert cas.sent[3][1].value == 1
+
+
+@pytest.mark.asyncio
+async def test_async_setter_replaces_the_session_at_most_once() -> None:
+    conn, cas, open_connection = _async_out_tran(no_backslash_escapes=True)
+    # The SET_DB_PARAMETER probe fails, then the replacement's COMMIT fails too.
+    cas.fail_on = {0, 2}
+
+    with pytest.raises(OperationalError, match="autocommit change"):
+        await conn.set_autocommit(True)
+
+    open_connection.assert_awaited_once()
+    # The COMMIT follows an OUT_TRAN reply but is not probed: no second reconnect.
+    assert cas.kinds() == [(1, CheckCasPacket), (2, SetDbParameterPacket), (2, CommitPacket)]
+    assert conn._connected is False
+    assert conn._autocommit is False
+    assert conn._autocommit_explicitly_set is False
+
+
+@pytest.mark.asyncio
+async def test_async_setter_cancelled_commit_retires_session_and_keeps_previous_value() -> None:
+    conn, cas, _ = _async_out_tran(no_backslash_escapes=True)
+    conn._autocommit_explicitly_set = True
+
+    async def cancel_commit(packet: Any) -> Any:
+        if isinstance(packet, CommitPacket):
+            raise asyncio.CancelledError
+        return await cas(packet)
+
+    with patch.object(conn, "_do_send_and_receive", cancel_commit):
+        with pytest.raises(asyncio.CancelledError):
+            await conn.set_autocommit(True)
+
+    assert conn._connected is False
+    assert (conn._autocommit, conn._autocommit_explicitly_set) == (False, True)
+
+
+# -- explicit per-reply verification (#525) ------------------------------------
+
+
+def test_reply_verification_is_explicit_per_reply_state() -> None:
+    conn = ConnectionCommonMixin()
+    conn._init_common_state(host="localhost", port=33000, database="d", user="u", password="")
+    assert conn._cas_status_unverified()  # no reply proved anything yet
+
+    conn._record_reply_cas_info(bytearray(OUT_TRAN))
+    assert conn._cas_status_unverified()
+    conn._mark_cas_reply_verified()
+    assert not conn._cas_status_unverified()
+
+    # The next reply needs its own proof even with the same object or bytes:
+    # the CAS may close the socket after any OUT_TRAN reply.
+    verified = conn._cas_info
+    conn._record_reply_cas_info(verified)
+    assert conn._cas_status_unverified()
+    conn._mark_cas_reply_verified()
+    conn._record_reply_cas_info(bytes(verified))
+    assert conn._cas_status_unverified()
+
+    conn._record_reply_cas_info(bytearray(IN_TRAN))
+    assert not conn._cas_status_unverified()  # IN_TRAN is never probed
+
+
+@pytest.mark.parametrize("same_object", [True, False])
+def test_sync_each_out_tran_reply_is_probed_even_with_identical_cas_info(
+    same_object: bool,
+) -> None:
+    conn, sock = _sync_out_tran()
+    ok = build_simple_ok_response(OUT_TRAN)
+    _script(sock, _frames(ok, ok))
+    start = sock.sendall.call_count
+
+    assert conn._check_reconnect() is False
+    verified = conn._cas_info
+    conn._record_reply_cas_info(verified if same_object else bytes(verified))
+    assert conn._check_reconnect() is False
+
+    assert _function_codes(sock, start) == [CASFunctionCode.CHECK_CAS] * 2
+    assert conn._socket is sock
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("same_object", [True, False])
+async def test_async_each_out_tran_reply_is_probed_even_with_identical_cas_info(
+    same_object: bool,
+) -> None:
+    conn, cas, open_connection = _async_out_tran()
+
+    assert await conn._check_reconnect() is False
+    verified = conn._cas_info
+    conn._record_reply_cas_info(verified if same_object else bytes(verified))
+    assert await conn._check_reconnect() is False
+
+    open_connection.assert_not_awaited()
+    assert cas.kinds() == [(1, CheckCasPacket), (1, CheckCasPacket)]

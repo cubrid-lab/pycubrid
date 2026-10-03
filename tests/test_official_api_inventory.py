@@ -15,6 +15,7 @@ import pycubrid.cursor
 import pycubrid.lob
 import pycubrid.types
 import pytest
+from pycubrid.compat import native
 
 CATALOG_PATH = Path(__file__).parent / "fixtures" / "official_api_inventory.json"
 CATALOG = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
@@ -175,9 +176,13 @@ def test_discrepancies_and_public_gaps_cannot_be_parity_passes() -> None:
         "not_null,scale,precision"
         in OPERATIONS["documented_cubrid.cursor.result_info"]["contract"]["returns"]
     )
-    for name in ("prepare", "bind_param", "bind_set", "bind_lob", "fetch_lob", "result_info"):
+    for name in ("prepare", "bind_param", "bind_set", "bind_lob", "fetch_lob"):
         row = OPERATIONS[f"documented_cubrid.cursor.{name}"]
         assert row["pycubrid"]["target"] is None and row["tracking"]
+    result_info = OPERATIONS["documented_cubrid.cursor.result_info"]
+    assert result_info["pycubrid"]["target"] == "pycubrid.compat.native.cursor.result_info"
+    assert result_info["pycubrid"]["relation"] == "different"
+    assert callable(native.cursor.result_info)
     assert (
         OPERATIONS["CUBRIDdb.cursors.BaseCursor.callproc"]["pycubrid"]["relation"]
         == "upstream_stub"

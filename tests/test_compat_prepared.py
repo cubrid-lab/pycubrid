@@ -10,7 +10,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from pycubrid.compat import native
-from pycubrid.constants import CUBRIDStatementType
+from pycubrid.constants import CCIDbParam, CUBRIDStatementType
 from pycubrid.exceptions import (
     DataError,
     InterfaceError,
@@ -22,6 +22,7 @@ from pycubrid.protocol import (
     CloseQueryPacket,
     ExecutePacket,
     FetchPacket,
+    GetDbParameterPacket,
     PrepareAndExecutePacket,
     PreparePacket,
 )
@@ -44,9 +45,13 @@ class FakeDriver:
         self._fetch_size = 2
         self._decode_collections = False
         self._json_deserializer = None
+        self._encoding = "utf-8"
         self._connected = True
         self._socket = object()
-        self.autocommit = kwargs["autocommit"]
+        self._autocommit = kwargs["autocommit"]
+        self._autocommit_explicitly_set = True
+        self._cas_info = b"\x00\x00\x00\x00"
+        self.initial_requests: list[GetDbParameterPacket] = []
         self.requests: list[tuple[object, int | None]] = []
         self.rows: list[tuple[object, ...]] = []
         self.close_calls = 0
@@ -58,9 +63,37 @@ class FakeDriver:
         self.drop_on_packet_failure = False
         self.created.append(self)
 
-    def _send_and_receive(self, packet: Any, *, expected_generation: int | None = None) -> Any:
+    @property
+    def autocommit(self) -> bool:
+        return self._autocommit
+
+    @autocommit.setter
+    def autocommit(self, value: bool) -> None:
+        self._autocommit = value
+
+    def _check_reconnect(self) -> bool:
+        return False
+
+    def _drop_connection(self) -> None:
+        self._connected = False
+
+    def _send_and_receive(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool = True,
+        expected_generation: int | None = None,
+    ) -> Any:
         if expected_generation != self._physical_generation:
             raise InterfaceError("stale prepared owner")
+        if isinstance(packet, GetDbParameterPacket):
+            self.initial_requests.append(packet)
+            packet.value = {
+                CCIDbParam.LOCK_TIMEOUT: -1,
+                CCIDbParam.MAX_STRING_LENGTH: 1_073_741_823,
+                CCIDbParam.ISOLATION_LEVEL: 4,
+            }[packet.parameter]
+            return packet
         self.requests.append((packet, expected_generation))
         if self.fail_packet_type is not None and isinstance(packet, self.fail_packet_type):
             if self.drop_on_packet_failure:
@@ -116,6 +149,11 @@ def fake_driver(monkeypatch: pytest.MonkeyPatch) -> FakeDriver:
     FakeDriver.created.clear()
     monkeypatch.setattr(native, "_DriverConnection", FakeDriver)
     conn = native.connect(DSN)
+    assert [packet.parameter for packet in conn._driver.initial_requests] == [
+        CCIDbParam.LOCK_TIMEOUT,
+        CCIDbParam.MAX_STRING_LENGTH,
+        CCIDbParam.ISOLATION_LEVEL,
+    ]
     conn._driver._native_connection = conn
     return conn._driver
 

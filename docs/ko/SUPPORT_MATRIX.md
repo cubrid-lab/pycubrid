@@ -33,14 +33,10 @@ pycubrid 릴리스의 호환성과 기능 지원.
 
 ### CI 매트릭스
 
-| 차원 | PR / push | 나이틀리 + 태그 + dispatch |
-|---|---|---|
-| 오프라인 테스트 | Python 3.10, 3.11, 3.12, 3.13, 3.14 | 동일 |
-| 통합 테스트 | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8잡 | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20잡 |
-
-5 × 4 전체 통합 매트릭스는 `.github/workflows/integration-full.yml`이 나이틀리 일정, 태그 릴리스, `workflow_dispatch` 요청 시 실행합니다.
-
----
+일반 PR은 Ubuntu/Python 3.12 대표 스모크 검사, 고위험 PR은 최신 CUBRID 조합을
+추가하고 같은 단일 레인에서 전체 오프라인 회귀 검사(커버리지 제외)를 수행합니다. main 및 최근 변경이 있는 주간 실행은 전체 오프라인 커버리지와
+최저·최신 대표 통합 검사를 수행합니다. 전체 Python/CUBRID 매트릭스는 릴리즈와
+명시적 수동 실행에서 유지합니다. [CI 실행 정책](CI_POLICY.md)을 참고하세요.
 
 ## 기능 지원
 
@@ -54,7 +50,7 @@ pycubrid 릴리스의 호환성과 기능 지원.
 | `connect()` | ✅ | 모듈 수준 생성자 |
 | `Connection` | ✅ | 전체 수명 주기: 커밋, 롤백, 종료, 오토커밋 |
 | `Cursor` | ✅ | execute, executemany, fetch*, callproc, description, rowcount |
-| `Cursor.nextset()` | ✅ | 1.2.0부터 (#79) |
+| `Cursor.nextset()` | ✅ | 1.2.0부터 (#79) — `NotSupportedError` 발생, CUBRID는 다중 결과 집합이 없음 |
 | 예외 계층 | ✅ | PEP 249 예외 클래스 전체 10종 |
 | `DatabaseError`의 `errno` / `sqlstate` | ✅ | 1.2.0부터 (#71) — SQLSTATE 매핑 19종 |
 | 타입 객체 | ✅ | STRING, BINARY, NUMBER, DATETIME, ROWID |
@@ -138,7 +134,7 @@ pycubrid 릴리스의 호환성과 기능 지원.
 
 | 기능 | 상태 | 도입 | 비고 |
 |---|---|---|---|
-| `cursor.execute(sql, params)` | ✅ | 1.0.0 | 서버 측 `PREPARE_AND_EXECUTE` |
+| `cursor.execute(sql, params)` | ✅ | 1.0.0 | 드라이버 측 리터럴 바인딩. 렌더링된 SQL을 `PREPARE_AND_EXECUTE`로 전송(서버 측 타입 바인딩 없음) — [PARAMETER_BINDING.md](PARAMETER_BINDING.md) 참고 |
 | `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | 비-SELECT DML을 `BatchExecutePacket`으로 배치. SELECT만 행별 루프로 폴백 |
 | `cursor.executemany_batch(sql_list, auto_commit=None)` | ✅ | 1.0.0 | 단일 왕복 `BatchExecutePacket` |
 | `cursor.callproc(name, params)` | ✅ | 1.0.0 | 저장 프로시저 호출 |
@@ -188,8 +184,8 @@ pycubrid 릴리스의 호환성과 기능 지원.
 |---|---|
 | 오프라인 테스트 | 770 |
 | 전체 테스트 | 811 |
-| 통합 잡 (PR / push) | 8 (Python {3.10, 3.14} × CUBRID 4버전) |
-| 통합 잡 (나이틀리 + 태그 + dispatch) | 20 (Python 5버전 × CUBRID 4버전) |
+| 대표 통합 검사 | 고위험 PR: 최신 조합; main/변경이 있는 주간 실행: 최저·최신 조합 |
+| 전체 통합 (릴리스 workflow_call + 수동 dispatch) | 20 (Python 5버전 × CUBRID 4버전) |
 | 스트레스 테스트 | 스레드 (워커 16 × insert 25, 리더 32) 및 `asyncio.gather` (워커 16, 리더 32) |
 | 재연결 / 네트워크 엣지 케이스 | 리셋·타임아웃·broken pipe·부분 읽기를 다루는 17개 테스트 |
 | 커버리지 하한 | 95% (CI 강제) |
@@ -199,3 +195,8 @@ pycubrid 릴리스의 호환성과 기능 지원.
 [^lob]: LOB 컬럼 fetch는 내용이 아니라 핸들 딕셔너리를 반환합니다. 바이트를 읽으려면 `packed_lob_handle`과 함께 `pycubrid.lob.Lob`을 사용하거나, CLOB/BLOB 값을 쓸 때 `str`/`bytes`를 직접 삽입하세요.
 
 *참고: [연결 가이드](CONNECTION.md) · [타입 시스템](TYPES.md) · [API 참조](API_REFERENCE.md) · [성능 가이드](PERFORMANCE.md) · [변경 이력](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)*
+
+## CI 실행 범위
+
+일반 PR은 최소 대표 검사를 사용합니다. 전체 호환성은 릴리즈와 명시적 수동 실행에서
+확인합니다. 자세한 내용은 [CI 실행 정책](CI_POLICY.md)을 참고하세요.

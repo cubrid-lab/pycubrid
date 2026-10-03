@@ -15,7 +15,21 @@ import pytest
 
 import pycubrid
 
+pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_readiness_helper_change_selects_required_code_lanes() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    jobs = workflow["jobs"]
+    filters = yaml.safe_load(jobs["detect-changes"]["steps"][-1]["with"]["filters"])
+    assert "scripts/**" in filters["risk"]
+    assert "scripts/**" in filters["official"]
+    assert "outputs.live" in jobs["integration-tests"]["if"]
+    assert "outputs.official" in jobs["official-differential"]["if"]
 
 
 @pytest.mark.parametrize("workflow", ["ci.yml", "integration-full.yml"])

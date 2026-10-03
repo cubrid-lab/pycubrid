@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import ssl as ssl_module
-from functools import lru_cache
 
 import pytest
 
@@ -12,11 +11,7 @@ import pycubrid.aio
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.exceptions import OperationalError
 
-TEST_HOST = os.environ.get("CUBRID_TEST_HOST", "localhost")
-TEST_PORT = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-TEST_DB = os.environ.get("CUBRID_TEST_DB", "testdb")
-TEST_USER = os.environ.get("CUBRID_TEST_USER", "dba")
-TEST_PASSWORD = os.environ.get("CUBRID_TEST_PASSWORD", "")
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 TLS_HOST = os.environ.get("CUBRID_TLS_TEST_HOST", TEST_HOST)
 TLS_PORT = int(os.environ.get("CUBRID_TLS_TEST_PORT", str(TEST_PORT)))
@@ -26,59 +21,37 @@ TLS_PASSWORD = os.environ.get("CUBRID_TLS_TEST_PASSWORD", TEST_PASSWORD)
 TLS_CA_FILE = os.environ.get("CUBRID_TLS_TEST_CA_FILE")
 TLS_MISMATCH_HOST = os.environ.get("CUBRID_TLS_TEST_MISMATCH_HOST")
 
-TLS_DEFAULT_REASON = (
-    "TLS-enabled CUBRID broker with default trust is not available; configure a trusted broker "
-    "via CUBRID_TLS_TEST_* or SSL_CERT_FILE"
+DEFAULT_TRUST_FILE = os.environ.get("SSL_CERT_FILE")
+
+# Configuration-only gates (#522): an unconfigured TLS broker skips, but a
+# configured one that is unreachable or not serving TLS fails the test's own
+# connection attempt instead of being probed away at import time. Mirrors
+# ``tls_broker`` in ``tests/test_tls_matrix_integration.py``.
+requires_tls_broker = pytest.mark.skipif(
+    TLS_CA_FILE is None,
+    reason=(
+        "TLS-enabled CUBRID broker not configured; set CUBRID_TLS_TEST_* "
+        "(including CUBRID_TLS_TEST_CA_FILE)"
+    ),
 )
-TLS_CUSTOM_REASON = (
-    "TLS-enabled CUBRID broker is not available for custom SSLContext testing; configure "
-    "CUBRID_TLS_TEST_*"
+requires_default_trust = pytest.mark.skipif(
+    DEFAULT_TRUST_FILE is None,
+    reason="Set SSL_CERT_FILE to the broker CA so ssl=True can verify the TLS broker",
 )
 TLS_MISMATCH_REASON = (
     "Set CUBRID_TLS_TEST_MISMATCH_HOST to a reachable alternate host/IP that is not covered "
     "by the broker certificate"
 )
 
-pytestmark = [pytest.mark.integration, pytest.mark.tls]
+pytestmark = [pytest.mark.integration, pytest.mark.tls, pytest.mark.no_escape_pin]
 
 
 def _custom_ssl_context() -> ssl_module.SSLContext:
     context = ssl_module.create_default_context()
+    context.minimum_version = ssl_module.TLSVersion.TLSv1_2
     if TLS_CA_FILE:
         context.load_verify_locations(cafile=TLS_CA_FILE)
     return context
-
-
-def _can_connect_with_ssl(ssl_value: bool | ssl_module.SSLContext, *, host: str) -> bool:
-    try:
-        conn = pycubrid.connect(
-            host=host,
-            port=TLS_PORT,
-            database=TLS_DB,
-            user=TLS_USER,
-            password=TLS_PASSWORD,
-            connect_timeout=5,
-            read_timeout=5,
-            ssl=ssl_value,
-        )
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        assert cur.fetchone() == (1,)
-        cur.close()
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-
-@lru_cache(maxsize=None)
-def _can_connect_tls_default() -> bool:
-    return _can_connect_with_ssl(True, host=TLS_HOST)
-
-
-@lru_cache(maxsize=None)
-def _can_connect_tls_custom() -> bool:
-    return _can_connect_with_ssl(_custom_ssl_context(), host=TLS_HOST)
 
 
 async def _connect_async(
@@ -118,7 +91,8 @@ def _require_mismatch_host() -> str:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not _can_connect_tls_default(), reason=TLS_DEFAULT_REASON)
+@requires_tls_broker
+@requires_default_trust
 async def test_aio_ssl_connect_default_context() -> None:
     conn = await _connect_async(True)
     try:
@@ -129,7 +103,7 @@ async def test_aio_ssl_connect_default_context() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not _can_connect_tls_custom(), reason=TLS_CUSTOM_REASON)
+@requires_tls_broker
 async def test_aio_ssl_connect_custom_context() -> None:
     conn = await _connect_async(_custom_ssl_context())
     try:
@@ -140,7 +114,7 @@ async def test_aio_ssl_connect_custom_context() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not _can_connect_tls_custom(), reason=TLS_CUSTOM_REASON)
+@requires_tls_broker
 @pytest.mark.skipif(TLS_MISMATCH_HOST is None, reason=TLS_MISMATCH_REASON)
 async def test_aio_ssl_handshake_failure() -> None:
     with pytest.raises(OperationalError) as excinfo:
@@ -150,14 +124,14 @@ async def test_aio_ssl_handshake_failure() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not _can_connect_tls_custom(), reason=TLS_CUSTOM_REASON)
+@requires_tls_broker
 async def test_aio_ssl_out_tran_keeps_tls_session() -> None:
     conn = await _connect_async(_custom_ssl_context())
     try:
         original_writer = conn._writer
         _assert_tls_transport(conn)
 
-        conn._cas_info = bytes([conn._CAS_INFO_STATUS_INACTIVE, *conn._cas_info[1:]])
+        conn._record_reply_cas_info(bytes([conn._CAS_INFO_STATUS_INACTIVE, *conn._cas_info[1:]]))
 
         assert await conn.ping(reconnect=True) is True
         assert conn._writer is not None
@@ -169,7 +143,7 @@ async def test_aio_ssl_out_tran_keeps_tls_session() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not _can_connect_tls_custom(), reason=TLS_CUSTOM_REASON)
+@requires_tls_broker
 async def test_aio_ssl_clean_shutdown() -> None:
     conn = await _connect_async(_custom_ssl_context())
 

@@ -15,6 +15,7 @@ Technical documentation for the CUBRID CAS (Common Application Server) wire prot
 - [Packet Classes](#packet-classes)
   - [ClientInfoExchangePacket](#clientinfoexchangepacket)
   - [OpenDatabasePacket](#opendatabasepacket)
+  - [Connection charset](#connection-charset)
   - [PrepareAndExecutePacket](#prepareandexecutepacket)
   - [PreparePacket](#preparepacket)
   - [ExecutePacket](#executepacket)
@@ -99,6 +100,55 @@ may also justify explicit `ping(reconnect=True)` recovery, but an uncertain
 application request is never replayed automatically. Commit and rollback send
 `CLOSE_REQ` (FC=6) for open cursor query handles before `END_TRAN`.
 
+Deferred close (#488): when a direct CUBRID CAS reports statement pooling in
+`OPEN_DATABASE` (`broker_info[0] == 1` and `broker_info[2] == 1`), query handles survive `END_TRAN`, so in
+autocommit mode a handle released by `cursor.close()` or by re-executing a cursor,
+and in either mode the handle of a cursor collected without `close()`, is not
+closed with its own `CLOSE_REQ`. Its id is appended to the next FC41 request as
+extra prepare arguments after the auto-commit flag (the prepare argument count
+grows by one per id), and CAS frees those handles before preparing the statement.
+This is the wire mechanism of JDBC's deferred close, but the policy differs: JDBC
+defers only statements without a result set and closes SELECT/CALL/EVALUATE
+handles at once (`CLOSE_USTATEMENT`), while pycubrid defers result-set handles too.
+A native error in that statement still frees them. One statement carries at most
+256 ids; an explicit release while 256 are queued sends `CLOSE_REQ` at once, and
+collected cursors are always queued and ride on later statements. FC20 batch
+requests do not carry queued IDs: a handle released by `executemany()` waits
+for a later FC41 or transaction boundary. Empty `executemany()` sends no batch
+SQL and does not flush the queue; when its previous handle can be deferred, it
+also sends no `CLOSE_REQ`. Existing immediate-close rules still apply when
+deferral is unavailable (including a full queue). `commit()` and
+`rollback()` close every id still queued for the session with `CLOSE_REQ` before
+`END_TRAN`, as they closed unreferenced cursors before. Queued ids
+belong to one physical session: they are dropped when it is retired or replaced
+and never sent to another. Without statement pooling CAS frees handles at every
+commit, so `CLOSE_REQ` is sent at once as before and a collected cursor's handle is
+left to the next commit. A shard proxy (`broker_info[0]` other than `1`, CUBRID)
+ignores the extra arguments, so explicit releases still send `CLOSE_REQ` at once.
+Collected proxy cursor handles rely on proxy transaction/session cleanup. Explicit releases
+during session setup (the escape-mode probe and restored settings of a replacement
+session) are never deferred; a cursor collected on an eligible direct, pooling-enabled
+session may queue its handle during setup, since it cannot send anything.
+Each handle keeps the generation of the session that opened it, so a cursor collected
+after a reconnect cannot release a handle id on the new session.
+
+Pooling-off ownership (#584): a direct CUBRID CAS with statement pooling
+explicitly disabled frees all ordinary cursor and schema handles at a transaction
+boundary, and can immediately reuse their IDs on the same physical session.
+The driver retires ownership when the actual reply is OUT_TRAN for END_TRAN,
+an autocommitting FC41/FC3 or version request, a failed autocommit FC2 which
+auto-rolls back, or the final ordinary autocommit FETCH. Successful FC2 prepare
+does not establish a boundary. This runs before parsing the reply and before an
+INSERT's identity RPC:
+that subsequent RPC can return IN_TRAN although the preceding commit freed the
+handles. The current FC41 result is not adopted when its reply already freed it,
+including a complete-reply `DataError`. Buffered rows remain readable; a required
+FETCH from an unfinished invalidated result raises `InterfaceError`, while a
+completed result retains normal EOF. Physical generation and session verification
+are unchanged. OUT_TRAN echoes from CHECK_CAS, CLOSE_REQ, parameters, schema
+requests/fetches and batch replies do not independently prove this boundary;
+manual FETCH and pooling-enabled/proxy sessions keep their existing behavior.
+
 Automatic `no_backslash_escapes` detection is scoped to a physical session:
 new sessions are probed before parameter binding resumes, while a healthy
 same-session `CHECK_CAS` does not probe. Explicit mode remains pinned. If
@@ -158,7 +208,18 @@ If `ssl` was truthy on the connect call, the live transport is upgraded **before
 - Async driver: `loop.start_tls(transport, protocol, context, server_hostname=host,
   ssl_handshake_timeout=...)`
 
-A failed handshake aborts the transport rather than leaking it.
+The TLS handshake uses `read_timeout` when configured, otherwise a 10-second
+default. That default does not bound subsequent requests; `connect_timeout`
+still bounds only the TCP connect.
+
+On Python 3.10, the async certificate preflight uses memory BIOs on an owned
+raw socket. Sends, receives and handshake completion share one monotonic
+deadline. A failed required final-flight send propagates; optional close-notify
+is best-effort within the same budget. The probe always closes its socket.
+
+Failed handshakes abort the transport. The primary sync Python 3.10
+`wrap_socket()` upgrade has a documented CPython reset/resource-warning
+limitation; see [Connection configuration](CONNECTION.md).
 
 ### Phase 2: Open Database
 
@@ -307,6 +368,27 @@ packet.parse(response_data) # Framed response with CAS info prefix
 | `broker_info`    | `dict`  | `{db_type, protocol_version, statement_pooling}` |
 | `session_id`     | `int`   | Server session identifier |
 
+Database, user and password are encoded with the connection `charset` (default
+UTF-8) and cut to their 32-byte fields on a character boundary, so a multibyte
+character is never split (#86).
+
+### Connection charset
+
+The CAS protocol carries no client charset and the broker converts nothing: the
+server interprets request text in the database charset and returns each value
+in its column's charset. `charset` (default `"utf-8"`, #86) is therefore a
+client-side codec. Every packet built by a connection carries it
+(`packet.encoding`, set before `write()`), and `PacketWriter` / `PacketReader`
+use it for SQL text, FC9 arguments, credentials, character values, collection
+elements, column metadata names and defaults, and error text (with
+`errors="replace"`, as are LOB file locators, which embed the table name).
+Fetched `JSON` values are always UTF-8. `NUMERIC` text, timezone names and the
+engine version string stay UTF-8, and LOB contents are raw bytes. With
+`euc_kr`, Hangul outside KS X 1001, which Python encodes as an 8-byte makeup
+sequence starting `A4 D4`, is treated as unencodable. An encode failure raises `DataError` inside `write()`, before the
+request is sent; a strict decode failure raises `DataError` after the whole
+reply was read, so the session stays usable.
+
 ---
 
 ### PrepareAndExecutePacket
@@ -333,8 +415,8 @@ packet.parse(response_data) # Framed response with CAS info prefix
 **Prepare a statement** (FC=2) — separate prepare step.
 
 The internal packet accepts `prepare_flag=NORMAL` (legacy default) or
-`HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or invalid
-UTF-8 is rejected before FC2. This is internal wire groundwork for
+`HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or text the
+connection charset cannot encode is rejected before FC2. This is internal wire groundwork for
 [#439](PREPARED_BINDING_DESIGN.md), **not** a public prepared cursor.
 
 | Attribute        | Type   | Description |
@@ -353,11 +435,55 @@ UTF-8 is rejected before FC2. This is internal wire groundwork for
 
 After ten fixed arguments, the packet writes two length-prefixed arguments
 per validated scalar binding: type byte and value bytes. The supported
-internal subset is signed INT32 (`8`, four big-endian bytes), UTF-8 CHAR
-(`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
+internal subset is signed INT32 (`8`, four big-endian bytes), CHAR in the
+connection charset (`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
 NUL byte, not NULL. The optional `bind_count` must match the number of
 bindings. The forward-only byte follows effective autocommit: `1` in auto
 mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
+
+The typed collection binding (#482) uses
+the same pair. The type argument is the collection kind: SET (`16`), MULTISET
+(`17`) or SEQUENCE (`18`). The value argument is one element-type byte, INT
+(`8`) or STRING (`2`, the byte the official driver sends), followed by one
+`int32 length + payload` per element. There is no element count in the
+request. An INT element is four big-endian bytes, a string element is the
+connection-charset bytes plus NUL, and a NULL element has length 0. An empty
+collection is the element-type byte alone. Whole SQL NULL is the scalar NULL
+pair, not a collection. The broker stops parsing silently and keeps the
+partial collection when an element length overruns the argument
+(`cas_execute.c`), so elements are validated before any bytes are built:
+input must be a flat tuple; INT elements are `int` (not `bool`) or canonical
+decimal strings, not both in one collection; string elements are `str`
+without NUL. Mixed, nested, `bool`, `float` and `bytes` elements are rejected.
+On CUBRID 10.2 and 11.4 the broker rejects the MULTISET kind with error -454
+(it wraps the multiset with `db_make_set()`), and a SET value stored into a
+MULTISET column loses duplicates; a SEQUENCE value keeps them.
+
+The public `pycubrid.compat.native` `set.imports()` (#440) builds this pair
+the way the official driver does: every element is a STRING (`2`) element,
+whatever element type is requested (INT elements are their decimal text), and
+the default kind is SET (`16`), so its bytes equal the official request.
+`kind=MULTISET` is sent as SEQUENCE (`18`), never as `17`.
+
+A LOB-handle binding (#441; public only through `pycubrid.compat.native`
+`fetch_lob()`/`bind_lob()`) uses the same pair.
+The type argument is BLOB (`23`) or CLOB (`24`) and the value argument is the
+packed handle `[int32 db_type][int64 size][int32 locator length][locator
+NUL]`. This is byte for byte what the official driver sends for `bind_lob()`
+when its lob type matches the column; the official driver takes the type byte
+from result column 1, and the broker ignores that byte in favor of the
+handle's own `db_type`. The
+`db_type` must match the type argument (BLOB `33`, CLOB `34`), and the
+locator length must cover the rest of the handle exactly. The broker builds
+the stored value from the handle's own size field (`caslob_to_dblob` in
+`cas_execute.c`), so a handle with a stale size stores the wrong length. CCI
+raises that field to the end of each LOB_WRITE, and `Lob.write()` now does
+the same. A binding is sent only on the physical session it was made for,
+identified by its connection and that connection's session generation
+(generation numbers alone repeat across connections). On
+CUBRID 10.2 and 11.4 a fetched handle is copied into the new row and can be
+bound again, while a handle from LOB_NEW names a temporary file that its first
+autocommit statement takes over, even when that statement fails.
 
 For protocol version >1, an `include_column_info=1` response carries the
 full FC2 prepare-info tail before the shard ID and inline FETCH. The parser
@@ -441,7 +567,7 @@ request carries length-prefixed arguments in this order: schema type (`int`),
 first name/pattern (`string` or NULL), second name/pattern (`string` or NULL),
 flags (`byte`), then shard ID (`int`, protocol V5 and newer). NULL is a zero-length
 argument; an empty string contains its NUL terminator and is a different argument.
-Strings retain the driver's existing UTF-8 encoding.
+Strings use the connection charset (default UTF-8).
 
 After the response handle and tuple count, the column count precedes condensed
 columns: type (one or two bytes), scale (`int16`), precision (`int32`), name length
@@ -492,6 +618,16 @@ and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63a
 ### LOBWritePacket
 
 **Write LOB data** (FC=36).
+
+| Attribute       | Type  | Description |
+|-----------------|-------|-------------|
+| `bytes_written` | `int` | Bytes the server wrote |
+
+The request carries the packed handle, an `int64` offset and the data. The
+server only appends: on CUBRID 10.2 and 11.4 a write at any offset other than
+the current size, inside the value or past its end, fails with -1016. After
+a successful write, `Lob.write()` raises the handle's size field to
+`offset + bytes_written` (never lowers it), as CCI does.
 
 ---
 
@@ -570,8 +706,8 @@ Available parameters (`CCIDbParam`):
 | `_write_double(value)` | Raw double (8B) |
 | `_write_bytes(value)` | Raw bytes, no prefix |
 | `_write_filler(count, value)` | Fill N bytes with value |
-| `_write_null_terminated_string(value)` | Length-prefixed UTF-8 string + null terminator |
-| `_write_fixed_length_string(value, length)` | Fixed-width null-padded string |
+| `_write_null_terminated_string(value)` | Length-prefixed string in the connection charset (default UTF-8) + null terminator |
+| `_write_fixed_length_string(value, length)` | Fixed-width null-padded string, cut on a character boundary |
 
 ---
 
@@ -591,6 +727,50 @@ Available parameters (`CCIDbParam`):
 | `_parse_double()` | `float` | 8 |
 | `_parse_bytes(count)` | `bytes` | `count` |
 | `_parse_null_terminated_string(length)` | `str` | `length` |
+
+Every read stays inside the reply (#383). A length-prefixed read (bytes, text,
+`NUMERIC`, `JSON`, a raw collection or LOB handle, `_skip_bytes()`) checks
+`0 <= length <= bytes_remaining()` before it moves and raises `ValueError`
+otherwise; a fixed-width read past the end raises `struct.error` or
+`IndexError`. A failed read leaves the offset unchanged. Text readers return
+`""` for a non-positive length without moving. A decoded collection's elements
+must fill its declared size exactly, and a `LOB_READ` byte count must fit the
+reply (a count below the requested length is a valid short read). Each row cell
+of a FETCH or inline execute reply must use exactly the bytes its size word
+declares: fixed-width values (`INT`, `DATE`, `OBJECT`, ...) do not read the size
+themselves, so the row parser checks it against the type's width before reading
+the value (#523), also when it re-walks a reply before raising `DataError`; a
+non-positive size is SQL `NULL`. A negative FETCH tuple count is malformed too, and
+so is a negative column count or column name, real-name, table-name or default
+length in FC2, FC3 or FC41 column metadata (#555); a zero length is an empty
+string. FC41 also rejects a negative bind count, `total_tuple_count` or inline
+tuple count, and a column count the rest of the reply cannot hold (31 bytes per
+column at least), as FC2 does; FC3 rejects a negative inline tuple count (#581).
+Column metadata text that the connection codec cannot decode is deferred after
+the remaining metadata is walked by its declared lengths (#581). FC41 and FC3
+with refreshed columns then validate their remaining tail, counts and inline
+rows before re-raising the first metadata `DataError`; later structural damage
+still wins (#591). This error path does not call application JSON deserializers,
+and validates subsequent cells even if an earlier row value is unrepresentable.
+Known collection framing is checked even when normal results use opaque bytes;
+negative element counts are malformed. A partially present inline-fetch header
+is malformed; an absent optional header remains supported. The
+connection turns these exceptions into `OperationalError("malformed response
+from broker")` and closes; `DataError` stays reserved for a complete reply
+whose value Python cannot represent (#492, #512). Unread bytes after the last
+value a reply declares are not checked.
+
+For known decoded collection member types, each length word and payload must
+fit the collection and the value decoder must consume exactly its declared
+bytes. After a complete element raises `DataError`, later elements still run
+their real decoders: a malformed representation wins over the saved error
+(#595). A complete collection retains the first conversion error and its cause.
+NULL-only, opaque/disabled decoding and unsupported nested member layouts
+retain their existing contracts; no recursive decoding capability is added.
+
+Internal bounds re-walks use `PacketReader.mark()` and `seek(position)`.
+Seeking outside the reply or to a non-integer position raises `ValueError`
+without moving the reader; zero and the end of the reply are valid positions.
 
 ### Composite Parsers
 
@@ -619,15 +799,29 @@ byte carries the full scalar/element type (including codes above 31); otherwise
 the low five bits carry it. Collection row dispatch uses the collection kind,
 not that element type.
 
+Cells of a `CALL` / `EVALUATE` result and of a column whose metadata type is
+`NULL` (`SELECT NULL`, ...) carry their own type header before the value, and
+the cell size counts it. Protocol 7+ brokers (CUBRID 10.2+) write it like
+column metadata: `0x80 | collection bits | charset`, then the type byte, for
+example `00000006 83 08 0000002a` for `CALL` of a function returning `INT` 42
+and `0000000a 83 13 <8-byte OID>` for `CALL find_user('dba') ON CLASS db_user`.
+Older brokers write one type byte. The driver reads either layout (#542); a
+header longer than its cell is a malformed reply.
+
+A collection value is one element-type byte, a 4-byte element count, then a
+4-byte length and payload per element; a NULL element has length `-1` and no
+payload. When every element is NULL, CUBRID 10.2/11.4 send element type `0`
+(NULL): `{}` is `00 00000000` and `{NULL, NULL}` is `00 00000002 ffffffff ffffffff`.
+
 Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:
 
 | Type Code | Name       | Wire Format |
 |-----------|------------|-------------|
 | 0         | `NULL`     | size ≤ 0 → `None` |
-| 1         | `CHAR`     | Null-terminated UTF-8 string |
-| 2         | `STRING`   | Null-terminated UTF-8 string |
-| 3         | `NCHAR`    | Null-terminated UTF-8 string |
-| 4         | `VARNCHAR` | Null-terminated UTF-8 string |
+| 1         | `CHAR`     | Null-terminated string in the connection charset (default UTF-8) |
+| 2         | `STRING`   | Null-terminated string in the connection charset (default UTF-8) |
+| 3         | `NCHAR`    | Null-terminated string in the connection charset (default UTF-8) |
+| 4         | `VARNCHAR` | Null-terminated string in the connection charset (default UTF-8) |
 | 5         | `BIT`      | Raw bytes |
 | 6         | `VARBIT`   | Raw bytes |
 | 7         | `NUMERIC`  | Null-terminated string → `Decimal` |
@@ -645,7 +839,7 @@ Column data is transmitted as a 4-byte size prefix followed by the raw data. The
 | 22        | `DATETIME` | 7 shorts: y, m, d, h, m, s, ms |
 | 23        | `BLOB`     | Packed LOB handle → `dict` |
 | 24        | `CLOB`     | Packed LOB handle → `dict` |
-| 25        | `ENUM`     | Null-terminated UTF-8 string |
+| 25        | `ENUM`     | Null-terminated string in the connection charset (default UTF-8) |
 
 ### Column Metadata
 

@@ -65,10 +65,10 @@ pycubrid 사용 관련 자주 묻는 질문과 실용적인 답변.
     ```
 
 ??? "어떤 문자 인코딩을 지원하나요?"
-    pycubrid는 표준 CUBRID 문자 타입과 Python `str` 값을 지원합니다.
+    기본은 UTF-8입니다. 다른 문자셋으로 만든 데이터베이스라면 `charset`으로 지정하세요. 예: `pycubrid.connect(database="kodb", charset="euckr")` (`pycubrid.aio.connect`도 동일). CUBRID 이름 `utf8`, `euckr`, `iso88591`와 ASCII 투명한 Python 코덱을 받으며, UTF-16/32, Shift_JIS, Big5, GBK, CP949처럼 멀티바이트 문자 안에 ASCII 바이트를 만들 수 있는 코덱은 거부합니다.
 
     !!! note
-        다국어 텍스트 워크로드(NCHAR/VARNCHAR)에서는 데이터베이스 콜레이션과 서버/클라이언트 문자셋 설정을 함께 확인하세요.
+        브로커는 문자셋을 변환하지 않습니다. 클라이언트 코덱은 데이터베이스 문자셋과 같아야 하며, 모든 값은 해당 컬럼의 문자셋으로 도착합니다. EUC-KR 데이터베이스 안의 `CHARSET utf8` 컬럼은 `charset="euckr"`에서 `DataError`를 발생시키므로 SQL에서 `CAST(col AS VARCHAR(n) CHARSET euckr)`로 변환하세요. JSON은 항상 UTF-8입니다. [문자 인코딩](CONNECTION.md#문자-인코딩)을 참고하세요.
 
 ??? "에러는 어떻게 제대로 처리하나요?"
     구체적인 DB-API 예외(`IntegrityError`, `ProgrammingError`, `OperationalError`)를 먼저 잡고, 그다음 `Error`로 폴백하세요.

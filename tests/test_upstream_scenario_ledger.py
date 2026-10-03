@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "tests/fixtures/upstream_scenarios.csv"
 CLASSIFICATIONS = {
@@ -136,7 +138,7 @@ def test_ledger_accounting_and_references(
         "tests3": 184,
     }
     related = {node for row in ledger for node in row["related_nodes"].split("|") if node}
-    assert len(related) == 41
+    assert len(related) == 42
     assert any(row["function"] == "test_" for row in declarations)
 
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import copy
 import datetime
 import struct
 from decimal import Decimal
+from typing import Callable, TypeAlias
 
 import pytest
 
@@ -51,6 +53,7 @@ from pycubrid.protocol import (
     ResultInfo,
     RollbackPacket,
     SetDbParameterPacket,
+    _add_error_hints,
     _parse_column_metadata,
     _parse_result_infos,
     _parse_row_data,
@@ -173,6 +176,7 @@ class TestColumnMetaData:
         assert col.is_reverse_unique is False
         assert col.is_foreign_key is False
         assert col.is_shared is False
+        assert col._cci_type is None
 
     def test_custom_values(self) -> None:
         col = ColumnMetaData(
@@ -258,6 +262,63 @@ class TestRaiseError:
         reader = PacketReader(error_body)
         with pytest.raises(ProgrammingError, match="Unknown class"):
             _raise_error(reader, len(error_body))
+
+
+class TestReservedWordErrorHints:
+    # Captured by executing CREATE TABLE codex509_reserved_ident(key VARCHAR(50))
+    # against the owned brokers with only _add_error_hints bypassed. All three
+    # versions returned the same raw message, including its trailing space.
+    @pytest.mark.parametrize("server_version", ["10.2.18.9024", "11.2.9.0866", "11.4.6.1963"])
+    def test_captured_following_token_is_a_location(self, server_version: str) -> None:
+        raw = "Syntax: In line 1, column 43 before '(50))'\nSyntax error: unexpected 'VARCHAR' "
+        hinted = _add_error_hints(raw)
+        assert hinted == raw + (
+            " [Hint: Near token 'VARCHAR', an identifier at or before this position "
+            "may be a CUBRID reserved word. "
+            "Use double-quotes around the identifier or rename it. "
+            "See: https://github.com/cubrid-lab/.github/issues/5]"
+        ), server_version
+        assert "'VARCHAR' is a CUBRID reserved word" not in hinted
+        assert "KEY" not in hinted
+
+        response = _build_error_response(DEFAULT_CAS_INFO, -493, raw)
+        reader = PacketReader(response[8:])
+        with pytest.raises(ProgrammingError) as caught:
+            _raise_error(reader, len(response) - 8)
+        error = caught.value
+        assert error.msg == hinted
+        assert error.code == error.errno == -493
+        assert error.sqlstate == "42000"
+        assert getattr(error, "_cas_server_error") is True
+        assert reader.bytes_remaining() == 0
+
+    def test_unexpected_reserved_identifier_keeps_neutral_hint(self) -> None:
+        raw = "Syntax error: unexpected 'KEY'"
+        hinted = _add_error_hints(raw)
+        assert hinted.startswith(raw + " [Hint: Near token 'KEY',")
+        assert "may be a CUBRID reserved word" in hinted
+        assert "Use double-quotes around the identifier or rename it." in hinted
+        assert "'KEY' is a CUBRID reserved word" not in hinted
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Syntax error: unexpected 'not_a_reserved_identifier'",
+            "Syntax error at line 1",
+            "unexpected 'VARCHAR'",
+            "Unknown class 'missing_table'",
+        ],
+    )
+    def test_unrelated_messages_get_no_reserved_hint(self, message: str) -> None:
+        assert _add_error_hints(message) == message
+
+    def test_cardinality_hint_is_unchanged(self) -> None:
+        raw = "CARDINALITY function not found"
+        assert _add_error_hints(raw) == raw + (
+            " [Hint: CARDINALITY() has a known bug in CUBRID 11.x and may not work. "
+            "Use a subquery with COUNT(*) on TABLE(column) instead. "
+            "See: https://github.com/cubrid-lab/.github/issues/3]"
+        )
 
 
 class TestRaiseErrorCodeDispatch:
@@ -403,6 +464,69 @@ class TestParseColumnMetadata:
         reader = PacketReader(b"")
         cols = _parse_column_metadata(reader, 0)
         assert cols == []
+
+
+class TestColumnCCIType:
+    @pytest.mark.parametrize(
+        ("header", "ordinary_type", "cci_type"),
+        [
+            (b"\x08", 8, 8),
+            (b"\x28", 16, 40),
+            (b"\x48", 17, 72),
+            (b"\x68", 18, 104),
+            (b"\x80\x08", 8, 8),
+            (b"\xa0\x00", 16, 32),
+            (b"\xc0\x00", 17, 64),
+            (b"\xe0\x00", 18, 96),
+            (b"\xa0\x08", 16, 40),
+            (b"\xc0\x08", 17, 72),
+            (b"\xe0\x08", 18, 104),
+            (b"\x80\x22", 34, 130),
+            (b"\x87\x22", 34, 130),
+        ],
+        ids=lambda value: value.hex() if isinstance(value, bytes) else None,
+    )
+    @pytest.mark.parametrize("buffer_type", [bytes, bytearray])
+    def test_retains_exact_native_type_without_changing_ordinary_type(
+        self,
+        header: bytes,
+        ordinary_type: int,
+        cci_type: int,
+        buffer_type: type[bytes] | type[bytearray],
+    ) -> None:
+        # Literal CCI expectations, not a second implementation of its decoder.
+        tail = _build_column_metadata(column_type=CUBRIDDataType.INT)[1:]
+        reader = PacketReader(buffer_type(header + tail))
+        column = _parse_column_metadata(reader, 1)[0]
+
+        assert column.column_type == ordinary_type
+        assert column._cci_type == cci_type
+        assert type(column._cci_type) is int
+        assert (column.scale, column.precision, column.name) == (0, 255, "col1")
+        assert reader.bytes_remaining() == 0
+
+    @pytest.mark.parametrize("clone", [copy.copy, copy.deepcopy])
+    def test_private_evidence_survives_copy_without_changing_equality_or_repr(
+        self, clone: Callable[[ColumnMetaData], ColumnMetaData]
+    ) -> None:
+        manual = ColumnMetaData(8, 0, 255, "col1", "col1", "test_table")
+        reader = PacketReader(_build_column_metadata(column_type=CUBRIDDataType.INT))
+        parsed = _parse_column_metadata(reader, 1)[0]
+
+        assert parsed == manual
+        assert repr(parsed) == repr(manual)
+        assert manual._cci_type is None
+        copied = clone(parsed)
+        assert copied is not parsed
+        assert copied == manual
+        assert copied._cci_type == 8
+
+    @pytest.mark.parametrize("header", [b"", b"\x80", b"\xa0"])
+    def test_incomplete_type_header_keeps_its_framing_error(self, header: bytes) -> None:
+        reader = PacketReader(header)
+        with pytest.raises(IndexError):
+            _parse_column_metadata(reader, 1)
+        assert reader.mark() == len(header)
 
 
 class TestReadValue:
@@ -598,6 +722,102 @@ class TestParseRowData:
         rows = _parse_row_data(reader, 1, [col], CUBRIDStatementType.CALL)
         assert rows[0][0] is None
 
+    # Row data after the FETCH tuple count, captured from CUBRID 11.4 and 10.2
+    # brokers (protocol 8, #542). Each cell starts with the two-byte type header
+    # ``0x80 | collection bits | charset, type`` and its size counts both bytes.
+    @pytest.mark.parametrize(
+        ("statement_type", "row_hex", "expected"),
+        [
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 00000006 8308 0000002a",
+                42,
+                id="call-int",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 00000008 8302 68656c6c6f00",
+                "hello",
+                id="call-varchar",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 00000010 8316 07ea0009001e000c002200380315",
+                datetime.datetime(2026, 9, 30, 12, 34, 56, 789000),
+                id="call-datetime",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 ffffffff",
+                None,
+                id="call-null",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 0000000a 8313 00000381 0001 0000",
+                "OID:@897|1|0",
+                id="call-method-oid-11.4",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                "00000001 0000000000000000 0000000a 8313 00000341 0001 0000",
+                "OID:@833|1|0",
+                id="call-method-oid-10.2",
+            ),
+            pytest.param(
+                CUBRIDStatementType.EVALUATE,
+                "00000001 0000000000000000 00000006 8308 00000002",
+                2,
+                id="evaluate-int",
+            ),
+            pytest.param(
+                CUBRIDStatementType.EVALUATE,
+                "00000001 0000000000000000 00000008 8301 68656c6c6f00",
+                "hello",
+                id="evaluate-char",
+            ),
+            pytest.param(
+                # EVALUATE {1,2}: 0xe0 is 0x80 | SEQUENCE bits 0x60. Without
+                # decode_collections the value is its raw collection payload.
+                CUBRIDStatementType.EVALUATE,
+                "00000001 0000000000000000 00000017 e001"
+                " 08 00000002 00000004 00000001 00000004 00000002",
+                bytes.fromhex("08 00000002 00000004 00000001 00000004 00000002"),
+                id="evaluate-sequence",
+            ),
+        ],
+    )
+    def test_protocol_8_call_cell_decodes_its_value(
+        self, statement_type: int, row_hex: str, expected: object
+    ) -> None:
+        col = ColumnMetaData(column_type=CUBRIDDataType.NULL)
+        reader = PacketReader(bytes.fromhex(row_hex))
+        rows = _parse_row_data(reader, 1, [col], statement_type)
+        assert rows == [(expected,)]
+        assert reader.bytes_remaining() == 0
+
+    def test_protocol_8_null_typed_column_cell_decodes_its_value(self) -> None:
+        # ``SELECT NULL, 1``-shaped result whose NULL-typed column holds a value:
+        # the CAS writes the same two-byte header as for CALL (dbval_to_net_buf).
+        cols = [
+            ColumnMetaData(column_type=CUBRIDDataType.NULL),
+            ColumnMetaData(column_type=CUBRIDDataType.INT),
+        ]
+        row = bytes.fromhex("00000001 0000000000000000 00000007 8302 6c61746500 00000004 00000008")
+        rows = _parse_row_data(PacketReader(row), 1, cols, CUBRIDStatementType.SELECT)
+        assert rows == [("late", 8)]
+
+    def test_protocol_8_call_collection_cell_keeps_its_collection_kind(self) -> None:
+        # First byte 0x80 | SET bits 0x20 | charset; second byte the element type.
+        payload = bytes([0xA3, CUBRIDDataType.INT, CUBRIDDataType.INT])
+        payload += struct.pack(">ii", 2, 4) + struct.pack(">i", 1)
+        payload += struct.pack(">ii", 4, 2)
+        row = struct.pack(">i", 1) + b"\x00" * 8 + struct.pack(">i", len(payload)) + payload
+        reader = PacketReader(row, decode_collections=True)
+        col = ColumnMetaData(column_type=CUBRIDDataType.NULL)
+        rows = _parse_row_data(reader, 1, [col], CUBRIDStatementType.CALL)
+        assert rows == [(frozenset({1, 2}),)]
+
     def test_zero_rows(self) -> None:
         reader = PacketReader(b"")
         rows = _parse_row_data(reader, 0, [], CUBRIDStatementType.SELECT)
@@ -748,6 +968,7 @@ class TestPrepareAndExecutePacket:
         assert pkt.statement_type == CUBRIDStatementType.SELECT
         assert pkt.column_count == 1
         assert len(pkt.columns) == 1
+        assert pkt.columns[0]._cci_type == 8
         assert pkt.total_tuple_count == 1
         assert pkt.tuple_count == 1
         assert len(pkt.rows) == 1
@@ -909,6 +1130,7 @@ class TestPreparePacket:
         assert pkt.statement_type == CUBRIDStatementType.SELECT
         assert pkt.column_count == 1
         assert pkt.columns[0].name == "col"
+        assert pkt.columns[0]._cci_type == 2
 
     @pytest.mark.parametrize(
         "length_offset", [7, 11, 15, 20], ids=["name", "real", "table", "default"]
@@ -997,6 +1219,7 @@ class TestExecutePacket:
         assert pkt.total_tuple_count == 1
         assert pkt.tuple_count == 1
         assert pkt.rows[0][0] == 42
+        assert pkt.columns[0]._cci_type is None
 
     def test_parse_refreshed_column_info_before_shard_and_fetch(self) -> None:
         pkt = ExecutePacket(1, CUBRIDStatementType.SELECT, protocol_version=7)
@@ -1017,6 +1240,7 @@ class TestExecutePacket:
 
         pkt.parse(bytes(response))
         assert pkt.columns[0].name == "fresh"
+        assert pkt.columns[0]._cci_type == 8
         assert pkt.bind_count == 1
         assert pkt.rows == [(42,)]
 
@@ -1284,6 +1508,72 @@ class TestGetEngineVersionPacket:
         response = _build_error_response(DEFAULT_CAS_INFO, -1, "version error")
         with pytest.raises(DatabaseError, match="version error"):
             pkt.parse(response)
+
+
+_SimpleResponsePacket: TypeAlias = (
+    CommitPacket
+    | RollbackPacket
+    | CloseDatabasePacket
+    | CloseQueryPacket
+    | GetEngineVersionPacket
+    | LOBNewPacket
+    | LOBWritePacket
+    | LOBReadPacket
+    | GetDbParameterPacket
+    | SetDbParameterPacket
+)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        pytest.param(CommitPacket, id="commit"),
+        pytest.param(RollbackPacket, id="rollback"),
+        pytest.param(CloseDatabasePacket, id="close-database"),
+        pytest.param(lambda: CloseQueryPacket(1), id="close-query"),
+        pytest.param(GetEngineVersionPacket, id="engine-version"),
+        pytest.param(lambda: LOBNewPacket(CCILOBType.BLOB), id="lob-new"),
+        pytest.param(lambda: LOBWritePacket(b"handle", 0, b"data"), id="lob-write"),
+        pytest.param(lambda: LOBReadPacket(b"handle", 0, 4), id="lob-read"),
+        pytest.param(lambda: GetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL), id="get-param"),
+        pytest.param(lambda: SetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL, 4), id="set-param"),
+    ],
+)
+class TestSimpleResponsePrefix:
+    @pytest.mark.parametrize("buffer_type", [bytes, bytearray])
+    def test_server_error_preserves_connection_encoding(
+        self,
+        factory: Callable[[], _SimpleResponsePacket],
+        buffer_type: type[bytes] | type[bytearray],
+    ) -> None:
+        packet = factory()
+        packet.encoding = "euc_kr"
+        message = "테이블 없음".encode("euc_kr") + b"\xff\x00"
+        response = DEFAULT_CAS_INFO + struct.pack(">ii", -1, -493) + message
+
+        with pytest.raises(ProgrammingError) as raised:
+            packet.parse(buffer_type(response))
+
+        assert raised.value.msg == "테이블 없음�"
+        assert raised.value.code == raised.value.errno == -493
+        assert getattr(raised.value, "_cas_server_error") is True
+
+    @pytest.mark.parametrize("prefix_length", range(8))
+    def test_truncated_prefix_keeps_structural_failure(
+        self, factory: Callable[[], _SimpleResponsePacket], prefix_length: int
+    ) -> None:
+        response = _build_success_response(DEFAULT_CAS_INFO, 0)[:prefix_length]
+        error_type = ValueError if prefix_length < DataSize.CAS_INFO else struct.error
+        with pytest.raises(error_type):
+            factory().parse(response)
+
+    @pytest.mark.parametrize("error_length", range(4))
+    def test_incomplete_server_error_code_keeps_structural_failure(
+        self, factory: Callable[[], _SimpleResponsePacket], error_length: int
+    ) -> None:
+        response = DEFAULT_CAS_INFO + struct.pack(">i", -1) + b"\x00" * error_length
+        with pytest.raises(struct.error):
+            factory().parse(response)
 
 
 class TestGetSchemaPacket:

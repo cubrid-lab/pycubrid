@@ -149,7 +149,7 @@ marketers = cur.fetchall()
 
 - **순수 Python** — C 확장과 컴파일 없이, Python이 실행되는 곳이라면 어디서나 동작
 - **완전한 DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **매개변수화된 쿼리** — 서버 측 `PREPARE_AND_EXECUTE`를 사용하는 `cursor.execute(sql, params)`
+- **매개변수화된 쿼리** — 드라이버 측 파라미터 바인딩을 사용하는 `cursor.execute(sql, params)` (`?` 플레이스홀더를 로컬에서 이스케이프하여 SQL에 삽입)
 - **배치 작업** — 대량 삽입을 위한 `executemany()` 및 `executemany_batch()`
 - **LOB 지원** — `create_lob()`, CLOB/BLOB 컬럼 읽기/쓰기
 - **소유권 기반 스키마 조회** — `get_schema_info()` 후 `fetch_schema_info()`로 전체 행 소비 또는 `close_schema_info()`로 명시적 폐기. #457 실서버 행렬은 CUBRID 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 모든 스키마 코드나 네이티브 드라이버 동등성을 인증하지는 않습니다.
@@ -196,22 +196,19 @@ sqlalchemy-cubrid와 함께 사용할 때 ORM, Core, Alembic 마이그레이션,
 | [타입 매핑](TYPES.md) | 전체 타입 매핑, CUBRID 전용 타입, 컬렉션 타입 |
 | [API 레퍼런스](API_REFERENCE.md) | 전체 API 문서 — 모듈, 클래스, 함수 |
 | [프로토콜](PROTOCOL.md) | CAS 와이어 프로토콜 레퍼런스 |
+| [성능 가이드](ko/PERFORMANCE.md) | 벤치마크 결과, 최적화 팁, 성능 조사와 타이밍 훅 |
 | [개발 가이드](DEVELOPMENT.md) | 개발 환경 설정, 테스트, Docker, 커버리지, CI/CD |
 | [예제](EXAMPLES.md) | 실용적인 사용 예제와 코드 |
 | [문제 해결](TROUBLESHOOTING.md) | 연결 오류, 쿼리 문제, LOB 처리, 디버깅 |
 
 ## 호환성
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **오프라인 테스트** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.2** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.0** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
-
-CI는 모든 PR/푸시에서 위 매트릭스(Python 3.10 + 3.14 앵커 × 모든 CUBRID 버전)를 실행합니다.
-전체 **5 × 4** Python × CUBRID 매트릭스는 매일 밤, 태그 릴리스 시, 그리고 `workflow_dispatch`로 수동 실행할 수 있습니다.
+Python 3.10–3.14와 CUBRID 10.2, 11.0, 11.2, 11.4를 지원합니다.
+일반 PR은 Ubuntu/Python 3.12 대표 오프라인 스모크 검사만 실행하고,
+고위험 변경은 Python 3.14/CUBRID 11.4 통합 검사를 추가합니다.
+main 및 변경이 있는 주간 검사는 최저·최신 대표 조합을 사용합니다.
+전체 5 × 4 통합 매트릭스는 명시적 수동 실행과 릴리즈에서 유지합니다.
+[CI 실행 정책](ko/CI_POLICY.md)을 참고하세요.
 
 ## 아키텍처
 

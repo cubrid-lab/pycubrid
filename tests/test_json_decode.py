@@ -10,6 +10,7 @@ import pytest
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType, DataSize
 from pycubrid.cursor import Cursor
+from pycubrid.exceptions import DataError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import ColumnMetaData, FetchPacket, PrepareAndExecutePacket, _read_value
 
@@ -130,11 +131,14 @@ def test_read_value_json_uses_custom_deserializer() -> None:
 
 
 def test_packet_reader_json_raises_for_malformed_json() -> None:
+    # A JSON decode failure in a complete reply is a data problem, not framing
+    # damage: DataError, with the JSONDecodeError chained as __cause__ (#543).
     payload = _encode_json('{"a":')
     reader = PacketReader(payload, json_deserializer=json.loads)
 
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises(DataError, match="not valid JSON") as raised:
         reader._parse_json(len(payload))
+    assert isinstance(raised.value.__cause__, json.JSONDecodeError)
 
 
 def test_prepare_and_execute_packet_returns_raw_json_string_when_opted_out() -> None:
@@ -228,7 +232,7 @@ def test_cursor_threads_json_deserializer_to_packets() -> None:
     connection = MagicMock()
     connection.autocommit = False
     connection._connected = True
-    connection._cas_info = DEFAULT_CAS_INFO
+    connection._record_reply_cas_info(DEFAULT_CAS_INFO)
     connection._cursors = set()
     connection._ensure_connected = MagicMock()
     connection._protocol_version = 8

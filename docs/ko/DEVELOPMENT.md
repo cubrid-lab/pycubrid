@@ -13,6 +13,7 @@ pycubrid를 설정·테스트·기여하는 데 필요한 모든 것.
 - [프로젝트 구조](#프로젝트-구조)
 - [테스트 실행](#테스트-실행)
   - [오프라인 테스트](#오프라인-테스트)
+  - [동기/비동기 재생 패리티](#동기비동기-재생-패리티)
   - [통합 테스트](#통합-테스트)
   - [코드 커버리지](#코드-커버리지)
 - [Docker 설정](#docker-설정)
@@ -137,23 +138,197 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 make test
 ```
 
-### 통합 테스트
+### 빠른 드라이버 테스트 vs. 저장소 도구 점검
 
-통합 테스트는 실행 중인 CUBRID 인스턴스가 필요합니다. Docker 사용:
+오프라인 테스트 중 `repo_tooling` 마커가 붙은 하위 집합(`pyproject.toml`에
+등록됨)은 저장소 정책과 도구를 점검합니다 — docs-sync 스크립트, PR 제목
+검증기, 릴리스 스크립트, 워크플로 YAML 계약, 공유 품질 게이트 등입니다(#558).
+이들은 pycubrid 드라이버 동작을 전혀 포함하지 않고 `pycubrid` 자체의
+커버리지에서도 제외되므로, `offline-tests` 매트릭스 대신 전용
+`repo-tooling-tests` CI job에서 실행되어 일상적인 드라이버 피드백 속도를
+유지합니다. 도구 관련 경로가 변경되면 Linux 단일 레인이 선택됩니다.
+CI Gate는 선택된 `repo-tooling-tests`와 `offline-tests`의 성공을 요구하며,
+의도적으로 선택되지 않은 잡의 스킵만 허용합니다.
 
 ```bash
-# CUBRID 시작
-docker compose up -d
+# 빠른 드라이버 레인 — 목킹된 드라이버 동작만 (offline-tests가 실행하는 것)
+pytest tests/ -m "not integration and not repo_tooling" -v
 
-# 연결 URL 설정
-export CUBRID_TEST_URL="cubrid://dba@localhost:33000/testdb"
+# 저장소 도구 레인 — 정책/도구 점검 (repo-tooling-tests가 실행하는 것)
+pytest tests/ -m "repo_tooling" -v
 
-# 통합 테스트 실행
-pytest tests/test_integration.py -v
-
-# 정리
-docker compose down -v
+# 두 레인을 모두, 여전히 오프라인으로 (실제 CUBRID 서버 없이)
+pytest tests/ -m "not integration" -v
 ```
+
+모듈은 파일 이동이나 경로 기반 수집 규칙이 아니라 명시적인
+`pytestmark = pytest.mark.repo_tooling`으로 도구 레인에 포함됩니다. 따라서
+디스크에서 재구성할 필요가 없고 `pytest tests/`에서 조용히 빠지는 테스트도
+없습니다(모든 마커는 기본 수집에 추가적일 뿐이며, 실행 시 선택하거나
+제외하는 것은 `-m`뿐입니다). `docs-sync.yml`은 의존성을 설치하지 않고
+`test_docs_reason.py`를 순수 `python -m unittest discover`로 실행하므로, 이
+모듈은(같은 위험이 있는 `test_pr_title.py`도) `pytest`를
+`try`/`except ModuleNotFoundError`로 가져오고, 없으면 빈 `pytestmark`로
+대체합니다 — 그곳에서는 마커 자체가 의미가 없기 때문입니다. pytest로만
+실행되는 모듈에는 이 보호 장치가 필요 없습니다.
+
+순수 스칼라 포맷 사례는 연결 없이 두 백슬래시 모드를 검사하는
+`tests/test_param_security.py`의 공유 골든 매트릭스에 모읍니다(#563).
+`tests/test_aio_cursor_parity.py`는 동기/비동기 포맷·바인딩 어댑터와 escape
+모드 협상 전 거부를 작은 검사로 유지합니다. 일반 복구 동작은 바인딩된 SQL과
+재생 세션으로 관찰하고, 세대 경계·손상된 응답 등 외부에서 관찰하기 어려운
+안전성 불변식은 화이트박스 테스트로 유지합니다.
+
+### 동기/비동기 재생 패리티
+
+`tests/test_replay_parity.py`는 동기 `Connection`과 비동기 `AsyncConnection`이
+같은 브로커에 대해 같게 동작하는지를 오프라인으로 몇 초 안에 검사합니다.
+`tests/helpers/replay_broker.py`는 스레드 기반의 프로세스 내 CAS 브로커입니다.
+TCP 세션을 여러 번 받을 수 있어 재접속이 실제로 일어나고, 각 요청에 시나리오별
+*스크립트*로 응답하며(지정하지 않은 요청에는 `tests/helpers/cas_reply.py`로 만든
+결정적인 기본 응답), 받은 모든 요청을 기록합니다.
+
+시나리오는 공개 연산(`open`, `close`, `connect`, `execute`, `fetchall`,
+`commit`, `ping` 등)의 목록과 스크립트로 이루어집니다. 두 드라이버에서 각각 새
+브로커로 재생한 뒤 네 가지를 비교합니다: 단계별 결과(반환값 또는 예외 타입),
+보낸 요청 전체(세션, CAS 함수, 되돌려 보낸 CAS_INFO, 인자), 이후 연결을 계속 쓸 수
+있는지(`ping(reconnect=False)`), TCP 세션 수. 시나리오는 드라이버가 *의도적으로*
+다른 항목을 이유와 함께 적고, 그 밖의 차이는 모두 실패입니다. 아직 고치지 않은
+알려진 차이는 `unintended=`로 기록해 strict `xfail`로 실행합니다. 각 시나리오의
+`check`는 두 관측 결과 모두에 실행되므로 시나리오가 원래 경로를 조용히 벗어날 수
+없습니다.
+
+```bash
+pytest tests/test_replay_parity.py -v
+```
+
+다루는 범위: 연결/종료, 종료 후 재접속, autocommit 설정/복원(명시적 설정, 생성자,
+미설정), commit/rollback에 의한 핸들 무효화, OUT_TRAN `CHECK_CAS` 검사, 한 번의
+`CHECK_CAS` 복구(autocommit 복원과 이스케이프 모드 재감지 포함)와 복구 실패, 교체된
+세션에 바인딩된 SQL(세대 펜스, #471/#485), 복구 여부별 `ping()` 실패, 잘못된
+응답과 잘린 응답(#533), 세션을 유지하는 `DataError`(#512), fetch 페이지
+`DataError` 계약(#536). 태스크 취소는 `pycubrid.aio`에만 있으므로 대신
+`tests/test_async_cancellation.py`에서 다룹니다.
+
+**작업별 라운드트립 예산(#557):** `Observation.step_functions(i)`는
+`steps[i]`만 실행하는 동안 보낸 정확하고 순서가 있는 CAS 함수 목록을
+반환합니다 — connect/setup(생성자 autocommit 세터와 백슬래시 이스케이프 모드
+프로브를 포함하는 0번 단계)과 다른 모든 단계로부터 분리됩니다.
+`FIRST_INSERT_BUDGET`, `REUSED_CURSOR_INSERT_BUDGET`,
+`SELECT_TO_INSERT_BUDGET`, `MANUAL_INSERT_EXECUTE_BUDGET` /
+`MANUAL_INSERT_COMMIT_BUDGET`, `FETCH_PAGINATION_BUDGET`,
+`ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` 예산이 이 정확한 시퀀스에 이름을
+붙입니다. 각각 리스트 동등성으로 검사하므로, 누락된 안전 요청(예: 빠진
+`CHECK_CAS` 생존 확인)과 추가된 라운드트립을 똑같이 잡아냅니다 — 어느 쪽도
+"최적화"로 통과할 수 없습니다. 각 예산은 작업 성공과 연결 재사용 가능 여부도
+확인하며, fetch 시나리오는 반환 행을 검사합니다. 따라서 요청 수가 같더라도
+잘못된 응답이나 결과로 성공할 수 없습니다. 이들의 스크립트(`_autocommit_insert`,
+`_manual_insert_last_insert_id`)는 INSERT의 `PREPARE_AND_EXECUTE`에
+명시적인 `OUT_TRAN`(autocommit: 암묵적 트랜잭션이 이미 커밋됨) 또는
+`IN_TRAN`(수동: `commit()`을 위해 열어둠) 상태로 응답하고,
+`GET_LAST_INSERT_ID`에 올바른 형식의 값을 줍니다 — 브로커의 일반 기본
+응답(단순 응답 코드)은 드라이버가 (정확하게) 손상된 응답으로 거부합니다.
+이 시나리오들은 향후 라운드트립 축소 작업(#419/#488/#525)의 재현 기준선이며,
+프로덕션 최적화와 `CHECK_CAS` 제거는 이 작업의 범위 밖입니다.
+
+위 예산은 statement pooling이 꺼져 있다고 알리는 브로커에서 실행되며, 지연 닫기(#488)는 그때 적용되지 않으므로 바뀌지 않습니다. `Scenario.statement_pooling=1`이면 브로커가 pooling을 켜짐으로 알립니다. `REUSED_CURSOR_INSERT_POOLED_BUDGET`(이전 INSERT의 `CLOSE_REQ_HANDLE`과 그 앞의 `CHECK_CAS`가 빠져 6개 대신 4개 요청)과 `SELECT_TO_INSERT_POOLED_BUDGET`(`CLOSE_REQ_HANDLE`이 빠져 4개 대신 3개)은 지연 닫기가 없애는 요청을 고정하며, 그 검사는 다음 `PREPARE_AND_EXECUTE`가 해제된 핸들 id를 정확히 싣는지 확인합니다.
+`tests/test_deferred_close.py`의 추가 시나리오는 대기열 초과, 트랜잭션 경계의
+전체 핸들 정리와 재접속 안전성을 검사합니다.
+
+시나리오를 추가하려면 `SCENARIOS`에 단계, `_on(...)`으로 만든 스크립트(예: 응답 후
+CAS를 재활용하는 `_hang_up_after_ok`), `check`를 갖춘 `Scenario`를 추가합니다.
+
+**의도된 차이** (실패 아님):
+
+| 차이 | 이유 |
+|---|---|
+| `AsyncConnection(...)`은 연결하지 않고 `await pycubrid.aio.connect(...)`가 연결 | `__init__`은 await할 수 없음 |
+| 비동기 autocommit은 `await conn.set_autocommit(v)`로 설정 | 프로퍼티 setter는 await할 수 없음 |
+| 비동기 I/O 메서드는 모두 코루틴 | asyncio API |
+| 비동기 `create_lob()`은 `NotSupportedError`를 발생시키고 `LOB_NEW`를 보내지 않음 | 비동기 LOB 미지원(시나리오 `create_lob`) |
+| 태스크 취소 | 비동기 전용, 패리티에서 제외 |
+
+**하니스가 찾은 의도치 않은 차이** (모두 #521에서 수정):
+
+| 차이 | 수정 |
+|---|---|
+| 동기 `close()` 후 `connect()`가 명시적 `autocommit`을 다시 보내지 않음(#520) | `connect()`가 모든 대체 세션에서 명시적 세션 상태를 복원 |
+| 동기 `connect(autocommit=True)`가 재접속하는 프로퍼티 setter를 사용: `SET_DB_PARAMETER`와 `COMMIT` 사이에 `CHECK_CAS`가 추가되고, 그 사이 CAS가 재활용되면 두 요청이 다른 세션으로 나뉘며, 실패 시 원래 오류가 나오고 소켓이 열린 채 남음 | 비동기처럼 연 세션에서만 적용하고 실패 시 `OperationalError` |
+| 동기 `ping(reconnect=False)`가 `CHECK_CAS` 음수 응답 후에도 세션을 유지해 다음 요청이 조용히 재접속함 | 비동기처럼 손상된 세션을 닫음 |
+| `CHECK_CAS` 대체 세션에서 비동기 이스케이프 감지가 `auto_commit=0`을 보냄. 다른 모든 이스케이프 감지(두 드라이버)는 연결의 값을 보냄 | 대체 세션의 감지도 연결의 값을 보냄 |
+
+같은 시점에 공통 결함(패리티 차이 아님)도 수정했습니다: 자동 이스케이프 감지에서
+감지 `ROLLBACK` 직후 CAS가 재활용되면 autocommit 적용 전에 `connect()`가
+실패했습니다. 이제 두 드라이버 모두 그 OUT_TRAN 세션을 먼저 `CHECK_CAS`로
+확인하고 한 번 교체합니다.
+
+또 다른 공통 결함도 #551에서 수정했습니다(시나리오
+`autocommit_setter_survives_recycle_after_set_db_parameter`): 공개 autocommit
+setter는 두 요청 사이에 CAS가 재활용되면 `SET_DB_PARAMETER`와 `COMMIT`을 서로 다른
+CAS 세션으로 보냈습니다. 이제 `COMMIT` 전에 새 값을 기록하므로 그 요청의 한 번뿐인
+재접속이 대체 세션에 새 값을 먼저 복원합니다. `COMMIT`이 실패하면 연결을 닫고 이전
+값을 유지합니다.
+
+### 통합 테스트
+
+통합 테스트(`integration` 마커)는 실행 중인 CUBRID 인스턴스가 필요합니다.
+가장 간단한 방법은 Makefile로 Docker를 사용하는 것입니다:
+
+```bash
+make integration                          # 브로커를 localhost:33000에 게시
+make integration CUBRID_TEST_PORT=33522   # 다른 컨테이너가 쓰지 않는 포트 사용
+```
+
+`make integration`은 compose 서비스를 시작하고, 고정 시간 대기 대신
+`scripts/wait_for_cubrid.py`로 준비 상태를 기다리며(약 3분 안에 준비되지 않으면
+실행 실패), 모든 엔드포인트 필드를 명시적으로 설정해
+`-m "integration and not tls"`를 실행합니다. 이어서
+`scripts/check_integration_lanes.py --results`로 JUnit 보고서를 검사해 전부
+건너뛰었거나 분류되지 않은 skip이 있으면 실패시키고, 컨테이너는 항상 제거합니다.
+TLS 테스트는 SSL이 켜진 브로커가 필요합니다.
+[비동기 TLS 통합 테스트](#비동기-tls-통합-테스트)를 참고하세요.
+
+
+`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. 명시적 `make docker-down`은 `down -v`로 볼륨을 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요.
+
+**통합 테스트 활성화와 엔드포인트 선택의 구분.** 통합 테스트는
+`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 비어 있지 않은 값으로 설정되면
+*활성화*됩니다. *엔드포인트*는 모든 통합 모듈, `tests/conftest.py` 게이트,
+`scripts/wait_for_cubrid.py`가 함께 쓰는 공유 헬퍼 `tests/_cubrid_endpoint.py`가
+필드별로 결정합니다:
+
+1. 필드별 변수 `CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`, `CUBRID_TEST_DB`,
+   `CUBRID_TEST_USER`, `CUBRID_TEST_PASSWORD`가 우선합니다.
+2. 없으면 `CUBRID_TEST_URL=cubrid://user[:password]@host[:port]/database`의
+   해당 구성 요소를 사용합니다.
+3. 그것도 없으면 기본값 `localhost`, `33000`, `testdb`, `dba`, 빈 비밀번호를 씁니다.
+
+비어 있는 필드별 변수는 설정되지 않은 것으로 보지만, `CUBRID_TEST_PASSWORD=""`는
+명시적인 빈 비밀번호입니다. 스킴이 없는 `CUBRID_TEST_URL`(예: `1`)은 통합 테스트를
+활성화하기만 합니다. 다른 스킴, 호스트 누락, 숫자가 아닌 포트, 잘못된 데이터베이스
+이름을 가진 `CUBRID_TEST_URL`은 모든 통합 테스트를 error로 만듭니다(오프라인
+테스트에는 영향 없음).
+CI처럼 URL과 필드별 변수를 함께 내보내면 이전과 똑같이 동작하며, 기본값이 아닌
+호스트나 포트를 가리키는 URL은 이제 조용히 `localhost:33000`을 테스트하는 대신
+그대로 사용됩니다.
+
+이미 실행 중인 서버(Docker 수명 주기 없음)를 대상으로 할 때는 엔드포인트를
+명시적으로, 가급적 필드별 변수로 지정하세요:
+
+```bash
+CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
+  CUBRID_TEST_DB=testdb CUBRID_TEST_USER=dba CUBRID_TEST_PASSWORD= \
+  pytest tests/ -m "integration and not slow and not tls" -v
+# 동일: CUBRID_TEST_URL="cubrid://dba@127.0.0.1:33522/testdb" pytest ...
+```
+
+**skip과 error.** 엔드포인트가 설정되지 않으면 통합 테스트는 건너뛰므로 인자 없는
+`pytest`는 계속 통과합니다. 엔드포인트가 설정되어 있으면 게이트가 세션당 한 번
+(`SELECT 1`, 5초 제한 시간) 접속을 확인하고, 연결할 수 없으면 모든 일반 통합
+테스트가 건너뛰는 대신 엔드포인트(비밀번호 제외)와 연결 오류를 담아 **error**로
+보고되며 pytest는 0이 아닌 코드로 종료합니다. 어떤 테스트 모듈도 import 시점에
+서버에 접속하지 않습니다. 통합 테스트를 건너뛰려면 `CUBRID_TEST_URL`과
+`CUBRID_TEST_HOST`를 모두 해제하세요.
 
 `tests/test_integration_cas_reconnect.py`의 CAS 재활용 회귀 테스트(#485)는 서버
 컨테이너 안에서 `broker_changer`로 브로커 파라미터를 바꾸고 `cubrid broker reset`을
@@ -209,7 +384,12 @@ pytest tests/test_aio_ssl_integration.py -v
 > 누락으로 인한 스킵은 허용하지 않습니다. 브로커 상태 확인 및 재시작은 서비스 소유자
 > `cubrid`로 실행해 실제 브로커를 제어합니다.
 
-이 잡은 `integration-full`의 나머지와 같은 트리거(나이틀리, 태그 푸시, `workflow_dispatch`)로 실행됩니다.
+이 잡은 `integration-full`의 나머지와 같은 트리거(수동 `workflow_dispatch`,
+그리고 `release.yml`이 호출하는 릴리스 게이트)로 실행됩니다. 일반 PR에서는
+TLS 관련 경로가 변경될 때만 Python 3.14 × CUBRID 11.4 단일 레인이
+선택됩니다. 연결 모듈, `pycubrid/__init__.py`, `pycubrid/protocol.py`,
+`pycubrid/aio/`, TLS/SSL 테스트와 도우미·픽스처, 레인 감사 스크립트 또는
+워크플로 변경이 해당됩니다.
 
 ### 코드 커버리지
 
@@ -351,7 +531,8 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | `make test` | 커버리지와 함께 오프라인 테스트 실행 |
 | `make lint` | ruff check + format 검사 실행 |
 | `make format` | 린트와 포맷 문제 자동 수정 |
-| `make integration` | Docker → 통합 테스트 → 정리 |
+| `make integration` | Docker → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경) |
+| `make integration-local` | 이미 실행 중인 서버에 대한 통합 테스트 (`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | 빌드 산출물 제거 |
 
 ---
@@ -359,9 +540,10 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 ## CI/CD
 
 일반 및 전체 통합 워크플로는 테스트 전에
-`python scripts/wait_for_cubrid.py`를 실행합니다. 이 스크립트는
-`CUBRID_TEST_HOST`, `CUBRID_TEST_PORT`, `CUBRID_TEST_DB`,
-`CUBRID_TEST_USER`, `CUBRID_TEST_PASSWORD`로 접속합니다(기본값:
+`python scripts/wait_for_cubrid.py`를 실행합니다. 이 스크립트는 테스트
+스위트와 똑같이 엔드포인트를 결정합니다(필드별 `CUBRID_TEST_HOST`,
+`CUBRID_TEST_PORT`, `CUBRID_TEST_DB`, `CUBRID_TEST_USER`,
+`CUBRID_TEST_PASSWORD` → `CUBRID_TEST_URL` → 기본값
 `localhost:33000/testdb`, 사용자 `dba`, 빈 비밀번호).
 `SELECT 1` 확인을 5초 간격으로 최대 30회 시도하며, 모두 실패하면
 잡을 실패 처리해 테스트 단계가 실행되지 않습니다.
@@ -374,16 +556,84 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 
 | 레인 | 선택식 | 실행 워크플로 |
 |---|---|---|
-| 일반 | `integration and not slow and not tls` | PR/push CI, 전체 호환성 매트릭스, 나이틀리 bug hunt |
-| 장시간 | `integration and slow and not tls` | 나이틀리/수동 bug hunt의 soak, chaos, 동시성 stress |
+| 일반 | `integration and not slow and not tls` | 선택된 PR/push CI, 전체 호환성 매트릭스, 주간 bug hunt |
+| 장시간 | `integration and slow and not tls` | 주간/수동 bug hunt의 soak, chaos, 동시성 stress |
 | TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
+| 공식 드라이버 차분 | `integration and official_differential` | 일반 CI와 전체 워크플로의 필수 `official-differential` 잡 (Python 3.10, CUBRID 10.2와 11.4) |
 
 `python scripts/check_integration_lanes.py`는 현재 마커 목록을 수집하고 각 레인의 실제
 워크플로 명령을 확인합니다. JUnit 검사(`--results FILE`)는 알려지지 않은 스킵,
-빈 실행 또는 전체 스킵을 실패 처리합니다. 선택적 CUBRIDdb 비교 드라이버 누락과
-`/proc`가 없는 플랫폼은 명시적으로 분류하지만, 브로커/TLS 설정 누락은 CI에서
-허용하는 스킵이 아닙니다. 나이틀리 bug hunt의 별도 오프라인 protocol, fault-broker,
+빈 실행 또는 전체 스킵을 실패 처리합니다. 공식 드라이버 차분이 자기 레인 밖에서
+스킵되는 경우는 `official-lane-only`로, `/proc`가 없는 플랫폼도 명시적으로
+분류합니다. 브로커/TLS 설정 누락은 CI에서 허용하는 스킵이 아니며,
+`--lane official`은 어떤 스킵도 허용하지 않습니다. 주간 bug hunt의 별도 오프라인 protocol, fault-broker,
 placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
+
+주간/수동 `bug-hunt.yml`의 `downstream-corpus`는 **권고용** 작업으로,
+Python 3.12와 CUBRID 11.4의 독립된 세 셀을 실행합니다. 정확한 pycubrid
+워크플로 커밋과 각 downstream 저장소의 현재 `main` 커밋을 별도 디렉터리에
+체크아웃합니다. 모든 의존성 설치에 드라이버 Git 커밋 제약을 적용하고, 설치가
+끝난 뒤 `scripts/downstream_corpus.py`가 다른 Git 출처/커밋, PyPI·로컬
+교체, 소스 체크아웃이 설치 패키지 import를 가리는 상황을 거부합니다.
+기존 `scripts/wait_for_cubrid.py`로 실제 브로커 준비 상태를 확인합니다.
+
+| Downstream | 선택한 실사용 테스트 | 허용 스킵 |
+|---|---|---|
+| `sqlalchemy-cubrid` | ORM dogfood와 동기/비동기 풀 stress 파일을 별도 pytest 실행 | 없음 |
+| `cubrid-mcp-server` | 실제 도구 통합 사례와 별도로 선택한 공유 세션 동시 실행 사례 | 일반 `mcp.xml` 결과에서만 빈 스키마 스킵 허용; `mcp-concurrency.xml`에서는 없음 |
+| `cubrid-cookbook-python` | MCP stdio를 포함한 AI-agent 스크립트 5개와 async-worker DB 작업을 별도 pytest 프로세스로 실행 | 없음 |
+
+선택한 각 테스트 작업의 JUnit 결과에는 통과가 1건 이상 있어야 합니다.
+결과 파일 누락, 테스트 실패, 예상 밖 스킵, 전체 스킵은 해당 권고용 셀을
+실패시킵니다. 단계 요약과 실패 시에도 업로드하는 아티팩트에는 드라이버와
+downstream 커밋, Python 및 설치된 패키지 버전, 드라이버 출처,
+실제 CUBRID 서버 버전, 작업별 통과·스킵·실패 수를 기록합니다.
+작업 단위 `continue-on-error`로
+PR·릴리스 게이트에는 넣지 않지만, 증거에는 실패를 성공으로 표시하지 않습니다.
+이는 downstream 전체 스위트가 아니라 제한된 실제 사용 표본입니다.
+
+MCP 단계는 두 번째 pytest 프로세스에서
+`tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session`
+사례를 별도로 선택하여 `mcp-concurrency.xml`에 기록합니다. 이 결과에는
+통과 사례가 있어야 하며 스킵, 실패, 오류는 모두 거부합니다. 일반 `mcp.xml`에서
+허용하는 스킵 사유도 여기서는 허용하지 않습니다. 두 실행을 모두 수행하며,
+어느 하나라도 pytest가 실패하면 실제 단계 결과를 실패로 기록합니다.
+선택한 사례는 동일 프로세스에서 동시에 실행되는 MCP 핸들러가 기존 `RLock`을
+통해 캐시된 하나의 물리적 `Database` 연결을 공유하는 동작을 검증합니다.
+trace와 query 작업이 서로 끼어들지 않고, 응답이 각각 정확하며 실제 커서가
+닫혀야 합니다. MCP stdio 동시 실행, 풀, 요청별 트랜잭션 격리, 처리량은
+이 검증 범위에 포함하지 않습니다. SQLAlchemy는 별도의 풀 stress 작업을 제공합니다.
+
+공식 드라이버 차분(#446)은 고정 소스에서 빌드한 공식 `CUBRIDdb`/`_cubrid`
+드라이버와 pycubrid를 비교합니다. 로컬에서 재현하려면(Linux x86_64, git,
+CMake 3.21 이상, C 컴파일러, Python 3.10 헤더 필요) 다음을 실행합니다.
+
+```bash
+python3.10 scripts/build_official_oracle.py --out .official-oracle
+PYTHONPATH=.official-oracle PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1 \
+  PYCUBRID_OFFICIAL_ORACLE_MANIFEST=.official-oracle/oracle.json \
+  PYCUBRID_DIFFERENTIAL_EVIDENCE=official-evidence.jsonl \
+  CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python3.10 -m pytest tests/ -m "integration and official_differential"
+python scripts/check_official_differential.py --evidence official-evidence.jsonl
+```
+
+새로 추가하거나 바꾼 주장은 `tests/fixtures/official_differential_claims.json`에
+기록합니다. 해당 케이스는 `tests/test_official_differential.py`의 `CASES`에
+추가한 뒤 `python scripts/check_official_differential.py --write-docs`를
+실행합니다. 차이는 수정하거나, 이유·이슈·양쪽 관측값을 갖춘 `deviation`으로
+기록합니다. 현재 출력에 맞추려고 기대값만 고치지 마세요.
+[호환성 가이드](UPSTREAM_COMPATIBILITY.md#공식-드라이버-차분-게이트-446)를 참고하세요.
+
+`tests/test_protocol_fuzz.py`는 `tests/helpers/cas_reply.py`가 만든 실제와 같은
+브로커 응답을 변형합니다(#523). 모든 주요 타입의 컬럼 메타데이터와 행 데이터를
+담은 실행 응답과 FETCH 응답, 그리고 스키마, 배치, LOB 응답이 포함됩니다. 각 시드는
+디코딩 기댓값과 길이 워드, 개수, 필드 경계의 오프셋을 기록하므로 변형하지 않은
+시드는 정확한 왕복 검사가 되고, 변형은 잘림과 길이/개수 불일치를 겨냥합니다.
+새 컬럼 조합을 시드로 추가하려면 `RESULT_SETS`에 `ResultSet`을 추가하세요. FETCH와
+실행 응답 fuzz 대상이 이를 가져옵니다. 새 응답 빌더에는 별도의 왕복 테스트와 fuzz
+대상이 필요합니다. 예제 수는 Hypothesis 프로필에서
+정합니다(`pr`: 대상마다 50개, 모듈 전체 약 2초; `nightly`: 1000개).
 
 ### 문서 예외와 기여자 검증 기록
 
@@ -409,15 +659,115 @@ main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 �
 
 | 워크플로 | 트리거 | 설명 |
 |----------|---------|-------------|
-| `ci.yml` | main 푸시, PR | 린트 + 오프라인 테스트 (Python 3.10–3.14) + 통합 |
-| `integration-full.yml` | 야간, 태그 푸시, 수동 실행 | 전체 Python × CUBRID 호환성 매트릭스 |
-| `create-release.yml` | 태그 푸시, 수동 실행 | CHANGELOG로 GitHub Release 생성 (게시하지 않음) |
-| `publish-pypi.yml` | 태그로 트리거된 전체 매트릭스 통과 후 수동 실행 | 검증 후 PyPI 게시, cookbook 스모크 테스트 디스패치 |
+| `ci.yml` | PR, main 푸시, 주간, 수동 실행 | 최소 PR 스모크; main/주간 커버리지와 대표 통합 검사 |
+| `integration-full.yml` | 수동 실행, `release.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
+| `release-please.yml` | main push 또는 수동 실행 | release-please 릴리스 후보 PR 생성 (날짜가 있는 CHANGELOG 섹션 + 버전 갱신) |
+| `release.yml` | main 푸시, 복구용 수동 실행 | 병합된 릴리스 PR 감지 후 전체 매트릭스, 빌드, 태그 + GitHub Release + PyPI, cookbook 검증 |
 
 ### CI 매트릭스
 
-- **오프라인**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **통합**: Python {3.10, 3.12} × CUBRID {11.2, 11.4}
+일상 CI는 Ubuntu/Python 3.12 오프라인 단일 레인과 대표 통합 조합을 사용합니다.
+PR은 스모크 검사를, main과 최근 변경이 있는 주간 실행은 전체 오프라인
+검사와 95% 커버리지를 유지합니다. 고위험 PR은 같은 단일 레인에서 전체 오프라인 회귀 검사(커버리지 제외)와
+최신 통합 조합을 선택하고,
+main/주간 실행은 최저·최신 조합을 사용합니다. 저장소 도구 검사는 관련 경로에
+따라 Linux 단일 레인에서 실행합니다. 전체 통합 검사는 명시적 수동 실행과
+릴리스에서 유지합니다. 정확한 선택 조건과 검증 요건은 [CI 실행 정책](CI_POLICY.md)을
+참고하세요. 아래 비용 측정은 이전 워크플로의 이력이며, 현재 잡 수나 새로운
+절감액을 나타내지 않습니다.
+
+### PR 검증 비용 (#564)
+
+실제 `ci.yml` 실행(GitHub REST `/actions/runs/{id}/timing`의
+`run_duration_ms`와 작업 단계별 `started_at`/`completed_at`)에서 측정한
+값이며 추정치가 아닙니다. 일반 실행 응답에는 `run_duration_ms`가 없고
+`/timing` 응답에 있습니다. 코드 변경 기준 실행
+[36929613502](https://github.com/cubrid-lab/pycubrid/actions/runs/36929613502)은
+2026-10-01에 모든 통합 경로가 선택되어 306초(5분 6초) 걸렸습니다.
+문서만 변경한 [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)
+(`RELEASING.md`만 변경)의
+[실행 36865409050](https://github.com/cubrid-lab/pycubrid/actions/runs/36865409050)은
+419초였고 코드/TLS 경로 게이팅 통합 작업 4개가 모두 건너뛰어졌으며
+문서 린트는 통과했습니다. 이 실행의 `detect-changes`는 시작 후 약 3분이
+지나서야 실행되어 대기열 변동을 보여줄 뿐, 캐시 비교 기준은 아닙니다.
+
+| 작업 그룹 | 작업 수 | 실행 시간 (가장 느린 작업) | 비고 |
+|---|---|---|---|
+| `offline-tests` 매트릭스 | 10 (OS 2종 × Python 5종) | 78초–124초 | 개발용 editable 설치는 11–23초. 이 한 실행에서 macOS는 같은 Python의 Linux보다 9–51% 느렸으며 일정한 비율은 아님. |
+| `integration-tests` / `integration-charset` / `integration-tls` / `official-differential` | 작업 5개, CUBRID 컨테이너 6개 | 65초–118초 | 서비스 컨테이너 초기화 단계가 있는 작업에서는 15–41초, 개발용 editable 설치는 17–22초. TLS는 자체 단계에서 Docker를 시작함. |
+| `repo-tooling-tests` 매트릭스 | 2 (ubuntu, macos) | 32초–51초 | 개발용 editable 설치는 14–15초. |
+| `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9초–24초 | lint/typecheck는 개발 도구, compat는 패키지만 설치(3초), packaging은 `build` 설치(2초). |
+| `doc-lint` (재사용 워크플로) | 문서 변경 시에만 경로 게이팅 | 하위 단계당 2초–8초 | 문서(`docs/**`)/Markdown 변경이 없으면 전부 건너뜀. |
+
+`needs:` 그래프의 시작점은 `detect-changes`, 오프라인 매트릭스, lint,
+typecheck, 저장소 도구 검사, compat-check로 병렬입니다. 기준 실행에서는
+오프라인 작업들이 `detect-changes` 완료 *전*에 시작했습니다. Packaging은
+모든 오프라인 셀을 기다리고, 컨테이너 기반 작업은 packaging, 오프라인,
+lint, typecheck, `detect-changes`를 기다린 뒤 시작하며 `ci-gate`는 그
+결과를 기다립니다. 대기열 시간과 가장 느린 선행 분기도 전체 경과 시간에
+영향을 주므로 작업 시간을 단순 합산한 값이 크리티컬 패스는 아닙니다.
+
+**줄일 수 있는 설치 비용**: 기준 실행에서는 `actions/setup-python`을 쓰는
+확장 작업이 21개였고, 그중 19개가 개발용 editable 설치를 했습니다.
+compat는 `-e .`, packaging은 `build`만 설치합니다. 각 작업의 설치
+자체는 계속 필요합니다. 새 `cache: pip`는 설치된 환경이 아니라 pip의
+전역 **다운로드 캐시**를 저장합니다. 키에는 OS, Python 버전, 의존성
+파일 해시가 포함되므로 일치하는 OS/Python 작업은 먼저 저장된 캐시를
+같은 실행의 후속 작업이나 이후 실행에서 재사용할 수 있지만, 다른 매트릭스
+셀 사이에 하나의 캐시가 공유되지는 않습니다. 첫 실행의 동시 작업은 모두
+캐시를 놓칠 수 있습니다. [setup-python 캐시 설명](https://github.com/actions/setup-python#caching-packages-dependencies)을
+참조하세요. 변경 헤드의 첫 실행은 Ubuntu/Python 3.10 pip 캐시를 찾지
+못해 나중에 저장했고, 기준 306초보다 긴 328초가 걸렸습니다. 이 콜드
+실행은 전체 속도 향상을 보여주지 않습니다. Docker 시작 비용도 그대로입니다.
+
+**경로 필터 트리거 감사**: 최근 PR 실행에서 `detect-changes` 출력과 실제
+작업 결과를 대조했습니다. [이슈 #595](https://github.com/cubrid-lab/pycubrid/issues/595)를
+해결한 [PR #597](https://github.com/cubrid-lab/pycubrid/pull/597)은 TLS
+관련 경로를 건드리지 않았고,
+[실행 36879861578](https://github.com/cubrid-lab/pycubrid/actions/runs/36879861578)에서
+`integration-tls`는 `skipped`, 일반 통합 2셀·charset·official
+differential은 성공했습니다. 문서 전용 PR #587에서는 코드/TLS로 경로
+게이팅된 통합 작업 4개가 모두 의도대로 건너뛰어졌습니다. 변경하지 않은
+`ci-gate`는 이들 작업의 `skipped`만 허용하고 실패/취소는 허용하지
+않습니다. 감사에서 실제 공백을 하나 발견했습니다:
+`scripts/wait_for_cubrid.py`는 컨테이너 기반 작업
+(`integration-tests`, `integration-charset`, `official-differential`)
+전부가 호출하는데도 `code:` 필터 목록에 빠져 있어, 이 스크립트만 변경하는
+PR은 병합 전 코드 경로의 통합 커버리지를 전부 건너뛸 수 있었습니다.
+`code:`에 추가하고 저장소 도구 회귀 테스트로 잠갔으며, 이는 커버리지를
+*추가*할 뿐이므로 새로운 skip을 만들지 않습니다.
+
+실제 실패 전파 증거도 있습니다.
+[실행 36776514307](https://github.com/cubrid-lab/pycubrid/actions/runs/36776514307)에서
+공식 드라이버와의 공개 동작 비교가 실패했고 `CI Gate`도 실패했습니다.
+추가한 저장소 도구 테스트는 변경하지 않은 게이트 셸을 직접 실행하여
+official/일반 통합/charset/TLS 결과의 `failure`와 `cancelled`에서 모두
+0이 아닌 종료 코드를, 문서 전용 경로의 예상 `skipped`에서는 성공을
+확인합니다. 공식 비교나 게이트 자체는 완화하지 않았습니다.
+
+**변경 사항** (둘 다 추가적/안전한 변경이며, 작업 제거나 커버리지 축소,
+필수 체크나 브랜치 보호 컨텍스트 변경은 없고, 건너뛴 작업과 실패/취소된
+필수 작업을 구분하는 `ci-gate`의 통과/실패 로직은 그대로입니다):
+
+1. `ci.yml`의 모든 `actions/setup-python` 단계(YAML 10곳, 확장 작업
+   21개)에 `cache: pip` + `cache-dependency-path: pyproject.toml`을
+   추가했습니다. 일치하는 OS/Python/캐시 키를 가진 작업은 앞서 저장된
+   wheel 다운로드를 재사용할 수 있지만 editable 설치는 계속 실행합니다.
+2. 위에서 발견한 공백을 메우기 위해 `scripts/wait_for_cubrid.py`를 `code:`
+   경로 필터에 추가했습니다.
+
+**변경 후**: 이 PR의 첫 실행인
+[36932083505 시도 1](https://github.com/cubrid-lab/pycubrid/actions/runs/36932083505)은
+Ubuntu/Python 3.10 pip 캐시를 찾지 못하고 나중에 저장했으며 약 328초가
+걸려 기준 306초보다 느렸습니다. 동일 헤드를 한 번 재실행한 시도 2에서는
+해당 OS/Python 키의 캐시 적중·복원을 로그에서 확인했고, `/timing` 기준
+295초였습니다. 기준보다 11초(약 3.6%), 콜드 시도보다 약 33초 짧습니다.
+같은 개발용 editable 설치 19개의 작업별 시간 합은 기준 321초,
+콜드 275초, 웜 266초였습니다. 작업이 병렬로 겹치므로 이 합을 실제
+경과 시간 절감으로 해석할 수 없고 개별 설치의 변동도 있었습니다(웜
+lint 설치는 오히려 느림). 관측값은 제한적인 설치 비용 개선을 뒷받침하지만
+매 PR의 속도 향상을 보장하거나 전체 차이가 캐시만의 효과임을 증명하지는
+않습니다. 러너 대기열과 Docker 시작 시간도 변동했습니다.
 
 ---
 
@@ -516,7 +866,7 @@ graph TD
 
 ## 릴리스 절차
 
-릴리스는 유지보수자 전용이며 [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 따릅니다: 릴리스 PR
-(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인),
-squash 병합된 커밋에 태그, 그리고 태그로 트리거된 전체 매트릭스가 통과한 뒤
-`publish-pypi.yml`을 수동 실행합니다.
+릴리스는 유지보수자 전용이며 [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 따릅니다:
+`release-please.yml`이 릴리스 PR(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인)을
+엽니다. 검토 후 squash 병합하면 `release.yml`이 전체 매트릭스, 한 번의 빌드, 태그, PyPI 게시, cookbook 검증을
+자동으로 수행합니다. 태그 푸시나 게시를 수동으로 하지 않습니다.

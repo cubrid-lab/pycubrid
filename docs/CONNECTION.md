@@ -66,6 +66,7 @@ def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> Connection
 ```
@@ -81,6 +82,7 @@ def connect(
 | `password` | `str` | `""` | Database password |
 | `decode_collections` | `bool` | `False` | Decode SET/MULTISET/SEQUENCE columns into Python collections |
 | `json_deserializer` | `Any` | `None` | Callable used to decode JSON columns on fetch; when unset JSON is returned as `str` |
+| `charset` | `str` | `"utf-8"` | Python codec (or CUBRID `utf8`/`euckr`/`iso88591`) for SQL text, credentials, character values, names and error text; set it to the database charset. See [Character Encoding](#character-encoding) |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | Opt-in TLS for sync broker connections |
 
 ### Keyword Arguments
@@ -232,17 +234,67 @@ Async TLS uses CUBRID's STARTTLS-style upgrade: the connection opens in plaintex
 `OPEN_DATABASE` exchange. Async shutdown awaits `writer.wait_closed()` so TLS sessions close
 cleanly. The sync driver performs the equivalent flow with `ssl.SSLContext.wrap_socket()`.
 
+`connect_timeout` bounds only the TCP connect. The broker handshake, the TLS handshake and
+`OPEN_DATABASE` are bounded by `read_timeout` on both drivers; when `read_timeout` is unset the
+TLS handshake still gives up after 10 seconds on both drivers (`ssl_handshake_timeout` on async,
+a handshake-only socket timeout on sync,
+[#535](https://github.com/cubrid-lab/pycubrid/issues/535)), and the broker handshake and
+`OPEN_DATABASE` wait without a limit. The 10-second default covers only the TLS handshake:
+requests after it stay unbounded without `read_timeout`. A broker that stalls or resets the
+connection during the TLS handshake raises `OperationalError` within that bound
+([#513](https://github.com/cubrid-lab/pycubrid/issues/513)). On Python 3.10 the async driver's
+preflight certificate check closes its own socket when the broker resets the connection before
+the TLS handshake ([#535](https://github.com/cubrid-lab/pycubrid/issues/535)); the sync driver's
+`wrap_socket()` upgrade on 3.10 can still leave such a socket to the garbage collector (a
+`ResourceWarning`), a CPython 3.10 `ssl` limitation fixed in later versions.
+
+To allow a TLS handshake longer than the 10-second default, set a larger
+`read_timeout`, for example `read_timeout=30.0`. This also sets later request
+read timeouts to 30 seconds: sync uses a per-receive socket timeout, while async
+bounds the complete network round trip. It does not change `connect_timeout`.
+
+After the session is open, an uncertain transport failure on a request (a socket error, a
+timeout, a malformed reply, or an interrupt or task cancellation while a reply is outstanding)
+closes the connection and retires every cursor and schema result handle of that session in
+both drivers ([#556](https://github.com/cubrid-lab/pycubrid/issues/556)). Rows a cursor already
+buffered stay readable; the next fetch that needs the server raises, and no handle of the dead
+session is ever sent again. The request is not replayed: reconnect with `connect()` or
+`ping(reconnect=True)` and re-execute. The async `OperationalError` message says
+`read timeout: no complete round trip within read_timeout=...s` only when the `read_timeout` deadline expired;
+a timeout raised by the transport itself (for example `ETIMEDOUT`) is reported as
+`socket communication timed out`, and other socket errors as `socket communication failed`. The
+original exception is always chained as `__cause__`, and a cancelled task still raises
+`asyncio.CancelledError`. The sync `read_timeout` is a per-receive socket timeout and is reported
+as `socket communication failed`. An `OSError` (including `TimeoutError`) raised by a
+`json_deserializer` callback after the whole reply was read is not a transport failure: it
+propagates unchanged and the connection stays open. A `ValueError`-family error from a custom
+deserializer (for example an orjson or simplejson decode error) is still treated as a malformed
+reply: `OperationalError('malformed response from broker')`, and the session is retired.
+
+On Python 3.10, the distinct `asyncio.TimeoutError` class follows the same rule:
+transport timeouts retire the session, while a callback timeout after a complete
+reply propagates unchanged without closing it.
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of
     raising. As of [pycubrid#156](https://github.com/cubrid-lab/pycubrid/issues/156), the
-    async driver runs an automatic preflight `ssl.SSLContext.wrap_socket()` probe on Python
-    3.10 immediately before `loop.start_tls()`, using the same `SSLContext` and
-    `server_hostname=host`. Verification failures now raise `OperationalError` (chained from
-    `ssl.SSLError`) within the connect timeout, matching the 3.11+ behavior. The probe is a
-    no-op on Python 3.11+ and adds one extra TCP round-trip per connect on 3.10 only. Other
-    TLS error paths (peer unresponsive, timeout) remain bounded by `ssl_handshake_timeout`.
-    The issue does not affect the sync driver.
+    async driver runs an automatic preflight TLS handshake probe on Python 3.10 immediately
+    before `loop.start_tls()`, using the same `SSLContext` and `server_hostname=host`. The
+    probe drives the handshake over `ssl.SSLContext.wrap_bio()` memory BIOs on a socket it
+    owns and always closes ([#535](https://github.com/cubrid-lab/pycubrid/issues/535)).
+    Verification failures now raise `OperationalError` (chained from `ssl.SSLError`),
+    matching the 3.11+ behavior. The probe's TCP connect is bounded by `connect_timeout` and
+    its whole TLS handshake by `read_timeout` (10 seconds when unset), like the real upgrade's
+    `ssl_handshake_timeout`. The probe is a no-op on Python 3.11+ and adds one extra TCP
+    round-trip per connect on 3.10 only. The issue does not affect the sync driver.
+    Each probe send and receive uses the remaining total handshake budget;
+    completion after the deadline is rejected. The final handshake flight must
+    be sent successfully, while optional close_notify shares that same budget.
+    On fatal TLS failure, any queued alert is sent best effort within the
+    remaining budget; alert-send failure cannot replace the original TLS error.
+    Receive timeouts retain their original error object, message and errno,
+    with the internal `SSLWantReadError` context suppressed in displayed traces.
 
 ```python
 import pycubrid.aio
@@ -275,7 +327,7 @@ if not alive:
 ```
 
 - `await conn.ping(reconnect=False)` issues a native `CHECK_CAS` round-trip on an open socket without reconnecting. `CAS_INFO[0]=0` means OUT_TRAN after a transaction boundary, not a released session; it does not change this behavior. A closed socket or failed check returns `False`, which makes this suitable for SQLAlchemy's `pool_pre_ping`.
-- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting.
+- `await conn.ping(reconnect=True)` probes the existing socket first and attempts one reconnect when already disconnected, after a `CHECK_CAS` transport/protocol error, or when `CHECK_CAS` returns a negative code indicating a broken CAS-to-DB link. Failed recovery returns `False`; `reconnect=False` reports the negative response as `False` without reconnecting and closes that broken session.
 - A healthy same-session ping does not re-probe escape mode. On a new physical session, an automatic mode is re-probed before use; an explicit `no_backslash_escapes=True` or `False` remains pinned. Probe failure retires the replacement and makes ping return `False`, without guessing an escape mode or replaying SQL.
 - The healthy-session check uses the same native `CHECK_CAS` function code (`FC=32`) as sync `Connection.ping()` and executes no SQL; recovery may run a read-only escape-mode probe.
 
@@ -355,6 +407,8 @@ conn.autocommit = True
 | Getter | Returns current autocommit state |
 | Setter (`= True`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
 | Setter (`= False`) | Sends `SetDbParameterPacket` + `CommitPacket` to server |
+| CAS recycled between the two | The new value is restored on the replacement session before its `COMMIT`; at most one reconnect per call (#551) |
+| `COMMIT` fails | Connection closed, previous value kept, `OperationalError` raised |
 
 > **Note**: When using pycubrid with SQLAlchemy (`cubrid+pycubrid://`), the dialect sets
 > `autocommit = False` on each new connection so SQLAlchemy can manage transactions properly.
@@ -418,6 +472,13 @@ that were already received stay readable; an unfinished result still raises
 `InterfaceError` at its next required FETCH. In autocommit mode no `END_TRAN` is
 sent, so unclosed cursors still accumulate server handles until `commit()`,
 `rollback()` or `close()`: close cursors (or use them as context managers).
+For handles queued by closed or collected cursors, a boundary transfers each
+current-session ID out of the queue only when its `CLOSE_REQ` is about to be
+sent. If `commit()`/`rollback()` is interrupted before the next send, unsent
+IDs remain queued in FIFO order on that same live physical session; IDs whose
+send began are not replayed. An uncertain transport retires the session and
+its queued IDs instead of carrying them to a replacement CAS. A cursor
+collected during a flush is queued behind the batch already in progress.
 
 ### Session-state restoration after explicit ping recovery
 
@@ -425,7 +486,9 @@ pycubrid never replays an arbitrary SQL request after a transport failure. If a 
 disconnected, a `CHECK_CAS` probe raises a transport/protocol error, or the
 probe returns a negative response (broken CAS-to-DB link), explicit
 `ping(reconnect=True)` can attempt one new connection. With `reconnect=False`,
-the negative response returns `False` without reconnecting. The caller must
+the negative response returns `False` without reconnecting and closes that
+broken session, in both drivers; later calls raise `InterfaceError` until
+`connect()` or `ping(reconnect=True)`. The caller must
 decide whether interrupted SQL is safe to retry.
 
 Automatic `no_backslash_escapes` detection runs again on the replacement
@@ -438,8 +501,9 @@ decides whether to retry. A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
-After successful recovery, including the automatic reconnect above, pycubrid
-restores the session-level setting the caller has **explicitly** set:
+After successful recovery, including the automatic reconnect above, and when
+`connect()` reopens a connection after `close()` (sync and async alike, #520),
+pycubrid restores the session-level setting the caller has **explicitly** set:
 
 | Setting | Restored after successful ping recovery? |
 |---|---|
@@ -752,24 +816,81 @@ See [Troubleshooting](TROUBLESHOOTING.md) for pool tuning guidance.
 
 ## Character Encoding
 
-pycubrid operates exclusively in **UTF-8** encoding. This matches CUBRID's internal
-character set — the server stores and returns string data as UTF-8.
+The `charset` connection option (default `"utf-8"`) selects the Python codec
+for the text pycubrid exchanges with the broker. Set it to the charset the
+database was created with (#86):
 
-There is no `charset` connection parameter. All string encoding/decoding in the
-wire protocol uses UTF-8 unconditionally:
+```python
+import pycubrid
+import pycubrid.aio
 
-- Python `str` values are encoded to UTF-8 bytes before sending to the server
-- Byte responses from the server are decoded as UTF-8 to produce Python `str` values
+conn = pycubrid.connect(database="kodb", charset="euckr")
+aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
+```
 
-This is intentional and covers all CUBRID string types (`VARCHAR`, `CHAR`, `STRING`,
-`CLOB`). If your application deals with non-UTF-8 data, encode/decode at the
-application layer before passing values to pycubrid.
+**Accepted values.** Any Python codec name, plus the CUBRID spellings `utf8`,
+`euckr` and `iso88591` (`ksc5601` works through Python's own EUC-KR alias), and
+a CUBRID locale as given to `createdb`, such as `"ko_KR.euckr"`, whose part
+after the dot is used. `None` means the default `"utf-8"`. The name is
+normalized to the Python codec name (`"euckr"` becomes `"euc_kr"`). The option
+is validated before any socket work:
+
+- a non-string raises `TypeError`;
+- an unknown codec, CUBRID's `binary` charset (it has no text codec) and any
+  codec that is not ASCII-transparent raise `ValueError`. Rejected codecs
+  include UTF-16/32, UTF-7, `utf-8-sig`, Shift_JIS, Big5, GBK, GB18030, CP949,
+  Johab and the ISO-2022 family: SQL quoting and escaping run on `str` before
+  encoding, so a codec that can emit an ASCII byte such as `'` or `\` inside a
+  multibyte character is unsafe;
+- a `database`, `user` or `password` that the codec cannot encode raises
+  `DataError`.
+
+The codec is kept for the life of the connection, including the reconnect done
+by `ping(reconnect=True)` and the CHECK_CAS recovery.
+
+**What uses the connection charset:**
+
+| Direction | Text | Behavior |
+|---|---|---|
+| Sent | SQL text, including parameters rendered into it (JSON parameters too); `executemany` batch SQL; schema-info arguments; `compat.native` prepared SQL and string bindings | Encoded before any byte of the request is sent. An unencodable character raises `DataError` naming the codec and character position (the text itself is not echoed); nothing of that request is sent and the session stays usable. With `euc_kr`, Hangul syllables outside KS X 1001 (such as 똠 or 뷁) are unencodable: Python would send them as 8-byte makeup sequences that CUBRID stores as separate jamo. On read, the Hangul filler U+3164 and following jamo decode as separate characters, as CUBRID stores them. |
+| Sent | `OPEN_DATABASE` database, user and password | Encoded, then cut to the 32-byte field on a character boundary. |
+| Received | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING` and `ENUM` values, collection elements (`decode_collections=True`) | Strict decode. Undecodable bytes raise `DataError` (for example `column value is not valid euc_kr (invalid byte at offset 0)`); the session stays usable. |
+| Received | Column, table and alias names; column default values | Strict decode; `DataError` (`column metadata is not valid ...`). Ordinary cursors keep the session and release the server handle; `get_schema_info()` and the `compat.native` prepared cursor still retire the session, as for any unparsable reply there. |
+| Received | Server error messages, including per-statement batch errors | Decoded with `errors="replace"`, so the native error always surfaces. |
+| Received | LOB file locators (`file_locator`; the server path embeds the table name) | Decoded with `errors="replace"`: informational only, the packed handle is what goes back to the server. |
+
+**What does not use it:** fetched `JSON` values are always UTF-8 (the broker
+sends JSON as UTF-8 whatever the database charset), although a JSON parameter
+is SQL text and is encoded with the connection codec, so an emoji in JSON
+raises `DataError` on insert under `euckr`. `NUMERIC` text, timezone names and
+the server version string are protocol text and stay UTF-8, and
+`pycubrid.Binary(str)` always encodes as UTF-8. LOB
+contents are raw bytes: `Lob.read()` on a `CLOB` returns the bytes in the
+column charset (EUC-KR bytes in an EUC-KR database), which the application
+decodes itself.
+
+**No negotiation on the wire.** The CAS protocol carries no client charset and
+the broker does no conversion: the server interprets the bytes it receives in
+the database charset, and the broker sends each value in its own column's
+charset. Consequences:
+
+- A default (`utf-8`) client on an EUC-KR database cannot read EUC-KR text: it
+  raises `DataError` instead of returning wrong characters, and before #86 its
+  writes silently stored mojibake. Connect with `charset="euckr"`.
+- A column declared `CHARSET utf8` inside an EUC-KR database arrives as UTF-8
+  and raises `DataError` under `charset="euckr"`. Convert it in SQL, for example
+  `SELECT CAST(u AS VARCHAR(10) CHARSET euckr) FROM t`, or read `hex(u)`.
+- Only one codec applies per connection.
 
 !!! note
-    CUBRID's default charset is `utf8` (set at database creation). All modern CUBRID
-    installations use UTF-8. Legacy databases created with `iso88591` charset may
-    produce garbled strings for non-ASCII data, since pycubrid always decodes bytes
-    as UTF-8.
+    In an EUC-KR database, CUBRID's lexer accepts non-ASCII identifiers only when
+    quoted (`[표]` or `"표"`), and `CHAR(n)` pads with the full-width space
+    U+3000. Both are server behaviors, not driver ones.
+
+!!! note "JDBC difference"
+    The CUBRID JDBC driver exposes a `charSet` connection-URL property for the
+    same purpose. pycubrid additionally refuses codecs that are not
+    ASCII-transparent and always treats `JSON` as UTF-8.
 
 ---
 

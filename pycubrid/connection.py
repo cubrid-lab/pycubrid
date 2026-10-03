@@ -5,12 +5,15 @@ import socket
 import ssl as ssl_module
 import struct
 import time
-from importlib import import_module
 from threading import RLock
 from typing import TYPE_CHECKING, Any
 
 from ._connection_common import (
+    ESCAPE_PROBE_FAILED,
+    ESCAPE_PROBE_ROLLBACK_FAILED,
+    ESCAPE_PROBE_SQL,
     ConnectionCommonMixin,
+    no_backslash_escapes_from_probe,
     resolve_ssl_context,
     warn_unknown_connection_options,
 )
@@ -32,19 +35,21 @@ from .protocol import (
     SetDbParameterPacket,
 )
 
-if TYPE_CHECKING:
-    from typing import Any as Cursor
-
-_CursorClass: type | None = None
-
 _LOGGER = logging.getLogger(__name__)
 
 # Re-export for backwards compatibility.
 _resolve_ssl_context = resolve_ssl_context
 
+# TLS handshake bound when ``read_timeout`` is unset; the async driver passes
+# the same value as ``ssl_handshake_timeout`` (#535).
+_DEFAULT_TLS_HANDSHAKE_TIMEOUT = 10.0
+
 
 class Connection(ConnectionCommonMixin):
     """PEP 249 DB-API connection for the CUBRID CAS protocol."""
+
+    # The constructor's autocommit=True until it is applied on a session.
+    _pending_autocommit: bool = False
 
     def __init__(
         self,
@@ -80,14 +85,60 @@ class Connection(ConnectionCommonMixin):
             json_deserializer=json_deserializer,
             no_backslash_escapes=kwargs.get("no_backslash_escapes", None),
             enable_timing=kwargs.get("enable_timing"),
+            charset=kwargs.get("charset", "utf-8"),
         )
-        # OPEN_DATABASE advertises this per physical broker session.  A
+        # OPEN_DATABASE advertises statement pooling per physical broker
+        # session (``_statement_pooling``, set up by _init_common_state). A
         # prepared handle may be reused only on a measured pooling-on lane.
-        self._statement_pooling: int | None = None
 
+        # Applied by connect() on the session it opens (async parity).
+        self._pending_autocommit = bool(autocommit)
         self.connect()
-        if autocommit:
-            self.autocommit = True
+
+    def _configure_new_session(self, previous_generation: int) -> None:
+        """Apply the constructor's autocommit or restore explicit session state.
+
+        Async ``connect()`` parity. Runs on every newly opened physical session.
+        The escape-mode probe ends with a ROLLBACK, so the session may be
+        OUT_TRAN and that CAS may already be recycled: verify it once before
+        sending any setting. A replacement session is configured by the nested
+        ``connect()`` of that recovery, so nothing is sent twice.
+        """
+        sends_setting = self._pending_autocommit or (
+            bool(previous_generation) and self._autocommit_explicitly_set
+        )
+        if sends_setting and self._check_reconnect():
+            return
+        if self._pending_autocommit:
+            self._apply_pending_autocommit()
+        elif previous_generation:
+            self._restore_session_state()
+        self._configured_generation = self._physical_generation
+
+    def _apply_pending_autocommit(self) -> None:
+        """Apply the constructor's ``autocommit=True`` on the current session.
+
+        Mirrors the async ``_apply_pending_autocommit_locked``: ``SET_DB_PARAMETER``
+        and its ``COMMIT`` are sent on this session with implicit reconnect
+        disabled, so a CAS recycled between them cannot split the two across
+        sessions (which left the new session at the broker default while
+        ``autocommit`` reported ``True``). Any failure retires the session and
+        raises :class:`OperationalError` with the cause chained.
+        """
+        try:
+            self._send_and_receive(
+                SetDbParameterPacket(parameter=CCIDbParam.AUTO_COMMIT, value=1),
+                allow_reconnect=False,
+            )
+            self._send_and_receive(CommitPacket(), allow_reconnect=False)
+        except BaseException as exc:
+            self._drop_connection()
+            if isinstance(exc, Exception):
+                raise OperationalError("failed to apply autocommit after connect") from exc
+            raise
+        self._autocommit = True
+        self._autocommit_explicitly_set = True
+        self._pending_autocommit = False
 
     def _negotiate_backslash_escapes(self) -> None:
         """Detect the server's backslash-escape mode when not pinned.
@@ -124,28 +175,13 @@ class Connection(ConnectionCommonMixin):
             try:
                 cursor = self.cursor()
                 try:
-                    cursor.execute("SELECT CHAR_LENGTH('\\\\')")
+                    cursor.execute(ESCAPE_PROBE_SQL)
                     row = cursor.fetchone()
                 finally:
                     cursor.close()
             except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
-                raise OperationalError(
-                    "Failed to detect CUBRID backslash-escape mode; refusing to "
-                    "guess because a wrong mode silently corrupts string escaping. "
-                    "Pass no_backslash_escapes explicitly to skip detection."
-                ) from exc
-            length = row[0] if row else None
-            if length == 2:
-                self._no_backslash_escapes = True
-            elif length == 1:
-                self._no_backslash_escapes = False
-            else:
-                raise OperationalError(
-                    "Could not detect CUBRID backslash-escape mode "
-                    f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
-                    "because a wrong mode silently corrupts string escaping. Pass "
-                    "no_backslash_escapes explicitly to skip detection."
-                )
+                raise OperationalError(ESCAPE_PROBE_FAILED) from exc
+            self._no_backslash_escapes = no_backslash_escapes_from_probe(row[0] if row else None)
         except BaseException:
             probe_failed = True
             raise
@@ -165,12 +201,7 @@ class Connection(ConnectionCommonMixin):
                 except Exception:  # nosec B110 — best-effort close after rollback failure
                     pass
                 if not probe_failed:
-                    raise OperationalError(
-                        "Failed to roll back the CUBRID backslash-escape probe "
-                        "transaction; the connection may be in an unknown "
-                        "transaction state and has been closed. Pass "
-                        "no_backslash_escapes explicitly to skip detection."
-                    ) from rollback_exc
+                    raise OperationalError(ESCAPE_PROBE_ROLLBACK_FAILED) from rollback_exc
 
     def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.
@@ -199,9 +230,26 @@ class Connection(ConnectionCommonMixin):
         raises :class:`ssl.SSLCertVerificationError` synchronously on
         verification failure (unlike the async path on Python 3.10 — see
         `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_).
+
+        When this opens a new physical session after an earlier one (``close()``
+        then ``connect()``, ``ping()`` recovery, or a failed ``CHECK_CAS``
+        probe), an explicitly set ``autocommit`` is re-applied on it, as the
+        async driver does (#520).
         """
         with self._session_lock:
+            previous_generation = self._physical_generation
             self._connect_locked()
+            if self._physical_generation == previous_generation:
+                return
+            # A recovery nested in the escape probe already configured its
+            # replacement session; do not send its settings twice.
+            if self._configured_generation == self._physical_generation:
+                return
+            try:
+                self._configure_new_session(previous_generation)
+            except BaseException:
+                self._drop_connection()
+                raise
 
     def _connect_locked(self) -> None:
         if self._connected:
@@ -251,6 +299,7 @@ class Connection(ConnectionCommonMixin):
                 database=self._database,
                 user=self._user,
                 password=self._password,
+                encoding=self._encoding,
             )
             self._socket.sendall(open_db_packet.write())
             data_length_bytes = self._recv_exact(self._socket, DataSize.DATA_LENGTH)
@@ -259,12 +308,13 @@ class Connection(ConnectionCommonMixin):
             response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
             open_db_packet.parse(response_body)
 
-            self._cas_info = open_db_packet.cas_info
+            self._record_reply_cas_info(open_db_packet.cas_info)
             self._session_id = open_db_packet.session_id
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
+            self._broker_db_type = open_db_packet.broker_info.get("db_type")
             self._connected = True
-            self._verified_cas_info = self._cas_info
+            self._mark_cas_reply_verified()
             self._physical_generation += 1
             if not self._no_backslash_escapes_explicit:
                 self._no_backslash_escapes = None
@@ -401,12 +451,31 @@ class Connection(ConnectionCommonMixin):
             if handle is None:
                 continue
             cursor._query_handle = None
-            try:
-                self._send_and_receive(CloseQueryPacket(handle))
-            except Error:
-                if not self._connected:
-                    raise
-                _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
+            self._close_handle_at_boundary(handle)
+        # Handles of cursors collected without close() and queued (#488).
+        generation = self._physical_generation
+        initial_count = len(self._deferred_closes)
+        for _ in range(initial_count):
+            if self._physical_generation != generation:
+                break  # replaced during an earlier CLOSE_REQ: nothing left to close
+            if not self._deferred_closes:
+                break  # retirement may have cleared the batch without replacing generation
+            head = self._deferred_closes[0]
+            handle = self._peek_boundary_deferred_close()
+            if handle is None:
+                self._consume_deferred_closes(1)  # stale or pooling-off: no wire ownership
+                continue
+            self._close_handle_at_boundary(handle)
+            if self._deferred_closes and self._deferred_closes[0] is head:
+                break  # a handled pre-send error left the head unsent
+
+    def _close_handle_at_boundary(self, handle: int) -> None:
+        try:
+            self._send_and_receive(CloseQueryPacket(handle))
+        except Error:
+            if not self._connected:
+                raise
+            _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
 
     def _check_reconnect(self, *, allow_reconnect: bool = True) -> bool:
         """Probe an OUT_TRAN CAS with CHECK_CAS and reconnect only if it is gone.
@@ -428,7 +497,7 @@ class Connection(ConnectionCommonMixin):
                 CheckCasPacket(), allow_reconnect=False, expected_generation=None
             )
             if probe.response_code >= 0:
-                self._verified_cas_info = self._cas_info
+                self._mark_cas_reply_verified()
                 return False
             _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
         except (Error, OSError, struct.error) as exc:
@@ -448,8 +517,7 @@ class Connection(ConnectionCommonMixin):
         self._invalidate_query_handles_for_reconnect()
         self._implicit_reconnect_suspended += 1
         try:
-            self.connect()
-            self._restore_session_state()
+            self.connect()  # also restores explicit session state
             # Setup may itself end OUT_TRAN (the escape probe's rollback), and
             # that CAS may be recycled too: verify it before the pending request.
             if self._cas_status_unverified():
@@ -458,7 +526,7 @@ class Connection(ConnectionCommonMixin):
                 )
                 if probe.response_code < 0:
                     raise OperationalError("replacement CAS session failed CHECK_CAS")
-                self._verified_cas_info = self._cas_info
+                self._mark_cas_reply_verified()
         except BaseException as exc:
             self._drop_connection()
             if isinstance(exc, Exception):
@@ -470,7 +538,7 @@ class Connection(ConnectionCommonMixin):
             self._implicit_reconnect_suspended -= 1
 
     def _restore_session_state(self) -> None:
-        """Re-emit session-level settings after explicit ping recovery.
+        """Re-emit session-level settings on a replacement physical session.
 
         Re-applies any session state that the caller has explicitly set
         on this connection (currently only ``autocommit``).  Settings the
@@ -499,15 +567,12 @@ class Connection(ConnectionCommonMixin):
             self._drop_connection()
             raise OperationalError("failed to restore session state after reconnect") from exc
 
-    def cursor(self) -> Cursor:
+    def cursor(self) -> _cursor_module.Cursor:
         """Create and return a new cursor bound to this connection."""
         self._ensure_connected()
-        global _CursorClass  # noqa: PLW0603
-        if _CursorClass is None:
-            _CursorClass = getattr(import_module("pycubrid.cursor"), "Cursor")
-        cls = _CursorClass
-        assert cls is not None
-        cursor = cls(self)
+        from .cursor import Cursor
+
+        cursor = Cursor(self)
         self._cursors.add(cursor)
         return cursor
 
@@ -519,19 +584,42 @@ class Connection(ConnectionCommonMixin):
 
     @autocommit.setter
     def autocommit(self, value: bool) -> None:
-        """Set auto-commit mode and flush transaction state on the server."""
+        """Set auto-commit mode and flush transaction state on the server.
+
+        ``SET_DB_PARAMETER`` and its ``COMMIT`` must take effect on one CAS
+        session (#551). The new value is recorded once ``SET_DB_PARAMETER``
+        succeeds, so if the CAS is recycled before the ``COMMIT`` the
+        reconnect restores the new value on the replacement session before the
+        ``COMMIT`` is sent there. At most one session is replaced per call: a
+        CAS already replaced for this call is not replaced again. If the
+        ``COMMIT`` fails, the session is retired, the previous value is kept,
+        and :class:`OperationalError` is raised with the cause chained.
+        """
         self._ensure_connected()
         enabled = bool(value)
-        self._close_schema_results()
-        self._send_and_receive(
-            SetDbParameterPacket(
-                parameter=CCIDbParam.AUTO_COMMIT,
-                value=1 if enabled else 0,
+        with self._session_lock:
+            generation = self._physical_generation
+            self._close_schema_results()
+            self._send_and_receive(
+                SetDbParameterPacket(
+                    parameter=CCIDbParam.AUTO_COMMIT,
+                    value=1 if enabled else 0,
+                ),
+                allow_reconnect=self._physical_generation == generation,
             )
-        )
-        self._send_and_receive(CommitPacket())
-        self._autocommit = enabled
-        self._autocommit_explicitly_set = True
+            previous = (self._autocommit, self._autocommit_explicitly_set)
+            self._autocommit = enabled
+            self._autocommit_explicitly_set = True
+            try:
+                self._send_and_receive(
+                    CommitPacket(), allow_reconnect=self._physical_generation == generation
+                )
+            except BaseException as exc:
+                self._autocommit, self._autocommit_explicitly_set = previous
+                self._drop_connection()
+                if isinstance(exc, Exception):
+                    raise OperationalError("failed to commit the autocommit change") from exc
+                raise
         _LOGGER.debug("autocommit=%s", enabled)
 
     def get_server_version(self) -> str:
@@ -576,7 +664,9 @@ class Connection(ConnectionCommonMixin):
 
         Contract: reconnect+session-restore is attempted **at most once**
         per ``ping()`` call. A restore failure tears the connection down
-        and returns ``False`` rather than retrying.
+        and returns ``False`` rather than retrying. A negative ``CHECK_CAS``
+        response closes the broken session even with ``reconnect=False``,
+        as the async driver does.
         """
         with self._session_lock:
             return self._ping_locked(reconnect)
@@ -588,8 +678,7 @@ class Connection(ConnectionCommonMixin):
             try:
                 self._invalidate_query_handles_for_reconnect()
                 _LOGGER.debug("ping: reconnecting")
-                self.connect()
-                self._restore_session_state()
+                self.connect()  # also restores explicit session state
                 return True
             except (OSError, OperationalError, InterfaceError):
                 return False
@@ -601,16 +690,18 @@ class Connection(ConnectionCommonMixin):
         except (InterfaceError, OperationalError, OSError, struct.error):
             healthy = False
         if healthy:
-            self._verified_cas_info = self._cas_info
+            self._mark_cas_reply_verified()
             return True
+        # A failed CHECK_CAS confirms this session is broken: retire it even
+        # without reconnect, as the async driver does, so no later request is
+        # sent on it and nothing reconnects behind the caller's back.
+        self._drop_connection()
+        self._invalidate_query_handles_for_reconnect()
         if not reconnect:
             return False
         try:
-            self._drop_connection()
-            self._invalidate_query_handles_for_reconnect()
             _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
-            self.connect()
-            self._restore_session_state()
+            self.connect()  # also restores explicit session state
             return True
         except (OSError, OperationalError, InterfaceError):
             return False
@@ -632,6 +723,10 @@ class Connection(ConnectionCommonMixin):
     ) -> GetSchemaPacket:
         """Create an owned schema result; consume or explicitly close its packet."""
         self._ensure_connected()
+        # An unencodable argument fails here, before the request can drop
+        # the session below (#86).
+        self._check_encodable("schema argument", table_name)
+        self._check_encodable("schema argument", arg2)
         packet = GetSchemaPacket(
             schema_type=schema_type,
             table_name=table_name,
@@ -742,18 +837,30 @@ class Connection(ConnectionCommonMixin):
         the ``CUBRS`` magic is sent in plaintext, and only on a ``0`` reply
         is the same socket wrapped in TLS.  Wrapping earlier (TLS from
         byte 0) is rejected by the broker.
+
+        The handshake is bounded by ``read_timeout``, or by 10 seconds when
+        ``read_timeout`` is unset (the async ``ssl_handshake_timeout``
+        default); the socket is blocking again afterwards in that case.
         """
         ssl_context = self._ssl_context
         if ssl_context is None:
             return sock
+        bound_by_default = self._read_timeout is None
         try:
-            return ssl_context.wrap_socket(sock, server_hostname=host)
+            if bound_by_default:
+                # A peer that stalls mid-handshake must not block forever (#535).
+                sock.settimeout(_DEFAULT_TLS_HANDSHAKE_TIMEOUT)
+            ssl_sock = ssl_context.wrap_socket(sock, server_hostname=host)
         except (OSError, ssl_module.SSLError):
             try:
                 sock.close()
             except OSError:
                 pass
             raise
+        if bound_by_default:
+            # Requests after the handshake stay unbounded, as without TLS.
+            ssl_sock.settimeout(None)
+        return ssl_sock
 
     def _send_and_receive(
         self,
@@ -804,6 +911,8 @@ class Connection(ConnectionCommonMixin):
         expected_generation: int | None,
         bound_generation: int | None = None,
     ) -> Any:
+        if isinstance(packet, PrepareAndExecutePacket):
+            packet._query_handle_retired = False
         self._validate_prepared_generation(expected_generation)
         self._validate_bound_generation(bound_generation)
         if self._check_reconnect(
@@ -833,7 +942,21 @@ class Connection(ConnectionCommonMixin):
         request_socket = self._socket
         attempted_send = False
         response_complete = False
+        deferred_count = 0
         try:
+            # Every request on this connection uses its charset (#86); encoding
+            # happens in write(), so an unencodable value sends nothing.
+            packet.encoding = self._encoding
+            if isinstance(packet, PrepareAndExecutePacket):
+                # Release queued handles of this session with this request (#488).
+                deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
+            elif (
+                isinstance(packet, CloseQueryPacket)
+                and self._peek_boundary_deferred_close() == packet.query_handle
+            ):
+                # The same send-time ownership transfer as FC41, but one FIFO
+                # CLOSE_REQ at a boundary. No extra wire argument is added.
+                deferred_count = 1
             try:
                 request_data = packet.write(self._cas_info)
             except struct.error as exc:
@@ -842,6 +965,8 @@ class Connection(ConnectionCommonMixin):
             # Re-check immediately before bytes can leave this socket.
             self._validate_prepared_session(expected_generation, request_socket)
             attempted_send = True
+            # Sent (or uncertain, which retires the session): never send them again.
+            self._consume_deferred_closes(deferred_count)
             request_socket.sendall(request_data)
             self._validate_prepared_session(expected_generation, request_socket)
             if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -863,14 +988,14 @@ class Connection(ConnectionCommonMixin):
             response_complete = True
             response_cas_info = response_body[: DataSize.CAS_INFO]
             if expected_generation is None:
-                self._cas_info = response_cas_info
+                self._record_reply_cas_info(response_cas_info)
+            self._retire_pooling_off_reply_handles(packet, response_body)
 
             try:
                 packet.parse(response_body)
             except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
                 if expected_generation is None:
-                    self._safe_close_socket()
-                    self._connected = False
+                    self._drop_connection()
                 elif self._prepared_session_is_current(expected_generation, request_socket):
                     self._discard_uncertain_prepared_session()
                 raise OperationalError("malformed response from broker") from exc
@@ -879,7 +1004,7 @@ class Connection(ConnectionCommonMixin):
                     raise
                 if getattr(exc, "_cas_server_error", False):
                     self._validate_prepared_session(expected_generation, request_socket)
-                    self._cas_info = response_cas_info
+                    self._record_reply_cas_info(response_cas_info)
                     raise
                 if self._prepared_session_is_current(expected_generation, request_socket):
                     self._discard_uncertain_prepared_session()
@@ -892,16 +1017,20 @@ class Connection(ConnectionCommonMixin):
                 raise OperationalError("malformed response from broker") from exc
             self._validate_prepared_session(expected_generation, request_socket)
             if expected_generation is not None:
-                self._cas_info = response_cas_info
+                self._record_reply_cas_info(response_cas_info)
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("recv: %d bytes", data_length + DataSize.CAS_INFO)
             return packet
         except OSError as exc:
+            if response_complete and expected_generation is None:
+                # Raised by a parse callback (json_deserializer) after the whole
+                # reply was read: not a transport failure, the session is intact.
+                raise
             if expected_generation is not None and not attempted_send:
                 raise  # Local pre-byte failure cannot corrupt the broker reply.
             if expected_generation is None:
-                self._safe_close_socket()
-                self._connected = False
+                if self._socket is request_socket:  # never a replacement session
+                    self._drop_connection()
             elif self._prepared_session_is_current(expected_generation, request_socket):
                 self._discard_uncertain_prepared_session()
             raise OperationalError("socket communication failed") from exc
@@ -909,6 +1038,15 @@ class Connection(ConnectionCommonMixin):
         # codeql[py/catch-base-exception]
         except BaseException as exc:
             if (
+                expected_generation is None
+                and attempted_send
+                and not response_complete
+                and not isinstance(exc, Exception)
+                and self._socket is request_socket
+            ):
+                # An interrupt while the reply is outstanding leaves it unread.
+                self._discard_uncertain_prepared_session()
+            elif (
                 expected_generation is not None
                 and attempted_send
                 and (not response_complete or not isinstance(exc, Exception))
@@ -972,3 +1110,8 @@ class Connection(ConnectionCommonMixin):
                 raise OperationalError("connection lost during receive")
             pos += n
         return buf
+
+
+# Define Connection before its type-only cursor dependency.
+if TYPE_CHECKING:
+    from . import cursor as _cursor_module

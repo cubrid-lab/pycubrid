@@ -12,7 +12,8 @@ asserts the process stays healthy over time:
 
 Duration is controlled by ``SOAK_SECONDS`` (default 5s so it stays CI-friendly
 by default; the nightly bug-hunt workflow sets it to 30-60 minutes). Marked
-``integration`` and skip-gated on a reachable broker.
+``integration`` and gated by the shared ``tests/conftest.py`` gate
+(skip when unconfigured, error when configured but unreachable).
 """
 
 from __future__ import annotations
@@ -35,12 +36,12 @@ import pycubrid.aio
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import Error as DBAPIError, IntegrityError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.slow,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.no_escape_pin,
 ]
 
 _SOAK_SECONDS = float(os.environ.get("SOAK_SECONDS", "5"))

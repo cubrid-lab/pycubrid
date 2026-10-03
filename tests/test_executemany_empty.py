@@ -15,9 +15,11 @@ from pycubrid.protocol import CloseQueryPacket, ColumnMetaData
 @pytest.fixture
 def mock_connection() -> MagicMock:
     conn = MagicMock()
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    conn._defer_close = MagicMock(return_value=False)
     conn.autocommit = False
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")
     conn._cursors = set()
     conn._ensure_connected = MagicMock()
     conn._no_backslash_escapes = False
@@ -56,9 +58,11 @@ def test_executemany_empty_resets_stale_result_state(mock_connection: MagicMock)
 @pytest.mark.asyncio
 async def test_async_executemany_empty_resets_stale_result_state() -> None:
     conn = MagicMock()
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    conn._defer_close = MagicMock(return_value=False)
     conn.autocommit = False
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")
     conn._cursors = set()
     conn._ensure_connected = MagicMock()
     conn._no_backslash_escapes = False

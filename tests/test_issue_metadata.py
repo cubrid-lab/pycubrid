@@ -9,6 +9,8 @@ import pytest
 
 from scripts.check_issue_metadata import main, metadata_gaps
 
+pytestmark = pytest.mark.repo_tooling
+
 _VALID = ("bug", "priority: high", "size: M", "area: protocol")
 
 
@@ -19,6 +21,11 @@ _VALID = ("bug", "priority: high", "size: M", "area: protocol")
         ("fix(protocol): preserve cursor state", _VALID, ()),
         ("[Bug]: preserve cursor state", _VALID, ("title",)),
         ("fix: ", _VALID, ("title",)),
+        ("fix: resolve #12", _VALID, ("title",)),
+        ("fix: preserve state.", _VALID, ("title",)),
+        ("fix: WIP preserve state", _VALID, ("title",)),
+        ("fix: preserve state ", _VALID, ("title",)),
+        ("fix: preserve state\n", _VALID, ("title",)),
         ("fix: preserve cursor state", ("priority: high", "size: M"), ("type",)),
         (
             "fix: fail closed when the integration service is unavailable",
@@ -30,7 +37,16 @@ _VALID = ("bug", "priority: high", "size: M", "area: protocol")
         ("test: add coverage", ("testing", "priority: medium", "size: S"), ()),
         ("refactor: simplify compiler", ("refactor", "priority: medium", "size: S"), ()),
         ("ci: extend coverage", ("ci", "testing", "priority: medium", "size: M"), ()),
-        ("epic: compare drivers", ("enhancement", "testing", "priority: high", "size: L"), ()),
+        (
+            "epic: compare drivers",
+            ("enhancement", "testing", "priority: high", "size: L"),
+            ("title",),
+        ),
+        ("test: compare drivers", ("enhancement", "testing", "priority: high", "size: L"), ()),
+        ("feat(aio)!: drop the legacy flag", _VALID, ()),
+        ("build: switch the build backend", ("chore", "priority: low", "size: S"), ()),
+        ("revert: restore the escape probe", _VALID, ()),
+        ("Fix: preserve cursor state", _VALID, ("title",)),
         ("perf: tune fetches", ("enhancement", "priority: medium", "size: S"), ()),
         ("perf: tune fetches", ("performance", "priority: medium", "size: S"), ()),
         ("perf: tune fetches", ("enhancement", "performance", "priority: medium", "size: S"), ()),

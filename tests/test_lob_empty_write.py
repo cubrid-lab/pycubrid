@@ -41,10 +41,11 @@ def test_empty_bytes_write_validates_without_sending(
     assert lob.lob_type == lob_type
 
 
-def test_empty_bytes_preserves_bool_offset(connection: MagicMock) -> None:
+def test_empty_bytes_rejects_bool_offset(connection: MagicMock) -> None:
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    written = lob.write(b"", offset=True)
-    assert written == 0
+    with pytest.raises(InterfaceError, match="offset must be an int"):
+        lob.write(b"", offset=True)
+    connection._ensure_connected.assert_not_called()
     connection._send_and_receive.assert_not_called()
 
 
@@ -74,29 +75,49 @@ def test_empty_write_keeps_closed_connection_check(connection: MagicMock) -> Non
     connection._send_and_receive.assert_not_called()
 
 
-@pytest.mark.parametrize("offset", [0.5, 2**63])
-def test_empty_write_keeps_signed64_serialization_rejection(
-    connection: MagicMock, offset: object
+def test_empty_write_rejects_float_offset_before_serialization(
+    connection: MagicMock,
 ) -> None:
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
+    with pytest.raises(InterfaceError, match="offset must be an int"):
+        lob.write(b"", offset=0.5)
+    connection._ensure_connected.assert_not_called()
+    connection._send_and_receive.assert_not_called()
+
+
+def test_empty_write_keeps_signed64_serialization_rejection(connection: MagicMock) -> None:
+    lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
     with pytest.raises(DataError):
-        lob.write(b"", offset=offset)
+        lob.write(b"", offset=2**63)
     connection._ensure_connected.assert_called_once_with()
 
 
 @pytest.mark.parametrize("data", [b"", b"x"], ids=["empty", "nonempty"])
-@pytest.mark.parametrize("offset", [0.5, 2**63])
-def test_real_connection_preserves_serialization_error_translation(
-    data: bytes, offset: object
-) -> None:
+def test_real_connection_preserves_serialization_error_translation(data: bytes) -> None:
     conn, sock = make_connected_connection()
-    conn._cas_info = b"\x01\x00\x00\x00"  # Active session: no reconnect before validation.
+    conn._record_reply_cas_info(
+        b"\x01\x00\x00\x00"
+    )  # Active session: no reconnect before validation.
     sock.sendall.reset_mock()
     try:
         lob = Lob(conn, CUBRIDDataType.BLOB, b"handle")
         with pytest.raises(DataError, match="serialize into CAS request") as raised:
-            lob.write(data, offset=offset)
+            lob.write(data, offset=2**63)
         assert isinstance(raised.value.__cause__, struct.error)
+        sock.sendall.assert_not_called()
+    finally:
+        conn._drop_connection()
+
+
+@pytest.mark.parametrize("data", [b"", b"x"], ids=["empty", "nonempty"])
+def test_real_connection_rejects_float_offset_without_socket_io(data: bytes) -> None:
+    conn, sock = make_connected_connection()
+    conn._cas_info = b"\x01\x00\x00\x00"
+    sock.sendall.reset_mock()
+    try:
+        lob = Lob(conn, CUBRIDDataType.BLOB, b"handle")
+        with pytest.raises(InterfaceError, match="offset must be an int"):
+            lob.write(data, offset=0.5)
         sock.sendall.assert_not_called()
     finally:
         conn._drop_connection()

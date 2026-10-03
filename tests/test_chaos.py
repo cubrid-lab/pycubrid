@@ -14,8 +14,9 @@ durable contract:
   a DB-API error until the caller explicitly recovers);
 * an active transaction is never silently replayed on a new connection.
 
-Marked ``integration`` and skip-gated. Runs against the normal broker; the full
-process-kill / server-restart matrix belongs in the nightly chaos job.
+Marked ``integration`` and gated by the shared ``tests/conftest.py`` gate. Runs
+against the normal broker; the full process-kill /
+server-restart matrix belongs in the nightly chaos job.
 """
 
 from __future__ import annotations
@@ -32,12 +33,12 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.slow,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.no_escape_pin,
 ]
 
 

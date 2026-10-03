@@ -12,7 +12,7 @@ from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.cursor import Cursor
-from pycubrid.exceptions import DataError, OperationalError, ProgrammingError
+from pycubrid.exceptions import DataError, ProgrammingError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -56,8 +56,8 @@ def test_error_message_with_cut_character_surfaces_server_error() -> None:
 
 def test_error_message_without_terminator_and_empty_message() -> None:
     reader = PacketReader(b"ab" + CUT_CHAR)
-    assert reader._parse_error_message(4) == "ab�"
-    assert reader._parse_error_message(0) == ""
+    assert reader._parse_lenient_text(4) == "ab�"
+    assert reader._parse_lenient_text(0) == ""
 
 
 def test_batch_error_message_with_cut_character_is_replaced() -> None:
@@ -110,8 +110,24 @@ def test_invalid_fetched_value_raises_data_error() -> None:
 def test_truncated_value_stays_a_framing_error() -> None:
     body = _select_body(b"ab" + CUT_CHAR + b"\x00")
     packet = PrepareAndExecutePacket("SELECT v FROM t")
-    with pytest.raises(IndexError):
+    with pytest.raises(ValueError, match="past the end") as raised:
         packet.parse(body[:-3])
+    assert not isinstance(raised.value, DataError)
+
+
+def test_invalid_value_before_truncated_row_stays_a_framing_error() -> None:
+    # DataError is only for a complete reply: a later short row wins (#512).
+    bad = b"ab" + CUT_CHAR + b"\x00"
+    body = CAS_INFO + struct.pack(">ii", 0, 2)
+    for index, value in enumerate((bad, b"ok\x00")):
+        body += struct.pack(">i", index + 1) + b"\x00" * 8
+        body += struct.pack(">i", len(value)) + value
+    columns = PrepareAndExecutePacket("SELECT v FROM t")
+    columns.parse(_select_body(b"ok\x00"))
+    packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
+    with pytest.raises(ValueError, match="past the end") as raised:
+        packet.parse(body[:-2], columns=columns.columns)
+    assert not isinstance(raised.value, DataError)
 
 
 # --- sync connection and cursor --------------------------------------------
@@ -144,14 +160,16 @@ def test_sync_invalid_row_value_keeps_connection(
     assert conn._socket is not None
 
 
-def test_sync_invalid_column_name_is_still_malformed(
+def test_sync_invalid_column_name_raises_data_error(
     socket_queue: list[MagicMock],  # noqa: F811
 ) -> None:
+    # Column names are in the database charset: an undecodable name is a
+    # charset mismatch in a fully read reply, not framing damage (#86).
     body = _select_body(b"ok\x00").replace(b"v\x00", b"\xff\x00", 1)
     conn, _ = _connection_with_reply(socket_queue, body)
-    with pytest.raises(OperationalError, match="malformed response from broker"):
+    with pytest.raises(DataError, match="column metadata is not valid UTF-8"):
         conn._send_and_receive(PrepareAndExecutePacket("SELECT v FROM t"))
-    assert conn._connected is False
+    assert conn._connected is True
 
 
 def _reply_with_bad_row(packet: object) -> object:
@@ -164,6 +182,8 @@ def _mock_connection(asynchronous: bool) -> MagicMock:
     connection = MagicMock()
     connection._timing = None
     connection._cursors = set()
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    connection._defer_close = MagicMock(return_value=False)
     connection.autocommit = True
     connection._protocol_version = 8
     connection._decode_collections = False
@@ -202,7 +222,7 @@ def _async_connection_with_reply(body: bytes) -> AsyncConnection:
     frame = _frame(body)
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"  # IN_TRAN: no CHECK_CAS probe first
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")  # IN_TRAN: no CHECK_CAS probe first
     reader = MagicMock()
     reader.readexactly = AsyncMock(side_effect=[frame[:4], frame[4:]])
     writer = MagicMock()

@@ -3,11 +3,78 @@
 from __future__ import annotations
 
 import datetime
-from decimal import Decimal
+import enum
+import subprocess
+import sys
+from collections.abc import Iterator
+from decimal import Decimal, DecimalTuple
+from typing import cast
 
 import pytest
 
-from pycubrid.exceptions import ProgrammingError
+from pycubrid.exceptions import DataError, ProgrammingError
+
+_INJECTED = "1; DROP TABLE t"
+
+
+class _Color(enum.IntEnum):
+    RED = 1
+
+
+class _Perm(enum.IntFlag):
+    R = 4
+    W = 2
+
+
+class _HostileInt(int):
+    def __str__(self) -> str:
+        return _INJECTED
+
+    def __repr__(self) -> str:
+        return _INJECTED
+
+    def __format__(self, spec: str) -> str:
+        return _INJECTED
+
+    def __int__(self) -> int:
+        return 666
+
+    def __index__(self) -> int:
+        return 666
+
+
+class _HostileFloat(float):
+    def __str__(self) -> str:
+        return _INJECTED
+
+    def __repr__(self) -> str:
+        return _INJECTED
+
+    def __format__(self, spec: str) -> str:
+        return _INJECTED
+
+    def __float__(self) -> float:
+        return 666.0
+
+
+class _HostileDecimal(Decimal):
+    def __str__(self) -> str:
+        return _INJECTED
+
+    def __repr__(self) -> str:
+        return _INJECTED
+
+    def __format__(self, spec: str, *args: object) -> str:
+        return _INJECTED
+
+    def is_nan(self) -> bool:
+        return False
+
+    def is_infinite(self) -> bool:
+        return False
+
+    def as_tuple(self) -> DecimalTuple:
+        return Decimal("1").as_tuple()
 
 
 class TestEscapeString:
@@ -135,6 +202,88 @@ class TestFormatParameterTypes:
     def test_decimal(self, cursor: object) -> None:
         assert cursor._format_parameter(Decimal("99.99")) == "99.99"
 
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("0.0000001", "0.0000001"),
+            ("1E-7", "0.0000001"),
+            ("1.23456789012345678901234E-7", "0.000000123456789012345678901234"),
+            ("-1.5E-3", "-0.0015"),
+            ("1.10", "1.10"),
+            ("1.10E-6", "0.00000110"),
+            ("0E-3", "0.000"),
+            ("-0", "-0"),
+            ("-0.00", "-0.00"),
+            ("0E+5", "0"),
+            ("1E+5", "100000"),
+            ("-1.2E+3", "-1200"),
+            ("123.456E+2", "12345.6"),
+            ("12345678901234567890", "12345678901234567890"),
+        ],
+    )
+    def test_decimal_plain_notation(self, cursor: object, value: str, expected: str) -> None:
+        # CUBRID parses an E-notation literal as DOUBLE, so a Decimal must be
+        # rendered in plain fixed-point notation with its sign and scale (#517).
+        assert cursor._format_parameter(Decimal(value)) == expected
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("1E-38", "0." + "0" * 37 + "1"),
+            ("-1E-38", "-0." + "0" * 37 + "1"),
+            ("0E-38", "0." + "0" * 38),
+            ("9" * 38, "9" * 38),
+            ("1E+37", "1" + "0" * 37),
+            ("0." + "1" * 38, "0." + "1" * 38),
+            ("1" * 37 + ".1", "1" * 37 + ".1"),
+        ],
+        ids=[
+            "scale-38",
+            "negative-scale-38",
+            "zero-scale-38",
+            "integer-38",
+            "exponent-integer-38",
+            "fraction-38",
+            "mixed-38",
+        ],
+    )
+    def test_decimal_precision_38_accepted(self, cursor: object, value: str, expected: str) -> None:
+        assert cursor._format_parameter(Decimal(value)) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "1E-39",
+            "-1E-39",
+            "0E-39",
+            "9" * 39,
+            "1E+38",
+            "0." + "1" * 39,
+            "1" * 38 + ".1",
+            "1.00000000000000000000000000000000000001",
+            "1E+999999999",
+            "1E-999999999",
+        ],
+        ids=[
+            "scale-39",
+            "negative-scale-39",
+            "zero-scale-39",
+            "integer-39",
+            "exponent-integer-39",
+            "fraction-39",
+            "mixed-39",
+            "significant-39",
+            "huge-positive-exponent",
+            "huge-negative-exponent",
+        ],
+    )
+    def test_decimal_precision_over_38_raises(self, cursor: object, value: str) -> None:
+        with pytest.raises(DataError, match="at most 38 digits"):
+            cursor._format_parameter(Decimal(value))
+
+    def test_bind_decimal_plain_notation(self, cursor: object) -> None:
+        assert cursor._bind_parameters("SELECT ?", (Decimal("1E-7"),)) == "SELECT 0.0000001"
+
     def test_date(self, cursor: object) -> None:
         result = cursor._format_parameter(datetime.date(2026, 1, 15))
         assert result == "DATE'2026-01-15'"
@@ -186,6 +335,57 @@ class TestFormatParameterTypes:
         with pytest.raises(ProgrammingError, match="nan and inf"):
             cursor._format_parameter(Decimal("-Infinity"))
 
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (_Color.RED, "1"),
+            (_Perm.R | _Perm.W, "6"),
+            (_Perm(0), "0"),
+            (_HostileInt(1), "1"),
+            (_HostileInt(-(10**40)), "-1" + "0" * 40),
+            (_HostileFloat(2.5), "2.5"),
+            (_HostileFloat(1e20), "1e+20"),
+            (_HostileDecimal("1E-7"), "0.0000001"),
+            (_HostileDecimal("-1.10"), "-1.10"),
+        ],
+        ids=[
+            "IntEnum",
+            "IntFlag",
+            "IntFlag-zero",
+            "int-subclass",
+            "int-subclass-large",
+            "float-subclass",
+            "float-subclass-exponent",
+            "decimal-subclass",
+            "decimal-subclass-scale",
+        ],
+    )
+    def test_numeric_subclass_renders_by_value(
+        self, cursor: object, value: object, expected: str
+    ) -> None:
+        # Subclasses (IntEnum/IntFlag and user types) must not reach SQL
+        # through an overridable __str__/__repr__/__format__ (#518).
+        assert cursor._format_parameter(value) == expected
+        assert cursor._bind_parameters("SELECT ?", (value,)) == "SELECT " + expected
+
+    def test_float_subclass_nan_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(_HostileFloat("nan"))
+
+    def test_decimal_subclass_nan_raises(self, cursor: object) -> None:
+        with pytest.raises(ProgrammingError, match="nan and inf"):
+            cursor._format_parameter(_HostileDecimal("NaN"))
+
+    def test_decimal_subclass_precision_check_uses_value(self, cursor: object) -> None:
+        # A lying as_tuple() override must not bypass the 38-digit check.
+        with pytest.raises(DataError, match="at most 38 digits"):
+            cursor._format_parameter(_HostileDecimal("1E-39"))
+
+    def test_bool_cannot_be_subclassed(self) -> None:
+        # bool is final, so the bool -> 0/1 branch cannot be spoofed.
+        with pytest.raises(TypeError):
+            type("B", (bool,), {})
+
     def test_bytearray_hex(self, cursor: object) -> None:
         assert cursor._format_parameter(bytearray(b"\xca\xfe")) == "X'cafe'"
 
@@ -212,3 +412,641 @@ class TestFormatParameterTypes:
         dt = datetime.datetime(2026, 1, 15, 10, 30, 0, tzinfo=tz)
         result = cursor._format_parameter(dt)
         assert result == "DATETIMETZ'2026-01-15 10:30:00.000 -05:00'"
+
+
+# ---- #528 / #519: str, bytes, date and time literals ------------------------
+
+_INJECTED_SQL = "x'; DROP TABLE users; --"
+
+
+def _inject(*args: object, **kwargs: object) -> str:
+    return _INJECTED_SQL
+
+
+class _HostileStr(str):
+    """A str subclass whose every overridable text method lies (#528)."""
+
+    replace = _inject
+    translate = _inject
+    encode = _inject
+    join = _inject
+    __str__ = _inject
+    __repr__ = _inject
+    __format__ = _inject
+    __mod__ = _inject
+    __rmod__ = _inject
+    __add__ = _inject
+    __radd__ = _inject
+    __getitem__ = _inject
+
+    def __contains__(self, item: object) -> bool:
+        return False
+
+    def find(self, *args: object) -> int:
+        return -1
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(_INJECTED_SQL)
+
+    def __len__(self) -> int:
+        return 0
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    __hash__ = str.__hash__
+
+
+class _HostileBytes(bytes):
+    hex = _inject
+    decode = _inject
+    __str__ = _inject
+    __repr__ = _inject
+    __format__ = _inject
+    __getitem__ = _inject
+
+    def __bytes__(self) -> bytes:
+        return b"'; DROP TABLE users; --"
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(b"'; DROP")
+
+    def __len__(self) -> int:
+        return 0
+
+
+class _HostileByteArray(bytearray):
+    hex = _inject
+    decode = _inject
+    __str__ = _inject
+    __repr__ = _inject
+    __format__ = _inject
+
+    def __len__(self) -> int:
+        return 0
+
+
+def _lie(self: object) -> int:
+    return 7
+
+
+_HOSTILE_TEMPORAL = {
+    "strftime": _inject,
+    "isoformat": _inject,
+    "ctime": _inject,
+    "__str__": _inject,
+    "__repr__": _inject,
+    "__format__": _inject,
+    "timetuple": _inject,
+    "replace": _inject,
+    "utcoffset": _inject,
+    "year": property(_lie),
+    "month": property(_lie),
+    "day": property(_lie),
+    "hour": property(_lie),
+    "minute": property(_lie),
+    "second": property(_lie),
+    "microsecond": property(_lie),
+    "tzinfo": property(lambda self: None),
+}
+
+_HostileDate = type("_HostileDate", (datetime.date,), dict(_HOSTILE_TEMPORAL))
+_HostileDateTime = type("_HostileDateTime", (datetime.datetime,), dict(_HOSTILE_TEMPORAL))
+_HostileTime = type("_HostileTime", (datetime.time,), dict(_HOSTILE_TEMPORAL))
+
+
+class _HostileTimedelta(datetime.timedelta):
+    def total_seconds(self) -> float:
+        return 0.0
+
+
+# Shadow the timedelta fields after class creation (a class-body assignment
+# would conflict with the base-class attribute types).
+setattr(_HostileTimedelta, "days", property(_lie))
+setattr(_HostileTimedelta, "seconds", property(_lie))
+
+
+class _KeyedTZ(datetime.tzinfo):
+    """A tzinfo with a caller-chosen ``key`` and a fixed +09:00 offset."""
+
+    def __init__(self, key: object, offset: datetime.timedelta | None = None) -> None:
+        self.key = key
+        self._offset = datetime.timedelta(hours=9) if offset is None else offset
+
+    def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
+        return self._offset
+
+    def dst(self, dt: datetime.datetime | None) -> datetime.timedelta:
+        return datetime.timedelta(0)
+
+    def tzname(self, dt: datetime.datetime | None) -> str:
+        return "X"
+
+
+def _spoof(cls: type) -> object:
+    """Return an object whose ``__class__`` claims to be *cls*."""
+    return type("_Spoof", (), {"__class__": property(lambda self: cls)})()
+
+
+# Plain values and their exact literals on main before #528 (golden output).
+_GOLDEN_PLAIN = [
+    (None, "NULL", None),
+    (True, "1", None),
+    (False, "0", None),
+    (42, "42", None),
+    (2.5, "2.5", None),
+    (Decimal("3.14"), "3.14", None),
+    ("", "''", "''"),
+    ("hello", "'hello'", "'hello'"),
+    ("it's", "'it''s'", "'it''s'"),
+    ("back\\slash", "'back\\slash'", "'back\\\\slash'"),
+    ("line\nbreak\r", "'line\nbreak\r'", "'line\\\nbreak\\\r'"),
+    ("\\'", "'\\'''", "'\\\\'''"),
+    ("유니코드 ✓", "'유니코드 ✓'", "'유니코드 ✓'"),
+    (b"", "X''", "X''"),
+    (b"\x00\xff", "X'00ff'", "X'00ff'"),
+    (bytearray(b"\xca\xfe"), "X'cafe'", "X'cafe'"),
+    (datetime.date(2026, 1, 15), "DATE'2026-01-15'", None),
+    (datetime.date(9999, 12, 31), "DATE'9999-12-31'", None),
+    (datetime.time(13, 45, 30, 123456), "TIME'13:45:30'", None),
+    (datetime.time(1, 2, 3, tzinfo=datetime.timezone.utc), "TIME'01:02:03'", None),
+    (datetime.datetime(2026, 1, 15, 13, 45, 30, 999999), "DATETIME'2026-01-15 13:45:30.999'", None),
+    (datetime.datetime(1000, 1, 1), "DATETIME'1000-01-01 00:00:00.000'", None),
+    (
+        datetime.datetime(2026, 1, 15, 10, 30, tzinfo=datetime.timezone.utc),
+        "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'",
+        None,
+    ),
+    (
+        datetime.datetime(
+            2026, 1, 15, 10, 30, tzinfo=datetime.timezone(-datetime.timedelta(hours=3, minutes=30))
+        ),
+        "DATETIMETZ'2026-01-15 10:30:00.000 -03:30'",
+        None,
+    ),
+    (
+        datetime.datetime(
+            2026, 1, 15, 10, 30, tzinfo=datetime.timezone(datetime.timedelta(seconds=-1))
+        ),
+        "DATETIMETZ'2026-01-15 10:30:00.000 -00:00'",
+        None,
+    ),
+    (
+        datetime.datetime(
+            2026, 1, 15, 10, 30, tzinfo=datetime.timezone(datetime.timedelta(microseconds=-1))
+        ),
+        "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'",
+        None,
+    ),
+    (
+        datetime.datetime(
+            2026,
+            1,
+            15,
+            10,
+            30,
+            tzinfo=datetime.timezone(
+                -datetime.timedelta(hours=23, minutes=59, seconds=59, microseconds=999999)
+            ),
+        ),
+        "DATETIMETZ'2026-01-15 10:30:00.000 -23:59'",
+        None,
+    ),
+]
+
+
+class TestPlainLiteralsUnchanged:
+    """Plain values render byte-identically to main before #528."""
+
+    @pytest.mark.parametrize("value, strict, legacy", _GOLDEN_PLAIN)
+    def test_golden(self, value: object, strict: str, legacy: str | None) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        assert format_parameter(value, no_backslash_escapes=True) == strict
+        assert format_parameter(value, no_backslash_escapes=False) == (legacy or strict)
+
+    @pytest.mark.parametrize(
+        "key", ["Asia/Seoul", "America/Port-au-Prince", "Etc/GMT+5", "Etc/GMT-14", "UTC"]
+    )
+    def test_zoneinfo_keys_unchanged(self, key: str) -> None:
+        from zoneinfo import ZoneInfo
+
+        from pycubrid._cursor_common import format_parameter
+
+        value = datetime.datetime(2026, 7, 1, 10, 30, 0, 5000, tzinfo=ZoneInfo(key))
+        assert format_parameter(value) == "DATETIMETZ'2026-07-01 10:30:00.005 %s'" % key
+
+
+class TestStrSubclassEscaping:
+    """str subclasses are escaped from their characters, not their methods (#528)."""
+
+    @pytest.mark.parametrize("no_backslash_escapes", [True, False])
+    def test_hostile_str_is_escaped(self, no_backslash_escapes: bool) -> None:
+        from pycubrid._cursor_common import bind_parameters, escape_string, format_parameter
+
+        value = _HostileStr("it's")
+        assert format_parameter(value, no_backslash_escapes=no_backslash_escapes) == "'it''s'"
+        assert escape_string(value, no_backslash_escapes=no_backslash_escapes) == "'it''s'"
+        assert (
+            bind_parameters("SELECT ?", (value,), no_backslash_escapes=no_backslash_escapes)
+            == "SELECT 'it''s'"
+        )
+
+    def test_hostile_str_backslash_mode(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        value = _HostileStr("a\\'\nb")
+        assert format_parameter(value, no_backslash_escapes=False) == "'a\\\\''\\\nb'"
+
+    @pytest.mark.parametrize(
+        "raw, message", [("a\x00b", "null byte"), ("a\x1ab", "Ctrl-Z")], ids=["nul", "ctrl-z"]
+    )
+    def test_hostile_str_guards_still_apply(self, raw: str, message: str) -> None:
+        from pycubrid._cursor_common import escape_string, format_parameter
+
+        with pytest.raises(ProgrammingError, match=message):
+            format_parameter(_HostileStr(raw))
+        with pytest.raises(ProgrammingError, match=message):
+            escape_string(_HostileStr(raw))
+
+    def test_escape_string_rejects_non_str(self) -> None:
+        from pycubrid._cursor_common import escape_string
+
+        with pytest.raises(ProgrammingError):
+            escape_string(cast(str, _spoof(str)))
+
+
+class TestBinarySubclassRendering:
+    @pytest.mark.parametrize(
+        "value", [_HostileBytes(b"A'"), _HostileByteArray(b"A'")], ids=["bytes", "bytearray"]
+    )
+    def test_hostile_binary_renders_real_bytes(self, value: object) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        assert format_parameter(value) == "X'4127'"
+
+
+class TestTemporalSubclassRendering:
+    """date/time subclasses render from base-class fields (#528)."""
+
+    def test_hostile_date(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        assert format_parameter(_HostileDate(2024, 2, 29)) == "DATE'2024-02-29'"
+
+    def test_hostile_time(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        assert format_parameter(_HostileTime(1, 2, 3, 456789)) == "TIME'01:02:03'"
+
+    def test_hostile_datetime(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        value = _HostileDateTime(2024, 1, 1, 0, 0, 0, 123999)
+        assert format_parameter(value) == "DATETIME'2024-01-01 00:00:00.123'"
+
+    def test_hostile_datetime_tz(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        tz = datetime.timezone(datetime.timedelta(hours=-5))
+        value = _HostileDateTime(2024, 1, 1, 12, 0, 0, tzinfo=tz)
+        assert format_parameter(value) == "DATETIMETZ'2024-01-01 12:00:00.000 -05:00'"
+
+    def test_tzinfo_returning_hostile_timedelta(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        offset = _HostileTimedelta(hours=5, minutes=30)
+        value = datetime.datetime(2024, 1, 1, tzinfo=_KeyedTZ(None, offset))
+        assert format_parameter(value) == "DATETIMETZ'2024-01-01 00:00:00.000 +05:30'"
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (datetime.date(1, 1, 2), "DATE'0001-01-02'"),
+            (datetime.date(99, 1, 2), "DATE'0099-01-02'"),
+            (datetime.date(999, 1, 2), "DATE'0999-01-02'"),
+            (datetime.date(1000, 1, 2), "DATE'1000-01-02'"),
+            (datetime.datetime(99, 1, 2, 3, 4, 5, 6000), "DATETIME'0099-01-02 03:04:05.006'"),
+            (
+                datetime.datetime(999, 1, 2, tzinfo=datetime.timezone.utc),
+                "DATETIMETZ'0999-01-02 00:00:00.000 +00:00'",
+            ),
+            (_HostileDate(99, 1, 2), "DATE'0099-01-02'"),
+        ],
+        ids=["y1", "y99", "y999", "y1000", "datetime-y99", "datetimetz-y999", "subclass-y99"],
+    )
+    def test_year_zero_padded(self, value: object, expected: str) -> None:
+        # #519: %Y does not pad years below 1000, and CUBRID reads '99-01-02'
+        # as 1999-01-02.
+        from pycubrid._cursor_common import format_parameter
+
+        assert format_parameter(value) == expected
+
+
+class TestTzinfoKey:
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "Asia/Seoul' ; DROP TABLE users; --",
+            "UTC'",
+            "Asia/Seoul\n",
+            "Asia Seoul",
+            "Europe/Zürich",
+            _HostileStr("Asia/Seoul"),
+            42,
+            b"UTC",
+        ],
+        ids=[
+            "quote-injection",
+            "trailing-quote",
+            "newline",
+            "space",
+            "non-ascii",
+            "str-subclass",
+            "int",
+            "bytes",
+        ],
+    )
+    def test_invalid_key_rejected(self, key: object) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=_KeyedTZ(key))
+        with pytest.raises(ProgrammingError, match="time zone"):
+            format_parameter(value)
+
+    @pytest.mark.parametrize("key", [None, ""], ids=["none", "empty"])
+    def test_missing_key_uses_offset(self, key: object) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=_KeyedTZ(key))
+        assert format_parameter(value) == "DATETIMETZ'2024-01-01 00:00:00.000 +09:00'"
+
+    def test_tzinfo_without_offset_renders_naive(self) -> None:
+        # Unchanged from main: a tzinfo whose utcoffset() is None is naive.
+        from pycubrid._cursor_common import format_parameter
+
+        class _NoOffset(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> None:
+                return None
+
+            def dst(self, dt: datetime.datetime | None) -> None:
+                return None
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=_NoOffset())
+        assert format_parameter(value) == "DATETIME'2024-01-01 00:00:00.000'"
+
+    def test_valid_custom_key_used(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=_KeyedTZ("Asia/Tokyo"))
+        assert format_parameter(value) == "DATETIMETZ'2024-01-01 00:00:00.000 Asia/Tokyo'"
+
+
+class _UnprintableTZError(ValueError):
+    def __str__(self) -> str:
+        raise AssertionError("exception text must not be read")
+
+
+class TestHostileTzinfo:
+    @pytest.mark.parametrize("phase", ["offset", "key-property", "key-getattr"])
+    @pytest.mark.parametrize(
+        "error",
+        [ValueError("bad"), TypeError("bad"), RuntimeError("bad"), _UnprintableTZError()],
+        ids=["value", "type", "runtime", "unprintable"],
+    )
+    def test_callback_errors_have_fixed_message_and_original_cause(
+        self, phase: str, error: Exception
+    ) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        class HostileTZ(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
+                if phase == "offset":
+                    raise error
+                return datetime.timedelta(hours=1)
+
+            @property
+            def key(self) -> None:
+                if phase == "key-property":
+                    raise error
+                raise AttributeError("key")
+
+            def __getattr__(self, name: str) -> None:
+                if name == "key" and phase == "key-getattr":
+                    raise error
+                raise AttributeError(name)
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=HostileTZ())
+        with pytest.raises(ProgrammingError) as caught:
+            format_parameter(value)
+        assert str(caught.value) == "invalid tzinfo on datetime parameter"
+        assert caught.value.__cause__ is error
+
+    @pytest.mark.parametrize(
+        "offset, cause_type",
+        [("wrong", TypeError), (datetime.timedelta(hours=25), ValueError)],
+        ids=["wrong-type", "outside-day"],
+    )
+    def test_invalid_offset_has_programming_error(self, offset: object, cause_type: type) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        class BadOffset(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> object:
+                return offset
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=BadOffset())
+        with pytest.raises(ProgrammingError) as caught:
+            format_parameter(value)
+        assert str(caught.value) == "invalid tzinfo on datetime parameter"
+        assert type(caught.value.__cause__) is cause_type
+
+    @pytest.mark.parametrize("reader", ["_TD_DAYS", "_TD_SECONDS", "_TD_MICROSECONDS"])
+    def test_offset_field_errors_have_original_cause(
+        self, reader: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pycubrid import _cursor_common
+
+        error = _UnprintableTZError()
+
+        def fail(_value: object) -> int:
+            raise error
+
+        monkeypatch.setattr(_cursor_common, reader, fail)
+        value = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
+        with pytest.raises(ProgrammingError) as caught:
+            _cursor_common.format_parameter(value)
+        assert str(caught.value) == "invalid tzinfo on datetime parameter"
+        assert caught.value.__cause__ is error
+
+    def test_base_exception_is_not_normalized(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        class InterruptedTZ(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
+                raise KeyboardInterrupt
+
+        with pytest.raises(KeyboardInterrupt):
+            format_parameter(datetime.datetime(2024, 1, 1, tzinfo=InterruptedTZ()))
+
+    def test_none_offset_does_not_read_hostile_key(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        class NoOffset(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> None:
+                return None
+
+            @property
+            def key(self) -> None:
+                raise AssertionError("naive datetime must not read the key")
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=NoOffset())
+        assert format_parameter(value) == "DATETIME'2024-01-01 00:00:00.000'"
+
+
+@pytest.mark.parametrize("kind", ["date", "datetime", "time", "offset"])
+def test_temporal_subclasses_in_real_pure_python_fallback(kind: str) -> None:
+    # Import fresh: replacing the module in an already imported interpreter
+    # would retain the C classes and would not exercise the actual fallback.
+    code = """
+import sys
+sys.modules['_datetime'] = None
+sys.modules['_zoneinfo'] = None
+import datetime
+from pycubrid._cursor_common import format_parameter
+from pycubrid.exceptions import ProgrammingError
+
+assert isinstance(datetime.date.year, property)
+for value, expected in (
+    (datetime.date(99, 1, 2), "DATE'0099-01-02'"),
+    (datetime.time(1, 2, 3, 456789), "TIME'01:02:03'"),
+    (datetime.datetime(2024, 1, 2, 3, 4, 5, 678999), "DATETIME'2024-01-02 03:04:05.678'"),
+    (datetime.datetime(2024, 1, 2, tzinfo=datetime.timezone(datetime.timedelta(hours=1))),
+     "DATETIMETZ'2024-01-02 00:00:00.000 +01:00'"),
+):
+    assert format_parameter(value) == expected
+
+kind = sys.argv[1]
+reads = []
+calls = []
+field = '_seconds' if kind == 'offset' else '_hour' if kind == 'time' else '_year'
+forged = 23 * 3600 if kind == 'offset' else 23 if kind == 'time' else 123456
+base = datetime.timedelta if kind == 'offset' else getattr(datetime, kind)
+
+class Forged(base):
+    def __getattribute__(self, name):
+        if name == field:
+            reads.append(name)
+            return forged
+        return super().__getattribute__(name)
+
+class TZ(datetime.tzinfo):
+    def utcoffset(self, dt):
+        calls.append('offset')
+        return offset
+
+    @property
+    def key(self):
+        calls.append('key')
+        return None
+
+offset = Forged(hours=1) if kind == 'offset' else datetime.timedelta(hours=1)
+if kind == 'offset':
+    assert datetime.timedelta.seconds.__get__(offset) == 23 * 3600
+    value = datetime.datetime(2024, 1, 2, tzinfo=TZ())
+elif kind == 'time':
+    value = Forged(1, 2, 3)
+    assert datetime.time.hour.__get__(value) == 23
+else:
+    value = Forged(2024, 1, 2, tzinfo=TZ()) if kind == 'datetime' else Forged(2024, 1, 2)
+    assert datetime.date.year.__get__(value) == 123456
+reads.clear()
+try:
+    rendered = format_parameter(value)
+except ProgrammingError:
+    pass
+else:
+    raise AssertionError('fallback subclass rendered ' + rendered)
+if kind != 'offset':
+    assert reads == [] and calls == []
+else:
+    assert calls == ['offset']
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, kind],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+class TestClassSpoofing:
+    @pytest.mark.parametrize(
+        "claimed",
+        [
+            bool,
+            int,
+            float,
+            Decimal,
+            str,
+            bytes,
+            bytearray,
+            datetime.datetime,
+            datetime.date,
+            datetime.time,
+            list,
+        ],
+    )
+    def test_spoofed_class_raises_programming_error(self, claimed: type) -> None:
+        from pycubrid._cursor_common import bind_parameters, format_parameter
+
+        value = _spoof(claimed)
+        assert isinstance(value, claimed)
+        with pytest.raises(ProgrammingError):
+            format_parameter(value)
+        with pytest.raises(ProgrammingError):
+            bind_parameters("SELECT ?", (value,))
+
+
+class TestPureDecimalFallback:
+    """Decimal subclasses cannot be copied safely by the pure-Python module."""
+
+    @staticmethod
+    def _forging_subclass(base: type) -> type:
+        # _pydecimal's Decimal(x) copies these attributes with plain reads.
+        forged = {"_int": "1; DROP TABLE t", "_exp": 0, "_sign": 0, "_is_special": False}
+
+        def __getattribute__(self: object, name: str) -> object:
+            if name in forged:
+                return forged[name]
+            return base.__getattribute__(self, name)
+
+        return type("_Forged", (base,), {"__getattribute__": __getattribute__})
+
+    def test_pydecimal_copy_is_forgeable(self) -> None:
+        # Documents why the guard exists: the pure-Python copy trusts the
+        # subclass's attributes.
+        _pydecimal = pytest.importorskip("_pydecimal")
+        forged = self._forging_subclass(_pydecimal.Decimal)("1")
+        assert "DROP" in format(_pydecimal.Decimal(forged), "f")
+
+    def test_subclass_rejected_without_c_decimal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pycubrid import _cursor_common
+
+        _pydecimal = pytest.importorskip("_pydecimal")
+        monkeypatch.setattr(_cursor_common, "Decimal", _pydecimal.Decimal)
+        forged = self._forging_subclass(_pydecimal.Decimal)("1")
+        with pytest.raises(ProgrammingError, match="Decimal subclass"):
+            _cursor_common.format_parameter(forged)
+        # A plain pure-Python Decimal still renders.
+        assert _cursor_common.format_parameter(_pydecimal.Decimal("1E-7")) == "0.0000001"
+
+    def test_c_decimal_subclass_is_forge_proof(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        forged = self._forging_subclass(Decimal)("1.5")
+        assert format_parameter(forged) == "1.5"

@@ -31,12 +31,36 @@ Compatibility and feature support for pycubrid releases.
 
 ### CI Matrix
 
-| Dimension | PR / push | Nightly + tag + dispatch |
-|---|---|---|
-| Offline tests | Python 3.10, 3.11, 3.12, 3.13, 3.14 | Same |
-| Integration tests | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8 jobs | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20 jobs |
+| Validation | Routine execution | Full compatibility |
+| --- | --- | --- |
+| Offline | PR smoke on Ubuntu/Python 3.12; high-risk PR full regressions without coverage; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
+| Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
-The 5 × 4 full integration matrix is run by `.github/workflows/integration-full.yml` on a nightly schedule, on tagged releases, and on demand via `workflow_dispatch`.
+See [CI execution policy](CI_POLICY.md). Supported versions are unchanged;
+representative PR checks are not evidence for every supported combination.
+
+### Server Behavior Differences Between CUBRID Versions
+
+The version differential (`tests/test_version_differential.py`) compares what
+pycubrid returns for the same statements on every supported server: error
+class, `errno` and `sqlstate`, `rowcount`, `lastrowid`, `description`, and
+each value's Python type and value. pycubrid decodes every version the same
+way. The differences below come from the server (the same results appear in
+`csql`), and they are the only ones the suite allows. Each entry, with its
+upstream link, is in `tests/helpers/version_matrix.py`.
+
+| Behavior | 10.2 | 11.0 | 11.2 | 11.4 |
+|---|---|---|---|---|
+| String/bit value longer than its `CHAR(n)`/`VARCHAR(n)`/`BIT VARYING(n)` column | Silently truncated | `ProgrammingError` -494 | `ProgrammingError` -494 | `ProgrammingError` -494 |
+| `REGEXP_LIKE` / `REGEXP_*` functions | Undefined (-494) | Available | Available | Available |
+| Bare value as a condition (`IF(1, ...)`, `WHERE 1`) | Accepted | Accepted | `ProgrammingError` -493 | `ProgrammingError` -493 |
+| Type of `'a' \|\| 'b'` / `CONCAT` | CHAR | VARCHAR | VARCHAR | VARCHAR |
+| `CAST('a' AS VARCHAR) = 'a '` | True | False | False | False |
+| `TRUNCATE` of an FK-referenced parent | `IntegrityError` -924 | `IntegrityError` -924 | `IntegrityError` -1284 | `IntegrityError` -1284 |
+| Type of `COUNT(*)` | INTEGER | INTEGER | BIGINT | BIGINT |
+| Integer mixed with NUMERIC (`(5) * (0.100)`) | NUMERIC(14,3) | NUMERIC(14,3) | NUMERIC(19,3); 17+ digit BIGINT overflows (-427) | NUMERIC(14,3) |
+| `REGEXP` operator on text with 3-byte UTF-8 characters | Matches | Never matches | Never matches | Never matches |
+| `REGEXP_*` on text with 3-byte UTF-8 characters | Undefined | NULL | 0 | 0 |
 
 ---
 
@@ -52,7 +76,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 | `connect()` | ✅ | Module-level constructor |
 | `Connection` | ✅ | Full lifecycle: commit, rollback, close, autocommit |
 | `Cursor` | ✅ | execute, executemany, fetch*, callproc, description, rowcount |
-| `Cursor.nextset()` | ✅ | Since 1.2.0 (#79) |
+| `Cursor.nextset()` | ✅ | Since 1.2.0 (#79) — raises `NotSupportedError`; CUBRID has no multiple result sets |
 | Exception hierarchy | ✅ | All 10 PEP 249 exception classes |
 | `errno` / `sqlstate` on `DatabaseError` | ✅ | Since 1.2.0 (#71) — 19 SQLSTATE mappings |
 | Type objects | ✅ | STRING, BINARY, NUMBER, DATETIME, ROWID |
@@ -137,7 +161,7 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 
 | Feature | Status | Since | Notes |
 |---|---|---|---|
-| `cursor.execute(sql, params)` | ✅ | 1.0.0 | Server-side `PREPARE_AND_EXECUTE` |
+| `cursor.execute(sql, params)` | ✅ | 1.0.0 | Driver-side literal binding; the rendered SQL is sent with `PREPARE_AND_EXECUTE` (no server-side typed binding) — see [PARAMETER_BINDING.md](PARAMETER_BINDING.md) |
 | `cursor.executemany(sql, seq)` | ✅ | 1.0.0 | Batches non-SELECT DML via `BatchExecutePacket`; only SELECT falls back to the per-row loop |
 | `cursor.executemany_batch(sql_list, auto_commit=None)` | ✅ | 1.0.0 | Single round-trip `BatchExecutePacket` |
 | `cursor.callproc(name, params)` | ✅ | 1.0.0 | Stored procedure invocation |
@@ -187,8 +211,8 @@ The 5 × 4 full integration matrix is run by `.github/workflows/integration-full
 |---|---|
 | Offline tests | 770 |
 | Total tests | 811 |
-| Integration jobs (PR / push) | 8 (Python {3.10, 3.14} × CUBRID 4 versions) |
-| Integration jobs (nightly + tag + dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
+| Representative integration | High-risk PR: newest endpoint; main/changed-weekly: oldest/newest endpoints |
+| Full integration (release workflow_call + manual dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
 | Reconnect / network edge cases | 17 tests covering reset, timeout, broken pipe, partial reads |
 | Coverage threshold | 95% (CI-enforced) |

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import os
 
 import pytest
 
 from pycubrid.compat import cubriddb, native
 
-pytestmark = pytest.mark.integration
+from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PORT
+
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
 @pytest.mark.parametrize(
@@ -21,12 +22,9 @@ pytestmark = pytest.mark.integration
     ],
 )
 def test_compat_factory_owns_a_live_autocommitting_session(mode: str, expected_user: str) -> None:
-    host = os.environ.get("CUBRID_TEST_HOST", "127.0.0.1")
-    port = int(os.environ.get("CUBRID_TEST_PORT", "33000"))
-    database = os.environ.get("CUBRID_TEST_DB", "testdb")
-    dsn = f"CUBRID:{host}:{port}:{database}:::"
+    dsn = f"CUBRID:{TEST_HOST}:{TEST_PORT}:{TEST_DB}:::"
     if mode == "native_embedded_credentials":
-        dsn = f"CUBRID:{host}:{port}:{database}:dba:ignored:"
+        dsn = f"CUBRID:{TEST_HOST}:{TEST_PORT}:{TEST_DB}:dba:ignored:"
     if mode == "native_dba":
         conn = native.connect(dsn, "dba", "")
     elif mode == "wrapper_dba":
