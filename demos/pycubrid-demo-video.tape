@@ -1,18 +1,17 @@
-# Run from the frozen repository root; outputs remain staging-only.
-# Root supplies VIRTUAL_ENV, PIP_FIND_LINKS and the nonsecret DEMO_* endpoint.
-# Only one verified local source wheel may be present in PIP_FIND_LINKS.
+# Run from the frozen repository root with a verified local-wheel recording venv.
+# Root supplies VIRTUAL_ENV/PIP_FIND_LINKS and DEMO_* including the exact owned table.
 Require pip
 Require python
-Output .demo-artifacts/demo.gif
+Output .demo-artifacts/demo.mp4
 Set Shell bash
-Set FontSize 16
-Set Width 900
-Set Height 520
+Set FontSize 18
+Set Width 1000
+Set Height 650
 Set Theme "Catppuccin Mocha"
-Set Framerate 12
+Set Framerate 30
 Set PlaybackSpeed 1
-Set TypingSpeed 20ms
-Set WaitTimeout 10s
+Set TypingSpeed 45ms
+Set WaitTimeout 20s
 Env PIP_NO_INDEX "1"
 Env PIP_DISABLE_PIP_VERSION_CHECK "1"
 
@@ -25,13 +24,13 @@ Show
 
 Type "echo 'Local source wheel; no PyPI release'"
 Enter
-Sleep 400ms
+Sleep 3s
 Type "pip install pycubrid"
 Enter
 Wait+Screen /Successfully installed pycubrid/
-Sleep 300ms
-Type "python demos/record_demo.py short"
+Sleep 5s
+Type "python demos/record_demo.py extended"
 Enter
-# A standalone script marker, not text from a typed command or traceback quote.
-Wait+Screen /DEMO_SHORT_OK\r?\n/
-Sleep 6s
+Wait+Screen /DEMO_EXTENDED_OK\r?\n/
+# Hold actual CRUD/commit/async results for reading; never synthesize their output.
+Sleep 24s

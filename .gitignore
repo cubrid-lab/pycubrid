@@ -47,6 +47,7 @@ coverage.xml
 .mutmut-cache
 mutants/
 bug-hunt-repro/
+.demo-artifacts/
 
 # Environments
 .env
