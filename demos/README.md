@@ -41,13 +41,18 @@ or failed cleanup must fail rather than print the success marker.
 
 ## Render and promote
 
-Use VHS v0.12.0 with its existing ttyd/Chrome/ffmpeg requirements. From the
+Use VHS v0.12.1 with its existing ttyd/Chrome/ffmpeg requirements. Version
+0.12.0 cancels the encoder context and can exit successfully without creating
+media; [the upstream fix](https://github.com/charmbracelet/vhs/pull/788)
+is included in 0.12.1. Verify output files, not only the tool's exit code. From the
 repository root, with the isolated environment still active:
 
 ```bash
 vhs validate demos/pycubrid-demo.tape demos/pycubrid-demo-video.tape
 timeout 180s vhs demos/pycubrid-demo.tape
 timeout 180s vhs demos/pycubrid-demo-video.tape
+test -s .demo-artifacts/demo.gif
+test -s .demo-artifacts/demo.mp4
 ```
 
 Both tapes write only ignored `.demo-artifacts/` staging paths. Verify the
