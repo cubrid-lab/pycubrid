@@ -31,13 +31,13 @@ Compatibility and feature support for pycubrid releases.
 
 ### CI Matrix
 
-| Dimension | PR / push | Nightly + tag + dispatch |
-|---|---|---|
-| Offline tests | Python 3.10, 3.11, 3.12, 3.13, 3.14 | Same |
-| Integration tests | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8 jobs | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20 jobs |
-| Version differential | — | One job: the same generated workloads against CUBRID 10.2, 11.0, 11.2 and 11.4 at once |
+| Validation | Routine execution | Full compatibility |
+| --- | --- | --- |
+| Offline | PR smoke on Ubuntu/Python 3.12; high-risk PR full regressions without coverage; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
+| Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
-The 5 × 4 full integration matrix is run by `.github/workflows/integration-full.yml` on a nightly schedule, on tagged releases, and on demand via `workflow_dispatch`.
+See [CI execution policy](CI_POLICY.md). Supported versions are unchanged;
+representative PR checks are not evidence for every supported combination.
 
 ### Server Behavior Differences Between CUBRID Versions
 
@@ -211,8 +211,8 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 |---|---|
 | Offline tests | 770 |
 | Total tests | 811 |
-| Integration jobs (PR / push) | 8 (Python {3.10, 3.14} × CUBRID 4 versions) |
-| Integration jobs (nightly + tag + dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
+| Representative integration | High-risk PR: newest endpoint; main/changed-weekly: oldest/newest endpoints |
+| Full integration (release workflow_call + manual dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
 | Reconnect / network edge cases | 17 tests covering reset, timeout, broken pipe, partial reads |
 | Coverage threshold | 95% (CI-enforced) |

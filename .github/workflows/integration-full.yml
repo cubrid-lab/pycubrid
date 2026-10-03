@@ -1,32 +1,73 @@
 name: Integration Full Matrix
 
 # Full Python x CUBRID compatibility validation.
-# Regular CI runs {3.10, 3.14} x all CUBRID versions on every PR/push.
-# This workflow runs the full 5x4 matrix on a nightly schedule, on demand
+# Routine CI uses representative combinations; see docs/CI_POLICY.md.
+# Full verification runs only on explicit dispatch or a release workflow call.
 # (workflow_dispatch), and as the release gate: release.yml calls it through
 # workflow_call with the release commit SHA, plus the cross-version behavior
 # differential (#351) that needs all four CUBRID versions at once, and the
 # official-driver differential (#446) against the pinned CUBRIDdb oracle.
 
 on:
-  schedule:
-    - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full commit SHA; dispatch the branch at this exact commit"
+        required: true
+        type: string
+      pr_number:
+        description: "Optional PR number; reject outdated head evidence"
+        required: false
+        type: string
   workflow_call:
     inputs:
+      release_call:
+        description: "Reusable release validation; caller event may be workflow_dispatch"
+        required: false
+        default: true
+        type: boolean
       sha:
         description: "Full commit SHA to test (release.yml passes the release commit)"
         required: true
         type: string
 
-# A release call gets its own group per SHA and is never cancelled; a nightly
-# or manual run keeps the per-ref group that replaces an older pending run.
+# Full verification runs only on explicit dispatch or a release workflow call.
+# Manual runs replace older pending runs; release calls are isolated by SHA.
 concurrency:
   group: integration-full-${{ inputs.sha && format('release-{0}', inputs.sha) || github.ref }}
   cancel-in-progress: ${{ !inputs.sha }}
 
 jobs:
+  validate-target:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify requested manual commit and current PR head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_CALL: ${{ inputs.release_call || false }}
+        with:
+          script: |
+            if (process.env.RELEASE_CALL === 'true' || context.eventName !== 'workflow_dispatch') return;
+            const inputs = context.payload.inputs || {};
+            const sha = (inputs.sha || '').toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sha) || sha !== context.sha.toLowerCase()) {
+              throw new Error('Dispatch branch must point at the requested full commit SHA');
+            }
+            const pr = inputs.pr_number || '';
+            if (pr) {
+              if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr))) {
+                throw new Error('PR number must be a positive integer');
+              }
+              const {data} = await github.rest.pulls.get({...context.repo, pull_number: Number(pr)});
+              const repo = `${context.repo.owner}/${context.repo.repo}`;
+              if (data.base.repo.full_name !== repo || data.state !== 'open' || data.head.sha.toLowerCase() !== sha) {
+                throw new Error('Requested commit is no longer the current open PR head');
+              }
+            }
+            await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();
+
   integration-full:
+    needs: validate-target
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -72,6 +113,7 @@ jobs:
           python scripts/check_integration_lanes.py --results normal-results.xml
 
   integration-tls:
+    needs: validate-target
     # Provision a CUBRID broker with SSL=ON so tests/test_aio_ssl_integration.py
     # is exercised in CI instead of silently skipping (closes #147).  Uses a
     # manually-managed container rather than a service so we can flip the
@@ -246,6 +288,7 @@ jobs:
         run: docker stop cubrid-tls || true
 
   integration-charset:
+    needs: validate-target
     # EUC-KR database lane (#86): the same CUBRID image with
     # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
     # charset="euckr" round-trip tests that skip against a UTF-8 database.
@@ -287,6 +330,7 @@ jobs:
           python scripts/check_integration_lanes.py --results charset-results.xml
 
   version-differential:
+    needs: validate-target
     # Property-driven behavior differential (#351): the same generated values
     # and statements run against CUBRID 10.2, 11.0, 11.2 and 11.4 at once, and
     # any divergence not documented in tests/helpers/version_matrix.py fails.
@@ -390,6 +434,7 @@ jobs:
           retention-days: 14
 
   official-differential:
+    needs: validate-target
     # Claims-driven differential against the pinned official CUBRIDdb driver
     # (#446): tests/fixtures/official_differential_claims.json, one live case
     # per claim, both servers, no accepted skip. The oracle build is cached by
@@ -487,11 +532,15 @@ jobs:
   full-matrix-result:
     name: Full compatibility matrix result
     runs-on: ubuntu-latest
-    needs: [integration-full, integration-tls, integration-charset, version-differential, official-differential]
+    needs: [validate-target, integration-full, integration-tls, integration-charset, version-differential, official-differential]
     if: always()
     steps:
       - name: Require the full matrix to pass
         run: |
+          if [ "${{ needs.validate-target.result }}" != "success" ]; then
+            echo "::error::Manual target validation failed"
+            exit 1
+          fi
           if [ "${{ needs.integration-full.result }}" != "success" ]; then
             echo "::error::Full compatibility matrix failed: ${{ needs.integration-full.result }}"
             exit 1
@@ -513,3 +562,28 @@ jobs:
             exit 1
           fi
           echo "Full compatibility matrix passed."
+
+      - name: Verify requested manual commit and current PR head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_CALL: ${{ inputs.release_call || false }}
+        with:
+          script: |
+            if (process.env.RELEASE_CALL === 'true' || context.eventName !== 'workflow_dispatch') return;
+            const inputs = context.payload.inputs || {};
+            const sha = (inputs.sha || '').toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sha) || sha !== context.sha.toLowerCase()) {
+              throw new Error('Dispatch branch must point at the requested full commit SHA');
+            }
+            const pr = inputs.pr_number || '';
+            if (pr) {
+              if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr))) {
+                throw new Error('PR number must be a positive integer');
+              }
+              const {data} = await github.rest.pulls.get({...context.repo, pull_number: Number(pr)});
+              const repo = `${context.repo.owner}/${context.repo.repo}`;
+              if (data.base.repo.full_name !== repo || data.state !== 'open' || data.head.sha.toLowerCase() !== sha) {
+                throw new Error('Requested commit is no longer the current open PR head');
+              }
+            }
+            await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();

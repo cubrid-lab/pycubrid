@@ -285,8 +285,8 @@ classifications are recorded.
 values and statements against CUBRID 10.2, 11.0, 11.2 and 11.4 at once and
 compares what pycubrid exposes: error class/`errno`/`sqlstate`, `rowcount`,
 `lastrowid`, `description`, and each fetched value's Python type and value.
-It runs in the `version-differential` job of `integration-full.yml` (nightly
-and `workflow_dispatch`, not per PR). Locally, start one container per
+It runs in the `version-differential` job of `integration-full.yml` (release
+`workflow_call` and manual `workflow_dispatch`, not per PR). Locally, start one container per
 version and point the suite at them:
 
 ```bash
@@ -303,6 +303,12 @@ deterministic probe that fails when the difference stops reproducing. Any
 other divergence is a driver bug (fix it or file it) or an undocumented
 server change (confirm it outside pycubrid, e.g. with `csql`, then document
 it).
+
+## Minimum PR validation
+
+Follow the [CI execution policy](docs/CI_POLICY.md). PR smoke is representative,
+not full-suite/coverage evidence. Run relevant regression tests locally and report
+commands/results; request exact-head full validation where compatibility requires it.
 
 ## Keeping issue descriptions actionable
 
