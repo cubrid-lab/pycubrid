@@ -122,12 +122,18 @@ def probe(
     *,
     connect_timeout: float | None = None,
     read_timeout: float | None = None,
+    result: dict[str, object] | None = None,
 ) -> None:
     """Connect and run ``SELECT 1``; raise on any failure, always releasing resources.
 
     Timeouts default to ``CUBRID_TEST_CONNECT_TIMEOUT`` / ``CUBRID_TEST_READ_TIMEOUT``
     (5 seconds) so a broker that accepts TCP but stalls cannot hang the run.
+    An optional result dictionary records engine identity without changing the
+    SELECT/cleanup outcome; its version request never replaces the session.
     """
+    if result is not None:
+        result.clear()
+        result.update(status="unavailable", reason="readiness probe did not succeed")
     if connect_timeout is None:
         connect_timeout = float(os.environ.get("CUBRID_TEST_CONNECT_TIMEOUT", "5"))
     if read_timeout is None:
@@ -141,6 +147,25 @@ def probe(
     ) as conn:
         with closing(conn.cursor()) as cur:
             cur.execute("SELECT 1")
+            if result is not None:
+                generation = conn._physical_generation
+        if result is not None:
+            # Close the SELECT cursor before the diagnostic reply can mark CAS
+            # unverified; connection.close itself never reconnects.
+            try:
+                from pycubrid.protocol import GetEngineVersionPacket
+
+                packet = GetEngineVersionPacket(auto_commit=conn.autocommit)
+                conn._send_and_receive(
+                    packet, allow_reconnect=False, expected_generation=generation
+                )
+                if not packet.engine_version:
+                    raise ValueError("empty engine version")
+            except Exception as exc:  # noqa: BLE001 - optional diagnostic only
+                result.update(status="unavailable", reason=f"version lookup failed: {exc}")
+            else:
+                result.clear()
+                result.update(status="observed", version=packet.engine_version)
 
 
 # Resolved once at import for the module-level constants the suites share. A

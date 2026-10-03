@@ -1079,6 +1079,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   repository-tooling and combined offline commands.
 
 ### CI
+- **Bounded bug-hunt failure context (#655)** — the existing property job
+  supplies its three xunit1 reports and an optional same-probe readiness sidecar
+  to the diagnostic collector. Metadata retains explicit report/identity/error
+  states; replay uses only available targets and quoted tokens, with known
+  credentials redacted before byte-limited details. Collection is best effort,
+  not a passing-job signal, and binary Hypothesis examples still require trusted
+  review before sharing. Matrix/gates and public driver APIs are unchanged.
 - **Mutation lane migrated to mutmut 3 after 14 consecutive crashed runs (#612)** —
   `[tool.mutmut]` still used the 2.x keys. With `mutmut>=3.0` resolving to 3.8,
   `tests_dir` (a string) was concatenated onto a list at

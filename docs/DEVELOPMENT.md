@@ -678,6 +678,46 @@ observed values. Never edit an expected value just to match current output. See
 The weekly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
+**Bug-hunt failure diagnostics (#655).** The weekly/manual representative
+`property-and-fault` job writes `normal-results.xml`, `slow-results.xml` and
+`offline-results.xml` with per-command `junit_family=xunit1`. On failure,
+`scripts/collect_repro.py` reads all three through repeated `--junit` arguments.
+The existing `metadata.json` keeps its environment fields and adds `reports`,
+`failures`, `server_identity` and `collection_errors`. Missing, malformed,
+read-error, zero-case and oversized reports remain explicit diagnostic states,
+not evidence that a test lane passed. Each XML input is bounded to 10 MiB;
+raw XML is not copied into the reproduction bundle.
+
+Failure/error records preserve available parameterized nodes as `exact`,
+collection-only file identities as `file`, or explicit `unresolved` reasons.
+Missing, custom, mismatched or redacted identities are not guessed from a
+classname, and never trigger a broad fallback replay. `reproduce.md` quotes
+each argv token and fixed environment assignment value with `shlex`, deduplicates
+available targets and asks for the password separately. Without JUnit, an accepted
+caller-supplied legacy target remains a hint, not a verified report identity. Known configured
+passwords, decoded/encoded URL-password variants and recognized credential-bearing URLs
+are redacted before each failure record's message/detail is limited to 64 KiB
+of UTF-8 bytes. This does not guarantee sanitizing arbitrary secrets or data.
+
+Optional readiness `--server-info PATH` records the actual engine version or
+an `unavailable` reason. The workflow uses a fresh run-ID/run-attempt path
+outside the uploaded bundle; the collector checks the recorded SHA and endpoint
+and never substitutes an image tag/requested family for an observed version.
+The new version lookup adds no reconnect or new connection: it uses the
+successful `SELECT 1` probe's connection with reconnect disabled and the physical
+generation captured before cursor cleanup. Existing cursor-close behavior is
+unchanged; if that cleanup replaces the session, the metadata request rejects
+the changed generation and records `unavailable` rather than observing the
+replacement. The collector does not contact a broker. Metadata lookup/write
+failures cannot replace the original readiness or pytest outcome. Collector exit 0
+means best-effort collection was attempted, not test success or a complete bundle; inspect recorded
+collection errors and stderr for unavailable writes.
+
+The saved Hypothesis database is still copied as binary examples, **not guaranteed
+credential-sanitized**. Trusted review is required before sharing the bundle
+externally or running its replay instructions. No filesystem sandbox, universal
+credential-safety or broader CI/migration guarantee is implied.
+
 Its `downstream-corpus` job is **advisory** (weekly or manual only), with three
 isolated CUBRID 11.4 / Python 3.12 cells. It checks out the exact pycubrid
 workflow commit and the current `main` commit of each downstream repository in
