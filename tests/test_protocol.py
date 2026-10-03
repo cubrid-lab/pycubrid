@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import datetime
 import struct
 from decimal import Decimal
@@ -175,6 +176,7 @@ class TestColumnMetaData:
         assert col.is_reverse_unique is False
         assert col.is_foreign_key is False
         assert col.is_shared is False
+        assert col._cci_type is None
 
     def test_custom_values(self) -> None:
         col = ColumnMetaData(
@@ -462,6 +464,69 @@ class TestParseColumnMetadata:
         reader = PacketReader(b"")
         cols = _parse_column_metadata(reader, 0)
         assert cols == []
+
+
+class TestColumnCCIType:
+    @pytest.mark.parametrize(
+        ("header", "ordinary_type", "cci_type"),
+        [
+            (b"\x08", 8, 8),
+            (b"\x28", 16, 40),
+            (b"\x48", 17, 72),
+            (b"\x68", 18, 104),
+            (b"\x80\x08", 8, 8),
+            (b"\xa0\x00", 16, 32),
+            (b"\xc0\x00", 17, 64),
+            (b"\xe0\x00", 18, 96),
+            (b"\xa0\x08", 16, 40),
+            (b"\xc0\x08", 17, 72),
+            (b"\xe0\x08", 18, 104),
+            (b"\x80\x22", 34, 130),
+            (b"\x87\x22", 34, 130),
+        ],
+        ids=lambda value: value.hex() if isinstance(value, bytes) else None,
+    )
+    @pytest.mark.parametrize("buffer_type", [bytes, bytearray])
+    def test_retains_exact_native_type_without_changing_ordinary_type(
+        self,
+        header: bytes,
+        ordinary_type: int,
+        cci_type: int,
+        buffer_type: type[bytes] | type[bytearray],
+    ) -> None:
+        # Literal CCI expectations, not a second implementation of its decoder.
+        tail = _build_column_metadata(column_type=CUBRIDDataType.INT)[1:]
+        reader = PacketReader(buffer_type(header + tail))
+        column = _parse_column_metadata(reader, 1)[0]
+
+        assert column.column_type == ordinary_type
+        assert column._cci_type == cci_type
+        assert type(column._cci_type) is int
+        assert (column.scale, column.precision, column.name) == (0, 255, "col1")
+        assert reader.bytes_remaining() == 0
+
+    @pytest.mark.parametrize("clone", [copy.copy, copy.deepcopy])
+    def test_private_evidence_survives_copy_without_changing_equality_or_repr(
+        self, clone: Callable[[ColumnMetaData], ColumnMetaData]
+    ) -> None:
+        manual = ColumnMetaData(8, 0, 255, "col1", "col1", "test_table")
+        reader = PacketReader(_build_column_metadata(column_type=CUBRIDDataType.INT))
+        parsed = _parse_column_metadata(reader, 1)[0]
+
+        assert parsed == manual
+        assert repr(parsed) == repr(manual)
+        assert manual._cci_type is None
+        copied = clone(parsed)
+        assert copied is not parsed
+        assert copied == manual
+        assert copied._cci_type == 8
+
+    @pytest.mark.parametrize("header", [b"", b"\x80", b"\xa0"])
+    def test_incomplete_type_header_keeps_its_framing_error(self, header: bytes) -> None:
+        reader = PacketReader(header)
+        with pytest.raises(IndexError):
+            _parse_column_metadata(reader, 1)
+        assert reader.mark() == len(header)
 
 
 class TestReadValue:
@@ -903,6 +968,7 @@ class TestPrepareAndExecutePacket:
         assert pkt.statement_type == CUBRIDStatementType.SELECT
         assert pkt.column_count == 1
         assert len(pkt.columns) == 1
+        assert pkt.columns[0]._cci_type == 8
         assert pkt.total_tuple_count == 1
         assert pkt.tuple_count == 1
         assert len(pkt.rows) == 1
@@ -1064,6 +1130,7 @@ class TestPreparePacket:
         assert pkt.statement_type == CUBRIDStatementType.SELECT
         assert pkt.column_count == 1
         assert pkt.columns[0].name == "col"
+        assert pkt.columns[0]._cci_type == 2
 
     @pytest.mark.parametrize(
         "length_offset", [7, 11, 15, 20], ids=["name", "real", "table", "default"]
@@ -1152,6 +1219,7 @@ class TestExecutePacket:
         assert pkt.total_tuple_count == 1
         assert pkt.tuple_count == 1
         assert pkt.rows[0][0] == 42
+        assert pkt.columns[0]._cci_type is None
 
     def test_parse_refreshed_column_info_before_shard_and_fetch(self) -> None:
         pkt = ExecutePacket(1, CUBRIDStatementType.SELECT, protocol_version=7)
@@ -1172,6 +1240,7 @@ class TestExecutePacket:
 
         pkt.parse(bytes(response))
         assert pkt.columns[0].name == "fresh"
+        assert pkt.columns[0]._cci_type == 8
         assert pkt.bind_count == 1
         assert pkt.rows == [(42,)]
 

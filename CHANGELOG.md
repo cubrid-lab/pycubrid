@@ -242,6 +242,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   public LOB binding API yet; ordinary sync/async execution is unchanged.
 
 ### Changed
+- **Private CCI metadata type evidence (#631)** — full column metadata retains
+  the exact CCI extended-type value from legacy or two-byte type headers.
+  Ordinary type codes, descriptions, row/schema parsing and public APIs are
+  unchanged. This internal prerequisite adds no `result_info` API or parity
+  claim; that remains separate work under #445.
 - **Shared simple CAS reply prefix (#560)** — ten simple packet parsers reuse
   one private helper for reader creation, CAS_INFO skipping, response-code
   parsing and server-error dispatch. Packet-specific payload parsing, encoding,

@@ -8,7 +8,7 @@ parse() for response deserialization.
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 from .constants import (
@@ -65,6 +65,7 @@ class ColumnMetaData:
     is_reverse_unique: bool = False
     is_foreign_key: bool = False
     is_shared: bool = False
+    _cci_type: int | None = field(default=None, init=False, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -852,7 +853,14 @@ def _read_column_metadata(
 
     columns: list[ColumnMetaData] = []
     for _ in range(column_count):
+        type_start = reader.mark()
         column_type = _parse_column_type(reader)
+        first_type = reader._buffer[type_start]
+        if first_type & 0x80:
+            second_type = reader._buffer[type_start + 1]
+            cci_type = ((second_type & 0x20) << 2) | (first_type & 0x60) | (second_type & 0x1F)
+        else:
+            cci_type = first_type
         scale = reader._parse_short()
         precision = reader._parse_int()
 
@@ -883,25 +891,25 @@ def _read_column_metadata(
         is_foreign_key = reader._parse_byte() == 1
         is_shared = reader._parse_byte() == 1
 
-        columns.append(
-            ColumnMetaData(
-                column_type=column_type,
-                scale=scale,
-                precision=precision,
-                name=name,
-                real_name=real_name,
-                table_name=table_name,
-                is_nullable=is_nullable,
-                default_value=default_value,
-                is_auto_increment=is_auto_increment,
-                is_unique_key=is_unique_key,
-                is_primary_key=is_primary_key,
-                is_reverse_index=is_reverse_index,
-                is_reverse_unique=is_reverse_unique,
-                is_foreign_key=is_foreign_key,
-                is_shared=is_shared,
-            )
+        column = ColumnMetaData(
+            column_type=column_type,
+            scale=scale,
+            precision=precision,
+            name=name,
+            real_name=real_name,
+            table_name=table_name,
+            is_nullable=is_nullable,
+            default_value=default_value,
+            is_auto_increment=is_auto_increment,
+            is_unique_key=is_unique_key,
+            is_primary_key=is_primary_key,
+            is_reverse_index=is_reverse_index,
+            is_reverse_unique=is_reverse_unique,
+            is_foreign_key=is_foreign_key,
+            is_shared=is_shared,
         )
+        column._cci_type = cci_type
+        columns.append(column)
     return columns
 
 
