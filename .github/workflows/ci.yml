@@ -48,7 +48,7 @@ jobs:
               - '**/*.md'
               - 'docs/**'
             code:
-              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,.gitignore,.gitattributes}'
+              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes}'
             risk:
               - 'pycubrid/connection.py'
               - 'pycubrid/_connection_common.py'
