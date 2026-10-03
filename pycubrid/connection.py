@@ -35,9 +35,6 @@ from .protocol import (
     SetDbParameterPacket,
 )
 
-if TYPE_CHECKING:
-    from .cursor import Cursor
-
 _LOGGER = logging.getLogger(__name__)
 
 # Re-export for backwards compatibility.
@@ -570,7 +567,7 @@ class Connection(ConnectionCommonMixin):
             self._drop_connection()
             raise OperationalError("failed to restore session state after reconnect") from exc
 
-    def cursor(self) -> Cursor:
+    def cursor(self) -> _cursor_module.Cursor:
         """Create and return a new cursor bound to this connection."""
         self._ensure_connected()
         from .cursor import Cursor
@@ -1113,3 +1110,8 @@ class Connection(ConnectionCommonMixin):
                 raise OperationalError("connection lost during receive")
             pos += n
         return buf
+
+
+# Define Connection before its type-only cursor dependency.
+if TYPE_CHECKING:
+    from . import cursor as _cursor_module
