@@ -316,6 +316,20 @@ def test_invalid_final_fetch_never_revives_a_pooling_off_retired_handle(owned) -
     _guarded(driver)
 
 
+def test_complete_final_fetch_error_preserves_error_without_closing_retired_id(owned) -> None:
+    owner, driver, sock = owned
+    owner.set_autocommit(True)
+    driver._statement_pooling = 0
+    _load(sock, _query(2, total=2), error_body(OUT_TRAN, -670, "primary"), ok_body(IN_TRAN))
+    with pytest.raises(DatabaseError) as caught:
+        owner.ping()
+    assert caught.value is driver.utility_errors[0]
+    assert caught.value.errno == -670
+    assert _codes(sock) == [41, 8]
+    assert driver._connected
+    _guarded(driver)
+
+
 def test_later_fetch_and_cleanup_errors_preserve_the_primary_object_and_metadata(owned) -> None:
     owner, driver, sock = owned
     _load(
