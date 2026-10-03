@@ -269,6 +269,11 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   types raise `TypeError`. Existing `None`, zero and valid finite values retain
   their behavior. No public API is added.
 
+- **Automatic integration cleanup preserves Docker volumes (#501)** — PATCH /
+  development-tooling correction. Normal and signal cleanup retain named volumes;
+  explicit `make docker-down` remains destructive. Driver APIs, connection
+  semantics, package dependencies and existing readiness/audit gates are unchanged.
+
 - **TLS preflight alerts and timeout context (#592)** — PATCH / diagnostic
   and error-path correction. Fatal alert bytes use only the existing probe
   deadline, and best-effort alert-send failures retain the original TLS error.

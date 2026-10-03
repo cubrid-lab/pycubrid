@@ -65,13 +65,13 @@ INTEGRATION_ENV = CUBRID_TEST_URL="cubrid://dba@localhost:$(CUBRID_TEST_PORT)/te
 	CUBRID_TEST_DB=testdb CUBRID_TEST_USER=dba CUBRID_TEST_PASSWORD=
 
 integration: docker-up ## Run integration tests against a Docker CUBRID (fails if it never becomes ready or every test skips)
-	@trap '$(MAKE) docker-down; exit 130' INT TERM; \
+	@trap 'docker compose down; exit 130' INT TERM; \
 	status=0; \
 	$(INTEGRATION_ENV) $(PYTHON) scripts/wait_for_cubrid.py 36 5 && \
 	$(INTEGRATION_ENV) CUBRID_TEST_DOCKER_CONTAINER="$$(docker compose ps -q cubrid)" \
 		$(PYTEST) $(TESTS)/ -m "integration and not tls" -v --junitxml=$(INTEGRATION_RESULTS) && \
 	$(PYTHON) scripts/check_integration_lanes.py --results $(INTEGRATION_RESULTS) || status=$$?; \
-	$(MAKE) docker-down || { [ $$status -ne 0 ] || status=1; }; \
+	docker compose down || { cleanup_status=$$?; echo "ERROR: Docker cleanup failed with status $$cleanup_status"; [ $$status -ne 0 ] || status=$$cleanup_status; }; \
 	exit $$status
 
 integration-local: ## Run integration tests against an already-running CUBRID (set CUBRID_TEST_URL or CUBRID_TEST_HOST/PORT; no Docker)
@@ -85,12 +85,12 @@ integration-tls: docker-up ## Run async TLS integration tests (requires SSL=ON b
 	@echo "NOTE: requires CUBRID_TLS_TEST_HOST/PORT/CA/DB/USER env vars and a broker with SSL=ON."
 	@echo "      For an automated equivalent including SSL=ON flip + cert extraction,"
 	@echo "      see the 'integration-tls' job in .github/workflows/integration-full.yml."
-	@trap '$(MAKE) docker-down; exit 130' INT TERM; \
+	@trap 'docker compose down; exit 130' INT TERM; \
 	status=0; \
 	$(INTEGRATION_ENV) $(PYTHON) scripts/wait_for_cubrid.py 36 5 && \
 	$(INTEGRATION_ENV) $(PYTEST) $(TESTS)/test_aio_ssl_integration.py -v --junitxml=$(INTEGRATION_RESULTS) && \
 	$(PYTHON) scripts/check_integration_lanes.py --results $(INTEGRATION_RESULTS) || status=$$?; \
-	$(MAKE) docker-down || { [ $$status -ne 0 ] || status=1; }; \
+	docker compose down || { cleanup_status=$$?; echo "ERROR: Docker cleanup failed with status $$cleanup_status"; [ $$status -ne 0 ] || status=$$cleanup_status; }; \
 	exit $$status
 
 docker-up: ## Start CUBRID Docker container (published on CUBRID_TEST_PORT, default 33000)

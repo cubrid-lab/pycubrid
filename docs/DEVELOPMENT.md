@@ -333,6 +333,9 @@ all-skipped or unclassified-skip run fails), and always removes the container.
 TLS tests need an SSL-enabled broker; see
 [Async TLS integration tests](#async-tls-integration-tests).
 
+
+`make integration` and `make integration-tls` clean up containers after success, readiness failure or test failure, while preserving existing Docker volumes. Explicit `make docker-down` uses `down -v` and removes volumes. Use `make integration-local` to test an existing broker without managing Docker.
+
 **Enabling integration vs. choosing the endpoint.** Integration tests are
 *enabled* when `CUBRID_TEST_URL` or `CUBRID_TEST_HOST` is set to a non-empty
 value. The *endpoint* is then resolved field by field by one shared helper,
