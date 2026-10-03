@@ -242,6 +242,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   public LOB binding API yet; ordinary sync/async execution is unchanged.
 
 ### Changed
+- **Shared simple CAS reply prefix (#560)** — ten simple packet parsers reuse
+  one private helper for reader creation, CAS_INFO skipping, response-code
+  parsing and server-error dispatch. Packet-specific payload parsing, encoding,
+  error lengths and failure behavior are preserved; handshake, database-open,
+  row/metadata packets and CHECK_CAS retain their distinct parsing paths.
 - **Direct cursor imports and unused-helper cleanup (#561)** — the sync
   connection imports the real `Cursor` directly instead of maintaining a lazy
   module-global class cache. The unused async connect-dispatch helper is removed,
