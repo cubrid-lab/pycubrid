@@ -27,30 +27,48 @@ REPRO_DIR = Path("bug-hunt-repro")
 HYPOTHESIS_DB = Path(".hypothesis")
 _XML_LIMIT = 10 * 1024 * 1024
 _DETAIL_LIMIT = 64 * 1024
-_URL_PASSWORD = re.compile(r"(?<=://)([^\s/@:]+:)[^\s@]*(@)")
+_URL_PASSWORD = re.compile(r"(?<=://)([^\s/@:?#]*:)([^\s/?#]*)(@)")
 
 
 def sanitize(text: str) -> str:
     """Redact configured raw/encoded passwords and credential-bearing URLs."""
     passwords = {os.environ.get("CUBRID_TEST_PASSWORD", "")}
+    raw_url = os.environ.get("CUBRID_TEST_URL", "")
     try:
-        password = urlsplit(os.environ.get("CUBRID_TEST_URL", "")).password
+        password = urlsplit(raw_url).password
     except ValueError:
-        password = None  # Malformed URLs still use the credential-text pattern.
+        authority = _URL_PASSWORD.search(raw_url)
+        password = authority[2] if authority is not None else None
     if password:
         passwords.update((password, unquote(password)))
-    variants = {
-        variant
-        for password in passwords
-        if password
-        for variant in (password, quote(password, safe=""), quote_plus(password, safe=""))
-    }
-    variants.update(
-        re.sub(r"%[0-9A-F]{2}", lambda match: match[0].lower(), value) for value in tuple(variants)
-    )
+    # An environment password is literal, unlike URL userinfo. Keep raw
+    # percent characters/case exact; only derived encodings fold hex digits.
+    variants = {value: False for value in passwords if value}
+    for value in passwords:
+        if value:
+            for encoded in (quote(value, safe=""), quote_plus(value, safe="")):
+                variants[encoded] = True
     for password in sorted(variants, key=len, reverse=True):
-        text = text.replace(password, "***")
-    return _URL_PASSWORD.sub(r"\1***\2", text)
+        # Percent hex digits may vary in case independently; literal password
+        # characters, including Unicode, must not become case-insensitive.
+        pattern = (
+            re.sub(
+                r"%([0-9a-fA-F]{2})",
+                lambda match: (
+                    "%"
+                    + "".join(
+                        f"[{char.lower()}{char.upper()}]" if char.isalpha() else char
+                        for char in match[1]
+                    )
+                ),
+                re.escape(password),
+            )
+            if variants[password]
+            else re.escape(password)
+        )
+        text = re.sub(pattern, "***", text)
+    # The greedy password group ends at the last @ within this authority only.
+    return _URL_PASSWORD.sub(r"\1***\3", text)
 
 
 def _driver_version() -> str:
@@ -280,7 +298,9 @@ def _replay(meta: dict[str, str], targets: list[str]) -> str:
         "# Bug-hunt reproduction\n\n"
         "Restore the saved hypothesis/ database to .hypothesis if present. "
         "Supply CUBRID_TEST_PASSWORD separately; it is not stored here. "
-        "Targets below are deduplicated failure/error identities, not proof of a passing lane.\n\n"
+        "JUnit targets are deduplicated failure/error identities. Without JUnit, "
+        "a target is a caller-supplied legacy hint, not verified report evidence. "
+        "Neither is proof of a passing lane.\n\n"
         f"```bash\n{command}\n```\n"
     )
 
