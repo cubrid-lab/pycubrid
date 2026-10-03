@@ -188,7 +188,7 @@ def test_readiness_sidecar_records_fresh_identity_without_extra_connect(
     assert connect.call_count == 1
     conn._send_and_receive.assert_called_once()
     conn.get_server_version.assert_not_called()
-    conn._connect.assert_not_called()
+    conn.connect.assert_not_called()
     conn.cursor.return_value.close.assert_called_once_with()
     conn.close.assert_called_once_with()
     sleep.assert_not_called()

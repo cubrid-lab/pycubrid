@@ -215,7 +215,7 @@ def test_optional_probe_identity_uses_one_fixed_session(
     assert connect.call_count == 1
     conn._send_and_receive.assert_called_once()
     conn.get_server_version.assert_not_called()
-    conn._connect.assert_not_called()
+    conn.connect.assert_not_called()
     conn.cursor.return_value.close.assert_called_once_with()
     conn.close.assert_called_once_with()
 
@@ -237,7 +237,7 @@ def test_optional_version_failure_cannot_replace_healthy_select(
     assert not identity.get("version")
     assert connect.call_count == 1
     conn._send_and_receive.assert_called_once()
-    conn._connect.assert_not_called()
+    conn.connect.assert_not_called()
     conn.get_server_version.assert_not_called()
     conn.cursor.return_value.close.assert_called_once_with()
     conn.close.assert_called_once_with()
