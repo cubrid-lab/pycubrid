@@ -288,6 +288,7 @@ def test_namespace_is_partial_and_ordinary_contract_is_unchanged() -> None:
     assert inspect.signature(pycubrid.connect).parameters["user"].default == "dba"
 
 
+@pytest.mark.repo_tooling
 def test_new_namespace_is_covered_by_the_existing_public_api_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
