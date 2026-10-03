@@ -967,3 +967,8 @@ Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid
 with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `release.yml`
 runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
 automatically. Nobody pushes tags or publishes by hand.
+
+
+## Changelog validation
+
+`python scripts/lint_changelog.py` rejects repeated subsection headings within a release, including an Unreleased-only file. Different releases may reuse the same subsection names.

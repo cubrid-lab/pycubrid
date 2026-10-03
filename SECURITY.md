@@ -2,14 +2,10 @@
 
 ## Supported Versions
 
-The following versions of pycubrid are currently supported for security updates:
-
-| Version | Status |
-|---------|--------|
-| 1.3.x   | ✅ Supported |
-| < 1.3   | ❌ Not Supported |
-
-Security patches will be applied to supported versions only. Users are strongly encouraged to upgrade to the latest version.
+Security fixes target the latest minor release, as defined in
+[Release Policy §5](RELEASE_POLICY.md#5-yanking-and-security-releases).
+Older minor lines are not back-ported automatically; upgrade to the latest
+minor release for security updates.
 
 ## Reporting a Vulnerability
 
@@ -98,14 +94,15 @@ Recommended configurations, in order of preference:
 
 ### Known Limitation
 
-On Python 3.10, `asyncio.loop.start_tls()` can hang on certificate-verify
-failures (a known CPython asyncio TLS handshake bug on Python 3.10,
-fixed in 3.13/3.14). Tracked as
-[#156](https://github.com/cubrid-lab/pycubrid/issues/156). For production
-async TLS on Python 3.10, validate the certificate chain out-of-band or use
-the sync path. This is a CPython bug, not a pycubrid security issue, and is
-documented in detail in
-[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310).
+Python 3.10's asynchronous TLS upgrade can hang on certificate verification
+failures in older releases. Current pycubrid uses a preflight verification
+probe before the upgrade, with the same SSL context and server hostname, to
+surface verification failures within the TLS handshake deadline. This adds one
+extra TCP connection on Python 3.10; certificate and hostname verification
+remain required. The probe’s TCP connect uses `connect_timeout`; its TLS handshake uses
+`read_timeout` (10 seconds when unset). See the [connection guide](docs/CONNECTION.md#ssltls)
+for the preflight and timeout behavior. Report a reproducible hang on a
+current release through the reporting process above.
 
 ## Disclosure Policy
 
