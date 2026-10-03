@@ -1087,6 +1087,9 @@ def _native_position_sequences() -> tuple[str, str]:
                         "generation": driver._physical_generation,
                     }
                 )
+                if isinstance(packet, ExecutePacket):
+                    trace[-1]["auto_commit"] = packet.auto_commit
+                    trace[-1]["forward_only"] = packet.forward_only
             return result
 
         if driver is not None:
@@ -1492,7 +1495,11 @@ def environment() -> Iterator[dict[str, Any]]:
             "cci_commit": manifest.get("cci_commit"),
             "driver_version": manifest.get("driver_version"),
             "extension_sha256": sha256,
-            "autocommit": {"wrapper_ordinary": True, "native": "driver default (True)"},
+            "autocommit": {
+                "wrapper_ordinary": True,
+                "native": "constructor default (True)",
+                "scope": "constructor/setup defaults only; cases may explicitly override",
+            },
         }
     finally:
         py.close()
@@ -1515,17 +1522,32 @@ def test_official_claim(claim: dict[str, Any], environment: dict[str, Any]) -> N
         outcome = "match" if claim["classification"] == "match" else "classified-deviation"
     else:
         outcome = "mismatch"
-    _write(
-        {
-            "record": "case",
-            "claim": claim["id"],
-            "classification": claim["classification"],
-            "server_version": environment["server_version"],
-            "pycubrid": pycubrid_obs,
-            "native": native_obs,
-            "outcome": outcome,
+    record: dict[str, Any] = {
+        "record": "case",
+        "claim": claim["id"],
+        "classification": claim["classification"],
+        "server_version": environment["server_version"],
+        "pycubrid": pycubrid_obs,
+        "native": native_obs,
+        "outcome": outcome,
+    }
+    if claim["id"] in {
+        "native-position-sequences",
+        "native-position-boundaries",
+        "wrapper-position-fetches",
+    }:
+        record["case_mode"] = {
+            "autocommit": False,
+            "configured": "explicit setter before prepare/execute on both drivers/wrappers",
+            "scope": "live same-owner SELECT; not default-mode lifetime proof",
         }
-    )
+    elif claim["id"] == "native-position-error-args":
+        record["case_mode"] = {
+            "autocommit": "constructor default (True)",
+            "query_executed": False,
+            "scope": "closed client error args, not result-lifetime proof",
+        }
+    _write(record)
     assert agrees, (
         f"{claim['id']} ({claim['classification']}): pycubrid={pycubrid_obs} native={native_obs}"
         f" expected={expected}"
