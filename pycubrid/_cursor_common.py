@@ -17,7 +17,15 @@ from decimal import Decimal
 from importlib import import_module
 from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
 
-from .exceptions import DataError, InterfaceError, ProgrammingError
+from .exceptions import (
+    DatabaseError,
+    DataError,
+    IntegrityError,
+    InterfaceError,
+    InternalError,
+    OperationalError,
+    ProgrammingError,
+)
 from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE, get_sqlstate
 from .types import Multiset, Set, _Collection
 from .types import Sequence as SequenceParam
@@ -525,15 +533,6 @@ def _raise_batch_error(err: dict[str, Any]) -> None:
     message = err.get("message", "batch execute statement failed")
     exc_name = CAS_ERROR_TO_EXCEPTION.get(code, "DatabaseError")
     sqlstate = get_sqlstate(code) or _DEFAULT_SQLSTATE.get(exc_name, "HY000")
-    # Import here to avoid circular import at module load time.
-    from .exceptions import (
-        DataError,
-        IntegrityError,
-        InternalError,
-        DatabaseError,
-        OperationalError,
-    )
-
     exc_map = {
         "DataError": DataError,
         "IntegrityError": IntegrityError,

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import struct
-import sys
 import threading
-import types
 from unittest.mock import MagicMock
 
 import pytest
@@ -48,8 +46,6 @@ def make_socket(recv_chunks: list[bytes]) -> MagicMock:
 def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
     import pycubrid.connection as _conn_mod
 
-    module = types.ModuleType("pycubrid.cursor")
-
     class DummyCursor:
         def __init__(self, connection: Connection) -> None:
             self.connection = connection
@@ -58,9 +54,7 @@ def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
         def close(self) -> None:
             self.closed = True
 
-    setattr(module, "Cursor", DummyCursor)
-    monkeypatch.setitem(sys.modules, "pycubrid.cursor", module)
-    monkeypatch.setattr(_conn_mod, "_CursorClass", None)
+    monkeypatch.setattr(_conn_mod, "Cursor", DummyCursor)
     return DummyCursor
 
 

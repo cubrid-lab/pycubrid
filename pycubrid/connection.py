@@ -5,9 +5,8 @@ import socket
 import ssl as ssl_module
 import struct
 import time
-from importlib import import_module
 from threading import RLock
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ._connection_common import (
     ESCAPE_PROBE_FAILED,
@@ -19,6 +18,7 @@ from ._connection_common import (
     warn_unknown_connection_options,
 )
 from .constants import CCIDbParam, DataSize
+from .cursor import Cursor
 from .exceptions import DataError, Error, InterfaceError, OperationalError
 from .protocol import (
     BatchExecutePacket,
@@ -35,11 +35,6 @@ from .protocol import (
     RollbackPacket,
     SetDbParameterPacket,
 )
-
-if TYPE_CHECKING:
-    from typing import Any as Cursor
-
-_CursorClass: type | None = None
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -576,12 +571,7 @@ class Connection(ConnectionCommonMixin):
     def cursor(self) -> Cursor:
         """Create and return a new cursor bound to this connection."""
         self._ensure_connected()
-        global _CursorClass  # noqa: PLW0603
-        if _CursorClass is None:
-            _CursorClass = getattr(import_module("pycubrid.cursor"), "Cursor")
-        cls = _CursorClass
-        assert cls is not None
-        cursor = cls(self)
+        cursor = Cursor(self)
         self._cursors.add(cursor)
         return cursor
 

@@ -242,6 +242,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   public LOB binding API yet; ordinary sync/async execution is unchanged.
 
 ### Changed
+- **Direct cursor imports and unused-helper cleanup (#561)** — the sync
+  connection imports the real `Cursor` directly instead of maintaining a lazy
+  module-global class cache. The unused async connect-dispatch helper is removed,
+  and cursor exception imports are centralized at module scope. Intentional SSL
+  and cursor helper aliases, cursor ownership, timing, error metadata, public
+  APIs and runtime behavior are preserved.
 - **Faster FETCH row parsing (#559)** — a new offline microbenchmark,
   `tests/test_bench_fetch_parsing.py` (2000-row scalar, text, mixed and
   collection replies), guided two changes to the common row loop. The SET
