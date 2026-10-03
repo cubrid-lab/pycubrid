@@ -509,7 +509,7 @@ class TestColumnCCIType:
     def test_private_evidence_survives_copy_without_changing_equality_or_repr(
         self, clone: Callable[[ColumnMetaData], ColumnMetaData]
     ) -> None:
-        manual = ColumnMetaData(CUBRIDDataType.INT, 0, 255, "col1", "col1", "test_table")
+        manual = ColumnMetaData(8, 0, 255, "col1", "col1", "test_table")
         reader = PacketReader(_build_column_metadata(column_type=CUBRIDDataType.INT))
         parsed = _parse_column_metadata(reader, 1)[0]
 
