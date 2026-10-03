@@ -91,12 +91,14 @@ def connect(
 
 | Kwarg | 타입 | 기본값 | 설명 |
 |---|---|---|---|
-| `connect_timeout` | `float` | `None` | 소켓 연결 타임아웃(초) |
-| `read_timeout` | `float` | `None` | 소켓 읽기 타임아웃(초) |
+| `connect_timeout` | `int \| float \| None` | `None` | 소켓 연결 타임아웃(초) |
+| `read_timeout` | `int \| float \| None` | `None` | 소켓 읽기 타임아웃(초) |
 | `fetch_size` | `int` | `100` | 서버 측 가져오기 배치 크기 |
 | `enable_timing` | `bool \| None` | `None` | 드라이버 타이밍 통계 활성화, 또는 `PYCUBRID_ENABLE_TIMING`으로 폴백 |
 | `no_backslash_escapes` | `bool \| None` | `None` (자동 감지) | 새 물리 세션마다 문자열 이스케이프 모드 감지; 명시적 `True`/`False`는 감지를 생략하고 복구 후에도 유지 |
 | `autocommit` | `bool` | `False` | 문장별 즉시 커밋 활성화 |
+
+`connect_timeout`과 `read_timeout`은 `None` 또는 유한한 0 이상의 숫자를 받습니다. 음수, NaN, 무한대는 `ValueError`를, 호환되지 않는 타입은 `TypeError`를 발생시킵니다. 동기·비동기 연결 모두 전송 자원을 획득하기 전에 설정을 검증하며, 이 오류는 `OperationalError`로 감싸지 않습니다. `0`은 계속 허용되며 각 전송 방식의 기존 0 타임아웃 의미를 유지합니다. 타임아웃 제한을 비활성화하지 않습니다.
 
 ### 흔한 연결 프로파일
 

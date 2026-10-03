@@ -16,6 +16,7 @@ import codecs
 import difflib
 import functools
 import logging
+import math
 import os
 import re
 import socket
@@ -261,6 +262,20 @@ def _caller_stacklevel() -> int:
     return level
 
 
+def _validate_timeout(name: str, value: float | None) -> float | None:
+    """Reject unsupported timeout values before any transport is acquired."""
+    if value is None:
+        return None
+    try:
+        finite = math.isfinite(value)
+        non_negative = value >= 0
+    except TypeError as exc:
+        raise TypeError(f"{name} must be None or a finite number >= 0") from exc
+    if not finite or not non_negative:
+        raise ValueError(f"{name} must be None or a finite number >= 0")
+    return value
+
+
 def warn_unknown_connection_options(kwargs: dict[str, Any]) -> None:
     """Warn about connection keywords pycubrid does not recognise.
 
@@ -367,8 +382,8 @@ class ConnectionCommonMixin:
         self._database = database
         self._user = user
         self._password = password
-        self._connect_timeout = connect_timeout
-        self._read_timeout = read_timeout
+        self._connect_timeout = _validate_timeout("connect_timeout", connect_timeout)
+        self._read_timeout = _validate_timeout("read_timeout", read_timeout)
         self._decode_collections = decode_collections
         self._json_deserializer = json_deserializer
         self._no_backslash_escapes: bool | None = no_backslash_escapes
