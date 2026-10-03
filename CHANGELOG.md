@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Discoverable Korean performance guide (#313)** — the Korean README now
+  links to the existing `docs/ko/PERFORMANCE.md` translation, with working
+  section anchors and a benchmark table identical to the English source.
+  Historical benchmark values, methodology and profiling commands are retained;
+  this documentation update adds no new performance measurements.
 - **Qualified wrapper row cursors (#466)** — `cubriddb.Connection.cursor()` now
   selects tuple or exact-name dictionary rows; direct qualified
   `pycubrid.compat.cursors.Cursor/DictCursor` construction and connection-local

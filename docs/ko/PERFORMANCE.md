@@ -18,6 +18,8 @@
 
 ---
 
+<a id="개요"></a>
+
 ## 개요
 
 `pycubrid`는 CAS 바이너리 프로토콜로 CUBRID와 통신하는 순수 Python DBAPI2 드라이버입니다.
@@ -41,6 +43,8 @@ flowchart TD
 
 ---
 
+<a id="벤치마크-결과"></a>
+
 ## 벤치마크 결과
 
 출처: [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)
@@ -49,7 +53,7 @@ flowchart TD
 
 워크로드: Python `pycubrid` vs `PyMySQL`, 10000행 × 5라운드.
 
-| 시나리오 | CUBRID (pycubrid) | MySQL (PyMySQL) | 비율 (CUBRID/MySQL) |
+| Scenario | CUBRID (pycubrid) | MySQL (PyMySQL) | Ratio (CUBRID/MySQL) |
 |---|---:|---:|---:|
 | insert_sequential | 10.47s | 1.74s | 6.0x |
 | select_by_pk | 15.99s | 3.52s | 4.5x |
@@ -58,6 +62,8 @@ flowchart TD
 | delete_sequential | 10.75s | 2.10s | 5.1x |
 
 ---
+
+<a id="성능-특성"></a>
 
 ## 성능 특성
 
@@ -68,6 +74,8 @@ flowchart TD
 - 호출을 배치하고 트랜잭션 경계를 제어하면 처리량이 개선됩니다.
 
 ---
+
+<a id="최적화-팁"></a>
 
 ## 최적화 팁
 
@@ -89,6 +97,8 @@ flowchart TD
 ```
 
 ---
+
+<a id="성능-조사"></a>
 
 ## 성능 조사
 
@@ -196,6 +206,8 @@ snakeviz는 브라우저에서 인터랙티브 플레임 그래프를 열어 중
 
 ---
 
+<a id="타이밍--프로파일링-훅"></a>
+
 ## 타이밍·프로파일링 훅
 
 가벼운 프로세스 내 진단을 위해서는 위의 cProfile 기반 스크립트 대신 드라이버 내장 타이밍 계측을 옵트인할 수 있습니다. 훅은 **기본 꺼짐**입니다 — 비활성 시 타이밍 모듈을 임포트하지 않고 핫 경로가 그대로 실행됩니다.
@@ -287,6 +299,8 @@ if conn.timing_stats is not None:
 - `ping()`과 `commit()` / `rollback()`은 현재 타이밍에 포함되지 않습니다.
 
 ---
+
+<a id="벤치마크-실행"></a>
 
 ## 벤치마크 실행
 
