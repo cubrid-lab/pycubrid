@@ -43,6 +43,14 @@ class Connection:
         """Roll back through the owned native connection."""
         self._connection.rollback()
 
+    def server_version(self) -> str:
+        """Return the exact owned native server-version result."""
+        return self._connection.server_version()
+
+    def ping(self) -> int:
+        """Return the owned native query-ping result without bool conversion."""
+        return self._connection.ping()
+
     def cursor(self, dictCursor: Any = None) -> _WrapperCursor | _WrapperDictCursor:
         """Choose exact-name dict rows for truthy values, tuple rows otherwise."""
         cls = _WrapperDictCursor if dictCursor else _WrapperCursor
