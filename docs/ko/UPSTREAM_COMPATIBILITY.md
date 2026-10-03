@@ -84,6 +84,7 @@ execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, B
 
 | 표면 | 선택된 계약 / 구현 경계 |
 | --- | --- |
+| 연결 유틸리티 (#666) | 인자가 없는 네이티브 server_version은 매번 FC15로 전체 문자열을 조회하고 client_version은 종료 후에도 I/O 없이 자체의 고정된 패키지 ID를 반환하며 ping은 일반 CHECK_CAS bool이 아닌 쿼리 기반 int1/0입니다. 래퍼는 server_version/ping에 한 번 위임합니다. 정확한 소유자·실제 모드 검사는 재시도·재접속을 금지하며 autocommit 중 활성 private 스키마 결과를 거부합니다. Ping은 페이지를 검증하고 소유 중이며 폐기되지 않은 핸들만 정리합니다. 정리만 실패하면 오류를 전달하고 앞선 오류는 유지합니다. 정상 기본·수동 모드 비교와 서로 다른 원시 client ID 관측은 별개이며 전체 C 버퍼·정규식·오류·복구·스레드 공유 패리티가 아닙니다. |
 | 래퍼 트랜잭션 (#662) | 인자가 없는 `Connection.commit()/rollback()`은 각각 정확한 네이티브 소유자에 한 번 위임하고 None을 반환하며 새 예외 래핑·재시도·복구 로직을 추가하지 않습니다. 수동 모드는 명시적으로 설정합니다. 기존 성공 콜백을 따르며, rollback이 fetch를 무효화한 뒤에도 래퍼 rowcount/description 캐시는 남을 수 있습니다. 필수 스칼라 사례 하나는 새 DML 커서, 독립 관측자의 가시성과 rollback 전후의 새 실행 조회를 사용합니다. 원격 결과 수명, 기본 모드, 결함 또는 스레드 공유 패리티는 아닙니다. |
 | 팩터리 (#465) | 래퍼 `Connect/connect/connection(*args, **kwargs)`는 `Connection(dsn='', user='public', password='', charset='utf8')`에 위임합니다. 위치 인자 최대 세 개가 dsn/user/password 키워드를 덮어씁니다. 네이티브 `connect(url, user='public', passwd='')`와 소문자 connection 생성은 autocommit=True로 시작합니다. 래퍼 `.connection`은 정확히 그 호환성 네이티브 객체입니다. 생성·종료, #467 autocommit 접근, #86 문자셋과 #466 한정된 행 커서를 제공하며 HA·미지원 DSN 옵션은 거절합니다. |
 | 공유 / 전역 값 (향후) | 래퍼 apilevel='2.0', paramstyle='qmark', threadsafety=2에는 실제 커서와 연결별 요청·수명주기 직렬화 및 두 스레드 테스트가 먼저 필요합니다. 현재의 제한된 호환 모듈은 이 전역 값을 내보내지 않습니다. 락 없는 기존 객체와 전역 threadsafety=1은 유지합니다. |
@@ -281,8 +282,8 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 | 표면 | 일치 | 분류된 차이 | 합계 |
 | --- | ---: | ---: | ---: |
 | 래퍼 (`CUBRIDdb`) | 15 | 2 | 17 |
-| 네이티브 (`_cubrid`) | 32 | 13 | 45 |
-| **합계** | **47** | **15** | **62** |
+| 네이티브 (`_cubrid`) | 33 | 13 | 46 |
+| **합계** | **48** | **15** | **63** |
 
 - 오라클: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - 필수 서버: CUBRID 10.2, CUBRID 11.4
@@ -301,8 +302,8 @@ description, #662 수동 commit/rollback 가시성, #439 prepared INT/문자열 
 ### 이행 목표와 작은 구현 단위의 수용 기준
 
 실제 쿼리에는 기존 import를 유지하세요. 명시적 네이티브 모듈은 제한된
-동기 prepared·LOB 실행과 #467 설정을 지원하며, 래퍼는 연결 생성·종료와
-autocommit과 명시적 commit/rollback 위임, #466의 한정된 네이티브 스칼라 기반 행 커서를 제공합니다. 이 범위의 래퍼 이행은
+동기 prepared·LOB 실행, #467 설정과 #666 유틸리티를 지원하며, 래퍼는 연결 생성·종료와
+autocommit, 명시적 commit/rollback과 서버 버전/query ping 위임, #466의 한정된 네이티브 스칼라 기반 행 커서를 제공합니다. 이 범위의 래퍼 이행은
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`, 네이티브는
 `import _cubrid` → `from pycubrid.compat import native as _cubrid`입니다.
 수동 트랜잭션에서 래퍼는 `conn.autocommit = False`, 네이티브는

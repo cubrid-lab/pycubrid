@@ -11,6 +11,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
 
 ### Added
+- **Native connection utilities (#666)** — add opt-in zero-argument full
+  `server_version()`, truthful frozen own-driver `client_version()` and integer
+  query `ping()`, plus the wrapper's two server/ping delegates. Requests stay on
+  the exact live physical owner without retry/reconnect, use effective mode and
+  respect private schema/result cleanup guards. Client identities are not a
+  matching-ID or version-format promise. Ordinary/async APIs and defaults remain
+  unchanged; this additive subset does not certify full native error/recovery parity.
 - **Real terminal walkthroughs (#320)** — replace the illustrative README GIF
   with a recorded sync/async query run and add a Quick Start CRUD/context-manager
   video. Editable VHS tapes, asserted demo code and source-wheel provenance

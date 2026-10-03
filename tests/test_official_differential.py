@@ -86,6 +86,62 @@ def _table(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
+def _native_wrapper_utilities() -> tuple[str, str]:
+    """Compare healthy utilities; retain distinct client identities separately."""
+    manifest = json.loads(
+        Path(os.environ["PYCUBRID_OFFICIAL_ORACLE_MANIFEST"]).read_text(encoding="utf-8")
+    )
+    identities: dict[str, Any] = {}
+
+    def observe(
+        native_connect: Callable[..., Any],
+        wrapper_connect: Callable[..., Any],
+        label: str,
+        expected_client: str,
+    ) -> str:
+        observations = []
+        for surface, connect in (("native", native_connect), ("wrapper", wrapper_connect)):
+            with closing(connect(URL, TEST_USER, TEST_PASSWORD)) as conn:
+                if surface == "native":
+                    before = conn.client_version()
+                for manual in (False, True):
+                    if manual:
+                        conn.set_autocommit(False)
+                    version = conn.server_version()
+                    indicator = conn.ping()
+                    assert type(version) is str and version
+                    assert type(indicator) is int and indicator == 1
+                    observations.append((surface, not manual, version, indicator))
+            if surface == "native":
+                after = conn.client_version()
+                identities[label] = {
+                    "before_close": before,
+                    "after_close": after,
+                    "expected_own_identity": expected_client,
+                    "is_str": type(before) is str and type(after) is str,
+                    "stable_after_close": before == after,
+                    "matches_own_identity": before == expected_client,
+                }
+        return render(tuple(observations))
+
+    candidate = observe(native.connect, cubriddb.Connect, "pycubrid", pycubrid.__version__)
+    official = observe(_cubrid.connect, CUBRIDdb.connect, "native", manifest["driver_version"])
+    _write(
+        {
+            "record": "utility-client-identities",
+            "claim": "native-wrapper-utilities",
+            "pycubrid_commit": _pycubrid_commit(),
+            "identities": identities,
+            "scope": "own build identity/stability, not matching IDs or a four-component regex",
+        }
+    )
+    for identity in identities.values():
+        assert identity["is_str"]
+        assert identity["stable_after_close"]
+        assert identity["matches_own_identity"]
+    return candidate, official
+
+
 def _wrapper_transaction_boundaries() -> tuple[str, str]:
     """Compare explicit boundaries with independent and same-actor visibility."""
     with closing(_ordinary()) as observer, closing(observer.cursor()) as setup:
@@ -1627,6 +1683,7 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
         "C", "A한éB".encode("utf-8") * 25000, replacement=True
     ),
     "wrapper-transaction-boundaries": _wrapper_transaction_boundaries,
+    "native-wrapper-utilities": _native_wrapper_utilities,
 }
 
 
@@ -1718,7 +1775,13 @@ def test_official_claim(claim: dict[str, Any], environment: dict[str, Any]) -> N
         "native": native_obs,
         "outcome": outcome,
     }
-    if claim["id"] == "wrapper-transaction-boundaries":
+    if claim["id"] == "native-wrapper-utilities":
+        record["case_mode"] = {
+            "autocommit": [True, False],
+            "configured": "constructor default then explicit public manual setter on each actor",
+            "scope": "healthy native/wrapper server text and query ping, not recovery or effects",
+        }
+    elif claim["id"] == "wrapper-transaction-boundaries":
         record["case_mode"] = {
             "autocommit": False,
             "configured": "public setter before INSERT on both wrappers",

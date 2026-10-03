@@ -86,6 +86,7 @@ and an omitted optional argument is not interchangeable with explicit None.
 
 | Surface | Selected contract / delivery boundary |
 | --- | --- |
+| Connection utilities (#666) | Native zero-argument server_version returns fresh full FC15 text; client_version returns its own frozen package ID without I/O, even after close; ping returns a query-based int1/0, not ordinary CHECK_CAS bool. The wrapper delegates server_version/ping once. Exact-owner/effective-mode guards prohibit retry/reconnect and reject active private schema results under autocommit. Ping validates pages and cleans up only owned, non-retired handles; cleanup-only errors propagate and primary errors survive. The required healthy default/manual case is separate from raw differing client-ID observations, not full C-buffer/regex/error/recovery or thread-sharing parity. |
 | Wrapper transactions (#662) | Zero-argument `Connection.commit()/rollback()` each call the exact native owner once and return None, without new wrapping/retry/recovery logic. Manual mode is explicit. Existing native success callbacks apply; wrapper rowcount/description snapshots may remain after rollback invalidates fetching. The one required scalar case uses fresh DML cursors, independent observer visibility and fresh actor queries before/after rollback, not remote-result lifetime, default-mode, fault or thread-sharing parity. |
 | Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close, #467 autocommit access, #86 selectable charset and #466 bounded row cursors are delivered; HA and unsupported DSN options remain rejected. |
 | Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require wrapper cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The compatibility modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. The native subset's private RLock is not a general thread-sharing promise. |
@@ -318,8 +319,8 @@ claims without cases and oracle pins that differ from the build script.
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
 | Wrapper (`CUBRIDdb`) | 15 | 2 | 17 |
-| Native (`_cubrid`) | 32 | 13 | 45 |
-| **Total** | **47** | **15** | **62** |
+| Native (`_cubrid`) | 33 | 13 | 46 |
+| **Total** | **48** | **15** | **63** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - Required servers: CUBRID 10.2, CUBRID 11.4
@@ -340,8 +341,8 @@ until they have claims here. The claim counts are not a parity percentage.
 
 For ordinary queries keep existing imports unchanged. The explicit native
 namespace now supports bounded sync scalar, collection and LOB prepared execution
-plus the #467 settings subset; the wrapper constructs/closes connections and
-delegates autocommit and explicit commit/rollback and offers the bounded #466 row cursor over native scalar binding.
+plus the #467 settings and #666 utility subsets; the wrapper constructs/closes connections and
+delegates autocommit, explicit commit/rollback and server version/query ping, and offers the bounded #466 row cursor over native scalar binding.
 For callers within that subset, wrapper migration is
 `import CUBRIDdb` → `from pycubrid.compat import cubriddb as CUBRIDdb`; native migration
 is `import _cubrid` → `from pycubrid.compat import native as _cubrid`.
