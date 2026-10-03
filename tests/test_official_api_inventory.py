@@ -183,6 +183,11 @@ def test_discrepancies_and_public_gaps_cannot_be_parity_passes() -> None:
     assert result_info["pycubrid"]["target"] == "pycubrid.compat.native.cursor.result_info"
     assert result_info["pycubrid"]["relation"] == "different"
     assert callable(native.cursor.result_info)
+    for name in ("data_seek", "row_seek", "row_tell"):
+        position = OPERATIONS[f"documented_cubrid.cursor.{name}"]
+        assert position["pycubrid"]["target"] == f"pycubrid.compat.native.cursor.{name}"
+        assert position["pycubrid"]["relation"] == "different"
+        assert callable(getattr(native.cursor, name))
     assert (
         OPERATIONS["CUBRIDdb.cursors.BaseCursor.callproc"]["pycubrid"]["relation"]
         == "upstream_stub"
