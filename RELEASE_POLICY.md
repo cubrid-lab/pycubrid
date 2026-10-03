@@ -373,6 +373,19 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   ordinary cursors, async, file operations, dependencies and supported versions
   do not change. No tag/PyPI publication follows automatically from this entry.
 
+- **Native LOB file transfer (#443)** — MINOR / additive. The explicit
+  sync-only `pycubrid.compat.native.lob` gains positional `imports(file,
+  type="B") -> None` and `export(file) -> None`. Raw BLOB/CLOB bytes use
+  bounded chunks and preserve position. Imports stage before adoption;
+  exports publish a sibling temporary file after complete write/flush/close.
+  Exact string paths, populated-empty output, same-session ownership and
+  local message-only InterfaceError codes are documented safety differences,
+  not full C parser/failure or filesystem parity. Atomic replacement does not
+  promise fsync durability, a sandbox, old inode/metadata preservation or
+  transactional server-file reclamation. Ordinary/async/wrapper APIs,
+  dependencies, defaults, supported versions and release/tag/publication
+  policy are unchanged.
+
 - **Native cached settings and effective setters (#467)** — MINOR / additive.
   `pycubrid.compat.native.connection` gains four writable snapshot members
   (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and
