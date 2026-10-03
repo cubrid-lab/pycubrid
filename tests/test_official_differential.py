@@ -24,6 +24,7 @@ import json
 import os
 import platform
 import subprocess  # nosec B404 - fixed git argv for the evidence record
+import tempfile
 import tracemalloc
 import uuid
 from collections.abc import Callable, Iterator
@@ -1369,6 +1370,110 @@ def _native_position_error_args() -> tuple[str, str]:
     return observe(native), observe(_cubrid)
 
 
+def _lob_file_roundtrip(kind: str, payload: bytes, *, replacement: bool = False) -> tuple[str, str]:
+    """Generate owned files and verify a real stored-column byte roundtrip."""
+    observer = _ordinary()
+    setup = observer.cursor()
+    created = False
+    try:
+        setup.execute("SELECT class_name FROM db_class WHERE class_name=?", ("odfile443_fixture",))
+        assert not setup.fetchall(), "refuse preexisting file-roundtrip fixture"
+        setup.execute("CREATE TABLE odfile443_fixture (id INTEGER PRIMARY KEY, b BLOB, c CLOB)")
+        created = True
+        with tempfile.TemporaryDirectory(prefix="py443-") as directory:
+            root = Path(directory)
+
+            def observe(module: Any, row_id: int) -> str:
+                source, destination = root / f"input-{row_id}.bin", root / f"output-{row_id}.bin"
+                source.write_bytes(payload)
+                destination.write_bytes(b"fixture-owned old output")
+                conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+                cur = conn.cursor()
+                imported, fetched = conn.lob(), conn.lob()
+                try:
+                    if replacement:
+                        imported.write(b"old value", kind)
+                        imported.seek(3, module.SEEK_SET)
+                    before_import = imported.seek(0, module.SEEK_CUR) if replacement else 0
+                    # Omitted type proves BLOB default; CLOB uses its explicit type.
+                    import_result = (
+                        imported.imports(str(source))
+                        if kind == "B"
+                        else imported.imports(str(source), "C")
+                    )
+                    after_import = imported.seek(0, module.SEEK_CUR)
+                    assert after_import == before_import
+                    cur.prepare(
+                        "INSERT INTO odfile443_fixture (id, b) VALUES (?, ?)"
+                        if kind == "B"
+                        else "INSERT INTO odfile443_fixture (id, c) VALUES (?, ?)"
+                    )
+                    cur.bind_param(1, row_id)
+                    cur.bind_lob(2, imported)
+                    inserted_count = cur.execute()
+                    assert inserted_count == 1
+                    # First bind consumed the created temporary locator; do not export it.
+                    imported.close()
+                    cur.prepare(
+                        "SELECT b FROM odfile443_fixture WHERE id=?"
+                        if kind == "B"
+                        else "SELECT c FROM odfile443_fixture WHERE id=?"
+                    )
+                    cur.bind_param(1, row_id)
+                    cur.execute()
+                    cur.fetch_lob(1, fetched)  # Avoid the unrelated non-first-column C quirk.
+                    fetched.seek(1, module.SEEK_SET)
+                    before_export = fetched.seek(0, module.SEEK_CUR)
+                    export_result = fetched.export(str(destination))
+                    after_export = fetched.seek(0, module.SEEK_CUR)
+                    assert after_export == before_export
+                    with source.open("rb") as left, destination.open("rb") as right:
+                        while True:
+                            expected, actual = left.read(65536), right.read(65536)
+                            assert (
+                                expected == actual
+                            )  # Explicit upstream file-equality assertion637.
+                            if not expected:
+                                break
+                    exported = destination.read_bytes()
+                    assert exported == payload
+                    return render(
+                        (
+                            import_result,
+                            export_result,
+                            before_import,
+                            after_import,
+                            before_export,
+                            after_export,
+                            len(exported),
+                            hashlib.sha256(exported).hexdigest(),
+                        )
+                    )
+                finally:
+                    try:
+                        # Native close frees locally and is safe here even after prior close.
+                        fetched.close()
+                    finally:
+                        try:
+                            imported.close()
+                        finally:
+                            try:
+                                cur.close()
+                            finally:
+                                conn.close()
+
+            return observe(native, 1), observe(_cubrid, 2)
+    finally:
+        try:
+            if created:
+                setup.execute("DROP TABLE odfile443_fixture")
+        finally:
+            try:
+                setup.close()
+            finally:
+                observer.close()
+
+
 FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
 KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
 
@@ -1441,6 +1546,13 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "native-position-boundaries": _native_position_boundaries,
     "wrapper-position-fetches": _wrapper_position_fetches,
     "native-position-error-args": _native_position_error_args,
+    "lob-file-blob-bytes": lambda: _lob_file_roundtrip("B", bytes(range(256))),
+    "lob-file-blob-multi-chunk": lambda: _lob_file_roundtrip(
+        "B", (bytes(range(256)) * 684)[:175000], replacement=True
+    ),
+    "lob-file-clob-utf8": lambda: _lob_file_roundtrip(
+        "C", "A한éB".encode("utf-8") * 25000, replacement=True
+    ),
 }
 
 

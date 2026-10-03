@@ -4,7 +4,8 @@ Only the sync prepared INT, string and NULL cursor, SET/MULTISET/SEQUENCE
 collection binding (``connection.set()``, ``set.imports()``,
 ``cursor.bind_set()``), and BLOB/CLOB handle fetch, bind and byte-position
 stream operations (``connection.lob()``, ``cursor.fetch_lob()``,
-``cursor.bind_lob()``, ``lob.write/read/seek``), and cached column metadata
+``cursor.bind_lob()``, ``lob.write/read/seek``), raw file transfers
+(``lob.imports/export``), and cached column metadata
 (``cursor.result_info()``) and current-result positioning
 (``cursor.data_seek/row_seek/row_tell``) are supported here. Prepared
 scalar strings use the connection charset (UTF-8 unless ``charset`` says
@@ -22,8 +23,9 @@ import operator
 import os
 import re
 import struct
+import tempfile
 from threading import RLock
-from typing import Any, SupportsIndex
+from typing import Any, BinaryIO, SupportsIndex
 
 from pycubrid.connection import Connection as _DriverConnection
 from pycubrid.constants import (
@@ -1241,6 +1243,189 @@ class lob:  # the official native type name
                 raise InterfaceError("lob seek position is out of range")
             self._position = position
             return position
+
+    def _file_boundary(self) -> tuple[_SessionLobTransport, object, int]:
+        """Capture a live fixed session and the receiver state before file I/O."""
+        if self._closed:
+            raise InterfaceError("lob is closed")
+        source = self._connection
+        if source._closed or not getattr(source._driver, "_connected", True):
+            raise InterfaceError("compatibility connection is closed")
+        if self._handle is not None:
+            transport = self._io()[0]
+        else:
+            transport = _SessionLobTransport(
+                source, source._driver, source._driver._physical_generation
+            )
+            transport._ensure_connected()
+        return transport, self._state, self._position
+
+    def _check_file_boundary(
+        self, transport: _SessionLobTransport, state: object, position: int
+    ) -> None:
+        transport._ensure_connected()
+        if self._closed or self._state is not state or self._position != position:
+            raise InterfaceError("lob changed during file transfer")
+
+    @staticmethod
+    def _validate_file_path(file: str) -> None:
+        if builtins.type(file) is not str:
+            raise TypeError("lob file must be an exact string")
+        if "\x00" in file:
+            raise ValueError("lob file path must not contain NUL")
+
+    def imports(self, file: str, type: str = "B", /) -> None:
+        """Replace the value with raw file bytes after a complete fixed-session transfer."""
+        self._validate_file_path(file)
+        if builtins.type(type) is not str:
+            raise TypeError("lob type must be an exact string")
+        if type not in ("B", "b", "C", "c"):
+            raise InterfaceError("lob type must be B or C", code=-30006)
+        with self._connection._session_lock:
+            transport, state, position = self._file_boundary()
+            try:
+                path = os.path.abspath(file)
+            except OSError as exc:
+                raise InterfaceError("lob file open failed", code=-30009) from exc
+            self._check_file_boundary(transport, state, position)
+            reader: BinaryIO | None = None
+            staged: lob | None = None
+            try:
+                try:
+                    reader = open(path, "rb")
+                except OSError as exc:
+                    raise InterfaceError("lob file open failed", code=-30009) from exc
+                self._check_file_boundary(transport, state, position)
+                staged = _NativeLob(self._connection)
+                lob_type = CUBRIDDataType.BLOB if type in ("B", "b") else CUBRIDDataType.CLOB
+                ordinary = _OrdinaryLob.create(transport, lob_type)
+                try:
+                    _PreparedLob(
+                        lob_type, ordinary.lob_handle, transport._driver, transport._generation
+                    )
+                except ProgrammingError:
+                    transport._driver._discard_uncertain_prepared_session()
+                    raise OperationalError("malformed response from broker") from None
+                staged._set(
+                    lob_type,
+                    ordinary.lob_handle,
+                    _CREATED,
+                    (transport._driver, transport._generation),
+                )
+                self._check_file_boundary(transport, state, position)
+                while True:
+                    try:
+                        chunk = reader.read(_LOB_IO_CHUNK)
+                    except OSError as exc:
+                        raise InterfaceError("lob file read failed", code=-30016) from exc
+                    self._check_file_boundary(transport, state, position)
+                    if builtins.type(chunk) is not bytes:
+                        raise TypeError("lob file read must return bytes")
+                    if not chunk:
+                        break
+                    _NativeLob.write(staged, chunk)
+                    self._check_file_boundary(transport, state, position)
+                try:
+                    reader.close()
+                except OSError as exc:
+                    raise InterfaceError("lob file read failed", code=-30016) from exc
+                reader = None
+                self._check_file_boundary(transport, state, position)
+                self._state = staged._state
+            finally:
+                if reader is not None:
+                    try:
+                        reader.close()
+                    except OSError:
+                        _LOGGER.warning("Failed to close LOB input during cleanup")
+                if staged is not None:
+                    _NativeLob.close(staged)
+
+    def export(self, file: str, /) -> None:
+        """Publish raw bytes through one sibling temporary file, preserving position."""
+        self._validate_file_path(file)
+        with self._connection._session_lock:
+            transport, state, position = self._file_boundary()
+            if self._handle is None:
+                raise InterfaceError("lob has no value", code=-30018)
+            lob_type, handle = self._lob_type, self._handle
+            try:
+                _PreparedLob(lob_type, handle, transport._driver, transport._generation)
+            except ProgrammingError:
+                transport._driver._discard_uncertain_prepared_session()
+                raise OperationalError("malformed response from broker") from None
+            size = struct.unpack_from(">q", handle, 4)[0]
+            try:
+                path = os.path.abspath(file)
+            except OSError as exc:
+                raise InterfaceError("lob file open failed", code=-30009) from exc
+            self._check_file_boundary(transport, state, position)
+            fd: int | None = None
+            temporary: str | None = None
+            writer: BinaryIO | None = None
+            try:
+                try:
+                    fd, temporary = tempfile.mkstemp(
+                        prefix=".pycubrid-lob-", dir=os.path.dirname(path)
+                    )
+                    self._check_file_boundary(transport, state, position)
+                    writer = os.fdopen(fd, "wb")
+                    fd = None
+                except OSError as exc:
+                    raise InterfaceError("lob file open failed", code=-30009) from exc
+                self._check_file_boundary(transport, state, position)
+                offset = 0
+                while offset < size:
+                    packet = LOBReadPacket(handle, offset, min(size - offset, _LOB_IO_CHUNK))
+                    transport._send_and_receive(packet)
+                    self._check_file_boundary(transport, state, position)
+                    got, chunk = packet.bytes_read, packet.lob_data
+                    if (
+                        builtins.type(got) is not int
+                        or builtins.type(chunk) is not bytes
+                        or not 0 < got <= packet.length
+                        or len(chunk) != got
+                    ):
+                        raise OperationalError("LOB file read returned invalid progress or payload")
+                    try:
+                        written = writer.write(chunk)
+                    except OSError as exc:
+                        raise InterfaceError("lob file write failed", code=-30017) from exc
+                    self._check_file_boundary(transport, state, position)
+                    if builtins.type(written) is not int or written != got:
+                        raise InterfaceError("lob file write failed", code=-30017)
+                    offset += got
+                try:
+                    writer.flush()
+                    self._check_file_boundary(transport, state, position)
+                    writer.close()
+                except OSError as exc:
+                    raise InterfaceError("lob file write failed", code=-30017) from exc
+                writer = None
+                self._check_file_boundary(transport, state, position)
+                try:
+                    os.replace(temporary, path)
+                except OSError as exc:
+                    raise InterfaceError("lob file write failed", code=-30017) from exc
+                temporary = None
+            finally:
+                if writer is not None:
+                    try:
+                        writer.close()
+                    except OSError:
+                        _LOGGER.warning("Failed to close LOB export during cleanup %s", temporary)
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        _LOGGER.warning(
+                            "Failed to close LOB export descriptor during cleanup %s", temporary
+                        )
+                if temporary is not None:
+                    try:
+                        os.unlink(temporary)
+                    except OSError:
+                        _LOGGER.warning("Failed to remove LOB export temporary file %s", temporary)
 
     def close(self) -> None:
         """Drop the handle locally; no I/O. Later use raises ``InterfaceError``.
