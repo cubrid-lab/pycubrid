@@ -24,9 +24,11 @@ import os
 import re
 import struct
 import tempfile
+from socket import socket as _Socket
 from threading import RLock
 from typing import Any, BinaryIO, SupportsIndex
 
+from pycubrid import __version__ as _CLIENT_VERSION
 from pycubrid.connection import Connection as _DriverConnection
 from pycubrid.constants import (
     CCIDbParam,
@@ -50,8 +52,10 @@ from pycubrid.protocol import (
     ExecutePacket,
     FetchPacket,
     GetDbParameterPacket,
+    GetEngineVersionPacket,
     LOBReadPacket,
     PreparePacket,
+    PrepareAndExecutePacket,
     SetDbParameterPacket,
     _PreparedCollection,
     _PreparedLob,
@@ -69,6 +73,7 @@ SEEK_END = os.SEEK_END
 _LOB_IO_CHUNK = 64 * 1024
 _MAX_LOB_POSITION = (1 << 63) - 1
 _UNKNOWN_ISOLATION = "CUBRID_TRAN_UNKNOWN_ISOLATION"
+_UtilityState = tuple[_DriverConnection, int, _Socket, bool]
 _ISOLATION_NAMES = {
     4: "CUBRID_REP_CLASS_COMMIT_INSTANCE",
     5: "CUBRID_REP_CLASS_REP_INSTANCE",
@@ -234,6 +239,114 @@ class connection:
             owner = cursor(self)
             self._prepared_owners.add(owner)
             return owner
+
+    def _utility_state(self) -> _UtilityState:
+        driver = self._driver
+        if self._closed or not driver._connected or driver._socket is None:
+            raise InterfaceError("compatibility connection is closed")
+        state = (driver, driver._physical_generation, driver._socket, driver._autocommit)
+        self._check_utility_state(state)
+        return state
+
+    def _check_utility_state(self, state: _UtilityState) -> None:
+        driver, generation, sock, mode = state
+        if (
+            self._closed
+            or self._driver is not driver
+            or not driver._prepared_session_is_current(generation, sock)
+            or driver._autocommit is not mode
+        ):
+            raise InterfaceError("utility connection or physical session changed")
+        if mode and driver._schema_results:
+            raise InterfaceError("utility cannot auto-commit an active schema result")
+
+    def _utility_request(
+        self,
+        packet: GetEngineVersionPacket | PrepareAndExecutePacket | FetchPacket | CloseQueryPacket,
+        state: _UtilityState,
+    ) -> None:
+        self._check_utility_state(state)
+        driver, generation, _sock, _mode = state
+        driver._send_and_receive(packet, allow_reconnect=False, expected_generation=generation)
+        self._check_utility_state(state)
+
+    def server_version(self, /) -> str:
+        """Read full server text on the current physical session, without retry."""
+        with self._session_lock:
+            state = self._utility_state()
+            packet = GetEngineVersionPacket(auto_commit=state[3])
+            self._utility_request(packet, state)
+            return packet.engine_version
+
+    def client_version(self, /) -> str:
+        """Return this driver's frozen version text, including after close."""
+        return _CLIENT_VERSION
+
+    def ping(self, /) -> int:
+        """Verify the constant scalar query and close its owned result before success."""
+        with self._session_lock:
+            state = self._utility_state()
+            driver, generation, sock, mode = state
+            packet = PrepareAndExecutePacket(
+                "select 1+1 from db_root",
+                auto_commit=mode,
+                protocol_version=driver._protocol_version,
+            )
+            primary: BaseException | None = None
+            handle: int | None = None
+            retired = False
+            try:
+                self._utility_request(packet, state)
+                retired = packet._query_handle_retired
+                handle = None if retired else packet.query_handle or None
+                if packet.statement_type != CUBRIDStatementType.SELECT or len(packet.columns) != 1:
+                    raise DataError("utility query did not return one scalar column")
+                total = packet.total_tuple_count
+                rows = packet.rows
+                consumed = 0
+                found = False
+                while True:
+                    if len(rows) > total - consumed or any(len(row) != 1 for row in rows):
+                        raise OperationalError("utility result page does not match row count")
+                    found = found or any(row[0] == 2 for row in rows)
+                    consumed += len(rows)
+                    if consumed == total:
+                        return int(found)
+                    if handle is None:
+                        raise OperationalError("utility result lost its required query handle")
+                    fetched = FetchPacket(
+                        handle,
+                        consumed,
+                        fetch_size=driver._fetch_size,
+                        columns=packet.columns,
+                    )
+                    self._utility_request(fetched, state)
+                    if (
+                        mode
+                        and not driver._handles_survive_transactions()
+                        and driver._cas_info[0] == 0
+                    ):
+                        retired = True
+                        handle = None
+                    rows = fetched.rows
+                    if not rows:
+                        raise OperationalError("utility result ended before its declared row count")
+            except BaseException as exc:
+                primary = exc
+                # A complete parse failure may still have disclosed an owned ID.
+                if handle is None and not retired and not packet._query_handle_retired:
+                    handle = packet.query_handle or None
+                raise
+            finally:
+                if handle is not None and driver._prepared_session_is_current(generation, sock):
+                    try:
+                        self._utility_request(CloseQueryPacket(handle), state)
+                    except BaseException:
+                        if driver._prepared_session_is_current(generation, sock):
+                            driver._discard_uncertain_prepared_session()
+                        if primary is None:
+                            raise
+                        _LOGGER.warning("Failed to close utility query after primary failure")
 
     def set(self) -> _NativeSet:
         """Create an empty collection value for ``cursor.bind_set()``; no I/O."""
