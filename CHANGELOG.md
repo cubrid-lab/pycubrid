@@ -896,6 +896,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Tests
+- **A fatal statement now fails one test and names every version it affects,
+  instead of cascading and reporting only the first endpoint to die (#614)** —
+  two separate defects. First, the `servers` fixture is module-scoped and every
+  test reused one connection per endpoint, so when a statement left a session
+  unusable that test failed and the remaining 15 in the module then failed with
+  `InterfaceError: connection is closed`. Second, `compare()` built its
+  observations in a dict comprehension, so the first endpoint to raise aborted
+  the rest: with CUBRID 10.2 first in the matrix, `SELECT IF(1=0, SET{1}, 0.000)`
+  was attributed to 10.2 alone, while `csql` reproduces the same SIGSEGV
+  deterministically on 10.2.18.9024, 11.0.16.0419, 11.2.9.0866 and 11.4.6.1963 —
+  the suite's own structure concealed that the crash affects every supported
+  version. `Server` now opens its session through `_open()`; a session that died
+  without any statement reporting it fails visibly through
+  `_require_live_session()` rather than being healed in silence. Its liveness
+  probe uses `ping(reconnect=False)`, so SQL auto-recovery cannot hide the dead
+  prior session; and
+  `_assert_session_survives()` reopens before raising the new
+  `SessionLost(AssertionError)`. `compare()` runs every endpoint, collects the
+  endpoints that lost a session, and raises one report that lists each of them
+  with the versions that completed. The contract is unchanged: losing a session
+  still fails its own test, and the message now also reports when reopening
+  failed. Scratch tables survive a reopen (DDL runs with autocommit on), so
+  `created` stays accurate and `ensure_table` still skips them. New offline
+  module `tests/test_version_differential_isolation.py` drives `Server` and
+  `compare()` against scripted connections, since the real lane needs four live
+  servers: a fatal statement fails once, the next workload runs on a fresh
+  session, three consecutive kills open exactly three replacements, an error the
+  session survives opens none, a reopen does not recreate scratch tables, an
+  unreported dead session fails visibly even if SQL could transparently reconnect,
+  a four-endpoint matrix names all four
+  when all are fatal, and names only the affected one when a single version is.
+  The underlying CUBRID crash is not fixed here — it is a server-side defect to
+  report upstream, tracked in #614.
 - **`tests/test_docs_reason.py` runs the docs-sync script in-process instead
   of spawning a fresh `python -` subprocess per fixture case, and the fake
   `git` shim is a shell script instead of a Python one (#429)** — the event
