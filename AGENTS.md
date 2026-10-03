@@ -279,11 +279,12 @@ access is not a prerequisite for proposing a contribution.
 
 Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`
 (`pyproject.toml` reads it dynamically). Merging a reviewed release PR is the only
-normal way to release: `prepare-release.yml` opens it (dated CHANGELOG section +
+normal way to release: `release-please.yml` opens it (curated + Conventional Commit dated CHANGELOG section +
 version bump, checked by `make release-check VERSION=x.y.z`), and after the
 squash-merge `release.yml` detects the version change and runs consistency → full
 matrix → build → tag/Release/PyPI → cookbook verification (the cookbook smoke test
 called as a pinned reusable workflow, no token) → summary on its own.
+Freeze a release candidate with `autorelease: review` before branch-only note edits; wait for in-flight preparation to finish. Unfrozen notes come from main Unreleased. GITHUB_TOKEN updates require maintainer-triggered CI at the final head. Pending labels are reconciled only after successful publication and cookbook verification.
 Ordinary PRs never change `__version__` or date a CHANGELOG section. Never push
 tags or publish by hand; the only manual entry point is the narrow recovery
 dispatch of `release.yml`. Procedure, failure matrix and recovery:
@@ -297,7 +298,7 @@ dispatch of `release.yml`. Procedure, failure matrix and recovery:
 |---|---|---|
 | `.github/workflows/ci.yml` | Push to main, PRs | Lint + offline tests (Py 3.10–3.14) + regular integration matrix |
 | `.github/workflows/integration-full.yml` | Nightly (03:00 UTC), manual dispatch, `workflow_call` from `release.yml` | Full Python × CUBRID compatibility matrix |
-| `.github/workflows/prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
+| `.github/workflows/release-please.yml` | Push main or manual dispatch | Prepare a PR-only release candidate (version + generated notes + canonical curated CHANGELOG) |
 | `.github/workflows/release.yml` | Push to main; recovery dispatch (`resume` / `verify-only` / `dry-run`) | Detect a merged release, then matrix, build, tag + GitHub Release + PyPI, cookbook verification, summary |
 
 ### Matrix Shape
