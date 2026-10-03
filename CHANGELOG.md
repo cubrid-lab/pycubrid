@@ -257,6 +257,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   public LOB binding API yet; ordinary sync/async execution is unchanged.
 
 ### Changed
+- Reduce routine PR CI to one representative offline lane and targeted live checks;
+  move full compatibility matrices to explicit dispatch/releases and schedule representative checks weekly.
+  Keep shell gate tests portable when Bash is unavailable and synchronize workflow
+  cadence, representative matrix guidance and support-section headings in EN/KO docs.
+  Conservatively validate new driver/test paths with one offline regression lane;
+  bind manual validation to a requested SHA and current PR head before/after testing.
 - **Private CCI metadata type evidence (#631)** — full column metadata retains
   the exact CCI extended-type value from legacy or two-byte type headers.
   Ordinary type codes, descriptions, row/schema parsing and public APIs are
