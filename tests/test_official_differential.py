@@ -995,10 +995,11 @@ def _positioning_fixture(observe: Callable[[Any], str]) -> tuple[str, str]:
         assert not setup.fetchall(), "positioning fixture already exists"
         setup.execute("CREATE TABLE odnav444_fixture (id INTEGER PRIMARY KEY, txt VARCHAR(20))")
         created = True
-        setup.executemany(
-            "INSERT INTO odnav444_fixture VALUES (?, ?)",
-            [(row, str(row)) for row in range(1, 1538)],
+        setup.execute(
+            "INSERT INTO odnav444_fixture VALUES " + ", ".join(["(?, ?)"] * 1537),
+            tuple(value for row in range(1, 1538) for value in (row, str(row))),
         )
+        assert setup.rowcount == 1537
         return observe(native), observe(_cubrid)
     finally:
         try:
