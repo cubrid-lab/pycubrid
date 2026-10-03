@@ -10628,6 +10628,21 @@ the evidence validator recomputes agreement. This subset does not certify cache
 resetting, fault recovery or every upstream transaction assertion; its claim
 keeps an explicit scenario gap and the source ledger/aliases remain unchanged.
 
+### Native utility verification (#666)
+
+Required comparisons at immutable code
+`ffab52c61abcb4118a1cbeed07f7ebce876404ca` used Python 3.10.12 and owned
+10.2.18.9024/11.4.6.1963, with the pinned e75ec36/CCI7d1eb8f oracle. The healthy
+native/wrapper utility case matched full server text and exact integer ping1
+in constructor-default True and explicit manual False modes on both builds.
+Maintainer-local `official666-ffab52c-combined.jsonl` records the complete
+catalog and separate raw client identities; the evidence validator recomputes
+the results. Each driver's own identity is a stable string after close and
+matches its package/manifest, not the other driver's ID or a four-component regex.
+No source assertion, fault/recovery, transaction-neutrality or full-feature
+parity certificate follows from this healthy case; earlier claims and ledger
+assessments remain unchanged.
+
 ### Native LOB file scope and safety differences (#443)
 
 The explicit sync native holder provides `imports(file, type="B", /)` and
