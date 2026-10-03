@@ -28,6 +28,7 @@ import tempfile
 import tracemalloc
 import uuid
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +84,78 @@ def _ordinary() -> pycubrid.Connection:
 
 def _table(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+def _wrapper_transaction_boundaries() -> tuple[str, str]:
+    """Compare explicit boundaries with independent and same-actor visibility."""
+    with closing(_ordinary()) as observer, closing(observer.cursor()) as setup:
+        created = False
+        try:
+            setup.execute(
+                "SELECT class_name FROM db_class WHERE class_name=?", ("odtx662_fixture",)
+            )
+            existing = setup.fetchall()
+            assert not existing, "refuse preexisting wrapper-transaction fixture"
+            setup.execute("CREATE TABLE odtx662_fixture (id INTEGER PRIMARY KEY)")
+            created = True
+
+            def observer_rows() -> list[Any]:
+                setup.execute("SELECT id FROM odtx662_fixture ORDER BY id")
+                return setup.fetchall()
+
+            def observe(connect: Callable[..., Any]) -> str:
+                with ExitStack() as resources:
+                    conn = resources.enter_context(closing(connect(URL, TEST_USER, TEST_PASSWORD)))
+                    conn.set_autocommit(False)
+                    # Fresh DML cursors avoid the unrelated official reprepare/description bug.
+                    first = resources.enter_context(closing(conn.cursor()))
+                    first.execute("INSERT INTO odtx662_fixture (id) VALUES (?)", (1,))
+                    before_commit = observer_rows()
+                    commit_result = conn.commit()
+                    after_commit = observer_rows()
+                    second = resources.enter_context(closing(conn.cursor()))
+                    second.execute("INSERT INTO odtx662_fixture (id) VALUES (?)", (2,))
+                    pending = resources.enter_context(closing(conn.cursor()))
+                    pending.execute("SELECT id FROM odtx662_fixture ORDER BY id")
+                    actor_before_rollback = pending.fetchall()
+                    before_rollback = observer_rows()
+                    rollback_result = conn.rollback()
+                    # New execution, not a read from the rollback-invalidated result.
+                    after = resources.enter_context(closing(conn.cursor()))
+                    after.execute("SELECT id FROM odtx662_fixture ORDER BY id")
+                    actor_after_rollback = after.fetchall()
+                    after_rollback = observer_rows()
+                final_rows = observer_rows()  # All actor cursors/connection are now closed.
+                assert commit_result is None
+                assert rollback_result is None
+                assert before_commit == []
+                assert after_commit == [(1,)]
+                assert actor_before_rollback == [(1,), (2,)]
+                assert before_rollback == [(1,)]
+                assert actor_after_rollback == [(1,)]
+                assert after_rollback == final_rows == [(1,)]
+                return render(
+                    (
+                        commit_result,
+                        rollback_result,
+                        before_commit,
+                        after_commit,
+                        actor_before_rollback,
+                        before_rollback,
+                        actor_after_rollback,
+                        after_rollback,
+                        final_rows,
+                    )
+                )
+
+            candidate = observe(cubriddb.connect)
+            setup.execute("DELETE FROM odtx662_fixture")
+            reset_rows = observer_rows()
+            assert reset_rows == []
+            return candidate, observe(CUBRIDdb.connect)
+        finally:
+            if created:
+                setup.execute("DROP TABLE odtx662_fixture")
 
 
 def _wrapper_row_conversion() -> tuple[str, str]:
@@ -1553,6 +1626,7 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "lob-file-clob-utf8": lambda: _lob_file_roundtrip(
         "C", "A한éB".encode("utf-8") * 25000, replacement=True
     ),
+    "wrapper-transaction-boundaries": _wrapper_transaction_boundaries,
 }
 
 
@@ -1644,7 +1718,14 @@ def test_official_claim(claim: dict[str, Any], environment: dict[str, Any]) -> N
         "native": native_obs,
         "outcome": outcome,
     }
-    if claim["id"] in {
+    if claim["id"] == "wrapper-transaction-boundaries":
+        record["case_mode"] = {
+            "autocommit": False,
+            "configured": "public setter before INSERT on both wrappers",
+            "observer_autocommit": True,
+            "scope": "manual scalar row visibility, not result-lifetime or fault/recovery proof",
+        }
+    elif claim["id"] in {
         "native-position-sequences",
         "native-position-boundaries",
         "wrapper-position-fetches",

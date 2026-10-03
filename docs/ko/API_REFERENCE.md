@@ -191,7 +191,7 @@ conn = pycubrid.connect(
 지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
 문자셋을 사용합니다.
 기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
-사용합니다. `pycubrid.compat.cubriddb` 래퍼는 연결 생성·종료와 autocommit 설정을
+사용합니다. `pycubrid.compat.cubriddb` 래퍼는 연결 생성·종료, 명시적 commit/rollback과 autocommit 설정을
 지원하며 한정된 래퍼 행 커서도 제공합니다. DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
 확장과의 완전한 동등성은 제공하지 않습니다.
 
@@ -376,6 +376,23 @@ try:
 finally:
     wrapper.close()
 ```
+
+### 래퍼 트랜잭션 경계 (#662)
+
+`cubriddb.Connection.commit() -> None`과 `rollback() -> None`은 인자를 받지
+않습니다. 정확히 소유한 네이티브 연결에 한 번 위임하고 `None`을 반환하며,
+새로 감싸지 않고 그 예외를 전달합니다. 추가 위치·키워드 인자는 위임 전에
+실패하고, 닫힌 소유자 검사는 기존 네이티브 동작을 따릅니다. 미완료 작업을
+다루려면 먼저 `set_autocommit(False)` 또는 `.autocommit = False`를 사용하세요.
+호환성 팩터리의 autocommit 기본값은 바뀌지 않습니다.
+
+성공한 경계 뒤에만 기존 네이티브 결과 콜백이 적용됩니다. commit은 로컬 결과
+상태를 유지하고 rollback은 네이티브 fetch를 무효화합니다. 래퍼 커서의
+`rowcount`와 `description`은 실행 시점 캐시이므로, rollback 뒤 메타데이터가
+남아 있어도 결과를 fetch할 수 있다는 뜻은 아닙니다. 실패한 위임에 facade가
+추가로 결과에 알리거나 캐시를 초기화하지 않습니다. 새 연결·SQL·재시도·복구 로직을 추가하지
+않으며 기존 네이티브 규칙을 따릅니다. 모든 원격 결과 수명이나 스레드 공유를
+보장하지 않습니다. 일반·비동기 API, 기본값과 더 넓은 래퍼 실행은 그대로입니다.
 
 ### 래퍼 행 커서 (#466)
 

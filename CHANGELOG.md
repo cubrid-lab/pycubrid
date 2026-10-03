@@ -11,6 +11,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
 
 ### Added
+- **Wrapper transaction delegates (#662)** — the opt-in sync CUBRIDdb-style
+  connection gains zero-argument `commit()` and `rollback()`, forwarding once to
+  its native owner with `None` returns and unchanged error propagation. Existing
+  successful-boundary result rules apply; rollback can invalidate fetching while
+  wrapper rowcount/description snapshots remain. Manual mode is explicit, and
+  defaults, ordinary/async APIs, recovery logic and thread-sharing promises are
+  unchanged.
 - **Native LOB file transfer (#443)** — sync native holders gain positional
   `imports(file, type="B")` and `export(file)` for raw BLOB/CLOB bytes in
   bounded chunks, preserving byte position. Import stages a replacement until
