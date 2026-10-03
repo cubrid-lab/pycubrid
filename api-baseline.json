@@ -4003,6 +4003,23 @@
                 }
               ]
             }
+          },
+          "result_info": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "VAR_POSITIONAL",
+                  "name": "args"
+                }
+              ]
+            }
           }
         },
         "properties": []
@@ -4484,6 +4501,23 @@
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "sql"
+            }
+          ]
+        }
+      },
+      "result_info": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_POSITIONAL",
+              "name": "args"
             }
           ]
         }

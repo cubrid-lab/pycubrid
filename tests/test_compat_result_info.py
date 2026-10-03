@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import TypeAlias
 
 import pytest
 
@@ -11,6 +12,8 @@ from pycubrid.exceptions import DatabaseError, InterfaceError, OperationalError,
 from pycubrid.protocol import ColumnMetaData, ExecutePacket
 
 from .test_compat_prepared import DSN, FakeDriver
+
+_Owned: TypeAlias = tuple[native.connection, FakeDriver]
 
 
 @pytest.fixture
@@ -89,7 +92,7 @@ def test_all_and_one_are_exact_immutable_metadata_and_preserve_rows(
 
 
 @pytest.mark.parametrize("prepared", [False, True])
-def test_fresh_and_prepare_only_are_invalid(owned, prepared: bool) -> None:
+def test_fresh_and_prepare_only_are_invalid(owned: _Owned, prepared: bool) -> None:
     conn, driver = owned
     cur = conn.cursor()
     if prepared:
@@ -102,7 +105,7 @@ def test_fresh_and_prepare_only_are_invalid(owned, prepared: bool) -> None:
     assert _snapshot(cur, driver) == before
 
 
-def test_zero_rows_keep_columns_and_zero_native_type_is_valid(owned) -> None:
+def test_zero_rows_keep_columns_and_zero_native_type_is_valid(owned: _Owned) -> None:
     conn, _ = owned
     cur = _executed(conn, rows=False)
     cur._columns[0]._cci_type = 0
@@ -111,7 +114,7 @@ def test_zero_rows_keep_columns_and_zero_native_type_is_valid(owned) -> None:
 
 
 @pytest.mark.parametrize("selector", [0, -1, 99, -(2**31), 2**31 - 1])
-def test_successful_dml_returns_none_before_index_bounds(owned, selector: int) -> None:
+def test_successful_dml_returns_none_before_index_bounds(owned: _Owned, selector: int) -> None:
     conn, _ = owned
     cur = conn.cursor()
     cur.prepare("INSERT INTO t VALUES (1)")
@@ -120,7 +123,7 @@ def test_successful_dml_returns_none_before_index_bounds(owned, selector: int) -
 
 
 @pytest.mark.parametrize("selector", [-1, 3])
-def test_column_range_errors_keep_local_state(owned, selector: int) -> None:
+def test_column_range_errors_keep_local_state(owned: _Owned, selector: int) -> None:
     conn, driver = owned
     cur = _executed(conn)
     before = _snapshot(cur, driver)
@@ -131,20 +134,20 @@ def test_column_range_errors_keep_local_state(owned, selector: int) -> None:
 
 
 @pytest.mark.parametrize("selector", [None, "1", 1.0, object()])
-def test_nonindex_arguments_fail_even_without_metadata(owned, selector: object) -> None:
+def test_nonindex_arguments_fail_even_without_metadata(owned: _Owned, selector: object) -> None:
     conn, _ = owned
     with pytest.raises(TypeError):
         conn.cursor().result_info(selector)
 
 
 @pytest.mark.parametrize("selector", [-(2**31) - 1, 2**31])
-def test_c_int_overflow_precedes_metadata_validation(owned, selector: int) -> None:
+def test_c_int_overflow_precedes_metadata_validation(owned: _Owned, selector: int) -> None:
     conn, _ = owned
     with pytest.raises(OverflowError):
         conn.cursor().result_info(selector)
 
 
-def test_boolean_and_index_conversion_are_supported_but_int_only_is_not(owned) -> None:
+def test_boolean_and_index_conversion_are_supported_but_int_only_is_not(owned: _Owned) -> None:
     conn, _ = owned
     cur = _executed(conn)
 
@@ -163,7 +166,7 @@ def test_boolean_and_index_conversion_are_supported_but_int_only_is_not(owned) -
         cur.result_info(IntOnly())
 
 
-def test_arity_keywords_and_closed_precedence(owned) -> None:
+def test_arity_keywords_and_closed_precedence(owned: _Owned) -> None:
     conn, _ = owned
     cur = conn.cursor()
     with pytest.raises(TypeError):
@@ -181,7 +184,7 @@ def test_arity_keywords_and_closed_precedence(owned) -> None:
 
 
 @pytest.mark.parametrize("boundary", ["foreign", "generation", "disconnected"])
-def test_invalid_owner_rejection_does_not_invalidate_rows(owned, boundary: str) -> None:
+def test_invalid_owner_rejection_does_not_invalidate_rows(owned: _Owned, boundary: str) -> None:
     conn, driver = owned
     cur = _executed(conn)
     replacement = None
@@ -206,7 +209,7 @@ def test_invalid_owner_rejection_does_not_invalidate_rows(owned, boundary: str) 
 
 
 @pytest.mark.parametrize("effect", ["close", "foreign", "generation", "prepare"])
-def test_index_callback_rechecks_closed_and_owner_state(owned, effect: str) -> None:
+def test_index_callback_rechecks_closed_and_owner_state(owned: _Owned, effect: str) -> None:
     conn, driver = owned
     cur = _executed(conn)
 
@@ -230,7 +233,7 @@ def test_index_callback_rechecks_closed_and_owner_state(owned, effect: str) -> N
         driver._physical_generation = 1
 
 
-def test_index_callback_exception_is_propagated(owned) -> None:
+def test_index_callback_exception_is_propagated(owned: _Owned) -> None:
     conn, _ = owned
     cur = _executed(conn)
 
@@ -242,7 +245,7 @@ def test_index_callback_exception_is_propagated(owned) -> None:
         cur.result_info(BrokenIndex())
 
 
-def test_unknown_type_is_not_inferred_from_normalized_type(owned) -> None:
+def test_unknown_type_is_not_inferred_from_normalized_type(owned: _Owned) -> None:
     conn, driver = owned
     cur = _executed(conn)
     cur._columns[0]._cci_type = None
@@ -253,7 +256,7 @@ def test_unknown_type_is_not_inferred_from_normalized_type(owned) -> None:
 
 
 @pytest.mark.parametrize("boundary", ["commit", "rollback", "eof"])
-def test_row_only_boundaries_keep_same_owner_metadata(owned, boundary: str) -> None:
+def test_row_only_boundaries_keep_same_owner_metadata(owned: _Owned, boundary: str) -> None:
     conn, _ = owned
     cur = _executed(conn)
     before = cur.result_info()
@@ -268,12 +271,14 @@ def test_row_only_boundaries_keep_same_owner_metadata(owned, boundary: str) -> N
             cur.fetch_row()
 
 
-def test_local_preflight_preserves_but_attempted_execute_failure_hides_metadata(owned) -> None:
+def test_local_preflight_preserves_but_attempted_execute_failure_hides_metadata(
+    owned: _Owned,
+) -> None:
     conn, driver = owned
     cur = _executed(conn)
     before = cur.result_info()
     with pytest.raises(ProgrammingError):
-        cur.execute(option=1)
+        cur.execute(1)
     assert cur.result_info() == before
     error = DatabaseError("server failure", code=-493)
     setattr(error, "_cas_server_error", True)
@@ -288,13 +293,17 @@ def test_local_preflight_preserves_but_attempted_execute_failure_hides_metadata(
     assert cur.result_info() is None
 
 
-def test_failed_result_adoption_never_marks_metadata_successful(owned) -> None:
+def test_failed_result_adoption_never_marks_metadata_successful(owned: _Owned) -> None:
     conn, driver = owned
     cur = _executed(conn)
     original = driver._send_and_receive
 
-    def bad_reply(packet, **kwargs):
-        result = original(packet, **kwargs)
+    def bad_reply(
+        packet: object, *, allow_reconnect: bool = True, expected_generation: int | None = None
+    ) -> object:
+        result = original(
+            packet, allow_reconnect=allow_reconnect, expected_generation=expected_generation
+        )
         if isinstance(packet, ExecutePacket):
             packet.total_tuple_count = 0
         return result
@@ -306,7 +315,7 @@ def test_failed_result_adoption_never_marks_metadata_successful(owned) -> None:
         cur.result_info()
 
 
-def test_explicit_reprepare_hides_old_metadata_until_success(owned) -> None:
+def test_explicit_reprepare_hides_old_metadata_until_success(owned: _Owned) -> None:
     conn, _ = owned
     cur = _executed(conn)
     cur.prepare("SELECT 2")
