@@ -219,6 +219,30 @@ def test_readiness_exhaustion_replaces_stale_identity_without_masking_failure(
     assert "never became ready after 2 attempts" in capsys.readouterr().err
 
 
+def test_readiness_cannot_claim_redacted_version_as_observed_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
+    monkeypatch.setenv("CUBRID_TEST_PASSWORD", "private-password")
+    conn = MagicMock()
+    conn._physical_generation = 1
+    conn.autocommit = False
+
+    def version(packet: GetEngineVersionPacket, **kwargs: object) -> None:
+        packet.engine_version = "11.4-private-password"
+
+    conn._send_and_receive.side_effect = version
+    monkeypatch.setattr(pycubrid, "connect", MagicMock(return_value=conn))
+    sidecar = tmp_path / "redacted-server.json"
+    result = main(["wait_for_cubrid.py", "1", "0", "--server-info", str(sidecar)])
+    assert result == 0
+    identity = json.loads(sidecar.read_text())
+    assert identity["status"] == "unavailable"
+    assert "redaction" in identity["reason"]
+    assert not identity.get("version")
+    assert "private-password" not in sidecar.read_text()
+
+
 def test_sidecar_write_failure_does_not_change_readiness_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

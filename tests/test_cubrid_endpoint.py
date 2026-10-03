@@ -201,6 +201,7 @@ def test_optional_probe_identity_uses_one_fixed_session(
         assert packet.auto_commit is autocommit
         assert kwargs == {"allow_reconnect": False, "expected_generation": 7}
         conn.cursor.return_value.execute.assert_called_once_with("SELECT 1")
+        conn.cursor.return_value.close.assert_called_once_with()
         packet.engine_version = "11.4.6.1963"
 
     conn._send_and_receive.side_effect = version

@@ -93,7 +93,7 @@ def test_junit_preserves_failure_error_parameter_and_file_identity(bundle: Path)
     assert any("Falsifying example" in record["detail"] for record in failures)
     tokens = _replay_tokens(bundle)
     assert tokens.count("tests/test_example.py::TestGroup::test_value[a.b-x]") == 1
-    assert "-m" not in tokens
+    assert "-m" not in tokens[tokens.index("pytest") + 1 :]
 
 
 @pytest.mark.parametrize(
@@ -102,6 +102,11 @@ def test_junit_preserves_failure_error_parameter_and_file_identity(bundle: Path)
         ('classname="tests.test_example" name="test_x"', "missing file"),
         ('file="../tests/test_example.py" classname="tests.test_example" name="test_x"', "path"),
         ('file="tests/test_example.py" classname="tests.other" name="test_x"', "module"),
+        ('file="tests/test_example.py" classname="tests.test_example..Bad" name="test_x"', "class"),
+        (
+            'file="tests/test_example.py" classname="tests.test_example" name="test_x" nodeid="custom"',
+            "custom",
+        ),
     ],
 )
 def test_unproved_junit_identity_is_not_guessed(bundle: Path, attributes: str, reason: str) -> None:
@@ -146,6 +151,7 @@ def test_secrets_are_redacted_before_detail_truncation(
 ) -> None:
     secret = "private:p@ss-word"
     encoded = quote(secret, safe="")
+    encoded_lower = encoded.replace("%3A", "%3a")
     monkeypatch.setenv("CUBRID_TEST_PASSWORD", secret)
     monkeypatch.setenv("CUBRID_TEST_URL", f"cubrid://app:{encoded}@h:1/db")
     monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", f"password {secret} {encoded}")
@@ -158,13 +164,16 @@ def test_secrets_are_redacted_before_detail_truncation(
         classname="tests.test_example",
         name="test_x",
     )
-    failure = ElementTree.SubElement(case, "failure", message=f"credential {encoded}")
+    failure = ElementTree.SubElement(
+        case, "failure", message=f"credential {encoded} {encoded_lower}"
+    )
     failure.text = "x" * (64 * 1024 - 4) + secret + f" cubrid://u:other-password@h:1/db {encoded}"
     ElementTree.ElementTree(suite).write(report, encoding="utf-8")
     meta = _collect(bundle, "--junit", str(report))
     persisted = (bundle / "metadata.json").read_text() + (bundle / "reproduce.md").read_text()
     assert secret not in persisted
     assert encoded not in persisted
+    assert encoded_lower not in persisted
     assert "other-password" not in persisted
     record = meta["failures"][0]
     assert record["detail_truncated"] is True
@@ -199,8 +208,21 @@ def test_replay_quotes_each_environment_assignment_and_parameterized_target(
     assert tokens[tokens.index("pytest") + 1] == node
 
 
+def test_detail_limit_is_utf8_bytes_not_unicode_character_count(bundle: Path) -> None:
+    report = bundle.parent / "unicode.xml"
+    report.write_text(
+        '<testsuite><testcase file="tests/test_example.py" classname="tests.test_example" '
+        'name="test_x"><failure>' + "한" * 30000 + "</failure></testcase></testsuite>",
+        encoding="utf-8",
+    )
+    meta = _collect(bundle, "--junit", str(report))
+    record = meta["failures"][0]
+    assert len(record["detail"].encode("utf-8")) <= 64 * 1024
+    assert record["detail_truncated"] is True
+
+
 @pytest.mark.parametrize(
-    "state", ["missing", "malformed", "sha", "endpoint", "unavailable", "observed"]
+    "state", ["missing", "malformed", "sha", "endpoint", "unavailable", "redacted", "observed"]
 )
 def test_sidecar_identity_is_verified_not_inferred(
     bundle: Path, monkeypatch: pytest.MonkeyPatch, state: str
@@ -224,6 +246,9 @@ def test_sidecar_identity_is_verified_not_inferred(
         info["endpoint"] = "u@other:1/db"
     elif state == "unavailable":
         info.update(status="unavailable", version="", reason="lookup failed")
+    elif state == "redacted":
+        monkeypatch.setenv("CUBRID_TEST_PASSWORD", "private-password")
+        info["version"] = "11.4-private-password"
     if state != "missing":
         sidecar.write_text("{bad" if state == "malformed" else json.dumps(info))
     meta = _collect(bundle, "--server-info", str(sidecar))
@@ -235,6 +260,29 @@ def test_sidecar_identity_is_verified_not_inferred(
         assert identity["status"] == "unavailable"
         assert identity["reason"]
         assert not identity.get("version")
+
+
+def test_readable_sidecar_with_unavailable_driver_is_diagnostic_only(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar = bundle.parent / "server.json"
+    sidecar.write_text(json.dumps({"status": "observed", "version": "11.4.6.1963"}))
+    original = collect_repro.importlib.util.spec_from_file_location
+
+    def missing_driver(*args: object, **kwargs: object):
+        spec = original(*args, **kwargs)
+        if args[0] == "_pycubrid_repro_endpoint":
+
+            def fail(module: object) -> None:
+                raise ImportError("driver unavailable")
+
+            spec.loader.exec_module = fail
+        return spec
+
+    monkeypatch.setattr(collect_repro.importlib.util, "spec_from_file_location", missing_driver)
+    meta = _collect(bundle, "--server-info", str(sidecar))
+    assert meta["server_identity"]["status"] == "unavailable"
+    assert "driver unavailable" in meta["server_identity"]["reason"]
 
 
 def test_malformed_url_and_legacy_hints_cannot_leak_credentials(
@@ -308,6 +356,23 @@ def test_redacted_node_is_unresolved_not_a_changed_replay_target(
     replay = (bundle / "reproduce.md").read_text()
     assert "test_value[" not in replay
     assert "unavailable" in replay.lower()
+
+
+def test_replay_uses_the_effective_url_endpoint_not_default_fields(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for field in ("HOST", "PORT", "DB", "USER"):
+        monkeypatch.delenv(f"CUBRID_TEST_{field}", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", "cubrid://app:private-password@url-broker:33123/shop")
+    monkeypatch.setenv("BUG_HUNT_FAILING_TEST", "tests/test_example.py::test_value")
+    result = collect_repro.main()
+    assert result == 0
+    tokens = _replay_tokens(bundle)
+    assert "CUBRID_TEST_HOST=url-broker" in tokens
+    assert "CUBRID_TEST_PORT=33123" in tokens
+    assert "CUBRID_TEST_DB=shop" in tokens
+    assert "CUBRID_TEST_USER=app" in tokens
+    assert "private-password" not in (bundle / "reproduce.md").read_text()
 
 
 def test_real_pytest_xunit1_identity_round_trip(bundle: Path) -> None:
