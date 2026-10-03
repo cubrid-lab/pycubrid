@@ -4,7 +4,7 @@ name: Bug Hunt (weekly)
 # fuzzing, protocol fuzzing, state-machine, metamorphic, fault-injection,
 # differential, resource-leak, PEP 249 runtime, chaos and soak suites under the
 # WIDE Hypothesis profile against a live CUBRID broker, plus mutation testing of
-# the driver core, a benchmark trend check and downstream dogfooding. Nightly +
+# the driver core, a benchmark trend check and downstream dogfooding. Weekly +
 # on demand only; PR CI keeps the fast profile.
 
 on:
@@ -181,7 +181,7 @@ jobs:
             --benchmark-json=current-bench.json -q
       # Restore the most recent baseline. The cache action only writes on a miss,
       # so we always use a fresh per-run key and fall back to the newest prior
-      # key via restore-keys — that way each night compares against yesterday and
+      # key via restore-keys — that way each run compares against the previous run and
       # then persists a new baseline entry under today's key.
       - name: Restore benchmark baseline
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
@@ -214,7 +214,7 @@ jobs:
     name: downstream corpus (${{ matrix.lane }}, CUBRID 11.4)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Corpus is nightly/on-demand evidence, not a PR or release gate. The
+    # Corpus is weekly/on-demand evidence, not a PR or release gate. The
     # per-lane step summary and uploaded JSON still report a real failure.
     continue-on-error: true
     strategy:

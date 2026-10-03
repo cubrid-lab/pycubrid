@@ -146,9 +146,9 @@ make test
 이들은 pycubrid 드라이버 동작을 전혀 포함하지 않고 `pycubrid` 자체의
 커버리지에서도 제외되므로, `offline-tests` 매트릭스 대신 전용
 `repo-tooling-tests` CI job에서 실행되어 일상적인 드라이버 피드백 속도를
-유지합니다. 점검을 옮겨도 CI가 그것을 요구하는지 여부는 바뀌지 않습니다:
-`repo-tooling-tests`는 `offline-tests`와 마찬가지로 CI Gate에서 여전히 필수
-job입니다.
+유지합니다. 도구 관련 경로가 변경되면 Linux 단일 레인이 선택됩니다.
+CI Gate는 선택된 `repo-tooling-tests`와 `offline-tests`의 성공을 요구하며,
+의도적으로 선택되지 않은 잡의 스킵만 허용합니다.
 
 ```bash
 # 빠른 드라이버 레인 — 목킹된 드라이버 동작만 (offline-tests가 실행하는 것)
@@ -381,7 +381,12 @@ pytest tests/test_aio_ssl_integration.py -v
 > 누락으로 인한 스킵은 허용하지 않습니다. 브로커 상태 확인 및 재시작은 서비스 소유자
 > `cubrid`로 실행해 실제 브로커를 제어합니다.
 
-이 잡은 `integration-full`의 나머지와 같은 트리거(나이틀리, `workflow_dispatch`, 그리고 `release.yml`이 호출하는 릴리스 게이트)로 실행됩니다.
+이 잡은 `integration-full`의 나머지와 같은 트리거(수동 `workflow_dispatch`,
+그리고 `release.yml`이 호출하는 릴리스 게이트)로 실행됩니다. 일반 PR에서는
+TLS 관련 경로가 변경될 때만 Python 3.14 × CUBRID 11.4 단일 레인이
+선택됩니다. 연결 모듈, `pycubrid/__init__.py`, `pycubrid/protocol.py`,
+`pycubrid/aio/`, TLS/SSL 테스트와 도우미·픽스처, 레인 감사 스크립트 또는
+워크플로 변경이 해당됩니다.
 
 ### 코드 커버리지
 
@@ -548,8 +553,8 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 
 | 레인 | 선택식 | 실행 워크플로 |
 |---|---|---|
-| 일반 | `integration and not slow and not tls` | PR/push CI, 전체 호환성 매트릭스, 나이틀리 bug hunt |
-| 장시간 | `integration and slow and not tls` | 나이틀리/수동 bug hunt의 soak, chaos, 동시성 stress |
+| 일반 | `integration and not slow and not tls` | 선택된 PR/push CI, 전체 호환성 매트릭스, 주간 bug hunt |
+| 장시간 | `integration and slow and not tls` | 주간/수동 bug hunt의 soak, chaos, 동시성 stress |
 | TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
 | 공식 드라이버 차분 | `integration and official_differential` | 일반 CI와 전체 워크플로의 필수 `official-differential` 잡 (Python 3.10, CUBRID 10.2와 11.4) |
 
@@ -558,10 +563,10 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 빈 실행 또는 전체 스킵을 실패 처리합니다. 공식 드라이버 차분이 자기 레인 밖에서
 스킵되는 경우는 `official-lane-only`로, `/proc`가 없는 플랫폼도 명시적으로
 분류합니다. 브로커/TLS 설정 누락은 CI에서 허용하는 스킵이 아니며,
-`--lane official`은 어떤 스킵도 허용하지 않습니다. 나이틀리 bug hunt의 별도 오프라인 protocol, fault-broker,
+`--lane official`은 어떤 스킵도 허용하지 않습니다. 주간 bug hunt의 별도 오프라인 protocol, fault-broker,
 placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
 
-나이틀리/수동 `bug-hunt.yml`의 `downstream-corpus`는 **권고용** 작업으로,
+주간/수동 `bug-hunt.yml`의 `downstream-corpus`는 **권고용** 작업으로,
 Python 3.12와 CUBRID 11.4의 독립된 세 셀을 실행합니다. 정확한 pycubrid
 워크플로 커밋과 각 downstream 저장소의 현재 `main` 커밋을 별도 디렉터리에
 체크아웃합니다. 모든 의존성 설치에 드라이버 Git 커밋 제약을 적용하고, 설치가
@@ -651,16 +656,22 @@ main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 �
 
 | 워크플로 | 트리거 | 설명 |
 |----------|---------|-------------|
-| `ci.yml` | main 푸시, PR | 린트 + 오프라인 테스트 (Python 3.10–3.14) + 통합 |
-| `integration-full.yml` | 야간, 수동 실행, `release.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
-| `prepare-release.yml` | 수동 실행 (`-f version=X.Y.Z`) | `chore: release vX.Y.Z` PR 생성 (날짜가 있는 CHANGELOG 섹션 + 버전 갱신) |
+| `ci.yml` | PR, main 푸시, 주간, 수동 실행 | 최소 PR 스모크; main/주간 커버리지와 대표 통합 검사 |
+| `integration-full.yml` | 수동 실행, `release.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
+| `release-please.yml` | main push 또는 수동 실행 | release-please 릴리스 후보 PR 생성 (날짜가 있는 CHANGELOG 섹션 + 버전 갱신) |
 | `release.yml` | main 푸시, 복구용 수동 실행 | 병합된 릴리스 PR 감지 후 전체 매트릭스, 빌드, 태그 + GitHub Release + PyPI, cookbook 검증 |
 
 ### CI 매트릭스
 
-- **오프라인**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **통합**: Python 3.14 / CUBRID 11.4와 Python 3.10 / CUBRID 10.2의 두 셀 (축소된 PR 매트릭스;
-  전체 5×4 매트릭스는 `integration-full.yml`에서 실행)
+일상 CI는 Ubuntu/Python 3.12 오프라인 단일 레인과 대표 통합 조합을 사용합니다.
+PR은 스모크 검사를, main과 최근 변경이 있는 주간 실행은 전체 오프라인
+검사와 95% 커버리지를 유지합니다. 고위험 PR은 같은 단일 레인에서 전체 오프라인 회귀 검사(커버리지 제외)와
+최신 통합 조합을 선택하고,
+main/주간 실행은 최저·최신 조합을 사용합니다. 저장소 도구 검사는 관련 경로에
+따라 Linux 단일 레인에서 실행합니다. 전체 통합 검사는 명시적 수동 실행과
+릴리스에서 유지합니다. 정확한 선택 조건과 검증 요건은 [CI 실행 정책](CI_POLICY.md)을
+참고하세요. 아래 비용 측정은 이전 워크플로의 이력이며, 현재 잡 수나 새로운
+절감액을 나타내지 않습니다.
 
 ### PR 검증 비용 (#564)
 
@@ -853,6 +864,6 @@ graph TD
 ## 릴리스 절차
 
 릴리스는 유지보수자 전용이며 [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 따릅니다:
-`prepare-release.yml`이 릴리스 PR(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인)을
+`release-please.yml`이 릴리스 PR(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인)을
 엽니다. 검토 후 squash 병합하면 `release.yml`이 전체 매트릭스, 한 번의 빌드, 태그, PyPI 게시, cookbook 검증을
 자동으로 수행합니다. 태그 푸시나 게시를 수동으로 하지 않습니다.

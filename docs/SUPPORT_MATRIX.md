@@ -29,11 +29,11 @@ Compatibility and feature support for pycubrid releases.
 | 10.2 | ✅ Supported | Minimum tested version |
 | < 10.2 | ❌ Not supported | Current driver targets CAS protocol v8 |
 
-## CI Matrix
+### CI Matrix
 
 | Validation | Routine execution | Full compatibility |
 | --- | --- | --- |
-| Offline | PR smoke on Ubuntu/Python 3.12; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
+| Offline | PR smoke on Ubuntu/Python 3.12; high-risk PR full regressions without coverage; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
 | Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
 See [CI execution policy](CI_POLICY.md). Supported versions are unchanged;
@@ -211,8 +211,8 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 |---|---|
 | Offline tests | 770 |
 | Total tests | 811 |
-| Integration jobs (PR / push) | 8 (Python {3.10, 3.14} × CUBRID 4 versions) |
-| Integration jobs (nightly + tag + dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
+| Representative integration | High-risk PR: newest endpoint; main/changed-weekly: oldest/newest endpoints |
+| Full integration (release workflow_call + manual dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
 | Reconnect / network edge cases | 17 tests covering reset, timeout, broken pipe, partial reads |
 | Coverage threshold | 95% (CI-enforced) |

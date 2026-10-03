@@ -6,7 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Release automation
+
+- Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
+
 ### Added
+- **Native extended column metadata (#445)** — the opt-in sync native cursor
+  gains `result_info([n])`, returning cached 15-field tuples with measured CCI
+  types, integer constraint flags and actual names/default strings. All/one
+  selection, zero-row SELECT, zero-column DML and C-int32/closed-cursor argument
+  precedence are explicit. The getter leaves row position and descriptions
+  unchanged; same-owner metadata remains after EOF/commit/rollback, while failed
+  execution attempts hide it. Local InterfaceError `.code` retains the existing
+  message-only args as a classified native difference. Owned 10.2/11.4 and pinned
+  official comparisons cover this subset, including collection/JSON types and
+  Unicode metadata, not non-UTF-8 or complete driver parity. Ordinary/async APIs,
+  dependencies and release publication are unchanged.
 - **Discoverable Korean performance guide (#313)** — the Korean README now
   links to the existing `docs/ko/PERFORMANCE.md` translation, with working
   section anchors and a benchmark table identical to the English source.
@@ -244,6 +259,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - Reduce routine PR CI to one representative offline lane and targeted live checks;
   move full compatibility matrices to explicit dispatch/releases and schedule representative checks weekly.
+  Keep shell gate tests portable when Bash is unavailable and synchronize workflow
+  cadence, representative matrix guidance and support-section headings in EN/KO docs.
+  Conservatively validate new driver/test paths with one offline regression lane;
+  bind manual validation to a requested SHA and current PR head before/after testing.
 - **Private CCI metadata type evidence (#631)** — full column metadata retains
   the exact CCI extended-type value from legacy or two-byte type headers.
   Ordinary type codes, descriptions, row/schema parsing and public APIs are

@@ -3,6 +3,15 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full commit SHA; dispatch the branch at this exact commit"
+        required: true
+        type: string
+      pr_number:
+        description: "Optional PR number; reject outdated head evidence"
+        required: false
+        type: string
   schedule:
     - cron: "0 3 * * 1"
   push:
@@ -13,25 +22,54 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  validate-target:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify requested manual commit and current PR head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            if (context.eventName !== 'workflow_dispatch') return;
+            const inputs = context.payload.inputs || {};
+            const sha = (inputs.sha || '').toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sha) || sha !== context.sha.toLowerCase()) {
+              throw new Error('Dispatch branch must point at the requested full commit SHA');
+            }
+            const pr = inputs.pr_number || '';
+            if (pr) {
+              if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr))) {
+                throw new Error('PR number must be a positive integer');
+              }
+              const {data} = await github.rest.pulls.get({...context.repo, pull_number: Number(pr)});
+              const repo = `${context.repo.owner}/${context.repo.repo}`;
+              if (data.base.repo.full_name !== repo || data.state !== 'open' || data.head.sha.toLowerCase() !== sha) {
+                throw new Error('Requested commit is no longer the current open PR head');
+              }
+            }
+            await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();
+
   detect-changes:
+    needs: validate-target
     name: Detect changed paths
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
-      tooling: ${{ steps.filter.outputs.tooling }}
-      live: ${{ steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
-      extended: ${{ steps.filter.outputs.code == 'true' && github.event_name != 'pull_request' }}
-      tls: ${{ steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
-      charset: ${{ steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
-      official: ${{ steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
+      tooling: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.tooling == 'true' }}
+      risk: ${{ steps.filter.outputs.risk }}
+      live: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
+      extended: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && github.event_name != 'pull_request' }}
+      tls: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
+      charset: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
+      official: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ inputs.sha || github.sha }}
           fetch-depth: 0
       - name: Select weekly comparison base
         id: activity
@@ -50,26 +88,14 @@ jobs:
             code:
               - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes}'
             risk:
-              - 'pycubrid/connection.py'
-              - 'pycubrid/_connection_common.py'
-              - 'pycubrid/protocol.py'
-              - 'pycubrid/packet.py'
-              - 'pycubrid/cursor.py'
-              - 'pycubrid/aio/**'
-              - 'pycubrid/compat/**'
+              - 'pycubrid/**'
+              - 'tests/**'
               - 'pyproject.toml'
               - 'setup.cfg'
               - 'Makefile'
               - 'docker-compose.yml'
               - 'scripts/**'
               - '.github/workflows/**'
-              - 'pycubrid/_cursor_common.py'
-              - 'pycubrid/lob.py'
-              - 'pycubrid/constants.py'
-              - 'pycubrid/types.py'
-              - 'pycubrid/__init__.py'
-              - 'tests/test_integration*.py'
-              - 'tests/fixtures/**'
             tooling:
               - 'scripts/**'
               - '.github/**'
@@ -126,6 +152,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
@@ -139,9 +167,12 @@ jobs:
         run: python scripts/check_public_api.py
 
   lint:
+    needs: validate-target
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
@@ -171,6 +202,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
@@ -194,6 +227,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -206,8 +241,11 @@ jobs:
           pip install -e ".[dev]"
           pip install pytest-cov
       - name: Run representative PR smoke tests
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true'
         run: python -m pytest tests/test_pep249.py tests/test_exceptions.py tests/test_types.py -m "not integration and not repo_tooling" -q --tb=short
+      - name: Run relevant PR offline regressions with conservative fallback
+        if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk == 'true'
+        run: python -m pytest tests/ -m "not integration and not repo_tooling" -q --tb=short
       - name: Run offline tests with coverage
         if: github.event_name != 'pull_request'
         shell: bash
@@ -247,6 +285,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
@@ -267,6 +307,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
@@ -294,7 +336,7 @@ jobs:
           /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
 
   integration-tests:
-    needs: [detect-changes, lint, typecheck, offline-tests]
+    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
     if: needs.detect-changes.outputs.live == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -315,6 +357,8 @@ jobs:
           --health-start-period 30s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -338,7 +382,7 @@ jobs:
           python scripts/check_integration_lanes.py --results normal-results.xml
 
   integration-charset:
-    needs: [detect-changes, lint, typecheck, offline-tests]
+    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
     if: needs.detect-changes.outputs.charset == 'true'
     # EUC-KR database lane (#86): the same CUBRID image with
     # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
@@ -360,6 +404,8 @@ jobs:
           --health-start-period 30s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.14"
@@ -380,7 +426,7 @@ jobs:
           python scripts/check_integration_lanes.py --results charset-results.xml
 
   integration-tls:
-    needs: [detect-changes, lint, typecheck, offline-tests]
+    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
     if: needs.detect-changes.outputs.tls == 'true'
     # Per-PR TLS lane (issue #159) — gated on changes to TLS-relevant code
     # paths. Mirrors the integration-tls job in integration-full.yml but with
@@ -395,6 +441,8 @@ jobs:
         cubrid-version: ["11.4"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -528,7 +576,7 @@ jobs:
         run: docker stop cubrid-tls || true
 
   official-differential:
-    needs: [detect-changes, lint, typecheck, offline-tests]
+    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
     if: needs.detect-changes.outputs.official == 'true'
     # Claims-driven differential against the pinned official CUBRIDdb driver
     # (#446): tests/fixtures/official_differential_claims.json, one live case
@@ -564,6 +612,8 @@ jobs:
           --health-start-period 30s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         id: python
         with:
@@ -627,10 +677,12 @@ jobs:
     name: CI Gate (all checks must pass)
     if: always()
     runs-on: ubuntu-latest
-    needs: [detect-changes, lint, doc-lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, compat-check, integration-charset, integration-tls, official-differential]
+    needs: [validate-target, detect-changes, lint, doc-lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, compat-check, integration-charset, integration-tls, official-differential]
     steps:
       - name: Check selected job results
         env:
+          R_VALIDATE_TARGET: ${{ needs.validate-target.result }}
+          E_VALIDATE_TARGET: 'true'
           R_DETECT_CHANGES: ${{ needs.detect-changes.result }}
           E_DETECT_CHANGES: 'true'
           R_LINT: ${{ needs.lint.result }}
@@ -665,6 +717,7 @@ jobs:
               [[ "$result" == "success" || "$result" == "skipped" ]] || { echo "::error::$job got $result"; return 1; }
             fi
           }
+          check validate-target "$R_VALIDATE_TARGET" "$E_VALIDATE_TARGET"
           check detect-changes "$R_DETECT_CHANGES" "$E_DETECT_CHANGES"
           check lint "$R_LINT" "$E_LINT"
           check doc-lint "$R_DOC_LINT" "$E_DOC_LINT"
@@ -677,3 +730,26 @@ jobs:
           check integration-charset "$R_INTEGRATION_CHARSET" "$E_INTEGRATION_CHARSET"
           check integration-tls "$R_INTEGRATION_TLS" "$E_INTEGRATION_TLS"
           check official-differential "$R_OFFICIAL_DIFFERENTIAL" "$E_OFFICIAL_DIFFERENTIAL"
+
+      - name: Verify requested manual commit and current PR head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            if (context.eventName !== 'workflow_dispatch') return;
+            const inputs = context.payload.inputs || {};
+            const sha = (inputs.sha || '').toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sha) || sha !== context.sha.toLowerCase()) {
+              throw new Error('Dispatch branch must point at the requested full commit SHA');
+            }
+            const pr = inputs.pr_number || '';
+            if (pr) {
+              if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr))) {
+                throw new Error('PR number must be a positive integer');
+              }
+              const {data} = await github.rest.pulls.get({...context.repo, pull_number: Number(pr)});
+              const repo = `${context.repo.owner}/${context.repo.repo}`;
+              if (data.base.repo.full_name !== repo || data.state !== 'open' || data.head.sha.toLowerCase() !== sha) {
+                throw new Error('Requested commit is no longer the current open PR head');
+              }
+            }
+            await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();

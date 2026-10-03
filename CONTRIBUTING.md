@@ -207,7 +207,7 @@ their messages meaningful and keep any `Co-authored-by:` trailers intact.
 Contributors never release. Add user-visible changes under `## [Unreleased]` in
 `CHANGELOG.md`, and do not change `__version__` or add a dated `## [X.Y.Z]`
 section in an ordinary PR: a merged version change is what starts an automatic
-release. Maintainers open release PRs with `prepare-release.yml`; see
+release. Maintainers use the PR-only `release-please.yml` generator; curated Unreleased and Upgrade notes remain reviewed in CHANGELOG. Freeze the candidate with `autorelease: review` before editing its notes, and start CI at the final bot-updated head; see
 [`RELEASING.md`](RELEASING.md).
 
 ## Reporting Issues
@@ -285,8 +285,8 @@ classifications are recorded.
 values and statements against CUBRID 10.2, 11.0, 11.2 and 11.4 at once and
 compares what pycubrid exposes: error class/`errno`/`sqlstate`, `rowcount`,
 `lastrowid`, `description`, and each fetched value's Python type and value.
-It runs in the `version-differential` job of `integration-full.yml` (nightly
-and `workflow_dispatch`, not per PR). Locally, start one container per
+It runs in the `version-differential` job of `integration-full.yml` (release
+`workflow_call` and manual `workflow_dispatch`, not per PR). Locally, start one container per
 version and point the suite at them:
 
 ```bash
@@ -309,3 +309,19 @@ it).
 Follow the [CI execution policy](docs/CI_POLICY.md). PR smoke is representative,
 not full-suite/coverage evidence. Run relevant regression tests locally and report
 commands/results; request exact-head full validation where compatibility requires it.
+
+## Keeping issue descriptions actionable
+
+Before coding, agree the issue's problem, expected behavior, scope, completion
+criteria and validation method. Keep the body as the current specification;
+record dated progress in comments. Maintainers reconcile closed dependencies
+and completed checklist items after a related merge or handoff. Preserve the
+original reproduction's revision and limits: older evidence is not proof of
+current behavior. Priorities/sizes belong in labels, execution order in the
+backlog tracker. Research closes on a documented decision, not an implied
+promise to implement every proposed option.
+
+Confirm availability and have the actual implementer set in GitHub Assignees
+before starting. If you cannot assign yourself, ask a maintainer. Coordinate
+with existing claimants/open PRs; update assignments on handoff or return.
+A reviewer does not need to be an issue assignee.

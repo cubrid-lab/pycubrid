@@ -6,7 +6,7 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | --- | --- |
 | Documentation-only PR | Documentation and policy checks; no runtime suite or CUBRID provisioning |
 | Ordinary code PR | One Ubuntu/Python 3.12 offline smoke lane; no full coverage claim |
-| High-risk PR | Same offline smoke plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
+| High-risk PR | One full offline regression lane without coverage plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
 | Code push to main | One Ubuntu/Python 3.12 full offline suite with the existing 95% coverage floor; oldest/newest live endpoints |
 | Monday 03:00 UTC | Same representative policy, comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests |
 | Explicit full dispatch or release | Existing full Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes |
@@ -18,9 +18,10 @@ Passing smoke is not evidence that the whole offline suite or coverage floor ran
 
 Change selection is in `ci.yml`'s `detect-changes` job. Non-documentation paths
 are code by default, so new source/configuration files do not silently become docs.
-Connection/protocol/cursor/async/compatibility or dialect/compiler/reflection,
-dependency, build, script and workflow changes select representative pre-merge
-integration. Repository tooling tests run in one Linux lane when tooling changes.
+All driver and test paths, including new modules, plus dependency, build, script
+and workflow changes conservatively select representative pre-merge integration
+and the existing offline regression suite on one Linux/Python lane. Other code
+changes retain the bounded smoke suite. Repository tooling tests run in one Linux lane when tooling changes.
 The static lint job continues on all events, including generated documentation checks.
 
 The aggregate required-check name stays stable and includes change detection.
@@ -32,12 +33,14 @@ is part of this PR.
 
 Full verification has no automatic nightly schedule. `integration-full.yml`
 retains manual dispatch and the release `workflow_call` with the immutable candidate
-SHA. Dispatch the workflow on the exact candidate branch/commit and verify the
-run's head SHA before using it as PR evidence. A moved branch needs new evidence.
-The routine CI dispatch is path-sensitive; use the full workflow to request an
-unconditional compatibility run. No release publisher/generator is changed.
+SHA. Both manual workflows require a full `sha` input matching the dispatched
+branch commit. Supply `pr_number` when collecting PR evidence: preflight and the
+final gate reject a closed PR, an API failure or a superseded head. Every checkout
+uses the immutable requested/run SHA, which the guard reports in the summary.
+Routine CI manual dispatch forces all representative runtime/tooling lanes, even
+with an empty default-branch diff; the full workflow forces the full matrix. No release publisher/generator is changed.
 
-Concurrency still cancels superseded PR runs. Main pushes and PR merge refs are
+Concurrency isolates event/ref groups and still cancels superseded PR runs. Main pushes and PR merge refs are
 not assumed to have identical SHAs. Weekly change selection uses the previous
 seven days, not a persisted last-success cache; a failed weekly run must be
 rerun or followed by manual validation rather than treated as successful evidence.

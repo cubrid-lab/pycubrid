@@ -4,7 +4,8 @@ Only the sync prepared INT, string and NULL cursor, SET/MULTISET/SEQUENCE
 collection binding (``connection.set()``, ``set.imports()``,
 ``cursor.bind_set()``), and BLOB/CLOB handle fetch, bind and byte-position
 stream operations (``connection.lob()``, ``cursor.fetch_lob()``,
-``cursor.bind_lob()``, ``lob.write/read/seek``) are supported here. Prepared
+``cursor.bind_lob()``, ``lob.write/read/seek``), and cached column metadata
+(``cursor.result_info()``) are supported here. Prepared
 scalar strings use the connection charset (UTF-8 unless ``charset`` says
 otherwise); native LOB stream text uses UTF-8 like the official Python 3
 extension. Writable cached connection settings are distinct from effective
@@ -16,11 +17,12 @@ from __future__ import annotations
 
 import builtins
 import logging
+import operator
 import os
 import re
 import struct
 from threading import RLock
-from typing import Any
+from typing import Any, SupportsIndex
 
 from pycubrid.connection import Connection as _DriverConnection
 from pycubrid.constants import (
@@ -291,6 +293,7 @@ class cursor:
         self._total_tuple_count = 0
         self._has_result = False
         self._result_invalidated = False
+        self._metadata_ready = False
 
     def _check_open(self) -> None:
         driver = self._connection._driver
@@ -329,6 +332,7 @@ class cursor:
         self._statement_type = 0
         self._bind_count = 0
         self._columns = []
+        self._metadata_ready = False
         self._bindings = []
         self._invalidate_result()
 
@@ -408,6 +412,7 @@ class cursor:
             self._statement_type = packet.statement_type
             self._bind_count = packet.bind_count
             self._columns = list(packet.columns)
+            self._metadata_ready = False
             self._bindings = [None] * packet.bind_count
             self._invalidate_result()
 
@@ -580,6 +585,7 @@ class cursor:
         self._statement_type = packet.statement_type
         self._bind_count = packet.bind_count
         self._columns = list(packet.columns)
+        self._metadata_ready = False
         self._bindings = [None] * packet.bind_count
         self._invalidate_result()
         self._assert_refresh_session(driver, generation, autocommit)
@@ -632,6 +638,7 @@ class cursor:
             # result, even if the physical prepared handle remains reusable.
             # Local option/binding failures above preserve the old result.
             self._invalidate_result()
+            self._metadata_ready = False
             try:
                 self._request(packet, generation, allow_reconnect=not refreshed)
             except DatabaseError as exc:
@@ -651,7 +658,61 @@ class cursor:
             if self._has_result and self._fetched_count > self._total_tuple_count:
                 self._invalidate_result()
                 raise OperationalError("prepared result contains more rows than advertised")
+            self._metadata_ready = True
             return packet.total_tuple_count
+
+    def result_info(self, *args: SupportsIndex) -> tuple[tuple[int | str, ...], ...] | None:
+        """Return cached 15-field column tuples for all columns or one-based n."""
+        with self._connection._session_lock:
+            if self._closed:
+                raise InterfaceError("prepared cursor is closed", code=-30019)
+            if len(args) > 1:
+                raise TypeError("result_info() accepts at most one positional argument")
+            n = operator.index(args[0]) if args else 0
+            if not -(2**31) <= n < 2**31:
+                raise OverflowError("result_info() selector is outside the C int range")
+            # __index__ can reenter the RLock and change cursor/session ownership.
+            if self._closed:
+                raise InterfaceError("prepared cursor is closed", code=-30019)
+            self._check_open()
+            driver = self._connection._driver
+            if self._handle is None or self._generation is None:
+                raise InterfaceError("prepared cursor has no executed metadata", code=-30006)
+            if self._prepared_driver is not driver:
+                raise InterfaceError("prepared statement belongs to another connection")
+            if self._generation != driver._physical_generation:
+                raise InterfaceError("prepared statement belongs to an earlier physical session")
+            if not self._metadata_ready:
+                raise InterfaceError("prepared cursor has no executed metadata", code=-30006)
+            if not self._columns:
+                return None
+            if n < 0 or n > len(self._columns):
+                raise InterfaceError("prepared column index is out of range", code=-30006)
+            columns = self._columns if n == 0 else self._columns[n - 1 : n]
+            result: list[tuple[int | str, ...]] = []
+            for column in columns:
+                if column._cci_type is None:
+                    raise InterfaceError("prepared column has no measured native type")
+                result.append(
+                    (
+                        column._cci_type,
+                        int(not column.is_nullable),
+                        column.scale,
+                        column.precision,
+                        column.name,
+                        column.real_name,
+                        column.table_name,
+                        column.default_value,
+                        int(column.is_auto_increment),
+                        int(column.is_unique_key),
+                        int(column.is_primary_key),
+                        int(column.is_foreign_key),
+                        int(column.is_reverse_index),
+                        int(column.is_reverse_unique),
+                        int(column.is_shared),
+                    )
+                )
+            return tuple(result)
 
     def fetch_row(self, how: int = 0, /) -> tuple[Any, ...] | None:
         """Fetch the next tuple; unsupported row shapes fail before I/O."""
