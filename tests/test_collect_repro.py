@@ -227,7 +227,7 @@ def test_unconfigured_url_password_with_at_sign_cannot_leak_its_suffix(
 ) -> None:
     monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
     monkeypatch.delenv("CUBRID_TEST_URL", raising=False)
-    url = f"{scheme}://u:p@ss@host/testdb"
+    url = f"{scheme}://u:p@ss@host/testdb?query=retained@value#fragment=kept@text"
     monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", f"URL {url}")
     monkeypatch.setenv("CUBRID_VERSION_MATRIX", url)
     report = bundle.parent / "authority.xml"
@@ -238,7 +238,7 @@ def test_unconfigured_url_password_with_at_sign_cannot_leak_its_suffix(
     meta = _collect(bundle, "--junit", str(report))
     persisted = (bundle / "metadata.json").read_text() + (bundle / "reproduce.md").read_text()
     assert "ss@host" not in persisted
-    redacted = f"{scheme}://u:***@host/testdb"
+    redacted = f"{scheme}://u:***@host/testdb?query=retained@value#fragment=kept@text"
     assert meta["failure_traceback"] == f"URL {redacted}"
     assert meta["failures"][0]["message"] == redacted
     assert meta["failures"][0]["detail"] == f"URL {redacted}"
@@ -265,6 +265,45 @@ def test_mixed_percent_hex_credentials_are_redacted_without_folding_literal_case
     assert meta["failures"][0]["message"] == "***"
     assert meta["failures"][0]["detail"] == "***"
     assert meta["failure_traceback"].endswith("literal É")
+
+
+@pytest.mark.parametrize("scheme", ["cubrid", "https"])
+def test_password_only_authority_is_redacted(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, scheme: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.delenv("CUBRID_TEST_URL", raising=False)
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", f"{scheme}://:private-password@host/db")
+    result = collect_repro.main()
+    assert result == 0
+    assert "private-password" not in (bundle / "metadata.json").read_text()
+
+
+@pytest.mark.parametrize(
+    ("password", "text", "expected"),
+    [
+        (
+            "%41Af",
+            "raw=%41Af other=%41af encoded=%2541Af decoded=AAf",
+            "raw=*** other=%41af encoded=*** decoded=AAf",
+        ),
+        (
+            "%4A",
+            "raw=%4A other=%4a encoded=%254A decoded=J",
+            "raw=*** other=%4a encoded=*** decoded=J",
+        ),
+    ],
+)
+def test_literal_percent_password_keeps_case_and_is_not_url_decoded(
+    monkeypatch: pytest.MonkeyPatch,
+    password: str,
+    text: str,
+    expected: str,
+) -> None:
+    monkeypatch.setenv("CUBRID_TEST_PASSWORD", password)
+    monkeypatch.delenv("CUBRID_TEST_URL", raising=False)
+    result = collect_repro.sanitize(text)
+    assert result == expected
 
 
 def test_url_only_malformed_authority_still_redacts_standalone_credential_hints(
