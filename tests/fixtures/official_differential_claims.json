@@ -518,6 +518,47 @@
       "scenario_ids": ["tests3/test_cubrid.py::test_autocommit", "tests3/test_cubrid.py::test_isolation_level"],
       "scenario_gap": "The safe differential measures cached-member identity and supported setter results/names, not every upstream error path or transaction boundary; those have separate focused and owned live tests in #467.",
       "issue": "#467"
+    },
+    {
+      "id": "native-result-info-columns",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Full15-field tuples, all/one selection and zero-row metadata retain actual names, Unicode aliases, empty attribute/default text, native collection/JSON types and table constraint flags; no-column DML returns None after integer conversion.",
+      "inventory_ids": ["documented_cubrid.cursor.result_info"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_result_info"],
+      "issue": "#445"
+    },
+    {
+      "id": "native-result-info-selectors",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Fresh/prepare-only and invalid selectors match InterfaceError numeric codes, while bool/index conversion, positional/keyword dispatch, C-int32 overflow and closed-cursor precedence match the pinned extension; only the result_info error observations normalize native integer args against pycubrid .code.",
+      "inventory_ids": ["documented_cubrid.cursor.result_info"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream result_info scenario covers four basic metadata assertions, not selector/state errors. These safe argument and state cases are measured separately by #445.",
+      "issue": "#445"
+    },
+    {
+      "id": "native-result-info-position-and-boundaries",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Metadata calls between two scalar row fetches leave row order unchanged; cached metadata remains available at EOF and after same-session commit/rollback without fetching rows after transaction closure.",
+      "inventory_ids": ["documented_cubrid.cursor.result_info"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream result_info scenario does not assert row-position or transaction-boundary behavior. The safe cached-metadata subset is measured by #445.",
+      "issue": "#445"
+    },
+    {
+      "id": "native-result-info-error-args",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "A closed result_info raises InterfaceError on both sides, but pycubrid preserves message-only args while the native extension uses integer-code/message args.",
+      "inventory_ids": ["documented_cubrid.cursor.result_info"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream result_info scenario does not inspect exception args. This source-backed difference is independently measured by #445.",
+      "issue": "#445",
+      "reason": "The new metadata API preserves pycubrid InterfaceError's existing constructor and message-only args; its source-compatible numeric code is exposed in .code, not a fabricated errno or global exception adapter.",
+      "expected": {"pycubrid": "(int(1), (str('str'),))", "native": "(int(2), (str('int'), str('str')))"}
     }
   ]
 }

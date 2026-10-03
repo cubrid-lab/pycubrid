@@ -232,7 +232,7 @@ The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()
 Its cursor supports `prepare(sql)`, one-based
 `bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
-`fetch_lob(col, lob)` and `close()`.
+`fetch_lob(col, lob)`, `result_info([n])` and `close()`.
 Nondefault flags and other Python value types fail before a prepared execute.
 Preparation requires the current broker session to advertise statement
 pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
@@ -277,6 +277,48 @@ try:
 finally:
     conn.close()
 ```
+
+### Extended column metadata (`result_info`)
+
+`native.cursor.result_info()` reads the last successful prepared execution's
+cached metadata without a server request or row movement. Omitted `n` or `0`
+returns a tuple of all column tuples; a one-based selector returns a one-item
+outer tuple. A SELECT with zero rows still has metadata. Successfully executed
+zero-column DML returns `None`, even for a negative or large in-range selector.
+Integer conversion happens first: `bool` and `__index__` are accepted, while
+`None`, strings, floats and `__int__` alone are not; signed C-int32 overflow
+raises `OverflowError`. Only zero/one positional argument is accepted.
+
+Each column tuple contains exactly these 15 fields, in the implemented official
+order, not its differing docstring order:
+
+```text
+(cci_type, not_null, scale, precision, name, real_attribute, class_name,
+ default_value, auto_increment, unique_key, primary_key, foreign_key,
+ reverse_index, reverse_unique, shared)
+```
+
+Types and flags are integers, not booleans. `cci_type` is the measured extended
+CCI type, not the normalized ordinary DB-API type: owned 10.2/11.4 observations
+include 40/72/104 for INTEGER SET/MULTISET/SEQUENCE and 130 for JSON. Attribute,
+class and default strings are returned as actually supplied; absent textual
+metadata is `""`, not `None`. No attribute name is guessed from an alias, and a
+default string such as `"NULL"` is not converted into a Python value.
+
+Fresh and prepare-only cursors or invalid indices raise `InterfaceError` with
+`.code == -30006`; a closed cursor has `.code == -30019` and is checked before
+positional arity/conversion. Keywords raise `TypeError` before the body, including
+on a closed cursor. These local errors retain pycubrid's message-only `args`,
+not the native extension's `(code, message)` pair; `InterfaceError` has `.code`,
+not an invented `.errno` field.
+
+EOF, same-owner commit and rollback retain cached metadata even when rollback
+invalidates rows. Local execution preflight errors preserve it; an attempted
+execute failure hides it until another execution succeeds. Closed/disconnected,
+foreign or stale physical-session owners fail safely, without probing or
+reconnecting. Ordinary/qualified-wrapper `description` is unchanged. Text keeps
+the connection codec; the pinned official UTF-8/Unicode comparisons do not certify
+non-UTF-8 parity. This is a sync native-only addition, not a schema or positioning API.
 
 ### Cached settings versus effective setters
 

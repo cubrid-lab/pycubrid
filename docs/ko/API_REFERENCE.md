@@ -216,7 +216,7 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 `set_autocommit(bool)`, `set_isolation_level(level)`, `close()`를 제공합니다.
 커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
 bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`, `execute(option=0, max_col_size=0) -> int`,
-튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
+튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `result_info([n])`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
 Python 값 형식은 실행 전 거부합니다. 브로커가 현재 세션의 statement
 pooling을 알리지 않거나 비활성화한 경우 FC2 전에 거부합니다. 핸들은
 물리 CAS 세션에 묶이며 재접속 뒤 자동 재실행하지 않습니다. `commit()`은
@@ -241,6 +241,49 @@ FC41과 비동기 동작은 바뀌지 않습니다. 고정된 공식 네이티�
 [typed CAS 설계](../PREPARED_BINDING_DESIGN.md)와
 [호환성 가이드](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)를
 참고하세요.
+
+<a id="확장-컬럼-메타데이터-result_info"></a>
+
+### 확장 컬럼 메타데이터 (`result_info`)
+
+`native.cursor.result_info()`는 서버 요청이나 행 이동 없이 마지막으로 성공한
+준비 실행의 캐시된 메타데이터를 읽습니다. `n` 생략 또는 `0`은 모든 컬럼 튜플을
+담은 튜플을 반환하고, 1부터 시작하는 번호는 컬럼 하나를 담은 바깥 튜플을
+반환합니다. 행이 없는 SELECT도 메타데이터를 가집니다. 성공한 컬럼 없는 DML은
+음수나 큰 범위 내 번호에도 `None`을 반환합니다. 정수 변환은 먼저 수행합니다.
+`bool`과 `__index__`는 허용하지만 `None`, 문자열, 실수와 `__int__`만 있는 객체는
+허용하지 않으며 signed C-int32 범위를 벗어나면 `OverflowError`가 납니다.
+위치 인자 0개 또는 1개만 받습니다.
+
+컬럼마다 공식 구현의 순서대로 아래 15개 값을 반환합니다. 공식 docstring의
+다른 순서는 사용하지 않습니다.
+
+```text
+(cci_type, not_null, scale, precision, name, real_attribute, class_name,
+ default_value, auto_increment, unique_key, primary_key, foreign_key,
+ reverse_index, reverse_unique, shared)
+```
+
+타입과 플래그는 bool이 아닌 정수입니다. `cci_type`은 일반 DB-API의 정규화된
+타입이 아닌 실제 CCI 확장 타입입니다. 소유한 10.2/11.4 서버에서 INTEGER
+SET/MULTISET/SEQUENCE는 40/72/104, JSON은 130으로 관측했습니다. 속성·클래스·
+기본값 문자열을 실제 전달값 그대로 반환하며 없는 텍스트는 `None`이 아닌
+`""`입니다. 별칭으로 실제 속성 이름을 추측하거나 `"NULL"` 같은 기본값 문자열을
+Python 값으로 변환하지 않습니다.
+
+새 커서·준비만 한 커서·잘못된 번호는 `.code == -30006`인 `InterfaceError`를
+내고, 닫힌 커서는 위치 인자 개수·변환보다 먼저 `.code == -30019`로 실패합니다.
+키워드는 닫힌 커서에서도 본문 진입 전에 `TypeError`를 냅니다. 이러한 로컬 오류의
+`args`는 공식 확장의 `(code, message)`가 아닌 pycubrid의 메시지 하나이며,
+`InterfaceError`는 `.code`를 가지지만 `.errno`를 새로 만들어 붙이지 않습니다.
+
+EOF와 동일 소유자 commit·rollback은 메타데이터를 유지하며 rollback으로 행이
+무효화돼도 조회할 수 있습니다. 실행 전 로컬 검증 실패는 이전 메타데이터를
+유지하지만 실제 실행 시도의 실패는 다음 실행 성공까지 숨깁니다. 닫힌·끊긴 연결,
+다른 소유자와 오래된 물리 세션은 탐지 요청이나 재접속 없이 안전하게 실패합니다.
+일반 커서·한정된 래퍼의 `description`은 바뀌지 않습니다. 텍스트는 연결 코덱을
+유지하며 고정 공식 드라이버와의 UTF-8·Unicode 비교로 비UTF-8 동등성을 주장하지
+않습니다. 스키마나 위치 이동 API가 아닌 동기 네이티브 전용 추가 기능입니다.
 
 ### 캐시된 설정과 실제 설정자
 
