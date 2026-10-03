@@ -335,6 +335,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   cursor's handle is left to that commit (in manual-commit mode it was
   previously closed by the next `commit()`/`rollback()`).
 
+- Release workflow unified with the sibling repos: new `RELEASING.md`; `make release`
+  replaced by the read-only `make release-check VERSION=x.y.z`; `publish-pypi.yml` is
+  manual-dispatch only and now dispatches the cookbook smoke test after a successful
+  publish (replacing `notify-cookbook.yml`); CI lints `CHANGELOG.md`.
+- **PyPI publish fails closed on duplicate files (#494)** — `publish-pypi.yml` no longer
+  passes `skip-existing: true`. The new stdlib-only `scripts/pypi_duplicate_guard.py`
+  compares the SHA-256 of every verified file with the file PyPI already serves under the
+  same name: an identical file (a partial upload recovered with `gh run rerun --failed`)
+  is dropped from the upload, and a different hash or an unreachable PyPI fails the job.
+  `RELEASING.md` documents the bounded recovery; offline tests cover the guard.
+- **CI: releases happen automatically when a reviewed release PR is merged (#539)** —
+  `prepare-release.yml` opens the `chore: release vX.Y.Z` PR (moves `[Unreleased]` into a
+  dated section, bumps `__version__`, runs `make release-check`). On every push to `main`,
+  the new `release.yml` decides from git facts only (`scripts/release_detect.py`: version
+  changed against the first parent, dated CHANGELOG section, tag absent or at the same
+  commit) and then runs, pinned to the merge SHA: release check, the full
+  `integration-full.yml` matrix (now also a `workflow_call` workflow, no longer run on tag
+  pushes), one build with SHA-256 hashes, the annotated tag, a draft GitHub Release with
+  SBOM, the PyPI upload through the duplicate guard, and the cookbook verification of that
+  exact version, with one run summary. The cookbook smoke test runs inside the release run
+  as a reusable workflow pinned to a cookbook commit, so it needs no cross-repository token
+  or secret; the release fails unless it reports the requested version installed (#544). `create-release.yml` and the manual
+  `publish-pypi.yml` are removed; a narrow recovery dispatch (`resume`, `verify-only`,
+  `dry-run`) remains. The CHANGELOG stays hand-curated.
+- Ruff/Mypy pre-commit hooks are now `repo: local` / `language: system` hooks that
+  invoke `python3 -m ruff`/`python3 -m mypy` from the active `.[dev]` environment
+  instead of separately versioned mirror repos, so there is a single source of
+  truth (the `pyproject.toml` dev pin) for each tool's version.
+  `scripts/check_quality_tools.py` was updated to match. This fixes Dependabot's
+  routine `pip`-ecosystem Ruff/Mypy bumps, which previously left the pre-commit
+  hook revision stale and failed the quality-tool consistency gate (#476).
+
 ### Documentation
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow.
 
@@ -863,39 +895,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   instant an hour earlier. A missing or unknown abbreviation, or one both
   occurrences share, keeps `fold=0`. (#413)
 
-### Changed
-- Release workflow unified with the sibling repos: new `RELEASING.md`; `make release`
-  replaced by the read-only `make release-check VERSION=x.y.z`; `publish-pypi.yml` is
-  manual-dispatch only and now dispatches the cookbook smoke test after a successful
-  publish (replacing `notify-cookbook.yml`); CI lints `CHANGELOG.md`.
-- **PyPI publish fails closed on duplicate files (#494)** — `publish-pypi.yml` no longer
-  passes `skip-existing: true`. The new stdlib-only `scripts/pypi_duplicate_guard.py`
-  compares the SHA-256 of every verified file with the file PyPI already serves under the
-  same name: an identical file (a partial upload recovered with `gh run rerun --failed`)
-  is dropped from the upload, and a different hash or an unreachable PyPI fails the job.
-  `RELEASING.md` documents the bounded recovery; offline tests cover the guard.
-- **CI: releases happen automatically when a reviewed release PR is merged (#539)** —
-  `prepare-release.yml` opens the `chore: release vX.Y.Z` PR (moves `[Unreleased]` into a
-  dated section, bumps `__version__`, runs `make release-check`). On every push to `main`,
-  the new `release.yml` decides from git facts only (`scripts/release_detect.py`: version
-  changed against the first parent, dated CHANGELOG section, tag absent or at the same
-  commit) and then runs, pinned to the merge SHA: release check, the full
-  `integration-full.yml` matrix (now also a `workflow_call` workflow, no longer run on tag
-  pushes), one build with SHA-256 hashes, the annotated tag, a draft GitHub Release with
-  SBOM, the PyPI upload through the duplicate guard, and the cookbook verification of that
-  exact version, with one run summary. The cookbook smoke test runs inside the release run
-  as a reusable workflow pinned to a cookbook commit, so it needs no cross-repository token
-  or secret; the release fails unless it reports the requested version installed (#544). `create-release.yml` and the manual
-  `publish-pypi.yml` are removed; a narrow recovery dispatch (`resume`, `verify-only`,
-  `dry-run`) remains. The CHANGELOG stays hand-curated.
-- Ruff/Mypy pre-commit hooks are now `repo: local` / `language: system` hooks that
-  invoke `python3 -m ruff`/`python3 -m mypy` from the active `.[dev]` environment
-  instead of separately versioned mirror repos, so there is a single source of
-  truth (the `pyproject.toml` dev pin) for each tool's version.
-  `scripts/check_quality_tools.py` was updated to match. This fixes Dependabot's
-  routine `pip`-ecosystem Ruff/Mypy bumps, which previously left the pre-commit
-  hook revision stale and failed the quality-tool consistency gate (#476).
-
 ### Tests
 - **A fatal statement now fails one test and names every version it affects,
   instead of cascading and reporting only the first endpoint to die (#614)** —
@@ -1298,7 +1297,6 @@ unchanged):
 - **Docs site information architecture unified across the ecosystem** — nav reorganized to the shared six-tab skeleton (Home / Getting Started / Usage / Reference / Operations / Project), the five README translations (ko/de/hi/ru/zh) are now reachable via Project → Translations (previously URL-only), palette unified to blue with search-suggest, and the homepage gains an Ecosystem section linking the three sibling sites.
 - **CUBRID server license relationship documented; copyright notice unified (#309)** — `docs/ARCHITECTURE.md` gains a section stating the verified upstream licensing (server engine Apache-2.0, APIs/connectors BSD per CUBRID's `COPYING`; the often-cited GPL v2+ no longer applies) and that pycubrid is an independent wire-protocol client with no server code included or linked. `THIRD_PARTY_LICENSES.md` carries the same one-paragraph statement. LICENSE/NOTICE copyright lines now read `Yeongseon Choe, Gyeongjun Paik` (2025-2026), reflecting the two primary authors.
 
-### Documentation
 - **Added `THIRD_PARTY_LICENSES.md`** — pip-licenses-generated inventory of the development toolchain's licenses. pycubrid itself has zero runtime dependencies, so nothing in the table ships in the wheel. Documentation only.
 
 ## [1.7.0] - 2026-09-02
@@ -1395,11 +1393,40 @@ unchanged):
 - **Async TLS verification failures now surface promptly on Python 3.10** — `AsyncConnection._do_connect_handshake` now runs a narrow Python-3.10-only **preflight TLS verification probe** in the default executor immediately before `loop.start_tls()`. The probe opens a separate TCP socket to the same effective endpoint (replaying the `CUBRS` handshake on the no-redirect path, going straight to TLS on the redirect path), then performs a synchronous `ssl.SSLContext.wrap_socket()` with the **same** `SSLContext` and `server_hostname=self._host` as the real upgrade. Any `ssl.SSLError` propagates as `OperationalError`, matching the 3.11+ failure surface. Works around the known CPython 3.10 `asyncio` bug (gh-142352 family, fixed in 3.13/3.14) where `loop.start_tls()` hangs indefinitely on TLS-handshake-internal verification failures because `ssl_handshake_timeout` only bounds peer-unresponsive hangs. No-op on Python 3.11+; the 3.10 path incurs one extra TCP round-trip per connect (closes #156).
 - **TLS handshake now matches CUBRID's STARTTLS-style upgrade** — both sync and async `connect()` previously wrapped the socket in TLS before any bytes were exchanged, which never worked against a real `SSL=ON` CUBRID broker. The driver now (1) opens a plaintext TCP socket, (2) sends the 10-byte ClientInfoExchange handshake using the SSL magic string `"CUBRS"` (vs `"CUBRK"` for plain), (3) reads the 4-byte broker status (negative codes now raise `OperationalError` instead of silently falling through), (4) reconnects to the redirected CAS worker on `new_connection_port > 0` without re-handshaking (matches upstream JDBC `BrokerHandler.connectBroker`), and (5) upgrades the connection to TLS before sending `OPEN_DATABASE`. The async path uses `loop.start_tls()` for Python 3.10 compatibility. Validated end-to-end against CUBRID 11.4 with `SSL=ON` and a self-signed broker certificate (#154)
 
+- **PEP 3134 ``__cause__`` preserved on async transport timeouts** —
+  ``AsyncConnection._connect_locked`` (handshake timeout) and
+  ``AsyncConnection._send_and_receive_locked`` (read timeout) now use
+  ``raise OperationalError(...) from exc`` instead of ``from None``, so the
+  underlying ``asyncio.TimeoutError`` is preserved on the chained exception
+  for diagnostic tooling (PR #3 Item 3).
+
 ### Documentation
 - **Parameter binding contract documented** — added `docs/PARAMETER_BINDING.md` formalizing the driver-side literal-binding semantics for 1.x: per-type SQL-literal mapping (with `_cursor_common.py` line citations and pinned tests), the `escape_string` default and `no_backslash_escapes` modes (NUL rejection, single-quote doubling, backslash and CR/LF/`\x1a` handling), the placeholder tokenizer's behavior across quoted strings/identifiers/line and block comments, and the explicit non-guarantees (no server-side prepared statements, identifiers are not escaped, no `IN`-clause expansion, exception-message text is not contract). Linked from `README.md` and `docs/index.md`.
 - **TLS/handshake documentation aligned with implementation** — corrected `AGENTS.md` protocol version (8/10.2) and OpenDatabase payload framing, fixed OpenDatabase response field order across `CONNECTION.md`/`ARCHITECTURE.md`, rewrote the CAS reconnection diagram to reflect actual `connect()` re-entry through the broker, corrected the `MAGIC_STRING_SSL` constant name in `PROTOCOL.md`, surfaced TLS 1.2 minimum on sync rows in `SUPPORT_MATRIX.md`, added a new "Async TLS Handshake Hangs on Python 3.10" troubleshooting section, and added the Python 3.10 async TLS caveat to `README.md` and all five translations (#160, #163)
 - **TLS docs polish** — added TLS examples to `EXAMPLES.md`, an SSL/TLS TOC entry to `CONNECTION.md`, a Transport Security section to `SECURITY.md`, local TLS integration-test instructions to `CONTRIBUTING.md`, expanded `Connection.connect`/`AsyncConnection`/`_do_connect_handshake` docstrings with the STARTTLS flow, added a TLS field to the bug-report issue template, expanded `pyproject.toml` keywords, and added a `make integration-tls` target. Resolves remaining items from the TLS Phase 4 audit (#161, #162)
 - **Async TLS handshake hang on Python 3.10 documented as a known limitation** — a known CPython asyncio TLS handshake bug on Python 3.10 causes `loop.start_tls()` to hang on cert-verify failures on 3.10 only (fixed in 3.13/3.14); pycubrid documents the workaround and skips the negative-path test on 3.10 (#156)
+
+- **Reconnect contract documented in ``docs/CONNECTION.md``** — added a
+  "Session-state restoration on transparent reconnect" section listing which
+  settings are restored and which are not, plus a correction to the
+  ``autocommit`` default note: pycubrid sends ``auto_commit`` per-statement
+  on every ``PrepareAndExecute``, so the broker's own ``CUBRID_AUTO_COMMIT``
+  setting is effectively overridden by the driver-side value.
+- **Cursor mid-reconnect behaviour documented in ``docs/API_REFERENCE.md``** —
+  ``fetchone``/``fetchmany``/``fetchall`` now document the
+  :class:`OperationalError` raised when a transparent reconnect invalidates
+  a partially-consumed result set.
+- **Python 3.10 async-TLS caveat citation normalized** — the upstream issue
+  reference (``gh-142352``) was removed from ``README.md``, all five README
+  translations (``docs/README.{ko,zh,hi,de,ru}.md``), ``SECURITY.md``,
+  ``CHANGELOG.md``, ``CONTRIBUTING.md``, ``docs/CONNECTION.md``,
+  ``docs/TROUBLESHOOTING.md``, ``docs/DEVELOPMENT.md``, ``docs/EXAMPLES.md``,
+  ``docs/SUPPORT_MATRIX.md``, ``tests/test_aio_ssl_integration.py``, and
+  ``pycubrid/aio/connection.py`` because that issue describes a different
+  ``start_tls()`` regression on 3.13/3.14/3.15 (PROXY-protocol buffered-data
+  loss), not the 3.10 cert-verify hang pycubrid observes. The caveat is now
+  described as a "known CPython async-TLS handshake bug on Python 3.10"
+  tracked as pycubrid #156.
 
 ### Tests
 - **Async TLS upgrade and handshake paths covered offline** — added `tests/test_aio_ssl_offline.py` with 7 mocked tests guarding the regressions enumerated in #158: `_upgrade_to_tls()` argument forwarding (incl. `ssl_context`, `server_hostname=self._host`, `ssl_handshake_timeout` with the documented 10-second default), `loop.start_tls()` failure cleanup (`old_transport.abort()` exactly once, exception re-raised unchanged, defensive `None`-return handling), incomplete-read and EOF on the initial 4-byte `CUBRS`/`CUBRK` broker status response, and async parity for `test_connect_redirect_sends_no_second_handshake` (redirect during TLS connect reconnects on the new port **without** a second handshake). These run without a broker so a regression silently disabling hostname verification or re-introducing a double-handshake no longer slips through offline CI (closes #158).
@@ -1407,6 +1434,14 @@ unchanged):
 - **Async TLS integration coverage** — added `tests/test_aio_ssl_integration.py` with
   live async TLS success/failure/reconnect/shutdown coverage gated behind an
   explicitly configured TLS-enabled broker (#155)
+
+- **12 new tests in ``tests/test_network_edge_cases.py``** — four new test
+  classes covering: ``__cause__`` chaining on sync/async transport timeouts,
+  explicit/unset session-state restore on reconnect (sync + async),
+  restore-failure tear-down, mid-fetch ``OperationalError`` (sync + async),
+  ``execute``/``close`` resetting the invalidation flag, and
+  ``CancelledError`` propagation in ``AsyncConnection._close_streams``. Total
+  offline tests: 858.
 
 ### Validated
 - **Native `Connection.ping()` causally validated at application layer** — Tier 2 ORM benchmark in [cubrid-benchmark `2026-04-22_native-ping-hotpath`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/orm-overhead/runs/2026-04-22_native-ping-hotpath) (paired same-version A/B vs forced `SELECT 1`, 7 trials, bootstrap 95% CI) confirms native CHECK_CAS ping is **+279.9% throughput** on raw ping_only [+278.0, +283.9] and **+587.8% on SQLAlchemy `checkout_only`** [+581.8, +603.8] with `pool_pre_ping=True`. Performance Loop ping propagation gap closed.
@@ -1436,46 +1471,6 @@ unchanged):
   of silently returning a truncated result set. Rows already buffered in the
   cursor remain accessible. ``execute()`` and ``close()`` reset the
   invalidation flag (PR #3 Item 2).
-
-### Fixed
-- **PEP 3134 ``__cause__`` preserved on async transport timeouts** —
-  ``AsyncConnection._connect_locked`` (handshake timeout) and
-  ``AsyncConnection._send_and_receive_locked`` (read timeout) now use
-  ``raise OperationalError(...) from exc`` instead of ``from None``, so the
-  underlying ``asyncio.TimeoutError`` is preserved on the chained exception
-  for diagnostic tooling (PR #3 Item 3).
-
-### Documentation
-- **Reconnect contract documented in ``docs/CONNECTION.md``** — added a
-  "Session-state restoration on transparent reconnect" section listing which
-  settings are restored and which are not, plus a correction to the
-  ``autocommit`` default note: pycubrid sends ``auto_commit`` per-statement
-  on every ``PrepareAndExecute``, so the broker's own ``CUBRID_AUTO_COMMIT``
-  setting is effectively overridden by the driver-side value.
-- **Cursor mid-reconnect behaviour documented in ``docs/API_REFERENCE.md``** —
-  ``fetchone``/``fetchmany``/``fetchall`` now document the
-  :class:`OperationalError` raised when a transparent reconnect invalidates
-  a partially-consumed result set.
-- **Python 3.10 async-TLS caveat citation normalized** — the upstream issue
-  reference (``gh-142352``) was removed from ``README.md``, all five README
-  translations (``docs/README.{ko,zh,hi,de,ru}.md``), ``SECURITY.md``,
-  ``CHANGELOG.md``, ``CONTRIBUTING.md``, ``docs/CONNECTION.md``,
-  ``docs/TROUBLESHOOTING.md``, ``docs/DEVELOPMENT.md``, ``docs/EXAMPLES.md``,
-  ``docs/SUPPORT_MATRIX.md``, ``tests/test_aio_ssl_integration.py``, and
-  ``pycubrid/aio/connection.py`` because that issue describes a different
-  ``start_tls()`` regression on 3.13/3.14/3.15 (PROXY-protocol buffered-data
-  loss), not the 3.10 cert-verify hang pycubrid observes. The caveat is now
-  described as a "known CPython async-TLS handshake bug on Python 3.10"
-  tracked as pycubrid #156.
-
-### Tests
-- **12 new tests in ``tests/test_network_edge_cases.py``** — four new test
-  classes covering: ``__cause__`` chaining on sync/async transport timeouts,
-  explicit/unset session-state restore on reconnect (sync + async),
-  restore-failure tear-down, mid-fetch ``OperationalError`` (sync + async),
-  ``execute``/``close`` resetting the invalidation flag, and
-  ``CancelledError`` propagation in ``AsyncConnection._close_streams``. Total
-  offline tests: 858.
 
 ## [1.4.0] - 2026-05-13
 

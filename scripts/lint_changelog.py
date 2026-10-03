@@ -9,6 +9,7 @@ Checks:
     2. Exactly one [Unreleased] section
     3. No duplicate version sections
     4. Released versions in descending semver order
+    5. No duplicate subsections within one release
 
 Exit codes:
     0 — changelog is valid
@@ -51,6 +52,26 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    # Subsections are unique within each release, including Unreleased-only files.
+    current_version: str | None = None
+    subsections: set[str] = set()
+    for line in content.splitlines():
+        version = re.match(r"^## \[(\S+)\]", line)
+        if version:
+            current_version = version.group(1)
+            subsections.clear()
+            continue
+        subsection = re.match(r"^###\s+(.+)$", line)
+        if current_version is not None and subsection:
+            title = subsection.group(1).strip()
+            if title in subsections:
+                print(
+                    f"ERROR: Duplicate subsection '### {title}' in [{current_version}]",
+                    file=sys.stderr,
+                )
+                return 1
+            subsections.add(title)
 
     versions = [h for h in headers if h != "Unreleased"]
 

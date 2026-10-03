@@ -867,3 +867,8 @@ graph TD
 `release-please.yml`이 릴리스 PR(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인)을
 엽니다. 검토 후 squash 병합하면 `release.yml`이 전체 매트릭스, 한 번의 빌드, 태그, PyPI 게시, cookbook 검증을
 자동으로 수행합니다. 태그 푸시나 게시를 수동으로 하지 않습니다.
+
+
+## 변경 이력 검증
+
+`python scripts/lint_changelog.py`는 릴리스별 중복 하위 섹션을 거부합니다. Unreleased만 있는 파일도 검사하며 서로 다른 릴리스는 같은 하위 섹션 이름을 사용할 수 있습니다.
