@@ -413,7 +413,7 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   absolute FC8 without reprepare/replay/reconnect. Broker-backed movement needs
   a live same-owner result and explicit `set_autocommit(False)` before prepare/
   execute; the autocommitTrue default and its result-release limitation remain.
-  Integer conversion, callbacks, undefined C overflow and stale/invalidated
+  Integer conversion, selector `__index__` callbacks, undefined C overflow and stale/invalidated
   results have explicit safe guards; message-only args remain a native difference.
   Candidate page/memory observations do not certify C-extension buffer parity or
   a requested-size packet cap. No ordinary/async/wrapper public API, metadata,

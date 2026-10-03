@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   cross-page prerequisite; unchanged defaultTrue can release a server result
   after its last batch. Ordered 257/1537-row and tuple/dict wrapper `_cs` cases
   distinguish public results from candidate-only page/stream metrics. Local
-  args, callback/overflow and owner/result safety differences are explicit.
+  args, selector `__index__` callback/overflow and owner/result safety differences are explicit.
   Metadata, ordinary/async APIs, wrapper public names, dependencies and release
   publication are unchanged.
 - **Native extended column metadata (#445)** — the opt-in sync native cursor

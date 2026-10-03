@@ -314,8 +314,8 @@ row cap. `fetchall()` naturally returns a caller-owned O(N) list, not a seek cac
 `data_seek`/`row_seek` accept exactly one positional C-int32/index-like value and
 `row_tell` accepts none; keywords are rejected. Closed state precedes positional
 conversion; errors retain pycubrid message-only args and numeric `.code`.
-Fresh/non-SELECT/rollback/disconnected/foreign/stale results fail safely. Callbacks
-that change owner/result/position and undefined C signed-addition overflow are
+Fresh/non-SELECT/rollback/disconnected/foreign/stale results fail safely. Selector
+`__index__` callbacks that change owner/result/position and undefined C signed-addition overflow are
 rejected rather than reproduced. Metadata/description and ordinary/async cursors
 are unchanged. Existing wrappers fetch through their native `_cs`; no public
 wrapper forwarding methods are added.

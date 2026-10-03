@@ -114,7 +114,7 @@ lifetime observations, not a default full-scroll match or a flag-change mandate.
 
 Seeks are local; a later out-of-page fetch depends on the broker still owning the
 same result. EOF, transaction boundaries, disconnection and stale/foreign owners
-do not imply unconditional recreation. New local guards reject unsafe callback
+do not imply unconditional recreation. New local guards reject unsafe selector `__index__` callback
 changes and undefined signed overflow while keeping message-only InterfaceError
 args; `.code` is truthful client evidence, not an invented errno.
 

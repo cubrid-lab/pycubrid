@@ -1428,8 +1428,8 @@ row cap. `fetchall()` naturally returns a caller-owned O(N) list, not a seek cac
 `data_seek`/`row_seek` accept exactly one positional C-int32/index-like value and
 `row_tell` accepts none; keywords are rejected. Closed state precedes positional
 conversion; errors retain pycubrid message-only args and numeric `.code`.
-Fresh/non-SELECT/rollback/disconnected/foreign/stale results fail safely. Callbacks
-that change owner/result/position and undefined C signed-addition overflow are
+Fresh/non-SELECT/rollback/disconnected/foreign/stale results fail safely. Selector
+`__index__` callbacks that change owner/result/position and undefined C signed-addition overflow are
 rejected rather than reproduced. Metadata/description and ordinary/async cursors
 are unchanged. Existing wrappers fetch through their native `_cs`; no public
 wrapper forwarding methods are added.
@@ -10122,7 +10122,7 @@ lifetime observations, not a default full-scroll match or a flag-change mandate.
 
 Seeks are local; a later out-of-page fetch depends on the broker still owning the
 same result. EOF, transaction boundaries, disconnection and stale/foreign owners
-do not imply unconditional recreation. New local guards reject unsafe callback
+do not imply unconditional recreation. New local guards reject unsafe selector `__index__` callback
 changes and undefined signed overflow while keeping message-only InterfaceError
 args; `.code` is truthful client evidence, not an invented errno.
 
