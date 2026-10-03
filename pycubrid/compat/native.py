@@ -1,13 +1,15 @@
 """Explicit native-style compatibility subset over the pure Python driver.
 
-Only the sync prepared INT, string and NULL cursor, SET/MULTISET/SEQUENCE
+The sync prepared INT, string and NULL cursor, SET/MULTISET/SEQUENCE
 collection binding (``connection.set()``, ``set.imports()``,
 ``cursor.bind_set()``), and BLOB/CLOB handle fetch, bind and byte-position
 stream operations (``connection.lob()``, ``cursor.fetch_lob()``,
 ``cursor.bind_lob()``, ``lob.write/read/seek``), raw file transfers
 (``lob.imports/export``), and cached column metadata
 (``cursor.result_info()``) and current-result positioning
-(``cursor.data_seek/row_seek/row_tell``) are supported here. Prepared
+(``cursor.data_seek/row_seek/row_tell``) are supported here. Connection version
+text and query-based integer ping use the captured physical session without retry.
+Prepared
 scalar strings use the connection charset (UTF-8 unless ``charset`` says
 otherwise); native LOB stream text uses UTF-8 like the official Python 3
 extension. Writable cached connection settings are distinct from effective
