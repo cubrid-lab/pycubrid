@@ -5,7 +5,6 @@ import socket
 import ssl as ssl_module
 import struct
 import time
-from importlib import import_module
 from threading import RLock
 from typing import TYPE_CHECKING, Any
 
@@ -35,11 +34,6 @@ from .protocol import (
     RollbackPacket,
     SetDbParameterPacket,
 )
-
-if TYPE_CHECKING:
-    from typing import Any as Cursor
-
-_CursorClass: type | None = None
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -573,15 +567,12 @@ class Connection(ConnectionCommonMixin):
             self._drop_connection()
             raise OperationalError("failed to restore session state after reconnect") from exc
 
-    def cursor(self) -> Cursor:
+    def cursor(self) -> _cursor_module.Cursor:
         """Create and return a new cursor bound to this connection."""
         self._ensure_connected()
-        global _CursorClass  # noqa: PLW0603
-        if _CursorClass is None:
-            _CursorClass = getattr(import_module("pycubrid.cursor"), "Cursor")
-        cls = _CursorClass
-        assert cls is not None
-        cursor = cls(self)
+        from .cursor import Cursor
+
+        cursor = Cursor(self)
         self._cursors.add(cursor)
         return cursor
 
@@ -1119,3 +1110,8 @@ class Connection(ConnectionCommonMixin):
                 raise OperationalError("connection lost during receive")
             pos += n
         return buf
+
+
+# Define Connection before its type-only cursor dependency.
+if TYPE_CHECKING:
+    from . import cursor as _cursor_module

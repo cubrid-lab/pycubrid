@@ -16,7 +16,13 @@ from pycubrid._cursor_common import (
     _raise_batch_error,
 )
 from pycubrid.constants import CUBRIDStatementType
-from pycubrid.exceptions import DataError, InterfaceError, OperationalError, ProgrammingError
+from pycubrid.exceptions import (
+    DataError,
+    InterfaceError,
+    NotSupportedError,
+    OperationalError,
+    ProgrammingError,
+)
 
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -436,8 +442,6 @@ class AsyncCursor(_AsyncCursorBase):
     async def nextset(self) -> None:
         """Not supported — CUBRID does not have multiple result sets."""
         self._check_closed()
-        from pycubrid.exceptions import NotSupportedError
-
         raise NotSupportedError("CUBRID does not support multiple result sets")
 
     def __aiter__(self) -> AsyncCursor:

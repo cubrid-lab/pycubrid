@@ -1444,13 +1444,6 @@ class AsyncConnection(ConnectionCommonMixin):
             await self._retire_session_locked()
             raise OperationalError("failed to restore session state after reconnect") from exc
 
-    async def _invoke_connect_locked(self) -> None:
-        connect_method = self.connect
-        if getattr(connect_method, "__func__", None) is AsyncConnection.connect:
-            await self._connect_locked()
-            return
-        await connect_method()
-
     async def _retire_session_locked(self, *, for_reconnect: bool = False) -> None:
         """Retire the physical session after an uncertain I/O failure (#556).
 
