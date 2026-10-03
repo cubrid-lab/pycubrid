@@ -55,7 +55,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 | Charset, dict cursors, converters | Since #86 the ordinary, async and explicit compatibility constructors accept a selected codec, verified live against EUC-KR; no `charset` attribute is retained. #466 adds qualified tuple/dict cursors and a connection-local converter over the existing native scalar subset. UTF-8 defaults remain unchanged. |
 | Prepare/typed binding | Ordinary cursors have no public prepare/bind/execute. The explicit `compat.native` cursor delivers sync scalar binding (#439), collection binding (#440) and fetched LOB handle fetch/bind (#441). |
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
-| Result navigation and metadata | Absolute/relative seek and position are #444; 15-field result metadata is #445 with #398. Native next_result exists; the wrapper nextset stub and pycubrid's unsupported nextset do not supply that capability. |
+| Result navigation and metadata | #444 adds native-only absolute/relative seek and shadow-counter tell on a live current SELECT. Measured cross-page cases explicitly set manual autocommitFalse before preparation; defaultTrue can release the broker result after its last batch. #445 supplies cached15-field metadata. Native next_result and wrapper nextset remain separate capabilities. |
 | Schema rows | #412 retains schema result-consumption/handle-cleanup work. A returned protocol packet is not the native schema-row return contract. |
 | Batch facade and option flags | `Cursor.executemany_batch(sql_list, auto_commit=None)` already batches arbitrary SQL. A connection-level facade and native per-statement error records differ from its tuple results/first-error raising. Execute flags/query-plan options and connection member setters require focused follow-up under #438. |
 
@@ -99,6 +99,32 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in effective autocommit mode; a manually fetched holder remains non-transferable after a later commit until re-fetched in autocommit mode. Stream operations are delivered in #442 below; file import/export remains #443. |
 | Native LOB stream (#442) | Delivered sync-only: `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`, plus exported `SEEK_*` constants. Position and size count bytes; UTF-8 text is returned for BLOB and CLOB. SEEK_END computes size-offset. Writes create a BLOB/CLOB lazily and append only at the end. Safe deviations: non-end writes and invalid resulting positions fail before I/O, while empty/EOF and oversized reads return available text instead of reproducing unsafe CCI behavior. The native holder's close remains terminal; created handles stay on their original session and first autocommit bind consumes their temp file. Ordinary absolute-offset `Lob` and file I/O (#443) are unchanged. |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. The delivered result_info local errors retain pycubrid message-only args as classified below; broader adapters remain separate. Exact unstable messages and native argument-parser crashes are not targets. |
+
+### Native positioning lifetime and evidence (#444)
+
+`data_seek`, `row_seek` and `row_tell` retain the safe official physical/shadow
+counter distinction, re-execute shadow and failed-relative clamps. The selected
+comparison uses explicit `set_autocommit(False)` **before prepare/execute** on
+both drivers and wrappers, not an inferred factory default. Root's original
+257-row official-only baseline used that manual mode; its initial artifact's
+omitted mode was corrected transparently. A separate official-only1537 defaultTrue
+diagnosis failed after consume1205 and backward3 with CAS no-more-data -10012.
+The candidate's default-mode failure retains legacy -1012; these are diagnostic
+lifetime observations, not a default full-scroll match or a flag-change mandate.
+
+Seeks are local; a later out-of-page fetch depends on the broker still owning the
+same result. EOF, transaction boundaries, disconnection and stale/foreign owners
+do not imply unconditional recreation. New local guards reject unsafe callback
+changes and undefined signed overflow while keeping message-only InterfaceError
+args; `.code` is truthful client evidence, not an invented errno.
+
+Completed candidate FC3/FC8 positions/rows and streaming/page observations are
+supplemental candidate-only evidence. Requested fetch100 is not an observed page
+cap; CUBRID's response sizing may return larger pages. C-extension page storage
+is unexposed, and wrapper.fetchall's caller-owned list is not an internal cache
+bound. Only the original seek assertions393/406/409 are mapped, not upstream
+num_fields/num_rows or whole functions. See the
+[native API scope](API_REFERENCE.md#native-cursor-positioning-data_seek-row_seek-row_tell).
 
 The #445 metadata slice follows the pinned
 [tuple construction](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L2119-L2213),
@@ -240,13 +266,13 @@ claims without cases and oracle pins that differ from the build script.
 
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
-| Wrapper (`CUBRIDdb`) | 13 | 2 | 15 |
-| Native (`_cubrid`) | 27 | 12 | 39 |
-| **Total** | **40** | **14** | **54** |
+| Wrapper (`CUBRIDdb`) | 14 | 2 | 16 |
+| Native (`_cubrid`) | 29 | 13 | 42 |
+| **Total** | **43** | **15** | **58** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - Required servers: CUBRID 10.2, CUBRID 11.4
-- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445)
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445), `native-position-error-args` (#444)
 
 <!-- official-differential-summary:end -->
 

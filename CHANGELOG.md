@@ -11,6 +11,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
 
 ### Added
+- **Native cursor positioning (#444)** — sync native cursors gain
+  `data_seek`, `row_seek` and `row_tell` with the official safe dual counters,
+  relative-boundary clamp/error behavior and one retained response page. Cache
+  misses fetch an absolute position without query replay or reconnect. Explicit
+  manual autocommitFalse before preparation is the measured broker-backed
+  cross-page prerequisite; unchanged defaultTrue can release a server result
+  after its last batch. Ordered 257/1537-row and tuple/dict wrapper `_cs` cases
+  distinguish public results from candidate-only page/stream metrics. Local
+  args, callback/overflow and owner/result safety differences are explicit.
+  Metadata, ordinary/async APIs, wrapper public names, dependencies and release
+  publication are unchanged.
 - **Native extended column metadata (#445)** — the opt-in sync native cursor
   gains `result_info([n])`, returning cached 15-field tuples with measured CCI
   types, integer constraint flags and actual names/default strings. All/one

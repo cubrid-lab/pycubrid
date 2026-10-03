@@ -1344,7 +1344,8 @@ The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()
 Its cursor supports `prepare(sql)`, one-based
 `bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
-`fetch_lob(col, lob)`, `result_info([n])` and `close()`.
+`fetch_lob(col, lob)`, `result_info([n])`, `data_seek(n)`, `row_seek(offset)`,
+`row_tell()` and `close()`.
 Nondefault flags and other Python value types fail before a prepared execute.
 Preparation requires the current broker session to advertise statement
 pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
@@ -1389,6 +1390,47 @@ try:
 finally:
     conn.close()
 ```
+
+### Native cursor positioning (`data_seek`, `row_seek`, `row_tell`)
+
+These sync native-only operations act on a valid current SELECT result and return
+no rows themselves. `data_seek(n)` selects an absolute one-based row and sets
+both positions to `n`. `row_seek(offset)` moves relative to the physical next row;
+both seeks return `None`. `row_tell()` returns the separate official shadow counter:
+it starts at zero, advances after successful fetches, and is preserved by a
+same-handle re-execute even though the physical next row returns to row1. A new
+`prepare()` resets it. It is therefore not always the next row's absolute position.
+
+An absolute index outside1..N raises `InterfaceError(code=-30006)` without moving.
+A relative move outside the result clamps the physical position to before-first
+or after-end and raises code-20005, preserving the shadow counter; a subsequent
+fetch returns `None` until a valid seek recovers it. `row_tell()` raises code-30012
+when the shadow exceeds N. Normal draining ends at tellN, but seeking to1 before
+draining ends at shadowN+1 and that tell error, matching the safe pinned source.
+
+Use explicit `conn.set_autocommit(False)` **before preparing/executing** when
+broker-backed cross-page movement is needed, while the same owner/result remains
+live. The factory's autocommitTrue default is unchanged: once its broker delivers
+the final batch, the result can be released even if the client has not consumed
+all buffered rows. A local seek may then succeed, but a later out-of-page FETCH
+fails. The pinned official default-mode diagnosis also observed this limit;
+there is no unconditional default-mode, post-boundary or lost-session scroll
+guarantee. Cached-page access is not evidence that the broker still owns a result.
+
+Seeks only change local positions. Fetching outside the one retained response page
+uses the existing absolute FC8 selector without reprepare, execute or reconnect.
+Retained-page and streaming-memory observations are candidate-only; the C
+extension exposes no public page metric. Requested fetch size is not a broker
+row cap. `fetchall()` naturally returns a caller-owned O(N) list, not a seek cache.
+
+`data_seek`/`row_seek` accept exactly one positional C-int32/index-like value and
+`row_tell` accepts none; keywords are rejected. Closed state precedes positional
+conversion; errors retain pycubrid message-only args and numeric `.code`.
+Fresh/non-SELECT/rollback/disconnected/foreign/stale results fail safely. Callbacks
+that change owner/result/position and undefined C signed-addition overflow are
+rejected rather than reproduced. Metadata/description and ordinary/async cursors
+are unchanged. Existing wrappers fetch through their native `_cs`; no public
+wrapper forwarding methods are added.
 
 ### Extended column metadata (`result_info`)
 
@@ -9945,7 +9987,7 @@ does not enumerate every inherited built-in method as a new driver operation.
 | Charset, dict cursors, converters | Since #86 the ordinary, async and explicit compatibility constructors accept a selected codec, verified live against EUC-KR; no `charset` attribute is retained. #466 adds qualified tuple/dict cursors and a connection-local converter over the existing native scalar subset. UTF-8 defaults remain unchanged. |
 | Prepare/typed binding | Ordinary cursors have no public prepare/bind/execute. The explicit `compat.native` cursor delivers sync scalar binding (#439), collection binding (#440) and fetched LOB handle fetch/bind (#441). |
 | LOB cursor/file behavior | pycubrid has explicit-offset bytes read/write, not the official mutable-position/implicit-create interface. Seek and read/write contracts are #442; file import/export is #443. |
-| Result navigation and metadata | Absolute/relative seek and position are #444; 15-field result metadata is #445 with #398. Native next_result exists; the wrapper nextset stub and pycubrid's unsupported nextset do not supply that capability. |
+| Result navigation and metadata | #444 adds native-only absolute/relative seek and shadow-counter tell on a live current SELECT. Measured cross-page cases explicitly set manual autocommitFalse before preparation; defaultTrue can release the broker result after its last batch. #445 supplies cached15-field metadata. Native next_result and wrapper nextset remain separate capabilities. |
 | Schema rows | #412 retains schema result-consumption/handle-cleanup work. A returned protocol packet is not the native schema-row return contract. |
 | Batch facade and option flags | `Cursor.executemany_batch(sql_list, auto_commit=None)` already batches arbitrary SQL. A connection-level facade and native per-statement error records differ from its tuple results/first-error raising. Execute flags/query-plan options and connection member setters require focused follow-up under #438. |
 
@@ -9989,6 +10031,32 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in effective autocommit mode; a manually fetched holder remains non-transferable after a later commit until re-fetched in autocommit mode. Stream operations are delivered in #442 below; file import/export remains #443. |
 | Native LOB stream (#442) | Delivered sync-only: `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`, plus exported `SEEK_*` constants. Position and size count bytes; UTF-8 text is returned for BLOB and CLOB. SEEK_END computes size-offset. Writes create a BLOB/CLOB lazily and append only at the end. Safe deviations: non-end writes and invalid resulting positions fail before I/O, while empty/EOF and oversized reads return available text instead of reproducing unsafe CCI behavior. The native holder's close remains terminal; created handles stay on their original session and first autocommit bind consumes their temp file. Ordinary absolute-offset `Lob` and file I/O (#443) are unchanged. |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. The delivered result_info local errors retain pycubrid message-only args as classified below; broader adapters remain separate. Exact unstable messages and native argument-parser crashes are not targets. |
+
+### Native positioning lifetime and evidence (#444)
+
+`data_seek`, `row_seek` and `row_tell` retain the safe official physical/shadow
+counter distinction, re-execute shadow and failed-relative clamps. The selected
+comparison uses explicit `set_autocommit(False)` **before prepare/execute** on
+both drivers and wrappers, not an inferred factory default. Root's original
+257-row official-only baseline used that manual mode; its initial artifact's
+omitted mode was corrected transparently. A separate official-only1537 defaultTrue
+diagnosis failed after consume1205 and backward3 with CAS no-more-data -10012.
+The candidate's default-mode failure retains legacy -1012; these are diagnostic
+lifetime observations, not a default full-scroll match or a flag-change mandate.
+
+Seeks are local; a later out-of-page fetch depends on the broker still owning the
+same result. EOF, transaction boundaries, disconnection and stale/foreign owners
+do not imply unconditional recreation. New local guards reject unsafe callback
+changes and undefined signed overflow while keeping message-only InterfaceError
+args; `.code` is truthful client evidence, not an invented errno.
+
+Completed candidate FC3/FC8 positions/rows and streaming/page observations are
+supplemental candidate-only evidence. Requested fetch100 is not an observed page
+cap; CUBRID's response sizing may return larger pages. C-extension page storage
+is unexposed, and wrapper.fetchall's caller-owned list is not an internal cache
+bound. Only the original seek assertions393/406/409 are mapped, not upstream
+num_fields/num_rows or whole functions. See the
+[native API scope](API_REFERENCE.md#native-cursor-positioning-data_seek-row_seek-row_tell).
 
 The #445 metadata slice follows the pinned
 [tuple construction](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L2119-L2213),
@@ -10130,13 +10198,13 @@ claims without cases and oracle pins that differ from the build script.
 
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
-| Wrapper (`CUBRIDdb`) | 13 | 2 | 15 |
-| Native (`_cubrid`) | 27 | 12 | 39 |
-| **Total** | **40** | **14** | **54** |
+| Wrapper (`CUBRIDdb`) | 14 | 2 | 16 |
+| Native (`_cubrid`) | 29 | 13 | 42 |
+| **Total** | **43** | **15** | **58** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - Required servers: CUBRID 10.2, CUBRID 11.4
-- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445)
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445), `native-position-error-args` (#444)
 
 <!-- official-differential-summary:end -->
 

@@ -216,7 +216,8 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 `set_autocommit(bool)`, `set_isolation_level(level)`, `close()`를 제공합니다.
 커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
 bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`, `execute(option=0, max_col_size=0) -> int`,
-튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `result_info([n])`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
+튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `result_info([n])`,
+`data_seek(n)`, `row_seek(offset)`, `row_tell()`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
 Python 값 형식은 실행 전 거부합니다. 브로커가 현재 세션의 statement
 pooling을 알리지 않거나 비활성화한 경우 FC2 전에 거부합니다. 핸들은
 물리 CAS 세션에 묶이며 재접속 뒤 자동 재실행하지 않습니다. `commit()`은
@@ -241,6 +242,45 @@ FC41과 비동기 동작은 바뀌지 않습니다. 고정된 공식 네이티�
 [typed CAS 설계](../PREPARED_BINDING_DESIGN.md)와
 [호환성 가이드](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)를
 참고하세요.
+
+<a id="네이티브-커서-위치-이동"></a>
+
+### 네이티브 커서 위치 이동 (`data_seek`, `row_seek`, `row_tell`)
+
+동기 네이티브 전용 메서드는 유효한 현재 SELECT 결과에서 동작하며 직접 행을
+반환하지 않습니다. `data_seek(n)`는 1부터 시작하는 절대 행을 선택하고 두 위치를
+`n`으로 맞춥니다. `row_seek(offset)`은 물리적 다음 행에 대한 상대 이동이며 둘 다
+`None`을 반환합니다. `row_tell()`은 별도의 공식 shadow 카운터를 반환합니다.
+처음에는 0이며 성공한 fetch마다 증가하고, 같은 핸들의 재실행으로 물리 위치가
+1로 돌아가도 유지됩니다. 새 `prepare()`는 초기화합니다. 따라서 항상 다음 행의
+절대 번호를 뜻하지 않습니다.
+
+1..N 밖의 절대 번호는 위치 변경 없이 코드 -30006의 `InterfaceError`를 냅니다.
+범위 밖 상대 이동은 물리 위치를 첫 행 전·마지막 행 뒤로 맞춘 뒤 코드 -20005를
+내며 shadow는 유지합니다. 유효한 seek로 복구하기 전 fetch는 `None`입니다.
+shadow가 N보다 크면 `row_tell()`은 코드 -30012로 실패합니다. 일반 순회는 tellN,
+1로 seek한 뒤 전체 순회는 shadowN+1과 tell 오류로 끝나는 공식 동작을 유지합니다.
+
+브로커의 다른 페이지로 이동해야 하면 **prepare·execute 전에** 명시적으로
+`conn.set_autocommit(False)`를 사용하고 동일 소유자·결과가 살아 있어야 합니다.
+기본 autocommitTrue는 바뀌지 않습니다. 브로커가 마지막 배치를 보내면 클라이언트가
+버퍼의 모든 행을 소비하기 전에도 결과를 해제할 수 있어, 로컬 seek 후 나중의
+페이지 밖 FETCH가 실패할 수 있습니다. 고정 공식 드라이버의 기본 모드 진단에서도
+이 제한을 관측했으며 기본 모드·트랜잭션 경계·세션 손실 뒤 무조건적인 재조회는
+보장하지 않습니다. 캐시 행 조회만으로 브로커 결과 수명이 유지된다고 판단하지 않습니다.
+
+seek는 로컬 위치만 바꾸며 한 개의 응답 페이지 밖 fetch는 기존 절대 FC8을
+사용하고 준비·실행·재접속하지 않습니다. 보관 페이지·스트리밍 메모리 지표는
+후보 드라이버 전용이며 공식 C 확장은 공개 페이지 지표가 없습니다. 요청 fetch
+크기는 서버 행 수의 상한이 아니며 `fetchall()`의 O(N) 반환 목록은 seek 캐시와
+별개입니다.
+
+두 seek는 C-int32·index 형식 위치 인자 하나, tell은 인자 없음만 받으며 키워드는
+거부합니다. 닫힘 검사는 위치 인자 변환보다 먼저이며 메시지 하나의 args와
+숫자 `.code`를 유지합니다. 새·비SELECT·rollback·끊김·다른·오래된 소유자 결과는
+안전하게 실패합니다. 소유자·결과·위치를 바꾸는 변환 콜백과 정의되지 않은 C
+정수 덧셈 overflow를 재현하지 않습니다. 메타데이터·description·일반·비동기
+커서는 유지하며 기존 래퍼는 내부 `_cs`로 fetch할 뿐 공개 이동 메서드는 추가하지 않습니다.
 
 <a id="확장-컬럼-메타데이터-result_info"></a>
 

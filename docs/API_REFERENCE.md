@@ -232,7 +232,8 @@ The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()
 Its cursor supports `prepare(sql)`, one-based
 `bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
-`fetch_lob(col, lob)`, `result_info([n])` and `close()`.
+`fetch_lob(col, lob)`, `result_info([n])`, `data_seek(n)`, `row_seek(offset)`,
+`row_tell()` and `close()`.
 Nondefault flags and other Python value types fail before a prepared execute.
 Preparation requires the current broker session to advertise statement
 pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
@@ -277,6 +278,47 @@ try:
 finally:
     conn.close()
 ```
+
+### Native cursor positioning (`data_seek`, `row_seek`, `row_tell`)
+
+These sync native-only operations act on a valid current SELECT result and return
+no rows themselves. `data_seek(n)` selects an absolute one-based row and sets
+both positions to `n`. `row_seek(offset)` moves relative to the physical next row;
+both seeks return `None`. `row_tell()` returns the separate official shadow counter:
+it starts at zero, advances after successful fetches, and is preserved by a
+same-handle re-execute even though the physical next row returns to row1. A new
+`prepare()` resets it. It is therefore not always the next row's absolute position.
+
+An absolute index outside1..N raises `InterfaceError(code=-30006)` without moving.
+A relative move outside the result clamps the physical position to before-first
+or after-end and raises code-20005, preserving the shadow counter; a subsequent
+fetch returns `None` until a valid seek recovers it. `row_tell()` raises code-30012
+when the shadow exceeds N. Normal draining ends at tellN, but seeking to1 before
+draining ends at shadowN+1 and that tell error, matching the safe pinned source.
+
+Use explicit `conn.set_autocommit(False)` **before preparing/executing** when
+broker-backed cross-page movement is needed, while the same owner/result remains
+live. The factory's autocommitTrue default is unchanged: once its broker delivers
+the final batch, the result can be released even if the client has not consumed
+all buffered rows. A local seek may then succeed, but a later out-of-page FETCH
+fails. The pinned official default-mode diagnosis also observed this limit;
+there is no unconditional default-mode, post-boundary or lost-session scroll
+guarantee. Cached-page access is not evidence that the broker still owns a result.
+
+Seeks only change local positions. Fetching outside the one retained response page
+uses the existing absolute FC8 selector without reprepare, execute or reconnect.
+Retained-page and streaming-memory observations are candidate-only; the C
+extension exposes no public page metric. Requested fetch size is not a broker
+row cap. `fetchall()` naturally returns a caller-owned O(N) list, not a seek cache.
+
+`data_seek`/`row_seek` accept exactly one positional C-int32/index-like value and
+`row_tell` accepts none; keywords are rejected. Closed state precedes positional
+conversion; errors retain pycubrid message-only args and numeric `.code`.
+Fresh/non-SELECT/rollback/disconnected/foreign/stale results fail safely. Callbacks
+that change owner/result/position and undefined C signed-addition overflow are
+rejected rather than reproduced. Metadata/description and ordinary/async cursors
+are unchanged. Existing wrappers fetch through their native `_cs`; no public
+wrapper forwarding methods are added.
 
 ### Extended column metadata (`result_info`)
 
