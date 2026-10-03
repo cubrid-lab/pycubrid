@@ -8813,7 +8813,7 @@ assets; pinning its caller is not a complete freeze of those assets.
 |----------|---------|-------------|
 | `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.14) + integration |
 | `integration-full.yml` | Nightly, manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
-| `prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
+| `release-please.yml` | Push main or manual dispatch | Open/update PR-only release candidate (version + generated/curated notes) |
 | `release.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
 
 ### CI Matrix
@@ -9016,7 +9016,7 @@ To support a new CUBRID data type:
 ## Release Process
 
 Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md):
-`prepare-release.yml` opens a release PR (version bump + dated CHANGELOG section, checked
+`release-please.yml` opens a release PR (version bump + dated CHANGELOG section, checked
 with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `release.yml`
 runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
 automatically. Nobody pushes tags or publishes by hand.

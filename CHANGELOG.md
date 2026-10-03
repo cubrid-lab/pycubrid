@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Release automation
+
+- Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
+
 ### Added
 - **Discoverable Korean performance guide (#313)** — the Korean README now
   links to the existing `docs/ko/PERFORMANCE.md` translation, with working

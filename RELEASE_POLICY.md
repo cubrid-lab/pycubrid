@@ -11,7 +11,7 @@ declared public API surface fails CI unless the baseline is regenerated and
 committed in the same change, which forces every surface change to surface
 explicitly in pull-request review.
 
-Every release ships the same way: a reviewed release PR (hand-curated
+Every release ships the same way: a reviewed release-please PR (generated commits plus curated
 `CHANGELOG.md` section, including the Upgrade notes and the classification in
 §7) is merged, and `release.yml` releases it. There is no manual tag or publish
 step; see [`RELEASING.md`](RELEASING.md).
@@ -187,7 +187,7 @@ for landing one is:
    describing what changed, why, and how users migrate. The entry must include
    a `Migration` subsection with concrete before/after code.
 6. Land the change on `main`, then prepare the release PR with
-   `gh workflow run prepare-release.yml -f version=X.0.0`: it bumps
+   `gh workflow run release-please.yml` after a reviewed breaking commit or `Release-As: X.0.0` override: it proposes
    `__version__` in `pycubrid/__init__.py` (the single source that
    `pyproject.toml` reads) and dates the CHANGELOG section.
 7. Merging the reviewed release PR releases `vX.0.0` automatically
