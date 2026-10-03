@@ -947,5 +947,41 @@ class DocsReasonWorkflowTests(unittest.TestCase):
         self.assertIn('REQUIRED_LANGS = {"ko"}', script)
 
 
+class CurrentDocumentationTests(unittest.TestCase):
+    """Guard prominent live claims, not historical metrics or all Markdown."""
+
+    def test_current_guidance_uses_sources_instead_of_volatile_metrics(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        overview = agents.split("## Architecture", 1)[0]
+        self.assertIn("pycubrid.__version__", overview)
+        stats = agents.split("### Test Stats", 1)[1].split("## Code Conventions", 1)[0]
+        self.assertIn("95%", stats)
+        self.assertNotRegex(stats, r"\b\d+ offline tests|\b\d+ integration tests|99\.88%")
+        commands = agents.split("### Test Commands (manual)", 1)[1].split("### Test Stats", 1)[0]
+        self.assertIn('-m "not integration"', commands)
+        for language in ("", "ko/"):
+            with self.subTest(language=language):
+                development = (ROOT / f"docs/{language}DEVELOPMENT.md").read_text("utf-8")
+                coverage = development.split(
+                    "### Code Coverage" if not language else "### 코드 커버리지", 1
+                )[1].split("\n---", 1)[0]
+                self.assertIn("95%", coverage)
+                self.assertIn('-m "not integration"', coverage)
+                self.assertNotRegex(coverage, r"\b471\b|99\.88%|1,134")
+                support = (ROOT / f"docs/{language}SUPPORT_MATRIX.md").read_text("utf-8")
+                self.assertIn("pycubrid/__init__.py", support.split("\n---", 1)[0])
+
+    def test_canonical_policy_link_resolves_from_both_index_locations(self) -> None:
+        canonical = (ROOT / "docs/llms.txt").read_bytes()
+        self.assertEqual((ROOT / "llms.txt").read_bytes(), canonical)
+        link = re.search(rb"\[CI execution policy\]\(([^)]+)\)", canonical)
+        self.assertIsNotNone(link)
+        self.assertEqual(
+            link.group(1),
+            b"https://github.com/cubrid-lab/pycubrid/blob/main/docs/CI_POLICY.md",
+        )
+        self.assertTrue((ROOT / "docs/CI_POLICY.md").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()
