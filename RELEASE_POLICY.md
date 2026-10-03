@@ -264,6 +264,11 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Timeout configuration validation (#367)** — PATCH / bug correction. Invalid
+  negative or non-finite timeouts fail before transport acquisition; incompatible
+  types raise `TypeError`. Existing `None`, zero and valid finite values retain
+  their behavior. No public API is added.
+
 - **TLS preflight alerts and timeout context (#592)** — PATCH / diagnostic
   and error-path correction. Fatal alert bytes use only the existing probe
   deadline, and best-effort alert-send failures retain the original TLS error.
