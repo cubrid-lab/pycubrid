@@ -1245,6 +1245,15 @@ class _CasPacket:
 
     encoding: str = "utf-8"
 
+    def _parse_response(self, data: bytes | bytearray) -> tuple[PacketReader, int]:
+        """Read the common prefix of a simple reply and raise server errors."""
+        reader = PacketReader(data, encoding=self.encoding)
+        reader._skip_bytes(DataSize.CAS_INFO)
+        response_code = reader._parse_int()
+        if response_code < 0:
+            _raise_error(reader, len(data) - 8)
+        return reader, response_code
+
 
 class ClientInfoExchangePacket:
     """Initial handshake packet (no DATA_LENGTH/CAS_INFO framing)."""
@@ -1712,12 +1721,7 @@ class CommitPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the commit response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class RollbackPacket(_CasPacket):
@@ -1732,12 +1736,7 @@ class RollbackPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the rollback response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class CloseDatabasePacket(_CasPacket):
@@ -1751,12 +1750,7 @@ class CloseDatabasePacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close database response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class CloseQueryPacket(_CasPacket):
@@ -1774,12 +1768,7 @@ class CloseQueryPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close query response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class GetEngineVersionPacket(_CasPacket):
@@ -1798,12 +1787,7 @@ class GetEngineVersionPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get engine version response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         # response_code is 0 on success; version string follows
         version_len = len(data) - DataSize.CAS_INFO - DataSize.INT
         self.engine_version = reader._parse_null_terminated_string(version_len)
@@ -1957,12 +1941,7 @@ class LOBNewPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB new response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         # Remaining bytes are the LOB handle
         self.lob_handle = reader._parse_bytes(reader.bytes_remaining())
 
@@ -1990,12 +1969,7 @@ class LOBWritePacket(_CasPacket):
 
         On success, ``response_code`` doubles as ``bytes_written`` per CAS protocol.
         """
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        _, response_code = self._parse_response(data)
         self.bytes_written = response_code
 
 
@@ -2021,12 +1995,7 @@ class LOBReadPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB read response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, response_code = self._parse_response(data)
         # A count past the end of the reply raises before any field is set (#383).
         if response_code > 0:
             self.lob_data = reader._parse_bytes(response_code)
@@ -2086,12 +2055,7 @@ class GetDbParameterPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get db parameter response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         self.value = reader._parse_int()
 
 
@@ -2145,9 +2109,4 @@ class SetDbParameterPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the set db parameter response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)

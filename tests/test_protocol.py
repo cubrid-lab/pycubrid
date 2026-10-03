@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import struct
 from decimal import Decimal
+from typing import Callable, TypeAlias
 
 import pytest
 
@@ -1438,6 +1439,72 @@ class TestGetEngineVersionPacket:
         response = _build_error_response(DEFAULT_CAS_INFO, -1, "version error")
         with pytest.raises(DatabaseError, match="version error"):
             pkt.parse(response)
+
+
+_SimpleResponsePacket: TypeAlias = (
+    CommitPacket
+    | RollbackPacket
+    | CloseDatabasePacket
+    | CloseQueryPacket
+    | GetEngineVersionPacket
+    | LOBNewPacket
+    | LOBWritePacket
+    | LOBReadPacket
+    | GetDbParameterPacket
+    | SetDbParameterPacket
+)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        pytest.param(CommitPacket, id="commit"),
+        pytest.param(RollbackPacket, id="rollback"),
+        pytest.param(CloseDatabasePacket, id="close-database"),
+        pytest.param(lambda: CloseQueryPacket(1), id="close-query"),
+        pytest.param(GetEngineVersionPacket, id="engine-version"),
+        pytest.param(lambda: LOBNewPacket(CCILOBType.BLOB), id="lob-new"),
+        pytest.param(lambda: LOBWritePacket(b"handle", 0, b"data"), id="lob-write"),
+        pytest.param(lambda: LOBReadPacket(b"handle", 0, 4), id="lob-read"),
+        pytest.param(lambda: GetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL), id="get-param"),
+        pytest.param(lambda: SetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL, 4), id="set-param"),
+    ],
+)
+class TestSimpleResponsePrefix:
+    @pytest.mark.parametrize("buffer_type", [bytes, bytearray])
+    def test_server_error_preserves_connection_encoding(
+        self,
+        factory: Callable[[], _SimpleResponsePacket],
+        buffer_type: type[bytes] | type[bytearray],
+    ) -> None:
+        packet = factory()
+        packet.encoding = "euc_kr"
+        message = "테이블 없음".encode("euc_kr") + b"\xff\x00"
+        response = DEFAULT_CAS_INFO + struct.pack(">ii", -1, -493) + message
+
+        with pytest.raises(ProgrammingError) as raised:
+            packet.parse(buffer_type(response))
+
+        assert raised.value.msg == "테이블 없음�"
+        assert raised.value.code == raised.value.errno == -493
+        assert getattr(raised.value, "_cas_server_error") is True
+
+    @pytest.mark.parametrize("prefix_length", range(8))
+    def test_truncated_prefix_keeps_structural_failure(
+        self, factory: Callable[[], _SimpleResponsePacket], prefix_length: int
+    ) -> None:
+        response = _build_success_response(DEFAULT_CAS_INFO, 0)[:prefix_length]
+        error_type = ValueError if prefix_length < DataSize.CAS_INFO else struct.error
+        with pytest.raises(error_type):
+            factory().parse(response)
+
+    @pytest.mark.parametrize("error_length", range(4))
+    def test_incomplete_server_error_code_keeps_structural_failure(
+        self, factory: Callable[[], _SimpleResponsePacket], error_length: int
+    ) -> None:
+        response = DEFAULT_CAS_INFO + struct.pack(">i", -1) + b"\x00" * error_length
+        with pytest.raises(struct.error):
+            factory().parse(response)
 
 
 class TestGetSchemaPacket:
