@@ -118,6 +118,21 @@ def test_sensitive_execution_paths_select_live_validation() -> None:
     assert "tests/fixtures/tls/**" in filters["tls"]
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/test_official_fixture_setup.py",
+        "tests/test_upstream_scenario_ledger.py",
+        "tests/fixtures/upstream_scenarios.csv",
+    ],
+)
+def test_changed_tooling_regressions_select_the_tooling_lane(path: str) -> None:
+    filters = yaml.safe_load(
+        workflow("ci.yml")["jobs"]["detect-changes"]["steps"][-1]["with"]["filters"]
+    )
+    assert path in filters["tooling"]
+
+
 def test_pr_smoke_paths_exist() -> None:
     import shlex
 

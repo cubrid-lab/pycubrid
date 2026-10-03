@@ -22,6 +22,9 @@ All driver and test paths, including new modules, plus dependency, build, script
 and workflow changes conservatively select representative pre-merge integration
 and the existing offline regression suite on one Linux/Python lane. Other code
 changes retain the bounded smoke suite. Repository tooling tests run in one Linux lane when tooling changes.
+Changes to `tests/test_official_fixture_setup.py`, `tests/test_upstream_scenario_ledger.py`
+or `tests/fixtures/upstream_scenarios.csv` explicitly select that same tooling lane;
+these marker-based checks are excluded from the driver offline lane.
 The static lint job continues on all events, including generated documentation checks.
 
 The aggregate required-check name stays stable and includes change detection.

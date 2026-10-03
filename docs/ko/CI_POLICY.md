@@ -7,6 +7,9 @@
 기존 전체 오프라인 회귀 검사(커버리지 제외)와 Python 3.14/CUBRID 11.4
 대표 통합 검사를 수행합니다.
 관련 저장소 도구 검사는 Linux 한 조합으로 수행합니다.
+`tests/test_official_fixture_setup.py`, `tests/test_upstream_scenario_ledger.py` 또는
+`tests/fixtures/upstream_scenarios.csv` 변경도 같은 도구 레인을 명시적으로 선택합니다.
+이 마커 기반 검사는 드라이버 오프라인 레인에서 제외됩니다.
 
 코드가 main에 병합되면 Python 3.12 전체 오프라인 테스트와 기존 95% 커버리지
 기준을 적용하고 최저·최신 대표 CUBRID 조합을 검사합니다.
