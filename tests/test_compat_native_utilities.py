@@ -129,6 +129,8 @@ def test_existing_reply_builders_parse_real_version_and_paged_scalar_results() -
     assert query.rows == [(0,)] and query.total_tuple_count == 2
     assert fetched.rows == [(2,)]
     assert version.engine_version == "11.4.6.1963"
+    request_args = split_args(query.write(cas_info(IN_TRAN))[9:])
+    assert request_args[:2] == (struct.pack(">i", 3), b"select 1+1 from db_root\x00")
 
 
 @pytest.mark.parametrize("method", ["server_version", "client_version", "ping"])
@@ -239,7 +241,7 @@ def test_ping_returns_exact_int_after_consumption_and_immediate_owned_close(
     assert type(result) is int and result == expected
     assert _codes(sock) == [41, 6]
     assert (
-        split_args(sock.sendall.call_args_list[0].args[0][13:])[0] == b"select 1+1 from db_root\x00"
+        split_args(sock.sendall.call_args_list[0].args[0][9:])[1] == b"select 1+1 from db_root\x00"
     )
     assert split_args(sock.sendall.call_args_list[-1].args[0][9:])[0] == struct.pack(">i", 7)
     assert driver._deferred_closes == []
@@ -267,7 +269,7 @@ def test_ping_validates_paged_results_effective_flags_and_no_callbacks(owned, mo
         packet.json_deserializer is None and packet.decode_collections is False
         for packet in packets[:3]
     )
-    assert split_args(sock.sendall.call_args_list[0].args[0][13:])[2] == bytes((int(mode),))
+    assert split_args(sock.sendall.call_args_list[0].args[0][9:])[3] == bytes((int(mode),))
     assert driver._autocommit is mode
     _guarded(driver)
 
@@ -299,6 +301,18 @@ def test_invalid_fetch_progress_cannot_become_false_or_success(
     with pytest.raises((OperationalError, DataError)):
         owner.ping()
     assert _codes(sock) == [41, 8, 6]
+    _guarded(driver)
+
+
+def test_invalid_final_fetch_never_revives_a_pooling_off_retired_handle(owned) -> None:
+    owner, driver, sock = owned
+    owner.set_autocommit(True)
+    driver._statement_pooling = 0
+    _load(sock, _query(2, total=2), _fetch(1, 2, status=OUT_TRAN), ok_body(IN_TRAN))
+    with pytest.raises(OperationalError):
+        owner.ping()
+    assert _codes(sock) == [41, 8]
+    assert driver._connected
     _guarded(driver)
 
 
