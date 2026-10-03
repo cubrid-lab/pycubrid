@@ -29,15 +29,15 @@ Compatibility and feature support for pycubrid releases.
 | 10.2 | ✅ Supported | Minimum tested version |
 | < 10.2 | ❌ Not supported | Current driver targets CAS protocol v8 |
 
-### CI Matrix
+## CI Matrix
 
-| Dimension | PR / push | Nightly + tag + dispatch |
-|---|---|---|
-| Offline tests | Python 3.10, 3.11, 3.12, 3.13, 3.14 | Same |
-| Integration tests | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8 jobs | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20 jobs |
-| Version differential | — | One job: the same generated workloads against CUBRID 10.2, 11.0, 11.2 and 11.4 at once |
+| Validation | Routine execution | Full compatibility |
+| --- | --- | --- |
+| Offline | PR smoke on Ubuntu/Python 3.12; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
+| Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
-The 5 × 4 full integration matrix is run by `.github/workflows/integration-full.yml` on a nightly schedule, on tagged releases, and on demand via `workflow_dispatch`.
+See [CI execution policy](CI_POLICY.md). Supported versions are unchanged;
+representative PR checks are not evidence for every supported combination.
 
 ### Server Behavior Differences Between CUBRID Versions
 

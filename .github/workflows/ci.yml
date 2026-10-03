@@ -2,8 +2,15 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
   push:
     branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,40 +21,94 @@ jobs:
     name: Detect changed paths
     runs-on: ubuntu-latest
     outputs:
-      tls: ${{ steps.filter.outputs.tls }}
-      docs: ${{ steps.filter.outputs.docs }}
       code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
+      tooling: ${{ steps.filter.outputs.tooling }}
+      live: ${{ steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
+      extended: ${{ steps.filter.outputs.code == 'true' && github.event_name != 'pull_request' }}
+      tls: ${{ steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
+      charset: ${{ steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
+      official: ${{ steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Select weekly comparison base
+        id: activity
+        if: github.event_name == 'schedule'
+        run: |
+          base=$(git rev-list -1 --before="7 days ago" HEAD)
+          echo "base=${base:-$(git rev-list --max-parents=0 HEAD)}" >> "$GITHUB_OUTPUT"
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
         id: filter
         with:
+          base: ${{ steps.activity.outputs.base || github.event.repository.default_branch }}
           filters: |
-            tls:
-              - 'pycubrid/aio/**'
-              - 'pycubrid/connection.py'
-              - 'pycubrid/_connection_common.py'
-              - 'pycubrid/__init__.py'
-              - 'pycubrid/protocol.py'
-              - 'tests/test_*ssl*.py'
-              - 'tests/test_tls_*.py'
-              - 'tests/helpers/tls_*.py'
-              - 'tests/fixtures/tls/**'
-              - 'scripts/check_integration_lanes.py'
-              - '.github/workflows/**'
             docs:
               - '**/*.md'
               - 'docs/**'
             code:
-              - 'pycubrid/**'
-              - 'tests/**'
+              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,.gitignore,.gitattributes}'
+            risk:
+              - 'pycubrid/connection.py'
+              - 'pycubrid/_connection_common.py'
+              - 'pycubrid/protocol.py'
+              - 'pycubrid/packet.py'
+              - 'pycubrid/cursor.py'
+              - 'pycubrid/aio/**'
+              - 'pycubrid/compat/**'
               - 'pyproject.toml'
-              - 'scripts/build_official_oracle.py'
+              - 'setup.cfg'
+              - 'Makefile'
+              - 'docker-compose.yml'
+              - 'scripts/**'
+              - '.github/workflows/**'
+              - 'pycubrid/_cursor_common.py'
+              - 'pycubrid/lob.py'
+              - 'pycubrid/constants.py'
+              - 'pycubrid/types.py'
+              - 'pycubrid/__init__.py'
+              - 'tests/test_integration*.py'
+              - 'tests/fixtures/**'
+            tooling:
+              - 'scripts/**'
+              - '.github/**'
+              - 'Makefile'
+              - 'pyproject.toml'
+              - 'setup.cfg'
+              - 'tests/test_*workflow*.py'
+              - 'tests/test_ci_policy.py'
+            tls:
+              - 'pycubrid/aio/**'
+              - 'pycubrid/connection.py'
+              - 'pycubrid/_connection_common.py'
+              - 'pycubrid/protocol.py'
+              - 'tests/test_*ssl*.py'
+              - 'tests/test_tls_*.py'
+              - '.github/workflows/**'
+              - 'tests/helpers/tls_*.py'
+              - 'tests/fixtures/tls/**'
+              - 'pycubrid/__init__.py'
               - 'scripts/check_integration_lanes.py'
-              - 'scripts/check_official_differential.py'
-              - 'scripts/wait_for_cubrid.py'
+            charset:
+              - 'pycubrid/packet.py'
+              - 'pycubrid/protocol.py'
+              - 'pycubrid/connection.py'
+              - 'pycubrid/_connection_common.py'
+              - 'tests/test_integration_charset.py'
+              - '.github/workflows/**'
+              - 'pycubrid/aio/**'
+              - 'pycubrid/_cursor_common.py'
+            official:
+              - 'pycubrid/compat/**'
+              - 'pycubrid/protocol.py'
+              - 'pycubrid/cursor.py'
+              - 'tests/test_official*.py'
+              - 'tests/fixtures/official*'
+              - 'scripts/**'
               - '.github/workflows/**'
 
+              - 'pycubrid/_cursor_common.py'
   doc-lint:
     name: Documentation lint
     needs: detect-changes
@@ -59,6 +120,8 @@ jobs:
 
 
   compat-check:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code == 'true'
     name: Public API compatibility
     runs-on: ubuntu-latest
     steps:
@@ -103,6 +166,8 @@ jobs:
           fi
 
   typecheck:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -119,11 +184,13 @@ jobs:
         run: make typecheck
 
   offline-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        os: [ubuntu-latest]
+        python-version: ["3.12"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -138,7 +205,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
           pip install pytest-cov
+      - name: Run representative PR smoke tests
+        if: github.event_name == 'pull_request'
+        run: python -m pytest tests/test_pep249.py tests/test_exceptions.py tests/test_types.py -m "not integration and not repo_tooling" -q --tb=short
       - name: Run offline tests with coverage
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           python -m pytest tests/ \
@@ -149,7 +220,7 @@ jobs:
             --cov-report=xml \
             --cov-fail-under=95
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -160,6 +231,8 @@ jobs:
           CODECOV_RETRIES: 3
 
   repo-tooling-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.tooling == 'true'
     # Repository policy/tooling checks (docs-sync, PR-title, release scripts,
     # workflow-YAML contracts, the shared quality gate, ...): no pycubrid
     # driver behavior and excluded from `pycubrid`'s coverage source (#558),
@@ -170,7 +243,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -189,8 +262,9 @@ jobs:
         run: python -m pytest tests/ -m "repo_tooling" -v --tb=short
 
   packaging-smoke-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.live == 'true'
     runs-on: ubuntu-latest
-    needs: [offline-tests]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
@@ -220,20 +294,12 @@ jobs:
           /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
 
   integration-tests:
+    needs: [detect-changes, lint, typecheck, offline-tests]
+    if: needs.detect-changes.outputs.live == 'true'
     runs-on: ubuntu-latest
-    needs: [detect-changes, lint, typecheck, offline-tests, packaging-smoke-test]
-    if: needs.detect-changes.outputs.code == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        # Reduced PR matrix: newest (3.14 x 11.4) + oldest (3.10 x 10.2)
-        # supported combinations. The full 5x4 matrix runs nightly / on tags
-        # via integration-full.yml.
-        include:
-          - python-version: "3.14"
-            cubrid-version: "11.4"
-          - python-version: "3.10"
-            cubrid-version: "10.2"
+      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"python-version":"3.14","cubrid-version":"11.4"}]}' || '{"include":[{"python-version":"3.14","cubrid-version":"11.4"},{"python-version":"3.10","cubrid-version":"10.2"}]}') }}
     services:
       cubrid:
         image: cubrid/cubrid:${{ matrix.cubrid-version }}
@@ -272,12 +338,12 @@ jobs:
           python scripts/check_integration_lanes.py --results normal-results.xml
 
   integration-charset:
+    needs: [detect-changes, lint, typecheck, offline-tests]
+    if: needs.detect-changes.outputs.charset == 'true'
     # EUC-KR database lane (#86): the same CUBRID image with
     # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
     # charset="euckr" round-trip tests that skip against a UTF-8 database.
     runs-on: ubuntu-latest
-    needs: [detect-changes, lint, typecheck, offline-tests, packaging-smoke-test]
-    if: needs.detect-changes.outputs.code == 'true'
     services:
       cubrid:
         image: cubrid/cubrid:11.4
@@ -314,13 +380,13 @@ jobs:
           python scripts/check_integration_lanes.py --results charset-results.xml
 
   integration-tls:
+    needs: [detect-changes, lint, typecheck, offline-tests]
+    if: needs.detect-changes.outputs.tls == 'true'
     # Per-PR TLS lane (issue #159) — gated on changes to TLS-relevant code
     # paths. Mirrors the integration-tls job in integration-full.yml but with
     # a single anchored matrix entry (3.14 × 11.4) to keep per-PR cost low
     # while still catching regressions BEFORE merge. integration-full.yml
     # remains the source of truth for the full TLS matrix.
-    needs: [detect-changes, lint, typecheck, offline-tests, packaging-smoke-test]
-    if: needs.detect-changes.outputs.tls == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -462,14 +528,14 @@ jobs:
         run: docker stop cubrid-tls || true
 
   official-differential:
+    needs: [detect-changes, lint, typecheck, offline-tests]
+    if: needs.detect-changes.outputs.official == 'true'
     # Claims-driven differential against the pinned official CUBRIDdb driver
     # (#446): tests/fixtures/official_differential_claims.json, one live case
     # per claim, both servers, no accepted skip. The oracle build is cached by
     # the build script hash, which holds both source pins.
     name: official differential (Python 3.10 / CUBRID 10.2 + 11.4)
     runs-on: ubuntu-latest
-    needs: [detect-changes, lint, typecheck, offline-tests, packaging-smoke-test]
-    if: needs.detect-changes.outputs.code == 'true'
     timeout-minutes: 30
     services:
       cubrid102:
@@ -560,55 +626,54 @@ jobs:
   ci-gate:
     name: CI Gate (all checks must pass)
     if: always()
-    needs: [lint, typecheck, offline-tests, repo-tooling-tests, packaging-smoke-test, integration-tests, integration-charset, compat-check, integration-tls, official-differential]
     runs-on: ubuntu-latest
+    needs: [detect-changes, lint, doc-lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, compat-check, integration-charset, integration-tls, official-differential]
     steps:
-      - name: Check job results
+      - name: Check selected job results
         env:
+          R_DETECT_CHANGES: ${{ needs.detect-changes.result }}
+          E_DETECT_CHANGES: 'true'
           R_LINT: ${{ needs.lint.result }}
+          E_LINT: 'true'
+          R_DOC_LINT: ${{ needs.doc-lint.result }}
+          E_DOC_LINT: ${{ needs.detect-changes.outputs.docs }}
           R_TYPECHECK: ${{ needs.typecheck.result }}
-          R_OFFLINE: ${{ needs.offline-tests.result }}
-          R_REPO_TOOLING: ${{ needs.repo-tooling-tests.result }}
-          R_PACKAGING: ${{ needs.packaging-smoke-test.result }}
-          R_INTEGRATION: ${{ needs.integration-tests.result }}
-          R_CHARSET: ${{ needs.integration-charset.result }}
-          R_COMPAT: ${{ needs.compat-check.result }}
-          R_TLS: ${{ needs.integration-tls.result }}
-          R_OFFICIAL: ${{ needs.official-differential.result }}
+          E_TYPECHECK: ${{ needs.detect-changes.outputs.code }}
+          R_OFFLINE_TESTS: ${{ needs.offline-tests.result }}
+          E_OFFLINE_TESTS: ${{ needs.detect-changes.outputs.code }}
+          R_PACKAGING_SMOKE_TEST: ${{ needs.packaging-smoke-test.result }}
+          E_PACKAGING_SMOKE_TEST: ${{ needs.detect-changes.outputs.live }}
+          R_INTEGRATION_TESTS: ${{ needs.integration-tests.result }}
+          E_INTEGRATION_TESTS: ${{ needs.detect-changes.outputs.live }}
+          R_REPO_TOOLING_TESTS: ${{ needs.repo-tooling-tests.result }}
+          E_REPO_TOOLING_TESTS: ${{ needs.detect-changes.outputs.tooling }}
+          R_COMPAT_CHECK: ${{ needs.compat-check.result }}
+          E_COMPAT_CHECK: ${{ needs.detect-changes.outputs.code }}
+          R_INTEGRATION_CHARSET: ${{ needs.integration-charset.result }}
+          E_INTEGRATION_CHARSET: ${{ needs.detect-changes.outputs.charset }}
+          R_INTEGRATION_TLS: ${{ needs.integration-tls.result }}
+          E_INTEGRATION_TLS: ${{ needs.detect-changes.outputs.tls }}
+          R_OFFICIAL_DIFFERENTIAL: ${{ needs.official-differential.result }}
+          E_OFFICIAL_DIFFERENTIAL: ${{ needs.detect-changes.outputs.official }}
         run: |
           set -euo pipefail
-          fail=0
-          for var in R_LINT R_TYPECHECK R_OFFLINE R_REPO_TOOLING R_PACKAGING R_COMPAT; do
-            if [[ "${!var}" != "success" ]]; then
-              echo "::error::Required job ${var#R_} result: ${!var}"
-              fail=1
+          check() {
+            local job="$1" result="$2" expected="$3"
+            if [[ "$expected" == "true" ]]; then
+              [[ "$result" == "success" ]] || { echo "::error::$job expected success, got $result"; return 1; }
+            else
+              [[ "$result" == "success" || "$result" == "skipped" ]] || { echo "::error::$job got $result"; return 1; }
             fi
-          done
-          # integration-tests is path-gated on code changes; `skipped` is
-          # acceptable for docs-only PRs, but failure/cancelled must fail.
-          if [[ "$R_INTEGRATION" != "success" && "$R_INTEGRATION" != "skipped" ]]; then
-            echo "::error::integration-tests result: $R_INTEGRATION"
-            fail=1
-          fi
-          # integration-charset (#86) shares the same code-path gate.
-          if [[ "$R_CHARSET" != "success" && "$R_CHARSET" != "skipped" ]]; then
-            echo "::error::integration-charset result: $R_CHARSET"
-            fail=1
-          fi
-          # integration-tls is path-gated (issue #159); `skipped` is acceptable
-          # when no TLS-relevant files changed, but any other non-success state
-          # (failure, cancelled) must fail the gate.
-          if [[ "$R_TLS" != "success" && "$R_TLS" != "skipped" ]]; then
-            echo "::error::integration-tls result: $R_TLS"
-            fail=1
-          fi
-          # official-differential (#446) shares the code-path gate; a docs-only
-          # PR may skip it, but a failed or cancelled comparison blocks.
-          if [[ "$R_OFFICIAL" != "success" && "$R_OFFICIAL" != "skipped" ]]; then
-            echo "::error::official-differential result: $R_OFFICIAL"
-            fail=1
-          fi
-          if [[ "$fail" -ne 0 ]]; then
-            exit 1
-          fi
-          echo 'All CI checks passed ✓'
+          }
+          check detect-changes "$R_DETECT_CHANGES" "$E_DETECT_CHANGES"
+          check lint "$R_LINT" "$E_LINT"
+          check doc-lint "$R_DOC_LINT" "$E_DOC_LINT"
+          check typecheck "$R_TYPECHECK" "$E_TYPECHECK"
+          check offline-tests "$R_OFFLINE_TESTS" "$E_OFFLINE_TESTS"
+          check packaging-smoke-test "$R_PACKAGING_SMOKE_TEST" "$E_PACKAGING_SMOKE_TEST"
+          check integration-tests "$R_INTEGRATION_TESTS" "$E_INTEGRATION_TESTS"
+          check repo-tooling-tests "$R_REPO_TOOLING_TESTS" "$E_REPO_TOOLING_TESTS"
+          check compat-check "$R_COMPAT_CHECK" "$E_COMPAT_CHECK"
+          check integration-charset "$R_INTEGRATION_CHARSET" "$E_INTEGRATION_CHARSET"
+          check integration-tls "$R_INTEGRATION_TLS" "$E_INTEGRATION_TLS"
+          check official-differential "$R_OFFICIAL_DIFFERENTIAL" "$E_OFFICIAL_DIFFERENTIAL"

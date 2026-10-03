@@ -1,4 +1,4 @@
-name: Bug Hunt (nightly)
+name: Bug Hunt (weekly)
 
 # Adversarial Bug Hunt layer (epic #336). Runs the integration-marked property
 # fuzzing, protocol fuzzing, state-machine, metamorphic, fault-injection,
@@ -9,7 +9,7 @@ name: Bug Hunt (nightly)
 
 on:
   schedule:
-    - cron: "0 4 * * *"
+    - cron: "0 4 * * 1"
   workflow_dispatch:
 
 concurrency:
@@ -20,14 +20,34 @@ permissions:
   contents: read
 
 jobs:
+  activity:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          changed=false
+          if [[ "$EVENT" != schedule ]] || [[ -n "$(git log -1 --since='7 days ago' --format=%H -- pycubrid tests scripts .github/workflows pyproject.toml Makefile docker-compose.yml)" ]]; then
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
   property-and-fault:
-    name: property / protocol / state-machine / fault / chaos / soak (nightly)
+    needs: activity
+    if: needs.activity.outputs.changed == 'true'
+    name: property / protocol / state-machine / fault / chaos / soak (weekly representative)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.14"]
-        cubrid-version: ["10.2", "11.0", "11.2", "11.4"]
+        python-version: ["3.12"]
+        cubrid-version: ["11.4"]
     services:
       cubrid:
         image: cubrid/cubrid:${{ matrix.cubrid-version }}
@@ -93,6 +113,8 @@ jobs:
           retention-days: 14
 
   mutation:
+    needs: activity
+    if: needs.activity.outputs.changed == 'true'
     name: mutation testing (driver core, offline)
     runs-on: ubuntu-latest
     steps:
@@ -118,6 +140,8 @@ jobs:
           retention-days: 14
 
   perf-trend:
+    needs: activity
+    if: needs.activity.outputs.changed == 'true'
     name: benchmark trend detection
     runs-on: ubuntu-latest
     services:
@@ -185,6 +209,8 @@ jobs:
           retention-days: 30
 
   downstream-corpus:
+    needs: activity
+    if: needs.activity.outputs.changed == 'true'
     name: downstream corpus (${{ matrix.lane }}, CUBRID 11.4)
     runs-on: ubuntu-latest
     timeout-minutes: 30

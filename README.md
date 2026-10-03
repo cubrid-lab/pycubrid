@@ -203,17 +203,11 @@ SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are acces
 
 ## Compatibility
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **Offline Tests** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.2** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.0** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
-> **Legend**: `✅` = executed and passing in PR CI. `--` = not executed in PR CI; verified in the nightly / release full matrix (Python 3.10–3.14 × CUBRID 10.2–11.4).
-
-CI runs the matrix above on every PR/push (Python 3.10 + 3.14 anchors × all CUBRID versions).
-The full **5 × 4** Python × CUBRID matrix runs nightly, on tagged releases, and on demand via `workflow_dispatch`.
+Supported: Python 3.10–3.14 and CUBRID 10.2, 11.0, 11.2, 11.4.
+Ordinary PRs use one Ubuntu/Python 3.12 offline smoke lane; high-risk changes add
+Python 3.14/CUBRID 11.4. Main/changed-weekly validation uses oldest/newest live
+endpoints. The full 5 × 4 live matrix runs on explicit dispatch and every release.
+See [CI execution policy](docs/CI_POLICY.md) and [support matrix](docs/SUPPORT_MATRIX.md).
 
 ## Architecture
 

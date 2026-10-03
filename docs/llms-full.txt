@@ -7856,15 +7856,15 @@ Compatibility and feature support for pycubrid releases.
 | 10.2 | ✅ Supported | Minimum tested version |
 | < 10.2 | ❌ Not supported | Current driver targets CAS protocol v8 |
 
-### CI Matrix
+## CI Matrix
 
-| Dimension | PR / push | Nightly + tag + dispatch |
-|---|---|---|
-| Offline tests | Python 3.10, 3.11, 3.12, 3.13, 3.14 | Same |
-| Integration tests | Python {3.10, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 8 jobs | Python {3.10, 3.11, 3.12, 3.13, 3.14} × CUBRID {10.2, 11.0, 11.2, 11.4} = 20 jobs |
-| Version differential | — | One job: the same generated workloads against CUBRID 10.2, 11.0, 11.2 and 11.4 at once |
+| Validation | Routine execution | Full compatibility |
+| --- | --- | --- |
+| Offline | PR smoke on Ubuntu/Python 3.12; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
+| Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
-The 5 × 4 full integration matrix is run by `.github/workflows/integration-full.yml` on a nightly schedule, on tagged releases, and on demand via `workflow_dispatch`.
+See [CI execution policy](CI_POLICY.md). Supported versions are unchanged;
+representative PR checks are not evidence for every supported combination.
 
 ### Server Behavior Differences Between CUBRID Versions
 
@@ -8527,7 +8527,7 @@ You do not need to run the steps above locally for routine development —
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
-(nightly, via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
+(via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
 lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
 TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
 `pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
@@ -8701,7 +8701,7 @@ filename-glob inventory:
 
 | Lane | Selection | Executable workflow path |
 |---|---|---|
-| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and nightly bug hunt |
+| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and weekly bug hunt |
 | Slow | `integration and slow and not tls` | Nightly/manual bug hunt: soak, chaos, and concurrency stress |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
 | Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.10, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
@@ -8734,10 +8734,10 @@ Its case goes in `CASES` in `tests/test_official_differential.py`. Then run
 either fixed, or recorded as a `deviation` with a reason, an issue and both
 observed values. Never edit an expected value just to match current output. See
 [the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
-The nightly bug hunt also retains separate offline protocol, fault-broker, and
+The weekly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
-Its `downstream-corpus` job is **advisory** (nightly or manual only), with three
+Its `downstream-corpus` job is **advisory** (weekly or manual only), with three
 isolated CUBRID 11.4 / Python 3.12 cells. It checks out the exact pycubrid
 workflow commit and the current `main` commit of each downstream repository in
 different directories. Every dependency install is constrained to the driver
@@ -8811,16 +8811,21 @@ assets; pinning its caller is not a complete freeze of those assets.
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.14) + integration |
-| `integration-full.yml` | Nightly, manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
+| `ci.yml` | PRs, main, weekly, manual | Minimum PR smoke; main/weekly coverage and representative integration |
+| `integration-full.yml` | Manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
 | `prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
 | `release.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
 
 ### CI Matrix
 
-- **Offline**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **Integration**: two selected cells, Python 3.14 / CUBRID 11.4 and Python 3.10 / CUBRID 10.2 (reduced PR matrix;
-  the full 5×4 matrix runs in `integration-full.yml`)
+Routine CI uses one Ubuntu/Python 3.12 offline lane and representative live
+combinations rather than the full matrix. PRs run smoke tests; main and changed
+weekly runs retain the full offline suite with 95% coverage. High-risk PRs select
+newest integration, while main/weekly use oldest/newest endpoints. Repository
+tooling is path-selected on one Linux lane. Full integration is explicit/manual
+and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
+validation requirements. Historical cost measurements below describe the earlier
+workflow, not current job counts or new savings.
 
 ### PR verification cost (#564)
 
@@ -9020,6 +9025,64 @@ Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid
 with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `release.yml`
 runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
 automatically. Nobody pushes tags or publishes by hand.
+
+============================================================
+File: CI_POLICY.md
+============================================================
+
+# CI execution policy
+
+Routine CI uses representative combinations instead of a Cartesian version/OS matrix.
+
+| Trigger | Runtime validation |
+| --- | --- |
+| Documentation-only PR | Documentation and policy checks; no runtime suite or CUBRID provisioning |
+| Ordinary code PR | One Ubuntu/Python 3.12 offline smoke lane; no full coverage claim |
+| High-risk PR | Same offline smoke plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
+| Code push to main | One Ubuntu/Python 3.12 full offline suite with the existing 95% coverage floor; oldest/newest live endpoints |
+| Monday 03:00 UTC | Same representative policy, comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests |
+| Explicit full dispatch or release | Existing full Python 3.10–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes |
+
+The PR smoke suite is deliberately bounded. Contributors must run the regression
+checks relevant to their change locally and record commands/results in the PR.
+Passing smoke is not evidence that the whole offline suite or coverage floor ran.
+`make test` and `make integration` remain available without changing their scope.
+
+Change selection is in `ci.yml`'s `detect-changes` job. Non-documentation paths
+are code by default, so new source/configuration files do not silently become docs.
+Connection/protocol/cursor/async/compatibility or dialect/compiler/reflection,
+dependency, build, script and workflow changes select representative pre-merge
+integration. Repository tooling tests run in one Linux lane when tooling changes.
+The static lint job continues on all events, including generated documentation checks.
+
+The aggregate required-check name stays stable and includes change detection.
+Selected jobs must succeed: skipped, failed or cancelled selected checks fail the
+gate. Only intentionally unselected jobs may skip. Keep branch protection on the
+aggregate gate; do not require every old matrix cell name after reducing matrices.
+Branch protection must be inspected before merge. No protection-setting change
+is part of this PR.
+
+Full verification has no automatic nightly schedule. `integration-full.yml`
+retains manual dispatch and the release `workflow_call` with the immutable candidate
+SHA. Dispatch the workflow on the exact candidate branch/commit and verify the
+run's head SHA before using it as PR evidence. A moved branch needs new evidence.
+The routine CI dispatch is path-sensitive; use the full workflow to request an
+unconditional compatibility run. No release publisher/generator is changed.
+
+Concurrency still cancels superseded PR runs. Main pushes and PR merge refs are
+not assumed to have identical SHAs. Weekly change selection uses the previous
+seven days, not a persisted last-success cache; a failed weekly run must be
+rerun or followed by manual validation rather than treated as successful evidence.
+
+GitHub charges have not been attributed to a workflow or runner SKU. Reduced job
+counts establish less repeated work; they are not a measured monetary saving.
+Compare subsequent Actions jobs/runner minutes and the actual billing category
+before making a cost claim.
+
+The deep bug-hunt workflow runs weekly with one Python 3.12/CUBRID 11.4 cell,
+skipping unchanged weeks and retaining its mutation/performance/downstream checks and wide Hypothesis profile.
+TLS, EUC-KR and official differential jobs are selected by related paths on PRs;
+they remain available in main, changed-weekly and full release validation.
 
 ============================================================
 File: PARAMETER_BINDING.md

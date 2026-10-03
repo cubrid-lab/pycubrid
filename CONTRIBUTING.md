@@ -303,3 +303,9 @@ deterministic probe that fails when the difference stops reproducing. Any
 other divergence is a driver bug (fix it or file it) or an undocumented
 server change (confirm it outside pycubrid, e.g. with `csql`, then document
 it).
+
+## Minimum PR validation
+
+Follow the [CI execution policy](docs/CI_POLICY.md). PR smoke is representative,
+not full-suite/coverage evidence. Run relevant regression tests locally and report
+commands/results; request exact-head full validation where compatibility requires it.

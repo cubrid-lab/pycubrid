@@ -906,3 +906,11 @@ git commit
 If `compat-check` fails on a pull request that did not intend to change the
 surface, the failure is signaling an accidental break — fix the code, do not
 update the baseline.
+
+## Routine CI selection
+
+The [CI execution policy](docs/CI_POLICY.md) reduces routine execution frequency
+and representative matrix cells. This CI-only maintenance changes no runtime API,
+supported-version declaration or release publisher; it does not require a MINOR
+version by itself. Candidate releases still invoke the full compatibility workflow
+at their immutable SHA before publication.
