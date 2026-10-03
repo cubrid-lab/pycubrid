@@ -6,7 +6,7 @@ import ssl as ssl_module
 import struct
 import time
 from threading import RLock
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ._connection_common import (
     ESCAPE_PROBE_FAILED,
@@ -18,7 +18,6 @@ from ._connection_common import (
     warn_unknown_connection_options,
 )
 from .constants import CCIDbParam, DataSize
-from .cursor import Cursor
 from .exceptions import DataError, Error, InterfaceError, OperationalError
 from .protocol import (
     BatchExecutePacket,
@@ -35,6 +34,9 @@ from .protocol import (
     RollbackPacket,
     SetDbParameterPacket,
 )
+
+if TYPE_CHECKING:
+    from .cursor import Cursor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -571,6 +573,8 @@ class Connection(ConnectionCommonMixin):
     def cursor(self) -> Cursor:
         """Create and return a new cursor bound to this connection."""
         self._ensure_connected()
+        from .cursor import Cursor
+
         cursor = Cursor(self)
         self._cursors.add(cursor)
         return cursor
