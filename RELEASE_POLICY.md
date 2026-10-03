@@ -107,7 +107,7 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445, #444)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
 includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
@@ -126,6 +126,9 @@ wrapper cursors receive best-effort same-session cleanup; deterministic
 resource release still requires explicit close.
 #445 adds native-only `cursor.result_info([n])` over measured cached 15-field
 metadata without changing ordinary/wrapper descriptions, row position or APIs.
+#444 adds native-only absolute/relative seek and shadow-counter tell over a live
+current SELECT; explicit manual mode before preparation is the measured cross-page
+prerequisite. No wrapper forwarding or default-mode lifetime promise is added.
 Only their implemented factories, connection and cursor methods are public;
 no wrapper collection/LOB execute, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
@@ -402,6 +405,19 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   failed execution attempts hide old metadata. UTF-8 comparisons do not certify
   non-UTF-8 parity. Ordinary/async/wrapper APIs, dependencies and supported
   versions are unchanged; no version bump, tag or publication is authorized.
+
+- **Native cursor positioning (#444)** — MINOR / additive.
+  `data_seek(n)`, `row_seek(offset)` and `row_tell()` are native-only, with
+  source-compatible safe physical/shadow counters, relative boundary clamping
+  and one retained response page. Seeks are local; cache misses use existing
+  absolute FC8 without reprepare/replay/reconnect. Broker-backed movement needs
+  a live same-owner result and explicit `set_autocommit(False)` before prepare/
+  execute; the autocommitTrue default and its result-release limitation remain.
+  Integer conversion, selector `__index__` callbacks, undefined C overflow and stale/invalidated
+  results have explicit safe guards; message-only args remain a native difference.
+  Candidate page/memory observations do not certify C-extension buffer parity or
+  a requested-size packet cap. No ordinary/async/wrapper public API, metadata,
+  dependency, version/tag/publication or support-policy change is authorized.
 
 - **`Lob.write()` size field and internal LOB-handle binding (#441)** —
   PATCH / correction plus internal wire work. After a write, the packed

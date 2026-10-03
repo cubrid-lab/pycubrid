@@ -559,6 +559,48 @@
       "issue": "#445",
       "reason": "The new metadata API preserves pycubrid InterfaceError's existing constructor and message-only args; its source-compatible numeric code is exposed in .code, not a fabricated errno or global exception adapter.",
       "expected": {"pycubrid": "(int(1), (str('str'),))", "native": "(int(2), (str('int'), str('str')))"}
+    },
+    {
+      "id": "native-position-sequences",
+      "surface": "native",
+      "classification": "match",
+      "summary": "With explicit manual autocommitFalse before prepare/execute on both drivers, the selected safe dual-counter contract covers source tell3/1/5, ordered257-row seeks/reexecute and a fixed1537-row evicted-page sequence. Candidate completed request/page/stream metrics are supplemental; neither defaultTrue fullscroll nor native-buffer parity is claimed.",
+      "inventory_ids": ["documented_cubrid.cursor.data_seek", "documented_cubrid.cursor.row_seek", "documented_cubrid.cursor.row_tell"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_data_seek", "tests3/test_cubrid.py::test_row_seek"],
+      "scenario_gap": "Only source positioning assertions393/406/409 are assessed; the data_seek scenario's num_fields/num_rows assertions, fixture workflow and legacy duplicates remain separate.",
+      "issue": "#444"
+    },
+    {
+      "id": "native-position-boundaries",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Under explicit manual autocommitFalse before prepare/execute, representable source behavior retains distinct normal/seeked EOF tells, failed-relative physical clamps with unchanged shadow, absolute recovery and emptySELECT positioning. Relevant codes use .code or native integer args, not messages.",
+      "inventory_ids": ["documented_cubrid.cursor.data_seek", "documented_cubrid.cursor.row_seek", "documented_cubrid.cursor.row_tell"],
+      "scenario_ids": [],
+      "scenario_gap": "Pinned upstream positioning tests cover only tell3/1/5, not EOF or failed-relative clamps. This case targets the approved actual official-only baseline; certification requires its real required differential run.",
+      "issue": "#444"
+    },
+    {
+      "id": "wrapper-position-fetches",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "With explicit manual autocommitFalse before prepare/execute, tuple/dict wrapperfetchone/fetchmany/fetchall consume the native cursor after positioning through existing _cs, without public wrapper navigation methods or description/converter changes.",
+      "inventory_ids": ["documented_cubrid.cursor.data_seek", "documented_cubrid.cursor.row_seek", "documented_cubrid.cursor.row_tell", "CUBRIDdb.cursors.BaseCursor.fetchone", "CUBRIDdb.cursors.BaseCursor.fetchmany", "CUBRIDdb.cursors.BaseCursor.fetchall"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream native seek tests do not exercise wrapperfetch delegation across pages; only this integration subset is targeted, not a public wrapper seek API.",
+      "issue": "#444"
+    },
+    {
+      "id": "native-position-error-args",
+      "surface": "native",
+      "classification": "deviation",
+      "summary": "Closed data_seek/row_seek/row_tell keep pycubrid message-only exception args instead of the pinned native integer-code/message pair; relevant numeric codes are separate .code evidence.",
+      "inventory_ids": ["documented_cubrid.cursor.data_seek", "documented_cubrid.cursor.row_seek", "documented_cubrid.cursor.row_tell"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream positioning assertions do not inspect error args; this safe closed-state subset is separately measured.",
+      "issue": "#444",
+      "reason": "The new operations reuse pycubrid InterfaceError rather than changing global exception constructors or fabricating native errno/message parsing.",
+      "expected": {"pycubrid": "[(int(1), (str('str'),)), (int(1), (str('str'),)), (int(1), (str('str'),))]", "native": "[(int(2), (str('int'), str('str'))), (int(2), (str('int'), str('str'))), (int(2), (str('int'), str('str')))]"}
     }
   ]
 }

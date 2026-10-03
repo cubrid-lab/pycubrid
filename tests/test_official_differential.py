@@ -24,6 +24,7 @@ import json
 import os
 import platform
 import subprocess  # nosec B404 - fixed git argv for the evidence record
+import tracemalloc
 import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -34,6 +35,7 @@ import pytest
 import pycubrid
 from pycubrid.compat import cubriddb, native
 from pycubrid.lob import Lob
+from pycubrid.protocol import ExecutePacket, FetchPacket, PreparePacket
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
@@ -980,6 +982,393 @@ def _native_result_info_error_args() -> tuple[str, str]:
     return observe(native), observe(_cubrid)
 
 
+_POSITION_QUERY = "SELECT id, txt FROM odnav444_fixture WHERE id <= ? ORDER BY id"
+
+
+def _positioning_fixture(observe: Callable[[Any], str]) -> tuple[str, str]:
+    """Own a fixed scalar fixture only after checking that it does not exist."""
+    observer = _ordinary()  # Explicit ordinary autocommit=True.
+    setup = observer.cursor()
+    created = False
+    try:
+        setup.execute("SELECT class_name FROM db_class WHERE class_name=?", ("odnav444_fixture",))
+        assert not setup.fetchall(), "positioning fixture already exists"
+        setup.execute("CREATE TABLE odnav444_fixture (id INTEGER PRIMARY KEY, txt VARCHAR(20))")
+        created = True
+        setup.execute(
+            "INSERT INTO odnav444_fixture VALUES " + ", ".join(["(?, ?)"] * 1537),
+            tuple(value for row in range(1, 1538) for value in (row, str(row))),
+        )
+        assert setup.rowcount == 1537
+        return observe(native), observe(_cubrid)
+    finally:
+        try:
+            if created:
+                setup.execute("DROP TABLE odnav444_fixture")
+        finally:
+            try:
+                setup.close()
+            finally:
+                observer.close()
+
+
+def _position_outcome(call: Callable[[], object]) -> object:
+    try:
+        return call()
+    except Exception as exc:  # Only these new client-operation observations.
+        code = getattr(exc, "code", None)
+        if type(code) is not int:
+            code = exc.args[0] if exc.args and type(exc.args[0]) is int else None
+        return "raises", type(exc).__name__, code
+
+
+def _position_stream_metrics(conn: Any) -> list[dict[str, int]]:
+    """Candidate-only streaming: no result list, full trace or C-buffer guess."""
+    assert not tracemalloc.is_tracing(), "stream metric requires an isolated tracer"
+    cur = conn.cursor()
+    samples = []
+    try:
+        for total in (257, 1537):
+            cur.prepare(_POSITION_QUERY)
+            cur.bind_param(1, total)
+            count = checksum = peak_page = 0
+            tracemalloc.start()
+            try:
+                assert cur.execute() == total
+                initial_page = peak_page = len(cur._rows)
+                while (row := cur.fetch_row()) is not None:
+                    count += 1
+                    assert row == (count, str(count))
+                    checksum += row[0]
+                    peak_page = max(peak_page, len(cur._rows))
+                peak_bytes = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+            assert count == total and checksum == total * (total + 1) // 2
+            samples.append(
+                {
+                    "rows": total,
+                    "initial_page_rows": initial_page,
+                    "requested_fetch_size": conn._driver._fetch_size,
+                    "max_page_rows": peak_page,
+                    "peak_bytes": peak_bytes,
+                }
+            )
+        assert samples[1]["max_page_rows"] < samples[1]["rows"], samples
+        return samples
+    finally:
+        cur.close()
+
+
+def _native_position_sequences() -> tuple[str, str]:
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        conn.set_autocommit(False)  # Match the measured official-only baseline.
+        cur = conn.cursor()
+        trace: list[dict[str, int | str]] = []
+        driver = conn._driver if module is native else None
+        original_send = driver._send_and_receive if driver is not None else None
+        generation = driver._physical_generation if driver is not None else None
+
+        def completed(packet: Any, **kwargs: Any) -> Any:
+            assert original_send is not None
+            result = original_send(packet, **kwargs)
+            if isinstance(packet, (PreparePacket, ExecutePacket, FetchPacket)):
+                rows = packet.rows if isinstance(packet, (ExecutePacket, FetchPacket)) else []
+                trace.append(
+                    {
+                        "request": type(packet).__name__,
+                        "start": packet.current_tuple_count + 1
+                        if isinstance(packet, FetchPacket)
+                        else 1,
+                        "count": len(rows),
+                        "first_id": rows[0][0] if rows else 0,
+                        "last_id": rows[-1][0] if rows else 0,
+                        "handle": packet.query_handle,
+                        "generation": driver._physical_generation,
+                    }
+                )
+                if isinstance(packet, ExecutePacket):
+                    trace[-1]["auto_commit"] = packet.auto_commit
+                    trace[-1]["forward_only"] = packet.forward_only
+            return result
+
+        if driver is not None:
+            driver._send_and_receive = completed
+        try:
+            cur.prepare(_POSITION_QUERY)
+            cur.bind_param(1, 257)
+            executed = cur.execute()
+            initial = cur.row_tell()
+            first = cur.fetch_row()
+            after_first = cur.row_tell()
+            cur.data_seek(3)
+            absolute = cur.row_tell()
+            assert absolute == 3  # e75ec36 tests3/test_cubrid.py:393
+            cur.row_seek(-2)
+            backward = cur.row_tell()
+            assert backward == 1  # source:406
+            cur.row_seek(4)
+            forward = cur.row_tell()
+            assert forward == 5  # source:409
+            sought = cur.fetch_row()
+            after_sought = cur.row_tell()
+            cur.execute()
+            reexecuted = cur.row_tell()
+            again = cur.fetch_row()
+            after_again = cur.row_tell()
+            cur.prepare(_POSITION_QUERY)
+            cur.bind_param(1, 257)
+            cur.execute()
+            for expected in range(1, 206):
+                assert cur.fetch_row() == (expected, str(expected))
+            after_205 = cur.row_tell()
+            pages = []
+            for position in (3, 220):
+                before = len(trace)
+                page_start = cur._fetched_count - len(cur._rows) + 1 if driver is not None else 0
+                outside = driver is not None and not page_start <= position <= cur._fetched_count
+                cur.data_seek(position)
+                assert len(trace) == before
+                if driver is not None:
+                    _write(
+                        {
+                            "record": "candidate-metrics",
+                            "claim": "native-position-sequences",
+                            "scope": "supplemental pre-fetch diagnostic; not a comparison pass",
+                            "target": position,
+                            "retained_page_start": page_start,
+                            "retained_page_end": cur._fetched_count,
+                            "retained_page_rows": len(cur._rows),
+                            "total_rows": cur._total_tuple_count,
+                            "configured_fetch_size": driver._fetch_size,
+                            "completed_requests": list(trace),
+                        }
+                    )
+                row = cur.fetch_row()
+                assert row == (position, str(position))
+                if outside:
+                    assert trace[-1]["request"] == "FetchPacket" and trace[-1]["start"] == position
+                pages.append((row, cur.row_tell()))
+            page_start = cur._fetched_count - len(cur._rows) + 1 if driver is not None else 0
+            outside_106 = driver is not None and not page_start <= 106 <= cur._fetched_count
+            cur.row_seek(-115)
+            row_106 = cur.fetch_row()
+            assert row_106 == (106, "106")
+            if outside_106:
+                assert trace[-1]["request"] == "FetchPacket" and trace[-1]["start"] == 106
+            final_257 = cur.row_tell()
+
+            # A separate larger result proves actual evictions, not assumed size100.
+            cur.prepare(_POSITION_QUERY)
+            cur.bind_param(1, 1537)
+            cur.execute()
+            initial_1537 = len(cur._rows) if driver is not None else 0
+            assert initial_1537 < 1537
+            consumed = 1205
+            assert initial_1537 < consumed, (
+                "larger result still fits before the chosen eviction point"
+            )
+            for expected in range(1, consumed + 1):
+                assert cur.fetch_row() == (expected, str(expected))
+            extended = []
+            for position in (3, 1500):
+                before = len(trace)
+                page_start = cur._fetched_count - len(cur._rows) + 1 if driver is not None else 0
+                outside = driver is not None and not page_start <= position <= cur._fetched_count
+                cur.data_seek(position)
+                assert len(trace) == before
+                if driver is not None:
+                    _write(
+                        {
+                            "record": "candidate-metrics",
+                            "claim": "native-position-sequences",
+                            "scope": "supplemental before extended FETCH; not a comparison pass",
+                            "target": position,
+                            "retained_page_start": page_start,
+                            "retained_page_end": cur._fetched_count,
+                            "retained_page_rows": len(cur._rows),
+                            "total_rows": cur._total_tuple_count,
+                            "configured_fetch_size": driver._fetch_size,
+                            "completed_requests": list(trace),
+                        }
+                    )
+                row = cur.fetch_row()
+                assert row == (position, str(position))
+                if outside:
+                    assert trace[-1]["request"] == "FetchPacket" and trace[-1]["start"] == position
+                extended.append((row, cur.row_tell()))
+            page_start = cur._fetched_count - len(cur._rows) + 1 if driver is not None else 0
+            outside_106 = driver is not None and not page_start <= 106 <= cur._fetched_count
+            cur.row_seek(-1395)
+            row_106_extended = cur.fetch_row()
+            assert row_106_extended == (106, "106")
+            if outside_106:
+                assert trace[-1]["request"] == "FetchPacket" and trace[-1]["start"] == 106
+            final_1537 = cur.row_tell()
+            if driver is not None:
+                assert driver._physical_generation == generation
+                starts = [r["start"] for r in trace if r["request"] == "FetchPacket"]
+                _write(
+                    {
+                        "record": "candidate-metrics",
+                        "claim": "native-position-sequences",
+                        "scope": "supplemental completed requests before trace assertions",
+                        "configured_fetch_size": driver._fetch_size,
+                        "retained_page_rows": len(cur._rows),
+                        "completed_requests": trace,
+                    }
+                )
+                assert all(position in starts for position in (3, 1500, 106)), trace
+                assert sum(r["request"] == "ExecutePacket" for r in trace) == 4
+                assert sum(r["request"] == "PreparePacket" for r in trace) == 3
+                driver._send_and_receive = original_send
+                _write(
+                    {
+                        "record": "candidate-metrics",
+                        "claim": "native-position-sequences",
+                        "scope": "supplemental candidate-only; C-extension buffers unexposed",
+                        "completed_requests": trace,
+                        "stream_samples": _position_stream_metrics(conn),
+                    }
+                )
+            return render(
+                (
+                    executed,
+                    initial,
+                    first,
+                    after_first,
+                    absolute,
+                    backward,
+                    forward,
+                    sought,
+                    after_sought,
+                    reexecuted,
+                    again,
+                    after_again,
+                    after_205,
+                    pages,
+                    row_106,
+                    final_257,
+                    consumed,
+                    extended,
+                    row_106_extended,
+                    final_1537,
+                )
+            )
+        finally:
+            if driver is not None:
+                driver._send_and_receive = original_send
+            try:
+                cur.close()
+            finally:
+                conn.close()
+
+    return _positioning_fixture(observe)
+
+
+def _native_position_boundaries() -> tuple[str, str]:
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        conn.set_autocommit(False)
+        cur = conn.cursor()
+        try:
+            drains = []
+            for absolute_first in (False, True):
+                cur.prepare(_POSITION_QUERY)
+                cur.bind_param(1, 257)
+                cur.execute()
+                if absolute_first:
+                    cur.data_seek(1)
+                for expected in range(1, 258):
+                    assert cur.fetch_row() == (expected, str(expected))
+                drains.append((cur.fetch_row(), _position_outcome(cur.row_tell), cur.fetch_row()))
+            cur.data_seek(3)
+            before_first = (
+                _position_outcome(lambda: cur.row_seek(-3)),
+                cur.row_tell(),
+                cur.fetch_row(),
+            )
+            cur.data_seek(3)
+            recovered = cur.fetch_row()
+            cur.data_seek(256)
+            after_end = (
+                _position_outcome(lambda: cur.row_seek(2)),
+                cur.row_tell(),
+                cur.fetch_row(),
+            )
+            cur.data_seek(257)
+            last = (cur.fetch_row(), _position_outcome(cur.row_tell))
+            cur.prepare(_POSITION_QUERY)
+            cur.bind_param(1, 0)
+            cur.execute()
+            empty = (cur.row_tell(), cur.fetch_row(), _position_outcome(lambda: cur.data_seek(1)))
+            return render((drains, before_first, recovered, after_end, last, empty))
+        finally:
+            try:
+                cur.close()
+            finally:
+                conn.close()
+
+    return _positioning_fixture(observe)
+
+
+def _wrapper_position_fetches() -> tuple[str, str]:
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        conn.set_autocommit(False)
+        cursors = []
+        observations = []
+        try:
+            for dict_cursor in (False, True):
+                cur = conn.cursor(dictCursor=dict_cursor)
+                cursors.append(cur)
+                cur.execute(_POSITION_QUERY, (257,))
+                description = cur.description
+                cur._cs.data_seek(3)
+                first = cur.fetchone()
+                cur._cs.row_seek(-2)
+                many = cur.fetchmany(3)
+                cur._cs.data_seek(220)
+                rest = cur.fetchall()
+                cur.arraysize = 2
+                cur._cs.data_seek(50)
+                default_many = cur.fetchmany()
+                assert cur.description == description
+                observations.append((first, many, rest, default_many, cur._cs.row_tell()))
+            return render(observations)
+        finally:
+            try:
+                for cur in cursors:
+                    cur.close()
+            finally:
+                conn.close()
+
+    # The source wrapper delegates to its existing native _cs; no forwards added.
+    return _positioning_fixture(lambda module: observe(cubriddb if module is native else CUBRIDdb))
+
+
+def _native_position_error_args() -> tuple[str, str]:
+    def observe(module: Any) -> str:
+        conn = module.connect(URL, TEST_USER, TEST_PASSWORD)
+        cur = conn.cursor()
+        try:
+            cur.close()
+            outcomes = []
+            for call in (lambda: cur.data_seek(1), lambda: cur.row_seek(1), cur.row_tell):
+                try:
+                    call()
+                except Exception as exc:
+                    outcomes.append((len(exc.args), tuple(type(arg).__name__ for arg in exc.args)))
+                else:
+                    raise AssertionError("closed positioning operation did not fail")
+            return render(outcomes)
+        finally:
+            conn.close()
+
+    return observe(native), observe(_cubrid)
+
+
 FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
 KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
 
@@ -1048,6 +1437,10 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "native-result-info-selectors": _native_result_info_selectors,
     "native-result-info-position-and-boundaries": _native_result_info_position_and_boundaries,
     "native-result-info-error-args": _native_result_info_error_args,
+    "native-position-sequences": _native_position_sequences,
+    "native-position-boundaries": _native_position_boundaries,
+    "wrapper-position-fetches": _wrapper_position_fetches,
+    "native-position-error-args": _native_position_error_args,
 }
 
 
@@ -1103,7 +1496,11 @@ def environment() -> Iterator[dict[str, Any]]:
             "cci_commit": manifest.get("cci_commit"),
             "driver_version": manifest.get("driver_version"),
             "extension_sha256": sha256,
-            "autocommit": {"wrapper_ordinary": True, "native": "driver default (True)"},
+            "autocommit": {
+                "wrapper_ordinary": True,
+                "native": "constructor default (True)",
+                "scope": "constructor/setup defaults only; cases may explicitly override",
+            },
         }
     finally:
         py.close()
@@ -1126,17 +1523,32 @@ def test_official_claim(claim: dict[str, Any], environment: dict[str, Any]) -> N
         outcome = "match" if claim["classification"] == "match" else "classified-deviation"
     else:
         outcome = "mismatch"
-    _write(
-        {
-            "record": "case",
-            "claim": claim["id"],
-            "classification": claim["classification"],
-            "server_version": environment["server_version"],
-            "pycubrid": pycubrid_obs,
-            "native": native_obs,
-            "outcome": outcome,
+    record: dict[str, Any] = {
+        "record": "case",
+        "claim": claim["id"],
+        "classification": claim["classification"],
+        "server_version": environment["server_version"],
+        "pycubrid": pycubrid_obs,
+        "native": native_obs,
+        "outcome": outcome,
+    }
+    if claim["id"] in {
+        "native-position-sequences",
+        "native-position-boundaries",
+        "wrapper-position-fetches",
+    }:
+        record["case_mode"] = {
+            "autocommit": False,
+            "configured": "explicit setter before prepare/execute on both drivers/wrappers",
+            "scope": "live same-owner SELECT; not default-mode lifetime proof",
         }
-    )
+    elif claim["id"] == "native-position-error-args":
+        record["case_mode"] = {
+            "autocommit": "constructor default (True)",
+            "query_executed": False,
+            "scope": "closed client error args, not result-lifetime proof",
+        }
+    _write(record)
     assert agrees, (
         f"{claim['id']} ({claim['classification']}): pycubrid={pycubrid_obs} native={native_obs}"
         f" expected={expected}"
