@@ -206,7 +206,7 @@ and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bi
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
 through FC41. The wrapper `pycubrid.compat.cubriddb` offers construction,
-close, autocommit access and qualified row cursors but no DB-API globals, a
+close, explicit commit/rollback, autocommit access and qualified row cursors but no DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
@@ -415,6 +415,24 @@ try:
 finally:
     wrapper.close()
 ```
+
+### Wrapper transaction boundaries (#662)
+
+`cubriddb.Connection.commit() -> None` and `rollback() -> None` take no arguments.
+Each delegates once to the exact owned native connection, returns `None` and
+lets its exception propagate without new wrapping. Extra positional/keyword
+arguments fail before delegation; closed-owner checks remain native-owned.
+For pending work, first use `set_autocommit(False)` or `.autocommit = False`;
+the compatibility factory's autocommit default is unchanged.
+
+Existing native result callbacks apply only after a successful boundary:
+commit preserves local result state; rollback invalidates native fetching.
+Wrapper cursor `rowcount` and `description` remain cached execution snapshots,
+so populated metadata after rollback does not mean the result is fetchable.
+A failed delegation adds no facade result notification or snapshot reset. These
+delegates add no connection, SQL, retry or recovery logic; underlying native
+rules remain, without a universal remote-result lifetime or thread-sharing promise.
+Ordinary/async APIs, defaults and broader wrapper execution are unchanged.
 
 ### Qualified wrapper row cursors (#466)
 
