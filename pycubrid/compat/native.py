@@ -29,6 +29,7 @@ from threading import RLock
 from typing import Any, BinaryIO, SupportsIndex
 
 from pycubrid import __version__ as _CLIENT_VERSION
+from pycubrid._connection_common import _CAS_DBMS_CUBRID
 from pycubrid.connection import Connection as _DriverConnection
 from pycubrid.constants import (
     CCIDbParam,
@@ -270,6 +271,16 @@ class connection:
         driver._send_and_receive(packet, allow_reconnect=False, expected_generation=generation)
         self._check_utility_state(state)
 
+    def _utility_fetch_retired(self, state: _UtilityState) -> bool:
+        driver, generation, sock, mode = state
+        return (
+            mode
+            and driver._prepared_session_is_current(generation, sock)
+            and driver._statement_pooling == 0
+            and driver._broker_db_type == _CAS_DBMS_CUBRID
+            and driver._cas_info[0] == 0
+        )
+
     def server_version(self, /) -> str:
         """Read full server text on the current physical session, without retry."""
         with self._session_lock:
@@ -320,12 +331,18 @@ class connection:
                         fetch_size=driver._fetch_size,
                         columns=packet.columns,
                     )
-                    self._utility_request(fetched, state)
-                    if (
-                        mode
-                        and not driver._handles_survive_transactions()
-                        and driver._cas_info[0] == 0
-                    ):
+                    try:
+                        self._utility_request(fetched, state)
+                    except BaseException as fetch_error:
+                        # Only a complete guarded broker error adopts its reply
+                        # status before propagating. Prior/local status is not proof.
+                        if getattr(
+                            fetch_error, "_cas_server_error", False
+                        ) and self._utility_fetch_retired(state):
+                            retired = True
+                            handle = None
+                        raise
+                    if self._utility_fetch_retired(state):
                         retired = True
                         handle = None
                     rows = fetched.rows
