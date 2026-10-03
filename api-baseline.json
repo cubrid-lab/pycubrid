@@ -3926,6 +3926,23 @@
               ]
             }
           },
+          "data_seek": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "VAR_POSITIONAL",
+                  "name": "args"
+                }
+              ]
+            }
+          },
           "execute": {
             "kind": "callable",
             "signature": {
@@ -4005,6 +4022,40 @@
             }
           },
           "result_info": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "VAR_POSITIONAL",
+                  "name": "args"
+                }
+              ]
+            }
+          },
+          "row_seek": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "VAR_POSITIONAL",
+                  "name": "args"
+                }
+              ]
+            }
+          },
+          "row_tell": {
             "kind": "callable",
             "signature": {
               "params": [
@@ -4427,6 +4478,23 @@
           ]
         }
       },
+      "data_seek": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_POSITIONAL",
+              "name": "args"
+            }
+          ]
+        }
+      },
       "execute": {
         "kind": "callable",
         "signature": {
@@ -4506,6 +4574,40 @@
         }
       },
       "result_info": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_POSITIONAL",
+              "name": "args"
+            }
+          ]
+        }
+      },
+      "row_seek": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "VAR_POSITIONAL",
+              "name": "args"
+            }
+          ]
+        }
+      },
+      "row_tell": {
         "kind": "callable",
         "signature": {
           "params": [

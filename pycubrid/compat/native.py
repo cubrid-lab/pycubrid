@@ -5,7 +5,8 @@ collection binding (``connection.set()``, ``set.imports()``,
 ``cursor.bind_set()``), and BLOB/CLOB handle fetch, bind and byte-position
 stream operations (``connection.lob()``, ``cursor.fetch_lob()``,
 ``cursor.bind_lob()``, ``lob.write/read/seek``), and cached column metadata
-(``cursor.result_info()``) are supported here. Prepared
+(``cursor.result_info()``) and current-result positioning
+(``cursor.data_seek/row_seek/row_tell``) are supported here. Prepared
 scalar strings use the connection charset (UTF-8 unless ``charset`` says
 otherwise); native LOB stream text uses UTF-8 like the official Python 3
 extension. Writable cached connection settings are distinct from effective
@@ -294,6 +295,8 @@ class cursor:
         self._has_result = False
         self._result_invalidated = False
         self._metadata_ready = False
+        self._next_position = 0
+        self._tell_position = 0
 
     def _check_open(self) -> None:
         driver = self._connection._driver
@@ -322,6 +325,7 @@ class cursor:
         self._total_tuple_count = 0
         self._has_result = False
         self._result_invalidated = True
+        self._next_position = 0
 
     def _clear_statement(self) -> None:
         self._handle = None
@@ -333,6 +337,7 @@ class cursor:
         self._bind_count = 0
         self._columns = []
         self._metadata_ready = False
+        self._tell_position = 0
         self._bindings = []
         self._invalidate_result()
 
@@ -413,6 +418,7 @@ class cursor:
             self._bind_count = packet.bind_count
             self._columns = list(packet.columns)
             self._metadata_ready = False
+            self._tell_position = 0
             self._bindings = [None] * packet.bind_count
             self._invalidate_result()
 
@@ -504,10 +510,7 @@ class cursor:
                 raise InterfaceError("prepared result was invalidated")
             if not self._has_result:
                 raise InterfaceError("prepared cursor has no SELECT result")
-            if (
-                self._row_index >= len(self._rows)
-                and self._fetched_count >= self._total_tuple_count
-            ):
+            if not 1 <= self._next_position <= self._total_tuple_count:
                 return None
             if not 1 <= col <= len(self._columns):
                 raise ProgrammingError("prepared column index is out of range")
@@ -527,6 +530,8 @@ class cursor:
                 # problem (#492/#512), not framing damage: keep the session,
                 # and leave the row unread like the other rejections here.
                 self._row_index -= 1
+                self._next_position -= 1
+                self._tell_position -= 1
                 raise DataError("prepared LOB cell does not match its column type")
             # The handle bytes come from the broker; damaged framing means an
             # uncertain reply, so the session is retired.
@@ -586,6 +591,7 @@ class cursor:
         self._bind_count = packet.bind_count
         self._columns = list(packet.columns)
         self._metadata_ready = False
+        self._tell_position = 0
         self._bindings = [None] * packet.bind_count
         self._invalidate_result()
         self._assert_refresh_session(driver, generation, autocommit)
@@ -659,7 +665,97 @@ class cursor:
                 self._invalidate_result()
                 raise OperationalError("prepared result contains more rows than advertised")
             self._metadata_ready = True
+            self._next_position = 1 if self._has_result else 0
             return packet.total_tuple_count
+
+    def _check_positioning_result(self) -> None:
+        """Check the current SELECT owner without clearing rows or probing CAS."""
+        if self._closed:
+            raise InterfaceError("prepared cursor is closed", code=-30019)
+        self._check_open()
+        driver = self._connection._driver
+        if self._handle is None or self._generation is None:
+            raise InterfaceError("prepared cursor has no current statement")
+        if self._prepared_driver is not driver:
+            raise InterfaceError("prepared statement belongs to another connection")
+        if self._generation != driver._physical_generation:
+            raise InterfaceError("prepared statement belongs to an earlier physical session")
+        if self._result_invalidated:
+            raise InterfaceError("prepared result was invalidated")
+        if not self._has_result:
+            raise InterfaceError("prepared cursor has no SELECT result")
+
+    def _position_selector(self, args: tuple[SupportsIndex, ...]) -> int:
+        """Parse one C-int selector and reject reentrant result/position changes."""
+        if self._closed:
+            raise InterfaceError("prepared cursor is closed", code=-30019)
+        if len(args) != 1:
+            raise TypeError("cursor positioning requires one positional argument")
+        rows, columns = self._rows, self._columns
+        state = (
+            self._handle,
+            self._generation,
+            self._next_position,
+            self._tell_position,
+            self._row_index,
+            self._fetched_count,
+            self._total_tuple_count,
+            self._metadata_ready,
+        )
+        n = operator.index(args[0])
+        if not -(2**31) <= n < 2**31:
+            raise OverflowError("cursor position is outside the C int range")
+        self._check_positioning_result()
+        current = (
+            self._handle,
+            self._generation,
+            self._next_position,
+            self._tell_position,
+            self._row_index,
+            self._fetched_count,
+            self._total_tuple_count,
+            self._metadata_ready,
+        )
+        if self._rows is not rows or self._columns is not columns or current != state:
+            raise InterfaceError("prepared result changed during position argument conversion")
+        return n
+
+    def data_seek(self, *args: SupportsIndex) -> None:
+        """Move to an absolute one-based row in the current SELECT result."""
+        with self._connection._session_lock:
+            n = self._position_selector(args)
+            if not 1 <= n <= self._total_tuple_count:
+                raise InterfaceError("prepared row index is out of range", code=-30006)
+            self._next_position = self._tell_position = n
+
+    def row_seek(self, *args: SupportsIndex) -> None:
+        """Move relative to the physical cursor, retaining the separate tell counter."""
+        with self._connection._session_lock:
+            offset = self._position_selector(args)
+            target = self._next_position + offset
+            if target <= 0:
+                self._next_position = 0
+                raise InterfaceError("prepared cursor is before the first row", code=-20005)
+            if target > self._total_tuple_count:
+                self._next_position = self._total_tuple_count + 1
+                raise InterfaceError("prepared cursor is after the last row", code=-20005)
+            shadow = self._tell_position + offset
+            if not -(2**31) <= shadow < 2**31:
+                raise OverflowError("cursor tell counter is outside the C int range")
+            self._next_position = target
+            self._tell_position = shadow
+
+    def row_tell(self, *args: object) -> int:
+        """Return the native extension's shadow counter without requesting rows."""
+        with self._connection._session_lock:
+            if self._closed:
+                raise InterfaceError("prepared cursor is closed", code=-30019)
+            if args:
+                raise TypeError("row_tell() accepts no positional arguments")
+            self._check_positioning_result()
+            if self._tell_position > self._total_tuple_count:
+                raise InterfaceError("prepared cursor tell position is invalid", code=-30012)
+            return self._tell_position
 
     def result_info(self, *args: SupportsIndex) -> tuple[tuple[int | str, ...], ...] | None:
         """Return cached 15-field column tuples for all columns or one-based n."""
@@ -724,30 +820,39 @@ class cursor:
                 raise InterfaceError("prepared result was invalidated")
             if not self._has_result:
                 raise InterfaceError("prepared cursor has no SELECT result")
-            if self._row_index >= len(self._rows):
-                if self._fetched_count >= self._total_tuple_count:
-                    return None
+            position = self._next_position
+            if not 1 <= position <= self._total_tuple_count:
+                return None
+            shadow = self._tell_position + 1
+            if not -(2**31) <= shadow < 2**31:
+                raise OverflowError("cursor tell counter is outside the C int range")
+            page_start = self._fetched_count - len(self._rows) + 1
+            if not self._rows or not page_start <= position <= self._fetched_count:
                 packet = FetchPacket(
                     handle,
-                    self._fetched_count,
+                    position - 1,
                     fetch_size=driver._fetch_size,
                     columns=self._columns,
                     statement_type=self._statement_type,
                     decode_collections=driver._decode_collections,
                     json_deserializer=driver._json_deserializer,
                 )
-                self._request(packet, generation)
-                if (
-                    not packet.rows
-                    or len(packet.rows) > self._total_tuple_count - self._fetched_count
-                ):
+                try:
+                    self._request(packet, generation, allow_reconnect=False)
+                except BaseException:
+                    self._invalidate_result()
+                    raise
+                if not packet.rows or len(packet.rows) > self._total_tuple_count - position + 1:
                     self._invalidate_result()
                     raise OperationalError("prepared result page does not match row count")
                 self._rows = list(packet.rows)
-                self._row_index = 0
-                self._fetched_count += len(packet.rows)
-            row = self._rows[self._row_index]
-            self._row_index += 1
+                page_start = position
+                self._fetched_count = position - 1 + len(packet.rows)
+            index = position - page_start
+            row = self._rows[index]
+            self._row_index = index + 1
+            self._next_position = position + 1
+            self._tell_position = shadow
             return row
 
     def _on_commit(self) -> None:
