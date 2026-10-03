@@ -20,6 +20,7 @@ from xml.etree import ElementTree
 import pytest
 
 import pycubrid
+from pycubrid.protocol import GetEngineVersionPacket
 
 from . import conftest
 from ._cubrid_endpoint import CubridEndpoint, is_configured, probe, resolve_endpoint
@@ -176,6 +177,8 @@ def test_probe_selects_one_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
     conn.cursor.return_value.execute.assert_called_once_with("SELECT 1")
     conn.cursor.return_value.close.assert_called_once_with()
     conn.close.assert_called_once_with()
+    conn.get_server_version.assert_not_called()
+    conn._send_and_receive.assert_not_called()
 
 
 def test_probe_propagates_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -183,6 +186,78 @@ def test_probe_propagates_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(OSError, match="refused"):
         probe(CubridEndpoint("h", 1, "d", "u", "p"))
+
+
+@pytest.mark.parametrize("autocommit", [False, True])
+def test_optional_probe_identity_uses_one_fixed_session(
+    monkeypatch: pytest.MonkeyPatch, autocommit: bool
+) -> None:
+    conn = MagicMock()
+    conn.autocommit = autocommit
+    conn._physical_generation = 7
+
+    def version(packet: GetEngineVersionPacket, **kwargs: object) -> None:
+        assert isinstance(packet, GetEngineVersionPacket)
+        assert packet.auto_commit is autocommit
+        assert kwargs == {"allow_reconnect": False, "expected_generation": 7}
+        conn.cursor.return_value.execute.assert_called_once_with("SELECT 1")
+        packet.engine_version = "11.4.6.1963"
+
+    conn._send_and_receive.side_effect = version
+    connect = MagicMock(return_value=conn)
+    monkeypatch.setattr(pycubrid, "connect", connect)
+    identity: dict[str, object] = {}
+    result = probe(CubridEndpoint("h", 1, "d", "u", "p"), result=identity)
+    assert result is None
+    assert identity["status"] == "observed"
+    assert identity["version"] == "11.4.6.1963"
+    assert connect.call_count == 1
+    conn._send_and_receive.assert_called_once()
+    conn.get_server_version.assert_not_called()
+    conn._connect.assert_not_called()
+    conn.cursor.return_value.close.assert_called_once_with()
+    conn.close.assert_called_once_with()
+
+
+def test_optional_version_failure_cannot_replace_healthy_select(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = MagicMock()
+    conn._physical_generation = 3
+    conn.autocommit = False
+    conn._send_and_receive.side_effect = pycubrid.OperationalError("version unavailable")
+    connect = MagicMock(return_value=conn)
+    monkeypatch.setattr(pycubrid, "connect", connect)
+    identity: dict[str, object] = {"status": "observed", "version": "stale-version"}
+    result = probe(CubridEndpoint("h", 1, "d", "u", "p"), result=identity)
+    assert result is None
+    assert identity["status"] == "unavailable"
+    assert identity["reason"]
+    assert not identity.get("version")
+    assert connect.call_count == 1
+    conn._send_and_receive.assert_called_once()
+    conn._connect.assert_not_called()
+    conn.get_server_version.assert_not_called()
+    conn.cursor.return_value.close.assert_called_once_with()
+    conn.close.assert_called_once_with()
+
+
+def test_optional_identity_cannot_hide_select_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = MagicMock()
+    error = pycubrid.OperationalError("SELECT failed")
+    conn.cursor.return_value.execute.side_effect = error
+    connect = MagicMock(return_value=conn)
+    monkeypatch.setattr(pycubrid, "connect", connect)
+    identity: dict[str, object] = {"status": "observed", "version": "stale-version"}
+    with pytest.raises(pycubrid.OperationalError) as caught:
+        probe(CubridEndpoint("h", 1, "d", "u", "p"), result=identity)
+    assert caught.value is error
+    assert identity["status"] == "unavailable"
+    assert not identity.get("version")
+    assert connect.call_count == 1
+    conn._send_and_receive.assert_not_called()
+    conn.cursor.return_value.close.assert_called_once_with()
+    conn.close.assert_called_once_with()
 
 
 # ---------------------------------------------------------------------------

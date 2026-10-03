@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import runpy
+import json
 import os
 import shlex
 import shutil
@@ -14,6 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import pycubrid
+from pycubrid.protocol import GetEngineVersionPacket
 
 pytestmark = pytest.mark.repo_tooling
 
@@ -139,6 +141,131 @@ def test_cursor_close_failure_still_closes_connection(monkeypatch: pytest.Monkey
 
     assert main(["wait_for_cubrid.py", "1", "0"]) == 1
     conn.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize("metadata_failure", [False, True])
+def test_readiness_sidecar_records_fresh_identity_without_extra_connect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, metadata_failure: bool
+) -> None:
+    main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
+    monkeypatch.setenv("GITHUB_SHA", "current-sha")
+    monkeypatch.setenv("CUBRID_TEST_HOST", "identity-broker")
+    monkeypatch.setenv("CUBRID_TEST_PORT", "33001")
+    monkeypatch.setenv("CUBRID_TEST_DB", "identity_db")
+    monkeypatch.setenv("CUBRID_TEST_USER", "identity_user")
+    monkeypatch.setenv("CUBRID_TEST_PASSWORD", "private-password")
+    sidecar = tmp_path / "attempt-2-server.json"
+    sidecar.write_text(json.dumps({"status": "observed", "version": "stale-version"}))
+    conn = MagicMock()
+    conn._physical_generation = 9
+    conn.autocommit = False
+
+    def version(packet: GetEngineVersionPacket, **kwargs: object) -> None:
+        assert kwargs == {"allow_reconnect": False, "expected_generation": 9}
+        if metadata_failure:
+            raise OSError("private-password version unavailable")
+        packet.engine_version = "10.2.18.9024"
+
+    conn._send_and_receive.side_effect = version
+    connect = MagicMock(return_value=conn)
+    monkeypatch.setattr(pycubrid, "connect", connect)
+    sleep = MagicMock()
+    monkeypatch.setattr("time.sleep", sleep)
+    result = main(["wait_for_cubrid.py", "2", "0", "--server-info", str(sidecar)])
+    assert result == 0
+    info = json.loads(sidecar.read_text())
+    assert info["github_sha"] == "current-sha"
+    assert info["endpoint"] == "identity_user@identity-broker:33001/identity_db"
+    assert info["observed_at"]
+    assert "private-password" not in sidecar.read_text()
+    if metadata_failure:
+        assert info["status"] == "unavailable"
+        assert info["reason"]
+        assert not info.get("version")
+    else:
+        assert info["status"] == "observed"
+        assert info["version"] == "10.2.18.9024"
+    assert connect.call_count == 1
+    conn._send_and_receive.assert_called_once()
+    conn.get_server_version.assert_not_called()
+    conn._connect.assert_not_called()
+    conn.cursor.return_value.close.assert_called_once_with()
+    conn.close.assert_called_once_with()
+    sleep.assert_not_called()
+
+
+def test_readiness_exhaustion_replaces_stale_identity_without_masking_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
+    monkeypatch.setenv("GITHUB_SHA", "current-sha")
+    monkeypatch.setenv("CUBRID_TEST_PASSWORD", "private-password")
+    sidecar = tmp_path / "attempt-3-server.json"
+    sidecar.write_text(json.dumps({"status": "observed", "version": "stale-version"}))
+    connect = MagicMock(side_effect=OSError("private-password broker unavailable"))
+    monkeypatch.setattr(pycubrid, "connect", connect)
+    sleep = MagicMock()
+    monkeypatch.setattr("time.sleep", sleep)
+    result = main(["wait_for_cubrid.py", "2", "0", "--server-info", str(sidecar)])
+    assert result == 1
+    info = json.loads(sidecar.read_text())
+    assert info["status"] == "unavailable"
+    assert info["github_sha"] == "current-sha"
+    assert not info.get("version")
+    assert info["reason"]
+    assert "private-password" not in sidecar.read_text()
+    assert connect.call_count == 2
+    assert sleep.call_count == 2
+    assert "never became ready after 2 attempts" in capsys.readouterr().err
+
+
+def test_sidecar_write_failure_does_not_change_readiness_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
+    sidecar = tmp_path / "absent" / "server.json"
+    conn = MagicMock()
+    conn._physical_generation = 4
+    conn.autocommit = False
+    conn._send_and_receive.side_effect = OSError("version unavailable")
+    connect = MagicMock(return_value=conn)
+    monkeypatch.setattr(pycubrid, "connect", connect)
+    result = main(["wait_for_cubrid.py", "1", "0", "--server-info", str(sidecar)])
+    assert result == 0
+    assert connect.call_count == 1
+    assert "CUBRID" in capsys.readouterr().out
+    conn.close.assert_called_once_with()
+
+
+def test_property_job_wires_three_xunit1_reports_and_fresh_identity() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/bug-hunt.yml").read_text())
+    job = next(
+        job
+        for job in workflow["jobs"].values()
+        if any(
+            step.get("name") == "Collect repro artifacts on failure"
+            for step in job.get("steps", [])
+        )
+    )
+    steps = {step.get("name"): step for step in job["steps"]}
+    readiness = steps["Wait for CUBRID readiness"]["run"]
+    collector = steps["Collect repro artifacts on failure"]
+    assert collector["if"] == "failure()"
+    assert "--server-info" in readiness
+    assert "github.run_id" in readiness and "github.run_attempt" in readiness
+    command = collector["run"]
+    for report in ("normal-results.xml", "slow-results.xml", "offline-results.xml"):
+        assert f"--junit {report}" in command
+    assert "--server-info" in command
+    pytest_steps = [
+        step["run"] for step in job["steps"] if "python -m pytest" in step.get("run", "")
+    ]
+    assert len(pytest_steps) == 3
+    assert all("junit_family=xunit1" in command for command in pytest_steps)
+    assert "--junitxml=offline-results.xml" in pytest_steps[-1]
+    assert all("|| true" not in command for command in pytest_steps)
 
 
 @pytest.mark.parametrize("workflow", ["ci.yml", "integration-full.yml"])
