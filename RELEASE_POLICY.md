@@ -107,7 +107,7 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
 includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
@@ -124,6 +124,8 @@ are the additional #467 subset. #466 adds qualified
 conversion over only the existing native scalar prepared path. Abandoned
 wrapper cursors receive best-effort same-session cleanup; deterministic
 resource release still requires explicit close.
+#445 adds native-only `cursor.result_info([n])` over measured cached 15-field
+metadata without changing ordinary/wrapper descriptions, row position or APIs.
 Only their implemented factories, connection and cursor methods are public;
 no wrapper collection/LOB execute, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
@@ -377,6 +379,19 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   merely because of a later commit. Ordinary sync/async defaults and setters,
   cursor APIs, dependencies and supported versions are unchanged. This entry
   does not authorize a release or tag.
+
+- **Native extended column metadata (#445)** — MINOR / additive.
+  `pycubrid.compat.native.cursor.result_info([n])` adds zero/one positional
+  selection over the last successful execution's 15-field column metadata.
+  CCI types are measured, flags are integers and absent textual metadata is
+  the actual empty string. The getter performs no wire request, row movement
+  or description mutation. C-int32 conversion, fresh/prepared/DML/closed states
+  and owner fences are explicit; local InterfaceError codes preserve the
+  existing message-only args rather than introducing global native adapters.
+  Row invalidation at rollback is separate from cached metadata availability;
+  failed execution attempts hide old metadata. UTF-8 comparisons do not certify
+  non-UTF-8 parity. Ordinary/async/wrapper APIs, dependencies and supported
+  versions are unchanged; no version bump, tag or publication is authorized.
 
 - **`Lob.write()` size field and internal LOB-handle binding (#441)** —
   PATCH / correction plus internal wire work. After a write, the packed

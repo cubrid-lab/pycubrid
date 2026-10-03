@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Native extended column metadata (#445)** — the opt-in sync native cursor
+  gains `result_info([n])`, returning cached 15-field tuples with measured CCI
+  types, integer constraint flags and actual names/default strings. All/one
+  selection, zero-row SELECT, zero-column DML and C-int32/closed-cursor argument
+  precedence are explicit. The getter leaves row position and descriptions
+  unchanged; same-owner metadata remains after EOF/commit/rollback, while failed
+  execution attempts hide it. Local InterfaceError `.code` retains the existing
+  message-only args as a classified native difference. Owned 10.2/11.4 and pinned
+  official comparisons cover this subset, including collection/JSON types and
+  Unicode metadata, not non-UTF-8 or complete driver parity. Ordinary/async APIs,
+  dependencies and release publication are unchanged.
 - **Discoverable Korean performance guide (#313)** — the Korean README now
   links to the existing `docs/ko/PERFORMANCE.md` translation, with working
   section anchors and a benchmark table identical to the English source.
