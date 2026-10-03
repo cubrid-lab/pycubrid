@@ -393,6 +393,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Documentation
+- **Korean contribution guide (#329)** — translate the current contribution
+  procedures and preserve command examples, English GitHub artifacts,
+  contributor/maintainer responsibilities and release boundaries. Add discovery
+  from the Korean README and existing docs navigation; English policy is unchanged.
 - **Renewed CAS error-code evaluation (#505)** — document numeric-code-first
   dispatch, inner-code `-1`-only text fallback and raw `code`/`errno` preservation.
   Retain the flag-zero compatibility contract despite the bounded four-build
