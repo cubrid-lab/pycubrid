@@ -89,12 +89,14 @@ def connect(
 
 | Kwarg | Type | Default | Description |
 |---|---|---|---|
-| `connect_timeout` | `float` | `None` | Socket connection timeout in seconds |
-| `read_timeout` | `float` | `None` | Socket read timeout in seconds |
+| `connect_timeout` | `int \| float \| None` | `None` | Socket connection timeout in seconds |
+| `read_timeout` | `int \| float \| None` | `None` | Socket read timeout in seconds |
 | `fetch_size` | `int` | `100` | Server-side fetch batch size |
 | `enable_timing` | `bool \| None` | `None` | Enable driver timing stats, or fall back to `PYCUBRID_ENABLE_TIMING` |
 | `no_backslash_escapes` | `bool \| None` | `None` (auto) | Probe each new physical session's string-escape mode; explicit `True`/`False` skips detection and remains pinned across recovery |
 | `autocommit` | `bool` | `False` | Enable immediate commit per statement |
+
+`connect_timeout` and `read_timeout` accept `None` or finite non-negative numbers. Negative values, NaN and infinity raise `ValueError`; incompatible types raise `TypeError`. Both sync and async connections validate these settings before acquiring transport resources, without wrapping configuration errors in `OperationalError`. Zero remains accepted and retains each transport’s existing zero-timeout semantics; it does not disable deadlines.
 
 ### Unknown Options
 

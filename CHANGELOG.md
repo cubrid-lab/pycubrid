@@ -341,6 +341,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - Preserve existing Docker volumes during automatic integration/TLS cleanup, including readiness and test failures (#501).
+- **Connection timeouts are validated before socket creation (#367)** — sync and async connections reject negative, NaN, and infinite `connect_timeout`/`read_timeout` values during common initialization, preventing invalid timeout values from leaking a newly opened socket; `None`, zero, and finite positive values retain their existing semantics.
 - **TLS preflight fatal alerts and timeout context (#592)** — the Python 3.10
   async certificate probe sends queued fatal alert bytes best effort within
   its existing deadline, then re-raises the original TLS error even if alert
