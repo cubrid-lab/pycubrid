@@ -36,13 +36,13 @@ class FakeDriver:
 
     created: list[FakeDriver] = []
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, *, fetch_size: int = 2, **kwargs: Any) -> None:
         self.options = kwargs
         self._session_lock = RLock()
         self._physical_generation = 1
         self._statement_pooling: int | None = 1
         self._protocol_version = 8
-        self._fetch_size = 2
+        self._fetch_size = fetch_size
         self._decode_collections = False
         self._json_deserializer = None
         self._encoding = "utf-8"

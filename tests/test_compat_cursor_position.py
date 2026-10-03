@@ -24,8 +24,7 @@ class PagedDriver(FakeDriver):
     """Reuse the owner fake, returning each requested absolute server page."""
 
     def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._fetch_size = 3
+        super().__init__(fetch_size=3, **kwargs)
         self.data: list[tuple[object, ...]] = [(i,) for i in range(1, 258)]
         column = ColumnMetaData(column_type=8, name="id", precision=10, scale=0)
         column._cci_type = 8
@@ -231,7 +230,10 @@ def test_backward_evicted_page_and_forward_relative_fetch_are_absolute(owned: _O
     assert cur.row_tell() == 107
     assert driver.fetch_starts[-2:] == [220, 106]
     packets = [p for p, _ in driver.requests if isinstance(p, FetchPacket)]
-    assert [struct.unpack(">i", p.write(driver._cas_info)[8:][13:17])[0] for p in packets[-3:]] == [
+    serialized_starts = [
+        struct.unpack(">i", p.write(driver._cas_info)[8:][13:17])[0] for p in packets[-3:]
+    ]
+    assert serialized_starts == [
         3,
         220,
         106,
