@@ -35,6 +35,14 @@ class Connection:
         """Close the one underlying connection."""
         self._connection.close()
 
+    def commit(self) -> None:
+        """Commit through the owned native connection."""
+        self._connection.commit()
+
+    def rollback(self) -> None:
+        """Roll back through the owned native connection."""
+        self._connection.rollback()
+
     def cursor(self, dictCursor: Any = None) -> _WrapperCursor | _WrapperDictCursor:
         """Choose exact-name dict rows for truthy values, tuple rows otherwise."""
         cls = _WrapperDictCursor if dictCursor else _WrapperCursor
