@@ -207,7 +207,7 @@ their messages meaningful and keep any `Co-authored-by:` trailers intact.
 Contributors never release. Add user-visible changes under `## [Unreleased]` in
 `CHANGELOG.md`, and do not change `__version__` or add a dated `## [X.Y.Z]`
 section in an ordinary PR: a merged version change is what starts an automatic
-release. Maintainers open release PRs with `prepare-release.yml`; see
+release. Maintainers use the PR-only `release-please.yml` generator; curated Unreleased and Upgrade notes remain reviewed in CHANGELOG. Freeze the candidate with `autorelease: review` before editing its notes, and start CI at the final bot-updated head; see
 [`RELEASING.md`](RELEASING.md).
 
 ## Reporting Issues
@@ -303,3 +303,19 @@ deterministic probe that fails when the difference stops reproducing. Any
 other divergence is a driver bug (fix it or file it) or an undocumented
 server change (confirm it outside pycubrid, e.g. with `csql`, then document
 it).
+
+## Keeping issue descriptions actionable
+
+Before coding, agree the issue's problem, expected behavior, scope, completion
+criteria and validation method. Keep the body as the current specification;
+record dated progress in comments. Maintainers reconcile closed dependencies
+and completed checklist items after a related merge or handoff. Preserve the
+original reproduction's revision and limits: older evidence is not proof of
+current behavior. Priorities/sizes belong in labels, execution order in the
+backlog tracker. Research closes on a documented decision, not an implied
+promise to implement every proposed option.
+
+Confirm availability and have the actual implementer set in GitHub Assignees
+before starting. If you cannot assign yourself, ask a maintainer. Coordinate
+with existing claimants/open PRs; update assignments on handoff or return.
+A reviewer does not need to be an issue assignee.

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Release automation
+
+- Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
+
 ### Added
 - **Native extended column metadata (#445)** — the opt-in sync native cursor
   gains `result_info([n])`, returning cached 15-field tuples with measured CCI
