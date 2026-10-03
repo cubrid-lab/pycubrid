@@ -32,7 +32,7 @@ import datetime
 import json
 import os
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -108,21 +108,23 @@ class Workload:
         return [stmt.tags for stmt in self.statements]
 
 
+class SessionLost(AssertionError):
+    """One endpoint's session died, so that endpoint could not be observed.
+
+    An ``AssertionError`` subclass so it still fails a test that calls
+    :meth:`Server.run` directly, and a distinct type so :func:`compare` can tell
+    "this endpoint is unobservable" apart from any other assertion (#614).
+    """
+
+
 class Server:
     """One CUBRID server of the matrix with its scratch tables."""
 
     def __init__(self, endpoint: Endpoint) -> None:
         self.endpoint = endpoint
         self.version = endpoint.version
-        self.conn = pycubrid.connect(
-            host=endpoint.host,
-            port=endpoint.port,
-            database=TEST_DB,
-            user=TEST_USER,
-            password=TEST_PASSWORD,
-            decode_collections=True,
-        )
-        self.conn.autocommit = True
+        self.open_sessions = 0
+        self._open()
         reported = self.conn.get_server_version()
         if not reported.startswith(endpoint.version + "."):
             raise AssertionError(
@@ -131,6 +133,58 @@ class Server:
             )
         self.server_version = reported
         self.created: list[str] = []
+
+    def _open(self) -> None:
+        """Open the scratch session. Separate from __init__ so it can be redone."""
+        self.conn = pycubrid.connect(
+            host=self.endpoint.host,
+            port=self.endpoint.port,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+            decode_collections=True,
+        )
+        self.conn.autocommit = True
+        self.open_sessions += 1
+
+    def _session_alive(self) -> bool:
+        try:
+            # SQL may transparently reconnect a lost OUT_TRAN session, hiding
+            # the failure this harness must attribute before running a workload.
+            return self.conn.ping(reconnect=False)
+        except DBAPIError:
+            return False
+
+    def reopen(self) -> None:
+        """Replace a dead session so one fatal statement cannot fail the module.
+
+        Scratch tables survive the reconnect: DDL runs with autocommit on, so
+        ``created`` stays accurate and ``ensure_table`` still skips them.
+        """
+        try:
+            self.conn.close()
+        except DBAPIError:
+            pass  # already gone; that is why we are reopening
+        self._open()
+
+    def _require_live_session(self) -> None:
+        """Reopen a session that died outside a reported statement, and say so.
+
+        Reaching here means the previous failure was not attributed to any
+        statement, so healing it quietly would hide it. Reopen first, then fail,
+        so the next workload still gets a usable session.
+        """
+        if self._session_alive():
+            return
+        recovery = ""
+        try:
+            self.reopen()
+        except Exception as reopen_exc:  # noqa: BLE001 — reported, not handled
+            recovery = f" Reopening the session also failed: {reopen_exc!r}."
+        raise SessionLost(
+            f"CUBRID {self.server_version}: the session was already unusable before "
+            f"this workload ran, and no statement reported losing it.{recovery}"
+        )
 
     def raw(self, sql: str) -> None:
         cur = self.conn.cursor()
@@ -146,6 +200,10 @@ class Server:
             self.created.append(name)
 
     def run(self, workload: Workload) -> list[dict[str, object]]:
+        # A previous example may have lost the session (see #614). Start every
+        # workload from a live one so one fatal statement fails one test, not
+        # every test that follows it in the module.
+        self._require_live_session()
         for sql in workload.setup:
             self.raw(sql)
         return [self._observe(stmt) for stmt in workload.statements]
@@ -185,16 +243,20 @@ class Server:
                 pass  # the survival probe below already reports a dead session
 
     def _assert_session_survives(self, stmt: Stmt, exc: DBAPIError) -> None:
+        if self._session_alive():
+            return
+        # Losing the session is the defect this contract reports, so this test
+        # still fails. Reopen first, so the failure stays one failure instead of
+        # cascading as "connection is closed" through the rest of the module.
+        recovery = ""
         try:
-            probe = self.conn.cursor()
-            probe.execute("SELECT 1")
-            alive = probe.fetchone() == (1,)
-            probe.close()
-        except DBAPIError:
-            alive = False
-        assert alive, (
+            self.reopen()
+        except Exception as reopen_exc:  # noqa: BLE001 — reported, not handled
+            recovery = f" Reopening the session also failed: {reopen_exc!r}."
+        raise SessionLost(
             f"CUBRID {self.server_version}: a statement-level {type(exc).__name__} "
-            f"({exc}) left the session unusable. Statement: {stmt.sql!r} {stmt.params!r}"
+            f"({exc}) left the session unusable. Statement: {stmt.sql!r} {stmt.params!r}."
+            f"{recovery}"
         )
 
     def close(self) -> None:
@@ -218,11 +280,34 @@ def servers() -> Iterator[list[Server]]:
             server.close()
 
 
+def _lost_session_report(
+    statements: Sequence[str], lost: Mapping[str, str], observed: Sequence[str]
+) -> str:
+    lines = ["A statement left one or more sessions unusable:"]
+    lines += [f"  - {version}: {message}" for version, message in sorted(lost.items())]
+    lines.append("  completed: " + (", ".join(sorted(observed)) if observed else "none"))
+    lines.append("Statements:")
+    lines += [f"  {sql}" for sql in statements]
+    return "\n".join(lines)
+
+
 def compare(servers: Sequence[Server], workload: Workload) -> None:
-    observations = {s.version: s.run(workload) for s in servers}
+    observations: dict[str, list[dict[str, object]]] = {}
+    lost: dict[str, str] = {}
+    for server in servers:
+        # Run every endpoint even after one loses its session. A dict
+        # comprehension aborted on the first failure, so a statement that kills
+        # several versions was reported against whichever came first in the
+        # matrix (#614).
+        try:
+            observations[server.version] = server.run(workload)
+        except SessionLost as exc:
+            lost[server.version] = str(exc)
+    statements = [f"{st.sql} {st.params!r}" for st in workload.statements]
+    if lost:
+        raise AssertionError(_lost_session_report(statements, lost, list(observations)))
     _used, problems = classify(workload.tags, observations)
     if problems:
-        statements = [f"{st.sql} {st.params!r}" for st in workload.statements]
         raise AssertionError(format_report(statements, workload.tags, observations, problems))
 
 
