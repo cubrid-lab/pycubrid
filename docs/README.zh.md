@@ -146,7 +146,7 @@ marketers = cur.fetchall()
 
 - **纯 Python** — 无需 C 扩展、无需编译，在 Python 能运行的地方都能工作
 - **完整 DB-API 2.0** — `connect()`、`Cursor`、`fetchone/many/all`、`executemany`、`callproc`
-- **参数化查询** — `cursor.execute(sql, params)`，使用服务端 `PREPARE_AND_EXECUTE`
+- **参数化查询** — `cursor.execute(sql, params)`，使用驱动端参数绑定（`?` 占位符在本地转义并插入 SQL）
 - **批量操作** — `executemany()` 和 `executemany_batch()` 用于批量插入
 - **LOB 支持** — `create_lob()`，读写 CLOB 和 BLOB 列
 - **模式自省** — `get_schema_info()` 用于表、列、索引和约束
@@ -233,7 +233,7 @@ graph TD
     types[types.py - DB-API 2.0 type objects and constructors]
     exceptions[exceptions.py - PEP 249 exception hierarchy]
     constants[constants.py - CAS function codes, data types, protocol constants]
-    protocol["protocol.py - CAS wire protocol packet classes (18 packet types)"]
+    protocol["protocol.py - CAS wire protocol packet classes (20 packet types)"]
     packet[packet.py - Low-level packet reader/writer]
     lob[lob.py - LOB support]
     typed[py.typed - PEP 561 marker]

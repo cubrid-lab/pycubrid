@@ -11,20 +11,31 @@ declared public API surface fails CI unless the baseline is regenerated and
 committed in the same change, which forces every surface change to surface
 explicitly in pull-request review.
 
+Every release ships the same way: a reviewed release-please PR (generated commits plus curated
+`CHANGELOG.md` section, including the Upgrade notes and the classification in
+§7) is merged, and `release.yml` releases it. There is no manual tag or publish
+step; see [`RELEASING.md`](RELEASING.md).
+
 ## 1. Public API Surface
 
 The **public API** of pycubrid is exactly the union of:
 
 1. Every name listed in `pycubrid.__all__`.
 2. Every name listed in `pycubrid.aio.__all__`.
-3. The following classes, which users receive as return values from public
+3. Every name listed in `pycubrid.compat.__all__` and in the explicit
+   `pycubrid.compat.cubriddb.__all__` / `pycubrid.compat.native.__all__`.
+   These namespaces currently provide construction and close only, not a
+   complete DB-API or official native cursor.
+4. The following classes, which users receive as return values from public
    factory functions and therefore depend on transitively:
    - `pycubrid.connection.Connection`
    - `pycubrid.cursor.Cursor`
    - `pycubrid.aio.connection.AsyncConnection`
    - `pycubrid.aio.cursor.AsyncCursor`
    - `pycubrid.lob.Lob`
-4. For each public class, every public attribute (name not starting with `_`),
+   - `pycubrid.compat.cubriddb.Connection`
+   - `pycubrid.compat.native.connection`
+5. For each public class, every public attribute (name not starting with `_`),
    every public method, and the user-facing dunder allow-list:
    `__init__`, `__enter__`, `__exit__`, `__aenter__`, `__aexit__`, `__iter__`,
    `__aiter__`, `__next__`, `__anext__`, `__repr__`, `__str__`.
@@ -96,6 +107,52 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445)
+
+The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
+includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
+(#467), plus the bounded
+sync prepared INT32/string/NULL cursor in `pycubrid.compat.native` (#439),
+with its SET/MULTISET/SEQUENCE binding (`connection.set()`, `native.set`,
+`set.imports()`, `cursor.bind_set()`, #440) and BLOB/CLOB handle fetch and bind
+(`connection.lob()`, `native.lob`, `lob.close()`, `cursor.fetch_lob()`,
+`cursor.bind_lob()`, #441), followed by the native-only LOB byte-position
+stream (`lob.write()`/`read()`/`seek()` and `SEEK_*`, #442).
+Native cached settings and separate effective autocommit/isolation setters
+are the additional #467 subset. #466 adds qualified
+`pycubrid.compat.cursors.Cursor/DictCursor` row cursors and connection-local
+conversion over only the existing native scalar prepared path. Abandoned
+wrapper cursors receive best-effort same-session cleanup; deterministic
+resource release still requires explicit close.
+#445 adds native-only `cursor.result_info([n])` over measured cached 15-field
+metadata without changing ordinary/wrapper descriptions, row position or APIs.
+Only their implemented factories, connection and cursor methods are public;
+no wrapper collection/LOB execute, public async prepared API, threadsafety declaration or
+complete native/DB-API parity is promised. The checker and baseline cover
+both explicit modules and returned classes.
+These are **MINOR** additions while ordinary behavior stays unchanged;
+documented ordinary bug corrections remain **PATCH**. The staged work does not
+authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI
+publication or a security-support change.
+
+### Typed collection parameters (#567)
+
+`pycubrid.types.Set`, `Multiset` and `Sequence` (also exported from
+`pycubrid`) are a **MINOR** addition: new public classes and `__all__` entries
+that ordinary sync and async cursors render as `SET{...}`, `MULTISET{...}` and
+`SEQUENCE{...}` literals. Every input that binds or fails today keeps its
+literal and its exception class (plain `set`/`list`/`tuple` parameters still
+raise `ProgrammingError`; only the message now names the typed classes), and
+fetched collections keep their `decode_collections` containers. Changing a
+rendered keyword, element rendering or the rejection of nested collections is
+governed by the [parameter binding policy](docs/PARAMETER_BINDING.md#compatibility-policy-1x).
+Unreleased follow-up hardening (immutability against re-`__init__`,
+`copy`/`pickle` support, a `ProgrammingError` instead of a leaked
+`AttributeError` for a bypassed-`__new__` instance, and rejecting `dict`/
+unordered-`Sequence` constructor arguments) stays part of this same
+unreleased **MINOR** entry rather than a separate release note, since #567
+has not shipped in a release yet.
+
 ### What the gate does *not* detect
 
 The `compat-check` CI gate captures the structural surface — names,
@@ -131,9 +188,12 @@ for landing one is:
 5. Add a `### Breaking Changes` section to the relevant `CHANGELOG.md` entry
    describing what changed, why, and how users migrate. The entry must include
    a `Migration` subsection with concrete before/after code.
-6. Bump the major version in both `pyproject.toml` and `pycubrid/__init__.py`
-   (the existing `version-check` CI job enforces these stay in sync).
-7. Land the change on `main`. Tag and release as `vX.0.0`.
+6. Land the change on `main`, then prepare the release PR with
+   `gh workflow run release-please.yml` after a reviewed breaking commit or `Release-As: X.0.0` override: it proposes
+   `__version__` in `pycubrid/__init__.py` (the single source that
+   `pyproject.toml` reads) and dates the CHANGELOG section.
+7. Merging the reviewed release PR releases `vX.0.0` automatically
+   (tag, GitHub Release, PyPI, cookbook verification; see `RELEASING.md`).
 
 The CI gate (`compat-check` job) will fail any pull request that changes the
 public surface without also updating `api-baseline.json`, which is exactly
@@ -201,6 +261,623 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Timeout configuration validation (#367)** — PATCH / bug correction. Invalid
+  negative or non-finite timeouts fail before transport acquisition; incompatible
+  types raise `TypeError`. Existing `None`, zero and valid finite values retain
+  their behavior. No public API is added.
+
+- **TLS preflight alerts and timeout context (#592)** — PATCH / diagnostic
+  and error-path correction. Fatal alert bytes use only the existing probe
+  deadline, and best-effort alert-send failures retain the original TLS error.
+  Probe I/O timeouts retain their identity, message and errno with internal
+  WantRead context suppressed in displayed traces. Sync deadline coverage and
+  the larger-`read_timeout` workaround are clarified; defaults, successful TLS
+  behavior, socket ownership, public APIs and dependencies are unchanged.
+
+- **Hostile timezone and pure-Python temporal parameters (#530)** — PATCH /
+  error-normalization and fallback safety correction in the shared literal
+  binder. Ordinary timezone callback, key lookup and offset-field exceptions
+  become `ProgrammingError` with the original cause and fixed safe message.
+  Without the active C `_datetime` implementation, temporal subclasses and
+  returned `timedelta` subclasses are rejected before driver field reads can
+  consume forged attributes. Exact fallback values, C-backed subclasses,
+  valid timezone keys, naive rendering and ordinary literal results remain
+  unchanged. No new public API, wire, dependency or supported-version change.
+
+- **Reserved-word diagnostic hint (#509)** — PATCH / error-message correction.
+  The appended hint treats the unexpected token as a diagnostic location and
+  suggests that an identifier at or before it may be reserved, without naming
+  an offending identifier. Original server text, exception class, error code,
+  SQLSTATE, hint triggers, public API and SQL execution are unchanged.
+
+- **Interrupted deferred CLOSE flush (#601)** — PATCH / resource-ownership
+  correction in both drivers. A boundary consumes each queued same-session
+  handle at the existing attempted-send point, not before the whole flush.
+  A pre-send interrupt retains unsent FIFO entries on the live session;
+  completed or uncertain sends are never replayed, and a retired physical
+  session never lends its IDs to a replacement. No public signature, SQL
+  result, wire format, dependency or supported-version change.
+
+- **Native prepared handle refresh after a complete execute error (#611)** —
+  PATCH / correction in the opt-in sync compatibility cursor. The failed
+  caller receives its original redacted server error; no SQL is retried in
+  that call. On a later explicit user execution, a non-LOB handle is refreshed
+  on the same physical session and its current bindings are sent once, fixing
+  the repeated `-1024` instead of the conversion `-494`. Uncertain transport,
+  changed sessions, failed close/prepare and LOB snapshots do not trigger
+  automatic replay. No ordinary/async API or public signature changes.
+
+- **`Lob.read()`/`Lob.write()` reject non-int and boolean offset/length
+  (#449)** — MINOR / behavior change, not a PATCH. `offset` (`read`/`write`)
+  and `length` (`read`) must now be a concrete Python `int`
+  (`type(value) is not int` is rejected); the pre-existing non-negative check
+  is unchanged. This is classified MINOR rather than PATCH because it changes
+  observable results for inputs that previously completed without error:
+  before this change, `lob.write(b"", offset=True)` silently returned `0`
+  (`bool`, a subclass of `int`, satisfied the old `offset < 0` check and then
+  the #394 empty-write shortcut), and a `float` offset passed that same check
+  and only failed later, inside wire serialization, with `DataError`. Both
+  now raise `InterfaceError` before `_ensure_connected()` or any packet is
+  built, i.e. before any I/O — a stricter, earlier and differently-typed
+  failure than before for those two cases. Accepting `bool` as an offset was
+  a bug (the cursor `arraysize` contract already requires `type(value) is
+  int`), and the old behavior for both cases was itself pinned by the #394
+  test suite, which this change updates. Valid non-negative `int` arguments,
+  the empty-write shortcut's return value, and the existing `DataError` for
+  an in-range `int` too large to serialize (e.g. `offset=2**63`) are
+  unchanged. No public signature, dependency or supported-version change.
+
+- **Native collection binding (#440)** — MINOR / additive. New
+  `pycubrid.compat.native.set` class (and `__all__` entry),
+  `connection.set()`, `set.imports(data, type, /, *, kind=SET)` and
+  `cursor.bind_set(index, s, /)`. The default `kind=SET` sends the official
+  driver's request bytes (STRING elements whatever the element type); the
+  `kind` keyword and the classified deviations (`None` NULL element, literal
+  `'NULL'`, empty string and Python `int` elements, NUL rejection, error
+  classes) are pinned by official differential claims. Ordinary sync/async
+  cursors, FC41 rendering, fetched collection decoding, `bind_param()`,
+  dependencies and supported versions are unchanged; no async prepared API.
+
+- **Native LOB handle fetch and bind (#441)** — MINOR / additive. New
+  `pycubrid.compat.native.lob` class (and `__all__` entry), `connection.lob()`,
+  `lob.close()`, `cursor.fetch_lob(col, lob, /)` and
+  `cursor.bind_lob(index, lob, /)`, sync only. Bind bytes equal the official
+  driver's when its lob type matches the column, and fetched handles bind
+  across connections as in the official driver. The classified deviations
+  (binding an empty or closed lob, filling a closed or another connection's
+  lob, and the error classes raise instead of binding NULL or filling the
+  lob) are pinned by official differential claims. Ordinary
+  sync/async cursors, the ordinary `Lob` class and fetched LOB dicts,
+  dependencies and supported versions are unchanged; no async LOB API.
+
+- **Native LOB stream (#442)** — MINOR / additive. The explicit sync-only
+  `pycubrid.compat.native.lob` gains positional `write(data, type="B") -> None`,
+  `read(length=0) -> str`, `seek(offset, whence=SEEK_CUR) -> int` and exported
+  `SEEK_SET`/`SEEK_CUR`/`SEEK_END`. Position and packed size count bytes; str
+  writes and both BLOB/CLOB reads use strict UTF-8, matching the official
+  Python 3 extension on valid in-range values. Safe documented differences
+  include append-only preflight, EOF/empty-string and bounded short-read
+  handling, and rejection of negative resulting positions. A closed native
+  lob remains terminal. Created LOB_NEW handles still depend on their original
+  physical session and their temp file is consumed by the first autocommit
+  bind; fetched committed handles retain #441 cross-connection bind behavior.
+  Ordinary `pycubrid.lob.Lob` offsets, signatures and byte return values,
+  ordinary cursors, async, file operations, dependencies and supported versions
+  do not change. No tag/PyPI publication follows automatically from this entry.
+
+- **Native cached settings and effective setters (#467)** — MINOR / additive.
+  `pycubrid.compat.native.connection` gains four writable snapshot members
+  (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and
+  positional-only `set_autocommit(bool)` / `set_isolation_level(4|5|6)` methods.
+  Direct member assignment never changes effective mode. The bool setter
+  changes the local prepared-execution mode and conditionally commits only
+  when changing mode during an active transaction; isolation SET changes the
+  current session without an implicit commit and its effective cache is
+  physical-session owned. Initial snapshot reads are fail-closed except for
+  the official complete-server-error max-string fallback to 0. The pinned
+  official extension's initial level-4 `UNKNOWN` text quirk is retained and
+  repaired by `set_isolation_level(4)`. The wrapper adds keyword-capable
+  bool-validated autocommit getter/setter/property. Unsupported native input
+  classes and legacy levels fail safely before I/O, rather than invoking the
+  extension's unsafe parser path. Fetched LOBs keep their fetch-time committed
+  provenance; a manual fetch does not become cross-connection transferable
+  merely because of a later commit. Ordinary sync/async defaults and setters,
+  cursor APIs, dependencies and supported versions are unchanged. This entry
+  does not authorize a release or tag.
+
+- **Native extended column metadata (#445)** — MINOR / additive.
+  `pycubrid.compat.native.cursor.result_info([n])` adds zero/one positional
+  selection over the last successful execution's 15-field column metadata.
+  CCI types are measured, flags are integers and absent textual metadata is
+  the actual empty string. The getter performs no wire request, row movement
+  or description mutation. C-int32 conversion, fresh/prepared/DML/closed states
+  and owner fences are explicit; local InterfaceError codes preserve the
+  existing message-only args rather than introducing global native adapters.
+  Row invalidation at rollback is separate from cached metadata availability;
+  failed execution attempts hide old metadata. UTF-8 comparisons do not certify
+  non-UTF-8 parity. Ordinary/async/wrapper APIs, dependencies and supported
+  versions are unchanged; no version bump, tag or publication is authorized.
+
+- **`Lob.write()` size field and internal LOB-handle binding (#441)** —
+  PATCH / correction plus internal wire work. After a write, the packed
+  handle exposed by `Lob.lob_handle` carries the written size (as CCI keeps
+  it) instead of the size at creation, and later `write()`/`read()` requests
+  carry that handle as CCI's do. Return values, exception classes, public
+  signatures, dependencies and supported versions are unchanged. The BLOB/CLOB
+  FC3 binding is internal; no public LOB binding API is added by this change.
+
+- **Faster FETCH row parsing (#559)** — PATCH / internal performance change
+  with no behavior change. Row values, `DataError` / malformed-reply
+  classification, connection lifetime, request bytes, public signatures,
+  dependencies and supported versions are unchanged. The new offline
+  benchmark times nothing in required CI.
+
+- **Collection element validation continues after conversion errors (#595)** —
+  PATCH / malformed-response correction. A complete first element `DataError`
+  cannot hide a malformed later typed element. Complete collections retain
+  the first error and its cause; ordinary values, NULL-only diagnostics and
+  opaque/unsupported decoding contracts are unchanged. No new public surface.
+
+- **FC41/refreshed FC3 metadata errors wait for tail validation (#591)** —
+  PATCH / malformed-response correction. Framing faults after undecodable
+  metadata retire the connection rather than reporting a recoverable
+  `DataError`. Error-path validation excludes application hooks and continues
+  past unrepresentable cells. Complete replies retain the first metadata error;
+  normal decoding/hooks, absent optional inline headers and unused trailing
+  bytes are unchanged. Reader marks are internal, not public DB-API additions.
+
+- **Pooling-off autocommit result ownership (#584)** — PATCH / cursor safety
+  correction. Known transaction-ending OUT_TRAN replies retire ordinary
+  cursor/schema IDs already freed by direct CUBRID CAS before they can be reused.
+  The current FC41 result cannot adopt a freed ID, including after DataError.
+  Buffered rows/counts, completed EOF, physical generation and liveness checks
+  remain unchanged; an unfinished invalidated result uses the existing
+  InterfaceError contract. Pooling-on/manual/schema/proxy behavior and batch
+  replies are excluded. No public signature, dependency or support-matrix change.
+
+- **Column metadata framing checked before `DataError`; FC41 counts (#581)** —
+  PATCH / correction of a protocol-robustness defect completing #555, #523 and
+  #383. A reply whose column metadata has undecodable text and framing damage
+  in a later column, or an FC41 reply with a negative bind, total or inline
+  tuple count or an impossible column count (or an FC3 reply with a negative
+  inline tuple count), now raises `OperationalError('malformed response from
+  broker')` and closes the connection instead of `DataError` with the session
+  kept, or being accepted. Valid replies, the `DataError` classification of
+  complete replies (#492, #512), public signatures, dependencies and supported
+  versions are unchanged; sync and async behave the same.
+
+- **Sync TLS handshake bound without `read_timeout`; 3.10 probe socket closed
+  (#535)** — PATCH / correction of a hang and a resource leak. Without
+  `read_timeout`, the sync TLS handshake now fails with `OperationalError` after
+  10 seconds instead of waiting forever, matching the async
+  `ssl_handshake_timeout` default; requests after the handshake are still
+  unbounded. The Python 3.10 async preflight probe closes its socket on a peer
+  reset instead of leaving it to the garbage collector. Its BIO sends, reads
+  and completion use one total deadline (#593); final-flight transport failures
+  propagate, while optional shutdown remains inside the budget. `read_timeout` and
+  `connect_timeout` semantics, successful TLS connects, public signatures,
+  dependencies and supported versions are unchanged.
+
+- **Deferred CLOSE_REQ for released cursor handles (#488)** — PATCH /
+  performance and resource-leak correction in both drivers, with no public API,
+  dependency or supported-version change. On a broker with statement pooling,
+  an autocommit `close()`/re-`execute()` and a cursor collected without
+  `close()` no longer send their own `CLOSE_REQ`. The handle is freed by the
+  next `PREPARE_AND_EXECUTE`, which is wire-visible (extra prepare arguments,
+  fewer requests) but does not change transaction or session state: CAS frees
+  the handle exactly as `CLOSE_REQ` does. Until that next statement the handle
+  stays allocated a little longer, until the next statement, `commit()` or
+  `rollback()` (which close queued ids with `CLOSE_REQ`), or the session end.
+  Connections no longer keep
+  unreferenced cursors alive. In manual-commit mode with pooling off, a cursor
+  dropped without `close()` is no longer closed by an explicit `CLOSE_REQ` at
+  the next `commit()`/`rollback()`: CAS frees it in that `END_TRAN`.
+
+- **Transport failures retire cursor handles; async timeout messages (#556)** —
+  PATCH / bug correction in both drivers. After an uncertain transport failure
+  the connection was already closed and raised `OperationalError`; now every
+  cursor and schema handle of that session is retired with it, so later cursor
+  calls fail with the existing invalidated-result errors instead of reaching a
+  closed connection with a stale handle id. A sync interrupt while a reply is
+  outstanding now closes the session (previously it stayed open with an unread
+  reply). The async `OperationalError` message for a `read_timeout` expiry
+  changes from `read timeout` to `read timeout: no complete round trip within
+  read_timeout=<n>s` (still starting with `read timeout`), and a transport
+  `TimeoutError` now reads `socket communication timed out`. An `OSError`
+  raised by a `json_deserializer` callback after a complete reply now
+  propagates unwrapped with the session kept, instead of `OperationalError`
+  with the session closed; a `ValueError`-family callback error is still a
+  malformed reply that retires the session. Python 3.10's distinct
+  `asyncio.TimeoutError` follows the same transport/callback distinction.
+  Other exception classes,
+  `__cause__`, `CancelledError` propagation and the no-replay rule are
+  unchanged; no public signature, dependency or supported-version change.
+
+- **Async setup failure isolated per waiting task (#554)** — PATCH / bug
+  correction of cancellation and error propagation. Tasks waiting on
+  `AsyncConnection.connect()` setup no longer re-raise the owner's exception
+  instance: a cancelled setup surfaces in waiters as `OperationalError` instead
+  of `CancelledError`, pycubrid errors are re-raised as fresh instances of the
+  same class (or nearest `pycubrid.exceptions` class) and codes, and other
+  errors as `OperationalError`. The setup
+  owner's exception and a waiter's own cancellation are unchanged. No public
+  signature, dependency or supported-version change.
+
+- **Sync `connect()` after `close()` restores explicit autocommit (#520)** — PATCH /
+  bug correction and sync/async parity. A new physical session opened by
+  `connect()` after an earlier one (also on `ping(reconnect=True)` and
+  `CHECK_CAS` recovery) re-sends an explicitly set `autocommit`, once, as
+  `pycubrid.aio` already did. Nothing extra is sent when `autocommit` was never
+  set explicitly. No public signature, dependency or supported-version change.
+
+- **Negative FC41 column metadata lengths and column counts are rejected
+  (#555)** — PATCH / correction of a protocol-robustness defect completing
+  #383. A `PREPARE_AND_EXECUTE` reply with a negative column name, real-name,
+  table-name or default length, or a negative column count, now raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection instead of decoding an empty string or a result with no columns,
+  matching FC2/FC3 metadata. A normal server does not send such replies. Valid
+  replies, zero-length metadata, the `DataError` classification of complete
+  replies (#492, #512), public signatures, dependencies and supported versions
+  are unchanged.
+
+- **Invalid JSON text in a complete reply raises `DataError` (#543)** — PATCH /
+  correction of error classification, extending #492 and #512. A `JSON` column
+  value that is not valid JSON, decoded with the built-in
+  `json_deserializer=json.loads`, now raises `DataError` (the
+  `json.JSONDecodeError` chained as its `__cause__`) instead of
+  `OperationalError('malformed response from broker')`, and an ordinary
+  connection and cursor stay usable, on `execute()` and on later fetch pages,
+  exactly as for invalid UTF-8 and unrepresentable temporal values. The
+  row-data completeness check (#383) still applies first, so a short reply
+  stays a fail-closed `OperationalError`. The explicit prepared API
+  (`pycubrid.compat.native`), which threads the same `json_deserializer`,
+  keeps its documented fail-closed behavior: it raises `OperationalError` and
+  retires the session, as for invalid UTF-8 and zero dates. A caller-supplied
+  `json_deserializer` is unaffected: its own exceptions are not wrapped. No
+  public signature, dependency or supported-version change.
+
+- **Autocommit setter keeps its two requests on one CAS session (#551)** — PATCH
+  / bug correction in both drivers. When the CAS is recycled between
+  `SET_DB_PARAMETER` and `COMMIT`, the replacement session now receives the new
+  value before the `COMMIT` instead of only the `COMMIT`; each call reconnects
+  at most once. A failed `COMMIT` in the setter now closes the connection, keeps
+  the previous `autocommit` value and raises `OperationalError` with the native
+  error as `__cause__`, instead of raising the native error with the session
+  open and the value unchanged while the server had already applied it. Code
+  that caught `DatabaseError` still catches it. A healthy session sends nothing
+  extra; no public signature, dependency or supported-version change.
+
+- **Sync constructor autocommit applied on one session (#521)** — PATCH / bug
+  correction and sync/async parity. `connect(autocommit=True)` sends
+  `SET_DB_PARAMETER` and `COMMIT` on the session it opened without implicit
+  reconnect between them, as async does. A failure there now closes the
+  connection and raises `OperationalError` with the native error as
+  `__cause__`, instead of raising the native `DatabaseError` with the socket
+  left open. Code that caught `DatabaseError` still catches it
+  (`OperationalError` is a `DatabaseError` subclass).
+
+- **Sync `ping(reconnect=False)` closes a session whose `CHECK_CAS` failed
+  (#521)** — PATCH / bug correction and sync/async parity. It still returns
+  `False` without reconnecting, but the confirmed-broken session is closed, as
+  async already did, so later calls raise `InterfaceError` until `connect()` or
+  `ping(reconnect=True)` instead of silently reconnecting on the next request.
+  Healthy pings and `ping(reconnect=True)` are unchanged.
+
+- **`connect()` verifies an OUT_TRAN session before applying autocommit
+  (#521)** — PATCH / bug correction in both drivers. With automatic escape
+  detection, a CAS recycled right after the probe's `ROLLBACK` is replaced once
+  by a `CHECK_CAS` check before autocommit is applied or restored, instead of
+  failing `connect()`; each session is configured once. The async escape probe
+  of a `CHECK_CAS` replacement session carries the connection's autocommit flag
+  like every other escape probe. A healthy session sends nothing extra.
+
+- **`CALL`/`EVALUATE` values and `NULL`-typed cells are decoded (#542)** — PATCH /
+  bug correction. A value returned by `CALL` (stored function, method call,
+  `callproc()`) or `EVALUATE`, and a non-NULL value in a column whose metadata
+  type is `NULL`, is now decoded to its Python type (`int`, `str`, `datetime`,
+  OID string, collection, ...) instead of being returned as raw `bytes` that
+  included part of the protocol 8 type header. Code that decoded those bytes by
+  hand must use the value directly. A type header longer than its cell raises
+  `OperationalError('malformed response from broker')` and closes the
+  connection, like other framing damage (#383, #523). `description`, SQL `NULL`
+  cells, public signatures, dependencies and supported versions are unchanged;
+  sync and async behave the same.
+
+- **Rows before a failing fetch page are kept (#507)** — PATCH / correction of
+  data loss in error handling. When a later FETCH page raises a data-level
+  `DataError` (#492, #413, #512), rows the failing `fetchmany()`/`fetchall()`
+  call had already collected are returned by the next fetch calls instead of
+  being dropped, and every fetch after them raises the same `DataError` without
+  requesting the page again until `execute()` or `close()`, instead of
+  re-requesting it on every retry (which in autocommit mode could raise CAS
+  error `-1012` once the broker had closed the result). No row of or past the
+  failing page is returned. The error class, connection and cursor-handle
+  lifetime, successful fetches, public signatures, dependencies and supported
+  versions are unchanged; sync and async behave the same.
+
+- **No asyncio `eof_received` warning when a TLS broker closes (#514)** —
+  PATCH / correction of spurious log output. `pycubrid.aio` connections using
+  `ssl=` no longer make asyncio log a WARNING each time the broker closes the
+  TLS session. Errors, reconnect behavior, the sync driver, public signatures,
+  dependencies and supported versions are unchanged.
+
+- **Async TLS connect no longer hangs after an interrupted handshake (#513)** —
+  PATCH / correction of a hang in error handling. When the broker stalls or
+  resets the connection before the TLS handshake completes,
+  `pycubrid.aio.connect(..., ssl=...)` now raises `OperationalError` within
+  `read_timeout` (or the 10-second `ssl_handshake_timeout` when `read_timeout`
+  is unset) and closes the socket, instead of never returning on Python 3.11+.
+  Timeout semantics (`connect_timeout` bounds only the TCP connect), the sync
+  driver, successful TLS connects, public signatures, dependencies and
+  supported versions are unchanged.
+
+- **Row cells whose value does not use exactly their declared size are rejected
+  (#523)** — PATCH / correction of a protocol-robustness defect completing #383.
+  A FETCH or inline execute row cell whose fixed-width value (`INT`, `DATE`,
+  `OBJECT`, ...) does not use exactly the bytes its size word declares, including
+  a size past the end of the reply, now raises `OperationalError('malformed
+  response from broker')` and closes the connection instead of returning the
+  value; so does a negative FETCH tuple count, which used to end the result set
+  early. A normal server always sends the exact size. Valid replies, SQL `NULL`
+  cells, the `DataError` classification of complete replies (#492, #512), public
+  signatures, dependencies and supported versions are unchanged.
+
+- **Reads past the end of a broker reply are rejected (#383)** — PATCH /
+  correction of a protocol-robustness defect. A length field that is negative
+  or runs past the end of a complete reply (row values, collections, LOB
+  handles, `LOB_READ` byte counts), or collection elements that do not fill
+  their declared size, now raise `OperationalError('malformed response from
+  broker')` and close the connection instead of returning a shortened value
+  and keeping it. A normal server does not send such replies. Valid replies,
+  short `LOB_READ` results, the `DataError` classification of complete replies
+  (#492, #512), public signatures, dependencies and supported versions are
+  unchanged.
+
+- **Zero temporal values raise `DataError` and keep the session (#512)** —
+  PATCH / correction of error classification and connection lifetime, extending
+  #492 and #413. A zero `DATE`, `DATETIME`, `TIMESTAMP` or TZ/LTZ value (year 0,
+  which Python's `datetime` cannot hold) in a complete reply raises `DataError`
+  instead of `OperationalError('malformed response from broker')`, and the
+  session is kept, on `execute()` and on later fetch pages. A row value that
+  raises `DataError` (#492, #413, #512) is now reported only after the rest of
+  the row data is checked against the reply length, so a short reply stays a
+  fail-closed `OperationalError`, as does a temporal field of the wrong size or
+  a collection element past the collection's size. Any other temporal value Python cannot hold
+  (for example a `TIME` hour of 25 or a month of 13, which a normal server does
+  not send) is classified the same way. The explicit prepared API stays
+  fail-closed. Valid temporal values, public signatures, dependencies and
+  supported versions are unchanged.
+
+- **`str`, `bytes`, date and time parameters render by value; years are
+  zero-padded (#528, #519)** — PATCH / security and data-corruption correction
+  to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
+  Subclasses of `str`, `bytes`, `bytearray`, `date`, `datetime` and `time` are
+  rendered from their stored value through base-class methods and descriptors,
+  so overridden `replace()`/`__contains__()`/`hex()`/`strftime()` or field
+  properties can no longer change or inject SQL text. Years below 1000 are
+  zero-padded to four digits (`DATE'0099-01-02'`), which CUBRID previously
+  misread (`'99-01-02'` as 1999). A non-empty `tzinfo.key` that is not a plain
+  `str` matching `[A-Za-z0-9_+/-]+`, an object that only claims a supported
+  type through `__class__`, and a `Decimal` subclass without the C `decimal`
+  module now raise `ProgrammingError`; these inputs were unsafe or failed
+  with raw exceptions before. Plain-value output other than the year padding,
+  public signatures, dependencies and supported versions are unchanged.
+
+- **Numeric subclasses render by value (#518)** — PATCH / security
+  correction to the documented parameter-binding contract
+  (`docs/PARAMETER_BINDING.md`). Subclasses of `int`, `float` and `Decimal`
+  (including `enum.IntEnum`/`enum.IntFlag`) are rendered from their numeric
+  value via the base-class methods instead of `str()`/`format()` on the object,
+  so an overridden `__str__`/`__repr__`/`__format__` can no longer change or
+  inject SQL text. Plain `int`/`float`/`Decimal` output, `bool` rendering,
+  `NaN`/`Infinity` rejection, public signatures, dependencies and supported
+  versions are unchanged.
+
+- **Decimal parameters render in plain notation (#517)** — PATCH / correction
+  to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
+  A finite `Decimal` is sent as a fixed-point literal instead of `str(value)`,
+  whose E notation CUBRID parses as `DOUBLE`; the value now stays `NUMERIC`
+  with its scale. A `Decimal` whose plain literal exceeds 38 digits raises
+  `DataError` before send (previously `DOUBLE` for E notation, or server error
+  `-494` for a long plain literal). An integral `Decimal` in exponent form
+  (`Decimal("1E+5")`) is now sent as the integer literal `100000`, typed by
+  CUBRID as `INTEGER`/`BIGINT`/`NUMERIC(p,0)` by magnitude, instead of a
+  `DOUBLE`. `NaN`/`Infinity` rejection, integral values written without an
+  exponent, public signatures, dependencies and supported versions are
+  unchanged.
+
+- **Qualified `callproc()` names reject empty segments (#372)** — PATCH /
+  backward-compatible validation fix. Sync and async cursors reject malformed
+  names before executing SQL; valid single and dot-qualified identifiers and
+  public signatures are unchanged.
+
+- **Unresolved TZ zones raise `DataError` (#413)** — PATCH / correction to the
+  documented type contract (`TIMESTAMPTZ`/`LTZ` and `DATETIMETZ`/`LTZ` return
+  timezone-aware values). A region the client's IANA database cannot resolve
+  raises `DataError` instead of returning a naive `datetime`, as does an offset
+  outside ±24 hours; the fully read session is kept, and the explicit prepared
+  API stays fail-closed, as in #492. The zone abbreviation now selects `fold` in the
+  repeated DST hour. Offsets, resolvable regions and an empty suffix are
+  unchanged. Adds a Windows-only runtime dependency on `tzdata`
+  (`sys_platform == 'win32'`); no public signature or supported-version change.
+
+- **Connection `charset` option (#86)** — MINOR / additive keyword option on
+  `pycubrid.connect()`, `pycubrid.aio.connect()` and `compat.native.connect()`,
+  and a relaxation of `cubriddb.Connection(charset=...)`, which rejected
+  anything but `"utf8"`. Invalid values raise `TypeError`/`ValueError` before
+  socket work, like other connection options. With the default `"utf-8"` the
+  request bytes are unchanged (golden-byte test) except that an
+  `OPEN_DATABASE` name longer than its 32-byte field is now cut on a character
+  boundary rather than mid-character. On the reply side, a column/table name
+  or default value that cannot be decoded now raises `DataError`, and an
+  ordinary cursor keeps the fully read session instead of `OperationalError`
+  with a closed connection, matching #492 for values (schema requests and the
+  explicit prepared API stay fail-closed). No dependency or supported-version change.
+
+- **Invalid UTF-8 in a complete reply keeps the session (#492)** — PATCH /
+  correction of error classification and connection lifetime. Server error text
+  is decoded with replacement, so the native class, `errno` and `sqlstate`
+  surface. An undecodable character or JSON column value raises `DataError`
+  instead of `OperationalError`, and the fully read session is kept. Framing
+  failures, invalid protocol metadata and the explicit prepared API keep their
+  fail-closed behavior. No public signature, dependency or supported-version
+  change.
+
+- **Foreign-key restrict classification (#493)** — PATCH / correction to the
+  documented PEP 249 integrity-error contract, extending #390. Codes `-924`
+  (`ER_FK_RESTRICT`) and `-1284` (`ER_TRUNCATE_PK_REFERRED`) raise the existing
+  `IntegrityError` with SQLSTATE `23000`; batch failures keep the original code
+  in `errno`. `-923` stays `DatabaseError`. Public names/signatures, transaction
+  semantics, runtime dependencies and supported versions are unchanged.
+
+- **CAS OUT_TRAN preserves the physical session (#468)** — PATCH / correction
+  to the transaction and connection-lifecycle contract, not a new public API.
+  `CAS_INFO[0]=0` reports OUT_TRAN rather than released CAS: normal commit,
+  rollback and autocommit requests keep the same session and its settings.
+  Confirmed CAS/transport failure can be repaired by explicit
+  `ping(reconnect=True)` once, including a negative `CHECK_CAS` response;
+  uncertain application SQL is not replayed. Incomplete/malformed framing
+  or async cancellation retires the transport.
+
+- **Probe-verified reconnect and END_TRAN handle release (#485)** — PATCH /
+  correction of an unreleased #468 regression; supersedes the #468 wording that
+  only explicit `ping(reconnect=True)` may recover. Normal boundaries still keep
+  the same CAS session. When the last reply was OUT_TRAN, the next request is
+  preceded by one `CHECK_CAS` (JDBC `checkReconnect` parity); only a failed probe
+  replaces the session, once per request, before that request is first sent,
+  re-probing an automatic escape mode and restoring explicit autocommit. A failed
+  replacement raises `OperationalError`. SQL-level session state of a lost CAS is
+  not carried over and no SQL is replayed. Commit/rollback send `CLOSE_REQ` for
+  handles held by unclosed cursors first. No public signature, dependency or
+  supported-version change.
+
+- **Re-probe automatic escape mode on a new physical session (#471)** — PATCH /
+  correction to #468 recovery behavior. An unset `no_backslash_escapes` is
+  detected again before the replacement session is usable; explicit `True` or
+  `False` remains pinned. A healthy same-session ping does not probe. Failed
+  detection makes direct connect raise, or retires a ping replacement and
+  returns `False`; no escape mode is guessed and no SQL is replayed. Async
+  parameterized SQL bound against a prior session generation is rejected before
+  send, leaving retry to the caller. This does not establish a dynamic
+  per-session parameter toggle or heterogeneous-failover certification.
+
+- **Owned schema rows (#456)** — MINOR / additive methods and optional keyword-only
+  `arg2=None`. The three existing getter positional arguments/defaults and raw
+  packet return/query_handle/tuple_count remain. Correct FC9 layout is activated
+  together with owning eager fetch and explicit abandonment, immutable original
+  handle metadata, and deterministic retirement. Schema FETCH/CLOSE do not
+  reconnect, replay or implicitly commit; transaction boundaries close active
+  schema handles, including before auto-committing cursor/batch statements and
+  connection-level version lookup with autocommit enabled.
+  Non-`Exception` interruptions during async schema FETCH discard the uncertain
+  session without sending CLOSE over a pending response.
+  No holdability/native-profile choice or new dependencies.
+  Initial #456 CLASS/ATTRIBUTE coverage is extended by the #457 seven-family
+  live matrix on CUBRID 10.2/11.4; it still does not certify all schema codes.
+- **Empty bytes LOB writes avoid broker I/O (#394)** — PATCH / correction to the
+  documented bytes-written contract, matching the existing zero-length read
+  precedent. Open-LOB, negative-offset, connection and wire argument validation
+  still run before returning `0`; nonempty ACK checks and other data-type paths
+  retain existing behavior. No public signatures, strict argument policy (#449),
+  async LOB support, dependencies or supported versions change.
+
+- **Unfinished-result invalidation reports an error (#395)** — PATCH / correction
+  of silent partial fetch success after a transaction boundary. A missing handle
+  with broker-delivered rows below the advertised total raises `InterfaceError`
+  at the next required FETCH. Cached rows and fully received/exhausted results
+  retain their behavior; reconnect-specific `OperationalError` is unchanged.
+  No new public surface, replay, holdability, transaction policy, dependency or
+  supported-version change is introduced.
+
+- **Native NOT NULL and foreign-key error classification (#390)** — PATCH /
+  correction to the documented PEP 249 integrity-error contract. Codes `-631`
+  and `-922` raise the existing `IntegrityError` with SQLSTATE `23000`, and
+  batch failures retain the original code in `errno` as single statements do.
+  Public names/signatures, transaction semantics, generic-code text fallback,
+  runtime dependencies and supported versions are unchanged.
+
+- **Native syntax/semantic/communication meanings (#391)** — PATCH / correction
+  of verified error-code metadata and classification. `-493` and `-494` remain
+  `ProgrammingError` with generic `42000`; `-671` becomes `OperationalError` /
+  `08S01`, not a foreign-key error. Batch errors reuse the existing known-code
+  SQLSTATE lookup, preserving unknown-code defaults and native identities.
+  Callers must not infer missing tables from generic parser codes; downstream
+  reflection is tracked separately in sqlalchemy-cubrid #454. No API signatures,
+  defaults, transaction semantics or dependencies change.
+
+- **Description nullability (#431, #398)** — PATCH / bug correction. The broker's
+  non-null flag is inverted when deriving the documented PEP 249 `null_ok` value.
+  Public signatures, optional size fields, collection codes and default return
+  shapes are unchanged; this is not a new native-driver compatibility profile.
+
+- **Collection metadata decoding (#403, #410)** — PATCH / bug correction restoring
+  the documented collection types and opt-in decoding behavior. Default raw bytes,
+  public signatures and unsupported collection parameter binding are unchanged.
+
+- **NULL-only collection decoding (#483)** — PATCH / bug correction. With
+  `decode_collections=True`, nonempty collections of only SQL NULL decode like
+  other collections instead of falling back to raw bytes; malformed NULL-only
+  headers are rejected. Default raw bytes, empty/mixed collections, public
+  signatures and unsupported collection parameter binding are unchanged.
+
+- **Quality-tool pin and scope consistency (#416, #497)** — PATCH / development
+  and CI maintenance. Shared lint/format targets include maintained scripts/demos,
+  and declared pins, installed versions, and scopes are checked together. Ruff and
+  Mypy pre-commit hooks run as `repo: local` / `language: system` hooks against
+  the active `.[dev]` environment, so `pyproject.toml` is the single source of
+  truth for their versions and there is no separate hook revision to check or
+  drift (#497). Strict typechecking remains package-only; no driver behavior,
+  public API, runtime dependency, or supported-version changes.
+
+- **Marker-based integration lane coverage (#397)** — PATCH / CI bug correction.
+  Normal, TLS, and slow workloads have executable workflow paths and a dynamic
+  collection/skip audit. Missing optional native-comparison dependencies and
+  unsupported `/proc` platforms are explicitly classified. No driver public API,
+  SQL behavior, dependency, or supported-version changes.
+
+- **Integration readiness gates fail closed (#411)** — PATCH / CI bug correction.
+  Regular and full workflows reuse the bounded shared probe; failed SELECT or
+  exhausted retries prevents the test step. Probe resources close on every exit.
+  No driver public API, SQL behavior, or supported-version changes.
+
+- **Cached broker insert identity survives transaction boundaries (#381)** — PATCH /
+  bug correction to the documented identity convenience method. Successful return
+  values remain `str`; unavailable identities now explicitly return `None` instead
+  of the ambiguous empty string. This is a runtime unavailable-result correction,
+  not merely an annotation refinement. Migration: replace `value == ""` with
+  `value is None` and guard `int(value)`; `cursor.lastrowid` stays `int | None`.
+  The cache is an observation of broker state, not proof that the latest INSERT
+  generated an identity or that a row exists after rollback. INSERT attempts,
+  nonempty batches, and physical connection changes invalidate it. No public
+  names or structural signatures change; the API baseline remains unchanged.
+  This cursor-INSERT snapshot does not observe CALL, stored-procedure INSERTs,
+  or out-of-band operations; callers must return/query those identities explicitly.
+
+- **Empty `executemany()` clears prior result state (#376)** — PATCH /
+  backward-compatible bug fix. Public signatures are unchanged. Empty input
+  executes no SQL, closes an active query handle, and leaves `rowcount=0`,
+  `description=None`, `lastrowid=None`, and no fetchable rows, matching the
+  existing empty-batch row-count convention. A failed query close preserves
+  the tracked handle and propagates its exception.
+
+- Failed batch execution clears stale cursor result state (#375) — PATCH / backward-compatible bug fix. Public signatures are unchanged; per-statement, transport, and response-parse error paths no longer expose result metadata, row counts, or last-insert IDs from the previous operation. Failure to close the previous query handle aborts the batch without discarding that handle.
+
+- **Failed `execute()` calls clear previous result state (#373)**: PATCH /
+  backward-compatible bug fix. After the previous query handle closes, binding
+  or request failures leave no result metadata, row count, last inserted ID
+  or fetchable rows from that query, and discard any held fetch-page error.
+  If closing the previous query fails, both cursor implementations keep the
+  buffered result and its page error; connection invalidation or reconnect
+  handling may still retire the handle. Handles opened by undecodable replacement
+  replies remain tracked for cleanup. Public signatures are unchanged.
+
+- **`Cursor.arraysize` rejects non-integer values in sync and async cursors (#370)** —
+  PATCH / backward-compatible bug fix. The public signatures are unchanged;
+  validation now enforces the documented positive-integer row-count contract,
+  including rejection of floats and booleans. Valid positive integers retain
+  their behavior, and invalid assignments leave the previous value unchanged.
+
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
   `execute()` by releasing a previous result-set handle before starting another operation.
@@ -216,6 +893,22 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   satisfy the request, and `read(0)` returns `b""` without a server round-trip.
   Callers that already worked receive strictly more-correct data; no caller
   relying on the documented "read up to `length` bytes" contract is broken.
+
+- **Unknown connection options now emit `UnknownConnectionOptionWarning`
+  (#377)** — MINOR / additive. Adds one `__all__` entry
+  (`UnknownConnectionOptionWarning`) and no required parameter, so the surface
+  change is purely additive (§2). The behavior change is confined to keywords
+  that were previously *silently discarded*: they are still discarded, they now
+  additionally warn. No supported option changes meaning, and no previously
+  working call starts failing under the default warning filters.
+
+  Rejecting unknown options with a `TypeError` was considered and deliberately
+  deferred: it would break wrapper layers that forward keywords (connection
+  pools, ORM dialects such as `sqlalchemy-cubrid`) and therefore qualifies as a
+  breaking change under §3 — it may only land on a major version, via an issue
+  tagged `breaking-change` with a migration path. Until then, callers who want
+  that strictness opt in per-process with
+  `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)`.
 
 ## 8. How to Update the Baseline
 
@@ -233,3 +926,11 @@ git commit
 If `compat-check` fails on a pull request that did not intend to change the
 surface, the failure is signaling an accidental break — fix the code, do not
 update the baseline.
+
+## Routine CI selection
+
+The [CI execution policy](docs/CI_POLICY.md) reduces routine execution frequency
+and representative matrix cells. This CI-only maintenance changes no runtime API,
+supported-version declaration or release publisher; it does not require a MINOR
+version by itself. Candidate releases still invoke the full compatibility workflow
+at their immutable SHA before publication.

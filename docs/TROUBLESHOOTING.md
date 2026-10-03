@@ -13,6 +13,8 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Connection Closed Unexpectedly](#connection-closed-unexpectedly)
   - [Broker Port Redirect Failure](#broker-port-redirect-failure)
   - [Async TLS Handshake Hangs on Python 3.10](#async-tls-handshake-hangs-on-python-310)
+  - [Async TLS Connect Hangs After a Stalled or Reset Handshake](#async-tls-connect-hangs-after-a-stalled-or-reset-handshake)
+  - [Connection Option Has No Effect](#connection-option-has-no-effect)
 - [Query Issues](#query-issues)
   - [ProgrammingError: SQL Syntax](#programmingerror-sql-syntax)
   - [Parameter Binding Errors](#parameter-binding-errors)
@@ -29,6 +31,10 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [NULL Handling](#null-handling)
   - [Boolean Values](#boolean-values)
   - [Unicode / NCHAR Encoding](#unicode--nchar-encoding)
+  - [Invalid UTF-8 in a Value or Error Message](#invalid-utf-8-in-a-value-or-error-message)
+  - [Unresolved Time Zone in a TZ Value](#unresolved-time-zone-in-a-tz-value)
+  - [Zero Date or Datetime Value](#zero-date-or-datetime-value)
+  - [Invalid JSON Text in a Value](#invalid-json-text-in-a-value)
 - [LOB (CLOB/BLOB) Issues](#lob-clobblob-issues)
   - [LOB Columns Return a Dict, Not Data](#lob-columns-return-a-dict-not-data)
   - [Cannot Pass Lob Object as Parameter](#cannot-pass-lob-object-as-parameter)
@@ -38,7 +44,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [fetchone() Returns None Unexpectedly](#fetchone-returns-none-unexpectedly)
   - [rowcount Is -1 After SELECT](#rowcount-is--1-after-select)
   - [executemany() Performance](#executemany-performance)
-- [Prepared Statement Issues](#prepared-statement-issues)
+- [Parameterized Query Issues](#parameterized-query-issues)
   - [execute(sql, params) Pattern](#executesql-params-pattern)
   - [Mixing Parameterized and Direct Execution](#mixing-parameterized-and-direct-execution)
 - [Docker Issues](#docker-issues)
@@ -125,10 +131,10 @@ ConnectionRefusedError: [Errno 111] Connection refused
    docker compose ps
 
    # Wait for health check
-   docker compose up -d
-   sleep 5  # Wait for broker initialization
+   docker compose up -d --wait
 
-   # Verify with logs
+   # If the wait times out, inspect the service state and logs
+   docker compose ps
    docker compose logs cubrid | tail -20
    ```
 
@@ -231,6 +237,19 @@ InterfaceError: Connection is closed
 - **Broker restart** — If the broker restarts, all existing connections are terminated.
 - **Network interruption** — Temporary network failure drops the TCP connection.
 - **Idle connection cleanup** — The broker may close idle connections to free resources.
+- **Malformed broker reply** — the call itself raised
+  `OperationalError: malformed response from broker` because the reply could
+  not be read as a whole: a length field (a `BIT`/`VARBIT`, string, `NUMERIC`,
+  collection or LOB byte count) that is negative or runs past the end of the
+  reply, a row cell whose value does not use exactly its declared size (#523),
+  or collection elements that do not fill their declared size. The
+  driver closes the connection, because the next reply boundary is unknown,
+  and later calls raise `InterfaceError`. Bytes after the last value a reply
+  declares are not an error. A complete reply with a value Python cannot
+  represent raises `DataError` and keeps the connection instead (see
+  [Invalid UTF-8](#invalid-utf-8-in-a-value-or-error-message) and
+  [Zero Date](#zero-date-or-datetime-value)). Earlier releases returned a
+  shortened value for a cut-off field and kept the connection (#383).
 
 **Fix:** Create a new connection when this error occurs:
 
@@ -338,6 +357,72 @@ OperationalError: ... (during connection handshake)
 - **Pass a custom `ssl.SSLContext`** with the correct CA bundle loaded (`context.load_verify_locations(cafile=...)`) rather than relying on the system trust store, eliminating the most common verify failure.
 
 **Diagnostics**: If you can reproduce against a broker you control, capture a packet trace (tcpdump/Wireshark on port 33000) — you'll see the plaintext `CUBRS` exchange complete, then the TLS ClientHello, then no ServerHello processing on the client side. That is the signature of the 3.10-only async-TLS handshake bug.
+
+---
+
+### Async TLS Connect Hangs After a Stalled or Reset Handshake
+
+**Symptom** (pycubrid releases before the fix for [#513](https://github.com/cubrid-lab/pycubrid/issues/513)): on Python 3.11+, `await pycubrid.aio.connect(..., ssl=...)` never returns, even with `read_timeout` set, when the broker (or a proxy or middlebox in front of it) accepts the plaintext `CUBRS` handshake but then stalls or resets the connection before the TLS handshake completes.
+
+**Cause**: the TLS handshake timed out or failed as intended, but asyncio's `SSLProtocol` does not report the lost connection to the stream while it is still handshaking, so the connect cleanup waited forever for the stream to close.
+
+**Fix**: upgrade pycubrid. The async driver now raises `OperationalError` within `read_timeout` (or the 10-second `ssl_handshake_timeout` when `read_timeout` is unset) and closes the socket. `connect_timeout` only bounds the TCP connect, so set `read_timeout` to bound the TLS handshake. The sync driver was not affected.
+
+---
+
+### Connection Option Has No Effect
+
+**Symptom:**
+
+A connection option is accepted but does nothing — the timeout never changes,
+timing stats stay empty, the fetch batch size is unchanged — and a warning like
+this appears:
+
+```
+UnknownConnectionOptionWarning: Unknown connection option ignored by pycubrid:
+'read_timout' (did you mean 'read_timeout'?). Supported options: autocommit,
+connect_timeout, database, decode_collections, enable_timing, fetch_size, host,
+json_deserializer, no_backslash_escapes, password, port, read_timeout, ssl, user.
+```
+
+**Cause:**
+
+The keyword is not a supported connection option, so it lands in `**kwargs` and
+is discarded. Usually a typo (`read_timout`), a camelCase spelling
+(`connectTimeout`), or an option borrowed from a different driver.
+
+**Fixes:**
+
+1. **Use the spelling the warning suggests**, or pick from the supported set it
+   lists. The full reference is in
+   [Connection Options](CONNECTION.md#keyword-arguments).
+
+2. **Catch typos automatically in development** by making the warning fatal:
+
+   ```python
+   import warnings
+   import pycubrid
+
+   warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+   ```
+
+   (Install this filter from Python. `python -W` and `PYTHONWARNINGS` are
+   parsed at interpreter startup, before site-packages is importable, so
+   `-W error::pycubrid.UnknownConnectionOptionWarning` is rejected with
+   `Invalid -W option ignored: invalid module name: 'pycubrid'` even when
+   pycubrid is installed. `python -W error::UserWarning` works, but it
+   escalates every `UserWarning`, not just this one.)
+
+3. **If a wrapper legitimately forwards extra keywords** (a connection pool or
+   an ORM dialect), silence the category instead of chasing each one:
+
+   ```python
+   warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+   ```
+
+> **Note:** If you see no warning at all, check that warnings are not globally
+> suppressed — `python -W default` restores the default display. Warnings are
+> also hidden by default in some test runners.
 
 ---
 
@@ -454,6 +539,15 @@ cur.execute("SELECT * FROM users WHERE name = ?", ("Alice",))
 ---
 
 ### Reserved Word Conflicts
+
+The token reported after `unexpected` marks the server's diagnostic position;
+it may follow the offending identifier. For example,
+`CREATE TABLE t (key VARCHAR(50))` reports `unexpected 'VARCHAR'` on captured
+CUBRID 10.2, 11.2 and 11.4 brokers. pycubrid's appended hint therefore says an
+identifier at or before that position **may** be reserved. It does not identify
+the offending name or tell you to quote the datatype `VARCHAR`; inspect the
+identifier near that position and quote or rename it. The original server
+message and error metadata are preserved.
 
 **Common CUBRID reserved words** that often clash with column/table names:
 
@@ -682,6 +776,155 @@ for row in cur:
     print(row[0])  # Prints correctly: 김영선, 日本語テスト
 ```
 
+This assumes a UTF-8 database (the default). For a database created with
+another charset, connect with that charset, for example `charset="euckr"` for
+`ko_KR.euckr`; the broker does no conversion, so a mismatched client either
+cannot encode a value or cannot decode a reply and raises `DataError`. See
+[Character Encoding](CONNECTION.md#character-encoding).
+
+### Invalid UTF-8 in a Value or Error Message
+
+CUBRID counts `VARCHAR(n)` sizes and some echoed error text in bytes, so it can
+cut a string in the middle of a multi-byte character. CUBRID 10.2, for example,
+stores `'\U00010000' * 13` in a `VARCHAR(50)` as 50 bytes, ending with half a
+character.
+
+- **Error messages:** invalid bytes are replaced with `U+FFFD`, and the real
+  CUBRID error is raised with its `errno` and `sqlstate`.
+- **Column values:** a `CHAR`/`VARCHAR`/`NCHAR`/`ENUM`/`JSON` value that is not
+  valid UTF-8 raises `DataError`; the original `UnicodeDecodeError` is its
+  `__cause__`. The connection stays usable. To inspect the stored bytes, select
+  `HEX(col)` instead, then fix the stored value.
+- **Charset mismatch:** the same `DataError` names the connection codec, for
+  example `column value is not valid UTF-8` from a default client on an EUC-KR
+  database, or `column value is not valid euc_kr` for a `CHARSET utf8` column
+  read with `charset="euckr"`. Connect with the database charset, or convert
+  the column in SQL: `CAST(col AS VARCHAR(n) CHARSET euckr)`. Undecodable
+  column names raise `DataError` the same way (#86). `JSON` is always UTF-8.
+
+Earlier releases raised `OperationalError: malformed response from
+broker` and closed the connection.
+
+### Unresolved Time Zone in a TZ Value
+
+```
+pycubrid.exceptions.DataError: cannot resolve CUBRID timezone 'Asia/Seoul': it is
+not in the client's IANA time zone database (install the 'tzdata' package or
+update the system zoneinfo)
+```
+
+A `TIMESTAMPTZ`, `TIMESTAMPLTZ`, `DATETIMETZ` or `DATETIMELTZ` value named a
+region that Python's `zoneinfo` cannot find. The LTZ types report the session
+zone, so even `UTC` needs the database. Usual causes:
+
+- **No time zone database on the client** — minimal container images
+  (`python:*-slim`, distroless, Alpine without `tzdata`). Run
+  `pip install tzdata`, or install the OS `tzdata` package. pycubrid already
+  depends on `tzdata` on Windows.
+- **The client database is older than the server's** — update `tzdata` or the
+  OS package.
+- **`PYTHONTZPATH` points somewhere empty** — unset it or fix the path.
+
+The connection stays usable. Offsets such as `+09:00` need no database; an
+offset outside ±24 hours raises `DataError: cannot resolve CUBRID timezone
+offset ...`. The explicit prepared API (`pycubrid.compat.native`) stays
+fail-closed, as for invalid UTF-8: it raises `OperationalError` and retires
+the session. To read the values without zone resolution, select them as
+text, e.g. `SELECT TO_CHAR(col)`.
+
+Earlier releases logged `Unknown timezone token` and returned a naive
+`datetime`, silently dropping the zone (#413).
+
+### Zero Date or Datetime Value
+
+```
+pycubrid.exceptions.DataError: CUBRID DATE value (0, 0, 0) cannot be represented
+in Python: year 0 is out of range
+```
+
+CUBRID accepts zero values such as `DATE'0000-00-00'` and
+`DATETIME'0000-00-00 00:00:00'` (also for `TIMESTAMP` and the TZ/LTZ types),
+for example from `CAST('0000-00-00' AS DATE)` or data loaded from another
+system. Python's `datetime` has no year 0, so pycubrid raises `DataError` when
+such a value is fetched, whether it is in the first page returned by
+`execute()` or in a later fetch page. The reply was read in full, so the
+connection stays usable; after a failed `execute()` the cursor has no result
+set (`description` is `None`) but still owns and releases the server handle,
+as for invalid UTF-8.
+
+On a later fetch page, the fetch call that reaches the page raises and the
+whole page is withheld, but rows that call had already collected are kept:
+the next `fetchmany()`/`fetchall()` returns them, and every fetch after that
+raises the same `DataError` without asking the server again, until you execute
+a new query (#507). For example:
+
+```python
+cur.execute("SELECT id, d FROM t ORDER BY id")
+try:
+    rows = cur.fetchall()
+except pycubrid.DataError:
+    rows = cur.fetchall()  # rows before the failing page
+    # cur.fetchone() now raises the same DataError; re-execute with a
+    # converted column (below) to read the rest.
+```
+
+The same applies to invalid text (#492) and unresolved zones (#413). Earlier
+releases dropped the rows collected by that call and requested the page again
+on every retry, which in autocommit mode could fail with CAS error `-1012`
+because the broker had already closed the result.
+
+pycubrid has no option to return zero dates as `None` or text. Convert them
+in SQL instead:
+
+```sql
+SELECT id, NULLIF(d, DATE'0000-00-00') AS d FROM t;              -- zero -> NULL
+SELECT id, CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END FROM t;
+SELECT id, TO_CHAR(d, 'YYYY-MM-DD') AS d FROM t;                 -- '0000-00-00'
+SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- find them
+```
+
+Use `DATETIME'0000-00-00 00:00:00'` (or the matching type) for the other
+types. The explicit prepared API (`pycubrid.compat.native`) stays fail-closed,
+as for invalid UTF-8: it raises `OperationalError` and retires the session.
+A reply that is cut short is still `OperationalError: malformed response from
+broker`, even when it also contains a zero date.
+
+Earlier releases raised `OperationalError: malformed response from broker`
+and closed the connection (#512).
+
+### Invalid JSON Text in a Value
+
+```
+pycubrid.exceptions.DataError: JSON value is not valid JSON: Expecting value:
+line 1 column 1 (char 0)
+```
+
+With `json_deserializer=json.loads` (see [JSON Columns](TYPES.md#json-columns)),
+a `JSON` column value that is not valid JSON text raises `DataError`; the
+original `json.JSONDecodeError` is its `__cause__`. The reply was read in
+full, so the connection stays usable, whether the value is in the first page
+returned by `execute()` or in a later fetch page. After a failed `execute()`
+the cursor has no result set (`description` is `None`), but, exactly as for
+invalid UTF-8 (#492) and zero dates (#512), it still owns and releases its
+server handle. On a later fetch page the same #507 rules apply: the fetch
+call that reaches the page raises, rows it had already collected are kept,
+and every fetch after that raises the same `DataError` without asking the
+server again, until you execute a new query.
+
+Without `json_deserializer` (the default), a `JSON` column is returned as its
+raw `str`, so this does not apply: `str.__new__` never fails on the text
+CUBRID sends. Only the built-in `json.loads` path above is reclassified: a
+caller-supplied `json_deserializer` callable is invoked as-is, and whatever it
+raises is not turned into `DataError`.
+
+This is ordinary-cursor behavior. The explicit prepared API
+(`pycubrid.compat.native`), which threads the same `json_deserializer`, stays
+fail-closed as for invalid UTF-8 and zero dates: it raises `OperationalError`
+and retires the session.
+
+Earlier releases raised `OperationalError: malformed response from broker`
+and closed the connection (#543).
+
 ---
 
 ## LOB (CLOB/BLOB) Issues
@@ -844,7 +1087,7 @@ cur.executemany_batch(sql_list)
 
 ---
 
-## Prepared Statement Issues
+## Parameterized Query Issues
 
 ### execute(sql, params) Pattern
 
@@ -865,7 +1108,7 @@ marketers = cur.fetchall()
 
 - Always pass the SQL string as the first argument to `execute()`
 - Pass parameter values in the second argument
-- Each call uses CAS `PREPARE_AND_EXECUTE`; no separate prepare step is needed
+- The driver renders the parameters into SQL literals on the client and sends the complete SQL with CAS `PREPARE_AND_EXECUTE` on each call; there is no `cursor.prepare()`, typed value payload or driver-side statement-handle cache (see [Parameter Binding](PARAMETER_BINDING.md))
 
 ---
 
@@ -907,8 +1150,11 @@ docker compose ps
 **Check 2: Wait for initialization** — CUBRID takes a few seconds to start:
 
 ```bash
-docker compose up -d
-sleep 10  # Wait for full initialization
+docker compose up -d --wait
+
+# If the wait times out, inspect the service state and logs
+docker compose ps
+docker compose logs cubrid
 
 # Test connection
 python3 -c "

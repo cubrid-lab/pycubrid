@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import struct
-import sys
-import types
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -41,20 +39,9 @@ def build_server_version_response(
     return struct.pack(">i", len(body) - 4) + body
 
 
-def build_last_insert_id_response(
-    last_insert_id: str, cas_info: bytes | bytearray = b"\x01\x01\x02\x03"
-) -> bytes:
-    value_bytes = last_insert_id.encode("utf-8") + b"\x00"
-    value_payload = b"\x83\x07" + value_bytes
-    body = cas_info + struct.pack(">i", 0) + struct.pack(">i", len(value_payload)) + value_payload
-    return struct.pack(">i", len(body) - 4) + body
-
-
 @pytest.fixture
 def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
-    import pycubrid.connection as _conn_mod
-
-    module = types.ModuleType("pycubrid.cursor")
+    import pycubrid.cursor as _cursor_mod
 
     class DummyCursor:
         def __init__(self, connection: Connection) -> None:
@@ -64,9 +51,7 @@ def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
         def close(self) -> None:
             self.closed = True
 
-    setattr(module, "Cursor", DummyCursor)
-    monkeypatch.setitem(sys.modules, "pycubrid.cursor", module)
-    monkeypatch.setattr(_conn_mod, "_CursorClass", None)
+    monkeypatch.setattr(_cursor_mod, "Cursor", DummyCursor)
     return DummyCursor
 
 
@@ -335,14 +320,27 @@ class TestMetadataMethods:
 
         assert version == "11.2.0.0194"
 
-    def test_get_last_insert_id(self, socket_queue: list[MagicMock]) -> None:
+    def test_get_last_insert_id_returns_none_before_any_insert(
+        self, socket_queue: list[MagicMock]
+    ) -> None:
+        """No cursor has executed an INSERT yet, so there is nothing cached."""
+        conn, _ = make_connected_connection(socket_queue)
+
+        assert conn.get_last_insert_id() is None
+
+    def test_get_last_insert_id_returns_cached_value_without_network_round_trip(
+        self, socket_queue: list[MagicMock]
+    ) -> None:
+        """Reads the id a cursor cached on the connection at INSERT time — no
+        broker query, so an ambiguous '' after a later commit() can't happen."""
         conn, sock = make_connected_connection(socket_queue)
-        frame = build_last_insert_id_response("42", conn._cas_info)
-        sock.recv.side_effect = list(sock.recv.side_effect) + [frame[:4], frame[4:]]
+        conn._last_insert_id = "42"
+        calls_before = sock.recv.call_count
 
         last_id = conn.get_last_insert_id()
 
         assert last_id == "42"
+        assert sock.recv.call_count == calls_before
 
 
 class TestAdvancedMethods:

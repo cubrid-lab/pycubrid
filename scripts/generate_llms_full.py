@@ -1,9 +1,19 @@
+"""Generate the LLM-facing documentation artifacts.
+
+* ``docs/llms-full.txt`` is the documentation Markdown files concatenated.
+* ``llms.txt`` (repository root) is a byte-identical copy of the canonical
+  ``docs/llms.txt`` index, which the docs site also serves as ``/llms.txt``.
+  Edit ``docs/llms.txt`` only; CI fails if either artifact is stale.
+"""
+
 from __future__ import annotations
 
 import pathlib
 
 DOCS_DIR = pathlib.Path(__file__).resolve().parent.parent / "docs"
 OUTPUT = DOCS_DIR / "llms-full.txt"
+INDEX = DOCS_DIR / "llms.txt"
+ROOT_INDEX = DOCS_DIR.parent / "llms.txt"
 
 DOC_FILES = [
     "index.md",
@@ -54,6 +64,9 @@ def generate() -> None:
 
     _ = OUTPUT.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
     print(f"Generated {OUTPUT} ({OUTPUT.stat().st_size:,} bytes)")
+
+    _ = ROOT_INDEX.write_bytes(INDEX.read_bytes())
+    print(f"Synced {ROOT_INDEX} from docs/llms.txt")
 
 
 if __name__ == "__main__":

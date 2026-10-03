@@ -11,18 +11,36 @@ import sys
 import time
 from typing import Any
 
-from pycubrid._connection_common import ConnectionCommonMixin, resolve_ssl_context
+from pycubrid._connection_common import (
+    ESCAPE_PROBE_FAILED,
+    ESCAPE_PROBE_ROLLBACK_FAILED,
+    ESCAPE_PROBE_SQL,
+    ConnectionCommonMixin,
+    no_backslash_escapes_from_probe,
+    resolve_ssl_context,
+    warn_unknown_connection_options,
+)
 from pycubrid.constants import CCIDbParam, DataSize
-from pycubrid.exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
+from pycubrid.exceptions import (
+    DatabaseError,
+    DataError,
+    Error,
+    InterfaceError,
+    NotSupportedError,
+    OperationalError,
+)
 from pycubrid.protocol import (
+    BatchExecutePacket,
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
+    CloseQueryPacket,
     CommitPacket,
+    FetchPacket,
     GetEngineVersionPacket,
-    GetLastInsertIdPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
+    PrepareAndExecutePacket,
     RollbackPacket,
     SetDbParameterPacket,
 )
@@ -47,14 +65,14 @@ class AsyncConnection(ConnectionCommonMixin):
     - Autocommit changes go through :meth:`set_autocommit` (coroutine)
       rather than a property setter.
     - :meth:`ping` (added in 1.3.2) performs native ``CHECK_CAS`` and
-      accepts ``reconnect=True/False`` to suppress broker-handoff
-      reconnect.
+      accepts ``reconnect=True/False`` to recover from a confirmed
+      CAS/transport failure. OUT_TRAN alone never reconnects.
 
     .. note::
        On Python 3.10, :meth:`asyncio.AbstractEventLoop.start_tls` has a
        known CPython bug (fixed in 3.13/3.14) that causes it to hang on
        certificate-verify failures instead of raising. As of #156, an
-       automatic preflight :meth:`ssl.SSLContext.wrap_socket` probe runs
+       automatic preflight blocking TLS handshake probe runs
        on Python 3.10 immediately before :meth:`_upgrade_to_tls` to
        surface verification failures as :class:`OperationalError`,
        matching the 3.11+ behavior. The probe is a no-op on Python
@@ -75,6 +93,9 @@ class AsyncConnection(ConnectionCommonMixin):
         autocommit: bool = False,
         **kwargs: Any,
     ) -> None:
+        # Report typo'd/unsupported options before any socket work, so a
+        # mis-spelled option is surfaced even when the connection then fails.
+        warn_unknown_connection_options(kwargs)
         self._ssl_context = resolve_ssl_context(ssl)
         self._init_common_state(
             host=host,
@@ -89,9 +110,13 @@ class AsyncConnection(ConnectionCommonMixin):
             json_deserializer=kwargs.get("json_deserializer"),
             no_backslash_escapes=kwargs.get("no_backslash_escapes", None),
             enable_timing=kwargs.get("enable_timing"),
+            charset=kwargs.get("charset", "utf-8"),
         )
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
+        # Whether the current request's reply was read in full (#556): an
+        # exception after that comes from parsing, not from the transport.
+        self._reply_complete = False
         self._lock = asyncio.Lock()
         # Applied in connect() (can't await a live SET_DB_PARAMETER round-trip
         # here — __init__ isn't a coroutine). See connect() below.
@@ -123,39 +148,70 @@ class AsyncConnection(ConnectionCommonMixin):
         .. _#156: https://github.com/cubrid-lab/pycubrid/issues/156
         """
         async with self._setup_lock:
-            current = asyncio.current_task()
-            self._setup_owner = current
-            self._setup_error = None
-            self._setup_done.clear()
+            did_connect = False
+            previous_generation = self._physical_generation
             try:
                 # Read the connecting edge and run the handshake under _lock so
                 # two concurrent connect() calls can't both see "not connected"
                 # and both drive setup (PR #226 review).
                 async with self._lock:
-                    did_connect = not self._connected
+                    if self._connected:
+                        return  # Healthy no-op must not close the setup gate.
+                    did_connect = True
+                    self._setup_owner = asyncio.current_task()
+                    self._setup_error = None
+                    self._setup_done.clear()
                     await self._connect_locked()
 
                 # Match the sync driver's setup order exactly: negotiate the
                 # backslash-escape mode BEFORE applying pending autocommit.
                 # The probe is a read-only SELECT issued via a cursor; it runs
                 # without holding _lock (the cursor acquires it) but is fenced
-                # from other tasks by the setup gate, and the guard keeps it to
-                # a single probe across transparent reconnects.
+                # from other tasks by the setup gate. Auto-detection is
+                # repeated for every new physical session (#471).
                 if did_connect and self._no_backslash_escapes is None:
                     await self._negotiate_backslash_escapes()
 
-                # Apply the constructor's autocommit in its own _lock hold via
-                # _send_and_receive_locked so no query on another task can slip
-                # between the handshake and the SET_DB_PARAMETER round-trip.
+                # Finish session settings before releasing the setup gate.
+                # The escape probe ends with a ROLLBACK, so this session may be
+                # OUT_TRAN and its CAS already recycled: verify it once before
+                # sending a setting. A replacement is configured by
+                # _reconnect_after_failed_probe_locked itself.
                 async with self._lock:
-                    if did_connect and self._pending_autocommit:
+                    sends_setting = self._pending_autocommit or (
+                        bool(previous_generation) and self._autocommit_explicitly_set
+                    )
+                    configured_by_recovery = (
+                        self._physical_generation != previous_generation
+                        and self._configured_generation == self._physical_generation
+                    )
+                    if configured_by_recovery:
+                        pass  # a recovery nested in the escape probe configured it
+                    elif sends_setting and await self._check_reconnect_locked():
+                        pass
+                    elif self._pending_autocommit:
                         await self._apply_pending_autocommit_locked()
+                    elif previous_generation:
+                        await self._restore_session_state_locked()
+                    self._configured_generation = self._physical_generation
             except BaseException as exc:
-                self._setup_error = exc
+                if did_connect:
+                    self._setup_error = exc
+                    # A failed/cancelled probe leaves the new session unsafe.
+                    try:
+                        self._drop_connection()
+                    except BaseException:
+                        _LOGGER.warning(
+                            "Failed to discard connection after escape-mode probe", exc_info=True
+                        )
+                    finally:
+                        self._connected = False
+                        self._invalidate_query_handles()
                 raise
             finally:
-                self._setup_owner = None
-                self._setup_done.set()
+                if did_connect:
+                    self._setup_owner = None
+                    self._setup_done.set()
 
     async def _negotiate_backslash_escapes(self) -> None:
         """Async counterpart of
@@ -181,28 +237,13 @@ class AsyncConnection(ConnectionCommonMixin):
             try:
                 cursor = self.cursor()
                 try:
-                    await cursor.execute("SELECT CHAR_LENGTH('\\\\')")
+                    await cursor.execute(ESCAPE_PROBE_SQL)
                     row = await cursor.fetchone()
                 finally:
                     await cursor.close()
             except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
-                raise OperationalError(
-                    "Failed to detect CUBRID backslash-escape mode; refusing to "
-                    "guess because a wrong mode silently corrupts string escaping. "
-                    "Pass no_backslash_escapes explicitly to skip detection."
-                ) from exc
-            length = row[0] if row else None
-            if length == 2:
-                self._no_backslash_escapes = True
-            elif length == 1:
-                self._no_backslash_escapes = False
-            else:
-                raise OperationalError(
-                    "Could not detect CUBRID backslash-escape mode "
-                    f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
-                    "because a wrong mode silently corrupts string escaping. Pass "
-                    "no_backslash_escapes explicitly to skip detection."
-                )
+                raise OperationalError(ESCAPE_PROBE_FAILED) from exc
+            self._no_backslash_escapes = no_backslash_escapes_from_probe(row[0] if row else None)
         except BaseException:
             probe_failed = True
             raise
@@ -222,17 +263,16 @@ class AsyncConnection(ConnectionCommonMixin):
                 except Exception:  # nosec B110 — best-effort close after rollback failure
                     pass
                 if not probe_failed:
-                    raise OperationalError(
-                        "Failed to roll back the CUBRID backslash-escape probe "
-                        "transaction; the connection may be in an unknown "
-                        "transaction state and has been closed. Pass "
-                        "no_backslash_escapes explicitly to skip detection."
-                    ) from rollback_exc
+                    raise OperationalError(ESCAPE_PROBE_ROLLBACK_FAILED) from rollback_exc
 
     async def _connect_locked(self) -> None:
         if self._connected:
             return
 
+        if not self._no_backslash_escapes_explicit:
+            self._no_backslash_escapes = None
+
+        self._last_insert_id = None
         _timing = self._timing
         _start = 0
         if _timing is not None:
@@ -249,6 +289,8 @@ class AsyncConnection(ConnectionCommonMixin):
             hs_writer = None  # ownership transferred to self or closed
 
             self._connected = True
+            self._mark_cas_reply_verified()
+            self._physical_generation += 1
         except asyncio.TimeoutError as exc:
             raise OperationalError("read timeout during connect handshake") from exc
         except (OSError, ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
@@ -277,11 +319,9 @@ class AsyncConnection(ConnectionCommonMixin):
         (torn autocommit state).
 
         This bootstraps the explicit-autocommit state (``_autocommit`` +
-        ``_autocommit_explicitly_set``), after which the normal reconnect
-        restore machinery (``_restore_session_state_locked``) takes over — so
-        it is intentionally driven only from the public ``connect()`` path,
-        not the internal ``ping``/reconnect path, to avoid re-emitting on top
-        of restore.
+        ``_autocommit_explicitly_set``). The public ``connect()`` setup path
+        also runs during ping recovery, and uses this pending value before
+        normal reconnect restore when an initial application failed.
 
         ``self._pending_autocommit`` is cleared only on success, so a
         transient failure leaves it set for the next ``connect()`` attempt to
@@ -296,8 +336,7 @@ class AsyncConnection(ConnectionCommonMixin):
             )
             await self._send_and_receive_locked(CommitPacket(), allow_reconnect=False)
         except Exception as exc:
-            await self._close_streams()
-            self._connected = False
+            await self._retire_session_locked()
             raise OperationalError("failed to apply autocommit after connect") from exc
         self._autocommit = True
         self._autocommit_explicitly_set = True
@@ -370,6 +409,7 @@ class AsyncConnection(ConnectionCommonMixin):
             database=self._database,
             user=self._user,
             password=self._password,
+            encoding=self._encoding,
         )
         if self._writer is None:
             raise InterfaceError("Connection not established: writer is None")
@@ -381,9 +421,11 @@ class AsyncConnection(ConnectionCommonMixin):
         response_body = await self._recv_exact(self._reader, data_length + DataSize.CAS_INFO)
         open_db_packet.parse(response_body)
 
-        self._cas_info = open_db_packet.cas_info
+        self._record_reply_cas_info(open_db_packet.cas_info)
         self._session_id = open_db_packet.session_id
         self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
+        self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
+        self._broker_db_type = open_db_packet.broker_info.get("db_type")
 
     async def _upgrade_to_tls(self) -> None:
         """Upgrade the active stream from plaintext to TLS via ``loop.start_tls``.
@@ -428,13 +470,28 @@ class AsyncConnection(ConnectionCommonMixin):
             )
         except BaseException:
             old_transport.abort()
+            # start_tls() moved the transport onto an SSLProtocol, which does
+            # not forward connection_lost to the stream protocol while still in
+            # DO_HANDSHAKE (peer reset, ssl_handshake_timeout, or cancellation
+            # by read_timeout). Its close future would then never resolve and
+            # the cleanup's StreamWriter.wait_closed() would hang forever
+            # (#513). abort() already released the socket; deliver the missing
+            # notification (a no-op if asyncio delivers it too).
+            protocol.connection_lost(None)
             raise
 
         if new_transport is None:
             old_transport.abort()
+            protocol.connection_lost(None)  # see the except branch above (#513)
             raise OperationalError("TLS upgrade returned no transport")
         self._writer._transport = new_transport  # type: ignore[attr-defined]
         self._reader._transport = new_transport  # type: ignore[attr-defined]
+        # The stream protocol was built for the plaintext transport and still
+        # has _over_ssl = False, so its eof_received() returns True and
+        # SSLProtocol logs "returning true from eof_received() has no effect
+        # when using ssl" on every TLS peer close (#514). Record the upgrade as
+        # StreamReaderProtocol._replace_transport() (3.11+) would.
+        setattr(protocol, "_over_ssl", True)
 
     async def _maybe_probe_tls_verification(
         self, *, effective_port: int, followed_redirect: bool
@@ -452,9 +509,10 @@ class AsyncConnection(ConnectionCommonMixin):
         The probe opens a **separate** TCP socket to the same effective
         endpoint, replays the CUBRS broker handshake when needed
         (no-redirect path only — redirected CAS workers go straight to TLS
-        on any incoming connection), then performs a synchronous
-        :meth:`ssl.SSLContext.wrap_socket` using the **same** ``SSLContext``
-        object and ``server_hostname=self._host`` as the real upgrade. Any
+        on any incoming connection), then performs a blocking TLS handshake
+        over :meth:`ssl.SSLContext.wrap_bio` memory BIOs using the **same**
+        ``SSLContext`` object and ``server_hostname=self._host`` as the real
+        upgrade. The probe owns its socket throughout and always closes it. Any
         :class:`ssl.SSLError` raised propagates as :class:`OSError`
         (``SSLError`` is an ``OSError`` subclass) into
         :meth:`_connect_locked`'s ``except`` clause, which wraps it as
@@ -531,18 +589,75 @@ class AsyncConnection(ConnectionCommonMixin):
                         (host, client_info.new_connection_port), timeout=connect_timeout
                     )
                     sock.settimeout(handshake_timeout)
-            ssock = ssl_context.wrap_socket(sock, server_hostname=host)
-            sock = None  # ownership transferred to ssock
-            try:
-                # Handshake happens implicitly in wrap_socket on a blocking
-                # socket; closing immediately suffices to validate the cert.
+            # Run the handshake over memory BIOs instead of wrap_socket(): on
+            # Python 3.10, SSLSocket._create() takes over the fd and can raise
+            # on a peer reset before the ClientHello without closing it, which
+            # left the socket to the garbage collector (#535). This way the
+            # probe keeps owning the socket and the finally below closes it.
+            # handshake_timeout bounds the whole handshake, as it does for
+            # wrap_socket(), not each socket operation.
+            deadline = time.monotonic() + handshake_timeout
+            incoming = ssl_module.MemoryBIO()
+            outgoing = ssl_module.MemoryBIO()
+            tls = ssl_context.wrap_bio(incoming, outgoing, server_hostname=host)
+
+            def remaining_timeout() -> float:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("TLS preflight probe handshake timed out") from None
+                return remaining
+
+            while True:
                 try:
-                    ssock.unwrap()
-                except OSError:
-                    # Best-effort TLS shutdown; verification already passed.
-                    pass
-            finally:
-                ssock.close()
+                    tls.do_handshake()
+                except ssl_module.SSLWantReadError:
+                    try:
+                        pending = outgoing.read()
+                        if pending:
+                            sock.settimeout(remaining_timeout())
+                            sock.sendall(pending)
+                        sock.settimeout(remaining_timeout())
+                        data = sock.recv(16384)
+                    except TimeoutError as exc:
+                        raise exc from None
+                    if not data:
+                        raise OSError("connection closed during TLS preflight probe")
+                    incoming.write(data)
+                except ssl_module.SSLError:
+                    # OpenSSL may have queued a fatal alert; send it within the
+                    # same budget without replacing the original TLS failure.
+                    try:
+                        pending = outgoing.read()
+                        if pending:
+                            sock.settimeout(remaining_timeout())
+                            sock.sendall(pending)
+                    except OSError:  # nosec B110 - best-effort alert; re-raise TLS failure
+                        pass
+                    raise
+                else:
+                    # The BIO may still hold the final handshake flight.
+                    # Its send is required, unlike optional close_notify.
+                    pending = outgoing.read()
+                    sock.settimeout(remaining_timeout())
+                    if pending:
+                        sock.sendall(pending)
+                    remaining_timeout()  # reject a late successful completion
+                    break
+            # Verification passed; close_notify is best effort but may not
+            # extend the same total deadline.
+            try:
+                tls.unwrap()
+            except ssl_module.SSLError:
+                # Expected: with memory BIOs unwrap() wants the peer's reply.
+                pass
+            try:
+                pending = outgoing.read()
+                if pending:
+                    sock.settimeout(remaining_timeout())
+                    sock.sendall(pending)
+            except OSError:
+                # The peer may already be gone; verification has passed.
+                pass
         finally:
             if sock is not None:
                 try:
@@ -571,43 +686,101 @@ class AsyncConnection(ConnectionCommonMixin):
         if _timing is not None:
             _start = time.perf_counter_ns()
 
-        for cursor in list(self._cursors):
-            try:
-                await cursor.close()
-            except Exception:  # noqa: BLE001 - best-effort cleanup
-                _LOGGER.debug(
-                    "Suppressed error while closing cursor during shutdown", exc_info=True
-                )
-            finally:
-                self._cursors.discard(cursor)
-
-        async with self._lock:
-            try:
-                if self._connected:
-                    await self._send_and_receive_locked(
-                        CloseDatabasePacket(), allow_reconnect=False
+        # Closing never reconnects: a CAS that already went away needs no
+        # CLOSE_REQ or CLOSE_DATABASE, and failures here are best effort.
+        self._implicit_reconnect_suspended += 1
+        try:
+            for cursor in list(self._cursors):
+                try:
+                    await cursor.close()
+                except Exception:  # noqa: BLE001 - best-effort cleanup
+                    _LOGGER.debug(
+                        "Suppressed error while closing cursor during shutdown", exc_info=True
                     )
-            except Exception:  # noqa: BLE001 - best-effort cleanup
-                _LOGGER.debug(
-                    "Suppressed error sending CloseDatabasePacket during shutdown", exc_info=True
-                )
-            finally:
-                await self._close_streams()
-                self._connected = False
-                if _timing is not None:
-                    _timing.record_close(time.perf_counter_ns() - _start)
+                finally:
+                    self._cursors.discard(cursor)
+
+            await self._wait_for_setup_if_needed()
+            async with self._lock:
+                try:
+                    if self._connected:
+                        await self._close_schema_results_locked()
+                        await self._send_and_receive_locked(
+                            CloseDatabasePacket(), allow_reconnect=False
+                        )
+                except Exception:  # noqa: BLE001 - best-effort cleanup
+                    _LOGGER.debug(
+                        "Suppressed error sending CloseDatabasePacket during shutdown",
+                        exc_info=True,
+                    )
+                finally:
+                    await self._close_streams()
+                    self._connected = False
+                    if _timing is not None:
+                        _timing.record_close(time.perf_counter_ns() - _start)
+        finally:
+            self._implicit_reconnect_suspended -= 1
 
     async def commit(self) -> None:
         """Commit the current transaction."""
-        self._ensure_connected()
-        await self._send_and_receive(CommitPacket())
-        self._invalidate_query_handles()
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            await self._check_reconnect_locked()
+            await self._close_schema_results_locked()
+            await self._close_open_query_handles_locked()
+            await self._send_and_receive_locked(CommitPacket())
+            self._invalidate_query_handles()
 
     async def rollback(self) -> None:
         """Roll back the current transaction."""
-        self._ensure_connected()
-        await self._send_and_receive(RollbackPacket())
-        self._invalidate_query_handles()
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            # Verify an OUT_TRAN CAS first: a replaced session has no schema or
+            # query handles left to close on the dead transport.
+            await self._check_reconnect_locked()
+            await self._close_schema_results_locked()
+            await self._close_open_query_handles_locked()
+            await self._send_and_receive_locked(RollbackPacket())
+            self._invalidate_query_handles()
+
+    async def _close_open_query_handles_locked(self) -> None:
+        """Async counterpart of ``Connection._close_open_query_handles`` (#485)."""
+        # Read each handle only when its turn comes: a probe-verified reconnect
+        # during an earlier CLOSE_REQ invalidates every remaining handle.
+        for cursor in list(self._cursors):
+            handle = cursor._query_handle
+            if handle is None:
+                continue
+            cursor._query_handle = None
+            await self._close_handle_at_boundary_locked(handle)
+        # Handles of cursors collected without close() and queued (#488).
+        generation = self._physical_generation
+        initial_count = len(self._deferred_closes)
+        for _ in range(initial_count):
+            if self._physical_generation != generation:
+                break  # replaced during an earlier CLOSE_REQ: nothing left to close
+            if not self._deferred_closes:
+                break  # retirement may have cleared the batch without replacing generation
+            head = self._deferred_closes[0]
+            handle = self._peek_boundary_deferred_close()
+            if handle is None:
+                self._consume_deferred_closes(1)  # stale or pooling-off: no wire ownership
+                continue
+            await self._close_handle_at_boundary_locked(handle)
+            if self._deferred_closes and self._deferred_closes[0] is head:
+                break  # a handled pre-send error left the head unsent
+
+    async def _close_handle_at_boundary_locked(self, handle: int) -> None:
+        try:
+            await self._send_and_receive_locked(CloseQueryPacket(handle))
+        except Error:
+            if not self._connected:
+                raise
+            _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
 
     def cursor(self) -> Any:
         """Create and return a new async cursor bound to this connection."""
@@ -624,18 +797,40 @@ class AsyncConnection(ConnectionCommonMixin):
         return self._autocommit
 
     async def set_autocommit(self, value: bool) -> None:
-        """Set auto-commit mode on the server."""
-        self._ensure_connected()
-        enabled = bool(value)
-        await self._send_and_receive(
-            SetDbParameterPacket(
-                parameter=CCIDbParam.AUTO_COMMIT,
-                value=1 if enabled else 0,
+        """Set auto-commit mode on the server.
+
+        Same contract as the sync ``Connection.autocommit`` setter (#551):
+        ``SET_DB_PARAMETER`` and its ``COMMIT`` take effect on one CAS session,
+        a CAS recycled between them is replaced at most once with the new value
+        restored before the ``COMMIT``, and a failed ``COMMIT`` retires the
+        session, keeps the previous value and raises :class:`OperationalError`.
+        """
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            enabled = bool(value)
+            generation = self._physical_generation
+            await self._close_schema_results_locked()
+            await self._send_and_receive_locked(
+                SetDbParameterPacket(
+                    parameter=CCIDbParam.AUTO_COMMIT,
+                    value=1 if enabled else 0,
+                ),
+                allow_reconnect=self._physical_generation == generation,
             )
-        )
-        await self._send_and_receive(CommitPacket())
-        self._autocommit = enabled
-        self._autocommit_explicitly_set = True
+            previous = (self._autocommit, self._autocommit_explicitly_set)
+            self._autocommit = enabled
+            self._autocommit_explicitly_set = True
+            try:
+                await self._send_and_receive_locked(
+                    CommitPacket(), allow_reconnect=self._physical_generation == generation
+                )
+            except BaseException as exc:
+                self._autocommit, self._autocommit_explicitly_set = previous
+                self._drop_connection()
+                if isinstance(exc, Exception):
+                    raise OperationalError("failed to commit the autocommit change") from exc
+                raise
 
     async def get_server_version(self) -> str:
         self._ensure_connected()
@@ -643,52 +838,72 @@ class AsyncConnection(ConnectionCommonMixin):
         version: str = packet.engine_version
         return version
 
-    async def get_last_insert_id(self) -> str:
+    async def get_last_insert_id(self) -> str | None:
+        """Return the cached broker-reported auto-increment id as a string.
+
+        Corresponds to the cursor's integer ``lastrowid`` snapshot, without
+        querying the broker here. Commit/rollback and non-INSERT statements
+        preserve the observation. A non-auto-increment INSERT may still
+        report an earlier broker identity; this is not proof the latest
+        INSERT generated an identity or that a row exists after rollback.
+        Only cursor operations with an INSERT server response refresh this
+        snapshot; CALL, stored-procedure INSERTs, and out-of-band SQL do not.
+
+        Returns:
+            The captured id as a string, or ``None`` when unavailable.
+            INSERT attempts, nonempty batches, and physical connection
+            changes clear the previous id; commit and rollback preserve it.
+        """
         self._ensure_connected()
-        packet = await self._send_and_receive(GetLastInsertIdPacket())
-        last_id: str = packet.last_insert_id
-        return last_id
+        return self._last_insert_id
 
     async def ping(self, reconnect: bool = True) -> bool:
         """Contract: reconnect+session-restore is attempted at most once per
         call.  A restore failure tears the connection down and returns
-        ``False`` rather than retrying.  Reconnect and restore run under a
-        single hold of ``self._lock`` so a concurrent task cannot observe
-        an un-restored session between the two operations."""
-        if not self._connected:
-            if not reconnect:
-                return False
+        ``False`` rather than retrying. Recovery uses the public connect()
+        setup gate, which probes escape mode and restores settings before any
+        other task may send SQL on the new physical session. Subclass overrides
+        of connect() cannot bypass that recovery invariant."""
+        while True:
             try:
-                self._invalidate_query_handles_for_reconnect()
-                _LOGGER.debug("ping: reconnecting")
-                async with self._lock:
-                    await self._invoke_connect_locked()
-                    await self._restore_session_state_locked()
-                return True
-            except (OSError, OperationalError, InterfaceError):
+                await self._wait_for_setup_if_needed()
+            except (OSError, Error, struct.error):
                 return False
-        if reconnect:
-            try:
-                await self._check_reconnect(allow_reconnect=True)
-            except (OSError, OperationalError, InterfaceError):
-                return False
+            async with self._lock:
+                if (
+                    not self._setup_done.is_set()
+                    and self._setup_owner is not asyncio.current_task()
+                ):
+                    # Setup began after the outer wait. Release _lock and wait;
+                    # this is not evidence that the new session is broken.
+                    continue
+                if self._connected:
+                    try:
+                        packet = await self._send_and_receive_locked(
+                            CheckCasPacket(), allow_reconnect=False
+                        )
+                        healthy = packet.response_code >= 0
+                    except (OSError, Error, struct.error):
+                        healthy = False
+                    if healthy:
+                        self._mark_cas_reply_verified()
+                        return True
+                elif not reconnect:
+                    return False
+                await self._retire_session_locked(for_reconnect=True)
+                if not reconnect:
+                    return False
+            break
+
         try:
-            packet = await self._send_and_receive(CheckCasPacket(), allow_reconnect=False)
-            return bool(packet.response_code >= 0)
-        except (OSError, InterfaceError, OperationalError, struct.error):
-            if not reconnect:
-                return False
-            try:
-                _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
-                async with self._lock:
-                    await self._close_streams()
-                    self._connected = False
-                    self._invalidate_query_handles_for_reconnect()
-                    await self._invoke_connect_locked()
-                    await self._restore_session_state_locked()
-                return True
-            except (OSError, OperationalError, InterfaceError):
-                return False
+            _LOGGER.debug("ping: recovering through a fully configured connection")
+            # An override of connect() can establish transport without the
+            # escape-mode probe or session restore. Recovery must run the base
+            # setup protocol; its _connect_locked hook remains overridable.
+            await AsyncConnection.connect(self)
+            return True
+        except (OSError, Error):
+            return False
 
     def create_lob(self, lob_type: int) -> Any:
         """Reject LOB creation on async connections.
@@ -709,15 +924,104 @@ class AsyncConnection(ConnectionCommonMixin):
         schema_type: int,
         table_name: str = "",
         pattern_match_flag: int = 1,
-    ) -> Any:
-        self._ensure_connected()
-        packet = GetSchemaPacket(
-            schema_type=schema_type,
-            table_name=table_name,
-            pattern_match_flag=pattern_match_flag,
-        )
-        await self._send_and_receive(packet)
-        return packet
+        *,
+        arg2: str | None = None,
+    ) -> GetSchemaPacket:
+        """Create an owned schema result; consume or explicitly close its packet."""
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            self._ensure_connected()
+            # An unencodable argument fails here, before the request can drop
+            # the session below (#86).
+            self._check_encodable("schema argument", table_name)
+            self._check_encodable("schema argument", arg2)
+            packet = GetSchemaPacket(
+                schema_type=schema_type,
+                table_name=table_name,
+                pattern_match_flag=pattern_match_flag,
+                arg2=arg2,
+                protocol_version=self._protocol_version,
+            )
+            try:
+                await self._send_and_receive_locked(packet)
+            except BaseException:
+                self._drop_connection()
+                raise
+            self._register_schema_result(packet)
+            return packet
+
+    async def fetch_schema_info(self, packet: GetSchemaPacket) -> list[tuple[Any, ...]]:
+        """Eagerly read schema rows and close within one connection-lock scope."""
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            result = self._active_schema_result(packet)
+            rows: list[tuple[Any, ...]] = []
+            try:
+                while len(rows) < result.count:
+                    fetched = FetchPacket(
+                        result.handle,
+                        len(rows),
+                        self._fetch_size,
+                        columns=result.columns,
+                        decode_collections=self._decode_collections,
+                        json_deserializer=self._json_deserializer,
+                    )
+                    try:
+                        await self._send_and_receive_locked(fetched, allow_reconnect=False)
+                    except OperationalError as exc:
+                        if exc.code == 0:
+                            # An unread/malformed frame is not a native error:
+                            # discard it instead of writing FC6 on this stream.
+                            self._drop_connection()
+                        raise
+                    if (
+                        not fetched.rows
+                        or fetched.tuple_count != len(fetched.rows)
+                        or len(rows) + len(fetched.rows) > result.count
+                    ):
+                        raise OperationalError("inconsistent schema FETCH row count")
+                    rows.extend(fetched.rows)
+            except asyncio.CancelledError:
+                # The response may still be unread: FC6 here would desynchronize
+                # the stream. Retire synchronously before propagating cancellation.
+                self._drop_connection()
+                raise
+            except BaseException as exc:
+                if not isinstance(exc, Exception):
+                    self._drop_connection()
+                    raise
+                try:
+                    await self._close_schema_info_locked(packet)
+                except Exception:
+                    _LOGGER.warning(
+                        "Failed to close schema result after FETCH failure", exc_info=True
+                    )
+                raise
+            await self._close_schema_info_locked(packet)
+            return rows
+
+    async def close_schema_info(self, packet: GetSchemaPacket) -> None:
+        """Abandon an owned result; a same-owner retired result is a no-op."""
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            await self._close_schema_info_locked(packet)
+
+    async def _close_schema_info_locked(self, packet: GetSchemaPacket) -> None:
+        result = self._owned_schema_result(packet)
+        if result is None:
+            return
+        try:
+            await self._send_and_receive_locked(
+                CloseQueryPacket(result.handle), allow_reconnect=False
+            )
+        except BaseException:
+            self._drop_connection()
+            raise
+        self._schema_results.pop(packet, None)
+
+    async def _close_schema_results_locked(self) -> None:
+        for packet in list(self._schema_results):
+            await self._close_schema_info_locked(packet)
 
     async def __aenter__(self) -> AsyncConnection:
         self._ensure_connected()
@@ -765,61 +1069,223 @@ class AsyncConnection(ConnectionCommonMixin):
         setup bypasses the wait so its own cursor-based probe does not deadlock
         against itself. If setup failed, the recorded error is re-raised here
         so waiters do not proceed against a half-initialized connection.
+
+        Each waiter raises its own exception (#554): the recorded error belongs
+        to the setup owner, so re-raising that one instance would cancel every
+        waiter when the owner is cancelled and append their frames to a shared
+        traceback. A cancelled or interrupted setup becomes
+        :class:`OperationalError`; a pycubrid error is copied with its class
+        (or the nearest :mod:`pycubrid.exceptions` class when a subclass
+        constructor differs), code, errno and sqlstate; any other error is wrapped in
+        :class:`OperationalError`. Non-cancellation originals are chained as
+        ``__cause__``. A waiter's own cancellation still propagates unchanged.
         """
         if self._setup_owner is asyncio.current_task():
             return
         if not self._setup_done.is_set():
             await self._setup_done.wait()
-            if self._setup_error is not None:
-                raise self._setup_error
+            error = self._setup_error
+            if error is None:
+                return
+            if not isinstance(error, Exception):
+                raise OperationalError(
+                    "connection setup was cancelled or interrupted in another task; retry operation"
+                ) from None
+            if isinstance(error, Error):
+                raise self._copy_setup_error(error) from error
+            raise OperationalError(f"connection setup failed in another task: {error!r}") from error
 
-    async def _send_and_receive(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
+    @staticmethod
+    def _copy_setup_error(error: Error) -> Error:
+        """Build a fresh instance of a setup owner's pycubrid error (#554).
+
+        A subclass whose constructor differs from ``Error``/``DatabaseError``
+        is rebuilt as the nearest class defined in :mod:`pycubrid.exceptions`.
+        """
+        msg = getattr(error, "msg", str(error))
+        code = getattr(error, "code", 0)
+        errno = getattr(error, "errno", None)
+        sqlstate = getattr(error, "sqlstate", None)
+        for cls in type(error).__mro__:
+            if not issubclass(cls, Error):
+                break
+            if cls is not type(error) and cls.__module__ != Error.__module__:
+                continue
+            try:
+                if issubclass(cls, DatabaseError):
+                    return cls(msg, code, errno, sqlstate)
+                return cls(msg, code)
+            except Exception:  # noqa: BLE001 - fall back to a pycubrid base class
+                _LOGGER.debug("Cannot rebuild setup error as %s", cls.__name__, exc_info=True)
+        return Error(msg, code)  # pragma: no cover - the loop always reaches Error
+
+    async def _send_and_receive(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool = True,
+        expected_escape_generation: int | None = None,
+        handle_owner: Any = None,
+    ) -> Any:
         await self._wait_for_setup_if_needed()
         async with self._lock:
-            return await self._send_and_receive_locked(packet, allow_reconnect=allow_reconnect)
+            if handle_owner is not None and handle_owner._query_handle != packet.query_handle:
+                # Another task's commit/rollback or reconnect released this
+                # handle while the request waited; its id may name a new result.
+                return self._stale_handle_request(packet, handle_owner)
+            if expected_escape_generation is None:
+                return await self._send_and_receive_locked(packet, allow_reconnect=allow_reconnect)
+            return await self._send_and_receive_locked(
+                packet,
+                allow_reconnect=allow_reconnect,
+                expected_escape_generation=expected_escape_generation,
+            )
 
-    async def _send_and_receive_locked(self, packet: Any, *, allow_reconnect: bool = True) -> Any:
-        await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+    @staticmethod
+    def _stale_handle_request(packet: Any, owner: Any) -> Any:
+        """Resolve a cursor's FETCH/CLOSE_REQ for a handle it no longer owns (#485)."""
+        if isinstance(packet, CloseQueryPacket):
+            return packet  # Already released by the boundary or the reconnect.
+        if owner._invalidated_by_reconnect:
+            raise OperationalError(
+                "result set lost due to broker reconnect mid-fetch; "
+                "re-execute the query to continue"
+            )
+        raise InterfaceError(
+            "result set invalidated before all rows were fetched; re-execute the query to continue"
+        )
+
+    def _validate_escape_generation(self, expected: int | None) -> None:
+        if expected is not None and (
+            expected != self._physical_generation or self._no_backslash_escapes is None
+        ):
+            raise OperationalError("CAS session replaced after parameter binding; retry operation")
+
+    async def _send_and_receive_locked(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool = True,
+        expected_escape_generation: int | None = None,
+    ) -> Any:
+        if isinstance(packet, PrepareAndExecutePacket):
+            packet._query_handle_retired = False
+        if not self._setup_done.is_set() and self._setup_owner is not asyncio.current_task():
+            # A caller may have passed the outer gate before recovery began.
+            # Never send its prebuilt SQL while the new mode is unverified.
+            raise OperationalError("connection setup in progress; retry operation")
+        self._validate_escape_generation(expected_escape_generation)
+        if await self._preflight_locked(packet, allow_reconnect):
+            return packet
         if self._writer is None or self._reader is None:
             raise InterfaceError("connection is closed")
+        self._validate_escape_generation(expected_escape_generation)
+        if (
+            self._schema_results
+            and isinstance(
+                packet, (PrepareAndExecutePacket, BatchExecutePacket, GetEngineVersionPacket)
+            )
+            and packet.auto_commit
+        ):
+            await self._close_schema_results_locked()
+            # FC6 replies OUT_TRAN; verify the CAS again before auto-committing.
+            if await self._preflight_locked(packet, allow_reconnect):
+                return packet
+            if self._writer is None or self._reader is None:
+                raise InterfaceError("connection is closed")
+            self._validate_escape_generation(expected_escape_generation)
+
+        # On Python 3.11+ asyncio.TimeoutError is the built-in TimeoutError, an
+        # OSError subclass a transport or a parse callback can raise too
+        # (ETIMEDOUT): record whether one came from inside the round trip
+        # instead of inferring the read_timeout deadline from its type.
+        transport_timeout = False
+        self._reply_complete = False
+
+        async def round_trip() -> Any:
+            nonlocal transport_timeout
+            try:
+                return await self._do_send_and_receive(packet)
+            except (TimeoutError, asyncio.TimeoutError):
+                transport_timeout = True
+                raise
 
         try:
-            coro = self._do_send_and_receive(packet)
             if self._read_timeout is not None:
-                return await asyncio.wait_for(coro, timeout=self._read_timeout)
-            return await coro
-        except asyncio.TimeoutError as exc:
-            await self._close_streams()
-            self._connected = False
-            raise OperationalError("read timeout") from exc
-        except OSError as exc:
-            await self._close_streams()
-            self._connected = False
+                return await asyncio.wait_for(round_trip(), timeout=self._read_timeout)
+            return await round_trip()
+        except (asyncio.TimeoutError, OSError) as exc:
+            deadline = (
+                self._read_timeout is not None
+                and isinstance(exc, asyncio.TimeoutError)
+                and not transport_timeout
+            )
+            if self._reply_complete and not deadline:
+                # Raised by a parse callback (json_deserializer) after the whole
+                # reply was read: not a transport failure, the session is intact.
+                raise
+            await self._retire_session_locked()
+            if deadline:
+                raise OperationalError(
+                    "read timeout: no complete round trip within "
+                    f"read_timeout={self._read_timeout}s"
+                ) from exc
+            if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+                raise OperationalError("socket communication timed out") from exc
             raise OperationalError("socket communication failed") from exc
+        except asyncio.CancelledError:
+            # The reply may arrive after cancellation and poison the next read.
+            self._drop_connection()
+            raise
 
     async def _do_send_and_receive(self, packet: Any) -> Any:
         writer = self._writer
         reader = self._reader
         if writer is None or reader is None:
             raise InterfaceError("connection is closed")
+        # Every request on this connection uses its charset (#86); encoding
+        # happens in write(), so an unencodable value sends nothing.
+        packet.encoding = self._encoding
+        deferred_count = 0
+        if isinstance(packet, PrepareAndExecutePacket):
+            # Release queued handles of this session with this request (#488).
+            deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
+        elif (
+            isinstance(packet, CloseQueryPacket)
+            and self._peek_boundary_deferred_close() == packet.query_handle
+        ):
+            # Consume one FIFO boundary CLOSE at the existing send boundary.
+            deferred_count = 1
         try:
             request_data = packet.write(self._cas_info)
         except struct.error as exc:
             raise DataError("parameter value too large to serialize into CAS request") from exc
+        # Sent (or uncertain, which retires the session): never send them again.
+        self._consume_deferred_closes(deferred_count)
         writer.write(request_data)
         await writer.drain()
 
-        data_length_bytes = await self._recv_exact(reader, DataSize.DATA_LENGTH)
-        data_length = struct.unpack(">i", data_length_bytes)[0]
-        self._validate_data_length(data_length)
-        response_body = await self._recv_exact(reader, data_length + DataSize.CAS_INFO)
+        try:
+            data_length_bytes = await self._recv_exact(reader, DataSize.DATA_LENGTH)
+            data_length = struct.unpack(">i", data_length_bytes)[0]
+            self._validate_data_length(data_length)
+            response_body = await self._recv_exact(reader, data_length + DataSize.CAS_INFO)
+        except OperationalError:
+            # A partial frame is not a usable stream. Parse-layer server
+            # errors below remain separate and do not close a healthy session.
+            self._drop_connection()
+            raise
 
-        self._cas_info = response_body[: DataSize.CAS_INFO]
+        self._record_reply_cas_info(response_body[: DataSize.CAS_INFO])
+        self._reply_complete = True
+        self._retire_pooling_off_reply_handles(packet, response_body)
         try:
             packet.parse(response_body)
         except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
-            await self._close_streams()
-            self._connected = False
+            # The session is uncertain again: a deadline or transport error
+            # while it shuts down is not a parse callback's exception.
+            self._reply_complete = False
+            await self._retire_session_locked()
             raise OperationalError("malformed response from broker") from exc
         return packet
 
@@ -834,23 +1300,122 @@ class AsyncConnection(ConnectionCommonMixin):
         except asyncio.IncompleteReadError as exc:
             raise OperationalError("connection lost during receive") from exc
 
-    async def _check_reconnect(self, *, allow_reconnect: bool = True) -> None:
-        async with self._lock:
-            await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+    async def _preflight_locked(self, packet: Any, allow_reconnect: bool) -> bool:
+        """Run the OUT_TRAN reconnect check; return whether to skip the request.
 
-    async def _check_reconnect_locked(self, *, allow_reconnect: bool = True) -> None:
+        SQL bound under the replaced generation keeps that generation, so the
+        caller's ``_validate_escape_generation`` rejects it before send (#471).
+        """
+        if not await self._check_reconnect_locked(allow_reconnect=allow_reconnect):
+            return False
+        return self._skip_request_after_reconnect(packet)
+
+    async def _generation_for_binding(self) -> int:
+        """Verify an OUT_TRAN CAS before SQL is bound, then return its generation.
+
+        Probing (and, if needed, reconnecting) before binding lets the literals
+        be rendered for the session they will be sent on; the send-time
+        generation fence then only rejects a replacement that raced the bind.
+        """
+        await self._wait_for_setup_if_needed()
+        async with self._lock:
+            await self._check_reconnect_locked()
+            return self._physical_generation
+
+    async def _check_reconnect(self, *, allow_reconnect: bool = True) -> bool:
+        async with self._lock:
+            return await self._check_reconnect_locked(allow_reconnect=allow_reconnect)
+
+    async def _check_reconnect_locked(self, *, allow_reconnect: bool = True) -> bool:
+        """Async counterpart of ``Connection._check_reconnect`` (#485).
+
+        Probes an OUT_TRAN CAS with CHECK_CAS; only a failed probe replaces the
+        session, once per request, under this same lock hold so no other task
+        can observe the new session before its setup is complete.
+        """
         self._ensure_connected()
-        if not allow_reconnect:
+        if self._writer is None or not self._needs_cas_probe(allow_reconnect):
+            return False
+        try:
+            probe = await self._send_and_receive_locked(CheckCasPacket(), allow_reconnect=False)
+            if probe.response_code >= 0:
+                self._mark_cas_reply_verified()
+                return False
+            _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
+        except (Error, OSError, struct.error) as exc:
+            # No answer: the CAS closed or reset this socket after OUT_TRAN.
+            _LOGGER.debug("CHECK_CAS got no answer: %r", exc)
+        await self._reconnect_after_failed_probe_locked()
+        return True
+
+    async def _reconnect_after_failed_probe_locked(self) -> None:
+        """Replace a CAS session that failed its OUT_TRAN probe, exactly once.
+
+        Runs the same setup as ``connect()`` (handshake, escape-mode probe,
+        autocommit restore) while ``self._lock`` stays held; the public
+        ``connect()`` cannot be used here because it takes that lock.
+        """
+        _LOGGER.debug(
+            "CAS did not answer CHECK_CAS out of transaction; reconnecting to %s:%d",
+            self._host,
+            self._port,
+        )
+        await self._retire_session_locked(for_reconnect=True)
+        self._implicit_reconnect_suspended += 1
+        try:
+            await self._connect_locked()
+            await self._negotiate_backslash_escapes_locked()
+            if self._pending_autocommit:
+                await self._apply_pending_autocommit_locked()
+            else:
+                await self._restore_session_state_locked()
+            # Setup may itself end OUT_TRAN (the escape probe's rollback), and
+            # that CAS may be recycled too: verify it before the pending request.
+            if self._cas_status_unverified():
+                probe = await self._send_and_receive_locked(CheckCasPacket(), allow_reconnect=False)
+                if probe.response_code < 0:
+                    raise OperationalError("replacement CAS session failed CHECK_CAS")
+                self._mark_cas_reply_verified()
+            self._configured_generation = self._physical_generation
+        except BaseException as exc:
+            self._drop_connection()
+            if isinstance(exc, Exception):
+                raise OperationalError(
+                    "CAS did not answer CHECK_CAS out of transaction and reconnecting failed"
+                ) from exc
+            raise
+        finally:
+            self._implicit_reconnect_suspended -= 1
+
+    async def _negotiate_backslash_escapes_locked(self) -> None:
+        """Lock-held twin of :meth:`_negotiate_backslash_escapes`.
+
+        Sends the same ``CHAR_LENGTH`` probe through ``_send_and_receive_locked``
+        instead of a cursor, then closes its handle and rolls back.
+        """
+        if self._no_backslash_escapes is not None:
             return
-        if self._cas_info[0] == self._CAS_INFO_STATUS_INACTIVE and self._writer is not None:
-            await self._close_streams()
-            self._connected = False
-            self._invalidate_query_handles_for_reconnect()
-            await self._invoke_connect_locked()
-            await self._restore_session_state_locked()
+        try:
+            # Same request as the cursor-based probe of connect(), in both
+            # drivers: it carries the connection's autocommit flag.
+            probe = PrepareAndExecutePacket(
+                sql=ESCAPE_PROBE_SQL,
+                auto_commit=self._autocommit,
+                protocol_version=self._protocol_version,
+            )
+            await self._send_and_receive_locked(probe, allow_reconnect=False)
+            await self._send_and_receive_locked(
+                CloseQueryPacket(probe.query_handle), allow_reconnect=False
+            )
+            await self._send_and_receive_locked(RollbackPacket(), allow_reconnect=False)
+        except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
+            raise OperationalError(ESCAPE_PROBE_FAILED) from exc
+        self._no_backslash_escapes = no_backslash_escapes_from_probe(
+            probe.rows[0][0] if probe.rows else None
+        )
 
     async def _restore_session_state_locked(self) -> None:
-        """Re-emit explicit session settings after a transparent reconnect.
+        """Re-emit explicit session settings after explicit ping recovery.
 
         Must be called while ``self._lock`` is held.  Uses
         ``_send_and_receive_locked`` with ``allow_reconnect=False`` to
@@ -876,19 +1441,35 @@ class AsyncConnection(ConnectionCommonMixin):
                 allow_reconnect=False,
             )
         except Exception as exc:
-            await self._close_streams()
-            self._connected = False
+            await self._retire_session_locked()
             raise OperationalError("failed to restore session state after reconnect") from exc
 
-    async def _invoke_connect_locked(self) -> None:
-        connect_method = self.connect
-        if getattr(connect_method, "__func__", None) is AsyncConnection.connect:
-            await self._connect_locked()
-            return
-        await connect_method()
+    async def _retire_session_locked(self, *, for_reconnect: bool = False) -> None:
+        """Retire the physical session after an uncertain I/O failure (#556).
+
+        Connection state and every cursor/schema handle are retired *before*
+        the stream shutdown is awaited, so a ``wait_closed()`` that fails or is
+        cancelled cannot leave live-looking handles on a dead session. A
+        shutdown failure is logged rather than replacing the caller's error;
+        cancellation still propagates as :class:`asyncio.CancelledError`.
+        """
+        self._connected = False
+        if for_reconnect:
+            self._invalidate_query_handles_for_reconnect()
+        else:
+            self._invalidate_query_handles()
+        try:
+            await self._close_streams()
+        except Exception:  # noqa: BLE001 - the session is already retired
+            _LOGGER.debug("Stream shutdown failed while retiring the session", exc_info=True)
 
     async def _close_streams(self) -> None:
         """Close the stream writer, await TLS shutdown, and clear references."""
+        self._last_insert_id = None
+        self._schema_results.clear()
+        self._deferred_closes.clear()
+        self._statement_pooling = None
+        self._broker_db_type = None
         if self._writer is not None:
             try:
                 self._writer.close()
@@ -901,6 +1482,11 @@ class AsyncConnection(ConnectionCommonMixin):
 
     def _close_streams_sync(self) -> None:
         """Sync fallback for _close_streams (used by mixin's _safe_close_socket)."""
+        self._last_insert_id = None
+        self._schema_results.clear()
+        self._deferred_closes.clear()
+        self._statement_pooling = None
+        self._broker_db_type = None
         if self._writer is not None:
             try:
                 self._writer.close()

@@ -149,10 +149,10 @@ marketers = cur.fetchall()
 
 - **순수 Python** — C 확장과 컴파일 없이, Python이 실행되는 곳이라면 어디서나 동작
 - **완전한 DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **매개변수화된 쿼리** — 서버 측 `PREPARE_AND_EXECUTE`를 사용하는 `cursor.execute(sql, params)`
+- **매개변수화된 쿼리** — 드라이버 측 파라미터 바인딩을 사용하는 `cursor.execute(sql, params)` (`?` 플레이스홀더를 로컬에서 이스케이프하여 SQL에 삽입)
 - **배치 작업** — 대량 삽입을 위한 `executemany()` 및 `executemany_batch()`
 - **LOB 지원** — `create_lob()`, CLOB/BLOB 컬럼 읽기/쓰기
-- **스키마 인트로스펙션** — 테이블, 컬럼, 인덱스, 제약 조건 확인용 `get_schema_info()`
+- **소유권 기반 스키마 조회** — `get_schema_info()` 후 `fetch_schema_info()`로 전체 행 소비 또는 `close_schema_info()`로 명시적 폐기. #457 실서버 행렬은 CUBRID 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 모든 스키마 코드나 네이티브 드라이버 동등성을 인증하지는 않습니다.
 - **자동 커밋 제어** — 트랜잭션 관리를 위한 `connection.autocommit` 속성
 - **서버 버전 감지** — `connection.get_server_version()`이 버전 문자열(예: `"11.2.0.0378"`) 반환
 - **이터레이터 프로토콜** — `for row in cursor`로 커서 결과 반복 가능
@@ -196,22 +196,19 @@ sqlalchemy-cubrid와 함께 사용할 때 ORM, Core, Alembic 마이그레이션,
 | [타입 매핑](TYPES.md) | 전체 타입 매핑, CUBRID 전용 타입, 컬렉션 타입 |
 | [API 레퍼런스](API_REFERENCE.md) | 전체 API 문서 — 모듈, 클래스, 함수 |
 | [프로토콜](PROTOCOL.md) | CAS 와이어 프로토콜 레퍼런스 |
+| [성능 가이드](ko/PERFORMANCE.md) | 벤치마크 결과, 최적화 팁, 성능 조사와 타이밍 훅 |
 | [개발 가이드](DEVELOPMENT.md) | 개발 환경 설정, 테스트, Docker, 커버리지, CI/CD |
 | [예제](EXAMPLES.md) | 실용적인 사용 예제와 코드 |
 | [문제 해결](TROUBLESHOOTING.md) | 연결 오류, 쿼리 문제, LOB 처리, 디버깅 |
 
 ## 호환성
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **오프라인 테스트** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.2** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.0** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
-
-CI는 모든 PR/푸시에서 위 매트릭스(Python 3.10 + 3.14 앵커 × 모든 CUBRID 버전)를 실행합니다.
-전체 **5 × 4** Python × CUBRID 매트릭스는 매일 밤, 태그 릴리스 시, 그리고 `workflow_dispatch`로 수동 실행할 수 있습니다.
+Python 3.10–3.14와 CUBRID 10.2, 11.0, 11.2, 11.4를 지원합니다.
+일반 PR은 Ubuntu/Python 3.12 대표 오프라인 스모크 검사만 실행하고,
+고위험 변경은 Python 3.14/CUBRID 11.4 통합 검사를 추가합니다.
+main 및 변경이 있는 주간 검사는 최저·최신 대표 조합을 사용합니다.
+전체 5 × 4 통합 매트릭스는 명시적 수동 실행과 릴리즈에서 유지합니다.
+[CI 실행 정책](ko/CI_POLICY.md)을 참고하세요.
 
 ## 아키텍처
 
@@ -236,7 +233,7 @@ graph TD
     types[types.py - DB-API 2.0 type objects and constructors]
     exceptions[exceptions.py - PEP 249 exception hierarchy]
     constants[constants.py - CAS function codes, data types, protocol constants]
-    protocol["protocol.py - CAS wire protocol packet classes (18 packet types)"]
+    protocol["protocol.py - CAS wire protocol packet classes (20 packet types)"]
     packet[packet.py - Low-level packet reader/writer]
     lob[lob.py - LOB support]
     typed[py.typed - PEP 561 marker]
@@ -313,6 +310,18 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 
 가이드라인은 [CONTRIBUTING.md](../CONTRIBUTING.md), 개발 환경 설정은 [docs/DEVELOPMENT.md](DEVELOPMENT.md)를 참고하세요.
 
+### 첫 기여
+
+CUBRID가 처음이신가요? 작업하려는 내용에 맞는 저장소를 선택하세요:
+
+- 문서와 실행 가능한 예제: [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python)
+- 순수 Python 드라이버 수정: [pycubrid](https://github.com/cubrid-lab/pycubrid)
+- SQLAlchemy 방언 수정: [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid)
+
+대부분의 첫 이슈는 CONTRIBUTING.md의 오프라인 검사만으로 개발하고 테스트할 수 있습니다 — Docker나 CUBRID 서버가 필요 없습니다. 실제 CUBRID 검증은 CI와 메인테이너가 완료할 수 있습니다.
+
+열려 있는 [`good first issue`](https://github.com/cubrid-lab/pycubrid/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22+no%3Aassignee) 작업을 둘러보세요.
+
 ## 보안
 
 취약점은 이메일로 제보해 주세요 — 자세한 내용은 [SECURITY.md](../SECURITY.md)를 참고하세요. 보안 관련 사항은 공개 이슈로 등록하지 마세요.
@@ -320,6 +329,8 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 ## 감사의 말
 
 pycubrid 초기 개발 당시, CUBRID의 공식 Node.js 드라이버인 [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause)를 참고 구현으로 삼아 CUBRID의 CAS(Common Application Server) 와이어 프로토콜 — 패킷 구조와 함수 코드 — 를 이해하는 데 활용했습니다. pycubrid는 독립적인 순수 Python 구현이며, 자세한 내용은 [NOTICE](../NOTICE)를 참고하세요.
+
+[CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python)의 메인테이너와 기여자분들께도 감사드립니다. 이 프로젝트의 `tests3` 스위트는 #409, #410, #433에서 추가한 INDEX, PARTITION, VIEW, TRIGGER, 컬렉션, ENUM, LOB 왕복 회귀 시나리오의 참고 자료였습니다. 시나리오는 pycubrid의 API와 문서화된 차이에 맞게 적용했으며, CUBRIDdb API 전체의 동등성을 주장하지 않습니다. 참고한 파일은 [NOTICE](../NOTICE), 출처와 라이선스 확인의 한계는 [서드파티 문서](../THIRD_PARTY_LICENSES.md#reference-test-suite)를 확인하세요.
 
 
 ## 라이선스

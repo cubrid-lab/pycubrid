@@ -1,24 +1,73 @@
 name: Integration Full Matrix
 
 # Full Python x CUBRID compatibility validation.
-# Regular CI runs {3.10, 3.14} x all CUBRID versions on every PR/push.
-# This workflow runs the full 5x4 matrix on a nightly schedule, on demand
-# (workflow_dispatch), and before tagged releases.
+# Routine CI uses representative combinations; see docs/CI_POLICY.md.
+# Full verification runs only on explicit dispatch or a release workflow call.
+# (workflow_dispatch), and as the release gate: release.yml calls it through
+# workflow_call with the release commit SHA, plus the cross-version behavior
+# differential (#351) that needs all four CUBRID versions at once, and the
+# official-driver differential (#446) against the pinned CUBRIDdb oracle.
 
 on:
-  schedule:
-    - cron: "0 3 * * *"
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
+    inputs:
+      sha:
+        description: "Full commit SHA; dispatch the branch at this exact commit"
+        required: true
+        type: string
+      pr_number:
+        description: "Optional PR number; reject outdated head evidence"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      release_call:
+        description: "Reusable release validation; caller event may be workflow_dispatch"
+        required: false
+        default: true
+        type: boolean
+      sha:
+        description: "Full commit SHA to test (release.yml passes the release commit)"
+        required: true
+        type: string
 
+# Full verification runs only on explicit dispatch or a release workflow call.
+# Manual runs replace older pending runs; release calls are isolated by SHA.
 concurrency:
-  group: integration-full-${{ github.ref }}
-  cancel-in-progress: true
+  group: integration-full-${{ inputs.sha && format('release-{0}', inputs.sha) || github.ref }}
+  cancel-in-progress: ${{ !inputs.sha }}
 
 jobs:
+  validate-target:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify requested manual commit and current PR head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_CALL: ${{ inputs.release_call || false }}
+        with:
+          script: |
+            if (process.env.RELEASE_CALL === 'true' || context.eventName !== 'workflow_dispatch') return;
+            const inputs = context.payload.inputs || {};
+            const sha = (inputs.sha || '').toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sha) || sha !== context.sha.toLowerCase()) {
+              throw new Error('Dispatch branch must point at the requested full commit SHA');
+            }
+            const pr = inputs.pr_number || '';
+            if (pr) {
+              if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr))) {
+                throw new Error('PR number must be a positive integer');
+              }
+              const {data} = await github.rest.pulls.get({...context.repo, pull_number: Number(pr)});
+              const repo = `${context.repo.owner}/${context.repo.repo}`;
+              if (data.base.repo.full_name !== repo || data.state !== 'open' || data.head.sha.toLowerCase() !== sha) {
+                throw new Error('Requested commit is no longer the current open PR head');
+              }
+            }
+            await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();
+
   integration-full:
+    needs: validate-target
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -40,6 +89,9 @@ jobs:
           --health-start-period 30s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -48,34 +100,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Wait for CUBRID readiness
-        run: |
-          for i in $(seq 1 30); do
-            if python -c "
-          from pycubrid import connect
-          try:
-              conn = connect('CUBRID:localhost:33000:testdb:::', user='dba', password='')
-              cur = conn.cursor()
-              cur.execute('SELECT 1')
-              cur.close()
-              conn.close()
-              print('CUBRID ready')
-              exit(0)
-          except Exception as e:
-              print(f'Not ready: {e}')
-              exit(1)
-          "; then
-              break
-            fi
-            echo "Waiting for CUBRID... (attempt $i/30)"
-            sleep 5
-          done
+        run: python scripts/wait_for_cubrid.py
       - name: Run integration tests
         env:
           CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+          # Broker-control regressions (#485) run broker_changer/broker reset here.
+          CUBRID_TEST_DOCKER_CONTAINER: ${{ job.services.cubrid.id }}
         run: |
-          python -m pytest tests/test_*integration*.py -v --tb=short
+          python scripts/check_integration_lanes.py
+          python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \
+            --junitxml=normal-results.xml
+          python scripts/check_integration_lanes.py --results normal-results.xml
 
   integration-tls:
+    needs: validate-target
     # Provision a CUBRID broker with SSL=ON so tests/test_aio_ssl_integration.py
     # is exercised in CI instead of silently skipping (closes #147).  Uses a
     # manually-managed container rather than a service so we can flip the
@@ -89,6 +127,9 @@ jobs:
         cubrid-version: ["11.4"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -115,10 +156,11 @@ jobs:
           docker run -d --rm --name cubrid-tls \
             -e CUBRID_DB=testdb \
             -p 33000:33000 \
+            -p 30000:30000 \
             cubrid/cubrid:${{ matrix.cubrid-version }}
           # Wait for the default broker to come up before reconfiguring it.
           for i in $(seq 1 40); do
-            if docker exec cubrid-tls bash -lc "cubrid broker status BROKER1 >/dev/null 2>&1"; then
+            if docker exec --user cubrid cubrid-tls bash -lc "cubrid broker status | grep -q '^% broker1'"; then
               echo "BROKER1 reachable"
               break
             fi
@@ -132,7 +174,7 @@ jobs:
           docker exec cubrid-tls bash -lc "chown cubrid:cubrid /home/cubrid/CUBRID/conf/cas_ssl_cert.* && chmod 600 /home/cubrid/CUBRID/conf/cas_ssl_cert.key"
           # Flip SSL=OFF -> SSL=ON for BROKER1 and restart the broker so
           # the CAS workers reload the new TLS setting and the new cert.
-          docker exec cubrid-tls bash -lc "
+          docker exec --user cubrid cubrid-tls bash -lc "
             set -eux
             conf=\$CUBRID/conf/cubrid_broker.conf
             sed -i '/^\[%BROKER1\]/,/^\[/ s/^\s*SSL\s*=\s*OFF/SSL=ON/' \$conf
@@ -220,6 +262,9 @@ jobs:
           CUBRID_TLS_TEST_PASSWORD: ""
           CUBRID_TLS_TEST_CA_FILE: ${{ runner.temp }}/cas_ssl_cert.crt
           CUBRID_TLS_TEST_MISMATCH_HOST: "127.0.0.1"
+          # Stock SSL=OFF query_editor broker on the same server: TLS-to-plaintext
+          # refusal coverage in tests/test_tls_matrix_integration.py (#350).
+          CUBRID_TLS_TEST_PLAIN_PORT: "30000"
           # Trust the self-signed broker cert via Python's default SSL context
           # (used by `ssl=True`) so the default-context test runs instead of
           # being silently skipped.
@@ -228,19 +273,13 @@ jobs:
           set -euxo pipefail
           # `-p no:cacheprovider` keeps the run isolated from prior caches
           # in container layers.  We assert that broker-provisioning skips
-          # cannot pass silently: every test must either pass or be skipped
-          # for an explicit, version-pinned reason (the Python 3.10 entry
-          # for test_aio_ssl_handshake_failure is the only allowed skip).
-          python -m pytest tests/test_aio_ssl_integration.py -v --tb=short \
+          # cannot pass silently: every selected test must run. The driver's
+          # TLS preflight now handles Python 3.10 verification failures too.
+          python -m pytest tests/ -m "integration and tls" -v --tb=short \
             -o addopts="" -p no:cacheprovider \
+            --junitxml=tls-results.xml \
             --no-header --no-summary -rN 2>&1 | tee tls-run.log
-          unexpected_skips=$(grep -E " SKIPPED " tls-run.log \
-            | grep -v "tests/test_aio_ssl_integration.py::test_aio_ssl_handshake_failure" || true)
-          if [ -n "$unexpected_skips" ]; then
-            echo "::error::TLS integration tests skipped unexpectedly — broker provisioning is incomplete"
-            echo "$unexpected_skips"
-            exit 1
-          fi
+          python scripts/check_integration_lanes.py --results tls-results.xml
       - name: Capture TLS broker logs on failure
         if: failure()
         run: docker logs cubrid-tls || true
@@ -248,14 +287,260 @@ jobs:
         if: always()
         run: docker stop cubrid-tls || true
 
+  integration-charset:
+    needs: validate-target
+    # EUC-KR database lane (#86): the same CUBRID image with
+    # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
+    # charset="euckr" round-trip tests that skip against a UTF-8 database.
+    runs-on: ubuntu-latest
+    services:
+      cubrid:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+          CUBRID_LOCALE: ko_KR.euckr
+        ports:
+          - 33000:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.14"
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Wait for CUBRID readiness
+        run: python scripts/wait_for_cubrid.py
+      - name: Run EUC-KR charset integration tests
+        env:
+          CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
+        run: |
+          python -m pytest tests/test_integration_charset.py -m integration -v --tb=short \
+            --junitxml=charset-results.xml
+          python scripts/check_integration_lanes.py --results charset-results.xml
+
+  version-differential:
+    needs: validate-target
+    # Property-driven behavior differential (#351): the same generated values
+    # and statements run against CUBRID 10.2, 11.0, 11.2 and 11.4 at once, and
+    # any divergence not documented in tests/helpers/version_matrix.py fails.
+    # Nightly/on demand only; the lane audit fails if every test skipped.
+    name: version differential (10.2 / 11.0 / 11.2 / 11.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      cubrid102:
+        image: cubrid/cubrid:10.2
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33102:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+      cubrid110:
+        image: cubrid/cubrid:11.0
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33110:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+      cubrid112:
+        image: cubrid/cubrid:11.2
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33112:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+      cubrid114:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33114:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    env:
+      # Scheduled runs explore widely; a manual dispatch keeps the PR budget.
+      HYPOTHESIS_PROFILE: ${{ github.event_name == 'schedule' && 'nightly' || 'pr' }}
+      CUBRID_VERSION_MATRIX: "10.2=localhost:33102,11.0=localhost:33110,11.2=localhost:33112,11.4=localhost:33114"
+      CUBRID_TEST_URL: "cubrid://dba@localhost:33114/testdb"
+      CUBRID_TEST_HOST: localhost
+      CUBRID_TEST_PORT: "33114"
+      CUBRID_TEST_DB: testdb
+      CUBRID_TEST_USER: dba
+      CUBRID_TEST_PASSWORD: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.14"
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Wait for every CUBRID of the matrix
+        run: |
+          set -euo pipefail
+          for port in 33102 33110 33112 33114; do
+            CUBRID_TEST_PORT="$port" python scripts/wait_for_cubrid.py
+          done
+      - name: Run the version differential
+        run: |
+          python scripts/check_integration_lanes.py
+          python -m pytest tests/ -m "integration and version_matrix" -v --tb=short \
+            --junitxml=version-results.xml
+          python scripts/check_integration_lanes.py --results version-results.xml
+      - name: Collect repro artifacts on failure
+        if: failure()
+        run: python scripts/collect_repro.py
+      - name: Upload repro artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: version-differential-repro
+          path: bug-hunt-repro/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  official-differential:
+    needs: validate-target
+    # Claims-driven differential against the pinned official CUBRIDdb driver
+    # (#446): tests/fixtures/official_differential_claims.json, one live case
+    # per claim, both servers, no accepted skip. The oracle build is cached by
+    # the build script hash, which holds both source pins.
+    name: official differential (Python 3.10 / CUBRID 10.2 + 11.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      cubrid102:
+        image: cubrid/cubrid:10.2
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33102:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+      cubrid114:
+        image: cubrid/cubrid:11.4
+        env:
+          CUBRID_DB: testdb
+        ports:
+          - 33114:33000
+        options: >-
+          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        id: python
+        with:
+          python-version: "3.10"
+      - name: Install pycubrid
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Restore the official oracle build
+        id: oracle-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
+        with:
+          path: ${{ runner.temp }}/official-oracle
+          key: official-oracle-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('scripts/build_official_oracle.py') }}
+      - name: Build the pinned official oracle
+        if: steps.oracle-cache.outputs.cache-hit != 'true'
+        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --work "$RUNNER_TEMP/official-oracle-work"
+      - name: Verify the official oracle
+        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --verify
+      - name: Wait for CUBRID 10.2 and 11.4
+        run: |
+          set -euo pipefail
+          for port in 33102 33114; do
+            CUBRID_TEST_PORT="$port" python scripts/wait_for_cubrid.py
+          done
+      - name: Run the official differential
+        env:
+          CUBRID_TEST_HOST: localhost
+          PYCUBRID_OFFICIAL_ORACLE_REQUIRED: "1"
+          PYCUBRID_DIFFERENTIAL_EVIDENCE: official-evidence.jsonl
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$RUNNER_TEMP/official-oracle"
+          export PYCUBRID_OFFICIAL_ORACLE_MANIFEST="$RUNNER_TEMP/official-oracle/oracle.json"
+          python scripts/check_official_differential.py
+          python scripts/check_integration_lanes.py
+          for port in 33102 33114; do
+            export CUBRID_TEST_PORT="$port"
+            python -m pytest tests/ -m "integration and official_differential" -v --tb=short \
+              --junitxml="official-$port-results.xml"
+            python scripts/check_integration_lanes.py --lane official --results "official-$port-results.xml"
+          done
+          python scripts/check_official_differential.py --evidence official-evidence.jsonl \
+            --json-out official-evidence-summary.json --summary-out "$GITHUB_STEP_SUMMARY"
+      - name: Upload differential evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: official-differential-evidence
+          path: |
+            official-evidence.jsonl
+            official-evidence-summary.json
+            official-*-results.xml
+            ${{ runner.temp }}/official-oracle/oracle.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   full-matrix-result:
     name: Full compatibility matrix result
     runs-on: ubuntu-latest
-    needs: [integration-full, integration-tls]
+    needs: [validate-target, integration-full, integration-tls, integration-charset, version-differential, official-differential]
     if: always()
     steps:
       - name: Require the full matrix to pass
         run: |
+          if [ "${{ needs.validate-target.result }}" != "success" ]; then
+            echo "::error::Manual target validation failed"
+            exit 1
+          fi
           if [ "${{ needs.integration-full.result }}" != "success" ]; then
             echo "::error::Full compatibility matrix failed: ${{ needs.integration-full.result }}"
             exit 1
@@ -264,4 +549,41 @@ jobs:
             echo "::error::TLS full matrix failed: ${{ needs.integration-tls.result }}"
             exit 1
           fi
+          if [ "${{ needs.integration-charset.result }}" != "success" ]; then
+            echo "::error::EUC-KR charset lane failed: ${{ needs.integration-charset.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.version-differential.result }}" != "success" ]; then
+            echo "::error::CUBRID version differential failed: ${{ needs.version-differential.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.official-differential.result }}" != "success" ]; then
+            echo "::error::Official driver differential failed: ${{ needs.official-differential.result }}"
+            exit 1
+          fi
           echo "Full compatibility matrix passed."
+
+      - name: Verify requested manual commit and current PR head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_CALL: ${{ inputs.release_call || false }}
+        with:
+          script: |
+            if (process.env.RELEASE_CALL === 'true' || context.eventName !== 'workflow_dispatch') return;
+            const inputs = context.payload.inputs || {};
+            const sha = (inputs.sha || '').toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sha) || sha !== context.sha.toLowerCase()) {
+              throw new Error('Dispatch branch must point at the requested full commit SHA');
+            }
+            const pr = inputs.pr_number || '';
+            if (pr) {
+              if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr))) {
+                throw new Error('PR number must be a positive integer');
+              }
+              const {data} = await github.rest.pulls.get({...context.repo, pull_number: Number(pr)});
+              const repo = `${context.repo.owner}/${context.repo.repo}`;
+              if (data.base.repo.full_name !== repo || data.state !== 'open' || data.head.sha.toLowerCase() !== sha) {
+                throw new Error('Requested commit is no longer the current open PR head');
+              }
+            }
+            await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();

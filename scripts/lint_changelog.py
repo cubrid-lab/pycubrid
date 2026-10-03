@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """Validate CHANGELOG.md structure.
-Checks:
-    1. First section is [Unreleased]
-    2. Exactly one [Unreleased] section
-    3. No duplicate version sections
-    4. Released versions in descending semver order
-    5. No duplicate subsections within a version section
+
 Usage:
     python scripts/lint_changelog.py
 
 Checks:
     1. First section is [Unreleased]
-    2. No duplicate version sections
-    3. Versions in descending semver order
-    4. No duplicate subsections within a version section
+    2. Exactly one [Unreleased] section
+    3. No duplicate version sections
+    4. Released versions in descending semver order
+    5. No duplicate subsections within one release
 
 Exit codes:
     0 — changelog is valid
@@ -57,6 +53,26 @@ def main() -> int:
         )
         return 1
 
+    # Subsections are unique within each release, including Unreleased-only files.
+    current_version: str | None = None
+    subsections: set[str] = set()
+    for line in content.splitlines():
+        version = re.match(r"^## \[(\S+)\]", line)
+        if version:
+            current_version = version.group(1)
+            subsections.clear()
+            continue
+        subsection = re.match(r"^###\s+(.+)$", line)
+        if current_version is not None and subsection:
+            title = subsection.group(1).strip()
+            if title in subsections:
+                print(
+                    f"ERROR: Duplicate subsection '### {title}' in [{current_version}]",
+                    file=sys.stderr,
+                )
+                return 1
+            subsections.add(title)
+
     versions = [h for h in headers if h != "Unreleased"]
 
     if not versions:
@@ -99,28 +115,6 @@ def main() -> int:
             prev_name = v
     except ImportError:
         print("NOTE: 'packaging' not installed, skipping semver ordering check")
-
-    # Rule 5: No duplicate subsections within a version section
-    current_version: str | None = None
-    subsections: set[str] = set()
-    for line in content.splitlines():
-        v_match = re.match(r"^## \[(\S+)\]", line)
-        if v_match:
-            current_version = v_match.group(1)
-            subsections.clear()
-            continue
-
-        if current_version is not None:
-            sub_match = re.match(r"^###\s+(.+)$", line)
-            if sub_match:
-                sub_title = sub_match.group(1).strip()
-                if sub_title in subsections:
-                    print(
-                        f"ERROR: Duplicate subsection '### {sub_title}' in [{current_version}]",
-                        file=sys.stderr,
-                    )
-                    return 1
-                subsections.add(sub_title)
 
     print(f"OK: {len(versions)} version(s), order valid")
     return 0

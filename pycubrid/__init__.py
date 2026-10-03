@@ -16,6 +16,7 @@ from pycubrid.exceptions import (
     NotSupportedError,
     OperationalError,
     ProgrammingError,
+    UnknownConnectionOptionWarning,
     Warning,
 )
 from pycubrid.types import (
@@ -27,6 +28,9 @@ from pycubrid.types import (
     Binary,
     Date,
     DateFromTicks,
+    Multiset,
+    Sequence,
+    Set,
     Time,
     Timestamp,
     TimestampFromTicks,
@@ -38,7 +42,7 @@ if TYPE_CHECKING:
     from pycubrid.connection import Connection
     from pycubrid.timing import TimingStats
 
-__version__ = "1.7.1"
+__version__ = "1.8.0"
 
 # PEP 249 module-level attributes
 apilevel = "2.0"
@@ -55,6 +59,7 @@ def connect(
     decode_collections: bool = False,
     json_deserializer: Any = None,
     ssl: bool | ssl_module.SSLContext | None = None,
+    charset: str = "utf-8",
     **kwargs: Any,
 ) -> Connection:
     """Create a new database connection.
@@ -67,7 +72,17 @@ def connect(
         database: Database name.
         user: Database user (default ``"dba"``).
         password: Database password (default ``""``).
-        **kwargs: Additional connection parameters.
+        charset: Python codec (or CUBRID name ``utf8``/``euckr``/``iso88591``)
+            for SQL text, bound strings, credentials, character values,
+            metadata names and error messages; set it to the database
+            charset. JSON is always UTF-8. Default ``"utf-8"``.
+        **kwargs: Additional connection parameters (``autocommit``,
+            ``fetch_size``, ``connect_timeout``, ``read_timeout``,
+            ``no_backslash_escapes``, ``enable_timing``). An unrecognised
+            keyword is ignored, but reports an
+            :class:`~pycubrid.exceptions.UnknownConnectionOptionWarning`
+            so that a typo such as ``read_timout=30`` is not swallowed
+            silently.
 
     Returns:
         A new :class:`~pycubrid.connection.Connection` instance.
@@ -82,6 +97,7 @@ def connect(
         "password": password,
         "decode_collections": decode_collections,
         "json_deserializer": json_deserializer,
+        "charset": charset,
         **kwargs,
     }
     if ssl is not None:
@@ -117,6 +133,8 @@ __all__ = [
     "InternalError",
     "ProgrammingError",
     "NotSupportedError",
+    # Warning categories (not part of the PEP 249 exception hierarchy)
+    "UnknownConnectionOptionWarning",
     "get_error_description",
     # Type objects
     "STRING",
@@ -132,6 +150,10 @@ __all__ = [
     "TimeFromTicks",
     "TimestampFromTicks",
     "Binary",
+    # Typed collection parameters
+    "Set",
+    "Multiset",
+    "Sequence",
     "Lob",
     "TimingStats",
 ]

@@ -75,6 +75,8 @@ def _metadata() -> dict[str, str]:
         "cubrid_test_db": os.environ.get("CUBRID_TEST_DB", ""),
         "cubrid_test_user": os.environ.get("CUBRID_TEST_USER", ""),
         "cubrid_test_url": _redact_url(os.environ.get("CUBRID_TEST_URL", "")),
+        # VERSION=HOST:PORT list of the version differential lane (#351); no credentials.
+        "cubrid_version_matrix": os.environ.get("CUBRID_VERSION_MATRIX", ""),
         "failing_test_id": os.environ.get("BUG_HUNT_FAILING_TEST", ""),
         "failure_traceback": os.environ.get("BUG_HUNT_FAILURE_TRACEBACK", ""),
         "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
@@ -96,7 +98,7 @@ rm -rf .hypothesis && cp -r bug-hunt-repro/hypothesis .hypothesis
 #    The password is NOT stored in this bundle; export CUBRID_TEST_PASSWORD yourself.
 HYPOTHESIS_PROFILE={profile} \\
 CUBRID_TEST_HOST={host} CUBRID_TEST_PORT={port} CUBRID_TEST_DB={db} \\
-CUBRID_TEST_USER={user} CUBRID_TEST_PASSWORD=... \\
+CUBRID_TEST_USER={user} CUBRID_TEST_PASSWORD=... {matrix}\\
   python -m pytest {target} -p no:cacheprovider
 ```
 
@@ -122,6 +124,11 @@ def main() -> int:
             db=meta["cubrid_test_db"] or "testdb",
             user=meta["cubrid_test_user"] or "dba",
             target=target,
+            matrix=(
+                f'CUBRID_VERSION_MATRIX="{meta["cubrid_version_matrix"]}" '
+                if meta["cubrid_version_matrix"]
+                else ""
+            ),
         )
     )
 

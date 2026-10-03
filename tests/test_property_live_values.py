@@ -11,9 +11,9 @@ supported and unsupported values both surface as DB-API results/errors (never a
 raw ``struct.error`` / ``UnicodeDecodeError`` / ``decimal.InvalidOperation``),
 and that sync and async agree.
 
-Skipped automatically when no CUBRID server is reachable (same gate as
-``test_integration.py``). Configure with ``CUBRID_TEST_HOST`` /
-``CUBRID_TEST_PORT`` etc. Exploration budget follows the active Hypothesis
+Skipped when no CUBRID server is configured and errors when a configured one
+is unreachable (same gate as ``test_integration.py``). Configure with
+``CUBRID_TEST_URL`` or ``CUBRID_TEST_HOST`` / ``CUBRID_TEST_PORT`` etc. Exploration budget follows the active Hypothesis
 profile (see ``tests/conftest.py``): small on PR, wide on nightly.
 """
 
@@ -32,11 +32,11 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.no_escape_pin,
 ]
 
 # Only these exception types are an acceptable failure mode for a value the

@@ -3,7 +3,7 @@
 ## 1. Overview
 
 **Project**: pycubrid
-**Current Version**: 1.3.0
+**Current Version**: 1.8.0
 **Status**: Production-ready
 **Repository**: [github.com/cubrid-lab/pycubrid](https://github.com/cubrid-lab/pycubrid)
 **License**: MIT
@@ -72,7 +72,7 @@ graph TD
     types[types.py - DB-API 2.0 type objects and constructors]
     exceptions[exceptions.py - PEP 249 exception hierarchy]
     constants[constants.py - CAS function codes, data types, protocol constants]
-    protocol["protocol.py - CAS wire protocol packet classes (18 packet types)"]
+    protocol["protocol.py - CAS wire protocol packet classes (20 packet types)"]
     packet[packet.py - Low-level packet reader/writer]
     lob[lob.py - LOB support]
     typed[py.typed - PEP 561 marker]
@@ -97,7 +97,9 @@ graph TD
 | pytest | ≥ 7.0 | Testing (dev) |
 | ruff | ≥ 0.4 | Lint + format (dev) |
 
-**Zero runtime dependencies** — pycubrid uses only the Python standard library.
+**Standard library only** — pycubrid needs no runtime dependencies except
+[`tzdata`](https://pypi.org/project/tzdata/) on Windows, which supplies the IANA
+time zone database that `zoneinfo` needs for TZ types (#413).
 
 ### 2.3 PEP 249 Compliance
 
@@ -162,7 +164,7 @@ Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`,
 
 Direct implementation of CUBRID's Client Application Server (CAS) binary protocol:
 
-- 18 packet types covering all database operations
+- 20 packet types covering all database operations
 - Two-step connection: broker handshake → CAS session
 - Big-endian binary codec for all data types
 - Server-side cursor with lazy fetch for large result sets
@@ -386,4 +388,4 @@ pycubrid follows the same philosophy: **examples are not supplementary — they 
 
 ---
 
-*Last updated: April 2026 · pycubrid v1.3.0 (async API available since v1.1.0)*
+*Last updated: September 2026 · pycubrid v1.8.0 (async API available since v1.1.0)*

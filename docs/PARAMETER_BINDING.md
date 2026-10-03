@@ -16,6 +16,8 @@ change to the rules below is a contract change governed by
 - [Overview](#overview)
 - [Placeholder Style](#placeholder-style)
 - [Type Mapping (Guarantees)](#type-mapping-guarantees)
+  - [Decimal parameters](#decimal-parameters)
+  - [Typed collection parameters](#typed-collection-parameters)
 - [String Escaping](#string-escaping)
   - [Escape-mode negotiation](#escape-mode-negotiation)
   - [Literal mode](#literal-mode-no_backslash_escapestrue)
@@ -55,6 +57,11 @@ between sync and async binding; parity is enforced by
 parameter values as a separate typed payload; the broker receives a complete
 SQL text per execute. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
+The separate, **explicit sync-only** `pycubrid.compat.native` prepared cursor
+does send typed INT32, UTF-8 string and SQL NULL values through FC2/FC3. It is
+not a replacement for this ordinary 1.x contract; see its bounded
+[#418 typed CAS design](PREPARED_BINDING_DESIGN.md) and
+[API reference](API_REFERENCE.md#explicit-native-compatibility-subset).
 
 ---
 
@@ -78,7 +85,7 @@ SQL text per execute. See
 ## Type Mapping (Guarantees)
 
 The following table is the **authoritative type-to-literal mapping** for 1.x.
-Every row cites the implementing line in `pycubrid/_cursor_common.py` and the
+Every row cites the implementing function in `pycubrid/_cursor_common.py` and the
 test that pins the behavior.
 
 > The **exception class** raised for each error case (e.g. `ProgrammingError`)
@@ -86,20 +93,24 @@ test that pins the behavior.
 > illustrative only and may be refined within 1.x. See
 > [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 
+Temporal subclasses in this table require the active C `_datetime`
+implementation; see the fallback restrictions below.
+
 | Python type | SQL literal | Implementation | Pinned by |
 |---|---|---|---|
-| `None` | `NULL` | `_cursor_common.py:143-144` | `tests/test_param_security.py:95-97` |
-| `bool` | `1` (True) / `0` (False) | `_cursor_common.py:145-146` | `tests/test_param_security.py:98-102` |
-| `int` | `str(value)` (decimal digits) | `_cursor_common.py:177-180` | `tests/test_param_security.py:107-109` |
-| `float` | `str(value)`; `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.py:177-180` | `tests/test_param_security.py:132-142` |
-| `decimal.Decimal` | `str(value)` (unquoted) | `_cursor_common.py:175-176` | `tests/test_param_security.py:113-115` |
-| `str` | Single-quoted literal; escaping per [String Escaping](#string-escaping); NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`) | `_cursor_common.py:147-148, 124-138` | `tests/test_param_security.py:27-84` |
-| `bytes`, `bytearray` | `X'<hex>'` (lowercase hex) | `_cursor_common.py:149-150` | `tests/test_param_security.py:104-106, 144-145` |
-| `datetime.datetime` (naive) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — microseconds truncated to milliseconds (`value.microsecond // 1000`) | `_cursor_common.py:151-152, 170` | `tests/test_param_security.py:124-127` |
-| `datetime.datetime` (tz-aware) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset | `_cursor_common.py:151-169` | `tests/test_param_security.py:147-169` |
-| `datetime.date` | `DATE'YYYY-MM-DD'` | `_cursor_common.py:171-172` | `tests/test_param_security.py:116-118` |
-| `datetime.time` | `TIME'HH:MM:SS'` — microseconds dropped | `_cursor_common.py:173-174` | `tests/test_param_security.py:120-122` |
-| anything else | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.py:181` | `tests/test_param_security.py:128-130`; `tests/test_cursor.py:233-235` |
+| `None` | `NULL` | `_cursor_common.format_parameter` | `tests/test_param_security.py:95-97` |
+| `bool` | `1` (True) / `0` (False) | `_cursor_common.format_parameter` | `tests/test_param_security.py:98-102` |
+| `int` (and subclasses such as `IntEnum`/`IntFlag`) | `int.__repr__(value)` (decimal digits of the value). See [Numeric subclasses](#numeric-subclasses) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
+| `float` (and subclasses) | `float.__repr__(value)` (shortest round-trip form, identical to `str()` of a plain `float`, e.g. `1e+20`); `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
+| `decimal.Decimal` (and subclasses) | Plain fixed-point digits (`format(value, "f")` on the value converted to a plain `Decimal`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`); subclasses raise `ProgrammingError` when the C `decimal` module is unavailable. See [Decimal parameters](#decimal-parameters) and [Numeric subclasses](#numeric-subclasses) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`, `::TestPureDecimalFallback`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
+| `str` (and subclasses) | Single-quoted literal; escaping per [String Escaping](#string-escaping), applied to a plain `str` copy of the value; NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). See [Text, binary and temporal subclasses](#text-binary-and-temporal-subclasses) | `_cursor_common.format_parameter` / `_cursor_common.escape_string` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
+| `bytes`, `bytearray` (and subclasses) | `X'<hex>'` (lowercase hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
+| `datetime.datetime` (naive, and subclasses) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — year zero-padded to 4 digits; microseconds truncated to milliseconds (`microsecond // 1000`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:124-127`, `::TestTemporalSubclassRendering` |
+| `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.format_parameter` / `_cursor_common._format_tz` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
+| `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.format_parameter` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
+| `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.format_parameter` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
+| `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (each keyword renders as `KEYWORD{}` when empty, e.g. `SET{}`); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
+| anything else, including objects that only claim a supported type through `__class__` | `ProgrammingError` (current message: `"unsupported parameter type"`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:128-130`, `::TestClassSpoofing`; `tests/test_cursor.py:233-235` |
 
 Integers are converted directly to decimal strings without conversion to `float`,
 including values such as `10**1000` and `-(10**1000)` that exceed the float range.
@@ -107,6 +118,171 @@ This formatting behavior does not guarantee that CUBRID can store the value;
 server numeric limits and Python's integer-to-string conversion limits still apply.
 Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_large_int`
 and `::test_bind_large_int`.
+
+### Numeric subclasses
+
+Subclasses of `int`, `float` and `decimal.Decimal` are rendered from their
+numeric value through the base-class methods (`int.__repr__`, `float.__repr__`,
+and `format(Decimal(value), "f")`), never through `str()`, `repr()` or
+`format()` on the object itself. Before #518 they were rendered with
+`str(value)`, so a subclass that overrides `__str__` changed the SQL text: on
+Python 3.10 `enum.IntEnum` members were sent as `Color.RED` and `enum.IntFlag`
+combinations as `Perm.R|W`, and a user subclass whose `__str__` returned
+`1; DROP TABLE t` injected that text verbatim. `Color.RED` is now sent as `1`
+and `Perm.R | Perm.W` as `6`. A `Decimal` subclass is converted to a plain
+`Decimal` first, so overridden `__format__`, `is_nan()` or `as_tuple()` cannot
+alter the literal or bypass the `NaN`/`Infinity` and 38-digit checks. `bool` is
+checked before `int` and still renders as `1`/`0`; it cannot be subclassed.
+The `Decimal` copy is only tamper-proof with CPython's C `decimal` module
+(`_decimal`): the pure-Python fallback (`_pydecimal`) copies `_sign`, `_int`
+and `_exp` through ordinary attribute reads, which a subclass can forge (#528).
+When the C module is unavailable, a `Decimal` subclass raises
+`ProgrammingError`; a plain `Decimal` is still accepted.
+Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_numeric_subclass_renders_by_value`,
+`::TestPureDecimalFallback` and `tests/test_parity_integration.py::TestParityNumericSubclassLiterals`.
+
+### Text, binary and temporal subclasses
+
+Subclasses of `str`, `bytes`, `bytearray`, `datetime.datetime`,
+`datetime.date` and `datetime.time` are rendered from their stored value, never
+through methods the subclass can override (#528):
+
+- `str`: the value is first copied to a plain `str` (`str.__str__(value)`
+  called on the base class), and the NUL/Ctrl-Z checks and escaping run on that
+  copy. An overridden `replace()`, `__contains__()`, `__str__()` or
+  `__format__()` is never called. Before #528 a subclass whose `replace()`
+  returned `x'; DROP TABLE users; --` had that text sent unescaped.
+- `bytes`/`bytearray`: `bytes.hex(value)` / `bytearray.hex(value)` read the
+  buffer directly; an overridden `hex()` or `__bytes__()` is never called.
+- Dates and times: the literal is built from the integer fields read through
+  the base-class descriptors (`datetime.date.year`, `datetime.datetime.hour`,
+  ...) with explicit zero padding, instead of `strftime()`. Overriding
+  `strftime()`, `isoformat()` or the `year`/`hour`/... properties does not
+  change the literal. The UTC offset comes from `datetime.datetime.utcoffset()`
+  called on the base class, and its `days`/`seconds`/`microseconds` fields are
+  read the same way.
+- Without the active C `_datetime` implementation, its pure-Python descriptors
+  read attributes such as `_year` and `_seconds`, which subclasses can forge.
+  `date`, `datetime` and `time` subclasses therefore raise `ProgrammingError`
+  before any field read or timezone callback; pass exact base-class values.
+  A `timedelta` subclass returned by `tzinfo.utcoffset()` is also rejected before
+  key lookup or driver offset-field reads. Plain fallback temporal values and
+  plain `timedelta` offsets remain accepted; C-backed subclasses are unchanged.
+- Years below 1000 are zero-padded to four digits (`date(99, 1, 2)` is sent as
+  `DATE'0099-01-02'`). `strftime("%Y")` does not pad them on Linux, and CUBRID
+  reads `DATE'99-01-02'` as 1999-01-02, so two-digit years were silently
+  stored with the wrong year (#519); one- and three-digit years happened to
+  round-trip and are unchanged in value.
+- `tzinfo.key`: a non-empty key is spliced into the `DATETIMETZ` literal only
+  when it is a plain `str` matching `[A-Za-z0-9_+/-]+` (every IANA name, such
+  as `Asia/Seoul`, `Etc/GMT+5` or `America/Port-au-Prince`, qualifies);
+  anything else raises `ProgrammingError`. A missing, `None` or empty key still
+  falls back to the numeric `±HH:MM` offset.
+- Ordinary exceptions from timezone callbacks, key lookup or offset-field
+  reads raise `ProgrammingError` (current message: `"invalid tzinfo on datetime
+  parameter"`) with the original exception as the cause, without formatting
+  caller-controlled exception text. Invalid key values keep their specific
+  error above, and an offset of `None` still renders a naive `DATETIME` without
+  reading the key. `BaseException` interruptions propagate.
+
+Dispatch uses `type(value)`, not `isinstance()`, which also trusts an
+overridden `__class__`. An object that only claims to be one of the supported
+types through `__class__` (for example a transparent proxy) raises
+`ProgrammingError("unsupported parameter type")`; unwrap it before binding.
+`escape_string()` likewise raises `ProgrammingError` for a non-`str` argument.
+
+Plain values render exactly as before, except the year padding.
+Pinned by `tests/test_param_security.py::TestPlainLiteralsUnchanged`,
+`::TestStrSubclassEscaping`, `::TestBinarySubclassRendering`,
+`::TestTemporalSubclassRendering`, `::TestTzinfoKey`, `::TestHostileTzinfo`,
+`::test_temporal_subclasses_in_real_pure_python_fallback`, `::TestClassSpoofing`,
+and live on CUBRID 10.2 and 11.4 (sync and async) by
+`tests/test_parity_integration.py::TestParityLiteralHardening`.
+
+### Decimal parameters
+
+A finite `decimal.Decimal` is rendered in plain fixed-point notation, never with
+an exponent: `Decimal("1E-7")` becomes `0.0000001`, `Decimal("1E+5")` becomes
+`100000`. CUBRID parses a numeric literal written with `E` as `DOUBLE`, so the
+previous `str(value)` rendering (`1E-7`) silently turned such values into
+floating point and lost digits on insert (#517). The sign, trailing zeros and
+scale are kept as written: `Decimal("1.10")` is sent as `1.10` (CUBRID types it
+`NUMERIC(3,2)`) and `Decimal("-0.00")` as `-0.00`.
+
+CUBRID accepts a plain numeric literal of at most 38 digits (the `NUMERIC`
+maximum precision) and rejects a longer one with error `-494` "Invalid
+numeric". The digit count is that of the rendered literal: every digit of a
+nonzero integer part plus every fractional digit, including leading fractional
+zeros (`0.0000001` has 7) and trailing zeros; a lone `0` integer part is not
+counted. A `Decimal` whose plain literal would need more than 38 digits raises
+`DataError` before anything is sent, instead of falling back to `DOUBLE`. That
+covers `Decimal("1E-39")`, 39 significant digits and any huge exponent such as
+`Decimal("1E+999999999")`, which is rejected without being expanded. Round or
+quantize such values before binding, or bind a `float` if `DOUBLE` semantics
+are intended.
+
+A fractional literal is `NUMERIC(p,s)` on the server. An integral value without
+fractional digits (`Decimal("42")`, `Decimal("1E+5")`) renders as a plain
+integer literal, which CUBRID types by magnitude (`INTEGER`, `BIGINT` or
+`NUMERIC(p,0)`); the value stays exact. When the target column has a smaller
+scale than the literal, CUBRID rounds on assignment as for any literal (see
+[Non-Guarantees](#non-guarantees-and-explicit-limits)). `NaN` and `Infinity`
+still raise `ProgrammingError`.
+
+Pinned by `tests/test_param_security.py::TestFormatParameterTypes::test_decimal_plain_notation`,
+`::test_decimal_precision_38_accepted`, `::test_decimal_precision_over_38_raises`
+and `::test_bind_decimal_plain_notation`, and live on CUBRID 10.2 and 11.4 (sync
+and async) by `tests/test_parity_integration.py::TestParityDecimalLiterals`.
+
+### Typed collection parameters
+
+Wrap the elements in `pycubrid.types.Set`, `Multiset` or `Sequence` (also
+exported as `pycubrid.Set`, `pycubrid.Multiset`, `pycubrid.Sequence`) to bind a
+CUBRID collection through an ordinary sync or async cursor (#567):
+
+```python
+from pycubrid.types import Multiset, Sequence, Set
+
+cur.execute(
+    "INSERT INTO t (tags, words, steps) VALUES (?, ?, ?)",
+    (Set([1, 2, 3]), Multiset(["a", "a"]), Sequence([3, 1, 2])),
+)
+cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
+```
+
+- Each type takes one iterable and stores its elements as a `tuple`
+  (`.elements`); the objects are immutable, compare equal only to the same type
+  with equal elements, and cannot be subclassed. A single `str`, `bytes` or
+  `bytearray` argument raises `TypeError` instead of being split into characters.
+- The literal keyword follows the type: `SET{...}`, `MULTISET{...}`,
+  `SEQUENCE{...}` (CUBRID's `LIST{...}` is the same type). The server applies the
+  collection semantics: `SET` drops duplicates, `MULTISET` keeps duplicates but
+  not their order, `SEQUENCE` keeps both.
+- Every element goes through the same override-proof renderer as a scalar
+  parameter, so the element types are exactly the scalar rows of the table above
+  (`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`, `bytearray`,
+  `date`, `time`, `datetime`), including their subclass hardening. The server
+  converts the elements to the column's element type, as for a literal.
+- Nested collections are rejected (`ProgrammingError`): a typed collection
+  inside another, or a plain `list`/`tuple`/`set`/`frozenset`/`dict` element.
+- A `dict` is rejected at construction time (`TypeError`) for all three
+  classes: iterating it would silently use only its keys and drop the
+  values. `Sequence` additionally rejects a `set`/`frozenset` (`TypeError`):
+  their iteration order is not guaranteed, which would make `Sequence`'s
+  element order nondeterministic between runs. `Set` and `Multiset` accept a
+  `set`/`frozenset` since their own server-side semantics do not depend on
+  input order.
+- `executemany()` accepts typed collections in each parameter set, including
+  through the DML batch path (`EXECUTE_BATCH`).
+- The instances are immutable and safe to `copy.copy()` (always returns the
+  same object), `copy.deepcopy()` (the same object when every element is
+  itself immutable; an independent copy, with independently copied elements,
+  when an element such as `bytearray` is mutable) and `pickle`; re-invoking
+  `__init__` on an existing instance cannot mutate it either.
+- Fetching is unchanged: with `decode_collections=True` a `SET` column still
+  decodes to `frozenset` and `MULTISET`/`SEQUENCE` to `list` (raw `bytes`
+  otherwise). Decoded values are not wrapped back into these types; wrap them
+  again (for example `Set(row[0])`) to bind them.
 
 ### Explicitly unsupported as a bound value
 
@@ -117,9 +293,11 @@ and `::test_bind_large_int`.
   (`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
 - Collections (`list`, `tuple`, `set`, `frozenset`, `dict`) as a single bound
   value — raise `ProgrammingError` with an actionable message (current text:
-  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL`).
+  `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL, or wrap the elements in pycubrid.types.Set, Multiset or Sequence to bind a CUBRID collection`).
   There is **no automatic `IN (?, ?, ?)`** expansion; expand placeholders
-  explicitly in the SQL.
+  explicitly in the SQL. To bind a CUBRID collection, wrap the elements in a
+  [typed collection parameter](#typed-collection-parameters); the message also
+  says so.
 - Arbitrary Python objects — raises
   `ProgrammingError("unsupported parameter type")`.
 
@@ -134,6 +312,8 @@ String escaping is performed by `escape_string`
 from the live server at connect time (see
 [Escape-mode negotiation](#escape-mode-negotiation)); pass it explicitly to
 `pycubrid.connect(..., no_backslash_escapes=True|False)` to override detection.
+Automatic detection runs for each newly opened physical session, including
+explicit `ping(reconnect=True)` recovery, before parameterized SQL can use it.
 
 In every mode:
 
@@ -172,9 +352,26 @@ literal `'\\'`, two backslash characters):
   string escaping (and can enable SQL injection). Pass `no_backslash_escapes`
   explicitly to skip detection when the probe cannot run.
 
-Passing `no_backslash_escapes=True` or `False` explicitly skips the probe
-entirely. Negotiation happens once per physical connection and is preserved
-across transparent reconnects.
+Passing `no_backslash_escapes=True` or `False` explicitly skips the probe and
+retains that choice across reconnections. Without an explicit value, a newly
+opened physical session is probed before use; a healthy same-session
+`ping()` does not re-probe. A failed probe prevents direct connection setup;
+during `ping(reconnect=True)`, it retires the replacement session and returns
+`False`. Neither path guesses a mode or replays interrupted SQL. In the sync and
+async paths, parameterized SQL bound before a session replacement is rejected before
+send if its session generation changed; the caller must deliberately retry
+the operation. Normal `CAS_INFO=OUT_TRAN` responses keep the session; only a
+failed pre-request `CHECK_CAS` reconnects (#485). Cursors run that check before
+rendering parameters; SQL rendered for a session that is replaced afterwards is
+rejected before send in sync and async alike. SQL strings passed directly to
+`executemany_batch()` are rendered by the caller and are not generation-fenced.
+
+The [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) and
+[11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) CUBRID manuals
+do not classify `no_backslash_escapes` as dynamically changeable. This driver
+behavior does not imply support for a per-session `SET` toggle or prove
+heterogeneous failover between differently configured servers. An explicit
+mode should be used only when every possible target is known to match it.
 
 ### Literal mode (`no_backslash_escapes=True`)
 
@@ -256,11 +453,12 @@ The following behaviors are **explicitly outside the contract** and may change
 without a major version bump. They are listed so that callers do not depend on
 them implicitly.
 
-- **No server-side prepared-statement binding.** The driver renders parameters
-  into SQL text on the client. CUBRID receives a complete SQL string per
-  `execute`. There is no separate typed parameter payload and no client-side
-  statement-handle cache. Performance characteristics, query-plan caching, and
-  log output reflect this design.
+- **Ordinary sync/async cursors do not use server-side prepared binding.**
+  `pycubrid.Cursor` and `pycubrid.aio.AsyncCursor` render parameters into SQL
+  text on the client, so their `execute()` sends a complete SQL string without
+  a typed value payload or statement-handle cache. The separate, opt-in
+  `pycubrid.compat.native` sync cursor has a narrow typed scalar contract;
+  its performance and plan-cache effects are not claimed here.
 - **Identifiers are not escaped.** Code paths that interpolate identifiers
   (notably `Cursor.callproc`, `pycubrid/cursor.py:328-336`) embed the
   identifier into the SQL text without quoting. Application code must validate
@@ -351,6 +549,9 @@ any of these are contract regressions:
   `Mapping`/`str` parameter rejection.
 - `tests/test_aio_cursor_parity.py` (lines 76-105) — sync/async parity for
   NUL rejection, default escaping, and `no_backslash_escapes` mode.
+- `tests/test_typed_collections.py` — typed `Set`/`Multiset`/`Sequence`
+  rendering, element hardening and nested-collection rejection; sync/async
+  parity in `tests/test_replay_parity.py::typed_collection_parameters`.
 
 Together these tests provide the executable specification of this contract.
 

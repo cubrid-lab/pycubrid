@@ -86,16 +86,49 @@ sequenceDiagram
 
 ## CAS 재연결
 
+`CAS_INFO[0]`은 연결 상태가 아니라 트랜잭션 상태입니다(`0` = OUT_TRAN,
+`1` = IN_TRAN). 정상적인 commit, rollback 또는 autocommit 응답의 OUT_TRAN은
+같은 물리 세션을 유지합니다. 전송 실패 후 불확실한 임의의 SQL 요청을 새 연결에서
+자동 재실행하지 않습니다.
+
+그래도 CAS는 OUT_TRAN 응답 직후 소켓을 닫을 수 있습니다. CAS 메모리 재시작
+(`APPL_SERVER_MAX_SIZE`), `cubrid broker reset`, CAS 프로세스보다 많은
+클라이언트가 대기할 때의 CHANGE CLIENT가 그 예입니다. 그래서 드라이버는 JDBC
+`UClientSideConnection.checkReconnect`처럼 직전 응답이 OUT_TRAN이면 다음 요청 전에
+`CHECK_CAS`를 보냅니다(#485). CAS가 살아 있으면 세션을 유지합니다. 검사가
+실패할 때만 요청당 한 번 세션을 교체하며, 이스케이프 모드 검사와 autocommit을
+복원하고 SQL은 재실행하지 않습니다. 잃어버린 세션의 핸들에 대한 `CLOSE_REQ`는
+건너뛰고, 그 결과에 대한 FETCH는 `OperationalError`를 발생시키며, 재접속 실패도
+`OperationalError`를 발생시킵니다. commit과 rollback은 닫히지 않은 커서가 가진
+쿼리 핸들에 먼저 `CLOSE_REQ`를 보내므로, 트랜잭션보다 오래 유지되는 CAS 세션에
+핸들이 쌓이지 않습니다.
+
 ```mermaid
 sequenceDiagram
+    participant App
     participant Connection
     participant Broker
     participant CAS
 
-    Connection->>Connection: _check_reconnect() inspects CAS_INFO[0]
-    alt CAS status == INACTIVE
-      Connection->>Connection: _drop_connection()
-      Connection->>Connection: self.connect() (full re-handshake to broker)
+    App->>Connection: commit()/rollback()
+    Connection->>CAS: 열린 커서 핸들마다 CLOSE_REQ, 그다음 END_TRAN
+    CAS-->>Connection: CAS_INFO[0]=0 (OUT_TRAN)
+    App->>Connection: 다음 요청
+    Connection->>CAS: CHECK_CAS (FC=32)
+    alt CAS 정상
+      CAS-->>Connection: 정상 응답
+      note over Connection,CAS: 같은 소켓과 세션 유지
+    else CAS가 소켓을 닫음 (재시작, reset, CHANGE CLIENT)
+      Connection->>Broker: 한 번 재접속, 이스케이프 모드 검사, autocommit 복원
+      note over Connection: 원래 요청은 새 세션에서 한 번 전송
+    end
+    App->>Connection: ping(reconnect=True)
+    opt 기존 소켓이 연결됨
+      Connection->>CAS: CHECK_CAS (FC=32)
+      CAS-->>Connection: 정상 또는 음수 응답 (CAS–DB 링크 장애)
+    end
+    opt 연결 끊김, 음수 CHECK_CAS 또는 전송/프로토콜 실패
+      Connection->>Connection: 이전 전송과 쿼리 핸들 폐기
       Connection->>Broker: ClientInfoExchange ("CUBRK"/"CUBRS")
       Broker-->>Connection: status int32 (0 / >0 redirect / <0 fail)
       opt status > 0 (redirect)
@@ -105,12 +138,15 @@ sequenceDiagram
         Connection->>CAS: TLS upgrade (start_tls / wrap_socket)
       end
       Connection->>CAS: OpenDatabase
-      CAS-->>Connection: New session
-      note over Connection: Session restored transparently
-    else CAS status == ACTIVE
-      note over Connection: No action needed
+      CAS-->>Connection: 새 세션
+      note over Connection: 명시적으로 설정한 autocommit만 복원
     end
 ```
+
+`ping(reconnect=False)`는 열린 소켓을 검사하지만 음수 `CHECK_CAS` 응답에도
+재접속하지 않습니다.
+`ping(reconnect=True)`를 통한 복구는 명시적이며 한 번만 시도합니다. 중단된
+SQL을 재시도해도 안전한지는 호출자가 판단해야 합니다.
 
 ## 모듈 경계
 
@@ -147,7 +183,7 @@ flowchart TD
 - **`connection.py` — TCP 소켓과 트랜잭션 관리**: CAS에 대한 물리적 TCP 연결을 관리하고, 트랜잭션(커밋/롤백)을 처리하며, LOB 연산의 소유자 역할을 합니다.
 - **`cursor.py` — SQL 실행과 결과 조회**: `Cursor` 객체를 구현해 SQL 준비·실행·다양한 fetch 연산을 처리하고 결과 상태를 유지합니다.
 - **`protocol.py` — CAS 패킷 클래스**: CUBRID CAS 함수 코드에 대응하는 18개 전문 패킷 클래스를 정의하고, 특정 요청·응답의 직렬화/역직렬화를 담당합니다.
-- **`packet.py` — PacketReader / PacketWriter**: 와이어 형식 읽기·쓰기의 저수준 유틸리티를 제공하고 바이트 순서와 원시 타입 직렬화를 처리합니다.
+- **`packet.py` — PacketReader / PacketWriter**: 와이어 형식 읽기·쓰기의 저수준 유틸리티를 제공하고 바이트 순서와 원시 타입 직렬화를 처리합니다. 둘 다 연결 `charset` 코덱을 사용합니다(#86): 연결은 `write()` 전에 모든 패킷에 코덱을 설정하므로 SQL 텍스트, 자격 증명, 문자 값, 컬럼 이름, 오류 텍스트, LOB 로케이터는 데이터베이스 문자셋을 쓰고, 가져온 JSON, NUMERIC, 타임존 이름은 UTF-8을 유지합니다. [문자 인코딩](CONNECTION.md#문자-인코딩)을 참고하세요.
 - **`constants.py` — CAS 상수**: CAS 함수 코드, CUBRID 데이터 타입, 기타 프로토콜 수준 상수의 열거형을 담습니다.
 - **`types.py` — DB-API 타입**: PEP 249가 요구하는 타입 객체를 정의하고 CUBRID 타입과 Python 타입 간 매핑을 관리합니다.
 - **`exceptions.py` — PEP 249 예외**: DB-API 2.0 사양이 요구하는 표준 예외 계층을 구현합니다.
@@ -174,7 +210,7 @@ flowchart TD
 
     wire --> dispatch
 
-    dispatch -->|"1-4, 25"| str["str<br/>(UTF-8 decoded)"]
+    dispatch -->|"1-4, 25"| str["str<br/>(connection charset,<br/>default UTF-8)"]
     dispatch -->|"5, 6"| bytes["bytes<br/>(raw binary)"]
     dispatch -->|"7"| decimal["Decimal<br/>(string-parsed)"]
     dispatch -->|"8"| int32["int<br/>(4B signed)"]

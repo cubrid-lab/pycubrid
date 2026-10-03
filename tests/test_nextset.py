@@ -88,7 +88,7 @@ async def test_async_cursor_uses_configured_fetch_size() -> None:
     cursor._total_tuple_count = 1
     cursor._columns = []
 
-    async def send(packet: object) -> object:
+    async def send(packet: object, **_: object) -> object:
         assert isinstance(packet, FetchPacket)
         assert packet.fetch_size == 41
         packet.rows = []

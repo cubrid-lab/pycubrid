@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import struct
-import sys
 import threading
-import types
 from unittest.mock import MagicMock
 
 import pytest
@@ -46,9 +44,7 @@ def make_socket(recv_chunks: list[bytes]) -> MagicMock:
 
 @pytest.fixture
 def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
-    import pycubrid.connection as _conn_mod
-
-    module = types.ModuleType("pycubrid.cursor")
+    import pycubrid.cursor as _cursor_mod
 
     class DummyCursor:
         def __init__(self, connection: Connection) -> None:
@@ -58,9 +54,7 @@ def cursor_module(monkeypatch: pytest.MonkeyPatch) -> type:
         def close(self) -> None:
             self.closed = True
 
-    setattr(module, "Cursor", DummyCursor)
-    monkeypatch.setitem(sys.modules, "pycubrid.cursor", module)
-    monkeypatch.setattr(_conn_mod, "_CursorClass", None)
+    monkeypatch.setattr(_cursor_mod, "Cursor", DummyCursor)
     return DummyCursor
 
 
@@ -346,8 +340,20 @@ class TestConnectionTimingEnvVar:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("PYCUBRID_ENABLE_TIMING", "1")
+        conn, _ = _make_connected(socket_queue, enable_timing=False)
+        assert conn._timing is None
+        assert conn.timing_stats is None
+
+    def test_kwarg_enables_timing_when_env_disables_it(
+        self,
+        socket_queue: list[MagicMock],
+        cursor_module: type,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("PYCUBRID_ENABLE_TIMING", "0")
         conn, _ = _make_connected(socket_queue, enable_timing=True)
-        assert conn._timing is not None
+        assert isinstance(conn.timing_stats, TimingStats)
+        assert conn.timing_stats.connect_count == 1
 
 
 class TestCursorTiming:
@@ -356,7 +362,7 @@ class TestCursorTiming:
         conn = MagicMock()
         conn.autocommit = False
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._cursors = set()
         conn._ensure_connected = MagicMock()
         conn._no_backslash_escapes = False
@@ -373,7 +379,7 @@ class TestCursorTiming:
         conn = MagicMock()
         conn.autocommit = False
         conn._connected = True
-        conn._cas_info = b"\x01\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._cursors = set()
         conn._ensure_connected = MagicMock()
         conn._no_backslash_escapes = False

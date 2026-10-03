@@ -10,7 +10,8 @@ uses a warm-up phase to reach steady state, then asserts the descriptor count
 after a large batch of cycles stays within a small tolerance of the post-warm-up
 baseline rather than requiring an exact match.
 
-Skipped when no CUBRID server is reachable. Marked slow via the ``integration``
+Skipped when no CUBRID server is configured (errors when a configured one is
+unreachable; see the shared ``tests/conftest.py`` gate). Marked slow via the ``integration``
 marker; the cycle counts are modest so it stays CI-friendly.
 """
 
@@ -27,11 +28,11 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.no_escape_pin,
 ]
 
 

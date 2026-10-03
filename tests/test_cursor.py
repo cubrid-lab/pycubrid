@@ -26,10 +26,12 @@ def mock_connection() -> MagicMock:
     conn = MagicMock()
     conn.autocommit = False
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")
     conn._cursors = set()
     conn._ensure_connected = MagicMock()
     conn._no_backslash_escapes = False
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    conn._defer_close = MagicMock(return_value=False)
 
     def send_and_receive(packet: object) -> object:
         return packet
@@ -83,10 +85,18 @@ def test_arraysize_setter_and_validation(cursor: Cursor) -> None:
         cursor.arraysize = 0
 
 
+@pytest.mark.parametrize("value", [1.5, True, False, "2", None, -1])
+def test_arraysize_rejects_non_integer_values(cursor: Cursor, value: object) -> None:
+    cursor.arraysize = 3
+    with pytest.raises(ProgrammingError, match="arraysize"):
+        setattr(cursor, "arraysize", value)
+    assert cursor.arraysize == 3
+
+
 def test_execute_select_sets_description_and_rowcount(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -111,7 +121,7 @@ def test_execute_select_sets_description_and_rowcount(
 def test_execute_closes_existing_query_handle(cursor: Cursor, mock_connection: MagicMock) -> None:
     cursor._query_handle = 99
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(10,)], total_count=1
@@ -128,7 +138,7 @@ def test_execute_closes_existing_query_handle(cursor: Cursor, mock_connection: M
 def test_execute_insert_sets_rowcount_and_lastrowid(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -145,12 +155,48 @@ def test_execute_insert_sets_rowcount_and_lastrowid(
     assert cursor.rowcount == 3
     assert cursor.lastrowid == 55
     assert cursor.description is None
+    assert mock_connection._last_insert_id == "55"
+
+
+def test_execute_select_after_insert_does_not_clear_connection_last_insert_id(
+    cursor: Cursor, mock_connection: MagicMock
+) -> None:
+    """A later SELECT resets the cursor's own lastrowid but must not touch the
+    connection-level cache that `Connection.get_last_insert_id()` reads."""
+
+    def send(packet: object, **_: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.INSERT,
+                result_count=1,
+                with_columns=False,
+            )
+        elif isinstance(packet, GetLastInsertIdPacket):
+            packet.last_insert_id = "7"
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.execute("INSERT INTO t VALUES (1)")
+    assert mock_connection._last_insert_id == "7"
+
+    def send_select(packet: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
+            )
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send_select
+    cursor.execute("SELECT id FROM t")
+    assert cursor.lastrowid is None
+    assert mock_connection._last_insert_id == "7"
 
 
 def test_execute_insert_lastrowid_failure_is_ignored(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(packet, stmt_type=CUBRIDStatementType.INSERT, result_count=1)
         elif isinstance(packet, GetLastInsertIdPacket):
@@ -165,7 +211,7 @@ def test_execute_insert_lastrowid_failure_is_ignored(
 def test_execute_non_select_without_result_info_sets_negative_rowcount(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             packet.query_handle = 1
             packet.statement_type = CUBRIDStatementType.UPDATE
@@ -185,7 +231,7 @@ def test_execute_binds_sequence_parameters_all_supported_types(
 ) -> None:
     captured_sql: list[str] = []
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             captured_sql.append(packet.sql)
             _set_prepare_packet(
@@ -236,7 +282,7 @@ def test_execute_unsupported_parameter_type_raises(cursor: Cursor) -> None:
 
 
 def test_fetchone_basic_and_end(cursor: Cursor, mock_connection: MagicMock) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -262,7 +308,7 @@ def test_fetchone_without_result_set_raises(cursor: Cursor) -> None:
 def test_fetchone_fetches_more_rows(cursor: Cursor, mock_connection: MagicMock) -> None:
     fetch_calls = 0
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         nonlocal fetch_calls
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
@@ -288,10 +334,10 @@ def test_fetchone_fetches_more_rows(cursor: Cursor, mock_connection: MagicMock) 
     assert cursor.fetchone() is None
 
 
-def test_fetchone_returns_none_when_query_handle_missing(
+def test_fetchone_raises_when_unfinished_query_handle_missing(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet, stmt_type=CUBRIDStatementType.SELECT, rows=[], total_count=1
@@ -302,13 +348,14 @@ def test_fetchone_returns_none_when_query_handle_missing(
     mock_connection._send_and_receive.side_effect = send
     cursor.execute("SELECT id FROM t")
     cursor._query_handle = None
-    assert cursor.fetchone() is None
+    with pytest.raises(InterfaceError, match="invalidated"):
+        cursor.fetchone()
 
 
 def test_fetchone_returns_none_when_fetch_packet_has_no_rows(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet, stmt_type=CUBRIDStatementType.SELECT, rows=[], total_count=5
@@ -325,7 +372,7 @@ def test_fetchone_returns_none_when_fetch_packet_has_no_rows(
 def test_fetchmany_with_size_and_default_arraysize(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -344,7 +391,7 @@ def test_fetchmany_with_size_and_default_arraysize(
 
 
 def test_fetchall_returns_remaining_rows(cursor: Cursor, mock_connection: MagicMock) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -365,7 +412,7 @@ def test_executemany_accumulates_non_select_rowcount(
 ) -> None:
     # DML executemany now uses BatchExecutePacket (single RPC) instead of
     # per-row PrepareAndExecutePacket calls.
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = [(0, 1), (0, 2), (0, 3)]
         return packet
@@ -380,7 +427,7 @@ def test_executemany_comment_prefixed_dml_uses_batch(
 ) -> None:
     """Comment-prefixed DML (e.g. /* hint */ INSERT) still takes the batch path."""
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = [(0, 1), (0, 1)]
         return packet
@@ -395,7 +442,7 @@ def test_executemany_comment_prefixed_dml_uses_batch(
 def test_executemany_select_keeps_rowcount_negative(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=1
@@ -412,7 +459,7 @@ def test_executemany_batch_executes_multiple_sql(
 ) -> None:
     expected_results = [(20, 2), (22, 1)]
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = expected_results
         return packet
@@ -453,7 +500,7 @@ def test_executemany_batch_auto_commit_override(cursor: Cursor, mock_connection:
 def test_executemany_batch_empty_list_sets_zero_rowcount(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = []
         return packet
@@ -472,7 +519,7 @@ def test_executemany_batch_resets_result_state(cursor: Cursor, mock_connection: 
     cursor._row_index = 1
     cursor._query_handle = 100
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = [(20, 1)]
         return packet
@@ -490,7 +537,7 @@ def test_executemany_batch_resets_result_state(cursor: Cursor, mock_connection: 
 def test_executemany_batch_rowcount_sums_all_counts(
     cursor: Cursor, mock_connection: MagicMock
 ) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = [(20, 2), (22, 5), (23, 1)]
         return packet
@@ -515,7 +562,7 @@ def test_executemany_batch_raises_on_partial_failure(
     """Batch execute must raise when a statement in the batch fails (#186)."""
     from pycubrid.exceptions import IntegrityError
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = [(0, 1)]  # first statement succeeded
             packet.errors = [{"code": -670, "message": "unique constraint violation"}]
@@ -523,8 +570,21 @@ def test_executemany_batch_raises_on_partial_failure(
 
     mock_connection._send_and_receive.side_effect = send
 
+    cursor._description = (("stale", 1, None, None, 0, 0, False),)
+    cursor._rows = [("stale",)]
+
+    cursor._rowcount = 10
+    cursor._lastrowid = 123
+
     with pytest.raises(IntegrityError, match="unique constraint"):
         cursor.executemany_batch(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"])
+
+    assert cursor.description is None
+    assert cursor._rows == []
+    assert cursor.rowcount == -1
+    assert cursor.lastrowid is None
+    with pytest.raises(InterfaceError, match="No result set"):
+        cursor.fetchone()
 
 
 def test_executemany_batch_error_uses_cas_code_dispatch(
@@ -533,7 +593,7 @@ def test_executemany_batch_error_uses_cas_code_dispatch(
     """Batch errors dispatch to the correct PEP 249 class via CAS code (#186)."""
     from pycubrid.exceptions import ProgrammingError
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = []
             packet.errors = [{"code": -494, "message": "syntax error near 'SELCT'"}]
@@ -550,7 +610,7 @@ def test_executemany_batch_no_errors_still_works(
 ) -> None:
     """Ensure the error check doesn't affect the normal happy path (#186)."""
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = [(0, 5), (0, 3)]
             packet.errors = []
@@ -585,7 +645,7 @@ def test_callproc_formats_sql_and_returns_parameters(
 ) -> None:
     captured_sql: list[str] = []
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             captured_sql.append(packet.sql)
             _set_prepare_packet(
@@ -603,7 +663,7 @@ def test_callproc_formats_sql_and_returns_parameters(
 def test_callproc_without_parameters(cursor: Cursor, mock_connection: MagicMock) -> None:
     captured_sql: list[str] = []
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             captured_sql.append(packet.sql)
             _set_prepare_packet(
@@ -617,8 +677,27 @@ def test_callproc_without_parameters(cursor: Cursor, mock_connection: MagicMock)
     assert captured_sql == ["CALL my_proc()"]
 
 
+@pytest.mark.parametrize("procname", ["foo..bar", "foo.", "foo.1bar", ".foo"])
+def test_callproc_rejects_invalid_qualified_name(cursor: Cursor, procname: str) -> None:
+    cursor.execute = MagicMock()
+
+    with pytest.raises(ProgrammingError, match="Invalid stored procedure name"):
+        cursor.callproc(procname)
+
+    cursor.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("procname", ["foo", "schema.proc", "_schema._proc2"])
+def test_callproc_accepts_valid_qualified_name(cursor: Cursor, procname: str) -> None:
+    cursor.execute = MagicMock()
+
+    assert cursor.callproc(procname) == ()
+
+    cursor.execute.assert_called_once_with(f"CALL {procname}()", ())
+
+
 def test_iterator_protocol(cursor: Cursor, mock_connection: MagicMock) -> None:
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -655,7 +734,7 @@ def test_fetchall_clears_buffer_entirely(cursor: Cursor, mock_connection: MagicM
     """fetchall() must release the entire buffer once everything is consumed."""
     initial_rows = [(i,) for i in range(250)]
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -688,7 +767,7 @@ def test_fetchone_bounds_memory_over_large_result_set(
     page = 100  # rows returned per FetchPacket
     fetched_pages: list[int] = []  # tracks how many pages served
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -738,7 +817,7 @@ def test_fetchmany_bounds_memory_over_large_result_set(
     page = 50
     fetched_pages: list[int] = []
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,
@@ -793,7 +872,7 @@ def test_fetched_count_reset_on_execute(cursor: Cursor, mock_connection: MagicMo
     """execute() must reset _fetched_count to the first page's row count."""
     first_page = [(i,) for i in range(10)]
 
-    def send(packet: object) -> object:
+    def send(packet: object, **_: object) -> object:
         if isinstance(packet, PrepareAndExecutePacket):
             _set_prepare_packet(
                 packet,

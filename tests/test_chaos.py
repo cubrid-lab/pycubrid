@@ -4,18 +4,19 @@ Tests what happens when the connection to CUBRID dies while the driver is
 actively working. Rather than kill a shared broker process, this drops the
 live socket out from under the driver mid-session (an abrupt transport loss
 indistinguishable, from the driver's side, from a broker restart or a killed
-CAS), and drives the CAS-inactive transparent-reconnect path. It asserts the
+CAS), and verifies explicit failure without replay. It asserts the
 durable contract:
 
 * the current request fails clearly with a PEP 249 error (never a raw
   exception, never a hang);
 * no corrupted / partial result is returned as if it succeeded;
-* after the failure the connection state is deterministic (a fresh op either
-  works via transparent reconnect or raises a DB-API error);
-* an active transaction is never silently replayed after a reconnect.
+* after the failure the connection state is deterministic (a fresh op raises
+  a DB-API error until the caller explicitly recovers);
+* an active transaction is never silently replayed on a new connection.
 
-Marked ``integration`` and skip-gated. Runs against the normal broker; the full
-process-kill / server-restart matrix belongs in the nightly chaos job.
+Marked ``integration`` and gated by the shared ``tests/conftest.py`` gate. Runs
+against the normal broker; the full process-kill /
+server-restart matrix belongs in the nightly chaos job.
 """
 
 from __future__ import annotations
@@ -32,11 +33,12 @@ import pycubrid
 import pycubrid.aio
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
+    pytest.mark.slow,
+    pytest.mark.no_escape_pin,
 ]
 
 
@@ -148,7 +150,7 @@ class TestSyncTransportChaos:
                     cur.execute("INSERT INTO %s VALUES (1)" % table)  # uncommitted
                     _drop_socket(conn)  # broker vanishes with the txn open
                     # The uncommitted INSERT must NOT be silently replayed/committed
-                    # on any transparent reconnect.
+                    # on any later explicit recovery.
                     with pytest.raises(DBAPIError):
                         cur.execute("SELECT 1")
                     cur.close()

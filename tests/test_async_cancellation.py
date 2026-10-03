@@ -11,7 +11,8 @@ lifecycle operations against each other, asserting the durable contract:
 * the per-connection lock is always released (a follow-up operation can proceed);
 * concurrent close / ping(reconnect) / execute do not corrupt shared state.
 
-Skipped when no CUBRID server is reachable. Timing-based cancellation is
+Skipped when no CUBRID server is configured (errors when a configured one is
+unreachable; see the shared ``tests/conftest.py`` gate). Timing-based cancellation is
 inherently nondeterministic, so each test tolerates BOTH outcomes (the op
 completed before the cancel, or it was cancelled) and only asserts the
 post-condition invariants — never a specific race winner.
@@ -28,12 +29,12 @@ import pytest
 import pycubrid.aio
 from pycubrid.exceptions import Error as DBAPIError
 
-from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER, can_connect
+from ._parity_helpers import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not can_connect(), reason="CUBRID instance not available"),
     pytest.mark.asyncio,
+    pytest.mark.no_escape_pin,
 ]
 
 
@@ -95,6 +96,10 @@ class TestCancelDuringExecute:
                     await task
                 except (asyncio.CancelledError, DBAPIError):
                     pass  # both outcomes (cancelled or clean error) are acceptable
+                # A canceled in-flight read retires the uncertain stream.
+                # Explicit health recovery must finish before opening the
+                # next cursor; cancellation never replays that SELECT.
+                assert await asyncio.wait_for(conn.ping(reconnect=True), timeout=10.0)
             await asyncio.wait_for(_assert_usable_or_closed(conn), timeout=10.0)
         finally:
             await conn.close()

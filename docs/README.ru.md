@@ -148,7 +148,7 @@ marketers = cur.fetchall()
 
 - **Чистый Python** — без C-расширений, без компиляции, работает везде, где запускается Python
 - **Полная DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **Параметризованные запросы** — `cursor.execute(sql, params)` с серверным `PREPARE_AND_EXECUTE`
+- **Параметризованные запросы** — `cursor.execute(sql, params)` с привязкой параметров на стороне драйвера (плейсхолдеры `?` экранируются и подставляются локально)
 - **Пакетные операции** — `executemany()` и `executemany_batch()` для массовых вставок
 - **Поддержка LOB** — `create_lob()`, чтение и запись столбцов CLOB и BLOB
 - **Интроспекция схемы** — `get_schema_info()` для таблиц, столбцов, индексов и ограничений
@@ -235,7 +235,7 @@ graph TD
     types[types.py - DB-API 2.0 type objects and constructors]
     exceptions[exceptions.py - PEP 249 exception hierarchy]
     constants[constants.py - CAS function codes, data types, protocol constants]
-    protocol["protocol.py - CAS wire protocol packet classes (18 packet types)"]
+    protocol["protocol.py - CAS wire protocol packet classes (20 packet types)"]
     packet[packet.py - Low-level packet reader/writer]
     lob[lob.py - LOB support]
     typed[py.typed - PEP 561 marker]
