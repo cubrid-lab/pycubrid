@@ -330,6 +330,50 @@ def test_complete_final_fetch_error_preserves_error_without_closing_retired_id(o
     _guarded(driver)
 
 
+@pytest.mark.parametrize("broker_type", [None, 0, 2])
+@pytest.mark.parametrize("server_error", [False, True])
+def test_out_tran_fetch_only_retires_direct_cubrid_handles(
+    owned, broker_type: int | None, server_error: bool
+) -> None:
+    owner, driver, sock = owned
+    owner.set_autocommit(True)
+    driver._statement_pooling = 0
+    driver._broker_db_type = broker_type
+    final = error_body(OUT_TRAN, -670, "primary") if server_error else _fetch(2, status=OUT_TRAN)
+    _load(sock, _query(0, total=2), final, ok_body(IN_TRAN))
+    if server_error:
+        with pytest.raises(DatabaseError) as caught:
+            owner.ping()
+        assert caught.value is driver.utility_errors[0]
+    else:
+        assert owner.ping() == 1
+    assert _codes(sock) == [41, 8, 6]
+    assert driver._connected
+    _guarded(driver)
+
+
+def test_prior_out_tran_does_not_turn_local_fetch_failure_into_retirement(
+    owned, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, driver, sock = owned
+    owner.set_autocommit(True)
+    driver._statement_pooling = 0
+    _load(sock, _query(2, total=2), ok_body(IN_TRAN))
+    failure = OperationalError("local fetch serialization failed")
+
+    def fail_write(packet: FetchPacket, info: bytes) -> bytes:
+        driver._record_reply_cas_info(cas_info(OUT_TRAN))
+        raise failure
+
+    monkeypatch.setattr(FetchPacket, "write", fail_write)
+    with pytest.raises(OperationalError) as caught:
+        owner.ping()
+    assert caught.value is failure
+    assert _codes(sock) == [41, 6]
+    assert driver._connected
+    _guarded(driver)
+
+
 def test_later_fetch_and_cleanup_errors_preserve_the_primary_object_and_metadata(owned) -> None:
     owner, driver, sock = owned
     _load(
