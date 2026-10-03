@@ -21,7 +21,7 @@ Build one wheel from a clean checkout of the recorded source revision:
 ```bash
 python -m build --wheel --outdir .demo-artifacts/wheels
 python -m venv .demo-artifacts/venv
-export PATH="$PWD/.demo-artifacts/venv/bin:$PATH"
+source .demo-artifacts/venv/bin/activate
 export PIP_NO_INDEX=1
 export PIP_FIND_LINKS="$PWD/.demo-artifacts/wheels"
 export PIP_DISABLE_PIP_VERSION_CHECK=1
