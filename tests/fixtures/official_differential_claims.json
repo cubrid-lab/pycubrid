@@ -601,6 +601,36 @@
       "issue": "#444",
       "reason": "The new operations reuse pycubrid InterfaceError rather than changing global exception constructors or fabricating native errno/message parsing.",
       "expected": {"pycubrid": "[(int(1), (str('str'),)), (int(1), (str('str'),)), (int(1), (str('str'),))]", "native": "[(int(2), (str('int'), str('str'))), (int(2), (str('int'), str('str'))), (int(2), (str('int'), str('str')))]"}
+    },
+    {
+      "id": "lob-file-blob-bytes",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Generated all256 byte values including NUL/invalidUTF8 travel through defaultBLOB file import, bind, stored column, fresh fetch and raw file export; complete byte equality and preserved position are checked without native Unicode reads.",
+      "inventory_ids": ["documented_cubrid.lob.imports", "documented_cubrid.lob.export", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.fetch_lob"],
+      "scenario_ids": ["tests3/test_cubrid.py::test_lob_file"],
+      "scenario_gap": "Only the explicit byte-equality assertion637 is assessed; independently generated data/refuse-preexisting fixture differs from the source PNG/destructive setup, so whole-function parity is not claimed.",
+      "issue": "#443"
+    },
+    {
+      "id": "lob-file-blob-multi-chunk",
+      "surface": "native",
+      "classification": "match",
+      "summary": "A generated175000-byte BLOB replaces an existing holder while preserving its nonzero position, then binds to a real column and exports exact bytes over a fixture-owned old output using a fresh fetched handle.",
+      "inventory_ids": ["documented_cubrid.lob.imports", "documented_cubrid.lob.export", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.fetch_lob"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream file assertion637 does not separately assess175k chunking or populated replacement/position; this independent safe file subset has its own comparison.",
+      "issue": "#443"
+    },
+    {
+      "id": "lob-file-clob-utf8",
+      "surface": "native",
+      "classification": "match",
+      "summary": "A validUTF8 CLOB file with175000 bytes and split64KiB character boundaries is imported as raw bytes, bound, fetched and exported byte-identically; complete-position preservation and successful overwrite are compared, not universal charset conversion.",
+      "inventory_ids": ["documented_cubrid.lob.imports", "documented_cubrid.lob.export", "documented_cubrid.cursor.bind_lob", "documented_cubrid.cursor.fetch_lob"],
+      "scenario_ids": [],
+      "scenario_gap": "The upstream CLOB test uses stream write/read, not file imports/export. No stream assertion or whole-function file parity is inferred.",
+      "issue": "#443"
     }
   ]
 }

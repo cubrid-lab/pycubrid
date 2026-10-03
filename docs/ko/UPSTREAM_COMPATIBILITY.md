@@ -53,7 +53,7 @@
 | 생성자, autocommit, 스레딩 | 네이티브 초기화는 autocommit을 켭니다. 기존 pycubrid는 수동 commit과 `threadsafety=1`을 유지합니다. #465는 명시적 CUBRID/UTF-8 생성자와 별칭만 제공하며 공유·설정·CCI URL/HA 옵션은 별도 작업입니다. |
 | 문자셋, dict 커서, 변환기 | #86부터 일반·비동기·호환 생성자가 선택한 코덱을 받아 EUC-KR 데이터베이스에서도 검증했습니다. 연결에 `charset` 속성은 유지하지 않습니다. #466은 기존 네이티브 스칼라 범위 위에 한정된 튜플/dict 커서와 연결별 변환기를 추가합니다. UTF-8 기본값은 바뀌지 않습니다. |
 | Prepare/타입 지정 바인딩 | 일반 커서에는 공개 prepare/bind/execute가 없습니다. 명시적 `compat.native` 커서는 동기 스칼라 바인딩(#439)과 컬렉션 바인딩(#440), 조회한 LOB 핸들의 조회·바인딩(#441)을 제공합니다. |
-| LOB 커서·파일 동작 | pycubrid는 명시적 오프셋으로 bytes를 읽고 쓰며, 공식 드라이버의 변경 가능한 위치·암묵적 생성 인터페이스와 다릅니다. seek와 읽기·쓰기 계약은 #442, 파일 가져오기·내보내기는 #443입니다. |
+| LOB 커서·파일 동작 | 일반 pycubrid는 명시적 오프셋의 바이트 읽기·쓰기를 유지합니다. 선택적인 네이티브 네임스페이스는 제한된 #442 위치·스트림 및 #443 원시 파일 계약을 제공하며, 보편적인 CCI 패리티 대신 안전상 차이를 명시합니다. |
 | 결과 탐색과 메타데이터 | #444는 살아 있는 현재 SELECT의 네이티브 절대·상대 seek와 shadow tell을 추가합니다. 측정한 교차 페이지 비교는 prepare 전에 수동 autocommitFalse를 명시하며, 기본True는 마지막 배치 뒤 브로커 결과를 해제할 수 있습니다. #445의 15필드 메타데이터와 별개로 next_result·래퍼 nextset은 여전히 다른 기능입니다. |
 | 스키마 행 | #412가 스키마 결과 소비와 핸들 정리를 추적합니다. 반환된 프로토콜 패킷은 네이티브 스키마 행 반환 계약과 같지 않습니다. |
 | 배치 파사드와 옵션 플래그 | `Cursor.executemany_batch(sql_list, auto_commit=None)`는 이미 임의 SQL을 배치 처리합니다. 연결 수준 파사드와 네이티브의 문장별 오류 레코드는 이 메서드의 튜플 결과·첫 오류 발생 방식과 다릅니다. 실행 플래그·쿼리 계획 옵션과 연결 멤버 설정자는 #438 아래의 집중된 후속 작업이 필요합니다. |
@@ -94,9 +94,45 @@ execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, B
 | 네이티브 컬렉션 바인딩 (#440) | 동기 전용으로 제공됩니다. `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None`, `cursor.bind_set(index, set, /) -> None`. `data`는 tuple이어야 하고(아니면 InterfaceError) `type`은 BIT/VARBIT(NotSupportedError)을 제외한 모든 int 타입 코드이며, 공식 드라이버처럼 import의 표시일 뿐입니다. 공식 드라이버처럼 모든 원소는 `type`과 관계없이 STRING(2)으로 보내며, 기본 종류 SET은 공식 바이트를 보냅니다. `kind=MULTISET`은 중복을 유지하고(브로커가 MULTISET을 -454로 거부하므로 SEQUENCE로 보내며, 컬럼은 순서를 유지하지 않음) `kind=SEQUENCE`는 중복과 순서를 유지합니다. None이 NULL 원소이며, `'NULL'`, `''`, Python int 원소(INT 전용), NUL 거부, #439 오류 클래스는 의도적으로 분류된 차이입니다. import하지 않은 set은 SQL NULL을 바인딩합니다. 래퍼 `execute(..., set_type)`/`executemany` 컬렉션 형태는 제공하지 않습니다(#610). |
 | 컬렉션 | 저장된 SET의 목표는 변경 가능한 set, MULTISET/SEQUENCE는 list입니다. 비NULL 요소는 검증된 타입별 텍스트 변환을 사용하고 중복·순서·빈 값을 보존합니다. 전체 SQL NULL과 NULL 요소는 아래 안전성 차이에 따라 None입니다. 중괄호 리터럴은 저장된 SET의 증거가 아니며 네이티브 타입 지정 import/bind는 위의 #440 행입니다. 일반 커서용 `pycubrid.types.Set`/`Multiset`/`Sequence` 파라미터(#567)에는 공식 대응물이 없습니다. 공식 wrapper `execute(query, args, set_type)`는 일반 list를 네이티브 prepared `bind_set`으로 바인딩하며 pycubrid는 이를 제공하지 않으므로, 이 파라미터에 대해서는 차등 비교 주장을 하지 않습니다. |
 | Identity / 스키마 | 네이티브 `insert_id() -> int \| None`은 기존 INSERT 캐시의 형변환이 아니라 현재 브로커 identity를 조회합니다. `schema_info(schema_type, class_name, attr_name 생략, /)`는 키워드/플래그/명시적 None 없이 첫 행의 list 또는 None을 반환합니다. CLASS/VCLASS 플래그 1, ATTRIBUTE/CLASS_ATTRIBUTE 2, 나머지 0을 추론합니다. #456의 전체 소비·정리가 제공되면 재사용하며 기존 소비 API는 계속 모든 행을 반환합니다. |
-| 네이티브 LOB 핸들 조회·바인딩 (#441) | 동기 전용으로 제공됩니다. `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None`(로컬 전용, 서버 해제 요청 없음, 그 전에 만든 바인딩은 유효), `cursor.fetch_lob(col, lob, /) -> None`, `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob`은 `fetch_row`처럼 다음 행을 소비하고 BLOB/CLOB 타입을 `col`에서 정합니다(공식은 1번 컬럼을 읽지만 10.2/11.4에서 저장되는 복사본은 같음). int가 아닌 `col`은 공식 인자 파서처럼 먼저 TypeError를 내고, 결과 끝에서는 공식과 같이 컬럼 범위·타입이나 lob 상태를 검사하기 전에 None을 반환하며, 그 밖에는 LOB가 아니거나 범위를 벗어난 컬럼이 행을 소비하지 않고 ProgrammingError를 내며, NULL 셀은 공식과 같이 행을 소비하고 lob을 비웁니다. `bind_lob`은 공식과 같이 lob이 아니면 TypeError를 내고, 공식과 같이 커밋된 행에서 조회한 핸들을 다시, 다른 연결에서, 원래 연결이 닫히거나 재접속한 뒤에도 바인딩합니다(서버가 복사본 저장). 닫히거나 빈 lob은 요청 전에 InterfaceError를 내며(공식은 NULL 바인딩), 닫힌 lob이나 다른 연결의 lob으로 `fetch_lob`하면 InterfaceError입니다(공식은 채움). int가 아닌 인덱스는 공식과 같이 lob보다 먼저 TypeError를 내고, 범위를 벗어난 인덱스는 ProgrammingError입니다. 완전한 응답의 셀이 컬럼 LOB 타입의 핸들이 아니면 행을 소비하지 않고 DataError를 내며, 핸들 구조가 손상되었으면 OperationalError를 내고 세션을 폐기합니다. 각 lob은 출처(fetched/created)를 기록하므로 #442가 생성한 임시 핸들을 자기 세션에 묶을 수 있고, 실제 autocommit 모드에서 조회했는지도 기록합니다. 수동 모드에서 조회한 핸들은 나중에 커밋해도 다른 연결로 넘기지 않으며, autocommit 모드에서 다시 조회해야 합니다. 스트림 작업은 아래 #442에서 제공하며, 파일 입출력은 #443으로 남습니다. |
-| 네이티브 LOB 스트림 (#442) | 동기 전용으로 `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`와 `SEEK_*` 상수를 제공합니다. 위치와 크기는 바이트 단위이고 BLOB/CLOB 모두 UTF-8 텍스트를 반환하며 SEEK_END는 크기-offset입니다. 첫 쓰기는 BLOB/CLOB을 만들고 이후 쓰기는 끝에만 추가합니다. 안전상 중간 쓰기·유효하지 않은 위치는 요청 전에 거부하고 빈 값·EOF·초과 읽기는 공식 CCI의 위험한 동작 대신 가능한 문자열을 반환합니다. 네이티브 객체의 close는 계속 종료 상태이고, 생성 핸들은 원래 세션에 묶이며 첫 autocommit 바인딩이 임시 파일을 소비합니다. 일반 절대 오프셋 `Lob`과 파일 입출력(#443)은 변하지 않습니다. |
+| 네이티브 LOB 핸들 조회·바인딩 (#441) | 동기 전용으로 제공됩니다. `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None`(로컬 전용, 서버 해제 요청 없음, 그 전에 만든 바인딩은 유효), `cursor.fetch_lob(col, lob, /) -> None`, `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob`은 `fetch_row`처럼 다음 행을 소비하고 BLOB/CLOB 타입을 `col`에서 정합니다(공식은 1번 컬럼을 읽지만 10.2/11.4에서 저장되는 복사본은 같음). int가 아닌 `col`은 공식 인자 파서처럼 먼저 TypeError를 내고, 결과 끝에서는 공식과 같이 컬럼 범위·타입이나 lob 상태를 검사하기 전에 None을 반환하며, 그 밖에는 LOB가 아니거나 범위를 벗어난 컬럼이 행을 소비하지 않고 ProgrammingError를 내며, NULL 셀은 공식과 같이 행을 소비하고 lob을 비웁니다. `bind_lob`은 공식과 같이 lob이 아니면 TypeError를 내고, 공식과 같이 커밋된 행에서 조회한 핸들을 다시, 다른 연결에서, 원래 연결이 닫히거나 재접속한 뒤에도 바인딩합니다(서버가 복사본 저장). 닫히거나 빈 lob은 요청 전에 InterfaceError를 내며(공식은 NULL 바인딩), 닫힌 lob이나 다른 연결의 lob으로 `fetch_lob`하면 InterfaceError입니다(공식은 채움). int가 아닌 인덱스는 공식과 같이 lob보다 먼저 TypeError를 내고, 범위를 벗어난 인덱스는 ProgrammingError입니다. 완전한 응답의 셀이 컬럼 LOB 타입의 핸들이 아니면 행을 소비하지 않고 DataError를 내며, 핸들 구조가 손상되었으면 OperationalError를 내고 세션을 폐기합니다. 각 lob은 출처(fetched/created)를 기록하므로 #442가 생성한 임시 핸들을 자기 세션에 묶을 수 있고, 실제 autocommit 모드에서 조회했는지도 기록합니다. 수동 모드에서 조회한 핸들은 나중에 커밋해도 다른 연결로 넘기지 않으며, autocommit 모드에서 다시 조회해야 합니다. 스트림 작업은 아래 #442에서 제공하며, 원시 파일 전송은 #443에서 별도로 설명합니다. |
+| 네이티브 LOB 스트림 (#442) | 동기 전용으로 `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`와 `SEEK_*` 상수를 제공합니다. 위치와 크기는 바이트 단위이고 BLOB/CLOB 모두 UTF-8 텍스트를 반환하며 SEEK_END는 크기-offset입니다. 첫 쓰기는 BLOB/CLOB을 만들고 이후 쓰기는 끝에만 추가합니다. 안전상 중간 쓰기·유효하지 않은 위치는 요청 전에 거부하고 빈 값·EOF·초과 읽기는 공식 CCI의 위험한 동작 대신 가능한 문자열을 반환합니다. 네이티브 객체의 close는 계속 종료 상태이고, 생성 핸들은 원래 세션에 묶이며 첫 autocommit 바인딩이 임시 파일을 소비합니다. 일반 절대 오프셋 `Lob`은 그대로이며 추가된 네이티브 파일 작업은 아래 #443에서 설명합니다. |
 | 예외 | 네임스페이스별 PEP 249 어댑터는 `(numeric_code, formatted_message)` args와 code/errno/SQLSTATE 증거를 유지하며 기존 예외 identity/args는 바꾸지 않습니다. 제공된 result_info의 로컬 오류는 아래에 분류한 pycubrid 메시지 하나의 args를 유지하며 더 넓은 어댑터는 별도 작업입니다. 불안정한 메시지의 완전 일치나 네이티브 인자 파서 충돌은 목표가 아닙니다. |
+
+### 네이티브 LOB 파일 범위와 안전상 차이 (#443)
+
+명시적인 동기 네이티브 객체는 `imports(file, type="B", /)`와
+`export(file, /)`을 제공합니다. 둘 다 `None`을 반환하며 BLOB/CLOB 원시
+바이트를 제한된 청크로 전송하고 바이트 위치를 유지합니다. 세 긍정적 주장
+그룹은 생성한 모든 바이트 값의 BLOB과 175000바이트 BLOB·UTF-8 CLOB으로
+실제 import→prepared 바인딩→저장 컬럼→새 조회→export를 확인합니다. 값이
+있는 객체의 성공적인 교체와 기존 출력 덮어쓰기도 다룹니다. 픽스처 생성·비교
+자체가 드라이버의 스트리밍을 증명하는 것은 아닙니다. 현대 소스의 637번 줄
+파일 바이트 동등성 단언만 평가하며 PNG 픽스처, 전체 함수와 이전 별칭은
+인증하지 않습니다.
+
+필수 고정 오라클 차등 검사는 불변 코드
+`33031d41d6ca49294f4fab3d93b1591efda144b3`의 전체 주장 카탈로그를
+Python 3.10.12로 소유한 CUBRID 10.2.18.9024와 11.4.6.1963에서 실행했습니다.
+메인테이너 로컬 `official443-33031d4-combined.jsonl`은 양쪽 드라이버 관측을
+기록하며 기존 증거 검증기가 일치를 재계산했습니다. 시나리오 원장은 현대 소스
+637번 단언만 고정하며 전체 선언이나 파일 API를 인증하지 않습니다.
+
+별도의 후보 전용 저장 컬럼 작업은 소유한 CUBRID 10.2.18.9024와
+11.4.6.1963에서 빈 BLOB/CLOB 출력과 import·export 위치 보존을 확인했습니다.
+C 오라클을 불러오지 않았으며 일치 주장을 추가하지 않습니다. 공식 빈 export
+동작은 소스 설명일 뿐 측정한 패리티가 아닙니다.
+
+고정된 [C import](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L3331-L3420)는
+입력을 열기 전에 객체를 변경하지만, 이 구현은 먼저 파일을 열고 입력 닫기까지
+완료한 뒤 고정 세션에서 만든 핸들을 채택합니다. 고정된
+[C export](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L3503-L3587)는
+목적지에 직접 truncate/write하고 실패하면 지울 수 있지만, 이 구현은 배타적인
+동일 디렉터리 임시 파일을 성공 시 교체합니다. 정확한 문자열 정책, 값이 있는
+빈 출력, 로컬 오류 원인과 메시지만 있는 `args`는 의도적인 차이입니다. 위험한
+C 생성, 로컬 I/O 결함이나 C의 빈 export는 실행한 차등 주장이 아닙니다.
+파일시스템 샌드박스, 기존 inode·권한 보존, fsync나 DB·파일 트랜잭션을 보장하지
+않으며 단계적으로 만든 서버 파일은 세션 수명 규칙을 따릅니다.
+[네이티브 파일 API](API_REFERENCE.md#native-lob-files)를 참고하세요.
 
 ### 네이티브 위치 이동의 결과 수명과 증거 (#444)
 
@@ -232,8 +268,8 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 | 표면 | 일치 | 분류된 차이 | 합계 |
 | --- | ---: | ---: | ---: |
 | 래퍼 (`CUBRIDdb`) | 14 | 2 | 16 |
-| 네이티브 (`_cubrid`) | 29 | 13 | 42 |
-| **합계** | **43** | **15** | **58** |
+| 네이티브 (`_cubrid`) | 32 | 13 | 45 |
+| **합계** | **46** | **15** | **61** |
 
 - 오라클: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
 - 필수 서버: CUBRID 10.2, CUBRID 11.4
@@ -243,8 +279,8 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 
 이 주장들은 측정한 제한된 범위입니다. 저장된 스칼라 조회, 정적 스칼라 행과
 description, #439 prepared INT/문자열 부분집합, #440 네이티브 컬렉션 바인딩,
-#441/#442 네이티브 LOB 핸들·스트림, #467 캐시와 안전한 실제 설정자 값을
-다룹니다. 래퍼 컬렉션 형태, LOB 파일 입출력, 문자셋/HA,
+#441/#442 네이티브 LOB 핸들·스트림, 제한된 #443 원시 파일 성공 작업, #467
+캐시와 안전한 실제 설정자 값을 다룹니다. 래퍼 컬렉션 형태, 더 넓은 LOB 파일·실패 동작, 문자셋/HA,
 실패 동작과 나머지 인벤토리 연산은 여기에 주장이 생길 때까지 인증되지 않습니다.
 주장 수는 패리티 비율이 아닙니다.
 

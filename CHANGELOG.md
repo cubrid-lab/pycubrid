@@ -11,6 +11,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
 
 ### Added
+- **Native LOB file transfer (#443)** — sync native holders gain positional
+  `imports(file, type="B")` and `export(file)` for raw BLOB/CLOB bytes in
+  bounded chunks, preserving byte position. Import stages a replacement until
+  the complete input closes; export publishes a sibling temporary file only
+  after successful write/flush/close. Exact-string paths, local error codes,
+  empty populated output and same-session ownership are explicit safety
+  differences from the official C extension. Pinned owned 10.2/11.4 comparisons
+  cover successful stored-column transfers; empty output is candidate-only
+  evidence, not official empty-export parity. No general filesystem, unsafe
+  C-failure or whole-driver parity is claimed. Ordinary/async/wrapper APIs,
+  dependencies, defaults and release publication are unchanged.
 - **Native cursor positioning (#444)** — sync native cursors gain
   `data_seek`, `row_seek` and `row_tell` with the official safe dual counters,
   relative-boundary clamp/error behavior and one retained response page. Cache

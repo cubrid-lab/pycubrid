@@ -645,8 +645,8 @@ Python. The server copies the value when the statement runs, so after
   replace a closed holder with `conn.lob()` rather than writing after close.
   Ordinary `pycubrid.lob.Lob.read(length, offset=0)` and
   `write(bytes, offset=0)` remain absolute-offset byte APIs; they did not
-  become stateful. File `imports()`/`export()` (#443) and async LOBs are not
-  provided by this facade.
+  become stateful. Native file operations are described below; async LOBs
+  are not provided by this facade.
 
 Deliberate differences from the official driver, each pinned by a live
 differential claim (`lob-*` in `tests/fixtures/official_differential_claims.json`):
@@ -682,6 +682,52 @@ finally:
 ```
 
 ---
+
+### Native LOB files (`imports`, `export`) {#native-lob-files}
+
+The explicit sync-only `native.lob` provides positional-only
+`imports(file: str, type: str = "B", /) -> None` and
+`export(file: str, /) -> None`. Both transfer **raw bytes**, including CLOB
+contents: they do not decode text, convert newlines or use the connection charset.
+Local reads/writes and wire requests use chunks of at most 64 KiB, without
+joining the whole value. Neither method changes the receiver's byte position.
+
+- Paths and the import type must be exact built-in strings, not bytes,
+  `PathLike`, string subclasses or file objects. Embedded path NUL raises
+  `ValueError`; invalid argument types raise `TypeError`. Import accepts only
+  `"B"`/`"b"` or `"C"`/`"c"`; other strings raise `InterfaceError` with
+  `.code == -30006` before any file or server operation. Relative paths are
+  resolved once at entry; no tilde/environment expansion or parent creation occurs.
+- `imports()` opens the input before creating a replacement temporary LOB.
+  It adopts the new handle only after the complete read, confirmed writes and
+  input close succeed. A failure leaves the prior receiver state and position
+  unchanged unless the caller mutated them or the session was retired. Earlier
+  prepared bindings remain snapshots. Staging does not promise rollback or
+  reclamation of server temporary files; the adopted handle retains the ordinary
+  created-LOB session and first-autocommit-bind lifetime described above.
+- `export()` requires a populated handle on its original live physical session,
+  and reads from offset zero regardless of the current byte position. It writes
+  one exclusively created sibling temporary file, then replaces the destination
+  only after all bytes, flush and close succeed. A populated empty LOB produces
+  an empty file without a server read; a holder without a value raises
+  `InterfaceError` (`-30018`) before creating a file. Export the freshly fetched
+  stored handle, not a created handle whose first autocommit bind consumed it.
+- Local open/path/temp-file failures use `InterfaceError` code `-30009`, input
+  read/close failures `-30016`, and output write/flush/close/replace failures
+  `-30017`. The original `OSError`, when present, is the cause. These errors keep
+  pycubrid's message-only `args`, not the official integer/message pair; no new
+  `errno` or SQLSTATE is invented. Server/transport errors retain their own classes.
+
+Staged import, exact-string validation and replace-on-success export are deliberate
+safety differences from the pinned C extension's early mutation and direct
+truncate/write/unlink behavior. Replacement also changes inode/hard-link and
+symlink behavior and normally uses the temporary file's restrictive permissions,
+not the old destination's metadata. This is not a directory sandbox, an fsync/crash
+durability guarantee or an atomic database/filesystem transaction. Receiver/session
+changes during supported local I/O are rejected before adoption/publication, but
+arbitrary audit-hook changes inside the final `os.replace()` are not transactional.
+Use trusted, caller-owned paths. Ordinary/async/wrapper APIs are unchanged; success
+claims do not certify unsafe C creation, fault-injection or empty-file equivalence.
 
 ## Async Module Constructor
 
