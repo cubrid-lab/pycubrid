@@ -38,6 +38,15 @@ Korean public-sector and enterprise applications. The existing C-extension drive
 
 ## Requirements
 
+**Python 3.10 support retirement:** Python 3.10 reached upstream end of life on
+2026-10-01 ([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
+The current 1.8.x line and the upcoming 1.9.x advance-notice release retain Python
+3.10 support. The following minor release (planned 1.10.0) will require Python
+3.11 or newer, after the 1.9.0 notice has shipped. Upgrade your interpreter,
+recreate your virtual environment and validate your application before upgrading
+to that release. This notice does not change the current installation requirement
+or add a runtime warning.
+
 - Python 3.10+
 - CUBRID database server 10.2+ (CI validates 10.2, 11.0, 11.2, 11.4)
 
