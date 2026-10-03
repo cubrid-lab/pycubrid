@@ -173,3 +173,58 @@ def test_automatic_cleanup_never_removes_reused_volumes(tmp_path: Path, target: 
     assert result.returncode == 0
     assert "compose down" in result.log_text
     assert "-v" not in result.log_text
+
+
+@pytest.mark.parametrize("target", ["integration", "integration-tls"])
+@pytest.mark.parametrize("signal_name", ["SIGINT", "SIGTERM"])
+def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_name: str) -> None:
+    import signal
+    import time
+
+    # Reuse the normal command stubs, then block inside the readiness probe.
+    _run_make(tmp_path, target)
+    log = tmp_path / "docker.log"
+    log.write_text("")
+    ready = tmp_path / "ready"
+    stub_python = tmp_path / "python-stub"
+    stub_python.write_text(
+        '#!/bin/sh\ntrap "exit 0" USR1\n'
+        'printf "%s %s" "$$" "$PPID" > "$REVIEW_READY.tmp"\n'
+        'mv "$REVIEW_READY.tmp" "$REVIEW_READY"\n'
+        "while :; do sleep 0.02; done\n"
+    )
+    env = dict(os.environ)
+    env.update(
+        PATH=str(tmp_path) + os.pathsep + env.get("PATH", ""),
+        REVIEW_LOG=str(log),
+        REVIEW_READY=str(ready),
+        REVIEW_DOWN_EXIT="0",
+        REVIEW_PYTEST_EXIT="0",
+    )
+    process = subprocess.Popen(
+        ["make", "-f", str(MAKEFILE), target, f"PYTHON={stub_python}"],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists(), "readiness stub did not start"
+        child, recipe_shell = map(int, ready.read_text().split())
+        os.kill(recipe_shell, getattr(signal, signal_name))
+        # POSIX shells defer traps while waiting; release the controlled child.
+        os.kill(child, signal.SIGUSR1)
+        stdout, stderr = process.communicate(timeout=5)
+        assert process.returncode != 0
+        assert "Error 130" in stderr, stdout + stderr
+        assert "compose down" in log.read_text()
+        assert "-v" not in log.read_text()
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
