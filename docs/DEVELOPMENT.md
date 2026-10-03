@@ -65,7 +65,7 @@ make install
 graph TD
     root[pycubrid/]
 
-    pkg["pycubrid/ - Main package (9 modules)"]
+    pkg["pycubrid/ - Main package"]
     tests[tests/ - Test suite]
     docs[docs/ - Documentation]
     pyproject[pyproject.toml - Package configuration]
@@ -129,7 +129,7 @@ Most tests are **offline** — they mock the CUBRID connection and test packet s
 
 ```bash
 # Run all offline tests with coverage
-pytest tests/ -v --ignore=tests/test_integration.py \
+pytest tests/ -v -m "not integration" \
   --cov=pycubrid --cov-report=term-missing --cov-fail-under=95
 
 # Or use the Makefile
@@ -482,21 +482,17 @@ routine PRs do not pay for it.
 
 ### Code Coverage
 
-Current test metrics:
-
-| Metric | Value |
-|--------|-------|
-| Offline tests | 471 |
-| Integration tests | 41 |
-| Statement coverage | 99.88% |
-| Statements | 1,134 |
-| Missed | 1 |
-| CI threshold | 95% |
+Use `make test` for the current offline suite and its enforced **95% coverage
+floor**. [Measured coverage](https://codecov.io/gh/cubrid-lab/pycubrid) comes from
+individual full coverage runs; routine PR smoke and high-risk PR regressions do
+not measure coverage. See [CI execution policy](CI_POLICY.md) for event selection.
+Test counts change with the [current tests](https://github.com/cubrid-lab/pycubrid/tree/main/tests)
+and are not fixed documentation baselines.
 
 ```bash
 # Generate HTML coverage report
-pytest tests/ --ignore=tests/test_integration.py \
-  --cov=pycubrid --cov-report=html
+pytest tests/ -m "not integration" \
+  --cov=pycubrid --cov-report=html --cov-fail-under=95
 
 # Open in browser
 open htmlcov/index.html

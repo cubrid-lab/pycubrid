@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Last updated**: 2026-08-24
+> **Last updated**: 2026-10-03
 >
 > This roadmap reflects current priorities. For the ecosystem-wide view, see the
 > [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
@@ -11,9 +11,14 @@
 - 🗂️ [Org Project Board](https://github.com/orgs/cubrid-lab/projects/2)
 - 🌐 [Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md)
 
-## Current Baseline — v1.6.2
+## Current Baseline
+
+Current source version: [`pycubrid.__version__`](pycubrid/__init__.py).
+Published releases and dated history: [CHANGELOG](CHANGELOG.md).
 
 - Stable sync DB-API 2.0 surface plus native asyncio API (`pycubrid.aio`)
+- Current async transport uses `asyncio.open_connection()` with
+  `StreamReader`/`StreamWriter`; see [`aio/connection.py`](pycubrid/aio/connection.py).
 - JSON / collection decoding, `ping()`, `nextset()`, and sync + async TLS (TLS 1.2 minimum)
 - 1.x release policy enforced by an automated `compat-check` CI gate against `api-baseline.json`
 - Supported runtimes: Python 3.10–3.14, CUBRID 10.2–11.4
