@@ -17,6 +17,7 @@ from pycubrid.protocol import ColumnMetaData, ExecutePacket, FetchPacket, Prepar
 from .test_compat_prepared import DSN, FakeDriver
 from .test_compat_lob import BLOB_CELL, CLOB_CELL, LobDriver
 from .test_network_edge_cases import make_connected_connection
+from .test_prepared_packet_contract import _arguments
 
 
 class PagedDriver(FakeDriver):
@@ -68,6 +69,41 @@ class PagedDriver(FakeDriver):
         return result
 
 
+class LifetimeDriver(PagedDriver):
+    """CAS releases an autocommit/forward-only result after its final page."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.remote_result_closed = False
+        self.release_on_final_page = False
+
+    def _send_and_receive(
+        self,
+        packet: Any,
+        *,
+        allow_reconnect: bool = True,
+        expected_generation: int | None = None,
+    ) -> Any:
+        if isinstance(packet, FetchPacket) and self.remote_result_closed:
+            error = DatabaseError("server cursor is no longer available", code=-1012, errno=-1012)
+            setattr(error, "_cas_server_error", True)
+            self.fail_packet_type, self.fail_packet_error = FetchPacket, error
+        result = super()._send_and_receive(
+            packet, allow_reconnect=allow_reconnect, expected_generation=expected_generation
+        )
+        if isinstance(packet, ExecutePacket):
+            self.remote_result_closed = False
+            self.release_on_final_page = packet.auto_commit and packet.forward_only
+            end = len(packet.rows)
+        elif isinstance(packet, FetchPacket):
+            end = packet.current_tuple_count + len(packet.rows)
+        else:
+            return result
+        if self.release_on_final_page and end >= len(self.data):
+            self.remote_result_closed = True
+        return result
+
+
 _Owned: TypeAlias = tuple[native.connection, PagedDriver]
 
 
@@ -95,6 +131,60 @@ def test_position_aware_fixture_preserves_existing_forward_fetch(owned: _Owned) 
         assert len(cur._rows) <= 3
     assert cur.fetch_row() is None
     assert driver.fetch_starts == list(range(4, 258, 3))
+
+
+@pytest.mark.parametrize("manual", [False, True], ids=["native-default", "explicit-manual"])
+def test_actual_packet_mode_controls_final_page_lifetime(
+    monkeypatch: pytest.MonkeyPatch, manual: bool
+) -> None:
+    monkeypatch.setattr(native, "_DriverConnection", LifetimeDriver)
+    conn = native.connect(DSN)
+    try:
+        assert conn.autocommit is True and conn._driver.autocommit is True
+        if manual:
+            conn.set_autocommit(False)  # explicit caller choice, never a seek side effect
+        driver = conn._driver
+        driver.data = [(i,) for i in range(1, 8)]
+        cur = _selected(conn)
+        metadata = cur.result_info()
+        execute = next(p for p, _ in driver.requests if isinstance(p, ExecutePacket))
+        assert execute.auto_commit is (not manual)
+        assert execute.forward_only is (not manual)
+        arguments = _arguments(execute.write(b"\x01\x00\x00\x00"), CASFunctionCode.EXECUTE)
+        assert arguments[6] == arguments[7] == (b"\x00" if manual else b"\x01")
+        assert [cur.fetch_row() for _ in range(7)] == [(i,) for i in range(1, 8)]
+        assert cur.fetch_row() is None
+        assert driver.remote_result_closed is (not manual)
+        assert len(cur._rows) == 1  # retain the final response page, not all rows
+        before = len(driver.requests)
+        created = len(FakeDriver.created)
+        generation = driver._physical_generation
+        cur.data_seek(1)
+        assert len(driver.requests) == before
+        if manual:
+            assert cur.fetch_row() == (1,)
+            assert cur.row_tell() == 2
+        else:
+            with pytest.raises(DatabaseError) as raised:
+                cur.fetch_row()
+            assert raised.value.code == raised.value.errno == -1012
+            assert getattr(raised.value, "_cas_server_error") is True
+            assert cur._result_invalidated is True and cur._rows == []
+            with pytest.raises(InterfaceError) as invalid:
+                cur.row_tell()
+            assert invalid.value.code == 0
+            assert driver._connected is True
+        assert driver._physical_generation == generation
+        assert len(FakeDriver.created) == created
+        assert len(driver.requests) == before + 1
+        assert isinstance(driver.requests[-1][0], FetchPacket)
+        assert driver.fetch_starts[-1] == 1 and driver.fetch_reconnect[-1] is False
+        assert len([p for p, _ in driver.requests if isinstance(p, PreparePacket)]) == 1
+        assert len([p for p, _ in driver.requests if isinstance(p, ExecutePacket)]) == 1
+        assert cur.result_info() == metadata
+        assert conn.autocommit is (not manual) and driver.autocommit is (not manual)
+    finally:
+        conn.close()
 
 
 def test_observed_dual_counters_and_same_statement_reexecute(owned: _Owned) -> None:
