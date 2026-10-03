@@ -8,8 +8,8 @@ parse() for response deserialization.
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass
-from typing import Any, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Callable, Sequence
 
 from .constants import (
     CASFunctionCode,
@@ -31,7 +31,14 @@ from .exceptions import (
     OperationalError,
     ProgrammingError,
 )
-from .packet import PacketReader, PacketWriter, _codec_label, _encode_text
+from .packet import (
+    _STRUCT_INT,
+    PacketReader,
+    PacketWriter,
+    _codec_label,
+    _decode_text,
+    _encode_text,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +65,7 @@ class ColumnMetaData:
     is_reverse_unique: bool = False
     is_foreign_key: bool = False
     is_shared: bool = False
+    _cci_type: int | None = field(default=None, init=False, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +142,226 @@ def _encode_prepared_scalar(value: Any, encoding: str = "utf-8") -> _PreparedSca
             raise DataError(f"prepared string cannot be encoded as {_codec_label(encoding)}")
         return _PreparedScalar(CUBRIDDataType.CHAR, encoded + b"\x00", encoding)
     raise ProgrammingError("unsupported prepared parameter type")
+
+
+_COLLECTION_TYPE_CODES = frozenset(
+    {CUBRIDDataType.SET, CUBRIDDataType.MULTISET, CUBRIDDataType.SEQUENCE}
+)
+_COLLECTION_ELEMENT_TYPES = frozenset({CUBRIDDataType.INT, CUBRIDDataType.STRING})
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedCollection:
+    """One validated typed collection for a prepared FC3 request (#482).
+
+    The value argument is ``[element type byte]`` followed by one
+    ``int32 length + payload`` per element, with no element count. A ``None``
+    element is a NULL element (length 0). Whole SQL NULL is a
+    ``_PreparedScalar``, never this type. The broker keeps a partial
+    collection when an element length overruns the argument, so every
+    element is checked here and the framing is always exact.
+    """
+
+    type_code: int
+    element_type: int
+    elements: tuple[bytes | None, ...]
+    encoding: str = "utf-8"
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.type_code, bool)
+            or not isinstance(self.type_code, int)
+            or self.type_code not in _COLLECTION_TYPE_CODES
+        ):
+            raise ProgrammingError("unsupported prepared collection type code")
+        if (
+            isinstance(self.element_type, bool)
+            or not isinstance(self.element_type, int)
+            or self.element_type not in _COLLECTION_ELEMENT_TYPES
+        ):
+            raise ProgrammingError("unsupported prepared collection element type")
+        if type(self.elements) is not tuple:
+            raise ProgrammingError("prepared collection elements must be a tuple")
+        for element in self.elements:
+            if element is None:
+                continue
+            if type(element) is not bytes:
+                raise ProgrammingError("invalid prepared collection element payload")
+            if self.element_type == CUBRIDDataType.INT:
+                if len(element) != 4:
+                    raise ProgrammingError("prepared INT element must have four value bytes")
+            else:
+                if not element.endswith(b"\x00") or b"\x00" in element[:-1]:
+                    raise ProgrammingError("prepared string element must have one terminal NUL")
+                try:
+                    # Server-compatible decoding: rejects EUC-KR makeup
+                    # sequences that _encode_text() never produces.
+                    _decode_text(element[:-1], self.encoding)
+                except UnicodeDecodeError:
+                    raise DataError(
+                        f"prepared string element is not valid {_codec_label(self.encoding)}"
+                    ) from None
+
+    @property
+    def payload(self) -> bytes:
+        """Return the exact FC3 value argument (without its own length prefix)."""
+        parts = [bytes((self.element_type,))]
+        for element in self.elements:
+            if element is None:
+                parts.append(b"\x00\x00\x00\x00")
+            else:
+                parts.append(struct.pack(">i", len(element)))
+                parts.append(element)
+        return b"".join(parts)
+
+
+def _collection_int(value: int | str) -> int:
+    """Return an INT element from an int or a canonical ASCII decimal string."""
+    if isinstance(value, str):
+        digits = value[1:] if value.startswith("-") else value
+        if (
+            not digits
+            or not digits.isascii()
+            or not digits.isdigit()
+            or (digits[0] == "0" and value != "0")
+        ):
+            raise ProgrammingError("prepared INT element string is not a canonical integer")
+        # Longer strings are out of range; this also stays below int()'s
+        # digit limit.
+        number = int(value) if len(digits) <= 10 else 2**31
+    else:
+        number = value
+    if not -(2**31) <= number < 2**31:
+        raise DataError("prepared INT element is outside signed 32-bit range")
+    return number
+
+
+def _encode_prepared_collection(
+    values: Any, type_code: int, element_type: int, encoding: str = "utf-8"
+) -> _PreparedCollection:
+    """Encode a flat tuple as one typed SET/MULTISET/SEQUENCE bind (#482).
+
+    INT elements accept ``int`` (not ``bool``), or canonical decimal strings
+    as the official call shape ``('1', '2')`` sends; one collection must not
+    mix the two. STRING elements accept ``str`` only and use ``encoding``, the
+    connection charset. ``None`` is a NULL element and an empty tuple is an
+    empty collection. Everything else, including nested containers, is
+    rejected before any bytes are built; messages never echo the value.
+    """
+    if type(values) is not tuple:
+        raise ProgrammingError("prepared collection must be a tuple")
+    # Validate the codes before the elements so a bad code is not reported
+    # as an element error.
+    _PreparedCollection(type_code, element_type, ())
+    encoded: list[bytes | None] = []
+    int_kind: type | None = None
+    for value in values:
+        if value is None:
+            encoded.append(None)
+            continue
+        if isinstance(value, (tuple, list, set, frozenset, dict)):
+            raise ProgrammingError("nested prepared collections are not supported")
+        if element_type == CUBRIDDataType.INT:
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                raise ProgrammingError("unsupported prepared INT element type")
+            kind = str if isinstance(value, str) else int
+            if int_kind is None:
+                int_kind = kind
+            elif int_kind is not kind:
+                raise ProgrammingError("prepared INT collection mixes int and string elements")
+            encoded.append(struct.pack(">i", _collection_int(value)))
+            continue
+        if not isinstance(value, str):
+            raise ProgrammingError("unsupported prepared string element type")
+        if "\x00" in value:
+            raise ProgrammingError("prepared string element contains NUL")
+        text, _position = _encode_text(value, encoding)
+        if text is None:
+            raise DataError(
+                f"prepared string element cannot be encoded as {_codec_label(encoding)}"
+            )
+        encoded.append(text + b"\x00")
+    return _PreparedCollection(type_code, element_type, tuple(encoded), encoding)
+
+
+# Packed LOB handle: [int32 db_type][int64 size][int32 locator length][locator NUL].
+# db_type is the server DB_TYPE (BLOB 33, CLOB 34), not the CCI u_type.
+_LOB_HANDLE_HEADER = struct.Struct(">iqi")
+_LOB_DB_TYPES: dict[int, int] = {CUBRIDDataType.BLOB: 33, CUBRIDDataType.CLOB: 34}
+
+
+def _packed_lob_size(packed_handle: bytes) -> int:
+    """Return the size field (bytes 4..12) of a packed LOB handle."""
+    _db_type, size, _locator_size = _LOB_HANDLE_HEADER.unpack_from(packed_handle)
+    return int(size)
+
+
+def _packed_lob_handle_after_write(packed_handle: bytes, end: int) -> bytes:
+    """Return the handle with its size raised to ``end`` after a LOB_WRITE.
+
+    CCI does the same after every LOB_WRITE (cci_query_execute.c qe_lob_write):
+    the size never shrinks. The broker trusts this field when the handle is
+    bound (cas_execute.c caslob_to_dblob), so a stale size would store a wrong
+    length. A handle that does not parse is returned unchanged.
+    """
+    header = _LOB_HANDLE_HEADER.size
+    if len(packed_handle) < header:
+        return packed_handle
+    db_type, size, locator_size = _LOB_HANDLE_HEADER.unpack_from(packed_handle)
+    if locator_size != len(packed_handle) - header or end <= size:
+        return packed_handle
+    return _LOB_HANDLE_HEADER.pack(db_type, end, locator_size) + packed_handle[header:]
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedLob:
+    """One BLOB/CLOB handle bound in a prepared FC3 request (#441).
+
+    The type argument is the CCI u_type (BLOB ``23``, CLOB ``24``) and the
+    value argument is the packed handle as the server sent it, the same
+    bytes CCI sends for ``CCI_A_TYPE_BLOB``/``CLOB``. The broker builds the
+    stored value from the handle's own type, size and locator, so the
+    framing is checked exactly. ``owner`` (the driver connection, compared
+    by identity) and ``generation`` (its physical-session counter) together
+    name the one physical session the binding was made for; generation
+    numbers alone repeat across connections. The binding must not be sent
+    on any other session.
+    """
+
+    type_code: int
+    packed_handle: bytes
+    owner: object
+    generation: int
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.type_code, bool)
+            or not isinstance(self.type_code, int)
+            or self.type_code not in _LOB_DB_TYPES
+        ):
+            raise ProgrammingError("unsupported prepared LOB type code")
+        if type(self.packed_handle) is not bytes:
+            raise ProgrammingError("invalid prepared LOB handle")
+        header = _LOB_HANDLE_HEADER.size
+        if len(self.packed_handle) <= header:
+            raise ProgrammingError("invalid prepared LOB handle")
+        db_type, size, locator_size = _LOB_HANDLE_HEADER.unpack_from(self.packed_handle)
+        locator = self.packed_handle[header:]
+        if (
+            db_type != _LOB_DB_TYPES[self.type_code]
+            or size < 0
+            or locator_size != len(locator)
+            or not locator.endswith(b"\x00")
+            or b"\x00" in locator[:-1]
+        ):
+            raise ProgrammingError("invalid prepared LOB handle")
+        if self.owner is None or type(self.generation) is not int:
+            raise ProgrammingError("invalid prepared LOB session owner")
+
+    @property
+    def payload(self) -> bytes:
+        """Return the exact FC3 value argument (without its own length prefix)."""
+        return self.packed_handle
 
 
 # ---------------------------------------------------------------------------
@@ -468,13 +696,15 @@ def _add_error_hints(error_message: str) -> str:
     if "syntax" in msg_lower and "unexpected" in msg_lower:
         import re
 
-        # Extract the token after "unexpected" — that's the problematic identifier
+        # The unexpected token marks the diagnostic position, which may follow
+        # the reserved identifier; the message does not identify that identifier.
         match = re.search(r"unexpected\s+'(\w+)'", error_message)
         if match:
             token = match.group(1)
             if token.lower() in _CUBRID_RESERVED_WORDS:
                 error_message += (
-                    f" [Hint: '{token}' is a CUBRID reserved word. "
+                    f" [Hint: Near token '{token}', an identifier at or before this position "
+                    f"may be a CUBRID reserved word. "
                     f"Use double-quotes around the identifier or rename it. "
                     f"See: https://github.com/cubrid-lab/.github/issues/5]"
                 )
@@ -574,35 +804,85 @@ def _parse_schema_column_metadata(reader: PacketReader, column_count: int) -> li
     return columns
 
 
-def _parse_column_metadata(
-    reader: PacketReader, column_count: int, *, strict_lengths: bool = False
+def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[ColumnMetaData]:
+    """Parse FC2/FC3/FC41 column metadata entries from the reader.
+
+    The text decoder reads a non-positive length as empty, so each metadata
+    length is bounded here first: a negative one is framing damage (#555).
+
+    Text that the connection codec cannot decode raises ``DataError``, which is
+    only for a complete reply (#492, #512). Before re-raising it, walk the
+    whole metadata again by its declared lengths without decoding, so framing
+    damage in a later column still fails as malformed (#581).
+    """
+    columns, error = _parse_column_metadata_deferred(reader, column_count)
+    if error is not None:
+        raise error
+    return columns
+
+
+def _parse_column_metadata_deferred(
+    reader: PacketReader, column_count: int
+) -> tuple[list[ColumnMetaData], DataError | None]:
+    """Retain column types and defer text errors until the packet is framed.
+
+    Malformed metadata wins immediately: the bounds walk may raise ValueError,
+    IndexError or struct.error. Only a complete metadata block returns a saved
+    DataError for the packet parser to report after checking its remaining tail.
+    """
+    if column_count < 0:
+        raise ValueError("negative prepared column count")
+    start = reader.mark()
+    try:
+        return _read_column_metadata(reader, column_count, decode=True), None
+    except DataError as error:
+        reader.seek(start)
+        return _read_column_metadata(reader, column_count, decode=False), error
+
+
+def _read_column_metadata(
+    reader: PacketReader, column_count: int, *, decode: bool
 ) -> list[ColumnMetaData]:
-    """Parse column metadata entries from the reader."""
+    """Read ``column_count`` metadata entries; ``decode=False`` only checks bounds."""
+
+    def text(length: int) -> str:
+        if decode:
+            return reader._parse_metadata_text(length)
+        reader._skip_bytes(length)
+        return ""
+
     columns: list[ColumnMetaData] = []
     for _ in range(column_count):
+        type_start = reader.mark()
         column_type = _parse_column_type(reader)
+        first_type = reader._buffer[type_start]
+        if first_type & 0x80:
+            second_type = reader._buffer[type_start + 1]
+            cci_type = ((second_type & 0x20) << 2) | (first_type & 0x60) | (second_type & 0x1F)
+        else:
+            cci_type = first_type
         scale = reader._parse_short()
         precision = reader._parse_int()
 
         name_len = reader._parse_int()
-        if strict_lengths and (name_len < 0 or name_len > reader.bytes_remaining()):
+        if name_len < 0 or name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column name length")
-        name = reader._parse_metadata_text(name_len)
+        name = text(name_len)
         real_name_len = reader._parse_int()
-        if strict_lengths and (real_name_len < 0 or real_name_len > reader.bytes_remaining()):
+        if real_name_len < 0 or real_name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column real-name length")
-        real_name = reader._parse_metadata_text(real_name_len)
+        real_name = text(real_name_len)
         table_name_len = reader._parse_int()
-        if strict_lengths and (table_name_len < 0 or table_name_len > reader.bytes_remaining()):
+        if table_name_len < 0 or table_name_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column table-name length")
-        table_name = reader._parse_metadata_text(table_name_len)
+        table_name = text(table_name_len)
 
         # CAS sends is_non_null: zero means the column accepts NULL.
         is_nullable = reader._parse_byte() == 0
         default_len = reader._parse_int()
-        if strict_lengths and (default_len < 0 or default_len > reader.bytes_remaining()):
+        if default_len < 0 or default_len > reader.bytes_remaining():
             raise ValueError("invalid prepared column default length")
-        default_value = reader._parse_metadata_text(default_len)
+        default_value = text(default_len)
         is_auto_increment = reader._parse_byte() == 1
         is_unique_key = reader._parse_byte() == 1
         is_primary_key = reader._parse_byte() == 1
@@ -611,29 +891,31 @@ def _parse_column_metadata(
         is_foreign_key = reader._parse_byte() == 1
         is_shared = reader._parse_byte() == 1
 
-        columns.append(
-            ColumnMetaData(
-                column_type=column_type,
-                scale=scale,
-                precision=precision,
-                name=name,
-                real_name=real_name,
-                table_name=table_name,
-                is_nullable=is_nullable,
-                default_value=default_value,
-                is_auto_increment=is_auto_increment,
-                is_unique_key=is_unique_key,
-                is_primary_key=is_primary_key,
-                is_reverse_index=is_reverse_index,
-                is_reverse_unique=is_reverse_unique,
-                is_foreign_key=is_foreign_key,
-                is_shared=is_shared,
-            )
+        column = ColumnMetaData(
+            column_type=column_type,
+            scale=scale,
+            precision=precision,
+            name=name,
+            real_name=real_name,
+            table_name=table_name,
+            is_nullable=is_nullable,
+            default_value=default_value,
+            is_auto_increment=is_auto_increment,
+            is_unique_key=is_unique_key,
+            is_primary_key=is_primary_key,
+            is_reverse_index=is_reverse_index,
+            is_reverse_unique=is_reverse_unique,
+            is_foreign_key=is_foreign_key,
+            is_shared=is_shared,
         )
+        column._cci_type = cci_type
+        columns.append(column)
     return columns
 
 
-def _parse_prepare_info(reader: PacketReader) -> tuple[int, int, list[ColumnMetaData]]:
+def _parse_prepare_info(
+    reader: PacketReader,
+) -> tuple[int, int, list[ColumnMetaData], DataError | None]:
     """Parse the FC2 tail also reused by FC3 refreshed-column responses."""
     if reader.bytes_remaining() < 14:
         raise ValueError("truncated prepared column metadata")
@@ -646,11 +928,8 @@ def _parse_prepare_info(reader: PacketReader) -> tuple[int, int, list[ColumnMeta
         raise ValueError("negative prepared bind or column count")
     if column_count > reader.bytes_remaining() // 31:
         raise ValueError("truncated prepared column metadata")
-    return (
-        statement_type,
-        bind_count,
-        _parse_column_metadata(reader, column_count, strict_lengths=True),
-    )
+    columns, error = _parse_column_metadata_deferred(reader, column_count)
+    return statement_type, bind_count, columns, error
 
 
 # ---------------------------------------------------------------------------
@@ -761,11 +1040,11 @@ def _parse_cell_type(reader: PacketReader, size: int) -> tuple[int, int]:
     one type byte. The header counts in the cell size, so a header longer than
     the size is a malformed reply.
     """
-    start = reader._offset
+    start = reader.mark()
     column_type = _parse_column_type(reader)
-    header_size = reader._offset - start
+    header_size = reader.mark() - start
     if header_size > size:
-        reader._offset = start
+        reader.seek(start)
         raise ValueError(f"row cell size {size} is shorter than its {header_size}-byte type")
     return column_type, size - header_size
 
@@ -784,7 +1063,7 @@ def _check_row_data_bounds(
     too (#523). ``typed`` marks CALL/NULL-typed columns, whose cells start with
     their own one- or two-byte type header, counted in the size (#542).
     """
-    reader._offset = rows_start
+    reader.seek(rows_start)
     for _ in range(tuple_count):
         reader._parse_int()
         reader._skip_bytes(DataSize.OID)
@@ -800,11 +1079,31 @@ def _check_row_data_bounds(
             reader._skip_bytes(size)
 
 
+def _deferred_value_reader(
+    reader: PacketReader, parse_value: Callable[[int], Any]
+) -> Callable[[int], Any]:
+    """Keep validating later cells when metadata already holds a DataError."""
+
+    def read(size: int) -> Any:
+        start = reader.mark()
+        try:
+            return parse_value(size)
+        except DataError:
+            # Value readers validate their own declared payload before a
+            # DataError. Resume at the next cell, not a shallow row re-walk.
+            reader.seek(start + size)
+            return None
+
+    return read
+
+
 def _parse_row_data(
     reader: PacketReader,
     tuple_count: int,
     columns: Sequence[ColumnMetaData | _SchemaColumn],
     statement_type: int,
+    *,
+    defer_data_errors: bool = False,
 ) -> list[tuple[Any, ...]]:
     """Parse row data from the reader."""
     is_call_type = statement_type in (
@@ -821,23 +1120,31 @@ def _parse_row_data(
     _null_type = CUBRIDDataType.NULL
     _oid_size = DataSize.OID
     _get = _TYPE_METHOD_NAMES.get
+    _unpack_int = _STRUCT_INT.unpack_from
+    _int_size = DataSize.INT
+    buffer = reader._buffer
     _getattr = getattr
 
     if is_call_type or _null_type in col_types:
         col_readers = None
     else:
         col_readers = [_resolve_reader(reader, ct) for ct in col_types]
+        if defer_data_errors:
+            col_readers = [_deferred_value_reader(reader, parse) for parse in col_readers]
 
     # Every cell value must use exactly the bytes its size word declares. The
     # fixed-width readers (INT, DATE, OID, ...) do not look at the size, so a
     # size past the end of the reply, or one that disagrees with the type's
     # width, was silently accepted; check it before reading (#383, #523).
     widths = [_FIXED_CELL_WIDTHS.get(ct) for ct in col_types]
+    # Only a SET column converts its value (#559): every other type returns the
+    # value unchanged from _convert_collection_value, so skip that call.
+    converts = [ct == CUBRIDDataType.SET for ct in col_types]
 
     rows: list[tuple[Any, ...]] = []
     _rows_append = rows.append
 
-    rows_start = reader._offset
+    rows_start = reader.mark()
     try:
         for _ in range(tuple_count):
             _parse_int()
@@ -845,12 +1152,18 @@ def _parse_row_data(
             row: list[Any] = [None] * ncols
             if col_readers is not None:
                 for i in range(ncols):
-                    size = _parse_int()
+                    # Inline _parse_int(): one call frame less per cell (#559).
+                    offset = reader._offset
+                    size = _unpack_int(buffer, offset)[0]
+                    reader._offset = offset + _int_size
                     if size > 0:
                         width = widths[i]
                         if width is not None and (size != width if width > 0 else size < -width):
                             raise _cell_size_mismatch(col_types[i], size)
-                        row[i] = _convert_collection_value(col_types[i], col_readers[i](size))
+                        value = col_readers[i](size)
+                        row[i] = (
+                            _convert_collection_value(col_types[i], value) if converts[i] else value
+                        )
             else:
                 for i in range(ncols):
                     size = _parse_int()
@@ -864,7 +1177,10 @@ def _parse_row_data(
                     _check_cell_size(ct, size)
                     method_name = _get(ct)
                     if method_name is not None:
-                        row[i] = _convert_collection_value(ct, _getattr(reader, method_name)(size))
+                        parse = _getattr(reader, method_name)
+                        if defer_data_errors:
+                            parse = _deferred_value_reader(reader, parse)
+                        row[i] = _convert_collection_value(ct, parse(size))
                     else:
                         row[i] = _parse_bytes(size)
             _rows_append(tuple(row))
@@ -936,6 +1252,15 @@ class _CasPacket:
     """
 
     encoding: str = "utf-8"
+
+    def _parse_response(self, data: bytes | bytearray) -> tuple[PacketReader, int]:
+        """Read the common prefix of a simple reply and raise server errors."""
+        reader = PacketReader(data, encoding=self.encoding)
+        reader._skip_bytes(DataSize.CAS_INFO)
+        response_code = reader._parse_int()
+        if response_code < 0:
+            _raise_error(reader, len(data) - 8)
+        return reader, response_code
 
 
 class ClientInfoExchangePacket:
@@ -1025,6 +1350,11 @@ class PrepareAndExecutePacket(_CasPacket):
         self.protocol_version = protocol_version
         self.decode_collections = decode_collections
         self.json_deserializer = json_deserializer
+        # Handles the CAS releases before preparing this statement (#488): the
+        # prepare arguments after the auto-commit flag (JDBC's wire format).
+        self.deferred_close_handles: tuple[int, ...] = ()
+        # Set by the transport when this reply's transaction freed its ID (#584).
+        self._query_handle_retired = False
 
         self.response_code: int = 0
         self.query_handle: int = 0
@@ -1042,10 +1372,12 @@ class PrepareAndExecutePacket(_CasPacket):
         """Serialize the prepare-and-execute request."""
         writer = PacketWriter(encoding=self.encoding)
         writer._write_byte(CASFunctionCode.PREPARE_AND_EXECUTE)
-        writer.add_int(3)  # arg count
+        writer.add_int(3 + len(self.deferred_close_handles))  # prepare arg count
         writer._write_null_terminated_string(self.sql)
         writer.add_byte(CCIPrepareOption.NORMAL)
         writer.add_byte(1 if self.auto_commit else 0)
+        for handle in self.deferred_close_handles:
+            writer.add_int(handle)
         writer.add_byte(CCIExecutionOption.QUERY_ALL)
         writer.add_int(0)  # max_col_size
         writer.add_int(0)  # max_row_size
@@ -1074,14 +1406,22 @@ class PrepareAndExecutePacket(_CasPacket):
             _raise_error(reader, remaining)
 
         self.query_handle = self.response_code
-        _ = reader._parse_int()  # result cache lifetime
-        self.statement_type = reader._parse_byte()
-        self.bind_count = reader._parse_int()
-        _ = reader._parse_byte()  # is_updatable
-        self.column_count = reader._parse_int()
-        self.columns = _parse_column_metadata(reader, self.column_count)
+        # Same layout as the FC2 tail, so the same count checks apply (#581).
+        self.statement_type, self.bind_count, self.columns, metadata_error = _parse_prepare_info(
+            reader
+        )
+        self.column_count = len(self.columns)
+
+        if metadata_error is not None:
+            position = reader.mark()
+            # Validate without application hooks or opaque collection results.
+            # Neither can bypass framing after metadata is already invalid.
+            reader = PacketReader(data, decode_collections=True, encoding=self.encoding)
+            reader.seek(position)
 
         self.total_tuple_count = reader._parse_int()
+        if self.total_tuple_count < 0:
+            raise ValueError("negative total tuple count")
         _ = reader._parse_byte()  # cache_reusable
         self.result_count = reader._parse_int()
         self.result_infos = _parse_result_infos(reader, self.result_count)
@@ -1094,16 +1434,23 @@ class PrepareAndExecutePacket(_CasPacket):
 
         # If SELECT, parse inline fetch data
         if self.statement_type == CUBRIDStatementType.SELECT:
+            if 0 < reader.bytes_remaining() < 8:
+                raise ValueError("truncated inline fetch header")
             if reader.bytes_remaining() >= 8:
                 _ = reader._parse_int()  # fetch_code
                 self.tuple_count = reader._parse_int()
+                if self.tuple_count < 0:
+                    raise ValueError("negative tuple count")
                 if self.tuple_count > 0:
                     self.rows = _parse_row_data(
                         reader,
                         self.tuple_count,
                         self.columns,
                         self.statement_type,
+                        defer_data_errors=metadata_error is not None,
                     )
+        if metadata_error is not None:
+            raise metadata_error
 
 
 class PreparePacket(_CasPacket):
@@ -1161,8 +1508,12 @@ class PreparePacket(_CasPacket):
             _raise_error(reader, remaining)
 
         self.query_handle = self.response_code
-        self.statement_type, self.bind_count, self.columns = _parse_prepare_info(reader)
+        self.statement_type, self.bind_count, self.columns, metadata_error = _parse_prepare_info(
+            reader
+        )
         self.column_count = len(self.columns)
+        if metadata_error is not None:
+            raise metadata_error
 
 
 class ExecutePacket(_CasPacket):
@@ -1177,7 +1528,7 @@ class ExecutePacket(_CasPacket):
         decode_collections: bool = False,
         json_deserializer: Any = None,
         *,
-        bindings: Sequence[_PreparedScalar] = (),
+        bindings: Sequence[_PreparedScalar | _PreparedCollection | _PreparedLob] = (),
         bind_count: int | None = None,
         forward_only: bool | None = None,
     ) -> None:
@@ -1227,9 +1578,16 @@ class ExecutePacket(_CasPacket):
         writer.add_cache_time()
         writer.add_int(0)  # query timeout
         for binding in self.bindings:
-            if not isinstance(binding, _PreparedScalar):
+            text_encoding: str | None = None
+            if isinstance(binding, _PreparedScalar):
+                if binding.type_code == CUBRIDDataType.CHAR:
+                    text_encoding = binding.encoding
+            elif isinstance(binding, _PreparedCollection):
+                if binding.element_type == CUBRIDDataType.STRING:
+                    text_encoding = binding.encoding
+            elif not isinstance(binding, _PreparedLob):  # a LOB handle is not text
                 raise ProgrammingError("invalid prepared parameter encoding")
-            if binding.type_code == CUBRIDDataType.CHAR and binding.encoding != self.encoding:
+            if text_encoding is not None and text_encoding != self.encoding:
                 raise ProgrammingError("prepared string was encoded for a different charset")
             writer.add_byte(binding.type_code)
             writer.add_bytes(binding.payload)
@@ -1252,6 +1610,7 @@ class ExecutePacket(_CasPacket):
             _raise_error(reader, remaining)
 
         self.total_tuple_count = response_code
+        metadata_error = None
         _ = reader._parse_byte()  # cache_reusable
         self.result_count = reader._parse_int()
         self.result_infos = _parse_result_infos(reader, self.result_count, prepared=True)
@@ -1261,21 +1620,34 @@ class ExecutePacket(_CasPacket):
             if includes_column_info not in (0, 1):
                 raise ValueError("invalid refreshed-column-info flag")
             if includes_column_info:
-                self.statement_type, self.bind_count, self.columns = _parse_prepare_info(reader)
+                self.statement_type, self.bind_count, self.columns, metadata_error = (
+                    _parse_prepare_info(reader)
+                )
+        if metadata_error is not None:
+            position = reader.mark()
+            reader = PacketReader(data, decode_collections=True, encoding=self.encoding)
+            reader.seek(position)
         if self.protocol_version > 4:
             _ = reader._parse_int()  # shard_id
 
         if self.statement_type == CUBRIDStatementType.SELECT:
+            if 0 < reader.bytes_remaining() < 8:
+                raise ValueError("truncated inline fetch header")
             if reader.bytes_remaining() >= 8:
                 _ = reader._parse_int()  # fetch_code
                 self.tuple_count = reader._parse_int()
+                if self.tuple_count < 0:
+                    raise ValueError("negative tuple count")
                 if self.tuple_count > 0 and self.columns:
                     self.rows = _parse_row_data(
                         reader,
                         self.tuple_count,
                         self.columns,
                         self.statement_type,
+                        defer_data_errors=metadata_error is not None,
                     )
+        if metadata_error is not None:
+            raise metadata_error
 
 
 class FetchPacket(_CasPacket):
@@ -1357,12 +1729,7 @@ class CommitPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the commit response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class RollbackPacket(_CasPacket):
@@ -1377,12 +1744,7 @@ class RollbackPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the rollback response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class CloseDatabasePacket(_CasPacket):
@@ -1396,12 +1758,7 @@ class CloseDatabasePacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close database response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class CloseQueryPacket(_CasPacket):
@@ -1419,12 +1776,7 @@ class CloseQueryPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the close query response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)
 
 
 class GetEngineVersionPacket(_CasPacket):
@@ -1443,12 +1795,7 @@ class GetEngineVersionPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get engine version response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         # response_code is 0 on success; version string follows
         version_len = len(data) - DataSize.CAS_INFO - DataSize.INT
         self.engine_version = reader._parse_null_terminated_string(version_len)
@@ -1602,12 +1949,7 @@ class LOBNewPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB new response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         # Remaining bytes are the LOB handle
         self.lob_handle = reader._parse_bytes(reader.bytes_remaining())
 
@@ -1635,12 +1977,7 @@ class LOBWritePacket(_CasPacket):
 
         On success, ``response_code`` doubles as ``bytes_written`` per CAS protocol.
         """
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        _, response_code = self._parse_response(data)
         self.bytes_written = response_code
 
 
@@ -1666,12 +2003,7 @@ class LOBReadPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the LOB read response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, response_code = self._parse_response(data)
         # A count past the end of the reply raises before any field is set (#383).
         if response_code > 0:
             self.lob_data = reader._parse_bytes(response_code)
@@ -1731,12 +2063,7 @@ class GetDbParameterPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the get db parameter response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        reader, _ = self._parse_response(data)
         self.value = reader._parse_int()
 
 
@@ -1790,9 +2117,4 @@ class SetDbParameterPacket(_CasPacket):
 
     def parse(self, data: bytes | bytearray) -> None:
         """Parse the set db parameter response."""
-        reader = PacketReader(data, encoding=self.encoding)
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining)
+        self._parse_response(data)

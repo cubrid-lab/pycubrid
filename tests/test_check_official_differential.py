@@ -16,6 +16,8 @@ from scripts import check_official_differential as gate
 from scripts.check_integration_lanes import OFFICIAL_SKIP_REASON
 from tests.test_official_differential import SKIP_REASON, render
 
+pytestmark = pytest.mark.repo_tooling
+
 DOC = gate.load_claims()
 INVENTORY = gate.inventory_ids()
 SCENARIOS = gate.scenario_ids()
@@ -164,17 +166,21 @@ def test_generated_docs_are_rewritten_and_stale_blocks_fail(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     docs = {}
+    wrapper_matches = sum(
+        claim["surface"] == "wrapper" and claim["classification"] == "match"
+        for claim in DOC["claims"]
+    )
     for lang, path in gate.DOCS.items():
         copy_path = tmp_path / f"{lang}.md"
         text = path.read_text(encoding="utf-8")
-        copy_path.write_text(text.replace("| 12 |", "| 99 |", 1), encoding="utf-8")
+        copy_path.write_text(text.replace(f"| {wrapper_matches} |", "| 99 |", 1), encoding="utf-8")
         docs[lang] = copy_path
     monkeypatch.setattr(gate, "DOCS", docs)
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     assert len(gate.check_docs(DOC)) == 2
     assert gate.check_docs(DOC, write=True) == []
     assert gate.check_docs(DOC) == []
-    assert "**18**" in docs["en"].read_text(encoding="utf-8")
+    assert f"**{len(DOC['claims'])}**" in docs["en"].read_text(encoding="utf-8")
     docs["ko"].write_text("no markers", encoding="utf-8")
     with pytest.raises(ValueError, match="markers are missing"):
         gate.check_docs(DOC)

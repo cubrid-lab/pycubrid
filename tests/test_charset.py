@@ -251,7 +251,7 @@ def test_default_connection_stamps_utf8_and_sends_golden_bytes(
     socket_queue: list[MagicMock],  # noqa: F811
 ) -> None:
     conn, sock = make_connected_connection(socket_queue)
-    conn._cas_info = CAS_INFO  # IN_TRAN: no CHECK_CAS probe first
+    conn._record_reply_cas_info(CAS_INFO)  # IN_TRAN: no CHECK_CAS probe first
     reply = _frame(CAS_INFO + struct.pack(">i", 0))
     sock.recv.side_effect = [reply[:4], reply[4:]]
     sock.sendall.reset_mock()
@@ -330,7 +330,7 @@ def test_unencodable_parameter_sends_no_bytes_and_keeps_the_session(
     sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
     socket_queue.append(sock)
     conn = Connection("localhost", 33000, "testdb", "dba", "", charset="euckr")
-    conn._cas_info = CAS_INFO  # IN_TRAN: no CHECK_CAS probe first
+    conn._record_reply_cas_info(CAS_INFO)  # IN_TRAN: no CHECK_CAS probe first
     sock.sendall.reset_mock()
     cursor = conn.cursor()
     with pytest.raises(DataError, match="cannot be encoded as euc_kr"):
@@ -361,7 +361,7 @@ async def test_async_requests_use_the_connection_codec() -> None:
     reply = _frame(CAS_INFO + struct.pack(">i", 0))
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", charset="euckr")
     conn._connected = True
-    conn._cas_info = CAS_INFO
+    conn._record_reply_cas_info(CAS_INFO)
     reader = MagicMock()
     reader.readexactly = AsyncMock(side_effect=[reply[:4], reply[4:]])
     writer = MagicMock()
@@ -381,7 +381,7 @@ async def test_async_requests_use_the_connection_codec() -> None:
 async def test_async_unencodable_text_sends_nothing() -> None:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", charset="latin-1")
     conn._connected = True
-    conn._cas_info = CAS_INFO
+    conn._record_reply_cas_info(CAS_INFO)
     conn._reader = MagicMock()
     writer = MagicMock()
     writer.drain = AsyncMock()
@@ -614,7 +614,7 @@ def test_sync_unencodable_schema_argument_keeps_the_session(
 async def test_async_unencodable_schema_argument_keeps_the_session() -> None:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", charset="euckr")
     conn._connected = True
-    conn._cas_info = CAS_INFO
+    conn._record_reply_cas_info(CAS_INFO)
     conn._reader = MagicMock()
     writer = MagicMock()
     writer.drain = AsyncMock()
@@ -633,7 +633,7 @@ def test_unencodable_executemany_row_sends_nothing(
     sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
     socket_queue.append(sock)
     conn = Connection("localhost", 33000, "testdb", "dba", "", charset="euckr")
-    conn._cas_info = CAS_INFO  # IN_TRAN: no CHECK_CAS probe first
+    conn._record_reply_cas_info(CAS_INFO)  # IN_TRAN: no CHECK_CAS probe first
     sock.sendall.reset_mock()
     cursor = conn.cursor()
     with pytest.raises(DataError, match="cannot be encoded as euc_kr"):
@@ -661,6 +661,7 @@ def test_cursor_owns_and_releases_the_handle_after_metadata_decode_failure() -> 
     connection._decode_collections = False
     connection._json_deserializer = None
     connection._send_and_receive = MagicMock(side_effect=reply)
+    connection._defer_close = MagicMock(return_value=False)  # pooling-off broker (#488)
     cursor = Cursor(connection)
     with pytest.raises(DataError, match="column metadata is not valid UTF-8"):
         cursor.execute("SELECT 1")

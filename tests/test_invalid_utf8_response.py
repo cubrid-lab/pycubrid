@@ -182,6 +182,8 @@ def _mock_connection(asynchronous: bool) -> MagicMock:
     connection = MagicMock()
     connection._timing = None
     connection._cursors = set()
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    connection._defer_close = MagicMock(return_value=False)
     connection.autocommit = True
     connection._protocol_version = 8
     connection._decode_collections = False
@@ -220,7 +222,7 @@ def _async_connection_with_reply(body: bytes) -> AsyncConnection:
     frame = _frame(body)
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"  # IN_TRAN: no CHECK_CAS probe first
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")  # IN_TRAN: no CHECK_CAS probe first
     reader = MagicMock()
     reader.readexactly = AsyncMock(side_effect=[frame[:4], frame[4:]])
     writer = MagicMock()

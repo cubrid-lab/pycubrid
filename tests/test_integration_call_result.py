@@ -19,7 +19,7 @@ import pycubrid
 import pycubrid.aio
 from tests._parity_helpers import ADAPTERS, ParityAdapter, connect_kwargs
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 _OID = re.compile(r"OID:@-?\d+\|-?\d+\|-?\d+")
 

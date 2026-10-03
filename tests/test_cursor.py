@@ -26,10 +26,12 @@ def mock_connection() -> MagicMock:
     conn = MagicMock()
     conn.autocommit = False
     conn._connected = True
-    conn._cas_info = b"\x01\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x01\x01\x02\x03")
     conn._cursors = set()
     conn._ensure_connected = MagicMock()
     conn._no_backslash_escapes = False
+    # A pooling-off broker: CLOSE_REQ is sent, never deferred (#488).
+    conn._defer_close = MagicMock(return_value=False)
 
     def send_and_receive(packet: object) -> object:
         return packet
@@ -673,6 +675,25 @@ def test_callproc_without_parameters(cursor: Cursor, mock_connection: MagicMock)
     returned = cursor.callproc("my_proc")
     assert returned == ()
     assert captured_sql == ["CALL my_proc()"]
+
+
+@pytest.mark.parametrize("procname", ["foo..bar", "foo.", "foo.1bar", ".foo"])
+def test_callproc_rejects_invalid_qualified_name(cursor: Cursor, procname: str) -> None:
+    cursor.execute = MagicMock()
+
+    with pytest.raises(ProgrammingError, match="Invalid stored procedure name"):
+        cursor.callproc(procname)
+
+    cursor.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("procname", ["foo", "schema.proc", "_schema._proc2"])
+def test_callproc_accepts_valid_qualified_name(cursor: Cursor, procname: str) -> None:
+    cursor.execute = MagicMock()
+
+    assert cursor.callproc(procname) == ()
+
+    cursor.execute.assert_called_once_with(f"CALL {procname}()", ())
 
 
 def test_iterator_protocol(cursor: Cursor, mock_connection: MagicMock) -> None:

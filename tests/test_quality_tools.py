@@ -11,6 +11,8 @@ import pytest
 
 from scripts.check_quality_tools import ROOT, check_configuration, check_environment, declared_pins
 
+pytestmark = pytest.mark.repo_tooling
+
 
 @pytest.fixture
 def project(tmp_path: Path) -> Path:

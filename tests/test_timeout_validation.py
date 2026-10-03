@@ -42,3 +42,19 @@ def test_common_timeout_validation_preserves_supported_values(
 ) -> None:
     conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", **{field: value})
     assert getattr(conn, f"_{field}") == value
+
+
+@pytest.mark.parametrize("field", ("connect_timeout", "read_timeout"))
+@pytest.mark.parametrize("value", ("1", object()))
+def test_sync_rejects_incompatible_type_before_socket(field: str, value: object) -> None:
+    with patch("pycubrid.connection.socket.create_connection") as create_connection:
+        with pytest.raises(TypeError, match=field):
+            _sync_connection(**{field: value})
+    create_connection.assert_not_called()
+
+
+@pytest.mark.parametrize("field", ("connect_timeout", "read_timeout"))
+@pytest.mark.parametrize("value", ("1", object()))
+def test_async_rejects_incompatible_type_during_init(field: str, value: object) -> None:
+    with pytest.raises(TypeError, match=field):
+        _async_connection(**{field: value})

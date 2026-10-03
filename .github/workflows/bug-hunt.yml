@@ -1,15 +1,15 @@
-name: Bug Hunt (nightly)
+name: Bug Hunt (weekly)
 
 # Adversarial Bug Hunt layer (epic #336). Runs the integration-marked property
 # fuzzing, protocol fuzzing, state-machine, metamorphic, fault-injection,
 # differential, resource-leak, PEP 249 runtime, chaos and soak suites under the
 # WIDE Hypothesis profile against a live CUBRID broker, plus mutation testing of
-# the driver core, a benchmark trend check and downstream dogfooding. Nightly +
+# the driver core, a benchmark trend check and downstream dogfooding. Weekly +
 # on demand only; PR CI keeps the fast profile.
 
 on:
   schedule:
-    - cron: "0 4 * * *"
+    - cron: "0 4 * * 1"
   workflow_dispatch:
 
 concurrency:
@@ -20,14 +20,34 @@ permissions:
   contents: read
 
 jobs:
+  activity:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          changed=false
+          if [[ "$EVENT" != schedule ]] || [[ -n "$(git log -1 --since='7 days ago' --format=%H -- pycubrid tests scripts .github/workflows pyproject.toml Makefile docker-compose.yml)" ]]; then
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
   property-and-fault:
-    name: property / protocol / state-machine / fault / chaos / soak (nightly)
+    needs: activity
+    if: needs.activity.outputs.changed == 'true'
+    name: property / protocol / state-machine / fault / chaos / soak (weekly representative)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.14"]
-        cubrid-version: ["10.2", "11.0", "11.2", "11.4"]
+        python-version: ["3.12"]
+        cubrid-version: ["11.4"]
     services:
       cubrid:
         image: cubrid/cubrid:${{ matrix.cubrid-version }}
@@ -93,6 +113,8 @@ jobs:
           retention-days: 14
 
   mutation:
+    needs: activity
+    if: needs.activity.outputs.changed == 'true'
     name: mutation testing (driver core, offline)
     runs-on: ubuntu-latest
     steps:
@@ -113,11 +135,13 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: mutation-cache
-          path: .mutmut-cache
+          path: mutants/
           if-no-files-found: ignore
           retention-days: 14
 
   perf-trend:
+    needs: activity
+    if: needs.activity.outputs.changed == 'true'
     name: benchmark trend detection
     runs-on: ubuntu-latest
     services:
@@ -157,7 +181,7 @@ jobs:
             --benchmark-json=current-bench.json -q
       # Restore the most recent baseline. The cache action only writes on a miss,
       # so we always use a fresh per-run key and fall back to the newest prior
-      # key via restore-keys — that way each night compares against yesterday and
+      # key via restore-keys — that way each run compares against the previous run and
       # then persists a new baseline entry under today's key.
       - name: Restore benchmark baseline
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
@@ -185,9 +209,24 @@ jobs:
           retention-days: 30
 
   downstream-corpus:
-    name: downstream dogfood (sqlalchemy-cubrid)
+    needs: activity
+    if: needs.activity.outputs.changed == 'true'
+    name: downstream corpus (${{ matrix.lane }}, CUBRID 11.4)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Corpus is weekly/on-demand evidence, not a PR or release gate. The
+    # per-lane step summary and uploaded JSON still report a real failure.
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: sqlalchemy
+            repository: cubrid-lab/sqlalchemy-cubrid
+          - lane: mcp
+            repository: cubrid-lab/cubrid-mcp-server
+          - lane: cookbook
+            repository: cubrid-lab/cubrid-cookbook-python
     services:
       cubrid:
         image: cubrid/cubrid:11.4
@@ -201,45 +240,152 @@ jobs:
           --health-timeout 10s
           --health-retries 10
           --health-start-period 30s
+    env:
+      DRIVER_SHA: ${{ github.sha }}
+      CUBRID_TEST_HOST: localhost
+      CUBRID_TEST_PORT: "33000"
+      CUBRID_TEST_DB: testdb
+      CUBRID_TEST_USER: dba
+      CUBRID_TEST_PASSWORD: ""
     steps:
-      - name: Check out sqlalchemy-cubrid
+      - name: Check out exact driver revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
-          repository: cubrid-lab/sqlalchemy-cubrid
+          repository: cubrid-lab/pycubrid
+          ref: ${{ github.sha }}
+          path: driver
+          persist-credentials: false
+      - name: Check out latest downstream revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          repository: ${{ matrix.repository }}
+          ref: main
+          path: downstream
+          persist-credentials: false
+      - name: Record tested revisions
+        run: |
+          set -euo pipefail
+          [ "$(git -C driver rev-parse HEAD)" = "$DRIVER_SHA" ]
+          downstream_sha=$(git -C downstream rev-parse HEAD)
+          [[ "$downstream_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "DOWNSTREAM_SHA=$downstream_sha" >> "$GITHUB_ENV"
+          printf 'Driver: %s; downstream %s: %s\n' \
+            "$DRIVER_SHA" '${{ matrix.repository }}' "$downstream_sha"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
-      - name: Install downstream against pycubrid @ this ref
+      - name: Install all dependencies under the exact driver constraint
         run: |
+          set -euo pipefail
+          [[ "$DRIVER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          mkdir -p "$RUNNER_TEMP/downstream-corpus"
+          printf 'pycubrid @ git+https://github.com/cubrid-lab/pycubrid.git@%s\n' \
+            "$DRIVER_SHA" > "$RUNNER_TEMP/downstream-corpus/driver-constraint.txt"
+          export PIP_CONSTRAINT="$RUNNER_TEMP/downstream-corpus/driver-constraint.txt"
+          echo "PIP_CONSTRAINT=$PIP_CONSTRAINT" >> "$GITHUB_ENV"
           python -m pip install --upgrade pip
-          # Dogfood: force the pycubrid under test (this workflow's ref) rather
-          # than the released pin, then install the downstream + its test deps.
-          pip install -e ".[pycubrid]"
-          pip install "pycubrid @ git+https://github.com/${{ github.repository }}.git@${{ github.sha }}"
-          pip install pytest
+          python -m pip install "pycubrid @ git+https://github.com/cubrid-lab/pycubrid.git@$DRIVER_SHA"
+          case '${{ matrix.lane }}' in
+            sqlalchemy)
+              python -m pip install -e './downstream[pycubrid]' pytest pytest-asyncio ;;
+            mcp)
+              python -m pip install -e ./downstream pytest ;;
+            cookbook)
+              python -m pip install -r downstream/templates/ai-agent/requirements.txt \
+                -r downstream/templates/async-worker/requirements.txt pytest ;;
+            *) echo 'Unrecognized downstream lane' >&2; exit 1 ;;
+          esac
       - name: Wait for CUBRID readiness
+        run: python driver/scripts/wait_for_cubrid.py
+      - name: Verify installed driver origin and actual server
         run: |
-          for i in $(seq 1 30); do
-            if python -c "import pycubrid; c = pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba', password=''); c.cursor().execute('SELECT 1'); c.close()"; then
-              echo "CUBRID ready"
-              exit 0
-            fi
-            echo "Waiting for CUBRID... (attempt $i/30)"
-            sleep 5
-          done
-          echo "CUBRID never became ready" >&2
-          exit 1
-      - name: Run downstream test suite
+          python driver/scripts/downstream_corpus.py verify-driver \
+            --expected-sha "$DRIVER_SHA" \
+            --out "$RUNNER_TEMP/downstream-corpus/driver.json"
+      - name: Run SQLAlchemy ORM and pool workloads
+        id: sa_tests
+        if: matrix.lane == 'sqlalchemy'
         env:
-          CUBRID_TEST_URL: "cubrid://dba@localhost:33000/testdb"
-          CUBRID_TEST_HOST: localhost
-          CUBRID_TEST_PORT: "33000"
-          CUBRID_TEST_DB: testdb
-          CUBRID_TEST_USER: dba
-          CUBRID_TEST_PASSWORD: ""
+          CUBRID_TEST_URL: "cubrid+pycubrid://dba@localhost:33000/testdb"
+        working-directory: downstream
         run: |
-          if [ -d test ]; then
-            python -m pytest test/ -v --tb=short
-          else
-            python -m pytest tests/ -v --tb=short
+          status=0
+          python -m pytest test/test_dogfood_orm.py -m integration -v --tb=short \
+            --junitxml="$RUNNER_TEMP/downstream-corpus/dogfood.xml" || status=1
+          python -m pytest test/test_stress_pool.py -m integration -v --tb=short \
+            --junitxml="$RUNNER_TEMP/downstream-corpus/pool.xml" || status=1
+          exit "$status"
+      - name: Run MCP live tool and shared-session concurrency workloads
+        id: mcp_tests
+        if: matrix.lane == 'mcp'
+        env:
+          CUBRID_HOST: localhost
+          CUBRID_PORT: "33000"
+          CUBRID_USER: dba
+          CUBRID_PASSWORD: ""
+          CUBRID_DATABASE: testdb
+        working-directory: downstream
+        run: |
+          status=0
+          python -m pytest tests/test_integration.py -m integration -v --tb=short \
+            --junitxml="$RUNNER_TEMP/downstream-corpus/mcp.xml" || status=1
+          python -m pytest tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session \
+            -m integration -v --tb=short \
+            --junitxml="$RUNNER_TEMP/downstream-corpus/mcp-concurrency.xml" || status=1
+          exit "$status"
+      - name: Run cookbook AI and worker workloads
+        id: cookbook_tests
+        if: matrix.lane == 'cookbook'
+        env:
+          CUBRID_TEST_URL: "cubrid+pycubrid://dba@localhost:33000/testdb"
+        working-directory: downstream
+        run: |
+          status=0
+          python -m pytest tests/test_ai_agent.py -v --tb=short \
+            --junitxml="$RUNNER_TEMP/downstream-corpus/ai.xml" || status=1
+          # Generic app/database/models modules must not cross-contaminate.
+          python -m pytest templates/async-worker/tests -v --tb=short \
+            --junitxml="$RUNNER_TEMP/downstream-corpus/worker.xml" || status=1
+          exit "$status"
+      - name: Summarize downstream evidence
+        if: always()
+        env:
+          LANE: ${{ matrix.lane }}
+          JOB_STATUS: ${{ job.status }}
+          SA_TEST_OUTCOME: ${{ steps.sa_tests.outcome }}
+          MCP_TEST_OUTCOME: ${{ steps.mcp_tests.outcome }}
+          COOKBOOK_TEST_OUTCOME: ${{ steps.cookbook_tests.outcome }}
+        run: |
+          if [ ! -f driver/scripts/downstream_corpus.py ]; then
+            mkdir -p "$RUNNER_TEMP/downstream-corpus"
+            printf 'Downstream corpus %s failed before driver checkout (%s)\n' \
+              "$LANE" "$DRIVER_SHA" \
+              | tee "$RUNNER_TEMP/downstream-corpus/checkout-failure.txt" \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
+          case "$LANE" in
+            sqlalchemy) test_outcome="$SA_TEST_OUTCOME" ;;
+            mcp) test_outcome="$MCP_TEST_OUTCOME" ;;
+            cookbook) test_outcome="$COOKBOOK_TEST_OUTCOME" ;;
+            *) echo 'Unrecognized downstream lane' >&2; exit 1 ;;
+          esac
+          python driver/scripts/downstream_corpus.py report \
+            --lane "$LANE" \
+            --report-dir "$RUNNER_TEMP/downstream-corpus" \
+            --driver-evidence "$RUNNER_TEMP/downstream-corpus/driver.json" \
+            --expected-sha "$DRIVER_SHA" \
+            --downstream-sha "${DOWNSTREAM_SHA:-}" \
+            --job-status "$JOB_STATUS" \
+            --test-outcome "$test_outcome" \
+            --out "$RUNNER_TEMP/downstream-corpus/summary.json" \
+            --markdown "$RUNNER_TEMP/downstream-corpus/summary.md" \
+            --step-summary "$GITHUB_STEP_SUMMARY"
+      - name: Upload downstream evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: downstream-corpus-${{ matrix.lane }}
+          path: ${{ runner.temp }}/downstream-corpus/
+          if-no-files-found: warn
+          retention-days: 30

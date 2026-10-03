@@ -5,12 +5,15 @@ import socket
 import ssl as ssl_module
 import struct
 import time
-from importlib import import_module
 from threading import RLock
 from typing import TYPE_CHECKING, Any
 
 from ._connection_common import (
+    ESCAPE_PROBE_FAILED,
+    ESCAPE_PROBE_ROLLBACK_FAILED,
+    ESCAPE_PROBE_SQL,
     ConnectionCommonMixin,
+    no_backslash_escapes_from_probe,
     resolve_ssl_context,
     warn_unknown_connection_options,
 )
@@ -32,15 +35,14 @@ from .protocol import (
     SetDbParameterPacket,
 )
 
-if TYPE_CHECKING:
-    from typing import Any as Cursor
-
-_CursorClass: type | None = None
-
 _LOGGER = logging.getLogger(__name__)
 
 # Re-export for backwards compatibility.
 _resolve_ssl_context = resolve_ssl_context
+
+# TLS handshake bound when ``read_timeout`` is unset; the async driver passes
+# the same value as ``ssl_handshake_timeout`` (#535).
+_DEFAULT_TLS_HANDSHAKE_TIMEOUT = 10.0
 
 
 class Connection(ConnectionCommonMixin):
@@ -85,9 +87,9 @@ class Connection(ConnectionCommonMixin):
             enable_timing=kwargs.get("enable_timing"),
             charset=kwargs.get("charset", "utf-8"),
         )
-        # OPEN_DATABASE advertises this per physical broker session.  A
+        # OPEN_DATABASE advertises statement pooling per physical broker
+        # session (``_statement_pooling``, set up by _init_common_state). A
         # prepared handle may be reused only on a measured pooling-on lane.
-        self._statement_pooling: int | None = None
 
         # Applied by connect() on the session it opens (async parity).
         self._pending_autocommit = bool(autocommit)
@@ -173,28 +175,13 @@ class Connection(ConnectionCommonMixin):
             try:
                 cursor = self.cursor()
                 try:
-                    cursor.execute("SELECT CHAR_LENGTH('\\\\')")
+                    cursor.execute(ESCAPE_PROBE_SQL)
                     row = cursor.fetchone()
                 finally:
                     cursor.close()
             except Exception as exc:  # noqa: BLE001 — re-raised as OperationalError
-                raise OperationalError(
-                    "Failed to detect CUBRID backslash-escape mode; refusing to "
-                    "guess because a wrong mode silently corrupts string escaping. "
-                    "Pass no_backslash_escapes explicitly to skip detection."
-                ) from exc
-            length = row[0] if row else None
-            if length == 2:
-                self._no_backslash_escapes = True
-            elif length == 1:
-                self._no_backslash_escapes = False
-            else:
-                raise OperationalError(
-                    "Could not detect CUBRID backslash-escape mode "
-                    f"(CHAR_LENGTH probe returned {length!r}); refusing to guess "
-                    "because a wrong mode silently corrupts string escaping. Pass "
-                    "no_backslash_escapes explicitly to skip detection."
-                )
+                raise OperationalError(ESCAPE_PROBE_FAILED) from exc
+            self._no_backslash_escapes = no_backslash_escapes_from_probe(row[0] if row else None)
         except BaseException:
             probe_failed = True
             raise
@@ -214,12 +201,7 @@ class Connection(ConnectionCommonMixin):
                 except Exception:  # nosec B110 — best-effort close after rollback failure
                     pass
                 if not probe_failed:
-                    raise OperationalError(
-                        "Failed to roll back the CUBRID backslash-escape probe "
-                        "transaction; the connection may be in an unknown "
-                        "transaction state and has been closed. Pass "
-                        "no_backslash_escapes explicitly to skip detection."
-                    ) from rollback_exc
+                    raise OperationalError(ESCAPE_PROBE_ROLLBACK_FAILED) from rollback_exc
 
     def connect(self) -> None:
         """Establish a TCP CAS session with broker handshake and open database.
@@ -326,12 +308,13 @@ class Connection(ConnectionCommonMixin):
             response_body = self._recv_exact(self._socket, data_length + DataSize.CAS_INFO)
             open_db_packet.parse(response_body)
 
-            self._cas_info = open_db_packet.cas_info
+            self._record_reply_cas_info(open_db_packet.cas_info)
             self._session_id = open_db_packet.session_id
             self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
             self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
+            self._broker_db_type = open_db_packet.broker_info.get("db_type")
             self._connected = True
-            self._verified_cas_info = self._cas_info
+            self._mark_cas_reply_verified()
             self._physical_generation += 1
             if not self._no_backslash_escapes_explicit:
                 self._no_backslash_escapes = None
@@ -468,12 +451,31 @@ class Connection(ConnectionCommonMixin):
             if handle is None:
                 continue
             cursor._query_handle = None
-            try:
-                self._send_and_receive(CloseQueryPacket(handle))
-            except Error:
-                if not self._connected:
-                    raise
-                _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
+            self._close_handle_at_boundary(handle)
+        # Handles of cursors collected without close() and queued (#488).
+        generation = self._physical_generation
+        initial_count = len(self._deferred_closes)
+        for _ in range(initial_count):
+            if self._physical_generation != generation:
+                break  # replaced during an earlier CLOSE_REQ: nothing left to close
+            if not self._deferred_closes:
+                break  # retirement may have cleared the batch without replacing generation
+            head = self._deferred_closes[0]
+            handle = self._peek_boundary_deferred_close()
+            if handle is None:
+                self._consume_deferred_closes(1)  # stale or pooling-off: no wire ownership
+                continue
+            self._close_handle_at_boundary(handle)
+            if self._deferred_closes and self._deferred_closes[0] is head:
+                break  # a handled pre-send error left the head unsent
+
+    def _close_handle_at_boundary(self, handle: int) -> None:
+        try:
+            self._send_and_receive(CloseQueryPacket(handle))
+        except Error:
+            if not self._connected:
+                raise
+            _LOGGER.debug("CLOSE_REQ for handle %d failed", handle, exc_info=True)
 
     def _check_reconnect(self, *, allow_reconnect: bool = True) -> bool:
         """Probe an OUT_TRAN CAS with CHECK_CAS and reconnect only if it is gone.
@@ -495,7 +497,7 @@ class Connection(ConnectionCommonMixin):
                 CheckCasPacket(), allow_reconnect=False, expected_generation=None
             )
             if probe.response_code >= 0:
-                self._verified_cas_info = self._cas_info
+                self._mark_cas_reply_verified()
                 return False
             _LOGGER.debug("CHECK_CAS returned %d", probe.response_code)
         except (Error, OSError, struct.error) as exc:
@@ -524,7 +526,7 @@ class Connection(ConnectionCommonMixin):
                 )
                 if probe.response_code < 0:
                     raise OperationalError("replacement CAS session failed CHECK_CAS")
-                self._verified_cas_info = self._cas_info
+                self._mark_cas_reply_verified()
         except BaseException as exc:
             self._drop_connection()
             if isinstance(exc, Exception):
@@ -565,15 +567,12 @@ class Connection(ConnectionCommonMixin):
             self._drop_connection()
             raise OperationalError("failed to restore session state after reconnect") from exc
 
-    def cursor(self) -> Cursor:
+    def cursor(self) -> _cursor_module.Cursor:
         """Create and return a new cursor bound to this connection."""
         self._ensure_connected()
-        global _CursorClass  # noqa: PLW0603
-        if _CursorClass is None:
-            _CursorClass = getattr(import_module("pycubrid.cursor"), "Cursor")
-        cls = _CursorClass
-        assert cls is not None
-        cursor = cls(self)
+        from .cursor import Cursor
+
+        cursor = Cursor(self)
         self._cursors.add(cursor)
         return cursor
 
@@ -691,7 +690,7 @@ class Connection(ConnectionCommonMixin):
         except (InterfaceError, OperationalError, OSError, struct.error):
             healthy = False
         if healthy:
-            self._verified_cas_info = self._cas_info
+            self._mark_cas_reply_verified()
             return True
         # A failed CHECK_CAS confirms this session is broken: retire it even
         # without reconnect, as the async driver does, so no later request is
@@ -838,18 +837,30 @@ class Connection(ConnectionCommonMixin):
         the ``CUBRS`` magic is sent in plaintext, and only on a ``0`` reply
         is the same socket wrapped in TLS.  Wrapping earlier (TLS from
         byte 0) is rejected by the broker.
+
+        The handshake is bounded by ``read_timeout``, or by 10 seconds when
+        ``read_timeout`` is unset (the async ``ssl_handshake_timeout``
+        default); the socket is blocking again afterwards in that case.
         """
         ssl_context = self._ssl_context
         if ssl_context is None:
             return sock
+        bound_by_default = self._read_timeout is None
         try:
-            return ssl_context.wrap_socket(sock, server_hostname=host)
+            if bound_by_default:
+                # A peer that stalls mid-handshake must not block forever (#535).
+                sock.settimeout(_DEFAULT_TLS_HANDSHAKE_TIMEOUT)
+            ssl_sock = ssl_context.wrap_socket(sock, server_hostname=host)
         except (OSError, ssl_module.SSLError):
             try:
                 sock.close()
             except OSError:
                 pass
             raise
+        if bound_by_default:
+            # Requests after the handshake stay unbounded, as without TLS.
+            ssl_sock.settimeout(None)
+        return ssl_sock
 
     def _send_and_receive(
         self,
@@ -900,6 +911,8 @@ class Connection(ConnectionCommonMixin):
         expected_generation: int | None,
         bound_generation: int | None = None,
     ) -> Any:
+        if isinstance(packet, PrepareAndExecutePacket):
+            packet._query_handle_retired = False
         self._validate_prepared_generation(expected_generation)
         self._validate_bound_generation(bound_generation)
         if self._check_reconnect(
@@ -929,10 +942,21 @@ class Connection(ConnectionCommonMixin):
         request_socket = self._socket
         attempted_send = False
         response_complete = False
+        deferred_count = 0
         try:
             # Every request on this connection uses its charset (#86); encoding
             # happens in write(), so an unencodable value sends nothing.
             packet.encoding = self._encoding
+            if isinstance(packet, PrepareAndExecutePacket):
+                # Release queued handles of this session with this request (#488).
+                deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
+            elif (
+                isinstance(packet, CloseQueryPacket)
+                and self._peek_boundary_deferred_close() == packet.query_handle
+            ):
+                # The same send-time ownership transfer as FC41, but one FIFO
+                # CLOSE_REQ at a boundary. No extra wire argument is added.
+                deferred_count = 1
             try:
                 request_data = packet.write(self._cas_info)
             except struct.error as exc:
@@ -941,6 +965,8 @@ class Connection(ConnectionCommonMixin):
             # Re-check immediately before bytes can leave this socket.
             self._validate_prepared_session(expected_generation, request_socket)
             attempted_send = True
+            # Sent (or uncertain, which retires the session): never send them again.
+            self._consume_deferred_closes(deferred_count)
             request_socket.sendall(request_data)
             self._validate_prepared_session(expected_generation, request_socket)
             if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -962,14 +988,14 @@ class Connection(ConnectionCommonMixin):
             response_complete = True
             response_cas_info = response_body[: DataSize.CAS_INFO]
             if expected_generation is None:
-                self._cas_info = response_cas_info
+                self._record_reply_cas_info(response_cas_info)
+            self._retire_pooling_off_reply_handles(packet, response_body)
 
             try:
                 packet.parse(response_body)
             except (ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
                 if expected_generation is None:
-                    self._safe_close_socket()
-                    self._connected = False
+                    self._drop_connection()
                 elif self._prepared_session_is_current(expected_generation, request_socket):
                     self._discard_uncertain_prepared_session()
                 raise OperationalError("malformed response from broker") from exc
@@ -978,7 +1004,7 @@ class Connection(ConnectionCommonMixin):
                     raise
                 if getattr(exc, "_cas_server_error", False):
                     self._validate_prepared_session(expected_generation, request_socket)
-                    self._cas_info = response_cas_info
+                    self._record_reply_cas_info(response_cas_info)
                     raise
                 if self._prepared_session_is_current(expected_generation, request_socket):
                     self._discard_uncertain_prepared_session()
@@ -991,16 +1017,20 @@ class Connection(ConnectionCommonMixin):
                 raise OperationalError("malformed response from broker") from exc
             self._validate_prepared_session(expected_generation, request_socket)
             if expected_generation is not None:
-                self._cas_info = response_cas_info
+                self._record_reply_cas_info(response_cas_info)
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("recv: %d bytes", data_length + DataSize.CAS_INFO)
             return packet
         except OSError as exc:
+            if response_complete and expected_generation is None:
+                # Raised by a parse callback (json_deserializer) after the whole
+                # reply was read: not a transport failure, the session is intact.
+                raise
             if expected_generation is not None and not attempted_send:
                 raise  # Local pre-byte failure cannot corrupt the broker reply.
             if expected_generation is None:
-                self._safe_close_socket()
-                self._connected = False
+                if self._socket is request_socket:  # never a replacement session
+                    self._drop_connection()
             elif self._prepared_session_is_current(expected_generation, request_socket):
                 self._discard_uncertain_prepared_session()
             raise OperationalError("socket communication failed") from exc
@@ -1008,6 +1038,15 @@ class Connection(ConnectionCommonMixin):
         # codeql[py/catch-base-exception]
         except BaseException as exc:
             if (
+                expected_generation is None
+                and attempted_send
+                and not response_complete
+                and not isinstance(exc, Exception)
+                and self._socket is request_socket
+            ):
+                # An interrupt while the reply is outstanding leaves it unread.
+                self._discard_uncertain_prepared_session()
+            elif (
                 expected_generation is not None
                 and attempted_send
                 and (not response_complete or not isinstance(exc, Exception))
@@ -1071,3 +1110,8 @@ class Connection(ConnectionCommonMixin):
                 raise OperationalError("connection lost during receive")
             pos += n
         return buf
+
+
+# Define Connection before its type-only cursor dependency.
+if TYPE_CHECKING:
+    from . import cursor as _cursor_module

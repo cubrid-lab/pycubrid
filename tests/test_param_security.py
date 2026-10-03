@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime
 import enum
+import subprocess
+import sys
 from collections.abc import Iterator
 from decimal import Decimal, DecimalTuple
 from typing import cast
@@ -551,6 +553,12 @@ def _spoof(cls: type) -> object:
 
 # Plain values and their exact literals on main before #528 (golden output).
 _GOLDEN_PLAIN = [
+    (None, "NULL", None),
+    (True, "1", None),
+    (False, "0", None),
+    (42, "42", None),
+    (2.5, "2.5", None),
+    (Decimal("3.14"), "3.14", None),
     ("", "''", "''"),
     ("hello", "'hello'", "'hello'"),
     ("it's", "'it''s'", "'it''s'"),
@@ -567,6 +575,11 @@ _GOLDEN_PLAIN = [
     (datetime.time(1, 2, 3, tzinfo=datetime.timezone.utc), "TIME'01:02:03'", None),
     (datetime.datetime(2026, 1, 15, 13, 45, 30, 999999), "DATETIME'2026-01-15 13:45:30.999'", None),
     (datetime.datetime(1000, 1, 1), "DATETIME'1000-01-01 00:00:00.000'", None),
+    (
+        datetime.datetime(2026, 1, 15, 10, 30, tzinfo=datetime.timezone.utc),
+        "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'",
+        None,
+    ),
     (
         datetime.datetime(
             2026, 1, 15, 10, 30, tzinfo=datetime.timezone(-datetime.timedelta(hours=3, minutes=30))
@@ -790,6 +803,185 @@ class TestTzinfoKey:
 
         value = datetime.datetime(2024, 1, 1, tzinfo=_KeyedTZ("Asia/Tokyo"))
         assert format_parameter(value) == "DATETIMETZ'2024-01-01 00:00:00.000 Asia/Tokyo'"
+
+
+class _UnprintableTZError(ValueError):
+    def __str__(self) -> str:
+        raise AssertionError("exception text must not be read")
+
+
+class TestHostileTzinfo:
+    @pytest.mark.parametrize("phase", ["offset", "key-property", "key-getattr"])
+    @pytest.mark.parametrize(
+        "error",
+        [ValueError("bad"), TypeError("bad"), RuntimeError("bad"), _UnprintableTZError()],
+        ids=["value", "type", "runtime", "unprintable"],
+    )
+    def test_callback_errors_have_fixed_message_and_original_cause(
+        self, phase: str, error: Exception
+    ) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        class HostileTZ(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
+                if phase == "offset":
+                    raise error
+                return datetime.timedelta(hours=1)
+
+            @property
+            def key(self) -> None:
+                if phase == "key-property":
+                    raise error
+                raise AttributeError("key")
+
+            def __getattr__(self, name: str) -> None:
+                if name == "key" and phase == "key-getattr":
+                    raise error
+                raise AttributeError(name)
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=HostileTZ())
+        with pytest.raises(ProgrammingError) as caught:
+            format_parameter(value)
+        assert str(caught.value) == "invalid tzinfo on datetime parameter"
+        assert caught.value.__cause__ is error
+
+    @pytest.mark.parametrize(
+        "offset, cause_type",
+        [("wrong", TypeError), (datetime.timedelta(hours=25), ValueError)],
+        ids=["wrong-type", "outside-day"],
+    )
+    def test_invalid_offset_has_programming_error(self, offset: object, cause_type: type) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        class BadOffset(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> object:
+                return offset
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=BadOffset())
+        with pytest.raises(ProgrammingError) as caught:
+            format_parameter(value)
+        assert str(caught.value) == "invalid tzinfo on datetime parameter"
+        assert type(caught.value.__cause__) is cause_type
+
+    @pytest.mark.parametrize("reader", ["_TD_DAYS", "_TD_SECONDS", "_TD_MICROSECONDS"])
+    def test_offset_field_errors_have_original_cause(
+        self, reader: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pycubrid import _cursor_common
+
+        error = _UnprintableTZError()
+
+        def fail(_value: object) -> int:
+            raise error
+
+        monkeypatch.setattr(_cursor_common, reader, fail)
+        value = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
+        with pytest.raises(ProgrammingError) as caught:
+            _cursor_common.format_parameter(value)
+        assert str(caught.value) == "invalid tzinfo on datetime parameter"
+        assert caught.value.__cause__ is error
+
+    def test_base_exception_is_not_normalized(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        class InterruptedTZ(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
+                raise KeyboardInterrupt
+
+        with pytest.raises(KeyboardInterrupt):
+            format_parameter(datetime.datetime(2024, 1, 1, tzinfo=InterruptedTZ()))
+
+    def test_none_offset_does_not_read_hostile_key(self) -> None:
+        from pycubrid._cursor_common import format_parameter
+
+        class NoOffset(datetime.tzinfo):
+            def utcoffset(self, dt: datetime.datetime | None) -> None:
+                return None
+
+            @property
+            def key(self) -> None:
+                raise AssertionError("naive datetime must not read the key")
+
+        value = datetime.datetime(2024, 1, 1, tzinfo=NoOffset())
+        assert format_parameter(value) == "DATETIME'2024-01-01 00:00:00.000'"
+
+
+@pytest.mark.parametrize("kind", ["date", "datetime", "time", "offset"])
+def test_temporal_subclasses_in_real_pure_python_fallback(kind: str) -> None:
+    # Import fresh: replacing the module in an already imported interpreter
+    # would retain the C classes and would not exercise the actual fallback.
+    code = """
+import sys
+sys.modules['_datetime'] = None
+sys.modules['_zoneinfo'] = None
+import datetime
+from pycubrid._cursor_common import format_parameter
+from pycubrid.exceptions import ProgrammingError
+
+assert isinstance(datetime.date.year, property)
+for value, expected in (
+    (datetime.date(99, 1, 2), "DATE'0099-01-02'"),
+    (datetime.time(1, 2, 3, 456789), "TIME'01:02:03'"),
+    (datetime.datetime(2024, 1, 2, 3, 4, 5, 678999), "DATETIME'2024-01-02 03:04:05.678'"),
+    (datetime.datetime(2024, 1, 2, tzinfo=datetime.timezone(datetime.timedelta(hours=1))),
+     "DATETIMETZ'2024-01-02 00:00:00.000 +01:00'"),
+):
+    assert format_parameter(value) == expected
+
+kind = sys.argv[1]
+reads = []
+calls = []
+field = '_seconds' if kind == 'offset' else '_hour' if kind == 'time' else '_year'
+forged = 23 * 3600 if kind == 'offset' else 23 if kind == 'time' else 123456
+base = datetime.timedelta if kind == 'offset' else getattr(datetime, kind)
+
+class Forged(base):
+    def __getattribute__(self, name):
+        if name == field:
+            reads.append(name)
+            return forged
+        return super().__getattribute__(name)
+
+class TZ(datetime.tzinfo):
+    def utcoffset(self, dt):
+        calls.append('offset')
+        return offset
+
+    @property
+    def key(self):
+        calls.append('key')
+        return None
+
+offset = Forged(hours=1) if kind == 'offset' else datetime.timedelta(hours=1)
+if kind == 'offset':
+    assert datetime.timedelta.seconds.__get__(offset) == 23 * 3600
+    value = datetime.datetime(2024, 1, 2, tzinfo=TZ())
+elif kind == 'time':
+    value = Forged(1, 2, 3)
+    assert datetime.time.hour.__get__(value) == 23
+else:
+    value = Forged(2024, 1, 2, tzinfo=TZ()) if kind == 'datetime' else Forged(2024, 1, 2)
+    assert datetime.date.year.__get__(value) == 123456
+reads.clear()
+try:
+    rendered = format_parameter(value)
+except ProgrammingError:
+    pass
+else:
+    raise AssertionError('fallback subclass rendered ' + rendered)
+if kind != 'offset':
+    assert reads == [] and calls == []
+else:
+    assert calls == ['offset']
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, kind],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 class TestClassSpoofing:

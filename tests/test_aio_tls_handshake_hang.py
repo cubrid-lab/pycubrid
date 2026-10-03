@@ -21,7 +21,6 @@ import gc
 import socket
 import ssl
 import struct
-import sys
 import threading
 import time
 import warnings
@@ -137,16 +136,8 @@ async def test_aio_tls_connect_fails_within_read_timeout(behavior: str) -> None:
         # A stalled peer is only detected by the timeout itself.
         assert elapsed >= READ_TIMEOUT * 0.9
     assert asyncio.all_tasks() <= tasks_before
-    leaked = [
-        w
-        for w in caught
-        if issubclass(w.category, ResourceWarning)
-        # Python 3.10 only: the preflight probe's blocking wrap_socket() can
-        # hit a CPython 3.10 ssl bug where SSLSocket._create() raises on a
-        # peer reset after taking ownership of the fd, so the half-built
-        # SSLSocket is closed by the garbage collector, not by pycubrid.
-        and not (sys.version_info < (3, 11) and "unclosed <ssl.SSLSocket" in str(w.message))
-    ]
+    # The Python 3.10 preflight probe closes its own socket on a reset too (#535).
+    leaked = [w for w in caught if issubclass(w.category, ResourceWarning)]
     assert not leaked, [str(w.message) for w in leaked]
 
 

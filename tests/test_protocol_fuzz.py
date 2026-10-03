@@ -28,7 +28,9 @@ the documented contract:
 * a mutated reply either parses, raises a structural error (reported as
   ``OperationalError('malformed response from broker')``, session closed), a
   server error, or ``DataError`` only when the reply is complete (#383, #512, #543);
-* a parsed FETCH reply never has cells whose declared sizes overrun it.
+* a parsed FETCH reply never has cells whose declared sizes overrun it;
+* a negative column-metadata length or column count in an FC41, FC2 or FC3
+  reply is always a structural error, never an empty name or no columns (#555).
 
 Mutations aim at framing: truncation at field and cell boundaries, length and
 count words that disagree with their payload, collection element types and
@@ -50,7 +52,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hypothesis import given, note, settings, strategies as st
+from hypothesis import assume, given, note, settings, strategies as st
 
 from pycubrid import protocol
 from pycubrid.aio.connection import AsyncConnection
@@ -418,6 +420,56 @@ def _framing_mutation(draw: st.DrawFn, seed: cas_reply.Seed) -> bytes:
     return bytes(b)
 
 
+@st.composite
+def _negative_metadata_field(draw: st.DrawFn, seed: cas_reply.Seed) -> tuple[bytes, int]:
+    """Rewrite one column-metadata text length or column count to a negative value (#555).
+
+    A rewritten text length also drops its payload (#581), as the deterministic
+    ``_negative_field`` helper does, so a parser that reads a negative length as
+    "empty" stays aligned and decodes the rest of the reply: the only acceptable
+    outcome is a structural error (``OperationalError``, session closed), never
+    an empty name or an empty column list.
+    """
+    pos = draw(st.sampled_from(seed.metadata_lengths + seed.column_counts))
+    value = draw(st.sampled_from([-1, -2, -(2**31)]) | st.integers(-(2**31), -1))
+    b = bytearray(seed.data)
+    if pos in seed.metadata_lengths:
+        old = struct.unpack_from(">i", b, pos)[0]
+        b[pos : pos + 4 + old] = struct.pack(">i", value)
+    else:
+        _put_int(b, pos, value)
+    return bytes(b), pos
+
+
+@st.composite
+def _invalid_text_then_metadata_damage(draw: st.DrawFn, seed: cas_reply.Seed) -> bytes:
+    """Make one metadata text undecodable and damage a later metadata field (#581).
+
+    The undecodable text alone would be a ``DataError`` for a complete reply;
+    with a later length that is negative (payload dropped) or past the end of
+    the reply, or with the reply cut inside a later column, the reply is not
+    complete, so the only acceptable outcome is a structural error.
+    """
+    texts = [p for p in seed.metadata_lengths if struct.unpack_from(">i", seed.data, p)[0] > 0]
+    assume(texts)
+    first = draw(st.sampled_from(texts))
+    later = [p for p in seed.metadata_lengths if p > first]
+    assume(later)
+    pos = draw(st.sampled_from(later))
+    b = bytearray(seed.data)
+    old_len = struct.unpack_from(">i", b, first)[0]
+    b[first + 4 + draw(st.integers(0, old_len - 1))] = 0xFF  # never valid UTF-8
+    damage = draw(st.sampled_from(("negative", "overrun", "truncate")))
+    old = struct.unpack_from(">i", b, pos)[0]
+    if damage == "negative":
+        b[pos : pos + 4 + old] = struct.pack(">i", draw(st.integers(-(2**31), -1)))
+    elif damage == "overrun":
+        _put_int(b, pos, len(b) - pos - 4 + draw(st.integers(1, 2**20)))
+    else:
+        del b[pos + draw(st.integers(0, 4 + old - 1)) :]
+    return bytes(b)
+
+
 _Case = tuple[cas_reply.ResultSet, cas_reply.Seed]
 
 _FETCH_SEEDS: list[_Case] = [(rs, cas_reply.fetch_reply(rs)) for rs in cas_reply.RESULT_SETS]
@@ -660,6 +712,13 @@ class TestExecuteReplyFuzz:
         )
         exc = _outcome(lambda: pkt.parse(reply))
         _assert_documented(exc)
+        if exc is None:
+            # A negative column count is framing damage, never "no columns" (#555);
+            # so are negative bind, total and inline tuple counts (#581).
+            assert pkt.column_count == len(pkt.columns)
+            assert pkt.bind_count >= 0
+            assert pkt.total_tuple_count >= 0
+            assert pkt.tuple_count >= 0
         if exc is None and pkt.tuple_count > 0 and pkt.rows:
             assert len(pkt.rows) == pkt.tuple_count
             assert all(len(row) == len(pkt.columns) for row in pkt.rows)
@@ -676,6 +735,8 @@ class TestExecuteReplyFuzz:
         refreshed = seed.name.startswith("execute_refreshed")
         exc = _outcome(lambda: pkt.parse(reply, columns=None if refreshed else rs.metadata()))
         _assert_documented(exc)
+        if exc is None:
+            assert pkt.tuple_count >= 0  # #581
         if exc is None and pkt.rows:
             assert len(pkt.rows) == pkt.tuple_count
             assert all(len(row) == len(pkt.columns) for row in pkt.rows)
@@ -692,6 +753,106 @@ class TestExecuteReplyFuzz:
         if exc is None:
             assert pkt.bind_count >= 0
             assert pkt.column_count == len(pkt.columns)
+
+
+class TestNegativeColumnMetadataFuzz:
+    """Negative metadata lengths and column counts are rejected on every execute path (#555)."""
+
+    @given(
+        case=_cases(
+            _PAE_SEEDS
+            + _PREPARE_SEEDS
+            + [c for c in _EXECUTE_SEEDS if c[1].name.startswith("execute_refreshed")]
+        ),
+        data=st.data(),
+    )
+    @settings(deadline=None)
+    def test_negative_metadata_field_is_malformed(self, case: _Case, data: st.DataObject) -> None:
+        rs, seed = case
+        assert seed.metadata_lengths and seed.column_counts, seed.name
+        reply, pos = data.draw(_negative_metadata_field(seed))
+        note(f"{seed.name} @ {pos}")
+        if seed.name.startswith("prepare_and_execute"):
+            pae = protocol.PrepareAndExecutePacket(sql="SELECT 1", decode_collections=True)
+            exc = _outcome(lambda: pae.parse(reply))
+        elif seed.name.startswith("prepare/"):
+            exc = _outcome(lambda: protocol.PreparePacket(sql="SELECT 1").parse(reply))
+        else:
+            execute = protocol.ExecutePacket(query_handle=5, statement_type=rs.statement_type)
+            exc = _outcome(lambda: execute.parse(reply, columns=None))
+        assert isinstance(exc, STRUCTURAL_CAUGHT), f"{seed.name} @ {pos}: {exc!r}"
+        assert not isinstance(exc, DataError)
+
+    @given(case=_cases(_PAE_SEEDS), use_async=st.booleans(), data=st.data())
+    @settings(deadline=None)
+    def test_negative_fc41_metadata_field_closes_the_connection(
+        self, case: _Case, use_async: bool, data: st.DataObject
+    ) -> None:
+        _, seed = case
+        reply, pos = data.draw(_negative_metadata_field(seed))
+        note(f"{seed.name} @ {pos}")
+        pkt = protocol.PrepareAndExecutePacket(sql="SELECT 1", decode_collections=True)
+        conn: Connection | AsyncConnection
+        if use_async:
+            conn = _async_connection_with_reply(reply)
+            exc = _outcome(lambda: asyncio.run(conn._send_and_receive(pkt)))
+        else:
+            conn, _ = _sync_connection(reply)
+            exc = _outcome(lambda: conn._send_and_receive(pkt))
+        assert isinstance(exc, OperationalError), repr(exc)
+        assert exc.msg == "malformed response from broker"
+        assert isinstance(exc.__cause__, ValueError)
+        assert conn._connected is False
+
+
+class TestDataErrorBeforeMetadataDamageFuzz:
+    """An undecodable metadata text never hides later metadata damage (#581)."""
+
+    @given(
+        case=_cases(
+            _PAE_SEEDS
+            + _PREPARE_SEEDS
+            + [c for c in _EXECUTE_SEEDS if c[1].name.startswith("execute_refreshed")]
+        ),
+        data=st.data(),
+    )
+    @settings(deadline=None)
+    def test_two_field_corruption_is_malformed(self, case: _Case, data: st.DataObject) -> None:
+        rs, seed = case
+        note(seed.name)
+        reply = data.draw(_invalid_text_then_metadata_damage(seed))
+        if seed.name.startswith("prepare_and_execute"):
+            pae = protocol.PrepareAndExecutePacket(sql="SELECT 1", decode_collections=True)
+            exc = _outcome(lambda: pae.parse(reply))
+        elif seed.name.startswith("prepare/"):
+            exc = _outcome(lambda: protocol.PreparePacket(sql="SELECT 1").parse(reply))
+        else:
+            execute = protocol.ExecutePacket(query_handle=5, statement_type=rs.statement_type)
+            exc = _outcome(lambda: execute.parse(reply, columns=None))
+        assert isinstance(exc, STRUCTURAL_CAUGHT), f"{seed.name}: {exc!r}"
+        assert not isinstance(exc, DataError)
+
+    @given(case=_cases(_PAE_SEEDS), use_async=st.booleans(), data=st.data())
+    @settings(deadline=None)
+    def test_two_field_fc41_corruption_closes_the_connection(
+        self, case: _Case, use_async: bool, data: st.DataObject
+    ) -> None:
+        _, seed = case
+        note(seed.name)
+        reply = data.draw(_invalid_text_then_metadata_damage(seed))
+        pkt = protocol.PrepareAndExecutePacket(sql="SELECT 1", decode_collections=True)
+        conn: Connection | AsyncConnection
+        if use_async:
+            conn = _async_connection_with_reply(reply)
+            exc = _outcome(lambda: asyncio.run(conn._send_and_receive(pkt)))
+        else:
+            conn, _ = _sync_connection(reply)
+            exc = _outcome(lambda: conn._send_and_receive(pkt))
+        assert isinstance(exc, OperationalError), repr(exc)
+        assert exc.msg == "malformed response from broker"
+        assert isinstance(exc.__cause__, STRUCTURAL_CAUGHT)
+        assert not isinstance(exc.__cause__, DataError)
+        assert conn._connected is False
 
 
 class TestBatchAndLobReplyFuzz:

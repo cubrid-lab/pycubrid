@@ -23,13 +23,15 @@ from .test_network_edge_cases import (
 
 def test_sync_out_tran_does_not_reconnect() -> None:
     conn, sock = make_connected_connection()
-    conn._cas_info = b"\x00\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x00\x01\x02\x03")
     ok = build_simple_ok_response(b"\x00\x01\x02\x03")
     sock.recv_into.side_effect = make_socket_from_chunks([ok[:4], ok[4:]]).recv_into.side_effect
     conn.connect = MagicMock()
+    sends = sock.sendall.call_count
 
     # A live OUT_TRAN CAS answers the CHECK_CAS probe (#485): same session.
     assert conn._check_reconnect() is False
+    assert sock.sendall.call_count == sends + 1  # the probe was really sent
 
     assert conn._socket is sock
     assert conn._cas_info[0] == 0
@@ -40,17 +42,18 @@ def test_sync_out_tran_does_not_reconnect() -> None:
 @pytest.mark.asyncio
 async def test_async_out_tran_does_not_reconnect() -> None:
     conn, _, writer = make_async_connection()
-    conn._cas_info = b"\x00\x01\x02\x03"
+    conn._record_reply_cas_info(b"\x00\x01\x02\x03")
     conn.connect = AsyncMock()
 
     async def live_probe(packet: object) -> object:
-        conn._cas_info = b"\x00\x01\x02\x03"
+        conn._record_reply_cas_info(b"\x00\x01\x02\x03")
         return SimpleNamespace(response_code=0)
 
     conn._do_send_and_receive = AsyncMock(side_effect=live_probe)
 
     # A live OUT_TRAN CAS answers the CHECK_CAS probe (#485): same session.
     assert await conn._check_reconnect() is False
+    conn._do_send_and_receive.assert_awaited_once()  # the probe was really sent
 
     assert conn._writer is writer
     assert conn._cas_info[0] == 0
@@ -129,6 +132,7 @@ async def test_async_cancelled_reply_retires_transport() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.no_escape_pin
 @pytest.mark.asyncio
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=[adapter.kind for adapter in ADAPTERS])
 @pytest.mark.parametrize("boundary", ["commit", "rollback"])

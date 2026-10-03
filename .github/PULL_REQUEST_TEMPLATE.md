@@ -1,9 +1,10 @@
 <!--
 Title: `type: description` or `type(scope): description`; add `!` before the colon
 for a breaking change. Types: feat, fix, docs, test, perf, refactor, ci, build,
-chore, style, revert. English, lowercase start, no trailing period, no issue
-numbers (put "Closes #123" in Related Issues). The title becomes the squash
-commit title. See CONTRIBUTING.md#pull-request-and-commit-titles.
+chore, style, revert. English, lowercase start unless the first word is an API
+name, acronym, or proper noun. No trailing period, no issue numbers (put
+"Closes #123" in Related Issues). The title becomes the squash commit title.
+See CONTRIBUTING.md#pull-request-and-commit-titles.
 -->
 ## Summary
 
@@ -27,6 +28,9 @@ commit title. See CONTRIBUTING.md#pull-request-and-commit-titles.
 - [ ] Chore (maintenance, dependencies, CI, etc.)
 
 ## Checklist
+
+- [ ] The implementation issue has the actual owner in Assignees; existing claims and PRs were coordinated
+- [ ] The linked issue has current scope, verifiable completion criteria and validation instructions; completed dependencies are not still blockers
 
 - [ ] My code follows the project's code style
 - [ ] I have run `make check-all` and `make test`, or recorded checks not run and reasons below

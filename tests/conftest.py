@@ -98,31 +98,17 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     socket that does not queue a ``CHAR_LENGTH`` probe response. Escape-mode
     negotiation now fails loud on an unreadable probe (issue #263), so pin the
     flag to its legacy default here instead of probing the exhausted socket.
-    The dedicated ``test_backslash_negotiation.py`` module opts out to exercise
-    the real probe, and ``test_integration.py`` opts out because it negotiates
-    against a live CUBRID server.
+
+    Opt-out is an explicit ``no_escape_pin`` marker (registered in
+    ``pyproject.toml``), not a filename guess (#524): a bare filename
+    substring match on e.g. ``"test_integration"`` silently opted out every
+    ``test_integration_*.py`` module too, whether or not it actually needed
+    to. ``test_backslash_negotiation.py`` and ``test_replay_parity.py`` carry
+    the marker directly to exercise the real probe against a scripted broker;
+    every module that negotiates against a live CUBRID server carries it
+    alongside its existing ``integration`` or ``benchmark`` marker.
     """
-    fspath = str(request.fspath)
-    _live_optouts = (
-        "test_backslash_negotiation",
-        "test_integration",
-        "test_property_live_values",
-        "test_connection_state_machine",
-        "test_metamorphic_parity",
-        "test_transaction_matrix",
-        "test_type_contract",
-        "test_batch_semantics",
-        "test_lob_adversarial",
-        "test_async_cancellation",
-        "test_official_differential",
-        "test_resource_leaks",
-        "test_pep249_runtime",
-        "test_soak",
-        "test_chaos",
-        "test_version_differential",
-        "test_replay_parity",
-    )
-    if any(name in fspath for name in _live_optouts):
+    if request.node.get_closest_marker("no_escape_pin") is not None:
         return
 
     def _pin_sync(self: Connection) -> None:

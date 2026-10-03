@@ -8,7 +8,12 @@ from typing import Any, Literal, Protocol
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
 from .exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
-from .protocol import LOBNewPacket, LOBReadPacket, LOBWritePacket
+from .protocol import (
+    LOBNewPacket,
+    LOBReadPacket,
+    LOBWritePacket,
+    _packed_lob_handle_after_write,
+)
 
 
 class _ConnectionLike(Protocol):
@@ -33,6 +38,15 @@ def _reject_async_connection(connection: _ConnectionLike) -> None:
             "LOB operations are not supported on async connections; "
             "async LOB support is not implemented"
         )
+
+
+def _require_non_negative_int(value: object, name: str) -> int:
+    """Reject non-ints (including bool) and negative values before wire packing."""
+    if type(value) is not int:
+        raise InterfaceError(f"{name} must be an int, got {type(value).__name__}")
+    if value < 0:
+        raise InterfaceError(f"{name} must be non-negative, got {value}")
+    return value
 
 
 class Lob:
@@ -75,8 +89,7 @@ class Lob:
         requested (e.g. disk full, quota exceeded).
         """
         self._check_open()
-        if offset < 0:
-            raise InterfaceError(f"offset must be non-negative, got {offset}")
+        _require_non_negative_int(offset, "offset")
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
         if isinstance(data, bytes) and len(data) == 0:
@@ -87,6 +100,16 @@ class Lob:
                 raise DataError("parameter value too large to serialize into CAS request") from exc
             return 0
         self._connection._send_and_receive(packet)
+        if packet.bytes_written > len(data):
+            # CCI rejects this reply without touching the handle's size.
+            raise OperationalError(
+                f"LOB write truncated: wrote {packet.bytes_written} of {len(data)} bytes"
+            )
+        # Keep the handle's size field current, as CCI does, so the handle
+        # stays correct when it is sent back (for example as a bound value).
+        self._lob_handle = _packed_lob_handle_after_write(
+            self._lob_handle, offset + packet.bytes_written
+        )
         if packet.bytes_written != len(data):
             raise OperationalError(
                 f"LOB write truncated: wrote {packet.bytes_written} of {len(data)} bytes"
@@ -104,10 +127,8 @@ class Lob:
         broker signals end-of-LOB by returning zero bytes.
         """
         self._check_open()
-        if offset < 0:
-            raise InterfaceError(f"offset must be non-negative, got {offset}")
-        if length < 0:
-            raise InterfaceError(f"length must be non-negative, got {length}")
+        _require_non_negative_int(offset, "offset")
+        _require_non_negative_int(length, "length")
         self._connection._ensure_connected()
 
         chunks: list[bytes] = []

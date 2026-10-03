@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import time
@@ -15,7 +16,13 @@ from pycubrid._cursor_common import (
     _raise_batch_error,
 )
 from pycubrid.constants import CUBRIDStatementType
-from pycubrid.exceptions import DataError, InterfaceError, OperationalError, ProgrammingError
+from pycubrid.exceptions import (
+    DataError,
+    InterfaceError,
+    NotSupportedError,
+    OperationalError,
+    ProgrammingError,
+)
 
 from pycubrid.protocol import (
     BatchExecutePacket,
@@ -29,7 +36,7 @@ from pycubrid.protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 # Identifier validation for stored procedure names (prevents SQL injection).
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
+_IDENTIFIER_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*")
 
 
 if TYPE_CHECKING:
@@ -52,6 +59,8 @@ class AsyncCursor(_AsyncCursorBase):
         self._rowcount: int = -1
         self._arraysize: int = 1
         self._query_handle: int | None = None
+        # Physical session generation the query handle was opened on (#488).
+        self._handle_generation = 0
         self._columns: list[ColumnMetaData] = []
         self._rows: list[tuple[Any, ...]] = []
         self._row_index: int = 0
@@ -99,16 +108,42 @@ class AsyncCursor(_AsyncCursorBase):
             raise ProgrammingError("fetch_size must be an integer >= 1")
         self._fetch_size = value
 
+    def __del__(self) -> None:
+        # A cursor dropped without close() releases its handle later (#488).
+        connection = getattr(self, "_connection", None)
+        if connection is None:
+            return
+        try:
+            connection._defer_dropped_cursor_close(self)
+        except Exception:  # noqa: BLE001 - e.g. interpreter shutdown; never raise from __del__
+            with contextlib.suppress(Exception):  # logging may be torn down too
+                _LOGGER.debug("Could not queue a collected cursor's handle", exc_info=True)
+
+    async def _release_handle(self) -> None:
+        """Release the current result's handle before a new request (#488).
+
+        Deferred to the next ``PREPARE_AND_EXECUTE`` when the connection allows
+        it, otherwise closed now with ``CLOSE_REQ``.
+        """
+        handle = self._query_handle
+        if handle is None:
+            return
+        if not self._connection._defer_close(handle, self._handle_generation):
+            await self._connection._send_and_receive(CloseQueryPacket(handle), handle_owner=self)
+        self._query_handle = None
+
     async def close(self) -> None:
         if self._closed:
             return
         _LOGGER.debug("cursor.close (handle=%s)", self._query_handle)
         try:
-            if self._query_handle is not None:
+            handle = self._query_handle
+            if handle is not None:
                 self._connection._ensure_connected()
-                await self._connection._send_and_receive(
-                    CloseQueryPacket(self._query_handle), handle_owner=self
-                )
+                if not self._connection._defer_close(handle, self._handle_generation):
+                    await self._connection._send_and_receive(
+                        CloseQueryPacket(handle), handle_owner=self
+                    )
         except (InterfaceError, OperationalError, OSError):
             pass
         finally:
@@ -135,11 +170,19 @@ class AsyncCursor(_AsyncCursorBase):
         if _timing is not None:
             _start = time.perf_counter_ns()
 
-        if self._query_handle is not None:
-            await self._connection._send_and_receive(
-                CloseQueryPacket(self._query_handle), handle_owner=self
-            )
-            self._query_handle = None
+        # In autocommit the CLOSE_REQ rides on this execute's request (#488).
+        await self._release_handle()
+
+        # Once the previous query is closed, a failed execute has no result set.
+        self._description = None
+        self._columns = []
+        self._rows = []
+        self._row_index = 0
+        self._fetched_count = 0
+        self._page_error = None
+        self._total_tuple_count = 0
+        self._rowcount = -1
+        self._lastrowid = None
 
         sql = operation
         expected_escape_generation = None
@@ -163,18 +206,12 @@ class AsyncCursor(_AsyncCursorBase):
                 )
         except DataError:
             # A row value failed to decode after the whole reply was read, so
-            # the session is intact (#492). Own the server handle the reply
-            # opened, with no result set, so the usual lifecycle releases it.
-            self._query_handle = packet.query_handle or None
-            self._description = None
-            self._columns = []
-            self._rows = []
-            self._row_index = 0
-            self._fetched_count = 0
-            self._page_error = None
-            self._total_tuple_count = 0
-            self._rowcount = -1
-            self._lastrowid = None
+            # the session is intact (#492). Own the reply's handle only if an
+            # automatic transaction boundary did not already free it (#584).
+            self._query_handle = (
+                None if packet._query_handle_retired else packet.query_handle or None
+            )
+            self._handle_generation = self._connection._physical_generation
             raise
         # Cleared only now: a reconnect before this send flags every cursor.
         self._invalidated_by_reconnect = False
@@ -186,7 +223,8 @@ class AsyncCursor(_AsyncCursorBase):
                 packet.total_tuple_count,
             )
 
-        self._query_handle = packet.query_handle
+        self._query_handle = None if packet._query_handle_retired else packet.query_handle
+        self._handle_generation = self._connection._physical_generation
         self._statement_type = packet.statement_type
         self._columns = list(packet.columns)
         self._description = self._build_description(self._columns)
@@ -228,11 +266,7 @@ class AsyncCursor(_AsyncCursorBase):
     ) -> AsyncCursor:
         self._check_closed()
         if not seq_of_parameters:
-            if self._query_handle is not None:
-                await self._connection._send_and_receive(
-                    CloseQueryPacket(self._query_handle), handle_owner=self
-                )
-                self._query_handle = None
+            await self._release_handle()
             self._description = None
             self._columns = []
             self._rows = []
@@ -265,11 +299,7 @@ class AsyncCursor(_AsyncCursorBase):
         self._connection._ensure_connected()
         # Release the previous result first (as execute() does): its CLOSE_REQ
         # can end OUT_TRAN, and the pre-bind check must run after it (#485).
-        if self._query_handle is not None:
-            await self._connection._send_and_receive(
-                CloseQueryPacket(self._query_handle), handle_owner=self
-            )
-            self._query_handle = None
+        await self._release_handle()
         expected_escape_generation = await self._connection._generation_for_binding()
         sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
@@ -298,11 +328,7 @@ class AsyncCursor(_AsyncCursorBase):
         await self._connection._wait_for_setup_if_needed()
         self._connection._ensure_connected()
 
-        if self._query_handle is not None:
-            await self._connection._send_and_receive(
-                CloseQueryPacket(self._query_handle), handle_owner=self
-            )
-            self._query_handle = None
+        await self._release_handle()
 
         if sql_list:
             self._connection._last_insert_id = None
@@ -403,7 +429,7 @@ class AsyncCursor(_AsyncCursorBase):
 
     async def callproc(self, procname: str, parameters: Sequence[Any] = ()) -> Sequence[Any]:
         """Call a stored procedure and return the original parameters."""
-        if not _IDENTIFIER_RE.match(procname):
+        if not _IDENTIFIER_RE.fullmatch(procname):
             raise ProgrammingError(f"Invalid stored procedure name: {procname!r}")
         placeholders = ", ".join(["?"] * len(parameters))
         if placeholders:
@@ -416,8 +442,6 @@ class AsyncCursor(_AsyncCursorBase):
     async def nextset(self) -> None:
         """Not supported — CUBRID does not have multiple result sets."""
         self._check_closed()
-        from pycubrid.exceptions import NotSupportedError
-
         raise NotSupportedError("CUBRID does not support multiple result sets")
 
     def __aiter__(self) -> AsyncCursor:

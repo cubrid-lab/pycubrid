@@ -14,9 +14,8 @@ import pytest
 from pycubrid.exceptions import DataError
 from tests._parity_helpers import ADAPTERS, ParityAdapter, table_name
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
-_MISSING = object()
 AMBIGUOUS = "2026-11-01 01:30:00.250 America/New_York"
 
 
@@ -28,19 +27,19 @@ def adapter(request: pytest.FixtureRequest) -> ParityAdapter:
 @contextlib.contextmanager
 def _hide_tz_database() -> Iterator[None]:
     """Hide both the system zoneinfo and the ``tzdata`` package."""
-    saved = sys.modules.get("tzdata", _MISSING)
-    sys.modules["tzdata"] = None  # type: ignore[assignment]
-    zoneinfo.reset_tzpath(to=[])
-    zoneinfo.ZoneInfo.clear_cache()
-    try:
-        yield
-    finally:
-        if saved is _MISSING:
-            del sys.modules["tzdata"]
-        else:
-            sys.modules["tzdata"] = saved  # type: ignore[assignment]
-        zoneinfo.reset_tzpath()
+    saved_path = zoneinfo.TZPATH
+    with pytest.MonkeyPatch.context() as patch:
+        for name in tuple(sys.modules):
+            if name == "tzdata" or name.startswith("tzdata."):
+                patch.delitem(sys.modules, name)
+        patch.setitem(sys.modules, "tzdata", None)
+        zoneinfo.reset_tzpath(to=[])
         zoneinfo.ZoneInfo.clear_cache()
+        try:
+            yield
+        finally:
+            zoneinfo.reset_tzpath(to=saved_path)
+            zoneinfo.ZoneInfo.clear_cache()
 
 
 @pytest.fixture

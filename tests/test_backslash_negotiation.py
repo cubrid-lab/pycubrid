@@ -14,14 +14,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from pycubrid._connection_common import ESCAPE_PROBE_SQL, no_backslash_escapes_from_probe
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
 from pycubrid.exceptions import OperationalError
 from pycubrid.protocol import PrepareAndExecutePacket
 
+from .helpers.replay_broker import Reply, Request, Session, run_replay_broker
 from .test_async import make_streams_for_connect
 from .test_connection import build_handshake_response, build_open_db_response, make_socket
 from .test_aio_ping import make_async_connection
+
+pytestmark = pytest.mark.no_escape_pin
 
 
 def _make_sync_conn(
@@ -257,39 +261,66 @@ async def test_async_recovery_reprobes_automatic_mode(
 
 @pytest.mark.parametrize("mode", [False, True])
 def test_sync_explicit_mode_survives_recovery_without_probe(mode: bool) -> None:
-    open_db = build_open_db_response()
-    sockets = [
-        make_socket([build_handshake_response(), open_db[:4], open_db[4:]]) for _ in range(2)
-    ]
-    with patch("socket.create_connection", side_effect=sockets):
-        conn = Connection("localhost", 33000, "testdb", "dba", "", no_backslash_escapes=mode)
-        conn._drop_connection()
-        assert conn.ping(reconnect=True) is True
+    with run_replay_broker(_recycle_first_ping) as broker:
+        conn = Connection(
+            "127.0.0.1",
+            broker.port,
+            "testdb",
+            "dba",
+            "",
+            no_backslash_escapes=mode,
+            connect_timeout=2,
+            read_timeout=2,
+        )
+        try:
+            assert conn.ping(reconnect=True) is True
+            cursor = conn.cursor()
+            cursor.execute("SELECT ?", (r"one\two",))
+            assert cursor.fetchone() == (1,)
+        finally:
+            conn.close()
 
-    assert conn._no_backslash_escapes is mode
-    assert conn._no_backslash_escapes_explicit is True
-    assert conn._physical_generation == 2
-    assert [sock.sendall.call_count for sock in sockets] == [2, 2]
+    expected = r"SELECT 'one\two'" if mode else r"SELECT 'one\\two'"
+    sqls = [r.sql for r in broker.requests if r.sql is not None]
+    assert sqls == [expected]
+    assert ESCAPE_PROBE_SQL not in sqls
+    assert {r.session for r in broker.requests} == {0, 1}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", [False, True])
 async def test_async_explicit_mode_survives_recovery_without_probe(mode: bool) -> None:
-    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", no_backslash_escapes=mode)
-    first_reader, first_writer, _ = make_streams_for_connect()
-    next_reader, next_writer, _ = make_streams_for_connect()
-    conn._open_connection = AsyncMock(
-        side_effect=[(first_reader, first_writer), (next_reader, next_writer)]
-    )
+    with run_replay_broker(_recycle_first_ping) as broker:
+        conn = AsyncConnection(
+            "127.0.0.1",
+            broker.port,
+            "testdb",
+            "dba",
+            "",
+            no_backslash_escapes=mode,
+            connect_timeout=2,
+            read_timeout=2,
+        )
+        try:
+            await conn.connect()
+            assert await conn.ping(reconnect=True) is True
+            cursor = conn.cursor()
+            await cursor.execute("SELECT ?", (r"one\two",))
+            assert await cursor.fetchone() == (1,)
+        finally:
+            await conn.close()
 
-    await conn.connect()
-    conn._drop_connection()
-    assert await conn.ping(reconnect=True) is True
+    expected = r"SELECT 'one\two'" if mode else r"SELECT 'one\\two'"
+    sqls = [r.sql for r in broker.requests if r.sql is not None]
+    assert sqls == [expected]
+    assert ESCAPE_PROBE_SQL not in sqls
+    assert {r.session for r in broker.requests} == {0, 1}
 
-    assert conn._no_backslash_escapes is mode
-    assert conn._no_backslash_escapes_explicit is True
-    assert conn._physical_generation == 2
-    assert [writer.write.call_count for writer in (first_writer, next_writer)] == [2, 2]
+
+def _recycle_first_ping(request: Request, session: Session) -> Reply | None:
+    if request.function == "CHECK_CAS" and session.number == 0:
+        return Reply(close=True)
+    return None
 
 
 def test_sync_healthy_ping_does_not_reprobe(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -612,3 +643,78 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
     with pytest.raises(OperationalError, match="parameter binding; retry operation"):
         await asyncio.wait_for(task, timeout=2)
     conn._do_send_and_receive.assert_not_awaited()
+
+
+# -- one shared escape policy for every probe path (#525) ------------------------
+
+
+@pytest.mark.parametrize(("length", "expected"), [(2, True), (1, False)])
+def test_shared_policy_maps_probe_length(length: object, expected: bool) -> None:
+    assert no_backslash_escapes_from_probe(length) is expected
+
+
+@pytest.mark.parametrize("length", [0, 3, 7, None, "2", b"\x02"])
+def test_shared_policy_never_guesses(length: object) -> None:
+    with pytest.raises(OperationalError, match=r"CHAR_LENGTH probe returned"):
+        no_backslash_escapes_from_probe(length)
+
+
+def _sync_probe_outcome(row: object) -> object:
+    conn, cur = _make_sync_conn(row)
+    try:
+        conn._negotiate_backslash_escapes()
+    except OperationalError as exc:
+        return str(exc)
+    finally:
+        assert cur.execute.call_args.args == (ESCAPE_PROBE_SQL,)
+    return conn._no_backslash_escapes
+
+
+async def _async_probe_outcome(row: object) -> object:
+    conn, cur = _make_async_conn(row)
+    try:
+        await conn._negotiate_backslash_escapes()
+    except OperationalError as exc:
+        return str(exc)
+    finally:
+        assert cur.execute.await_args.args == (ESCAPE_PROBE_SQL,)
+    return conn._no_backslash_escapes
+
+
+async def _async_locked_probe_outcome(row: object) -> object:
+    conn = AsyncConnection.__new__(AsyncConnection)
+    conn._no_backslash_escapes = None
+    conn._autocommit = False
+    conn._protocol_version = 8
+    sent: list[str] = []
+
+    async def send(packet: object, *, allow_reconnect: bool) -> object:
+        assert allow_reconnect is False
+        if isinstance(packet, PrepareAndExecutePacket):
+            sent.append(packet.sql)
+            packet.rows = [] if row is None else [row]
+            packet.query_handle = 1
+        return packet
+
+    setattr(conn, "_send_and_receive_locked", send)
+    try:
+        await conn._negotiate_backslash_escapes_locked()
+    except OperationalError as exc:
+        return str(exc)
+    finally:
+        assert sent == [ESCAPE_PROBE_SQL]
+    return conn._no_backslash_escapes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row", [(2,), (1,), (7,), None])
+async def test_sync_async_and_recovery_probes_share_one_policy(row: object) -> None:
+    length = row[0] if isinstance(row, tuple) else None
+    try:
+        expected: object = no_backslash_escapes_from_probe(length)
+    except OperationalError as exc:
+        expected = str(exc)
+
+    assert _sync_probe_outcome(row) == expected
+    assert await _async_probe_outcome(row) == expected
+    assert await _async_locked_probe_outcome(row) == expected

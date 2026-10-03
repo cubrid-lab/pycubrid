@@ -61,3 +61,5 @@ Key facts:
 - [Full documentation in one file](https://cubrid-lab.github.io/pycubrid/llms-full.txt): All user docs concatenated for LLM context
 - [Contributing Guide](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md): Contribution guidelines
 - [Changelog](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md): Release history
+
+- [CI execution policy](CI_POLICY.md): minimum PR checks and representative validation.

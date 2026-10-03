@@ -38,7 +38,7 @@ from pycubrid.protocol import SetDbParameterPacket
 
 from ._parity_helpers import ADAPTERS, ParityAdapter, connect_kwargs
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.no_escape_pin]
 
 CONTAINER = os.environ.get("CUBRID_TEST_DOCKER_CONTAINER", "")
 BROKER = os.environ.get("CUBRID_TEST_BROKER", "broker1")

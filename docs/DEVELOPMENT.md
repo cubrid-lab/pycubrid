@@ -136,6 +136,65 @@ pytest tests/ -v --ignore=tests/test_integration.py \
 make test
 ```
 
+### Backslash-escape-mode pin
+
+`tests/conftest.py` autouse-pins `no_backslash_escapes` to its legacy default
+for every test, because most tests build a `Connection`/`AsyncConnection`
+over a scripted fake socket that cannot answer the live `CHAR_LENGTH` escape
+probe. A module that needs the *real* probe (against a live server, or a
+scripted fake broker that answers it) opts out with `pytest.mark.no_escape_pin`,
+registered alongside the module's other markers, e.g.:
+
+```python
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
+```
+
+Opt-out used to be a hardcoded list of filename substrings, which silently
+matched unrelated modules (#524, e.g. `"test_integration"` matched every
+`test_integration_*.py` file). Mark the module explicitly instead of adding a
+new filename fragment.
+
+### Fast Driver Tests vs. Repository Tooling Checks
+
+Among the offline tests, a `repo_tooling`-marked subset (registered in
+`pyproject.toml`) checks repository policy and tooling — the docs-sync script,
+the PR-title validator, the release scripts, workflow-YAML contracts, the
+shared quality gate, and similar (#558). These carry no pycubrid driver
+behavior and are excluded from `pycubrid`'s own coverage, so they run in the
+dedicated `repo-tooling-tests` CI job instead of the `offline-tests` matrix,
+keeping routine driver feedback fast. Tooling paths select this single Linux
+lane; the CI Gate requires `repo-tooling-tests` and `offline-tests` to succeed
+when selected, and permits only intentional unselected skips.
+
+```bash
+# Fast driver lane — mocked driver behavior only (what offline-tests runs)
+pytest tests/ -m "not integration and not repo_tooling" -v
+
+# Repository tooling lane — policy/tooling checks (what repo-tooling-tests runs)
+pytest tests/ -m "repo_tooling" -v
+
+# Both lanes together, still offline (no live CUBRID server)
+pytest tests/ -m "not integration" -v
+```
+
+A module opts into the tooling lane with an explicit `pytestmark = pytest.mark.repo_tooling`,
+not a file move or a path-based collection rule, so nothing needs reorganizing
+on disk and nothing is silently dropped from `pytest tests/` (every marker is
+additive to the default collection; only `-m` selects or excludes it at run
+time). `docs-sync.yml` runs `test_docs_reason.py` with a bare
+`python -m unittest discover` and no dependency install, so that module (and
+`test_pr_title.py`, at risk of the same thing) imports `pytest` in a
+`try`/`except ModuleNotFoundError` and falls back to an empty `pytestmark`
+when it is missing — the marker would be meaningless there anyway. A module
+only ever run through pytest does not need this guard.
+
+Pure scalar-formatting cases live in `tests/test_param_security.py`'s shared
+golden matrix, which checks both backslash modes without a connection (#563).
+`tests/test_aio_cursor_parity.py` keeps small sync/async format/bind adapter
+checks, including rejection before escape-mode negotiation. Ordinary recovery
+tests prefer observable bound SQL and replay sessions; generation fences,
+malformed replies and other unobservable safety invariants remain white-box tests.
+
 ### Sync/Async Replay Parity
 
 `tests/test_replay_parity.py` checks, offline and in a few seconds, that the
@@ -169,6 +228,40 @@ escape-mode re-probe) and a failed recovery, SQL bound to a replaced session
 malformed and truncated replies (#533), `DataError` keeping the session (#512)
 and the fetch-page `DataError` contract (#536). Task cancellation exists only
 in `pycubrid.aio` and is covered by `tests/test_async_cancellation.py` instead.
+
+**Per-operation round-trip budgets (#557):** `Observation.step_functions(i)`
+returns the exact, ordered CAS functions sent while running `steps[i]` alone —
+separate from connect/setup (step 0, which includes any constructor
+autocommit setter and the backslash-escape-mode probe) and from every other
+step. `FIRST_INSERT_BUDGET`, `REUSED_CURSOR_INSERT_BUDGET`,
+`SELECT_TO_INSERT_BUDGET`, `MANUAL_INSERT_EXECUTE_BUDGET` /
+`MANUAL_INSERT_COMMIT_BUDGET`, `FETCH_PAGINATION_BUDGET`, and the
+`ESCAPE_EXPLICIT_*` / `ESCAPE_AUTOMATIC_*` budgets name these exact sequences;
+each is asserted with list equality, which catches a dropped safety request
+(e.g. a missing `CHECK_CAS` liveness probe) exactly as it catches an added
+round trip — neither can pass as an "optimization". Each budget also requires
+successful operation outcomes and a reusable session; fetch scenarios check the
+returned rows. This prevents a malformed reply or wrong result from passing just
+because its request count stayed within the budget. Their scripts
+(`_autocommit_insert`, `_manual_insert_last_insert_id`) reply to an INSERT's
+`PREPARE_AND_EXECUTE` with an explicit `OUT_TRAN` (autocommitting: the
+implicit transaction already committed) or `IN_TRAN` (manual: left open for
+`commit()`) status, and give `GET_LAST_INSERT_ID` a well-formed value — the
+broker's generic default reply for it is a bare response code, which the
+driver (correctly) rejects as malformed. These scenarios are the
+reproducibility baseline for future round-trip-reduction work (#419/#488/#525):
+production optimization and `CHECK_CAS` removal are out of scope here.
+
+The budgets above run against a broker that reports statement pooling off, where
+deferred close (#488) never applies, so they are unchanged by it.
+`Scenario.statement_pooling=1` makes the broker report pooling on:
+`REUSED_CURSOR_INSERT_POOLED_BUDGET` (the previous INSERT's `CLOSE_REQ_HANDLE`
+and the `CHECK_CAS` gating it are gone: 4 requests instead of 6) and
+`SELECT_TO_INSERT_POOLED_BUDGET` (`CLOSE_REQ_HANDLE` gone: 3 instead of 4) lock
+in what deferred close removes, and their checks assert that the next
+`PREPARE_AND_EXECUTE` carries exactly the released handle id.
+Additional deferred-close scenarios in `tests/test_deferred_close.py` verify
+queue overflow, transaction-boundary draining and reconnect safety.
 
 To add a scenario, append a `Scenario` to `SCENARIOS` with its steps, a script
 built from `_on(...)` (for example `_hang_up_after_ok` to recycle the CAS after a
@@ -376,7 +469,7 @@ You do not need to run the steps above locally for routine development —
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
-(nightly, via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
+(via `workflow_dispatch`, and as the release gate called by `release.yml`). `ci.yml` runs the same
 lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
 TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
 `pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
@@ -550,8 +643,8 @@ filename-glob inventory:
 
 | Lane | Selection | Executable workflow path |
 |---|---|---|
-| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and nightly bug hunt |
-| Slow | `integration and slow and not tls` | Nightly/manual bug hunt: soak, chaos, and concurrency stress |
+| Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and weekly bug hunt |
+| Slow | `integration and slow and not tls` | Weekly/manual bug hunt: soak, chaos, and concurrency stress |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
 | Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.10, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
 
@@ -583,8 +676,45 @@ Its case goes in `CASES` in `tests/test_official_differential.py`. Then run
 either fixed, or recorded as a `deviation` with a reason, an issue and both
 observed values. Never edit an expected value just to match current output. See
 [the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
-The nightly bug hunt also retains separate offline protocol, fault-broker, and
+The weekly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
+
+Its `downstream-corpus` job is **advisory** (weekly or manual only), with three
+isolated CUBRID 11.4 / Python 3.12 cells. It checks out the exact pycubrid
+workflow commit and the current `main` commit of each downstream repository in
+different directories. Every dependency install is constrained to the driver
+Git commit; after the final install, `scripts/downstream_corpus.py` rejects a
+different Git origin/commit, a PyPI/local replacement or an import shadowed by
+the checkout. The existing `scripts/wait_for_cubrid.py` checks the live broker.
+
+| Downstream | Selected real workload | Accepted skips |
+|---|---|---|
+| `sqlalchemy-cubrid` | ORM dogfood and sync/async pool-stress files, in separate pytest runs | None |
+| `cubrid-mcp-server` | Live integration tool cases plus a separately selected shared-session concurrency case | Empty-schema skips only in the general `mcp.xml` report; none in `mcp-concurrency.xml` |
+| `cubrid-cookbook-python` | Five AI-agent scripts (including MCP stdio) and the async-worker database tasks, in separate pytest processes | None |
+
+Each selected workload needs at least one passed JUnit case; a missing report,
+failed case, unexpected skip or all-skipped workload fails that advisory cell.
+The step summary and always-uploaded artifact record the driver and downstream
+commit hashes, Python and installed package versions, driver origin, actual
+CUBRID server version, and per-workload pass/skip/failure counts. Job-level
+`continue-on-error` keeps
+this exploratory corpus out of PR and release gates, but the evidence states
+failure rather than claiming a false success. This is a bounded sample of real
+downstream behavior, not those repositories' complete suites.
+
+The MCP step also selects
+`tests/test_integration.py::TestCubridIntegration::test_concurrent_tool_calls_serialize_shared_session`
+in a second pytest process and writes `mcp-concurrency.xml`. That report must
+contain a passed case and no skips, failures or errors, even if a skip reason
+would be accepted in the general `mcp.xml` report. Both runs execute, and either
+pytest failure makes the recorded step outcome fail. The selected case exercises
+simultaneous in-process MCP handlers sharing one cached physical `Database`
+connection through its existing `RLock`: trace and query work must not interleave,
+responses must remain distinct and correct, and real cursors must close. This
+bounded claim does not cover MCP stdio concurrency, pooling, per-request
+transaction isolation or throughput; SQLAlchemy supplies the separate pool-stress
+workload.
 
 `tests/test_protocol_fuzz.py` mutates realistic broker replies built by
 `tests/helpers/cas_reply.py` (#523): execute and FETCH replies with column
@@ -623,15 +753,117 @@ assets; pinning its caller is not a complete freeze of those assets.
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| `ci.yml` | Push to main, PRs | Lint + offline tests (Python 3.10–3.14) + integration |
-| `integration-full.yml` | Nightly, manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
-| `prepare-release.yml` | Manual dispatch (`-f version=X.Y.Z`) | Open the `chore: release vX.Y.Z` PR (dated CHANGELOG section + version bump) |
+| `ci.yml` | PRs, main, weekly, manual | Minimum PR smoke; main/weekly coverage and representative integration |
+| `integration-full.yml` | Manual dispatch, called by `release.yml` | Full Python × CUBRID compatibility matrix |
+| `release-please.yml` | Push main or manual dispatch | Open/update PR-only release candidate (version + generated/curated notes) |
 | `release.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
 
 ### CI Matrix
 
-- **Offline**: Python 3.10, 3.11, 3.12, 3.13, 3.14
-- **Integration**: Python {3.10, 3.12} × CUBRID {11.2, 11.4}
+Routine CI uses one Ubuntu/Python 3.12 offline lane and representative live
+combinations rather than the full matrix. PRs run smoke tests; main and changed
+weekly runs retain the full offline suite with 95% coverage. High-risk PRs run the full existing offline regressions without coverage on that
+same lane and select newest integration, while main/weekly use oldest/newest endpoints. Repository
+tooling is path-selected on one Linux lane. Full integration is explicit/manual
+and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
+validation requirements. Historical cost measurements below describe the earlier
+workflow, not current job counts or new savings.
+
+### PR verification cost (#564)
+
+Measured from real `ci.yml` runs (GitHub REST `/actions/runs/{id}/timing`
+`run_duration_ms`, and job-step `started_at`/`completed_at`), not estimates.
+The ordinary run object omits `run_duration_ms`; the `/timing` endpoint
+provides it. Baseline code PR:
+[run 36929613502](https://github.com/cubrid-lab/pycubrid/actions/runs/36929613502),
+2026-10-01, 306s (5m06s), with all integration paths selected. A separate
+docs-only example, [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)
+(`RELEASING.md` only), took 419s in
+[run 36865409050](https://github.com/cubrid-lab/pycubrid/actions/runs/36865409050):
+all four code/TLS-gated integration jobs skipped and doc-lint passed. Its
+`detect-changes` job did not start until about three minutes after the workflow,
+so that elapsed time mainly illustrates queue variance, not a cache comparison.
+
+| Job group | Jobs | Wall time (longest job) | Notes |
+|---|---|---|---|
+| `offline-tests` matrix | 10 (2 OS × 5 Python) | 78s–124s | Editable dev installs took 11–23s; macOS was 9–51% slower than Linux by Python version in this one run, not a stable ratio. |
+| `integration-tests` / `integration-charset` / `integration-tls` / `official-differential` | 5 jobs, 6 CUBRID containers | 65s–118s | Service-container initialization took 15–41s where present; TLS starts Docker inside its own step. Editable dev installs took 17–22s. |
+| `repo-tooling-tests` matrix | 2 (ubuntu, macos) | 32s–51s | Editable dev installs took 14–15s. |
+| `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9s–24s | Lint/typecheck install dev tools; compat installs the package only (3s), packaging installs `build` (2s). |
+| `doc-lint` (reusable) | path-gated on docs changes | 2s–8s per sub-step | Skips entirely when no Markdown/`docs/**` changed. |
+
+The `needs:` graph has parallel roots: `detect-changes`, the offline matrix,
+lint, typecheck, repository tooling and compat-check. In the baseline run,
+offline jobs started *before* `detect-changes` finished. Packaging waits for
+all offline cells; the container-based jobs then wait for packaging, offline,
+lint, typecheck and `detect-changes`, and `ci-gate` waits for their results.
+Queue time and the slowest prerequisite branch also affect workflow elapsed
+time; a simple sum of job durations is not the critical path.
+
+**Fixable setup cost**: the baseline expanded to 21 jobs using
+`actions/setup-python`; 19 performed an editable dev install, while compat
+installed `-e .` and packaging installed `build`. Each job still needs its
+own install. The new `cache: pip` input caches pip's global download cache,
+**not** the installed environment. Its key includes OS, Python version and
+the dependency-file hash: matching OS/Python jobs can reuse downloads once a
+cache is saved, including on later runs, but distinct matrix cells do not
+share a single cache. Concurrent first-run jobs can all miss. See the
+[setup-python caching guide](https://github.com/actions/setup-python#caching-packages-dependencies).
+The first changed-head run had a pip cache miss for Ubuntu/Python 3.10 and
+saved the cache afterward; it took 328s versus the 306s baseline. That cold
+run does **not** demonstrate an overall speedup. Docker startup is also a
+substantial cost and remains unchanged here.
+
+**Path-filter trigger audit**: spot-checked `detect-changes` outputs against
+actual job results across recent PR runs.
+[PR #597](https://github.com/cubrid-lab/pycubrid/pull/597), which fixes
+[issue #595](https://github.com/cubrid-lab/pycubrid/issues/595) without
+touching TLS paths, produced a `skipped` `integration-tls` job in
+[run 36879861578](https://github.com/cubrid-lab/pycubrid/actions/runs/36879861578),
+while both regular integration cells, charset and official differential
+passed. Docs-only [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)
+skipped all four code/TLS-gated integration jobs as intended. The unchanged
+`ci-gate` accepts `skipped` only for these path-gated jobs, not a failed or
+cancelled one.
+The audit found one real gap: `scripts/wait_for_cubrid.py` is invoked by
+every container-based job (`integration-tests`, `integration-charset`,
+`official-differential`) but was missing from the `code:` filter list, so a
+PR touching only that script would have skipped all code-gated integration
+coverage before merge. Added to `code:` and locked by a repository-tooling
+test, so this only *adds* coverage and cannot produce a new skip.
+
+The failure gate also has real evidence: in
+[run 36776514307](https://github.com/cubrid-lab/pycubrid/actions/runs/36776514307),
+a claimed official behavior comparison failed and the `CI Gate` failed.
+A repository-tooling test now executes the unchanged gate shell with synthetic
+`failure`/`cancelled` official and integration results; each exits nonzero,
+while expected docs-only skips pass. Neither the official comparison nor the
+gate was weakened.
+
+**Changes made** (both additive/safe; no job removed, no coverage reduced, no
+required check or branch-protection context touched, `ci-gate`'s
+pass/fail logic for skipped vs. failed/cancelled required jobs is unchanged):
+
+1. `cache: pip` + `cache-dependency-path: pyproject.toml` added to every
+   `actions/setup-python` step in `ci.yml` (10 YAML steps, 21 expanded jobs).
+   Jobs with a matching OS/Python/cache key can reuse downloaded wheels once
+   an earlier job or run has saved them; the editable install still runs.
+2. `scripts/wait_for_cubrid.py` added to the `code:` path filter (closes the
+   gap above).
+
+**After**: this PR's first changed-head run,
+[36932083505 attempt 1](https://github.com/cubrid-lab/pycubrid/actions/runs/36932083505),
+missed the Ubuntu/Python 3.10 pip cache and saved it afterward. Its elapsed
+time was about 328s, *longer* than the 306s baseline. One rerun of the
+same head (attempt 2) logged a cache hit and successful restore for that
+OS/Python key and finished in 295s by `/timing`: 11s (about 3.6%) below
+the baseline and about 33s below its cold attempt. Across the same 19
+editable-dev install steps, the sum of per-job durations was 321s baseline,
+275s cold and 266s warm. Those jobs overlap, so their sum is **not**
+wall-clock time saved; individual installs varied (the warm lint install
+was slower). The observed result supports a modest, targeted setup gain,
+not a guaranteed per-PR speedup or proof that the cache alone caused the
+workflow-level difference. Runner queue and Docker startup also varied.
 
 ---
 
@@ -731,7 +963,7 @@ To support a new CUBRID data type:
 ## Release Process
 
 Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md):
-`prepare-release.yml` opens a release PR (version bump + dated CHANGELOG section, checked
+`release-please.yml` opens a release PR (version bump + dated CHANGELOG section, checked
 with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `release.yml`
 runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
 automatically. Nobody pushes tags or publishes by hand.

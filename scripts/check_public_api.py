@@ -57,6 +57,7 @@ TRACKED_MODULES = (
     "pycubrid.aio",
     "pycubrid.compat",
     "pycubrid.compat.cubriddb",
+    "pycubrid.compat.cursors",
     "pycubrid.compat.native",
 )
 
@@ -72,8 +73,12 @@ TRACKED_CLASSES: tuple[tuple[str, str], ...] = (
     ("pycubrid.aio.cursor", "AsyncCursor"),
     ("pycubrid.lob", "Lob"),
     ("pycubrid.compat.cubriddb", "Connection"),
+    ("pycubrid.compat.cursors", "Cursor"),
+    ("pycubrid.compat.cursors", "DictCursor"),
     ("pycubrid.compat.native", "connection"),
     ("pycubrid.compat.native", "cursor"),
+    ("pycubrid.compat.native", "set"),
+    ("pycubrid.compat.native", "lob"),
 )
 
 # Dunder methods we *do* protect on tracked classes. Anything not on this list
