@@ -268,6 +268,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   public LOB binding API yet; ordinary sync/async execution is unchanged.
 
 ### Changed
+- Select the existing repository-tooling CI lane when its official-fixture or
+  scenario-ledger tests, or their upstream scenario CSV, change (#651); retain
+  the single Linux/Python lane and documentation-only skips.
 - Reduce routine PR CI to one representative offline lane and targeted live checks;
   move full compatibility matrices to explicit dispatch/releases and schedule representative checks weekly.
   Keep shell gate tests portable when Bash is unavailable and synchronize workflow
