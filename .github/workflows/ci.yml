@@ -344,7 +344,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"python-version":"3.14","cubrid-version":"11.4"}]}' || '{"include":[{"python-version":"3.14","cubrid-version":"11.4"},{"python-version":"3.10","cubrid-version":"10.2"}]}') }}
+      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"python-version":"3.14","cubrid-version":"11.4"}]}' || '{"include":[{"python-version":"3.14","cubrid-version":"11.4"},{"python-version":"3.11","cubrid-version":"10.2"}]}') }}
     services:
       cubrid:
         image: cubrid/cubrid:${{ matrix.cubrid-version }}
