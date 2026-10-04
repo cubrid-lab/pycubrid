@@ -40,6 +40,9 @@ from tests.conftest import _skip_backslash_probe  # noqa: F401
 """
 
 _CHECK_STILL_PINNED = """
+import asyncio
+
+import pycubrid.aio.connection as aiomod
 import pycubrid.connection as connmod
 
 _ORIGINAL = connmod.Connection._negotiate_backslash_escapes
@@ -49,6 +52,34 @@ def test_negotiation_was_pinned():
     # The pin was applied: negotiation is monkeypatched away from the real
     # method, i.e. this module did NOT opt out.
     assert connmod.Connection._negotiate_backslash_escapes is not _ORIGINAL
+
+
+class _Unresolved:
+    _no_backslash_escapes = None
+
+
+class _Explicit:
+    _no_backslash_escapes = False
+
+
+def test_sync_pin_selects_the_server_default():
+    conn = _Unresolved()
+    connmod.Connection._negotiate_backslash_escapes(conn)
+    assert conn._no_backslash_escapes is True
+
+
+def test_async_pin_selects_the_server_default():
+    conn = _Unresolved()
+    asyncio.run(aiomod.AsyncConnection._negotiate_backslash_escapes(conn))
+    assert conn._no_backslash_escapes is True
+
+
+def test_pin_keeps_an_explicit_mode():
+    sync_conn, async_conn = _Explicit(), _Explicit()
+    connmod.Connection._negotiate_backslash_escapes(sync_conn)
+    asyncio.run(aiomod.AsyncConnection._negotiate_backslash_escapes(async_conn))
+    assert sync_conn._no_backslash_escapes is False
+    assert async_conn._no_backslash_escapes is False
 """
 
 _CHECK_OPTED_OUT = """
@@ -79,7 +110,10 @@ def test_lookalike_filename_without_marker_is_not_opted_out(pytester: pytest.Pyt
     pytester.makeconftest(_CONFTEST)
     pytester.makepyfile(test_integration_foo=_CHECK_STILL_PINNED)
     result = pytester.runpytest_inprocess("-p", "no:cacheprovider")
-    result.assert_outcomes(passed=1)
+    # The same module also checks the pinned value: both replacement methods
+    # resolve an unset mode to ``True`` (the server default) and leave an
+    # explicit one alone.
+    result.assert_outcomes(passed=4)
 
 
 def test_explicit_marker_still_opts_a_module_out(pytester: pytest.Pytester) -> None:

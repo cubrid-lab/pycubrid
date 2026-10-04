@@ -975,6 +975,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   occurrences share, keeps `fold=0`. (#413)
 
 ### Tests
+- **Offline tests pin the backslash-escape mode to the server default** — the
+  autouse `_skip_backslash_probe` fixture pinned scripted connections to
+  `no_backslash_escapes=False`, the non-default mode, so cursor-level tests
+  bound strings in a mode an unconfigured CUBRID does not use. It now pins
+  `True`. The offline suite passes unchanged with either value; tests about a
+  specific mode already set it explicitly, and `no_escape_pin` modules still
+  negotiate for real.
 - **The version differential no longer generates a conditional that crashes
   every supported CUBRID (#614)** — `SELECT IF(1=0, SET{1}, 0.000)` ends `csql`
   with SIGSEGV and drops the CAS session on 10.2, 11.0, 11.2 and 11.4: a
