@@ -385,7 +385,7 @@ pytest tests/test_aio_ssl_integration.py -v
 > `cubrid`로 실행해 실제 브로커를 제어합니다.
 
 이 잡은 `integration-full`의 나머지와 같은 트리거(수동 `workflow_dispatch`,
-그리고 `release.yml`이 호출하는 릴리스 게이트)로 실행됩니다. 일반 PR에서는
+그리고 `publish-pypi.yml`이 호출하는 릴리스 게이트)로 실행됩니다. 일반 PR에서는
 TLS 관련 경로가 변경될 때만 Python 3.14 × CUBRID 11.4 단일 레인이
 선택됩니다. 연결 모듈, `pycubrid/__init__.py`, `pycubrid/protocol.py`,
 `pycubrid/aio/`, TLS/SSL 테스트와 도우미·픽스처, 레인 감사 스크립트 또는
@@ -728,9 +728,9 @@ main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 �
 | 워크플로 | 트리거 | 설명 |
 |----------|---------|-------------|
 | `ci.yml` | PR, main 푸시, 주간, 수동 실행 | 최소 PR 스모크; main/주간 커버리지와 대표 통합 검사 |
-| `integration-full.yml` | 수동 실행, `release.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
+| `integration-full.yml` | 수동 실행, `publish-pypi.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
 | `release-please.yml` | main push 또는 수동 실행 | release-please 릴리스 후보 PR 생성 (날짜가 있는 CHANGELOG 섹션 + 버전 갱신) |
-| `release.yml` | main 푸시, 복구용 수동 실행 | 병합된 릴리스 PR 감지 후 전체 매트릭스, 빌드, 태그 + GitHub Release + PyPI, cookbook 검증 |
+| `publish-pypi.yml` | main 푸시, 복구용 수동 실행 | 병합된 릴리스 PR 감지 후 전체 매트릭스, 빌드, 태그 + GitHub Release + PyPI, cookbook 검증 |
 
 ### CI 매트릭스
 
@@ -936,7 +936,7 @@ graph TD
 
 릴리스는 유지보수자 전용이며 [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 따릅니다:
 `release-please.yml`이 릴리스 PR(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인)을
-엽니다. 검토 후 squash 병합하면 `release.yml`이 전체 매트릭스, 한 번의 빌드, 태그, PyPI 게시, cookbook 검증을
+엽니다. 검토 후 squash 병합하면 `publish-pypi.yml`이 전체 매트릭스, 한 번의 빌드, 태그, PyPI 게시, cookbook 검증을
 자동으로 수행합니다. 태그 푸시나 게시를 수동으로 하지 않습니다.
 
 

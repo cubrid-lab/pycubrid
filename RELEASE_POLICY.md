@@ -13,7 +13,7 @@ explicitly in pull-request review.
 
 Every release ships the same way: a reviewed release-please PR (generated commits plus curated
 `CHANGELOG.md` section, including the Upgrade notes and the classification in
-§7) is merged, and `release.yml` releases it. There is no manual tag or publish
+§7) is merged, and `publish-pypi.yml` releases it. There is no manual tag or publish
 step; see [`RELEASING.md`](RELEASING.md).
 
 ## 1. Public API Surface
@@ -297,6 +297,14 @@ Code without a corresponding documentation update is considered incomplete.
 
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
+
+- **Registered PyPI publisher identity** — PATCH / CI configuration correction.
+  The sole guarded release orchestrator uses `publish-pypi.yml`, matching the
+  existing `cubrid-lab/pycubrid` Trusted Publisher and `pypi` environment. Its
+  release triggers, exact-SHA validation, full matrix, build/hash checks,
+  immutable tags, duplicate-upload guard and cookbook verification remain the
+  same. Recovery commands and publication-label reconciliation use that filename;
+  no driver behavior, version, dependency or supported-version change.
 
 - **README Quick Start examples (#327)** — documentation-only / PATCH eligible.
   Parameterized CRUD, DML commit/rollback and `ProgrammingError` examples use a
