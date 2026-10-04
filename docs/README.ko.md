@@ -316,7 +316,7 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 
 ## 기여하기
 
-가이드라인은 [CONTRIBUTING.md](../CONTRIBUTING.md), 개발 환경 설정은 [docs/DEVELOPMENT.md](DEVELOPMENT.md)를 참고하세요.
+가이드라인은 [한국어 기여 안내](CONTRIBUTING.ko.md)와 [영어 원문](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md), 개발 환경 설정은 [docs/DEVELOPMENT.md](DEVELOPMENT.md)를 참고하세요.
 
 ### 첫 기여
 

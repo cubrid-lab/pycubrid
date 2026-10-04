@@ -499,3 +499,133 @@ def test_nonselect_description_none_and_closed_operations_fail(
             operation()
     with pytest.raises(InterfaceError):
         iter(cur)
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+def test_wrapper_transaction_delegates_once_to_exact_native_and_discards_return(
+    wrapped: cubriddb.Connection, monkeypatch: pytest.MonkeyPatch, boundary: str
+) -> None:
+    owner = wrapped.connection
+    sentinel = object()
+    calls: list[native.connection] = []
+
+    def delegate() -> object:
+        calls.append(owner)
+        return sentinel
+
+    monkeypatch.setattr(owner, boundary, delegate)
+    result = getattr(wrapped, boundary)()
+    assert result is None
+    assert calls == [owner]
+    assert wrapped.connection is owner
+    assert RowsDriver.created == [owner._driver]
+    assert owner.autocommit is True
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+@pytest.mark.parametrize("keyword", [False, True], ids=["positional", "keyword"])
+def test_wrapper_transaction_rejects_extra_arguments_before_delegating(
+    wrapped: cubriddb.Connection, monkeypatch: pytest.MonkeyPatch, boundary: str, keyword: bool
+) -> None:
+    calls: list[None] = []
+
+    def delegate() -> None:
+        calls.append(None)
+
+    monkeypatch.setattr(wrapped.connection, boundary, delegate)
+    with pytest.raises(TypeError):
+        if keyword:
+            getattr(wrapped, boundary)(extra=1)
+        else:
+            getattr(wrapped, boundary)(1)
+    assert calls == []
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+def test_closed_wrapper_transaction_cannot_create_or_use_another_driver(
+    wrapped: cubriddb.Connection, boundary: str
+) -> None:
+    owner = wrapped.connection
+    driver = owner._driver
+    wrapped.close()
+    requests = list(driver.requests)
+    with pytest.raises(InterfaceError, match="closed"):
+        getattr(wrapped, boundary)()
+    assert wrapped.connection is owner
+    assert RowsDriver.created == [driver]
+    assert driver.requests == requests
+    assert driver.commit_calls == driver.rollback_calls == 0
+    assert driver.close_calls == 1
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+def test_wrapper_failed_transaction_preserves_native_result_and_exception_identity(
+    wrapped: cubriddb.Connection, monkeypatch: pytest.MonkeyPatch, boundary: str
+) -> None:
+    wrapped.set_autocommit(False)
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor()
+    _selected(cur)
+    description = cur.description
+    rowcount = cur.rowcount
+    generation = driver._physical_generation
+    error = OperationalError("boundary failed", code=-1012)
+    counter = f"{boundary}_calls"
+
+    def failed_boundary() -> None:
+        setattr(driver, counter, getattr(driver, counter) + 1)
+        raise error
+
+    monkeypatch.setattr(driver, boundary, failed_boundary)
+    with pytest.raises(OperationalError) as caught:
+        getattr(wrapped, boundary)()
+    assert caught.value is error
+    assert getattr(driver, counter) == 1
+    assert cur.description is description
+    assert cur.rowcount == rowcount
+    first = cur.fetchone()
+    assert first == (1, "한", None, "한")
+    assert driver._physical_generation == generation
+    assert RowsDriver.created == [driver]
+    assert wrapped.connection.autocommit is False
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback"])
+@pytest.mark.parametrize("dict_cursor", [False, True])
+def test_wrapper_transaction_uses_existing_native_result_lifecycle_without_cache_rewrite(
+    wrapped: cubriddb.Connection, boundary: str, dict_cursor: bool
+) -> None:
+    wrapped.set_autocommit(False)
+    driver = wrapped.connection._driver
+    cur = wrapped.cursor(dictCursor=dict_cursor)
+    _selected(cur)
+    native_cursor = cur._cs
+    description = cur.description
+    rowcount = cur.rowcount
+    generation = driver._physical_generation
+    first = cur.fetchone()
+    assert first is not None
+    result = getattr(wrapped, boundary)()
+    assert result is None
+    assert cur._cs is native_cursor
+    assert cur.description is description
+    assert cur.rowcount == rowcount == 3
+    if boundary == "commit":
+        second = cur.fetchone()
+        third = cur.fetchone()
+        assert second == (
+            {"MiXeD": 2, "dup": "", "CaseKeep": ""} if dict_cursor else (2, "", "", "")
+        )
+        assert third == (
+            {"MiXeD": 3, "dup": None, "CaseKeep": "third"}
+            if dict_cursor
+            else (3, "third", None, "third")
+        )
+        assert driver.commit_calls == 1 and driver.rollback_calls == 0
+    else:
+        with pytest.raises(InterfaceError):
+            cur.fetchone()
+        assert driver.rollback_calls == 1 and driver.commit_calls == 0
+    assert driver._physical_generation == generation
+    assert RowsDriver.created == [driver]
+    assert wrapped.connection.autocommit is False

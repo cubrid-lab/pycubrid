@@ -26,6 +26,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   is not yet officially supported; final-runtime and live CUBRID evidence are
   required before promotion. Routine PR test frequency and supported versions
   remain unchanged.
+- **Native connection utilities (#666)** — add opt-in zero-argument full
+  `server_version()`, truthful frozen own-driver `client_version()` and integer
+  query `ping()`, plus the wrapper's two server/ping delegates. Requests stay on
+  the exact live physical owner without retry/reconnect, use effective mode and
+  respect private schema/result cleanup guards. Client identities are not a
+  matching-ID or version-format promise. Ordinary/async APIs and defaults remain
+  unchanged; this additive subset does not certify full native error/recovery parity.
+- **Real terminal walkthroughs (#320)** — replace the illustrative README GIF
+  with a recorded sync/async query run and add a Quick Start CRUD/context-manager
+  video. Editable VHS tapes, asserted demo code and source-wheel provenance
+  distinguish local-build evidence from a PyPI release or full compatibility
+  certificate. No driver API, dependency, support or publication change.
+- **Wrapper transaction delegates (#662)** — the opt-in sync CUBRIDdb-style
+  connection gains zero-argument `commit()` and `rollback()`, forwarding once to
+  its native owner with `None` returns and unchanged error propagation. Existing
+  successful-boundary result rules apply; rollback can invalidate fetching while
+  wrapper rowcount/description snapshots remain. Manual mode is explicit, and
+  defaults, ordinary/async APIs, recovery logic and thread-sharing promises are
+  unchanged.
 - **Native LOB file transfer (#443)** — sync native holders gain positional
   `imports(file, type="B")` and `export(file)` for raw BLOB/CLOB bytes in
   bounded chunks, preserving byte position. Import stages a replacement until
@@ -408,6 +427,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Documentation
+- **Korean contribution guide (#329)** — translate the current contribution
+  procedures and preserve command examples, English GitHub artifacts,
+  contributor/maintainer responsibilities and release boundaries. Add discovery
+  from the Korean README and existing docs navigation; English policy is unchanged.
 - **Renewed CAS error-code evaluation (#505)** — document numeric-code-first
   dispatch, inner-code `-1`-only text fallback and raw `code`/`errno` preservation.
   Retain the flag-zero compatibility contract despite the bounded four-build
@@ -1094,6 +1117,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   repository-tooling and combined offline commands.
 
 ### CI
+- **Bounded bug-hunt failure context (#655)** — the existing property job
+  supplies its three xunit1 reports and an optional same-probe readiness sidecar
+  to the diagnostic collector. Metadata retains explicit report/identity/error
+  states; replay uses only available targets and quoted tokens, with known
+  credentials redacted before byte-limited details. Collection is best effort,
+  not a passing-job signal, and binary Hypothesis examples still require trusted
+  review before sharing. Matrix/gates and public driver APIs are unchanged.
 - **Mutation lane migrated to mutmut 3 after 14 consecutive crashed runs (#612)** —
   `[tool.mutmut]` still used the 2.x keys. With `mutmut>=3.0` resolving to 3.8,
   `tests_dir` (a string) was concatenated onto a list at
