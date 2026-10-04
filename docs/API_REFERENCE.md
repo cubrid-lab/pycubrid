@@ -206,7 +206,7 @@ and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bi
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
 through FC41. The wrapper `pycubrid.compat.cubriddb` offers construction,
-close, autocommit access and qualified row cursors but no DB-API globals, a
+close, explicit commit/rollback, server version/query ping, autocommit access and qualified row cursors but no DB-API globals, a
 thread-sharing guarantee or complete native C-extension parity.
 
 `native.connect(url, user="public", passwd="", *, charset="utf-8")` returns a
@@ -229,6 +229,7 @@ never echo the raw credential-bearing DSN.
 
 The native connection adds `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`,
 `set_autocommit(bool)`, `set_isolation_level(level)` and `close()`.
+Connection utilities are described [below](#native-connection-utilities-666).
 Its cursor supports `prepare(sql)`, one-based
 `bind_param(index, value, bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`,
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
@@ -415,6 +416,52 @@ try:
 finally:
     wrapper.close()
 ```
+
+### Native connection utilities (#666)
+
+The native connection provides zero-argument `server_version() -> str`,
+`client_version() -> str` and `ping() -> int`. The wrapper provides only
+`server_version()` and `ping()`, each delegating once to its exact native owner.
+Invalid positional/keyword arguments fail before connection or network work.
+
+`server_version()` makes a fresh FC15 request and returns full valid server text;
+the official extension's fixed C buffer can truncate it. `client_version()` is
+this driver's frozen package-version string, needs no I/O and works after close.
+It is not the official build ID or a promise of a four-component version format.
+`ping()` executes the constant `select 1+1 from db_root` query and returns integer
+1 when it finds the expected value, otherwise 0. Query errors propagate; it is
+not ordinary `Connection.ping()`'s CHECK_CAS/bool/optional-recovery operation.
+
+Live utilities use the effective autocommit mode, not a writable native cache,
+and the exact current driver, socket and physical generation. They do not retry,
+reconnect or explicitly commit/rollback. An active private schema result blocks
+effective-autocommit utility requests; this is not a public native schema API.
+Closed or replaced owners fail rather than using another session. Ping validates
+consumed result pages and closes only a still-owned handle before returning
+success; transaction-retired handles are not closed again. A cleanup-only error
+propagates, while secondary cleanup cannot replace an earlier query error.
+Ordinary/async utilities, defaults and thread-sharing guarantees are unchanged.
+The scoped comparison case covers healthy native/wrapper calls in default True
+and explicit manual False modes; client IDs are separate per-driver observations,
+not a matching-ID, recovery, error-profile or upstream-regex certificate.
+
+### Wrapper transaction boundaries (#662)
+
+`cubriddb.Connection.commit() -> None` and `rollback() -> None` take no arguments.
+Each delegates once to the exact owned native connection, returns `None` and
+lets its exception propagate without new wrapping. Extra positional/keyword
+arguments fail before delegation; closed-owner checks remain native-owned.
+For pending work, first use `set_autocommit(False)` or `.autocommit = False`;
+the compatibility factory's autocommit default is unchanged.
+
+Existing native result callbacks apply only after a successful boundary:
+commit preserves local result state; rollback invalidates native fetching.
+Wrapper cursor `rowcount` and `description` remain cached execution snapshots,
+so populated metadata after rollback does not mean the result is fetchable.
+A failed delegation adds no facade result notification or snapshot reset. These
+delegates add no connection, SQL, retry or recovery logic; underlying native
+rules remain, without a universal remote-result lifetime or thread-sharing promise.
+Ordinary/async APIs, defaults and broader wrapper execution are unchanged.
 
 ### Qualified wrapper row cursors (#466)
 

@@ -4,6 +4,20 @@
 
 `pip install`에서 명시적 트랜잭션 처리가 있는 동작하는 CRUD 스크립트까지 안내합니다.
 
+## 실제 실행 영상
+
+<video controls preload="metadata" playsinline width="100%">
+  <source src="../../assets/videos/pycubrid-demo.mp4" type="video/mp4">
+  브라우저가 영상을 지원하지 않으면 아래 다운로드 링크를 사용하세요.
+</video>
+
+[동기·비동기 CRUD 실행 영상 다운로드](../assets/videos/pycubrid-demo.mp4).
+영상은 PyPI 배포본이 아닌 로컬 소스 빌드 wheel과 격리된 CUBRID 서버를 사용합니다.
+쿼리 결과, 파라미터 CRUD, 별도 연결에서 확인한 컨텍스트 매니저의 커밋,
+비동기 쿼리와 자원 정리를 검증합니다.
+[편집 가능한 소스와 녹화 근거](https://github.com/cubrid-lab/pycubrid/tree/main/demos)를 참고하세요.
+이 영상은 실행 예제이며 전체 호환성이나 성능을 보장하지 않습니다.
+
 ---
 
 ## 사전 준비

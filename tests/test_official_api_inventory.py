@@ -15,7 +15,7 @@ import pycubrid.cursor
 import pycubrid.lob
 import pycubrid.types
 import pytest
-from pycubrid.compat import native
+from pycubrid.compat import cubriddb, native
 
 CATALOG_PATH = Path(__file__).parent / "fixtures" / "official_api_inventory.json"
 CATALOG = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
@@ -111,6 +111,10 @@ def test_native_public_method_tables_are_accounted(owner: str, names: str) -> No
 
 
 def test_wrapper_operations_and_documented_attributes_are_accounted() -> None:
+    for name in ("commit", "rollback"):
+        row = OPERATIONS[f"CUBRIDdb.connections.Connection.{name}"]
+        assert row["pycubrid"]["target"] == f"pycubrid.compat.cubriddb.Connection.{name}"
+        assert callable(getattr(cubriddb.Connection, name))
     methods = {
         "connections.Connection": "set_fetch_value_converter cursor set_autocommit get_autocommit "
         "commit rollback set ping get_last_insert_id close escape_string server_version batch_execute",

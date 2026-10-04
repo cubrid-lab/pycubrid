@@ -191,7 +191,7 @@ conn = pycubrid.connect(
 지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
 문자셋을 사용합니다.
 기존 `pycubrid.connect()`와 `pycubrid.aio`의 `execute()`는 그대로 FC41을
-사용합니다. `pycubrid.compat.cubriddb` 래퍼는 연결 생성·종료와 autocommit 설정을
+사용합니다. `pycubrid.compat.cubriddb` 래퍼는 연결 생성·종료, 명시적 commit/rollback, 서버 버전/query ping과 autocommit 설정을
 지원하며 한정된 래퍼 행 커서도 제공합니다. DB-API 전역 값, 스레드 공유 보장 또는 네이티브 C
 확장과의 완전한 동등성은 제공하지 않습니다.
 
@@ -214,6 +214,7 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 dba/수동 �
 
 네이티브 연결은 `cursor()`, `set()`, `lob()`, `commit()`, `rollback()`,
 `set_autocommit(bool)`, `set_isolation_level(level)`, `close()`를 제공합니다.
+연결 유틸리티는 [아래](#native-connection-utilities-666)에서 설명합니다.
 커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
 bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`, `execute(option=0, max_col_size=0) -> int`,
 튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `result_info([n])`,
@@ -376,6 +377,53 @@ try:
 finally:
     wrapper.close()
 ```
+
+<a name="native-connection-utilities-666"></a>
+
+### 네이티브 연결 유틸리티 (#666)
+
+네이티브 연결은 인자가 없는 `server_version() -> str`,
+`client_version() -> str`, `ping() -> int`를 제공합니다. 래퍼는
+`server_version()`과 `ping()`만 제공하며 정확한 네이티브 소유자에 한 번
+위임합니다. 잘못된 위치·키워드 인자는 연결·네트워크 작업 전에 실패합니다.
+
+`server_version()`은 매번 FC15로 유효한 서버 문자열 전체를 조회합니다.
+공식 확장의 고정 크기 C 버퍼는 이를 자를 수 있습니다. `client_version()`은
+이 드라이버의 고정된 패키지 버전 문자열이며 I/O 없이 연결 종료 후에도
+사용할 수 있습니다. 공식 빌드 ID나 네 부분 버전 형식을 약속하지 않습니다.
+`ping()`은 고정된 `select 1+1 from db_root`를 실행하여 기대한 값을 찾으면
+정수 1, 아니면 0을 반환합니다. 쿼리 오류는 전달하며 일반
+`Connection.ping()`의 CHECK_CAS/bool/선택적 복구 동작을 대신하지 않습니다.
+
+실제 요청은 직접 대입 가능한 네이티브 캐시가 아닌 실제 autocommit 모드와
+현재의 정확한 드라이버·소켓·물리 세대를 사용합니다. 재시도·재접속 또는
+명시적인 commit/rollback은 하지 않습니다. 활성 private 스키마 결과가 있으면
+실제 autocommit 유틸리티 요청을 거부하며 공개 네이티브 스키마 API를 제공하는
+것은 아닙니다. 종료되거나 교체된 소유자는 다른 세션을 쓰는 대신 실패합니다.
+Ping은 소비한 결과 페이지를 검증하고 아직 소유한 핸들만 닫은 뒤 성공을
+반환합니다. 트랜잭션으로 이미 폐기된 핸들은 다시 닫지 않습니다. 정리만
+실패하면 오류를 전달하지만 부차적인 정리 오류가 앞선 쿼리 오류를 대체하지
+않습니다. 일반·비동기 유틸리티, 기본값과 스레드 공유 약속은 바꾸지 않습니다.
+한정된 비교 사례는 기본 True와 명시적 수동 False 모드의 정상 네이티브·래퍼
+호출을 다룹니다. Client ID는 드라이버별 별도 관측이며 ID 일치, 복구,
+오류 프로파일 또는 upstream 정규식의 인증이 아닙니다.
+
+### 래퍼 트랜잭션 경계 (#662)
+
+`cubriddb.Connection.commit() -> None`과 `rollback() -> None`은 인자를 받지
+않습니다. 정확히 소유한 네이티브 연결에 한 번 위임하고 `None`을 반환하며,
+새로 감싸지 않고 그 예외를 전달합니다. 추가 위치·키워드 인자는 위임 전에
+실패하고, 닫힌 소유자 검사는 기존 네이티브 동작을 따릅니다. 미완료 작업을
+다루려면 먼저 `set_autocommit(False)` 또는 `.autocommit = False`를 사용하세요.
+호환성 팩터리의 autocommit 기본값은 바뀌지 않습니다.
+
+성공한 경계 뒤에만 기존 네이티브 결과 콜백이 적용됩니다. commit은 로컬 결과
+상태를 유지하고 rollback은 네이티브 fetch를 무효화합니다. 래퍼 커서의
+`rowcount`와 `description`은 실행 시점 캐시이므로, rollback 뒤 메타데이터가
+남아 있어도 결과를 fetch할 수 있다는 뜻은 아닙니다. 실패한 위임에 facade가
+추가로 결과에 알리거나 캐시를 초기화하지 않습니다. 새 연결·SQL·재시도·복구 로직을 추가하지
+않으며 기존 네이티브 규칙을 따릅니다. 모든 원격 결과 수명이나 스레드 공유를
+보장하지 않습니다. 일반·비동기 API, 기본값과 더 넓은 래퍼 실행은 그대로입니다.
 
 ### 래퍼 행 커서 (#466)
 

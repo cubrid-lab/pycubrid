@@ -392,6 +392,27 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   dependencies, defaults, supported versions and release/tag/publication
   policy are unchanged.
 
+- **Native connection utilities (#666)** — MINOR / additive. The opt-in sync
+  native facade gains zero-argument fresh full `server_version()`, frozen own
+  package `client_version()` (also after close, no I/O) and query-based int1/0
+  `ping()`. The wrapper gains one-call server/ping delegates. Fixed driver/socket/
+  generation and effective-mode guards prohibit retry/reconnect and reject active
+  private schema results under autocommit. Ping validates pages and cleans up only
+  still-owned handles; cleanup-only errors propagate without replacing primary
+  errors. Full text differs from the official C buffer, and own client IDs are not
+  matching strings or a four-component-format promise. No ordinary/async, default,
+  dependency, thread-sharing, security-support or publication change; healthy
+  comparisons are not full error/recovery parity.
+
+- **Wrapper transaction delegates (#662)** — MINOR / additive. The opt-in
+  sync `pycubrid.compat.cubriddb.Connection` gains zero-argument `commit()` and
+  `rollback()`, each forwarding once to its exact native owner with implicit
+  `None` and unchanged exception propagation. Existing native successful-boundary
+  callbacks apply; wrapper metadata stays a snapshot even when rollback
+  invalidates native fetch. Manual-mode scalar visibility is a bounded comparison,
+  not universal recovery, cursor-lifetime or error parity. No ordinary/async,
+  default, dependency, support-policy, thread-sharing or release/tag change.
+
 - **Native cached settings and effective setters (#467)** — MINOR / additive.
   `pycubrid.compat.native.connection` gains four writable snapshot members
   (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and

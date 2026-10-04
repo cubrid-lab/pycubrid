@@ -1,0 +1,71 @@
+{
+  "recorded_at_utc": "2026-10-03",
+  "scope": "Real short sync/async query and extended CRUD/context-manager scenarios only",
+  "source_commit": "26b2cfc9adadb666fd80abfd4201052693485f82",
+  "script_sha256": "0c5e34b059f07b879521e6f23e9b4bfa78595af256594ee2515f5fe9d1afe43c",
+  "tapes": {
+    "demos/pycubrid-demo.tape": "9f7487641b89fd794daf9f74a7b644d41502079e8cfcf784c5f3eb9032bd757c",
+    "demos/pycubrid-demo-video.tape": "9cb16417402611f78b1ceeb36983fe2edcaafc070f4aedf15b6187f46c28f333"
+  },
+  "package": {
+    "version": "1.8.0",
+    "origin": "Local wheel built from the clean detached source commit; NOT a PyPI release",
+    "wheel": "pycubrid-1.8.0-py3-none-any.whl",
+    "wheel_sha256": "7ce043cbbc1914435fd07149e76e06d4e7924d02049c46ee9b4b457dfaec9ef5",
+    "python": "3.12.13",
+    "build": "1.6.1",
+    "setuptools": "84.0.0",
+    "wheel_tool": "0.48.0",
+    "pip": "26.2.1",
+    "no_index": true,
+    "isolated_venv_per_recording": true,
+    "installed_import_inside_venv": true,
+    "installed_wheel_members_verified_byte_exact": 21
+  },
+  "server": {
+    "observed_version": "11.4.6.1963",
+    "image": "sha256:1248b77ad39888df9e064655937188ab99fe056ed7e35b57d06155a015dc1791",
+    "ownership": "Fresh labelled disposable recording broker and database volume",
+    "endpoint": "127.0.0.1:33595/testdb",
+    "fixture": "codex_demo_320",
+    "fixture_absent_after_recordings": true
+  },
+  "tools": {
+    "vhs": "0.12.1 (24fa225)",
+    "vhs_binary_sha256": "57d4e77287eb8028eaa2edfd17d5d4c9c87fe853b50eb2e660003d4a4006b0c9",
+    "vhs_release_archive_sha256": "eb33787a5b1cebf91fe0b18bd231e2d71d36c1ff4babd99ddac1a6ab411efd10",
+    "archive_integrity": "Matched official release checksums; Sigstore signature not verified locally",
+    "ffmpeg": "4.4.2-0ubuntu0.22.04.1",
+    "vhs_0_12_0_failure": "Canceled encoder context produced no file despite exit 0; official 0.12.1 fix used in an isolated tool directory"
+  },
+  "media": {
+    "docs/demo.gif": {
+      "sha256": "c52770bd2932321190a56715b0bb9952698a46a4d358e061a15d0ff1f83fb65c",
+      "bytes": 67372,
+      "width": 900,
+      "height": 520,
+      "duration_seconds": 9.52,
+      "frames": 238
+    },
+    "docs/assets/videos/pycubrid-demo.mp4": {
+      "sha256": "98932c1df9f6314335c635a79a68133bd7c3672d9de3f22d58e366c9ec1841fe",
+      "bytes": 238292,
+      "width": 1000,
+      "height": 650,
+      "duration_seconds": 38.12,
+      "frames": 953,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "encoded_fps": 25
+    }
+  },
+  "validation": {
+    "direct_short_exit": 0,
+    "direct_extended_exit": 0,
+    "vhs_gif_exit_and_nonempty_file_check": 0,
+    "vhs_video_exit_and_nonempty_file_check": 0,
+    "full_media_decode": "Both files decoded without errors",
+    "visual_review": "Timeline contact sheets and full-size result frames checked for actual output, legibility and no credentials; final independent review recorded in PR",
+    "limitations": "No full-driver compatibility, benchmark, PyPI-release, external-upload or publication claim"
+  }
+}

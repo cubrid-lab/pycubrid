@@ -2,6 +2,20 @@
 
 Get from `pip install` to a working CRUD script with explicit transaction handling.
 
+## Recorded walkthrough
+
+<video controls preload="metadata" playsinline width="100%">
+  <source src="../assets/videos/pycubrid-demo.mp4" type="video/mp4">
+  Your browser cannot play this video. Use the download link below.
+</video>
+
+[Download the sync/async CRUD walkthrough](assets/videos/pycubrid-demo.mp4).
+The recording uses a local source-built wheel, not a published PyPI release,
+and an isolated CUBRID server. It verifies query values, parameterized CRUD,
+context-manager commit observed on another connection, async queries and cleanup.
+See the [editable sources and recording provenance](https://github.com/cubrid-lab/pycubrid/tree/main/demos).
+This is a recorded example, not a full compatibility or performance certificate.
+
 ---
 
 ## Prerequisites

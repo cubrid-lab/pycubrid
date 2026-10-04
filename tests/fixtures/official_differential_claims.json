@@ -631,6 +631,26 @@
       "scenario_ids": [],
       "scenario_gap": "The upstream CLOB test uses stream write/read, not file imports/export. No stream assertion or whole-function file parity is inferred.",
       "issue": "#443"
+    },
+    {
+      "id": "wrapper-transaction-boundaries",
+      "surface": "wrapper",
+      "classification": "match",
+      "summary": "Explicit manual wrapper transactions return None: pending INSERT1 is observer-hidden until commit, pending INSERT2 is actor-visible but observer-hidden, rollback removes it from a fresh actor query, and final observer state contains only the committed row. Fresh DML cursors avoid unrelated reprepare metadata differences; no result-lifetime or fault/recovery parity is inferred.",
+      "inventory_ids": ["CUBRIDdb.connections.Connection.commit", "CUBRIDdb.connections.Connection.rollback"],
+      "scenario_ids": [],
+      "scenario_gap": "Upstream DBAPI commit/rollback call tests contain no explicit visibility or None assertions; the rollback fixture uses different same-actor queries. This independent observer/actor transaction proof is not mapped to an upstream assertion or legacy alias.",
+      "issue": "#662"
+    },
+    {
+      "id": "native-wrapper-utilities",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Healthy native and wrapper server_version/query ping return server text and exact int1 under constructor autocommit True and explicit manual False. Separate raw client identity observations compare each driver only with its own build identity before/after close; matching IDs, format, faults and recovery are not certified.",
+      "inventory_ids": ["documented_cubrid.connection.server_version", "documented_cubrid.connection.ping", "CUBRIDdb.connections.Connection.server_version", "CUBRIDdb.connections.Connection.ping"],
+      "scenario_ids": [],
+      "scenario_gap": "Independent healthy default/manual utility sequence; upstream version regex and whole ping scenarios, legacy aliases and client-ID equivalence are unassessed.",
+      "issue": "#666"
     }
   ]
 }

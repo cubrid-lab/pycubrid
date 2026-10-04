@@ -2821,6 +2821,18 @@
               ]
             }
           },
+          "commit": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
           "cursor": {
             "kind": "callable",
             "signature": {
@@ -2839,6 +2851,42 @@
             }
           },
           "get_autocommit": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "ping": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "rollback": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "server_version": {
             "kind": "callable",
             "signature": {
               "params": [
@@ -2975,6 +3023,18 @@
           ]
         }
       },
+      "commit": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
       "cursor": {
         "kind": "callable",
         "signature": {
@@ -2993,6 +3053,42 @@
         }
       },
       "get_autocommit": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "ping": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "rollback": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "server_version": {
         "kind": "callable",
         "signature": {
           "params": [
@@ -3712,6 +3808,18 @@
               ]
             }
           },
+          "client_version": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                }
+              ]
+            }
+          },
           "close": {
             "kind": "callable",
             "signature": {
@@ -3760,6 +3868,18 @@
               ]
             }
           },
+          "ping": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                }
+              ]
+            }
+          },
           "rollback": {
             "kind": "callable",
             "signature": {
@@ -3767,6 +3887,18 @@
                 {
                   "has_default": false,
                   "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                }
+              ]
+            }
+          },
+          "server_version": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
                   "name": "self"
                 }
               ]
@@ -4303,6 +4435,18 @@
           ]
         }
       },
+      "client_version": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            }
+          ]
+        }
+      },
       "close": {
         "kind": "callable",
         "signature": {
@@ -4351,6 +4495,18 @@
           ]
         }
       },
+      "ping": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            }
+          ]
+        }
+      },
       "rollback": {
         "kind": "callable",
         "signature": {
@@ -4358,6 +4514,18 @@
             {
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            }
+          ]
+        }
+      },
+      "server_version": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
               "name": "self"
             }
           ]
