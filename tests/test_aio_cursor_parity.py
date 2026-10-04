@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +13,7 @@ from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.cursor import Cursor
 from pycubrid.exceptions import InterfaceError, ProgrammingError
 from pycubrid.protocol import ColumnMetaData, FetchPacket, PrepareAndExecutePacket
+from tests.test_cursor import _set_prepare_packet
 
 
 def make_connection() -> MagicMock:
@@ -208,3 +210,120 @@ async def test_fetch_threads_decode_and_json_options_to_packet() -> None:
 
     assert await cursor._fetch_more_rows() is True
     assert await cursor.fetchone() == ([1, 2],)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "size",
+    [
+        1.5,
+        2.0,
+        -1.0,
+        0.0,
+        True,
+        False,
+        "2",
+        pytest.param(CUBRIDStatementType.SELECT, id="int-subclass"),
+    ],
+)
+@pytest.mark.parametrize("paged", [False, True], ids=["buffered", "paged"])
+async def test_fetchmany_rejects_invalid_size_without_consuming_or_fetching(
+    size: object, paged: bool
+) -> None:
+    connection = make_connection()
+    cursor = AsyncCursor(connection)
+
+    async def send(packet: object, **_: object) -> None:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=3
+            )
+        elif isinstance(packet, FetchPacket):
+            packet.rows = [(2,), (3,)]
+
+    connection._send_and_receive.side_effect = send
+    await cursor.execute("SELECT id FROM t")
+    if paged:
+        assert await cursor.fetchone() == (1,)
+    original_rows = cursor._rows.copy()
+    original_index = cursor._row_index
+    connection._send_and_receive.reset_mock()
+
+    with pytest.raises(ProgrammingError, match="size must be an integer"):
+        await cursor.fetchmany(cast(int, size))
+
+    assert cursor._rows == original_rows
+    assert cursor._row_index == original_index
+    connection._send_and_receive.assert_not_awaited()
+    assert await cursor.fetchmany(2) == ([(2,), (3,)] if paged else [(1,), (2,)])
+    connection._send_and_receive.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_fetchmany_with_size_and_default_arraysize() -> None:
+    connection = make_connection()
+    cursor = AsyncCursor(connection)
+
+    async def send(packet: object, **_: object) -> None:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet,
+                stmt_type=CUBRIDStatementType.SELECT,
+                rows=[(1,), (2,), (3,), (4,), (5,)],
+                total_count=5,
+            )
+
+    connection._send_and_receive.side_effect = send
+    await cursor.execute("SELECT id FROM t")
+    assert await cursor.fetchmany(2) == [(1,), (2,)]
+    cursor.arraysize = 2
+    assert await cursor.fetchmany(None) == [(3,), (4,)]
+    assert await cursor.fetchmany() == [(5,)]
+    assert await cursor.fetchmany(2) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor], ids=["sync", "async"])
+@pytest.mark.parametrize("closed", [False, True], ids=["no-result", "closed"])
+@pytest.mark.parametrize("size", [2.5, True])
+async def test_fetchmany_checks_cursor_state_before_size(
+    cursor_class: type[Cursor | AsyncCursor], closed: bool, size: object
+) -> None:
+    connection = make_connection()
+    cursor = cursor_class(connection)
+    cursor._closed = closed
+
+    with pytest.raises(InterfaceError, match="closed" if closed else "No result set available"):
+        if isinstance(cursor, AsyncCursor):
+            await cursor.fetchmany(cast(int, size))
+        else:
+            cursor.fetchmany(cast(int, size))
+
+    connection._send_and_receive.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor], ids=["sync", "async"])
+@pytest.mark.parametrize("size", [0, -1])
+@pytest.mark.parametrize("row_index", [0, 1], ids=["buffered", "paged"])
+async def test_fetchmany_nonpositive_integer_preserves_result_without_fetching(
+    cursor_class: type[Cursor | AsyncCursor], size: int, row_index: int
+) -> None:
+    connection = make_connection()
+    cursor = cursor_class(connection)
+    cursor._description = (("id", CUBRIDDataType.INT, None, None, 10, 0, False),)
+    cursor._rows = [(1,)]
+    cursor._row_index = row_index
+    cursor._query_handle = 1
+    cursor._fetched_count = 1
+    cursor._total_tuple_count = 2
+
+    if isinstance(cursor, AsyncCursor):
+        assert await cursor.fetchmany(size) == []
+    else:
+        assert cursor.fetchmany(size) == []
+
+    assert cursor._rows == [(1,)]
+    assert cursor._row_index == row_index
+    assert cursor._query_handle == 1
+    connection._send_and_receive.assert_not_called()

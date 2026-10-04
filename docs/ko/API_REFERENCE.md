@@ -1388,7 +1388,12 @@ if row:
 def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]
 ```
 
-다음 `size`행을 가져옵니다. `size`가 지정되지 않으면 `cursor.arraysize`가 기본값입니다.
+다음 `size`행을 가져옵니다. `size`를 생략하거나 `None`을 전달하면
+`cursor.arraysize`를 사용합니다. 명시적인 `size`는 일반 Python `int`여야 합니다.
+실수, 불리언과 그 밖의 타입은 행을 소비하거나 다음 페이지를 요청하기 전에
+`ProgrammingError`를 발생시킵니다. 0과 음의 정수는 행을 소비하거나 서버에
+접속하지 않고 빈 리스트를 반환합니다. `AsyncCursor.fetchmany()`에도 같은 규칙을
+적용하며, 닫힌 커서와 결과 집합 유무를 먼저 검사합니다.
 
 ```python
 cur.execute("SELECT * FROM users")
@@ -1688,7 +1693,7 @@ if not await conn.ping(reconnect=False):
 | `execute()` | `async def execute(self, operation: str, parameters: Sequence[Any] \| None = None) -> AsyncCursor` | 시퀀스 전용 파라미터 바인딩, 동기 커서와 동일 규칙 |
 | `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]]) -> AsyncCursor` | 비-SELECT 문용 배치 경로 |
 | `fetchone()` | `async def fetchone(self) -> tuple[Any, ...] \| None` | 한 행 또는 `None` 반환 |
-| `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | 기본적으로 `arraysize` 사용 |
+| `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | 생략/`None`은 `arraysize` 사용; 일반 `int`만 허용하고 0·음수는 `[]` 반환 |
 | `fetchall()` | `async def fetchall(self) -> list[tuple[Any, ...]]` | 남은 행 반환 |
 | `nextset()` | `async def nextset(self) -> None` | DB-API 호환 메서드. 항상 `None` 반환 |
 | `close()` | `async def close(self) -> None` | 활성 쿼리 핸들 해제 |

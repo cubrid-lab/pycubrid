@@ -387,6 +387,8 @@ class AsyncCursor(_AsyncCursorBase):
         self._check_closed()
         self._check_result_set()
         fetch_size = self.arraysize if size is None else size
+        if type(fetch_size) is not int:
+            raise ProgrammingError("size must be an integer")
 
         rows: list[tuple[Any, ...]] = []
         remaining = fetch_size
