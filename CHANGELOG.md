@@ -31,6 +31,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (10.2 and 11.4) are unchanged; earlier evidence recorded on Python 3.10.12
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
+### Documentation
+- **`get_error_description()` is documented, and the Korean API reference is
+  complete again (#711)** — `docs/API_REFERENCE.md` covered every public name
+  except `pycubrid.get_error_description`; it now has its own section in English
+  and Korean. The Korean reference also gains the sections it was missing:
+  unknown connection options, `UnknownConnectionOptionWarning`, the native
+  prepared example and the wrapper cursor's `next()` alias (also added to the
+  English text). No behavior change.
+
 ## [1.9.0] - 2026-10-04
 
 ### Upgrade notes

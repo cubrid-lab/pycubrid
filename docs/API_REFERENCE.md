@@ -47,6 +47,7 @@ Complete API documentation for pycubrid — a pure Python DB-API 2.0 driver for 
   - [ProgrammingError](#programmingerror)
   - [NotSupportedError](#notsupportederror)
   - [UnknownConnectionOptionWarning](#unknownconnectionoptionwarning)
+  - [`get_error_description()`](#get_error_description)
 - [Type Objects](#type-objects)
 - [Type Constructors](#type-constructors)
   - [Typed Collection Parameters](#typed-collection-parameters)
@@ -495,6 +496,7 @@ disables conversion; a truthy non-callable raises `TypeError` after consuming
 the row. Callback errors also consume that row. Matching the official wrapper,
 `fetchmany()` and `fetchall()` stop after consuming any falsey converted result,
 while iteration stops only on `None`; a later fetch may resume after either.
+`next()` is the official wrapper's explicit alias of `__next__()`.
 Call `close()` for deterministic handle release. An abandoned wrapper cursor
 attempts same-session cleanup during garbage collection without committing or
 reconnecting, but that cleanup is best-effort, can block on I/O and cannot
@@ -2208,6 +2210,33 @@ message-based fallback below; per-statement batch dispatch remains code-based:
 | `unique`, `duplicate`, `foreign key`, `constraint violation` | `IntegrityError` |
 | `syntax`, `unknown class`, `does not exist`, `not found` | `ProgrammingError` |
 | All others | `DatabaseError` |
+
+---
+
+### `get_error_description()`
+
+```python
+pycubrid.get_error_description(code: int) -> str | None
+```
+
+Returns the driver's short English description of a native CUBRID or CAS error
+code, or `None` when the code is not in the driver's table. The table is a
+fixed subset built into the driver; it does not query the server, and an
+unlisted code is not an error.
+
+```python
+import pycubrid
+
+pycubrid.get_error_description(-493)    # 'Syntax error'
+pycubrid.get_error_description(-21003)  # 'Connection refused'
+pycubrid.get_error_description(-99999)  # None
+```
+
+The same text appears in the `repr()` of an exception that carries a known
+code, for example
+`ProgrammingError('...', errno=-493, description='Syntax error')`. It is a
+diagnostic aid: classify errors by exception class and by `code`/`errno`, as
+described above, not by this text.
 
 ---
 

@@ -48,6 +48,8 @@ CUBRID용 순수 Python DB-API 2.0 드라이버 pycubrid의 완전한 API 문서
   - [InternalError](#internalerror)
   - [ProgrammingError](#programmingerror)
   - [NotSupportedError](#notsupportederror)
+  - [UnknownConnectionOptionWarning](#unknownconnectionoptionwarning)
+  - [`get_error_description()`](#get_error_description)
 - [타입 객체](#타입-객체)
 - [타입 생성자](#타입-생성자)
   - [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터)
@@ -110,7 +112,18 @@ def connect(
 | `json_deserializer` | `Any` | `None` | fetch 시 JSON 컬럼을 디코딩하는 콜러블. 미설정 시 JSON은 `str`로 반환 |
 | `charset` | `str` | `"utf-8"` | SQL 텍스트, 자격 증명, 문자 값, 이름, 오류 텍스트의 코덱. [`charset`](#charset) 참고 |
 | `ssl` | `bool \| ssl_module.SSLContext \| None` | `None` | 동기·비동기 브로커 연결의 옵트인 TLS. `True`면 TLS 1.2 최소의 기본 검증 컨텍스트 사용. 연결은 CUBRID의 STARTTLS 방식 업그레이드를 사용 — 평문 `CUBRS` 핸드셰이크 후 `OPEN_DATABASE` 전에 TLS 업그레이드. [연결 가이드](CONNECTION.md#ssltls) 참고. |
-| `**kwargs` | `Any` | — | `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, `autocommit` 등 추가 파라미터 |
+| `**kwargs` | `Any` | — | `connect_timeout`, `read_timeout`, `fetch_size`, `enable_timing`, `no_backslash_escapes`, `autocommit` 등 추가 파라미터. 인식하지 못한 키워드는 무시되지만 경고로 알립니다 — [알 수 없는 옵션](#unknown-options) 참고 |
+
+<a id="unknown-options"></a>
+
+#### 알 수 없는 옵션
+
+지원되는 연결 옵션이 아닌 키워드는 무시되지만, 그 이름을 담은
+`UnknownConnectionOptionWarning`을 냅니다(비슷한 이름이 있으면 철자 제안 포함).
+그래서 `read_timout=30` 같은 오타가 조용히 묻히지 않습니다.
+`pycubrid.aio.connect()`와 `Connection(...)` / `AsyncConnection(...)` 직접 생성에도
+똑같이 적용됩니다. 경고를 오류로 올리거나 끄는 방법은
+[알 수 없는 옵션](CONNECTION.md#unknown-options)을 참고하세요.
 
 #### `decode_collections`
 
@@ -243,6 +256,23 @@ FC41과 비동기 동작은 바뀌지 않습니다. 고정된 공식 네이티�
 [typed CAS 설계](../PREPARED_BINDING_DESIGN.md)와
 [호환성 가이드](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)를
 참고하세요.
+
+```python
+from pycubrid.compat import native
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        cur.prepare("SELECT CAST(? AS INTEGER)")
+        cur.bind_param(1, 42)
+        cur.execute()
+        assert cur.fetch_row() == (42,)
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
 
 <a id="네이티브-커서-위치-이동"></a>
 
@@ -450,6 +480,7 @@ SELECT가 아닌 경우 `description=None`을 안정적으로 설정합니다. �
 참이지만 호출 불가능한 값은 행을 소비한 뒤 `TypeError`를 냅니다. 변환기 예외도
 행을 소비합니다. 공식 래퍼처럼 `fetchmany()`/`fetchall()`은 거짓인 변환 결과를
 소비하고 멈추지만 반복자는 `None`에서만 멈추며 이후 fetch로 재개할 수 있습니다.
+`next()`는 공식 래퍼가 제공하는 `__next__()`의 명시적 별칭입니다.
 핸들을 확실히 해제하려면 `close()`를 호출하세요. 버려진 래퍼 커서는 GC 때 같은
 세션에서 커밋·재연결 없이 정리를 시도하지만, 이 정리는 최선 노력이며 I/O에서
 지연되거나 실패할 수 있어 명시적인 종료를 대체하지 못합니다.
@@ -2026,6 +2057,35 @@ class NotSupportedError(DatabaseError)
 
 ---
 
+### UnknownConnectionOptionWarning
+
+```python
+class UnknownConnectionOptionWarning(UserWarning)
+```
+
+PEP 249 예외가 아니라 Python **경고 범주**입니다. 위 계층 구조 밖에 있으며,
+`pycubrid.Warning`(예외로 발생하는 PEP 249 데이터베이스 경고)과 의도적으로
+구분됩니다.
+
+연결 생성자가 인식하지 못하는 키워드를 받으면 발생합니다. 키워드는 그대로
+무시되지만 경고가 그 이름을 알려 주고, 비슷한 이름이 있으면 철자 제안도
+덧붙입니다. 그래서 `read_timout=30` 같은 오타가 조용히 묻히지 않습니다.
+
+```python
+import warnings
+import pycubrid
+
+# 엄격: 알 수 없는 연결 옵션을 오류로 만듭니다.
+warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+
+# 느슨: 경고를 끕니다(예: 임의의 kwargs를 넘겨 주는 래퍼).
+warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+```
+
+[알 수 없는 옵션](CONNECTION.md#unknown-options)을 참고하세요.
+
+---
+
 ### 오류 분류
 
 pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 오류를 분류합니다.
@@ -2061,6 +2121,32 @@ pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 �
 | `unique`, `duplicate`, `foreign key`, `constraint violation` | `IntegrityError` |
 | `syntax`, `unknown class`, `does not exist`, `not found` | `ProgrammingError` |
 | 그 외 전부 | `DatabaseError` |
+
+---
+
+### `get_error_description()`
+
+```python
+pycubrid.get_error_description(code: int) -> str | None
+```
+
+네이티브 CUBRID 또는 CAS 오류 코드에 대해 드라이버가 가진 짧은 영어 설명을
+반환하고, 드라이버 표에 없는 코드이면 `None`을 반환합니다. 이 표는 드라이버에
+내장된 고정 부분 집합입니다. 서버에 질의하지 않으며, 표에 없는 코드가 오류를
+뜻하지도 않습니다.
+
+```python
+import pycubrid
+
+pycubrid.get_error_description(-493)    # 'Syntax error'
+pycubrid.get_error_description(-21003)  # 'Connection refused'
+pycubrid.get_error_description(-99999)  # None
+```
+
+알려진 코드를 가진 예외의 `repr()`에도 같은 문구가 나옵니다. 예:
+`ProgrammingError('...', errno=-493, description='Syntax error')`. 이 문구는
+진단용 보조 정보입니다. 오류는 위에서 설명한 대로 예외 클래스와
+`code`/`errno`로 분류하고, 이 문구로 분류하지 마세요.
 
 ---
 
