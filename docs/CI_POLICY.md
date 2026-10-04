@@ -57,3 +57,13 @@ The deep bug-hunt workflow runs weekly with one Python 3.12/CUBRID 11.4 cell,
 skipping unchanged weeks and retaining its mutation/performance/downstream checks and wide Hypothesis profile.
 TLS, EUC-KR and official differential jobs are selected by related paths on PRs;
 they remain available in main, changed-weekly and full release validation.
+
+## Python 3.15 preview preparation
+
+`python-canary.yml` is manual-only: supply the full SHA and dispatch the branch
+at that commit. One Ubuntu/standard-GIL lane selects Python 3.15 with prereleases
+allowed, prints the actual interpreter/dependency versions, runs full offline
+regressions and validates fresh wheel/sdist installs. Failed setup/install/tests
+fail the run normally. It is separate from required PR checks and release gates;
+there is no new schedule, PR matrix cell or CUBRID provisioning. This lane alone
+does not establish official support, live database or free-threaded compatibility.

@@ -21,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
 
 ### Added
+- **Python 3.15 preview preparation** — add a manual-only Ubuntu/standard-GIL
+  offline and wheel/sdist installation lane at an immutable commit. Python 3.15
+  is not yet officially supported; final-runtime and live CUBRID evidence are
+  required before promotion. Routine PR test frequency and supported versions
+  remain unchanged.
 - **Native connection utilities (#666)** — add opt-in zero-argument full
   `server_version()`, truthful frozen own-driver `client_version()` and integer
   query `ping()`, plus the wrapper's two server/ping delegates. Requests stay on
