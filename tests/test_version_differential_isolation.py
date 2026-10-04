@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from hypothesis import HealthCheck, given, settings
 
 import pycubrid
 from pycubrid.exceptions import Error as DBAPIError
@@ -25,6 +26,7 @@ from pycubrid.exceptions import OperationalError
 from .helpers.version_matrix import Endpoint
 
 version_differential = pytest.importorskip("tests.test_version_differential")
+Expr = version_differential.Expr
 Server = version_differential.Server
 SessionLost = version_differential.SessionLost
 Stmt = version_differential.Stmt
@@ -317,3 +319,55 @@ def test_auto_reconnecting_sql_cannot_hide_a_dead_prior_session(
     assert server.open_sessions == 2
     assert server.conn is broker.opened[-1] and server.conn is not dead
     assert server.run(Workload(statements=[Stmt(sql="SELECT 1")]))[0]["rows"] == ALIVE_ROWS
+
+
+# ---------------------------------------------------------------------------
+# Grammar (#614)
+#
+# Isolation makes a fatal statement fail one test; it does not stop the grammar
+# from generating a statement that is already known to crash every supported
+# CUBRID. Such a statement says nothing about pycubrid and fails the lane, so
+# the conditional form leaves the collection/numeric pairing out.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "fatal"),
+    [
+        (Expr("SET{1}", "coll"), Expr("(0.000)", "num"), True),
+        (Expr("(0.000)", "num"), Expr("LIST{1}", "coll"), True),
+        (Expr("SET{1}", "coll"), Expr("MULTISET{2}", "coll"), False),
+        (Expr("SET{1}", "coll"), Expr("'abc'", "str"), False),
+        (Expr("(0.000)", "num"), Expr("'abc'", "str"), False),
+        (Expr("(0.000)", "num"), Expr("(1)", "num"), False),
+    ],
+)
+def test_only_a_collection_beside_a_number_is_left_out(a: Any, b: Any, fatal: bool) -> None:
+    assert version_differential._is_fatal_conditional(a, b) is fatal
+
+
+def _conditionals(monkeypatch: pytest.MonkeyPatch, *, fatal: bool) -> list[str]:
+    """Generated statements holding IF/CASE WHEN when every pairing is (not) fatal."""
+    monkeypatch.setattr(version_differential, "_is_fatal_conditional", lambda a, b: fatal)
+    emitted: list[str] = []
+
+    @settings(
+        max_examples=200,
+        deadline=None,
+        database=None,
+        derandomize=True,
+        suppress_health_check=list(HealthCheck),
+    )
+    @given(version_differential.expressions())
+    def explore(expr: Any) -> None:
+        emitted.append(expr.sql)
+
+    explore()
+    return [sql for sql in emitted if "CASE WHEN" in sql or "IF(" in sql.replace("NULLIF(", "")]
+
+
+def test_the_grammar_emits_no_fatal_conditional(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The real pairing is drawn in about one of twenty 50-example runs, too rare
+    # to assert on directly; drive the predicate both ways instead.
+    assert _conditionals(monkeypatch, fatal=False), "the exploration never drew a conditional"
+    assert not _conditionals(monkeypatch, fatal=True)

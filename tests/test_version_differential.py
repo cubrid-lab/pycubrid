@@ -38,7 +38,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 import pycubrid
 from pycubrid.exceptions import Error as DBAPIError
@@ -518,6 +518,20 @@ def _has_wide_char(sql: str) -> bool:
     return any(len(ch.encode("utf-8")) >= 3 for ch in sql)
 
 
+def _is_fatal_conditional(a: Expr, b: Expr) -> bool:
+    """True for conditional branches that crash CUBRID instead of answering (#614).
+
+    ``SELECT IF(1=0, SET{1}, 0.000)`` ends ``csql`` with SIGSEGV and drops the CAS
+    session on 10.2, 11.0, 11.2 and 11.4: a collection branch beside a selected
+    NUMERIC branch of scale >= 2. That is a server defect to report upstream, not
+    a version difference, so the grammar leaves the whole collection/numeric
+    pairing out rather than tracking the scale of every numeric expression. Only
+    ``IF`` was measured; ``CASE WHEN`` is left out with it, unverified. Remove
+    this once a fixed CUBRID is the oldest supported build.
+    """
+    return {a.kind, b.kind} == {"coll", "num"}
+
+
 def _unary_num(draw: st.DrawFn, a: Expr) -> Expr:
     fn = draw(
         st.sampled_from(
@@ -624,6 +638,7 @@ def expressions(draw: st.DrawFn, depth: int = 2) -> Expr:
     if form == 10:  # conditionals with logical conditions only
         cond = draw(logical_condition(depth - 1))
         a, b = draw(sub), draw(sub)
+        assume(not _is_fatal_conditional(a, b))
         fn = draw(st.sampled_from(["IF(%s, %s, %s)", "CASE WHEN %s THEN %s ELSE %s END"]))
         return Expr(fn % (cond.sql, a.sql, b.sql), a.kind, _merge(cond, a, b))
     if form == 11:
