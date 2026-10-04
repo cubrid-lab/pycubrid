@@ -24,8 +24,9 @@ The **public API** of pycubrid is exactly the union of:
 2. Every name listed in `pycubrid.aio.__all__`.
 3. Every name listed in `pycubrid.compat.__all__` and in the explicit
    `pycubrid.compat.cubriddb.__all__` / `pycubrid.compat.native.__all__`.
-   These namespaces currently provide construction and close only, not a
-   complete DB-API or official native cursor.
+   These namespaces are a staged, opt-in subset, not a complete DB-API or
+   official native driver; names first released in 1.9.0 or later are
+   **provisional** (see "Staged explicit compatibility namespaces" in §2).
 4. The following classes, which users receive as return values from public
    factory functions and therefore depend on transitively:
    - `pycubrid.connection.Connection`
@@ -79,7 +80,9 @@ pycubrid follows [Semantic Versioning 2.0](https://semver.org/). Starting from
 - **MINOR** (`1.x.0`) — Adds functionality in a backward-compatible manner.
   May add new public functions, methods, classes, parameters with defaults,
   or `__all__` entries. May not remove, rename, or change the structural
-  signature of anything already on the public surface.
+  signature of anything already on the public surface. The only exception is
+  a provisional `pycubrid.compat` name first released in 1.9.0 or later; see
+  "Staged explicit compatibility namespaces" below.
 - **PATCH** (`1.x.y`) — Backward-compatible bug fixes only. Must not add new
   public API.
 
@@ -133,6 +136,23 @@ Only their implemented factories, connection and cursor methods are public;
 no wrapper collection/LOB execute, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
 both explicit modules and returned classes.
+
+**Stability: provisional from 1.9.0.** Official-driver parity (#396) is still
+being built, and its shape follows measurements of the official driver rather
+than a finished design. Until this policy and `CHANGELOG.md` declare the
+namespaces stable:
+
+- Names under `pycubrid.compat` (including `compat.cubriddb`, `compat.native`
+  and `compat.cursors` and the classes they return) that were first released in
+  1.9.0 or later are exempt from the MINOR guarantee above. A MINOR release may
+  rename, remove or change the signature or behavior of such a name, and must
+  say so in a `CHANGELOG.md` Upgrade note. PATCH releases stay backward
+  compatible for them.
+- Names already in the 1.8.0 baseline (`git show v1.8.0:api-baseline.json`)
+  keep the full guarantee of this section.
+- `pycubrid` and `pycubrid.aio` are unaffected.
+- The checker and baseline keep tracking every compat name, so a provisional
+  change still appears as an explicit baseline diff in review.
 These are **MINOR** additions while ordinary behavior stays unchanged;
 documented ordinary bug corrections remain **PATCH**. The staged work does not
 authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI
@@ -174,8 +194,16 @@ in code review:
 
 ## 3. Breaking-Change Process
 
-Breaking changes are only permitted in major version bumps. The full process
-for landing one is:
+Breaking changes are only permitted in major version bumps, with one
+exception: a provisional `pycubrid.compat` name first released in 1.9.0 or
+later may change in a MINOR release (§2, "Staged explicit compatibility
+namespaces"). Names in the 1.8.0 baseline, `pycubrid` and `pycubrid.aio` have
+no such exception. A provisional change skips the major version bump, the
+`breaking-change` issue and the `### Breaking Changes` section (steps 1 and
+5–7), but still regenerates and commits `api-baseline.json` with the source
+change (steps 3–4) and must describe the change and how callers migrate in a
+`CHANGELOG.md` Upgrade note. The full process for landing a major-version
+breaking change is:
 
 1. Open an issue tagged `breaking-change` describing the motivation and
    migration path before any code is written.

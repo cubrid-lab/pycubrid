@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Upgrade notes
+Behavior changes you may notice (details in the entries below):
+- **`pycubrid.compat` is provisional.** Most of the opt-in compatibility
+  namespaces is new in this release and still follows measurements of the
+  official driver. Names first released in 1.9.0 or later may change or be
+  removed in a later MINOR release, announced here; names already in 1.8.0, and
+  all of `pycubrid` and `pycubrid.aio`, keep the normal 1.x guarantee. See
+  [RELEASE_POLICY.md](RELEASE_POLICY.md#2-semantic-versioning-rules).
+- A `DELETE`/`UPDATE` of a parent row that a foreign key still references
+  (`-924`) and a `TRUNCATE` of a referenced parent table (`-1284`) now raise
+  `IntegrityError` (SQLSTATE `23000`, still a `DatabaseError` subclass) instead
+  of a generic `DatabaseError`. (#493)
+- On ordinary sync and async cursors, a complete reply holding a value Python
+  cannot represent now raises `DataError` and keeps the session, instead of
+  `OperationalError('malformed response from broker')` and a closed connection:
+  zero `DATE`/`DATETIME`/`TIMESTAMP` values (#512), undecodable character
+  values, and invalid JSON decoded by the built-in `json.loads` (#543). Errors
+  from a caller-supplied `json_deserializer` are not reclassified, and the
+  prepared API in `pycubrid.compat.native` stays fail-closed: it still raises
+  `OperationalError` and closes the session.
+- `CALL`, `callproc()` and `EVALUATE` results and `NULL`-typed columns return
+  decoded values (`42`, a `datetime`) instead of raw `bytes`. (#542)
+- An `execute()` that fails after the previous query handle was closed no
+  longer leaves the previous statement's result on the cursor: `description` is
+  `None`, `rowcount` is `-1` and nothing is fetchable. If closing the previous
+  handle itself fails, `execute()` raises and the buffered result is kept.
+  (#373)
+- `decimal.Decimal` parameters are sent in plain fixed-point notation, so values
+  such as `Decimal("1E-7")` stay `NUMERIC` instead of coming back as `float`.
+- Negative, NaN and infinite `connect_timeout`/`read_timeout` values are
+  rejected before a socket is opened. (#367)
+- `Lob.read()`/`Lob.write()` raise `InterfaceError` for an `offset` or `length`
+  that is not a plain `int`, including `bool`. (#449)
+- `DBAPIType` no longer compares equal to `bool` values: `STRING == True` is
+  `False`. (#369)
+- Sync `connect(..., ssl=...)` without `read_timeout` gives up on a stalled TLS
+  handshake after 10 seconds with `OperationalError` instead of waiting forever.
+  (#535)
+- Python 3.10 support is deprecated; see Deprecated below.
+
 ### Deprecated
 - **Python 3.10 support** — advance notice for the 1.9.x release. Python
   3.10 reached upstream end of life on 2026-10-01 ([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
