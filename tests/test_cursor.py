@@ -377,9 +377,9 @@ def test_fetchmany_with_size_and_default_arraysize(
             _set_prepare_packet(
                 packet,
                 stmt_type=CUBRIDStatementType.SELECT,
-                rows=[(1,), (2,), (3,)],
-                total_count=3,
-                result_count=3,
+                rows=[(1,), (2,), (3,), (4,), (5,)],
+                total_count=5,
+                result_count=5,
             )
         return packet
 
@@ -387,7 +387,53 @@ def test_fetchmany_with_size_and_default_arraysize(
     cursor.execute("SELECT id FROM t")
     assert cursor.fetchmany(2) == [(1,), (2,)]
     cursor.arraysize = 2
-    assert cursor.fetchmany() == [(3,)]
+    assert cursor.fetchmany(None) == [(3,), (4,)]
+    assert cursor.fetchmany() == [(5,)]
+    assert cursor.fetchmany(2) == []
+
+
+@pytest.mark.parametrize(
+    "size",
+    [
+        1.5,
+        2.0,
+        -1.0,
+        0.0,
+        True,
+        False,
+        "2",
+        pytest.param(CUBRIDStatementType.SELECT, id="int-subclass"),
+    ],
+)
+@pytest.mark.parametrize("paged", [False, True], ids=["buffered", "paged"])
+def test_fetchmany_rejects_invalid_size_without_consuming_or_fetching(
+    cursor: Cursor, mock_connection: MagicMock, size: object, paged: bool
+) -> None:
+    def send(packet: object, **_: object) -> object:
+        if isinstance(packet, PrepareAndExecutePacket):
+            _set_prepare_packet(
+                packet, stmt_type=CUBRIDStatementType.SELECT, rows=[(1,)], total_count=3
+            )
+        elif isinstance(packet, FetchPacket):
+            packet.rows = [(2,), (3,)]
+        return packet
+
+    mock_connection._send_and_receive.side_effect = send
+    cursor.execute("SELECT id FROM t")
+    if paged:
+        assert cursor.fetchone() == (1,)
+    original_rows = cursor._rows.copy()
+    original_index = cursor._row_index
+    mock_connection._send_and_receive.reset_mock()
+
+    with pytest.raises(ProgrammingError, match="size must be an integer"):
+        cursor.fetchmany(cast(int, size))
+
+    assert cursor._rows == original_rows
+    assert cursor._row_index == original_index
+    mock_connection._send_and_receive.assert_not_called()
+    assert cursor.fetchmany(2) == ([(2,), (3,)] if paged else [(1,), (2,)])
+    mock_connection._send_and_receive.assert_called_once()
 
 
 def test_fetchall_returns_remaining_rows(cursor: Cursor, mock_connection: MagicMock) -> None:

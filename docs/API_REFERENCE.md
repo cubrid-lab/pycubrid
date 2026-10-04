@@ -1474,7 +1474,12 @@ if row:
 def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]
 ```
 
-Fetch the next `size` rows. Defaults to `cursor.arraysize` if `size` is not specified.
+Fetch the next `size` rows. If `size` is omitted or `None`, use
+`cursor.arraysize`. An explicit `size` must be a plain Python `int`; floats,
+booleans and other types raise `ProgrammingError` before consuming rows or
+requesting another page. Zero and negative integers return an empty list
+without consuming rows or contacting the server. These rules also apply to
+`AsyncCursor.fetchmany()`. Closed-cursor and missing-result checks run first.
 
 ```python
 cur.execute("SELECT * FROM users")
@@ -1785,7 +1790,7 @@ Async counterpart to `Cursor`.
 | `execute()` | `async def execute(self, operation: str, parameters: Sequence[Any] \| None = None) -> AsyncCursor` | Sequence-only parameter binding, same rules as sync cursor |
 | `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]]) -> AsyncCursor` | Batch path for non-SELECT statements |
 | `fetchone()` | `async def fetchone(self) -> tuple[Any, ...] \| None` | Returns one row or `None` |
-| `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | Uses `arraysize` by default |
+| `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | Omitted/`None` uses `arraysize`; plain `int` required, nonpositive integers return `[]` |
 | `fetchall()` | `async def fetchall(self) -> list[tuple[Any, ...]]` | Returns remaining rows |
 | `nextset()` | `async def nextset(self) -> None` | DB-API compatibility method; always returns `None` |
 | `close()` | `async def close(self) -> None` | Releases active query handle |

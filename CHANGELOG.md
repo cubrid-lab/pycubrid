@@ -41,6 +41,12 @@ Behavior changes you may notice (details in the entries below):
   that is not a plain `int`, including `bool`. (#449)
 - `DBAPIType` no longer compares equal to `bool` values: `STRING == True` is
   `False`. (#369)
+- Ordinary sync and async `fetchmany(size)` require a plain Python `int`
+  when a size is supplied: floats, booleans and integer subclasses now raise
+  `ProgrammingError` before consuming rows or requesting a page. Use a plain
+  integer row count instead. Omitted/`None` sizes still use `arraysize`, and
+  zero/negative integers still return `[]`. (#371) Positive-only validation
+  is reserved for a future major release ([#678](https://github.com/cubrid-lab/pycubrid/issues/678)).
 - Sync `connect(..., ssl=...)` without `read_timeout` gives up on a stalled TLS
   handshake after 10 seconds with `OperationalError` instead of waiting forever.
   (#535)
@@ -504,6 +510,13 @@ Behavior changes you may notice (details in the entries below):
 
 ### Fixed
 
+- **`fetchmany()` validates integer size before fetching (#371)** —
+  ordinary sync and async cursors raise `ProgrammingError` for non-integer
+  types, including floats and booleans, before buffer consumption or a FETCH
+  request. Positive sizes and omitted/`None` defaults keep their behavior;
+  existing zero/negative integer no-ops and the separate compatibility wrapper
+  are preserved. This type tightening is classified MINOR, since booleans
+  and nonpositive floats previously completed without error.
 - Preserve existing Docker volumes during automatic integration/TLS cleanup, including readiness and test failures (#501).
 - **Connection timeouts are validated before socket creation (#367)** — sync and async connections reject negative, NaN, and infinite `connect_timeout`/`read_timeout` values during common initialization, preventing invalid timeout values from leaking a newly opened socket; `None`, zero, and finite positive values retain their existing semantics.
 - **TLS preflight fatal alerts and timeout context (#592)** — the Python 3.10

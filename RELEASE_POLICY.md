@@ -980,6 +980,20 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   including rejection of floats and booleans. Valid positive integers retain
   their behavior, and invalid assignments leave the previous value unchanged.
 
+- **`fetchmany(size)` requires a plain integer in sync and async cursors
+  (#371)** — MINOR / behavior correction, following
+  the type-tightening precedent in #449. Floats, booleans and integer
+  subclasses now raise `ProgrammingError` before row consumption or a FETCH
+  request. This is not PATCH: booleans and nonpositive floats previously
+  completed without error, while positive floats could fetch a page before
+  leaking `TypeError`. Omitted/`None` uses the validated `arraysize`; positive
+  integers retain their behavior, and the offline-tested zero/negative integer
+  `[]` contract is preserved. Closed-cursor and missing-result errors retain
+  precedence. The separate `pycubrid.compat` wrapper and public signatures
+  are unchanged. Positive-only sizes would change the preserved 1.x
+  nonpositive-integer contract and are reserved for a future MAJOR release
+  in [#678](https://github.com/cubrid-lab/pycubrid/issues/678).
+
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches
   `execute()` by releasing a previous result-set handle before starting another operation.
