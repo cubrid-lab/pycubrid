@@ -5,7 +5,7 @@
     "cubrid_python_repository": "https://github.com/CUBRID/cubrid-python",
     "cubrid_python_commit": "e75ec36b2a92b8829a49a967a29a1fbb9d7c322b",
     "cci_commit": "7d1eb8f40f04089b8218d08e36e2c24a2de11b24",
-    "python": "3.10"
+    "python": "3.11"
   },
   "required_servers": ["10.2", "11.4"],
   "claims": [

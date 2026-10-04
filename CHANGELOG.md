@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Tests
+- **The official-driver differential lane runs on Python 3.11 (#683)** — the
+  pinned CUBRIDdb oracle (cubrid-python `e75ec36`, CCI `7d1eb8f`) was built and
+  compared on Python 3.10 only. The `official-differential` job in `ci.yml` and
+  `integration-full.yml`, the claims fixture and the generated compatibility
+  summaries now use Python 3.11, so the lane no longer depends on the
+  interpreter that 1.10.0 retires. Claims, source pins and the required servers
+  (10.2 and 11.4) are unchanged; earlier evidence recorded on Python 3.10.12
+  stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
+
 ## [1.9.0] - 2026-10-04
 
 ### Upgrade notes

@@ -268,7 +268,7 @@ CCI 정적 라이브러리는 CCI가 추적하는 번들 OpenSSL 1.1.1f 라이�
 기록됩니다. Linux x86_64만 지원하며 TLS는 이 오라클로 검증하지 않습니다.
 
 **필수 레인.** 일반 CI의 `official-differential` 작업은 CI Gate에 포함되며 문서
-전용 변경일 때만 건너뜁니다. Python 3.10으로 CUBRID 10.2와 11.4를 대상으로 실행하고,
+전용 변경일 때만 건너뜁니다. Python 3.11로 CUBRID 10.2와 11.4를 대상으로 실행하고,
 두 고정값을 담은 빌드 스크립트 해시를 키로 오라클 빌드를 캐시합니다. 같은 작업이
 nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1`에서는
 다음 경우 건너뛰지 않고 실패합니다.
@@ -298,7 +298,7 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 | 네이티브 (`_cubrid`) | 33 | 13 | 46 |
 | **합계** | **48** | **15** | **63** |
 
-- 오라클: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
+- 오라클: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.11
 - 필수 서버: CUBRID 10.2, CUBRID 11.4
 - 분류된 차이: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445), `native-position-error-args` (#444)
 

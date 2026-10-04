@@ -304,7 +304,7 @@ both commits, the toolchain and the extension SHA-256 in `oracle.json`. It
 supports Linux x86_64 only. TLS is not exercised through the oracle.
 
 **Required lanes.** The `official-differential` job in regular CI is part of the
-CI Gate. It is skipped only for docs-only changes. It runs Python 3.10 against
+CI Gate. It is skipped only for docs-only changes. It runs Python 3.11 against
 CUBRID 10.2 and 11.4 and caches the oracle build, keyed by the build script
 hash, which contains both pins. The same job gates the nightly and release full
 matrix. With `PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1`, the following fail instead of
@@ -337,7 +337,7 @@ claims without cases and oracle pins that differ from the build script.
 | Native (`_cubrid`) | 33 | 13 | 46 |
 | **Total** | **48** | **15** | **63** |
 
-- Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.10
+- Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.11
 - Required servers: CUBRID 10.2, CUBRID 11.4
 - Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445), `native-position-error-args` (#444)
 

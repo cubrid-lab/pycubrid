@@ -46,7 +46,7 @@ def _evidence(doc: dict[str, Any] = DOC) -> list[dict[str, Any]]:
         records.append(
             {
                 "record": "environment",
-                "python": "3.10.18",
+                "python": doc["oracle"]["python"] + ".0",
                 "pycubrid_commit": "0" * 40,
                 "server_version": server,
                 "cubrid_python_commit": doc["oracle"]["cubrid_python_commit"],
