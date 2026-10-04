@@ -298,6 +298,11 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **README Quick Start examples (#327)** — documentation-only / PATCH eligible.
+  Parameterized CRUD, DML commit/rollback and `ProgrammingError` examples use a
+  dedicated scratch table with explicit setup and cleanup; no driver behavior,
+  public API, dependency, default or supported-version change.
+
 - **Differential session isolation and conditional exclusion (#614)** — PATCH /
   test corrections. The follow-up documentation retains the existing
   `OperationalError` contract for CAS transport loss; it introduces no driver,

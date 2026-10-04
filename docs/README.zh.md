@@ -106,28 +106,69 @@ async def main():
 asyncio.run(main())
 ```
 
-### 参数绑定
+### 实用示例
+
+在测试数据库中，**在同一个 Python 会话中依次**运行准备代码、三个示例和清理代码。请调整连接设置以匹配服务器。专用表不能已存在：准备代码会报错，避免重用或删除现有表。手动提交模式和初始 DDL 提交确保下面的回滚只影响 DML。
+
+#### 准备
 
 ```python
-# qmark 风格（问号占位符）
-cur.execute("SELECT * FROM users WHERE name = ? AND age > ?", ("Alice", 25))
+import pycubrid
 
-# 使用 executemany 批量插入
-data = [("Alice", 30), ("Bob", 25), ("Charlie", 35)]
-cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+conn.autocommit = False
+cur = conn.cursor()
+cur.execute("CREATE TABLE pycubrid_quickstart_327 (id INT PRIMARY KEY, name VARCHAR(100))")
 conn.commit()
 ```
 
-### 参数化查询
+#### 基本 CRUD
 
 ```python
-sql = "SELECT * FROM users WHERE department = ?"
+cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (1, "Alice"))
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+print(cur.fetchone())  # ('Alice',)
+cur.execute("UPDATE pycubrid_quickstart_327 SET name = ? WHERE id = ?", ("Alicia", 1))
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+print(cur.fetchone())  # ('Alicia',)
+cur.execute("DELETE FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+conn.commit()
+```
 
-cur.execute(sql, ("Engineering",))
-engineers = cur.fetchall()
+#### 事务：提交与回滚
 
-cur.execute(sql, ("Marketing",))
-marketers = cur.fetchall()
+```python
+cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (2, "Bob"))
+conn.commit()
+cur.execute("UPDATE pycubrid_quickstart_327 SET name = ? WHERE id = ?", ("Temporary", 2))
+conn.rollback()
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (2,))
+print(cur.fetchone())  # ('Bob',)
+conn.rollback()
+```
+
+#### 错误处理
+
+```python
+from pycubrid.exceptions import ProgrammingError
+
+try:
+    cur.execute("SELECT missing_column FROM pycubrid_quickstart_327 WHERE id = ?", (2,))
+except ProgrammingError as exc:
+    conn.rollback()
+    print(f"Query failed: {exc}")
+```
+
+#### 清理
+
+准备成功后，即使示例失败也应运行清理代码；它只删除上面创建的表。更多示例见 [EXAMPLES.md](EXAMPLES.md)。
+
+```python
+conn.rollback()
+cur.execute("DROP TABLE pycubrid_quickstart_327")
+conn.commit()
+cur.close()
+conn.close()
 ```
 
 ## PEP 249 兼容性

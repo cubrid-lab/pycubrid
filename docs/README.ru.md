@@ -108,28 +108,69 @@ async def main():
 asyncio.run(main())
 ```
 
-### Привязка параметров
+### Практические примеры
+
+В тестовой базе данных выполните подготовку, три примера и очистку **по порядку в одном сеансе Python**. Измените параметры подключения для своего сервера. Выделенная таблица не должна уже существовать: подготовка завершится ошибкой, не используя и не удаляя существующую таблицу. Ручной режим фиксации и начальная фиксация DDL ограничивают последующий откат операциями DML.
+
+#### Подготовка
 
 ```python
-# Стиль qmark (знак вопроса)
-cur.execute("SELECT * FROM users WHERE name = ? AND age > ?", ("Alice", 25))
+import pycubrid
 
-# Пакетная вставка с executemany
-data = [("Alice", 30), ("Bob", 25), ("Charlie", 35)]
-cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+conn.autocommit = False
+cur = conn.cursor()
+cur.execute("CREATE TABLE pycubrid_quickstart_327 (id INT PRIMARY KEY, name VARCHAR(100))")
 conn.commit()
 ```
 
-### Параметризованные запросы
+#### Базовые операции CRUD
 
 ```python
-sql = "SELECT * FROM users WHERE department = ?"
+cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (1, "Alice"))
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+print(cur.fetchone())  # ('Alice',)
+cur.execute("UPDATE pycubrid_quickstart_327 SET name = ? WHERE id = ?", ("Alicia", 1))
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+print(cur.fetchone())  # ('Alicia',)
+cur.execute("DELETE FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+conn.commit()
+```
 
-cur.execute(sql, ("Engineering",))
-engineers = cur.fetchall()
+#### Транзакции: фиксация и откат
 
-cur.execute(sql, ("Marketing",))
-marketers = cur.fetchall()
+```python
+cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (2, "Bob"))
+conn.commit()
+cur.execute("UPDATE pycubrid_quickstart_327 SET name = ? WHERE id = ?", ("Temporary", 2))
+conn.rollback()
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (2,))
+print(cur.fetchone())  # ('Bob',)
+conn.rollback()
+```
+
+#### Обработка ошибок
+
+```python
+from pycubrid.exceptions import ProgrammingError
+
+try:
+    cur.execute("SELECT missing_column FROM pycubrid_quickstart_327 WHERE id = ?", (2,))
+except ProgrammingError as exc:
+    conn.rollback()
+    print(f"Query failed: {exc}")
+```
+
+#### Очистка
+
+После успешной подготовки выполните очистку, даже если пример завершится ошибкой; она удаляет только созданную выше таблицу. Другие примеры: [EXAMPLES.md](EXAMPLES.md).
+
+```python
+conn.rollback()
+cur.execute("DROP TABLE pycubrid_quickstart_327")
+conn.commit()
+cur.close()
+conn.close()
 ```
 
 ## Соответствие PEP 249
