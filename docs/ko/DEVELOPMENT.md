@@ -555,7 +555,7 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | 일반 | `integration and not slow and not tls` | 선택된 PR/push CI, 전체 호환성 매트릭스, 주간 bug hunt |
 | 장시간 | `integration and slow and not tls` | 주간/수동 bug hunt의 soak, chaos, 동시성 stress |
 | TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
-| 공식 드라이버 차분 | `integration and official_differential` | 일반 CI와 전체 워크플로의 필수 `official-differential` 잡 (Python 3.10, CUBRID 10.2와 11.4) |
+| 공식 드라이버 차분 | `integration and official_differential` | 일반 CI와 전체 워크플로의 필수 `official-differential` 잡 (Python 3.11, CUBRID 10.2와 11.4) |
 
 `python scripts/check_integration_lanes.py`는 현재 마커 목록을 수집하고 각 레인의 실제
 워크플로 명령을 확인합니다. JUnit 검사(`--results FILE`)는 알려지지 않은 스킵,
@@ -674,15 +674,15 @@ trace와 query 작업이 서로 끼어들지 않고, 응답이 각각 정확하�
 
 공식 드라이버 차분(#446)은 고정 소스에서 빌드한 공식 `CUBRIDdb`/`_cubrid`
 드라이버와 pycubrid를 비교합니다. 로컬에서 재현하려면(Linux x86_64, git,
-CMake 3.21 이상, C 컴파일러, Python 3.10 헤더 필요) 다음을 실행합니다.
+CMake 3.21 이상, C 컴파일러, Python 3.11 헤더 필요) 다음을 실행합니다.
 
 ```bash
-python3.10 scripts/build_official_oracle.py --out .official-oracle
+python3.11 scripts/build_official_oracle.py --out .official-oracle
 PYTHONPATH=.official-oracle PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1 \
   PYCUBRID_OFFICIAL_ORACLE_MANIFEST=.official-oracle/oracle.json \
   PYCUBRID_DIFFERENTIAL_EVIDENCE=official-evidence.jsonl \
   CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
-  python3.10 -m pytest tests/ -m "integration and official_differential"
+  python3.11 -m pytest tests/ -m "integration and official_differential"
 python scripts/check_official_differential.py --evidence official-evidence.jsonl
 ```
 

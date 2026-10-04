@@ -645,7 +645,7 @@ filename-glob inventory:
 | Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and weekly bug hunt |
 | Slow | `integration and slow and not tls` | Weekly/manual bug hunt: soak, chaos, and concurrency stress |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
-| Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.10, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
+| Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.11, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
 
 `python scripts/check_integration_lanes.py` collects the current marker inventory
 and checks that each lane has an executable workflow command. The JUnit audit
@@ -656,16 +656,16 @@ is not an accepted CI skip. `--lane official` accepts no skip at all.
 
 The official-driver differential (#446) compares pycubrid with the official
 `CUBRIDdb`/`_cubrid` driver built from pinned source. To reproduce it locally
-(Linux x86_64, git, CMake 3.21 or newer, a C compiler and Python 3.10 headers),
+(Linux x86_64, git, CMake 3.21 or newer, a C compiler and Python 3.11 headers),
 run:
 
 ```bash
-python3.10 scripts/build_official_oracle.py --out .official-oracle
+python3.11 scripts/build_official_oracle.py --out .official-oracle
 PYTHONPATH=.official-oracle PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1 \
   PYCUBRID_OFFICIAL_ORACLE_MANIFEST=.official-oracle/oracle.json \
   PYCUBRID_DIFFERENTIAL_EVIDENCE=official-evidence.jsonl \
   CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
-  python3.10 -m pytest tests/ -m "integration and official_differential"
+  python3.11 -m pytest tests/ -m "integration and official_differential"
 python scripts/check_official_differential.py --evidence official-evidence.jsonl
 ```
 
