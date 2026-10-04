@@ -143,8 +143,11 @@ only_mutate = [
 # Into mutants/ mutmut copies source_paths plus a built-in list (tests/, test/,
 # pyproject.toml, lock files) and nothing else; entries here are added to that
 # list, not substituted for it. The offline suite imports scripts/ and reads
-# .github/workflows/ and docs/, so the sandbox needs them.
-also_copy = ["scripts", ".github", "docs"]
+# .github/workflows/ and docs/, tests/test_record_demo.py imports demos/ and
+# tests/test_makefile_integration_cleanup.py runs the real Makefile, so the
+# sandbox needs them. A missing entry fails the stats run before any mutant is
+# tested ("failed to collect stats").
+also_copy = ["scripts", ".github", "docs", "demos", "Makefile"]
 # mutmut 3 adds -x -q itself. repo_tooling checks exercise repository policy and
 # carry no driver behavior (see the marker definition above), so they cannot kill
 # a driver mutant; they only lengthen the run. This is the same selection CI's
