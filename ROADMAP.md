@@ -1,9 +1,38 @@
 # Roadmap
 
-> **Last updated**: 2026-10-03
+> **Last updated**: 2026-10-04
 >
 > This roadmap reflects current priorities. For the ecosystem-wide view, see the
 > [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
+
+## Reviewed backlog priorities
+
+The [dated priority review (#566)](https://github.com/cubrid-lab/pycubrid/issues/566)
+records execution order and historical verification. Prioritize reproduced
+correctness failures as high, bounded verification and release preparation as
+medium, and optional compatibility extensions as low. Size estimates effort
+independently of urgency. Preserve existing contributor ownership and use one
+focused acceptance contract per PR.
+
+The remaining larger work in the 2026-10-04 snapshot is:
+
+| Order | Issue | Priority / size | Completion boundary |
+|---|---|---|---|
+| 1 | [#634](https://github.com/cubrid-lab/pycubrid/issues/634) — release-please integration audit | medium / L | Migration is integrated; reviewed candidate and publisher/recovery evidence remain separate. |
+| 2 | [#336](https://github.com/cubrid-lab/pycubrid/issues/336) — adversarial verification audit | medium / XL | Reconcile actual runs, measurements and known limitations; passing child PRs do not complete the parent. |
+| 3 | [#610](https://github.com/cubrid-lab/pycubrid/issues/610) — wrapper collection call shapes | low / M | Decide and verify the explicit compatibility contract before implementation. |
+| 4 | [#678](https://github.com/cubrid-lab/pycubrid/issues/678) — positive-only fetch-size migration | low / M | Decide a major-release migration while preserving the shipped nonpositive-integer contract in 1.x. |
+
+Small release-preparation work is tracked by
+[#371](https://github.com/cubrid-lab/pycubrid/issues/371) (fetch-size validation)
+and [#327](https://github.com/cubrid-lab/pycubrid/issues/327) (runnable README
+examples). Their issue/PR records carry completion evidence.
+[#675](https://github.com/cubrid-lab/pycubrid/issues/675), the unfiled upstream
+CUBRID crash report, is excluded from this release-preparation scope and remains
+open. This snapshot is an index, not a claim that all issues are complete or that
+a release has passed its publication gates. Use the
+[live open issue list](https://github.com/cubrid-lab/pycubrid/issues?q=is%3Aissue+is%3Aopen)
+for current status; dependencies govern completion, not investigation.
 
 ## Python 3.10 retirement schedule
 

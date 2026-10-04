@@ -477,6 +477,10 @@ Behavior changes you may notice (details in the entries below):
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Documentation
+- **Reviewed backlog priorities (#566)** — reconcile the dated roadmap index with
+  current release, verification and compatibility work. Preserve contributor
+  ownership and distinguish upstream reporting from release preparation; no
+  driver behavior, supported-version or publication-policy change.
 - **CAS session-loss contract and upstream follow-up (#614)** — retain
   `OperationalError` for an incomplete CAS reply and document session retirement,
   explicit recovery without statement replay, and the differential harness's
