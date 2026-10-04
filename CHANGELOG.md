@@ -960,6 +960,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   occurrences share, keeps `fold=0`. (#413)
 
 ### Tests
+- **The version differential no longer generates a conditional that crashes
+  every supported CUBRID (#614)** — `SELECT IF(1=0, SET{1}, 0.000)` ends `csql`
+  with SIGSEGV and drops the CAS session on 10.2, 11.0, 11.2 and 11.4: a
+  collection branch beside a selected NUMERIC branch of scale 2 or more. The
+  expression grammar drew that pairing in about 5% of 50-example runs and 75%
+  of 1000-example runs, so the full matrix, which is also the release gate,
+  failed on a server defect that says nothing about pycubrid. `IF` and
+  `CASE WHEN` now leave the collection/numeric pairing out
+  (`_is_fatal_conditional`); only `IF` was measured, `CASE WHEN` is excluded
+  with it unverified. Not validated against live servers in this change. The
+  crash itself is unchanged and still to be reported upstream.
 - **A fatal statement now fails one test and names every version it affects,
   instead of cascading and reporting only the first endpoint to die (#614)** —
   two separate defects. First, the `servers` fixture is module-scoped and every
