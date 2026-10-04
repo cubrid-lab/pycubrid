@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Deprecated
+- **Python 3.10 support** — advance notice for the 1.9.x release. Python
+  3.10 reached upstream end of life on 2026-10-01 ([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
+  The current 1.8.x line and 1.9.x retain Python 3.10 support. After this notice
+  ships in 1.9.0, the following minor release (planned 1.10.0) will require
+  Python >=3.11. Upgrade Python, recreate your virtual environment and validate
+  your application before upgrading. Current package metadata, CI coverage and
+  runtime behavior remain unchanged; see [support matrix](docs/SUPPORT_MATRIX.md)
+  and [roadmap](ROADMAP.md).
+
 ### Release automation
 
 - Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
