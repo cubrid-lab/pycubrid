@@ -287,7 +287,7 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 | `DOUBLE`, `MONETARY` | 12, 10 | `float` | IEEE 754 배정밀도 |
 | `NUMERIC` / `DECIMAL` | 7 | `Decimal` | 정확한 숫자 (문자열 파싱) |
 | `DATE` | 13 | `datetime.date` | 달력 날짜 |
-| `TIME` | 14 | `datetime.time` | 시각 |
+| `TIME` | 14 | `datetime.time` | 시각 (초 정밀도; 바인딩한 `datetime.time`의 마이크로초와 `tzinfo`는 오류 없이 버려집니다. [파라미터 바인딩](PARAMETER_BINDING.md) 참고) |
 | `TIMESTAMP` | 15 | `datetime.datetime` | 날짜 + 시간 (microsecond = 0) |
 | `DATETIME` | 22 | `datetime.datetime` | 날짜 + 시간 + 밀리초 |
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | 타임존 포함 타임스탬프 (초 정밀도, microsecond = 0) |

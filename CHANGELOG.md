@@ -427,6 +427,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Documentation
+- **`TIME` binding precision is stated in the type reference** — `docs/TYPES.md`
+  (English and Korean) now says that a bound `datetime.time` loses its
+  microseconds and `tzinfo` silently, as `docs/PARAMETER_BINDING.md` already
+  did. CUBRID `TIME` has second precision; the driver keeps truncating rather
+  than raising `DataError`, so existing 1.x callers are unaffected.
 - **Korean contribution guide (#329)** — translate the current contribution
   procedures and preserve command examples, English GitHub artifacts,
   contributor/maintainer responsibilities and release boundaries. Add discovery
