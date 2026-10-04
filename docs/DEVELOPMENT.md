@@ -138,8 +138,8 @@ make test
 
 ### Backslash-escape-mode pin
 
-`tests/conftest.py` autouse-pins `no_backslash_escapes` to its legacy default
-for every test, because most tests build a `Connection`/`AsyncConnection`
+`tests/conftest.py` autouse-pins `no_backslash_escapes` to `True`, CUBRID's
+server default, for every test, because most tests build a `Connection`/`AsyncConnection`
 over a scripted fake socket that cannot answer the live `CHAR_LENGTH` escape
 probe. A module that needs the *real* probe (against a live server, or a
 scripted fake broker that answers it) opts out with `pytest.mark.no_escape_pin`,

@@ -97,7 +97,12 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     Most tests build ``Connection``/``AsyncConnection`` over a scripted fake
     socket that does not queue a ``CHAR_LENGTH`` probe response. Escape-mode
     negotiation now fails loud on an unreadable probe (issue #263), so pin the
-    flag to its legacy default here instead of probing the exhausted socket.
+    flag here instead of probing the exhausted socket. It is pinned to ``True``,
+    CUBRID's server default (``no_backslash_escapes=yes``) and the default of
+    ``format_parameter``/``escape_string``, so these tests bind the way an
+    unconfigured server does. No test under the pin depends on the value: the
+    offline suite passes unchanged with either one, and tests about a specific
+    mode set it themselves.
 
     Opt-out is an explicit ``no_escape_pin`` marker (registered in
     ``pyproject.toml``), not a filename guess (#524): a bare filename
@@ -113,11 +118,11 @@ def _skip_backslash_probe(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
 
     def _pin_sync(self: Connection) -> None:
         if self._no_backslash_escapes is None:
-            self._no_backslash_escapes = False
+            self._no_backslash_escapes = True
 
     async def _pin_async(self: AsyncConnection) -> None:
         if self._no_backslash_escapes is None:
-            self._no_backslash_escapes = False
+            self._no_backslash_escapes = True
 
     monkeypatch.setattr(Connection, "_negotiate_backslash_escapes", _pin_sync)
     monkeypatch.setattr(AsyncConnection, "_negotiate_backslash_escapes", _pin_async)
