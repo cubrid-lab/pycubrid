@@ -2,8 +2,9 @@
 
 Merging a reviewed release PR is the only normal way to release `pycubrid`.
 Nobody pushes tags or runs a publish workflow by hand, and ordinary PR merges
-never deploy. This procedure is kept identical (except for package names and
-version files) with the sibling cubrid-lab repositories.
+never deploy. The guarded release procedure is shared with the sibling cubrid-lab
+repositories; workflow filenames match each project's registered Trusted
+Publisher. This repository uses `publish-pypi.yml` with environment `pypi`.
 
 Key invariants:
 
@@ -18,7 +19,7 @@ Key invariants:
 ## Normal flow
 
 `release-please.yml` prepares a release PR on pushes to `main` or manual dispatch.
-Reviewed squash merge starts the unchanged guarded `release.yml` publisher.
+Reviewed squash merge starts the unchanged guarded `publish-pypi.yml` publisher.
 The old `prepare-release.yml` entry point is removed in the same cutover.
 
 ### 1. Prepare and regenerate
@@ -75,13 +76,13 @@ entry point and must not be used to open a second production release PR.
 ### 3. Squash-merge and next-candidate lifecycle
 
 Merge only the reviewed candidate. Git version facts, rather than its title,
-start `release.yml`. release-please is **PR-only** (`skip-github-release: true`);
+start `publish-pypi.yml`. release-please is **PR-only** (`skip-github-release: true`);
 it cannot tag, create a Release or publish to PyPI.
 
 Before another generation, `reconcile_release_labels.py` changes a merged PR
 from `autorelease: pending` to `autorelease: tagged` only when the manifest at
 its merge SHA matches a published nondraft GitHub Release, the dereferenced
-tag points at that SHA, and a successful `release.yml` run at that SHA has
+tag points at that SHA, and a successful `publish-pypi.yml` run at that SHA has
 both **Tag, GitHub Release and PyPI** and **Require a verified release** jobs
 successful. A dry run or partial publication cannot clear pending. Until
 publication completes, upstream release-please blocks a subsequent candidate.
@@ -119,7 +120,7 @@ Fresh wheel/sdist metadata/install smoke and the full live matrix remain
 required publisher gates; PyPI cookbook verification checks the published
 version, not an unpublished local candidate artifact.
 
-### 4. Automatic release (`release.yml`)
+### 4. Automatic release (`publish-pypi.yml`)
 
 Every push to `main` runs the cheap **detect** job
 (`scripts/release_detect.py`). It is a release only when all of these hold at
@@ -223,7 +224,7 @@ completes the release; a mismatch is a broken release.
 
 ### Recovery dispatch (the only manual entry point)
 
-`release.yml` has one `workflow_dispatch` with an `action` input. It never
+`publish-pypi.yml` has one `workflow_dispatch` with an `action` input. It never
 creates a new version, never moves a tag and never deletes anything.
 
 | `action` | Allowed when | Runs |
@@ -233,21 +234,25 @@ creates a new version, never moves a tag and never deletes anything.
 | `dry-run` | Any branch; `X.Y.Z` must equal `__version__` at the dispatched commit and have a dated CHANGELOG section. | consistency → matrix → build → verify-cookbook → require-cookbook, **no** tag, Release or upload. The cookbook jobs verify the already-published `X.Y.Z`. |
 
 ```bash
-gh workflow run release.yml -f action=resume -f version=X.Y.Z
-gh workflow run release.yml -f action=verify-only -f version=X.Y.Z
-gh workflow run release.yml --ref <branch> -f action=dry-run -f version=X.Y.Z
+gh workflow run publish-pypi.yml -f action=resume -f version=X.Y.Z
+gh workflow run publish-pypi.yml -f action=verify-only -f version=X.Y.Z
+gh workflow run publish-pypi.yml --ref <branch> -f action=dry-run -f version=X.Y.Z
 ```
 
 ### Dry-run evidence
 
-Before dispatching, audit `gh run list -R cubrid-lab/pycubrid --workflow=release.yml`
-for an existing `dry-run`/`resume`/`verify-only` run at the current `release.yml`
+Before dispatching, audit `gh run list -R cubrid-lab/pycubrid --workflow=publish-pypi.yml`
+for an existing `dry-run`/`resume`/`verify-only` run at the current `publish-pypi.yml`
 revision (including `scripts/release_detect.py`, `scripts/release_summary.py`
 and the other scripts the jobs check out from the workflow's own commit): a
 run against an older revision of those scripts does not cover code paths
 changed since. An ordinary push whose `detect` finds "no release" (`build`,
 `matrix`, `publish` and `verify-cookbook` all `skipped`) proves detection
 only, not the full dry-run path below.
+
+The following historical dry-run evidence used the former `release.yml`
+filename. It predates the rename to the registered `publish-pypi.yml` identity
+and does not prove an upload through that identity.
 
 Last full dry run: [run 36862670587](https://github.com/cubrid-lab/pycubrid/actions/runs/36862670587),
 dispatched `-f action=dry-run -f version=1.8.0` from `main` at commit
@@ -297,7 +302,7 @@ built artifact through the cookbook.
 - Settings → Actions → General: "Allow GitHub Actions to create and approve
   pull requests" (for `release-please.yml`).
 - Environment `pypi`: deployment branches limited to `main`; PyPI Trusted
-  Publisher for `cubrid-lab/pycubrid`, workflow `release.yml`, environment
+  Publisher for `cubrid-lab/pycubrid`, workflow `publish-pypi.yml`, environment
   `pypi` (<https://pypi.org/manage/project/pycubrid/settings/publishing/>).
 - No secret for the cookbook verification: the smoke test runs as a reusable
   workflow inside the release run.

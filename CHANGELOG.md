@@ -444,9 +444,9 @@ Behavior changes you may notice (details in the entries below):
   cursor's handle is left to that commit (in manual-commit mode it was
   previously closed by the next `commit()`/`rollback()`).
 
-- Release workflow unified with the sibling repos: new `RELEASING.md`; `make release`
-  replaced by the read-only `make release-check VERSION=x.y.z`; `publish-pypi.yml` is
-  manual-dispatch only and now dispatches the cookbook smoke test after a successful
+- Earlier release workflow unification with the sibling repos: new `RELEASING.md`; `make release`
+  replaced by the read-only `make release-check VERSION=x.y.z`; `publish-pypi.yml` was
+  manual-dispatch only and then dispatched the cookbook smoke test after a successful
   publish (replacing `notify-cookbook.yml`); CI lints `CHANGELOG.md`.
 - **PyPI publish fails closed on duplicate files (#494)** — `publish-pypi.yml` no longer
   passes `skip-existing: true`. The new stdlib-only `scripts/pypi_duplicate_guard.py`
@@ -457,7 +457,7 @@ Behavior changes you may notice (details in the entries below):
 - **CI: releases happen automatically when a reviewed release PR is merged (#539)** —
   `prepare-release.yml` opens the `chore: release vX.Y.Z` PR (moves `[Unreleased]` into a
   dated section, bumps `__version__`, runs `make release-check`). On every push to `main`,
-  the new `release.yml` decides from git facts only (`scripts/release_detect.py`: version
+  the guarded workflow introduced as `release.yml` decides from git facts only (`scripts/release_detect.py`: version
   changed against the first parent, dated CHANGELOG section, tag absent or at the same
   commit) and then runs, pinned to the merge SHA: release check, the full
   `integration-full.yml` matrix (now also a `workflow_call` workflow, no longer run on tag
@@ -466,8 +466,10 @@ Behavior changes you may notice (details in the entries below):
   exact version, with one run summary. The cookbook smoke test runs inside the release run
   as a reusable workflow pinned to a cookbook commit, so it needs no cross-repository token
   or secret; the release fails unless it reports the requested version installed (#544). `create-release.yml` and the manual
-  `publish-pypi.yml` are removed; a narrow recovery dispatch (`resume`, `verify-only`,
-  `dry-run`) remains. The CHANGELOG stays hand-curated.
+  `publish-pypi.yml` were removed; a narrow recovery dispatch (`resume`, `verify-only`,
+  `dry-run`) remains. The guarded workflow now uses `publish-pypi.yml` to match the
+  registered PyPI identity; the former manual publisher is not restored. Curated
+  CHANGELOG notes remain alongside release-please generated notes.
 - Ruff/Mypy pre-commit hooks are now `repo: local` / `language: system` hooks that
   invoke `python3 -m ruff`/`python3 -m mypy` from the active `.[dev]` environment
   instead of separately versioned mirror repos, so there is a single source of
@@ -514,6 +516,12 @@ Behavior changes you may notice (details in the entries below):
 
 ### Fixed
 
+- **PyPI Trusted Publisher filename** — rename the sole guarded release
+  orchestrator from `release.yml` to the registered `publish-pypi.yml` identity
+  with environment `pypi`, correcting the filename mismatch behind `invalid-publisher`.
+  Retain release/full-matrix/artifact/tag/cookbook gates and synchronize recovery
+  commands and successful-publication label reconciliation. No driver behavior,
+  version, dependency or support change.
 - **`fetchmany()` validates integer size before fetching (#371)** —
   ordinary sync and async cursors raise `ProgrammingError` for non-integer
   types, including floats and booleans, before buffer consumption or a FETCH
