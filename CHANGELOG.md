@@ -31,6 +31,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (10.2 and 11.4) are unchanged; earlier evidence recorded on Python 3.10.12
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
+### Documentation
+- **Korean connection, development and troubleshooting guides are in sync again
+  (#712)** — four sections existed only in English: unknown connection options
+  (`docs/ko/CONNECTION.md`), "Connection Option Has No Effect"
+  (`docs/ko/TROUBLESHOOTING.md`), and the backslash-escape-mode pin and mutation
+  testing (`docs/ko/DEVELOPMENT.md`). They are translated; the English text is
+  unchanged.
+
 ## [1.9.0] - 2026-10-04
 
 ### Upgrade notes
