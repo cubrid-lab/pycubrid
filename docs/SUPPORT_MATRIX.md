@@ -54,8 +54,9 @@ and live CUBRID validation; free-threaded builds are outside this preparation.
 | Offline | PR smoke on Ubuntu/Python 3.12; high-risk PR full regressions without coverage; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
 | Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
-See [CI execution policy](CI_POLICY.md). Supported versions are unchanged;
-representative PR checks are not evidence for every supported combination.
+See [CI execution policy](CI_POLICY.md). That policy selects what each run tests; it does
+not define the supported versions listed above, and representative PR checks are not
+evidence for every supported combination.
 
 ### Server Behavior Differences Between CUBRID Versions
 

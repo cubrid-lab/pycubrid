@@ -77,6 +77,11 @@ def test_full_release_call_is_preserved_without_automatic_schedule() -> None:
     assert events["workflow_call"]["inputs"]["sha"]["required"] is True
     matrix = full["jobs"]["integration-full"]["strategy"]["matrix"]
     assert matrix["python-version"] == ["3.11", "3.12", "3.13", "3.14"]
+    tls = full["jobs"]["integration-tls"]["strategy"]["matrix"]
+    assert tls["python-version"] == ["3.11", "3.14"]
+    cells = workflow("ci.yml")["jobs"]["integration-tests"]["strategy"]["matrix"]
+    assert '{"python-version":"3.11","cubrid-version":"10.2"}' in cells
+    assert '"3.10"' not in cells
     assert len(matrix["cubrid-version"]) == 4
 
 

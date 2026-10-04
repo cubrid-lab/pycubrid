@@ -76,7 +76,7 @@ Published releases and dated history: [CHANGELOG](CHANGELOG.md).
   `StreamReader`/`StreamWriter`; see [`aio/connection.py`](pycubrid/aio/connection.py).
 - JSON / collection decoding, `ping()`, `nextset()`, and sync + async TLS (TLS 1.2 minimum)
 - 1.x release policy enforced by an automated `compat-check` CI gate against `api-baseline.json`
-- Supported runtimes: Python 3.10–3.14, CUBRID 10.2–11.4
+- Supported runtimes: Python 3.11–3.14 (3.10 until 1.9.x), CUBRID 10.2–11.4
 
 _See **Completed** for the per-release milestone history._
 
@@ -88,7 +88,7 @@ _See **Completed** for the per-release milestone history._
 
 ## Compatibility
 
-Python 3.10+, CUBRID 10.2–11.4
+Python 3.11+ (3.10 until 1.9.x), CUBRID 10.2–11.4
 
 ## Completed
 
