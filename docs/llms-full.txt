@@ -3735,7 +3735,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `DOUBLE`, `MONETARY` | 12, 10 | `float` | IEEE 754 double |
 | `NUMERIC` / `DECIMAL` | 7 | `Decimal` | Exact numeric (string-parsed) |
 | `DATE` | 13 | `datetime.date` | Calendar date |
-| `TIME` | 14 | `datetime.time` | Time of day |
+| `TIME` | 14 | `datetime.time` | Time of day (second precision; a bound `datetime.time` drops its microseconds and `tzinfo` without an error, see [parameter binding](PARAMETER_BINDING.md)) |
 | `TIMESTAMP` | 15 | `datetime.datetime` | Date + time (microsecond = 0) |
 | `DATETIME` | 22 | `datetime.datetime` | Date + time + millisecond |
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps (second precision, microsecond = 0) |
