@@ -678,6 +678,45 @@ observed values. Never edit an expected value just to match current output. See
 The weekly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
+**Version-differential session isolation (#614).** The harness checks liveness
+with `ping(reconnect=False)` so recovery cannot hide a dead session. It replaces
+a dead session before raising `SessionLost`, allowing the next workload to use
+a fresh connection while preserving scratch-table tracking. `compare()` tries
+every endpoint and reports all lost sessions together. Losing a session still
+fails the current test; an ordinary SQL error that leaves the session alive
+does not open a replacement. The offline regressions are in
+`tests/test_version_differential_isolation.py`.
+
+The grammar excludes collection/numeric branch pairs from `IF` and `CASE WHEN`
+expressions because of this minimal CUBRID client crash:
+
+```sql
+SELECT IF(1=0, SET{1}, 0.000);
+```
+
+The original measurements in
+[#614](https://github.com/cubrid-lab/pycubrid/issues/614) report `csql` SIGSEGV
+(exit 139), without pycubrid, on builds 10.2.18.9024-01b54fa,
+11.0.16.0419-862b3af, 11.2.9.0866-ef544a1 and 11.4.6.1963-0e7d3c1. The database
+server survives. The measured trigger selects a NUMERIC branch of scale >= 2
+beside a collection; the exclusion intentionally covers the broader numeric
+family. Only `IF` was measured; excluding `CASE WHEN` is precautionary. Original
+CI observed the CAS session loss on 10.2; four-version `csql` reproduction does
+not establish four-version direct CAS verification.
+
+The isolation and exclusion were merged in
+[#618](https://github.com/cubrid-lab/pycubrid/pull/618) and
+[#668](https://github.com/cubrid-lab/pycubrid/pull/668). The
+[full matrix at main `7fba209`](https://github.com/cubrid-lab/pycubrid/actions/runs/37197011396)
+passed all 27 jobs, including the four-version differential. That run validates
+the mitigated lane, not a fix to the upstream crash or absence of other fatal
+forms. [#675](https://github.com/cubrid-lab/pycubrid/issues/675) separately tracks
+filing the report in CUBRID's official Jira (CBRD / Correct Error); no upstream
+ticket has been filed by this follow-up. Remove `_is_fatal_conditional` only
+once a verified fixed build is the oldest supported CUBRID build. The retained
+transport-loss contract is documented in the
+[connection guide](CONNECTION.md#ssltls).
+
 **Bug-hunt failure diagnostics (#655).** The weekly/manual representative
 `property-and-fault` job writes `normal-results.xml`, `slow-results.xml` and
 `offline-results.xml` with per-command `junit_family=xunit1`. On failure,

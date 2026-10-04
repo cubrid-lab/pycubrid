@@ -277,6 +277,17 @@ On Python 3.10, the distinct `asyncio.TimeoutError` class follows the same rule:
 transport timeouts retire the session, while a callback timeout after a complete
 reply propagates unchanged without closing it.
 
+If CAS closes the transport before a complete reply arrives, sync and async
+requests raise `OperationalError` and retire the physical session. This remains
+the error contract for a dead CAS, including the CUBRID crash tracked by
+[#614](https://github.com/cubrid-lab/pycubrid/issues/614). It does not establish
+why CAS died: a server-reported SQL error in a complete reply can leave the
+session usable. Explicit recovery opens a new session; it does not restore the
+failed statement's transaction or result set, or replay that statement. Check
+the operation's outcome before deciding whether to retry it. The upstream crash
+report is tracked separately in
+[#675](https://github.com/cubrid-lab/pycubrid/issues/675).
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of

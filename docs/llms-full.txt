@@ -501,6 +501,17 @@ On Python 3.10, the distinct `asyncio.TimeoutError` class follows the same rule:
 transport timeouts retire the session, while a callback timeout after a complete
 reply propagates unchanged without closing it.
 
+If CAS closes the transport before a complete reply arrives, sync and async
+requests raise `OperationalError` and retire the physical session. This remains
+the error contract for a dead CAS, including the CUBRID crash tracked by
+[#614](https://github.com/cubrid-lab/pycubrid/issues/614). It does not establish
+why CAS died: a server-reported SQL error in a complete reply can leave the
+session usable. Explicit recovery opens a new session; it does not restore the
+failed statement's transaction or result set, or replay that statement. Check
+the operation's outcome before deciding whether to retry it. The upstream crash
+report is tracked separately in
+[#675](https://github.com/cubrid-lab/pycubrid/issues/675).
+
 !!! note "Python 3.10 async TLS preflight probe"
     Python 3.10's `asyncio.loop.start_tls()` has a known CPython bug (fixed in 3.13/3.14)
     that causes it to hang indefinitely on **certificate verification** failures instead of
@@ -8982,6 +8993,45 @@ observed values. Never edit an expected value just to match current output. See
 [the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
 The weekly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
+
+**Version-differential session isolation (#614).** The harness checks liveness
+with `ping(reconnect=False)` so recovery cannot hide a dead session. It replaces
+a dead session before raising `SessionLost`, allowing the next workload to use
+a fresh connection while preserving scratch-table tracking. `compare()` tries
+every endpoint and reports all lost sessions together. Losing a session still
+fails the current test; an ordinary SQL error that leaves the session alive
+does not open a replacement. The offline regressions are in
+`tests/test_version_differential_isolation.py`.
+
+The grammar excludes collection/numeric branch pairs from `IF` and `CASE WHEN`
+expressions because of this minimal CUBRID client crash:
+
+```sql
+SELECT IF(1=0, SET{1}, 0.000);
+```
+
+The original measurements in
+[#614](https://github.com/cubrid-lab/pycubrid/issues/614) report `csql` SIGSEGV
+(exit 139), without pycubrid, on builds 10.2.18.9024-01b54fa,
+11.0.16.0419-862b3af, 11.2.9.0866-ef544a1 and 11.4.6.1963-0e7d3c1. The database
+server survives. The measured trigger selects a NUMERIC branch of scale >= 2
+beside a collection; the exclusion intentionally covers the broader numeric
+family. Only `IF` was measured; excluding `CASE WHEN` is precautionary. Original
+CI observed the CAS session loss on 10.2; four-version `csql` reproduction does
+not establish four-version direct CAS verification.
+
+The isolation and exclusion were merged in
+[#618](https://github.com/cubrid-lab/pycubrid/pull/618) and
+[#668](https://github.com/cubrid-lab/pycubrid/pull/668). The
+[full matrix at main `7fba209`](https://github.com/cubrid-lab/pycubrid/actions/runs/37197011396)
+passed all 27 jobs, including the four-version differential. That run validates
+the mitigated lane, not a fix to the upstream crash or absence of other fatal
+forms. [#675](https://github.com/cubrid-lab/pycubrid/issues/675) separately tracks
+filing the report in CUBRID's official Jira (CBRD / Correct Error); no upstream
+ticket has been filed by this follow-up. Remove `_is_fatal_conditional` only
+once a verified fixed build is the oldest supported CUBRID build. The retained
+transport-loss contract is documented in the
+[connection guide](CONNECTION.md#ssltls).
 
 **Bug-hunt failure diagnostics (#655).** The weekly/manual representative
 `property-and-fault` job writes `normal-results.xml`, `slow-results.xml` and

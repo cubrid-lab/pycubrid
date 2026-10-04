@@ -467,6 +467,12 @@ Behavior changes you may notice (details in the entries below):
   hook revision stale and failed the quality-tool consistency gate (#476).
 
 ### Documentation
+- **CAS session-loss contract and upstream follow-up (#614)** — retain
+  `OperationalError` for an incomplete CAS reply and document session retirement,
+  explicit recovery without statement replay, and the differential harness's
+  isolation/exclusion evidence. CUBRID's collection/NUMERIC `IF` SIGSEGV remains
+  unfixed; upstream reporting is tracked separately in #675. No driver behavior,
+  public API or supported-version change.
 - **`TIME` binding precision is stated in the type reference** — `docs/TYPES.md`
   (English and Korean) now says that a bound `datetime.time` loses its
   microseconds and `tzinfo` silently, as `docs/PARAMETER_BINDING.md` already
@@ -1029,15 +1035,17 @@ Behavior changes you may notice (details in the entries below):
   negotiate for real.
 - **The version differential no longer generates a conditional that crashes
   every supported CUBRID (#614)** — `SELECT IF(1=0, SET{1}, 0.000)` ends `csql`
-  with SIGSEGV and drops the CAS session on 10.2, 11.0, 11.2 and 11.4: a
-  collection branch beside a selected NUMERIC branch of scale 2 or more. The
+  with SIGSEGV on 10.2, 11.0, 11.2 and 11.4; original CI observed CAS session
+  loss on 10.2, without directly confirming CAS loss on the other versions.
+  The trigger is a collection branch beside a selected NUMERIC branch of
+  scale 2 or more. The
   expression grammar drew that pairing in about 5% of 50-example runs and 75%
   of 1000-example runs, so the full matrix, which is also the release gate,
   failed on a server defect that says nothing about pycubrid. `IF` and
   `CASE WHEN` now leave the collection/numeric pairing out
   (`_is_fatal_conditional`); only `IF` was measured, `CASE WHEN` is excluded
   with it unverified. Not validated against live servers in this change. The
-  crash itself is unchanged and still to be reported upstream.
+  crash itself is unchanged; upstream reporting is tracked separately in #675.
 - **A fatal statement now fails one test and names every version it affects,
   instead of cascading and reporting only the first endpoint to die (#614)** —
   two separate defects. First, the `servers` fixture is module-scoped and every
@@ -1070,7 +1078,7 @@ Behavior changes you may notice (details in the entries below):
   a four-endpoint matrix names all four
   when all are fatal, and names only the affected one when a single version is.
   The underlying CUBRID crash is not fixed here — it is a server-side defect to
-  report upstream, tracked in #614.
+  report upstream, tracked separately in #675.
 - **`tests/test_docs_reason.py` runs the docs-sync script in-process instead
   of spawning a fresh `python -` subprocess per fixture case, and the fake
   `git` shim is a shell script instead of a Python one (#429)** — the event

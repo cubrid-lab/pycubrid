@@ -298,6 +298,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Differential session isolation and conditional exclusion (#614)** — PATCH /
+  test corrections. The follow-up documentation retains the existing
+  `OperationalError` contract for CAS transport loss; it introduces no driver,
+  API, dependency or supported-version change. The upstream SIGSEGV remains
+  unfixed; its reporting is tracked separately in
+  [#675](https://github.com/cubrid-lab/pycubrid/issues/675). A passing mitigated
+  matrix must not be described as an upstream crash fix.
+
 - **Timeout configuration validation (#367)** — PATCH / bug correction. Invalid
   negative or non-finite timeouts fail before transport acquisition; incompatible
   types raise `TypeError`. Existing `None`, zero and valid finite values retain

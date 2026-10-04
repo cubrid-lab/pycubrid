@@ -565,6 +565,41 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 `--lane official`은 어떤 스킵도 허용하지 않습니다. 주간 bug hunt의 별도 오프라인 protocol, fault-broker,
 placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
 
+**버전 차등 검사의 세션 격리 (#614).** 하네스는 `ping(reconnect=False)`로
+생존 여부를 확인하므로 복구가 끊긴 세션을 숨기지 않습니다. 끊긴 세션은
+`SessionLost`를 발생시키기 전에 교체하여 다음 워크로드가 새 연결을 사용하게
+하고, 임시 테스트 테이블의 추적 상태는 유지합니다. `compare()`는 모든
+엔드포인트를 실행한 뒤 세션을 잃은 버전을 함께 보고합니다. 현재 테스트는
+여전히 실패하며, 세션이 살아 있는 일반 SQL 오류는 연결을 교체하지 않습니다.
+오프라인 회귀 검사는 `tests/test_version_differential_isolation.py`에 있습니다.
+
+생성 문법은 다음 CUBRID 클라이언트 크래시 때문에 `IF`와 `CASE WHEN`에서
+collection/numeric 분기 조합을 제외합니다.
+
+```sql
+SELECT IF(1=0, SET{1}, 0.000);
+```
+
+[#614](https://github.com/cubrid-lab/pycubrid/issues/614)의 원래 측정은
+pycubrid 없이 `csql`로 빌드 10.2.18.9024-01b54fa, 11.0.16.0419-862b3af,
+11.2.9.0866-ef544a1, 11.4.6.1963-0e7d3c1에서 SIGSEGV(종료 코드 139)를
+확인했습니다. DB 서버는 살아 있습니다. 측정된 조건은 collection 옆의
+scale >= 2 NUMERIC 분기를 선택하는 경우이며, 제외 규칙은 더 넓은 numeric
+조합을 포함합니다. 직접 측정한 것은 `IF`뿐이며 `CASE WHEN` 제외는 예방적입니다.
+원래 CI가 관찰한 CAS 세션 상실은 10.2입니다. 네 버전의 `csql` 재현은 네 버전
+모두에서 CAS 상실을 직접 검증했다는 뜻이 아닙니다.
+
+격리와 제외는 [#618](https://github.com/cubrid-lab/pycubrid/pull/618)과
+[#668](https://github.com/cubrid-lab/pycubrid/pull/668)에서 병합되었습니다.
+[main `7fba209`의 전체 매트릭스](https://github.com/cubrid-lab/pycubrid/actions/runs/37197011396)는
+네 버전 차등 검사를 포함한 27개 작업을 모두 통과했습니다. 이는 완화된 레인의
+검증이지 업스트림 크래시 수정이나 다른 치명적 문장이 없다는 증거는 아닙니다.
+[#675](https://github.com/cubrid-lab/pycubrid/issues/675)는 공식 Jira의
+CBRD / Correct Error 접수를 별도로 추적하며, 이 후속 작업에서는 업스트림
+티켓을 아직 접수하지 않았습니다. 검증된 수정 빌드가 가장 오래된 지원 CUBRID
+빌드가 된 뒤에만 `_is_fatal_conditional`을 제거하세요. 유지되는 전송 연결 상실
+계약은 [연결 가이드](CONNECTION.md#ssltls)를 참고하세요.
+
 **Bug-hunt 실패 진단 (#655).** 주간/수동 대표 `property-and-fault` 잡은
 명령별 `junit_family=xunit1`으로 `normal-results.xml`, `slow-results.xml`,
 `offline-results.xml`을 만듭니다. 실패하면 `scripts/collect_repro.py`가 반복한
