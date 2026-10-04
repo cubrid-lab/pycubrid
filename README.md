@@ -116,28 +116,69 @@ async def main():
 asyncio.run(main())
 ```
 
-### Parameter Binding
+### Practical Examples
+
+Run the setup, the three examples and cleanup **in order in the same Python session** against a scratch database. Adjust the connection settings for your server. The dedicated table must not already exist: setup deliberately fails rather than reusing or deleting an existing table. Manual commit mode and the initial DDL commit keep rollback focused on the DML below.
+
+#### Setup
 
 ```python
-# qmark style (question marks)
-cur.execute("SELECT * FROM users WHERE name = ? AND age > ?", ("Alice", 25))
+import pycubrid
 
-# Batch insert with executemany
-data = [("Alice", 30), ("Bob", 25), ("Charlie", 35)]
-cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+conn.autocommit = False
+cur = conn.cursor()
+cur.execute("CREATE TABLE pycubrid_quickstart_327 (id INT PRIMARY KEY, name VARCHAR(100))")
 conn.commit()
 ```
 
-### Parameterized Queries
+#### Basic CRUD
 
 ```python
-sql = "SELECT * FROM users WHERE department = ?"
+cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (1, "Alice"))
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+print(cur.fetchone())  # ('Alice',)
+cur.execute("UPDATE pycubrid_quickstart_327 SET name = ? WHERE id = ?", ("Alicia", 1))
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+print(cur.fetchone())  # ('Alicia',)
+cur.execute("DELETE FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+conn.commit()
+```
 
-cur.execute(sql, ("Engineering",))
-engineers = cur.fetchall()
+#### Transactions: commit and rollback
 
-cur.execute(sql, ("Marketing",))
-marketers = cur.fetchall()
+```python
+cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (2, "Bob"))
+conn.commit()
+cur.execute("UPDATE pycubrid_quickstart_327 SET name = ? WHERE id = ?", ("Temporary", 2))
+conn.rollback()
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (2,))
+print(cur.fetchone())  # ('Bob',)
+conn.rollback()
+```
+
+#### Error handling
+
+```python
+from pycubrid.exceptions import ProgrammingError
+
+try:
+    cur.execute("SELECT missing_column FROM pycubrid_quickstart_327 WHERE id = ?", (2,))
+except ProgrammingError as exc:
+    conn.rollback()
+    print(f"Query failed: {exc}")
+```
+
+#### Cleanup
+
+After setup succeeds, run this cleanup even if an example fails; it removes only the table created above. For more examples, see [EXAMPLES.md](docs/EXAMPLES.md).
+
+```python
+conn.rollback()
+cur.execute("DROP TABLE pycubrid_quickstart_327")
+conn.commit()
+cur.close()
+conn.close()
 ```
 
 ## PEP 249 Compliance

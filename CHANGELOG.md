@@ -61,6 +61,10 @@ Behavior changes you may notice (details in the entries below):
 - Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing.
 
 ### Added
+- **Runnable README Quick Start examples (#327)** — add short parameterized CRUD,
+  commit/rollback and `ProgrammingError` examples with shared scratch-table setup
+  and cleanup, mirrored in all five maintained translations and verified on
+  CUBRID 11.4. No driver behavior, API, dependency or support change.
 - **Python 3.15 preview preparation** — add a manual-only Ubuntu/standard-GIL
   offline and wheel/sdist installation lane at an immutable commit. Python 3.15
   is not yet officially supported; final-runtime and live CUBRID evidence are

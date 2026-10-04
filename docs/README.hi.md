@@ -107,28 +107,69 @@ async def main():
 asyncio.run(main())
 ```
 
-### पैरामीटर बाइंडिंग
+### व्यावहारिक उदाहरण
+
+परीक्षण डेटाबेस में तैयारी, तीन उदाहरण और सफाई कोड **एक ही Python सत्र में क्रम से** चलाएँ। अपने सर्वर के अनुसार कनेक्शन सेटिंग बदलें। समर्पित टेबल पहले से मौजूद नहीं होनी चाहिए: तैयारी विफल होगी, ताकि मौजूदा टेबल का उपयोग या उसे हटाना न हो। मैनुअल कमिट मोड और प्रारंभिक DDL कमिट से नीचे का रोलबैक केवल DML को प्रभावित करता है।
+
+#### तैयारी
 
 ```python
-# qmark शैली (प्रश्न चिह्न)
-cur.execute("SELECT * FROM users WHERE name = ? AND age > ?", ("Alice", 25))
+import pycubrid
 
-# executemany के साथ batch insert
-data = [("Alice", 30), ("Bob", 25), ("Charlie", 35)]
-cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+conn.autocommit = False
+cur = conn.cursor()
+cur.execute("CREATE TABLE pycubrid_quickstart_327 (id INT PRIMARY KEY, name VARCHAR(100))")
 conn.commit()
 ```
 
-### पैरामीटराइज़्ड क्वेरी
+#### बुनियादी CRUD
 
 ```python
-sql = "SELECT * FROM users WHERE department = ?"
+cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (1, "Alice"))
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+print(cur.fetchone())  # ('Alice',)
+cur.execute("UPDATE pycubrid_quickstart_327 SET name = ? WHERE id = ?", ("Alicia", 1))
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+print(cur.fetchone())  # ('Alicia',)
+cur.execute("DELETE FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
+conn.commit()
+```
 
-cur.execute(sql, ("Engineering",))
-engineers = cur.fetchall()
+#### ट्रांज़ैक्शन: कमिट और रोलबैक
 
-cur.execute(sql, ("Marketing",))
-marketers = cur.fetchall()
+```python
+cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (2, "Bob"))
+conn.commit()
+cur.execute("UPDATE pycubrid_quickstart_327 SET name = ? WHERE id = ?", ("Temporary", 2))
+conn.rollback()
+cur.execute("SELECT name FROM pycubrid_quickstart_327 WHERE id = ?", (2,))
+print(cur.fetchone())  # ('Bob',)
+conn.rollback()
+```
+
+#### त्रुटि प्रबंधन
+
+```python
+from pycubrid.exceptions import ProgrammingError
+
+try:
+    cur.execute("SELECT missing_column FROM pycubrid_quickstart_327 WHERE id = ?", (2,))
+except ProgrammingError as exc:
+    conn.rollback()
+    print(f"Query failed: {exc}")
+```
+
+#### सफाई
+
+तैयारी सफल होने के बाद, उदाहरण विफल हो तो भी सफाई कोड चलाएँ; यह केवल ऊपर बनाई गई टेबल हटाता है। अन्य उदाहरण [EXAMPLES.md](EXAMPLES.md) में हैं।
+
+```python
+conn.rollback()
+cur.execute("DROP TABLE pycubrid_quickstart_327")
+conn.commit()
+cur.close()
+conn.close()
 ```
 
 ## PEP 249 अनुपालन
