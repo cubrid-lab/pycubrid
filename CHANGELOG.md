@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Upgrade notes
+- **Python 3.11 or newer is required (#684).** Python 3.10 reached upstream end
+  of life on 2026-10-01 and its retirement was announced in 1.9.0. On Python 3.10
+  `pip` keeps installing 1.9.x, the last line that supports it; only the latest
+  release line receives fixes, so 1.9.x gets no further releases. Upgrade Python,
+  recreate your virtual environment and validate your application before upgrading.
+
+### Removed
+- **Python 3.10 support (#684)** — `requires-python` is `>=3.11` and the 3.10
+  classifier is gone. CI no longer tests 3.10: the oldest integration pair is
+  Python 3.11 × CUBRID 10.2, the full matrix covers Python 3.11–3.14 and the TLS
+  lanes run on 3.11 and 3.14. No driver behavior changes on Python 3.11 or newer;
+  the Python 3.10-only async TLS preflight probe is still present and is removed
+  separately (#685).
+
 ### Tests
 - **The official-driver differential lane runs on Python 3.11 (#683)** — the
   pinned CUBRIDdb oracle (cubrid-python `e75ec36`, CCI `7d1eb8f`) was built and
