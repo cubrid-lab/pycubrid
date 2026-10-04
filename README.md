@@ -17,7 +17,7 @@
 
 ---
 
-> **Status: Stable (1.x).** The public API follows [semantic versioning](RELEASE_POLICY.md): minor releases add backward-compatible features and patch releases ship bug fixes; breaking changes are reserved for the next major version (2.0+) and gated by an automated `compat-check` CI job against [`api-baseline.json`](api-baseline.json). Active development continues — see [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract.
+> **Status: Stable (1.x).** The public API follows [semantic versioning](RELEASE_POLICY.md): minor releases add backward-compatible features and patch releases ship bug fixes; breaking changes are reserved for the next major version (2.0+) and gated by an automated `compat-check` CI job against [`api-baseline.json`](api-baseline.json). The one exception is the opt-in `pycubrid.compat` namespaces: names first released in 1.9.0 or later are provisional and may change in a minor release, announced in the changelog. Active development continues — see [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract.
 
 ## Why pycubrid?
 

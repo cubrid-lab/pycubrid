@@ -19,7 +19,7 @@
 
 ---
 
-> **상태: Stable (1.x).** 공개 API는 [시맨틱 버저닝](../RELEASE_POLICY.md)을 따릅니다. 마이너 릴리스는 하위 호환 기능 추가, 패치 릴리스는 버그 수정만 포함하며, 호환성 파괴 변경은 다음 메이저 버전(2.0+)에서만 허용되고 [`api-baseline.json`](../api-baseline.json)에 대한 자동 `compat-check` CI 잡으로 게이트됩니다. 활발한 개발은 계속됩니다 — 전체 계약은 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)를 참고하세요.
+> **상태: Stable (1.x).** 공개 API는 [시맨틱 버저닝](../RELEASE_POLICY.md)을 따릅니다. 마이너 릴리스는 하위 호환 기능 추가, 패치 릴리스는 버그 수정만 포함하며, 호환성 파괴 변경은 다음 메이저 버전(2.0+)에서만 허용되고 [`api-baseline.json`](../api-baseline.json)에 대한 자동 `compat-check` CI 잡으로 게이트됩니다. 유일한 예외는 opt-in `pycubrid.compat` 네임스페이스입니다: 1.9.0 이후 처음 릴리스된 이름은 잠정(provisional) 상태이며 마이너 릴리스에서 변경될 수 있고, 변경 사항은 변경 로그에 공지됩니다. 활발한 개발은 계속됩니다 — 전체 계약은 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)를 참고하세요.
 
 ## 왜 pycubrid인가?
 
