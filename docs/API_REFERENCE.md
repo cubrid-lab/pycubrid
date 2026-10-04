@@ -2221,8 +2221,9 @@ pycubrid.get_error_description(code: int) -> str | None
 
 Returns the driver's short English description of a native CUBRID or CAS error
 code, or `None` when the code is not in the driver's table. The table is a
-fixed subset built into the driver; it does not query the server, and an
-unlisted code is not an error.
+fixed subset built into the driver and the lookup does not query the server.
+A missing entry only means there is no description: the lookup never raises,
+and a server error with an unlisted code is still raised as `DatabaseError`.
 
 ```python
 import pycubrid
