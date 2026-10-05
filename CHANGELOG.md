@@ -32,6 +32,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **Korean support matrix and CI policy match the English documents (#713)** —
+  `docs/ko/SUPPORT_MATRIX.md` gains the CI matrix table, the "Server Behavior
+  Differences Between CUBRID Versions" table and the unknown-option row, and
+  loses a Korean-only closing section; `docs/ko/CI_POLICY.md` is a full
+  translation instead of a summary. Both CI policy pages are in the site
+  navigation. The full-integration count in the support matrix is corrected to
+  16 (four Python versions × four CUBRID versions) in both languages.
 - **Korean connection, development and troubleshooting guides are in sync again
   (#712)** — four sections existed only in English: unknown connection options
   (`docs/ko/CONNECTION.md`), "Connection Option Has No Effect"

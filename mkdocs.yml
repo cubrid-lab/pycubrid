@@ -55,6 +55,7 @@ nav:
           - 문제 해결: ko/TROUBLESHOOTING.md
   - Project:
       - Development: DEVELOPMENT.md
+      - CI Execution Policy: CI_POLICY.md
       - 한국어 참고:
           - 업스트림 시나리오 원장: ko/UPSTREAM_TEST_LEDGER.md
           - 공식 드라이버 API 목록: ko/UPSTREAM_COMPATIBILITY.md
@@ -62,6 +63,7 @@ nav:
           - 아키텍처: ko/ARCHITECTURE.md
           - 성능 가이드: ko/PERFORMANCE.md
           - 개발 가이드: ko/DEVELOPMENT.md
+          - CI 실행 정책: ko/CI_POLICY.md
       - FAQ: faq.md
       - Translations:
           - 한국어: README.ko.md

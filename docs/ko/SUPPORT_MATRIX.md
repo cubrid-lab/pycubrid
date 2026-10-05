@@ -50,10 +50,36 @@ Python을 업그레이드하고 가상 환경을 새로 만든 뒤 애플리케�
 
 ### CI 매트릭스
 
-일반 PR은 Ubuntu/Python 3.12 대표 스모크 검사, 고위험 PR은 최신 CUBRID 조합을
-추가하고 같은 단일 레인에서 전체 오프라인 회귀 검사(커버리지 제외)를 수행합니다. main 및 최근 변경이 있는 주간 실행은 전체 오프라인 커버리지와
-최저·최신 대표 통합 검사를 수행합니다. 전체 Python/CUBRID 매트릭스는 릴리즈와
-명시적 수동 실행에서 유지합니다. [CI 실행 정책](CI_POLICY.md)을 참고하세요.
+| 검증 | 일상 실행 | 전체 호환성 |
+| --- | --- | --- |
+| 오프라인 | Ubuntu/Python 3.12 PR 스모크. 고위험 PR은 커버리지를 제외한 전체 회귀. main/변경이 있는 주간 실행은 95% 커버리지의 전체 스위트 | 로컬 전체 테스트는 그대로 사용 가능 |
+| 라이브 통합 | 고위험 PR은 최신 엔드포인트. main/변경이 있는 주간 실행은 최저·최신 엔드포인트 | 수동 실행과 모든 릴리스에서 Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 |
+
+[CI 실행 정책](CI_POLICY.md)을 참고하세요. 이 정책은 각 실행이 무엇을 테스트할지를
+고를 뿐, 위에 나열한 지원 버전을 정의하지 않습니다. 대표 PR 검사는 지원되는 모든
+조합에 대한 증거가 아닙니다.
+
+### CUBRID 버전 간 서버 동작 차이
+
+버전 차분 테스트(`tests/test_version_differential.py`)는 지원되는 모든 서버에서 같은
+문장에 대해 pycubrid가 반환하는 것을 비교합니다. 오류 클래스, `errno`와 `sqlstate`,
+`rowcount`, `lastrowid`, `description`, 각 값의 Python 타입과 값이 대상입니다.
+pycubrid는 모든 버전을 같은 방식으로 디코딩합니다. 아래 차이는 서버에서 비롯된
+것이며(`csql`에서도 같은 결과가 나옵니다), 스위트가 허용하는 차이는 이것뿐입니다.
+각 항목은 업스트림 링크와 함께 `tests/helpers/version_matrix.py`에 있습니다.
+
+| 동작 | 10.2 | 11.0 | 11.2 | 11.4 |
+|---|---|---|---|---|
+| `CHAR(n)`/`VARCHAR(n)`/`BIT VARYING(n)` 컬럼보다 긴 문자열/비트 값 | 조용히 잘림 | `ProgrammingError` -494 | `ProgrammingError` -494 | `ProgrammingError` -494 |
+| `REGEXP_LIKE` / `REGEXP_*` 함수 | 정의되지 않음 (-494) | 사용 가능 | 사용 가능 | 사용 가능 |
+| 조건으로 쓴 단순 값 (`IF(1, ...)`, `WHERE 1`) | 허용 | 허용 | `ProgrammingError` -493 | `ProgrammingError` -493 |
+| `'a' \|\| 'b'` / `CONCAT`의 타입 | CHAR | VARCHAR | VARCHAR | VARCHAR |
+| `CAST('a' AS VARCHAR) = 'a '` | 참 | 거짓 | 거짓 | 거짓 |
+| FK로 참조되는 부모 테이블의 `TRUNCATE` | `IntegrityError` -924 | `IntegrityError` -924 | `IntegrityError` -1284 | `IntegrityError` -1284 |
+| `COUNT(*)`의 타입 | INTEGER | INTEGER | BIGINT | BIGINT |
+| 정수와 NUMERIC의 혼합 (`(5) * (0.100)`) | NUMERIC(14,3) | NUMERIC(14,3) | NUMERIC(19,3). 17자리 이상 BIGINT는 오버플로 (-427) | NUMERIC(14,3) |
+| 3바이트 UTF-8 문자가 있는 텍스트에 대한 `REGEXP` 연산자 | 일치 | 절대 일치하지 않음 | 절대 일치하지 않음 | 절대 일치하지 않음 |
+| 3바이트 UTF-8 문자가 있는 텍스트에 대한 `REGEXP_*` | 정의되지 않음 | NULL | 0 | 0 |
 
 ## 기능 지원
 
@@ -91,6 +117,7 @@ Python을 업그레이드하고 가상 환경을 새로 만든 뒤 애플리케�
 | 듀얼스택 주소 폴백 (동기) | ✅ | 1.0.0 | `getaddrinfo` IPv4/IPv6 순회 |
 | 듀얼스택 주소 폴백 (비동기) | ✅ | 1.2.0 (#83) | 비동기 대응 |
 | 명시적 연결 복구 | ✅ | 1.2.0 (#70); 1.8.0 (#471, #485) | `ping(reconnect=True)`는 연결 끊김, 음수 `CHECK_CAS`(CAS–DB 링크 장애) 또는 검사 중 전송/프로토콜 오류 후 재접속할 수 있음; `CAS_INFO[0]=0`은 OUT_TRAN이며 세션을 유지함. 다음 요청 전에 OUT_TRAN 세션을 `CHECK_CAS`로 확인하고, 검사가 실패할 때만(CAS 재시작, broker reset, CHANGE CLIENT) SQL 재실행 없이 한 번 재접속함(#485). 자동 이스케이프 모드는 새 물리 세션마다 감지하고 명시적 모드는 유지하며, 감지 실패 시 `False` 반환. 이전 세대에서 바인딩한 비동기 파라미터 SQL은 전송 전 거부. 동적 `SET` 또는 이기종 페일오버 보장은 아님. |
+| 알 수 없는 옵션 보고 | ✅ | 1.8.0 (#377) | 인식하지 못한 연결 키워드는 무시되지만 `UnknownConnectionOptionWarning`을 냅니다(철자 제안 포함). `warnings.simplefilter("error", ...)`로 오류로 올릴 수 있습니다 |
 
 ### TLS / SSL
 
@@ -201,7 +228,7 @@ Python을 업그레이드하고 가상 환경을 새로 만든 뒤 애플리케�
 |---|---|
 | 오프라인 회귀 검사 | `make test`; 현재 사례는 [테스트 트리](https://github.com/cubrid-lab/pycubrid/tree/main/tests) 참조 |
 | 대표 통합 검사 | 고위험 PR: 최신 조합; main/변경이 있는 주간 실행: 최저·최신 조합 |
-| 전체 통합 (릴리스 workflow_call + 수동 dispatch) | 20 (Python 5버전 × CUBRID 4버전) |
+| 전체 통합 (릴리스 workflow_call + 수동 dispatch) | 16 (Python 4버전 × CUBRID 4버전) |
 | 스트레스 테스트 | 스레드 (워커 16 × insert 25, 리더 32) 및 `asyncio.gather` (워커 16, 리더 32) |
 | 재연결 / 네트워크 엣지 케이스 | 현재 테스트 트리의 리셋·타임아웃·broken pipe·부분 읽기 회귀 검사 |
 | 전체 실행 커버리지 | 강제되는 95% 하한; [측정 결과](https://codecov.io/gh/cubrid-lab/pycubrid)이며 일반 PR 스모크의 주장은 아님 |
@@ -212,7 +239,3 @@ Python을 업그레이드하고 가상 환경을 새로 만든 뒤 애플리케�
 
 *참고: [연결 가이드](CONNECTION.md) · [타입 시스템](TYPES.md) · [API 참조](API_REFERENCE.md) · [성능 가이드](PERFORMANCE.md) · [변경 이력](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)*
 
-## CI 실행 범위
-
-일반 PR은 최소 대표 검사를 사용합니다. 전체 호환성은 릴리즈와 명시적 수동 실행에서
-확인합니다. 자세한 내용은 [CI 실행 정책](CI_POLICY.md)을 참고하세요.

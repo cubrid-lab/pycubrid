@@ -230,7 +230,7 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 |---|---|
 | Offline regressions | `make test`; current cases in the [test tree](https://github.com/cubrid-lab/pycubrid/tree/main/tests) |
 | Representative integration | High-risk PR: newest endpoint; main/changed-weekly: oldest/newest endpoints |
-| Full integration (release workflow_call + manual dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
+| Full integration (release workflow_call + manual dispatch) | 16 (Python 4 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
 | Reconnect / network edge cases | Reset, timeout, broken pipe and partial-read regressions in the current test tree |
 | Full-run coverage | Enforced 95% floor; [measured results](https://codecov.io/gh/cubrid-lab/pycubrid), not a routine PR-smoke claim |
