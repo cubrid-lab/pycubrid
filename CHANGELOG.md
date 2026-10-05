@@ -39,6 +39,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **In-page links work on the documentation site (#728)** — the site used the
+  default heading slugifier, which drops non-ASCII characters, so Korean
+  headings got ids such as `_2` and every Korean table of contents entry was
+  dead; English links written for GitHub's slugs (`#tls--ssl`) missed as well
+  (198 broken anchors). `mkdocs.yml` now uses the Unicode-aware slugifier from
+  `pymdown-extensions`, the two anchors that were still wrong are fixed, and
+  `validation.links.anchors: warn` makes the strict build fail on a new broken
+  anchor.
 - **Korean pages reviewed against the English wording (#726)** — the structure
   check cannot see a missing or outdated sentence. A sentence-level review of
   seven Korean guides corrected 72 passages: `API_REFERENCE` (21, including the
