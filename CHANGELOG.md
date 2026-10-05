@@ -39,6 +39,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **Korean documentation home page and one Korean navigation section (#714)** —
+  `docs/ko/index.md` is the Korean landing page, linked from the English home
+  page and back. The Korean guides were spread over three navigation groups;
+  they are now one "한국어" section with the same grouping as the English
+  navigation, and every Korean page is reachable from it.
 - **Korean support matrix and CI policy match the English documents (#713)** —
   `docs/ko/SUPPORT_MATRIX.md` gains the CI matrix table, the "Server Behavior
   Differences Between CUBRID Versions" table and the unknown-option row, and
