@@ -22,6 +22,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   separately (#685).
 
 ### Tests
+- **CI fails when a Korean document drifts from its English source (#716)** —
+  `scripts/check_docs_translation.py` compares every `docs/<name>.md` with
+  `docs/ko/<name>.md` and fails on a missing Korean file or a different number
+  of headings (levels 2-4), fenced code blocks or table rows; the lint job runs
+  it on every event. Until now only README drift was checked, and six guides
+  had drifted unnoticed. Documents that are deliberately English-only are
+  listed in the script with a reason. The check compares structure, not wording.
 - **The official-driver differential lane runs on Python 3.11 (#683)** — the
   pinned CUBRIDdb oracle (cubrid-python `e75ec36`, CCI `7d1eb8f`) was built and
   compared on Python 3.10 only. The `official-differential` job in `ci.yml` and
