@@ -54,6 +54,7 @@ nav:
   - Project:
       - Development: DEVELOPMENT.md
       - CI Execution Policy: CI_POLICY.md
+      - Product Requirements: PRD.md
       - FAQ: faq.md
       - Translations:
           - Deutsch: README.de.md
@@ -78,6 +79,7 @@ nav:
           - 지원 매트릭스: ko/SUPPORT_MATRIX.md
           - 업스트림 시나리오 원장: ko/UPSTREAM_TEST_LEDGER.md
           - 공식 드라이버 API 목록: ko/UPSTREAM_COMPATIBILITY.md
+          - 타입 지정 CAS 바인딩 설계: ko/PREPARED_BINDING_DESIGN.md
       - 운영:
           - 성능 가이드: ko/PERFORMANCE.md
           - 문제 해결: ko/TROUBLESHOOTING.md
@@ -85,6 +87,7 @@ nav:
       - 프로젝트:
           - 개발 가이드: ko/DEVELOPMENT.md
           - CI 실행 정책: ko/CI_POLICY.md
+          - 제품 요구사항: ko/PRD.md
           - 기여 가이드: CONTRIBUTING.ko.md
           - README: README.ko.md
 

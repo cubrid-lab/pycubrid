@@ -1,4 +1,6 @@
-# CI 실행 정책
+# CI 실행 정책 (한국어)
+
+> 🌐 [CI_POLICY.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/CI_POLICY.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
 
 일상적인 CI는 버전/OS의 전체 조합 매트릭스 대신 대표 조합을 사용합니다.
 
