@@ -5,7 +5,7 @@
 ## 1. 개요
 
 **프로젝트**: pycubrid
-**현재 버전**: 1.8.0
+**현재 버전**: [PyPI](https://pypi.org/project/pycubrid/) 참고 (`pycubrid.__version__`)
 **상태**: 프로덕션 사용 가능
 **저장소**: [github.com/cubrid-lab/pycubrid](https://github.com/cubrid-lab/pycubrid)
 **라이선스**: MIT
@@ -37,7 +37,7 @@ CUBRID CAS 프로토콜의 완전한 순수 Python 구현입니다:
 - **완전한 PEP 249(DB-API 2.0) 준수** — 표준 예외 계층, 타입 객체, 커서 인터페이스
 - **순수 Python** — C 확장도 컴파일도 없으며 Python이 실행되는 어디서나 동작합니다
 - **직접 CAS 프로토콜** — TCP 위에서 CUBRID의 바이너리 프로토콜을 네이티브로 사용합니다
-- **오프라인 테스트 770개 / 전체 811개**, **코드 커버리지 97.29%**
+- **오프라인 및 라이브 테스트 스위트** ([테스트 트리](https://github.com/cubrid-lab/pycubrid/tree/main/tests)), CI로 강제하는 **95% 커버리지 하한** ([측정 결과](https://codecov.io/gh/cubrid-lab/pycubrid))
 - **PEP 561 타입 지정 패키지** — 현대적 IDE와 정적 분석을 위한 `py.typed` 마커
 - **LOB 지원** — `create_lob()`을 통한 CLOB·BLOB 처리
 - **Prepared statement** — 서버 측 문장 준비와 실행 *(계획됨; 현재 구현은 드라이버 측 파라미터 바인딩을 사용합니다)*
@@ -50,13 +50,13 @@ CUBRID CAS 프로토콜의 완전한 순수 Python 구현입니다:
 |---|---|---|
 | 순수 Python (C 확장 없음) | ✅ | ✅ `pip install pycubrid` |
 | PEP 249 (DB-API 2.0) 준수 | ✅ | ✅ 완전한 API 준수 |
-| 오프라인 테스트 (라이브 DB 불필요) | ✅ | ✅ 테스트 770개, 커버리지 97.29% |
+| 오프라인 테스트 (라이브 DB 불필요) | ✅ | ✅ `make test`. 전체 실행에서 커버리지 하한 강제 |
 | LOB (CLOB/BLOB) 지원 | ✅ | ✅ `create_lob()`, 읽기/쓰기 |
 | Prepared statement | ✅ | ✅ `cursor.execute(sql, params)` — `?` 플레이스홀더를 통한 드라이버 측 파라미터 바인딩 ([PARAMETER_BINDING.md](PARAMETER_BINDING.md) 참고) |
 | 버전 매트릭스를 갖춘 CI/CD | ✅ | ✅ Py 3.10–3.14 오프라인 + CUBRID 10.2–11.4에 대한 기준점 통합 커버리지 |
-| PyPI에 게시 가능 | ✅ | ✅ 태그 시 릴리스 워크플로 실행 |
-| 코드 커버리지 ≥ 95% | ✅ | ✅ 97.29% (CI로 강제) |
-| 포괄적인 문서 | ✅ | ✅ 가이드 파일 6개 + README |
+| PyPI에 게시 가능 | ✅ | ✅ 검토한 릴리스 PR을 머지하면 릴리스 ([RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)) |
+| 코드 커버리지 ≥ 95% | ✅ | ✅ CI로 강제하는 하한. [측정 결과](https://codecov.io/gh/cubrid-lab/pycubrid) |
+| 포괄적인 문서 | ✅ | ✅ `docs/` 아래 영어·한국어 가이드 + README |
 | PEP 561 타입 지정 패키지 | ✅ | ✅ `py.typed` 마커 |
 
 ---
@@ -67,7 +67,7 @@ CUBRID CAS 프로토콜의 완전한 순수 Python 구현입니다:
 
 ```mermaid
 graph TD
-    root[pycubrid/ - 10 modules]
+    root[pycubrid/ - main package]
     init["__init__.py - Public API connect(), types, exceptions, __version__"]
     connection[connection.py - Connection class connect/commit/rollback/cursor/LOB]
     cursor[cursor.py - Cursor class execute/fetch/executemany/callproc/iterator]
@@ -177,18 +177,18 @@ CUBRID의 Client Application Server(CAS) 바이너리 프로토콜을 직접 구
 
 ### 4.1 테스트 매트릭스
 
-| 테스트 파일 | 테스트 수 | 커버리지 영역 |
-|---|---|---|
-| `test_connection.py` | ~80 | 연결, 인증, 오토커밋, 컨텍스트 매니저 |
-| `test_cursor.py` | ~100 | execute, fetch, executemany, callproc, 이터레이터, description |
-| `test_types.py` | ~50 | 타입 객체, 생성자, 날짜/시간 변환 |
-| `test_exceptions.py` | ~30 | 예외 계층, 오류 코드 |
-| `test_protocol.py` | ~80 | 패킷 생성, 파싱, CAS 함수 코드 |
-| `test_packet.py` | ~50 | 바이너리 리더/라이터, 데이터 타입 인코딩 |
-| `test_lob.py` | ~30 | LOB 생성, 읽기, 쓰기 |
-| `test_constants.py` | ~20 | 프로토콜 상수, 데이터 타입 코드 |
-| `test_integration.py` | 41 | 라이브 DB 테스트 (Docker) |
-| **합계** | **오프라인 770개 + 통합 41개** | **커버리지 97.29%** |
+| 테스트 파일 | 커버리지 영역 |
+|---|---|
+| `test_connection.py` | 연결, 인증, 오토커밋, 컨텍스트 매니저 |
+| `test_cursor.py` | execute, fetch, executemany, callproc, 이터레이터, description |
+| `test_types.py` | 타입 객체, 생성자, 날짜/시간 변환 |
+| `test_exceptions.py` | 예외 계층, 오류 코드 |
+| `test_protocol.py` | 패킷 생성, 파싱, CAS 함수 코드 |
+| `test_packet.py` | 바이너리 리더/라이터, 데이터 타입 인코딩 |
+| `test_lob.py` | LOB 생성, 읽기, 쓰기 |
+| `test_constants.py` | 프로토콜 상수, 데이터 타입 코드 |
+| `test_integration.py` | 라이브 DB 테스트 (Docker) |
+| **합계** | 여기에 고정하지 않습니다. `make test`를 실행하고 [테스트 트리](https://github.com/cubrid-lab/pycubrid/tree/main/tests)와 [측정된 커버리지](https://codecov.io/gh/cubrid-lab/pycubrid)를 참고하세요 |
 
 ### 4.2 CI 매트릭스
 
@@ -390,4 +390,4 @@ pycubrid는 같은 철학을 따릅니다: **예제는 보조 자료가 아니�
 
 ---
 
-*최종 업데이트: 2026년 9월 · pycubrid v1.8.0 (비동기 API는 v1.1.0부터 제공)*
+*최종 업데이트: 2026년 10월. 릴리스마다 바뀌는 수치는 복사하지 않고 링크합니다. 비동기 API는 v1.1.0부터 제공됩니다.*
