@@ -39,6 +39,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **PRD and the typed CAS binding design are available in Korean (#715)** —
+  `docs/ko/PRD.md` and `docs/ko/PREPARED_BINDING_DESIGN.md` are added, both PRD
+  pages join the site navigation, and the Korean home page and CI policy carry
+  the same translation header as the other Korean pages. With these, every
+  document under `docs/` has a Korean counterpart and the structure check has no
+  exception left.
 - **Korean documentation home page and one Korean navigation section (#714)** —
   `docs/ko/index.md` is the Korean landing page, linked from the English home
   page and back. The Korean guides were spread over three navigation groups;

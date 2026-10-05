@@ -30,10 +30,7 @@ from pathlib import Path
 
 # name -> reason. Keep this short and reviewed; remove an entry when the
 # translation lands.
-EXCEPTIONS: dict[str, str] = {
-    "PRD.md": "Korean translation tracked in #715",
-    "PREPARED_BINDING_DESIGN.md": "Korean translation tracked in #715",
-}
+EXCEPTIONS: dict[str, str] = {}
 
 _HEADING = re.compile(r"(#{2,4}) ")
 _SEPARATOR = re.compile(r"\|[\s:|-]+\|?\s*$")
