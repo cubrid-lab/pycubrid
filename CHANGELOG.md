@@ -39,6 +39,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   translation instead of a summary. Both CI policy pages are in the site
   navigation. The full-integration count in the support matrix is corrected to
   16 (four Python versions × four CUBRID versions) in both languages.
+- **Korean connection, development and troubleshooting guides are in sync again
+  (#712)** — four sections existed only in English: unknown connection options
+  (`docs/ko/CONNECTION.md`), "Connection Option Has No Effect"
+  (`docs/ko/TROUBLESHOOTING.md`), and the backslash-escape-mode pin and mutation
+  testing (`docs/ko/DEVELOPMENT.md`). They are translated; the English text is
+  unchanged.
+- **`get_error_description()` is documented, and the Korean API reference is
+  complete again (#711)** — `docs/API_REFERENCE.md` covered every public name
+  except `pycubrid.get_error_description`; it now has its own section in English
+  and Korean. The Korean reference also gains the sections it was missing:
+  unknown connection options, `UnknownConnectionOptionWarning`, the native
+  prepared example and the wrapper cursor's `next()` alias (also added to the
+  English text). No behavior change.
 
 ## [1.9.0] - 2026-10-04
 

@@ -138,6 +138,24 @@ pytest tests/ -v -m "not integration" \
 make test
 ```
 
+### 백슬래시 이스케이프 모드 고정
+
+`tests/conftest.py`는 모든 테스트에서 `no_backslash_escapes`를 CUBRID 서버 기본값인
+`True`로 자동(autouse) 고정합니다. 대부분의 테스트가 스크립트된 가짜 소켓 위에
+`Connection`/`AsyncConnection`을 만들고, 그 소켓은 실제 `CHAR_LENGTH` 이스케이프
+프로브에 응답할 수 없기 때문입니다. *실제* 프로브가 필요한 모듈(라이브 서버를
+쓰거나, 프로브에 응답하는 스크립트된 가짜 브로커를 쓰는 경우)은 모듈의 다른
+마커와 함께 `pytest.mark.no_escape_pin`을 등록해 고정에서 빠집니다. 예:
+
+```python
+pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
+```
+
+예전에는 파일 이름 조각을 하드코딩한 목록으로 제외했는데, 관계없는 모듈까지
+조용히 일치했습니다(#524, 예: `"test_integration"`이 모든
+`test_integration_*.py` 파일과 일치). 새 파일 이름 조각을 추가하지 말고 모듈에
+마커를 명시하세요.
+
 ### 빠른 드라이버 테스트 vs. 저장소 도구 점검
 
 오프라인 테스트 중 `repo_tooling` 마커가 붙은 하위 집합(`pyproject.toml`에
@@ -268,6 +286,21 @@ setter는 두 요청 사이에 CAS가 재활용되면 `SET_DB_PARAMETER`와 `COM
 CAS 세션으로 보냈습니다. 이제 `COMMIT` 전에 새 값을 기록하므로 그 요청의 한 번뿐인
 재접속이 대체 세션에 새 값을 먼저 복원합니다. `COMMIT`이 실패하면 연결을 닫고 이전
 값을 유지합니다.
+
+### 뮤테이션 테스트
+
+라인 커버리지는 코드가 *실행된다*는 것을 보여 주고, 뮤테이션 테스트는 테스트가
+*잘못된 동작을 잡아낸다*는 것을 보여 줍니다. 드라이버 코어(패킷/프로토콜
+직렬화, 커서/연결 수명 주기, LOB I/O)는 `pyproject.toml`의 `[tool.mutmut]`에
+설정되어 있으며 오프라인 스위트를 대상으로 실행합니다:
+
+```bash
+pip install -e ".[dev,mutation]"
+make mutation          # mutmut run && mutmut results
+```
+
+단순 점수가 아니라 의미 있는 생존 변이(어떤 테스트도 잡지 못한 뒤집힌 비교나
+빠진 정리 코드)에 집중하세요.
 
 ### 통합 테스트
 

@@ -100,6 +100,45 @@ def connect(
 
 `connect_timeout`과 `read_timeout`은 `None` 또는 유한한 0 이상의 숫자를 받습니다. 음수, NaN, 무한대는 `ValueError`를, 호환되지 않는 타입은 `TypeError`를 발생시킵니다. 동기·비동기 연결 모두 전송 자원을 획득하기 전에 설정을 검증하며, 이 오류는 `OperationalError`로 감싸지 않습니다. `0`은 계속 허용되며 각 전송 방식의 기존 0 타임아웃 의미를 유지합니다. 타임아웃 제한을 비활성화하지 않습니다.
 
+<a id="unknown-options"></a>
+
+### 알 수 없는 옵션
+
+위 두 표에 없는 키워드는 지원되는 연결 옵션이 **아닙니다**. pycubrid는 이를
+무시하지만, 오타가 조용히 묻히지 않도록
+`pycubrid.UnknownConnectionOptionWarning` 범주로 알립니다:
+
+```python
+import pycubrid
+
+pycubrid.connect(host="localhost", database="demodb", read_timout=30)
+# UnknownConnectionOptionWarning: Unknown connection option ignored by pycubrid:
+# 'read_timout' (did you mean 'read_timeout'?). Supported options: autocommit,
+# connect_timeout, database, decode_collections, enable_timing, fetch_size,
+# host, json_deserializer, no_backslash_escapes, password, port, read_timeout,
+# ssl, user.
+```
+
+경고는 소켓 작업보다 먼저 발생하므로, 이후 연결 자체가 실패하더라도 철자가
+틀린 옵션은 보고됩니다. `pycubrid.connect()`, `pycubrid.aio.connect()`,
+`Connection(...)` / `AsyncConnection(...)` 직접 생성에 똑같이 적용됩니다.
+
+기본 동작이 `TypeError`가 아니라 경고인 이유는, 래퍼 계층(연결 풀, ORM
+다이얼렉트)이 정당하게 추가 키워드를 넘겨 주는 경우가 있어 이를 바로 거부하면
+그런 호출자가 깨지기 때문입니다. 원하는 엄격도는 표준 `warnings` 기능으로
+고르세요:
+
+```python
+import warnings
+import pycubrid
+
+# 엄격: 알 수 없는 옵션을 오류로 만듭니다.
+warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+
+# 느슨: 완전히 끕니다(예: kwargs를 그대로 넘겨 주는 래퍼 내부).
+warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+```
+
 ### 흔한 연결 프로파일
 
 | 프로파일 | host | port | user | password | autocommit | 용도 |
