@@ -51,38 +51,42 @@ nav:
   - Operations:
       - Performance: PERFORMANCE.md
       - Troubleshooting: TROUBLESHOOTING.md
-      - 한국어:
-          - 문제 해결: ko/TROUBLESHOOTING.md
   - Project:
       - Development: DEVELOPMENT.md
       - CI Execution Policy: CI_POLICY.md
-      - 한국어 참고:
-          - 업스트림 시나리오 원장: ko/UPSTREAM_TEST_LEDGER.md
-          - 공식 드라이버 API 목록: ko/UPSTREAM_COMPATIBILITY.md
-          - 지원 매트릭스: ko/SUPPORT_MATRIX.md
-          - 아키텍처: ko/ARCHITECTURE.md
-          - 성능 가이드: ko/PERFORMANCE.md
-          - 개발 가이드: ko/DEVELOPMENT.md
-          - CI 실행 정책: ko/CI_POLICY.md
       - FAQ: faq.md
       - Translations:
-          - 한국어: README.ko.md
-          - 한국어 문서:
-              - 빠른 시작: ko/quickstart.md
-              - 연결 가이드: ko/CONNECTION.md
-              - 사용 예제: ko/EXAMPLES.md
-              - 자주 묻는 질문: ko/faq.md
-              - 파라미터 바인딩: ko/PARAMETER_BINDING.md
-              - 타입 시스템: ko/TYPES.md
-              - CAS 프로토콜: ko/PROTOCOL.md
-              - API 참조: ko/API_REFERENCE.md
-              - 기여 가이드: CONTRIBUTING.ko.md
           - Deutsch: README.de.md
           - हिन्दी: README.hi.md
           - Русский: README.ru.md
           - 中文: README.zh.md
       - Changelog: https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md
       - Contributing: https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md
+  - 한국어:
+      - 홈: ko/index.md
+      - 시작하기:
+          - 빠른 시작: ko/quickstart.md
+          - 연결 가이드: ko/CONNECTION.md
+          - 사용 예제: ko/EXAMPLES.md
+      - 사용:
+          - API 참조: ko/API_REFERENCE.md
+          - 타입 시스템: ko/TYPES.md
+          - 파라미터 바인딩: ko/PARAMETER_BINDING.md
+          - CAS 프로토콜: ko/PROTOCOL.md
+      - 참고:
+          - 아키텍처: ko/ARCHITECTURE.md
+          - 지원 매트릭스: ko/SUPPORT_MATRIX.md
+          - 업스트림 시나리오 원장: ko/UPSTREAM_TEST_LEDGER.md
+          - 공식 드라이버 API 목록: ko/UPSTREAM_COMPATIBILITY.md
+      - 운영:
+          - 성능 가이드: ko/PERFORMANCE.md
+          - 문제 해결: ko/TROUBLESHOOTING.md
+          - 자주 묻는 질문: ko/faq.md
+      - 프로젝트:
+          - 개발 가이드: ko/DEVELOPMENT.md
+          - CI 실행 정책: ko/CI_POLICY.md
+          - 기여 가이드: CONTRIBUTING.ko.md
+          - README: README.ko.md
 
 markdown_extensions:
   - admonition
