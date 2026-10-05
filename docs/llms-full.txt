@@ -9174,6 +9174,14 @@ actual issue labels and explicitly approved `translations-deferred` follow-ups.
 Translation requests in a PR body do not grant approval. Korean README sync remains
 required; other community translations remain advisory.
 
+English under `docs/` is the source of truth and Korean under `docs/ko/` is the one
+translation kept complete. `python scripts/check_docs_translation.py` (run by the
+lint job) compares every `docs/<name>.md` with `docs/ko/<name>.md` and fails on a
+missing Korean file or a different number of headings (levels 2-4), fenced code
+blocks or table rows. Add the Korean section in the same PR as the English one.
+A document that is deliberately English-only goes into `EXCEPTIONS` in that script
+with its reason. The check compares structure, not wording.
+
 The shared doc-lint and CodeQL callers use reviewed commit SHAs with verified
 `workflow_call` inputs. Existing permissions, advisory rollout and required gates
 remain intact. The doc-lint workflow still downloads main-based config/scanner
