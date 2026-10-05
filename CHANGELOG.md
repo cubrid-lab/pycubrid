@@ -39,6 +39,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **PRD no longer quotes figures that every release makes false (#724)** —
+  `docs/PRD.md` said version 1.8.0, "770 offline tests / 811 total", "97.29%
+  coverage", "10 modules", "6 guide files" and "release workflow on tag". The
+  version, test and coverage figures now link to PyPI, the test tree and
+  Codecov, the per-file test counts are dropped, and the release row describes
+  the release-PR flow. The documentation home page states SQLAlchemy 2.0–2.1 for
+  sqlalchemy-cubrid, as that project does. English and Korean.
 - **PRD and the typed CAS binding design are available in Korean (#715)** —
   `docs/ko/PRD.md` and `docs/ko/PREPARED_BINDING_DESIGN.md` are added, both PRD
   pages join the site navigation, and the Korean home page and CI policy carry

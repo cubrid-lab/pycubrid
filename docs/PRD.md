@@ -3,7 +3,7 @@
 ## 1. Overview
 
 **Project**: pycubrid
-**Current Version**: 1.8.0
+**Current Version**: see [PyPI](https://pypi.org/project/pycubrid/) (`pycubrid.__version__`)
 **Status**: Production-ready
 **Repository**: [github.com/cubrid-lab/pycubrid](https://github.com/cubrid-lab/pycubrid)
 **License**: MIT
@@ -35,7 +35,7 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 - **Full PEP 249 (DB-API 2.0) compliance** — standard exception hierarchy, type objects, cursor interface
 - **Pure Python** — no C extensions, no compilation, works everywhere Python runs
 - **Direct CAS protocol** — speaks CUBRID's binary protocol natively over TCP
-- **770 offline tests / 811 total** with **97.29% code coverage**
+- **Offline and live test suites** ([test tree](https://github.com/cubrid-lab/pycubrid/tree/main/tests)) with a CI-enforced **95% coverage floor** ([measured results](https://codecov.io/gh/cubrid-lab/pycubrid))
 - **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis
 - **LOB support** — CLOB and BLOB handling via `create_lob()`
 - **Prepared statements** — server-side statement preparation and execution *(planned; current implementation uses driver-side parameter binding)*
@@ -48,13 +48,13 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 |---|---|---|
 | Pure Python (no C extensions) | ✅ | ✅ `pip install pycubrid` |
 | PEP 249 (DB-API 2.0) compliant | ✅ | ✅ Full API compliance |
-| Offline tests (no live DB) | ✅ | ✅ 770 tests, 97.29% coverage |
+| Offline tests (no live DB) | ✅ | ✅ `make test`; coverage floor enforced on full runs |
 | LOB (CLOB/BLOB) support | ✅ | ✅ `create_lob()`, read/write |
 | Prepared statements | ✅ | ✅ `cursor.execute(sql, params)` — driver-side parameter binding via `?` placeholders (see [PARAMETER_BINDING.md](PARAMETER_BINDING.md)) |
 | CI/CD with version matrix | ✅ | ✅ Py 3.10–3.14 offline + anchored integration coverage for CUBRID 10.2–11.4 |
-| Publishable to PyPI | ✅ | ✅ Release workflow on tag |
-| ≥ 95% code coverage | ✅ | ✅ 97.29% (CI-enforced) |
-| Comprehensive documentation | ✅ | ✅ 6 guide files + README |
+| Publishable to PyPI | ✅ | ✅ Released by merging a reviewed release PR ([RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)) |
+| ≥ 95% code coverage | ✅ | ✅ CI-enforced floor; [measured results](https://codecov.io/gh/cubrid-lab/pycubrid) |
+| Comprehensive documentation | ✅ | ✅ Guides under `docs/` in English and Korean + README |
 | PEP 561 typed package | ✅ | ✅ `py.typed` marker |
 
 ---
@@ -65,7 +65,7 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 
 ```mermaid
 graph TD
-    root[pycubrid/ - 10 modules]
+    root[pycubrid/ - main package]
     init["__init__.py - Public API connect(), types, exceptions, __version__"]
     connection[connection.py - Connection class connect/commit/rollback/cursor/LOB]
     cursor[cursor.py - Cursor class execute/fetch/executemany/callproc/iterator]
@@ -175,18 +175,18 @@ Direct implementation of CUBRID's Client Application Server (CAS) binary protoco
 
 ### 4.1 Test Matrix
 
-| Test File | Tests | Coverage Area |
-|---|---|---|
-| `test_connection.py` | ~80 | Connection, authentication, auto-commit, context manager |
-| `test_cursor.py` | ~100 | Execute, fetch, executemany, callproc, iterator, description |
-| `test_types.py` | ~50 | Type objects, constructors, date/time conversion |
-| `test_exceptions.py` | ~30 | Exception hierarchy, error codes |
-| `test_protocol.py` | ~80 | Packet building, parsing, CAS function codes |
-| `test_packet.py` | ~50 | Binary reader/writer, data type encoding |
-| `test_lob.py` | ~30 | LOB creation, read, write |
-| `test_constants.py` | ~20 | Protocol constants, data type codes |
-| `test_integration.py` | 41 | Live DB tests (Docker) |
-| **Total** | **770 offline + 41 integration** | **97.29% coverage** |
+| Test File | Coverage Area |
+|---|---|
+| `test_connection.py` | Connection, authentication, auto-commit, context manager |
+| `test_cursor.py` | Execute, fetch, executemany, callproc, iterator, description |
+| `test_types.py` | Type objects, constructors, date/time conversion |
+| `test_exceptions.py` | Exception hierarchy, error codes |
+| `test_protocol.py` | Packet building, parsing, CAS function codes |
+| `test_packet.py` | Binary reader/writer, data type encoding |
+| `test_lob.py` | LOB creation, read, write |
+| `test_constants.py` | Protocol constants, data type codes |
+| `test_integration.py` | Live DB tests (Docker) |
+| **Totals** | Not pinned here: run `make test`, and see the [test tree](https://github.com/cubrid-lab/pycubrid/tree/main/tests) and [measured coverage](https://codecov.io/gh/cubrid-lab/pycubrid) |
 
 ### 4.2 CI Matrix
 
@@ -388,4 +388,4 @@ pycubrid follows the same philosophy: **examples are not supplementary — they 
 
 ---
 
-*Last updated: September 2026 · pycubrid v1.8.0 (async API available since v1.1.0)*
+*Last updated: October 2026. Figures that change with each release are linked, not copied. The async API is available since v1.1.0.*
