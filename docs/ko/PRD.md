@@ -1,6 +1,6 @@
 # PRD: pycubrid — CUBRID용 순수 Python DB-API 2.0 드라이버 (한국어)
 
-> 🌐 [PRD.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PRD.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [PRD.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PRD.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 ## 1. 개요
 
@@ -188,7 +188,7 @@ CUBRID의 Client Application Server(CAS) 바이너리 프로토콜을 직접 구
 | `test_lob.py` | LOB 생성, 읽기, 쓰기 |
 | `test_constants.py` | 프로토콜 상수, 데이터 타입 코드 |
 | `test_integration.py` | 라이브 DB 테스트 (Docker) |
-| **합계** | 여기에 고정하지 않습니다. `make test`를 실행하고 [테스트 트리](https://github.com/cubrid-lab/pycubrid/tree/main/tests)와 [측정된 커버리지](https://codecov.io/gh/cubrid-lab/pycubrid)를 참고하세요 |
+| **합계** | 수치를 여기에 고정해 두지 않습니다. `make test`를 실행하고 [테스트 트리](https://github.com/cubrid-lab/pycubrid/tree/main/tests)와 [측정된 커버리지](https://codecov.io/gh/cubrid-lab/pycubrid)를 참고하세요 |
 
 ### 4.2 CI 매트릭스
 

@@ -39,6 +39,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **Korean pages reviewed against the English wording (#726)** — the structure
+  check cannot see a missing or outdated sentence. A sentence-level review of
+  seven Korean guides corrected 72 passages: `API_REFERENCE` (21, including the
+  missing `Lob.read()` paragraph on repeated `LOB_READ` round-trips),
+  `UPSTREAM_COMPATIBILITY` (20), `DEVELOPMENT` (13, including the async TLS
+  matrix tests), `PROTOCOL` (8), `PARAMETER_BINDING` (6, replacing an outdated
+  description of escape-mode negotiation), `TROUBLESHOOTING` (4) and
+  `CONNECTION` (2). The translations of `PRD` and `PREPARED_BINDING_DESIGN`
+  added in this release were reviewed the same way (1 and 15 corrections,
+  mostly literal renderings that read ambiguously). The banner on every Korean
+  page now says CI checks the structure. English is unchanged.
 - **PRD no longer quotes figures that every release makes false (#724)** —
   `docs/PRD.md` said version 1.8.0, "770 offline tests / 811 total", "97.29%
   coverage", "10 modules", "6 guide files" and "release workflow on tag". The

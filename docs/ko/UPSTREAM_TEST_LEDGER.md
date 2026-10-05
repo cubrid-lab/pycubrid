@@ -1,4 +1,6 @@
-# Upstream 시나리오 원장
+# Upstream 시나리오 원장 (한국어)
+
+> 🌐 [UPSTREAM_TEST_LEDGER.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/UPSTREAM_TEST_LEDGER.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 [시나리오 원장](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/upstream_scenarios.csv)은
 [공개 기능 패리티 추적 이슈](https://github.com/cubrid-lab/pycubrid/issues/396) 아래의

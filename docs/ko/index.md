@@ -1,6 +1,6 @@
 # pycubrid (한국어)
 
-> 🌐 [index.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/index.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [index.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/index.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 C 확장 없이 순수 Python으로 작성된 CUBRID 데이터베이스용 DB-API 2.0 드라이버입니다.
 

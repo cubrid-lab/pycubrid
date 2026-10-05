@@ -1,6 +1,6 @@
 # 연결 가이드 (한국어)
 
-> 🌐 [CONNECTION.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/CONNECTION.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [CONNECTION.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/CONNECTION.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 pycubrid 설치, CUBRID 데이터베이스 연결, 연결 수명 주기의 이해를 다룹니다.
 
@@ -301,7 +301,7 @@ if not alive:
 - `await conn.ping(reconnect=False)`는 열린 소켓에서 네이티브 `CHECK_CAS` 왕복을 수행하며 재접속하지 않습니다. `CAS_INFO[0]=0`은 트랜잭션 종료 후의 OUT_TRAN 상태이지 세션 해제가 아니므로 이 동작에 영향을 주지 않습니다. 소켓이 닫혔거나 검사에 실패하면 `False`를 반환하므로 SQLAlchemy의 `pool_pre_ping`에 적합합니다.
 - `await conn.ping(reconnect=True)`는 기존 소켓을 먼저 검사하고, 이미 연결이 끊겼거나 `CHECK_CAS` 전송/프로토콜 오류가 발생했거나 음수 응답으로 CAS–DB 링크 장애가 확인되면 재접속을 한 번 시도합니다. 복구 실패는 `False`를 반환합니다. `reconnect=False`는 음수 응답에도 재접속하지 않고 그 손상된 세션을 닫은 뒤 `False`를 반환합니다.
 - 정상적인 동일 세션 ping은 이스케이프 모드를 다시 감지하지 않습니다. 새 물리 세션에서는 자동 모드를 사용한 경우 사용 전에 다시 감지하며, 명시적 `no_backslash_escapes=True` 또는 `False`는 유지합니다. 감지 실패 시 대체 세션을 폐기하고 ping은 `False`를 반환하며, 모드를 추측하거나 SQL을 재실행하지 않습니다.
-- 정상 세션의 비동기 검사는 동기 `Connection.ping()`과 같은 네이티브 `CHECK_CAS` 함수 코드(`FC=32`)를 사용하며 SQL을 실행하지 않습니다. 재연결 중에는 읽기 전용 이스케이프 모드 탐색 SELECT를 실행할 수 있습니다.
+- 정상 세션의 비동기 검사는 동기 `Connection.ping()`과 같은 네이티브 `CHECK_CAS` 함수 코드(`FC=32`)를 사용하며 SQL을 실행하지 않습니다. 재연결 중에는 읽기 전용 이스케이프 모드 탐색을 실행할 수 있습니다.
 
 ---
 
@@ -392,7 +392,7 @@ conn.autocommit = True
 
 그래도 CAS는 이런 응답 직후 소켓을 닫을 수 있습니다. 메모리가 `APPL_SERVER_MAX_SIZE`를 넘으면 다음 `END_TRAN`에서 재시작하고, `cubrid broker reset`은 유휴 워커를 재활용하며, `KEEP_CONNECTION=AUTO`에서 `MAX_NUM_APPL_SERVER`보다 많은 클라이언트가 연결되면 유휴 워커를 대기 중인 클라이언트에게 넘깁니다(CHANGE CLIENT). 그래서 직전 응답이 OUT_TRAN이면 동기/비동기 연결 모두 CUBRID JDBC 드라이버처럼 다음 요청 전에 네이티브 `CHECK_CAS`를 한 번 보냅니다(#485).
 
-- CAS가 응답하면 같은 세션을 유지하고 요청을 보냅니다. 트랜잭션 밖에서 보내는 요청마다, 즉 autocommit 모드의 모든 문장마다 왕복이 한 번 늘어납니다(autocommit INSERT는 last-insert-id 조회 전에도 검사합니다).
+- CAS가 응답하면 같은 세션을 유지하고 요청을 보냅니다. autocommit 모드의 모든 문장을 포함해 트랜잭션 밖에서 보내는 요청마다 왕복이 한 번 늘어납니다(autocommit INSERT는 last-insert-id 조회 전에도 검사합니다).
 - 검사가 실패하면 **해당 요청에 대해 한 번만** 연결을 교체합니다. 고정하지 않은 이스케이프 모드를 다시 감지하고 명시적으로 설정한 `autocommit`을 복원한 뒤, 요청을 새 세션에서 처음으로 보냅니다. SQL은 재실행하지 않으며, CAS가 열린 트랜잭션이 없다고 보고했으므로 커밋되지 않은 작업을 잃지 않습니다. 잃어버린 세션에 의존하는 요청은 새 세션으로 보내지 않습니다. 그 세션 핸들에 대한 `CLOSE_REQ`는 건너뛰고, 아직 읽지 않은 행에 대한 FETCH, last-insert-id 조회, 그 세션에서 얻은 LOB의 읽기/쓰기는 `OperationalError`를 발생시키며, `pycubrid.compat.native` prepared 문은 이전 세션 소속으로 거부됩니다. autocommit INSERT 직후 CAS가 재활용되면 INSERT는 커밋되지만 `lastrowid`는 `None`이 되고 WARNING 로그가 남습니다. 교체 설정 자체도 트랜잭션 밖에서 끝나므로 요청 전에 `CHECK_CAS`로 한 번 더 확인합니다. 커서는 파라미터를 렌더링하기 *전에* 이 검사를 수행하므로 파라미터 SQL은 실제로 전송될 세션 기준으로 바인딩됩니다. 이미 렌더링된 뒤 세션이 교체된 SQL은 보내지 않고 재시도 가능한 `OperationalError`("... parameter binding; retry operation")로 실패시키며, 새 세션은 재시도를 위해 열린 채로 둡니다.
 - 교체에 실패하면 `OperationalError`를 발생시키고 연결을 닫지 않은 채 끊긴 상태로 둡니다. `ping(reconnect=True)`로 다시 연결하거나 새 연결을 여세요.
 

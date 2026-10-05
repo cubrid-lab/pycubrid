@@ -1,6 +1,6 @@
 # 5분 만에 CUBRID 연결하기 (한국어)
 
-> 🌐 [quickstart.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/quickstart.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [quickstart.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/quickstart.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 `pip install`에서 명시적 트랜잭션 처리가 있는 동작하는 CRUD 스크립트까지 안내합니다.
 

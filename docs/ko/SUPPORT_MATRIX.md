@@ -1,6 +1,6 @@
 # 지원 매트릭스 (한국어)
 
-> 🌐 [SUPPORT_MATRIX.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/SUPPORT_MATRIX.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [SUPPORT_MATRIX.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/SUPPORT_MATRIX.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 pycubrid 릴리스의 호환성과 기능 지원.
 
