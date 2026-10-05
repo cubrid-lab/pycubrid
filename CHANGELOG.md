@@ -32,6 +32,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **Korean connection, development and troubleshooting guides are in sync again
+  (#712)** — four sections existed only in English: unknown connection options
+  (`docs/ko/CONNECTION.md`), "Connection Option Has No Effect"
+  (`docs/ko/TROUBLESHOOTING.md`), and the backslash-escape-mode pin and mutation
+  testing (`docs/ko/DEVELOPMENT.md`). They are translated; the English text is
+  unchanged.
 - **`get_error_description()` is documented, and the Korean API reference is
   complete again (#711)** — `docs/API_REFERENCE.md` covered every public name
   except `pycubrid.get_error_description`; it now has its own section in English

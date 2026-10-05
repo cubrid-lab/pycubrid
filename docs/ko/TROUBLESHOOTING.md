@@ -16,6 +16,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [브로커 포트 리다이렉트 실패](#브로커-포트-리다이렉트-실패)
   - [Python 3.10에서 비동기 TLS 핸드셰이크 멈춤](#python-310에서-비동기-tls-핸드셰이크-멈춤)
   - [핸드셰이크가 멈추거나 리셋된 뒤 비동기 TLS 연결 멈춤](#핸드셰이크가-멈추거나-리셋된-뒤-비동기-tls-연결-멈춤)
+  - [연결 옵션이 적용되지 않음](#연결-옵션이-적용되지-않음)
 - [쿼리 문제](#쿼리-문제)
   - [ProgrammingError: SQL 구문](#programmingerror-sql-구문)
   - [파라미터 바인딩 오류](#파라미터-바인딩-오류)
@@ -366,6 +367,62 @@ OperationalError: ... (during connection handshake)
 **원인**: TLS 핸드셰이크는 의도대로 타임아웃되거나 실패했지만, asyncio의 `SSLProtocol`이 핸드셰이크 도중에는 연결 끊김을 스트림에 알리지 않아 연결 정리 과정이 스트림이 닫히기를 무한히 기다렸습니다.
 
 **해결**: pycubrid를 업그레이드하세요. 이제 비동기 드라이버는 `read_timeout`(설정하지 않았으면 10초 `ssl_handshake_timeout`) 안에 `OperationalError`를 발생시키고 소켓을 닫습니다. `connect_timeout`은 TCP 연결만 제한하므로 TLS 핸드셰이크를 제한하려면 `read_timeout`을 설정하세요. 동기 드라이버는 영향을 받지 않았습니다.
+
+---
+
+### 연결 옵션이 적용되지 않음
+
+**증상:**
+
+연결 옵션이 받아들여지지만 아무 효과가 없습니다. 타임아웃이 바뀌지 않거나,
+타이밍 통계가 비어 있거나, fetch 배치 크기가 그대로이고, 다음과 같은 경고가
+나타납니다:
+
+```
+UnknownConnectionOptionWarning: Unknown connection option ignored by pycubrid:
+'read_timout' (did you mean 'read_timeout'?). Supported options: autocommit,
+connect_timeout, database, decode_collections, enable_timing, fetch_size, host,
+json_deserializer, no_backslash_escapes, password, port, read_timeout, ssl, user.
+```
+
+**원인:**
+
+해당 키워드가 지원되는 연결 옵션이 아니어서 `**kwargs`로 들어가 버려집니다.
+대개 오타(`read_timout`), camelCase 표기(`connectTimeout`), 또는 다른 드라이버의
+옵션을 가져온 경우입니다.
+
+**해결:**
+
+1. **경고가 제안하는 철자를 쓰거나**, 경고에 나열된 지원 옵션 중에서 고르세요.
+   전체 목록은 [연결 옵션](CONNECTION.md#키워드-인자)에 있습니다.
+
+2. **개발 중에는 오타를 자동으로 잡도록** 경고를 오류로 만드세요:
+
+   ```python
+   import warnings
+   import pycubrid
+
+   warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)
+   ```
+
+   (이 필터는 Python 코드에서 설치하세요. `python -W`와 `PYTHONWARNINGS`는
+   site-packages를 임포트할 수 있기 전인 인터프리터 시작 시점에 해석되므로,
+   pycubrid가 설치되어 있어도
+   `-W error::pycubrid.UnknownConnectionOptionWarning`은
+   `Invalid -W option ignored: invalid module name: 'pycubrid'`로 거부됩니다.
+   `python -W error::UserWarning`은 동작하지만 이 경고뿐 아니라 모든
+   `UserWarning`을 오류로 올립니다.)
+
+3. **래퍼가 정당하게 추가 키워드를 넘겨 주는 경우**(연결 풀이나 ORM
+   다이얼렉트)에는 하나씩 쫓지 말고 범주 전체를 끄세요:
+
+   ```python
+   warnings.simplefilter("ignore", pycubrid.UnknownConnectionOptionWarning)
+   ```
+
+> **참고:** 경고가 전혀 보이지 않으면 경고가 전역으로 억제되어 있지 않은지
+> 확인하세요. `python -W default`가 기본 표시를 되돌립니다. 일부 테스트 러너는
+> 기본적으로 경고를 숨깁니다.
 
 ---
 
