@@ -1,6 +1,6 @@
 # 개발 가이드 (한국어)
 
-> 🌐 [DEVELOPMENT.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/DEVELOPMENT.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [DEVELOPMENT.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/DEVELOPMENT.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 pycubrid를 설정·테스트·기여하는 데 필요한 모든 것.
 
@@ -372,8 +372,11 @@ CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
 
 #### 비동기 TLS 통합 테스트
 
-`tests/test_aio_ssl_integration.py`는 `pycubrid.aio`의 비동기 TLS 커버리지를 추가합니다.
+`tests/test_aio_ssl_integration.py`는 `pycubrid.aio`의 비동기 TLS 커버리지를 추가하고,
+`tests/test_tls_matrix_integration.py`는 TLS 부정 사례 및 수명 주기 매트릭스(알 수 없는 CA, 호스트명 불일치, 양방향의 평문/TLS 거부, 고정된 TLS 1.2/1.3, `ssl=True`와 호출자 `SSLContext`의 비교, 읽기 제한 시간 및 전송 연결 끊김 뒤의 TLS 재접속, 파일 디스크립터 누수)를 동기·비동기 드라이버 모두에 대해 실행합니다. 둘 다 `integration`과 `tls` 마커를 가집니다.
 저장소의 기본 `docker-compose.yml`은 평문 브로커만 시작하므로, 별도의 TLS 활성 브로커를 가리키지 않는 한 이 테스트들은 건너뜁니다.
+
+매트릭스 중 브로커와 무관한 절반(만료된 인증서와 자가 서명 인증서, 중단되거나 멈춘 핸드셰이크, TLS 버전 하한, 재접속 시 다운그레이드 시도, 평문 폴백 없음)은 `tests/test_tls_matrix_offline.py`에서 프로세스 내 OpenSSL 피어(`tests/helpers/tls_broker.py`)를 상대로 오프라인으로 실행되므로 `make test`에 포함됩니다. 테스트용 PKI는 `tests/fixtures/tls/`에 있으며 `tests/fixtures/tls/generate.sh`로 다시 생성합니다. 중단된 핸드셰이크에서 비동기 연결이 멈추는 문제(#513)는 별도의 오프라인 회귀 스위트 `tests/test_aio_tls_handshake_hang.py`가 다룹니다.
 
 필요에 따라 일반 통합 변수에 이 TLS 오버라이드를 추가로 내보내세요:
 
@@ -390,15 +393,22 @@ export CUBRID_TLS_TEST_CA_FILE="$PWD/certs/ca.pem"
 # 선택: 호스트명 불일치 커버리지용 대체 도달 가능 호스트/IP.
 export CUBRID_TLS_TEST_MISMATCH_HOST=127.0.0.1
 
-# test_aio_ssl_connect_default_context가 사설 CA를 쓰면,
-# pytest 실행 전에 프로세스 기본 신뢰 저장소도 그 CA로 지정.
+# 선택: 같은 서버의 SSL=OFF 브로커 포트(기본 query_editor 브로커는
+# 30000에서 수신). TLS 클라이언트의 평문 브로커 접속 거부 커버리지용.
+export CUBRID_TLS_TEST_PLAIN_PORT=30000
+
+# 브로커가 사설 CA를 쓰면 프로세스 기본 신뢰 저장소도 그 CA로 지정해
+# ssl=True 사례(test_aio_ssl_connect_default_context와 매트릭스의
+# ssl=True 행)가 브로커를 검증할 수 있게 함.
 export SSL_CERT_FILE="$CUBRID_TLS_TEST_CA_FILE"
 ```
+
+선택 변수는 로컬에서 개별 사례만 제어합니다. 사례는 해당 설정이 없을 때만 건너뜁니다. `CUBRID_TLS_TEST_CA_FILE`이 설정되면, 연결할 수 없거나 TLS를 제공하지 않는 브로커는 테스트를 건너뛰게 하는 대신 실패시킵니다. CI에서는 모든 변수가 설정되며 `scripts/check_integration_lanes.py`가 이 모듈들에 스킵이 하나라도 있으면 TLS 레인을 실패 처리하므로, 조용히 건너뛰는 레인은 녹색이 아니라 빨간색이 됩니다.
 
 브로커 측 TLS가 이미 활성화되어 있어야 하고(`cubrid_broker.conf`의 `SSL=ON`) 브로커 인증서가 `CUBRID_TLS_TEST_HOST`와 일치해야 합니다. 그런 다음:
 
 ```bash
-pytest tests/test_aio_ssl_integration.py -v
+pytest tests/ -m "integration and tls" -v
 ```
 
 ##### CI의 자동화된 TLS 커버리지
@@ -409,7 +419,7 @@ pytest tests/test_aio_ssl_integration.py -v
 2. 새 자가 서명 인증서를 생성하고(`CN=localhost`, `SAN=DNS:localhost`), `cas_ssl_cert.{crt,key}`로 컨테이너에 주입한 뒤 `BROKER1`의 `SSL=OFF` → `SSL=ON`으로 전환하고 브로커를 재시작해 새 인증서가 반영되게 함.
 3. 생성된 CA 번들을 `CUBRID_TLS_TEST_CA_FILE`과 `SSL_CERT_FILE`로 Python 테스트 픽스처에 내보냄.
 4. 실제 TLS 핸드셰이크로 브로커를 프로브하고, TLS가 실제로 서비스 중이 아니면 잡을 크게 실패시킴 — 조용한 스킵은 명시적으로 거부됨.
-5. `CUBRID_TLS_TEST_*` 환경 변수를 자동 연결해 TLS 브로커에 대해 `tests/test_aio_ssl_integration.py`를 실행.
+5. `CUBRID_TLS_TEST_*` 환경 변수를 자동 연결해 TLS 브로커에 대해 모든 `integration and tls` 테스트(`tests/test_aio_ssl_integration.py`와 `tests/test_tls_matrix_integration.py`)를 실행. 컨테이너의 `SSL=OFF` `query_editor` 브로커용 `CUBRID_TLS_TEST_PLAIN_PORT=30000`도 포함.
 
 > **Python 3.10 참고**: 드라이버의 인증서 검증 preflight가 알려진 비동기 TLS 검증
 > 문제를 처리합니다([#156](https://github.com/cubrid-lab/pycubrid/issues/156)). TLS 레인은
@@ -418,11 +428,12 @@ pytest tests/test_aio_ssl_integration.py -v
 > `cubrid`로 실행해 실제 브로커를 제어합니다.
 
 이 잡은 `integration-full`의 나머지와 같은 트리거(수동 `workflow_dispatch`,
-그리고 `publish-pypi.yml`이 호출하는 릴리스 게이트)로 실행됩니다. 일반 PR에서는
-TLS 관련 경로가 변경될 때만 Python 3.14 × CUBRID 11.4 단일 레인이
-선택됩니다. 연결 모듈, `pycubrid/__init__.py`, `pycubrid/protocol.py`,
-`pycubrid/aio/`, TLS/SSL 테스트와 도우미·픽스처, 레인 감사 스크립트 또는
-워크플로 변경이 해당됩니다.
+그리고 `publish-pypi.yml`이 호출하는 릴리스 게이트)로 실행됩니다. `ci.yml`은
+PR마다 같은 레인을 Python 3.14 × CUBRID 11.4 단일 셀로 실행하되, TLS 관련
+경로(연결 모듈, `pycubrid/__init__.py`, `pycubrid/protocol.py`,
+`pycubrid/aio/`, TLS 및 SSL 테스트, `tests/helpers/tls_*.py`,
+`tests/fixtures/tls/`, 레인 감사 스크립트 또는 워크플로)가 변경될 때만
+실행하므로 일상적인 PR은 그 비용을 치르지 않습니다.
 
 ### 코드 커버리지
 
@@ -534,7 +545,7 @@ Mypy는 기존의 엄격한 패키지 전용 검사를 유지합니다. 검사�
 Ruff/Mypy의 정확한 버전은 `pyproject.toml`에서 관리합니다. Ruff와 Mypy
 pre-commit 훅은 `repo: local` / `language: system` 훅으로, 같은 활성 환경에서
 `python3 -m ruff`와 `python3 -m mypy`를 직접 호출합니다. 따라서 별도로 맞춰야 할
-훅 버전(`rev:`)이 없습니다: dev 핀을 올리고(Dependabot의 `pip` 생태계가 정확히 이
+훅 리비전이 없습니다: dev 핀을 올리고(Dependabot의 `pip` 생태계가 정확히 이
 작업을 수행합니다) `.[dev]`를 다시 설치하면 충분합니다. 커밋 시 훅이 실행되길
 원한다면 그 환경(또는 이를 설치한 venv)을 항상 활성화해두세요. 그렇지 않으면
 Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치된 버전이 조용히
@@ -585,7 +596,7 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 
 | 레인 | 선택식 | 실행 워크플로 |
 |---|---|---|
-| 일반 | `integration and not slow and not tls` | 선택된 PR/push CI, 전체 호환성 매트릭스, 주간 bug hunt |
+| 일반 | `integration and not slow and not tls` | 일반 PR/push CI, 전체 호환성 매트릭스, 주간 bug hunt |
 | 장시간 | `integration and slow and not tls` | 주간/수동 bug hunt의 soak, chaos, 동시성 stress |
 | TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
 | 공식 드라이버 차분 | `integration and official_differential` | 일반 CI와 전체 워크플로의 필수 `official-differential` 잡 (Python 3.11, CUBRID 10.2와 11.4) |
@@ -769,7 +780,7 @@ main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 �
 |----------|---------|-------------|
 | `ci.yml` | PR, main 푸시, 주간, 수동 실행 | 최소 PR 스모크; main/주간 커버리지와 대표 통합 검사 |
 | `integration-full.yml` | 수동 실행, `publish-pypi.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
-| `release-please.yml` | main push 또는 수동 실행 | release-please 릴리스 후보 PR 생성 (날짜가 있는 CHANGELOG 섹션 + 버전 갱신) |
+| `release-please.yml` | main push 또는 수동 실행 | PR 전용 릴리스 후보 생성/갱신 (버전 + 생성/큐레이션된 노트) |
 | `publish-pypi.yml` | main 푸시, 복구용 수동 실행 | 병합된 릴리스 PR 감지 후 전체 매트릭스, 빌드, 태그 + GitHub Release + PyPI, cookbook 검증 |
 
 ### CI 매트릭스
@@ -826,7 +837,7 @@ compat는 `-e .`, packaging은 `build`만 설치합니다. 각 작업의 설치
 캐시를 놓칠 수 있습니다. [setup-python 캐시 설명](https://github.com/actions/setup-python#caching-packages-dependencies)을
 참조하세요. 변경 헤드의 첫 실행은 Ubuntu/Python 3.10 pip 캐시를 찾지
 못해 나중에 저장했고, 기준 306초보다 긴 328초가 걸렸습니다. 이 콜드
-실행은 전체 속도 향상을 보여주지 않습니다. Docker 시작 비용도 그대로입니다.
+실행은 전체 속도 향상을 보여주지 않습니다. Docker 시작도 상당한 비용이며 여기서는 그대로입니다.
 
 **경로 필터 트리거 감사**: 최근 PR 실행에서 `detect-changes` 출력과 실제
 작업 결과를 대조했습니다. [이슈 #595](https://github.com/cubrid-lab/pycubrid/issues/595)를
@@ -834,7 +845,7 @@ compat는 `-e .`, packaging은 `build`만 설치합니다. 각 작업의 설치
 관련 경로를 건드리지 않았고,
 [실행 36879861578](https://github.com/cubrid-lab/pycubrid/actions/runs/36879861578)에서
 `integration-tls`는 `skipped`, 일반 통합 2셀·charset·official
-differential은 성공했습니다. 문서 전용 PR #587에서는 코드/TLS로 경로
+differential은 성공했습니다. 문서 전용 [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)에서는 코드/TLS로 경로
 게이팅된 통합 작업 4개가 모두 의도대로 건너뛰어졌습니다. 변경하지 않은
 `ci-gate`는 이들 작업의 `skipped`만 허용하고 실패/취소는 허용하지
 않습니다. 감사에서 실제 공백을 하나 발견했습니다:
@@ -847,10 +858,10 @@ PR은 병합 전 코드 경로의 통합 커버리지를 전부 건너뛸 수 �
 
 실제 실패 전파 증거도 있습니다.
 [실행 36776514307](https://github.com/cubrid-lab/pycubrid/actions/runs/36776514307)에서
-공식 드라이버와의 공개 동작 비교가 실패했고 `CI Gate`도 실패했습니다.
+주장된 공식 동작 비교가 실패했고 `CI Gate`도 실패했습니다.
 추가한 저장소 도구 테스트는 변경하지 않은 게이트 셸을 직접 실행하여
-official/일반 통합/charset/TLS 결과의 `failure`와 `cancelled`에서 모두
-0이 아닌 종료 코드를, 문서 전용 경로의 예상 `skipped`에서는 성공을
+official 및 통합 결과를 합성한 `failure`/`cancelled`에서 모두
+0이 아닌 종료 코드를, 문서 전용 경로의 예상 스킵에서는 성공을
 확인합니다. 공식 비교나 게이트 자체는 완화하지 않았습니다.
 
 **변경 사항** (둘 다 추가적/안전한 변경이며, 작업 제거나 커버리지 축소,

@@ -1,6 +1,6 @@
 # 문제 해결 가이드 (한국어)
 
-> 🌐 [TROUBLESHOOTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/TROUBLESHOOTING.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [TROUBLESHOOTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/TROUBLESHOOTING.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 문제, 타입 불일치, LOB 처리, 성능 튜닝, Docker 설정.
 
@@ -44,7 +44,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
 - [커서 문제](#커서-문제)
   - [InterfaceError: Cursor is closed](#interfaceerror-cursor-is-closed)
   - [fetchone()이 예기치 않게 None 반환](#fetchone이-예기치-않게-none-반환)
-  - [SELECT 후 rowcount가 -1](#rowcount가--1-after-select)
+  - [SELECT 후 rowcount가 -1](#select-후-rowcount가--1)
   - [executemany() 성능](#executemany-성능)
 - [파라미터화 쿼리 문제](#파라미터화-쿼리-문제)
   - [execute(sql, params) 패턴](#executesql-params-패턴)
@@ -238,7 +238,7 @@ InterfaceError: Connection is closed
 - **서버 측 세션 타임아웃** — CUBRID 브로커에는 `SESSION_TIMEOUT` 설정이 있습니다. 기본값은 300초(5분) 동안 활동 없음입니다.
 - **브로커 재시작** — 브로커가 재시작되면 기존 연결이 모두 종료됩니다.
 - **네트워크 중단** — 일시적인 네트워크 장애가 TCP 연결을 끊습니다.
-- **유휴 연결 정리** — 브로커가 자원을 freeing하기 위해 유휴 연결을 닫을 수 있습니다.
+- **유휴 연결 정리** — 브로커가 자원을 해제하기 위해 유휴 연결을 닫을 수 있습니다.
 - **잘못된 형식의 브로커 응답** — 호출 자체가
   `OperationalError: malformed response from broker`를 발생시켰다면 응답을
   온전히 읽을 수 없었던 것입니다. 길이 필드(`BIT`/`VARBIT`, 문자열, `NUMERIC`,
@@ -248,7 +248,8 @@ InterfaceError: Connection is closed
   없으므로 드라이버는 연결을 닫고, 이후 호출은 `InterfaceError`를 발생시킵니다.
   응답이 선언한 마지막 값 뒤의 바이트는 오류가 아닙니다. 응답은 완전하지만
   Python이 표현할 수 없는 값이 있으면 대신 `DataError`를 발생시키고 연결을
-  유지합니다(유효하지 않은 UTF-8, 0 날짜 항목 참고). 이전 릴리스는 잘린 필드를
+  유지합니다([잘못된 UTF-8](#값-또는-오류-메시지의-잘못된-utf-8),
+  [0 날짜](#0-날짜-또는-날짜시간-값) 참고). 이전 릴리스는 잘린 필드를
   짧아진 값으로 반환하고 연결을 유지했습니다(#383).
 
 **해결:** 이 오류가 발생하면 새 연결을 만드세요:
@@ -801,7 +802,7 @@ CUBRID는 `VARCHAR(n)` 크기와 일부 오류 메시지에 포함되는 값을 
   디코딩할 수 없는 컬럼 이름도 같은 방식으로 `DataError`를 발생시킵니다(#86). `JSON`은
   항상 UTF-8입니다.
 
-이전 릴리스에서는 두 경우 모두 `OperationalError: malformed response from broker`가
+이전 릴리스에서는 `OperationalError: malformed response from broker`가
 발생하고 연결이 닫혔습니다.
 
 ### TZ 값의 타임존을 해석할 수 없음

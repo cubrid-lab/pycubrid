@@ -1,6 +1,6 @@
 # 사용 예제 (한국어)
 
-> 🌐 [EXAMPLES.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/EXAMPLES.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [EXAMPLES.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/EXAMPLES.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 기본 CRUD부터 고급 기능까지 pycubrid의 실용적인 예제 모음.
 

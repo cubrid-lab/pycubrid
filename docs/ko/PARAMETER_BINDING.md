@@ -1,6 +1,6 @@
 # 파라미터 바인딩 (한국어)
 
-> 🌐 [PARAMETER_BINDING.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PARAMETER_BINDING.md)의 번역입니다. 영어 원문이 표준이며, 페이지 번역은 경고 수준의 동기화 규칙을 따릅니다.
+> 🌐 [PARAMETER_BINDING.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PARAMETER_BINDING.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 pycubrid 1.x의 드라이버 측 파라미터 바인딩 계약.
 
@@ -42,9 +42,10 @@ pycubrid는 **드라이버 측 리터럴 바인딩**을 수행합니다. `cursor
 
 **이것은 서버 측 prepared-statement 바인딩이 아닙니다.** pycubrid는 파라미터 값을 별도의 타입 페이로드로 보내지 않으며, 브로커는 execute마다 완전한 SQL 텍스트를 받습니다. [비보장과 명시적 한계](#비보장과-명시적-한계)를 참고하세요.
 별도의 명시적 동기 `pycubrid.compat.native` prepared 커서는 INT32,
-UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기존 1.x
-커서의 동작을 바꾸지는 않습니다. 범위는
-[#418 타입 지정 CAS 설계](../PREPARED_BINDING_DESIGN.md)를 참고하세요.
+UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 이 커서는 이
+일반 1.x 계약을 대체하지 않습니다. 제한된 범위는
+[#418 타입 지정 CAS 설계](PREPARED_BINDING_DESIGN.md)와
+[API 참조](API_REFERENCE.md#명시적-네이티브-호환-기능)를 참고하세요.
 
 ---
 
@@ -53,7 +54,7 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 기
 - `paramstyle = "qmark"` (`pycubrid/__init__.py:46`), PEP 249 준수.
 - 플레이스홀더는 위치 기반 `?`입니다. named·numeric·pyformat 플레이스홀더는 **없습니다**.
 - `execute()`의 `parameters` 인자는 `str`/`bytes`/`bytearray`가 아닌 `Sequence`여야 합니다. 매핑은 `ProgrammingError`로 거부됩니다(`pycubrid/_cursor_common.py:194-197`). 정확한 메시지 문구는 참고 사항이며 [비보장과 명시적 한계](#비보장과-명시적-한계)를 참고하세요.
-- 플레이스홀더 수 불일치는 `ProgrammingError`를 발생시킵니다(`pycubrid/_cursor_common.py:199-203`). 정확한 메시지 문구는 참고 사항입니다.
+- 플레이스홀더 수 불일치는 `ProgrammingError`를 발생시킵니다(`pycubrid/_cursor_common.py:199-203`). 정확한 메시지 문구는 참고 사항이며 [비보장과 명시적 한계](#비보장과-명시적-한계)를 참고하세요.
 
 ---
 
@@ -219,7 +220,7 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 - 중첩 컬렉션은 거부됩니다(`ProgrammingError`): 다른 타입 지정 컬렉션 안의 타입 지정 컬렉션, 또는 일반 `list`/`tuple`/`set`/`frozenset`/`dict` 원소.
 - 세 클래스 모두 생성 시 `dict`를 거부합니다(`TypeError`): `dict`를 순회하면 키만 쓰이고 값은 조용히 버려지기 때문입니다. `Sequence`는 추가로 `set`/`frozenset`을 거부합니다(`TypeError`): 순회 순서가 보장되지 않아 실행마다 `Sequence`의 원소 순서가 달라질 수 있기 때문입니다. `Set`과 `Multiset`은 서버 측 의미 자체가 입력 순서에 의존하지 않으므로 `set`/`frozenset`을 그대로 받습니다.
 - `executemany()`도 각 파라미터 집합에서 타입 지정 컬렉션을 받으며, DML 배치 경로(`EXECUTE_BATCH`)도 포함합니다.
-- 이 인스턴스들은 불변이며 `copy.copy()`(항상 같은 객체를 반환), `copy.deepcopy()`(모든 원소가 그 자체로 불변이면 같은 객체를 반환하고, `bytearray`처럼 가변인 원소가 있으면 원소까지 독립적으로 복사한 별개의 객체를 반환해 복사본을 변경해도 원본에 되돌아가 영향을 주지 않음), `pickle`에 안전합니다. 기존 인스턴스에서 `__init__`을 다시 호출해도 변경할 수 없습니다.
+- 이 인스턴스들은 불변이며 `copy.copy()`(항상 같은 객체를 반환), `copy.deepcopy()`(모든 원소가 그 자체로 불변이면 같은 객체를 반환하고, `bytearray`처럼 가변인 원소가 있으면 원소까지 독립적으로 복사한 별개의 객체를 반환), `pickle`에 안전합니다. 기존 인스턴스에서 `__init__`을 다시 호출해도 변경할 수 없습니다.
 - 조회 동작은 바뀌지 않습니다: `decode_collections=True`이면 `SET` 컬럼은 여전히 `frozenset`으로, `MULTISET`/`SEQUENCE`는 `list`로 디코딩됩니다(아니면 raw `bytes`). 디코딩된 값은 이 타입으로 다시 감싸지지 않으므로, 바인딩하려면 다시 감싸세요(예: `Set(row[0])`).
 
 ### 바인딩 값으로 명시적으로 미지원
@@ -233,12 +234,12 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 
 ## 문자열 이스케이프
 
-문자열 이스케이프는 `escape_string`(`pycubrid/_cursor_common.py`)이 수행합니다. 동작은 `no_backslash_escapes` 연결 플래그(`pycubrid/_connection_common.py`)에 따라 달라집니다. 기본적으로 이 플래그는 연결 시점에 라이브 서버에서 **자동 협상**됩니다([이스케이프 모드 협상](#이스케이프-모드-협상) 참고). 감지를 덮어쓰려면 `pycubrid.connect(..., no_backslash_escapes=True|False)`로 명시적으로 전달하세요.
+문자열 이스케이프는 `escape_string`(`pycubrid/_cursor_common.py`)이 수행합니다. 동작은 `no_backslash_escapes` 연결 플래그(`pycubrid/_connection_common.py`)에 따라 달라집니다. 기본적으로 이 플래그는 연결 시점에 라이브 서버에서 **자동 협상**됩니다([이스케이프 모드 협상](#이스케이프-모드-협상) 참고). 감지를 덮어쓰려면 `pycubrid.connect(..., no_backslash_escapes=True|False)`로 명시적으로 전달하세요. 자동 감지는 명시적 `ping(reconnect=True)` 복구를 포함해 새로 열린 물리 세션마다, 파라미터화된 SQL이 그 세션을 사용하기 전에 실행됩니다.
 
 모든 모드에서:
 
 - 리터럴은 작은따옴표로 감싸집니다.
-- 입력의 NUL(`U+0000`)은 `ProgrammingError` 발생(`pycubrid/_cursor_common.py:130-131`). 이것은 무조건적이며 양쪽 모드에 적용됩니다. 정확한 메시지 문구는 참고 사항입니다.
+- 입력의 NUL(`U+0000`)은 `ProgrammingError` 발생(`pycubrid/_cursor_common.py:130-131`). 이것은 무조건적이며 양쪽 모드에 적용됩니다. 정확한 메시지 문구는 참고 사항이며 [비보장과 명시적 한계](#비보장과-명시적-한계)를 참고하세요.
 - 작은따옴표는 doubling됩니다(`'` → `''`).
 - 유니코드 코드 포인트(UTF-16이 서로게이트 페어로 인코딩할 비-BMP 문자 포함)는 변경 없이 통과합니다(`tests/test_param_security.py::TestEscapeString::test_unicode_passthrough`, `::test_unicode_non_bmp_passthrough`).
 
@@ -252,7 +253,9 @@ CUBRID의 `no_backslash_escapes` **시스템 파라미터 기본값은 `yes`**�
 - 결과 `1` → 서버가 쌍을 언이스케이프함 → **이스케이프 처리 모드**, 드라이버는 `no_backslash_escapes=False`로 고정.
 - 그 외 값이나 프로브 오류 → `OperationalError` 발생. 드라이버는 이스케이프 모드를 추측하지 않습니다. 잘못된 값은 문자열 이스케이프를 조용히 오염시키고(SQL 인젝션도 가능) 때문입니다. 프로브를 실행할 수 없을 때는 `no_backslash_escapes`를 명시적으로 전달해 감지를 건너뛰세요.
 
-`no_backslash_escapes=True` 또는 `False`를 명시적으로 전달하면 프로브를 완전히 건너뜁니다. 협상은 물리적 연결당 한 번 일어나며 투명한 재연결에서 보존됩니다.
+`no_backslash_escapes=True` 또는 `False`를 명시적으로 전달하면 프로브를 건너뛰고 재연결 후에도 그 선택을 유지합니다. 명시적 값이 없으면 새로 열린 물리 세션은 사용 전에 프로브하며, 정상인 같은 세션에 대한 `ping()`은 다시 프로브하지 않습니다. 프로브가 실패하면 직접 연결 설정은 이루어지지 않으며, `ping(reconnect=True)` 중에는 대체 세션을 폐기하고 `False`를 반환합니다. 어느 경로도 모드를 추측하거나 중단된 SQL을 재실행하지 않습니다. 동기·비동기 경로에서 세션 교체 전에 바인딩된 파라미터화된 SQL은 세션 세대가 바뀌었으면 전송 전에 거부되며, 호출자가 의도적으로 작업을 다시 시도해야 합니다. 정상적인 `CAS_INFO=OUT_TRAN` 응답에서는 세션을 유지하며, 요청 전 `CHECK_CAS`가 실패한 경우에만 재연결합니다(#485). 커서는 파라미터를 렌더링하기 전에 그 검사를 실행하며, 렌더링한 뒤에 교체된 세션을 대상으로 렌더링된 SQL은 동기·비동기 모두에서 전송 전에 거부됩니다. `executemany_batch()`에 직접 전달한 SQL 문자열은 호출자가 렌더링한 것이므로 세대 펜스가 적용되지 않습니다.
+
+CUBRID [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) 및 [11.4](https://www.cubrid.org/manual/ko/11.4/admin/config.html) 매뉴얼은 `no_backslash_escapes`를 동적으로 변경 가능한 파라미터로 분류하지 않습니다. 이 드라이버 동작은 세션별 `SET` 전환 지원을 의미하지 않으며, 서로 다르게 설정된 서버 간의 이기종 장애 조치를 입증하지도 않습니다. 명시적 모드는 가능한 모든 대상이 그 모드와 일치한다고 알려진 경우에만 사용해야 합니다.
 
 ### 리터럴 모드 (`no_backslash_escapes=True`)
 
