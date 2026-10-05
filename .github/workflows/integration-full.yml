@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Verify requested manual commit and current PR head
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_CALL: ${{ inputs.release_call || false }}
         with:
@@ -564,7 +564,7 @@ jobs:
           echo "Full compatibility matrix passed."
 
       - name: Verify requested manual commit and current PR head
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_CALL: ${{ inputs.release_call || false }}
         with:
