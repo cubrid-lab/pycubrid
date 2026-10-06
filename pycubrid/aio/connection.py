@@ -126,7 +126,7 @@ class AsyncConnection(ConnectionCommonMixin):
         Runs :meth:`_do_connect_handshake` under the connection's
         :class:`asyncio.Lock` so concurrent ``await conn.connect()`` calls
         do not race. The handshake itself is bounded by ``read_timeout``
-        (passed to :func:`asyncio.wait_for`); a timeout surfaces as
+        (an :func:`asyncio.timeout` deadline); a timeout surfaces as
         :class:`OperationalError`.
 
         See :class:`AsyncConnection` for the ``ssl`` parameter semantics.
@@ -265,17 +265,14 @@ class AsyncConnection(ConnectionCommonMixin):
         try:
             hs_reader, hs_writer = await self._open_connection(self._host, self._port)
 
-            coro = self._do_connect_handshake(hs_reader, hs_writer)
-            if self._read_timeout is not None:
-                await asyncio.wait_for(coro, timeout=self._read_timeout)
-            else:
-                await coro
+            async with asyncio.timeout(self._read_timeout):
+                await self._do_connect_handshake(hs_reader, hs_writer)
             hs_writer = None  # ownership transferred to self or closed
 
             self._connected = True
             self._mark_cas_reply_verified()
             self._physical_generation += 1
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise OperationalError("read timeout during connect handshake") from exc
         except (OSError, ValueError, struct.error, IndexError, UnicodeDecodeError) as exc:
             raise OperationalError("failed to connect to CUBRID broker") from exc
@@ -831,11 +828,8 @@ class AsyncConnection(ConnectionCommonMixin):
         self, host: str, port: int
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         try:
-            coro = asyncio.open_connection(host, port)
-            if self._connect_timeout is not None:
-                reader, writer = await asyncio.wait_for(coro, timeout=self._connect_timeout)
-            else:
-                reader, writer = await coro
+            async with asyncio.timeout(self._connect_timeout):
+                reader, writer = await asyncio.open_connection(host, port)
 
             sock = writer.transport.get_extra_info("socket")
             if sock is not None:
@@ -845,7 +839,7 @@ class AsyncConnection(ConnectionCommonMixin):
                 sock.setsockopt(_socket_mod.SOL_SOCKET, _socket_mod.SO_KEEPALIVE, 1)
 
             return reader, writer
-        except (OSError, asyncio.TimeoutError) as exc:
+        except OSError as exc:
             raise OperationalError(f"could not connect to {host}:{port}") from exc
 
     async def _wait_for_setup_if_needed(self) -> None:
@@ -983,10 +977,10 @@ class AsyncConnection(ConnectionCommonMixin):
                 raise InterfaceError("connection is closed")
             self._validate_escape_generation(expected_escape_generation)
 
-        # On Python 3.11+ asyncio.TimeoutError is the built-in TimeoutError, an
-        # OSError subclass a transport or a parse callback can raise too
-        # (ETIMEDOUT): record whether one came from inside the round trip
-        # instead of inferring the read_timeout deadline from its type.
+        # The deadline raises the built-in TimeoutError, an OSError subclass a
+        # transport or a parse callback can raise too (ETIMEDOUT): record
+        # whether one came from inside the round trip instead of inferring the
+        # read_timeout deadline from its type.
         transport_timeout = False
         self._reply_complete = False
 
@@ -994,18 +988,17 @@ class AsyncConnection(ConnectionCommonMixin):
             nonlocal transport_timeout
             try:
                 return await self._do_send_and_receive(packet)
-            except (TimeoutError, asyncio.TimeoutError):
+            except TimeoutError:
                 transport_timeout = True
                 raise
 
         try:
-            if self._read_timeout is not None:
-                return await asyncio.wait_for(round_trip(), timeout=self._read_timeout)
-            return await round_trip()
-        except (asyncio.TimeoutError, OSError) as exc:
+            async with asyncio.timeout(self._read_timeout):
+                return await round_trip()
+        except OSError as exc:
             deadline = (
                 self._read_timeout is not None
-                and isinstance(exc, asyncio.TimeoutError)
+                and isinstance(exc, TimeoutError)
                 and not transport_timeout
             )
             if self._reply_complete and not deadline:
@@ -1018,7 +1011,7 @@ class AsyncConnection(ConnectionCommonMixin):
                     "read timeout: no complete round trip within "
                     f"read_timeout={self._read_timeout}s"
                 ) from exc
-            if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+            if isinstance(exc, TimeoutError):
                 raise OperationalError("socket communication timed out") from exc
             raise OperationalError("socket communication failed") from exc
         except asyncio.CancelledError:

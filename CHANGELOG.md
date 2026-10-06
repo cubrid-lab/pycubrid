@@ -27,6 +27,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   upgrade, its handshake bound and its error surface are the same. The private
   helpers `_maybe_probe_tls_verification`, `_probe_tls_verification_sync` and
   `_recv_exact_sync` are gone with their Python 3.10-only tests.
+- **Async deadlines use `asyncio.timeout()` (#687)** — the async connect,
+  handshake and request deadlines are `asyncio.timeout()` blocks instead of
+  `asyncio.wait_for()` calls, and the driver handles only the built-in
+  `TimeoutError` (`asyncio.TimeoutError` is the same class since Python 3.11).
+  Timeout values, exception classes, messages and the read-timeout versus
+  socket-failure classification are unchanged. On Python 3.11 the awaited
+  operation now runs in the calling task rather than a helper task, as it
+  already did on Python 3.12 and newer. One boundary changes: a zero async
+  timeout now expires at the operation's first suspension instead of
+  cancelling it before it starts. An async connection with `connect_timeout=0`
+  or `read_timeout=0` still always fails to connect with `OperationalError`.
 - **Ruff and mypy target Python 3.11 (#688)** — `target-version = "py311"` and
   `python_version = "3.11"` in `pyproject.toml`, matching the minimum supported
   version. The rule selection is unchanged and no source needed a fix.

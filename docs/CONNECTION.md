@@ -96,7 +96,7 @@ def connect(
 | `no_backslash_escapes` | `bool \| None` | `None` (auto) | Probe each new physical session's string-escape mode; explicit `True`/`False` skips detection and remains pinned across recovery |
 | `autocommit` | `bool` | `False` | Enable immediate commit per statement |
 
-`connect_timeout` and `read_timeout` accept `None` or finite non-negative numbers. Negative values, NaN and infinity raise `ValueError`; incompatible types raise `TypeError`. Both sync and async connections validate these settings before acquiring transport resources, without wrapping configuration errors in `OperationalError`. Zero remains accepted and retains each transport’s existing zero-timeout semantics; it does not disable deadlines.
+`connect_timeout` and `read_timeout` accept `None` or finite non-negative numbers. Negative values, NaN and infinity raise `ValueError`; incompatible types raise `TypeError`. Both sync and async connections validate these settings before acquiring transport resources, without wrapping configuration errors in `OperationalError`. Zero remains accepted and does not disable deadlines. The sync driver's zero-timeout behavior is unchanged. In the async driver a zero deadline expires at the operation's first suspension, so an async connection configured with `connect_timeout=0` or `read_timeout=0` always fails to connect with `OperationalError`; before 1.10.0 the operation was cancelled before it started ([#687](https://github.com/cubrid-lab/pycubrid/issues/687)).
 
 ### Unknown Options
 
@@ -268,10 +268,6 @@ as `socket communication failed`. An `OSError` (including `TimeoutError`) raised
 propagates unchanged and the connection stays open. A `ValueError`-family error from a custom
 deserializer (for example an orjson or simplejson decode error) is still treated as a malformed
 reply: `OperationalError('malformed response from broker')`, and the session is retired.
-
-On Python 3.10, the distinct `asyncio.TimeoutError` class follows the same rule:
-transport timeouts retire the session, while a callback timeout after a complete
-reply propagates unchanged without closing it.
 
 If CAS closes the transport before a complete reply arrives, sync and async
 requests raise `OperationalError` and retire the physical session. This remains

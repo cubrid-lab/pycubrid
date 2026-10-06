@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import struct
-from collections.abc import Coroutine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -27,12 +26,10 @@ def make_stream_pair(read_chunks: list[bytes]) -> tuple[MagicMock, MagicMock]:
     return reader, writer
 
 
-async def raise_timeout_and_close_coro(
-    coro: Coroutine[object, object, object], timeout: float | None = None
-) -> None:
-    del timeout
-    coro.close()
-    raise asyncio.TimeoutError
+async def never_reply(*_args: object) -> bytes:
+    """A peer that never answers: only the read_timeout deadline ends the read."""
+    await asyncio.Event().wait()
+    raise AssertionError("unreachable")
 
 
 def make_connected_async_connection(
@@ -80,14 +77,11 @@ async def test_truncated_response_disconnects_and_ping_reconnects() -> None:
 
 @pytest.mark.asyncio
 async def test_send_and_receive_timeout_awaits_stream_shutdown() -> None:
-    conn, _, writer = make_connected_async_connection([], read_timeout=0.5)
+    conn, reader, writer = make_connected_async_connection([], read_timeout=0.01)
+    reader.readexactly = AsyncMock(side_effect=never_reply)
 
-    with patch(
-        "pycubrid.aio.connection.asyncio.wait_for",
-        new=AsyncMock(side_effect=raise_timeout_and_close_coro),
-    ):
-        with pytest.raises(OperationalError, match="read timeout"):
-            await conn._send_and_receive(CommitPacket())
+    with pytest.raises(OperationalError, match="read timeout"):
+        await conn._send_and_receive(CommitPacket())
 
     writer.close.assert_called_once_with()
     writer.wait_closed.assert_awaited_once()

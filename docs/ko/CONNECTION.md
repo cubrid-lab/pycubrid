@@ -98,7 +98,7 @@ def connect(
 | `no_backslash_escapes` | `bool \| None` | `None` (자동 감지) | 새 물리 세션마다 문자열 이스케이프 모드 감지; 명시적 `True`/`False`는 감지를 생략하고 복구 후에도 유지 |
 | `autocommit` | `bool` | `False` | 문장별 즉시 커밋 활성화 |
 
-`connect_timeout`과 `read_timeout`은 `None` 또는 유한한 0 이상의 숫자를 받습니다. 음수, NaN, 무한대는 `ValueError`를, 호환되지 않는 타입은 `TypeError`를 발생시킵니다. 동기·비동기 연결 모두 전송 자원을 획득하기 전에 설정을 검증하며, 이 오류는 `OperationalError`로 감싸지 않습니다. `0`은 계속 허용되며 각 전송 방식의 기존 0 타임아웃 의미를 유지합니다. 타임아웃 제한을 비활성화하지 않습니다.
+`connect_timeout`과 `read_timeout`은 `None` 또는 유한한 0 이상의 숫자를 받습니다. 음수, NaN, 무한대는 `ValueError`를, 호환되지 않는 타입은 `TypeError`를 발생시킵니다. 동기·비동기 연결 모두 전송 자원을 획득하기 전에 설정을 검증하며, 이 오류는 `OperationalError`로 감싸지 않습니다. `0`은 계속 허용되며 타임아웃 제한을 비활성화하지 않습니다. 동기 드라이버의 0 타임아웃 동작은 그대로입니다. 비동기 드라이버에서는 0 기한이 작업의 첫 대기 지점에서 만료되므로, `connect_timeout=0` 또는 `read_timeout=0`으로 설정한 비동기 연결은 항상 `OperationalError`로 연결에 실패합니다. 1.10.0 이전에는 작업이 시작되기 전에 취소됐습니다([#687](https://github.com/cubrid-lab/pycubrid/issues/687)).
 
 <a id="unknown-options"></a>
 
@@ -242,10 +242,6 @@ TLS 핸드셰이크에 기본 10초보다 긴 시간을 허용하려면 `read_ti
 왕복 시간을 제한합니다. `connect_timeout`은 바뀌지 않습니다.
 
 세션이 열린 뒤 요청 중에 불확실한 전송 실패(소켓 오류, 타임아웃, 잘못된 응답, 응답을 기다리는 동안의 인터럽트나 태스크 취소)가 발생하면, 두 드라이버 모두 연결을 닫고 그 세션의 모든 커서·스키마 결과 핸들을 폐기합니다([#556](https://github.com/cubrid-lab/pycubrid/issues/556)). 커서가 이미 버퍼에 받아 둔 행은 계속 읽을 수 있고, 서버가 필요한 다음 fetch는 예외를 발생시키며, 끊긴 세션의 핸들은 다시 전송되지 않습니다. 요청은 재실행되지 않습니다: `connect()` 또는 `ping(reconnect=True)`로 다시 연결한 뒤 다시 실행하세요. 비동기 `OperationalError` 메시지는 `read_timeout` 기한이 만료된 경우에만 `read timeout: no complete round trip within read_timeout=...s`이고, 전송 계층 자체의 타임아웃(예: `ETIMEDOUT`)은 `socket communication timed out`, 그 밖의 소켓 오류는 `socket communication failed`로 보고됩니다. 원래 예외는 항상 `__cause__`로 체이닝되며, 취소된 태스크는 여전히 `asyncio.CancelledError`를 발생시킵니다. 동기 `read_timeout`은 수신 단위 소켓 타임아웃이며 `socket communication failed`로 보고됩니다. 응답을 모두 읽은 뒤 `json_deserializer` 콜백이 발생시킨 `OSError`(`TimeoutError` 포함)는 전송 실패가 아니므로 그대로 전파되고 연결은 열린 채로 유지됩니다. 커스텀 디시리얼라이저의 `ValueError` 계열 오류(예: orjson, simplejson 디코드 오류)는 여전히 잘못된 응답으로 처리되어 `OperationalError('malformed response from broker')`가 발생하고 세션은 폐기됩니다.
-
-Python 3.10의 별도 `asyncio.TimeoutError` 클래스에도 같은 규칙이 적용됩니다.
-전송 계층의 타임아웃은 세션을 폐기하지만, 완전한 응답을 읽은 뒤 콜백이 낸
-타임아웃은 연결을 닫지 않고 그대로 전파됩니다.
 
 완전한 응답이 오기 전에 CAS가 전송 연결을 닫으면 동기·비동기 요청 모두
 `OperationalError`를 발생시키고 해당 물리 세션을 폐기합니다.
