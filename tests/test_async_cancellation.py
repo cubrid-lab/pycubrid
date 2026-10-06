@@ -56,8 +56,10 @@ async def _assert_usable_or_closed(conn: pycubrid.aio.AsyncConnection) -> None:
     """A follow-up op must either work or raise a DB-API error — never hang or leak."""
     try:
         cur = conn.cursor()
-        await asyncio.wait_for(cur.execute("SELECT 1"), timeout=5.0)
-        row = await asyncio.wait_for(cur.fetchone(), timeout=5.0)
+        async with asyncio.timeout(5.0):
+            await cur.execute("SELECT 1")
+        async with asyncio.timeout(5.0):
+            row = await cur.fetchone()
         assert row == (1,)
         await cur.close()
     except DBAPIError:
@@ -80,7 +82,8 @@ class TestCancelDuringExecute:
             except (asyncio.CancelledError, DBAPIError):
                 pass  # cancelled or clean error; a fast completion is also valid
             # The lock must have been released: a fresh op proceeds or errors cleanly.
-            await asyncio.wait_for(_assert_usable_or_closed(conn), timeout=10.0)
+            async with asyncio.timeout(10.0):
+                await _assert_usable_or_closed(conn)
         finally:
             await conn.close()
 
@@ -99,8 +102,10 @@ class TestCancelDuringExecute:
                 # A canceled in-flight read retires the uncertain stream.
                 # Explicit health recovery must finish before opening the
                 # next cursor; cancellation never replays that SELECT.
-                assert await asyncio.wait_for(conn.ping(reconnect=True), timeout=10.0)
-            await asyncio.wait_for(_assert_usable_or_closed(conn), timeout=10.0)
+                async with asyncio.timeout(10.0):
+                    assert await conn.ping(reconnect=True)
+            async with asyncio.timeout(10.0):
+                await _assert_usable_or_closed(conn)
         finally:
             await conn.close()
 
@@ -116,7 +121,8 @@ class TestCancelDuringClose:
         except (asyncio.CancelledError, DBAPIError):
             pass  # both outcomes (cancelled or clean error) are acceptable
         # Whether the cancel won or lost, a second close must be safe/idempotent.
-        await asyncio.wait_for(conn.close(), timeout=10.0)
+        async with asyncio.timeout(10.0):
+            await conn.close()
 
 
 class TestConcurrentLifecycle:
@@ -132,7 +138,8 @@ class TestConcurrentLifecycle:
                 r, (DBAPIError, asyncio.CancelledError)
             ):
                 raise AssertionError(f"concurrent execute/close leaked {type(r).__name__}: {r!r}")
-        await asyncio.wait_for(conn.close(), timeout=10.0)
+        async with asyncio.timeout(10.0):
+            await conn.close()
 
     async def test_concurrent_ping_reconnect_and_execute(self) -> None:
         conn = await _aconnect()
@@ -148,7 +155,8 @@ class TestConcurrentLifecycle:
                     raise AssertionError(
                         f"concurrent ping/execute leaked {type(r).__name__}: {r!r}"
                     )
-            await asyncio.wait_for(_assert_usable_or_closed(conn), timeout=10.0)
+            async with asyncio.timeout(10.0):
+                await _assert_usable_or_closed(conn)
         finally:
             await conn.close()
 
