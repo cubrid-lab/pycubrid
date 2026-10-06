@@ -32,8 +32,7 @@ import pycubrid.aio
 from pycubrid.exceptions import OperationalError
 
 READ_TIMEOUT = 0.5
-# connect() must fail close to READ_TIMEOUT; the slack covers slow CI hosts
-# and the Python 3.10 preflight probe, which also waits up to READ_TIMEOUT.
+# connect() must fail close to READ_TIMEOUT; the slack covers slow CI hosts.
 MAX_ELAPSED = READ_TIMEOUT + 2.0
 # Upper bound on the whole test, so a regression fails instead of hanging.
 GUARD_TIMEOUT = 10.0
@@ -136,7 +135,6 @@ async def test_aio_tls_connect_fails_within_read_timeout(behavior: str) -> None:
         # A stalled peer is only detected by the timeout itself.
         assert elapsed >= READ_TIMEOUT * 0.9
     assert asyncio.all_tasks() <= tasks_before
-    # The Python 3.10 preflight probe closes its own socket on a reset too (#535).
     leaked = [w for w in caught if issubclass(w.category, ResourceWarning)]
     assert not leaked, [str(w.message) for w in leaked]
 

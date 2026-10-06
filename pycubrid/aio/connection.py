@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 import ssl as ssl_module
 import struct
-import sys
 import time
 from typing import Any
 
@@ -67,17 +65,6 @@ class AsyncConnection(ConnectionCommonMixin):
     - :meth:`ping` (added in 1.3.2) performs native ``CHECK_CAS`` and
       accepts ``reconnect=True/False`` to recover from a confirmed
       CAS/transport failure. OUT_TRAN alone never reconnects.
-
-    .. note::
-       On Python 3.10, :meth:`asyncio.AbstractEventLoop.start_tls` has a
-       known CPython bug (fixed in 3.13/3.14) that causes it to hang on
-       certificate-verify failures instead of raising. As of #156, an
-       automatic preflight blocking TLS handshake probe runs
-       on Python 3.10 immediately before :meth:`_upgrade_to_tls` to
-       surface verification failures as :class:`OperationalError`,
-       matching the 3.11+ behavior. The probe is a no-op on Python
-       3.11+. See :meth:`_maybe_probe_tls_verification` for the
-       contract.
     """
 
     def __init__(
@@ -142,10 +129,7 @@ class AsyncConnection(ConnectionCommonMixin):
         (passed to :func:`asyncio.wait_for`); a timeout surfaces as
         :class:`OperationalError`.
 
-        See :class:`AsyncConnection` for the ``ssl`` parameter semantics
-        and the Python 3.10 caveat (`#156`_).
-
-        .. _#156: https://github.com/cubrid-lab/pycubrid/issues/156
+        See :class:`AsyncConnection` for the ``ssl`` parameter semantics.
         """
         async with self._setup_lock:
             did_connect = False
@@ -395,14 +379,6 @@ class AsyncConnection(ConnectionCommonMixin):
             self._writer = hs_writer
 
         if use_ssl:
-            await self._maybe_probe_tls_verification(
-                effective_port=(
-                    client_info_packet.new_connection_port
-                    if client_info_packet.new_connection_port > 0
-                    else self._port
-                ),
-                followed_redirect=client_info_packet.new_connection_port > 0,
-            )
             await self._upgrade_to_tls()
 
         open_db_packet = OpenDatabasePacket(
@@ -430,9 +406,7 @@ class AsyncConnection(ConnectionCommonMixin):
     async def _upgrade_to_tls(self) -> None:
         """Upgrade the active stream from plaintext to TLS via ``loop.start_tls``.
 
-        Uses ``loop.start_tls`` rather than ``StreamWriter.start_tls`` for
-        Python 3.10 compatibility (the latter is 3.11+).  The new SSL
-        transport is rebound onto the existing ``StreamReader``/
+        The new SSL transport is rebound onto the existing ``StreamReader``/
         ``StreamWriter`` via their private ``_transport`` attribute because
         the public alternatives (``StreamReader.set_transport`` + rebuilt
         ``StreamWriter``) desynchronise the shared ``StreamReaderProtocol``
@@ -442,10 +416,7 @@ class AsyncConnection(ConnectionCommonMixin):
         handshake cannot block the event loop indefinitely, and the
         pre-TLS transport is ``abort()``ed on any failure so the next
         reconnect starts cleanly instead of leaking a half-upgraded SSL
-        transport.  Note: this bounds peer-unresponsive hangs only.
-        Python 3.10 has separate known issues with hangs during
-        TLS-handshake-internal failures (the known CPython 3.10 async-TLS handshake bug, fixed
-        in 3.13/3.14) that this kwarg does not address.
+        transport.
         """
         ssl_context = self._ssl_context
         if ssl_context is None:
@@ -492,189 +463,6 @@ class AsyncConnection(ConnectionCommonMixin):
         # when using ssl" on every TLS peer close (#514). Record the upgrade as
         # StreamReaderProtocol._replace_transport() (3.11+) would.
         setattr(protocol, "_over_ssl", True)
-
-    async def _maybe_probe_tls_verification(
-        self, *, effective_port: int, followed_redirect: bool
-    ) -> None:
-        """Py3.10-only preflight TLS verify probe via :func:`run_in_executor`.
-
-        Works around the known CPython 3.10 ``asyncio`` bug (gh-142352 family,
-        fixed in 3.13/3.14) where :meth:`asyncio.AbstractEventLoop.start_tls`
-        hangs indefinitely on TLS-handshake-internal verification failures
-        (wrong CN, missing SAN, untrusted CA) instead of raising
-        :class:`ssl.SSLCertVerificationError`. ``ssl_handshake_timeout``
-        does **not** bound this hang because the peer responds normally and
-        the failure happens inside CPython's TLS state machine.
-
-        The probe opens a **separate** TCP socket to the same effective
-        endpoint, replays the CUBRS broker handshake when needed
-        (no-redirect path only — redirected CAS workers go straight to TLS
-        on any incoming connection), then performs a blocking TLS handshake
-        over :meth:`ssl.SSLContext.wrap_bio` memory BIOs using the **same**
-        ``SSLContext`` object and ``server_hostname=self._host`` as the real
-        upgrade. The probe owns its socket throughout and always closes it. Any
-        :class:`ssl.SSLError` raised propagates as :class:`OSError`
-        (``SSLError`` is an ``OSError`` subclass) into
-        :meth:`_connect_locked`'s ``except`` clause, which wraps it as
-        :class:`OperationalError` — matching the 3.11+ failure surface.
-
-        The probe is a no-op on Python 3.11+, where ``start_tls`` already
-        surfaces verification failures promptly. On the no-redirect path,
-        the broker is contacted twice (probe + real handshake); on the
-        redirect path, the redirected worker is contacted twice. This is
-        accepted as the cost of working around the upstream 3.10 bug and
-        is best-effort against cert rotation between probe and real
-        upgrade.
-        """
-        if sys.version_info[:2] != (3, 10):
-            return
-        ssl_context = self._ssl_context
-        if ssl_context is None:
-            raise InterfaceError("SSL context not configured")
-
-        connect_timeout = (
-            float(self._connect_timeout) if self._connect_timeout is not None else None
-        )
-        handshake_timeout = float(self._read_timeout) if self._read_timeout is not None else 10.0
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            self._probe_tls_verification_sync,
-            self._host,
-            effective_port,
-            ssl_context,
-            not followed_redirect,
-            connect_timeout,
-            handshake_timeout,
-        )
-
-    @staticmethod
-    def _probe_tls_verification_sync(
-        host: str,
-        port: int,
-        ssl_context: ssl_module.SSLContext,
-        needs_handshake_replay: bool,
-        connect_timeout: float | None,
-        handshake_timeout: float,
-    ) -> None:
-        """Synchronous TLS verification probe — runs in the default executor.
-
-        Raises :class:`ssl.SSLError` (an :class:`OSError` subclass) on
-        verification failure, :class:`OSError` on connect/IO errors.
-        Both surface as :class:`OperationalError` via the caller chain.
-        """
-        sock: socket.socket | None = socket.create_connection((host, port), timeout=connect_timeout)
-        try:
-            if sock is None:
-                raise OperationalError("Failed to create socket connection")
-            sock.settimeout(handshake_timeout)
-            if needs_handshake_replay:
-                # Replay the plaintext CUBRS handshake so the broker
-                # routes us identically to the real connection. If the
-                # broker redirects, follow the redirect on a fresh socket
-                # — the worker port is in TLS-expect mode and skips the
-                # second handshake (matches the redirect logic above in
-                # `_do_connect_handshake`).
-                client_info = ClientInfoExchangePacket(use_ssl=True)
-                sock.sendall(client_info.write())
-                response = AsyncConnection._recv_exact_sync(sock, DataSize.INT)
-                client_info.parse(response)
-                if client_info.new_connection_port < 0:
-                    # Broker rejected at handshake — not a TLS verification
-                    # issue; let the real handshake surface the rejection.
-                    return
-                if client_info.new_connection_port > 0:
-                    sock.close()
-                    sock = socket.create_connection(
-                        (host, client_info.new_connection_port), timeout=connect_timeout
-                    )
-                    sock.settimeout(handshake_timeout)
-            # Run the handshake over memory BIOs instead of wrap_socket(): on
-            # Python 3.10, SSLSocket._create() takes over the fd and can raise
-            # on a peer reset before the ClientHello without closing it, which
-            # left the socket to the garbage collector (#535). This way the
-            # probe keeps owning the socket and the finally below closes it.
-            # handshake_timeout bounds the whole handshake, as it does for
-            # wrap_socket(), not each socket operation.
-            deadline = time.monotonic() + handshake_timeout
-            incoming = ssl_module.MemoryBIO()
-            outgoing = ssl_module.MemoryBIO()
-            tls = ssl_context.wrap_bio(incoming, outgoing, server_hostname=host)
-
-            def remaining_timeout() -> float:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError("TLS preflight probe handshake timed out") from None
-                return remaining
-
-            while True:
-                try:
-                    tls.do_handshake()
-                except ssl_module.SSLWantReadError:
-                    try:
-                        pending = outgoing.read()
-                        if pending:
-                            sock.settimeout(remaining_timeout())
-                            sock.sendall(pending)
-                        sock.settimeout(remaining_timeout())
-                        data = sock.recv(16384)
-                    except TimeoutError as exc:
-                        raise exc from None
-                    if not data:
-                        raise OSError("connection closed during TLS preflight probe")
-                    incoming.write(data)
-                except ssl_module.SSLError:
-                    # OpenSSL may have queued a fatal alert; send it within the
-                    # same budget without replacing the original TLS failure.
-                    try:
-                        pending = outgoing.read()
-                        if pending:
-                            sock.settimeout(remaining_timeout())
-                            sock.sendall(pending)
-                    except OSError:  # nosec B110 - best-effort alert; re-raise TLS failure
-                        pass
-                    raise
-                else:
-                    # The BIO may still hold the final handshake flight.
-                    # Its send is required, unlike optional close_notify.
-                    pending = outgoing.read()
-                    sock.settimeout(remaining_timeout())
-                    if pending:
-                        sock.sendall(pending)
-                    remaining_timeout()  # reject a late successful completion
-                    break
-            # Verification passed; close_notify is best effort but may not
-            # extend the same total deadline.
-            try:
-                tls.unwrap()
-            except ssl_module.SSLError:
-                # Expected: with memory BIOs unwrap() wants the peer's reply.
-                pass
-            try:
-                pending = outgoing.read()
-                if pending:
-                    sock.settimeout(remaining_timeout())
-                    sock.sendall(pending)
-            except OSError:
-                # The peer may already be gone; verification has passed.
-                pass
-        finally:
-            if sock is not None:
-                try:
-                    sock.close()
-                except OSError:
-                    pass
-
-    @staticmethod
-    def _recv_exact_sync(sock: socket.socket, size: int) -> bytes:
-        """Receive exactly *size* bytes from a blocking socket or raise OSError."""
-        buf = bytearray()
-        while len(buf) < size:
-            chunk = sock.recv(size - len(buf))
-            if not chunk:
-                raise OSError("connection closed during TLS preflight probe")
-            buf.extend(chunk)
-        return bytes(buf)
 
     async def close(self) -> None:
         """Close the connection and all tracked cursors."""

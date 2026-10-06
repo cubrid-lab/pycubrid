@@ -1,7 +1,7 @@
 """Offline TLS negative and lifecycle matrix, sync and asyncio (issue #350).
 
 Every case drives the driver's *real* TLS code path (``SSLContext.wrap_socket``
-for sync, ``loop.start_tls`` plus the Python 3.10 preflight probe for asyncio)
+for sync, ``loop.start_tls`` for asyncio)
 against an in-process OpenSSL peer (:mod:`tests.helpers.tls_broker`). No
 CUBRID server is needed, so the matrix runs in the fast offline suite; the
 live counterpart against a real ``SSL=ON`` broker is
@@ -24,9 +24,8 @@ Invariants asserted for both drivers (issue #350 acceptance):
 The async connect hang on an interrupted handshake (#513) has its own focused
 regression suite in ``tests/test_aio_tls_handshake_hang.py`` (task/warning
 hygiene per failure point); this matrix only adds the security-posture checks
-for those faults. Known follow-ups that are *not* asserted here: a sync TLS
-handshake with ``read_timeout=None`` is unbounded, and a Python 3.10 peer reset
-can leave the preflight probe's socket to the GC (both tracked in #535).
+for those faults. The bound on a sync TLS handshake with ``read_timeout=None``
+(#535) is asserted in ``tests/test_tls_handshake_bound.py``.
 """
 
 from __future__ import annotations

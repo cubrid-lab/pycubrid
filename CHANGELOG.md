@@ -17,9 +17,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Python 3.10 support (#684)** — `requires-python` is `>=3.11` and the 3.10
   classifier is gone. CI no longer tests 3.10: the oldest integration pair is
   Python 3.11 × CUBRID 10.2, the full matrix covers Python 3.11–3.14 and the TLS
-  lanes run on 3.11 and 3.14. No driver behavior changes on Python 3.11 or newer;
-  the Python 3.10-only async TLS preflight probe is still present and is removed
-  separately (#685).
+  lanes run on 3.11 and 3.14. No driver behavior changes on Python 3.11 or newer.
+
+### Changed
+- **The Python 3.10-only async TLS preflight probe is removed (#685)** —
+  `AsyncConnection` no longer carries the blocking certificate-verification probe
+  that ran before `loop.start_tls()` on Python 3.10 (#156). It already returned
+  immediately on Python 3.11 and newer, so nothing changes there: the async TLS
+  upgrade, its handshake bound and its error surface are the same. The private
+  helpers `_maybe_probe_tls_verification`, `_probe_tls_verification_sync` and
+  `_recv_exact_sync` are gone with their Python 3.10-only tests.
 
 ### Tests
 - **CI fails when a Korean document drifts from its English source (#716)** —
