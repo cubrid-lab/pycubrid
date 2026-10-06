@@ -269,10 +269,6 @@ propagates unchanged and the connection stays open. A `ValueError`-family error 
 deserializer (for example an orjson or simplejson decode error) is still treated as a malformed
 reply: `OperationalError('malformed response from broker')`, and the session is retired.
 
-On Python 3.10, the distinct `asyncio.TimeoutError` class follows the same rule:
-transport timeouts retire the session, while a callback timeout after a complete
-reply propagates unchanged without closing it.
-
 If CAS closes the transport before a complete reply arrives, sync and async
 requests raise `OperationalError` and retire the physical session. This remains
 the error contract for a dead CAS, including the CUBRID crash tracked by

@@ -190,24 +190,24 @@ async def test_async_open_connection_uses_asyncio_open_connection() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_open_connection_uses_wait_for_with_timeout() -> None:
-    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
-    conn._connect_timeout = 1.25
-    reader = AsyncMock(spec=asyncio.StreamReader)
-    writer = MagicMock(spec=asyncio.StreamWriter)
-    writer.transport = MagicMock()
-    writer.transport.get_extra_info.return_value = None
-    open_connection = AsyncMock(return_value=(reader, writer))
-    wait_for = AsyncMock(return_value=(reader, writer))
+async def test_async_open_connection_is_bounded_by_connect_timeout() -> None:
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", connect_timeout=0.01)
+    cancelled = asyncio.Event()
 
-    with (
-        patch("pycubrid.aio.connection.asyncio.open_connection", new=open_connection),
-        patch("pycubrid.aio.connection.asyncio.wait_for", new=wait_for),
-    ):
-        result = await conn._open_connection("localhost", 33000)
+    async def never_connects(host: str, port: int) -> Any:
+        del host, port
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
-    assert result == (reader, writer)
-    wait_for.assert_awaited_once()
+    with patch("pycubrid.aio.connection.asyncio.open_connection", new=never_connects):
+        with pytest.raises(OperationalError, match="could not connect") as excinfo:
+            await conn._open_connection("localhost", 33000)
+
+    assert isinstance(excinfo.value.__cause__, TimeoutError)
+    assert cancelled.is_set()
 
 
 @pytest.mark.asyncio

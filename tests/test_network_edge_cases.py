@@ -73,12 +73,10 @@ def make_mock_stream_pair(
     return reader, writer, mock_socket
 
 
-async def raise_timeout_and_close_coro(coro: object, timeout: float | None = None) -> None:
-    del timeout
-    close = getattr(coro, "close", None)
-    if callable(close):
-        close()
-    raise asyncio.TimeoutError
+async def never_reply(*_args: object) -> bytes:
+    """A peer that never answers: only the driver's own deadline ends the read."""
+    await asyncio.Event().wait()
+    raise AssertionError("unreachable")
 
 
 class TestConnectionNetworkEdgeCases:
@@ -270,16 +268,10 @@ class TestWritePathSerializationErrors:
 class TestAsyncConnectionNetworkEdgeCases:
     @pytest.mark.asyncio
     async def test_asyncio_timeout_error_during_connect_raises_operational_error(self) -> None:
-        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", connect_timeout=0.5)
-        open_connection = AsyncMock(side_effect=raise_timeout_and_close_coro)
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", connect_timeout=0.01)
+        open_connection = AsyncMock(side_effect=never_reply)
 
-        with (
-            patch(
-                "pycubrid.aio.connection.asyncio.wait_for",
-                new=AsyncMock(side_effect=raise_timeout_and_close_coro),
-            ),
-            patch("pycubrid.aio.connection.asyncio.open_connection", new=open_connection),
-        ):
+        with patch("pycubrid.aio.connection.asyncio.open_connection", new=open_connection):
             with pytest.raises(OperationalError, match="could not connect"):
                 await conn._open_connection("localhost", 33000)
 
@@ -318,17 +310,14 @@ class TestAsyncConnectionNetworkEdgeCases:
 
     @pytest.mark.asyncio
     async def test_async_read_timeout_during_query_raises_operational_error(self) -> None:
-        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.5)
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.01)
         conn._connected = True
         conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._reader, conn._writer, _ = make_mock_stream_pair()
+        conn._reader.readexactly = AsyncMock(side_effect=never_reply)
 
-        with patch(
-            "pycubrid.aio.connection.asyncio.wait_for",
-            new=AsyncMock(side_effect=raise_timeout_and_close_coro),
-        ):
-            with pytest.raises(OperationalError, match="read timeout"):
-                await conn._send_and_receive(CommitPacket())
+        with pytest.raises(OperationalError, match="read timeout"):
+            await conn._send_and_receive(CommitPacket())
 
         assert conn._connected is False
         assert conn._writer is None
@@ -364,49 +353,28 @@ class TestExceptionCausePreservation:
 
     @pytest.mark.asyncio
     async def test_async_connect_handshake_timeout_preserves_cause(self) -> None:
-        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.5)
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.01)
         reader, writer, _ = make_mock_stream_pair()
+        reader.readexactly = AsyncMock(side_effect=never_reply)
         conn._open_connection = AsyncMock(return_value=(reader, writer))  # type: ignore[method-assign]
 
-        async def _raise_timeout(coro: object, timeout: float | None = None) -> None:
-            del timeout
-            # Close the un-awaited coroutine to silence RuntimeWarning.
-            close = getattr(coro, "close", None)
-            if callable(close):
-                close()
-            raise asyncio.TimeoutError
+        with pytest.raises(OperationalError, match="read timeout during connect") as excinfo:
+            await conn._connect_locked()
 
-        with patch(
-            "pycubrid.aio.connection.asyncio.wait_for",
-            new=AsyncMock(side_effect=_raise_timeout),
-        ):
-            with pytest.raises(OperationalError) as excinfo:
-                await conn._connect_locked()
-
-        assert isinstance(excinfo.value.__cause__, asyncio.TimeoutError)
+        assert isinstance(excinfo.value.__cause__, TimeoutError)
 
     @pytest.mark.asyncio
     async def test_async_read_timeout_preserves_cause(self) -> None:
-        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.5)
+        conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", read_timeout=0.01)
         conn._connected = True
         conn._record_reply_cas_info(b"\x01\x01\x02\x03")
         conn._reader, conn._writer, _ = make_mock_stream_pair()
+        conn._reader.readexactly = AsyncMock(side_effect=never_reply)
 
-        async def _raise_timeout(coro: object, timeout: float | None = None) -> None:
-            del timeout
-            close = getattr(coro, "close", None)
-            if callable(close):
-                close()
-            raise asyncio.TimeoutError
+        with pytest.raises(OperationalError, match="read timeout") as excinfo:
+            await conn._send_and_receive(CommitPacket())
 
-        with patch(
-            "pycubrid.aio.connection.asyncio.wait_for",
-            new=AsyncMock(side_effect=_raise_timeout),
-        ):
-            with pytest.raises(OperationalError) as excinfo:
-                await conn._send_and_receive(CommitPacket())
-
-        assert isinstance(excinfo.value.__cause__, asyncio.TimeoutError)
+        assert isinstance(excinfo.value.__cause__, TimeoutError)
 
 
 class TestSessionStateRestoreOnReconnect:
