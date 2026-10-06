@@ -40,15 +40,14 @@ CUBRID는 고성능 오픈소스 관계형 데이터베이스로, 한국 공공�
 
 ## 요구 사항
 
-**Python 3.10 지원 종료 예고:** Python 3.10은 2026-10-01에 공식 지원이
+**Python 3.10 지원 종료:** Python 3.10은 2026-10-01에 공식 지원이
 종료됐습니다([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
-현재 1.8.x와 예고를 포함할 1.9.x 릴리스는 Python 3.10 지원을 유지합니다.
-1.9.0에 이 안내가 게시된 뒤, 그 다음 마이너 릴리스(예정: 1.10.0)부터
-Python 3.11 이상을 요구합니다. 해당 릴리스로 업그레이드하기 전에 Python을
-업그레이드하고 가상 환경을 새로 만든 뒤 애플리케이션을 검증하세요.
-이번 안내는 현재 설치 요구 사항을 바꾸거나 실행 시 경고를 추가하지 않습니다.
+1.8.x와 1.9.x는 Python 3.10을 지원하며, 1.9.0에 사전 안내가 포함됐습니다.
+1.10.0부터 패키지는 Python 3.11 이상을 요구하므로, Python 3.10의 `pip`은 계속
+1.9.x를 설치합니다. 업그레이드하기 전에 Python을 업그레이드하고 가상 환경을
+새로 만든 뒤 애플리케이션을 검증하세요.
 
-- Python 3.10+
+- Python 3.11 이상
 - CUBRID 데이터베이스 서버 10.2+
 
 <img src="https://github.com/cubrid-lab/pycubrid/raw/main/docs/demo.gif" alt="pycubrid 데모" width="100%"/>
@@ -252,7 +251,7 @@ sqlalchemy-cubrid와 함께 사용할 때 ORM, Core, Alembic 마이그레이션,
 
 ## 호환성
 
-Python 3.10–3.14와 CUBRID 10.2, 11.0, 11.2, 11.4를 지원합니다.
+Python 3.11–3.14와 CUBRID 10.2, 11.0, 11.2, 11.4를 지원합니다.
 일반 PR은 Ubuntu/Python 3.12 대표 오프라인 스모크 검사만 실행하고,
 고위험 변경은 Python 3.14/CUBRID 11.4 통합 검사를 추가합니다.
 main 및 변경이 있는 주간 검사는 최저·최신 대표 조합을 사용합니다.
@@ -324,7 +323,7 @@ conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="d
 
 ### 어떤 Python 버전을 지원하나요?
 
-Python 3.10, 3.11, 3.12, 3.13, 3.14를 지원합니다.
+Python 3.11, 3.12, 3.13, 3.14를 지원합니다.
 
 ### pycubrid는 LOB(CLOB/BLOB)를 지원하나요?
 

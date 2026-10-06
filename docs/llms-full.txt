@@ -83,7 +83,7 @@ This is a recorded example, not a full compatibility or performance certificate.
 ## Prerequisites
 
 - CUBRID server and broker are running
-- Python 3.10+
+- Python 3.11 or later
 - Access to a target database (for example, `testdb`)
 
 !!! note
