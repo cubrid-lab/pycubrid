@@ -506,7 +506,7 @@ docker compose down -v
 ```toml
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 ```
 
 ### 관례

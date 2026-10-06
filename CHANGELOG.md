@@ -27,6 +27,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   upgrade, its handshake bound and its error surface are the same. The private
   helpers `_maybe_probe_tls_verification`, `_probe_tls_verification_sync` and
   `_recv_exact_sync` are gone with their Python 3.10-only tests.
+- **Ruff and mypy target Python 3.11 (#688)** — `target-version = "py311"` and
+  `python_version = "3.11"` in `pyproject.toml`, matching the minimum supported
+  version. The rule selection is unchanged and no source needed a fix.
 
 ### Tests
 - **CI fails when a Korean document drifts from its English source (#716)** —
