@@ -14,7 +14,6 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [TimeoutError 또는 socket.timeout](#timeouterror-또는-sockettimeout)
   - [연결이 예기치 않게 닫힘](#연결이-예기치-않게-닫힘)
   - [브로커 포트 리다이렉트 실패](#브로커-포트-리다이렉트-실패)
-  - [Python 3.10에서 비동기 TLS 핸드셰이크 멈춤](#python-310에서-비동기-tls-핸드셰이크-멈춤)
   - [핸드셰이크가 멈추거나 리셋된 뒤 비동기 TLS 연결 멈춤](#핸드셰이크가-멈추거나-리셋된-뒤-비동기-tls-연결-멈춤)
   - [연결 옵션이 적용되지 않음](#연결-옵션이-적용되지-않음)
 - [쿼리 문제](#쿼리-문제)
@@ -324,40 +323,6 @@ OperationalError: ... (during connection handshake)
    ```
 
    기본 Docker 이미지는 단일 포트 접근에 맞게 올바르게 구성되어 있습니다. Docker에서 이 오류가 보이면 브로커 설정을 덮어쓰고 있지 않은지 확인하세요.
-
----
-
-### Python 3.10에서 비동기 TLS 핸드셰이크 멈춤
-
-> **pycubrid 1.x (#156 이후)부터** Python 3.10에서 `loop.start_tls()` 직전에 자동 사전 검증 TLS 프로브가 실행됩니다. 검증 실패는 이제 연결 타임아웃 내에 `OperationalError`(`ssl.SSLError`에서 체이닝)로 나타나며, 3.11+ 동작과 일치합니다. 최신 pycubrid 릴리스에서 여전히 멈춤이 보이면 재현 사례와 함께 이슈를 제출해 주세요.
-
-**증상** (워크어라운드 전 / 구 릴리스): `await pycubrid.aio.connect(..., ssl=True)` (또는 `ssl=<SSLContext>`)가 예외를 던지는 대신 무한히 멈춥니다. 코루틴이 반환되지 않고 예외도 없습니다. 주로 테스트 타임아웃이나 Python 3.10에서 멈춘 요청 핸들러로 나타납니다.
-
-**원인**: Python 3.10의 알려진 CPython asyncio TLS 핸드셰이크 버그 — `asyncio.AbstractEventLoop.start_tls()`가 인증서 검증 실패(만료/신뢰할 수 없는 CA, 호스트명 불일치, 브로커가 예상과 다른 인증서 제시) 시 `ssl.SSLCertVerificationError`를 던지는 대신 멈출 수 있습니다. pycubrid는 CUBRID의 STARTTLS 방식 업그레이드(평문 `CUBRS` 핸드셰이크 후 `loop.start_tls()`)를 사용하므로, 이 CPython 버그가 업그레이드 단계에서 완전 멈춤으로 나타났습니다. 버그는 Python 3.13과 3.14에서 수정되었습니다. pycubrid에서 [#156](https://github.com/cubrid-lab/pycubrid/issues/156)으로 추적.
-
-**pycubrid의 회피 방법**: Python 3.10에서 `AsyncConnection`은 실제 `loop.start_tls()` 직전에 `loop.run_in_executor()`로 동기 `ssl.SSLContext.wrap_socket()` 사전 프로브를 같은 유효 엔드포인트에 대해 실행합니다(같은 `SSLContext`와 `server_hostname=self._host` 사용). 프로브는 검증 실패를 동기적으로 드러내고 `ssl.SSLError` → `OperationalError`를 전파합니다. 순비용: Python 3.10에서만 연결당 TCP 왕복 한 번 추가.
-
-**주의점**:
-
-- 프로브는 프로브와 실제 업그레이드 사이의 **인증서 로테이션에 최선을 다함** (작지만 실재하는 경쟁).
-- TLS 검증 외의 프로브 실패 모드(브로커 거부, 연결 리셋)는 실제 핸드셰이크로 의도적으로 넘어가 실제 연결 경로가 정규 오류를 내게 합니다.
-- Python 3.13+ 업그레이드가 여전히 권장되는 장기 해결책입니다.
-
-**빠른 확인** (여전히 멈춤이 보일 때):
-
-1. **TCP 연결이 아니라 TLS인지 확인**: 같은 브로커에 `ssl=False`로 시도하세요. 빨리 성공하면 멈춤은 TLS 업그레이드에 있습니다.
-2. **Python 3.10 특유인지 확인**: 같은 코드를 Python 3.13이나 3.14에서 실행하세요. 거기서 빨리 예외가 나면 3.10 전용 비동기 TLS 핸드셰이크 버그입니다 — 사전 프로브가 포함된 pycubrid 릴리스를 쓰고 있어야 합니다.
-3. **동기 경로 시도**: `pycubrid.connect(..., ssl=True)`는 영향받지 않는 `ssl.SSLContext.wrap_socket()`(블로킹)을 사용하며 즉시 `ssl.SSLCertVerificationError`를 던져 어느 인증서 검사가 실패했는지 정확히 알려줍니다.
-4. **디버그 로깅 활성화**: `logging.getLogger("pycubrid").setLevel(logging.DEBUG)` 후 멈춤 직전 마지막 로그 라인을 찾으세요.
-
-**워크어라운드** (하나면 충분):
-
-- **Python을 3.13 또는 3.14로 업그레이드** (권장 — 근본 원인 해결).
-- **pycubrid 업그레이드** — #156 사전 프로브가 포함된 릴리스로.
-- **동기 API 사용** — 3.10에서 브로커 검증만을 위해 TLS가 필요하다면 연결 수립을 동기로 하고 동기 코드 경로로 진행.
-- **커스텀 `ssl.SSLContext` 전달** — 시스템 신뢰 저장소에 의존하지 말고 올바른 CA 번들을 로드(`context.load_verify_locations(cafile=...)`)해 가장 흔한 검증 실패를 제거.
-
-**진단**: 제어 가능한 브로커에서 재현 가능하면 패킷 트레이스를 캡처하세요(tcpdump/Wireshark, 포트 33000) — 평문 `CUBRS` 교환이 완료되고 TLS ClientHello가 나간 뒤 클라이언트 측에서 ServerHello 처리가 없는 것이 보일 것입니다. 그것이 3.10 전용 비동기 TLS 핸드셰이크 버그의 시그니처입니다.
 
 ---
 

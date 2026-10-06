@@ -92,18 +92,6 @@ Recommended configurations, in order of preference:
    `verify_mode=CERT_NONE`) in production — that defeats the purpose of TLS
    and is treated as a security issue under this policy.
 
-### Known Limitation
-
-Python 3.10's asynchronous TLS upgrade can hang on certificate verification
-failures in older releases. Current pycubrid uses a preflight verification
-probe before the upgrade, with the same SSL context and server hostname, to
-surface verification failures within the TLS handshake deadline. This adds one
-extra TCP connection on Python 3.10; certificate and hostname verification
-remain required. The probe’s TCP connect uses `connect_timeout`; its TLS handshake uses
-`read_timeout` (10 seconds when unset). See the [connection guide](docs/CONNECTION.md#ssltls)
-for the preflight and timeout behavior. Report a reproducible hang on a
-current release through the reporting process above.
-
 ## Disclosure Policy
 
 Once a security vulnerability is fixed:

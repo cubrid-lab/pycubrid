@@ -136,14 +136,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-!!! warning "Python 3.10 async TLS"
-    `loop.start_tls()` can hang on certificate-verify failures on Python 3.10
-    (a known CPython asyncio TLS handshake bug on Python 3.10,
-    fixed in 3.13/3.14). For production async TLS on 3.10, validate the cert
-    chain out-of-band first, or use the sync path. See
-    [Troubleshooting](TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310)
-    and [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
-
 !!! note
     The broker must have `SSL=ON` in `cubrid_broker.conf` for TLS connections
     to succeed. See [Connection guide](CONNECTION.md#ssltls) for full details.
