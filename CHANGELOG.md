@@ -49,6 +49,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **The README and quickstart state Python 3.11 or later (#699)** — the
+  requirement lines, the supported range (3.11–3.14) and the FAQ answer in
+  `README.md` and `docs/README.ko.md`, and the prerequisites in
+  `docs/quickstart.md` and `docs/ko/quickstart.md`. The Python 3.10 retirement
+  notice in both READMEs now describes the requirement as in effect from 1.10.0.
 - **Python 3.10 async TLS probe guidance is removed (#686)** — the preflight
   probe is gone (#685), so the README, `SECURITY.md`, the connection, protocol,
   development, example, API, PRD and support-matrix pages and their Korean
