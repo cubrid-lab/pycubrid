@@ -135,9 +135,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-!!! warning "Python 3.10 비동기 TLS"
-    `loop.start_tls()`는 Python 3.10에서 인증서 검증 실패 시 멈출 수 있습니다(Python 3.10의 알려진 CPython asyncio TLS 핸드셰이크 버그, 3.13/3.14에서 수정). 3.10에서 프로덕션 비동기 TLS를 사용하려면 인증서 체인을 사전에 검증하거나 동기 경로를 사용하세요. [문제 해결](TROUBLESHOOTING.md#python-310에서-비동기-tls-핸드셰이크-멈춤)과 [#156](https://github.com/cubrid-lab/pycubrid/issues/156)을 참고하세요.
-
 !!! note
     TLS 연결이 성공하려면 브로커의 `cubrid_broker.conf`에 `SSL=ON`이 설정되어 있어야 합니다. 전체 내용은 [연결 가이드](CONNECTION.md#ssltls)를 참고하세요.
 

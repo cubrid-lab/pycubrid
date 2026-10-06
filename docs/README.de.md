@@ -33,7 +33,7 @@ Probleme bei der Plattformkompatibilität.
 - **Reine Python-Implementierung** — keine C-Build-Abhängigkeiten, Installation nur mit `pip install`
 - **Implementiert PEP 249 (DB-API 2.0)** — Standard-Ausnahmehierarchie, Typobjekte und Cursor-Schnittstelle
 - **Offline-Regressionstests** mit **95 % Mindestabdeckung bei vollständigen Coverage-Läufen** — siehe [gemessene Abdeckung](https://codecov.io/gh/cubrid-lab/pycubrid) und [CI-Ausführungsrichtlinie](CI_POLICY.md); reguläre PR-Smoke-Tests messen keine Abdeckung
-- **TLS/SSL für synchrone und asynchrone Verbindungen** — optional `ssl=True` (verifizierter Kontext, TLS 1.2 Minimum) oder ein benutzerdefiniertes `ssl.SSLContext` bei `connect()` und `pycubrid.aio.connect()`. **Hinweis**: Unter Python 3.10 kann async TLS bei Zertifikatsprüfungsfehlern hängen (a known CPython asyncio TLS handshake bug on Python 3.10, behoben in 3.13/3.14). Siehe [Troubleshooting](TROUBLESHOOTING.md#async-tls-handshake-hangs-on-python-310) und [#156](https://github.com/cubrid-lab/pycubrid/issues/156).
+- **TLS/SSL für synchrone und asynchrone Verbindungen** — optional `ssl=True` (verifizierter Kontext, TLS 1.2 Minimum) oder ein benutzerdefiniertes `ssl.SSLContext` bei `connect()` und `pycubrid.aio.connect()`.
 - **Native asyncio-Unterstützung** — Async/Await-API über `pycubrid.aio` für Anwendungen mit hoher Parallelität
 - **PEP-561-typisiertes Paket** — `py.typed`-Marker für moderne IDEs und statische Analysewerkzeuge
 - **Direkte Implementierung des CUBRID-CAS-Protokolls** — keine zusätzliche Middleware erforderlich

@@ -764,7 +764,7 @@ async def connect(
 - `pycubrid.connect()`와 동일한 컬렉션/JSON 디코딩 kwargs와 `charset` 옵션을 받습니다.
 - `autocommit=True`를 지원하며, 연결 수립 후 자동 적용됩니다. `AsyncConnection` 자체도 이제 `autocommit`을 (키워드 전용 생성자 인자로) 직접 받으므로, 이 팩토리를 거치지 않고 생성해도 플래그가 조용히 사라지지 않습니다.
 - 동기 API와 유사한 비동기 서피스를 제공합니다 — `await conn.ping(reconnect=...)` 포함. `create_lob()`은 동기 전용으로 유지되며, 오토커밋 변경은 속성 세터 대신 `await conn.set_autocommit(...)`으로 합니다.
-- `pycubrid.connect()`와 동일한 `ssl` 파라미터를 받습니다: `True`, `False`/`None`, 또는 커스텀 `SSLContext`. `True`면 기본 검증 컨텍스트가 TLS 1.2 최소를 강제합니다. 비동기 TLS는 CUBRID의 STARTTLS 방식 업그레이드를 사용 — `CUBRS` 핸드셰이크를 평문으로 보낸 뒤, `OPEN_DATABASE` 전에 `asyncio.AbstractEventLoop.start_tls()`(`ssl_handshake_timeout`으로 제한)로 전송을 업그레이드합니다. 전체 내용과 Python 3.10 `start_tls()` 인증서 검증 주의점([#156](https://github.com/cubrid-lab/pycubrid/issues/156))은 [연결 가이드](CONNECTION.md#ssltls)를 참고하세요.
+- `pycubrid.connect()`와 동일한 `ssl` 파라미터를 받습니다: `True`, `False`/`None`, 또는 커스텀 `SSLContext`. `True`면 기본 검증 컨텍스트가 TLS 1.2 최소를 강제합니다. 비동기 TLS는 CUBRID의 STARTTLS 방식 업그레이드를 사용 — `CUBRS` 핸드셰이크를 평문으로 보낸 뒤, `OPEN_DATABASE` 전에 `asyncio.AbstractEventLoop.start_tls()`(`ssl_handshake_timeout`으로 제한)로 전송을 업그레이드합니다. 전체 내용은 [연결 가이드](CONNECTION.md#ssltls)를 참고하세요.
 
 ```python
 import asyncio

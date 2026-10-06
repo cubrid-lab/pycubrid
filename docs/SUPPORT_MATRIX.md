@@ -128,7 +128,7 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 | Sync TLS — `ssl=True` (verified context) | ✅ | 1.3.0 (#85) | Default secure context; enforces TLS 1.2 minimum (#145) |
 | Sync TLS — `ssl=ssl.SSLContext(...)` | ✅ | 1.3.0 (#85) | Custom context (caller controls minimum TLS version) |
 | Sync TLS — `ssl=False` / `None` | ✅ | 1.3.0 | Plaintext (default) |
-| Async TLS | ✅ | 1.4.0 | STARTTLS-style upgrade: plaintext `CUBRS` handshake then `loop.start_tls()` (`ssl_handshake_timeout` bounded) before `OPEN_DATABASE` (#136, #154). Default context enforces TLS 1.2 minimum (#145). Python 3.10 has a known `start_tls()` hang on cert-verify failures (a known CPython async-TLS handshake bug on 3.10) — tracked as #156. |
+| Async TLS | ✅ | 1.4.0 | STARTTLS-style upgrade: plaintext `CUBRS` handshake then `loop.start_tls()` (`ssl_handshake_timeout` bounded) before `OPEN_DATABASE` (#136, #154). Default context enforces TLS 1.2 minimum (#145). |
 
 ### Async (`pycubrid.aio`)
 
@@ -141,7 +141,7 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 | Async `read_timeout` | ✅ | 1.2.0 (#82) | |
 | Async dual-stack fallback | ✅ | 1.2.0 (#83) | |
 | Async parameter binding parity | ✅ | 1.2.0 (#76, #77) | Shares `_escape_string` with sync |
-| Async TLS | ✅ | 1.4.0 | STARTTLS-style upgrade: plaintext `CUBRS` handshake then `loop.start_tls()` (`ssl_handshake_timeout` bounded) before `OPEN_DATABASE` (#136, #154). Default context enforces TLS 1.2 minimum (#145). Python 3.10 has a known `start_tls()` hang on cert-verify failures (a known CPython async-TLS handshake bug on 3.10) — tracked as #156. |
+| Async TLS | ✅ | 1.4.0 | STARTTLS-style upgrade: plaintext `CUBRS` handshake then `loop.start_tls()` (`ssl_handshake_timeout` bounded) before `OPEN_DATABASE` (#136, #154). Default context enforces TLS 1.2 minimum (#145). |
 
 ### Driver-Level Diagnostics
 

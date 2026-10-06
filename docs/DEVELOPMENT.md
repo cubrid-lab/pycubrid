@@ -464,11 +464,8 @@ You do not need to run the steps above locally for routine development —
    `CUBRID_TLS_TEST_PLAIN_PORT=30000` for the container's `SSL=OFF`
    `query_editor` broker.
 
-> **Python 3.10 note**: The driver uses a certificate-verification preflight to
-> handle the known CPython async TLS verification failure in 3.10
-> ([#156](https://github.com/cubrid-lab/pycubrid/issues/156)). The TLS lane now requires
-> every selected test to run, including hostname-verification failure; provisioning
-> skips cannot pass the job. Broker status/restart commands run as the `cubrid` service
+> The TLS lane requires every selected test to run, including
+> hostname-verification failure; provisioning skips cannot pass the job. Broker status/restart commands run as the `cubrid` service
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`

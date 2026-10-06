@@ -421,9 +421,7 @@ pytest tests/ -m "integration and tls" -v
 4. 실제 TLS 핸드셰이크로 브로커를 프로브하고, TLS가 실제로 서비스 중이 아니면 잡을 크게 실패시킴 — 조용한 스킵은 명시적으로 거부됨.
 5. `CUBRID_TLS_TEST_*` 환경 변수를 자동 연결해 TLS 브로커에 대해 모든 `integration and tls` 테스트(`tests/test_aio_ssl_integration.py`와 `tests/test_tls_matrix_integration.py`)를 실행. 컨테이너의 `SSL=OFF` `query_editor` 브로커용 `CUBRID_TLS_TEST_PLAIN_PORT=30000`도 포함.
 
-> **Python 3.10 참고**: 드라이버의 인증서 검증 preflight가 알려진 비동기 TLS 검증
-> 문제를 처리합니다([#156](https://github.com/cubrid-lab/pycubrid/issues/156)). TLS 레인은
-> 호스트 이름 검증 실패를 포함해 선택된 모든 테스트가 실행되어야 하며, 브로커 설정
+> TLS 레인은 호스트 이름 검증 실패를 포함해 선택된 모든 테스트가 실행되어야 하며, 브로커 설정
 > 누락으로 인한 스킵은 허용하지 않습니다. 브로커 상태 확인 및 재시작은 서비스 소유자
 > `cubrid`로 실행해 실제 브로커를 제어합니다.
 

@@ -46,6 +46,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **Python 3.10 async TLS probe guidance is removed (#686)** — the preflight
+  probe is gone (#685), so the README, `SECURITY.md`, the connection, protocol,
+  development, example, API, PRD and support-matrix pages and their Korean
+  counterparts no longer describe it or the Python 3.10 `start_tls()` hang it
+  worked around. The troubleshooting section "Async TLS Handshake Hangs on
+  Python 3.10" is deleted, with the links to it in the translated READMEs; the
+  sync driver's Python 3.10 `wrap_socket()` reset note goes with it.
 - **In-page links work on the documentation site (#728)** — the site used the
   default heading slugifier, which drops non-ASCII characters, so Korean
   headings got ids such as `_2` and every Korean table of contents entry was

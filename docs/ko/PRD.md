@@ -208,7 +208,7 @@ CUBRID 자체 또는 설계 선택에서 비롯된 제약입니다:
 
 | 기능 | 상태 | 이유 |
 |---|---|---|
-| 비동기 TLS | ✅ | v1.4.0에서 구현되었습니다. CUBRID의 STARTTLS 방식 업그레이드를 사용합니다 — 평문 `CUBRS` 핸드셰이크 후 `OPEN_DATABASE` 전에 `loop.start_tls()`(`ssl_handshake_timeout` 적용)를 수행합니다(#154). 기본 컨텍스트는 최소 TLS 1.2를 요구합니다. Python 3.10에는 인증서 검증 실패 시 `start_tls()`가 멈추는 알려진 문제가 있습니다(#156). |
+| 비동기 TLS | ✅ | v1.4.0에서 구현되었습니다. CUBRID의 STARTTLS 방식 업그레이드를 사용합니다 — 평문 `CUBRS` 핸드셰이크 후 `OPEN_DATABASE` 전에 `loop.start_tls()`(`ssl_handshake_timeout` 적용)를 수행합니다(#154). 기본 컨텍스트는 최소 TLS 1.2를 요구합니다. |
 | 커넥션 풀링 | ❌ | 범위 밖입니다. SQLAlchemy의 풀이나 외부 풀러를 사용하세요 |
 | 스레드 안전성 레벨 2+ | ❌ | CUBRID CAS 세션은 연결에 묶여 있습니다 |
 | LOB 스트리밍 | ⚠️ | LOB 데이터를 메모리에 전부 적재합니다 |

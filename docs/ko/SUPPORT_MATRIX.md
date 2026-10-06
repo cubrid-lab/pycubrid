@@ -126,7 +126,7 @@ pycubrid는 모든 버전을 같은 방식으로 디코딩합니다. 아래 차�
 | 동기 TLS — `ssl=True` (검증 컨텍스트) | ✅ | 1.3.0 (#85) | 기본 보안 컨텍스트. TLS 1.2 최소 강제 (#145) |
 | 동기 TLS — `ssl=ssl.SSLContext(...)` | ✅ | 1.3.0 (#85) | 커스텀 컨텍스트 (호출자가 최소 TLS 버전 제어) |
 | 동기 TLS — `ssl=False` / `None` | ✅ | 1.3.0 | 평문 (기본) |
-| 비동기 TLS | ✅ | 1.4.0 | STARTTLS 방식 업그레이드: 평문 `CUBRS` 핸드셰이크 후 `OPEN_DATABASE` 전에 `loop.start_tls()` (`ssl_handshake_timeout` 제한) (#136, #154). 기본 컨텍스트는 TLS 1.2 최소 강제 (#145). Python 3.10은 인증서 검증 실패 시 `start_tls()` 멈춤이 알려져 있음(3.10의 알려진 CPython 비동기 TLS 핸드셰이크 버그) — #156으로 추적. |
+| 비동기 TLS | ✅ | 1.4.0 | STARTTLS 방식 업그레이드: 평문 `CUBRS` 핸드셰이크 후 `OPEN_DATABASE` 전에 `loop.start_tls()` (`ssl_handshake_timeout` 제한) (#136, #154). 기본 컨텍스트는 TLS 1.2 최소 강제 (#145). |
 
 ### 비동기 (`pycubrid.aio`)
 
@@ -139,7 +139,7 @@ pycubrid는 모든 버전을 같은 방식으로 디코딩합니다. 아래 차�
 | 비동기 `read_timeout` | ✅ | 1.2.0 (#82) | |
 | 비동기 듀얼스택 폴백 | ✅ | 1.2.0 (#83) | |
 | 비동기 파라미터 바인딩 동등성 | ✅ | 1.2.0 (#76, #77) | 동기와 `_escape_string` 공유 |
-| 비동기 TLS | ✅ | 1.4.0 | STARTTLS 방식 업그레이드: 평문 `CUBRS` 핸드셰이크 후 `OPEN_DATABASE` 전에 `loop.start_tls()` (`ssl_handshake_timeout` 제한) (#136, #154). 기본 컨텍스트는 TLS 1.2 최소 강제 (#145). Python 3.10은 인증서 검증 실패 시 `start_tls()` 멈춤이 알려져 있음 — #156으로 추적. |
+| 비동기 TLS | ✅ | 1.4.0 | STARTTLS 방식 업그레이드: 평문 `CUBRS` 핸드셰이크 후 `OPEN_DATABASE` 전에 `loop.start_tls()` (`ssl_handshake_timeout` 제한) (#136, #154). 기본 컨텍스트는 TLS 1.2 최소 강제 (#145). |
 
 ### 드라이버 수준 진단
 
