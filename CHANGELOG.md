@@ -34,7 +34,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Timeout values, exception classes, messages and the read-timeout versus
   socket-failure classification are unchanged. On Python 3.11 the awaited
   operation now runs in the calling task rather than a helper task, as it
-  already did on Python 3.12 and newer.
+  already did on Python 3.12 and newer. One boundary changes: a zero async
+  timeout now expires at the operation's first suspension instead of
+  cancelling it before it starts. An async connection with `connect_timeout=0`
+  or `read_timeout=0` still always fails to connect with `OperationalError`.
 - **Ruff and mypy target Python 3.11 (#688)** — `target-version = "py311"` and
   `python_version = "3.11"` in `pyproject.toml`, matching the minimum supported
   version. The rule selection is unchanged and no source needed a fix.

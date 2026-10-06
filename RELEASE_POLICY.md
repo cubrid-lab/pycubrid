@@ -306,6 +306,16 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   same. Recovery commands and publication-label reconciliation use that filename;
   no driver behavior, version, dependency or supported-version change.
 
+- **Async deadlines use `asyncio.timeout()` (#687)** — MINOR-release internal
+  change with one boundary difference. Timeout values, exception classes,
+  messages and the read-timeout versus socket-failure classification are
+  unchanged for positive timeouts and `None`. A zero async `connect_timeout` or
+  `read_timeout` now expires at the operation's first suspension instead of
+  cancelling the operation before it starts, so the TCP connect or the first
+  handshake bytes may be issued before the timeout is reported. Such a connection
+  still always fails to connect with `OperationalError`; no previously working
+  call starts failing and no public API changes. The sync driver is unaffected.
+
 - **README Quick Start examples (#327)** — documentation-only / PATCH eligible.
   Parameterized CRUD, DML commit/rollback and `ProgrammingError` examples use a
   dedicated scratch table with explicit setup and cleanup; no driver behavior,
