@@ -1008,7 +1008,7 @@ class AsyncConnection(ConnectionCommonMixin):
         # by a task that was already cancelled (e.g. cleanup after a caught
         # CancelledError) re-raises CancelledError instead of TimeoutError when
         # it expires (python/cpython#102780, fixed in 3.11.3), which would turn
-        # a read timeout into the cancellation branch below. Their wait_for()
+        # a read timeout into the cancellation branch below. 3.11's wait_for()
         # does not depend on the task's cancellation count. A caller's own
         # cancellation still propagates as CancelledError either way.
         try:

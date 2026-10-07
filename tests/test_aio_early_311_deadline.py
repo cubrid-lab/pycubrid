@@ -93,7 +93,8 @@ async def _cancel_and_wait(fut: asyncio.Future[Any]) -> None:
     fut.add_done_callback(release)
     try:
         fut.cancel()
-        await waiter
+        released = await waiter  # released by fut's done callback
+        assert released is None
     finally:
         fut.remove_done_callback(release)
 
@@ -287,7 +288,7 @@ async def test_simulation_reproduces_the_upstream_defect(affected: bool) -> None
         try:
             async with asyncio.timeout(DEADLINE):
                 await asyncio.Event().wait()
-        except BaseException as exc:  # noqa: BLE001 - classified below
+        except (asyncio.CancelledError, TimeoutError) as exc:
             return type(exc)
         raise AssertionError("unreachable")
 
@@ -333,7 +334,8 @@ async def test_new_caller_cancellation_still_propagates(
     await started.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        result = await task  # the cancellation must escape instead
+        assert result is None
     driver.assert_retired()
     await _assert_no_stray_tasks()
 
@@ -365,6 +367,7 @@ async def test_zero_deadline_cancels_the_operation_before_it_starts(
 
     assert isinstance(raised.value.__cause__, TimeoutError)
     assert driver.operation_started() is False
+    driver.assert_retired()
     await _assert_no_stray_tasks()
 
 
