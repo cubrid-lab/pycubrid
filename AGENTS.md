@@ -8,7 +8,7 @@ Project knowledge base for AI coding agents.
 It communicates with CUBRID via the CAS wire protocol over TCP/IP, requiring no C extensions
 or native CCI library.
 
-- **Language**: Python 3.10+
+- **Language**: Python 3.11+
 - **Protocol**: CUBRID CAS binary protocol (version 8, since CUBRID 10.2+)
 - **License**: MIT
 - **Version source**: `pycubrid.__version__` in [`pycubrid/__init__.py`](pycubrid/__init__.py)
@@ -228,7 +228,7 @@ make integration CUBRID_TEST_PORT=33522   # any free port; default 33000
 
 - **Linter/Formatter**: Ruff
 - **Line length**: 100 characters
-- **Target Python**: 3.10+
+- **Target Python**: 3.11+
 - **Imports**: `from __future__ import annotations` in every module
 - **Type hints**: Full typing; PEP 561 compliant (`py.typed`)
 - **super()**: Always `super().__init__()`, never `super(ClassName, self)`
@@ -256,6 +256,9 @@ Maintainers coordinate Oracle/agent tooling, integration evidence, release
 classification and the final review record. Outside contributors provide ordinary
 motivation, code, tests and affected docs; internal Oracle/agent installation or
 access is not a prerequisite for proposing a contribution.
+
+Broad requests to review, fix or prepare a release are not authorization to take an
+assigned issue or an unclaimed `good first issue`.
 
 ## Agent PR scope and review guardrails
 
@@ -401,6 +404,9 @@ implementation follows the agreed contract.
   Comments alone do not replace assignment. Preserve existing contributor
   claims and open PRs; agree a handoff before changing ownership. If assignment
   permission is missing, request maintainer assignment before starting.
+  A release-blocker handoff requires an explicit maintainer decision after
+  checking assignees, comments and open PRs; never silently take assigned
+  contributor work.
 - On handoff, update Assignees; unassign when returning unfinished work.
   Preserve a contributor's evidence and scope when editing their issue.
 - Before saving an issue edit, check for contradictory current statuses,
@@ -413,8 +419,9 @@ implementation follows the agreed contract.
 Write GitHub issues, PRs and comments in English; localized documentation remains
 welcome, and no specific translation tool is required.
 
-Maintainers or triagers assign exactly one
-`priority: <value>` label and exactly one `size: <value>` label for each new issue,
+Maintainers and triagers own label policy. An agent filing or triaging on behalf
+of a maintainer may apply the canonical labels when authorized. Maintainers or
+triagers assign exactly one `priority: <value>` label and exactly one `size: <value>` label for each new issue,
 alongside a type label (`bug`/`enhancement`/`documentation`/`chore`/`ci`/…) and an
 `area:` label when applicable. These must be GitHub labels, not just text in the
 issue title or body. Reporters describe urgency and effort without needing label
@@ -468,7 +475,8 @@ Rules:
 - A PR is opened for it: remove `good first issue`, add `status: in progress`.
 - PR merged: the issue closes.
 - PR closed without merging: first check that no other open PR still addresses the issue. Only if none remains, remove `status: in progress` and restore `good first issue`; otherwise keep it in progress.
-- Keep 3–5 genuinely unclaimed good first issues per repository; a good first issue should have a small blast radius and an existing pattern or reference PR to follow, not just a small diff.
+- Do not implement an issue labelled `good first issue` unless a maintainer explicitly asks for that specific issue. These issues are reserved for new contributors. Broad instructions to clear a backlog, review repositories, or prepare a release are not permission to consume them.
+- Keep at least 3 genuinely unclaimed good first issues per repository; a good first issue should have a small blast radius and an existing pattern or reference PR to follow, not just a small diff.
 
 ## Documentation definition of done
 
