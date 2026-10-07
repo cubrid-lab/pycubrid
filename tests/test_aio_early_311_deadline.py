@@ -93,7 +93,8 @@ async def _cancel_and_wait(fut: asyncio.Future[Any]) -> None:
     fut.add_done_callback(release)
     try:
         fut.cancel()
-        assert await waiter is None  # released by fut's done callback
+        released = await waiter  # released by fut's done callback
+        assert released is None
     finally:
         fut.remove_done_callback(release)
 
@@ -333,7 +334,8 @@ async def test_new_caller_cancellation_still_propagates(
     await started.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        assert await task is None  # the cancellation must escape instead
+        result = await task  # the cancellation must escape instead
+        assert result is None
     driver.assert_retired()
     await _assert_no_stray_tasks()
 
@@ -365,6 +367,7 @@ async def test_zero_deadline_cancels_the_operation_before_it_starts(
 
     assert isinstance(raised.value.__cause__, TimeoutError)
     assert driver.operation_started() is False
+    driver.assert_retired()
     await _assert_no_stray_tasks()
 
 
