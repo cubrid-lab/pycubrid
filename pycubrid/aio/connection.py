@@ -126,8 +126,11 @@ class AsyncConnection(ConnectionCommonMixin):
         Runs :meth:`_do_connect_handshake` under the connection's
         :class:`asyncio.Lock` so concurrent ``await conn.connect()`` calls
         do not race. The handshake itself is bounded by ``read_timeout``
-        (an :func:`asyncio.timeout` deadline); a timeout surfaces as
-        :class:`OperationalError`.
+        (passed to :func:`asyncio.wait_for`); a timeout surfaces as
+        :class:`OperationalError`. ``wait_for`` rather than
+        :func:`asyncio.timeout` keeps that classification on Python
+        3.11.0-3.11.2 when the calling task was cancelled earlier
+        (python/cpython#102780).
 
         See :class:`AsyncConnection` for the ``ssl`` parameter semantics.
         """
@@ -265,8 +268,12 @@ class AsyncConnection(ConnectionCommonMixin):
         try:
             hs_reader, hs_writer = await self._open_connection(self._host, self._port)
 
-            async with asyncio.timeout(self._read_timeout):
-                await self._do_connect_handshake(hs_reader, hs_writer)
+            # wait_for, not asyncio.timeout(): see _send_and_receive_locked.
+            coro = self._do_connect_handshake(hs_reader, hs_writer)
+            if self._read_timeout is not None:
+                await asyncio.wait_for(coro, timeout=self._read_timeout)
+            else:
+                await coro
             hs_writer = None  # ownership transferred to self or closed
 
             self._connected = True
@@ -828,8 +835,12 @@ class AsyncConnection(ConnectionCommonMixin):
         self, host: str, port: int
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         try:
-            async with asyncio.timeout(self._connect_timeout):
-                reader, writer = await asyncio.open_connection(host, port)
+            # wait_for, not asyncio.timeout(): see _send_and_receive_locked.
+            coro = asyncio.open_connection(host, port)
+            if self._connect_timeout is not None:
+                reader, writer = await asyncio.wait_for(coro, timeout=self._connect_timeout)
+            else:
+                reader, writer = await coro
 
             sock = writer.transport.get_extra_info("socket")
             if sock is not None:
@@ -992,9 +1003,18 @@ class AsyncConnection(ConnectionCommonMixin):
                 transport_timeout = True
                 raise
 
+        # The driver deadlines use asyncio.wait_for(), not asyncio.timeout(),
+        # while Python 3.11.0-3.11.2 stay supported: there, a timeout() entered
+        # by a task that was already cancelled (e.g. cleanup after a caught
+        # CancelledError) re-raises CancelledError instead of TimeoutError when
+        # it expires (python/cpython#102780, fixed in 3.11.3), which would turn
+        # a read timeout into the cancellation branch below. Their wait_for()
+        # does not depend on the task's cancellation count. A caller's own
+        # cancellation still propagates as CancelledError either way.
         try:
-            async with asyncio.timeout(self._read_timeout):
-                return await round_trip()
+            if self._read_timeout is not None:
+                return await asyncio.wait_for(round_trip(), timeout=self._read_timeout)
+            return await round_trip()
         except OSError as exc:
             deadline = (
                 self._read_timeout is not None

@@ -98,7 +98,7 @@ def connect(
 | `no_backslash_escapes` | `bool \| None` | `None` (자동 감지) | 새 물리 세션마다 문자열 이스케이프 모드 감지; 명시적 `True`/`False`는 감지를 생략하고 복구 후에도 유지 |
 | `autocommit` | `bool` | `False` | 문장별 즉시 커밋 활성화 |
 
-`connect_timeout`과 `read_timeout`은 `None` 또는 유한한 0 이상의 숫자를 받습니다. 음수, NaN, 무한대는 `ValueError`를, 호환되지 않는 타입은 `TypeError`를 발생시킵니다. 동기·비동기 연결 모두 전송 자원을 획득하기 전에 설정을 검증하며, 이 오류는 `OperationalError`로 감싸지 않습니다. `0`은 계속 허용되며 타임아웃 제한을 비활성화하지 않습니다. 동기 드라이버의 0 타임아웃 동작은 그대로입니다. 비동기 드라이버에서는 0 기한이 작업의 첫 대기 지점에서 만료되므로, `connect_timeout=0` 또는 `read_timeout=0`으로 설정한 비동기 연결은 항상 `OperationalError`로 연결에 실패합니다. 1.10.0 이전에는 작업이 시작되기 전에 취소됐습니다([#687](https://github.com/cubrid-lab/pycubrid/issues/687)).
+`connect_timeout`과 `read_timeout`은 `None` 또는 유한한 0 이상의 숫자를 받습니다. 음수, NaN, 무한대는 `ValueError`를, 호환되지 않는 타입은 `TypeError`를 발생시킵니다. 동기·비동기 연결 모두 전송 자원을 획득하기 전에 설정을 검증하며, 이 오류는 `OperationalError`로 감싸지 않습니다. `0`은 계속 허용되며 타임아웃 제한을 비활성화하지 않습니다. `None`은 기한 없음을 뜻합니다. 동기 드라이버의 0 타임아웃 동작은 그대로입니다. 비동기 드라이버는 TCP 연결(`connect_timeout`), 연결 핸드셰이크와 각 요청 왕복(`read_timeout`)을 `asyncio.wait_for()`로 제한하므로, 0 기한은 아직 시작하지 않은 새 작업을 실행 전에 취소합니다. `connect_timeout=0`은 TCP 연결을 시도하기 전에, `read_timeout=0`은 핸드셰이크 바이트를 보내기 전에 모두 `OperationalError`로 실패합니다. 드라이버가 `asyncio.timeout()` 대신 `wait_for()`를 유지하는 이유는 CPython 3.11.0–3.11.2에서 이미 취소된 태스크(예: 잡은 `CancelledError` 이후의 정리 코드)가 진입한 `timeout()` 블록이 만료되면 `CancelledError`를 다시 발생시키기 때문입니다([python/cpython#102780](https://github.com/python/cpython/issues/102780)). `wait_for()`를 쓰면 이 버전에서도 드라이버 기한 만료는 `OperationalError`로 보고되고, 호출 태스크에 대한 새 취소는 여전히 `asyncio.CancelledError`를 발생시킵니다([#744](https://github.com/cubrid-lab/pycubrid/issues/744)).
 
 <a id="unknown-options"></a>
 
