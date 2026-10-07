@@ -27,17 +27,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   upgrade, its handshake bound and its error surface are the same. The private
   helpers `_maybe_probe_tls_verification`, `_probe_tls_verification_sync` and
   `_recv_exact_sync` are gone with their Python 3.10-only tests.
-- **Async deadlines use `asyncio.timeout()` (#687)** — the async connect,
-  handshake and request deadlines are `asyncio.timeout()` blocks instead of
-  `asyncio.wait_for()` calls, and the driver handles only the built-in
-  `TimeoutError` (`asyncio.TimeoutError` is the same class since Python 3.11).
-  Timeout values, exception classes, messages and the read-timeout versus
-  socket-failure classification are unchanged. On Python 3.11 the awaited
-  operation now runs in the calling task rather than a helper task, as it
-  already did on Python 3.12 and newer. One boundary changes: a zero async
-  timeout now expires at the operation's first suspension instead of
-  cancelling it before it starts. An async connection with `connect_timeout=0`
-  or `read_timeout=0` still always fails to connect with `OperationalError`.
+- **Async deadlines handle the built-in `TimeoutError` and keep
+  `asyncio.wait_for()` (#687, #744)** — the async TCP connect, connect handshake
+  and request deadlines catch the built-in `TimeoutError` (`asyncio.TimeoutError`
+  is the same class since Python 3.11). They stay `asyncio.wait_for()` calls
+  rather than `asyncio.timeout()` blocks while Python 3.11.0–3.11.2 are
+  supported: there, a `timeout()` block entered by a task that was already
+  cancelled (for example cleanup after a caught `CancelledError`) re-raises
+  `CancelledError` instead of `TimeoutError` when it expires
+  ([python/cpython#102780](https://github.com/python/cpython/issues/102780),
+  fixed in 3.11.3), so a driver deadline would have surfaced as a cancellation
+  instead of `OperationalError`. Behavior is the same as 1.9.x: a driver deadline
+  raises `OperationalError` with the same messages, a transport-raised
+  `TimeoutError` is still a socket failure that retires the session, a
+  `TimeoutError` from a callback after a complete reply still propagates
+  unchanged, and a new caller cancellation still raises `asyncio.CancelledError`
+  after retiring the session. `None` means no deadline. Zero keeps its
+  `wait_for()` meaning: the fresh, not-yet-started operation is cancelled before
+  it runs, so `connect_timeout=0` fails before the TCP connect is attempted and
+  `read_timeout=0` fails before any handshake bytes are sent, both with
+  `OperationalError`.
 - **Ruff and mypy target Python 3.11 (#688)** — `target-version = "py311"` and
   `python_version = "3.11"` in `pyproject.toml`, matching the minimum supported
   version. The rule selection is unchanged and no source needed a fix.

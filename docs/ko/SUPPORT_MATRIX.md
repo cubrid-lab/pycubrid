@@ -106,7 +106,7 @@ pycubrid는 모든 버전을 같은 방식으로 디코딩합니다. 아래 차�
 |---|---|---|---|
 | `connect_timeout` | ✅ | 1.0.0 | 연결 단계 타임아웃 (초) |
 | `read_timeout` (동기) | ✅ | 1.2.0 (#81) | recv별 소켓 타임아웃 |
-| `read_timeout` (비동기) | ✅ | 1.2.0 (#82) | `asyncio.timeout()` 기한 |
+| `read_timeout` (비동기) | ✅ | 1.2.0 (#82) | `asyncio.wait_for()` 기한 |
 | `fetch_size` | ✅ | 1.2.0 (#81) | 구성 가능한 결과 배치 크기 (기본 100) |
 | `autocommit` 속성 | ✅ | 1.0.0 | `Connection`에서 조회/설정 |
 | `Connection.ping()` | ✅ | 1.2.0 (#70) | 네이티브 CHECK_CAS 헬스 체크, SQL 불필요 |

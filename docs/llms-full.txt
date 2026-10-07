@@ -322,7 +322,7 @@ def connect(
 | `no_backslash_escapes` | `bool \| None` | `None` (auto) | Probe each new physical session's string-escape mode; explicit `True`/`False` skips detection and remains pinned across recovery |
 | `autocommit` | `bool` | `False` | Enable immediate commit per statement |
 
-`connect_timeout` and `read_timeout` accept `None` or finite non-negative numbers. Negative values, NaN and infinity raise `ValueError`; incompatible types raise `TypeError`. Both sync and async connections validate these settings before acquiring transport resources, without wrapping configuration errors in `OperationalError`. Zero remains accepted and does not disable deadlines. The sync driver's zero-timeout behavior is unchanged. In the async driver a zero deadline expires at the operation's first suspension, so an async connection configured with `connect_timeout=0` or `read_timeout=0` always fails to connect with `OperationalError`; before 1.10.0 the operation was cancelled before it started ([#687](https://github.com/cubrid-lab/pycubrid/issues/687)).
+`connect_timeout` and `read_timeout` accept `None` or finite non-negative numbers. Negative values, NaN and infinity raise `ValueError`; incompatible types raise `TypeError`. Both sync and async connections validate these settings before acquiring transport resources, without wrapping configuration errors in `OperationalError`. Zero remains accepted and does not disable deadlines; `None` means no deadline. The sync driver's zero-timeout behavior is unchanged. The async driver bounds the TCP connect (`connect_timeout`), the connect handshake and each request round trip (`read_timeout`) with `asyncio.wait_for()`, so a zero deadline cancels the fresh, not-yet-started operation before it runs: `connect_timeout=0` fails before the TCP connect is attempted and `read_timeout=0` fails before any handshake bytes are sent, both with `OperationalError`. The driver keeps `wait_for()` rather than `asyncio.timeout()` because on CPython 3.11.0–3.11.2 an expired `timeout()` block entered by an already-cancelled task (for example cleanup after a caught `CancelledError`) re-raises `CancelledError` ([python/cpython#102780](https://github.com/python/cpython/issues/102780)); with `wait_for()` a driver deadline is reported as `OperationalError` there too, while a new cancellation of the calling task still raises `asyncio.CancelledError` ([#744](https://github.com/cubrid-lab/pycubrid/issues/744)).
 
 ### Unknown Options
 
@@ -8134,7 +8134,7 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 |---|---|---|---|
 | `connect_timeout` | ✅ | 1.0.0 | Connect-phase timeout (seconds) |
 | `read_timeout` (sync) | ✅ | 1.2.0 (#81) | Per-recv socket timeout |
-| `read_timeout` (async) | ✅ | 1.2.0 (#82) | `asyncio.timeout()` deadline |
+| `read_timeout` (async) | ✅ | 1.2.0 (#82) | `asyncio.wait_for()` deadline |
 | `fetch_size` | ✅ | 1.2.0 (#81) | Configurable result batch size (default 100) |
 | `autocommit` property | ✅ | 1.0.0 | Get/set on `Connection` |
 | `Connection.ping()` | ✅ | 1.2.0 (#70) | Native CHECK_CAS health check, no SQL needed |

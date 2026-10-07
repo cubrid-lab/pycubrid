@@ -306,15 +306,21 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   same. Recovery commands and publication-label reconciliation use that filename;
   no driver behavior, version, dependency or supported-version change.
 
-- **Async deadlines use `asyncio.timeout()` (#687)** — MINOR-release internal
-  change with one boundary difference. Timeout values, exception classes,
-  messages and the read-timeout versus socket-failure classification are
-  unchanged for positive timeouts and `None`. A zero async `connect_timeout` or
-  `read_timeout` now expires at the operation's first suspension instead of
-  cancelling the operation before it starts, so the TCP connect or the first
-  handshake bytes may be issued before the timeout is reported. Such a connection
-  still always fails to connect with `OperationalError`; no previously working
-  call starts failing and no public API changes. The sync driver is unaffected.
+- **Async deadlines handle the built-in `TimeoutError` and keep
+  `asyncio.wait_for()` (#687, #744)** — internal change, no behavior change from
+  1.9.x. The deadline handlers catch the built-in `TimeoutError`, the same class
+  as `asyncio.TimeoutError` on every supported Python. The deadlines stay
+  `asyncio.wait_for()` calls: the `asyncio.timeout()` blocks merged for #687
+  were reverted before release because on CPython 3.11.0–3.11.2 an expired
+  `timeout()` entered by an already-cancelled task re-raises `CancelledError`
+  (python/cpython#102780), which would have turned a driver deadline into a
+  cancellation instead of `OperationalError`. Positive and `None` timeouts,
+  messages, the read-timeout versus socket-failure classification and caller
+  cancellation are unchanged. A zero async `connect_timeout` or `read_timeout`
+  keeps its 1.9.x meaning: `wait_for()` cancels the fresh, not-yet-started
+  operation, so neither the TCP connect nor the first handshake bytes are
+  issued and the connect fails with `OperationalError`. No public API changes;
+  the sync driver is unaffected.
 
 - **README Quick Start examples (#327)** — documentation-only / PATCH eligible.
   Parameterized CRUD, DML commit/rollback and `ProgrammingError` examples use a
