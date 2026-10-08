@@ -7,12 +7,20 @@ dependency set to inventory installed (#735)::
     uv pip install -p /tmp/tpl-dev/bin/python -e ".[dev]"
     /tmp/tpl-dev/bin/python scripts/generate_third_party_licenses.py --exclude pycubrid
 
-Only the standard library is used, so the generator itself never appears in the
-inventory. A license is read from the PEP 639 ``License-Expression`` field, then
+The default output uses only the standard library, so the generator itself
+never appears in the inventory. A license is read from the PEP 639 ``License-Expression`` field, then
 from ``License ::`` classifiers, then from a short ``License`` field; anything
 else is reported as ``UNKNOWN`` rather than guessed. Any GPL-family mention, or
 an unrecognised license, is categorised ``Needs review`` and must be resolved in
 THIRD_PARTY_LICENSES.md from the package's own license files.
+
+``--required-by`` adds a column naming the installed distributions whose
+requirements pull each row in. Every environment marker is evaluated for the
+running interpreter, and extras are followed from the ones requested for the
+``--exclude``d project (``--extra``) to a fixed point, so a requirement counts
+only when it is active in this environment. It needs the ``packaging``
+distribution in the inventoried environment and fails rather than guessing. It
+assumes a fresh environment that holds only the inventoried dependency set.
 """
 
 from __future__ import annotations
@@ -27,8 +35,8 @@ import sys
 PART_SPLIT = re.compile(r"\s+(?:AND|OR|WITH)\s+|\s*/\s*|[()]", re.IGNORECASE)
 PERMISSIVE_PART = re.compile(
     r"^(?:MIT(?:-0)?(?: License)?|BSD(?:-[23]-Clause)?(?: License)?|0BSD|"
-    r"Apache(?:-2\.0| Software License| License 2\.0)|ISC(?: License)?|PSF-2\.0|"
-    r"Python Software Foundation License|Unlicense|Public Domain)$",
+    r"Apache(?:-2\.0| Software License| License 2\.0)|ISC(?: License)?|ISCL|PSF-2\.0|"
+    r"Python Software Foundation License|(?:The )?Unlicense|Public Domain)$",
     re.IGNORECASE,
 )
 MPL_PART = re.compile(r"^(?:MPL|Mozilla Public License)", re.IGNORECASE)
@@ -86,6 +94,45 @@ def url_of(dist: metadata.Distribution) -> str:
     return field(dist, "Home-page") or "-"
 
 
+def required_by(root: set[str], root_extras: set[str]) -> dict[str, list[str]]:
+    """Map each installed distribution to the installed ones whose active requirements need it."""
+    try:
+        from packaging.requirements import InvalidRequirement, Requirement
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise SystemExit("--required-by needs 'packaging' installed in this environment") from exc
+    dists = {canonical(field(d, "Name")): d for d in metadata.distributions()}
+    requested: dict[str, set[str]] = {name: set() for name in dists}
+    for name in root:
+        requested.setdefault(name, set()).update(root_extras)
+    parents: dict[str, set[str]] = {}
+    changed = True
+    while changed:
+        changed = False
+        for name, dist in dists.items():
+            for raw in dist.requires or []:
+                try:
+                    req = Requirement(raw)
+                except InvalidRequirement as exc:
+                    raise SystemExit(
+                        f"{field(dist, 'Name')}: invalid Requires-Dist {raw!r}"
+                    ) from exc
+                child = canonical(req.name)
+                if child not in dists:
+                    continue
+                contexts = [{"extra": extra} for extra in {"", *requested[name]}]
+                if req.marker is not None and not any(req.marker.evaluate(c) for c in contexts):
+                    continue
+                found = parents.setdefault(child, set())
+                parent = field(dist, "Name")
+                if child != name and parent not in found:
+                    found.add(parent)
+                    changed = True
+                if not set(req.extras) <= requested[child]:
+                    requested[child] |= set(req.extras)
+                    changed = True
+    return {child: sorted(names, key=str.lower) for child, names in parents.items()}
+
+
 def rows(exclude: set[str]) -> list[tuple[str, str, str, str, str]]:
     seen: dict[str, tuple[str, str, str, str, str]] = {}
     for dist in metadata.distributions():
@@ -101,12 +148,23 @@ def rows(exclude: set[str]) -> list[tuple[str, str, str, str, str]]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--exclude", action="append", default=[], help="distribution to skip")
+    parser.add_argument(
+        "--required-by", action="store_true", help="add a column naming each row's parents"
+    )
+    parser.add_argument(
+        "--extra", action="append", default=[], help="extra requested for the excluded project"
+    )
     args = parser.parse_args(argv)
     exclude = {canonical(e) for e in args.exclude}
-    print("| Name | Version | License | Category | URL |")
-    print("|---|---|---|---|---|")
+    parents = required_by(exclude, set(args.extra)) if args.required_by else {}
+    extra_header = " Required by |" if args.required_by else ""
+    print(f"| Name | Version | License | Category | URL |{extra_header}")
+    print("|---|---|---|---|---|" + ("---|" if args.required_by else ""))
     for name, version, lic, cat, url in rows(exclude):
-        print(f"| {name} | {version} | {lic} | {cat} | {url} |")
+        line = f"| {name} | {version} | {lic} | {cat} | {url} |"
+        if args.required_by:
+            line += f" {', '.join(parents.get(canonical(name), [])) or '-'} |"
+        print(line)
     return 0
 
 

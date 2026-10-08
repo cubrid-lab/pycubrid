@@ -118,8 +118,12 @@ uv pip install -p /tmp/tpl-mutation/bin/python -e ".[mutation]"
 reads the PEP 639 `License-Expression` field, then `License ::` classifiers, then
 a short `License` field, and never guesses a license. `tests/test_third_party_licenses.py`
 fails when a dependency declared in `pyproject.toml` is missing from these tables,
-when a recorded version falls outside its declared range, or when a row's
-category disagrees with what the generator would assign to its license.
+when a recorded version falls outside a declared version range, when a row's
+category disagrees with what the generator would assign to its license, or when
+a reviewed entry loses its review. Exact `==` pins are checked for presence only:
+they are authoritative in `pyproject.toml`, so a routine pin bump does not
+require regenerating this snapshot. Transitive rows are kept accurate by
+regenerating the tables, not by the test.
 
 ## Development / test dependencies: `.[dev]` (63 packages, not distributed)
 
