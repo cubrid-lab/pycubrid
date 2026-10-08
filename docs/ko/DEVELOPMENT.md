@@ -816,11 +816,13 @@ main/주간 실행은 최저·최신 조합을 사용합니다. 저장소 도구
 | `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9초–24초 | lint/typecheck는 개발 도구, compat는 패키지만 설치(3초), packaging은 `build` 설치(2초). |
 | `doc-lint` (재사용 워크플로) | 문서 변경 시에만 경로 게이팅 | 하위 단계당 2초–8초 | 문서(`docs/**`)/Markdown 변경이 없으면 전부 건너뜀. |
 
-`needs:` 그래프의 시작점은 `detect-changes`, 오프라인 매트릭스, lint,
-typecheck, 저장소 도구 검사, compat-check로 병렬입니다. 기준 실행에서는
-오프라인 작업들이 `detect-changes` 완료 *전*에 시작했습니다. Packaging은
-모든 오프라인 셀을 기다리고, 컨테이너 기반 작업은 packaging, 오프라인,
-lint, typecheck, `detect-changes`를 기다린 뒤 시작하며 `ci-gate`는 그
+이 기준 실행에서 `needs:` 그래프의 시작점은 `detect-changes`, 오프라인
+매트릭스, lint, typecheck, 저장소 도구 검사, compat-check로 병렬이었고,
+오프라인 작업들은 `detect-changes` 완료 *전*에 시작했습니다. Packaging은 모든
+오프라인 셀을 기다렸고, 컨테이너 기반 작업은 packaging, 오프라인, lint,
+typecheck, `detect-changes`를 기다린 뒤 시작했습니다. 이제 라이브 레인은
+`validate-target`과 `detect-changes` 직후 정적·오프라인 잡과 함께 시작하며
+([병렬 라이브 레인](CI_POLICY.md#병렬-라이브-레인) 참고), `ci-gate`는 여전히 모든
 결과를 기다립니다. 대기열 시간과 가장 느린 선행 분기도 전체 경과 시간에
 영향을 주므로 작업 시간을 단순 합산한 값이 크리티컬 패스는 아닙니다.
 
