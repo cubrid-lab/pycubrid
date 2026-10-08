@@ -69,6 +69,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **Reproducible third-party license inventory (#735)** — `THIRD_PARTY_LICENSES.md`
+  is regenerated from fresh `.[dev]` and `.[mutation]` environments at a recorded
+  commit, Python and OS by the new standard-library
+  `scripts/generate_third_party_licenses.py`. MPL-2.0 packages (`certifi`,
+  `hypothesis`, `pathspec`) are now classified separately from permissive
+  licenses instead of under a blanket "no copyleft" statement, GPL-family
+  metadata is flagged for review (docutils is resolved from its own `COPYING`),
+  and the document separates what pycubrid uses from what it distributes. The
+  Windows-only `tzdata` runtime dependency stays explicit.
+  `tests/test_third_party_licenses.py` fails when a declared dependency or exact
+  pin disagrees with the inventory. No runtime change.
 - **The README and quickstart state Python 3.11 or later (#699)** — the
   requirement lines, the supported range (3.11–3.14) and the FAQ answer in
   `README.md` and `docs/README.ko.md`, and the prerequisites in
