@@ -8,6 +8,7 @@ because the live lanes of ``ci.yml`` do not execute that workflow's jobs.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -91,3 +92,36 @@ def test_workflow_impact_table(name: str) -> None:
 )
 def test_representative_paths_select_the_expected_tiers(path: str, expected: set[str]) -> None:
     assert _selected(path) == expected, path
+
+
+def _marks_repo_tooling(decorators: list[ast.expr]) -> bool:
+    return any("repo_tooling" in ast.unparse(d) for d in decorators)
+
+
+def test_tests_that_read_workflows_run_in_the_tooling_lane() -> None:
+    # Non-ci.yml workflow changes select only the tooling lane on PRs, so any test
+    # that reads a workflow file must be marked repo_tooling or it runs nowhere.
+    offenders = []
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        source = path.read_text()
+        if ".github/workflows" not in source:
+            continue
+        tree = ast.parse(source)
+        module_marked = any(
+            isinstance(node, ast.Assign)
+            and any(getattr(t, "id", "") == "pytestmark" for t in node.targets)
+            and "repo_tooling" in ast.unparse(node.value)
+            for node in tree.body
+        )
+        if module_marked:
+            continue
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if ".github/workflows" not in (ast.get_source_segment(source, node) or ""):
+                continue
+            if not node.name.startswith("test_"):
+                offenders.append(f"{path.name}:{node.name} (helper; mark the module)")
+            elif not _marks_repo_tooling(node.decorator_list):
+                offenders.append(f"{path.name}:{node.name}")
+    assert not offenders, offenders
