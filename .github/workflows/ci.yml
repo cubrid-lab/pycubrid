@@ -97,7 +97,7 @@ jobs:
               - 'Makefile'
               - 'docker-compose.yml'
               - 'scripts/**'
-              - '.github/workflows/**'
+              - '.github/workflows/ci.yml'
             tooling:
               - 'scripts/**'
               - '.github/**'
@@ -116,7 +116,7 @@ jobs:
               - 'pycubrid/protocol.py'
               - 'tests/test_*ssl*.py'
               - 'tests/test_tls_*.py'
-              - '.github/workflows/**'
+              - '.github/workflows/ci.yml'
               - 'tests/helpers/tls_*.py'
               - 'tests/fixtures/tls/**'
               - 'pycubrid/__init__.py'
@@ -127,7 +127,7 @@ jobs:
               - 'pycubrid/connection.py'
               - 'pycubrid/_connection_common.py'
               - 'tests/test_integration_charset.py'
-              - '.github/workflows/**'
+              - '.github/workflows/ci.yml'
               - 'pycubrid/aio/**'
               - 'pycubrid/_cursor_common.py'
             official:
@@ -137,7 +137,7 @@ jobs:
               - 'tests/test_official*.py'
               - 'tests/fixtures/official*'
               - 'scripts/**'
-              - '.github/workflows/**'
+              - '.github/workflows/ci.yml'
 
               - 'pycubrid/_cursor_common.py'
   doc-lint:

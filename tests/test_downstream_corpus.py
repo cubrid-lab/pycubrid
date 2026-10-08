@@ -409,6 +409,9 @@ def test_report_rejects_non_success_step_outcome_with_passing_junit(
     assert "selected test step outcome" in " ".join(result["reasons"])
 
 
+# Workflow-contract tests run in the tooling lane, which every workflow change
+# selects (#761); a bug-hunt.yml-only PR does not run the full offline suite.
+@pytest.mark.repo_tooling
 def test_bug_hunt_runs_only_selected_advisory_downstream_workloads() -> None:
     workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/bug-hunt.yml").read_text()
     corpus = workflow.split("  downstream-corpus:\n", 1)[1]
@@ -445,6 +448,7 @@ def test_bug_hunt_runs_only_selected_advisory_downstream_workloads() -> None:
     assert "if: always()" in corpus.split("- name: Upload downstream evidence", 1)[1]
 
 
+@pytest.mark.repo_tooling
 @pytest.mark.parametrize("general_exit,concurrency_exit", [(0, 0), (1, 0), (0, 1), (1, 1)])
 def test_mcp_step_runs_both_workloads_and_preserves_either_failure(
     general_exit: int, concurrency_exit: int
