@@ -25,7 +25,8 @@ below is generated on Linux, where the conditional dependency is not installed.
 - **Wheel**: only the `pycubrid` package and its metadata, plus `LICENSE` and
   `NOTICE`. No third-party source code is vendored.
 - **Source distribution**: the same package, metadata, `LICENSE` and `NOTICE`,
-  plus the `tests/test_*.py` modules. Test fixtures, `conftest.py` and test
+  project metadata files (`README.md`, `pyproject.toml`, `setup.cfg`), plus the
+  `tests/test_*.py` modules. Test fixtures, `conftest.py` and test
   helpers are not included in the sdist.
 - **Repository only (not in either distribution)**: test fixtures contain only
   material produced for this project: a ledger of upstream test identifiers
@@ -46,8 +47,9 @@ below is generated on Linux, where the conditional dependency is not installed.
 The inventories below contain three categories:
 
 - **Permissive**: MIT, MIT-0, BSD-2-Clause, BSD-3-Clause, Apache-2.0 and the
-  Python Software Foundation License, as declared by each package. Most
-  packages fall here.
+  Python Software Foundation License, as declared by each package. The generator
+  also accepts ISC, 0BSD, Unlicense, Public Domain and the generic "BSD License"
+  classifier as permissive. Most packages fall here.
 - **Weak (file-level) copyleft: MPL**: `certifi`, `hypothesis`, `pathspec`, all
   MPL-2.0. MPL-2.0 is not a permissive license. Its obligations attach to the
   MPL-covered files themselves: anyone distributing those files, modified or
@@ -71,7 +73,8 @@ The inventories below contain three categories:
   `docutils/__main__.py` and `docutils/utils/math/math2html.py` (relicensed from
   GPL-3.0+ to BSD-2-Clause for Docutils). `docutils/utils/smartquotes.py` also
   carries the original SmartyPants BSD-3-Clause notice, and
-  `utils/_roman_numerals.py` is public domain or 0BSD. The one GPL-3.0+ file it
+  `docutils/utils/_roman_numerals.py` is public domain or 0BSD (per its file
+  header). The one GPL-3.0+ file it
   lists, `tools/editors/emacs/rst.el`, is not part of the installed package. As
   installed, docutils is therefore public domain plus permissive BSD terms
   (BSD-2-Clause, BSD-3-Clause and 0BSD).
