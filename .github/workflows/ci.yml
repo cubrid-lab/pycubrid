@@ -163,12 +163,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid (import-only)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
+          uv pip install --system -e .
+          uv pip freeze --system
       - name: Verify public API surface matches api-baseline.json
         run: python scripts/check_public_api.py
 
@@ -183,10 +187,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install pinned ruff from pyproject.toml
-        run: pip install -e ".[dev]"
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Check tool consistency, lint, and format maintained Python
         run: make lint
       - name: Lint CHANGELOG structure
@@ -217,12 +227,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Mypy strict
         run: make typecheck
 
@@ -243,14 +257,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-          pip install pytest-cov
+          uv pip install --system -e ".[dev]"
+          uv pip install --system pytest-cov
+          uv pip freeze --system
       - name: Run representative PR smoke tests
         if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true'
         run: python -m pytest tests/test_pep249.py tests/test_exceptions.py tests/test_types.py -m "not integration and not repo_tooling" -q --tb=short
@@ -302,13 +320,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Run repository tooling tests
         shell: bash
         run: python -m pytest tests/ -m "repo_tooling" -v --tb=short
@@ -325,12 +347,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install build tool
         run: |
-          python -m pip install --upgrade pip
-          pip install build
+          uv pip install --system build
+          uv pip freeze --system
       - name: Build sdist and wheel
         run: python -m build
       - name: Smoke test wheel install
@@ -376,12 +402,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
       - name: Run integration tests
@@ -424,12 +454,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.14"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
       - name: Run EUC-KR charset integration tests
@@ -462,12 +496,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Start CUBRID broker with SSL=ON
         run: |
           set -euxo pipefail
@@ -634,12 +672,16 @@ jobs:
         id: python
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Restore the official oracle build
         id: oracle-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4

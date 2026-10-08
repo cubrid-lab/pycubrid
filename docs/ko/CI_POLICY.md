@@ -83,6 +83,25 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 cookbook 스모크 테스트가 여기에 해당합니다. 이 테스트는 모든 워크플로를 파싱하여
 실행 잡에 제한된 타임아웃이 없거나 새 외부 호출자가 허용 목록에 없으면 실패합니다.
 
+## 의존성 설치
+
+`ci.yml`과 `integration-full.yml`은 uv로 의존성을 설치합니다(#759). 각 Python 잡은
+커밋 SHA로 고정한 `astral-sh/setup-uv`를 실행하고 uv 자체도 고정합니다
+(`version: "0.12.17"`). 그다음 `uv pip install --system`으로 `actions/setup-python`
+인터프리터에 설치하고, 결과를 `uv pip freeze --system`으로 기록합니다. setup-uv는
+setup-python 다음에 실행되므로 캐시 키에 잡의 인터프리터가 반영됩니다.
+`pyproject.toml` 해시와 잡별 `cache-suffix`를 함께 써서 잡과 Python 버전마다 별도
+캐시를 유지합니다. 일상 CI는 항상 캐시하고(`enable-cache: true`), 릴리스 게이트인
+`integration-full.yml`은 `auto`를 사용해 릴리스 계열 이벤트에서 캐시 복원을 막는
+setup-uv의 기본 보호를 유지합니다. 바뀌는 것은 설치 도구뿐입니다. 해석은 같은
+`pyproject.toml` 제약을 따릅니다. 전환 전에 Python 3.12에서 `.[dev]`를 pip와 uv로
+해석한 결과는 같은 63개 패키지와 버전이었습니다(PEP 503 이름 정규화 후). 패키징
+스모크 테스트는 일회용 가상 환경에서 일반 `pip`를 유지합니다. 빌드된 wheel과 sdist가
+최종 사용자가 쓰는 도구로 설치되는지 증명하기 때문입니다. `python-canary.yml`도
+프리뷰 인터프리터에서 `pip`를 유지합니다. `tests/test_workflow_installs.py`는 고정된
+uv 설정, 버전 기록, 그리고 이 워크플로들에 다른 `pip install`이 남지 않았는지를
+검증합니다.
+
 ## Python 3.15 프리뷰 준비
 
 `python-canary.yml`은 수동 전용입니다. 전체 SHA를 전달하고 그 커밋의 브랜치에서
