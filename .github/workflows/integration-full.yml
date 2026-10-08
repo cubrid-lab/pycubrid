@@ -196,7 +196,27 @@ jobs:
             conf=\$CUBRID/conf/cubrid_broker.conf
             sed -i '/^\[%BROKER1\]/,/^\[/ s/^\s*SSL\s*=\s*OFF/SSL=ON/' \$conf
             grep -A2 '^\[%BROKER1\]' \$conf | head -20
-            cubrid broker restart
+            # A one-shot 'broker restart' can fail to stop broker1 (Cannot
+            # inactivate broker), leave the non-TLS broker running and abort
+            # the lane (#767). Stop with bounded retries until broker1 is gone,
+            # then start it and verify it is up.
+            for i in \$(seq 1 10); do
+              cubrid broker stop || true
+              if ! cubrid broker status 2>/dev/null | grep -q '^% broker1'; then
+                echo 'broker stopped'; break
+              fi
+              echo \"broker still running, retrying stop (attempt \$i/10)\"
+              sleep 3
+            done
+            if cubrid broker status 2>/dev/null | grep -q '^% broker1'; then
+              echo '::error::broker1 did not stop; SSL=ON was not applied'
+              exit 1
+            fi
+            cubrid broker start
+            cubrid broker status | grep -q '^% broker1' || {
+              echo '::error::broker1 failed to start under SSL=ON'
+              exit 1
+            }
             # Start the database and fail loudly if it never comes up. The old
             # 'start testdb || start cubdb || true' hid a provisioning race
             # (#330): a failed start became exit 0 and the symptom surfaced two
