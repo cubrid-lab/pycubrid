@@ -15,24 +15,19 @@ from pycubrid.cursor import Cursor
 from pycubrid.lob import Lob
 
 
-class SubConnection(Connection):
-    """Minimal subclass to verify Self return type contract."""
+class SubConnection(Connection): ...
 
 
-class SubCursor(Cursor):
-    """Minimal subclass to verify Self return type contract."""
+class SubCursor(Cursor): ...
 
 
-class SubLob(Lob):
-    """Minimal subclass to verify Self return type contract."""
+class SubLob(Lob): ...
 
 
-class SubAsyncConnection(AsyncConnection):
-    """Minimal async subclass to verify Self return type contract."""
+class SubAsyncConnection(AsyncConnection): ...
 
 
-class SubAsyncCursor(AsyncCursor):
-    """Minimal async cursor subclass to verify Self return type contract."""
+class SubAsyncCursor(AsyncCursor): ...
 
 
 def _sync(conn: SubConnection, cur: SubCursor, lob: SubLob) -> None:
@@ -52,4 +47,4 @@ async def _async(conn: SubAsyncConnection, cur: SubAsyncCursor) -> None:
         assert_type(c, SubAsyncConnection)
     async with cur as k:
         assert_type(k, SubAsyncCursor)
-    assert_type(aiter(cur), SubAsyncCursor)
+        assert_type(aiter(cur), SubAsyncCursor)
