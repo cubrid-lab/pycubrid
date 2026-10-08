@@ -22,6 +22,7 @@ permissions:
 jobs:
   activity:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       changed: ${{ steps.check.outputs.changed }}
     steps:
@@ -43,6 +44,7 @@ jobs:
     if: needs.activity.outputs.changed == 'true'
     name: property / protocol / state-machine / fault / chaos / soak (weekly representative)
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -123,6 +125,7 @@ jobs:
     if: needs.activity.outputs.changed == 'true'
     name: mutation testing (driver core, offline)
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
@@ -150,6 +153,7 @@ jobs:
     if: needs.activity.outputs.changed == 'true'
     name: benchmark trend detection
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       cubrid:
         image: cubrid/cubrid:11.4
