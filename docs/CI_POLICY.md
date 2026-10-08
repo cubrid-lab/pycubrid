@@ -91,8 +91,12 @@ Python job runs `astral-sh/setup-uv` pinned to a commit SHA, with uv itself pinn
 `uv pip freeze --system`. setup-uv runs after setup-python, so its cache key carries
 the job's interpreter; with the `pyproject.toml` hash and a per-job `cache-suffix`,
 each job and Python version keeps its own cache. Routine CI always caches
-(`enable-cache: true`); the release-gate `integration-full.yml` uses `auto`, which
-keeps setup-uv's built-in guard against restoring caches on release-type events. Only the installer changes. Resolution
+(`enable-cache: true`); `integration-full.yml` uses `auto`, which disables caching only
+for tag pushes, `release`, `pull_request_target` and `workflow_run` events. The release
+path (`publish-pypi.yml` on a `main` push, or its recovery dispatch) therefore still
+restores caches. That is safe because a uv cache holds only downloaded and built
+wheels: every run re-resolves from the same constraints, so a cache can speed an
+install but cannot change the resolved versions. Only the installer changes. Resolution
 follows the same `pyproject.toml` constraints: before the switch, `.[dev]` on
 Python 3.12 resolved to the same 63 packages and versions with pip and uv (after
 PEP 503 name normalization). The packaging smoke test keeps plain `pip` in its
