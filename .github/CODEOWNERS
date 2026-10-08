@@ -1,14 +1,16 @@
 # Review routing for high-blast-radius paths (#751).
 #
-# This file only requests reviews. It is not a security boundary, and
-# code-owner approval is not a required check on main. Paths not listed
-# here have no special owner: ordinary source, tests, docs and examples
-# follow the normal review flow without waiting on a code owner.
+# This file is intended only to route review requests; it is not a security
+# boundary. Whether code-owner approval is ever required on main is a separate
+# repository-settings decision (see #751). Paths not listed here have no
+# special owner: ordinary source, tests, docs and examples follow the normal
+# review flow without waiting on a code owner.
 
 # CI, release and supply-chain automation
 /.github/workflows/                 @yeongseon @paikend
 /.github/dependabot.yml             @yeongseon @paikend
 /.github/CODEOWNERS                 @yeongseon @paikend
+/.github/labels.yml                 @yeongseon @paikend
 /release-please-config.json         @yeongseon @paikend
 /.release-please-manifest.json      @yeongseon @paikend
 /scripts/check_release_please.cjs   @yeongseon @paikend
@@ -24,6 +26,7 @@
 # Security and release policy
 /SECURITY.md                        @yeongseon @paikend
 /RELEASE_POLICY.md                  @yeongseon @paikend
+/RELEASING.md                       @yeongseon @paikend
 
 # Wire protocol and connection critical paths
 /pycubrid/protocol.py               @yeongseon @paikend
