@@ -18,54 +18,21 @@ from pycubrid.lob import Lob
 class SubConnection(Connection):
     """Minimal subclass to verify Self return type contract."""
 
-    def __init__(self) -> None:
-        object.__init__(self)
-        object.__setattr__(self, "_closed", False)
-
-    def _ensure_connected(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
-
 
 class SubCursor(Cursor):
     """Minimal subclass to verify Self return type contract."""
-
-    def __init__(self, connection: object) -> None:
-        super().__init__(connection)
 
 
 class SubLob(Lob):
     """Minimal subclass to verify Self return type contract."""
 
-    def __init__(self) -> None:
-        object.__init__(self)
-        object.__setattr__(self, "_closed", False)
-
-    def close(self) -> None:
-        pass
-
 
 class SubAsyncConnection(AsyncConnection):
     """Minimal async subclass to verify Self return type contract."""
 
-    def __init__(self) -> None:
-        object.__init__(self)
-        object.__setattr__(self, "_closed", False)
-
-    def _ensure_connected(self) -> None:
-        pass
-
-    async def _close(self) -> None:
-        pass
-
 
 class SubAsyncCursor(AsyncCursor):
     """Minimal async cursor subclass to verify Self return type contract."""
-
-    def __init__(self, connection: object) -> None:
-        super().__init__(connection)
 
 
 def _sync(conn: SubConnection, cur: SubCursor, lob: SubLob) -> None:
