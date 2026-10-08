@@ -18,9 +18,11 @@ Passing smoke is not evidence that the whole offline suite or coverage floor ran
 
 Change selection is in `ci.yml`'s `detect-changes` job. Non-documentation paths
 are code by default, so new source/configuration files do not silently become docs.
-All driver and test paths, including new modules, plus dependency, build, script
-and workflow changes conservatively select representative pre-merge integration
-and the existing offline regression suite on one Linux/Python lane. Other code
+All driver and test paths, including new modules, plus dependency, build and script
+changes and `ci.yml` itself conservatively select representative pre-merge
+integration and the existing offline regression suite on one Linux/Python lane.
+Other workflow changes select the repository-tooling lane instead (see
+[Workflow change impact](#workflow-change-impact)). Other code
 changes retain the bounded smoke suite. Repository tooling tests run in one Linux lane when tooling changes.
 Changes to `tests/test_official_fixture_setup.py`, `tests/test_upstream_scenario_ledger.py`
 or `tests/fixtures/upstream_scenarios.csv` explicitly select that same tooling lane;
