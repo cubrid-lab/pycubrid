@@ -61,6 +61,25 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 따라 선택되며, main, 변경이 있는 주간 실행, 전체 릴리스 검증에서 계속 사용할 수
 있습니다.
 
+## 워크플로 변경 영향
+
+변경 경로 선택은 워크플로별 영향 표를 따릅니다(#761). 라이브 PR 레인(`risk`, `tls`,
+`charset`, `official`)을 선택하는 것은 이를 정의하고 실행하는 `ci.yml`뿐입니다. `.github/`
+아래의 다른 워크플로는 저장소 도구 레인을 선택하며, 그 정책·워크플로 테스트가 해당
+워크플로를 파싱하고 검사합니다. `ci.yml`의 라이브 레인은 다른 워크플로의 잡을 실행하지
+않으므로 이를 돌려도 검출력이 늘지 않습니다.
+
+| 변경된 워크플로 | PR 검증 |
+| --- | --- |
+| `ci.yml` | 정의한 모든 레인과 도구 레인 |
+| `integration-full.yml` | 도구 레인과, PR head에서 `integration-full.yml`을 수동 `workflow_dispatch`로 실행하고 PR에 링크 |
+| `publish-pypi.yml`, `release-please.yml` | 도구 레인(릴리스 워크플로 테스트) |
+| `bug-hunt.yml`, `python-canary.yml` | 도구 레인. 실행 자체가 바뀌면 수동 실행 |
+| 그 밖의 워크플로 | 도구 레인. `pr-title.yml`과 `docs-sync.yml`은 PR에서 스스로도 실행됨 |
+
+`tests/test_workflow_path_impact.py`가 모든 워크플로 파일과 대표적인 소스, 테스트, 문서
+경로에 대해 필터를 평가합니다.
+
 ## 병렬 라이브 레인
 
 `integration-tests`, `integration-charset`, `integration-tls`, `official-differential`은

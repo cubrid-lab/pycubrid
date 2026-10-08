@@ -58,6 +58,25 @@ skipping unchanged weeks and retaining its mutation/performance/downstream check
 TLS, EUC-KR and official differential jobs are selected by related paths on PRs;
 they remain available in main, changed-weekly and full release validation.
 
+## Workflow change impact
+
+Changed-path selection follows a per-workflow impact table (#761). Only `ci.yml`
+selects the live PR lanes (`risk`, `tls`, `charset`, `official`), because it defines
+and runs them. Every other workflow under `.github/` selects the repository-tooling
+lane, whose policy and workflow tests parse and check it; the live lanes of
+`ci.yml` do not execute another workflow's jobs, so running them adds no detection.
+
+| Changed workflow | PR validation |
+| --- | --- |
+| `ci.yml` | All lanes it defines, plus tooling |
+| `integration-full.yml` | Tooling, plus a manual `workflow_dispatch` of `integration-full.yml` on the PR head, linked in the PR |
+| `publish-pypi.yml`, `release-please.yml` | Tooling (release workflow tests) |
+| `bug-hunt.yml`, `python-canary.yml` | Tooling; dispatch when the run itself changes |
+| Other workflows | Tooling; `pr-title.yml` and `docs-sync.yml` also run themselves on the PR |
+
+`tests/test_workflow_path_impact.py` evaluates the filters against every workflow
+file and against representative source, test and documentation paths.
+
 ## Parallel live lanes
 
 `integration-tests`, `integration-charset`, `integration-tls` and
