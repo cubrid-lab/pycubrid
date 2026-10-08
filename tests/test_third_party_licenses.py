@@ -1,8 +1,9 @@
 """THIRD_PARTY_LICENSES.md stays consistent with pyproject.toml (#735).
 
 The inventory is a generated snapshot; this check makes drift visible instead of
-silent: every declared dev/mutation dependency must appear at a version its declared
-range allows, every row's category must be what the generator assigns to its
+silent: every declared dev/mutation dependency must appear (within its declared
+range, unless it is an exact ``==`` pin, which pyproject.toml already records),
+every row's category must be what the generator assigns to its
 license, and every MPL or "Needs review" row must be explained in the prose.
 """
 
@@ -63,6 +64,8 @@ def test_every_declared_dependency_is_inventoried_within_its_range(extra: str) -
     for req in requirements(extra):
         name = canonicalize_name(req.name)
         assert name in rows, f"{name} from .[{extra}] is missing from THIRD_PARTY_LICENSES.md"
+        if any(spec.operator == "==" for spec in req.specifier):
+            continue  # Exact pins are authoritative in pyproject.toml; bumps need no regen.
         version = rows[name]["version"]
         assert req.specifier.contains(version, prereleases=True), (
             f"{name} {version} is outside {req.specifier} declared in pyproject.toml"
@@ -106,6 +109,11 @@ def test_every_review_and_mpl_row_is_explained() -> None:
                 assert f"`{name}`" in categories, f"MPL package {name} not named in the prose"
             else:
                 assert row["category"] == "Permissive", (name, row)
+
+
+def test_reviewed_rows_keep_their_review() -> None:
+    # Transitive rows are not declared in pyproject.toml; pin the reviewed one.
+    assert table("dev")["docutils"]["category"] == "Needs review"
 
 
 def test_no_blanket_permissive_claim_and_runtime_dependency_is_explicit() -> None:

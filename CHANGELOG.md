@@ -69,6 +69,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ### Documentation
+- **License inventory check tolerates exact-pin bumps (#771 follow-up)** —
+  `tests/test_third_party_licenses.py` now checks exact `==` dev pins for
+  presence only, so a Dependabot bump such as `ruff==0.16.11` no longer fails
+  the repository-tooling tests until `THIRD_PARTY_LICENSES.md` is regenerated;
+  declared ranges (e.g. `mutmut>=3.8,<4`) are still enforced, and the reviewed
+  docutils row must keep its "Needs review" category.
 - **Reproducible third-party license inventory (#735)** — `THIRD_PARTY_LICENSES.md`
   is regenerated from fresh `.[dev]` and `.[mutation]` environments at a recorded
   commit, Python and OS by the new standard-library
