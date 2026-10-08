@@ -9395,6 +9395,16 @@ skipping unchanged weeks and retaining its mutation/performance/downstream check
 TLS, EUC-KR and official differential jobs are selected by related paths on PRs;
 they remain available in main, changed-weekly and full release validation.
 
+## Parallel live lanes
+
+`integration-tests`, `integration-charset`, `integration-tls` and
+`official-differential` depend only on `validate-target` and `detect-changes`
+(#760), so they start alongside lint, type checking and offline tests instead of
+after them. `validate-target` stays a dependency because it verifies the manual
+dispatch SHA against the PR head. `ci-gate` still needs every job, so a lint, type or
+offline failure keeps the gate red even when the live lanes pass. The trade-off is
+that a PR that fails lint can still spend live-lane runner time.
+
 ## Job timeouts
 
 Every executing job sets an integer `timeout-minutes` (GitHub's default is 360

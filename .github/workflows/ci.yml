@@ -375,7 +375,8 @@ jobs:
           /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
 
   integration-tests:
-    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
+    # Starts with lint/type/offline (#760); ci-gate still requires all of them.
+    needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.live == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -426,7 +427,8 @@ jobs:
           python scripts/check_integration_lanes.py --results normal-results.xml
 
   integration-charset:
-    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
+    # Starts with lint/type/offline (#760); ci-gate still requires all of them.
+    needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.charset == 'true'
     # EUC-KR database lane (#86): the same CUBRID image with
     # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
@@ -475,7 +477,8 @@ jobs:
           python scripts/check_integration_lanes.py --results charset-results.xml
 
   integration-tls:
-    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
+    # Starts with lint/type/offline (#760); ci-gate still requires all of them.
+    needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.tls == 'true'
     # Per-PR TLS lane (issue #159) — gated on changes to TLS-relevant code
     # paths. Mirrors the integration-tls job in integration-full.yml but with
@@ -630,7 +633,8 @@ jobs:
         run: docker stop cubrid-tls || true
 
   official-differential:
-    needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
+    # Starts with lint/type/offline (#760); ci-gate still requires all of them.
+    needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.official == 'true'
     # Claims-driven differential against the pinned official CUBRIDdb driver
     # (#446): tests/fixtures/official_differential_claims.json, one live case
