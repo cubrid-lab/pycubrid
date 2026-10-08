@@ -64,7 +64,7 @@ def test_every_declared_dependency_is_inventoried_within_its_range(extra: str) -
     for req in requirements(extra):
         name = canonicalize_name(req.name)
         assert name in rows, f"{name} from .[{extra}] is missing from THIRD_PARTY_LICENSES.md"
-        if any(spec.operator == "==" for spec in req.specifier):
+        if any(s.operator in {"==", "==="} and "*" not in s.version for s in req.specifier):
             continue  # Exact pins are authoritative in pyproject.toml; bumps need no regen.
         version = rows[name]["version"]
         assert req.specifier.contains(version, prereleases=True), (
