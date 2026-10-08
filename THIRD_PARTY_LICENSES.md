@@ -24,13 +24,20 @@ below is generated on Linux, where the conditional dependency is not installed.
 
 - **Wheel**: only the `pycubrid` package and its metadata, plus `LICENSE` and
   `NOTICE`. No third-party source code is vendored.
-- **Source distribution**: the same package plus the test suite. Test fixtures
-  contain only material produced for this project: a ledger of upstream test
-  identifiers (`tests/fixtures/upstream_scenarios.csv`), recorded upstream API
-  names and observed behaviour (`official_api_inventory.json`,
-  `official_differential_claims.json`), byte values observed by running CCI
-  (`cci_collection_golden.json`) and self-generated TLS test certificates
-  (`tests/fixtures/tls/generate.sh`). No upstream source file is copied.
+- **Source distribution**: the same package, metadata, `LICENSE` and `NOTICE`,
+  plus the `tests/test_*.py` modules. Test fixtures, `conftest.py` and test
+  helpers are not included in the sdist.
+- **Repository only (not in either distribution)**: test fixtures contain only
+  material produced for this project: a ledger of upstream test identifiers
+  (`tests/fixtures/upstream_scenarios.csv`), recorded upstream API names and
+  observed behaviour (`official_api_inventory.json`,
+  `official_differential_claims.json`, `docs-reason-events.json`), byte values
+  observed by running CCI (`cci_collection_golden.json`) and self-generated TLS
+  test certificates (`tests/fixtures/tls/generate.sh`). No upstream source file
+  is copied into the repository.
+- **Acknowledgments**: `NOTICE` records the reference implementations consulted
+  while writing pycubrid (node-cubrid, the cubrid-python test suite). pycubrid is
+  an independent implementation and vendors none of their code.
 - **Development and test dependencies** are installed by contributors from
   PyPI. pycubrid uses them as tools; it does not bundle or redistribute them.
 
@@ -41,12 +48,14 @@ The inventories below contain three categories:
 - **Permissive**: MIT, MIT-0, BSD-2-Clause, BSD-3-Clause, Apache-2.0 and the
   Python Software Foundation License, as declared by each package. Most
   packages fall here.
-- **Weak (file-level) copyleft: MPL-2.0**: `certifi`, `hypothesis`, `pathspec`.
-  MPL-2.0 is not a permissive license. Its obligations apply to the MPL-covered
-  files themselves: distributing those files, modified or not, requires making
-  their source available under MPL-2.0. These packages appear only in the
-  development and test toolchain, and pycubrid does not distribute them, so using
-  them imposes nothing on pycubrid's MIT-licensed code.
+- **Weak (file-level) copyleft: MPL**: `certifi`, `hypothesis`, `pathspec`, all
+  MPL-2.0. MPL-2.0 is not a permissive license. Its obligations attach to the
+  MPL-covered files themselves: anyone distributing those files, modified or
+  not, must make their source available under MPL-2.0 and keep their notices.
+  Because MPL-2.0 is file-level, it never extends to pycubrid's own files (MPL
+  §3.3, "Larger Work"). Separately, pycubrid does not distribute these
+  packages, since they appear only in the development and test toolchain, so
+  their distribution obligations do not arise for this project.
 - **Needs review**: any package whose metadata mentions a GPL-family license, or
   a license the generator cannot classify. Multiple license classifiers do not say
   whether they combine as "or" or "and", so these are never treated as
@@ -58,11 +67,14 @@ The inventories below contain three categories:
 - **docutils** (0.23, pulled in by `twine` through `readme_renderer`; development
   only). Its metadata carries Public Domain, BSD and GPL classifiers. Its
   `COPYING.rst` places most files in the public domain, with BSD-2-Clause
-  exceptions (`docutils/utils/smartquotes.py`, `docutils/utils/math/latex2mathml.py`,
-  and `docutils/utils/math/math2html.py`, which was relicensed from GPL-3.0+ to
-  BSD-2-Clause for Docutils). The GPL-3.0+ file it lists,
-  `tools/editors/emacs/rst.el`, is not part of the installed package. As
-  installed, docutils is therefore public domain plus BSD-2-Clause.
+  exceptions including `docutils/utils/math/latex2mathml.py`,
+  `docutils/__main__.py` and `docutils/utils/math/math2html.py` (relicensed from
+  GPL-3.0+ to BSD-2-Clause for Docutils). `docutils/utils/smartquotes.py` also
+  carries the original SmartyPants BSD-3-Clause notice, and
+  `utils/_roman_numerals.py` is public domain or 0BSD. The one GPL-3.0+ file it
+  lists, `tools/editors/emacs/rst.el`, is not part of the installed package. As
+  installed, docutils is therefore public domain plus permissive BSD terms
+  (BSD-2-Clause, BSD-3-Clause and 0BSD).
 
 ## Reference test suite
 
@@ -102,8 +114,9 @@ uv pip install -p /tmp/tpl-mutation/bin/python -e ".[mutation]"
 `scripts/generate_third_party_licenses.py` uses only the standard library. It
 reads the PEP 639 `License-Expression` field, then `License ::` classifiers, then
 a short `License` field, and never guesses a license. `tests/test_third_party_licenses.py`
-fails when a dependency declared in `pyproject.toml`, or an exact version pin, is
-missing from or disagrees with these tables.
+fails when a dependency declared in `pyproject.toml` is missing from these tables,
+when a recorded version falls outside its declared range, or when a row's
+category disagrees with what the generator would assign to its license.
 
 ## Development / test dependencies: `.[dev]` (63 packages, not distributed)
 
@@ -168,9 +181,9 @@ missing from or disagrees with these tables.
 | typing_extensions | 4.16.0 | PSF-2.0 | Permissive | https://github.com/python/typing_extensions |
 | urllib3 | 2.8.0 | MIT | Permissive | - |
 | virtualenv | 21.14.6 | MIT | Permissive | https://github.com/pypa/virtualenv |
-| certifi | 2026.7.22 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL-2.0) | https://github.com/certifi/python-certifi |
-| hypothesis | 6.168.5 | MPL-2.0 | Weak copyleft (MPL-2.0) | https://hypothesis.works |
-| pathspec | 1.1.1 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL-2.0) | https://github.com/cpburnz/python-pathspec |
+| certifi | 2026.7.22 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/certifi/python-certifi |
+| hypothesis | 6.168.5 | MPL-2.0 | Weak copyleft (MPL) | https://hypothesis.works |
+| pathspec | 1.1.1 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/cpburnz/python-pathspec |
 | docutils | 0.23 | BSD License / GNU General Public License (GPL) / Public Domain | Needs review | https://docutils.sourceforge.io |
 
 ## Mutation-testing dependencies: `.[mutation]` (19 packages, not distributed)

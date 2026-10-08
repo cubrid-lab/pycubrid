@@ -1,31 +1,38 @@
 """THIRD_PARTY_LICENSES.md stays consistent with pyproject.toml (#735).
 
 The inventory is a generated snapshot; this check makes drift visible instead of
-silent: every declared dev/mutation dependency must appear, exact pins must match,
-and every MPL or "Needs review" row must be explained in the prose.
+silent: every declared dev/mutation dependency must appear at a version its declared
+range allows, every row's category must be what the generator assigns to its
+license, and every MPL or "Needs review" row must be explained in the prose.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import tomllib
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = (ROOT / "THIRD_PARTY_LICENSES.md").read_text(encoding="utf-8")
 PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
 pytestmark = pytest.mark.repo_tooling
 
+_spec = importlib.util.spec_from_file_location(
+    "generate_third_party_licenses", ROOT / "scripts" / "generate_third_party_licenses.py"
+)
+assert _spec and _spec.loader
+generator = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(generator)
+
 SECTIONS = {
     "dev": "## Development / test dependencies: `.[dev]`",
     "mutation": "## Mutation-testing dependencies: `.[mutation]`",
 }
-
-
-def canonical(name: str) -> str:
-    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def table(extra: str) -> dict[str, dict[str, str]]:
@@ -37,27 +44,55 @@ def table(extra: str) -> dict[str, dict[str, str]]:
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) != 5 or cells[0] in {"Name", "---"} or set(cells[0]) <= {"-"}:
             continue
-        rows[canonical(cells[0])] = {"version": cells[1], "license": cells[2], "category": cells[3]}
+        rows[canonicalize_name(cells[0])] = {
+            "version": cells[1],
+            "license": cells[2],
+            "category": cells[3],
+        }
     return rows
 
 
-def requirements(extra: str) -> list[tuple[str, str | None]]:
-    parsed = []
-    for req in PROJECT["optional-dependencies"][extra]:
-        match = re.match(r"\s*([A-Za-z0-9_.-]+)(\[[^\]]*\])?\s*(==\s*([^\s,;]+))?", req)
-        assert match, req
-        parsed.append((canonical(match.group(1)), match.group(4)))
-    return parsed
+def requirements(extra: str) -> list[Requirement]:
+    return [Requirement(req) for req in PROJECT["optional-dependencies"][extra]]
 
 
 @pytest.mark.parametrize("extra", sorted(SECTIONS))
-def test_every_declared_dependency_is_inventoried_with_its_exact_pin(extra: str) -> None:
+def test_every_declared_dependency_is_inventoried_within_its_range(extra: str) -> None:
     rows = table(extra)
     assert len(rows) >= len(requirements(extra))
-    for name, pin in requirements(extra):
+    for req in requirements(extra):
+        name = canonicalize_name(req.name)
         assert name in rows, f"{name} from .[{extra}] is missing from THIRD_PARTY_LICENSES.md"
-        if pin is not None:
-            assert rows[name]["version"] == pin, f"{name} is pinned to {pin} in pyproject.toml"
+        version = rows[name]["version"]
+        assert req.specifier.contains(version, prereleases=True), (
+            f"{name} {version} is outside {req.specifier} declared in pyproject.toml"
+        )
+
+
+@pytest.mark.parametrize("extra", sorted(SECTIONS))
+def test_every_category_matches_the_generator(extra: str) -> None:
+    for name, row in table(extra).items():
+        assert generator.category(row["license"]) == row["category"], (name, row)
+
+
+@pytest.mark.parametrize(
+    ("license_text", "expected"),
+    [
+        ("MIT", "Permissive"),
+        ("Apache-2.0 OR BSD-2-Clause", "Permissive"),
+        ("Mozilla Public License 2.0 (MPL 2.0)", "Weak copyleft (MPL)"),
+        ("MIT AND MPL2", "Weak copyleft (MPL)"),
+        ("MIT or GPLv3", "Needs review"),
+        ("BSD / LGPLv2+", "Needs review"),
+        ("MIT AND CC-BY-SA-4.0", "Needs review"),
+        ("Apache-2.0 AND SSPL-1.0", "Needs review"),
+        ("UNKNOWN", "Needs review"),
+    ],
+)
+def test_generator_never_calls_a_partly_unknown_license_permissive(
+    license_text: str, expected: str
+) -> None:
+    assert generator.category(license_text) == expected
 
 
 def test_every_review_and_mpl_row_is_explained() -> None:

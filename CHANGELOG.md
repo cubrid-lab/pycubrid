@@ -75,11 +75,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `scripts/generate_third_party_licenses.py`. MPL-2.0 packages (`certifi`,
   `hypothesis`, `pathspec`) are now classified separately from permissive
   licenses instead of under a blanket "no copyleft" statement, GPL-family
-  metadata is flagged for review (docutils is resolved from its own `COPYING`),
+  metadata and any partly unrecognised license expression are flagged for review
+  (docutils is resolved from its own `COPYING`),
   and the document separates what pycubrid uses from what it distributes. The
   Windows-only `tzdata` runtime dependency stays explicit.
-  `tests/test_third_party_licenses.py` fails when a declared dependency or exact
-  pin disagrees with the inventory. No runtime change.
+  `tests/test_third_party_licenses.py` fails when a declared dependency is missing,
+  a recorded version falls outside its declared range, or a row's category
+  disagrees with the generator. No runtime change.
 - **The README and quickstart state Python 3.11 or later (#699)** — the
   requirement lines, the supported range (3.11–3.14) and the FAQ answer in
   `README.md` and `docs/README.ko.md`, and the prerequisites in

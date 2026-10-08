@@ -22,13 +22,18 @@ import importlib.metadata as metadata
 import re
 import sys
 
-PERMISSIVE = re.compile(
-    r"\b(MIT|BSD|Apache|ISC|PSF|Python Software Foundation|Unlicense|0BSD)\b", re.IGNORECASE
+# Licence expressions and classifier lists are split into parts; every part must
+# be recognised for an automatic category, otherwise the row needs review.
+PART_SPLIT = re.compile(r"\s+(?:AND|OR|WITH)\s+|\s*/\s*|[()]", re.IGNORECASE)
+PERMISSIVE_PART = re.compile(
+    r"^(?:MIT(?:-0)?(?: License)?|BSD(?:-[23]-Clause)?(?: License)?|0BSD|"
+    r"Apache(?:-2\.0| Software License| License 2\.0)|ISC(?: License)?|PSF-2\.0|"
+    r"Python Software Foundation License|Unlicense|Public Domain)$",
+    re.IGNORECASE,
 )
-MPL = re.compile(r"\b(MPL|Mozilla Public License)\b", re.IGNORECASE)
-# Any GPL-family mention needs a human reading of the package's license files:
-# multiple classifiers do not say whether they combine as OR or AND.
-GPL_FAMILY = re.compile(r"\b(A?GPL|LGPL|General Public License)\b", re.IGNORECASE)
+MPL_PART = re.compile(r"^(?:MPL|Mozilla Public License)", re.IGNORECASE)
+# No closing word boundary: "GPLv3", "LGPLv2+" must match too.
+GPL_FAMILY = re.compile(r"\b(?:A|L)?GPL|General Public License", re.IGNORECASE)
 
 
 def field(dist: metadata.Distribution, key: str) -> str:
@@ -58,13 +63,19 @@ def license_of(dist: metadata.Distribution) -> str:
 
 
 def category(license_text: str) -> str:
+    """Classify a licence string; anything not fully recognised needs review."""
     if GPL_FAMILY.search(license_text):
         return "Needs review"
-    if MPL.search(license_text):
-        return "Weak copyleft (MPL-2.0)"
-    if PERMISSIVE.search(license_text):
-        return "Permissive"
-    return "Needs review"
+    parts = [p.strip() for p in PART_SPLIT.split(license_text) if p and p.strip()]
+    if not parts:
+        return "Needs review"
+    mpl = False
+    for part in parts:
+        if MPL_PART.match(part):
+            mpl = True
+        elif not PERMISSIVE_PART.match(part):
+            return "Needs review"
+    return "Weak copyleft (MPL)" if mpl else "Permissive"
 
 
 def url_of(dist: metadata.Distribution) -> str:
@@ -83,7 +94,7 @@ def rows(exclude: set[str]) -> list[tuple[str, str, str, str, str]]:
             continue
         lic = license_of(dist)
         seen[canonical(name)] = (name, dist.version, lic, category(lic), url_of(dist))
-    order = {"Permissive": 0, "Weak copyleft (MPL-2.0)": 1, "Needs review": 2}
+    order = {"Permissive": 0, "Weak copyleft (MPL)": 1, "Needs review": 2}
     return sorted(seen.values(), key=lambda r: (order[r[3]], canonical(r[0])))
 
 
