@@ -8,6 +8,7 @@ on:
 jobs:
   stale-issues:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.repository == 'cubrid-lab/pycubrid'
     steps:
       - name: Stale issues and PRs

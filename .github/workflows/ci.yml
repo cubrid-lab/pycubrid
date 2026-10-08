@@ -28,6 +28,7 @@ concurrency:
 jobs:
   validate-target:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verify requested manual commit and current PR head
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -56,6 +57,7 @@ jobs:
     needs: validate-target
     name: Detect changed paths
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
@@ -153,6 +155,7 @@ jobs:
     if: needs.detect-changes.outputs.code == 'true'
     name: Public API compatibility
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -172,6 +175,7 @@ jobs:
   lint:
     needs: validate-target
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -205,6 +209,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -230,6 +235,7 @@ jobs:
         os: [ubuntu-latest]
         python-version: ["3.12"]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -288,6 +294,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -310,6 +317,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.live == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -344,6 +352,7 @@ jobs:
     needs: [validate-target, detect-changes, lint, typecheck, offline-tests]
     if: needs.detect-changes.outputs.live == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"python-version":"3.14","cubrid-version":"11.4"}]}' || '{"include":[{"python-version":"3.14","cubrid-version":"11.4"},{"python-version":"3.11","cubrid-version":"10.2"}]}') }}
@@ -393,6 +402,7 @@ jobs:
     # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
     # charset="euckr" round-trip tests that skip against a UTF-8 database.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       cubrid:
         image: cubrid/cubrid:11.4
@@ -439,6 +449,7 @@ jobs:
     # while still catching regressions BEFORE merge. integration-full.yml
     # remains the source of truth for the full TLS matrix.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -682,6 +693,7 @@ jobs:
     name: CI Gate (all checks must pass)
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [validate-target, detect-changes, lint, doc-lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, compat-check, integration-charset, integration-tls, official-differential]
     steps:
       - name: Check selected job results

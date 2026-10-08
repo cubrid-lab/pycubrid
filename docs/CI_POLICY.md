@@ -58,6 +58,30 @@ skipping unchanged weeks and retaining its mutation/performance/downstream check
 TLS, EUC-KR and official differential jobs are selected by related paths on PRs;
 they remain available in main, changed-weekly and full release validation.
 
+## Job timeouts
+
+Every executing job sets an integer `timeout-minutes` (GitHub's default is 360
+minutes), so a hung container, socket or install fails within its budget instead
+of holding a runner for six hours (#758). Short jobs get roughly 3–5× their
+observed maximum Actions duration with a floor: 5 minutes for gates and small jobs,
+10–15 for lint/type/offline/tooling and 20–30 for live integration lanes. The two
+long weekly jobs are explicit exceptions with smaller multipliers. Property/fault/soak
+gets 120 (about 1.9× its observed 63; its soak step is separately capped at 90).
+Mutation testing gets 300, about 2.5× its single successful 120-minute run; this is
+the one documented exception to the 180-minute cap and stays below the 360 default.
+Bounding the mutation scope (sharding) is tracked in #750.
+Aggregate gates (`ci-gate`, `full-matrix-result`) run with `if: always()` and a
+short timeout; a timed-out dependency reports a non-success result
+(`cancelled`/`failure`), which the gate treats as a failure.
+
+Jobs that call a reusable workflow cannot set `timeout-minutes`. Repo-local
+callees (`publish-pypi.yml` → `integration-full.yml`) are covered through their
+own jobs. The externally owned callees are an explicit allowlist in
+`tests/test_workflow_timeouts.py`: the shared `doc-lint` and `codeql` workflows in
+`cubrid-lab/.github`, and the cookbook smoke test. That test parses every
+workflow and fails when an executing job lacks a bounded timeout, or when a new
+external caller is not allowlisted.
+
 ## Python 3.15 preview preparation
 
 `python-canary.yml` is manual-only: supply the full SHA and dispatch the branch
