@@ -202,13 +202,15 @@ jobs:
             # then start it and verify it is up.
             for i in \$(seq 1 10); do
               cubrid broker stop || true
-              if ! cubrid broker status 2>/dev/null | grep -q '^% broker1'; then
+              # Accept absence only on CUBRID's explicit stopped message, not on a
+              # status command that failed and printed nothing.
+              if cubrid broker status 2>&1 | grep -q 'cubrid broker is not running'; then
                 echo 'broker stopped'; break
               fi
               echo \"broker still running, retrying stop (attempt \$i/10)\"
               sleep 3
             done
-            if cubrid broker status 2>/dev/null | grep -q '^% broker1'; then
+            if ! cubrid broker status 2>&1 | grep -q 'cubrid broker is not running'; then
               echo '::error::broker1 did not stop; SSL=ON was not applied'
               exit 1
             fi

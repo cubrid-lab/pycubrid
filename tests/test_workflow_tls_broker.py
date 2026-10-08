@@ -20,8 +20,10 @@ pytestmark = pytest.mark.repo_tooling
 
 WORKFLOWS = ("ci.yml", "integration-full.yml")
 
-# Stub `cubrid`: broker1 keeps running until `broker stop` has been called
-# STOP_FAILS+1 times (or forever when STOP_FAILS is "never"); the database
+# Stub `cubrid` mirroring real 10.2/11.4 output: broker1 keeps running until
+# `broker stop` has been called STOP_FAILS+1 times (or forever when STOP_FAILS is
+# "never"); `broker status` prints CUBRID's stopped message or fails outright when
+# STATUS_FAILS=1; `broker start` refuses an already running broker. The database
 # server always reports itself up so the rest of the script proceeds.
 STUB = r"""#!/usr/bin/env bash
 state="$STATE_DIR"
@@ -32,8 +34,13 @@ case "$1 $2" in
       echo "Cannot inactivate broker [broker1]"; exit 1
     fi
     rm -f "$state/running"; echo "broker stopped" ;;
-  "broker start") touch "$state/running"; touch "$state/started" ;;
-  "broker status") [ -e "$state/running" ] && echo "% broker1" || echo "not running" ;;
+  "broker start")
+    # Real CUBRID refuses to start a broker that is already running.
+    if [ -e "$state/running" ]; then echo "++ cubrid broker is running."; exit 1; fi
+    touch "$state/running"; touch "$state/started" ;;
+  "broker status")
+    if [ "$STATUS_FAILS" = 1 ]; then exit 1; fi
+    if [ -e "$state/running" ]; then echo "% broker1"; else echo "++ cubrid broker is not running."; fi ;;
   "server status") echo "Server testdb (rel 11.4)" ;;
   "server start") : ;;
 esac
@@ -54,7 +61,9 @@ def _setup_script(wf: str) -> str:
     return body.group(1).replace("\\$", "$").replace('\\"', '"')
 
 
-def _run(wf: str, tmp_path: Path, stop_fails: str) -> subprocess.CompletedProcess:
+def _run(
+    wf: str, tmp_path: Path, stop_fails: str, status_fails: str = "0"
+) -> subprocess.CompletedProcess:
     if shutil.which("bash") is None:
         pytest.skip("workflow shell requires bash")
     bin_dir = tmp_path / "bin"
@@ -72,6 +81,7 @@ def _run(wf: str, tmp_path: Path, stop_fails: str) -> subprocess.CompletedProces
         "CUBRID": str(tmp_path),
         "STATE_DIR": str(tmp_path),
         "STOP_FAILS": stop_fails,
+        "STATUS_FAILS": status_fails,
     }
     return subprocess.run(
         ["bash", "-c", script], env=env, text=True, capture_output=True, timeout=30
@@ -99,3 +109,13 @@ def test_clean_restart_succeeds(wf: str, tmp_path: Path) -> None:
     done = _run(wf, tmp_path, stop_fails="0")
     assert done.returncode == 0, done.stdout + done.stderr
     assert (tmp_path / "started").exists()
+
+
+@pytest.mark.parametrize("wf", WORKFLOWS)
+def test_failing_status_is_not_mistaken_for_a_stopped_broker(wf: str, tmp_path: Path) -> None:
+    # broker1 never stops and `broker status` errors without output: the script
+    # must not treat that as absence and must never start a second broker.
+    done = _run(wf, tmp_path, stop_fails="never", status_fails="1")
+    assert done.returncode != 0
+    assert "broker1 did not stop" in done.stdout
+    assert not (tmp_path / "started").exists()
