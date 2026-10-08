@@ -240,3 +240,19 @@ def test_manual_validation_is_forced_and_preflight_precedes_execution(filename: 
                 "github.event_name == 'workflow_dispatch' ||"
                 in jobs["detect-changes"]["outputs"][key]
             )
+
+
+LIVE_JOBS = ("integration-tests", "integration-charset", "integration-tls", "official-differential")
+
+
+@pytest.mark.parametrize("name", LIVE_JOBS)
+def test_live_lanes_start_without_waiting_for_static_and_offline_jobs(name: str) -> None:
+    # #760: live lanes run in parallel with lint/typecheck/offline-tests, but keep
+    # validate-target (manual SHA/PR-head verification) and detect-changes.
+    needs = workflow("ci.yml")["jobs"][name]["needs"]
+    assert needs == ["validate-target", "detect-changes"], name
+
+
+def test_gate_still_requires_static_and_offline_jobs() -> None:
+    needs = set(gate()["needs"])
+    assert {"lint", "typecheck", "offline-tests", *LIVE_JOBS} <= needs

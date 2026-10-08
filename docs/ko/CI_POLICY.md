@@ -61,6 +61,15 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 따라 선택되며, main, 변경이 있는 주간 실행, 전체 릴리스 검증에서 계속 사용할 수
 있습니다.
 
+## 병렬 라이브 레인
+
+`integration-tests`, `integration-charset`, `integration-tls`, `official-differential`은
+`validate-target`과 `detect-changes`에만 의존하므로(#760), lint, 타입 검사, 오프라인
+테스트가 끝난 뒤가 아니라 함께 시작합니다. `validate-target`은 수동 실행 SHA를 PR head와
+대조하므로 의존성으로 유지합니다. `ci-gate`는 여전히 모든 잡을 요구하므로 라이브 레인이
+통과해도 lint, 타입, 오프라인 실패가 있으면 게이트는 실패합니다. 대신 lint에 실패한 PR도
+라이브 레인 러너 시간을 쓸 수 있습니다.
+
 ## 잡 타임아웃
 
 실행되는 모든 잡은 정수 `timeout-minutes`를 지정합니다(GitHub 기본값은 360분).

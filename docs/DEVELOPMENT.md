@@ -875,11 +875,14 @@ so that elapsed time mainly illustrates queue variance, not a cache comparison.
 | `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9s–24s | Lint/typecheck install dev tools; compat installs the package only (3s), packaging installs `build` (2s). |
 | `doc-lint` (reusable) | path-gated on docs changes | 2s–8s per sub-step | Skips entirely when no Markdown/`docs/**` changed. |
 
-The `needs:` graph has parallel roots: `detect-changes`, the offline matrix,
-lint, typecheck, repository tooling and compat-check. In the baseline run,
-offline jobs started *before* `detect-changes` finished. Packaging waits for
-all offline cells; the container-based jobs then wait for packaging, offline,
-lint, typecheck and `detect-changes`, and `ci-gate` waits for their results.
+In this baseline run, the `needs:` graph had parallel roots: `detect-changes`,
+the offline matrix, lint, typecheck, repository tooling and compat-check, and
+offline jobs started *before* `detect-changes` finished. Packaging waited for all
+offline cells, and the container-based jobs then waited for packaging, offline,
+lint, typecheck and `detect-changes`. The live lanes now start right after
+`validate-target` and `detect-changes`, alongside the static and offline jobs
+(see [Parallel live lanes](CI_POLICY.md#parallel-live-lanes)); `ci-gate` still
+waits for every result.
 Queue time and the slowest prerequisite branch also affect workflow elapsed
 time; a simple sum of job durations is not the critical path.
 
