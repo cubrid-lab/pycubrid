@@ -119,3 +119,4 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
+import os  # TEMP: deliberate lint failure for #760 evidence, reverted next commit
