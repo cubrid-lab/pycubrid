@@ -9402,10 +9402,13 @@ minutes), so a hung container, socket or install fails within its budget instead
 of holding a runner for six hours (#758). Budgets are roughly 3–5× the observed
 maximum Actions duration with a floor: 5 minutes for gates and small jobs, 10–15
 for lint/type/offline/tooling, 20–30 for live integration lanes, 120 for the
-weekly property/fault/soak job (its soak step is separately capped at 90) and 180
-for weekly mutation testing (a successful run has taken 120). Aggregate gates
-(`ci-gate`, `full-matrix-result`) run with `if: always()` and a short timeout; a
-timed-out dependency reports `cancelled`, which the gate treats as a failure.
+weekly property/fault/soak job (its soak step is separately capped at 90) and 300
+for weekly mutation testing. The mutation budget is the one documented exception to
+the 180-minute cap: it rests on a single successful 120-minute run, so it keeps 2.5×
+headroom below the 360 default; bounding its scope (sharding) is tracked in #750.
+Aggregate gates (`ci-gate`, `full-matrix-result`) run with `if: always()` and a
+short timeout; a timed-out dependency reports a non-success result
+(`cancelled`/`failure`), which the gate treats as a failure.
 
 Jobs that call a reusable workflow cannot set `timeout-minutes`. Repo-local
 callees (`publish-pypi.yml` → `integration-full.yml`) are covered through their

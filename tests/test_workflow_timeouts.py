@@ -20,6 +20,11 @@ pytestmark = pytest.mark.repo_tooling
 MAX_TIMEOUT_MINUTES = 180
 GATE_MAX_TIMEOUT_MINUTES = 10
 
+# Documented exceptions above MAX_TIMEOUT_MINUTES (docs/CI_POLICY.md). Weekly
+# mutation testing has one successful run at 120 minutes; keep it bounded below
+# GitHub's 360-minute default rather than cut healthy runs.
+JOB_MAX_OVERRIDES = {("bug-hunt.yml", "mutation"): 300}
+
 # Reusable workflows owned outside this repository. Their timeouts are set (or
 # tracked) in the owning repository, not here. Keep entries exact.
 EXTERNAL_REUSABLE_CALLERS = {
@@ -35,7 +40,7 @@ GATES = {("ci.yml", "ci-gate"), ("integration-full.yml", "full-matrix-result")}
 
 def _jobs() -> list[tuple[str, str, dict]]:
     found = []
-    for path in sorted(WORKFLOWS.glob("*.yml")):
+    for path in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
         for name, job in yaml.safe_load(path.read_text())["jobs"].items():
             found.append((path.name, name, job))
     return found
@@ -60,7 +65,8 @@ def test_executing_job_has_bounded_integer_timeout(wf: str, name: str, job: dict
     assert isinstance(timeout, int) and not isinstance(timeout, bool), (
         f"{wf}:{name} must set an integer timeout-minutes (default would be 360)"
     )
-    assert 1 <= timeout <= MAX_TIMEOUT_MINUTES, f"{wf}:{name} timeout {timeout} out of range"
+    limit = JOB_MAX_OVERRIDES.get((wf, name), MAX_TIMEOUT_MINUTES)
+    assert 1 <= timeout <= limit, f"{wf}:{name} timeout {timeout} out of range"
 
 
 @pytest.mark.parametrize(("wf", "name", "job"), _params(CALLERS))
@@ -83,11 +89,21 @@ def test_reusable_caller_is_local_or_allowlisted(wf: str, name: str, job: dict) 
 def test_allowlist_has_no_stale_entries() -> None:
     callers = {(wf, name) for wf, name, _ in CALLERS}
     assert set(EXTERNAL_REUSABLE_CALLERS) <= callers
+    for wf, name, job in CALLERS:
+        if (wf, name) in EXTERNAL_REUSABLE_CALLERS:
+            assert not job["uses"].startswith("./"), f"{wf}:{name} is local; drop it from the list"
+
+
+def test_overrides_have_no_stale_entries() -> None:
+    executing = {(wf, name) for wf, name, _ in EXECUTING}
+    assert set(JOB_MAX_OVERRIDES) <= executing
 
 
 @pytest.mark.parametrize(("wf", "name"), sorted(GATES))
 def test_aggregate_gates_have_short_timeouts(wf: str, name: str) -> None:
     job = yaml.safe_load((WORKFLOWS / wf).read_text())["jobs"][name]
-    assert job.get("timeout-minutes", 0) <= GATE_MAX_TIMEOUT_MINUTES
-    # A timed-out dependency reports `cancelled`; the gate must still run and fail.
-    assert "always()" in str(job.get("if", ""))
+    timeout = job.get("timeout-minutes")
+    assert isinstance(timeout, int) and 1 <= timeout <= GATE_MAX_TIMEOUT_MINUTES
+    # A timed-out dependency reports a non-success result; the gate must still run.
+    # tests/test_ci_policy.py proves both gates fail on `cancelled` and `failure`.
+    assert str(job.get("if", "")).strip() in {"always()", "${{ always() }}"}
