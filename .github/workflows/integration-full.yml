@@ -94,13 +94,18 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
       - name: Run integration tests
@@ -133,13 +138,18 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Start CUBRID broker with SSL=ON
         run: |
           set -euxo pipefail
@@ -316,13 +326,18 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.14"
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
       - name: Run EUC-KR charset integration tests
@@ -406,13 +421,18 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         with:
           python-version: "3.14"
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Wait for every CUBRID of the matrix
         run: |
           set -euo pipefail
@@ -476,14 +496,19 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
         id: python
         with:
           python-version: "3.11"
       - name: Install pycubrid
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
       - name: Restore the official oracle build
         id: oracle-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4

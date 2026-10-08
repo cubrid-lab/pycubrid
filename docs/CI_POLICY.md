@@ -82,6 +82,21 @@ own jobs. The externally owned callees are an explicit allowlist in
 workflow and fails when an executing job lacks a bounded timeout, or when a new
 external caller is not allowlisted.
 
+## Dependency installation
+
+`ci.yml` and `integration-full.yml` install dependencies with uv (#759): each
+Python job runs `astral-sh/setup-uv` pinned to a commit SHA, with uv itself pinned
+(`version: "0.12.17"`) and uv's cache keyed on `pyproject.toml`, then
+`uv pip install --system` into the `actions/setup-python` interpreter, and logs the
+result with `uv pip freeze --system`. Only the installer changes. Resolution
+follows the same `pyproject.toml` constraints: before the switch, `.[dev]` on
+Python 3.12 resolved to the same 63 packages and versions with pip and uv (after
+PEP 503 name normalization). The packaging smoke test keeps plain `pip` in its
+throwaway virtual environments, because it proves the built wheel and sdist install
+with the tool end users run. `python-canary.yml` also stays on `pip` for preview
+interpreters. `tests/test_workflow_installs.py` enforces the pinned uv setup, the
+version log, and that no other `pip install` remains in these workflows.
+
 ## Python 3.15 preview preparation
 
 `python-canary.yml` is manual-only: supply the full SHA and dispatch the branch
