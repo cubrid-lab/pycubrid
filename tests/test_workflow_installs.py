@@ -52,8 +52,8 @@ def test_job_sets_up_pinned_uv_with_cache(wf: str, name: str, steps: list) -> No
     assert uv[0]["with"]["version"] == UV_VERSION
     assert uv[0]["with"]["enable-cache"] == WORKFLOWS[wf]
     assert uv[0]["with"]["cache-dependency-glob"] == "pyproject.toml"
-    # One cache per job (different extras), and setup-uv must run after
-    # setup-python so its key carries the job's interpreter, not the runner's.
+    # One cache per job (different extras). setup-uv follows setup-python and both
+    # share one python-version spec, so UV_PYTHON resolves to setup-python's interpreter.
     assert uv[0]["with"]["cache-suffix"] == "${{ github.job }}"
     python = next(s for s in steps if "actions/setup-python@" in str(s.get("uses", "")))
     assert steps.index(python) < steps.index(uv[0]), f"{wf}:{name} set up Python first"
