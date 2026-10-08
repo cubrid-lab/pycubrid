@@ -160,14 +160,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: "3.12"
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid (import-only)
         run: |
           uv pip install --system -e .
@@ -183,14 +184,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: "3.12"
+          cache-suffix: ${{ github.job }}
       - name: Install pinned ruff from pyproject.toml
         run: |
           uv pip install --system -e ".[dev]"
@@ -222,14 +224,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: "3.12"
+          cache-suffix: ${{ github.job }}
       - name: Install dependencies
         run: |
           uv pip install --system -e ".[dev]"
@@ -251,14 +254,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: ${{ matrix.python-version }}
+          cache-suffix: ${{ github.job }}
       - name: Install dependencies
         shell: bash
         run: |
@@ -313,14 +317,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: "3.12"
+          cache-suffix: ${{ github.job }}
       - name: Install dependencies
         shell: bash
         run: |
@@ -339,14 +344,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: "3.12"
+          cache-suffix: ${{ github.job }}
       - name: Install build tool
         run: |
           uv pip install --system build
@@ -393,14 +399,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: ${{ matrix.python-version }}
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
           uv pip install --system -e ".[dev]"
@@ -444,14 +451,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.14"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: "3.14"
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
           uv pip install --system -e ".[dev]"
@@ -485,14 +493,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        with:
-          python-version: ${{ matrix.python-version }}
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
           uv pip install --system -e ".[dev]"
@@ -659,15 +668,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        id: python
+        with:
+          python-version: "3.11"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
-        id: python
-        with:
-          python-version: "3.11"
+          cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
           uv pip install --system -e ".[dev]"
