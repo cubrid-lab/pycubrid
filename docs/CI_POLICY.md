@@ -62,13 +62,14 @@ they remain available in main, changed-weekly and full release validation.
 
 Every executing job sets an integer `timeout-minutes` (GitHub's default is 360
 minutes), so a hung container, socket or install fails within its budget instead
-of holding a runner for six hours (#758). Budgets are roughly 3–5× the observed
-maximum Actions duration with a floor: 5 minutes for gates and small jobs, 10–15
-for lint/type/offline/tooling, 20–30 for live integration lanes, 120 for the
-weekly property/fault/soak job (its soak step is separately capped at 90) and 300
-for weekly mutation testing. The mutation budget is the one documented exception to
-the 180-minute cap: it rests on a single successful 120-minute run, so it keeps 2.5×
-headroom below the 360 default; bounding its scope (sharding) is tracked in #750.
+of holding a runner for six hours (#758). Short jobs get roughly 3–5× their
+observed maximum Actions duration with a floor: 5 minutes for gates and small jobs,
+10–15 for lint/type/offline/tooling and 20–30 for live integration lanes. The two
+long weekly jobs are explicit exceptions with smaller multipliers. Property/fault/soak
+gets 120 (about 1.9× its observed 63; its soak step is separately capped at 90).
+Mutation testing gets 300, about 2.5× its single successful 120-minute run; this is
+the one documented exception to the 180-minute cap and stays below the 360 default.
+Bounding the mutation scope (sharding) is tracked in #750.
 Aggregate gates (`ci-gate`, `full-matrix-result`) run with `if: always()` and a
 short timeout; a timed-out dependency reports a non-success result
 (`cancelled`/`failure`), which the gate treats as a failure.
