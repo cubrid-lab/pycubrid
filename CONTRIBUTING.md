@@ -106,6 +106,10 @@ stays green, since the pre-commit hooks always run whatever is installed.
 4. Run integration tests for connection/protocol-related updates.
 5. Update `CHANGELOG.md` for user-visible changes.
 
+`.github/CODEOWNERS` requests maintainer review automatically for release, CI,
+security-policy and wire-protocol/connection paths. It only routes reviews: it is
+not a security boundary, and other changes do not wait on a code owner.
+
 Outside contributors provide motivation, implementation, tests and affected docs.
 Maintainers coordinate internal Oracle/agent reviews, integration coverage and
 release classification. These project tools are not an installation prerequisite

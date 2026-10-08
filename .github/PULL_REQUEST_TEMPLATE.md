@@ -16,6 +16,10 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 
 -
 
+## Scope and Non-goals
+
+<!-- What this PR deliberately does not change; defer out-of-scope findings to a separate issue -->
+
 ## Type of Change
 
 <!-- Check the relevant option -->
@@ -46,6 +50,8 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 Commands actually run and results:
 
 Checks not run and reasons:
+
+Live CUBRID evidence (connection/protocol/SQL changes; CUBRID version and command, or "not applicable"):
 
 Optional AI review (tool/findings; separate from executed tests):
 
