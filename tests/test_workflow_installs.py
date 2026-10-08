@@ -57,6 +57,9 @@ def test_job_sets_up_pinned_uv_with_cache(wf: str, name: str, steps: list) -> No
     assert uv[0]["with"]["cache-suffix"] == "${{ github.job }}"
     python = next(s for s in steps if "actions/setup-python@" in str(s.get("uses", "")))
     assert steps.index(python) < steps.index(uv[0]), f"{wf}:{name} set up Python first"
+    # The cache key must carry the job's Python spec (e.g. "3.12"), not the patch
+    # release `uv python find` reports, which drifts across runner images.
+    assert uv[0]["with"]["python-version"] == python["with"]["python-version"]
     assert "cache" not in python.get("with", {}), "pip cache is unused once uv installs"
 
 
