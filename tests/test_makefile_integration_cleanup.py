@@ -185,14 +185,16 @@ def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_na
     import signal
     import time
 
-    # Reuse the normal command stubs, then block inside the readiness probe.
+    # Reuse the normal command stubs, then block inside the readiness probe only; any
+    # other $(PYTHON) call exits 0 so a skipped trap fails fast, not after the timeout.
     _run_make(tmp_path, target)
     log = tmp_path / "docker.log"
     log.write_text("")
     ready = tmp_path / "ready"
     stub_python = tmp_path / "python-stub"
     stub_python.write_text(
-        '#!/bin/sh\ntrap "exit 0" USR1\n'
+        '#!/bin/sh\ncase "$1" in *wait_for_cubrid.py) ;; *) exit 0 ;; esac\n'
+        'trap "exit 0" USR1\n'
         'printf "%s %s" "$$" "$PPID" > "$REVIEW_READY.tmp"\n'
         'mv "$REVIEW_READY.tmp" "$REVIEW_READY"\n'
         "while :; do sleep 0.02; done\n"
@@ -205,17 +207,38 @@ def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_na
         REVIEW_DOWN_EXIT="0",
         REVIEW_PYTEST_EXIT="0",
     )
+
+    def _default_signals() -> None:
+        # A non-interactive shell starts `cmd &` jobs with SIGINT ignored, and POSIX
+        # forbids a shell from trapping a signal that was ignored on entry. Reset the
+        # dispositions so the recipe's `trap ... INT TERM` is what the test exercises,
+        # however pytest itself was launched (#775).
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
     process = subprocess.Popen(
-        ["make", "-f", str(MAKEFILE), target, f"PYTHON={stub_python}"],
+        [
+            "make",
+            "-f",
+            str(MAKEFILE),
+            target,
+            f"PYTEST={tmp_path / 'pytest-stub'}",
+            f"PYTHON={stub_python}",
+        ],
         cwd=tmp_path,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
+        preexec_fn=_default_signals,
     )
+    # Upper bounds only: both waits end as soon as the stub or make finishes (well
+    # under a second when idle). They are generous so CPU contention from parallel
+    # suites cannot turn a slow fork/exec chain into a false failure.
+    timeout = 60
     try:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + timeout
         while not ready.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert ready.exists(), "readiness stub did not start"
@@ -223,7 +246,7 @@ def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_na
         os.kill(recipe_shell, getattr(signal, signal_name))
         # POSIX shells defer traps while waiting; release the controlled child.
         os.kill(child, signal.SIGUSR1)
-        stdout, stderr = process.communicate(timeout=5)
+        stdout, stderr = process.communicate(timeout=timeout)
         assert process.returncode != 0
         assert "Error 130" in stderr, stdout + stderr
         assert "compose down" in log.read_text()

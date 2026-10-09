@@ -129,6 +129,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   IPv6 literals such as `[::1]` still parse and keep their host and port. This
   is a contributor tooling fix; the driver is unchanged.
 
+### Tests
+- **Makefile signal-cleanup test no longer depends on how pytest was launched
+  (#775)** — `test_signal_cleanup_preserves_volumes[SIGINT-*]` failed every time
+  pytest ran as a background job of a non-interactive shell (for example two
+  suites started with `&`). Such jobs inherit SIGINT as ignored, and POSIX does
+  not let a shell trap a signal that was ignored on entry, so the recipe's
+  `trap ... INT TERM` never ran. The test now starts `make` with SIGINT and
+  SIGTERM at their default dispositions, passes the pytest stub so a regression
+  cannot fall through to a real pytest run, and raises its wait bounds from 5 s
+  to 60 s. The Python stub now blocks only for the `wait_for_cubrid.py`
+  readiness probe and exits 0 for any other call, so a skipped trap fails fast
+  (under 1 s) with the real assertion instead of hanging until the 60 s wait
+  expires. The assertions are unchanged, and the `Makefile` is unchanged.
+
 ### Documentation
 - **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the
   old "Project Context — Performance Loop System" snapshot (R2/R3 phases, the
