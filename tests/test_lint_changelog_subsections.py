@@ -24,7 +24,7 @@ def test_duplicate_subsection_is_rejected(tmp_path: Path, release: str, heading:
     )
     result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
     assert result.returncode == 1
-    assert f"Duplicate subsection '### {heading}' in [{release}]" in result.stderr
+    assert f"Duplicate subsection heading '### {heading}' in [{release}]" in result.stderr
 
 
 def test_same_subsection_across_releases_is_valid(tmp_path: Path) -> None:
@@ -105,3 +105,37 @@ def test_cutoff_and_older_releases_keep_historical_sections(tmp_path: Path, rele
         "### Fixed\n- C\n### Added\n- D\n### Release automation\n",
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_fenced_lines_are_content_not_headings(tmp_path: Path) -> None:
+    result = run_lint(
+        tmp_path, "## [Unreleased]\n### Added\n```\n### Docs\n```\n### Fixed\n- Entry\n"
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_fenced_release_header_is_rejected(tmp_path: Path) -> None:
+    # extract_release_notes.py is not fence-aware, so a fenced "## [9.9.9]" would truncate
+    # the Release body; it fails closed instead of being read as content.
+    result = run_lint(
+        tmp_path, "## [Unreleased]\n### Added\n```\n## [9.9.9]\n### Added\n```\n### Added\n- x\n"
+    )
+    assert result.returncode == 1
+    assert "ERROR: Release header inside an open code fence in CHANGELOG.md" in result.stderr
+
+
+def test_fenced_duplicate_heading_is_content(tmp_path: Path) -> None:
+    # Rule 5 skips fenced lines: a fenced "### Added" is not a second heading.
+    result = run_lint(tmp_path, "## [Unreleased]\n### Added\n```\n### Added\n```\n- x\n")
+    assert result.returncode == 0, result.stderr
+
+
+def test_unclosed_code_fence_is_rejected(tmp_path: Path) -> None:
+    # An unclosed fence would otherwise hide every later heading from rules 5 and 6.
+    result = run_lint(
+        tmp_path,
+        "## [Unreleased]\n### Added\n```python\nx = 1\n### Docs\n- a\n### Fixed\n- b\n"
+        "### Fixed\n- c\n",
+    )
+    assert result.returncode == 1
+    assert "ERROR: Unclosed code fence in CHANGELOG.md" in result.stderr
