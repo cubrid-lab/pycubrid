@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import ipaddress
 import json
 import os
 import platform
@@ -86,6 +87,10 @@ def _redact_url(url: str) -> str:
     try:
         parts = urlsplit(url)
         port = parts.port  # Validate even when no password was supplied.
+        if "[" in parts.netloc.rpartition("@")[2]:
+            # Older urllib.parse releases (e.g. 3.11.1) accept any bracketed
+            # host; only a real IPv6 literal is parseable on every interpreter.
+            ipaddress.IPv6Address(parts.hostname or "")
         if parts.password is None:
             return sanitize(url)
         host = parts.hostname or ""

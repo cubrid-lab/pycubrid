@@ -328,6 +328,60 @@ def test_url_only_malformed_authority_still_redacts_standalone_credential_hints(
 
 
 @pytest.mark.parametrize(
+    "url",
+    [
+        "cubrid://user:syntheticsecret@[bad]/db",
+        "cubrid://user:syntheticsecret@[bad]:33000/db",
+        "cubrid://user@[bad]/db",
+        "cubrid://user:syntheticsecret@[127.0.0.1]/db",
+    ],
+)
+def test_bracketed_non_ipv6_host_is_unparseable_on_every_interpreter(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    # Early 3.11 patch releases accept any bracketed host; the script decides itself.
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    assert collect_repro._redact_url(url) == "<unparseable-url-redacted>"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "cubrid://user:syntheticsecret@[::1]:33000/db",
+            "cubrid://user:***@[::1]:33000/db",
+        ),
+        ("cubrid://user:syntheticsecret@[FE80::1]/db", "cubrid://user:***@[fe80::1]/db"),
+        ("cubrid://user@[::1]:33000/db", "cubrid://user@[::1]:33000/db"),
+    ],
+)
+def test_bracketed_ipv6_literal_still_parses_and_redacts(
+    monkeypatch: pytest.MonkeyPatch, url: str, expected: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    redacted = collect_repro._redact_url(url)
+    assert redacted == expected
+    assert "syntheticsecret" not in redacted
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["cubrid://user:syntheticsecret@[bad]/db", "cubrid://user:syntheticsecret@[::1]:33000/db"],
+)
+def test_bracketed_host_secret_never_reaches_the_bundle(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", f"connect {url} syntheticsecret")
+    collect_repro.main()
+    persisted = (bundle / "metadata.json").read_text() + (bundle / "reproduce.md").read_text()
+    assert "syntheticsecret" not in persisted
+
+
+@pytest.mark.parametrize(
     "state", ["missing", "malformed", "sha", "endpoint", "unavailable", "redacted", "observed"]
 )
 def test_sidecar_identity_is_verified_not_inferred(
