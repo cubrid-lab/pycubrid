@@ -663,3 +663,76 @@ def test_bug_hunt_keeps_its_activity_guard_and_non_pr_triggers() -> None:
         if name != "activity":
             assert body["if"] == "needs.activity.outputs.changed == 'true'", name
     assert "7 days ago" in jobs["activity"]["steps"][-1]["run"]
+
+
+# --- #786: documentation site build on pull requests ------------------------
+
+
+def test_docs_build_job_mirrors_docs_workflow_and_stays_build_only() -> None:
+    job = workflow("ci.yml")["jobs"]["docs-build"]
+    assert job["needs"] == "detect-changes"
+    assert job["if"] == "needs.detect-changes.outputs.site == 'true'"
+    assert job["timeout-minutes"] == 10
+    assert "permissions" not in job, "inherits the read-only workflow permissions"
+    assert "environment" not in job
+    steps = job["steps"]
+    checkout = next(s for s in steps if s["uses"].startswith("actions/checkout@"))
+    assert checkout["with"]["persist-credentials"] is False
+    assert checkout["with"]["ref"] == "${{ inputs.sha || github.sha }}"
+    for step in steps:
+        if "uses" in step:
+            assert len(step["uses"].split("@", 1)[1].split()[0]) == 40, step["uses"]
+            assert "pages" not in step["uses"], "PRs never upload or deploy a Pages artifact"
+    runs = [s["run"] for s in steps if "run" in s]
+    assert "uv pip install --system -r docs/requirements.txt" in runs[0]
+    # Same order and commands as docs.yml's build job.
+    docs_runs = [s["run"] for s in workflow("docs.yml")["jobs"]["build"]["steps"] if "run" in s]
+    assert (
+        runs[1:]
+        == docs_runs[1:]
+        == [
+            "python scripts/generate_llms_full.py",
+            "mkdocs build --strict",
+        ]
+    )
+    assert docs_runs[0] == "pip install -r docs/requirements.txt"
+
+
+def test_docs_site_selection_covers_every_site_input() -> None:
+    filters = yaml.safe_load(
+        workflow("ci.yml")["jobs"]["detect-changes"]["steps"][-1]["with"]["filters"]
+    )
+    assert set(filters["site"]) == {
+        "docs/**",  # content, nav assets and docs/requirements.txt
+        "mkdocs.yml",
+        "scripts/generate_llms_full.py",
+        ".github/workflows/docs.yml",
+        ".github/workflows/ci.yml",
+    }
+
+
+def test_docs_site_output_is_forced_only_for_manual_dispatch() -> None:
+    out = DETECT["outputs"]["site"]
+    assert "github.event_name == 'workflow_dispatch' ||" in out
+    assert "steps.filter.outputs.site == 'true'" in out
+    assert "reuse" not in out
+
+
+def test_gate_expects_docs_build_exactly_when_the_site_is_selected() -> None:
+    env = gate()["steps"][0]["env"]
+    assert env["E_DOCS_BUILD"] == "${{ needs.detect-changes.outputs.site }}"
+    assert env["R_DOCS_BUILD"] == "${{ needs.docs-build.result }}"
+    assert "docs-build" in gate()["needs"]
+    assert 'check docs-build "$R_DOCS_BUILD" "$E_DOCS_BUILD"' in gate()["steps"][0]["run"]
+
+
+def test_docs_only_change_that_selects_the_site_passes_only_with_a_green_build() -> None:
+    base = {"validate-target", "detect-changes", "lint", "doc-lint", "docs-build"}
+    assert run_gate(base, {}).returncode == 0
+    for result in ("failure", "cancelled", "skipped"):
+        completed = run_gate(base, {"docs-build": result})
+        assert completed.returncode != 0
+        assert f"docs-build expected success, got {result}" in completed.stdout
+    # Not selected: a skipped build passes, a failed one still blocks.
+    assert run_gate(base - {"docs-build"}, {}).returncode == 0
+    assert run_gate(base - {"docs-build"}, {"docs-build": "failure"}).returncode != 0

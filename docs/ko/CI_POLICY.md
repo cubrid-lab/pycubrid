@@ -337,7 +337,21 @@ uv 설정, 버전 기록, 그리고 이 워크플로들에 다른 `pip install`�
 `mkdocs`, `mkdocs-material`, `pymdown-extensions`를 정확한 버전으로 고정하므로(#782)
 upstream 릴리스가 저장소 변경 없이 `mkdocs build --strict` 게이트를 깨뜨릴 수
 없습니다. Dependabot(pip, `/docs`)이 갱신을 제안하며, `mkdocs.yml`은 이 파일을 게시
-사이트에서 제외합니다. 사이트를 빌드하는 다른 워크플로는 없습니다.
+사이트에서 제외합니다.
+
+`ci.yml`은 풀 리퀘스트에서도 사이트를 빌드합니다(#786). 따라서 `mkdocs build --strict`를
+깨뜨리는 버전 갱신이나 문서 수정은 나중에 `main`에서가 아니라 병합 전에 실패합니다.
+`docs-build` 작업은 `site` 경로 필터로 선택됩니다: `docs/**`(콘텐츠와
+`docs/requirements.txt`), `mkdocs.yml`, `scripts/generate_llms_full.py`,
+`.github/workflows/docs.yml`, `.github/workflows/ci.yml`. 루트 `*.md` 파일은 사이트
+입력이 아니므로(변경 이력은 링크일 뿐 포함되지 않음) 이 작업을 선택하지 않으며,
+`workflow_dispatch`는 다른 레인처럼 이 작업을 강제로 선택합니다. 이 작업은 `docs.yml`의
+빌드 단계(`docs/requirements.txt` 설치, `scripts/generate_llms_full.py`,
+`mkdocs build --strict`)를 읽기 전용 권한, 고정된 액션, 10분 타임아웃,
+`persist-credentials: false`로 실행하며 Pages 아티팩트를 올리거나 배포하지 않습니다.
+`CI Gate`는 `site`가 선택된 경우에만 `docs-build`의 성공을 요구하고 그 외에는 건너뜀을
+허용하므로, 필수 `CI Gate` 검사가 깨진 문서 빌드를 막습니다.
+`tests/test_ci_policy.py`와 `tests/test_workflow_path_impact.py`가 이를 검증합니다.
 
 `codeql.yml`과 `security.yml`은 호출부 수준 `concurrency`를 선언합니다. 그룹은
 `${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}`, 설정은

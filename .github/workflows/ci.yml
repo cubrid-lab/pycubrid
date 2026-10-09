@@ -68,6 +68,7 @@ jobs:
     outputs:
       code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
+      site: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.site == 'true' }}
       tooling: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.tooling == 'true' && steps.reuse.outputs.tooling != 'true' }}
       risk: ${{ steps.filter.outputs.risk }}
       live: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
@@ -131,6 +132,12 @@ jobs:
             docs:
               - '**/*.md'
               - 'docs/**'
+            site:
+              - 'docs/**'
+              - 'mkdocs.yml'
+              - 'scripts/generate_llms_full.py'
+              - '.github/workflows/docs.yml'
+              - '.github/workflows/ci.yml'
             code:
               - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes}'
             risk:
@@ -193,6 +200,39 @@ jobs:
       exclude: "node_modules/,vendor/"
       fail-on-issue: false  # advisory mode during initial rollout
 
+
+  docs-build:
+    # #786: build the site on pull requests exactly as docs.yml does on main, so a
+    # broken `mkdocs build --strict` (or a docs-tool pin bump) fails before merge.
+    # Build only: nothing is uploaded or deployed from this job.
+    name: Documentation site build
+    needs: detect-changes
+    if: needs.detect-changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
+      - name: Install the pinned documentation tools
+        run: |
+          uv pip install --system -r docs/requirements.txt
+          uv pip freeze --system
+      - name: Generate llms-full.txt
+        run: python scripts/generate_llms_full.py
+      - name: Build the site (strict)
+        run: mkdocs build --strict
 
   compat-check:
     needs: detect-changes
@@ -830,7 +870,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validate-target, detect-changes, lint, doc-lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, compat-check, integration-charset, integration-tls, official-differential]
+    needs: [validate-target, detect-changes, lint, doc-lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, docs-build, compat-check, integration-charset, integration-tls, official-differential]
     steps:
       - name: Check selected job results
         env:
@@ -852,6 +892,8 @@ jobs:
           E_INTEGRATION_TESTS: ${{ needs.detect-changes.outputs.live }}
           R_REPO_TOOLING_TESTS: ${{ needs.repo-tooling-tests.result }}
           E_REPO_TOOLING_TESTS: ${{ needs.detect-changes.outputs.tooling }}
+          R_DOCS_BUILD: ${{ needs.docs-build.result }}
+          E_DOCS_BUILD: ${{ needs.detect-changes.outputs.site }}
           R_COMPAT_CHECK: ${{ needs.compat-check.result }}
           E_COMPAT_CHECK: ${{ needs.detect-changes.outputs.code }}
           R_INTEGRATION_CHARSET: ${{ needs.integration-charset.result }}
@@ -879,6 +921,7 @@ jobs:
           check packaging-smoke-test "$R_PACKAGING_SMOKE_TEST" "$E_PACKAGING_SMOKE_TEST"
           check integration-tests "$R_INTEGRATION_TESTS" "$E_INTEGRATION_TESTS"
           check repo-tooling-tests "$R_REPO_TOOLING_TESTS" "$E_REPO_TOOLING_TESTS"
+          check docs-build "$R_DOCS_BUILD" "$E_DOCS_BUILD"
           check compat-check "$R_COMPAT_CHECK" "$E_COMPAT_CHECK"
           check integration-charset "$R_INTEGRATION_CHARSET" "$E_INTEGRATION_CHARSET"
           check integration-tls "$R_INTEGRATION_TLS" "$E_INTEGRATION_TLS"
