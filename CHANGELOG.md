@@ -69,6 +69,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   defined inside top-level `if`/`try` blocks remain out of scope. No test
   module needed a new mark; this is a test-only change.
 
+### Security
+- **`scripts/collect_repro.py` redacts more forms of the password of a
+  `CUBRID_TEST_URL` that `urllib` splits in the wrong place (#777)** — a URL
+  without `://` (`u:pw@host/db`, `cubrid:u:pw@host/db`, `cubrid:/u:pw@host/db`),
+  or one whose password holds `/`, `?`, `#` or `@` or whose query holds `@`
+  (`cubrid://u:Pa@ss/word@host/db`, `cubrid://u:pw@host/db?opt=a@b`), was
+  written with all or part of its password in plain text to `metadata.json`
+  and `reproduce.md`. `reproduce.md` also quoted endpoint-resolver errors such
+  as `invalid port: ... 'Syn7h'`, which echo part of the password. The
+  collector now records any URL with an `@` outside the authority `urllib`
+  parsed, or longer than 2048 characters, as `<unparseable-url-redacted>`,
+  and reports endpoint-resolution failures with a fixed message. For such a
+  URL `sanitize()` redacts, raw and percent-encoded/decoded in free text such
+  as JUnit failure details, the text after each `:` before each `@` and each
+  piece and suffix of it split at `/`, `?`, `#` and `@` that is at least 3
+  characters long (the whole text and the `urllib` password are kept at any
+  length), plus, within the first 2048 characters, the text after the first
+  and the last `:` before the first `@` and each piece of the userinfo up to
+  the last `@`. Each URL-derived candidate is also redacted, as written, with CR/CRLF
+  turned into LF (as XML parsing does), with tabs, CRs and LFs removed (as
+  `urllib` does) and `repr()`-escaped (as tracebacks do), and its lowercased
+  form of 3 or more characters is redacted as a whole word, so the lowercased host that the
+  integration-test gate quotes in every JUnit error
+  (`dba@kc9qmz7:33000/testdb`) no longer reaches `metadata.json`. Each
+  host-shaped piece (split at `/`, `?`, `#`, `@`, `%`, `[` and `]`, without a
+  trailing `:port`) is lowercased the same way, because `urllib` rewrites the
+  port, drops IPv6 brackets and lowercases only the part before a `%zone`. These
+  derived fragments may over-redact unrelated diagnostic text; shorter ones
+  are not redacted. A URL holding a tab, CR or LF, which `urllib` strips, gets
+  the same enumeration. A URL above 2048 characters, or one that would yield
+  more than 1024 candidate fragments or 8192 candidate characters, keeps the candidates found in its first 2048
+  characters before the limit and is also redacted as a whole string,
+  together with the password `urllib` parses from it and any
+  `scheme://user:password@` password it contains. Both limits are a hard cap,
+  checked before each candidate is added, so a single long tail can no longer
+  take seconds to enumerate. `CUBRID_TEST_PASSWORD` stays
+  an exact match without these variants, and a password transformed in other
+  ways (for example lowercased inside a longer word) is not guaranteed to be
+  redacted. The endpoint resolver is no longer trusted for a URL recorded as
+  `<unparseable-url-redacted>`: `urllib` could put a password fragment into the
+  lowercased host, which reached `reproduce.md` (`CUBRID_TEST_HOST=...`) and the
+  `server_identity` endpoint. Endpoint fields and the readiness endpoint are
+  also rejected when they hold a known password case-insensitively. Redaction
+  patterns are compiled once per configured URL and password. Known limit: a
+  JDBC-style URL without `@` (`jdbc:cubrid:host:33000:db:u:PW:`) is not
+  recognised, so its password is recorded unless `CUBRID_TEST_PASSWORD` also
+  holds it. Valid `cubrid://user:pw@host:port/db` URLs of up to 2048 characters
+  are still recorded as `cubrid://user:***@host:port/db`. This is a contributor
+  tooling fix; the driver is unchanged.
+
 ### Fixed
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
   Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
