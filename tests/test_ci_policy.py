@@ -89,7 +89,6 @@ def test_pr_smoke_is_separate_from_main_coverage_and_single_linux_lane() -> None
     jobs = workflow("ci.yml")["jobs"]
     offline = jobs["offline-tests"]
     matrix = offline["strategy"]["matrix"]
-    assert matrix["python-version"] == ["3.12"]
     assert matrix.get("os", [offline["runs-on"]]) == ["ubuntu-latest"]
     steps = offline["steps"]
     smoke = next(s for s in steps if s.get("name") == "Run representative PR smoke tests")
@@ -256,3 +255,132 @@ def test_live_lanes_start_without_waiting_for_static_and_offline_jobs(name: str)
 def test_gate_still_requires_static_and_offline_jobs() -> None:
     needs = set(gate()["needs"])
     assert {"lint", "typecheck", "offline-tests", *LIVE_JOBS} <= needs
+
+
+# --- #745: offline endpoint versions --------------------------------------
+
+EVENTS = ("pull_request", "push", "schedule", "workflow_dispatch")
+
+
+def evaluate(expression: str, event: str, risk: str) -> object:
+    """Evaluate the small GitHub expression subset used by offline-tests routing.
+
+    GitHub's ``&&``/``||`` return an operand like Python's ``and``/``or``, and
+    strings are truthy when non-empty, so translating the operators is exact
+    for these expressions. Unknown contexts fail loudly with ``NameError``.
+    """
+    expr = expression.strip()
+    if expr.startswith("${{"):
+        expr = expr.removeprefix("${{").removesuffix("}}")
+    expr = (
+        expr.replace("needs.detect-changes.outputs.risk", "risk")
+        .replace("github.event_name", "event")
+        .replace("fromJSON", "from_json")
+        .replace("&&", " and ")
+        .replace("||", " or ")
+    )
+    names = {"event": event, "risk": risk, "from_json": json.loads}
+    return eval(expr, {"__builtins__": {}}, names)  # noqa: S307 - fixed workflow text
+
+
+def offline_cells(event: str, risk: str) -> dict[str, list[str]]:
+    """Return {python-version: [test step names that run]} for one event."""
+    job = workflow("ci.yml")["jobs"]["offline-tests"]
+    versions = evaluate(job["strategy"]["matrix"]["python-version"], event, risk)
+    assert isinstance(versions, list)
+    tests = [s for s in job["steps"] if "python -m pytest" in s.get("run", "")]
+    return {
+        version: [s["name"] for s in tests if evaluate(s["if"], event, risk)]
+        for version in versions
+    }
+
+
+FULL = "Run offline tests with coverage"
+RISK = "Run relevant PR offline regressions with conservative fallback"
+SMOKE = "Run representative PR smoke tests"
+
+
+@pytest.mark.parametrize(
+    "event,risk,expected",
+    [
+        ("pull_request", "false", {"3.12": [SMOKE]}),
+        ("pull_request", "", {"3.12": [SMOKE]}),
+        ("pull_request", "true", {"3.11": [RISK], "3.14": [RISK]}),
+        ("push", "false", {"3.11": [FULL], "3.14": [FULL]}),
+        ("push", "true", {"3.11": [FULL], "3.14": [FULL]}),
+        ("schedule", "false", {"3.11": [FULL], "3.14": [FULL]}),
+        ("schedule", "true", {"3.11": [FULL], "3.14": [FULL]}),
+        ("workflow_dispatch", "false", {"3.11": [FULL], "3.14": [FULL]}),
+    ],
+)
+def test_offline_matrix_routes_events_to_endpoint_versions(
+    event: str, risk: str, expected: dict[str, list[str]]
+) -> None:
+    assert offline_cells(event, risk) == expected
+
+
+@pytest.mark.parametrize("risk", ["true", "false"])
+@pytest.mark.parametrize("event", EVENTS)
+def test_every_offline_cell_runs_exactly_one_marker_scoped_suite(event: str, risk: str) -> None:
+    job = workflow("ci.yml")["jobs"]["offline-tests"]
+    runs = {s["name"]: s["run"] for s in job["steps"] if "python -m pytest" in s.get("run", "")}
+    supported = {"3.11", "3.12", "3.13", "3.14"}
+    for version, steps in offline_cells(event, risk).items():
+        assert version in supported
+        assert len(steps) == 1, (event, risk, version, steps)
+        assert '-m "not integration and not repo_tooling"' in runs[steps[0]]
+        if steps[0] != SMOKE:
+            assert "pytest tests/" in runs[steps[0]]
+
+
+def test_offline_job_keeps_timeout_sha_and_pinned_actions() -> None:
+    job = workflow("ci.yml")["jobs"]["offline-tests"]
+    assert job["timeout-minutes"] == 15
+    assert job["strategy"]["fail-fast"] is False
+    for step in job["steps"]:
+        uses = step.get("uses")
+        if uses:
+            assert len(uses.split("@", 1)[1]) == 40, uses
+        if uses and uses.startswith("actions/checkout@"):
+            assert step["with"]["ref"] == "${{ inputs.sha || github.sha }}"
+    assert workflow("ci.yml")["permissions"] == {
+        "contents": "read",
+        "pull-requests": "read",
+    }
+
+
+def test_offline_coverage_names_are_unique_per_python_version() -> None:
+    steps = {s.get("name"): s for s in workflow("ci.yml")["jobs"]["offline-tests"]["steps"]}
+    report = "coverage-py${{ matrix.python-version }}.xml"
+    assert f"--cov-report=xml:{report}" in steps[FULL]["run"]
+    artifact = steps["Upload coverage report artifact"]
+    assert artifact["with"]["name"] == "offline-coverage-py${{ matrix.python-version }}"
+    assert artifact["with"]["path"] == report
+    codecov = steps["Upload coverage to Codecov"]["with"]
+    assert codecov["files"] == f"./{report}"
+    assert codecov["flags"] == "offline-py${{ matrix.python-version }}"
+    assert codecov["name"] == "offline-py${{ matrix.python-version }}"
+
+
+def test_gate_expects_offline_tests_whenever_code_is_selected() -> None:
+    env = gate()["steps"][0]["env"]
+    assert env["E_OFFLINE_TESTS"] == "${{ needs.detect-changes.outputs.code }}"
+    assert env["R_OFFLINE_TESTS"] == "${{ needs.offline-tests.result }}"
+    assert gate()["if"] == "always()"
+
+
+ENDPOINT_RUN = {"validate-target", "detect-changes", "lint", "typecheck", "compat-check"}
+
+
+@pytest.mark.parametrize("result", ["failure", "cancelled", "skipped"])
+def test_failed_cancelled_or_missing_endpoint_cell_fails_the_gate(result: str) -> None:
+    # A matrix job reports one aggregate result: any failed or cancelled 3.11/3.14
+    # cell makes it non-success, and a job that never ran is "skipped".
+    completed = run_gate(ENDPOINT_RUN | {"offline-tests"}, {"offline-tests": result})
+    assert completed.returncode != 0
+    assert f"offline-tests expected success, got {result}" in completed.stdout
+
+
+def test_successful_endpoint_cells_pass_the_gate() -> None:
+    completed = run_gate(ENDPOINT_RUN | {"offline-tests"}, {})
+    assert completed.returncode == 0, completed.stdout + completed.stderr
