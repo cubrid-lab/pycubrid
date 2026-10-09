@@ -1029,7 +1029,7 @@ graph TD
 
 ## 변경 이력 검증
 
-`python scripts/lint_changelog.py`는 릴리스별 중복 하위 섹션을 거부합니다. Unreleased만 있는 파일도 검사하며 서로 다른 릴리스는 같은 하위 섹션 이름을 사용할 수 있습니다. 펜스 코드 블록 안의 줄은 항목 내용으로 취급되어, 펜스 안의 `## [`나 `###` 줄은 릴리스나 제목이 아니며 닫히지 않은 펜스는 오류입니다(`scripts/compose_release_changelog.py`도 같은 규칙을 따릅니다).
+`python scripts/lint_changelog.py`는 릴리스별 중복 하위 섹션을 거부합니다. Unreleased만 있는 파일도 검사하며 서로 다른 릴리스는 같은 하위 섹션 이름을 사용할 수 있습니다. 펜스 코드 블록은 `scripts/lint_changelog.py`와 `scripts/compose_release_changelog.py`에서 같은 규칙을 따릅니다. 펜스 안의 `###` 줄은 제목이 아니라 항목 내용이고, 펜스 안의 `## [` 릴리스 헤더는 오류이며(`scripts/extract_release_notes.py`는 펜스를 인식하지 못해 Release 본문이 잘립니다), 닫히지 않은 펜스도 오류입니다. 0번째 열에서 시작하는 백틱 3개 펜스만 인식하며 물결표(`~~~`)나 들여쓰기/중첩 펜스는 인식하지 않습니다.
 
 `[Unreleased]`와 1.10.0 이후 릴리스에서는 내용이 있는 표준 `###` 섹션만 다음 순서로 허용합니다: Upgrade notes,
 Added, Changed, Deprecated, Removed, Fixed, Security, Performance, Documentation, CI, Tests. `Docs`가 아니라

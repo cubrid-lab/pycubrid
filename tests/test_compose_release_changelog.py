@@ -157,15 +157,15 @@ def test_empty_curated_section_is_dropped() -> None:
 
 FENCED_CURATED = (
     "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Example:\n\n"
-    "```markdown\n### Not a heading\n## [9.9.9] - 2000-01-01\n```\n\n"
+    "```markdown\n### Not a heading\n```\n\n"
     "## [1.8.0] - 2026-09-01\n\nOld history.\n"
 )
 
 
 def test_fenced_heading_in_curated_entry_is_content() -> None:
     actual = compose(FENCED_CURATED, NOTES, "1.9.0")
-    assert "```markdown\n### Not a heading\n## [9.9.9] - 2000-01-01\n```" in actual
-    assert actual.count("## [9.9.9]") == 1 and actual.count("### Added") == 1
+    assert "```markdown\n### Not a heading\n```" in actual
+    assert actual.count("### Added") == 1
     assert (
         actual[actual.index("## [1.8.0]") :] == FENCED_CURATED[FENCED_CURATED.index("## [1.8.0]") :]
     )
@@ -187,12 +187,27 @@ def test_fenced_curated_entry_passes_the_changelog_lint(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("where", ["curated", "generated"])
-def test_unclosed_code_fence_fails_closed(where: str) -> None:
-    base, generated = BASE, NOTES
-    if where == "curated":
-        base = BASE.replace("Keep this", "```\n### Fixed\nKeep this")
-    else:
-        generated = NOTES + "\n```\n### Fixed\n"
-    with pytest.raises(ValueError, match="unclosed code fence"):
+@pytest.mark.parametrize(
+    "base,generated,message",
+    [
+        (BASE.replace("Keep this", "```\n### Fixed\nKeep this"), NOTES, "release header inside"),
+        ("# Changelog\n\n## [Unreleased]\n\n```\n### Fixed\nx\n", NOTES, "unclosed code fence"),
+        (BASE, NOTES + "\n```\n### Fixed\n", "unclosed code fence"),
+    ],
+)
+def test_unclosed_code_fence_fails_closed(base: str, generated: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        compose(base, generated, "1.9.0")
+
+
+@pytest.mark.parametrize(
+    "base,generated",
+    [
+        (FENCED_CURATED.replace("### Not a heading\n", "## [9.9.9] - 2000-01-01\n"), NOTES),
+        (BASE, NOTES + "\n```\n## [1.9.0](x) (2026-01-01)\n```\n"),
+        (BASE, NOTES.replace("### Added", "```\n## [1.9.0](x) (2026-01-01)\n### Added")),
+    ],
+)
+def test_fenced_release_header_fails_closed(base: str, generated: str) -> None:
+    with pytest.raises(ValueError, match="release header inside an open code fence"):
         compose(base, generated, "1.9.0")

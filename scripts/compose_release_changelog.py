@@ -49,11 +49,14 @@ def _find(pattern: re.Pattern[str], text: str, origin: str) -> list[re.Match[str
 
     Lines inside a fenced code block are content, never headings (the same rule as
     scripts/lint_changelog.py). Fence lines themselves stay part of the surrounding text.
+    A release header (``## [``) inside an open fence is an error, not content.
     """
     matches: list[re.Match[str]] = []
     in_fence = False
     pos = 0
     for line in text.splitlines(keepends=True):
+        if in_fence and re.match(r"#{1,2} \[", line):
+            raise ValueError(f"release header inside an open code fence in {origin}")
         if not in_fence and (match := pattern.match(text, pos)):
             matches.append(match)
         if line.startswith("```"):

@@ -24,7 +24,7 @@ def test_duplicate_subsection_is_rejected(tmp_path: Path, release: str, heading:
     )
     result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
     assert result.returncode == 1
-    assert f"Duplicate subsection '### {heading}' in [{release}]" in result.stderr
+    assert f"Duplicate subsection heading '### {heading}' in [{release}]" in result.stderr
 
 
 def test_same_subsection_across_releases_is_valid(tmp_path: Path) -> None:
@@ -109,19 +109,19 @@ def test_cutoff_and_older_releases_keep_historical_sections(tmp_path: Path, rele
 
 def test_fenced_lines_are_content_not_headings(tmp_path: Path) -> None:
     result = run_lint(
-        tmp_path, "## [Unreleased]\n### Added\n```\n### Docs\n## [9.9.9]\n```\n### Fixed\n- Entry\n"
+        tmp_path, "## [Unreleased]\n### Added\n```\n### Docs\n```\n### Fixed\n- Entry\n"
     )
     assert result.returncode == 0, result.stderr
 
 
-def test_fenced_version_and_heading_do_not_split_the_release(tmp_path: Path) -> None:
-    # A fenced "## [9.9.9]" must not start a release, so the later "### Added" repeats
-    # the first one in [Unreleased].
+def test_fenced_release_header_is_rejected(tmp_path: Path) -> None:
+    # extract_release_notes.py is not fence-aware, so a fenced "## [9.9.9]" would truncate
+    # the Release body; it fails closed instead of being read as content.
     result = run_lint(
         tmp_path, "## [Unreleased]\n### Added\n```\n## [9.9.9]\n### Added\n```\n### Added\n- x\n"
     )
     assert result.returncode == 1
-    assert "Duplicate subsection '### Added' in [Unreleased]" in result.stderr
+    assert "ERROR: Release header inside an open code fence in CHANGELOG.md" in result.stderr
 
 
 def test_fenced_duplicate_heading_is_content(tmp_path: Path) -> None:
