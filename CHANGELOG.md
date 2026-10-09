@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### CI
+- **Pinned docs tools and scan concurrency (#782, #783)** — `docs.yml` installs
+  `mkdocs`, `mkdocs-material` and `pymdown-extensions` from the pinned
+  `docs/requirements.txt`, which Dependabot now updates. `codeql.yml` and
+  `security.yml` gain caller-level `concurrency` that cancels superseded
+  pull-request runs only (main and scheduled runs are never cancelled), and
+  `security.yml` installs the `bandit[toml]==1.9.4` pinned in `pyproject.toml`.
 - **Scheduled and release validation without duplicate work (#750)** —
   `docs/CI_POLICY.md` now records measured job counts, runner minutes and
   failure yield per event, and which workflow owns each kind of coverage.

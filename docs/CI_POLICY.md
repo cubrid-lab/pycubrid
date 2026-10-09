@@ -351,6 +351,21 @@ with the tool end users run. `python-canary.yml` also stays on `pip` for preview
 interpreters. `tests/test_workflow_installs.py` enforces the pinned uv setup, the
 version log, and that no other `pip install` remains in these workflows.
 
+## Pinned documentation tools and scan concurrency
+
+`docs.yml` installs the site tools only from `docs/requirements.txt`, which pins
+`mkdocs`, `mkdocs-material` and `pymdown-extensions` to exact versions (#782), so an
+upstream release cannot break the `mkdocs build --strict` gate without a repository
+change. Dependabot (pip, `/docs`) proposes updates, and `mkdocs.yml` excludes the file
+from the published site. No other workflow builds the site.
+
+`codeql.yml` and `security.yml` declare caller-level `concurrency` with group
+`${{ github.workflow }}-${{ github.ref }}` and
+`cancel-in-progress: ${{ github.event_name == 'pull_request' }}` (#783): a new push to a
+pull request cancels the superseded scan, while main pushes and the scheduled runs are
+never cancelled. `security.yml` installs `bandit[toml]==1.9.4`, the version pinned in
+`pyproject.toml`. `tests/test_workflow_pins.py` enforces all three.
+
 ## Python 3.15 preview preparation
 
 `python-canary.yml` is manual-only: supply the full SHA and dispatch the branch

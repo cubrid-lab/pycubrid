@@ -331,6 +331,21 @@ setup-python과 같은 `python-version` 지정(예: `"3.12"` 또는 매트릭스
 uv 설정, 버전 기록, 그리고 이 워크플로들에 다른 `pip install`이 남지 않았는지를
 검증합니다.
 
+## 고정된 문서 도구와 스캔 동시성
+
+`docs.yml`은 `docs/requirements.txt`에서만 사이트 도구를 설치합니다. 이 파일은
+`mkdocs`, `mkdocs-material`, `pymdown-extensions`를 정확한 버전으로 고정하므로(#782)
+upstream 릴리스가 저장소 변경 없이 `mkdocs build --strict` 게이트를 깨뜨릴 수
+없습니다. Dependabot(pip, `/docs`)이 갱신을 제안하며, `mkdocs.yml`은 이 파일을 게시
+사이트에서 제외합니다. 사이트를 빌드하는 다른 워크플로는 없습니다.
+
+`codeql.yml`과 `security.yml`은 호출부 수준 `concurrency`를 선언합니다. 그룹은
+`${{ github.workflow }}-${{ github.ref }}`, 설정은
+`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`입니다(#783). 풀
+리퀘스트에 새로 푸시하면 대체된 스캔은 취소되지만, main 푸시와 예약 실행은 절대
+취소되지 않습니다. `security.yml`은 `pyproject.toml`에 고정된 `bandit[toml]==1.9.4`를
+설치합니다. `tests/test_workflow_pins.py`가 세 가지를 모두 검증합니다.
+
 ## Python 3.15 프리뷰 준비
 
 `python-canary.yml`은 수동 전용입니다. 전체 SHA를 전달하고 그 커밋의 브랜치에서
