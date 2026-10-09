@@ -136,3 +136,18 @@ def test_rejects_unsupported_candidate_without_writing(generated: str) -> None:
 def test_rejects_invalid_base_or_version(base: str, version: str) -> None:
     with pytest.raises(ValueError):
         compose(base, NOTES, version)
+
+
+def test_curated_preamble_before_the_first_heading_is_kept_verbatim() -> None:
+    preamble = "Curated lead paragraph with **markup**.\n  Indented continuation."
+    base = CURATED.replace("## [Unreleased]\n\n", f"## [Unreleased]\n\n{preamble}\n\n", 1)
+    actual = compose(base, GENERATED, "1.9.0")
+    assert f"## [1.9.0] - 2026-10-03\n\n{preamble}\n\n### Upgrade notes\n" in actual
+
+
+def test_empty_curated_section_is_dropped() -> None:
+    base = BASE.replace("### Upgrade notes", "### Added\n\n### Upgrade notes")
+    generated = NOTES.replace("### Added", "### Fixed")
+    actual = compose(base, generated, "1.9.0")
+    assert "### Added" not in actual
+    assert "### Upgrade notes\n\nKeep this **exactly**.\n\n### Fixed\n\n* new API" in actual

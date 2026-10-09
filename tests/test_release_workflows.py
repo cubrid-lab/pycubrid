@@ -236,8 +236,18 @@ def test_publish_order_tag_draft_pypi_undraft() -> None:
     # must already carry that title (fail closed, never renamed).
     create = body["Create the draft GitHub Release with the SBOM"]
     assert '--verify-tag --title "$TAG"' in create
-    check = 'python3 scripts/check_release_title.py --tag "$TAG" --title "$title" --draft "$drafts"'
-    assert create.index(check) < create.index('case "$drafts" in')
+    lines = [line.strip() for line in create.splitlines()]
+    guard = 'if [ "$drafts" = true ] || [ "$drafts" = false ]; then'
+    title = "--jq '.[] | select(.tag_name == env.TAG) | .name // \"\"')"
+    check = 'python3 scripts/check_release_title.py --tag "$TAG" --title="$title" --draft "$drafts"'
+    # Exact lines: any existing Release (draft or published) is checked, a missing
+    # name reads as "" (never as the tag) and a failed check stops the step.
+    assert lines.index(guard) < lines.index(title) < lines.index(check)
+    assert lines[lines.index(check) + 1] == "fi"
+    assert lines.index(check) < lines.index('case "$drafts" in')
+    assert create.startswith("set -euo pipefail\n")
+    assert "set +e" not in create
+    assert "|| true" not in create and "|| :" not in create
     assert "gh release edit" not in create
     assert body["Publish the GitHub Release"] == 'gh release edit "$TAG" --draft=false'
     text = (WORKFLOWS / "publish-pypi.yml").read_text()

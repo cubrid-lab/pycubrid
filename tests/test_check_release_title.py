@@ -59,3 +59,11 @@ def test_cli_accepts_a_published_release_titled_by_its_tag(
 ) -> None:
     assert main(["--tag", "v1.2.3", "--title", "v1.2.3", "--draft", "false"]) == 0
     assert "equals tag v1.2.3" in capsys.readouterr().out
+
+
+def test_cli_title_starting_with_a_dash_gets_the_policy_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The workflow passes --title="$title", so a leading "-" is a value, not an option.
+    assert main(["--tag", "v1.2.3", "--title=-v1.2.3", "--draft", "false"]) == 1
+    assert "titled '-v1.2.3'; the title must be exactly 'v1.2.3'" in capsys.readouterr().err

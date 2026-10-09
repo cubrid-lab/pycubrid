@@ -14,7 +14,8 @@ const {Manifest}=require(upstream+'/manifest.js');
 const github={repository:{owner:'cubrid-lab',repo:'pycubrid'},getFileJson:async p=>JSON.parse(fs.readFileSync(path.join(root,p),'utf8')),findFilesByFilenameAndRef:async()=>[],getFileContentsOnBranch:async p=>({parsedContent:fs.readFileSync(path.join(root,p),'utf8')})};
 (async()=>{
  const manifest=await Manifest.fromManifest(github,'main');
- const released=JSON.parse(fs.readFileSync(path.join(root,'.release-please-manifest.json')))['.'];
+ // The manifest must agree with the single-sourced __version__ (both move together in a release PR).
+ const released=/^__version__ = "([^"]+)"$/m.exec(fs.readFileSync(path.join(root,'pycubrid/__init__.py'),'utf8'))[1];
  if(manifest.releasedVersions['.'].toString()!==released || manifest.repositoryConfig['.'].releaseType!=='python') throw new Error('Invalid manifest/config mapping');
  // [message, expected version from the fixed 1.8.0 boundary, expected ### heading (AGENTS.md GitHub Release Policy)]
  const scenarios=[['fix: correct failure','1.8.1','Fixed'],['feat: new optional API','1.9.0','Added'],['feat!: remove old API\n\nBREAKING CHANGE: remove old API','2.0.0','Added'],['docs: improve instructions','1.8.1','Documentation'],['perf: faster fetch','1.8.1','Performance'],['chore: housekeeping',null],['ci: pin action',null],['test: add case',null],['refactor: tidy',null],['fix: explicit override\n\nRelease-As: 1.9.0','1.9.0','Fixed']];

@@ -309,7 +309,8 @@ These rules add to the release procedure above; the procedures and gates in
   published Release.
 - Metadata edits keep the notes, assets, published state and prerelease state. When
   editing a draft through the API, always resend `tag_name`: a PATCH without it resets
-  the draft's tag to `untagged-…`.
+  the draft's tag to `untagged-…`. `gh release edit` resends `tag_name` automatically;
+  raw `gh api` PATCHes must include it.
 - Automation enforces these rules: `publish-pypi.yml` creates Releases with
   `--title "$TAG"` and, on resume or recovery, fails closed through
   `scripts/check_release_title.py` when an existing Release has another title. It never

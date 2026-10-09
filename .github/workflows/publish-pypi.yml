@@ -341,7 +341,7 @@ jobs:
           if [ "$drafts" = true ] || [ "$drafts" = false ]; then
             title=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
               --jq '.[] | select(.tag_name == env.TAG) | .name // ""')
-            python3 scripts/check_release_title.py --tag "$TAG" --title "$title" --draft "$drafts"
+            python3 scripts/check_release_title.py --tag "$TAG" --title="$title" --draft "$drafts"
           fi
           case "$drafts" in
             "")
