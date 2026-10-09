@@ -135,7 +135,7 @@ When changing docs, regenerate `docs/llms-full.txt` with
 `docs/llms.txt` index to the root `llms.txt`; edit only `docs/llms.txt`, and CI
 fails if either generated file is stale) and run the existing site check
 `mkdocs build --strict` after installing its documented tooling
-(`mkdocs-material pymdown-extensions`). AI review feedback is separate from commands
+(`pip install -r docs/requirements.txt`). AI review feedback is separate from commands
 actually executed; report both accurately, including gaps and existing warnings.
 
 Maintainers update shared workflow callers through a reviewed upstream commit SHA:
