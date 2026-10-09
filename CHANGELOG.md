@@ -33,15 +33,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and reports endpoint-resolution failures with a fixed message. For such a
   URL `sanitize()` redacts, raw and percent-encoded/decoded in free text such
   as JUnit failure details, the text after each `:` before each `@` and each
-  piece and suffix of it split at `/`, `?`, `#` and `@`. These derived
-  fragments may over-redact unrelated diagnostic text. Redaction patterns are
-  compiled once per configured URL and password. Known limits: a URL above
-  2048 characters or 1024 candidate fragments is redacted only as a whole
-  string, and a JDBC-style URL without `@` (`jdbc:cubrid:host:33000:db:u:PW:`)
-  is not recognised, so its password is recorded unless `CUBRID_TEST_PASSWORD`
-  also holds it. Valid `cubrid://user:pw@host:port/db` URLs are still recorded
-  as `cubrid://user:***@host:port/db`. This is a contributor tooling fix; the
-  driver is unchanged.
+  piece and suffix of it split at `/`, `?`, `#` and `@` that is at least 3
+  characters long (the whole text and the `urllib` password are kept at any
+  length). These derived fragments may over-redact unrelated diagnostic text;
+  shorter ones are not redacted. A URL holding a tab, CR or LF, which `urllib`
+  strips, gets the same enumeration. A URL above 2048 characters or 1024
+  candidate fragments is redacted as a whole string, together with the
+  password `urllib` parses from it and any `scheme://user:password@` password
+  it contains. The endpoint resolver is no longer trusted for a URL recorded as
+  `<unparseable-url-redacted>`: `urllib` could put a password fragment into the
+  lowercased host, which reached `reproduce.md` (`CUBRID_TEST_HOST=...`) and the
+  `server_identity` endpoint. Endpoint fields and the readiness endpoint are
+  also rejected when they hold a known password case-insensitively. Redaction
+  patterns are compiled once per configured URL and password. Known limit: a
+  JDBC-style URL without `@` (`jdbc:cubrid:host:33000:db:u:PW:`) is not
+  recognised, so its password is recorded unless `CUBRID_TEST_PASSWORD` also
+  holds it. Valid `cubrid://user:pw@host:port/db` URLs of up to 2048 characters
+  are still recorded as `cubrid://user:***@host:port/db`. This is a contributor
+  tooling fix; the driver is unchanged.
 
 ### Fixed
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every

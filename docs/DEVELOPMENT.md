@@ -733,16 +733,24 @@ available targets and asks for the password separately. Without JUnit, an accept
 caller-supplied legacy target remains a hint, not a verified report identity. Known configured
 passwords, decoded/encoded URL-password variants and recognized credential-bearing URLs
 are redacted before each failure record's message/detail is limited to 64 KiB
-of UTF-8 bytes. A `CUBRID_TEST_URL` is recorded as `<unparseable-url-redacted>` when `urllib`
+of UTF-8 bytes. A valid `CUBRID_TEST_URL` of up to 2048 characters is recorded
+as `user:***@host:port`. It is recorded as `<unparseable-url-redacted>` when `urllib`
 cannot parse it, when any `@` lies outside the authority `urllib` parsed (for
 example `u:pw@host/db` or `cubrid:u:pw@host/db` without `://`, or a password
 containing `/`, `?`, `#` or `@`), or when it is longer than 2048 characters.
-For such a URL, the text after each `:` before each `@`, and each piece and
-suffix of that text split at `/`, `?`, `#` and `@`, is redacted raw and
+For such a URL, or one containing a tab, CR or LF (which `urllib` strips), the
+text after each `:` before each `@`, and each piece and suffix of that text split
+at `/`, `?`, `#` and `@` that is at least 3 characters long, is redacted raw and
 percent-encoded/decoded in free text. These derived fragments may over-redact
-unrelated diagnostic text (#777). A URL that is too long, or that yields more
-than 1024 candidate fragments, is redacted only as a whole string, so its
-password alone in free text is not recognised. A JDBC-style URL without `@`
+unrelated diagnostic text; shorter derived fragments are not redacted (#777).
+A URL that is too long, or that yields more than 1024 candidate fragments, is
+redacted as a whole string, together with the password `urllib` parses from it
+and any `scheme://user:password@` password it contains. The endpoint resolver is
+not trusted for a URL recorded as `<unparseable-url-redacted>`, because `urllib`
+may place password fragments in the host (lowercased), user or database: its
+replay command and server identity are then recorded as unavailable. Endpoint
+fields and the readiness endpoint are rejected when they contain a known
+password case-insensitively. A JDBC-style URL without `@`
 (`jdbc:cubrid:host:33000:db:u:PW:`) is not recognised as credential-bearing:
 its password is recorded as written unless it is also set in
 `CUBRID_TEST_PASSWORD`. Endpoint-resolution errors are reported as a fixed

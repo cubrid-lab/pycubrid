@@ -771,3 +771,117 @@ def test_overlong_url_is_unparseable_and_redacted_whole(
     assert collect_repro._url_passwords(url) is None
     assert collect_repro._redact_url(url) == "<unparseable-url-redacted>"
     assert collect_repro.sanitize(f"before {url} after") == "before *** after"
+
+
+def test_resolver_is_not_trusted_for_an_unparseable_url(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # urllib ends the password at "#" and lowercases "HostLike" into the host,
+    # so the resolver would name a password fragment as the endpoint host.
+    for field in ("HOST", "PORT", "DB", "USER", "PASSWORD"):
+        monkeypatch.delenv(f"CUBRID_TEST_{field}", raising=False)
+    url = "cubrid://u:Pa@HostLike#ord9@host/db"
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    monkeypatch.setenv("GITHUB_SHA", "current-sha")
+    monkeypatch.setenv("BUG_HUNT_FAILING_TEST", "tests/test_example.py::test_value")
+    # Mirror scripts/wait_for_cubrid.py: the sidecar endpoint is the resolver's describe().
+    sidecar = bundle.parent / "server.json"
+    sidecar.write_text(
+        json.dumps(
+            {
+                "status": "observed",
+                "version": "11.4.6.1963",
+                "endpoint": "u@hostlike:33000/testdb",
+                "github_sha": "current-sha",
+                "observed_at": "2026-10-03T00:00:00Z",
+            }
+        )
+    )
+    meta = _collect(bundle, "--server-info", str(sidecar))
+    output = capsys.readouterr()
+    texts = [*_bundle_texts(bundle), output.out, output.err]
+    assert not [text for text in texts if "hostlike" in text.casefold()]
+    assert meta["cubrid_test_url"] == "<unparseable-url-redacted>"
+    assert meta["server_identity"]["status"] == "unavailable"
+    assert "unavailable" in (bundle / "reproduce.md").read_text()
+
+
+def test_overlong_well_formed_url_still_redacts_its_parsed_password(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    url = "cubrid://u:LongPw9Secret@host/db?opt=" + "x" * 2100
+    assert collect_repro._url_passwords(url) is None
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", "login LongPw9Secret rejected")
+    report = bundle.parent / "long.xml"
+    report.write_text(
+        '<testsuite><testcase file="tests/test_example.py" classname="tests.test_example" '
+        'name="test_x"><failure message="auth LongPw9Secret">login LongPw9Secret rejected'
+        "</failure></testcase></testsuite>"
+    )
+    meta = _collect(bundle, "--junit", str(report))
+    output = capsys.readouterr()
+    texts = [*_bundle_texts(bundle), output.out, output.err]
+    assert not [text for text in texts if "LongPw9Secret" in text]
+    assert meta["failures"][0]["detail"] == "login *** rejected"
+    assert meta["failures"][0]["message"] == "auth ***"
+    assert meta["failure_traceback"] == "login *** rejected"
+
+
+@pytest.mark.parametrize("char", ["\t", "\r", "\n"])
+def test_url_password_with_tab_or_newline_is_redacted(
+    monkeypatch: pytest.MonkeyPatch, char: str
+) -> None:
+    # urllib strips tab/CR/LF before parsing, so its password lacks them.
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    secret = f"Tab{char}Sec9"
+    monkeypatch.setenv("CUBRID_TEST_URL", f"cubrid://u:{secret}@host/db")
+    encoded = quote(secret, safe="")
+    result = collect_repro.sanitize(f"raw={secret} encoded={encoded} tail")
+    assert secret not in result
+    assert encoded not in result
+    assert result == "raw=*** encoded=*** tail"
+
+
+def test_short_derived_fragments_are_not_redaction_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    url = "cubrid://u:x/Secret9@host/db"
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    candidates = collect_repro._url_passwords(url)
+    assert candidates is not None
+    assert "x" not in candidates
+    assert {"Secret9", "x/Secret9"} <= candidates
+    assert collect_repro.sanitize("example x/Secret9 Secret9") == "example *** ***"
+
+
+def test_endpoint_leak_checks_ignore_case(bundle: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A hostname is case-insensitive, so a lowercased password is still a leak.
+    for field in ("PORT", "DB", "USER", "PASSWORD"):
+        monkeypatch.delenv(f"CUBRID_TEST_{field}", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", "cubrid://u:HostLike@host/db")
+    monkeypatch.setenv("CUBRID_TEST_HOST", "hostlike")
+    monkeypatch.setenv("GITHUB_SHA", "current-sha")
+    monkeypatch.setenv("BUG_HUNT_FAILING_TEST", "tests/test_example.py::test_value")
+    sidecar = bundle.parent / "server.json"
+    sidecar.write_text(
+        json.dumps(
+            {
+                "status": "observed",
+                "version": "11.4.6.1963",
+                "endpoint": "u@hostlike:33000/db",
+                "github_sha": "current-sha",
+                "observed_at": "2026-10-03T00:00:00Z",
+            }
+        )
+    )
+    meta = _collect(bundle, "--server-info", str(sidecar))
+    # Only the endpoint checks are under test: cubrid_test_host echoes the
+    # caller's own CUBRID_TEST_HOST verbatim.
+    replay = (bundle / "reproduce.md").read_text()
+    assert "hostlike" not in replay.casefold()
+    assert "hostlike" not in json.dumps(meta["server_identity"]).casefold()
+    assert meta["server_identity"]["status"] == "unavailable"
+    assert "unavailable" in replay
