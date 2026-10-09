@@ -71,6 +71,8 @@ def test_workflow_impact_table(name: str) -> None:
     groups = _selected(f".github/workflows/{name}")
     # Every workflow is validated by the tooling lane (policy/workflow tests).
     assert "tooling" in groups, name
+    # #786: only the workflows that define or mirror the docs build select it.
+    assert ("site" in groups) == (name in {"ci.yml", "docs.yml"}), name
     if name == "ci.yml":
         assert LIVE <= groups, "ci.yml defines and runs the live lanes"
     else:
@@ -86,8 +88,12 @@ def test_workflow_impact_table(name: str) -> None:
         ("tests/test_tls_matrix_offline.py", {"code", "risk", "tls"}),
         ("scripts/wait_for_cubrid.py", {"code", "risk", "tooling", "official"}),
         ("pyproject.toml", {"code", "risk", "tooling"}),
-        ("docs/CI_POLICY.md", {"docs"}),
+        ("docs/CI_POLICY.md", {"docs", "site"}),
+        ("docs/requirements.txt", {"docs", "site"}),
+        ("mkdocs.yml", {"code", "site"}),
+        ("scripts/generate_llms_full.py", {"code", "risk", "tooling", "official", "site"}),
         ("README.md", {"docs"}),
+        ("CHANGELOG.md", {"docs"}),
     ],
 )
 def test_representative_paths_select_the_expected_tiers(path: str, expected: set[str]) -> None:

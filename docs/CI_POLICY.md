@@ -357,7 +357,21 @@ version log, and that no other `pip install` remains in these workflows.
 `mkdocs`, `mkdocs-material` and `pymdown-extensions` to exact versions (#782), so an
 upstream release cannot break the `mkdocs build --strict` gate without a repository
 change. Dependabot (pip, `/docs`) proposes updates, and `mkdocs.yml` excludes the file
-from the published site. No other workflow builds the site.
+from the published site.
+
+`ci.yml` also builds the site on pull requests (#786), so a bump or a docs edit that
+breaks `mkdocs build --strict` fails before merge instead of later on `main`. The
+`docs-build` job is selected by the `site` path filter: `docs/**` (content and
+`docs/requirements.txt`), `mkdocs.yml`, `scripts/generate_llms_full.py`,
+`.github/workflows/docs.yml` and `.github/workflows/ci.yml`. Root `*.md` files are not
+site inputs (the changelog is linked, not staged), so they do not select it, and
+`workflow_dispatch` forces it like the other lanes. The job runs the `docs.yml` build
+steps (install from `docs/requirements.txt`, `scripts/generate_llms_full.py`,
+`mkdocs build --strict`) with read-only permissions, pinned actions, a 10-minute timeout
+and `persist-credentials: false`; it never uploads a Pages artifact or deploys. The
+`CI Gate` expects `docs-build` to succeed exactly when `site` is selected and accepts a
+skip otherwise, so the required `CI Gate` check blocks a broken docs build.
+`tests/test_ci_policy.py` and `tests/test_workflow_path_impact.py` enforce this.
 
 `codeql.yml` and `security.yml` declare caller-level `concurrency` with group
 `${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}` and
