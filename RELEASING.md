@@ -97,7 +97,8 @@ both **Tag, GitHub Release and PyPI** and **Require a verified release** jobs
 successful. A dry run or partial publication cannot clear pending. Until
 publication completes, upstream release-please blocks a subsequent candidate.
 If preparation happened before the publisher finished, dispatch preparation
-again after success. Recovery runs dispatched at a different workflow head
+again after success. A publisher that failed or never ran turns preparation
+red; see [When preparation is blocked](#when-preparation-is-blocked). Recovery runs dispatched at a different workflow head
 are intentionally not automatically reconciled: after checking the release
 summary, exact tag SHA, artifact hashes and cookbook success, a maintainer
 may apply tagged/remove pending manually. Never clear pending merely to
@@ -243,6 +244,52 @@ as a broken release, re-query `https://pypi.org/pypi/pycubrid/X.Y.Z/json` and
 compare the published SHA-256 with the run's `SHA256SUMS` (artifact
 `release-meta`): a match means the file is fine and `gh run rerun --failed`
 completes the release; a mismatch is a broken release.
+
+### When preparation is blocked
+
+While a merged release PR stays `autorelease: pending`, upstream release-please
+only logs "There are untagged, merged release PRs outstanding - aborting" and
+opens no new release PR. To keep that from passing silently,
+`reconcile_release_labels.py` (the first step of **Prepare release**) classifies
+every pending PR it could not mark tagged, using the newest `publish-pypi.yml`
+run at the merge SHA:
+
+| State | When | Prepare release run |
+| --- | --- | --- |
+| In progress | Any publisher run at that SHA is queued, waiting or in progress (including a re-run of an older run), or the merge is under 2 hours old (`PUBLISHER_START_GRACE`) and no run exists yet. | `::notice::`, stays green. Dispatch preparation again after the publisher succeeds. |
+| Blocked | All runs are completed and the newest concluded with anything other than `success`; it succeeded but the publication proof is missing; no run exists 2 hours or more after the merge; or the run state cannot be read. | `::error::` and a step-summary section with the PR number, merge SHA, run URL, conclusion and recovery; the run fails, so release-please is skipped (it would abort anyway). |
+
+The error includes the `rerun-failed-jobs` command only for `failure`,
+`cancelled` and `timed_out`; other conclusions (for example `action_required`)
+need a look at the run first. For "succeeded but not proven", the proof read
+itself may have failed transiently: if the run summary shows a complete
+publication, re-run Prepare release. Every error ends with "If recovery ran as
+a dispatch at another SHA, label the PR manually per RELEASING.md."
+
+A red Prepare release run with "Release preparation is blocked" therefore
+means: a release was merged, and its publication is not proven. To recover:
+
+1. Open the run URL from the message and find the failed job; fix the cause
+   (for example a cookbook or PyPI CDN lag).
+2. For a failed or cancelled run, re-run its failed jobs with
+   `gh api -X POST repos/cubrid-lab/pycubrid/actions/runs/<id>/rerun-failed-jobs`
+   (the same as `gh run rerun <id> --failed`), or follow the matching row in
+   the table above (`verify-only` dispatch, `X.Y.(Z+1)` for a real defect).
+3. When the publisher run at the merge SHA is green, dispatch **Prepare
+   release** again. Reconciliation marks the PR tagged and release-please opens
+   the next candidate.
+
+If no publisher run exists, check whether the push started `publish-pypi.yml`
+and what `detect` decided. If recovery ran as a dispatch at another SHA
+(`resume` or `verify-only` from the current `main` head), the run at the merge
+SHA stays failed and the PR stays blocked: label it manually (add
+`autorelease: tagged`, then remove `autorelease: pending`) only after the
+checks in step 3 of the normal flow.
+The script never relabels a blocked PR, reruns or dispatches anything; never
+clear `autorelease: pending` just to turn the run green. The 1.10.0 release
+(PR #709) is the reference case: its publisher run failed in cookbook
+verification after PyPI publication and preparation stayed silently green
+until its failed jobs were re-run.
 
 ### Recovery dispatch (the only manual entry point)
 

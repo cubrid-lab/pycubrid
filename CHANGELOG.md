@@ -79,6 +79,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the driver is unchanged.
 
 ### CI
+- **"Prepare release" fails visibly when a merged release is blocked** —
+  `scripts/reconcile_release_labels.py` now classifies every merged
+  `autorelease: pending` release PR it cannot mark tagged by the newest
+  `publish-pypi.yml` run at its merge SHA. Any queued or running publisher run
+  at that SHA, or a merge under 2 hours old with no run yet, emits a notice and
+  stays green. A newest completed run that concluded with anything but success,
+  a successful run without publication proof, or no run 2 hours after the merge
+  emits an error with the PR, merge SHA, run URL and conclusion (plus the
+  rerun-failed-jobs command for failed, cancelled or timed-out runs, and the
+  manual-label path for recovery dispatched at another SHA), writes it to the
+  step summary and fails the run. Before, after the 1.10.0 cookbook
+  failure, release-please only logged "aborting" on every push and the run stayed
+  green. The tagged transition and its fail-closed proof are unchanged; nothing
+  is relabelled, rerun or dispatched automatically. See RELEASING.md, "When
+  preparation is blocked". No runtime change.
 - **Cookbook release verification pinned to the cookbook SHA with the PyPI wait** — the `verify-cookbook` call in `.github/workflows/publish-pypi.yml` is pinned to `32e80c6ea9ae78324f764d7b873ffb64b000ddcc` (cubrid-cookbook-python#274), the same commit in pycubrid, sqlalchemy-cubrid and cubrid-mcp-server. The cookbook now waits up to 10 minutes for PyPI to serve the exact requested version before installing, and reports what PyPI served if it times out; this fixes the 1.10.0 post-publish stale-CDN failure that blocked release-please. No runtime change.
 - **CHANGELOG lint applies the duplicate-heading check only after the cutoff** —
   `scripts/lint_changelog.py` now gates rule 5 (no repeated `###` heading within one
