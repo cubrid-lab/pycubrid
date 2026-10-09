@@ -42,7 +42,8 @@ def run_gate(selected: set[str], results: dict[str, str]) -> subprocess.Complete
     )
 
 
-@pytest.mark.parametrize("result", ["failure", "cancelled", "skipped"])
+# "" is what GitHub reports for a needed job that produced no result.
+@pytest.mark.parametrize("result", ["failure", "cancelled", "skipped", ""])
 @pytest.mark.parametrize("job", gate()["needs"])
 def test_every_selected_job_must_succeed(job: str, result: str) -> None:
     completed = run_gate(set(gate()["needs"]), {job: result})
@@ -396,3 +397,259 @@ def test_failed_cancelled_or_missing_endpoint_cell_fails_the_gate(result: str) -
 def test_successful_endpoint_cells_pass_the_gate() -> None:
     completed = run_gate(ENDPOINT_RUN | {"offline-tests"}, {})
     assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+# --- #750: release offline evidence, weekly reuse and schedule spread ------
+
+FULL_GATE = workflow("integration-full.yml")["jobs"]["full-matrix-result"]
+
+
+def run_full_gate(results: dict[str, str]) -> subprocess.CompletedProcess:
+    if shutil.which("bash") is None:
+        pytest.skip("GitHub workflow shell requires bash")
+    script = FULL_GATE["steps"][0]["run"]
+    for job in FULL_GATE["needs"]:
+        script = script.replace("${{ needs." + job + ".result }}", results.get(job, "success"))
+    assert "${{" not in script, "full-matrix-result reads a context the harness does not set"
+    return subprocess.run(
+        ["bash", "-eo", "pipefail", "-c", script],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+
+
+def test_release_gate_passes_when_every_dependency_succeeds() -> None:
+    completed = run_full_gate({})
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+# "" is the result GitHub reports for a dependency that never produced one.
+@pytest.mark.parametrize("result", ["failure", "cancelled", "skipped", ""])
+@pytest.mark.parametrize("job", FULL_GATE["needs"])
+def test_release_gate_rejects_any_non_success_dependency(job: str, result: str) -> None:
+    assert run_full_gate({job: result}).returncode != 0
+
+
+def test_release_runs_the_offline_endpoint_cells_itself() -> None:
+    # #750: the release no longer relies on a cancellable main push run for #745.
+    full = workflow("integration-full.yml")["jobs"]
+    job = full["offline-endpoints"]
+    assert "if" not in job
+    assert job["needs"] == "validate-target"
+    assert job["strategy"]["fail-fast"] is False
+    assert job["strategy"]["matrix"] == {"python-version": list(offline_cells("push", "false"))}
+    ci_steps = workflow("ci.yml")["jobs"]["offline-tests"]["steps"]
+
+    def run_of(steps: list, name: str) -> str:
+        return next(s for s in steps if s.get("name") == name)["run"]
+
+    for name in ("Install dependencies", FULL):
+        assert run_of(job["steps"], name) == run_of(ci_steps, name), name
+    assert "--cov-fail-under=95" in run_of(job["steps"], FULL)
+    assert "offline-endpoints" in FULL_GATE["needs"]
+    assert "needs.offline-endpoints.result" in FULL_GATE["steps"][0]["run"]
+    assert workflow("publish-pypi.yml")["jobs"]["matrix"]["uses"] == (
+        "./.github/workflows/integration-full.yml"
+    )
+
+
+DETECT = workflow("ci.yml")["jobs"]["detect-changes"]
+CODE_FAMILY = ("code", "live", "extended", "tls", "charset", "official")
+
+
+def detect_output(key: str, event: str, filt: dict[str, str], reuse: dict[str, str]) -> bool:
+    """Evaluate one detect-changes output expression for given step outputs."""
+    expr = DETECT["outputs"][key].strip().removeprefix("${{").removesuffix("}}")
+    names: dict[str, str] = {"event": event}
+    for prefix, values in (("filter", filt), ("reuse", reuse)):
+        for name in ("code", "tooling", "risk", "tls", "charset", "official", "docs"):
+            names[f"{prefix}_{name}"] = values.get(name, "")
+            expr = expr.replace(f"steps.{prefix}.outputs.{name}", f"{prefix}_{name}")
+    expr = expr.replace("github.event_name", "event").replace("&&", " and ").replace("||", " or ")
+    return bool(eval(expr, {"__builtins__": {}}, names))  # noqa: S307 - fixed workflow text
+
+
+ALL_CHANGED = {name: "true" for name in ("code", "tooling", "risk", "tls", "charset", "official")}
+
+
+@pytest.mark.parametrize("key", CODE_FAMILY)
+def test_weekly_run_skips_code_lanes_only_when_proven_at_the_same_sha(key: str) -> None:
+    assert detect_output(key, "schedule", ALL_CHANGED, {}) is True
+    assert detect_output(key, "schedule", ALL_CHANGED, {"code": "false"}) is True
+    assert detect_output(key, "schedule", ALL_CHANGED, {"code": "true"}) is False
+    # Proven tooling never hides code lanes.
+    assert detect_output(key, "schedule", ALL_CHANGED, {"tooling": "true"}) is True
+
+
+def test_weekly_run_skips_tooling_only_when_proven_at_the_same_sha() -> None:
+    assert detect_output("tooling", "schedule", ALL_CHANGED, {"code": "true"}) is True
+    assert detect_output("tooling", "schedule", ALL_CHANGED, {"tooling": "true"}) is False
+
+
+@pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch"])
+@pytest.mark.parametrize("key", [*CODE_FAMILY, "tooling"])
+def test_reuse_cannot_change_other_events(event: str, key: str) -> None:
+    # The reuse step runs only on schedule; elsewhere its outputs are empty.
+    reuse_step = next(s for s in DETECT["steps"] if s.get("id") == "reuse")
+    assert reuse_step["if"] == "github.event_name == 'schedule'"
+    for filt in (ALL_CHANGED, {}):
+        assert detect_output(key, event, filt, {}) == detect_output(
+            key, event, filt, {"code": "", "tooling": ""}
+        )
+
+
+def test_detect_changes_alone_gains_read_only_actions_access() -> None:
+    jobs = workflow("ci.yml")["jobs"]
+    assert DETECT["permissions"] == {
+        "contents": "read",
+        "pull-requests": "read",
+        "actions": "read",
+    }
+    for name, job in jobs.items():
+        if name != "detect-changes":
+            assert "actions" not in job.get("permissions", {}), name
+
+
+def run_reuse(runs: object, jobs: dict[int, list[dict]]) -> tuple[int, dict[str, str], str]:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("GitHub JavaScript guard requires Node.js")
+    script = next(s for s in DETECT["steps"] if s.get("id") == "reuse")["with"]["script"]
+    harness = r"""
+const {script, runs, jobs} = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+const sha = 'a'.repeat(40);
+const context = {eventName: 'schedule', sha, repo: {owner: 'cubrid-lab', repo: 'pycubrid'}};
+const outputs = {}; const warnings = [];
+const core = {setOutput: (k, v) => { outputs[k] = v; }, info() {}, warning: m => warnings.push(m)};
+const listWorkflowRuns = 'runs'; const listJobsForWorkflowRun = 'jobs';
+const github = {rest: {actions: {listWorkflowRuns, listJobsForWorkflowRun}},
+  paginate: async (method, params) => {
+    if (method === 'runs') {
+      if (runs === 'error') throw new Error('API unavailable');
+      if (params.head_sha !== sha || params.event !== 'push' || params.branch !== 'main')
+        throw new Error('unexpected query ' + JSON.stringify(params));
+      return runs;
+    }
+    return jobs[params.run_id] || [];
+  }};
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+new AsyncFunction('github', 'context', 'core', script)(github, context, core)
+  .then(() => console.log(JSON.stringify({outputs, warnings})))
+  .catch(e => {console.error(e.message); process.exitCode = 1;});
+"""
+    completed = subprocess.run(
+        [node, "-e", harness],
+        input=json.dumps({"script": script, "runs": runs, "jobs": jobs}),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    data = json.loads(completed.stdout or "{}")
+    return completed.returncode, data.get("outputs", {}), " ".join(data.get("warnings", []))
+
+
+SHA = "a" * 40
+
+
+def push_run(run_id: int, sha: str = SHA, conclusion: str = "success") -> dict:
+    return {
+        "id": run_id,
+        "head_sha": sha,
+        "event": "push",
+        "conclusion": conclusion,
+        "html_url": f"https://example.invalid/{run_id}",
+    }
+
+
+def job(name: str, conclusion: str = "success") -> dict:
+    return {"name": name, "conclusion": conclusion}
+
+
+CODE_RUN_JOBS = [
+    job("offline-tests (ubuntu-latest, 3.11)"),
+    job("offline-tests (ubuntu-latest, 3.14)"),
+]
+
+
+@pytest.mark.parametrize(
+    "runs,jobs,expected",
+    [
+        ([push_run(1)], {1: CODE_RUN_JOBS}, {"code": "true", "tooling": "false"}),
+        (
+            [push_run(1)],
+            {1: [*CODE_RUN_JOBS, job("repo-tooling-tests (ubuntu-latest)")]},
+            {"code": "true", "tooling": "true"},
+        ),
+        # A docs-only push run of this SHA ran no offline cell: not proven.
+        (
+            [push_run(1)],
+            {1: [job("lint"), job("validate-target")]},
+            {"code": "false", "tooling": "false"},
+        ),
+        ([], {}, {"code": "false", "tooling": "false"}),
+        # Defensive: a run of another SHA or a non-success run never counts.
+        ([push_run(1, sha="b" * 40)], {1: CODE_RUN_JOBS}, {"code": "false", "tooling": "false"}),
+        (
+            [push_run(1, conclusion="cancelled")],
+            {1: CODE_RUN_JOBS},
+            {"code": "false", "tooling": "false"},
+        ),
+        # One failed or skipped cell means the family is not proven.
+        (
+            [push_run(1)],
+            {
+                1: [
+                    job("offline-tests (ubuntu-latest, 3.11)"),
+                    job("offline-tests (ubuntu-latest, 3.14)", "failure"),
+                ]
+            },
+            {"code": "false", "tooling": "false"},
+        ),
+        (
+            [push_run(1)],
+            {1: [job("offline-tests (ubuntu-latest, 3.11)", "skipped")]},
+            {"code": "false", "tooling": "false"},
+        ),
+    ],
+)
+def test_reuse_proves_a_family_only_from_a_successful_same_sha_push_run(
+    runs: list, jobs: dict, expected: dict[str, str]
+) -> None:
+    code, outputs, warnings = run_reuse(runs, {str(k): v for k, v in jobs.items()})
+    assert code == 0
+    assert outputs == expected
+    assert not warnings
+
+
+def test_reuse_lookup_failure_selects_the_lanes() -> None:
+    code, outputs, warnings = run_reuse("error", {})
+    assert code == 0
+    assert outputs == {"code": "false", "tooling": "false"}
+    assert "API unavailable" in warnings
+
+
+def cron(name: str) -> str:
+    data = workflow(name)
+    (entry,) = data.get("on", data.get(True))["schedule"]
+    return entry["cron"]
+
+
+def test_weekly_ci_and_bug_hunt_run_on_different_days() -> None:
+    # #750: a later cron start does not mean the earlier run finished.
+    ci_day = cron("ci.yml").split()[4]
+    bug_hunt_day = cron("bug-hunt.yml").split()[4]
+    assert ci_day != bug_hunt_day
+    assert cron("bug-hunt.yml") == "0 4 * * 4"
+
+
+def test_bug_hunt_keeps_its_activity_guard_and_non_pr_triggers() -> None:
+    data = workflow("bug-hunt.yml")
+    assert set(data.get("on", data.get(True))) == {"schedule", "workflow_dispatch"}
+    jobs = data["jobs"]
+    for name, body in jobs.items():
+        if name != "activity":
+            assert body["if"] == "needs.activity.outputs.changed == 'true'", name
+    assert "7 days ago" in jobs["activity"]["steps"][-1]["run"]

@@ -58,16 +58,23 @@ jobs:
     name: Detect changed paths
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # actions: read lets the weekly run look up the push run of the same SHA (#750).
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    # On the weekly schedule, `reuse` is 'true' for a lane family already proven at
+    # this exact SHA by a successful push run; elsewhere it is empty and changes nothing.
     outputs:
-      code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' }}
+      code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
-      tooling: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.tooling == 'true' }}
+      tooling: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.tooling == 'true' && steps.reuse.outputs.tooling != 'true' }}
       risk: ${{ steps.filter.outputs.risk }}
-      live: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
-      extended: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && github.event_name != 'pull_request' }}
-      tls: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
-      charset: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
-      official: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
+      live: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
+      extended: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && github.event_name != 'pull_request' }}
+      tls: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
+      charset: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
+      official: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -79,6 +86,43 @@ jobs:
         run: |
           base=$(git rev-list -1 --before="7 days ago" HEAD)
           echo "base=${base:-$(git rev-list --max-parents=0 HEAD)}" >> "$GITHUB_OUTPUT"
+      # A main push run and the weekly run of the same SHA execute the same jobs
+      # with the same commands (both are non-PR events), so the weekly run
+      # re-runs a lane family only when no successful push run of this SHA ran
+      # it. Any lookup problem selects the lanes as before (#750).
+      - name: Reuse lanes a successful push run of this SHA already ran
+        id: reuse
+        if: github.event_name == 'schedule'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const families = {code: 'offline-tests', tooling: 'repo-tooling-tests'};
+            const proven = {code: false, tooling: false};
+            try {
+              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                ...context.repo, workflow_id: 'ci.yml', branch: 'main', event: 'push',
+                head_sha: context.sha, status: 'success', per_page: 100,
+              });
+              for (const run of runs) {
+                if (run.head_sha !== context.sha || run.event !== 'push' || run.conclusion !== 'success') continue;
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                  ...context.repo, run_id: run.id, filter: 'latest', per_page: 100,
+                });
+                for (const [family, prefix] of Object.entries(families)) {
+                  const lane = jobs.filter(j => j.name.startsWith(prefix));
+                  if (lane.length && lane.every(j => j.conclusion === 'success')) {
+                    proven[family] = run.html_url;
+                  }
+                }
+              }
+            } catch (error) {
+              core.warning(`Push-run lookup failed; selecting lanes from the 7-day diff: ${error.message}`);
+              proven.code = proven.tooling = false;
+            }
+            for (const [family, url] of Object.entries(proven)) {
+              core.setOutput(family, url ? 'true' : 'false');
+              core.info(`${family}: ${url ? `already passed in ${url}` : 'not proven at this SHA'}`);
+            }
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
         id: filter
         with:

@@ -6,7 +6,8 @@ name: Integration Full Matrix
 # (workflow_dispatch), and as the release gate: publish-pypi.yml calls it through
 # workflow_call with the release commit SHA, plus the cross-version behavior
 # differential (#351) that needs all four CUBRID versions at once, and the
-# official-driver differential (#446) against the pinned CUBRIDdb oracle.
+# official-driver differential (#446) against the pinned CUBRIDdb oracle, and
+# the Python 3.11/3.14 offline suite at the same SHA (#750).
 
 on:
   workflow_dispatch:
@@ -590,11 +591,57 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  offline-endpoints:
+    needs: validate-target
+    # The Python 3.11/3.14 offline suite with the 95% floor (#745) at the exact
+    # release SHA (#750). The ci.yml push run of a release commit can be
+    # cancelled by a later merge and nothing in the release path required it,
+    # so the release runs these two cells itself. Install and test commands are
+    # kept identical to ci.yml offline-tests (tests/test_ci_policy.py).
+    name: offline-endpoints (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          version: "0.12.17"
+          enable-cache: auto
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
+      - name: Install dependencies
+        shell: bash
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip install --system pytest-cov
+          uv pip freeze --system
+      - name: Run offline tests with coverage
+        shell: bash
+        run: |
+          python -m pytest tests/ \
+            -m "not integration and not repo_tooling" \
+            -v --tb=short \
+            --cov=pycubrid \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage-py${{ matrix.python-version }}.xml \
+            --cov-fail-under=95
+
   full-matrix-result:
     name: Full compatibility matrix result
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validate-target, integration-full, integration-tls, integration-charset, version-differential, official-differential]
+    needs: [validate-target, integration-full, integration-tls, integration-charset, version-differential, official-differential, offline-endpoints]
     if: always()
     steps:
       - name: Require the full matrix to pass
@@ -621,6 +668,10 @@ jobs:
           fi
           if [ "${{ needs.official-differential.result }}" != "success" ]; then
             echo "::error::Official driver differential failed: ${{ needs.official-differential.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.offline-endpoints.result }}" != "success" ]; then
+            echo "::error::Offline Python 3.11/3.14 endpoint cells failed: ${{ needs.offline-endpoints.result }}"
             exit 1
           fi
           echo "Full compatibility matrix passed."

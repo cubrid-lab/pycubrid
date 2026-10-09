@@ -7,6 +7,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### CI
+- **Scheduled and release validation without duplicate work (#750)** —
+  `docs/CI_POLICY.md` now records measured job counts, runner minutes and
+  failure yield per event, and which workflow owns each kind of coverage.
+  - **Weekly `ci.yml` run.** It no longer repeats the lanes that a successful
+    push run of the exact same SHA already ran. Its `detect-changes` job gains
+    read-only `actions: read` to look that up. A docs-only head commit, a head
+    push run that failed or was cancelled, or a failed lookup selects the lanes
+    as before.
+  - **`bug-hunt.yml`.** It moves from Monday 04:00 UTC to Thursday 04:00 UTC,
+    off the crowded Monday schedules, and keeps its 7-day activity guard.
+  - **Release.** `integration-full.yml` runs the Python 3.11/3.14 offline suite
+    with the 95% coverage floor (`offline-endpoints`) at the release SHA, and
+    `full-matrix-result` requires it. The release previously relied on a
+    `ci.yml` push run that it never checked and that a later merge could
+    cancel.
+  - Pull requests and main pushes are unchanged.
 - **Offline tests run on the oldest and newest supported Python (#745)** — the
   `offline-tests` job of `ci.yml` now picks its Python matrix from the event.
   Main pushes, the weekly Monday schedule and manual dispatch run the full

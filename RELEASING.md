@@ -143,7 +143,7 @@ and chained with explicit `needs:` (tags and Releases created with
 | Job | What it does |
 | --- | --- |
 | `consistency` | `make release-check VERSION=X.Y.Z` at the SHA: `__version__`, CHANGELOG lint and dated section, `build` + `twine check`. |
-| `matrix` | The full Python × CUBRID matrix, TLS, EUC-KR and version-differential lanes: `integration-full.yml` called through `workflow_call` at the SHA. |
+| `matrix` | The full Python × CUBRID matrix, TLS, EUC-KR, version-differential and official-differential lanes, and the Python 3.11/3.14 offline suite with the 95% coverage floor (`offline-endpoints`): `integration-full.yml` called through `workflow_call` at the SHA. |
 | `build` | Builds the wheel and sdist **once**, `twine check`, wheel/sdist install smoke tests, extracts the release notes, generates the SPDX SBOM and records SHA-256 hashes. Artifacts `release-dist` and `release-meta` are kept for 14 days. |
 | `publish` | In the `pypi` environment: re-checks the hashes, creates the annotated tag `vX.Y.Z` at the SHA (or accepts one already there), creates a **draft** GitHub Release with the notes and `sbom.spdx.json`, uploads the same artifact to PyPI through `scripts/pypi_duplicate_guard.py` and Trusted Publishing (OIDC), then publishes the Release. |
 | `verify-cookbook` | Calls the cookbook smoke test (`smoke-test.yml` of cubrid-cookbook-python) as a **reusable workflow** with `package=pycubrid`, `version=X.Y.Z` and a `request_id`; its jobs run inside this release run. |
