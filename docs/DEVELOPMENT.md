@@ -1100,7 +1100,7 @@ automatically. Nobody pushes tags or publishes by hand.
 
 ## Changelog validation
 
-`python scripts/lint_changelog.py` rejects repeated subsection headings within a release, including an Unreleased-only file. Different releases may reuse the same subsection names.
+`python scripts/lint_changelog.py` rejects repeated subsection headings within a release, including an Unreleased-only file. Different releases may reuse the same subsection names. Lines inside a fenced code block are entry content: a fenced `## [` or `###` line is never a release or a heading, and an unclosed fence is an error (`scripts/compose_release_changelog.py` follows the same rule).
 
 In `[Unreleased]` and in releases after 1.10.0 it also requires the standard `###`
 sections, each with content, in this order: Upgrade notes, Added, Changed, Deprecated,

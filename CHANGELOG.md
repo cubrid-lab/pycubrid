@@ -79,6 +79,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the driver is unchanged.
 
 ### CI
+- **CHANGELOG tooling treats fenced code as content** — `scripts/lint_changelog.py` and
+  `scripts/compose_release_changelog.py` no longer read a `## [` or `###` line inside a
+  fenced code block as a release header or heading, so a code example in a CHANGELOG
+  entry is no longer rejected as an unknown section. The fence lines stay part of the
+  entry. An unclosed fence now fails closed in both (`ERROR: Unclosed code fence in
+  CHANGELOG.md` in the lint, `unclosed code fence in ...` in the composer). Entries
+  without fenced code compose and lint exactly as before. This matches cubrid-mcp-server
+  and cubrid-cookbook-python; contributor tooling only, the driver is unchanged.
 - **GitHub Release naming and standard release-note sections** — `AGENTS.md` gains a
   "GitHub Release Policy" section: a Release title is exactly its tag `vX.Y.Z`, drafts
   included; tags are never moved or recreated to fix a title; stale drafts are

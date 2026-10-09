@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -151,3 +153,46 @@ def test_empty_curated_section_is_dropped() -> None:
     actual = compose(base, generated, "1.9.0")
     assert "### Added" not in actual
     assert "### Upgrade notes\n\nKeep this **exactly**.\n\n### Fixed\n\n* new API" in actual
+
+
+FENCED_CURATED = (
+    "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Example:\n\n"
+    "```markdown\n### Not a heading\n## [9.9.9] - 2000-01-01\n```\n\n"
+    "## [1.8.0] - 2026-09-01\n\nOld history.\n"
+)
+
+
+def test_fenced_heading_in_curated_entry_is_content() -> None:
+    actual = compose(FENCED_CURATED, NOTES, "1.9.0")
+    assert "```markdown\n### Not a heading\n## [9.9.9] - 2000-01-01\n```" in actual
+    assert actual.count("## [9.9.9]") == 1 and actual.count("### Added") == 1
+    assert (
+        actual[actual.index("## [1.8.0]") :] == FENCED_CURATED[FENCED_CURATED.index("## [1.8.0]") :]
+    )
+
+
+def test_fenced_heading_in_generated_entry_is_content() -> None:
+    generated = NOTES + "\n```\n### Not a heading\n## also not\n```\n"
+    actual = compose(BASE, generated, "1.9.0")
+    assert "```\n### Not a heading\n## also not\n```" in actual
+
+
+def test_fenced_curated_entry_passes_the_changelog_lint(tmp_path: Path) -> None:
+    actual = compose(FENCED_CURATED, NOTES, "1.9.0")
+    (tmp_path / "scripts").mkdir()
+    script = tmp_path / "scripts/lint_changelog.py"
+    script.write_text((Path(MODULE.__file__).parent / "lint_changelog.py").read_text())
+    (tmp_path / "CHANGELOG.md").write_text(actual)
+    result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("where", ["curated", "generated"])
+def test_unclosed_code_fence_fails_closed(where: str) -> None:
+    base, generated = BASE, NOTES
+    if where == "curated":
+        base = BASE.replace("Keep this", "```\n### Fixed\nKeep this")
+    else:
+        generated = NOTES + "\n```\n### Fixed\n"
+    with pytest.raises(ValueError, match="unclosed code fence"):
+        compose(base, generated, "1.9.0")

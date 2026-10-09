@@ -9,7 +9,8 @@ Checks:
     2. Exactly one [Unreleased] section
     3. No duplicate version sections
     4. Released versions in descending semver order
-    5. No duplicate subsections within one release
+    5. No duplicate subsections within one release (fenced code blocks are
+       content, not headings or releases; an unclosed fence is an error)
     6. In [Unreleased] and releases newer than SECTION_POLICY_CUTOFF, every
        ``###`` heading is a standard section, has content and follows the
        standard order (AGENTS.md "GitHub Release Policy")
@@ -81,7 +82,39 @@ def main() -> int:
         return 1
 
     content = changelog.read_text(encoding="utf-8")
-    headers = re.findall(r"^## \[(\S+)\]", content, re.MULTILINE)
+
+    # Release headers, duplicate subsections (rule 5) and each release's ### sections
+    # with their bodies (rule 6) come from one fence-aware pass: lines inside a fenced
+    # code block are content, never ``## [`` or ``###`` headings. Fence lines are content.
+    releases: list[tuple[str, list[tuple[str, str]]]] = []
+    subsections: set[str] = set()
+    in_fence = False
+    for line in content.splitlines():
+        version = None if in_fence else re.match(r"^## \[(\S+)\]", line)
+        if version:
+            subsections.clear()
+            releases.append((version.group(1), []))
+            continue
+        subsection = None if in_fence else re.match(r"^###\s+(.+)$", line)
+        if releases and subsection:
+            title = subsection.group(1).strip()
+            if title in subsections:
+                print(
+                    f"ERROR: Duplicate subsection '### {title}' in [{releases[-1][0]}]",
+                    file=sys.stderr,
+                )
+                return 1
+            subsections.add(title)
+            releases[-1][1].append((title, ""))
+        elif releases and releases[-1][1]:
+            title, body = releases[-1][1][-1]
+            releases[-1][1][-1] = (title, body + line + "\n")
+        if line.startswith("```"):
+            in_fence = not in_fence
+    if in_fence:
+        print("ERROR: Unclosed code fence in CHANGELOG.md", file=sys.stderr)
+        return 1
+    headers = [name for name, _ in releases]
 
     if not headers:
         print("ERROR: No version sections found (expected '## [X.Y.Z]')", file=sys.stderr)
@@ -103,32 +136,6 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-
-    # Subsections are unique within each release, including Unreleased-only files.
-    releases: list[tuple[str, list[tuple[str, str]]]] = []
-    current_version: str | None = None
-    subsections: set[str] = set()
-    for line in content.splitlines():
-        version = re.match(r"^## \[(\S+)\]", line)
-        if version:
-            current_version = version.group(1)
-            subsections.clear()
-            releases.append((current_version, []))
-            continue
-        subsection = re.match(r"^###\s+(.+)$", line)
-        if current_version is not None and subsection:
-            title = subsection.group(1).strip()
-            if title in subsections:
-                print(
-                    f"ERROR: Duplicate subsection '### {title}' in [{current_version}]",
-                    file=sys.stderr,
-                )
-                return 1
-            subsections.add(title)
-            releases[-1][1].append((title, ""))
-        elif releases and releases[-1][1]:
-            title, body = releases[-1][1][-1]
-            releases[-1][1][-1] = (title, body + line + "\n")
 
     for name, sections in releases:
         if section_policy_applies(name) and (error := check_sections(name, sections)):
