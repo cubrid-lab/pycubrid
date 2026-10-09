@@ -1030,3 +1030,9 @@ graph TD
 ## 변경 이력 검증
 
 `python scripts/lint_changelog.py`는 릴리스별 중복 하위 섹션을 거부합니다. Unreleased만 있는 파일도 검사하며 서로 다른 릴리스는 같은 하위 섹션 이름을 사용할 수 있습니다.
+
+`[Unreleased]`와 1.10.0 이후 릴리스에서는 내용이 있는 표준 `###` 섹션만 다음 순서로 허용합니다: Upgrade notes,
+Added, Changed, Deprecated, Removed, Fixed, Security, Performance, Documentation, CI, Tests. `Docs`가 아니라
+`Documentation`을 쓰고, 릴리스 자동화 항목은 `CI` 또는 `Changed`에 둡니다. 1.10.0까지의 릴리스는 기존 제목을
+유지합니다. GitHub Release 본문은 CHANGELOG 섹션에 `**Full Changelog**` 비교 링크 하나를 붙인 것입니다.
+`AGENTS.md`의 "GitHub Release Policy"를 참고하세요.

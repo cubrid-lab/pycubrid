@@ -15,6 +15,9 @@ Key invariants:
 - A release is decided from git facts on `main`, never from a PR title.
 - The workflows never delete PyPI files, never move a tag and never create a
   version that was not merged through a release PR.
+- A GitHub Release title is exactly its tag `vX.Y.Z`, drafts included. Release
+  notes use the standard `###` sections. Both rules, and the handling of stale
+  drafts, are in the "GitHub Release Policy" section of [`AGENTS.md`](AGENTS.md).
 
 ## Normal flow
 
@@ -45,13 +48,20 @@ Conventional Commit body containing `Release-As: X.Y.Z` overrides a proposal;
 remove/correct an erroneous override through a reviewed commit, never by
 editing the manifest on main. Historical versions and tags are immutable.
 
-release-please writes linked headings in `RELEASE_CHANGELOG.md`. The composer
-rebuilds canonical `CHANGELOG.md` from the generator's main SHA: it moves all
-curated Unreleased text, including Upgrade notes, under the strict dated
-`## [X.Y.Z] - YYYY-MM-DD` header and appends generated notes under
-`### Conventional commits`. Generated subheadings are demoted, keeping the
-curated heading namespaces separate. Historical notes are copied unchanged.
-Unknown format, candidate mismatch, invalid date, or stale main fail closed.
+release-please writes linked headings in `RELEASE_CHANGELOG.md`.
+`changelog-sections` in `release-please-config.json` maps commit types to the
+standard headings: `feat` → Added, `fix` → Fixed, `perf` → Performance,
+`docs` → Documentation, `deps`/`revert` → Changed; `ci` → CI, `test` → Tests and
+`refactor`/`chore`/`build`/`style` → Changed are hidden, as before, so they still
+create no candidate on their own and appear only with a breaking change. The
+composer rebuilds canonical `CHANGELOG.md` from the generator's main SHA: it
+moves all curated Unreleased text, including Upgrade notes, under the strict
+dated `## [X.Y.Z] - YYYY-MM-DD` header and merges the generated notes into the
+same standard `###` headings in the standard order (curated entries first,
+release-please's `⚠ BREAKING CHANGES` under Upgrade notes), so the candidate
+passes `scripts/lint_changelog.py`. Historical notes are copied unchanged.
+Unknown format or heading, candidate mismatch, invalid date, or stale main fail
+closed.
 Main is checked before generation, composition and push. The old preparer
 script/tests remain as historical offline utilities; they have no workflow
 entry point and must not be used to open a second production release PR.
@@ -105,12 +115,15 @@ python scripts/compose_release_changelog.py --base-changelog CHANGELOG.md \
   --version 1.9.0 --output /tmp/pycubrid-release-please-candidate/CHANGELOG.md
 pytest tests/test_compose_release_changelog.py tests/test_reconcile_release_labels.py \
   tests/test_release_workflows.py tests/test_release_detect.py tests/test_release_summary.py \
-  tests/test_pypi_duplicate_guard.py -q
+  tests/test_pypi_duplicate_guard.py tests/test_check_release_title.py \
+  tests/test_extract_release_notes.py tests/test_lint_changelog_subsections.py \
+  tests/test_release_please_config.py -q
 ```
 
 The upstream check parses the real manifest/config and invokes the pinned
 upstream Python strategy/updaters against synthetic commits and read-only
-local SCM. It verifies fix/feature/breaking/docs/hidden-chore/override behavior
+local SCM. It verifies fix/feature/breaking/docs/perf/hidden-chore/ci/test/refactor/override
+behavior and the standard `###` heading each releasable commit type produces,
 and writes an actual generated candidate into `/tmp`; it never calls GitHub
 or publishes. This proves strategy/file generation, not authenticated live
 GitHub PR creation, repository settings or a full broker matrix. Test-generated
@@ -144,8 +157,8 @@ and chained with explicit `needs:` (tags and Releases created with
 | --- | --- |
 | `consistency` | `make release-check VERSION=X.Y.Z` at the SHA: `__version__`, CHANGELOG lint and dated section, `build` + `twine check`. |
 | `matrix` | The full Python × CUBRID matrix, TLS, EUC-KR, version-differential and official-differential lanes, and the Python 3.11/3.14 offline suite with the 95% coverage floor (`offline-endpoints`): `integration-full.yml` called through `workflow_call` at the SHA. |
-| `build` | Builds the wheel and sdist **once**, `twine check`, wheel/sdist install smoke tests, extracts the release notes, generates the SPDX SBOM and records SHA-256 hashes. Artifacts `release-dist` and `release-meta` are kept for 14 days. |
-| `publish` | In the `pypi` environment: re-checks the hashes, creates the annotated tag `vX.Y.Z` at the SHA (or accepts one already there), creates a **draft** GitHub Release with the notes and `sbom.spdx.json`, uploads the same artifact to PyPI through `scripts/pypi_duplicate_guard.py` and Trusted Publishing (OIDC), then publishes the Release. |
+| `build` | Builds the wheel and sdist **once**, `twine check`, wheel/sdist install smoke tests, extracts the release notes (the CHANGELOG section byte for byte plus one `**Full Changelog**` link to the previous CHANGELOG version; none for the first release or when the section already has a compare link), generates the SPDX SBOM and records SHA-256 hashes. Artifacts `release-dist` and `release-meta` are kept for 14 days. |
+| `publish` | In the `pypi` environment: re-checks the hashes, creates the annotated tag `vX.Y.Z` at the SHA (or accepts one already there), creates a **draft** GitHub Release titled exactly `vX.Y.Z` with the notes and `sbom.spdx.json` (an existing Release found on resume must already carry that title, or the job fails closed; it is never renamed), uploads the same artifact to PyPI through `scripts/pypi_duplicate_guard.py` and Trusted Publishing (OIDC), then publishes the Release. |
 | `verify-cookbook` | Calls the cookbook smoke test (`smoke-test.yml` of cubrid-cookbook-python) as a **reusable workflow** with `package=pycubrid`, `version=X.Y.Z` and a `request_id`; its jobs run inside this release run. |
 | `require-cookbook` | Fails unless the called workflow succeeded and its outputs report `status == success` with `installed_version == requested_version == X.Y.Z`. |
 | `summary` | Always runs; one table with SHA, tag, version, artifact hashes, matrix result, PyPI and Release URLs, cookbook run and the final state. |
@@ -208,6 +221,8 @@ the `# main` comment.
 | `detect` says "no release" on a release merge | Version unchanged, CHANGELOG section not dated, or the tag exists at another commit (see the warning). | Fix through a new PR. If the tag is at another commit, that version is taken: prepare `X.Y.(Z+1)`. |
 | `consistency`, `matrix` or `build` failed | Nothing published; no tag, no Release. | Transient (flaky lane, runner error): `gh run rerun <run-id> --failed`. Real defect at that commit: `X.Y.Z` stays unpublished. Fix it in a normal PR (no version change, so no release), then prepare `X.Y.(Z+1)`; in that release PR fold the unpublished `## [X.Y.Z]` entries into the new section. A skipped version number on PyPI is harmless. |
 | `publish` failed (tag/Release/PyPI error, partial upload) | The tag and a draft Release may exist; PyPI may hold some files. | `gh run rerun <run-id> --failed` of the **same** run. It reuses the verified artifact, accepts the tag at the same SHA, reuses the draft Release, and the duplicate guard drops files PyPI already serves byte for byte. |
+| `publish` fails with `the title must be exactly 'vX.Y.Z'` | The existing Release for the tag (draft or published) has another title. | Fix only the title by hand, keeping notes, assets, published and prerelease state; for a draft, resend `tag_name` (`gh api -X PATCH repos/cubrid-lab/pycubrid/releases/<id> -f name=vX.Y.Z -f tag_name=vX.Y.Z`). Then rerun. Never delete or recreate the Release or the tag. |
+| release-please preparation fails with `unsupported generated section` | The composer met a generated heading outside the standard list, for example from a breaking commit of a type that `changelog-sections` does not map (`foo!:`). | Add the commit type to `changelog-sections` in `release-please-config.json` with a standard section (hidden if it should not create a release by itself) through a reviewed PR, then regenerate. |
 | Same version rebuilt (new run instead of rerun) | The rebuild's bytes differ from files already on PyPI. | The guard fails on the hash mismatch, by design. Use `rerun --failed` within the 14-day artifact retention; otherwise treat it as a broken release. |
 | `verify-cookbook` or `require-cookbook` failed | **Published**; the cookbook verification failed, was cancelled or did not start. | Fix the cause. If the cookbook call itself (`verify-cookbook`) failed or was cancelled, `gh run rerun <run-id> --failed` re-runs it with a new `request_id` (a new run attempt). If the call succeeded but `require-cookbook` rejected its outputs, `--failed` only re-runs that gate against the same outputs; in that case, or if the call never started, use the `verify-only` dispatch below, which requests a new cookbook run. Never republish. |
 | Broken release on PyPI | Versions are immutable. | Yank it on PyPI (project settings → Releases → Yank) and release `X.Y.(Z+1)` through a new release PR. Never delete a version or move a tag. |

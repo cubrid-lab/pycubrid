@@ -10,6 +10,9 @@ Checks:
     3. No duplicate version sections
     4. Released versions in descending semver order
     5. No duplicate subsections within one release
+    6. In [Unreleased] and releases newer than SECTION_POLICY_CUTOFF, every
+       ``###`` heading is a standard section, has content and follows the
+       standard order (AGENTS.md "GitHub Release Policy")
 
 Exit codes:
     0 — changelog is valid
@@ -21,6 +24,54 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+# Standard ``###`` headings, in order (AGENTS.md "GitHub Release Policy"; kept in
+# sync with scripts/compose_release_changelog.py).
+ALLOWED_SECTIONS = (
+    "Upgrade notes",
+    "Added",
+    "Changed",
+    "Deprecated",
+    "Removed",
+    "Fixed",
+    "Security",
+    "Performance",
+    "Documentation",
+    "CI",
+    "Tests",
+)
+# Latest release when the section policy was adopted. This release and every
+# older one keep their historical headings; their notes are never rewritten.
+SECTION_POLICY_CUTOFF = (1, 10, 0)
+
+
+def section_policy_applies(name: str) -> bool:
+    """[Unreleased] and versions newer than the cutoff; unparsable names fail safe."""
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", name)
+    if match is None:
+        return True
+    return tuple(int(n) for n in match.groups()) > SECTION_POLICY_CUTOFF
+
+
+def check_sections(name: str, sections: list[tuple[str, str]]) -> str | None:
+    """Return the first section-policy violation of one release, or None."""
+    last = -1
+    for title, body in sections:
+        if title not in ALLOWED_SECTIONS:
+            return (
+                f"Subsection '### {title}' in [{name}] is not a standard section "
+                f"(allowed, in order: {', '.join(ALLOWED_SECTIONS)})"
+            )
+        if not body.strip():
+            return f"Subsection '### {title}' in [{name}] is empty"
+        index = ALLOWED_SECTIONS.index(title)
+        if index < last:
+            return (
+                f"Subsection '### {title}' in [{name}] must come before "
+                f"'### {ALLOWED_SECTIONS[last]}'"
+            )
+        last = index
+    return None
 
 
 def main() -> int:
@@ -54,6 +105,7 @@ def main() -> int:
         return 1
 
     # Subsections are unique within each release, including Unreleased-only files.
+    releases: list[tuple[str, list[tuple[str, str]]]] = []
     current_version: str | None = None
     subsections: set[str] = set()
     for line in content.splitlines():
@@ -61,6 +113,7 @@ def main() -> int:
         if version:
             current_version = version.group(1)
             subsections.clear()
+            releases.append((current_version, []))
             continue
         subsection = re.match(r"^###\s+(.+)$", line)
         if current_version is not None and subsection:
@@ -72,6 +125,15 @@ def main() -> int:
                 )
                 return 1
             subsections.add(title)
+            releases[-1][1].append((title, ""))
+        elif releases and releases[-1][1]:
+            title, body = releases[-1][1][-1]
+            releases[-1][1][-1] = (title, body + line + "\n")
+
+    for name, sections in releases:
+        if section_policy_applies(name) and (error := check_sections(name, sections)):
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
 
     versions = [h for h in headers if h != "Unreleased"]
 

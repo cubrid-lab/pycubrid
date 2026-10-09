@@ -14,15 +14,21 @@ const {Manifest}=require(upstream+'/manifest.js');
 const github={repository:{owner:'cubrid-lab',repo:'pycubrid'},getFileJson:async p=>JSON.parse(fs.readFileSync(path.join(root,p),'utf8')),findFilesByFilenameAndRef:async()=>[],getFileContentsOnBranch:async p=>({parsedContent:fs.readFileSync(path.join(root,p),'utf8')})};
 (async()=>{
  const manifest=await Manifest.fromManifest(github,'main');
- if(manifest.releasedVersions['.'].toString()!=='1.8.0' || manifest.repositoryConfig['.'].releaseType!=='python') throw new Error('Invalid bootstrap/config mapping');
- const scenarios=[['fix: correct failure','1.8.1'],['feat: new optional API','1.9.0'],['feat!: remove old API\n\nBREAKING CHANGE: remove old API','2.0.0'],['docs: improve instructions','1.8.1'],['chore: housekeeping',null],['fix: explicit override\n\nRelease-As: 1.9.0','1.9.0']];
- for(const [message,expected] of scenarios){
+ // The manifest must agree with the single-sourced __version__ (both move together in a release PR).
+ const released=/^__version__ = "([^"]+)"$/m.exec(fs.readFileSync(path.join(root,'pycubrid/__init__.py'),'utf8'))[1];
+ if(manifest.releasedVersions['.'].toString()!==released || manifest.repositoryConfig['.'].releaseType!=='python') throw new Error('Invalid manifest/config mapping');
+ // [message, expected version from the fixed 1.8.0 boundary, expected ### heading (AGENTS.md GitHub Release Policy)]
+ const scenarios=[['fix: correct failure','1.8.1','Fixed'],['feat: new optional API','1.9.0','Added'],['feat!: remove old API\n\nBREAKING CHANGE: remove old API','2.0.0','Added'],['docs: improve instructions','1.8.1','Documentation'],['perf: faster fetch','1.8.1','Performance'],['chore: housekeeping',null],['ci: pin action',null],['test: add case',null],['refactor: tidy',null],['fix: explicit override\n\nRelease-As: 1.9.0','1.9.0','Fixed']];
+ const allowed=new Set(['Upgrade notes','Added','Changed','Deprecated','Removed','Fixed','Security','Performance','Documentation','CI','Tests','⚠ BREAKING CHANGES']);
+ for(const [message,expected,heading] of scenarios){
  const strategy=new Python({...manifest.repositoryConfig['.'],github,targetBranch:'main'});
  const commits=parseConventionalCommits([{sha:'a'.repeat(40),message,files:['pycubrid/__init__.py']}]);
  const candidate=await strategy.buildReleasePullRequest(commits,{tag:new TagName(Version.parse('1.8.0')),sha:'aaaef71deb4f1475f2f6d0dd9d49b146a6d44366',notes:''});
  const actual=candidate?candidate.version.toString():null;
  if(actual!==expected)throw new Error(`${message}: expected ${expected} got ${actual}`);
- console.log(JSON.stringify({message,version:actual}));
+ const headings=candidate?[...candidate.body.toString().matchAll(/^### (.+)$/gm)].map(m=>m[1]):[];
+ if(candidate&&(!headings.includes(heading)||headings.some(h=>!allowed.has(h))))throw new Error(`${message}: expected ### ${heading}, got ${headings}`);
+ console.log(JSON.stringify({message,version:actual,headings}));
  if(candidate&&message.startsWith('feat:')){
  const out=process.env.RELEASE_PLEASE_CANDIDATE || '/tmp/pycubrid-release-please-candidate';fs.mkdirSync(out,{recursive:true});
  for(const update of candidate.updates){

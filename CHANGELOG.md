@@ -6,7 +6,100 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
+  Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
+  literal (for example `[bad]` or `[127.0.0.1]`) is now recorded as
+  `<unparseable-url-redacted>` on all supported interpreters. Before, early
+  3.11 patch releases such as 3.11.1 accepted the host and recorded a
+  password-redacted URL instead. The password was redacted either way. Valid
+  IPv6 literals such as `[::1]` still parse and keep their host and port. This
+  is a contributor tooling fix; the driver is unchanged.
+
+### Security
+- **`scripts/collect_repro.py` redacts more forms of the password of a
+  `CUBRID_TEST_URL` that `urllib` splits in the wrong place (#777)** — a URL
+  without `://` (`u:pw@host/db`, `cubrid:u:pw@host/db`, `cubrid:/u:pw@host/db`),
+  or one whose password holds `/`, `?`, `#` or `@` or whose query holds `@`
+  (`cubrid://u:Pa@ss/word@host/db`, `cubrid://u:pw@host/db?opt=a@b`), was
+  written with all or part of its password in plain text to `metadata.json`
+  and `reproduce.md`. `reproduce.md` also quoted endpoint-resolver errors such
+  as `invalid port: ... 'Syn7h'`, which echo part of the password. The
+  collector now records any URL with an `@` outside the authority `urllib`
+  parsed, or longer than 2048 characters, as `<unparseable-url-redacted>`,
+  and reports endpoint-resolution failures with a fixed message. For such a
+  URL `sanitize()` redacts, raw and percent-encoded/decoded in free text such
+  as JUnit failure details, the text after each `:` before each `@` and each
+  piece and suffix of it split at `/`, `?`, `#` and `@` that is at least 3
+  characters long (the whole text and the `urllib` password are kept at any
+  length), plus, within the first 2048 characters, the text after the first
+  and the last `:` before the first `@` and each piece of the userinfo up to
+  the last `@`. Each URL-derived candidate is also redacted, as written, with CR/CRLF
+  turned into LF (as XML parsing does), with tabs, CRs and LFs removed (as
+  `urllib` does) and `repr()`-escaped (as tracebacks do), and its lowercased
+  form of 3 or more characters is redacted as a whole word, so the lowercased host that the
+  integration-test gate quotes in every JUnit error
+  (`dba@kc9qmz7:33000/testdb`) no longer reaches `metadata.json`. Each
+  host-shaped piece (split at `/`, `?`, `#`, `@`, `%`, `[` and `]`, without a
+  trailing `:port`) is lowercased the same way, because `urllib` rewrites the
+  port, drops IPv6 brackets and lowercases only the part before a `%zone`. These
+  derived fragments may over-redact unrelated diagnostic text; shorter ones
+  are not redacted. A URL holding a tab, CR or LF, which `urllib` strips, gets
+  the same enumeration. A URL above 2048 characters, or one that would yield
+  more than 1024 candidate fragments or 8192 candidate characters, keeps the candidates found in its first 2048
+  characters before the limit and is also redacted as a whole string,
+  together with the password `urllib` parses from it and any
+  `scheme://user:password@` password it contains. Both limits are a hard cap,
+  checked before each candidate is added, so a single long tail can no longer
+  take seconds to enumerate. `CUBRID_TEST_PASSWORD` stays
+  an exact match without these variants, and a password transformed in other
+  ways (for example lowercased inside a longer word) is not guaranteed to be
+  redacted. The endpoint resolver is no longer trusted for a URL recorded as
+  `<unparseable-url-redacted>`: `urllib` could put a password fragment into the
+  lowercased host, which reached `reproduce.md` (`CUBRID_TEST_HOST=...`) and the
+  `server_identity` endpoint. Endpoint fields and the readiness endpoint are
+  also rejected when they hold a known password case-insensitively. Redaction
+  patterns are compiled once per configured URL and password. Known limit: a
+  JDBC-style URL without `@` (`jdbc:cubrid:host:33000:db:u:PW:`) is not
+  recognised, so its password is recorded unless `CUBRID_TEST_PASSWORD` also
+  holds it. Valid `cubrid://user:pw@host:port/db` URLs of up to 2048 characters
+  are still recorded as `cubrid://user:***@host:port/db`. This is a contributor
+  tooling fix; the driver is unchanged.
+
+### Documentation
+- **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the
+  old "Project Context — Performance Loop System" snapshot (R2/R3 phases, the
+  Week 8 decision gate, the #14–#22 issue table and fixed PyMySQL ratios) is
+  replaced by short pointers to `ROADMAP.md`, `docs/PERFORMANCE.md` and the
+  `cubrid-benchmark` repository. Packet, function-code, data-type and exception
+  counts, the Python minimum and the CI Python/CUBRID versions now point to
+  their canonical sources (`pycubrid/constants.py`, `pyproject.toml`,
+  `docs/CI_POLICY.md`) instead of being copied. CAS protocol invariants,
+  workflow, labelling, release and commit guidance are unchanged. Docs only;
+  the driver is unchanged.
+
 ### CI
+- **GitHub Release naming and standard release-note sections** — `AGENTS.md` gains a
+  "GitHub Release Policy" section: a Release title is exactly its tag `vX.Y.Z`, drafts
+  included; tags are never moved or recreated to fix a title; stale drafts are
+  classified against the tag and PyPI history and changed only with maintainer
+  approval; release notes come from `CHANGELOG.md`. `publish-pypi.yml` keeps creating
+  Releases with `--title "$TAG"`, and on resume or recovery it now fails closed through
+  the new `scripts/check_release_title.py` when the existing Release has another
+  title, instead of reusing it; it never renames a Release.
+  `scripts/extract_release_notes.py` appends exactly one
+  `**Full Changelog**: …/compare/<previous>...<tag>` line after the unchanged CHANGELOG
+  section (none for the first release or when the section already has a compare
+  link). `scripts/lint_changelog.py` requires the standard `###` sections (Upgrade
+  notes, Added, Changed, Deprecated, Removed, Fixed, Security, Performance,
+  Documentation, CI, Tests), each with content and in that order, in `[Unreleased]`
+  and releases after 1.10.0; 1.10.0 and older keep their headings. release-please
+  `changelog-sections` map commit types to those headings with the same hidden types
+  as before, and `scripts/compose_release_changelog.py` merges generated notes into
+  the standard headings instead of a `### Conventional commits` block. The
+  `[Unreleased]` sections are reordered to the standard order; no entry changed.
+  `scripts/check_release_please.cjs` reads the current manifest version instead of the
+  stale 1.8.0 bootstrap value. No runtime change.
 - **Cookbook release verification pinned to the shared cookbook SHA** — the `verify-cookbook` call to `cubrid-cookbook-python`'s `smoke-test.yml` in `.github/workflows/publish-pypi.yml` is pinned to `bd6749093813d3a447f993fec72ac733adbeae63`, the same commit as the other two package repositories (pycubrid, sqlalchemy-cubrid, cubrid-mcp-server). Since the previous pin the cookbook adds the Python 3.11 cell on release calls (`Smoke Tests (CUBRID 11.4, Python 3.11)`), so the release verification report now needs all three cells (11.2/3.12, 11.4/3.12, 11.4/3.11). `RELEASING.md` lists the third job. No runtime change.
 - **Documentation site build on pull requests (#786)** — `ci.yml` gains a
   `docs-build` job that runs the `docs.yml` build (install `docs/requirements.txt`,
@@ -70,66 +163,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   defined inside top-level `if`/`try` blocks remain out of scope. No test
   module needed a new mark; this is a test-only change.
 
-### Security
-- **`scripts/collect_repro.py` redacts more forms of the password of a
-  `CUBRID_TEST_URL` that `urllib` splits in the wrong place (#777)** — a URL
-  without `://` (`u:pw@host/db`, `cubrid:u:pw@host/db`, `cubrid:/u:pw@host/db`),
-  or one whose password holds `/`, `?`, `#` or `@` or whose query holds `@`
-  (`cubrid://u:Pa@ss/word@host/db`, `cubrid://u:pw@host/db?opt=a@b`), was
-  written with all or part of its password in plain text to `metadata.json`
-  and `reproduce.md`. `reproduce.md` also quoted endpoint-resolver errors such
-  as `invalid port: ... 'Syn7h'`, which echo part of the password. The
-  collector now records any URL with an `@` outside the authority `urllib`
-  parsed, or longer than 2048 characters, as `<unparseable-url-redacted>`,
-  and reports endpoint-resolution failures with a fixed message. For such a
-  URL `sanitize()` redacts, raw and percent-encoded/decoded in free text such
-  as JUnit failure details, the text after each `:` before each `@` and each
-  piece and suffix of it split at `/`, `?`, `#` and `@` that is at least 3
-  characters long (the whole text and the `urllib` password are kept at any
-  length), plus, within the first 2048 characters, the text after the first
-  and the last `:` before the first `@` and each piece of the userinfo up to
-  the last `@`. Each URL-derived candidate is also redacted, as written, with CR/CRLF
-  turned into LF (as XML parsing does), with tabs, CRs and LFs removed (as
-  `urllib` does) and `repr()`-escaped (as tracebacks do), and its lowercased
-  form of 3 or more characters is redacted as a whole word, so the lowercased host that the
-  integration-test gate quotes in every JUnit error
-  (`dba@kc9qmz7:33000/testdb`) no longer reaches `metadata.json`. Each
-  host-shaped piece (split at `/`, `?`, `#`, `@`, `%`, `[` and `]`, without a
-  trailing `:port`) is lowercased the same way, because `urllib` rewrites the
-  port, drops IPv6 brackets and lowercases only the part before a `%zone`. These
-  derived fragments may over-redact unrelated diagnostic text; shorter ones
-  are not redacted. A URL holding a tab, CR or LF, which `urllib` strips, gets
-  the same enumeration. A URL above 2048 characters, or one that would yield
-  more than 1024 candidate fragments or 8192 candidate characters, keeps the candidates found in its first 2048
-  characters before the limit and is also redacted as a whole string,
-  together with the password `urllib` parses from it and any
-  `scheme://user:password@` password it contains. Both limits are a hard cap,
-  checked before each candidate is added, so a single long tail can no longer
-  take seconds to enumerate. `CUBRID_TEST_PASSWORD` stays
-  an exact match without these variants, and a password transformed in other
-  ways (for example lowercased inside a longer word) is not guaranteed to be
-  redacted. The endpoint resolver is no longer trusted for a URL recorded as
-  `<unparseable-url-redacted>`: `urllib` could put a password fragment into the
-  lowercased host, which reached `reproduce.md` (`CUBRID_TEST_HOST=...`) and the
-  `server_identity` endpoint. Endpoint fields and the readiness endpoint are
-  also rejected when they hold a known password case-insensitively. Redaction
-  patterns are compiled once per configured URL and password. Known limit: a
-  JDBC-style URL without `@` (`jdbc:cubrid:host:33000:db:u:PW:`) is not
-  recognised, so its password is recorded unless `CUBRID_TEST_PASSWORD` also
-  holds it. Valid `cubrid://user:pw@host:port/db` URLs of up to 2048 characters
-  are still recorded as `cubrid://user:***@host:port/db`. This is a contributor
-  tooling fix; the driver is unchanged.
-
-### Fixed
-- **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
-  Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
-  literal (for example `[bad]` or `[127.0.0.1]`) is now recorded as
-  `<unparseable-url-redacted>` on all supported interpreters. Before, early
-  3.11 patch releases such as 3.11.1 accepted the host and recorded a
-  password-redacted URL instead. The password was redacted either way. Valid
-  IPv6 literals such as `[::1]` still parse and keep their host and port. This
-  is a contributor tooling fix; the driver is unchanged.
-
 ### Tests
 - **Makefile signal-cleanup test no longer depends on how pytest was launched
   (#775)** — `test_signal_cleanup_preserves_volumes[SIGINT-*]` failed every time
@@ -143,18 +176,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   readiness probe and exits 0 for any other call, so a skipped trap fails fast
   (under 1 s) with the real assertion instead of hanging until the 60 s wait
   expires. The assertions are unchanged, and the `Makefile` is unchanged.
-
-### Documentation
-- **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the
-  old "Project Context — Performance Loop System" snapshot (R2/R3 phases, the
-  Week 8 decision gate, the #14–#22 issue table and fixed PyMySQL ratios) is
-  replaced by short pointers to `ROADMAP.md`, `docs/PERFORMANCE.md` and the
-  `cubrid-benchmark` repository. Packet, function-code, data-type and exception
-  counts, the Python minimum and the CI Python/CUBRID versions now point to
-  their canonical sources (`pycubrid/constants.py`, `pyproject.toml`,
-  `docs/CI_POLICY.md`) instead of being copied. CAS protocol invariants,
-  workflow, labelling, release and commit guidance are unchanged. Docs only;
-  the driver is unchanged.
 
 ## [1.10.0] - 2026-10-08
 
