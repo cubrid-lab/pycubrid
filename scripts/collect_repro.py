@@ -11,6 +11,7 @@ claimed to be credential-sanitized. Raw JUnit output is never copied.
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import ipaddress
 import json
@@ -28,43 +29,64 @@ REPRO_DIR = Path("bug-hunt-repro")
 HYPOTHESIS_DB = Path(".hypothesis")
 _XML_LIMIT = 10 * 1024 * 1024
 _DETAIL_LIMIT = 64 * 1024
+_URL_LIMIT = 2048
+_CANDIDATE_LIMIT = 1024
 _BRACKETED_HOST = re.compile(r"\[([^\[\]]+)\](?::[^:\[\]]*)?")
 _URL_PASSWORD = re.compile(r"(?<=://)([^\s/@:?#]*:)([^\s/?#]*)(@)")
 
 
-def _url_passwords(raw_url: str) -> set[str]:
-    """Return the configured URL's password, or every fail-closed candidate.
+def _url_passwords(raw_url: str) -> set[str] | None:
+    """Return the configured URL's password candidates, or None if too complex.
 
-    Only an authority that urllib parsed with its userinfo is trusted. Any
-    other URL with an "@" (no "://", a bracket error, "/" or "#" in the
-    password) splits its userinfo at the last "@" and treats the text after
-    the first, and after the second, ":" as the password. That covers both
-    "user:password" and "scheme:user:password". Each text after a "/" in a
-    candidate is a candidate too, because urllib reads a password's "/" as the
-    start of the path. Candidates may over-redact a password suffix but never
-    miss the password itself.
+    urllib's parse is trusted only when its authority holds every "@" of the
+    URL. Otherwise ("://" missing, a bracket error, or "/", "?", "#" or "@" in
+    the password or query) the text after each ":" before each "@" is a
+    candidate, and so is each piece, and each suffix, of that text split at
+    "/", "?", "#" and "@", because urllib ends a password at those marks.
+    Candidates may over-redact ordinary diagnostic text. A URL above
+    _URL_LIMIT characters, or one generating more than _CANDIDATE_LIMIT
+    candidates, returns None so callers redact the whole raw URL instead.
     """
+    if len(raw_url) > _URL_LIMIT:
+        return None
+    candidates: set[str] = set()
     try:
         parts = urlsplit(raw_url)
-        if "@" in parts.netloc:
-            return {parts.password} if parts.password else set()
+        if parts.password:
+            candidates.add(parts.password)
+        if "@" in parts.netloc and raw_url.count("@") == parts.netloc.count("@"):
+            return candidates
     except ValueError:
         pass
-    userinfo, at, _ = raw_url.rpartition("@")
-    if not at:
-        return set()
-    fields = userinfo.split(":", 2)
-    candidates = {":".join(fields[index:]) for index in (1, 2) if index < len(fields)}
-    for candidate in list(candidates):
-        pieces = candidate.split("/")
-        candidates.update("/".join(pieces[index:]) for index in range(1, len(pieces)))
+    generated = 0
+    for at, char in enumerate(raw_url):
+        if char != "@":
+            continue
+        userinfo = raw_url[:at]
+        for colon, mark in enumerate(userinfo):
+            if mark != ":":
+                continue
+            tail = userinfo[colon + 1 :]
+            start = 0
+            for piece in re.split(r"[/?#@]", tail):
+                candidates.update((piece, tail[start:]))
+                start += len(piece) + 1
+                generated += 2
+            # Count generated, not distinct, candidates to bound the work.
+            if generated > _CANDIDATE_LIMIT:
+                return None
     return {candidate for candidate in candidates if candidate}
 
 
-def sanitize(text: str) -> str:
-    """Redact configured raw/encoded passwords and credential-bearing URLs."""
-    passwords = {os.environ.get("CUBRID_TEST_PASSWORD", "")}
-    for password in _url_passwords(os.environ.get("CUBRID_TEST_URL", "")):
+@functools.lru_cache(maxsize=8)
+def _redaction_patterns(env_password: str, raw_url: str) -> tuple[re.Pattern[str], ...]:
+    """Compile the redaction patterns once per configured password and URL."""
+    passwords = {env_password}
+    url_passwords = _url_passwords(raw_url)
+    if url_passwords is None:
+        # Too long or too complex to enumerate: redact the raw URL whole.
+        url_passwords = {raw_url}
+    for password in url_passwords:
         passwords.update((password, unquote(password)))
     # An environment password is literal, unlike URL userinfo. Keep raw
     # percent characters/case exact; only derived encodings fold hex digits.
@@ -73,6 +95,7 @@ def sanitize(text: str) -> str:
         if value:
             for encoded in (quote(value, safe=""), quote_plus(value, safe="")):
                 variants[encoded] = True
+    patterns = []
     for password in sorted(variants, key=len, reverse=True):
         # Percent hex digits may vary in case independently; literal password
         # characters, including Unicode, must not become case-insensitive.
@@ -91,7 +114,16 @@ def sanitize(text: str) -> str:
             if variants[password]
             else re.escape(password)
         )
-        text = re.sub(pattern, "***", text)
+        patterns.append(re.compile(pattern))
+    return tuple(patterns)
+
+
+def sanitize(text: str) -> str:
+    """Redact configured raw/encoded passwords and credential-bearing URLs."""
+    for pattern in _redaction_patterns(
+        os.environ.get("CUBRID_TEST_PASSWORD", ""), os.environ.get("CUBRID_TEST_URL", "")
+    ):
+        text = pattern.sub("***", text)
     # The greedy password group ends at the last @ within this authority only.
     return _URL_PASSWORD.sub(r"\1***\3", text)
 
@@ -108,8 +140,15 @@ def _driver_version() -> str:
 def _redact_url(url: str) -> str:
     if not url:
         return ""
+    if len(url) > _URL_LIMIT:
+        return "<unparseable-url-redacted>"
     try:
         parts = urlsplit(url)
+        if url.count("@") != parts.netloc.count("@"):
+            # An "@" outside the parsed authority (u:pw@host without "://",
+            # or "/", "?", "#" before an "@") means urllib split the userinfo
+            # in the wrong place, even if it found a password.
+            return "<unparseable-url-redacted>"
         port = parts.port  # Validate even when no password was supplied.
         if "[" in parts.netloc or "]" in parts.netloc:
             # Older urllib.parse releases (e.g. 3.11.1) accept any bracketed
@@ -122,10 +161,6 @@ def _redact_url(url: str) -> str:
                 raise ValueError("bracketed authority is not an IPv6 literal")
             ipaddress.IPv6Address(literal[1])
         if parts.password is None:
-            # Without "://" (u:pw@host, cubrid:u:pw@host) urllib finds no
-            # userinfo; an "@" outside a parsed authority is never trusted.
-            if "@" in url and "@" not in parts.netloc:
-                return "<unparseable-url-redacted>"
             return sanitize(url)
         host = parts.hostname or ""
         if ":" in host:
@@ -264,7 +299,11 @@ def _endpoint_fields() -> dict[str, str]:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    endpoint = module.resolve_endpoint()
+    try:
+        endpoint = module.resolve_endpoint()
+    except ValueError:
+        # The resolver quotes URL parts, which may hold password fragments.
+        raise ValueError("endpoint resolution failed") from None
     return {
         "host": endpoint.host,
         "port": str(endpoint.port),
@@ -321,7 +360,9 @@ def _replay(meta: dict[str, str], targets: list[str]) -> str:
         if any(sanitize(value) != value for value in fields.values()):
             raise ValueError("endpoint fields require redaction")
     except (ValueError, ImportError) as exc:
-        return "# Bug-hunt reproduction\n\nPrecise replay unavailable: " + sanitize(str(exc)) + "\n"
+        # Never echo resolver text: it can quote password fragments of the URL.
+        reason = f"endpoint resolution failed ({type(exc).__name__})"
+        return f"# Bug-hunt reproduction\n\nPrecise replay unavailable: {reason}\n"
     env = [
         ("HYPOTHESIS_PROFILE", meta["hypothesis_profile"] or "pr"),
         ("CUBRID_TEST_HOST", fields["host"]),

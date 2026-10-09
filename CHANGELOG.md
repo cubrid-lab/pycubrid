@@ -21,17 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Security
 - **`scripts/collect_repro.py` no longer leaks the password of a
-  `CUBRID_TEST_URL` without `://` (#777)** — a URL such as `u:pw@host/db`,
-  `cubrid:u:pw@host/db` or `cubrid:/u:pw@host/db` was written with its password
-  in plain text to `metadata.json` and `reproduce.md`. `urllib` reads `u` or
-  `cubrid` as the scheme and finds no userinfo, and the fallback redaction
-  pattern needed `://`. The collector now records any URL that has an `@` but no
-  parsed userinfo as `<unparseable-url-redacted>`. `sanitize()` also derives
-  password candidates from the raw URL by splitting the userinfo at the last
-  `@` and taking the text after the first and second `:` (and after each `/`
-  inside it), then redacts them raw and percent-encoded/decoded in free text
-  such as JUnit failure details. This fails closed: a password suffix may be
-  over-redacted. Valid `cubrid://user:pw@host:port/db` URLs are still recorded
+  `CUBRID_TEST_URL` that `urllib` splits in the wrong place (#777)** — a URL
+  without `://` (`u:pw@host/db`, `cubrid:u:pw@host/db`, `cubrid:/u:pw@host/db`),
+  or one whose password holds `/`, `?`, `#` or `@` or whose query holds `@`
+  (`cubrid://u:Pa@ss/word@host/db`, `cubrid://u:pw@host/db?opt=a@b`), was
+  written with all or part of its password in plain text to `metadata.json`
+  and `reproduce.md`. `reproduce.md` also quoted endpoint-resolver errors such
+  as `invalid port: ... 'Syn7h'`, which echo part of the password. The
+  collector now records any URL with an `@` outside the authority `urllib`
+  parsed, or longer than 2048 characters, as `<unparseable-url-redacted>`,
+  and reports endpoint-resolution failures with a fixed message. For such a
+  URL `sanitize()` redacts, raw and percent-encoded/decoded in free text such
+  as JUnit failure details, the text after each `:` before each `@` and each
+  piece and suffix of it split at `/`, `?`, `#` and `@`. These derived
+  fragments may over-redact unrelated diagnostic text. Redaction patterns are
+  compiled once per configured URL and password. Known limits: a URL above
+  2048 characters or 1024 candidate fragments is redacted only as a whole
+  string, and a JDBC-style URL without `@` (`jdbc:cubrid:host:33000:db:u:PW:`)
+  is not recognised, so its password is recorded unless `CUBRID_TEST_PASSWORD`
+  also holds it. Valid `cubrid://user:pw@host:port/db` URLs are still recorded
   as `cubrid://user:***@host:port/db`. This is a contributor tooling fix; the
   driver is unchanged.
 

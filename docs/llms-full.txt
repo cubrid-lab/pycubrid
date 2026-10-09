@@ -9008,7 +9008,21 @@ available targets and asks for the password separately. Without JUnit, an accept
 caller-supplied legacy target remains a hint, not a verified report identity. Known configured
 passwords, decoded/encoded URL-password variants and recognized credential-bearing URLs
 are redacted before each failure record's message/detail is limited to 64 KiB
-of UTF-8 bytes. This does not guarantee sanitizing arbitrary secrets or data.
+of UTF-8 bytes. A `CUBRID_TEST_URL` is recorded as `<unparseable-url-redacted>` when `urllib`
+cannot parse it, when any `@` lies outside the authority `urllib` parsed (for
+example `u:pw@host/db` or `cubrid:u:pw@host/db` without `://`, or a password
+containing `/`, `?`, `#` or `@`), or when it is longer than 2048 characters.
+For such a URL, the text after each `:` before each `@`, and each piece and
+suffix of that text split at `/`, `?`, `#` and `@`, is redacted raw and
+percent-encoded/decoded in free text. These derived fragments may over-redact
+unrelated diagnostic text (#777). A URL that is too long, or that yields more
+than 1024 candidate fragments, is redacted only as a whole string, so its
+password alone in free text is not recognised. A JDBC-style URL without `@`
+(`jdbc:cubrid:host:33000:db:u:PW:`) is not recognised as credential-bearing:
+its password is recorded as written unless it is also set in
+`CUBRID_TEST_PASSWORD`. Endpoint-resolution errors are reported as a fixed
+message, never as resolver text. This does not guarantee sanitizing arbitrary
+secrets or data.
 
 Optional readiness `--server-info PATH` records the actual engine version or
 an `unavailable` reason. The workflow uses a fresh run-ID/run-attempt path

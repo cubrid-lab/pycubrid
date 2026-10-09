@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -608,7 +609,35 @@ _SCHEMELESS_URLS = [
     ("cubrid://u:Syn7h:S3cret@host:33000/db", "Syn7h:S3cret"),
     ("cubrid://u:Syn7h/S3cret@host/db", "Syn7h/S3cret"),
     ("cubrid://u:Syn7h#S3cret@host/db", "Syn7h#S3cret"),
+    ("cubrid://u:Syn7h?S3cret@host/db", "Syn7h?S3cret"),
+    ("cubrid://u:Pa@ssW/ord9@host/db", "Pa@ssW/ord9"),
+    ("cubrid://u:PassW/ord9@host/db?opt=a@b", "PassW/ord9"),
+    ("cubrid:a:b:u:Syn7hPw@host/db", "Syn7hPw"),
+    ("cubrid://u:P\u00e4@Gr\u00f6\u00dfe/W\u00f6rt9@host/db", "P\u00e4@Gr\u00f6\u00dfe/W\u00f6rt9"),
+    ('cubrid://u:Qu@"ot\\e/Bs\\9x@host/db', 'Qu@"ot\\e/Bs\\9x'),
 ]
+
+
+def _bundle_texts(bundle: Path) -> list[str]:
+    """Every bundle file's raw text plus each JSON-decoded metadata string.
+
+    JSON escapes non-ASCII, quotes and backslashes, so a raw-text scan alone
+    could miss a leaked password inside metadata.json.
+    """
+    texts = [
+        path.read_text(encoding="utf-8") for path in sorted(bundle.rglob("*")) if path.is_file()
+    ]
+    pending: list[object] = [json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            pending.extend(value.keys())
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, str):
+            texts.append(value)
+    return texts
 
 
 @pytest.mark.parametrize(("url", "secret"), _SCHEMELESS_URLS)
@@ -634,15 +663,14 @@ def test_url_shape_never_leaks_its_password_into_any_bundle_output(
     failure = ElementTree.SubElement(case, "failure", message=f"auth {secret}")
     failure.text = f"OperationalError: login {url} rejected password {secret}"
     ElementTree.ElementTree(suite).write(report, encoding="utf-8")
-    meta = _collect(bundle, "--junit", str(report))
+    sidecar = bundle.parent / "server.json"
+    sidecar.write_text("{}")
+    meta = _collect(bundle, "--junit", str(report), "--server-info", str(sidecar))
     output = capsys.readouterr()
-    written = "".join(
-        path.read_text(encoding="utf-8") for path in sorted(bundle.rglob("*")) if path.is_file()
-    )
-    for leaked in {secret, *secret.replace("@", ":").replace("/", ":").split(":")}:
+    texts = [*_bundle_texts(bundle), output.out, output.err]
+    for leaked in {secret, *re.split(r"[:/?#@]", secret)}:
         if len(leaked) >= 4:
-            assert leaked not in written
-            assert leaked not in output.out + output.err
+            assert not [text for text in texts if leaked in text], leaked
     assert meta["failures"][0]["detail"].startswith("OperationalError: login ")
 
 
@@ -655,6 +683,9 @@ def test_url_shape_never_leaks_its_password_into_any_bundle_output(
         "cubrid:/u:Syn7hS3cret@host/db",
         "u:@host/db",
         "cubrid:u:@host/db",
+        "cubrid://u:Pa@ssW/ord9@host/db",
+        "cubrid://u:PassW/ord9@host/db?opt=a@b",
+        "cubrid://user:pw@host/db?opt=a@b",
     ],
 )
 def test_url_with_userinfo_but_no_parsed_password_is_unparseable(
@@ -705,3 +736,38 @@ def test_empty_url_password_does_not_redact_ordinary_text(
     for url in ("u:@host/db", "cubrid://u:@host/db", "cubrid:u:@host/db"):
         monkeypatch.setenv("CUBRID_TEST_URL", url)
         assert collect_repro.sanitize("ordinary text") == "ordinary text"
+
+
+def test_url_decoded_password_is_redacted_in_free_text(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", "cubrid://u:P%40ssWord9@host/db")
+    report = bundle.parent / "decoded.xml"
+    report.write_text(
+        '<testsuite><testcase file="tests/test_example.py" classname="tests.test_example" '
+        'name="test_x"><failure message="auth P@ssWord9">login P@ssWord9 rejected</failure>'
+        "</testcase></testsuite>"
+    )
+    meta = _collect(bundle, "--junit", str(report))
+    assert meta["cubrid_test_url"] == "cubrid://u:***@host/db"
+    assert meta["failures"][0]["detail"] == "login *** rejected"
+    assert not [text for text in _bundle_texts(bundle) if "ssWord9" in text]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "cubrid://u:" + ":@" * 1500 + "Syn7hS3cret@host/db",
+        "u:" + "a:@" * 300 + "Syn7hS3cret@host/db",
+    ],
+    ids=["over-length", "over-candidates"],
+)
+def test_overlong_url_is_unparseable_and_redacted_whole(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    assert collect_repro._url_passwords(url) is None
+    assert collect_repro._redact_url(url) == "<unparseable-url-redacted>"
+    assert collect_repro.sanitize(f"before {url} after") == "before *** after"
