@@ -15,7 +15,7 @@ pytestmark = pytest.mark.repo_tooling
 
 REQUIREMENTS = "docs/requirements.txt"
 PINNED_LINE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*==\d+(\.\d+)*$")
-EXPECTED_GROUP = "${{ github.workflow }}-${{ github.ref }}"
+EXPECTED_GROUP = "${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}"
 EXPECTED_CANCEL = "${{ github.event_name == 'pull_request' }}"
 
 
@@ -70,13 +70,14 @@ def test_scan_concurrency_cancels_only_pull_requests(workflow: str) -> None:
     }
 
 
-def test_security_workflow_pins_bandit_to_pyproject() -> None:
+@pytest.mark.parametrize("workflow", ["security.yml", "maintenance.yml"])
+def test_workflows_pin_bandit_to_pyproject(workflow: str) -> None:
     dev = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["optional-dependencies"][
         "dev"
     ]
     pinned = next(d for d in dev if d.startswith("bandit"))
     assert pinned == "bandit[toml]==1.9.4" or re.fullmatch(r"bandit\[toml\]==[\d.]+", pinned)
-    installs = [ln for ln in _pip_lines("security.yml") if "bandit" in ln]
-    assert installs, "security.yml must install bandit"
+    installs = [ln for ln in _pip_lines(workflow) if "bandit" in ln]
+    assert installs, f"{workflow} must install bandit"
     for ln in installs:
         assert ln == f'pip install "{pinned}"', ln

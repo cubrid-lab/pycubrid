@@ -340,10 +340,11 @@ upstream 릴리스가 저장소 변경 없이 `mkdocs build --strict` 게이트�
 사이트에서 제외합니다. 사이트를 빌드하는 다른 워크플로는 없습니다.
 
 `codeql.yml`과 `security.yml`은 호출부 수준 `concurrency`를 선언합니다. 그룹은
-`${{ github.workflow }}-${{ github.ref }}`, 설정은
+`${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}`, 설정은
 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`입니다(#783). 풀
-리퀘스트에 새로 푸시하면 대체된 스캔은 취소되지만, main 푸시와 예약 실행은 절대
-취소되지 않습니다. `security.yml`은 `pyproject.toml`에 고정된 `bandit[toml]==1.9.4`를
+리퀘스트에 새로 푸시하면 대체된 스캔은 취소되지만, 그 외 이벤트는 실행마다 고유한 그룹을 받습니다. 같은 그룹에서는
+`cancel-in-progress`가 false여도 대기 중인 실행이 새 실행으로 대체되므로, main 푸시와
+예약 실행이 취소되거나 누락되지 않습니다. `security.yml`은 `pyproject.toml`에 고정된 `bandit[toml]==1.9.4`를
 설치합니다. `tests/test_workflow_pins.py`가 세 가지를 모두 검증합니다.
 
 ## Python 3.15 프리뷰 준비

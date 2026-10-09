@@ -29,5 +29,5 @@ jobs:
 
       - name: Run security scan
         run: |
-          pip install bandit[toml]
+          pip install "bandit[toml]==1.9.4"
           bandit -r pycubrid/ -c pyproject.toml
