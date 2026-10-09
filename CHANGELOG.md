@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### CI
+- **Offline tests run on the oldest and newest supported Python (#745)** — the
+  `offline-tests` job of `ci.yml` now picks its Python matrix from the event.
+  Main pushes, the weekly Monday schedule and manual dispatch run the full
+  offline suite (`not integration and not repo_tooling`, 95% coverage floor) on
+  Python 3.11 and 3.14 instead of 3.12 alone. Risk-selected PRs run the full
+  offline regressions on 3.11 and 3.14. Ordinary PRs keep the single Python
+  3.12 smoke cell. Coverage reports, the new coverage artifact and the Codecov
+  flag carry the Python version (`coverage-py<version>.xml`,
+  `offline-coverage-py<version>`, `offline-py<version>`). `CI Gate` still fails
+  when any endpoint cell fails, is cancelled or never runs. Timeouts, pinned
+  actions, read-only permissions and the immutable checkout SHA are unchanged.
+
 ## [1.10.0] - 2026-10-08
 
 ### Upgrade notes

@@ -6,9 +6,9 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | --- | --- |
 | Documentation-only PR | Documentation and policy checks; no runtime suite or CUBRID provisioning |
 | Ordinary code PR | One Ubuntu/Python 3.12 offline smoke lane; no full coverage claim |
-| High-risk PR | One full offline regression lane without coverage plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
-| Code push to main | One Ubuntu/Python 3.12 full offline suite with the existing 95% coverage floor; oldest/newest live endpoints |
-| Monday 03:00 UTC | Same representative policy, comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests |
+| High-risk PR | Full offline regressions without coverage on Python 3.11 and 3.14, plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
+| Code push to main | Full offline suite on Ubuntu/Python 3.11 and 3.14, each with the existing 95% coverage floor; oldest/newest live endpoints |
+| Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.14 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests |
 | Explicit full dispatch or release | Existing full Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes |
 
 The PR smoke suite is deliberately bounded. Contributors must run the regression
@@ -20,7 +20,8 @@ Change selection is in `ci.yml`'s `detect-changes` job. Non-documentation paths
 are code by default, so new source/configuration files do not silently become docs.
 All driver and test paths, including new modules, plus dependency, build and script
 changes and `ci.yml` itself conservatively select representative pre-merge
-integration and the existing offline regression suite on one Linux/Python lane.
+integration and the existing offline regression suite on the oldest and newest
+supported Python (see [Offline endpoint versions](#offline-endpoint-versions)).
 Other workflow changes select the repository-tooling lane instead (see
 [Workflow change impact](#workflow-change-impact)). Other code
 changes retain the bounded smoke suite. Repository tooling tests run in one Linux lane when tooling changes.
@@ -59,6 +60,34 @@ The deep bug-hunt workflow runs weekly with one Python 3.12/CUBRID 11.4 cell,
 skipping unchanged weeks and retaining its mutation/performance/downstream checks and wide Hypothesis profile.
 TLS, EUC-KR and official differential jobs are selected by related paths on PRs;
 they remain available in main, changed-weekly and full release validation.
+
+## Offline endpoint versions
+
+The `offline-tests` job picks its Python matrix from the event (#745), so the
+full offline suite runs on the oldest (3.11) and newest (3.14) supported Python
+wherever it already ran in full, while ordinary PRs stay on one cheap cell.
+
+| Event | `offline-tests` cells | Suite |
+| --- | --- | --- |
+| Ordinary code PR (`risk` not selected) | Python 3.12 | Representative smoke tests |
+| Risk-selected PR | Python 3.11 and 3.14 | Full offline suite, no coverage |
+| Push to main, Monday schedule, manual dispatch | Python 3.11 and 3.14 | Full offline suite with the 95% coverage floor |
+
+Every cell keeps the `not integration and not repo_tooling` selection, the
+15-minute timeout and the immutable `inputs.sha || github.sha` checkout. Coverage
+reports are written per Python version (`coverage-py<version>.xml`), uploaded as
+the `offline-coverage-py<version>` artifact and sent to Codecov with the
+`offline-py<version>` flag, so the two cells never overwrite each other.
+
+The weekly schedule is owned by `ci.yml` itself: `integration-full.yml` has no
+schedule and runs only live suites, and `bug-hunt.yml` runs targeted property and
+fault suites, so no other weekly lane duplicates this evidence (#750). Python 3.11
+here is the latest 3.11 patch release from `actions/setup-python`; it does not
+exercise 3.11.0–3.11.2, which keep their targeted regression (#744).
+
+`ci-gate` sees one aggregate `offline-tests` result. A failed or cancelled cell
+makes that result non-success, and a skipped job is accepted only when no code
+changed, so a missing or failed endpoint cell cannot turn the gate green.
 
 ## Workflow change impact
 

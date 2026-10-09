@@ -250,7 +250,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.12"]
+        # #745: ordinary PRs keep one representative Python 3.12 smoke cell;
+        # risk-selected PRs, main pushes, the weekly schedule and manual
+        # dispatch run the full offline suite on the oldest and newest
+        # supported Python. Keep in sync with the step conditions below.
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true' && '["3.12"]' || '["3.11", "3.14"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -288,14 +292,24 @@ jobs:
             -v --tb=short \
             --cov=pycubrid \
             --cov-report=term-missing \
-            --cov-report=xml \
+            --cov-report=xml:coverage-py${{ matrix.python-version }}.xml \
             --cov-fail-under=95
+      - name: Upload coverage report artifact
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: offline-coverage-py${{ matrix.python-version }}
+          path: coverage-py${{ matrix.python-version }}.xml
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Upload coverage to Codecov
         if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
+          files: ./coverage-py${{ matrix.python-version }}.xml
+          flags: offline-py${{ matrix.python-version }}
+          name: offline-py${{ matrix.python-version }}
           verbose: true
           fail_ci_if_error: false
         env:
