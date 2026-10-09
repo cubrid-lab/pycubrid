@@ -887,13 +887,15 @@ def test_endpoint_leak_checks_ignore_case(bundle: Path, monkeypatch: pytest.Monk
     assert "unavailable" in replay
 
 
-def _gate_error(monkeypatch: pytest.MonkeyPatch, url: str) -> str:
+def _gate_error(monkeypatch: pytest.MonkeyPatch, url: str, port: str | None = None) -> str:
     """The real conftest gate's error for url, with the live probe failing offline."""
     from tests import conftest
 
     for field in ("HOST", "PORT", "DB", "USER", "PASSWORD"):
         monkeypatch.delenv(f"CUBRID_TEST_{field}", raising=False)
     monkeypatch.setenv("CUBRID_TEST_URL", url)
+    if port is not None:
+        monkeypatch.setenv("CUBRID_TEST_PORT", port)
 
     def refuse(endpoint: object) -> None:
         raise ConnectionRefusedError(111, "Connection refused")
@@ -944,6 +946,88 @@ def test_lowercased_variants_redact_only_whole_words(monkeypatch: pytest.MonkeyP
     monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
     monkeypatch.setenv("CUBRID_TEST_URL", "cubrid://u:Pa@ssW/ord9@host/db")
     assert collect_repro.sanitize("password u@ssw:33000/db") == "password u@***:33000/db"
+
+
+def _gate_bundle_texts(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], message: str
+) -> list[str]:
+    """Every bundle text and console output after collecting a gate-shaped JUnit error."""
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", message)
+    report = bundle.parent / "gate.xml"
+    _gate_report(report, message)
+    _collect(bundle, "--junit", str(report))
+    output = capsys.readouterr()
+    return [*_bundle_texts(bundle), output.out, output.err]
+
+
+@pytest.mark.parametrize(
+    ("url", "port", "shown", "leaked"),
+    [
+        ("cubrid://dba:Xy@Kc9QmZ7:033000/x@db1", None, "dba@kc9qmz7:33000/", "kc9qmz7"),
+        ("cubrid://dba:Xy@Kc9QmZ7:033000/x@db1", "30001", "dba@kc9qmz7:30001/", "kc9qmz7"),
+        ("cubrid://dba:Xy@Kc9QmZ7%Ab12/x@db1", None, "dba@kc9qmz7%Ab12:", "kc9qmz7"),
+        ("cubrid://dba:Xy@[FE80::ABCD]/x@db1", None, "dba@fe80::abcd:", "fe80::abcd"),
+    ],
+    ids=["port-rewritten", "port-from-env", "zone-suffix", "ipv6-brackets"],
+)
+def test_lowercased_host_token_never_reaches_the_bundle(
+    bundle: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    url: str,
+    port: str | None,
+    shown: str,
+    leaked: str,
+) -> None:
+    # urllib rewrites the port, drops the brackets and lowercases only the part
+    # before "%", so the whole lowercased piece never appears in the gate text.
+    message = _gate_error(monkeypatch, url, port)
+    assert shown in message
+    texts = _gate_bundle_texts(bundle, monkeypatch, capsys, message)
+    assert not [text for text in texts if leaked in text.casefold()]
+    assert "dba@***" in collect_repro.sanitize(message)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "cubrid://dba:" + "a/" * 300 + "@SeCrEtPiEcE/z@host/db",
+        "cubrid://dba:A1" + "/b" * 60 + "@" + "/c" * 60 + "@Kq7Hst/SeCrEtPiEcE@db",
+    ],
+    ids=["long-first-tail", "later-at"],
+)
+def test_piece_before_the_last_at_is_redacted_past_the_budget(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], url: str
+) -> None:
+    # The first tail exhausts the budget, yet the resolver quotes the pieces
+    # that follow a later "@" as the invalid database name.
+    message = _gate_error(monkeypatch, url)
+    assert "SeCrEtPiEcE" in message
+    texts = _gate_bundle_texts(bundle, monkeypatch, capsys, message)
+    assert not [text for text in texts if "secretpiece" in text.casefold()]
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["cubrid://u:" + "ab/" * 676 + "@h", "cubrid://u:" + "\\\\\\/" * 500 + "@h"],
+    ids=["many-pieces", "repr-doubling"],
+)
+def test_candidate_budget_is_a_hard_cap(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    # A single tail of up to 2 KiB used to be enumerated whole, O(n^2) suffix
+    # characters, which took seconds to compile. Bound the work, not the time.
+    assert len(url) <= collect_repro._URL_LIMIT
+    assert collect_repro._url_passwords(url) is None
+    candidates = collect_repro._url_passwords(url, partial=True)
+    assert candidates is not None
+    # Budgeted suffixes plus the always-added tails and pieces, each <= 2 KiB.
+    limit = collect_repro._CANDIDATE_CHARS + 3 * collect_repro._URL_LIMIT
+    assert sum(map(len, candidates)) <= limit
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    collect_repro._redaction_patterns.cache_clear()
+    assert collect_repro._requires_redaction(url)
+    patterns = collect_repro._redaction_patterns("", url)
+    assert sum(len(pattern.pattern) for pattern in patterns) <= 32 * limit
 
 
 def test_ordinary_url_keeps_a_full_replay(bundle: Path, monkeypatch: pytest.MonkeyPatch) -> None:

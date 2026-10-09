@@ -741,20 +741,27 @@ containing `/`, `?`, `#` or `@`), or when it is longer than 2048 characters.
 For such a URL, or one containing a tab, CR or LF (which `urllib` strips), the
 text after each `:` before each `@`, and each piece and suffix of that text split
 at `/`, `?`, `#` and `@` that is at least 3 characters long, is redacted raw and
-percent-encoded/decoded in free text. The text after the first and the last `:`
-before the first `@` is always a candidate. Each URL-derived candidate is also
+percent-encoded/decoded in free text. Within the first 2048 characters, the text
+after the first and the last `:` before the first `@`, and each piece (not each
+suffix) of the userinfo up to the last `@`, are always candidates. Each URL-derived candidate is also
 redacted as written (not percent-encoded) with CR and CRLF turned into LF (as
 an XML parser reads element text), with tabs, CRs and LFs removed (as `urllib`
 strips them) and `repr()`-escaped (as a traceback quotes it). A lowercased form of 3 or more characters is
 redacted only as a whole word, the way `urllib` puts a lowercased host into
-resolver and test-gate text (`dba@***:33000/testdb`). These derived fragments
+resolver and test-gate text (`dba@***:33000/testdb`). So is each host-shaped
+piece of a candidate (split at `/`, `?`, `#`, `@`, `%`, `[` and `]`, without a
+trailing `:port`) of 3 or more characters, because `urllib` rewrites the port,
+drops IPv6 brackets and lowercases only the part before a `%zone`
+(`dba@***%Ab12:33000`). These derived fragments
 may over-redact unrelated diagnostic text; shorter derived fragments are not
-redacted (#777). A URL longer than 2048 characters, or one that yields more than
-1024 candidate fragments or 8192 candidate characters, keeps the candidates
+redacted (#777). A URL longer than 2048 characters, or one that would yield more
+than 1024 candidate fragments or 8192 candidate characters, keeps the candidates
 found in its first 2048 characters before that limit and is also redacted as a
 whole string, together with the password `urllib` parses from it and any
 `scheme://user:password@` password it contains. `CUBRID_TEST_PASSWORD` is
-matched exactly, raw and percent-encoded, without these variants. A password
+matched exactly, raw and percent-encoded, without these variants. Both limits
+are a hard cap: they are checked before each candidate is added, so enumeration
+stops at the limit even inside a single long tail. A password
 fragment lowercased inside a longer word, or transformed in any other way, is
 not guaranteed to be redacted. The endpoint resolver is
 not trusted for a URL recorded as `<unparseable-url-redacted>`, because `urllib`

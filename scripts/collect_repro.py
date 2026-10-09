@@ -48,13 +48,16 @@ def _url_passwords(raw_url: str, partial: bool = False) -> set[str] | None:
     and so is each piece, and each suffix, of that text split at "/", "?", "#"
     and "@", because urllib ends a password at those marks. A derived piece or
     suffix shorter than _FRAGMENT_MINIMUM characters is dropped to limit
-    over-redaction of ordinary diagnostic text. The tails after the first and
-    last ":" of the authority before the first "@" (the most likely password)
-    are always candidates. A URL above _URL_LIMIT characters, or one generating
-    more than _CANDIDATE_LIMIT candidates or _CANDIDATE_CHARS characters,
-    returns None so callers fall back to coarser candidates; with partial=True
-    it instead returns the candidates of its first _URL_LIMIT characters
-    generated before either limit.
+    over-redaction of ordinary diagnostic text. Within the first _URL_LIMIT
+    characters, the tails after the first and last ":" of the authority before
+    the first "@" (the most likely password), and each piece of the userinfo
+    up to the last "@", are always candidates. A URL above _URL_LIMIT
+    characters, or one that would generate more than _CANDIDATE_LIMIT
+    candidates or _CANDIDATE_CHARS characters, returns None so callers fall
+    back to coarser candidates; with partial=True it instead returns the
+    candidates of its first _URL_LIMIT characters generated before either
+    limit. The limits are checked before each candidate, so they are a hard
+    cap on the work.
     """
     if len(raw_url) > _URL_LIMIT and not partial:
         return None
@@ -77,6 +80,15 @@ def _url_passwords(raw_url: str, partial: bool = False) -> set[str] | None:
         authority = head[:first].split("://", 1)[-1]
         if ":" in authority:
             candidates.update((authority.partition(":")[2], authority.rpartition(":")[2]))
+        # The pieces of the userinfo span up to the last "@" are also always
+        # candidates, so a long first tail cannot exhaust the budget before a
+        # password piece that follows a later "@" (O(n), unlike the suffixes).
+        last = head.rfind("@")
+        if last > first:
+            span = head[:last].split("://", 1)[-1].partition(":")[2]
+            candidates.update(
+                piece for piece in re.split(r"[/?#@]", span) if len(piece) >= _FRAGMENT_MINIMUM
+            )
     colons = [index for index, char in enumerate(head) if char == ":"]
     generated = characters = 0
     for at, char in enumerate(head):
@@ -86,22 +98,24 @@ def _url_passwords(raw_url: str, partial: bool = False) -> set[str] | None:
             if colon > at:
                 break
             tail = head[colon + 1 : at]
-            candidates.add(tail)
             start = 0
             for piece in re.split(r"[/?#@]", tail):
+                # Count generated, not distinct, candidates, and check before
+                # adding each one, so the budget is a hard cap on the work.
+                characters += len(piece) + len(tail) - start
+                generated += 2
+                if generated > _CANDIDATE_LIMIT or characters > _CANDIDATE_CHARS:
+                    if not partial:
+                        return None
+                    return {candidate for candidate in candidates if candidate}
+                if not start:
+                    candidates.add(tail)
                 candidates.update(
                     fragment
                     for fragment in (piece, tail[start:])
                     if len(fragment) >= _FRAGMENT_MINIMUM
                 )
-                characters += len(piece) + len(tail) - start
                 start += len(piece) + 1
-                generated += 2
-            # Count generated, not distinct, candidates to bound the work.
-            if generated > _CANDIDATE_LIMIT or characters > _CANDIDATE_CHARS:
-                if not partial:
-                    return None
-                return {candidate for candidate in candidates if candidate}
     return {candidate for candidate in candidates if candidate}
 
 
@@ -142,6 +156,16 @@ def _redaction_patterns(
                 if len(form) >= _FRAGMENT_MINIMUM:
                     derived.add(form)
                     folded.add(form.lower())
+                # urllib also rewrites a host's port and drops IPv6 brackets,
+                # and lowercases only the part before a "%zone", so each
+                # host-shaped piece, without a trailing ":port", is lowercased
+                # too. Only a lone ":" before digits is split off, which keeps
+                # a "user:" prefix and an IPv6 literal whole.
+                hosts = (
+                    re.sub(r"^([^:]*):\d*$", r"\1", token)
+                    for token in re.split(r"[/?#@%\[\]]", form)
+                )
+                folded.update(host.lower() for host in hosts if len(host) >= _FRAGMENT_MINIMUM)
     # A lowercased form matches only as a whole word, as a host appears, so a
     # short piece such as "ssw" does not redact ordinary words ("password").
     derived -= passwords

@@ -35,20 +35,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   as JUnit failure details, the text after each `:` before each `@` and each
   piece and suffix of it split at `/`, `?`, `#` and `@` that is at least 3
   characters long (the whole text and the `urllib` password are kept at any
-  length), plus the text after the first and the last `:` before the first
-  `@`. Each URL-derived candidate is also redacted, as written, with CR/CRLF
+  length), plus, within the first 2048 characters, the text after the first
+  and the last `:` before the first `@` and each piece of the userinfo up to
+  the last `@`. Each URL-derived candidate is also redacted, as written, with CR/CRLF
   turned into LF (as XML parsing does), with tabs, CRs and LFs removed (as
   `urllib` does) and `repr()`-escaped (as tracebacks do), and its lowercased
   form of 3 or more characters is redacted as a whole word, so the lowercased host that the
   integration-test gate quotes in every JUnit error
-  (`dba@kc9qmz7:33000/testdb`) no longer reaches `metadata.json`. These
+  (`dba@kc9qmz7:33000/testdb`) no longer reaches `metadata.json`. Each
+  host-shaped piece (split at `/`, `?`, `#`, `@`, `%`, `[` and `]`, without a
+  trailing `:port`) is lowercased the same way, because `urllib` rewrites the
+  port, drops IPv6 brackets and lowercases only the part before a `%zone`. These
   derived fragments may over-redact unrelated diagnostic text; shorter ones
   are not redacted. A URL holding a tab, CR or LF, which `urllib` strips, gets
-  the same enumeration. A URL above 2048 characters, 1024 candidate fragments
-  or 8192 candidate characters keeps the candidates found in its first 2048
+  the same enumeration. A URL above 2048 characters, or one that would yield
+  more than 1024 candidate fragments or 8192 candidate characters, keeps the candidates found in its first 2048
   characters before the limit and is also redacted as a whole string,
   together with the password `urllib` parses from it and any
-  `scheme://user:password@` password it contains. `CUBRID_TEST_PASSWORD` stays
+  `scheme://user:password@` password it contains. Both limits are a hard cap,
+  checked before each candidate is added, so a single long tail can no longer
+  take seconds to enumerate. `CUBRID_TEST_PASSWORD` stays
   an exact match without these variants, and a password transformed in other
   ways (for example lowercased inside a longer word) is not guaranteed to be
   redacted. The endpoint resolver is no longer trusted for a URL recorded as
