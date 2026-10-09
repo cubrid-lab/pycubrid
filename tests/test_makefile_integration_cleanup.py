@@ -185,14 +185,16 @@ def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_na
     import signal
     import time
 
-    # Reuse the normal command stubs, then block inside the readiness probe.
+    # Reuse the normal command stubs, then block inside the readiness probe only; any
+    # other $(PYTHON) call exits 0 so a skipped trap fails fast, not after the timeout.
     _run_make(tmp_path, target)
     log = tmp_path / "docker.log"
     log.write_text("")
     ready = tmp_path / "ready"
     stub_python = tmp_path / "python-stub"
     stub_python.write_text(
-        '#!/bin/sh\ntrap "exit 0" USR1\n'
+        '#!/bin/sh\ncase "$1" in *wait_for_cubrid.py) ;; *) exit 0 ;; esac\n'
+        'trap "exit 0" USR1\n'
         'printf "%s %s" "$$" "$PPID" > "$REVIEW_READY.tmp"\n'
         'mv "$REVIEW_READY.tmp" "$REVIEW_READY"\n'
         "while :; do sleep 0.02; done\n"

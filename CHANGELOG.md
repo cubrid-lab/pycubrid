@@ -81,7 +81,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `trap ... INT TERM` never ran. The test now starts `make` with SIGINT and
   SIGTERM at their default dispositions, passes the pytest stub so a regression
   cannot fall through to a real pytest run, and raises its wait bounds from 5 s
-  to 60 s. The assertions are unchanged, and the `Makefile` is unchanged.
+  to 60 s. The Python stub now blocks only for the `wait_for_cubrid.py`
+  readiness probe and exits 0 for any other call, so a skipped trap fails fast
+  (under 1 s) with the real assertion instead of hanging until the 60 s wait
+  expires. The assertions are unchanged, and the `Makefile` is unchanged.
 
 ### Documentation
 - **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the

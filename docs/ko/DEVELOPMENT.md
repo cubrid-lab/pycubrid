@@ -322,7 +322,7 @@ TLS 테스트는 SSL이 켜진 브로커가 필요합니다.
 [비동기 TLS 통합 테스트](#비동기-tls-통합-테스트)를 참고하세요.
 
 
-`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. 명시적 `make docker-down`은 `down -v`로 볼륨을 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요.
+`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. 명시적 `make docker-down`은 `down -v`로 볼륨을 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만, 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
 
 **통합 테스트 활성화와 엔드포인트 선택의 구분.** 통합 테스트는
 `CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 비어 있지 않은 값으로 설정되면
