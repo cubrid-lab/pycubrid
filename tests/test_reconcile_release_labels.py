@@ -67,3 +67,183 @@ def test_pending_transition_requires_completed_publication(
 
 def test_missing_or_invalid_release_facts_remain_pending():
     assert not MODULE.ready("cubrid-lab/pycubrid", "abc", lambda *args: {})
+
+
+# Blocked-preparation signal: classify pending PRs ready() could not prove.
+NOW = MODULE.datetime(2026, 10, 9, 12, 0, tzinfo=MODULE.timezone.utc)
+SHA = "d383be79e55a5f164b2569a0edb44eace9bb7e50"
+RUN_URL = "https://github.com/cubrid-lab/pycubrid/actions/runs/37871725585"
+
+
+def merged(hours_ago: float) -> str:
+    return (NOW - MODULE.timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def publisher(status="completed", conclusion="failure", run_id=37871725585):
+    return {
+        "id": run_id,
+        "head_sha": SHA,
+        "status": status,
+        "conclusion": conclusion,
+        "html_url": f"https://github.com/cubrid-lab/pycubrid/actions/runs/{run_id}",
+    }
+
+
+def fake_api(pulls, runs, published=False, calls=None):
+    """Offline gh: ready() fails closed unless ``published``; record mutations."""
+    calls = [] if calls is None else calls
+
+    def api(*args):
+        calls.append(args)
+        if args[0] == "pr":
+            return pulls
+        endpoint = args[1]
+        if "/issues/" in endpoint:
+            return None
+        if "/workflows/" in endpoint:
+            return {"workflow_runs": runs}
+        if not published:
+            raise MODULE.subprocess.CalledProcessError(1, ["gh", *args])
+        if "/contents/" in endpoint:
+            return {"content": base64.b64encode(json.dumps({".": "1.10.0"}).encode()).decode()}
+        if "/releases/" in endpoint:
+            return {"draft": False, "published_at": "2026-10-09", "tag_name": "v1.10.0"}
+        if "/git/ref/" in endpoint:
+            return {"object": {"type": "commit", "sha": SHA}}
+        return {
+            "jobs": [
+                {"name": name, "conclusion": "success"}
+                for name in ("Tag, GitHub Release and PyPI", "Require a verified release")
+            ]
+        }
+
+    return api
+
+
+def run_main(api, tmp_path):
+    summary = tmp_path / "summary.md"
+    env = {"GITHUB_REPOSITORY": "cubrid-lab/pycubrid", "GITHUB_STEP_SUMMARY": str(summary)}
+    code = MODULE.main(api=api, now=NOW, env=env)
+    return code, summary.read_text() if summary.exists() else ""
+
+
+def pending(hours_ago=10.0):
+    return [{"number": 709, "mergeCommit": {"oid": SHA}, "mergedAt": merged(hours_ago)}]
+
+
+@pytest.mark.parametrize("status", ["queued", "in_progress", "waiting"])
+def test_pending_with_running_publisher_is_a_notice(status, tmp_path, capsys):
+    api = fake_api(pending(hours_ago=30), [publisher(status=status, conclusion=None)])
+    code, summary = run_main(api, tmp_path)
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "::notice::" in out and RUN_URL in out and "::error::" not in out
+    assert summary == ""
+
+
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out", "action_required"])
+def test_pending_with_failed_publisher_is_blocked(conclusion, tmp_path, capsys):
+    api = fake_api(pending(), [publisher(conclusion=conclusion)])
+    code, summary = run_main(api, tmp_path)
+    out = capsys.readouterr().out
+    hint = "gh api -X POST repos/cubrid-lab/pycubrid/actions/runs/37871725585/rerun-failed-jobs"
+    assert code == 1
+    for text in ("::error::", "#709", SHA, RUN_URL, f"concluded {conclusion}", hint):
+        assert text in out
+    assert "Release preparation is blocked" in summary
+    for text in ("#709", SHA, RUN_URL, hint, "RELEASING.md"):
+        assert text in summary
+
+
+def test_newest_publisher_run_decides(tmp_path, capsys):
+    runs = [publisher(conclusion="failure", run_id=1), publisher(status="in_progress", run_id=2)]
+    assert run_main(fake_api(pending(), runs), tmp_path)[0] == 0
+    runs = [publisher(status="in_progress", run_id=2), publisher(conclusion="failure", run_id=3)]
+    assert run_main(fake_api(pending(), runs), tmp_path)[0] == 1
+
+
+def test_successful_run_without_publication_proof_is_blocked(tmp_path, capsys):
+    code, _ = run_main(fake_api(pending(), [publisher(conclusion="success")]), tmp_path)
+    assert code == 1
+    assert "not proven" in capsys.readouterr().out
+
+
+def test_runs_for_other_shas_are_ignored(tmp_path, capsys):
+    other = dict(publisher(status="in_progress"), head_sha="other")
+    assert run_main(fake_api(pending(hours_ago=10), [other]), tmp_path)[0] == 1
+
+
+@pytest.mark.parametrize(
+    "hours_ago,expected",
+    [
+        (0, MODULE.IN_PROGRESS),
+        (1.99, MODULE.IN_PROGRESS),
+        (2, MODULE.BLOCKED),
+        (30, MODULE.BLOCKED),
+    ],
+)
+def test_missing_publisher_run_threshold(hours_ago, expected):
+    assert MODULE.PUBLISHER_START_GRACE == MODULE.timedelta(hours=2)
+    state, message = MODULE.classify(
+        "cubrid-lab/pycubrid", 709, SHA, merged(hours_ago), NOW, fake_api([], [])
+    )
+    assert state == expected
+    assert "no publish-pypi.yml run" in message
+
+
+def test_recent_merge_without_run_is_a_notice(tmp_path, capsys):
+    code, summary = run_main(fake_api(pending(hours_ago=0.01), []), tmp_path)
+    out = capsys.readouterr().out
+    assert code == 0 and "::notice::" in out and "::error::" not in out and summary == ""
+
+
+def test_old_merge_without_run_is_blocked(tmp_path, capsys):
+    code, summary = run_main(fake_api(pending(hours_ago=3), []), tmp_path)
+    out = capsys.readouterr().out
+    assert code == 1 and "::error::" in out and "RELEASING.md" in summary
+
+
+def test_unreadable_publisher_state_is_blocked():
+    def api(*args):
+        raise MODULE.subprocess.CalledProcessError(1, ["gh", *args])
+
+    state, _ = MODULE.classify("cubrid-lab/pycubrid", 709, SHA, merged(0), NOW, api)
+    assert state == MODULE.BLOCKED
+
+
+def test_successful_publication_transitions_exactly_as_before(tmp_path, capsys):
+    calls = []
+    api = fake_api(pending(), [publisher(conclusion="success")], published=True, calls=calls)
+    code, summary = run_main(api, tmp_path)
+    out = capsys.readouterr().out
+    assert code == 0 and summary == "" and "::" not in out
+    assert "PR #709 marked tagged after publication proof" in out
+    mutations = [call for call in calls if "/issues/" in call[1]]
+    assert mutations == [
+        (
+            "api",
+            "repos/cubrid-lab/pycubrid/issues/709/labels",
+            "--method",
+            "POST",
+            "-f",
+            "labels[]=autorelease: tagged",
+        ),
+        (
+            "api",
+            "repos/cubrid-lab/pycubrid/issues/709/labels/autorelease%3A%20pending",
+            "--method",
+            "DELETE",
+        ),
+    ]
+
+
+def test_blocked_pr_is_never_relabelled_or_rerun(tmp_path, capsys):
+    calls = []
+    run_main(fake_api(pending(), [publisher()], calls=calls), tmp_path)
+    assert all(call[0] in ("pr", "api") for call in calls)
+    assert not any("--method" in call or "/issues/" in call[1] for call in calls if len(call) > 1)
+
+
+def test_no_pending_prs_is_silent(tmp_path, capsys):
+    code, summary = run_main(fake_api([], []), tmp_path)
+    assert code == 0 and summary == "" and capsys.readouterr().out == ""
