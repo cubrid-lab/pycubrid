@@ -271,7 +271,7 @@ means: a release was merged, and its publication is not proven. To recover:
 
 1. Open the run URL from the message and find the failed job; fix the cause
    (for example a cookbook or PyPI CDN lag).
-2. For a failed or cancelled run, re-run its failed jobs with
+2. For a failed, cancelled or timed-out run, re-run its failed jobs with
    `gh api -X POST repos/cubrid-lab/pycubrid/actions/runs/<id>/rerun-failed-jobs`
    (the same as `gh run rerun <id> --failed`), or follow the matching row in
    the table above (`verify-only` dispatch, `X.Y.(Z+1)` for a real defect).
