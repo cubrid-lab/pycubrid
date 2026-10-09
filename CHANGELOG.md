@@ -79,6 +79,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the driver is unchanged.
 
 ### CI
+- **Cookbook release verification pinned to the cookbook SHA with the PyPI wait** — the `verify-cookbook` call in `.github/workflows/publish-pypi.yml` is pinned to `32e80c6ea9ae78324f764d7b873ffb64b000ddcc` (cubrid-cookbook-python#274), the same commit in pycubrid, sqlalchemy-cubrid and cubrid-mcp-server. The cookbook now waits up to 10 minutes for PyPI to serve the exact requested version before installing, and reports what PyPI served if it times out; this fixes the 1.10.0 post-publish stale-CDN failure that blocked release-please. No runtime change.
 - **CHANGELOG lint applies the duplicate-heading check only after the cutoff** —
   `scripts/lint_changelog.py` now gates rule 5 (no repeated `###` heading within one
   version section) by `SECTION_POLICY_CUTOFF` like the section policy: it applies in
