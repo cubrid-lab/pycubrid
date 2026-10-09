@@ -79,6 +79,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the driver is unchanged.
 
 ### CI
+- **CHANGELOG lint applies the duplicate-heading check only after the cutoff** —
+  `scripts/lint_changelog.py` now gates rule 5 (no repeated `###` heading within one
+  version section) by `SECTION_POLICY_CUTOFF` like the section policy: it applies in
+  `[Unreleased]` and releases after 1.10.0, and released history up to 1.10.0 is never
+  rewritten. Before, the check also ran on older releases. The script is now identical
+  to the one in sqlalchemy-cubrid except for the cutoff value. This is contributor
+  tooling; the driver is unchanged.
 - **CHANGELOG tooling treats fenced code as content** — `scripts/lint_changelog.py` and
   `scripts/compose_release_changelog.py` no longer read a `###` line inside a fenced
   code block as a heading, so a code example in a CHANGELOG entry is no longer rejected

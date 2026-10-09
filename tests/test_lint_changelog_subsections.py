@@ -11,9 +11,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("release", ["Unreleased", "1.0.0"])
+@pytest.mark.parametrize("release", ["Unreleased", "1.10.1"])
 @pytest.mark.parametrize("heading", ["Fixed", "Documentation"])
-def test_duplicate_subsection_is_rejected(tmp_path: Path, release: str, heading: str) -> None:
+def test_duplicate_section_is_rejected_after_the_cutoff(
+    tmp_path: Path, release: str, heading: str
+) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     script = scripts / "lint_changelog.py"
@@ -25,6 +27,55 @@ def test_duplicate_subsection_is_rejected(tmp_path: Path, release: str, heading:
     result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
     assert result.returncode == 1
     assert f"Duplicate subsection heading '### {heading}' in [{release}]" in result.stderr
+
+
+@pytest.mark.parametrize("release", ["Unreleased", "1.10.1"])
+def test_non_adjacent_duplicate_section_is_rejected_after_the_cutoff(
+    tmp_path: Path, release: str
+) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "lint_changelog.py"
+    script.write_text((ROOT / "scripts/lint_changelog.py").read_text())
+    prefix = "## [Unreleased]\n" if release != "Unreleased" else ""
+    (tmp_path / "CHANGELOG.md").write_text(
+        prefix + f"## [{release}]\n### Changed\n- A\n### Documentation\n- B\n### Changed\n- C\n"
+    )
+    result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert f"Duplicate subsection heading '### Changed' in [{release}]" in result.stderr
+
+
+@pytest.mark.parametrize("release", ["1.10.0", "1.9.0", "1.7.1", "0.1.0"])
+@pytest.mark.parametrize("heading", ["Changed", "Documentation", "Docs"])
+def test_duplicate_section_in_released_history_is_accepted(
+    tmp_path: Path, release: str, heading: str
+) -> None:
+    # Rule 5 is gated by SECTION_POLICY_CUTOFF: released notes up to the cutoff are
+    # never rewritten.
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "lint_changelog.py"
+    script.write_text((ROOT / "scripts/lint_changelog.py").read_text())
+    (tmp_path / "CHANGELOG.md").write_text(
+        f"## [Unreleased]\n## [{release}]\n### {heading}\n- A\n### Fixed\n- B\n### {heading}\n- C\n"
+    )
+    result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_duplicate_heading_before_the_first_release_is_rejected(tmp_path: Path) -> None:
+    # Only rule 5 sees ### lines before the first "## [" header (rule 6 starts at a release).
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "lint_changelog.py"
+    script.write_text((ROOT / "scripts/lint_changelog.py").read_text())
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# C\n### Foo\n### Foo\n## [Unreleased]\n### Added\n- a\n"
+    )
+    result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "Duplicate subsection heading '### Foo' in []" in result.stderr
 
 
 def test_same_subsection_across_releases_is_valid(tmp_path: Path) -> None:
