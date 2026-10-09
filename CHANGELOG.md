@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### CI
+- **Documentation site build on pull requests (#786)** — `ci.yml` gains a
+  `docs-build` job that runs the `docs.yml` build (install `docs/requirements.txt`,
+  `scripts/generate_llms_full.py`, `mkdocs build --strict`) when `docs/**`,
+  `mkdocs.yml`, `scripts/generate_llms_full.py`, `docs.yml` or `ci.yml` change. The new
+  `site` path filter selects it, `CI Gate` expects it exactly when selected, and it
+  never uploads or deploys anything. Previously a broken strict build or docs-tool pin
+  bump only failed on `main`.
 - **Pinned docs tools and scan concurrency (#782, #783)** — `docs.yml` installs
   `mkdocs`, `mkdocs-material` and `pymdown-extensions` from the pinned
   `docs/requirements.txt`, which Dependabot now updates. `codeql.yml` and
