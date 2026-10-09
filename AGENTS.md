@@ -8,7 +8,7 @@ Project knowledge base for AI coding agents.
 It communicates with CUBRID via the CAS wire protocol over TCP/IP, requiring no C extensions
 or native CCI library.
 
-- **Language**: Python 3.11+
+- **Language**: Python; minimum version is `requires-python` in [`pyproject.toml`](pyproject.toml)
 - **Protocol**: CUBRID CAS binary protocol (version 8, since CUBRID 10.2+)
 - **License**: MIT
 - **Version source**: `pycubrid.__version__` in [`pycubrid/__init__.py`](pycubrid/__init__.py)
@@ -23,11 +23,11 @@ summarizes the core responsibilities, not a complete module count.
 graph TD
     root["pycubrid/ - Main package"]
     init["__init__.py - Public API, PEP 249 globals, connect(), exports"]
-    exceptions["exceptions.py - Full PEP 249 exception hierarchy (10 classes)"]
+    exceptions[exceptions.py - Full PEP 249 exception hierarchy]
     types[types.py - PEP 249 type objects and constructors]
     constants[constants.py - CAS protocol constants]
     packet[packet.py - PacketReader/PacketWriter binary serialization]
-    protocol["protocol.py - CAS protocol packets (20 packet classes)"]
+    protocol[protocol.py - CAS protocol packet classes]
     connection[connection.py - PEP 249 Connection class]
     cursor[cursor.py - PEP 249 Cursor class]
     lob[lob.py - LOB support]
@@ -50,11 +50,11 @@ graph TD
 | Module | Role |
 |---|---|
 | `__init__.py` | PEP 249 module globals (`apilevel`, `threadsafety`, `paramstyle`), `connect()`, re-exports |
-| `exceptions.py` | `Warning`, `Error`, `InterfaceError`, `DatabaseError` + 6 subclasses |
+| `exceptions.py` | `Warning`, `Error`, `InterfaceError`, `DatabaseError` and the PEP 249 `DatabaseError` subclasses |
 | `types.py` | `DBAPIType` class, `STRING`/`BINARY`/`NUMBER`/`DATETIME`/`ROWID` type objects, constructors, typed `Set`/`Multiset`/`Sequence` parameters |
-| `constants.py` | `CASFunctionCode` (41 funcs), `CUBRIDDataType` (27+ types), `CUBRIDStatementType`, protocol/data-size constants |
+| `constants.py` | `CASFunctionCode`, `CUBRIDDataType`, `CUBRIDStatementType`, protocol/data-size constants (enum members are the source of truth) |
 | `packet.py` | Low-level binary read/write with big-endian byte ordering |
-| `protocol.py` | High-level CAS packet classes for each function code (20 packet types) |
+| `protocol.py` | High-level CAS packet classes for the implemented function codes |
 | `connection.py` | `Connection` — TCP socket management, transactions, autocommit, LOB creation, schema info |
 | `cursor.py` | `Cursor` — execute, executemany, fetch, callproc, description, iteration |
 | `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |
@@ -228,7 +228,7 @@ make integration CUBRID_TEST_PORT=33522   # any free port; default 33000
 
 - **Linter/Formatter**: Ruff
 - **Line length**: 100 characters
-- **Target Python**: 3.11+
+- **Target Python**: the `requires-python` minimum (Ruff `target-version` matches it)
 - **Imports**: `from __future__ import annotations` in every module
 - **Type hints**: Full typing; PEP 561 compliant (`py.typed`)
 - **super()**: Always `super().__init__()`, never `super(ClassName, self)`
@@ -308,12 +308,14 @@ dispatch of `publish-pypi.yml`. Procedure, failure matrix and recovery:
 
 ### CI Matrix
 
-- PR runtime smoke: Ubuntu/Python 3.12 only, selected for code changes.
-- High-risk PR offline: full existing regressions on Python 3.11 and 3.14, no coverage.
-- High-risk PR integration: Python 3.14/CUBRID 11.4; targeted extra lanes.
-- main, changed-weekly and dispatch: full offline suite with coverage on Python 3.11 and 3.14, oldest/newest live endpoints.
+- PR runtime smoke: a single Python cell, selected for code changes.
+- High-risk PR offline and integration: full existing regressions on the oldest and
+  newest supported Python, plus targeted live lanes.
+- main, changed-weekly and dispatch: full offline suite with coverage on the oldest and
+  newest supported Python, oldest/newest live endpoints.
 - Full integration: manual and every release; no automatic nightly full matrix.
-- Details, change classification and gate requirements: [CI policy](docs/CI_POLICY.md).
+- Exact Python/CUBRID versions, change classification and gate requirements live in
+  the [CI policy](docs/CI_POLICY.md) and the workflow files; do not copy them here.
 
 ## Test Structure
 
@@ -520,39 +522,16 @@ Ultraworked with [Sisyphus](https://github.com/code-yeongyu/oh-my-opencode)
 Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
 ```
 
-## Project Context — Performance Loop System
+## Performance and Roadmap Pointers
 
-> This repo is the **primary optimization target** of the Performance Loop.
-> Board: [CUBRID Ecosystem Roadmap](https://github.com/orgs/cubrid-lab/projects/2)
+Performance work is tracked in issues, not in this file. Before treating any
+performance or roadmap item as current priority, check the live sources:
 
-### Role
+- [ROADMAP.md](ROADMAP.md) — public roadmap and current project baseline (the
+  linked org project board may require cubrid-lab membership).
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — investigation workflow, profiling
+  scripts, timing hooks and how to run benchmarks.
+- [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark) — the
+  pycubrid vs PyMySQL benchmark suite and its published results.
 
-pycubrid's 4.5-6× performance gap vs PyMySQL is the biggest measurable improvement opportunity.
-The hero metric is **reducing this gap with documented before/after numbers**.
-
-### Related Issues
-
-| Issue | Phase | Priority |
-|-------|-------|----------|
-| #19 cProfile/line_profiler hot path analysis | R2 | Must-Have |
-| #20 Optimize serialization path (protocol.py/packet.py) | R2 | Must-Have |
-| #21 Optimize cursor fetch performance | R2 | Must-Have |
-| #22 Second optimization cycle (connection reuse, batch) | R3 | Must-Have |
-| #14 Performance investigation template | R2 | Must-Have |
-| #15 Add lightweight perf microbenchmarks | R2 | Must-Have |
-| #16 Expose optional driver-level timing hooks | R2 | Nice-to-Have |
-
-### Decision Gate (Week 8)
-
-If combined improvements from #20 + #21 achieve < +10%, pivot narrative
-from "major speedup" to "public regression-prevention loop with verified targeted gains."
-
-### Current Performance Gap (baseline)
-
-| Operation | CUBRID/MySQL Ratio | Notes |
-|-----------|-------------------|-------|
-| insert | 6.0× | Heaviest gap |
-| select_by_pk | 4.5× | |
-| full_scan | 5.5× | |
-| update | 4.9× | |
-| delete | 5.1× | |
+Do not copy benchmark ratios, phase plans or issue tables into this file.

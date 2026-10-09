@@ -29,6 +29,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   IPv6 literals such as `[::1]` still parse and keep their host and port. This
   is a contributor tooling fix; the driver is unchanged.
 
+### Documentation
+- **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the
+  old "Project Context — Performance Loop System" snapshot (R2/R3 phases, the
+  Week 8 decision gate, the #14–#22 issue table and fixed PyMySQL ratios) is
+  replaced by short pointers to `ROADMAP.md`, `docs/PERFORMANCE.md` and the
+  `cubrid-benchmark` repository. Packet, function-code, data-type and exception
+  counts, the Python minimum and the CI Python/CUBRID versions now point to
+  their canonical sources (`pycubrid/constants.py`, `pyproject.toml`,
+  `docs/CI_POLICY.md`) instead of being copied. CAS protocol invariants,
+  workflow, labelling, release and commit guidance are unchanged. Docs only;
+  the driver is unchanged.
+
 ## [1.10.0] - 2026-10-08
 
 ### Upgrade notes
