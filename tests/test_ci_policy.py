@@ -512,7 +512,7 @@ def test_detect_changes_alone_gains_read_only_actions_access() -> None:
             assert "actions" not in job.get("permissions", {}), name
 
 
-def run_reuse(runs: object, jobs: dict[int, list[dict]]) -> tuple[int, dict[str, str], str]:
+def run_reuse(runs: object, jobs: object) -> tuple[int, dict[str, str], str]:
     node = shutil.which("node")
     if node is None:
         pytest.skip("GitHub JavaScript guard requires Node.js")
@@ -528,10 +528,13 @@ const github = {rest: {actions: {listWorkflowRuns, listJobsForWorkflowRun}},
   paginate: async (method, params) => {
     if (method === 'runs') {
       if (runs === 'error') throw new Error('API unavailable');
-      if (params.head_sha !== sha || params.event !== 'push' || params.branch !== 'main')
+      if (params.head_sha !== sha || params.event !== 'push' || params.branch !== 'main'
+          || params.status !== 'success')
         throw new Error('unexpected query ' + JSON.stringify(params));
       return runs;
     }
+    if (jobs === 'error') throw new Error('jobs unavailable');
+    if (params.filter !== 'latest') throw new Error('unexpected query ' + JSON.stringify(params));
     return jobs[params.run_id] || [];
   }};
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
@@ -629,6 +632,13 @@ def test_reuse_lookup_failure_selects_the_lanes() -> None:
     assert code == 0
     assert outputs == {"code": "false", "tooling": "false"}
     assert "API unavailable" in warnings
+
+
+def test_reuse_jobs_listing_failure_selects_the_lanes() -> None:
+    code, outputs, warnings = run_reuse([push_run(1)], "error")
+    assert code == 0
+    assert outputs == {"code": "false", "tooling": "false"}
+    assert "jobs unavailable" in warnings
 
 
 def cron(name: str) -> str:

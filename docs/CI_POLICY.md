@@ -90,8 +90,10 @@ Measured with the GitHub REST API (`actions/workflows/<file>/runs` and
   group.
 
 The window starts at 2026-10-03 06:04 UTC, after `a65360a` introduced the
-current representative tiers. Weekly and release samples use their current
-workflow shapes. The `ci.yml` runs are classified as follows:
+current representative tiers. The weekly and push samples predate #745's 3.11 and 3.14 offline
+cells (landed 2026-10-09 02:06 UTC): the 2026-10-05 weekly run had a single
+`offline-tests (3.12)` cell, and only 2 of the 51 code push runs are post-#745.
+The release sample uses its current workflow shape. The `ci.yml` runs are classified as follows:
 
 - **Pull requests**: a risk PR executed any of `integration-tests`,
   `integration-tls`, `integration-charset` or `official-differential`, or an
@@ -203,8 +205,8 @@ Expected effect, computed from the measured runs above:
 | Category | Jobs before → after | Runner min before → after | Rounded min before → after |
 | --- | --- | --- | --- |
 | Ordinary code PR, risk PR, main push | unchanged | unchanged | unchanged |
-| Weekly `ci.yml`, head push run green with code lanes | 18 → 9 | 11.4 → about 1.8 | 24 → 9 |
-| Weekly `ci.yml`, head push run not green or docs-only | 18 → 18 | 11.4 → 11.4 | 24 → 24 |
+| Weekly `ci.yml`, head push run green with code lanes | 19 → 9 | about 13 → about 1.8 | about 26 → 9 |
+| Weekly `ci.yml`, head push run not green or docs-only | 19 → 19 | about 13 → about 13 | about 26 → about 26 |
 | Weekly `bug-hunt.yml` | 7 → 7 (Thursday) | 149.4 → 149.4 | 152 → 152 |
 | Release | 34 → 36 | 41.8 → about 44.7 | 60.5 → about 64.5 |
 
@@ -250,10 +252,12 @@ wherever it already ran in full, while ordinary PRs stay on one cheap cell.
 | Release and full dispatch (`integration-full.yml` `offline-endpoints`) | Python 3.11 and 3.14 | Same install and command, required by `full-matrix-result` |
 
 Every cell keeps the `not integration and not repo_tooling` selection, the
-15-minute timeout and the immutable `inputs.sha || github.sha` checkout. Coverage
-reports are written per Python version (`coverage-py<version>.xml`), uploaded as
-the `offline-coverage-py<version>` artifact and sent to Codecov with the
-`offline-py<version>` flag, so the two cells never overwrite each other.
+15-minute timeout and the immutable `inputs.sha || github.sha` checkout. In
+`ci.yml`, coverage reports are written per Python version
+(`coverage-py<version>.xml`), uploaded as the `offline-coverage-py<version>`
+artifact and sent to Codecov with the `offline-py<version>` flag, so the two
+cells never overwrite each other. The `integration-full.yml` `offline-endpoints`
+cells upload nothing.
 
 The weekly schedule is owned by `ci.yml` itself: `integration-full.yml` has no
 schedule (it repeats the two cells only for a release or a full dispatch), and
@@ -264,7 +268,8 @@ exercise 3.11.0–3.11.2, which keep their targeted regression (#744).
 
 `ci-gate` sees one aggregate `offline-tests` result. A failed or cancelled cell
 makes that result non-success, and a skipped job is accepted only when no code
-changed, so a missing or failed endpoint cell cannot turn the gate green.
+changed, or, on the weekly schedule, when a successful push run of the same SHA
+already ran it, so a missing or failed endpoint cell cannot turn the gate green.
 
 ## Workflow change impact
 
