@@ -733,7 +733,12 @@ available targets and asks for the password separately. Without JUnit, an accept
 caller-supplied legacy target remains a hint, not a verified report identity. Known configured
 passwords, decoded/encoded URL-password variants and recognized credential-bearing URLs
 are redacted before each failure record's message/detail is limited to 64 KiB
-of UTF-8 bytes. This does not guarantee sanitizing arbitrary secrets or data.
+of UTF-8 bytes. A `CUBRID_TEST_URL` whose userinfo `urllib` cannot parse (for
+example `u:pw@host/db` or `cubrid:u:pw@host/db`, without `://`) is recorded as
+`<unparseable-url-redacted>`, and its password candidates (the userinfo before
+the last `@`, after the first or second `:`) are redacted in free text; this may
+over-redact a password suffix (#777). This does not guarantee sanitizing
+arbitrary secrets or data.
 
 Optional readiness `--server-info PATH` records the actual engine version or
 an `unavailable` reason. The workflow uses a fresh run-ID/run-attempt path

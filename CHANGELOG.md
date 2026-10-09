@@ -19,6 +19,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   when any endpoint cell fails, is cancelled or never runs. Timeouts, pinned
   actions, read-only permissions and the immutable checkout SHA are unchanged.
 
+### Security
+- **`scripts/collect_repro.py` no longer leaks the password of a
+  `CUBRID_TEST_URL` without `://` (#777)** — a URL such as `u:pw@host/db`,
+  `cubrid:u:pw@host/db` or `cubrid:/u:pw@host/db` was written with its password
+  in plain text to `metadata.json` and `reproduce.md`. `urllib` reads `u` or
+  `cubrid` as the scheme and finds no userinfo, and the fallback redaction
+  pattern needed `://`. The collector now records any URL that has an `@` but no
+  parsed userinfo as `<unparseable-url-redacted>`. `sanitize()` also derives
+  password candidates from the raw URL by splitting the userinfo at the last
+  `@` and taking the text after the first and second `:` (and after each `/`
+  inside it), then redacts them raw and percent-encoded/decoded in free text
+  such as JUnit failure details. This fails closed: a password suffix may be
+  over-redacted. Valid `cubrid://user:pw@host:port/db` URLs are still recorded
+  as `cubrid://user:***@host:port/db`. This is a contributor tooling fix; the
+  driver is unchanged.
+
 ### Fixed
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
   Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6

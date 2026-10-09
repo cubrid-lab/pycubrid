@@ -593,3 +593,115 @@ def test_real_pytest_xunit1_identity_round_trip(bundle: Path) -> None:
     assert actual.get("classname") == "tests.test_real.TestActual"
     meta = _collect(bundle, "--junit", str(report))
     assert meta["failures"][0]["node_id"] == "tests/test_real.py::TestActual::test_value[a.b-x]"
+
+
+# Issue #777: a CUBRID_TEST_URL without "://" must not leak its password.
+_SCHEMELESS_URLS = [
+    ("u:Syn7hS3cret@host/db", "Syn7hS3cret"),
+    ("cubrid:u:Syn7hS3cret@host/db", "Syn7hS3cret"),
+    ("//u:Syn7hS3cret@host/db", "Syn7hS3cret"),
+    ("u:Syn7hS3cret@[::1]/db", "Syn7hS3cret"),
+    ("cubrid:/u:Syn7hS3cret@host/db", "Syn7hS3cret"),
+    ("u:Syn7h@S3cret@host/db", "Syn7h@S3cret"),
+    ("cubrid:u:Syn7h:S3cret@host/db", "Syn7h:S3cret"),
+    ("u:Syn7h:S3cret@host/db", "Syn7h:S3cret"),
+    ("cubrid://u:Syn7h:S3cret@host:33000/db", "Syn7h:S3cret"),
+    ("cubrid://u:Syn7h/S3cret@host/db", "Syn7h/S3cret"),
+    ("cubrid://u:Syn7h#S3cret@host/db", "Syn7h#S3cret"),
+]
+
+
+@pytest.mark.parametrize(("url", "secret"), _SCHEMELESS_URLS)
+def test_url_shape_never_leaks_its_password_into_any_bundle_output(
+    bundle: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    url: str,
+    secret: str,
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", f"connect failed for {url}: {secret}")
+    report = bundle.parent / "shape.xml"
+    suite = ElementTree.Element("testsuite")
+    case = ElementTree.SubElement(
+        suite,
+        "testcase",
+        file="tests/test_example.py",
+        classname="tests.test_example",
+        name="test_x",
+    )
+    failure = ElementTree.SubElement(case, "failure", message=f"auth {secret}")
+    failure.text = f"OperationalError: login {url} rejected password {secret}"
+    ElementTree.ElementTree(suite).write(report, encoding="utf-8")
+    meta = _collect(bundle, "--junit", str(report))
+    output = capsys.readouterr()
+    written = "".join(
+        path.read_text(encoding="utf-8") for path in sorted(bundle.rglob("*")) if path.is_file()
+    )
+    for leaked in {secret, *secret.replace("@", ":").replace("/", ":").split(":")}:
+        if len(leaked) >= 4:
+            assert leaked not in written
+            assert leaked not in output.out + output.err
+    assert meta["failures"][0]["detail"].startswith("OperationalError: login ")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "u:Syn7hS3cret@host/db",
+        "cubrid:u:Syn7hS3cret@host/db",
+        "u:Syn7hS3cret@[::1]/db",
+        "cubrid:/u:Syn7hS3cret@host/db",
+        "u:@host/db",
+        "cubrid:u:@host/db",
+    ],
+)
+def test_url_with_userinfo_but_no_parsed_password_is_unparseable(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    assert collect_repro._redact_url(url) == "<unparseable-url-redacted>"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("cubrid://user:pw@host:33000/db", "cubrid://user:***@host:33000/db"),
+        ("//u:Syn7hS3cret@host/db", "//u:***@host/db"),
+        ("cubrid://u:@host/db", "cubrid://u:***@host/db"),
+        ("cubrid://user@host:33000/db", "cubrid://user@host:33000/db"),
+        ("cubrid://host:33000/db", "cubrid://host:33000/db"),
+    ],
+)
+def test_parseable_url_keeps_its_redacted_shape(
+    monkeypatch: pytest.MonkeyPatch, url: str, expected: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    assert collect_repro._redact_url(url) == expected
+
+
+@pytest.mark.parametrize(("url", "secret"), _SCHEMELESS_URLS)
+def test_sanitize_redacts_configured_url_password_in_free_text(
+    monkeypatch: pytest.MonkeyPatch, url: str, secret: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    encoded = quote(secret, safe="")
+    text = f"detail: password={secret} encoded={encoded} url={url} tail"
+    result = collect_repro.sanitize(text)
+    assert secret not in result
+    assert encoded not in result
+    assert result.startswith("detail: password=")
+    assert result.endswith(" tail")
+
+
+def test_empty_url_password_does_not_redact_ordinary_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    for url in ("u:@host/db", "cubrid://u:@host/db", "cubrid:u:@host/db"):
+        monkeypatch.setenv("CUBRID_TEST_URL", url)
+        assert collect_repro.sanitize("ordinary text") == "ordinary text"

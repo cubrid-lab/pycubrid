@@ -32,16 +32,39 @@ _BRACKETED_HOST = re.compile(r"\[([^\[\]]+)\](?::[^:\[\]]*)?")
 _URL_PASSWORD = re.compile(r"(?<=://)([^\s/@:?#]*:)([^\s/?#]*)(@)")
 
 
+def _url_passwords(raw_url: str) -> set[str]:
+    """Return the configured URL's password, or every fail-closed candidate.
+
+    Only an authority that urllib parsed with its userinfo is trusted. Any
+    other URL with an "@" (no "://", a bracket error, "/" or "#" in the
+    password) splits its userinfo at the last "@" and treats the text after
+    the first, and after the second, ":" as the password. That covers both
+    "user:password" and "scheme:user:password". Each text after a "/" in a
+    candidate is a candidate too, because urllib reads a password's "/" as the
+    start of the path. Candidates may over-redact a password suffix but never
+    miss the password itself.
+    """
+    try:
+        parts = urlsplit(raw_url)
+        if "@" in parts.netloc:
+            return {parts.password} if parts.password else set()
+    except ValueError:
+        pass
+    userinfo, at, _ = raw_url.rpartition("@")
+    if not at:
+        return set()
+    fields = userinfo.split(":", 2)
+    candidates = {":".join(fields[index:]) for index in (1, 2) if index < len(fields)}
+    for candidate in list(candidates):
+        pieces = candidate.split("/")
+        candidates.update("/".join(pieces[index:]) for index in range(1, len(pieces)))
+    return {candidate for candidate in candidates if candidate}
+
+
 def sanitize(text: str) -> str:
     """Redact configured raw/encoded passwords and credential-bearing URLs."""
     passwords = {os.environ.get("CUBRID_TEST_PASSWORD", "")}
-    raw_url = os.environ.get("CUBRID_TEST_URL", "")
-    try:
-        password = urlsplit(raw_url).password
-    except ValueError:
-        authority = _URL_PASSWORD.search(raw_url)
-        password = authority[2] if authority is not None else None
-    if password:
+    for password in _url_passwords(os.environ.get("CUBRID_TEST_URL", "")):
         passwords.update((password, unquote(password)))
     # An environment password is literal, unlike URL userinfo. Keep raw
     # percent characters/case exact; only derived encodings fold hex digits.
@@ -99,6 +122,10 @@ def _redact_url(url: str) -> str:
                 raise ValueError("bracketed authority is not an IPv6 literal")
             ipaddress.IPv6Address(literal[1])
         if parts.password is None:
+            # Without "://" (u:pw@host, cubrid:u:pw@host) urllib finds no
+            # userinfo; an "@" outside a parsed authority is never trusted.
+            if "@" in url and "@" not in parts.netloc:
+                return "<unparseable-url-redacted>"
             return sanitize(url)
         host = parts.hostname or ""
         if ":" in host:
