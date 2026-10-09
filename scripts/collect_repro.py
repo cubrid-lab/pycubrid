@@ -11,6 +11,7 @@ claimed to be credential-sanitized. Raw JUnit output is never copied.
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import ipaddress
 import json
@@ -28,29 +29,160 @@ REPRO_DIR = Path("bug-hunt-repro")
 HYPOTHESIS_DB = Path(".hypothesis")
 _XML_LIMIT = 10 * 1024 * 1024
 _DETAIL_LIMIT = 64 * 1024
+_URL_LIMIT = 2048
+_CANDIDATE_LIMIT = 1024
+_CANDIDATE_CHARS = 8 * 1024
 _BRACKETED_HOST = re.compile(r"\[([^\[\]]+)\](?::[^:\[\]]*)?")
 _URL_PASSWORD = re.compile(r"(?<=://)([^\s/@:?#]*:)([^\s/?#]*)(@)")
+_UNPARSEABLE_URL = "<unparseable-url-redacted>"
+_FRAGMENT_MINIMUM = 3
 
 
-def sanitize(text: str) -> str:
-    """Redact configured raw/encoded passwords and credential-bearing URLs."""
-    passwords = {os.environ.get("CUBRID_TEST_PASSWORD", "")}
-    raw_url = os.environ.get("CUBRID_TEST_URL", "")
+def _url_passwords(raw_url: str, partial: bool = False) -> set[str] | None:
+    """Return the configured URL's password candidates, or None if too complex.
+
+    urllib's parse is trusted only when its authority holds every "@" of the
+    URL and the URL has no tab, CR or LF (urllib strips those before parsing).
+    Otherwise ("://" missing, a bracket error, or "/", "?", "#" or "@" in the
+    password or query) the text after each ":" before each "@" is a candidate,
+    and so is each piece, and each suffix, of that text split at "/", "?", "#"
+    and "@", because urllib ends a password at those marks. A derived piece or
+    suffix shorter than _FRAGMENT_MINIMUM characters is dropped to limit
+    over-redaction of ordinary diagnostic text. Within the first _URL_LIMIT
+    characters, the tails after the first and last ":" of the authority before
+    the first "@" (the most likely password), and each piece of the userinfo
+    up to the last "@", are always candidates. A URL above _URL_LIMIT
+    characters, or one that would generate more than _CANDIDATE_LIMIT
+    candidates or _CANDIDATE_CHARS characters, returns None so callers fall
+    back to coarser candidates; with partial=True it instead returns the
+    candidates of its first _URL_LIMIT characters generated before either
+    limit. The limits are checked before each candidate, so they are a hard
+    cap on the work.
+    """
+    if len(raw_url) > _URL_LIMIT and not partial:
+        return None
+    candidates: set[str] = set()
     try:
-        password = urlsplit(raw_url).password
+        parts = urlsplit(raw_url)
+        if parts.password:
+            candidates.add(parts.password)
+        if (
+            "@" in parts.netloc
+            and raw_url.count("@") == parts.netloc.count("@")
+            and not any(char in raw_url for char in "\t\r\n")
+        ):
+            return candidates
     except ValueError:
-        authority = _URL_PASSWORD.search(raw_url)
-        password = authority[2] if authority is not None else None
-    if password:
-        passwords.update((password, unquote(password)))
+        pass
+    head = raw_url[:_URL_LIMIT]
+    first = head.find("@")
+    if first >= 0:
+        authority = head[:first].split("://", 1)[-1]
+        if ":" in authority:
+            candidates.update((authority.partition(":")[2], authority.rpartition(":")[2]))
+        # The pieces of the userinfo span up to the last "@" are also always
+        # candidates, so a long first tail cannot exhaust the budget before a
+        # password piece that follows a later "@" (O(n), unlike the suffixes).
+        last = head.rfind("@")
+        if last > first:
+            span = head[:last].split("://", 1)[-1].partition(":")[2]
+            candidates.update(
+                piece for piece in re.split(r"[/?#@]", span) if len(piece) >= _FRAGMENT_MINIMUM
+            )
+    colons = [index for index, char in enumerate(head) if char == ":"]
+    generated = characters = 0
+    for at, char in enumerate(head):
+        if char != "@":
+            continue
+        for colon in colons:
+            if colon > at:
+                break
+            tail = head[colon + 1 : at]
+            start = 0
+            for piece in re.split(r"[/?#@]", tail):
+                # Count generated, not distinct, candidates, and check before
+                # adding each one, so the budget is a hard cap on the work.
+                characters += len(piece) + len(tail) - start
+                generated += 2
+                if generated > _CANDIDATE_LIMIT or characters > _CANDIDATE_CHARS:
+                    if not partial:
+                        return None
+                    return {candidate for candidate in candidates if candidate}
+                if not start:
+                    candidates.add(tail)
+                candidates.update(
+                    fragment
+                    for fragment in (piece, tail[start:])
+                    if len(fragment) >= _FRAGMENT_MINIMUM
+                )
+                start += len(piece) + 1
+    return {candidate for candidate in candidates if candidate}
+
+
+@functools.lru_cache(maxsize=8)
+def _redaction_patterns(
+    env_password: str, raw_url: str, flags: int = 0
+) -> tuple[re.Pattern[str], ...]:
+    """Compile the redaction patterns once per configured password, URL and flags."""
+    passwords = {env_password}
+    derived: set[str] = set()
+    folded: set[str] = set()
+    url_passwords = _url_passwords(raw_url)
+    if url_passwords is None:
+        # Too long or too complex to enumerate: keep the bounded candidates,
+        # and redact the raw URL whole, plus urllib's password and each
+        # authority-shaped password, which text may quote on its own (e.g. a
+        # well-formed URL with a long query).
+        url_passwords = _url_passwords(raw_url, partial=True) or set()
+        url_passwords.add(raw_url)
+        try:
+            url_passwords.add(urlsplit(raw_url).password or "")
+        except ValueError:
+            pass
+        url_passwords.update(match[2] for match in _URL_PASSWORD.finditer(raw_url))
+    for password in url_passwords:
+        for value in (password, unquote(password)):
+            passwords.add(value)
+            # Text may hold a URL password CR-normalised (XML), tab/CR/LF-
+            # stripped (urllib), repr-escaped (tracebacks) or lowercased
+            # (urllib lowercases a host). These forms are matched raw only,
+            # and short ones are dropped.
+            for form in (
+                value,
+                value.replace("\r\n", "\n").replace("\r", "\n"),
+                re.sub(r"[\t\r\n]", "", value),
+                repr(value)[1:-1],
+            ):
+                if len(form) >= _FRAGMENT_MINIMUM:
+                    derived.add(form)
+                    folded.add(form.lower())
+                # urllib also rewrites a host's port and drops IPv6 brackets,
+                # and lowercases only the part before a "%zone", so each
+                # host-shaped piece, without a trailing ":port", is lowercased
+                # too. Only a lone ":" before digits is split off, which keeps
+                # a "user:" prefix and an IPv6 literal whole.
+                hosts = (
+                    re.sub(r"^([^:]*):\d*$", r"\1", token)
+                    for token in re.split(r"[/?#@%\[\]]", form)
+                )
+                folded.update(host.lower() for host in hosts if len(host) >= _FRAGMENT_MINIMUM)
+    # A lowercased form matches only as a whole word, as a host appears, so a
+    # short piece such as "ssw" does not redact ordinary words ("password").
+    derived -= passwords
+    folded -= passwords | derived
     # An environment password is literal, unlike URL userinfo. Keep raw
     # percent characters/case exact; only derived encodings fold hex digits.
-    variants = {value: False for value in passwords if value}
-    for value in passwords:
-        if value:
-            for encoded in (quote(value, safe=""), quote_plus(value, safe="")):
-                variants[encoded] = True
+    variants: dict[str, tuple[bool, bool]] = {}
+    for value in filter(None, passwords):
+        variants.setdefault(value, (False, False))
+        for encoded in (quote(value, safe=""), quote_plus(value, safe="")):
+            variants.setdefault(encoded, (True, False))
+    for values, bounded in ((derived, False), (folded, True)):
+        for value in values:
+            variants.setdefault(value, (False, bounded))
+    patterns = []
     for password in sorted(variants, key=len, reverse=True):
+        encoded, bounded = variants[password]
         # Percent hex digits may vary in case independently; literal password
         # characters, including Unicode, must not become case-insensitive.
         pattern = (
@@ -65,12 +197,42 @@ def sanitize(text: str) -> str:
                 ),
                 re.escape(password),
             )
-            if variants[password]
+            if encoded
             else re.escape(password)
         )
-        text = re.sub(pattern, "***", text)
+        if bounded:
+            # The look-behind follows the first character, which keeps the
+            # literal prefix that lets the regex engine scan text quickly.
+            if re.match(r"\w", password):
+                pattern = f"{password[0]}(?<!\\w{password[0]}){pattern[1:]}"
+            if re.match(r"\w", password[-1]):
+                pattern += "(?!\\w)"
+        patterns.append(re.compile(pattern, flags))
+    return tuple(patterns)
+
+
+def sanitize(text: str) -> str:
+    """Redact configured raw/encoded passwords and credential-bearing URLs."""
+    for pattern in _redaction_patterns(
+        os.environ.get("CUBRID_TEST_PASSWORD", ""), os.environ.get("CUBRID_TEST_URL", "")
+    ):
+        text = pattern.sub("***", text)
     # The greedy password group ends at the last @ within this authority only.
     return _URL_PASSWORD.sub(r"\1***\3", text)
+
+
+def _requires_redaction(text: str) -> bool:
+    """True when sanitize would change text or it holds a password in any case.
+
+    Hostnames are case-insensitive and urllib lowercases them, so an endpoint
+    field may hold a lowercased password fragment that sanitize keeps.
+    """
+    patterns = _redaction_patterns(
+        os.environ.get("CUBRID_TEST_PASSWORD", ""),
+        os.environ.get("CUBRID_TEST_URL", ""),
+        re.IGNORECASE,
+    )
+    return sanitize(text) != text or any(pattern.search(text) for pattern in patterns)
 
 
 def _driver_version() -> str:
@@ -85,8 +247,15 @@ def _driver_version() -> str:
 def _redact_url(url: str) -> str:
     if not url:
         return ""
+    if len(url) > _URL_LIMIT:
+        return _UNPARSEABLE_URL
     try:
         parts = urlsplit(url)
+        if url.count("@") != parts.netloc.count("@"):
+            # An "@" outside the parsed authority (u:pw@host without "://",
+            # or "/", "?", "#" before an "@") means urllib split the userinfo
+            # in the wrong place, even if it found a password.
+            return _UNPARSEABLE_URL
         port = parts.port  # Validate even when no password was supplied.
         if "[" in parts.netloc or "]" in parts.netloc:
             # Older urllib.parse releases (e.g. 3.11.1) accept any bracketed
@@ -110,7 +279,7 @@ def _redact_url(url: str) -> str:
             urlunsplit((parts.scheme, userinfo + host, parts.path, parts.query, parts.fragment))
         )
     except ValueError:
-        return "<unparseable-url-redacted>"
+        return _UNPARSEABLE_URL
 
 
 def _metadata() -> dict[str, str]:
@@ -227,6 +396,11 @@ def _read_report(path: Path) -> tuple[dict[str, object], list[dict[str, object]]
 
 
 def _endpoint_fields() -> dict[str, str]:
+    raw_url = os.environ.get("CUBRID_TEST_URL", "")
+    if raw_url and _redact_url(raw_url) == _UNPARSEABLE_URL:
+        # urllib split this URL in the wrong place, so the resolver's host,
+        # user or database may hold password fragments: never trust it.
+        raise ValueError("endpoint resolution failed")
     # Reuse the exact readiness resolver without importing a foreign tests package.
     spec = importlib.util.spec_from_file_location(
         "_pycubrid_repro_endpoint",
@@ -237,7 +411,11 @@ def _endpoint_fields() -> dict[str, str]:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    endpoint = module.resolve_endpoint()
+    try:
+        endpoint = module.resolve_endpoint()
+    except ValueError:
+        # The resolver quotes URL parts, which may hold password fragments.
+        raise ValueError("endpoint resolution failed") from None
     return {
         "host": endpoint.host,
         "port": str(endpoint.port),
@@ -259,7 +437,7 @@ def _server_identity(path: Path | None) -> dict[str, str]:
         if not isinstance(info, dict):
             raise ValueError("readiness sidecar is not an object")
         if any(
-            sanitize(str(info.get(key, ""))) != str(info.get(key, ""))
+            _requires_redaction(str(info.get(key, "")))
             for key in ("version", "endpoint", "github_sha")
         ):
             raise ValueError("server identity requires redaction")
@@ -268,7 +446,7 @@ def _server_identity(path: Path | None) -> dict[str, str]:
         sha = os.environ.get("GITHUB_SHA", "")
         if not sha or info.get("github_sha") != sha:
             raise ValueError("readiness SHA missing or mismatched")
-        if sanitize(endpoint) != endpoint or info.get("endpoint") != endpoint:
+        if _requires_redaction(endpoint) or info.get("endpoint") != endpoint:
             raise ValueError("readiness endpoint mismatched or redacted")
         if info.get("status") != "observed":
             raise ValueError(str(info.get("reason") or "readiness identity unavailable"))
@@ -291,10 +469,12 @@ def _replay(meta: dict[str, str], targets: list[str]) -> str:
         return "# Bug-hunt reproduction\n\nPrecise replay unavailable; see metadata.json for diagnostic absence or unresolved identity.\n"
     try:
         fields = _endpoint_fields()
-        if any(sanitize(value) != value for value in fields.values()):
+        if any(_requires_redaction(value) for value in fields.values()):
             raise ValueError("endpoint fields require redaction")
     except (ValueError, ImportError) as exc:
-        return "# Bug-hunt reproduction\n\nPrecise replay unavailable: " + sanitize(str(exc)) + "\n"
+        # Never echo resolver text: it can quote password fragments of the URL.
+        reason = f"endpoint resolution failed ({type(exc).__name__})"
+        return f"# Bug-hunt reproduction\n\nPrecise replay unavailable: {reason}\n"
     env = [
         ("HYPOTHESIS_PROFILE", meta["hypothesis_profile"] or "pr"),
         ("CUBRID_TEST_HOST", fields["host"]),

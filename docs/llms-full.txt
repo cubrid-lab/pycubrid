@@ -9008,7 +9008,47 @@ available targets and asks for the password separately. Without JUnit, an accept
 caller-supplied legacy target remains a hint, not a verified report identity. Known configured
 passwords, decoded/encoded URL-password variants and recognized credential-bearing URLs
 are redacted before each failure record's message/detail is limited to 64 KiB
-of UTF-8 bytes. This does not guarantee sanitizing arbitrary secrets or data.
+of UTF-8 bytes. A valid `CUBRID_TEST_URL` of up to 2048 characters is recorded
+as `user:***@host:port`. It is recorded as `<unparseable-url-redacted>` when `urllib`
+cannot parse it, when any `@` lies outside the authority `urllib` parsed (for
+example `u:pw@host/db` or `cubrid:u:pw@host/db` without `://`, or a password
+containing `/`, `?`, `#` or `@`), or when it is longer than 2048 characters.
+For such a URL, or one containing a tab, CR or LF (which `urllib` strips), the
+text after each `:` before each `@`, and each piece and suffix of that text split
+at `/`, `?`, `#` and `@` that is at least 3 characters long, is redacted raw and
+percent-encoded/decoded in free text. Within the first 2048 characters, the text
+after the first and the last `:` before the first `@`, and each piece (not each
+suffix) of the userinfo up to the last `@`, are always candidates. Each URL-derived candidate is also
+redacted as written (not percent-encoded) with CR and CRLF turned into LF (as
+an XML parser reads element text), with tabs, CRs and LFs removed (as `urllib`
+strips them) and `repr()`-escaped (as a traceback quotes it). A lowercased form of 3 or more characters is
+redacted only as a whole word, the way `urllib` puts a lowercased host into
+resolver and test-gate text (`dba@***:33000/testdb`). So is each host-shaped
+piece of a candidate (split at `/`, `?`, `#`, `@`, `%`, `[` and `]`, without a
+trailing `:port`) of 3 or more characters, because `urllib` rewrites the port,
+drops IPv6 brackets and lowercases only the part before a `%zone`
+(`dba@***%Ab12:33000`). These derived fragments
+may over-redact unrelated diagnostic text; shorter derived fragments are not
+redacted (#777). A URL longer than 2048 characters, or one that would yield more
+than 1024 candidate fragments or 8192 candidate characters, keeps the candidates
+found in its first 2048 characters before that limit and is also redacted as a
+whole string, together with the password `urllib` parses from it and any
+`scheme://user:password@` password it contains. `CUBRID_TEST_PASSWORD` is
+matched exactly, raw and percent-encoded, without these variants. Both limits
+are a hard cap: they are checked before each candidate is added, so enumeration
+stops at the limit even inside a single long tail. A password
+fragment lowercased inside a longer word, or transformed in any other way, is
+not guaranteed to be redacted. The endpoint resolver is
+not trusted for a URL recorded as `<unparseable-url-redacted>`, because `urllib`
+may place password fragments in the host (lowercased), user or database: its
+replay command and server identity are then recorded as unavailable. Endpoint
+fields and the readiness endpoint are rejected when they contain a known
+password case-insensitively. A JDBC-style URL without `@`
+(`jdbc:cubrid:host:33000:db:u:PW:`) is not recognised as credential-bearing:
+its password is recorded as written unless it is also set in
+`CUBRID_TEST_PASSWORD`. Endpoint-resolution errors are reported as a fixed
+message, never as resolver text. This does not guarantee sanitizing arbitrary
+secrets or data.
 
 Optional readiness `--server-info PATH` records the actual engine version or
 an `unavailable` reason. The workflow uses a fresh run-ID/run-attempt path
