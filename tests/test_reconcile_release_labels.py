@@ -96,7 +96,9 @@ def fake_api(pulls, runs, published=False, calls=None):
     def api(*args):
         calls.append(args)
         if args[0] == "pr":
-            return pulls
+            # Return only the requested fields, like gh does, so a dropped field fails.
+            fields = args[args.index("--json") + 1].split(",")
+            return [{key: pull[key] for key in fields if key in pull} for pull in pulls]
         endpoint = args[1]
         if "/issues/" in endpoint:
             return None
@@ -141,7 +143,7 @@ def test_pending_with_running_publisher_is_a_notice(status, tmp_path, capsys):
     assert summary == ""
 
 
-@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out", "action_required"])
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out"])
 def test_pending_with_failed_publisher_is_blocked(conclusion, tmp_path, capsys):
     api = fake_api(pending(), [publisher(conclusion=conclusion)])
     code, summary = run_main(api, tmp_path)
@@ -153,19 +155,95 @@ def test_pending_with_failed_publisher_is_blocked(conclusion, tmp_path, capsys):
     assert "Release preparation is blocked" in summary
     for text in ("#709", SHA, RUN_URL, hint, "RELEASING.md"):
         assert text in summary
+    assert out.rstrip().endswith(MANUAL)
 
 
-def test_newest_publisher_run_decides(tmp_path, capsys):
+MANUAL = "If recovery ran as a dispatch at another SHA, label the PR manually per RELEASING.md."
+
+
+@pytest.mark.parametrize("conclusion", ["action_required", "skipped", "stale", "neutral"])
+def test_non_rerunnable_conclusion_is_blocked_without_rerun_hint(conclusion, tmp_path, capsys):
+    code, summary = run_main(fake_api(pending(), [publisher(conclusion=conclusion)]), tmp_path)
+    out = capsys.readouterr().out
+    assert code == 1
+    assert f"concluded {conclusion}" in out and RUN_URL in out
+    assert "rerun-failed-jobs" not in out and "rerun-failed-jobs" not in summary
+    assert out.rstrip().endswith(MANUAL)
+
+
+def test_newest_completed_publisher_run_decides(tmp_path, capsys):
     runs = [publisher(conclusion="failure", run_id=1), publisher(status="in_progress", run_id=2)]
     assert run_main(fake_api(pending(), runs), tmp_path)[0] == 0
-    runs = [publisher(status="in_progress", run_id=2), publisher(conclusion="failure", run_id=3)]
+    capsys.readouterr()
+    runs = [publisher(conclusion="success", run_id=3), publisher(conclusion="cancelled", run_id=2)]
     assert run_main(fake_api(pending(), runs), tmp_path)[0] == 1
+    out = capsys.readouterr().out
+    assert "actions/runs/3 succeeded" in out and "concluded cancelled" not in out
 
 
 def test_successful_run_without_publication_proof_is_blocked(tmp_path, capsys):
     code, _ = run_main(fake_api(pending(), [publisher(conclusion="success")]), tmp_path)
+    out = capsys.readouterr().out
     assert code == 1
-    assert "not proven" in capsys.readouterr().out
+    assert "not proven" in out and "the proof read may have failed transiently" in out
+    assert "rerun-failed-jobs" not in out and out.rstrip().endswith(MANUAL)
+
+
+def test_in_progress_run_with_stale_failed_conclusion_is_in_progress(tmp_path, capsys):
+    run = publisher(status="in_progress", conclusion="failure")
+    assert run_main(fake_api(pending(hours_ago=30), [run]), tmp_path)[0] == 0
+    assert "::notice::" in capsys.readouterr().out
+
+
+def test_rerun_of_older_run_is_in_progress(tmp_path, capsys):
+    # Re-running an older (lower-id) failed run keeps its id; the newer one stays failed.
+    runs = [publisher(status="in_progress", run_id=1), publisher(conclusion="failure", run_id=2)]
+    assert run_main(fake_api(pending(), runs), tmp_path)[0] == 0
+    out = capsys.readouterr().out
+    assert "::notice::" in out and "actions/runs/1 is in_progress" in out
+
+
+def test_main_requests_merged_at(tmp_path, capsys):
+    calls = []
+    run_main(fake_api(pending(), [publisher()], calls=calls), tmp_path)
+    (listing,) = [call for call in calls if call[0] == "pr"]
+    assert listing[listing.index("--json") + 1] == "number,mergeCommit,mergedAt"
+
+
+def test_mixed_provable_and_blocked_prs_tag_and_fail(tmp_path, capsys):
+    pulls = pending() + [{"number": 710, "mergeCommit": {"oid": "other"}, "mergedAt": merged(10)}]
+    calls = []
+    proven = fake_api(pulls, [publisher(conclusion="success")], published=True, calls=calls)
+
+    def api(*args):
+        if args[0] == "api" and "other" in args[1]:
+            if "/workflows/" in args[1]:
+                return {"workflow_runs": [dict(publisher(), head_sha="other", id=9)]}
+            raise MODULE.subprocess.CalledProcessError(1, ["gh", *args])
+        return proven(*args)
+
+    code, summary = run_main(api, tmp_path)
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "PR #709 marked tagged after publication proof" in out
+    assert [call[1] for call in calls if "/issues/" in call[1]] == [
+        "repos/cubrid-lab/pycubrid/issues/709/labels",
+        "repos/cubrid-lab/pycubrid/issues/709/labels/autorelease%3A%20pending",
+    ]
+    assert "#710" in summary and "#709" not in summary
+
+
+def test_blocked_without_step_summary_still_fails(capsys):
+    api = fake_api(pending(), [publisher()])
+    code = MODULE.main(api=api, now=NOW, env={"GITHUB_REPOSITORY": "cubrid-lab/pycubrid"})
+    assert code == 1 and "::error::" in capsys.readouterr().out
+
+
+def test_age_is_rounded_to_minutes():
+    state, message = MODULE.classify(
+        "cubrid-lab/pycubrid", 709, SHA, merged(1.5051), NOW, fake_api([], [])
+    )
+    assert state == MODULE.IN_PROGRESS and "merged 1h30m ago." in message
 
 
 def test_runs_for_other_shas_are_ignored(tmp_path, capsys):

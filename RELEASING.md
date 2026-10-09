@@ -256,8 +256,15 @@ run at the merge SHA:
 
 | State | When | Prepare release run |
 | --- | --- | --- |
-| In progress | The publisher run is queued, waiting or in progress, or the merge is under 2 hours old (`PUBLISHER_START_GRACE`) and no run exists yet. | `::notice::`, stays green. Dispatch preparation again after the publisher succeeds. |
-| Blocked | The newest publisher run concluded with anything other than `success` (failure, cancelled, timed out, ...); it succeeded but the publication proof is missing; no run exists 2 hours or more after the merge; or the run state cannot be read. | `::error::` and a step-summary section with the PR number, merge SHA, run URL, conclusion and recovery; the run fails, so release-please is skipped (it would abort anyway). |
+| In progress | Any publisher run at that SHA is queued, waiting or in progress (including a re-run of an older run), or the merge is under 2 hours old (`PUBLISHER_START_GRACE`) and no run exists yet. | `::notice::`, stays green. Dispatch preparation again after the publisher succeeds. |
+| Blocked | All runs are completed and the newest concluded with anything other than `success`; it succeeded but the publication proof is missing; no run exists 2 hours or more after the merge; or the run state cannot be read. | `::error::` and a step-summary section with the PR number, merge SHA, run URL, conclusion and recovery; the run fails, so release-please is skipped (it would abort anyway). |
+
+The error includes the `rerun-failed-jobs` command only for `failure`,
+`cancelled` and `timed_out`; other conclusions (for example `action_required`)
+need a look at the run first. For "succeeded but not proven", the proof read
+itself may have failed transiently: if the run summary shows a complete
+publication, re-run Prepare release. Every error ends with "If recovery ran as
+a dispatch at another SHA, label the PR manually per RELEASING.md."
 
 A red Prepare release run with "Release preparation is blocked" therefore
 means: a release was merged, and its publication is not proven. To recover:
@@ -273,8 +280,11 @@ means: a release was merged, and its publication is not proven. To recover:
    the next candidate.
 
 If no publisher run exists, check whether the push started `publish-pypi.yml`
-and what `detect` decided. If recovery used a dispatched run at another SHA,
-apply the labels by hand only after the checks in step 3 of the normal flow.
+and what `detect` decided. If recovery ran as a dispatch at another SHA
+(`resume` or `verify-only` from the current `main` head), the run at the merge
+SHA stays failed and the PR stays blocked: label it manually (add
+`autorelease: tagged`, then remove `autorelease: pending`) only after the
+checks in step 3 of the normal flow.
 The script never relabels a blocked PR, reruns or dispatches anything; never
 clear `autorelease: pending` just to turn the run green. The 1.10.0 release
 (PR #709) is the reference case: its publisher run failed in cookbook

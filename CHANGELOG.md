@@ -82,12 +82,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **"Prepare release" fails visibly when a merged release is blocked** —
   `scripts/reconcile_release_labels.py` now classifies every merged
   `autorelease: pending` release PR it cannot mark tagged by the newest
-  `publish-pypi.yml` run at its merge SHA. A queued or running publisher, or a
-  merge under 2 hours old with no run yet, emits a notice and stays green. A
-  publisher that concluded with anything but success, a successful run without
-  publication proof, or no run 2 hours after the merge emits an error with the
-  PR, merge SHA, run URL, conclusion and the rerun-failed-jobs recovery, writes
-  it to the step summary and fails the run. Before, after the 1.10.0 cookbook
+  `publish-pypi.yml` run at its merge SHA. Any queued or running publisher run
+  at that SHA, or a merge under 2 hours old with no run yet, emits a notice and
+  stays green. A newest completed run that concluded with anything but success,
+  a successful run without publication proof, or no run 2 hours after the merge
+  emits an error with the PR, merge SHA, run URL and conclusion (plus the
+  rerun-failed-jobs command for failed, cancelled or timed-out runs, and the
+  manual-label path for recovery dispatched at another SHA), writes it to the
+  step summary and fails the run. Before, after the 1.10.0 cookbook
   failure, release-please only logged "aborting" on every push and the run stayed
   green. The tagged transition and its fail-closed proof are unchanged; nothing
   is relabelled, rerun or dispatched automatically. See RELEASING.md, "When
