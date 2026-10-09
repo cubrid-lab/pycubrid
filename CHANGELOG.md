@@ -18,6 +18,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `offline-coverage-py<version>`, `offline-py<version>`). `CI Gate` still fails
   when any endpoint cell fails, is cancelled or never runs. Timeouts, pinned
   actions, read-only permissions and the immutable checkout SHA are unchanged.
+- **The workflow-reader guard catches split paths and indirect readers (#770)** —
+  `tests/test_workflow_path_impact.py` now finds workflow references with the
+  regex `\.github['"]?\s*[/,]\s*['"]?workflows` over each module's AST, so
+  split paths such as `ROOT / ".github" / "workflows"` count, while docstrings
+  and comments do not. In a module without a module-level `repo_tooling` mark,
+  module-level constants, helpers and fixtures bound to a workflow path are
+  resolved, and every test function, `async` test and test-class method that
+  uses one must carry `repo_tooling` as a function, class or module mark.
+  Probe cases cover a split-path constant, a class method, an async test, a
+  helper function, and docstring and comment mentions that must not trigger.
+  No test module needed a new mark; this is a test-only change.
 
 ### Fixed
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
