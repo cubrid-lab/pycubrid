@@ -9,7 +9,9 @@ name: Bug Hunt (weekly)
 
 on:
   schedule:
-    - cron: "0 4 * * 1"
+    # Thursday, away from the Monday ci.yml/CodeQL/SBOM/security schedules (#750).
+    # The activity check below still looks at the previous 7 days.
+    - cron: "0 4 * * 4"
   workflow_dispatch:
 
 concurrency:
