@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import ipaddress
 import json
 import os
 import platform
@@ -27,6 +28,7 @@ REPRO_DIR = Path("bug-hunt-repro")
 HYPOTHESIS_DB = Path(".hypothesis")
 _XML_LIMIT = 10 * 1024 * 1024
 _DETAIL_LIMIT = 64 * 1024
+_BRACKETED_HOST = re.compile(r"\[([^\[\]]+)\](?::[^:\[\]]*)?")
 _URL_PASSWORD = re.compile(r"(?<=://)([^\s/@:?#]*:)([^\s/?#]*)(@)")
 
 
@@ -86,6 +88,16 @@ def _redact_url(url: str) -> str:
     try:
         parts = urlsplit(url)
         port = parts.port  # Validate even when no password was supplied.
+        if "[" in parts.netloc or "]" in parts.netloc:
+            # Older urllib.parse releases (e.g. 3.11.1) accept any bracketed
+            # host and silently drop text around it. Only "[IPv6 literal]",
+            # optionally followed by ":port", with no bracket in the userinfo,
+            # is parseable on every interpreter.
+            userinfo, _, hostport = parts.netloc.rpartition("@")
+            literal = _BRACKETED_HOST.fullmatch(hostport)
+            if literal is None or "[" in userinfo or "]" in userinfo:
+                raise ValueError("bracketed authority is not an IPv6 literal")
+            ipaddress.IPv6Address(literal[1])
         if parts.password is None:
             return sanitize(url)
         host = parts.hostname or ""

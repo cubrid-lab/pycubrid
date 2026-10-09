@@ -8,7 +8,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import SplitResult, quote
 from xml.etree import ElementTree
 
 import pytest
@@ -325,6 +325,81 @@ def test_url_only_malformed_authority_still_redacts_standalone_credential_hints(
     assert meta["failures"][0]["identity_status"] == "unresolved"
     assert meta["cubrid_test_url"] == "<unparseable-url-redacted>"
     assert "unavailable" in (bundle / "reproduce.md").read_text().lower()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "cubrid://user:syntheticsecret@[bad]/db",
+        "cubrid://user:syntheticsecret@[bad]:33000/db",
+        "cubrid://user@[bad]/db",
+        "cubrid://user:syntheticsecret@[127.0.0.1]/db",
+        "cubrid://user:syntheticsecret@[]/db",
+        # Text around the brackets, or brackets in the userinfo: 3.11.1 drops
+        # or tolerates them while later releases reject the URL.
+        "cubrid://user:syntheticsecret@x[::1]/db",
+        "cubrid://user:syntheticsecret@[::1]x/db",
+        "cubrid://user[x]:syntheticsecret@host/db",
+        "cubrid://user:synthetic[s]ecret@host/db",
+    ],
+)
+def test_bracketed_non_ipv6_host_is_unparseable_on_every_interpreter(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    # Early 3.11 patch releases accept any bracketed host; the script decides itself.
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    assert collect_repro._redact_url(url) == "<unparseable-url-redacted>"
+
+
+@pytest.mark.parametrize(
+    "netloc", ["user:syntheticsecret@[bad]", "user:syntheticsecret@x[::1]", "user:pw@[]"]
+)
+def test_script_check_does_not_depend_on_the_interpreters_urllib(
+    monkeypatch: pytest.MonkeyPatch, netloc: str
+) -> None:
+    # Stand in for a lenient urllib.parse (CPython 3.11.1 accepts these
+    # authorities) so the script's own check is exercised on every interpreter.
+    lenient = SplitResult("cubrid", netloc, "/db", "", "")
+    monkeypatch.setattr(collect_repro, "urlsplit", lambda _url: lenient)
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    assert collect_repro._redact_url(f"cubrid://{netloc}/db") == "<unparseable-url-redacted>"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "cubrid://user:syntheticsecret@[::1]:33000/db",
+            "cubrid://user:***@[::1]:33000/db",
+        ),
+        ("cubrid://user:syntheticsecret@[FE80::1]/db", "cubrid://user:***@[fe80::1]/db"),
+        ("cubrid://user@[::1]:33000/db", "cubrid://user@[::1]:33000/db"),
+    ],
+)
+def test_bracketed_ipv6_literal_still_parses_and_redacts(
+    monkeypatch: pytest.MonkeyPatch, url: str, expected: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    redacted = collect_repro._redact_url(url)
+    assert redacted == expected
+    assert "syntheticsecret" not in redacted
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["cubrid://user:syntheticsecret@[bad]/db", "cubrid://user:syntheticsecret@[::1]:33000/db"],
+)
+def test_bracketed_host_secret_never_reaches_the_bundle(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", f"connect {url} syntheticsecret")
+    collect_repro.main()
+    persisted = (bundle / "metadata.json").read_text() + (bundle / "reproduce.md").read_text()
+    assert "syntheticsecret" not in persisted
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   when any endpoint cell fails, is cancelled or never runs. Timeouts, pinned
   actions, read-only permissions and the immutable checkout SHA are unchanged.
 
+### Fixed
+- **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
+  Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
+  literal (for example `[bad]` or `[127.0.0.1]`) is now recorded as
+  `<unparseable-url-redacted>` on all supported interpreters. Before, early
+  3.11 patch releases such as 3.11.1 accepted the host and recorded a
+  password-redacted URL instead. The password was redacted either way. Valid
+  IPv6 literals such as `[::1]` still parse and keep their host and port. This
+  is a contributor tooling fix; the driver is unchanged.
+
 ## [1.10.0] - 2026-10-08
 
 ### Upgrade notes
