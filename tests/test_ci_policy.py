@@ -333,10 +333,19 @@ def test_every_offline_cell_runs_exactly_one_marker_scoped_suite(event: str, ris
             assert "pytest tests/" in runs[steps[0]]
 
 
+SETUP_ACTIONS = ("actions/setup-python@", "astral-sh/setup-uv@")
+
+
 def test_offline_job_keeps_timeout_sha_and_pinned_actions() -> None:
     job = workflow("ci.yml")["jobs"]["offline-tests"]
     assert job["timeout-minutes"] == 15
     assert job["strategy"]["fail-fast"] is False
+    assert job["if"] == "needs.detect-changes.outputs.code == 'true'"
+    interpreters = [s for s in job["steps"] if str(s.get("uses", "")).startswith(SETUP_ACTIONS)]
+    assert len(interpreters) == len(SETUP_ACTIONS)
+    for step in interpreters:
+        # The cell's interpreter is the point of the endpoint matrix (#745).
+        assert step["with"]["python-version"] == "${{ matrix.python-version }}", step["uses"]
     for step in job["steps"]:
         uses = step.get("uses")
         if uses:
@@ -356,7 +365,10 @@ def test_offline_coverage_names_are_unique_per_python_version() -> None:
     artifact = steps["Upload coverage report artifact"]
     assert artifact["with"]["name"] == "offline-coverage-py${{ matrix.python-version }}"
     assert artifact["with"]["path"] == report
-    codecov = steps["Upload coverage to Codecov"]["with"]
+    codecov_step = steps["Upload coverage to Codecov"]
+    for upload in (artifact, codecov_step):
+        assert "github.event_name != 'pull_request'" in upload["if"], upload["name"]
+    codecov = codecov_step["with"]
     assert codecov["files"] == f"./{report}"
     assert codecov["flags"] == "offline-py${{ matrix.python-version }}"
     assert codecov["name"] == "offline-py${{ matrix.python-version }}"

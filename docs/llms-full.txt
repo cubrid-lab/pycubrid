@@ -9118,10 +9118,13 @@ assets; pinning its caller is not a complete freeze of those assets.
 
 ### CI Matrix
 
-Routine CI uses one Ubuntu/Python 3.12 offline lane and representative live
-combinations rather than the full matrix. PRs run smoke tests; main and changed
-weekly runs retain the full offline suite with 95% coverage. High-risk PRs run the full existing offline regressions without coverage on that
-same lane and select newest integration, while main/weekly use oldest/newest endpoints. Repository
+Routine CI uses representative offline and live combinations rather than the
+full matrix. Ordinary PRs run offline smoke tests on Ubuntu/Python 3.12.
+High-risk PRs run the full existing offline regressions without coverage on the
+oldest and newest supported Python (3.11 and 3.14) and select newest
+integration. main, changed weekly runs and manual dispatches run the full offline
+suite with 95% coverage on Python 3.11 and 3.14 and use oldest/newest live
+endpoints. Repository
 tooling is path-selected on one Linux lane. Full integration is explicit/manual
 and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
 validation requirements. Historical cost measurements below describe the earlier

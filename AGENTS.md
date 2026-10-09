@@ -309,9 +309,9 @@ dispatch of `publish-pypi.yml`. Procedure, failure matrix and recovery:
 ### CI Matrix
 
 - PR runtime smoke: Ubuntu/Python 3.12 only, selected for code changes.
-- High-risk PR offline: full existing regressions on the same single lane, no coverage.
+- High-risk PR offline: full existing regressions on Python 3.11 and 3.14, no coverage.
 - High-risk PR integration: Python 3.14/CUBRID 11.4; targeted extra lanes.
-- main and changed-weekly: one full offline coverage lane, oldest/newest live endpoints.
+- main, changed-weekly and dispatch: full offline suite with coverage on Python 3.11 and 3.14, oldest/newest live endpoints.
 - Full integration: manual and every release; no automatic nightly full matrix.
 - Details, change classification and gate requirements: [CI policy](docs/CI_POLICY.md).
 
