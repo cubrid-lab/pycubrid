@@ -885,3 +885,145 @@ def test_endpoint_leak_checks_ignore_case(bundle: Path, monkeypatch: pytest.Monk
     assert "hostlike" not in json.dumps(meta["server_identity"]).casefold()
     assert meta["server_identity"]["status"] == "unavailable"
     assert "unavailable" in replay
+
+
+def _gate_error(monkeypatch: pytest.MonkeyPatch, url: str) -> str:
+    """The real conftest gate's error for url, with the live probe failing offline."""
+    from tests import conftest
+
+    for field in ("HOST", "PORT", "DB", "USER", "PASSWORD"):
+        monkeypatch.delenv(f"CUBRID_TEST_{field}", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+
+    def refuse(endpoint: object) -> None:
+        raise ConnectionRefusedError(111, "Connection refused")
+
+    monkeypatch.setattr(conftest, "_probe_error", None)
+    monkeypatch.setattr(conftest, "probe", refuse)
+    return conftest._endpoint_error()
+
+
+def _gate_report(path: Path, message: str) -> None:
+    """A JUnit report whose error carries message as pytest records a setup error."""
+    suite = ElementTree.Element("testsuite")
+    case = ElementTree.SubElement(
+        suite,
+        "testcase",
+        file="tests/test_integration.py",
+        classname="tests.test_integration",
+        name="test_connect",
+    )
+    error = ElementTree.SubElement(case, "error", message=f"failed on setup with {message}")
+    error.text = (
+        f"item = <Function test_connect>\n\n>   pytest.fail({message!r})\nE   Failed: {message}"
+    )
+    ElementTree.ElementTree(suite).write(path, encoding="utf-8")
+
+
+def test_lowercased_host_fragment_of_url_password_never_reaches_the_bundle(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # urllib ends the password at "#" and lowercases "Kc9QmZ7" into the host,
+    # which the conftest gate quotes in every integration test's error.
+    message = _gate_error(monkeypatch, "cubrid://dba:Xy@Kc9QmZ7#Lw2Rv@db1/db")
+    assert "dba@kc9qmz7:33000/testdb" in message
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", message)
+    report = bundle.parent / "gate.xml"
+    _gate_report(report, message)
+    meta = _collect(bundle, "--junit", str(report))
+    output = capsys.readouterr()
+    texts = [*_bundle_texts(bundle), output.out, output.err]
+    for leaked in ("kc9qmz7", "lw2rv"):
+        assert not [text for text in texts if leaked in text.casefold()], leaked
+    assert "CUBRID test endpoint dba@***:33000/testdb" in meta["failures"][0]["message"]
+    assert "unavailable" in (bundle / "reproduce.md").read_text()
+
+
+def test_lowercased_variants_redact_only_whole_words(monkeypatch: pytest.MonkeyPatch) -> None:
+    # urllib would make "ssw" the host of this URL, but "password" must survive.
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", "cubrid://u:Pa@ssW/ord9@host/db")
+    assert collect_repro.sanitize("password u@ssw:33000/db") == "password u@***:33000/db"
+
+
+def test_ordinary_url_keeps_a_full_replay(bundle: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for field in ("HOST", "PORT", "DB", "USER", "PASSWORD"):
+        monkeypatch.delenv(f"CUBRID_TEST_{field}", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", "cubrid://dba:secret@localhost:33000/testdb")
+    monkeypatch.setenv("BUG_HUNT_FAILING_TEST", "tests/test_example.py::test_value")
+    meta = _collect(bundle)
+    assert meta["cubrid_test_url"] == "cubrid://dba:***@localhost:33000/testdb"
+    tokens = _replay_tokens(bundle)
+    for token in (
+        "CUBRID_TEST_HOST=localhost",
+        "CUBRID_TEST_PORT=33000",
+        "CUBRID_TEST_DB=testdb",
+        "CUBRID_TEST_USER=dba",
+        "tests/test_example.py::test_value",
+    ):
+        assert token in tokens
+
+
+@pytest.mark.parametrize("mark", ["#", "?", "/"])
+@pytest.mark.parametrize(
+    "padding",
+    ["/db?opt=" + "x" * 2100, "/db?q=" + "a:@" * 600],
+    ids=["over-length", "over-candidates"],
+)
+def test_password_split_by_urllib_is_redacted_past_the_caps(
+    monkeypatch: pytest.MonkeyPatch, mark: str, padding: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    secret = f"Ch1Ch2{mark}Ch3Ch4X"
+    url = f"cubrid://u:{secret}@host{padding}"
+    assert collect_repro._url_passwords(url) is None
+    monkeypatch.setenv("CUBRID_TEST_URL", url)
+    assert collect_repro._redact_url(url) == "<unparseable-url-redacted>"
+    assert collect_repro.sanitize(f"login {secret} rejected") == "login *** rejected"
+    assert collect_repro.sanitize("piece Ch3Ch4X end") == "piece *** end"
+
+
+def test_cr_in_url_password_is_redacted_after_xml_normalisation(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An XML parser reads a raw CR in element text as LF.
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", "cubrid://u:Cr\rSec9@host/db")
+    report = bundle.parent / "cr.xml"
+    report.write_bytes(
+        b'<testsuite><testcase file="tests/test_example.py" classname="tests.test_example" '
+        b'name="test_x"><failure message="auth">login Cr\rSec9 rejected</failure>'
+        b"</testcase></testsuite>"
+    )
+    meta = _collect(bundle, "--junit", str(report))
+    assert meta["failures"][0]["detail"] == "login *** rejected"
+
+
+def test_tab_stripped_url_password_in_gate_error_is_redacted(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # urllib strips the tab, then reports "PwAb" as an invalid port.
+    message = _gate_error(monkeypatch, "cubrid://u:Pw\tAb/Cd9@host")
+    assert "'PwAb'" in message
+    monkeypatch.setenv("BUG_HUNT_FAILURE_TRACEBACK", message)
+    report = bundle.parent / "tab.xml"
+    _gate_report(report, message)
+    meta = _collect(bundle, "--junit", str(report))
+    output = capsys.readouterr()
+    texts = [*_bundle_texts(bundle), output.out, output.err]
+    assert not [text for text in texts if "pwab" in text.casefold()]
+    assert meta["failures"][0]["message"].endswith("integer value as '***'")
+
+
+@pytest.mark.parametrize("secret", ["Back\\slash9", "Vt\x0bTab9"])
+def test_repr_escaped_url_password_is_redacted(
+    bundle: Path, monkeypatch: pytest.MonkeyPatch, secret: str
+) -> None:
+    monkeypatch.delenv("CUBRID_TEST_PASSWORD", raising=False)
+    monkeypatch.setenv("CUBRID_TEST_URL", f"cubrid://u:{secret}@host/db")
+    monkeypatch.setenv(
+        "BUG_HUNT_FAILURE_TRACEBACK",
+        f"Traceback (most recent call last):\nValueError: bad password {secret!r}",
+    )
+    meta = _collect(bundle)
+    assert meta["failure_traceback"].endswith("ValueError: bad password '***'")

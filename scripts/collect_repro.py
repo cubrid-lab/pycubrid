@@ -31,13 +31,14 @@ _XML_LIMIT = 10 * 1024 * 1024
 _DETAIL_LIMIT = 64 * 1024
 _URL_LIMIT = 2048
 _CANDIDATE_LIMIT = 1024
+_CANDIDATE_CHARS = 8 * 1024
 _BRACKETED_HOST = re.compile(r"\[([^\[\]]+)\](?::[^:\[\]]*)?")
 _URL_PASSWORD = re.compile(r"(?<=://)([^\s/@:?#]*:)([^\s/?#]*)(@)")
 _UNPARSEABLE_URL = "<unparseable-url-redacted>"
 _FRAGMENT_MINIMUM = 3
 
 
-def _url_passwords(raw_url: str) -> set[str] | None:
+def _url_passwords(raw_url: str, partial: bool = False) -> set[str] | None:
     """Return the configured URL's password candidates, or None if too complex.
 
     urllib's parse is trusted only when its authority holds every "@" of the
@@ -47,11 +48,15 @@ def _url_passwords(raw_url: str) -> set[str] | None:
     and so is each piece, and each suffix, of that text split at "/", "?", "#"
     and "@", because urllib ends a password at those marks. A derived piece or
     suffix shorter than _FRAGMENT_MINIMUM characters is dropped to limit
-    over-redaction of ordinary diagnostic text. A URL above _URL_LIMIT
-    characters, or one generating more than _CANDIDATE_LIMIT candidates,
-    returns None so callers fall back to coarser candidates.
+    over-redaction of ordinary diagnostic text. The tails after the first and
+    last ":" of the authority before the first "@" (the most likely password)
+    are always candidates. A URL above _URL_LIMIT characters, or one generating
+    more than _CANDIDATE_LIMIT candidates or _CANDIDATE_CHARS characters,
+    returns None so callers fall back to coarser candidates; with partial=True
+    it instead returns the candidates of its first _URL_LIMIT characters
+    generated before either limit.
     """
-    if len(raw_url) > _URL_LIMIT:
+    if len(raw_url) > _URL_LIMIT and not partial:
         return None
     candidates: set[str] = set()
     try:
@@ -66,15 +71,21 @@ def _url_passwords(raw_url: str) -> set[str] | None:
             return candidates
     except ValueError:
         pass
-    generated = 0
-    for at, char in enumerate(raw_url):
+    head = raw_url[:_URL_LIMIT]
+    first = head.find("@")
+    if first >= 0:
+        authority = head[:first].split("://", 1)[-1]
+        if ":" in authority:
+            candidates.update((authority.partition(":")[2], authority.rpartition(":")[2]))
+    colons = [index for index, char in enumerate(head) if char == ":"]
+    generated = characters = 0
+    for at, char in enumerate(head):
         if char != "@":
             continue
-        userinfo = raw_url[:at]
-        for colon, mark in enumerate(userinfo):
-            if mark != ":":
-                continue
-            tail = userinfo[colon + 1 :]
+        for colon in colons:
+            if colon > at:
+                break
+            tail = head[colon + 1 : at]
             candidates.add(tail)
             start = 0
             for piece in re.split(r"[/?#@]", tail):
@@ -83,11 +94,14 @@ def _url_passwords(raw_url: str) -> set[str] | None:
                     for fragment in (piece, tail[start:])
                     if len(fragment) >= _FRAGMENT_MINIMUM
                 )
+                characters += len(piece) + len(tail) - start
                 start += len(piece) + 1
                 generated += 2
             # Count generated, not distinct, candidates to bound the work.
-            if generated > _CANDIDATE_LIMIT:
-                return None
+            if generated > _CANDIDATE_LIMIT or characters > _CANDIDATE_CHARS:
+                if not partial:
+                    return None
+                return {candidate for candidate in candidates if candidate}
     return {candidate for candidate in candidates if candidate}
 
 
@@ -97,28 +111,54 @@ def _redaction_patterns(
 ) -> tuple[re.Pattern[str], ...]:
     """Compile the redaction patterns once per configured password, URL and flags."""
     passwords = {env_password}
+    derived: set[str] = set()
+    folded: set[str] = set()
     url_passwords = _url_passwords(raw_url)
     if url_passwords is None:
-        # Too long or too complex to enumerate: redact the raw URL whole, plus
-        # urllib's password and each authority-shaped password, which text may
-        # quote on its own (e.g. a well-formed URL with a long query).
-        url_passwords = {raw_url}
+        # Too long or too complex to enumerate: keep the bounded candidates,
+        # and redact the raw URL whole, plus urllib's password and each
+        # authority-shaped password, which text may quote on its own (e.g. a
+        # well-formed URL with a long query).
+        url_passwords = _url_passwords(raw_url, partial=True) or set()
+        url_passwords.add(raw_url)
         try:
             url_passwords.add(urlsplit(raw_url).password or "")
         except ValueError:
             pass
         url_passwords.update(match[2] for match in _URL_PASSWORD.finditer(raw_url))
     for password in url_passwords:
-        passwords.update((password, unquote(password)))
+        for value in (password, unquote(password)):
+            passwords.add(value)
+            # Text may hold a URL password CR-normalised (XML), tab/CR/LF-
+            # stripped (urllib), repr-escaped (tracebacks) or lowercased
+            # (urllib lowercases a host). These forms are matched raw only,
+            # and short ones are dropped.
+            for form in (
+                value,
+                value.replace("\r\n", "\n").replace("\r", "\n"),
+                re.sub(r"[\t\r\n]", "", value),
+                repr(value)[1:-1],
+            ):
+                if len(form) >= _FRAGMENT_MINIMUM:
+                    derived.add(form)
+                    folded.add(form.lower())
+    # A lowercased form matches only as a whole word, as a host appears, so a
+    # short piece such as "ssw" does not redact ordinary words ("password").
+    derived -= passwords
+    folded -= passwords | derived
     # An environment password is literal, unlike URL userinfo. Keep raw
     # percent characters/case exact; only derived encodings fold hex digits.
-    variants = {value: False for value in passwords if value}
-    for value in passwords:
-        if value:
-            for encoded in (quote(value, safe=""), quote_plus(value, safe="")):
-                variants[encoded] = True
+    variants: dict[str, tuple[bool, bool]] = {}
+    for value in filter(None, passwords):
+        variants.setdefault(value, (False, False))
+        for encoded in (quote(value, safe=""), quote_plus(value, safe="")):
+            variants.setdefault(encoded, (True, False))
+    for values, bounded in ((derived, False), (folded, True)):
+        for value in values:
+            variants.setdefault(value, (False, bounded))
     patterns = []
     for password in sorted(variants, key=len, reverse=True):
+        encoded, bounded = variants[password]
         # Percent hex digits may vary in case independently; literal password
         # characters, including Unicode, must not become case-insensitive.
         pattern = (
@@ -133,9 +173,16 @@ def _redaction_patterns(
                 ),
                 re.escape(password),
             )
-            if variants[password]
+            if encoded
             else re.escape(password)
         )
+        if bounded:
+            # The look-behind follows the first character, which keeps the
+            # literal prefix that lets the regex engine scan text quickly.
+            if re.match(r"\w", password):
+                pattern = f"{password[0]}(?<!\\w{password[0]}){pattern[1:]}"
+            if re.match(r"\w", password[-1]):
+                pattern += "(?!\\w)"
         patterns.append(re.compile(pattern, flags))
     return tuple(patterns)
 

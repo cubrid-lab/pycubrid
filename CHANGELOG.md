@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   actions, read-only permissions and the immutable checkout SHA are unchanged.
 
 ### Security
-- **`scripts/collect_repro.py` no longer leaks the password of a
+- **`scripts/collect_repro.py` redacts more forms of the password of a
   `CUBRID_TEST_URL` that `urllib` splits in the wrong place (#777)** — a URL
   without `://` (`u:pw@host/db`, `cubrid:u:pw@host/db`, `cubrid:/u:pw@host/db`),
   or one whose password holds `/`, `?`, `#` or `@` or whose query holds `@`
@@ -35,12 +35,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   as JUnit failure details, the text after each `:` before each `@` and each
   piece and suffix of it split at `/`, `?`, `#` and `@` that is at least 3
   characters long (the whole text and the `urllib` password are kept at any
-  length). These derived fragments may over-redact unrelated diagnostic text;
-  shorter ones are not redacted. A URL holding a tab, CR or LF, which `urllib`
-  strips, gets the same enumeration. A URL above 2048 characters or 1024
-  candidate fragments is redacted as a whole string, together with the
-  password `urllib` parses from it and any `scheme://user:password@` password
-  it contains. The endpoint resolver is no longer trusted for a URL recorded as
+  length), plus the text after the first and the last `:` before the first
+  `@`. Each URL-derived candidate is also redacted, as written, with CR/CRLF
+  turned into LF (as XML parsing does), with tabs, CRs and LFs removed (as
+  `urllib` does) and `repr()`-escaped (as tracebacks do), and its lowercased
+  form of 3 or more characters is redacted as a whole word, so the lowercased host that the
+  integration-test gate quotes in every JUnit error
+  (`dba@kc9qmz7:33000/testdb`) no longer reaches `metadata.json`. These
+  derived fragments may over-redact unrelated diagnostic text; shorter ones
+  are not redacted. A URL holding a tab, CR or LF, which `urllib` strips, gets
+  the same enumeration. A URL above 2048 characters, 1024 candidate fragments
+  or 8192 candidate characters keeps the candidates found in its first 2048
+  characters before the limit and is also redacted as a whole string,
+  together with the password `urllib` parses from it and any
+  `scheme://user:password@` password it contains. `CUBRID_TEST_PASSWORD` stays
+  an exact match without these variants, and a password transformed in other
+  ways (for example lowercased inside a longer word) is not guaranteed to be
+  redacted. The endpoint resolver is no longer trusted for a URL recorded as
   `<unparseable-url-redacted>`: `urllib` could put a password fragment into the
   lowercased host, which reached `reproduce.md` (`CUBRID_TEST_HOST=...`) and the
   `server_identity` endpoint. Endpoint fields and the readiness endpoint are
