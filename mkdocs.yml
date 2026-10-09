@@ -115,6 +115,10 @@ markdown_extensions:
       alternate_style: true
   - pymdownx.details
 
+# Build-tool pins live next to the docs but are not site content.
+exclude_docs: |
+  requirements.txt
+
 plugins:
   - search
 

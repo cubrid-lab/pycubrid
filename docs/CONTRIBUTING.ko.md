@@ -131,7 +131,7 @@ Oracle/에이전트 검토, 통합 검증과 릴리스 분류를 조율합니다
 문서를 변경하면 `python scripts/generate_llms_full.py`로 `docs/llms-full.txt`를
 다시 생성하세요. 이 명령은 표준 `docs/llms.txt` 인덱스도 루트 `llms.txt`에
 복사합니다. `docs/llms.txt`만 편집하고, 생성 파일 중 하나라도 오래되면 CI가
-실패합니다. 안내된 도구(`mkdocs-material pymdown-extensions`)를 설치한 뒤
+실패합니다. 고정된 도구(`pip install -r docs/requirements.txt`)를 설치한 뒤
 기존 사이트 검사 `mkdocs build --strict`를 실행하세요. AI 검토 의견과 실제로
 실행한 명령은 별개입니다. 빠진 검증과 기존 경고를 포함해 모두 정확히 보고하세요.
 

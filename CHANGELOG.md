@@ -7,6 +7,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### CI
+- **Pinned docs tools and scan concurrency (#782, #783)** — `docs.yml` installs
+  `mkdocs`, `mkdocs-material` and `pymdown-extensions` from the pinned
+  `docs/requirements.txt`, which Dependabot now updates. `codeql.yml` and
+  `security.yml` gain caller-level `concurrency` that cancels superseded
+  pull-request runs only; every other event uses a unique per-run group, since GitHub
+  replaces a pending run within one group even without `cancel-in-progress`, so main and
+  scheduled runs are never cancelled or dropped. `security.yml` and `maintenance.yml`
+  install the `bandit[toml]==1.9.4` pinned in `pyproject.toml`.
+- **Scheduled and release validation without duplicate work (#750)** —
+  `docs/CI_POLICY.md` now records measured job counts, runner minutes and
+  failure yield per event, and which workflow owns each kind of coverage.
+  - **Weekly `ci.yml` run.** It no longer repeats the lanes that a successful
+    push run of the exact same SHA already ran. Its `detect-changes` job gains
+    read-only `actions: read` to look that up. A docs-only head commit, a head
+    push run that failed or was cancelled, or a failed lookup selects the lanes
+    as before.
+  - **`bug-hunt.yml`.** It moves from Monday 04:00 UTC to Thursday 04:00 UTC,
+    off the crowded Monday schedules, and keeps its 7-day activity guard.
+  - **Release.** `integration-full.yml` runs the Python 3.11/3.14 offline suite
+    with the 95% coverage floor (`offline-endpoints`) at the release SHA, and
+    `full-matrix-result` requires it. The release previously relied on a
+    `ci.yml` push run that it never checked and that a later merge could
+    cancel.
+  - Pull requests and main pushes are unchanged.
 - **Offline tests run on the oldest and newest supported Python (#745)** — the
   `offline-tests` job of `ci.yml` now picks its Python matrix from the event.
   Main pushes, the weekly Monday schedule and manual dispatch run the full
@@ -18,6 +42,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `offline-coverage-py<version>`, `offline-py<version>`). `CI Gate` still fails
   when any endpoint cell fails, is cancelled or never runs. Timeouts, pinned
   actions, read-only permissions and the immutable checkout SHA are unchanged.
+- **The workflow-reader guard catches split paths and indirect readers (#770)** —
+  `tests/test_workflow_path_impact.py` now finds workflow references with the
+  regex `\.github['"]?\)?\s*[/,]\s*['"]?workflows` over each module's AST, so
+  split paths such as `ROOT / ".github" / "workflows"` and
+  `Path(".github") / "workflows"` count, while docstrings and comments do not.
+  In a module without a module-level `repo_tooling` mark, module-level
+  constants, helpers and fixtures bound to a workflow path are resolved, and
+  every test function, `async` test and test-class method that uses one must
+  carry `repo_tooling` as a function, class or module mark. Test classes include
+  `unittest.TestCase` subclasses of any name (such as `PrTitleValidatorTest` and
+  `DocsReasonWorkflowTests`, which read workflows through a `WORKFLOW` constant
+  and were previously invisible) and nested `Test*` classes, which honour their
+  own marks. A module mark set inside `try`/`except`/`else` or `if` blocks (the
+  documented `try: import pytest ... else: pytestmark = ...` pattern) or by an
+  annotated `pytestmark: ... = ...` assignment is recognised. Probe cases cover
+  each of these shapes, plus docstring and comment mentions that must not
+  trigger. Two-step path constants, glob patterns, imported names and tests
+  defined inside top-level `if`/`try` blocks remain out of scope. No test
+  module needed a new mark; this is a test-only change.
 
 ### Security
 - **`scripts/collect_repro.py` redacts more forms of the password of a
@@ -78,6 +121,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   password-redacted URL instead. The password was redacted either way. Valid
   IPv6 literals such as `[::1]` still parse and keep their host and port. This
   is a contributor tooling fix; the driver is unchanged.
+
+### Documentation
+- **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the
+  old "Project Context — Performance Loop System" snapshot (R2/R3 phases, the
+  Week 8 decision gate, the #14–#22 issue table and fixed PyMySQL ratios) is
+  replaced by short pointers to `ROADMAP.md`, `docs/PERFORMANCE.md` and the
+  `cubrid-benchmark` repository. Packet, function-code, data-type and exception
+  counts, the Python minimum and the CI Python/CUBRID versions now point to
+  their canonical sources (`pycubrid/constants.py`, `pyproject.toml`,
+  `docs/CI_POLICY.md`) instead of being copied. CAS protocol invariants,
+  workflow, labelling, release and commit guidance are unchanged. Docs only;
+  the driver is unchanged.
 
 ## [1.10.0] - 2026-10-08
 
