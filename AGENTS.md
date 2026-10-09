@@ -527,8 +527,8 @@ Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
 Performance work is tracked in issues, not in this file. Before treating any
 performance or roadmap item as current priority, check the live sources:
 
-- [ROADMAP.md](ROADMAP.md) — public roadmap and current baseline (the linked org
-  project board is visible to cubrid-lab members only).
+- [ROADMAP.md](ROADMAP.md) — public roadmap and current project baseline (the
+  linked org project board may require cubrid-lab membership).
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — investigation workflow, profiling
   scripts, timing hooks and how to run benchmarks.
 - [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark) — the
