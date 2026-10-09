@@ -94,7 +94,19 @@ def test_representative_paths_select_the_expected_tiers(path: str, expected: set
     assert _selected(path) == expected, path
 
 
-WORKFLOW_REF = re.compile(r"\.github['\"]?\s*[/,]\s*['\"]?workflows")
+# The optional ``)`` covers ``Path(".github") / "workflows"``, which ast.unparse
+# renders as ``Path('.github') / 'workflows'``.
+#
+# Non-goals (shapes this guard does not resolve):
+# - two-step taint through an intermediate directory constant
+#   (``GH = ROOT / ".github"; WF = GH / "workflows"``);
+# - glob patterns that only match workflows by wildcard;
+# - names imported from another module;
+# - tests defined inside a top-level ``if`` or ``try`` block.
+# It is conservative the other way: a shadowed name and a plain message string
+# that spells a workflow path both count as reads (false positives).
+WORKFLOW_REF = re.compile(r"\.github['\"]?\)?\s*[/,]\s*['\"]?workflows")
+_TESTCASE_BASES = {"TestCase", "IsolatedAsyncioTestCase"}
 _SCOPES = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 _FUNCS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
@@ -137,12 +149,25 @@ def _marks_repo_tooling(decorators: list[ast.expr]) -> bool:
 
 
 def _sets_repo_tooling(body: list[ast.stmt]) -> bool:
-    return any(
-        isinstance(node, ast.Assign)
-        and any(getattr(t, "id", "") == "pytestmark" for t in node.targets)
-        and "repo_tooling" in ast.unparse(node.value)
-        for node in body
-    )
+    # Also inside ``try``/``except``/``else``/``finally`` and ``if`` blocks: the
+    # documented ``try: import pytest ... else: pytestmark = ...`` pattern.
+    for node in body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if (
+                any(getattr(t, "id", "") == "pytestmark" for t in targets)
+                and node.value is not None
+                and "repo_tooling" in ast.unparse(node.value)
+            ):
+                return True
+        elif isinstance(node, ast.Try):
+            blocks = [node.body, node.orelse, node.finalbody, *(h.body for h in node.handlers)]
+            if any(_sets_repo_tooling(block) for block in blocks):
+                return True
+        elif isinstance(node, ast.If):
+            if _sets_repo_tooling(node.body) or _sets_repo_tooling(node.orelse):
+                return True
+    return False
 
 
 def _is_test(node: ast.stmt) -> bool:
@@ -150,7 +175,32 @@ def _is_test(node: ast.stmt) -> bool:
 
 
 def _is_test_class(node: ast.stmt) -> bool:
-    return isinstance(node, ast.ClassDef) and node.name.startswith("Test")
+    # pytest collects ``Test*`` classes and ``unittest.TestCase`` subclasses of any name.
+    if not isinstance(node, ast.ClassDef):
+        return False
+    return (
+        node.name.startswith("Test")
+        or any(_is_test(item) for item in node.body)
+        or any(ast.unparse(b).rsplit(".", 1)[-1] in _TESTCASE_BASES for b in node.bases)
+    )
+
+
+def _class_offenders(node: ast.ClassDef, prefix: str, tainted: set[str]) -> list[str]:
+    if _marks_repo_tooling(node.decorator_list) or _sets_repo_tooling(node.body):
+        return []
+    name = f"{prefix}{node.name}"
+    offenders = []
+    for item in node.body:
+        if _is_test_class(item):
+            # A nested test class honours its own marks; report the innermost class.
+            offenders += _class_offenders(item, f"{name}.", tainted)
+        elif not _reads_workflows(item, tainted):
+            continue
+        elif not _is_test(item):
+            offenders.append(f"{name} (mark the class)")
+        elif not _marks_repo_tooling(item.decorator_list):
+            offenders.append(f"{name}.{item.name}")
+    return offenders
 
 
 def _unmarked_workflow_readers(test_dir: Path) -> list[str]:
@@ -183,15 +233,7 @@ def _unmarked_workflow_readers(test_dir: Path) -> list[str]:
                 if _reads_workflows(node, tainted) and not _marks_repo_tooling(node.decorator_list):
                     offenders.append(f"{path.name}:{node.name}")
             elif _is_test_class(node):
-                if _marks_repo_tooling(node.decorator_list) or _sets_repo_tooling(node.body):
-                    continue
-                for item in node.body:
-                    if not _reads_workflows(item, tainted):
-                        continue
-                    if not _is_test(item):
-                        offenders.append(f"{path.name}:{node.name} (mark the class)")
-                    elif not _marks_repo_tooling(item.decorator_list):
-                        offenders.append(f"{path.name}:{node.name}.{item.name}")
+                offenders += _class_offenders(node, f"{path.name}:", tainted)
     return offenders
 
 
@@ -209,12 +251,35 @@ def test_tests_that_read_workflows_run_in_the_tooling_lane() -> None:
         "import os\n\nasync def test_x():\n    os.path.join(ROOT, '.github', 'workflows')",
         'def _ci():\n    return ROOT / ".github/workflows/ci.yml"\n\n'
         "def _jobs():\n    return _ci().read_text()\n\ndef test_x():\n    _jobs()",
+        'W = ROOT / ".github/workflows/ci.yml"\n\nclass WorkflowCase(unittest.TestCase):\n'
+        "    def test_a(self):\n        W.read_text()",
+        'W = Path(".github") / "workflows"\n\ndef test_x():\n    W',
+        'W = ".github/workflows"\n\nclass TestOuter:\n    class TestInner:\n'
+        "        def test_x(self):\n            W",
     ],
-    ids=["split-path-constant", "class-method", "async-test", "helper-function"],
+    ids=[
+        "split-path-constant",
+        "class-method",
+        "async-test",
+        "helper-function",
+        "testcase-subclass",
+        "path-call-split",
+        "nested-class",
+    ],
 )
 def test_guard_catches_indirect_workflow_readers(tmp_path: Path, body: str) -> None:
     (tmp_path / "test_probe.py").write_text("import pytest\nROOT = None\n" + body + "\n")
     assert len(_unmarked_workflow_readers(tmp_path)) == 1
+
+
+def test_guard_reports_the_innermost_test_class(tmp_path: Path) -> None:
+    body = 'W = ".github/workflows"\n\nclass TestOuter:\n    class TestInner:\n'
+    body += "        def helper(self):\n            W\n\n        def test_x(self):\n            W"
+    (tmp_path / "test_probe.py").write_text(body + "\n")
+    assert _unmarked_workflow_readers(tmp_path) == [
+        "test_probe.py:TestOuter.TestInner (mark the class)",
+        "test_probe.py:TestOuter.TestInner.test_x",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -225,8 +290,23 @@ def test_guard_catches_indirect_workflow_readers(tmp_path: Path, body: str) -> N
         'P = ROOT / ".github" / "workflows"\n\n@pytest.mark.repo_tooling\ndef test_x():\n    P',
         'P = ".github/workflows"\n\n@pytest.mark.repo_tooling\nclass TestX:\n'
         "    def test_x(self):\n        P",
+        "try:\n    import pytest\nexcept ImportError:\n    pytestmark = []\nelse:\n"
+        '    pytestmark = pytest.mark.repo_tooling\n\nP = ".github/workflows"\n\n'
+        "def test_x():\n    P",
+        'pytestmark: object = pytest.mark.repo_tooling\nP = ".github/workflows"\n\n'
+        "def test_x():\n    P",
+        'P = ".github/workflows"\n\nclass TestOuter:\n    @pytest.mark.repo_tooling\n'
+        "    class TestInner:\n        def test_x(self):\n            P",
     ],
-    ids=["docstring-mention", "comment-mention", "function-marked", "class-marked"],
+    ids=[
+        "docstring-mention",
+        "comment-mention",
+        "function-marked",
+        "class-marked",
+        "try-else-pytestmark",
+        "annotated-pytestmark",
+        "nested-class-marked",
+    ],
 )
 def test_guard_ignores_mentions_and_marked_readers(tmp_path: Path, body: str) -> None:
     (tmp_path / "test_probe.py").write_text("import pytest\nROOT = None\n" + body + "\n")
