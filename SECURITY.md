@@ -9,9 +9,15 @@ minor release for security updates.
 
 ## Reporting a Vulnerability
 
-We take security vulnerabilities seriously. If you discover a security issue in pycubrid, please report it responsibly by emailing:
+We take security vulnerabilities seriously. If you discover a security issue in pycubrid, please report it privately:
 
-**Email:** paikend@gmail.com
+1. **Preferred:** use GitHub's private vulnerability reporting. Open the
+   [Security tab](https://github.com/cubrid-lab/pycubrid/security) and choose
+   **Report a vulnerability**, or go straight to
+   [the advisory form](https://github.com/cubrid-lab/pycubrid/security/advisories/new).
+   The report is not public: only you, the maintainers and anyone they invite to the
+   advisory can see it.
+2. **Fallback:** if you can't use GitHub, email **paikend@gmail.com**.
 
 **Do not** open a public GitHub issue for security vulnerabilities. Responsible disclosure allows us to address the issue before public disclosure.
 
