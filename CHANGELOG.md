@@ -45,7 +45,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`make mutation` stops with a message on Python 3.11 (#812)** — mutmut 3.8
   fails at stats collection on 3.11 with a `TypeError` inside its trampoline,
   before testing any mutant. The target now checks for Python 3.12+ first and
-  says why; `docs/DEVELOPMENT.md` (+ ko) documents the requirement. CI's weekly
+  says why, and runs mutmut as `$(PYTHON) -m mutmut` so the check and mutmut
+  use the same interpreter; `docs/DEVELOPMENT.md` (+ ko) documents the requirement. CI's weekly
   mutation job already uses 3.12. Contributor tooling only; the driver is
   unchanged.
 

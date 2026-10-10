@@ -51,8 +51,8 @@ test: ## Run offline tests with coverage (no DB required)
 
 mutation: ## Run mutation testing on the driver core (pip install -e ".[dev,mutation]"; Python 3.12+)
 	@$(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else "make mutation needs Python 3.12+: mutmut 3.8 fails at stats collection on 3.11 (#812)")'
-	mutmut run
-	mutmut results
+	$(PYTHON) -m mutmut run
+	$(PYTHON) -m mutmut results
 
 # Docker integration endpoint. The compose service publishes the broker on
 # CUBRID_TEST_PORT (default 33000); `make integration CUBRID_TEST_PORT=33522`

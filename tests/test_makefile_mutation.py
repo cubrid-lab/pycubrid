@@ -2,7 +2,8 @@
 
 mutmut 3.8 fails at stats collection on 3.11, so the target checks the
 interpreter first. The tests run the real Makefile with a ``PYTHON`` stub that
-reports a chosen version and a ``mutmut`` stub that records each call.
+reports a chosen version and records each ``-m mutmut`` call, so the guard
+and mutmut always use the same interpreter.
 """
 
 from __future__ import annotations
@@ -29,14 +30,17 @@ def _executable(path: Path, text: str) -> Path:
 
 
 def _run(tmp_path: Path, version: tuple[int, int]) -> tuple[subprocess.CompletedProcess[str], str]:
+    log = tmp_path / "mutmut.log"
+    # "-c <guard>" runs under the reported version; "-m mutmut ..." is recorded.
     python = _executable(
         tmp_path / "python",
         "#!/bin/sh\n"
+        'if [ "$1" = -m ]; then shift; printf "%s\\n" "$*" >> "' + str(log) + '"; exit 0; fi\n'
         f'exec "{sys.executable}" -c '
         f'"import sys; sys.version_info = {version!r}; exec(sys.argv[1])" "$2"\n',
     )
-    log = tmp_path / "mutmut.log"
-    _executable(tmp_path / "mutmut", f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\n')
+    # A bare mutmut on PATH must never be used: it may run another interpreter.
+    _executable(tmp_path / "mutmut", "#!/bin/sh\nexit 99\n")
     env = {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"}
     result = subprocess.run(
         ["make", "-s", "-C", str(ROOT), "mutation", f"PYTHON={python}"],
@@ -58,4 +62,4 @@ def test_mutation_stops_on_python_3_11_without_running_mutmut(tmp_path: Path) ->
 def test_mutation_runs_mutmut_on_python_3_12(tmp_path: Path) -> None:
     result, calls = _run(tmp_path, (3, 12))
     assert result.returncode == 0, result.stderr
-    assert calls.splitlines() == ["run", "results"]
+    assert calls.splitlines() == ["mutmut run", "mutmut results"]
