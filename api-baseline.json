@@ -3233,6 +3233,28 @@
               ]
             }
           },
+          "executemany": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "query"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "args_list"
+                }
+              ]
+            }
+          },
           "fetchall": {
             "kind": "callable",
             "signature": {
@@ -3372,6 +3394,28 @@
                   "has_default": true,
                   "kind": "POSITIONAL_OR_KEYWORD",
                   "name": "set_type"
+                }
+              ]
+            }
+          },
+          "executemany": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "query"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_OR_KEYWORD",
+                  "name": "args_list"
                 }
               ]
             }
@@ -3521,6 +3565,28 @@
           ]
         }
       },
+      "executemany": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "query"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "args_list"
+            }
+          ]
+        }
+      },
       "fetchall": {
         "kind": "callable",
         "signature": {
@@ -3660,6 +3726,28 @@
               "has_default": true,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "set_type"
+            }
+          ]
+        }
+      },
+      "executemany": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "query"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "args_list"
             }
           ]
         }

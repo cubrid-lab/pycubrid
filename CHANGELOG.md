@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **CUBRIDdb wrapper collection arguments and `executemany()` (#610)** — the
+  opt-in `pycubrid.compat.cubriddb` cursors now accept the official wrapper's
+  collection call shapes. `execute(query, args, set_type)` binds `list`,
+  `tuple`, `set` and `frozenset` arguments through the native
+  `set()`/`imports()`/`bind_set()` API, with one `set_type` code for every
+  collection, a per-position list or tuple, or the official inference
+  (`int`/`bool` INT, `float` FLOAT, `Decimal` NUMERIC, `date`/`datetime` DATE,
+  `time` TIME, `str` STRING; empty collections STRING; mixed types
+  `TypeError`). Elements are sent as their `str()` text with the SET kind; for
+  supported non-`None` elements this is the same request as the official
+  wrapper's. `executemany(query, args_list)` checks
+  every group before one prepare and every group's value count after the
+  prepare but before any execute, so an invalid group runs no group; it then
+  executes each group and keeps the last `rowcount`. An empty list leaves
+  `rowcount=-1` and `description=None`, pycubrid's own choice. A `None`
+  element binds a NULL element (the official wrapper sends the text
+  `'None'`), BIT/VARBIT elements raise `NotSupportedError`, and other
+  iterables raise `ProgrammingError`; these differences are pinned by
+  official differential claims. Argument errors now discard the previous
+  result and set `rowcount=-1`, `description=None`, and unsupported
+  positional values now fail before the prepare instead of at bind time. A
+  non-`None` `set_type` without a collection argument is now ignored instead
+  of raising `NotSupportedError`. The scalar subset and ordinary cursors are
+  unchanged. See
+  [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments).
+
 ### Fixed
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
   Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6

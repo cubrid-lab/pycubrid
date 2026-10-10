@@ -463,8 +463,10 @@ Ping은 소비한 결과 페이지를 검증하고 아직 소유한 핸들만 �
 `DictCursor(conn)`로 직접 생성할 수도 있지만 패키지 전역 내보내기에는
 추가하지 않습니다. 초기값은 `arraysize=1`, `rowcount=-1`, `description=None`입니다.
 `execute(query, args=None, set_type=None)`는 기존 네이티브 준비 실행의 INT32,
-문자열, SQL NULL만 사용합니다. `set_type`이 `None`이 아니거나 매핑 인자·미지원
-값이면 실행 전에 실패합니다. `executemany`, 컬렉션/LOB 인자와 범용 DB-API 실행은
+문자열, SQL NULL을 사용하고, #610부터 `list`/`tuple`/`set`/`frozenset` 인자를
+컬렉션으로 바인딩합니다. `executemany(query, args_list)`는 한 번 준비한 뒤 각
+그룹을 실행합니다([래퍼 컬렉션 인자](#wrapper-collection-arguments) 참고).
+매핑 인자와 미지원 값은 실행 전에 실패합니다. LOB 인자와 범용 DB-API 실행은
 이번 범위에 포함되지 않습니다.
 
 SELECT의 `description`은 `(name, native_type, 0, 0, precision, scale,
@@ -554,9 +556,9 @@ finally:
 
 공식 모듈과 마찬가지로 `from pycubrid.compat.native import *`는 `set` 이름을
 `native.set`에 바인딩하므로 그 네임스페이스에서 내장 `set`을 가립니다.
-래퍼의 `execute(query, args, set_type)`와 `executemany()` 컬렉션 형태는 제공하지
-않으며, 일반 `pycubrid` 커서는 계속 타입 지정 `pycubrid.types.Set`/`Multiset`/
-`Sequence` 리터럴 파라미터(#567)를 사용합니다.
+래퍼의 `execute(query, args, set_type)`와 `executemany()` 컬렉션 형태는 이 API
+위에서 동작합니다(다음 절). 일반 `pycubrid` 커서는 계속 타입 지정
+`pycubrid.types.Set`/`Multiset`/`Sequence` 리터럴 파라미터(#567)를 사용합니다.
 
 ```python
 from pycubrid.compat import native
@@ -574,6 +576,70 @@ try:
         cur.bind_set(1, tags)
         cur.bind_set(2, scores)
         cur.execute()
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
+
+### 래퍼 컬렉션 인자 (#610) {#wrapper-collection-arguments}
+
+한정된 래퍼 커서는 공식 CUBRIDdb의 컬렉션 호출 형태를 받습니다(고정된 업스트림
+`CUBRIDdb/cursors.py`, `e75ec36`). 컬렉션 인자마다 위 네이티브 API의
+`conn.connection.set()`, `imports(tuple(elements), code)`, `bind_set(index, s)`를
+사용합니다. 모든 원소는 SET 종류의 STRING 텍스트로 전송되고 타입 코드는 import에
+붙는 표시일 뿐입니다. 모든 원소가 지원되고 `None`이 아닌 컬렉션이면 요청 바이트는
+공식 드라이버와 같습니다. `None` 원소와 아래 차이 목록의 경우는 바이트가 같지 않습니다.
+
+| 항목 | 계약 |
+| --- | --- |
+| 호출 형태 | `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None` |
+| `args` | `None`, 위치 값의 `tuple`/`list`, 또는 단일 `int`/`str`(감싸서 사용). `set`을 포함한 다른 최상위 값은 `ProgrammingError` |
+| 위치 값 | 기존처럼 `int`(INT32), `str`, `None`(SQL NULL). `list`, `tuple`, `set`, `frozenset`은 컬렉션. 다른 값(`bool`, `float`, `bytes`, `dict`, 제너레이터, 기타 이터러블)은 `ProgrammingError` |
+| `set_type` | `None`이면 모든 컬렉션을 추론합니다. `int` 코드는 모든 컬렉션에 적용됩니다. `list`/`tuple`은 위치별 코드이며 `None` 항목이나 끝을 넘는 위치는 추론합니다. 컬렉션이 없으면 무시합니다. 사용되는 코드가 `int`가 아니거나 `bool`이면 `InterfaceError` |
+| 추론 코드 | `int`와 `bool`은 INT(8), `float`는 FLOAT(11), `Decimal`은 NUMERIC(7), `date`와 `datetime`은 DATE(13), `time`은 TIME(14), `str`은 STRING(2). `None` 원소는 건너뛰며 비었거나 모두 `None`이면 STRING |
+| 원소 | `None`은 NULL 원소, `str`은 그대로, 다른 지원 원소는 `str(element)`로 전송합니다(`True`는 `'True'`, `datetime`은 ISO 텍스트). 서버가 텍스트를 컬럼 타입으로 변환합니다 |
+| 오류 | 추론 범주가 섞이면 업스트림처럼 `TypeError`. `bytes`/`bytearray` 원소와 BIT(5)/VARBIT(6) 코드는 `NotSupportedError`. 다른 원소 타입(중첩 컨테이너, 객체)은 `ProgrammingError`, NUL과 문자셋 오류는 `imports()`를 따릅니다 |
+| `executemany` | 모든 그룹을 검사하고(추론 타입, `set_type` 없음) 컬렉션을 만든 뒤 한 번 준비합니다. 모든 그룹의 값 개수가 자리표시자 수와 같아야 하며, 다르면 `ProgrammingError`를 내고 어떤 그룹도 실행하지 않습니다. 그 뒤 그룹마다 순서대로 바인딩·실행합니다. `rowcount`와 `description`은 마지막 실행 값입니다. 빈 `args_list`는 준비만 하며 `rowcount=-1`, `description=None`입니다. 이는 공식 래퍼와 비교하지 않은 pycubrid 자체 동작입니다 |
+| 시점과 상태 | `execute()`와 `executemany()` 모든 그룹의 인자·타입·컬렉션 오류는 준비 전에, 서버 I/O 없이 발생합니다. 공식의 준비 후 바인딩처럼 이전 결과를 버리고(이후 `fetchone()`은 `InterfaceError`) `rowcount=-1`, `description=None`으로 설정합니다. `executemany()` 그룹의 값 개수는 준비 후, 어떤 실행보다도 먼저 검사합니다. 스칼라의 범위·NUL·문자셋 오류는 준비 후 바인딩 시점에 발생합니다. 준비 후의 실패는 `rowcount`와 `description`을 이전 값으로 둡니다. `executemany()`의 한 그룹이 서버 오류를 내면 앞선 그룹은 실행된 상태로 남고 커서는 계속 사용할 수 있습니다 |
+
+공식 래퍼와의 의도된 차이입니다. 처음 네 가지는 라이브 차등 클레임
+(`wrapper-collection-null-element`, `wrapper-collection-errors`)으로 고정되고,
+나머지는 오프라인 테스트(`tests/test_compat_wrapper_collections.py`)로만 확인합니다.
+
+- `None` 원소는 NULL 원소로 바인딩합니다. 공식 래퍼는 텍스트 `'None'`을 보내거나
+  추론이 `None`을 먼저 만나면 `UnboundLocalError`를 냅니다.
+- BIT/VARBIT 컬렉션 원소는 지원하지 않습니다(`NotSupportedError`). 공식 래퍼는
+  `bytes`를 비트 문자열로 바꿉니다.
+- `list`, `tuple`, `set`, `frozenset` 인자만 컬렉션입니다. 공식 래퍼는 모든
+  이터러블을 컬렉션으로 다룹니다(제너레이터는 추론 중에 소비되어 빈 집합이 바인딩됨).
+- 서버 오류 -494는 `ProgrammingError`입니다(공식 `IntegrityError`).
+- `executemany()`의 뒤쪽 그룹에 타입·인자 오류가 있거나 값 개수가 자리표시자와
+  맞지 않으면 어떤 그룹도 실행하지 않습니다. 공식 래퍼는 앞선 그룹을 먼저 실행합니다.
+- 명시적 `set_type`이 있어도 미지원 원소는 오류입니다(중첩 리스트나 객체는
+  `ProgrammingError`, VARBIT가 아닌 코드의 `bytes`는 `NotSupportedError`). 공식
+  래퍼는 그 `str()` 텍스트를 보냅니다.
+- 스칼라 범위는 그대로입니다. 공식 래퍼는 `bool`, `float`, `Decimal`, 날짜,
+  `bytes`, BIGINT 스칼라도 바인딩하고 `None` 인자는 건너뛰지만, 이 래퍼는 `None`을
+  SQL NULL로 바인딩합니다.
+
+공식 래퍼처럼 모든 컬렉션은 SET 종류로 바인딩되므로(클레임
+`wrapper-collection-executemany-kinds`) MULTISET이나 SEQUENCE 컬럼에는 중복이
+제거되고 서버 순서로 정렬된 원소가 들어갑니다. 중복이나 순서를 유지하려면
+네이티브 `imports(..., kind=...)`를 사용합니다.
+
+```python
+from pycubrid.compat import cubriddb
+from pycubrid.constants import CUBRIDDataType
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        sql = "INSERT INTO t (id, tags, scores) VALUES (?, ?, ?)"
+        cur.execute(sql, (1, ("a", "b"), (3, 1)))  # STRING, INT로 추론
+        cur.execute(sql, (2, ["c"], ["4"]), set_type=[None, None, CUBRIDDataType.INT])
+        cur.executemany(sql, [(3, {"d"}, (5,)), (4, (), ())])
     finally:
         cur.close()
 finally:
