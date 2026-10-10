@@ -67,6 +67,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+- **Development guide points to the current CI cost evidence (#750)** —
+  `docs/DEVELOPMENT.md` and its Korean copy replace the historical #564 cost
+  baseline (a 2 OS × 5 Python matrix with Python 3.10 and pip caching, which no
+  longer exists) with a pointer to the measurements and coverage-ownership table
+  in `docs/CI_POLICY.md`, keeping the two outcomes that still apply. Docs only.
 - **README family states the full compatibility matrix as 4 × 4 on dispatch and
   release (#796)** — `README.md` and the Korean, German, Hindi, Russian and
   Chinese READMEs said the full live matrix was 5 × 4, and the German, Hindi,
