@@ -254,7 +254,7 @@ SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are acces
 Supported: Python 3.11–3.14 and CUBRID 10.2, 11.0, 11.2, 11.4.
 Ordinary PRs use one Ubuntu/Python 3.12 offline smoke lane; high-risk changes add
 Python 3.14/CUBRID 11.4. Main/changed-weekly validation uses oldest/newest live
-endpoints. The full 5 × 4 live matrix runs on explicit dispatch and every release.
+endpoints. The full 4 × 4 live matrix runs on explicit dispatch and every release.
 See [CI execution policy](docs/CI_POLICY.md) and [support matrix](docs/SUPPORT_MATRIX.md).
 
 ## Architecture

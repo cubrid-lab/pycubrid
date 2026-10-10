@@ -251,7 +251,7 @@ SQLAlchemy-Funktionen (ORM, Core, Alembic-Migrationen, Schema-Reflexion) sind ü
 | **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
 
 CI führt die obige Matrix bei jedem PR/Push aus (Python 3.10 + 3.14 als Anker × alle CUBRID-Versionen).
-Die vollständige **5 × 4**-Matrix aus Python × CUBRID läuft jede Nacht, bei getaggten Releases und bei Bedarf über `workflow_dispatch`.
+Die vollständige **4 × 4**-Matrix aus Python × CUBRID läuft bei ausdrücklichem Start über `workflow_dispatch` und bei jedem Release.
 
 ## Architektur
 

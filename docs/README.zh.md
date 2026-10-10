@@ -249,7 +249,7 @@ with engine.connect() as conn:
 | **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
 
 CI 会在每次 PR/推送时运行上述矩阵（以 Python 3.10 和 3.14 为锚点 × 全部 CUBRID 版本）。
-完整的 **5 × 4** Python × CUBRID 矩阵会在夜间、发布标签时以及通过 `workflow_dispatch` 按需运行。
+完整的 **4 × 4** Python × CUBRID 矩阵会在显式 `workflow_dispatch` 触发时以及每次发布时运行。
 
 ## 架构
 
