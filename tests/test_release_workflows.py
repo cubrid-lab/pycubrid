@@ -342,8 +342,8 @@ def test_release_please_composes_checked_notes_before_push() -> None:
     assert "scripts/reconcile_release_labels.py" in runs
 
 
-# release-please.yml must stay byte-identical across pycubrid, sqlalchemy-cubrid and
-# cubrid-mcp-server; these guard tests are shared verbatim by all three (#801).
+# The freeze and compose/push steps of release-please.yml are shared verbatim by
+# pycubrid, sqlalchemy-cubrid and cubrid-mcp-server, and so are these tests (#801).
 REVIEW_COUNT = (
     "count=$(gh pr list --state open --base main --limit 100"
     " --label 'autorelease: review' --json number --jq 'length')"
@@ -383,6 +383,12 @@ def test_release_please_only_touches_its_own_branch() -> None:
         "*) echo '::error::Unexpected release branch'; exit 1 ;; esac"
     )
     assert lines[guard - 1].startswith("branch=$(")
+    assert lines[guard + 1 : guard + 5] == [
+        "git fetch origin main",
+        STALE_MAIN,
+        "echo '::error::Main changed during generation; wait for the queued run'; exit 1",
+        "fi",
+    ]
     assert guard < lines.index('git checkout -B "$branch" FETCH_HEAD')
 
 
