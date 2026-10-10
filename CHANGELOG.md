@@ -107,6 +107,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
 ### CI
+- **Dependabot groups minor and patch updates (#750)** — `.github/dependabot.yml`
+  groups minor and patch version updates into one PR per ecosystem and directory
+  (`dev-tools` for pip `/`, `docs-tools` for pip `/docs`, `github-actions`), so a
+  weekly batch runs CI once per group instead of once per package. Major updates,
+  security updates (`applies-to: version-updates`) and the runtime dependency
+  `tzdata` stay in their own PRs; majors are still held from auto-merge, and a
+  grouped PR still needs the required checks. `docs/CI_POLICY.md` (+ ko) documents
+  it and `tests/test_workflow_pins.py` pins the settings. No runtime change.
 - **"Prepare release" fails visibly when a merged release is blocked** —
   `scripts/reconcile_release_labels.py` now classifies every merged
   `autorelease: pending` release PR it cannot mark tagged by the newest

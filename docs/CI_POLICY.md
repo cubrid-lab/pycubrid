@@ -381,6 +381,27 @@ group, because within one group GitHub replaces a pending run even when
 `cancel-in-progress` is false, so main pushes and scheduled runs are never cancelled or dropped. `security.yml` installs `bandit[toml]==1.9.4`, the version pinned in
 `pyproject.toml`. `tests/test_workflow_pins.py` enforces all three.
 
+## Dependabot grouping
+
+Dependabot used to open one PR per package for pip (`/`), pip (`/docs`) and GitHub
+Actions, and each one ran the full PR tier. `.github/dependabot.yml` now groups minor
+and patch version updates into one PR per ecosystem and directory (`dev-tools`,
+`docs-tools`, `github-actions`), so a weekly batch costs one CI run per group (#750).
+These stay in their own PRs:
+
+- **Major updates** are excluded from every group (`update-types` is only `minor` and
+  `patch`), and `dependabot-auto-merge.yml` still holds them for human review.
+- **Security updates** stay separate: the groups set `applies-to: version-updates`.
+- **The runtime dependency `tzdata`** is excluded from `dev-tools`.
+
+Grouping does not bypass anything. A grouped PR runs the same required checks, and
+auto-merge completes only after they pass. `dependabot/fetch-metadata` reports the
+highest semver change of a grouped PR as its `update-type`, so a group can never carry
+a major update into auto-merge. One failing package blocks the whole group: fix it in
+the group PR, or, if it needs separate work, add it to the group's `exclude-patterns`
+through a reviewed PR so Dependabot opens it on its own.
+`tests/test_workflow_pins.py` enforces the group settings.
+
 ## Python 3.15 preview preparation
 
 `python-canary.yml` is manual-only: supply the full SHA and dispatch the branch
