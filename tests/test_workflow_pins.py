@@ -81,3 +81,18 @@ def test_workflows_pin_bandit_to_pyproject(workflow: str) -> None:
     assert installs, f"{workflow} must install bandit"
     for ln in installs:
         assert ln == f'pip install "{pinned}"', ln
+
+
+def test_dependabot_groups_only_minor_and_patch_version_updates() -> None:
+    # #750: one grouped PR per ecosystem/directory; majors, security updates and
+    # the runtime dependency tzdata keep their own PRs.
+    cfg = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    groups = {(u["package-ecosystem"], u["directory"]): u.get("groups") for u in cfg["updates"]}
+    assert set(groups) == {("pip", "/"), ("pip", "/docs"), ("github-actions", "/")}
+    for key, group in groups.items():
+        assert group is not None and len(group) == 1, key
+        (spec,) = group.values()
+        assert spec["applies-to"] == "version-updates", key
+        assert spec["patterns"] == ["*"], key
+        assert spec["update-types"] == ["minor", "patch"], key
+    assert groups[("pip", "/")]["dev-tools"]["exclude-patterns"] == ["tzdata"]
