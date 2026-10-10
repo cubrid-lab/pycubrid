@@ -121,7 +121,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that every `only_mutate` module is in exactly one shard. mutmut's sandbox now
   also copies `THIRD_PARTY_LICENSES.md`: `tests/test_third_party_licenses.py`
   (#772) reads it, and without it every mutation run failed at stats collection.
-  No runtime change.
+  mutmut runs its selected tests in set order, which exposed an order dependence
+  in `tests/test_protocol_fuzz.py`: after a test cleared the `ZoneInfo` cache, a
+  decoded `Asia/Seoul` value was a different object from the expected one, and
+  `ZoneInfo` compares by identity. The comparison now checks the zone key. No
+  runtime change.
 - **Dependabot groups minor and patch updates (#750)** — `.github/dependabot.yml`
   groups minor and patch version updates into one PR per ecosystem and directory
   (`dev-tools` for pip `/`, `docs-tools` for pip `/docs`, `github-actions`), so a

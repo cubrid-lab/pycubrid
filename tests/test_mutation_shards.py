@@ -8,7 +8,6 @@ shards is tested twice.
 
 from __future__ import annotations
 
-import fnmatch
 import tomllib
 from pathlib import Path
 
@@ -29,32 +28,11 @@ def _module(path: str) -> str:
     return path.removesuffix(".py").replace("/", ".")
 
 
-def _sample_mutants(module: str) -> list[str]:
-    # Plain functions are named x_<name>, methods xǁ<Class>ǁ<name>.
-    return [f"{module}.x_helper__mutmut_1", f"{module}.xǁConnectionǁclose__mutmut_1"]
-
-
-def _shards_for(mutant: str) -> list[str]:
-    return [
-        shard
-        for shard, patterns in SHARDS.items()
-        if any(fnmatch.fnmatch(mutant, pattern) for pattern in patterns)
-    ]
-
-
-@pytest.mark.parametrize("path", ONLY_MUTATE)
-def test_every_mutated_module_is_in_exactly_one_shard(path: str) -> None:
-    for mutant in _sample_mutants(_module(path)):
-        assert len(_shards_for(mutant)) == 1, (mutant, _shards_for(mutant))
-
-
-def test_every_shard_pattern_selects_a_mutated_module() -> None:
-    modules = [_module(path) for path in ONLY_MUTATE]
-    for shard, patterns in SHARDS.items():
-        for pattern in patterns:
-            assert any(
-                fnmatch.fnmatch(mutant, pattern) for m in modules for mutant in _sample_mutants(m)
-            ), (shard, pattern)
+def test_every_mutated_module_is_in_exactly_one_shard() -> None:
+    # Each pattern must be a whole module (<module>.*): a narrower pattern, or an
+    # exact mutant name, would still match a sample but skip the rest of the module.
+    patterns = [pattern for shard in SHARDS.values() for pattern in shard]
+    assert sorted(patterns) == sorted(f"{_module(path)}.*" for path in ONLY_MUTATE)
 
 
 def test_shard_names_reach_mutmut_unexpanded() -> None:
