@@ -67,6 +67,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+- **README family states the full compatibility matrix as 4 × 4 on dispatch and
+  release (#796)** — `README.md` and the Korean, German, Hindi, Russian and
+  Chinese READMEs said the full live matrix was 5 × 4, and the German, Hindi,
+  Russian and Chinese ones also said it ran nightly. Since Python 3.10 was
+  retired the `integration-full` job covers Python 3.11–3.14 × CUBRID 10.2, 11.0,
+  11.2 and 11.4 (16 cells), and it runs only on explicit `workflow_dispatch` and
+  as the release gate called by `publish-pypi.yml`; there is no schedule. All six
+  now say so. The same pass corrects other stale CI-lane facts: the
+  `integration-tls` job runs Python 3.11 and 3.14 (not 3.10 and 3.14) in
+  `docs/DEVELOPMENT.md` and its Korean copy, and the PRD CI summary and
+  "CI Matrix" table, which still listed Python 3.10, now describe the current
+  lanes. Documentation only; the driver and workflows are unchanged.
 - **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the
   old "Project Context — Performance Loop System" snapshot (R2/R3 phases, the
   Week 8 decision gate, the #14–#22 issue table and fixed PyMySQL ratios) is

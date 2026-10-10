@@ -8884,7 +8884,7 @@ pytest tests/ -m "integration and tls" -v
 
 You do not need to run the steps above locally for routine development —
 `.github/workflows/integration-full.yml` includes an `integration-tls` job
-(Python {3.10, 3.14} × CUBRID 11.4) that:
+(Python {3.11, 3.14} × CUBRID 11.4) that:
 
 1. Starts a CUBRID 11.4 container manually (so the broker config can be
    patched after the container is up).

@@ -413,7 +413,7 @@ pytest tests/ -m "integration and tls" -v
 
 ##### CI의 자동화된 TLS 커버리지
 
-일상 개발에서 위 단계를 로컬로 실행할 필요는 없습니다 — `.github/workflows/integration-full.yml`에 다음을 수행하는 `integration-tls` 잡(Python {3.10, 3.14} × CUBRID 11.4)이 포함되어 있습니다:
+일상 개발에서 위 단계를 로컬로 실행할 필요는 없습니다 — `.github/workflows/integration-full.yml`에 다음을 수행하는 `integration-tls` 잡(Python {3.11, 3.14} × CUBRID 11.4)이 포함되어 있습니다:
 
 1. CUBRID 11.4 컨테이너를 수동으로 시작 (컨테이너 기동 후 브로커 설정을 패치할 수 있도록).
 2. 새 자가 서명 인증서를 생성하고(`CN=localhost`, `SAN=DNS:localhost`), `cas_ssl_cert.{crt,key}`로 컨테이너에 주입한 뒤 `BROKER1`의 `SSL=OFF` → `SSL=ON`으로 전환하고 브로커를 재시작해 새 인증서가 반영되게 함.
