@@ -16,7 +16,6 @@ from pycubrid.compat import cubriddb, native
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.exceptions import (
     InterfaceError,
-    NotSupportedError,
     OperationalError,
     ProgrammingError,
 )
@@ -466,19 +465,17 @@ def test_converter_errors_consume_one_row_and_falsey_noncallable_disables(
     assert after_error == (2, "", "", "")
 
 
-def test_execution_bridge_stays_with_existing_scalar_values_and_no_set_type(
+def test_execution_bridge_rejects_mappings_and_ignores_unused_set_type(
     wrapped: cubriddb.Connection,
 ) -> None:
     cur = wrapped.cursor()
     driver = wrapped.connection._driver
     before = len(driver.requests)
-    with pytest.raises(NotSupportedError):
-        cur.execute("SELECT ?", (1,), set_type=8)
-    assert len(driver.requests) == before
     with pytest.raises(ProgrammingError):
         cur.execute("SELECT ?", {"named": 1})
     assert len(driver.requests) == before
-    result = cur.execute("SELECT ?", (1,))
+    # As upstream, set_type only applies to collection arguments (#610).
+    result = cur.execute("SELECT ?", (1,), set_type=8)
     assert result == 3
     executed = [packet for packet, _ in driver.requests if isinstance(packet, ExecutePacket)]
     assert len(executed) == 1

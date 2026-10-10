@@ -1583,11 +1583,13 @@ falsey argument and a dictionary-row cursor for a truthy argument. Direct
 construction is available as `pycubrid.compat.cursors.Cursor(conn)` and
 `DictCursor(conn)`; these classes are not added to the package-level exports.
 The cursor starts with `arraysize=1`, `rowcount=-1` and `description=None`.
-`execute(query, args=None, set_type=None)` delegates only the existing native
-INT32, string and SQL NULL prepared-binding subset. A non-`None` `set_type`,
-mapping arguments and unsupported native values fail before execution;
-`executemany`, collection/LOB arguments and broad DB-API execution are not
-part of this wrapper slice.
+`execute(query, args=None, set_type=None)` delegates the existing native
+INT32, string and SQL NULL prepared-binding subset, and since #610 binds
+`list`/`tuple`/`set`/`frozenset` arguments as collections;
+`executemany(query, args_list)` prepares once and executes each group (see
+[Wrapper collection arguments](#wrapper-collection-arguments)). Mapping
+arguments and unsupported values fail before execution; LOB arguments and
+broad DB-API execution are not part of this wrapper slice.
 
 For a SELECT, `description` contains seven-field tuples
 `(name, native_type, 0, 0, precision, scale, null_ok)` with integer `null_ok`.
@@ -1689,8 +1691,8 @@ server error -494 raises `ProgrammingError` by the driver-wide mapping
 
 As with the official module, `from pycubrid.compat.native import *` binds the
 name `set` to `native.set`, shadowing the builtin `set` in that namespace. The wrapper
-`execute(query, args, set_type)` and `executemany()` collection shapes are not
-provided, and ordinary `pycubrid` cursors still use the typed
+`execute(query, args, set_type)` and `executemany()` collection shapes build on
+this API (next section). Ordinary `pycubrid` cursors still use the typed
 `pycubrid.types.Set`/`Multiset`/`Sequence` literal parameters (#567).
 
 ```python
@@ -1709,6 +1711,73 @@ try:
         cur.bind_set(1, tags)
         cur.bind_set(2, scores)
         cur.execute()
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
+
+### Wrapper collection arguments (#610) {#wrapper-collection-arguments}
+
+The qualified wrapper cursors accept the official CUBRIDdb collection call
+shapes (pinned upstream `CUBRIDdb/cursors.py` at `e75ec36`). Each collection
+argument becomes `conn.connection.set()`, `imports(tuple(elements), code)` and
+`bind_set(index, s)` on the native API above, so the request bytes equal the
+official driver's: every element is sent as STRING text with the SET kind, and
+the type code only labels the import.
+
+| Item | Contract |
+| --- | --- |
+| Call shapes | `execute(query, args=None, set_type=None) -> int` and `executemany(query, args_list) -> None` |
+| `args` | `None`, a `tuple` or `list` of positional values, or a bare `int`/`str` (wrapped). Other top-level values, including a `set`, raise `ProgrammingError` |
+| Positional values | `int` (INT32), `str` and `None` (SQL NULL) as before; a `list`, `tuple`, `set` or `frozenset` is a collection. Other values (`bool`, `float`, `bytes`, `dict`, generators, other iterables) raise `ProgrammingError` |
+| `set_type` | `None` infers every collection. An `int` code applies to every collection. A `list`/`tuple` gives the code by position; a `None` entry or a position past its end is inferred. It is ignored when no collection is passed. A used code that is not an `int` (or is a `bool`) raises `InterfaceError` |
+| Inferred codes | `int` and `bool` INT (8), `float` FLOAT (11), `Decimal` NUMERIC (7), `date` and `datetime` DATE (13), `time` TIME (14), `str` STRING (2). `None` elements are skipped; an empty or all-`None` collection is STRING |
+| Elements | `None` is a NULL element; `str` is sent as is; other supported elements are sent as `str(element)` (`True` becomes `'True'`, a `datetime` its ISO text) and the server converts the text to the column type |
+| Errors | Mixed inferred categories raise `TypeError`, as upstream. `bytes`/`bytearray` elements and the BIT (5)/VARBIT (6) codes raise `NotSupportedError`. Other element types (nested containers, objects) raise `ProgrammingError`; NUL and charset errors follow `imports()` |
+| `executemany` | Checks every group (inferred types, no `set_type`) and builds its collections, then prepares once. Every group's value count must equal the placeholder count, else `ProgrammingError` and no group runs. Then each group is bound and executed in order. `rowcount` and `description` come from the last execution. An empty `args_list` only prepares and leaves `rowcount=-1`, `description=None`; this is pycubrid's own choice, not compared with the official wrapper |
+| Timing and state | Argument, type and collection errors of `execute()` and of every `executemany()` group are raised before the prepare, with no server I/O. Like the official prepare-then-bind, they discard the previous result (a later `fetchone()` raises `InterfaceError`) and set `rowcount=-1`, `description=None`. `executemany()` group counts are checked after the prepare but before any execute. Scalar range, NUL and charset errors are raised at bind time, after the prepare. After the prepare, a failure leaves `rowcount` and `description` at their previous values; a server error from one `executemany()` group leaves the earlier groups executed, and the cursor stays usable |
+
+Deliberate differences from the official wrapper. The first four are pinned
+by live differential claims (`wrapper-collection-null-element` and
+`wrapper-collection-errors`); the others are covered only by offline tests
+(`tests/test_compat_wrapper_collections.py`):
+
+- A `None` element binds a NULL element; the official wrapper sends the text
+  `'None'`, or raises `UnboundLocalError` when inference meets `None` first.
+- BIT/VARBIT collection elements are not supported (`NotSupportedError`); the
+  official wrapper converts `bytes` to bit strings.
+- Only `list`, `tuple`, `set` and `frozenset` arguments are collections; the
+  official wrapper treats any iterable as one (a generator is consumed while
+  inferring and binds an empty set).
+- Server error -494 raises `ProgrammingError` (official `IntegrityError`).
+- A type or argument error in a later `executemany()` group, or a group whose
+  value count does not match the placeholders, runs no group at all; the
+  official wrapper executes the earlier groups first.
+- With an explicit `set_type`, unsupported elements still raise (a nested
+  list or object is `ProgrammingError`, `bytes` with a non-VARBIT code is
+  `NotSupportedError`); the official wrapper sends their `str()` text.
+- The scalar subset is unchanged: the official wrapper also binds `bool`,
+  `float`, `Decimal`, dates, `bytes` and BIGINT scalars and skips `None`
+  arguments, while this wrapper binds `None` as SQL NULL.
+
+Like the official wrapper, every collection binds with the SET kind (claim
+`wrapper-collection-executemany-kinds`), so a MULTISET or SEQUENCE column
+receives deduplicated, server-ordered elements; use the native
+`imports(..., kind=...)` to keep duplicates or order.
+
+```python
+from pycubrid.compat import cubriddb
+from pycubrid.constants import CUBRIDDataType
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        sql = "INSERT INTO t (id, tags, scores) VALUES (?, ?, ?)"
+        cur.execute(sql, (1, ("a", "b"), (3, 1)))  # inferred STRING and INT
+        cur.execute(sql, (2, ["c"], ["4"]), set_type=[None, None, CUBRIDDataType.INT])
+        cur.executemany(sql, [(3, {"d"}, (5,)), (4, (), ())])
     finally:
         cur.close()
 finally:
@@ -11132,12 +11201,13 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close, #467 autocommit access, #86 selectable charset and #466 bounded row cursors are delivered; HA and unsupported DSN options remain rejected. |
 | Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require wrapper cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The compatibility modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. The native subset's private RLock is not a general thread-sharing promise. |
 | Settings (#467) | Delivered as writable raw native snapshots (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and separate effective `set_autocommit(mode, /)` / `set_isolation_level(level, /)`. Raw assignment accepts objects and sends nothing. The bool autocommit setter changes local CCI-equivalent mode; only a changed mode during an active transaction commits. Isolation SET (4/5/6) does not commit and skips an already effective level on the same physical session. The wrapper `.autocommit` property delegates its bool setter but its getter reads the raw native cache. Constructor reads actual lock/max/isolation; a complete max-string server error alone falls back to 0, and initial numeric level 4 retains the pinned official `CUBRID_TRAN_UNKNOWN_ISOLATION` text quirk. No effective lock/max setters, ordinary-default change or unsafe native parser parity. |
-| Wrapper cursor (#466) | Delivered as qualified `pycubrid.compat.cursors.Cursor/DictCursor` and `Connection.cursor(dictCursor=None)`. `execute(query, args=None, set_type=None) -> int` delegates only native INT32/string/NULL scalar binding; non-None `set_type` and mappings fail before I/O. SELECT seven-field description, exact-name tuple/dict rows (last duplicate wins), and the current per-connection converter are supported. Falsey converter results stop bulk fetch after consuming a row; iteration stops only on None. `executemany`, collection/LOB args and mapping/default_cursor docstrings are not delivered. Non-SELECT description remains stable None rather than the official extension's possibly missing attribute after reprepare. |
+| Wrapper cursor (#466) | Delivered as qualified `pycubrid.compat.cursors.Cursor/DictCursor` and `Connection.cursor(dictCursor=None)`. `execute(query, args=None, set_type=None) -> int` delegates native INT32/string/NULL scalar binding and, since #610, collection arguments (row below); mappings fail before I/O. SELECT seven-field description, exact-name tuple/dict rows (last duplicate wins), and the current per-connection converter are supported. Falsey converter results stop bulk fetch after consuming a row; iteration stops only on None. LOB args and mapping/default_cursor docstrings are not delivered. Non-SELECT description remains stable None rather than the official extension's possibly missing attribute after reprepare. |
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
-| Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. Wrapper `execute(..., set_type)`/`executemany` collection shapes are not delivered (#610). |
+| Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. The wrapper collection call shapes build on it (#610, next row). |
+| Wrapper collection arguments (#610) | Delivered sync-only on the qualified wrapper cursors: `execute(query, args, set_type)` binds `list`/`tuple`/`set`/`frozenset` arguments through native `set()`/`imports()`/`bind_set()`, with one `set_type` code for every collection, a per-position list/tuple (missing or None entries inferred) or upstream inference (int/bool INT, float FLOAT, Decimal NUMERIC, date/datetime DATE, time TIME, str STRING; empty STRING; mixed TypeError). Elements are sent as their `str()` text with the SET kind, the official bytes. `executemany(query, args_list) -> None` checks every group before one prepare, checks every group's value count after the prepare but before any execute, and keeps the last rowcount; an empty list leaves -1/None (pycubrid's own choice, not compared). Errors before the prepare discard the previous result and snapshot. A None element is a NULL element (official text 'None' or UnboundLocalError), BIT/VARBIT elements raise NotSupportedError, other iterables raise ProgrammingError and server -494 is ProgrammingError; these are classified deviations. Offline tests only: a later-group error runs no group (official runs earlier groups), and unsupported elements raise even with an explicit set_type (official sends str()). The scalar subset is unchanged. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
 | Extended metadata (#445) | Delivered native-only `cursor.result_info([n])` reads cached successful-execution metadata, returning tuple-of-15-tuples (one outer entry for a one-based selector), or None for executed zero-column statements. It uses measured CCI types, integer flags and actual strings in the implemented official order. Supported CUBRID producers encode absent text as an empty string, not None; no attribute/default value is inferred. Ordinary/wrapper description and row position are unchanged. |
-| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
+| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid delivers only on the compatibility wrapper (#610), so no differential claim is made for these ordinary-cursor parameters. |
 | Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
 | Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in effective autocommit mode; a manually fetched holder remains non-transferable after a later commit until re-fetched in autocommit mode. Stream operations are delivered in #442 below; raw file transfer is documented separately in #443. |
 | Native LOB stream (#442) | Delivered sync-only: `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`, plus exported `SEEK_*` constants. Position and size count bytes; UTF-8 text is returned for BLOB and CLOB. SEEK_END computes size-offset. Writes create a BLOB/CLOB lazily and append only at the end. Safe deviations: non-end writes and invalid resulting positions fail before I/O, while empty/EOF and oversized reads return available text instead of reproducing unsafe CCI behavior. The native holder's close remains terminal; created handles stay on their original session and first autocommit bind consumes their temp file. Ordinary absolute-offset `Lob` is unchanged; additive native file operations are documented below (#443). |
@@ -11374,13 +11444,13 @@ claims without cases and oracle pins that differ from the build script.
 
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
-| Wrapper (`CUBRIDdb`) | 15 | 2 | 17 |
+| Wrapper (`CUBRIDdb`) | 18 | 4 | 22 |
 | Native (`_cubrid`) | 33 | 13 | 46 |
-| **Total** | **48** | **15** | **63** |
+| **Total** | **51** | **17** | **68** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.11
 - Required servers: CUBRID 10.2, CUBRID 11.4
-- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445), `native-position-error-args` (#444)
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `wrapper-collection-null-element` (#610), `wrapper-collection-errors` (#610), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445), `native-position-error-args` (#444)
 
 <!-- official-differential-summary:end -->
 

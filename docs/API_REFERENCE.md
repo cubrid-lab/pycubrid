@@ -471,11 +471,13 @@ falsey argument and a dictionary-row cursor for a truthy argument. Direct
 construction is available as `pycubrid.compat.cursors.Cursor(conn)` and
 `DictCursor(conn)`; these classes are not added to the package-level exports.
 The cursor starts with `arraysize=1`, `rowcount=-1` and `description=None`.
-`execute(query, args=None, set_type=None)` delegates only the existing native
-INT32, string and SQL NULL prepared-binding subset. A non-`None` `set_type`,
-mapping arguments and unsupported native values fail before execution;
-`executemany`, collection/LOB arguments and broad DB-API execution are not
-part of this wrapper slice.
+`execute(query, args=None, set_type=None)` delegates the existing native
+INT32, string and SQL NULL prepared-binding subset, and since #610 binds
+`list`/`tuple`/`set`/`frozenset` arguments as collections;
+`executemany(query, args_list)` prepares once and executes each group (see
+[Wrapper collection arguments](#wrapper-collection-arguments)). Mapping
+arguments and unsupported values fail before execution; LOB arguments and
+broad DB-API execution are not part of this wrapper slice.
 
 For a SELECT, `description` contains seven-field tuples
 `(name, native_type, 0, 0, precision, scale, null_ok)` with integer `null_ok`.
@@ -577,8 +579,8 @@ server error -494 raises `ProgrammingError` by the driver-wide mapping
 
 As with the official module, `from pycubrid.compat.native import *` binds the
 name `set` to `native.set`, shadowing the builtin `set` in that namespace. The wrapper
-`execute(query, args, set_type)` and `executemany()` collection shapes are not
-provided, and ordinary `pycubrid` cursors still use the typed
+`execute(query, args, set_type)` and `executemany()` collection shapes build on
+this API (next section). Ordinary `pycubrid` cursors still use the typed
 `pycubrid.types.Set`/`Multiset`/`Sequence` literal parameters (#567).
 
 ```python
@@ -597,6 +599,73 @@ try:
         cur.bind_set(1, tags)
         cur.bind_set(2, scores)
         cur.execute()
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
+
+### Wrapper collection arguments (#610) {#wrapper-collection-arguments}
+
+The qualified wrapper cursors accept the official CUBRIDdb collection call
+shapes (pinned upstream `CUBRIDdb/cursors.py` at `e75ec36`). Each collection
+argument becomes `conn.connection.set()`, `imports(tuple(elements), code)` and
+`bind_set(index, s)` on the native API above, so the request bytes equal the
+official driver's: every element is sent as STRING text with the SET kind, and
+the type code only labels the import.
+
+| Item | Contract |
+| --- | --- |
+| Call shapes | `execute(query, args=None, set_type=None) -> int` and `executemany(query, args_list) -> None` |
+| `args` | `None`, a `tuple` or `list` of positional values, or a bare `int`/`str` (wrapped). Other top-level values, including a `set`, raise `ProgrammingError` |
+| Positional values | `int` (INT32), `str` and `None` (SQL NULL) as before; a `list`, `tuple`, `set` or `frozenset` is a collection. Other values (`bool`, `float`, `bytes`, `dict`, generators, other iterables) raise `ProgrammingError` |
+| `set_type` | `None` infers every collection. An `int` code applies to every collection. A `list`/`tuple` gives the code by position; a `None` entry or a position past its end is inferred. It is ignored when no collection is passed. A used code that is not an `int` (or is a `bool`) raises `InterfaceError` |
+| Inferred codes | `int` and `bool` INT (8), `float` FLOAT (11), `Decimal` NUMERIC (7), `date` and `datetime` DATE (13), `time` TIME (14), `str` STRING (2). `None` elements are skipped; an empty or all-`None` collection is STRING |
+| Elements | `None` is a NULL element; `str` is sent as is; other supported elements are sent as `str(element)` (`True` becomes `'True'`, a `datetime` its ISO text) and the server converts the text to the column type |
+| Errors | Mixed inferred categories raise `TypeError`, as upstream. `bytes`/`bytearray` elements and the BIT (5)/VARBIT (6) codes raise `NotSupportedError`. Other element types (nested containers, objects) raise `ProgrammingError`; NUL and charset errors follow `imports()` |
+| `executemany` | Checks every group (inferred types, no `set_type`) and builds its collections, then prepares once. Every group's value count must equal the placeholder count, else `ProgrammingError` and no group runs. Then each group is bound and executed in order. `rowcount` and `description` come from the last execution. An empty `args_list` only prepares and leaves `rowcount=-1`, `description=None`; this is pycubrid's own choice, not compared with the official wrapper |
+| Timing and state | Argument, type and collection errors of `execute()` and of every `executemany()` group are raised before the prepare, with no server I/O. Like the official prepare-then-bind, they discard the previous result (a later `fetchone()` raises `InterfaceError`) and set `rowcount=-1`, `description=None`. `executemany()` group counts are checked after the prepare but before any execute. Scalar range, NUL and charset errors are raised at bind time, after the prepare. After the prepare, a failure leaves `rowcount` and `description` at their previous values; a server error from one `executemany()` group leaves the earlier groups executed, and the cursor stays usable |
+
+Deliberate differences from the official wrapper. The first four are pinned
+by live differential claims (`wrapper-collection-null-element` and
+`wrapper-collection-errors`); the others are covered only by offline tests
+(`tests/test_compat_wrapper_collections.py`):
+
+- A `None` element binds a NULL element; the official wrapper sends the text
+  `'None'`, or raises `UnboundLocalError` when inference meets `None` first.
+- BIT/VARBIT collection elements are not supported (`NotSupportedError`); the
+  official wrapper converts `bytes` to bit strings.
+- Only `list`, `tuple`, `set` and `frozenset` arguments are collections; the
+  official wrapper treats any iterable as one (a generator is consumed while
+  inferring and binds an empty set).
+- Server error -494 raises `ProgrammingError` (official `IntegrityError`).
+- A type or argument error in a later `executemany()` group, or a group whose
+  value count does not match the placeholders, runs no group at all; the
+  official wrapper executes the earlier groups first.
+- With an explicit `set_type`, unsupported elements still raise (a nested
+  list or object is `ProgrammingError`, `bytes` with a non-VARBIT code is
+  `NotSupportedError`); the official wrapper sends their `str()` text.
+- The scalar subset is unchanged: the official wrapper also binds `bool`,
+  `float`, `Decimal`, dates, `bytes` and BIGINT scalars and skips `None`
+  arguments, while this wrapper binds `None` as SQL NULL.
+
+Like the official wrapper, every collection binds with the SET kind (claim
+`wrapper-collection-executemany-kinds`), so a MULTISET or SEQUENCE column
+receives deduplicated, server-ordered elements; use the native
+`imports(..., kind=...)` to keep duplicates or order.
+
+```python
+from pycubrid.compat import cubriddb
+from pycubrid.constants import CUBRIDDataType
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        sql = "INSERT INTO t (id, tags, scores) VALUES (?, ?, ?)"
+        cur.execute(sql, (1, ("a", "b"), (3, 1)))  # inferred STRING and INT
+        cur.execute(sql, (2, ["c"], ["4"]), set_type=[None, None, CUBRIDDataType.INT])
+        cur.executemany(sql, [(3, {"d"}, (5,)), (4, (), ())])
     finally:
         cur.close()
 finally:

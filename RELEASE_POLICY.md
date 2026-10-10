@@ -110,7 +110,7 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445, #444)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445, #444, #610)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
 includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
@@ -124,7 +124,8 @@ stream (`lob.write()`/`read()`/`seek()` and `SEEK_*`, #442).
 Native cached settings and separate effective autocommit/isolation setters
 are the additional #467 subset. #466 adds qualified
 `pycubrid.compat.cursors.Cursor/DictCursor` row cursors and connection-local
-conversion over only the existing native scalar prepared path. Abandoned
+conversion over the existing native scalar prepared path; #610 adds their
+collection arguments over the #440 binding and `executemany()`. Abandoned
 wrapper cursors receive best-effort same-session cleanup; deterministic
 resource release still requires explicit close.
 #445 adds native-only `cursor.result_info([n])` over measured cached 15-field
@@ -133,7 +134,7 @@ metadata without changing ordinary/wrapper descriptions, row position or APIs.
 current SELECT; explicit manual mode before preparation is the measured cross-page
 prerequisite. No wrapper forwarding or default-mode lifetime promise is added.
 Only their implemented factories, connection and cursor methods are public;
-no wrapper collection/LOB execute, public async prepared API, threadsafety declaration or
+no wrapper LOB execute, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
 both explicit modules and returned classes.
 
@@ -416,6 +417,23 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   classes) are pinned by official differential claims. Ordinary sync/async
   cursors, FC41 rendering, fetched collection decoding, `bind_param()`,
   dependencies and supported versions are unchanged; no async prepared API.
+
+- **Wrapper collection arguments (#610)** — MINOR / additive. The opt-in
+  `pycubrid.compat.cursors.Cursor/DictCursor.execute(query, args, set_type)`
+  binds `list`/`tuple`/`set`/`frozenset` arguments through the #440 native set
+  with scalar, per-position or inferred `set_type`, and the cursors gain
+  `executemany(query, args_list)`. A non-`None` `set_type` no longer raises
+  `NotSupportedError`; it is ignored without a collection argument, as
+  upstream. Unsupported positional values now raise `ProgrammingError` before
+  the statement is prepared rather than at bind time, and such errors discard
+  the previous result and snapshot. The request bytes equal the official
+  wrapper's; the `None` NULL element, BIT/VARBIT rejection, exact collection
+  types and -494 error class are classified deviations pinned by official
+  differential claims. Two more differences are covered by offline tests: an
+  invalid later `executemany()` group runs no group (official runs earlier
+  groups), and unsupported elements raise even with an explicit `set_type`
+  (official sends their `str()` text). The scalar subset, ordinary
+  sync/async cursors, dependencies and supported versions are unchanged.
 
 - **Native LOB handle fetch and bind (#441)** — MINOR / additive. New
   `pycubrid.compat.native.lob` class (and `__all__` entry), `connection.lob()`,

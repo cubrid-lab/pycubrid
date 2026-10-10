@@ -29,6 +29,8 @@ import tracemalloc
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, closing
+from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -1603,6 +1605,107 @@ def _lob_file_roundtrip(kind: str, payload: bytes, *, replacement: bool = False)
                 observer.close()
 
 
+# -- wrapper collection call shapes: execute(set_type) / executemany (#610) -------------
+
+
+def _wrapper_collections(
+    ddl: str, body: Callable[[Any, str], object], select: str | None
+) -> Callable[[], tuple[str, str]]:
+    """Run ``body(cursor, table)`` through each wrapper; read rows back via pycubrid."""
+
+    def observe(connect: Callable[..., Any]) -> str:
+        table = _table("owc")
+        verify = pycubrid.connect(
+            host=TEST_HOST,
+            port=TEST_PORT,
+            database=TEST_DB,
+            user=TEST_USER,
+            password=TEST_PASSWORD,
+            autocommit=True,
+            decode_collections=True,
+        )
+        vc = verify.cursor()
+        vc.execute(f"CREATE TABLE {table} ({ddl})")
+        try:
+            with closing(connect(URL, TEST_USER, TEST_PASSWORD)) as conn:
+                with closing(conn.cursor()) as cur:
+                    calls = body(cur, table)
+            if select is None:
+                return render(calls)
+            vc.execute(f"SELECT {select} FROM {table} ORDER BY 1")
+            return render((calls, [tuple(row) for row in vc.fetchall()]))
+        finally:
+            vc.execute(f"DROP TABLE IF EXISTS {table}")
+            vc.close()
+            verify.close()
+
+    return lambda: (observe(cubriddb.connect), observe(CUBRIDdb.connect))
+
+
+def _wrapper_set_type_forms(cur: Any, table: str) -> object:
+    sql = f"INSERT INTO {table} VALUES (?, ?, ?)"
+    calls: list[object] = []
+    for args, set_type in (
+        ((1, ("a", "b"), ("1", "2")), FIELD_STRING),  # one code for every collection
+        ((2, ("c", "d"), ("3", "4")), [None, FIELD_STRING, FIELD_INT]),  # per position
+        ((3, ("g", "h"), (5, 6)), [FIELD_INT]),  # positions past the list are inferred
+    ):
+        calls += [cur.execute(sql, args, set_type=set_type), cur.rowcount]
+    # set_type without a collection argument is ignored.
+    sql = f"INSERT INTO {table} VALUES (?, NULL, NULL)"
+    calls += [cur.execute(sql, (4,), set_type=FIELD_INT), cur.rowcount]
+    return calls
+
+
+def _wrapper_inferred_types(cur: Any, table: str) -> object:
+    args = (
+        1,
+        (2, 1),
+        (1.5,),
+        (Decimal("1.25"),),
+        (date(2024, 1, 15),),
+        (time(13, 30, 45),),
+        (datetime(2024, 1, 15, 13, 30, 45),),
+        ("b", "한"),
+        (),
+    )
+    return cur.execute(f"INSERT INTO {table} VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", args)
+
+
+def _wrapper_executemany_kinds(cur: Any, table: str) -> object:
+    rows = [
+        (1, (3, 1, 3), [3, 1, 3], (3, 1, 3, 2)),
+        (2, {2}, frozenset({4}), ()),
+        (3, ("7",), ["8"], ("9",)),
+    ]
+    result = cur.executemany(f"INSERT INTO {table} VALUES (?, ?, ?, ?)", rows)
+    return [result, cur.rowcount]
+
+
+def _wrapper_null_element(cur: Any, table: str) -> object:
+    return cur.execute(f"INSERT INTO {table} VALUES (?)", (("a", None),), set_type=FIELD_STRING)
+
+
+def _wrapper_collection_errors(cur: Any, table: str) -> object:
+    sql = f"INSERT INTO {table} (id, s) VALUES (?, ?)"
+    outcomes = []
+    for call in (
+        lambda: cur.execute(sql, (1, (1, "z"))),  # mixed element categories
+        lambda: cur.execute(sql, (2, ("x", "y")), set_type=FIELD_INT),  # server -494
+        lambda: cur.execute(sql, (3, (None, 1))),  # None first, inferred
+        lambda: cur.execute(
+            f"INSERT INTO {table} (id, b) VALUES (?, ?)", (4, (b"\x14", b"\x12\x90"))
+        ),
+        lambda: cur.execute(sql, (5, (x for x in (1, 2)))),  # a generator argument
+    ):
+        try:
+            call()
+            outcomes.append("returns")
+        except Exception as exc:  # compared by class name only
+            outcomes.append(f"raises {type(exc).__name__}")
+    return outcomes
+
+
 FIELD_INT, FIELD_STRING, FIELD_NUMERIC = 8, 2, 7  # CUBRIDdb.FIELD_TYPE values
 KIND_MULTISET, KIND_SEQUENCE = 17, 18  # CUBRIDdb.FIELD_TYPE.MULTISET / .SEQUENCE
 
@@ -1650,6 +1753,26 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     "bind-set-numeric-type": _set_case("SET(NUMERIC(5,2))", ("1.5", "2"), FIELD_NUMERIC),
     "bind-set-nul-truncation": _set_case("SET(VARCHAR(20))", ("a\x00b", "c"), FIELD_STRING),
     "bind-set-error-classes": _set_error_classes,
+    "wrapper-collection-set-type-forms": _wrapper_collections(
+        "id INTEGER, s SET(VARCHAR(20)), n SET(INTEGER)", _wrapper_set_type_forms, "id, s, n"
+    ),
+    "wrapper-collection-inferred-types": _wrapper_collections(
+        "id INTEGER, i SET(INTEGER), f SET(DOUBLE), d SET(NUMERIC(5,2)), dt SET(DATE),"
+        " t SET(TIME), dtm SET(DATETIME), v SET(VARCHAR(20)), e SET(INTEGER)",
+        _wrapper_inferred_types,
+        "*",
+    ),
+    "wrapper-collection-executemany-kinds": _wrapper_collections(
+        "id INTEGER, s SET(INTEGER), m MULTISET(INTEGER), q SEQUENCE(INTEGER)",
+        _wrapper_executemany_kinds,
+        "id, s, m, q",
+    ),
+    "wrapper-collection-null-element": _wrapper_collections(
+        "s SET(VARCHAR(20))", _wrapper_null_element, "s"
+    ),
+    "wrapper-collection-errors": _wrapper_collections(
+        "id INTEGER, s SET(INTEGER), b SET(BIT(16))", _wrapper_collection_errors, None
+    ),
     "lob-fetch-bind-copy-blob": _lob_copy("b", 1, "b"),
     "lob-fetch-bind-copy-clob": _lob_copy("c", 1, "c"),
     "lob-fetch-non-first-column": _lob_copy("c, b", 2, "b"),
