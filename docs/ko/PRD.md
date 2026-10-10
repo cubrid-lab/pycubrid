@@ -42,7 +42,7 @@ CUBRID CAS 프로토콜의 완전한 순수 Python 구현입니다:
 - **LOB 지원** — `create_lob()`을 통한 CLOB·BLOB 처리
 - **Prepared statement** — 서버 측 문장 준비와 실행 *(계획됨; 현재 구현은 드라이버 측 파라미터 바인딩을 사용합니다)*
 - **배치 연산** — 대량 삽입을 위한 `executemany()`와 `executemany_batch()`
-- **CI/CD** — Python 3.10–3.14 오프라인 매트릭스와 CUBRID 10.2–11.4에 대한 기준점 통합 커버리지
+- **CI/CD** — Python 3.11–3.14 지원, 변경별 대표 오프라인·라이브 엔드포인트 검사, 릴리스 시 Python × CUBRID 전체 매트릭스
 
 ### 1.3 성공 기준 — 현황
 
@@ -53,7 +53,7 @@ CUBRID CAS 프로토콜의 완전한 순수 Python 구현입니다:
 | 오프라인 테스트 (라이브 DB 불필요) | ✅ | ✅ `make test`. 전체 실행에서 커버리지 하한 강제 |
 | LOB (CLOB/BLOB) 지원 | ✅ | ✅ `create_lob()`, 읽기/쓰기 |
 | Prepared statement | ✅ | ✅ `cursor.execute(sql, params)` — `?` 플레이스홀더를 통한 드라이버 측 파라미터 바인딩 ([PARAMETER_BINDING.md](PARAMETER_BINDING.md) 참고) |
-| 버전 매트릭스를 갖춘 CI/CD | ✅ | ✅ Py 3.10–3.14 오프라인 + CUBRID 10.2–11.4에 대한 기준점 통합 커버리지 |
+| 버전 매트릭스를 갖춘 CI/CD | ✅ | ✅ Py 3.11–3.14 대표 오프라인·라이브 검사, 릴리스 시 전체 4 × 4 매트릭스 |
 | PyPI에 게시 가능 | ✅ | ✅ 검토한 릴리스 PR을 머지하면 릴리스 ([RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)) |
 | 코드 커버리지 ≥ 95% | ✅ | ✅ CI로 강제하는 하한. [측정 결과](https://codecov.io/gh/cubrid-lab/pycubrid) |
 | 포괄적인 문서 | ✅ | ✅ `docs/` 아래 영어·한국어 가이드 + README |
@@ -192,13 +192,13 @@ CUBRID의 Client Application Server(CAS) 바이너리 프로토콜을 직접 구
 
 ### 4.2 CI 매트릭스
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **오프라인 테스트** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | — | — | — | ✅ |
-| **CUBRID 11.2** | ✅ | — | — | — | ✅ |
-| **CUBRID 11.0** | ✅ | — | — | — | ✅ |
-| **CUBRID 10.2** | ✅ | — | — | — | ✅ |
+| 검사 | Python | CUBRID |
+|---|---|---|
+| 일반 PR 스모크 (오프라인) | 3.12 | — |
+| main, 주간, 고위험 PR (오프라인) | 3.11, 3.14 | — |
+| 전체 호환성 매트릭스 (명시적 수동 실행과 모든 릴리스) | 3.11, 3.12, 3.13, 3.14 | 10.2, 11.0, 11.2, 11.4 (4 × 4) |
+
+이벤트별 라이브 엔드포인트는 [CI 실행 정책](CI_POLICY.md)을 참고하세요.
 
 ---
 
