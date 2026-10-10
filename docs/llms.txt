@@ -1,8 +1,8 @@
 # pycubrid
 
-> Pure-Python DB-API 2.0 (PEP 249) driver for the CUBRID database, with an asyncio API (`pycubrid.aio`). No C extensions and no runtime dependencies except `tzdata` on Windows (for time zone names); Python 3.10+, PEP 561 typed.
+> Pure-Python DB-API 2.0 (PEP 249) driver for the CUBRID database, with an asyncio API (`pycubrid.aio`). No C extensions and no runtime dependencies except `tzdata` on Windows (for time zone names); Python 3.11+, PEP 561 typed.
 
-pycubrid implements the CUBRID CAS (broker) wire protocol in Python. It provides synchronous `pycubrid.connect()` and asynchronous `pycubrid.aio.connect()` connections, declares Python 3.10–3.14 and CUBRID 10.2, 11.0, 11.2 and 11.4 support, and is the recommended driver for sqlalchemy-cubrid. Routine CI validates representative combinations; the full supported matrix is validated for exact release candidates and explicit manual runs, not every main or PR head.
+pycubrid implements the CUBRID CAS (broker) wire protocol in Python. It provides synchronous `pycubrid.connect()` and asynchronous `pycubrid.aio.connect()` connections, declares Python 3.11–3.14 and CUBRID 10.2, 11.0, 11.2 and 11.4 support, and is the recommended driver for sqlalchemy-cubrid. Routine CI validates representative combinations; the full supported matrix is validated for exact release candidates and explicit manual runs, not every main or PR head.
 
 Key facts:
 - PEP 249 globals: `apilevel = "2.0"`, `threadsafety = 1` (threads may share the module, not connections), `paramstyle = "qmark"`
