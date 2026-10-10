@@ -15,8 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   collection, a per-position list or tuple, or the official inference
   (`int`/`bool` INT, `float` FLOAT, `Decimal` NUMERIC, `date`/`datetime` DATE,
   `time` TIME, `str` STRING; empty collections STRING; mixed types
-  `TypeError`). Elements are sent as their `str()` text with the SET kind, the
-  same bytes as the official wrapper. `executemany(query, args_list)` checks
+  `TypeError`). Elements are sent as their `str()` text with the SET kind; for
+  supported non-`None` elements this is the same request as the official
+  wrapper's. `executemany(query, args_list)` checks
   every group before one prepare and every group's value count after the
   prepare but before any execute, so an invalid group runs no group; it then
   executes each group and keeps the last `rowcount`. An empty list leaves

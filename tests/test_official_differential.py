@@ -1609,7 +1609,7 @@ def _lob_file_roundtrip(kind: str, payload: bytes, *, replacement: bool = False)
 
 
 def _wrapper_collections(
-    ddl: str, body: Callable[[Any, str], object], select: str | None
+    ddl: str, body: Callable[[Any, str], object], select: str
 ) -> Callable[[], tuple[str, str]]:
     """Run ``body(cursor, table)`` through each wrapper; read rows back via pycubrid."""
 
@@ -1630,8 +1630,6 @@ def _wrapper_collections(
             with closing(connect(URL, TEST_USER, TEST_PASSWORD)) as conn:
                 with closing(conn.cursor()) as cur:
                     calls = body(cur, table)
-            if select is None:
-                return render(calls)
             vc.execute(f"SELECT {select} FROM {table} ORDER BY 1")
             return render((calls, [tuple(row) for row in vc.fetchall()]))
         finally:
@@ -1771,7 +1769,7 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
         "s SET(VARCHAR(20))", _wrapper_null_element, "s"
     ),
     "wrapper-collection-errors": _wrapper_collections(
-        "id INTEGER, s SET(INTEGER), b SET(BIT(16))", _wrapper_collection_errors, None
+        "id INTEGER, s SET(INTEGER), b SET(BIT(16))", _wrapper_collection_errors, "id, s, b"
     ),
     "lob-fetch-bind-copy-blob": _lob_copy("b", 1, "b"),
     "lob-fetch-bind-copy-clob": _lob_copy("c", 1, "c"),

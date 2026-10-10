@@ -387,12 +387,12 @@
       "id": "wrapper-collection-errors",
       "surface": "wrapper",
       "classification": "deviation",
-      "summary": "Mixed element types raise TypeError in both drivers. A server conversion error (-494), an inferred collection starting with None, bytes elements into SET(BIT(16)) and a generator argument give ProgrammingError, a stored row, NotSupportedError and ProgrammingError in pycubrid; CUBRIDdb raises IntegrityError and UnboundLocalError and stores the last two.",
+      "summary": "Mixed element types raise TypeError in both drivers. A server conversion error (-494), an inferred collection starting with None, bytes elements into SET(BIT(16)) and a generator argument give ProgrammingError, a stored row, NotSupportedError and ProgrammingError in pycubrid; CUBRIDdb raises IntegrityError and UnboundLocalError and stores the last two. The stored rows are compared: pycubrid keeps {NULL, 1} for the None-first call; CUBRIDdb keeps the BIT(16) values b'\\x14\\x00' and b'\\x12\\x90' and an empty set for the consumed generator.",
       "inventory_ids": ["CUBRIDdb.cursors.BaseCursor.execute", "CUBRIDdb.cursors.get_set_element_type", "CUBRIDdb.cursors.bytes_to_binary_string"],
       "scenario_ids": ["tests/test_CUBRIDdb.py::DBAPI20Test::test_set_type_binding_set_type_fail", "tests3/test_set.py::test_set_prepare_bit"],
       "issue": "#610",
       "reason": "Server error -494 follows the driver-wide errno mapping (ProgrammingError), as in bind-set-error-classes. A None element is a NULL element (wrapper-collection-null-element) instead of an UnboundLocalError. BIT/VARBIT collection elements stay unsupported, as in the native imports(). Only list, tuple, set and frozenset arguments are collections: the official wrapper consumes a generator while inferring and then binds an empty set.",
-      "expected": {"pycubrid": "[str('raises TypeError'), str('raises ProgrammingError'), str('returns'), str('raises NotSupportedError'), str('raises ProgrammingError')]", "native": "[str('raises TypeError'), str('raises IntegrityError'), str('raises UnboundLocalError'), str('returns'), str('returns')]"}
+      "expected": {"pycubrid": "([str('raises TypeError'), str('raises ProgrammingError'), str('returns'), str('raises NotSupportedError'), str('raises ProgrammingError')], [(int(3), frozenset({NoneType(None), int(1)}), NoneType(None))])", "native": "([str('raises TypeError'), str('raises IntegrityError'), str('raises UnboundLocalError'), str('returns'), str('returns')], [(int(4), NoneType(None), frozenset({bytes(b'\\x12\\x90'), bytes(b'\\x14\\x00')})), (int(5), frozenset({}), NoneType(None))])"}
     },
     {
       "id": "lob-fetch-bind-copy-blob",

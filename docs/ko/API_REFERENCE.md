@@ -587,8 +587,9 @@ finally:
 한정된 래퍼 커서는 공식 CUBRIDdb의 컬렉션 호출 형태를 받습니다(고정된 업스트림
 `CUBRIDdb/cursors.py`, `e75ec36`). 컬렉션 인자마다 위 네이티브 API의
 `conn.connection.set()`, `imports(tuple(elements), code)`, `bind_set(index, s)`를
-사용하므로 요청 바이트는 공식 드라이버와 같습니다. 모든 원소는 SET 종류의 STRING
-텍스트로 전송되고 타입 코드는 import에 붙는 표시일 뿐입니다.
+사용합니다. 모든 원소는 SET 종류의 STRING 텍스트로 전송되고 타입 코드는 import에
+붙는 표시일 뿐입니다. 모든 원소가 지원되고 `None`이 아닌 컬렉션이면 요청 바이트는
+공식 드라이버와 같습니다. `None` 원소와 아래 차이 목록의 경우는 바이트가 같지 않습니다.
 
 | 항목 | 계약 |
 | --- | --- |

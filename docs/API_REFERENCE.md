@@ -610,9 +610,11 @@ finally:
 The qualified wrapper cursors accept the official CUBRIDdb collection call
 shapes (pinned upstream `CUBRIDdb/cursors.py` at `e75ec36`). Each collection
 argument becomes `conn.connection.set()`, `imports(tuple(elements), code)` and
-`bind_set(index, s)` on the native API above, so the request bytes equal the
-official driver's: every element is sent as STRING text with the SET kind, and
-the type code only labels the import.
+`bind_set(index, s)` on the native API above. Every element is sent as STRING
+text with the SET kind, and the type code only labels the import. For
+collections whose elements are all supported and not `None`, the request bytes
+equal the official driver's; a `None` element and the cases listed under the
+differences below are not byte-equivalent.
 
 | Item | Contract |
 | --- | --- |

@@ -426,8 +426,9 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `NotSupportedError`; it is ignored without a collection argument, as
   upstream. Unsupported positional values now raise `ProgrammingError` before
   the statement is prepared rather than at bind time, and such errors discard
-  the previous result and snapshot. The request bytes equal the official
-  wrapper's; the `None` NULL element, BIT/VARBIT rejection, exact collection
+  the previous result and snapshot. For collections of supported non-`None`
+  elements the request bytes equal the official wrapper's; the `None` NULL
+  element, BIT/VARBIT rejection, exact collection
   types and -494 error class are classified deviations pinned by official
   differential claims. Two more differences are covered by offline tests: an
   invalid later `executemany()` group runs no group (official runs earlier
