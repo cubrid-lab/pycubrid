@@ -309,9 +309,11 @@ observed maximum Actions duration with a floor: 5 minutes for gates and small jo
 10–15 for lint/type/offline/tooling and 20–30 for live integration lanes. The two
 long weekly jobs are explicit exceptions with smaller multipliers. Property/fault/soak
 gets 120 (about 1.9× its observed 63; its soak step is separately capped at 90).
-Mutation testing gets 300, about 2.5× its single successful 120-minute run; this is
-the one documented exception to the 180-minute cap and stays below the 360 default.
-Bounding the mutation scope (sharding) is tracked in #750.
+Mutation testing runs as four shards of roughly equal mutant counts (#750): about
+1,550–1,850 of the 6,812 mutants each, so about 30 minutes per shard on the 120-minute
+single-job baseline. Each shard gets 90, which retires the former 300-minute exception;
+no job is above the 180-minute cap. `tests/test_mutation_shards.py` checks that every
+`only_mutate` module is in exactly one shard.
 Aggregate gates (`ci-gate`, `full-matrix-result`) run with `if: always()` and a
 short timeout; a timed-out dependency reports a non-success result
 (`cancelled`/`failure`), which the gate treats as a failure.
