@@ -377,6 +377,7 @@ def test_release_please_freeze_uses_the_review_label() -> None:
 
 def test_release_please_only_touches_its_own_branch() -> None:
     lines = prepare_step("Compose and validate reviewed release notes")
+    assert lines[0] == "set -euo pipefail"
     guard = lines.index(
         'case "$branch" in release-please--branches--main*) ;; '
         "*) echo '::error::Unexpected release branch'; exit 1 ;; esac"

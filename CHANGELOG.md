@@ -229,7 +229,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Release-please push guards are pinned (#801)** — `tests/test_release_workflows.py`
   now asserts the exact, ordered guards of `release-please.yml`: the push is
   directly preceded by the stale-main `exit` and the `autorelease: review`
-  re-check, the branch `case` guard runs before checkout, the freeze step counts
+  re-check, the compose step starts with `set -euo pipefail`, the branch `case`
+  guard runs before checkout, the freeze step counts
   the exact `autorelease: review` label, and the checkout keeps
   `persist-credentials: false`. Removing or weakening any of them now fails a
   test; before, these mutations passed. `RELEASING.md` gains the recovery row
