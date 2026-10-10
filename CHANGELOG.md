@@ -101,6 +101,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+- **Private vulnerability reporting is the preferred security channel (#751)** — GitHub
+  private vulnerability reporting is now enabled for the repository. `SECURITY.md` names it
+  as the preferred private route and keeps the maintainer email as the fallback; `README.md`
+  and the translated READMEs say the same. Docs only.
 - **Development guide points to the current CI cost evidence (#750)** —
   `docs/DEVELOPMENT.md` and its Korean copy replace the historical #564 cost
   baseline (a 2 OS × 5 Python matrix with Python 3.10 and pip caching, which no
