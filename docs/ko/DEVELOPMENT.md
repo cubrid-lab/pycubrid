@@ -299,6 +299,10 @@ pip install -e ".[dev,mutation]"
 make mutation          # mutmut run && mutmut results
 ```
 
+`make mutation`은 Python 3.12 이상이 필요하며 3.11에서는 메시지와 함께 멈춥니다.
+mutmut 3.8이 3.11에서 통계 수집 단계에 실패하기 때문입니다(#812). CI의 주간
+뮤테이션 작업은 3.12를 사용합니다.
+
 단순 점수가 아니라 의미 있는 생존 변이(어떤 테스트도 잡지 못한 뒤집힌 비교나
 빠진 정리 코드)에 집중하세요.
 

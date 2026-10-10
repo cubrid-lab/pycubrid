@@ -311,6 +311,10 @@ pip install -e ".[dev,mutation]"
 make mutation          # mutmut run && mutmut results
 ```
 
+`make mutation` needs Python 3.12 or newer and stops with a message on 3.11:
+mutmut 3.8 fails at stats collection there (#812). CI's weekly mutation job
+uses 3.12.
+
 Focus on meaningful surviving mutants (a flipped comparison or dropped cleanup
 that no test kills), not the raw score.
 
