@@ -574,9 +574,19 @@ performance or roadmap item as current priority, check the live sources:
 
 - [ROADMAP.md](ROADMAP.md) — public roadmap and current project baseline (the
   linked org project board may require cubrid-lab membership).
-- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — investigation workflow, profiling
-  scripts, timing hooks and how to run benchmarks.
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — benchmark methodology, regression
+  checks, profiling scripts, timing hooks and how to reproduce a measurement.
 - [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark) — the
-  pycubrid vs PyMySQL benchmark suite and its published results.
+  benchmark harness and its published results. Its 2026-03 results are historical
+  (pycubrid 0.5.0) and compare database engines; do not use them as a target.
 
-Do not copy benchmark ratios, phase plans or issue tables into this file.
+Performance goals are driver-focused and measured on the same CUBRID server:
+
+- **Release-to-release regression** — the current pycubrid release must not be
+  slower than the previous release on the same workload.
+- **Overhead vs the official `CUBRIDdb` driver** — measure and reduce the gap
+  between pycubrid and `CUBRIDdb` against the same server.
+
+Do not use a comparison with another database engine or its driver as a
+performance goal. Do not copy benchmark ratios, phase plans or issue tables into
+this file.

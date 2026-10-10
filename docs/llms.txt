@@ -54,7 +54,7 @@ Key facts:
 
 ## Optional
 
-- [Performance](https://cubrid-lab.github.io/pycubrid/PERFORMANCE/): Benchmarks, optimization tips, timing hooks
+- [Performance](https://cubrid-lab.github.io/pycubrid/PERFORMANCE/): Benchmark methodology, regression checks, profiling, timing hooks
 - [Troubleshooting](https://cubrid-lab.github.io/pycubrid/TROUBLESHOOTING/): Common issues and solutions
 - [FAQ](https://cubrid-lab.github.io/pycubrid/faq/): Frequently asked questions
 - [Development](https://cubrid-lab.github.io/pycubrid/DEVELOPMENT/): Development setup, tests, CI

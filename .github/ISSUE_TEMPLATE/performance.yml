@@ -46,7 +46,7 @@ body:
       placeholder: |
         Baseline (before): X ops/sec (run: <CI link>)
         Current (after):   Y ops/sec (run: <CI link>)
-        Delta: Z% regression / N× slower than PyMySQL
+        Delta: Z% regression vs the baseline run
 
         Include the full benchmark result table if available.
     validations:
@@ -58,7 +58,7 @@ body:
       label: Expected vs Actual Performance
       description: Describe what performance level is expected and what was observed
       placeholder: |
-        Expected: Similar throughput to previous run / within Nx of PyMySQL baseline
+        Expected: Similar throughput to the previous run or release on the same CUBRID server
         Actual:   Nx slower, specifically on <operation> with <row count> rows
     validations:
       required: true
