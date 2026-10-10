@@ -20,10 +20,10 @@ pytestmark = pytest.mark.repo_tooling
 MAX_TIMEOUT_MINUTES = 180
 GATE_MAX_TIMEOUT_MINUTES = 10
 
-# Documented exceptions above MAX_TIMEOUT_MINUTES (docs/CI_POLICY.md). Weekly
-# mutation testing has one successful run at 120 minutes; keep it bounded below
-# GitHub's 360-minute default rather than cut healthy runs.
-JOB_MAX_OVERRIDES = {("bug-hunt.yml", "mutation"): 300}
+# Documented exceptions above MAX_TIMEOUT_MINUTES (docs/CI_POLICY.md). None
+# today: weekly mutation testing used to need 300 minutes and is now sharded
+# under the cap (#750).
+JOB_MAX_OVERRIDES: dict[tuple[str, str], int] = {}
 
 # Reusable workflows owned outside this repository. Their timeouts are set (or
 # tracked) in the owning repository, not here. Keep entries exact.

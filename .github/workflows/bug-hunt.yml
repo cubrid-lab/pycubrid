@@ -125,9 +125,26 @@ jobs:
   mutation:
     needs: activity
     if: needs.activity.outputs.changed == 'true'
-    name: mutation testing (driver core, offline)
+    name: mutation testing (driver core, offline, ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    # Four shards of roughly equal mutant counts (about 1,550-1,850 each of 6,812
+    # at #750) instead of one 120-minute job, so each shard stays far below the
+    # 180-minute cap. tests/test_workflow_timeouts.py and
+    # tests/test_mutation_shards.py pin the budget and that every only_mutate
+    # module is in exactly one shard.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: protocol
+            mutants: "pycubrid.protocol.*"
+          - shard: connection
+            mutants: "pycubrid.connection.* pycubrid.aio.connection.*"
+          - shard: packet-aio-cursor-lob
+            mutants: "pycubrid.packet.* pycubrid.aio.cursor.* pycubrid.lob.*"
+          - shard: cursor-common
+            mutants: "pycubrid._cursor_common.* pycubrid.cursor.* pycubrid._connection_common.*"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
@@ -138,14 +155,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,mutation]"
       - name: Run mutation testing
+        env:
+          MUTANTS: ${{ matrix.mutants }}
         run: |
-          mutmut run
+          # mutmut matches each name with fnmatch; no shell globbing.
+          set -f
+          mutmut run $MUTANTS
           mutmut results
       - name: Upload mutation cache
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: mutation-cache
+          name: mutation-cache-${{ matrix.shard }}
           path: mutants/
           if-no-files-found: ignore
           retention-days: 14
