@@ -77,6 +77,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `docs/CI_POLICY.md`) instead of being copied. CAS protocol invariants,
   workflow, labelling, release and commit guidance are unchanged. Docs only;
   the driver is unchanged.
+- **Performance guide covers pycubrid on CUBRID only (#795)** — `docs/PERFORMANCE.md`
+  and its Korean translation no longer compare pycubrid on CUBRID with PyMySQL on
+  MySQL: the comparison table, the conclusions drawn from it and the pointers that
+  presented it as the way to evaluate pycubrid are removed. The guide is reorganised
+  into overview, methodology, current release baseline, regression, sync and async,
+  batch processing, fetch and memory, profiling and optimization, known limitations
+  and reproduction sections. Everything not yet measured for the current release is
+  marked "not measured" and points to the baseline issue #797; no new numbers are
+  added. The 2026-03 results in `cubrid-benchmark` (pycubrid 0.5.0) are linked as
+  historical, with their verified limitations: they predate the cursor
+  memory-bounding fix (#203, PR #207, 1.6.0) and the 0.6.0 fix that made
+  `fetchall()` read past the first fetch batch. The `executemany()` batch design
+  and its memory cost are documented. `AGENTS.md` now states driver-focused
+  performance goals (release-to-release regression, overhead against the official
+  `CUBRIDdb` driver on the same server), and the Performance issue template no
+  longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
 ### CI
 - **"Prepare release" fails visibly when a merged release is blocked** —
