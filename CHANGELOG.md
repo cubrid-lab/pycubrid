@@ -226,6 +226,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   module needed a new mark; this is a test-only change.
 
 ### Tests
+- **Release-please push guards are pinned (#801)** — `tests/test_release_workflows.py`
+  now asserts the exact, ordered guards of `release-please.yml`: the push is
+  directly preceded by the stale-main `exit` and the `autorelease: review`
+  re-check, the branch `case` guard runs before checkout, the freeze step counts
+  the exact `autorelease: review` label, and the checkout keeps
+  `persist-credentials: false`. Removing or weakening any of them now fails a
+  test; before, these mutations passed. `RELEASING.md` gains the recovery row
+  for abandoning a merged release (remove `autorelease: pending`, never add
+  `autorelease: tagged`). Test and docs only; the driver and workflows are
+  unchanged.
 - **Makefile signal-cleanup test no longer depends on how pytest was launched
   (#775)** — `test_signal_cleanup_preserves_volumes[SIGINT-*]` failed every time
   pytest ran as a background job of a non-interactive shell (for example two
