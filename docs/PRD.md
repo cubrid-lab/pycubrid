@@ -93,7 +93,7 @@ graph TD
 
 | Package | Version | Purpose |
 |---|---|---|
-| Python | ≥ 3.10 | Runtime |
+| Python | ≥ 3.11 | Runtime |
 | pytest | ≥ 7.0 | Testing (dev) |
 | ruff | ≥ 0.4 | Lint + format (dev) |
 
