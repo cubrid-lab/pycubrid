@@ -7,7 +7,8 @@ name: Integration Full Matrix
 # workflow_call with the release commit SHA, plus the cross-version behavior
 # differential (#351) that needs all four CUBRID versions at once, and the
 # official-driver differential (#446) against the pinned CUBRIDdb oracle, and
-# the Python 3.11/3.14 offline suite at the same SHA (#750).
+# the Python 3.11/3.14 offline suite, lint, type checking, the public-API check
+# and the repository tooling tests at the same SHA (#750).
 
 on:
   workflow_dispatch:
@@ -637,11 +638,150 @@ jobs:
             --cov-report=xml:coverage-py${{ matrix.python-version }}.xml \
             --cov-fail-under=95
 
+  # The four ci.yml lanes below (#750) run on the exact release SHA for the same
+  # reason as offline-endpoints: a main push run of ci.yml covers them, but
+  # nothing in the release path requires that run and a later merge can cancel
+  # it. Each job copies its ci.yml source (same Python version, timeout and
+  # steps). Only three things follow this workflow: `needs: validate-target`
+  # replaces ci.yml's changed-path selection, the checkout drops credentials,
+  # and setup-uv uses the `auto` cache mode. tests/test_ci_policy.py keeps the
+  # copies equal to ci.yml.
+
+  # Copy of ci.yml `lint`.
+  lint:
+    needs: validate-target
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          version: "0.12.17"
+          enable-cache: auto
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
+      - name: Install pinned ruff from pyproject.toml
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
+      - name: Check tool consistency, lint, and format maintained Python
+        run: make lint
+      - name: Lint CHANGELOG structure
+        run: python scripts/lint_changelog.py
+      - name: Korean documents keep the structure of their English source
+        run: python scripts/check_docs_translation.py
+      - name: llms-full.txt and root llms.txt are in sync with source docs
+        run: |
+          python scripts/generate_llms_full.py
+          # --porcelain also reports a generated file that was deleted from the
+          # commit and recreated untracked, which `git diff` would miss.
+          if [ -n "$(git status --porcelain -- docs/llms-full.txt llms.txt)" ]; then
+            echo "::error::docs/llms-full.txt or llms.txt is stale or missing. Edit docs/llms.txt (the canonical index), run 'python scripts/generate_llms_full.py' and commit the result."
+            git status --short -- docs/llms-full.txt llms.txt
+            git diff -- docs/llms-full.txt llms.txt
+            exit 1
+          fi
+
+  # Copy of ci.yml `typecheck`.
+  typecheck:
+    needs: validate-target
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          version: "0.12.17"
+          enable-cache: auto
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
+      - name: Mypy strict
+        run: make typecheck
+
+  # Copy of ci.yml `compat-check`.
+  compat-check:
+    needs: validate-target
+    name: Public API compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          version: "0.12.17"
+          enable-cache: auto
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
+      - name: Install pycubrid (import-only)
+        run: |
+          uv pip install --system -e .
+          uv pip freeze --system
+      - name: Verify public API surface matches api-baseline.json
+        run: python scripts/check_public_api.py
+
+  # Copy of ci.yml `repo-tooling-tests`.
+  repo-tooling-tests:
+    needs: validate-target
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          version: "0.12.17"
+          enable-cache: auto
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
+      - name: Install dependencies
+        shell: bash
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip freeze --system
+      - name: Run repository tooling tests
+        shell: bash
+        run: python -m pytest tests/ -m "repo_tooling" -v --tb=short
+
   full-matrix-result:
     name: Full compatibility matrix result
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validate-target, integration-full, integration-tls, integration-charset, version-differential, official-differential, offline-endpoints]
+    needs: [validate-target, integration-full, integration-tls, integration-charset, version-differential, official-differential, offline-endpoints, lint, typecheck, compat-check, repo-tooling-tests]
     if: always()
     steps:
       - name: Require the full matrix to pass
@@ -672,6 +812,22 @@ jobs:
           fi
           if [ "${{ needs.offline-endpoints.result }}" != "success" ]; then
             echo "::error::Offline Python 3.11/3.14 endpoint cells failed: ${{ needs.offline-endpoints.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "::error::Lint failed: ${{ needs.lint.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.typecheck.result }}" != "success" ]; then
+            echo "::error::Type check failed: ${{ needs.typecheck.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.compat-check.result }}" != "success" ]; then
+            echo "::error::Public API compatibility failed: ${{ needs.compat-check.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.repo-tooling-tests.result }}" != "success" ]; then
+            echo "::error::Repository tooling tests failed: ${{ needs.repo-tooling-tests.result }}"
             exit 1
           fi
           echo "Full compatibility matrix passed."

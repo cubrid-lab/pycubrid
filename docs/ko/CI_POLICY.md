@@ -11,7 +11,7 @@
 | 고위험 PR | Python 3.11과 3.14에서 커버리지를 제외한 전체 오프라인 회귀와 Python 3.14/CUBRID 11.4. 필요하면 대상 레인 추가 |
 | main으로의 코드 푸시 | Ubuntu/Python 3.11과 3.14에서 각각 기존 95% 커버리지 기준을 적용한 전체 오프라인 스위트. 최저·최신 라이브 엔드포인트 |
 | 월요일 03:00 UTC | main 푸시와 같은 정책(Python 3.11/3.14 오프라인 스위트 포함)으로 최근 7일의 변경을 비교. 변경이 없거나 문서만 바뀐 이력은 런타임 테스트를 선택하지 않으며, 같은 SHA의 성공한 푸시 실행이 이미 실행한 레인은 반복하지 않음([이벤트 계층과 비용 근거](#이벤트-계층과-비용-근거) 참고) |
-| 명시적 전체 실행 또는 릴리스 | 기존 전체 Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 통합 워크플로와 필수 릴리스 레인, 그리고 95% 기준을 적용한 Python 3.11/3.14 오프라인 스위트 |
+| 명시적 전체 실행 또는 릴리스 | 기존 전체 Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 통합 워크플로와 필수 릴리스 레인, 그리고 95% 기준을 적용한 Python 3.11/3.14 오프라인 스위트, lint, 타입 검사, 공개 API 기준선, 저장소 도구 테스트 |
 
 PR 스모크 스위트는 의도적으로 범위가 제한되어 있습니다. 기여자는 자신의 변경과
 관련된 회귀 검사를 로컬에서 실행하고 명령과 결과를 PR에 기록해야 합니다.
@@ -150,10 +150,11 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 뮤테이션 테스트 | `bug-hunt.yml` `mutation` | 버그 탐색과 같음 |
 | 벤치마크 추세 | `bug-hunt.yml` `perf-trend` | 버그 탐색과 같음 |
 | 다운스트림 코퍼스 (권고용) | `bug-hunt.yml` `downstream-corpus` | 버그 탐색과 같음 |
-| 타입 검사 | `ci.yml` `typecheck` | 모든 코드 이벤트 (릴리스에서 반복하지 않음) |
-| 공개 API 기준선 | `ci.yml` `compat-check` | 모든 코드 이벤트 (릴리스에서 반복하지 않음) |
+| lint, CHANGELOG 구조, 번역 구조, `llms-full.txt` 동기화 | `ci.yml` `lint`, `integration-full.yml` `lint` (같은 단계) | 모든 이벤트, 릴리스와 전체 수동 실행 |
+| 타입 검사 | `ci.yml` `typecheck`, `integration-full.yml` `typecheck` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
+| 공개 API 기준선 | `ci.yml` `compat-check`, `integration-full.yml` `compat-check` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 패키징 | `ci.yml` `packaging-smoke-test`, `publish-pypi.yml` `consistency`와 `build` | 위험 PR, PR이 아닌 코드 이벤트, 릴리스 |
-| 저장소 도구 | `ci.yml` `repo-tooling-tests` | 도구 경로 이벤트 |
+| 저장소 도구 | `ci.yml` `repo-tooling-tests`, `integration-full.yml` `repo-tooling-tests` (같은 단계) | 도구 경로 이벤트, 릴리스와 전체 수동 실행 |
 | Python 3.15 미리보기 (권고용) | `python-canary.yml` | 수동 실행만 |
 
 ### 통합
@@ -199,7 +200,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 주간 `ci.yml`, head 푸시 실행이 코드 레인과 함께 성공 | 19 → 9 | 약 13 → 약 1.8 | 약 26 → 9 |
 | 주간 `ci.yml`, head 푸시 실행이 성공하지 않았거나 문서 전용 | 19 → 19 | 약 13 → 약 13 | 약 26 → 약 26 |
 | 주간 `bug-hunt.yml` | 7 → 7 (목요일) | 149.4 → 149.4 | 152 → 152 |
-| 릴리스 | 34 → 36 | 41.8 → 약 44.7 | 60.5 → 약 64.5 |
+| 릴리스(lint, typecheck, 공개 API, 저장소 도구의 릴리스 실행 사본 포함) | 34 → 40 | 41.8 → 약 46.2 | 60.5 → 약 68.5 |
 
 이 값은 예상치입니다. 절감을 주장하기 전에 이후 몇 주의 Actions 데이터와 비교하세요.
 
@@ -223,8 +224,25 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 `ci.yml` `offline-tests`와 같은 설치와 pytest 명령으로 Python 3.11과 3.14를 씁니다.
 `full-matrix-result`가 이를 요구합니다. 릴리스마다 약 2.9 러너 분이 늘어납니다.
 
-타입 검사, 공개 API 기준선, lint, 저장소 도구는 여전히 릴리스에서 반복하지 않습니다.
-릴리스 경로는 이를 위해 릴리스 PR과 `main` 푸시 실행에 의존합니다.
+같은 공백이 나머지 `main` 푸시 증거에도 있었고, 메인테이너는 이를 같은 방식으로
+닫기로 결정했습니다(2026-10-11, sqlalchemy-cubrid #737과 같음). `integration-full.yml`은
+`ci.yml` `lint`, `typecheck`, `compat-check`(공개 API 기준선), `repo-tooling-tests`의
+사본도 정확한 SHA에서 같은 Python 버전, 타임아웃, 단계로 실행합니다. `ci.yml`과 다른
+점은 세 가지이며, `tests/test_ci_policy.py`가 나머지를 같게 유지합니다.
+
+- **변경 경로로 선택하지 않습니다.** 각 사본은 `validate-target`만 필요로 하므로 모든
+  수동 실행과 릴리스 호출에서 실행됩니다. 사본이 건너뛰어지는 경우는 `validate-target`이
+  실패했을 때뿐이며, 그때는 이미 게이트가 실패합니다.
+- **체크아웃.** 다른 `integration-full.yml` 잡처럼 체크아웃에서
+  `persist-credentials: false`를 설정합니다.
+- **캐시 모드.** setup-uv는 이 워크플로의 `auto` 캐시 모드를 씁니다.
+
+`full-matrix-result`는 네 잡을 모두 `needs`에 두고 `success`가 아닌 결과에는 실패하므로,
+실패·취소·건너뜀·누락된 사본은 게시를 막습니다. `publish-pypi.yml`은 바뀌지 않습니다.
+이 워크플로는 cubrid-lab 저장소 사이에서 동일하게 유지되기 때문입니다. 다른 방안인
+`main` 푸시 실행을 취소 불가로 만들고 게시 워크플로가 이를 요구하게 하는 방식은
+이 파일을 바꿔야 했습니다. 위의 잡별 중앙값으로 보면 사본은 릴리스나 전체 수동 실행마다
+약 1.5 러너 분(반올림 4분)을 더합니다.
 
 ## 오프라인 엔드포인트 버전
 

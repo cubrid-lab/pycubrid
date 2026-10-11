@@ -455,6 +455,62 @@ def test_release_runs_the_offline_endpoint_cells_itself() -> None:
     )
 
 
+def _normalise_release_copy(steps: list) -> list:
+    """Steps with the per-workflow checkout credentials and setup-uv cache mode removed."""
+    normalised = []
+    for step in steps:
+        step = dict(step)
+        uses = str(step.get("uses", ""))
+        if uses.startswith("actions/checkout@"):
+            step["with"] = {k: v for k, v in step["with"].items() if k != "persist-credentials"}
+        elif uses.startswith("astral-sh/setup-uv@"):
+            step["with"] = {k: v for k, v in step["with"].items() if k != "enable-cache"}
+        normalised.append(step)
+    return normalised
+
+
+# #750: release-run copies of ci.yml lanes the release used to take from the
+# (cancellable, never-required) main push run of ci.yml.
+RELEASE_COPIES = ("lint", "typecheck", "compat-check", "repo-tooling-tests")
+
+
+@pytest.mark.parametrize("name", RELEASE_COPIES)
+def test_release_runs_the_ci_lane_itself_with_the_same_steps(name: str) -> None:
+    full = workflow("integration-full.yml")["jobs"]
+    ci = workflow("ci.yml")["jobs"][name]
+    job = full[name]
+    # Only validate-target may gate the copy; a skip there fails the release gate.
+    assert job["needs"] == "validate-target"
+    assert "if" not in job and "continue-on-error" not in job
+    assert not any("if" in s or "continue-on-error" in s for s in job["steps"])
+    for key in ("name", "strategy", "runs-on", "timeout-minutes"):
+        assert job.get(key) == ci.get(key), key
+    checkout = job["steps"][0]
+    assert checkout["uses"].startswith("actions/checkout@")
+    assert checkout["with"] == {
+        "ref": "${{ inputs.sha || github.sha }}",
+        "persist-credentials": False,
+    }
+    assert _normalise_release_copy(job["steps"]) == _normalise_release_copy(ci["steps"])
+    assert name in FULL_GATE["needs"]
+    assert f'"${{{{ needs.{name}.result }}}}" != "success"' in FULL_GATE["steps"][0]["run"]
+
+
+def test_release_gate_needs_every_release_lane() -> None:
+    assert set(FULL_GATE["needs"]) == {
+        "validate-target",
+        "integration-full",
+        "integration-tls",
+        "integration-charset",
+        "version-differential",
+        "official-differential",
+        "offline-endpoints",
+        *RELEASE_COPIES,
+    }
+    jobs = set(workflow("integration-full.yml")["jobs"]) - {"full-matrix-result"}
+    assert jobs == set(FULL_GATE["needs"]), "every release job must feed the gate"
+
+
 DETECT = workflow("ci.yml")["jobs"]["detect-changes"]
 CODE_FAMILY = ("code", "live", "extended", "tls", "charset", "official")
 
