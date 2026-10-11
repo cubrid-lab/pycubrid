@@ -212,12 +212,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   from 3.11/3.14 to 3.11/3.15. The ordinary PR smoke (3.12) and the
   representative live cells (3.14/11.4 and 3.11/10.2) are unchanged. A policy
   test ties the offline endpoints and the full matrix to the declared
-  classifiers. The manual `python-canary.yml` lane is kept; it now installs the
+  classifiers. The manual `python-canary.yml` lane is kept and renamed "Python 3.15
+  Packaging Check" (it no longer says 3.15 is unsupported); it now installs the
   `dev` extras like `ci.yml`, because its first run failed to collect the
   workflow-policy tests without PyYAML.
 - **Tests that need the C decimal module skip without it** — CI's Python 3.15.0
   has no `_decimal`, so the Decimal-subclass rendering tests are skipped there,
-  the parity round trip binds a plain `Decimal` instead, and a new test checks
+  the parity round trip binds a plain `Decimal` instead (the collection test keeps its
+  other hostile element types and moves the Decimal element to its own case), and a new test checks
   that such a Python rejects a Decimal subclass with `ProgrammingError`.
 - **Every workflow artifact has an explicit retention period (#750)** — the weekly SBOM
   upload had none and was kept for the repository default of 90 days, and

@@ -159,7 +159,7 @@ Median per-job runner minutes on successful code pushes:
 | Public API baseline | `ci.yml` `compat-check`; `integration-full.yml` `compat-check` (same steps) | Every code event; release and full dispatch |
 | Packaging | `ci.yml` `packaging-smoke-test`; `publish-pypi.yml` `consistency` and `build` | Risk PR, non-PR code; release |
 | Repository tooling | `ci.yml` `repo-tooling-tests`; `integration-full.yml` `repo-tooling-tests` (same steps) | Tooling-path events; release and full dispatch |
-| Python 3.15 preview (advisory) | `python-canary.yml` | Manual only |
+| Python 3.15 packaging check (advisory) | `python-canary.yml` | Manual only |
 
 ### Consolidation
 
