@@ -251,10 +251,11 @@ SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are acces
 
 ## Compatibility
 
-Supported: Python 3.11–3.14 and CUBRID 10.2, 11.0, 11.2, 11.4.
+Supported: Python 3.11–3.15 and CUBRID 10.2, 11.0, 11.2, 11.4.
 Ordinary PRs use one Ubuntu/Python 3.12 offline smoke lane; high-risk changes add
-Python 3.14/CUBRID 11.4. Main/changed-weekly validation uses oldest/newest live
-endpoints. The full 4 × 4 live matrix runs on explicit dispatch and every release.
+Python 3.14/CUBRID 11.4. Main/changed-weekly validation also runs Python
+3.11/CUBRID 10.2 live and the full offline suite on Python 3.11 and 3.15. The full
+5 × 4 live matrix runs on explicit dispatch and every release.
 See [CI execution policy](docs/CI_POLICY.md) and [support matrix](docs/SUPPORT_MATRIX.md).
 
 ## Architecture
@@ -324,7 +325,7 @@ Yes. Install `pip install "sqlalchemy-cubrid[pycubrid]"` and use the connection 
 
 ### What Python versions are supported?
 
-Python 3.11, 3.12, 3.13, and 3.14.
+Python 3.11, 3.12, 3.13, 3.14, and 3.15 (standard GIL builds).
 
 ### Does pycubrid support LOBs (CLOB/BLOB)?
 

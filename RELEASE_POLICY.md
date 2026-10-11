@@ -299,6 +299,20 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Python 3.15 support** — MINOR / additive supported-version change. The
+  package declares the `Programming Language :: Python :: 3.15` classifier
+  (`requires-python` stays `>=3.11`), and the full compatibility matrix runs
+  Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every
+  release. The newest offline endpoint moves from 3.14 to 3.15. Standard GIL
+  builds only; free-threaded builds are not supported. No driver API change.
+
+- **`charset="ksc5601"` keeps meaning EUC-KR on Python 3.15** — PATCH /
+  compatibility fix. Python 3.15 maps its `ksc5601` codec alias to CP949, which
+  pycubrid rejects as not ASCII-transparent, so `charset="ksc5601"` raised
+  `ValueError` there. pycubrid now maps `ksc5601` to EUC-KR itself, as on
+  Python 3.11–3.14. Other Python KS C 5601 aliases (such as `ks_c_5601` and
+  `korean`) follow the running Python's codec table. No signature change.
+
 - **Registered PyPI publisher identity** — PATCH / CI configuration correction.
   The sole guarded release orchestrator uses `publish-pypi.yml`, matching the
   existing `cubrid-lab/pycubrid` Trusted Publisher and `pypi` environment. Its

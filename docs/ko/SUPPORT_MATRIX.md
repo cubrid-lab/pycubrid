@@ -18,7 +18,7 @@ pycubrid 릴리스의 호환성과 기능 지원.
 | 3.12 | ✅ 지원 |
 | 3.13 | ✅ 지원 |
 | 3.14 | ✅ 지원 |
-| 3.15 | 🧪 지원 준비 중 (공식 지원 아님) |
+| 3.15 | ✅ 지원 (표준 GIL 빌드) |
 | 3.10 | ❌ 1.10.0부터 미지원 (1.9.x까지 지원) |
 | < 3.10 | ❌ 미지원 |
 
@@ -30,13 +30,21 @@ pycubrid 릴리스의 호환성과 기능 지원.
 라인에만 제공되므로 1.9.x의 추가 릴리스는 없습니다. 업그레이드하기 전에
 Python을 업그레이드하고 가상 환경을 새로 만든 뒤 애플리케이션을 검증하세요.
 
-**Python 3.15 지원 준비:** 2026-10-03 기준 Python 3.15는
-[3.15.0rc3 미리 보기](https://www.python.org/downloads/release/python-3150rc3/)이며
-정식 출시는 2026-10-09로 예정돼 있습니다. 수동 실행 전용 Ubuntu/표준 GIL 검사는
-고정 커밋의 오프라인 회귀 검사와 wheel/sdist의 새 환경 설치를 검증합니다.
-검사 설정이 있다는 사실은 통과 증거가 아닙니다. 아직 Python 3.15의 공식 지원을
-선언하지 않습니다. 정식 출시 후 의존성·패키징·오프라인·실 CUBRID 검증을 통과하면
-지원 목록에 추가하며, free-threaded 빌드는 이번 준비 범위에 포함하지 않습니다.
+**Python 3.15:** 표준 GIL을 쓰는 CPython 3.15.0 정식 릴리스를 지원합니다.
+free-threaded 빌드는 지원하지 않습니다. 전체 호환성 매트릭스는 수동 실행과 모든
+릴리스에서 Python 3.15를 지원되는 모든 CUBRID 버전과 함께 실행하며, 3.15는 최신
+오프라인 엔드포인트입니다. 수동 `python-canary.yml` 레인은 계속 3.15에서
+wheel/sdist의 새 환경 설치를 확인합니다. 환경 참고 사항:
+
+- Decimal 하위 클래스 파라미터에는 C `_decimal` 모듈이 필요합니다. `libmpdec` 없이
+  빌드한 Python(`python:3.15-rc` Docker 이미지와 `libmpdec-dev` 없는 소스 빌드에서
+  확인)에는 이 모듈이 없으며, 이런 파라미터는 `ProgrammingError`를 발생시킵니다.
+  일반 `Decimal` 값은 영향이 없습니다.
+- Python 3.15는 `ksc5601` 코덱 별칭과 다른 KS C 5601 별칭을 CP949로 매핑합니다.
+  pycubrid는 `charset="ksc5601"`을 EUC-KR로 유지하며, 다른 별칭은 Python을 따르므로
+  거부됩니다([연결](CONNECTION.md) 참고).
+- 3.15를 지원 목록에 올린 시점에 Docker Hub에는 정식 `python:3.15` 이미지가
+  없었습니다. CI는 `actions/setup-python`을 사용합니다.
 
 ### CUBRID 서버
 
@@ -53,7 +61,7 @@ Python을 업그레이드하고 가상 환경을 새로 만든 뒤 애플리케�
 | 검증 | 일상 실행 | 전체 호환성 |
 | --- | --- | --- |
 | 오프라인 | Ubuntu/Python 3.12 PR 스모크. 고위험 PR은 커버리지를 제외한 전체 회귀. main/변경이 있는 주간 실행은 95% 커버리지의 전체 스위트 | 로컬 전체 테스트는 그대로 사용 가능 |
-| 라이브 통합 | 고위험 PR은 최신 엔드포인트. main/변경이 있는 주간 실행은 최저·최신 엔드포인트 | 수동 실행과 모든 릴리스에서 Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 |
+| 라이브 통합 | 고위험 PR은 Python 3.14/CUBRID 11.4. main/변경이 있는 주간 실행은 Python 3.11/CUBRID 10.2도 실행 | 수동 실행과 모든 릴리스에서 Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 |
 
 [CI 실행 정책](CI_POLICY.md)을 참고하세요. 이 정책은 각 실행이 무엇을 테스트할지를
 고를 뿐, 위에 나열한 지원 버전을 정의하지 않습니다. 대표 PR 검사는 지원되는 모든
@@ -227,8 +235,8 @@ pycubrid는 모든 버전을 같은 방식으로 디코딩합니다. 아래 차�
 | 지표 | 값 |
 |---|---|
 | 오프라인 회귀 검사 | `make test`; 현재 사례는 [테스트 트리](https://github.com/cubrid-lab/pycubrid/tree/main/tests) 참조 |
-| 대표 통합 검사 | 고위험 PR: 최신 조합; main/변경이 있는 주간 실행: 최저·최신 조합 |
-| 전체 통합 (릴리스 workflow_call + 수동 dispatch) | 16 (Python 4버전 × CUBRID 4버전) |
+| 대표 통합 검사 | 고위험 PR: Python 3.14/CUBRID 11.4; main/변경이 있는 주간 실행: Python 3.11/CUBRID 10.2 추가 |
+| 전체 통합 (릴리스 workflow_call + 수동 dispatch) | 20 (Python 5버전 × CUBRID 4버전) |
 | 스트레스 테스트 | 스레드 (워커 16 × insert 25, 리더 32) 및 `asyncio.gather` (워커 16, 리더 32) |
 | 재연결 / 네트워크 엣지 케이스 | 현재 테스트 트리의 리셋·타임아웃·broken pipe·부분 읽기 회귀 검사 |
 | 전체 실행 커버리지 | 강제되는 95% 하한; [측정 결과](https://codecov.io/gh/cubrid-lab/pycubrid)이며 일반 PR 스모크의 주장은 아님 |

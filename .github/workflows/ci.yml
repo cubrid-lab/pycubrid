@@ -339,7 +339,7 @@ jobs:
         # risk-selected PRs, main pushes, the weekly schedule and manual
         # dispatch run the full offline suite on the oldest and newest
         # supported Python. Keep in sync with the step conditions below.
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true' && '["3.12"]' || '["3.11", "3.14"]') }}
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true' && '["3.12"]' || '["3.11", "3.15"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:

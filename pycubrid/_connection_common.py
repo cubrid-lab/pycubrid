@@ -146,11 +146,13 @@ KNOWN_CONNECTION_OPTIONS: frozenset[str] = frozenset(
 )
 
 # CUBRID charset names (``CHARSET utf8``, ``createdb ... ko_KR.euckr``) that
-# are not all Python codec aliases. ``ksc5601`` is already a Python alias of
-# EUC-KR. CUBRID's ``binary`` charset has no text codec and is rejected.
+# are not all Python codec aliases. ``ksc5601`` is pinned to EUC-KR because
+# Python 3.15 moved its own ``ksc5601`` alias to CP949, which is rejected below.
+# CUBRID's ``binary`` charset has no text codec and is rejected.
 _CUBRID_CHARSET_ALIASES: dict[str, str] = {
     "utf8": "utf-8",
     "euckr": "euc-kr",
+    "ksc5601": "euc-kr",
     "iso88591": "latin-1",
 }
 _ASCII_PROBE = bytes(range(128)).decode("ascii")

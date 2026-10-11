@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import json
+import re
+import tomllib
 import shutil
 import subprocess
 from pathlib import Path
@@ -77,9 +79,9 @@ def test_full_release_call_is_preserved_without_automatic_schedule() -> None:
     assert set(events) == {"workflow_dispatch", "workflow_call"}
     assert events["workflow_call"]["inputs"]["sha"]["required"] is True
     matrix = full["jobs"]["integration-full"]["strategy"]["matrix"]
-    assert matrix["python-version"] == ["3.11", "3.12", "3.13", "3.14"]
+    assert matrix["python-version"] == ["3.11", "3.12", "3.13", "3.14", "3.15"]
     tls = full["jobs"]["integration-tls"]["strategy"]["matrix"]
-    assert tls["python-version"] == ["3.11", "3.14"]
+    assert tls["python-version"] == ["3.11", "3.14", "3.15"]
     cells = workflow("ci.yml")["jobs"]["integration-tests"]["strategy"]["matrix"]
     assert '{"python-version":"3.11","cubrid-version":"10.2"}' in cells
     assert '"3.10"' not in cells
@@ -306,12 +308,12 @@ SMOKE = "Run representative PR smoke tests"
     [
         ("pull_request", "false", {"3.12": [SMOKE]}),
         ("pull_request", "", {"3.12": [SMOKE]}),
-        ("pull_request", "true", {"3.11": [RISK], "3.14": [RISK]}),
-        ("push", "false", {"3.11": [FULL], "3.14": [FULL]}),
-        ("push", "true", {"3.11": [FULL], "3.14": [FULL]}),
-        ("schedule", "false", {"3.11": [FULL], "3.14": [FULL]}),
-        ("schedule", "true", {"3.11": [FULL], "3.14": [FULL]}),
-        ("workflow_dispatch", "false", {"3.11": [FULL], "3.14": [FULL]}),
+        ("pull_request", "true", {"3.11": [RISK], "3.15": [RISK]}),
+        ("push", "false", {"3.11": [FULL], "3.15": [FULL]}),
+        ("push", "true", {"3.11": [FULL], "3.15": [FULL]}),
+        ("schedule", "false", {"3.11": [FULL], "3.15": [FULL]}),
+        ("schedule", "true", {"3.11": [FULL], "3.15": [FULL]}),
+        ("workflow_dispatch", "false", {"3.11": [FULL], "3.15": [FULL]}),
     ],
 )
 def test_offline_matrix_routes_events_to_endpoint_versions(
@@ -320,12 +322,28 @@ def test_offline_matrix_routes_events_to_endpoint_versions(
     assert offline_cells(event, risk) == expected
 
 
+def test_endpoints_and_full_matrix_follow_the_declared_classifiers() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    assert project["requires-python"] == ">=3.11"
+    supported = sorted(
+        (
+            c.rsplit(" :: ", 1)[1]
+            for c in project["classifiers"]
+            if re.fullmatch(r"Programming Language :: Python :: 3\.\d+", c)
+        ),
+        key=lambda v: tuple(map(int, v.split("."))),
+    )
+    assert list(offline_cells("push", "false")) == [supported[0], supported[-1]]
+    full = workflow("integration-full.yml")["jobs"]["integration-full"]["strategy"]["matrix"]
+    assert full["python-version"] == supported
+
+
 @pytest.mark.parametrize("risk", ["true", "false"])
 @pytest.mark.parametrize("event", EVENTS)
 def test_every_offline_cell_runs_exactly_one_marker_scoped_suite(event: str, risk: str) -> None:
     job = workflow("ci.yml")["jobs"]["offline-tests"]
     runs = {s["name"]: s["run"] for s in job["steps"] if "python -m pytest" in s.get("run", "")}
-    supported = {"3.11", "3.12", "3.13", "3.14"}
+    supported = {"3.11", "3.12", "3.13", "3.14", "3.15"}
     for version, steps in offline_cells(event, risk).items():
         assert version in supported
         assert len(steps) == 1, (event, risk, version, steps)
@@ -387,7 +405,7 @@ ENDPOINT_RUN = {"validate-target", "detect-changes", "lint", "typecheck", "compa
 
 @pytest.mark.parametrize("result", ["failure", "cancelled", "skipped"])
 def test_failed_cancelled_or_missing_endpoint_cell_fails_the_gate(result: str) -> None:
-    # A matrix job reports one aggregate result: any failed or cancelled 3.11/3.14
+    # A matrix job reports one aggregate result: any failed or cancelled 3.11/3.15
     # cell makes it non-success, and a job that never ran is "skipped".
     completed = run_gate(ENDPOINT_RUN | {"offline-tests"}, {"offline-tests": result})
     assert completed.returncode != 0
@@ -629,7 +647,7 @@ def job(name: str, conclusion: str = "success") -> dict:
 
 CODE_RUN_JOBS = [
     job("offline-tests (ubuntu-latest, 3.11)"),
-    job("offline-tests (ubuntu-latest, 3.14)"),
+    job("offline-tests (ubuntu-latest, 3.15)"),
 ]
 
 
@@ -662,7 +680,7 @@ CODE_RUN_JOBS = [
             {
                 1: [
                     job("offline-tests (ubuntu-latest, 3.11)"),
-                    job("offline-tests (ubuntu-latest, 3.14)", "failure"),
+                    job("offline-tests (ubuntu-latest, 3.15)", "failure"),
                 ]
             },
             {"code": "false", "tooling": "false"},

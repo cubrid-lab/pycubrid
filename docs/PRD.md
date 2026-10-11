@@ -40,7 +40,7 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 - **LOB support** — CLOB and BLOB handling via `create_lob()`
 - **Prepared statements** — server-side statement preparation and execution *(planned; current implementation uses driver-side parameter binding)*
 - **Batch operations** — `executemany()` and `executemany_batch()` for bulk inserts
-- **CI/CD** — Python 3.11–3.14 support, with representative offline and live-endpoint lanes per change and a full Python × CUBRID matrix on release
+- **CI/CD** — Python 3.11–3.15 support, with representative offline and live-endpoint lanes per change and a full Python × CUBRID matrix on release
 
 ### 1.3 Success Criteria — Status
 
@@ -51,7 +51,7 @@ A complete pure Python implementation of the CUBRID CAS protocol:
 | Offline tests (no live DB) | ✅ | ✅ `make test`; coverage floor enforced on full runs |
 | LOB (CLOB/BLOB) support | ✅ | ✅ `create_lob()`, read/write |
 | Prepared statements | ✅ | ✅ `cursor.execute(sql, params)` — driver-side parameter binding via `?` placeholders (see [PARAMETER_BINDING.md](PARAMETER_BINDING.md)) |
-| CI/CD with version matrix | ✅ | ✅ Py 3.11–3.14 representative offline and live lanes; full 4 × 4 matrix on release |
+| CI/CD with version matrix | ✅ | ✅ Py 3.11–3.15 representative offline and live lanes; full 5 × 4 matrix on release |
 | Publishable to PyPI | ✅ | ✅ Released by merging a reviewed release PR ([RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)) |
 | ≥ 95% code coverage | ✅ | ✅ CI-enforced floor; [measured results](https://codecov.io/gh/cubrid-lab/pycubrid) |
 | Comprehensive documentation | ✅ | ✅ Guides under `docs/` in English and Korean + README |
@@ -193,8 +193,8 @@ Direct implementation of CUBRID's Client Application Server (CAS) binary protoco
 | Lane | Python | CUBRID |
 |---|---|---|
 | Ordinary PR smoke (offline) | 3.12 | — |
-| Main, weekly, high-risk PR (offline) | 3.11, 3.14 | — |
-| Full compatibility matrix (explicit dispatch and every release) | 3.11, 3.12, 3.13, 3.14 | 10.2, 11.0, 11.2, 11.4 (4 × 4) |
+| Main, weekly, high-risk PR (offline) | 3.11, 3.15 | — |
+| Full compatibility matrix (explicit dispatch and every release) | 3.11, 3.12, 3.13, 3.14, 3.15 | 10.2, 11.0, 11.2, 11.4 (5 × 4) |
 
 See [CI execution policy](CI_POLICY.md) for the per-event live endpoints.
 

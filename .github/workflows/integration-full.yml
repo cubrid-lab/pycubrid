@@ -7,7 +7,7 @@ name: Integration Full Matrix
 # workflow_call with the release commit SHA, plus the cross-version behavior
 # differential (#351) that needs all four CUBRID versions at once, and the
 # official-driver differential (#446) against the pinned CUBRIDdb oracle, and
-# the Python 3.11/3.14 offline suite, lint, type checking, the public-API check
+# the Python 3.11/3.15 offline suite, lint, type checking, the public-API check
 # and the repository tooling tests at the same SHA (#750).
 
 on:
@@ -76,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         cubrid-version: ["10.2", "11.0", "11.2", "11.4"]
     services:
       cubrid:
@@ -135,7 +135,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.14"]
+        python-version: ["3.11", "3.14", "3.15"]
         cubrid-version: ["11.4"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -593,7 +593,7 @@ jobs:
 
   offline-endpoints:
     needs: validate-target
-    # The Python 3.11/3.14 offline suite with the 95% floor (#745) at the exact
+    # The Python 3.11/3.15 offline suite with the 95% floor (#745) at the exact
     # release SHA (#750). The ci.yml push run of a release commit can be
     # cancelled by a later merge and nothing in the release path required it,
     # so the release runs these two cells itself. Install and test commands are
@@ -604,7 +604,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.14"]
+        python-version: ["3.11", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -810,7 +810,7 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.offline-endpoints.result }}" != "success" ]; then
-            echo "::error::Offline Python 3.11/3.14 endpoint cells failed: ${{ needs.offline-endpoints.result }}"
+            echo "::error::Offline Python 3.11/3.15 endpoint cells failed: ${{ needs.offline-endpoints.result }}"
             exit 1
           fi
           if [ "${{ needs.lint.result }}" != "success" ]; then

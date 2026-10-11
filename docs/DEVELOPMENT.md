@@ -450,7 +450,7 @@ pytest tests/ -m "integration and tls" -v
 
 You do not need to run the steps above locally for routine development —
 `.github/workflows/integration-full.yml` includes an `integration-tls` job
-(Python {3.11, 3.14} × CUBRID 11.4) that:
+(Python {3.11, 3.14, 3.15} × CUBRID 11.4) that:
 
 1. Starts a CUBRID 11.4 container manually (so the broker config can be
    patched after the container is up).
@@ -890,10 +890,10 @@ assets; pinning its caller is not a complete freeze of those assets.
 Routine CI uses representative offline and live combinations rather than the
 full matrix. Ordinary PRs run offline smoke tests on Ubuntu/Python 3.12.
 High-risk PRs run the full existing offline regressions without coverage on the
-oldest and newest supported Python (3.11 and 3.14) and select newest
-integration. main, changed weekly runs and manual dispatches run the full offline
-suite with 95% coverage on Python 3.11 and 3.14 and use oldest/newest live
-endpoints. Repository
+oldest and newest supported Python (3.11 and 3.15) and select Python
+3.14/CUBRID 11.4 integration. main, changed weekly runs and manual dispatches run
+the full offline suite with 95% coverage on Python 3.11 and 3.15 and add Python
+3.11/CUBRID 10.2 integration. Repository
 tooling is path-selected on one Linux lane. Full integration is explicit/manual
 and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
 validation requirements.

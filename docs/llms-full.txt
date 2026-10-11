@@ -1039,7 +1039,9 @@ aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
 ```
 
 **Accepted values.** Any Python codec name, plus the CUBRID spellings `utf8`,
-`euckr` and `iso88591` (`ksc5601` works through Python's own EUC-KR alias), and
+`euckr` and `iso88591`, plus `ksc5601`, which pycubrid always maps to EUC-KR (Python
+3.15 maps its own `ksc5601` alias and the other KS C 5601 aliases, such as
+`ks_c_5601` and `korean`, to CP949, which is rejected below), and
 a CUBRID locale as given to `createdb`, such as `"ko_KR.euckr"`, whose part
 after the dot is used. `None` means the default `"utf-8"`. The name is
 normalized to the Python codec name (`"euckr"` becomes `"euc_kr"`). The option
@@ -8399,7 +8401,7 @@ Compatibility and feature support for pycubrid releases.
 | 3.12 | ✅ Supported |
 | 3.13 | ✅ Supported |
 | 3.14 | ✅ Supported |
-| 3.15 | 🧪 Preview preparation (not officially supported) |
+| 3.15 | ✅ Supported (standard GIL builds) |
 | 3.10 | ❌ Not supported from 1.10.0 (last supported in 1.9.x) |
 | < 3.10 | ❌ Not supported |
 
@@ -8412,13 +8414,22 @@ release line receives fixes, so 1.9.x gets no further releases. Upgrade your
 interpreter, recreate your virtual environment and validate your application
 before upgrading.
 
-**Python 3.15 preparation:** As of 2026-10-03, Python 3.15 is a preview
-([3.15.0rc3](https://www.python.org/downloads/release/python-3150rc3/)); final
-is scheduled for 2026-10-09. A manual-only Ubuntu/standard-GIL preview workflow
-checks offline regressions and fresh wheel/sdist installs at an immutable commit.
-A configured lane is not a passing result. Python 3.15 is not yet officially
-supported. Promote it only after final-release dependency, packaging, offline
-and live CUBRID validation; free-threaded builds are outside this preparation.
+**Python 3.15:** Supported on the final CPython 3.15.0 release with the
+standard GIL; free-threaded builds are not supported. The full compatibility
+matrix runs Python 3.15 against every supported CUBRID version on manual
+dispatch and every release, and 3.15 is the newest offline endpoint. The
+manual `python-canary.yml` lane still checks fresh wheel/sdist installs on 3.15.
+Environment notes:
+
+- Decimal-subclass parameters need the C `_decimal` module. A Python built
+  without `libmpdec` (observed for the `python:3.15-rc` Docker image and a
+  source build without `libmpdec-dev`) lacks it, and such a parameter raises
+  `ProgrammingError`; plain `Decimal` values are unaffected.
+- Python 3.15 maps its `ksc5601` codec alias and the other KS C 5601 aliases to
+  CP949. pycubrid keeps `charset="ksc5601"` as EUC-KR; the other aliases follow
+  Python and are rejected (see [Connection](CONNECTION.md)).
+- Docker Hub had no final `python:3.15` image when 3.15 was promoted; CI uses
+  `actions/setup-python`.
 
 ### CUBRID Server
 
@@ -8435,7 +8446,7 @@ and live CUBRID validation; free-threaded builds are outside this preparation.
 | Validation | Routine execution | Full compatibility |
 | --- | --- | --- |
 | Offline | PR smoke on Ubuntu/Python 3.12; high-risk PR full regressions without coverage; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
-| Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
+| Live integration | High-risk PR Python 3.14/CUBRID 11.4; main/changed-weekly also Python 3.11/CUBRID 10.2 | Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
 See [CI execution policy](CI_POLICY.md). That policy selects what each run tests; it does
 not define the supported versions listed above, and representative PR checks are not
@@ -8612,8 +8623,8 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 | Metric | Value |
 |---|---|
 | Offline regressions | `make test`; current cases in the [test tree](https://github.com/cubrid-lab/pycubrid/tree/main/tests) |
-| Representative integration | High-risk PR: newest endpoint; main/changed-weekly: oldest/newest endpoints |
-| Full integration (release workflow_call + manual dispatch) | 16 (Python 4 versions × CUBRID 4 versions) |
+| Representative integration | High-risk PR: Python 3.14/CUBRID 11.4; main/changed-weekly: also Python 3.11/CUBRID 10.2 |
+| Full integration (release workflow_call + manual dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
 | Reconnect / network edge cases | Reset, timeout, broken pipe and partial-read regressions in the current test tree |
 | Full-run coverage | Enforced 95% floor; [measured results](https://codecov.io/gh/cubrid-lab/pycubrid), not a routine PR-smoke claim |
@@ -9082,7 +9093,7 @@ pytest tests/ -m "integration and tls" -v
 
 You do not need to run the steps above locally for routine development —
 `.github/workflows/integration-full.yml` includes an `integration-tls` job
-(Python {3.11, 3.14} × CUBRID 11.4) that:
+(Python {3.11, 3.14, 3.15} × CUBRID 11.4) that:
 
 1. Starts a CUBRID 11.4 container manually (so the broker config can be
    patched after the container is up).
@@ -9522,10 +9533,10 @@ assets; pinning its caller is not a complete freeze of those assets.
 Routine CI uses representative offline and live combinations rather than the
 full matrix. Ordinary PRs run offline smoke tests on Ubuntu/Python 3.12.
 High-risk PRs run the full existing offline regressions without coverage on the
-oldest and newest supported Python (3.11 and 3.14) and select newest
-integration. main, changed weekly runs and manual dispatches run the full offline
-suite with 95% coverage on Python 3.11 and 3.14 and use oldest/newest live
-endpoints. Repository
+oldest and newest supported Python (3.11 and 3.15) and select Python
+3.14/CUBRID 11.4 integration. main, changed weekly runs and manual dispatches run
+the full offline suite with 95% coverage on Python 3.11 and 3.15 and add Python
+3.11/CUBRID 10.2 integration. Repository
 tooling is path-selected on one Linux lane. Full integration is explicit/manual
 and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
 validation requirements.
@@ -9677,10 +9688,10 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | --- | --- |
 | Documentation-only PR | Documentation and policy checks; no runtime suite or CUBRID provisioning |
 | Ordinary code PR | One Ubuntu/Python 3.12 offline smoke lane; no full coverage claim |
-| High-risk PR | Full offline regressions without coverage on Python 3.11 and 3.14, plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
-| Code push to main | Full offline suite on Ubuntu/Python 3.11 and 3.14, each with the existing 95% coverage floor; oldest/newest live endpoints |
-| Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.14 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests, and lanes a successful push run of the same SHA already ran are not repeated (see [Event tiers and cost evidence](#event-tiers-and-cost-evidence)) |
-| Explicit full dispatch or release | Existing full Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.14 offline suite with the 95% floor, lint, type checking, the public API baseline and the repository tooling tests |
+| High-risk PR | Full offline regressions without coverage on Python 3.11 and 3.15, plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
+| Code push to main | Full offline suite on Ubuntu/Python 3.11 and 3.15, each with the existing 95% coverage floor; live endpoints Python 3.14/CUBRID 11.4 and Python 3.11/CUBRID 10.2 |
+| Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.15 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests, and lanes a successful push run of the same SHA already ran are not repeated (see [Event tiers and cost evidence](#event-tiers-and-cost-evidence)) |
+| Explicit full dispatch or release | Existing full Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.15 offline suite with the 95% floor, lint, type checking, the public API baseline and the repository tooling tests |
 
 The PR smoke suite is deliberately bounded. Contributors must run the regression
 checks relevant to their change locally and record commands/results in the PR.
@@ -9815,9 +9826,9 @@ Median per-job runner minutes on successful code pushes:
 
 | Coverage | Owner (workflow / job) | Event tier |
 | --- | --- | --- |
-| Offline suite, 95% floor | `ci.yml` `offline-tests`; `integration-full.yml` `offline-endpoints` | Ordinary PR: 3.12 smoke. Risk PR: 3.11 + 3.14 without coverage. Main push, weekly, dispatch: 3.11 + 3.14. Release and full dispatch: 3.11 + 3.14 |
-| Live endpoints | `ci.yml` `integration-tests`; `integration-full.yml` `integration-full` (4 × 4) | Risk PR: 3.14/11.4. Main push, weekly, dispatch: plus 3.11/10.2. Release and full dispatch: all 16 cells |
-| TLS | `ci.yml` `integration-tls` (3.14/11.4); `integration-full.yml` `integration-tls` (3.11 + 3.14) | TLS-path PR, non-PR code; release and full dispatch |
+| Offline suite, 95% floor | `ci.yml` `offline-tests`; `integration-full.yml` `offline-endpoints` | Ordinary PR: 3.12 smoke. Risk PR: 3.11 + 3.15 without coverage. Main push, weekly, dispatch: 3.11 + 3.15. Release and full dispatch: 3.11 + 3.15 |
+| Live endpoints | `ci.yml` `integration-tests`; `integration-full.yml` `integration-full` (5 × 4) | Risk PR: 3.14/11.4. Main push, weekly, dispatch: plus 3.11/10.2. Release and full dispatch: all 20 cells |
+| TLS | `ci.yml` `integration-tls` (3.14/11.4); `integration-full.yml` `integration-tls` (3.11 + 3.14 + 3.15) | TLS-path PR, non-PR code; release and full dispatch |
 | EUC-KR charset | `ci.yml` and `integration-full.yml` `integration-charset` | Charset-path PR, non-PR code; release and full dispatch |
 | Official CUBRIDdb differential | `ci.yml` and `integration-full.yml` `official-differential` | Official-path PR, non-PR code; release and full dispatch |
 | CUBRID version differential | `integration-full.yml` `version-differential` | Release and full dispatch |
@@ -9860,7 +9871,7 @@ Median per-job runner minutes on successful code pushes:
     the previous 7 days.
   - **No duplicate to remove.** Its `integration and not slow and not tls`
     session uses Python 3.12 and the wide Hypothesis profile. That makes it a
-    different cell and profile from `ci.yml`'s 3.11/3.14 cells, so it stays.
+    different cell and profile from `ci.yml`'s 3.11/3.15 cells, so it stays.
 - **The release-merge overlap is kept.**
   - **The overlap.** On a release commit, the `ci.yml` push run's live lanes
     (`integration-tests` 3.14/11.4 and 3.11/10.2, TLS 3.14/11.4, charset,
@@ -9901,8 +9912,8 @@ the `ci.yml` push run.
   group cancels an older push run when a newer push arrives. That happened to
   16 push runs since 2026-09-01.
 
-`integration-full.yml` now runs `offline-endpoints`. It uses Python 3.11 and
-3.14 with the same install and pytest command as `ci.yml` `offline-tests`, at
+`integration-full.yml` now runs `offline-endpoints`. It uses the same Python
+versions as `ci.yml` (3.11 and 3.15, the oldest and newest supported) with the same install and pytest command as `ci.yml` `offline-tests`, at
 the exact SHA. `full-matrix-result` requires it. This adds about 2.9 runner
 minutes per release.
 
@@ -9931,15 +9942,15 @@ From the per-job medians above, the copies add about 1.5 runner minutes
 ## Offline endpoint versions
 
 The `offline-tests` job picks its Python matrix from the event (#745), so the
-full offline suite runs on the oldest (3.11) and newest (3.14) supported Python
+full offline suite runs on the oldest (3.11) and newest (3.15) supported Python
 wherever it already ran in full, while ordinary PRs stay on one cheap cell.
 
 | Event | `offline-tests` cells | Suite |
 | --- | --- | --- |
 | Ordinary code PR (`risk` not selected) | Python 3.12 | Representative smoke tests |
-| Risk-selected PR | Python 3.11 and 3.14 | Full offline suite, no coverage |
-| Push to main, Monday schedule, manual dispatch | Python 3.11 and 3.14 | Full offline suite with the 95% coverage floor |
-| Release and full dispatch (`integration-full.yml` `offline-endpoints`) | Python 3.11 and 3.14 | Same install and command, required by `full-matrix-result` |
+| Risk-selected PR | Python 3.11 and 3.15 | Full offline suite, no coverage |
+| Push to main, Monday schedule, manual dispatch | Python 3.11 and 3.15 | Full offline suite with the 95% coverage floor |
+| Release and full dispatch (`integration-full.yml` `offline-endpoints`) | Python 3.11 and 3.15 | Same install and command, required by `full-matrix-result` |
 
 Every cell keeps the `not integration and not repo_tooling` selection, the
 15-minute timeout and the immutable `inputs.sha || github.sha` checkout. In
@@ -10121,6 +10132,14 @@ regressions and validates fresh wheel/sdist installs. Failed setup/install/tests
 fail the run normally. It is separate from required PR checks and release gates;
 there is no new schedule, PR matrix cell or CUBRID provisioning. This lane alone
 does not establish official support, live database or free-threaded compatibility.
+
+Python 3.15 is now supported (see the [support matrix](SUPPORT_MATRIX.md)). Its
+support evidence comes from the full compatibility matrix (live Python 3.15 ×
+four CUBRID versions and TLS), the 3.15 offline endpoint cells and this lane's
+fresh wheel/sdist installs; the lane is kept as a manual packaging check. The
+3.11 offline endpoint is unchanged; the representative live cells stay on Python
+3.14/CUBRID 11.4 and Python 3.11/CUBRID 10.2, and Python 3.14 is still exercised
+live on every high-risk PR and in the full matrix.
 
 ============================================================
 File: CONTRIBUTING.ko.md

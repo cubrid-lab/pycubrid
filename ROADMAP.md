@@ -47,18 +47,18 @@ for current status; dependencies govern completion, not investigation.
 - Users should migrate Python and recreate/test their virtual environment before
   upgrading to the removal release. No release date or publication is claimed.
 
-## Python 3.15 support preparation
+## Python 3.15 support
 
-- As of 2026-10-03, 3.15.0rc3 is a preview; final is scheduled for 2026-10-09
+- Supported from the next release (see the `[Unreleased]` CHANGELOG section):
+  classifier, full release matrix (Python 3.11–3.15 × CUBRID 10.2–11.4), 3.15 as
+  the newest offline endpoint and English/Korean supported-version docs, tracked
+  in cubrid-lab/sqlalchemy-cubrid#666. Standard GIL builds only; no free-threaded
+  claim. `requires-python` stays `>=3.11`.
+- Preparation history: on 2026-10-03, 3.15.0rc3 was a preview
   ([upstream release notes](https://www.python.org/downloads/release/python-3150rc3/)).
-- Add one manually dispatched Ubuntu/standard-GIL preview lane for full offline
-  regressions, distribution validation and fresh wheel/sdist installations.
-  Routine PRs do not gain a matrix cell or automatic preview run.
-- Before official support: record successful final-runtime/dependency, packaging,
-  offline and real CUBRID integration results at the candidate SHA.
-- Then align the Python 3.15 classifier, full release matrix, local tooling where
-  present, release notes and English/Korean supported-version docs in a follow-up.
-  This preparation changes no official support declaration or Python minimum.
+  A manually dispatched Ubuntu/standard-GIL preview lane (`python-canary.yml`)
+  checked offline regressions and fresh wheel/sdist installations; it is kept as
+  a manual packaging check.
 
 ## Links
 
@@ -76,7 +76,7 @@ Published releases and dated history: [CHANGELOG](CHANGELOG.md).
   `StreamReader`/`StreamWriter`; see [`aio/connection.py`](pycubrid/aio/connection.py).
 - JSON / collection decoding, `ping()`, `nextset()`, and sync + async TLS (TLS 1.2 minimum)
 - 1.x release policy enforced by an automated `compat-check` CI gate against `api-baseline.json`
-- Supported runtimes: Python 3.11–3.14 (3.10 until 1.9.x), CUBRID 10.2–11.4
+- Supported runtimes: Python 3.11–3.15 (3.10 until 1.9.x), CUBRID 10.2–11.4
 
 _See **Completed** for the per-release milestone history._
 

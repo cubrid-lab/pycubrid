@@ -102,6 +102,7 @@ def _select_body(columns: list[tuple[int, bytes]], values: list[bytes | None]) -
         ("EUCKR", "euc_kr"),
         ("euc-kr", "euc_kr"),
         ("ksc5601", "euc_kr"),
+        ("KSC5601", "euc_kr"),
         ("iso88591", "iso8859-1"),
         ("latin-1", "iso8859-1"),
         ("cp1252", "cp1252"),

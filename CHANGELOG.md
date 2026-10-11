@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Python 3.15 support (cubrid-lab/sqlalchemy-cubrid#666)** — the package
+  declares the Python 3.15 classifier, and the full compatibility matrix now runs
+  Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 (20 cells) on manual dispatch and
+  every release. Standard GIL builds only; free-threaded builds are not
+  supported. `requires-python` stays `>=3.11`. Decimal-subclass parameters need
+  the C `_decimal` module; a Python built without `libmpdec` lacks it (the
+  `python:3.15-rc` Docker image and a source build without `libmpdec-dev` were
+  observed without it). See the support matrix.
 - **CUBRIDdb wrapper collection arguments and `executemany()` (#610)** — the
   opt-in `pycubrid.compat.cubriddb` cursors now accept the official wrapper's
   collection call shapes. `execute(query, args, set_type)` binds `list`,
@@ -34,6 +42,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments).
 
 ### Fixed
+- **`charset="ksc5601"` works on Python 3.15** — Python 3.15 maps its own
+  `ksc5601` codec alias to CP949, which pycubrid rejects because CP949 can emit
+  ASCII bytes inside a multibyte character, so connecting with
+  `charset="ksc5601"` raised `ValueError` on 3.15. pycubrid now maps `ksc5601`
+  to EUC-KR itself, as it resolved on Python 3.11–3.14. Other Python KS C 5601
+  aliases such as `ks_c_5601` and `korean` follow the running Python's codec
+  table, so on 3.15 they resolve to CP949 and are rejected.
 - **The second occurrence of a repeated DST hour binds as itself (#819)** — an
   aware `datetime` with a region `tzinfo` (`ZoneInfo`) in a repeated wall time
   was sent with the region alone, which CUBRID resolves to the first
@@ -188,6 +203,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tests read it from there. Contributors replace `pip install -e ".[dev]"` with
   `pip install -e . --group dev` (pip 25.1 or later) or `make install`. No driver,
   runtime dependency or supported-version change.
+- **Python 3.15 in the full matrix and as the newest offline endpoint** —
+  `integration-full.yml` runs the live suite on Python 3.11–3.15 × four CUBRID
+  versions (20 cells) and the TLS lane on Python 3.11, 3.14 and 3.15. The
+  oldest/newest offline cells of `ci.yml` (high-risk PRs, main pushes, the
+  weekly schedule, manual dispatch) and the release `offline-endpoints` move
+  from 3.11/3.14 to 3.11/3.15. The ordinary PR smoke (3.12) and the
+  representative live cells (3.14/11.4 and 3.11/10.2) are unchanged. A policy
+  test ties the offline endpoints and the full matrix to the declared
+  classifiers. The manual `python-canary.yml` lane is kept.
 - **Every workflow artifact has an explicit retention period (#750)** — the weekly SBOM
   upload had none and was kept for the repository default of 90 days, and
   `anchore/sbom-action` stored a second copy of the SBOM. `sbom.yml` now keeps the SBOM

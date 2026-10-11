@@ -16,7 +16,7 @@ Compatibility and feature support for pycubrid releases.
 | 3.12 | ✅ Supported |
 | 3.13 | ✅ Supported |
 | 3.14 | ✅ Supported |
-| 3.15 | 🧪 Preview preparation (not officially supported) |
+| 3.15 | ✅ Supported (standard GIL builds) |
 | 3.10 | ❌ Not supported from 1.10.0 (last supported in 1.9.x) |
 | < 3.10 | ❌ Not supported |
 
@@ -29,13 +29,22 @@ release line receives fixes, so 1.9.x gets no further releases. Upgrade your
 interpreter, recreate your virtual environment and validate your application
 before upgrading.
 
-**Python 3.15 preparation:** As of 2026-10-03, Python 3.15 is a preview
-([3.15.0rc3](https://www.python.org/downloads/release/python-3150rc3/)); final
-is scheduled for 2026-10-09. A manual-only Ubuntu/standard-GIL preview workflow
-checks offline regressions and fresh wheel/sdist installs at an immutable commit.
-A configured lane is not a passing result. Python 3.15 is not yet officially
-supported. Promote it only after final-release dependency, packaging, offline
-and live CUBRID validation; free-threaded builds are outside this preparation.
+**Python 3.15:** Supported on the final CPython 3.15.0 release with the
+standard GIL; free-threaded builds are not supported. The full compatibility
+matrix runs Python 3.15 against every supported CUBRID version on manual
+dispatch and every release, and 3.15 is the newest offline endpoint. The
+manual `python-canary.yml` lane still checks fresh wheel/sdist installs on 3.15.
+Environment notes:
+
+- Decimal-subclass parameters need the C `_decimal` module. A Python built
+  without `libmpdec` (observed for the `python:3.15-rc` Docker image and a
+  source build without `libmpdec-dev`) lacks it, and such a parameter raises
+  `ProgrammingError`; plain `Decimal` values are unaffected.
+- Python 3.15 maps its `ksc5601` codec alias and the other KS C 5601 aliases to
+  CP949. pycubrid keeps `charset="ksc5601"` as EUC-KR; the other aliases follow
+  Python and are rejected (see [Connection](CONNECTION.md)).
+- Docker Hub had no final `python:3.15` image when 3.15 was promoted; CI uses
+  `actions/setup-python`.
 
 ### CUBRID Server
 
@@ -52,7 +61,7 @@ and live CUBRID validation; free-threaded builds are outside this preparation.
 | Validation | Routine execution | Full compatibility |
 | --- | --- | --- |
 | Offline | PR smoke on Ubuntu/Python 3.12; high-risk PR full regressions without coverage; main/changed-weekly full suite, 95% coverage | Local full tests remain available |
-| Live integration | High-risk PR newest endpoint; main/changed-weekly oldest/newest endpoints | Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
+| Live integration | High-risk PR Python 3.14/CUBRID 11.4; main/changed-weekly also Python 3.11/CUBRID 10.2 | Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 on manual dispatch and every release |
 
 See [CI execution policy](CI_POLICY.md). That policy selects what each run tests; it does
 not define the supported versions listed above, and representative PR checks are not
@@ -229,8 +238,8 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 | Metric | Value |
 |---|---|
 | Offline regressions | `make test`; current cases in the [test tree](https://github.com/cubrid-lab/pycubrid/tree/main/tests) |
-| Representative integration | High-risk PR: newest endpoint; main/changed-weekly: oldest/newest endpoints |
-| Full integration (release workflow_call + manual dispatch) | 16 (Python 4 versions × CUBRID 4 versions) |
+| Representative integration | High-risk PR: Python 3.14/CUBRID 11.4; main/changed-weekly: also Python 3.11/CUBRID 10.2 |
+| Full integration (release workflow_call + manual dispatch) | 20 (Python 5 versions × CUBRID 4 versions) |
 | Stress tests | Threaded (16 workers × 25 inserts, 32 readers) and `asyncio.gather` (16 workers, 32 readers) |
 | Reconnect / network edge cases | Reset, timeout, broken pipe and partial-read regressions in the current test tree |
 | Full-run coverage | Enforced 95% floor; [measured results](https://codecov.io/gh/cubrid-lab/pycubrid), not a routine PR-smoke claim |

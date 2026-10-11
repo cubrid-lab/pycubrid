@@ -399,7 +399,7 @@ These rules add to the release procedure above; the procedures and gates in
 - High-risk PR offline and integration: full existing regressions on the oldest and
   newest supported Python, plus targeted live lanes.
 - main, changed-weekly and dispatch: full offline suite with coverage on the oldest and
-  newest supported Python, oldest/newest live endpoints.
+  newest supported Python, live Python 3.14/CUBRID 11.4 and 3.11/CUBRID 10.2.
 - Full integration: manual and every release; no automatic nightly full matrix.
 - Exact Python/CUBRID versions, change classification and gate requirements live in
   the [CI policy](docs/CI_POLICY.md) and the workflow files; do not copy them here.

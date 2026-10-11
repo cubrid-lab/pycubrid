@@ -711,7 +711,7 @@ conn = pycubrid.connect(database="kodb", charset="euckr")
 aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
 ```
 
-**허용 값.** 모든 Python 코덱 이름과 CUBRID 표기 `utf8`, `euckr`, `iso88591`를 받습니다(`ksc5601`은 Python의 EUC-KR 별칭으로 동작). `createdb`에 쓰는 `"ko_KR.euckr"` 같은 CUBRID 로케일도 받으며 점 뒤 부분을 사용합니다. `None`은 기본값 `"utf-8"`입니다. 이름은 Python 코덱 이름으로 정규화됩니다(`"euckr"` → `"euc_kr"`). 옵션은 소켓 작업 전에 검증됩니다:
+**허용 값.** 모든 Python 코덱 이름과 CUBRID 표기 `utf8`, `euckr`, `iso88591`를 받습니다(`ksc5601`은 pycubrid가 항상 EUC-KR로 매핑합니다. Python 3.15는 자체 `ksc5601` 별칭과 `ks_c_5601`, `korean` 같은 다른 KS C 5601 별칭을 CP949로 매핑하며, CP949는 아래와 같이 거부됩니다). `createdb`에 쓰는 `"ko_KR.euckr"` 같은 CUBRID 로케일도 받으며 점 뒤 부분을 사용합니다. `None`은 기본값 `"utf-8"`입니다. 이름은 Python 코덱 이름으로 정규화됩니다(`"euckr"` → `"euc_kr"`). 옵션은 소켓 작업 전에 검증됩니다:
 
 - 문자열이 아니면 `TypeError`;
 - 알 수 없는 코덱, CUBRID `binary` 문자셋(텍스트 코덱 없음), ASCII 투명하지 않은 코덱은 `ValueError`. 거부되는 코덱: UTF-16/32, UTF-7, `utf-8-sig`, Shift_JIS, Big5, GBK, GB18030, CP949, Johab, ISO-2022 계열. SQL 인용·이스케이프는 인코딩 전에 `str`에서 수행되므로, 멀티바이트 문자 안에 `'`나 `\` 같은 ASCII 바이트를 만들 수 있는 코덱은 안전하지 않습니다;

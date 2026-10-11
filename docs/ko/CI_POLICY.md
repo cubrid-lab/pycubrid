@@ -8,10 +8,10 @@
 | --- | --- |
 | 문서만 변경한 PR | 문서 및 정책 검사만 수행. 런타임 스위트와 CUBRID 서버 생성 없음 |
 | 일반 코드 PR | Ubuntu/Python 3.12 오프라인 스모크 레인 하나. 전체 커버리지를 주장하지 않음 |
-| 고위험 PR | Python 3.11과 3.14에서 커버리지를 제외한 전체 오프라인 회귀와 Python 3.14/CUBRID 11.4. 필요하면 대상 레인 추가 |
-| main으로의 코드 푸시 | Ubuntu/Python 3.11과 3.14에서 각각 기존 95% 커버리지 기준을 적용한 전체 오프라인 스위트. 최저·최신 라이브 엔드포인트 |
-| 월요일 03:00 UTC | main 푸시와 같은 정책(Python 3.11/3.14 오프라인 스위트 포함)으로 최근 7일의 변경을 비교. 변경이 없거나 문서만 바뀐 이력은 런타임 테스트를 선택하지 않으며, 같은 SHA의 성공한 푸시 실행이 이미 실행한 레인은 반복하지 않음([이벤트 계층과 비용 근거](#이벤트-계층과-비용-근거) 참고) |
-| 명시적 전체 실행 또는 릴리스 | 기존 전체 Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 통합 워크플로와 필수 릴리스 레인, 그리고 95% 기준을 적용한 Python 3.11/3.14 오프라인 스위트, lint, 타입 검사, 공개 API 기준선, 저장소 도구 테스트 |
+| 고위험 PR | Python 3.11과 3.15에서 커버리지를 제외한 전체 오프라인 회귀와 Python 3.14/CUBRID 11.4. 필요하면 대상 레인 추가 |
+| main으로의 코드 푸시 | Ubuntu/Python 3.11과 3.15에서 각각 기존 95% 커버리지 기준을 적용한 전체 오프라인 스위트. 라이브 엔드포인트 Python 3.14/CUBRID 11.4와 Python 3.11/CUBRID 10.2 |
+| 월요일 03:00 UTC | main 푸시와 같은 정책(Python 3.11/3.15 오프라인 스위트 포함)으로 최근 7일의 변경을 비교. 변경이 없거나 문서만 바뀐 이력은 런타임 테스트를 선택하지 않으며, 같은 SHA의 성공한 푸시 실행이 이미 실행한 레인은 반복하지 않음([이벤트 계층과 비용 근거](#이벤트-계층과-비용-근거) 참고) |
+| 명시적 전체 실행 또는 릴리스 | 기존 전체 Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 통합 워크플로와 필수 릴리스 레인, 그리고 95% 기준을 적용한 Python 3.11/3.15 오프라인 스위트, lint, 타입 검사, 공개 API 기준선, 저장소 도구 테스트 |
 
 PR 스모크 스위트는 의도적으로 범위가 제한되어 있습니다. 기여자는 자신의 변경과
 관련된 회귀 검사를 로컬에서 실행하고 명령과 결과를 PR에 기록해야 합니다.
@@ -140,9 +140,9 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 
 | 커버리지 | 담당 (워크플로 / 잡) | 이벤트 계층 |
 | --- | --- | --- |
-| 오프라인 스위트, 95% 기준 | `ci.yml` `offline-tests`, `integration-full.yml` `offline-endpoints` | 일반 PR: 3.12 스모크. 위험 PR: 커버리지 없이 3.11 + 3.14. main 푸시, 주간, 수동 실행: 3.11 + 3.14. 릴리스와 전체 수동 실행: 3.11 + 3.14 |
-| 라이브 엔드포인트 | `ci.yml` `integration-tests`, `integration-full.yml` `integration-full` (4 × 4) | 위험 PR: 3.14/11.4. main 푸시, 주간, 수동 실행: 3.11/10.2 추가. 릴리스와 전체 수동 실행: 16셀 전부 |
-| TLS | `ci.yml` `integration-tls` (3.14/11.4), `integration-full.yml` `integration-tls` (3.11 + 3.14) | TLS 경로 PR, PR이 아닌 코드 이벤트, 릴리스와 전체 수동 실행 |
+| 오프라인 스위트, 95% 기준 | `ci.yml` `offline-tests`, `integration-full.yml` `offline-endpoints` | 일반 PR: 3.12 스모크. 위험 PR: 커버리지 없이 3.11 + 3.15. main 푸시, 주간, 수동 실행: 3.11 + 3.15. 릴리스와 전체 수동 실행: 3.11 + 3.15 |
+| 라이브 엔드포인트 | `ci.yml` `integration-tests`, `integration-full.yml` `integration-full` (5 × 4) | 위험 PR: 3.14/11.4. main 푸시, 주간, 수동 실행: 3.11/10.2 추가. 릴리스와 전체 수동 실행: 20셀 전부 |
+| TLS | `ci.yml` `integration-tls` (3.14/11.4), `integration-full.yml` `integration-tls` (3.11 + 3.14 + 3.15) | TLS 경로 PR, PR이 아닌 코드 이벤트, 릴리스와 전체 수동 실행 |
 | EUC-KR charset | `ci.yml`과 `integration-full.yml`의 `integration-charset` | charset 경로 PR, PR이 아닌 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 공식 CUBRIDdb 차분 | `ci.yml`과 `integration-full.yml`의 `official-differential` | 공식 경로 PR, PR이 아닌 코드 이벤트, 릴리스와 전체 수동 실행 |
 | CUBRID 버전 차분 | `integration-full.yml` `version-differential` | 릴리스와 전체 수동 실행 |
@@ -180,7 +180,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
   늦다고 앞선 실행이 끝났다는 뜻은 아닙니다.
   - **활동 확인.** 그대로입니다. 일정 실행은 최근 7일에 변경이 있을 때만 돕니다.
   - **제거할 중복이 없습니다.** `integration and not slow and not tls` 세션은
-    Python 3.12와 넓은 Hypothesis 프로필을 씁니다. 따라서 `ci.yml`의 3.11/3.14
+    Python 3.12와 넓은 Hypothesis 프로필을 씁니다. 따라서 `ci.yml`의 3.11/3.15
     셀과는 셀과 프로필이 달라 유지합니다.
 - **릴리스 병합의 겹침은 유지합니다.**
   - **겹치는 부분.** 릴리스 커밋에서 `ci.yml` 푸시 실행의 라이브 레인
@@ -221,7 +221,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
   실행이 그렇게 취소됐습니다.
 
 이제 `integration-full.yml`이 `offline-endpoints`를 실행합니다. 정확한 SHA에서
-`ci.yml` `offline-tests`와 같은 설치와 pytest 명령으로 Python 3.11과 3.14를 씁니다.
+`ci.yml` `offline-tests`와 같은 설치와 pytest 명령으로 `ci.yml`과 같은 Python 3.11과 3.15(지원하는 가장 오래된 버전과 최신 버전)를 씁니다.
 `full-matrix-result`가 이를 요구합니다. 릴리스마다 약 2.9 러너 분이 늘어납니다.
 
 같은 공백이 나머지 `main` 푸시 증거에도 있었고, 메인테이너는 이를 같은 방식으로
@@ -248,14 +248,14 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 
 `offline-tests` 잡은 이벤트에 따라 Python 매트릭스를 고릅니다(#745). 그래서 전체
 오프라인 스위트가 이미 전부 실행되던 곳에서는 지원하는 가장 오래된(3.11) Python과
-최신(3.14) Python에서 실행하고, 일반 PR은 비용이 적은 셀 하나를 유지합니다.
+최신(3.15) Python에서 실행하고, 일반 PR은 비용이 적은 셀 하나를 유지합니다.
 
 | 이벤트 | `offline-tests` 셀 | 스위트 |
 | --- | --- | --- |
 | 일반 코드 PR (`risk` 미선택) | Python 3.12 | 대표 스모크 테스트 |
-| 위험 경로가 선택된 PR | Python 3.11과 3.14 | 커버리지 없는 전체 오프라인 스위트 |
-| main 푸시, 월요일 일정, 수동 실행 | Python 3.11과 3.14 | 95% 커버리지 기준을 적용한 전체 오프라인 스위트 |
-| 릴리스와 전체 수동 실행 (`integration-full.yml` `offline-endpoints`) | Python 3.11과 3.14 | 같은 설치와 명령. `full-matrix-result`가 요구 |
+| 위험 경로가 선택된 PR | Python 3.11과 3.15 | 커버리지 없는 전체 오프라인 스위트 |
+| main 푸시, 월요일 일정, 수동 실행 | Python 3.11과 3.15 | 95% 커버리지 기준을 적용한 전체 오프라인 스위트 |
+| 릴리스와 전체 수동 실행 (`integration-full.yml` `offline-endpoints`) | Python 3.11과 3.15 | 같은 설치와 명령. `full-matrix-result`가 요구 |
 
 모든 셀은 `not integration and not repo_tooling` 선택, 15분 타임아웃, 불변
 `inputs.sha || github.sha` 체크아웃을 그대로 유지합니다. `ci.yml`에서는 커버리지 보고서가 Python
@@ -426,3 +426,10 @@ patch 버전 업데이트를 생태계와 디렉터리별로 PR 하나에 묶으
 실행을 실패시킵니다. 이 레인은 필수 PR 검사나 릴리스 게이트와 분리되어 있으며,
 새 일정, PR 매트릭스 셀, CUBRID 서버 생성이 없습니다. 이 레인만으로는 공식 지원,
 라이브 데이터베이스 호환성, free-threaded 호환성이 성립하지 않습니다.
+
+이제 Python 3.15를 지원합니다([지원 매트릭스](SUPPORT_MATRIX.md) 참고). 지원 근거는
+전체 호환성 매트릭스(라이브 Python 3.15 × CUBRID 4개 버전과 TLS), 3.15 오프라인
+엔드포인트 셀, 이 레인의 wheel/sdist 새 환경 설치 검사입니다. 이 레인은 수동 패키징
+검사로 유지합니다. 3.11 오프라인 엔드포인트는 그대로이며, 대표 라이브 셀은 Python
+3.14/CUBRID 11.4와 Python 3.11/CUBRID 10.2를 유지하므로 Python 3.14는 모든 고위험
+PR과 전체 매트릭스에서 계속 라이브로 실행됩니다.
