@@ -22,12 +22,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Repository-local issue closure in PRs** — the required `PR title` check now
   rejects direct closing keywords targeting a different GitHub repository; local
   `Closes #N` and cross-repository `Refs owner/repo#N` remain valid. PR body text
-  is treated as untrusted data, without checkout or token permissions. Fenced
-  examples (any fence length) and whole-line or multi-line HTML comments are
-  ignored in one pass; indented lines, fences inside a raw HTML block such as
-  `<details>` without a blank line, and comments sharing a line with text are
-  always checked. `Fixes:` with a colon, `_emphasis_` around the keyword and
-  `http://` or `www.` issue URLs are caught too. Regression tests cover each case.
+  is treated as untrusted data, without checkout or token permissions. The check
+  ignores only what GitHub never renders as live text: fenced code (any fence
+  length), indented code blocks, HTML comments and code spans. It follows list
+  items, lazy continuation lines and the headings, block quotes, rules and fences
+  that end a list item, so a real indented code block stays ignored while list
+  text stays checked. Fences and code spans inside raw HTML such as `<details>`,
+  escaped or unclosed markers, and code spans closed on a later line never hide
+  text. Keywords wrapped in emphasis or inline HTML (`**Closes**`, `*Fixes*`,
+  `__Resolves__`), entities and escapes, `Fixes:` with a colon, and `http://`,
+  `www.`, autolink and Markdown-link issue URLs are all caught. Regression tests
+  cover each case.
 
 ## [1.11.0] - 2026-10-11
 

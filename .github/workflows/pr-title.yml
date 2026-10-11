@@ -99,73 +99,193 @@ jobs:
 
           # BEGIN cross-repo-closing-guard
           # No checkout or execution of untrusted PR-body text is needed.
+          import html as html_lib
+
           def strip_inert_markdown(text: str) -> str:
-              # One scan over fenced code and HTML comments, so a marker inside one
-              # cannot hide live text in the other. Anything uncertain (indented
-              # lines, inline comments that share a line with text, fences inside
-              # an HTML block) stays live: a false positive only asks for a body
-              # edit, a false negative closes a foreign issue.
+              # Drop only Markdown that GitHub never renders as live text: fenced
+              # and indented code, HTML comments and code spans. One pass, so none
+              # of them can hide another. Whenever the structure is uncertain the
+              # text stays live: a false positive only asks for a body edit, a
+              # false negative closes a foreign issue.
               output = []
-              fence_char = None
-              fence_size = 0
-              fence_indent = 0
-              in_comment = False
-              in_html_block = False
-              for line in text.splitlines(keepends=True):
-                  stripped = line.lstrip(" ")
-                  indent = len(line) - len(stripped)
-                  if in_comment:
-                      if "-->" in line:
-                          in_comment = False
-                          output.append(line.split("-->", 1)[1])
+              stack = []  # Content indents of the open list items.
+              fence = None  # (character, length, container indent) of an open fence.
+              comment = None  # Container indent of an open HTML comment block.
+              raw_html = None  # "" until a blank line, or the closing tag of <pre> etc.
+              after_blank = True  # An indented code block may start on this line.
+              paragraph = False  # A lazy continuation line may follow.
+              carry = None  # A backtick run that may close on a later line.
+              marker = re.compile(r"(?:[-*+]|[0-9]{1,9}[.)])(?= |$)")
+              rule = re.compile(r"(?:(?:\*[ ]*){3,}|(?:-[ ]*){3,}|(?:_[ ]*){3,})$")
+              opener = re.compile(r"(?:\x60{3,}|~{3,})")
+              heading = re.compile(r"#{1,6}(?: |$)")
+              token = re.compile(r"(?<!\\)(?:<!--|\x60+)")
+
+              def inline(text: str, start: bool, html_mode: bool) -> None:
+                  # Strip comments and code spans from one line of live text.
+                  nonlocal carry, comment
+                  pos = 0
+                  if carry is not None:
+                      close = re.compile(rf"(?<!\x60){carry}(?!\x60)").search(text)
+                      if close is None:
+                          output.append(text)
+                          return
+                      output.append(text[:close.end()])  # Kept live: safe either way.
+                      pos, carry = close.end(), None
+                  while pos < len(text):
+                      found = token.search(text, pos)
+                      if found is None:
+                          output.append(text[pos:])
+                          return
+                      output.append(text[pos:found.start()])
+                      if found.group() == "<!--":
+                          end = text.find("-->", found.start() + 2)  # "<!-->" is closed.
+                          if start and found.start() == 0 and not html_mode and end < 0:
+                              comment = stack[-1] if stack else 0  # Block until "-->".
+                              return
+                          if end < 0:
+                              output.append(found.group())  # Unclosed inline "<!--" is text.
+                              pos = found.end()
+                          else:
+                              pos = end + 3
+                          continue
+                      if html_mode:
+                          output.append(found.group())  # Raw HTML has no code spans.
+                          pos = found.end()
+                          continue
+                      run = re.escape(found.group())
+                      close = re.compile(rf"(?<!\x60){run}(?!\x60)").search(text, found.end())
+                      if close is None:
+                          if carry is None:
+                              carry = run
+                          output.append(found.group())
+                          pos = found.end()
+                      else:
+                          output.append(" ")  # Inline code is inert.
+                          pos = close.end()
+
+              for source in re.split(r"\r\n|\r|\n", text):  # Not splitlines(): U+2028 is text.
+                  line = source.expandtabs(4)
+                  content = line.lstrip(" ")
+                  indent = len(line) - len(content)
+                  output.append("\n")
+                  if not content:
+                      after_blank, paragraph, carry = True, False, None
+                      if raw_html == "":
+                          raw_html = None
                       continue
-                  delimiter = re.match(r"(?:\x60{3,}|~{3,})", stripped) if indent <= 3 else None
-                  if fence_char is not None:
+                  if fence is not None or comment is not None:
+                      container = fence[2] if fence is not None else comment
+                      if indent < container:  # A less indented line closes the list item.
+                          fence = comment = None
+                          while stack and indent < stack[-1]:
+                              stack.pop()
+                  if fence is not None:
+                      found = opener.match(content)
                       if (
-                          delimiter is not None
-                          and delimiter.group()[0] == fence_char
-                          and len(delimiter.group()) >= fence_size
-                          and not stripped[len(delimiter.group()):].strip()
+                          indent - fence[2] <= 3
+                          and found is not None
+                          and found.group()[0] == fence[0]
+                          and len(found.group()) >= fence[1]
+                          and not content[found.end():].strip()
                       ):
-                          fence_char = None
-                          continue
-                      if not (fence_indent and stripped.strip() and indent < fence_indent):
-                          continue
-                      fence_char = None  # A less indented line ends the list item and fence.
-                  if not line.strip():
-                      in_html_block = False
-                  elif indent <= 3 and re.match(r"</?[a-z]", stripped, re.I):
-                      in_html_block = True  # Raw HTML until a blank line: no fences.
-                  if delimiter is not None and not in_html_block and not (
-                      delimiter.group()[0] == "\x60" and "\x60" in stripped[len(delimiter.group()):]
-                  ):
-                      fence_char, fence_size = delimiter.group()[0], len(delimiter.group())
-                      fence_indent = indent
+                          fence, after_blank = None, True
                       continue
-                  starts_comment = indent <= 3 and stripped.startswith("<!--") and "-->" not in line
-                  if re.fullmatch(r"\s*<!--(?!-?>)(?:(?!-->).)*-->\s*", line):
-                      continue  # Only a whole-line comment is inert.
-                  if starts_comment:
-                      in_comment = True
-                      line = line.split("<!--", 1)[0]
-                  output.append(line)
+                  if comment is not None:
+                      end = line.find("-->")
+                      if end >= 0:
+                          comment = None
+                          output.append(line[end + 3:])  # The rest is raw HTML: live.
+                      continue
+                  if raw_html is not None:
+                      inline(line, False, True)
+                      if raw_html and f"</{raw_html}>" in line.lower():
+                          raw_html = None
+                      continue
+                  starts_block = bool(
+                      heading.match(content)
+                      or content.startswith(">")
+                      or opener.match(content)
+                      or rule.match(content)
+                      or marker.match(content)
+                  )
+                  while stack and indent < stack[-1]:
+                      if paragraph and not starts_block:
+                          break  # Lazy continuation keeps the list item open.
+                      stack.pop()
+                  relative = indent - (stack[-1] if stack else 0)
+                  if relative >= 4:
+                      if after_blank:
+                          continue  # Indented Markdown code is inert.
+                      inline(content, False, False)  # Paragraph continuation.
+                      continue
+                  if paragraph and not starts_block and not content.startswith("<"):
+                      inline(content, False, False)
+                      continue
+                  carry = None
+                  after_blank = paragraph = False
+                  if rule.match(content):
+                      after_blank = True
+                      continue
+                  found = marker.match(content)
+                  while found is not None:
+                      rest = content[found.end():]
+                      spaces = len(rest) - len(rest.lstrip(" "))
+                      width = spaces if 1 <= spaces <= 4 else 1
+                      indent += found.end() + width
+                      stack.append(indent)
+                      content = rest[width:] if spaces <= 4 else rest[1:]
+                      found = marker.match(content) if spaces <= 4 else None
+                  if not content.strip():
+                      continue
+                  if content.startswith(" "):
+                      inline(content, False, False)  # Code after a wide marker: live.
+                      paragraph = True
+                      continue
+                  found = opener.match(content)
+                  if found is not None and not (
+                      content[0] == "\x60" and "\x60" in content[found.end():]
+                  ):  # A backtick fence's info string cannot contain a backtick.
+                      fence = (found.group()[0], len(found.group()), indent)
+                      continue
+                  if heading.match(content):
+                      inline(content, True, False)
+                      after_blank = True
+                      continue
+                  if re.match(r"</?[a-z]", content, re.I):
+                      tag = re.match(r"<(pre|script|style|textarea)(?:[ >]|$)", content, re.I)
+                      raw_html = tag.group(1).lower() if tag else ""
+                      inline(content, False, True)
+                      if raw_html and f"</{raw_html}>" in content.lower():
+                          raw_html = None
+                      continue
+                  inline(content, True, False)
+                  paragraph = comment is None
               return "".join(output)
 
           body = strip_inert_markdown(os.environ.get("PR_BODY", ""))
+          # Read the rendered text: escapes and entities resolved, then inline tags
+          # and emphasis markers either removed or turned into spaces.
+          body = html_lib.unescape(re.sub(r"\\([!-/:-@\[-\x60{-~])", r"\1", body))
+          tags = r"</?[a-z][a-z0-9-]*(?:\s[^<>]*)?/?>"
+          views = [re.sub(r"[*~]", "", re.sub(tags, glue, body, flags=re.I)) for glue in ("", " ")]
           close_ref = re.compile(
               r"(?i)(?<![a-z0-9])(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)"
-              r":?\s+(?:(?:https?://)?(?:www\.)?github\.com/)?"
+              r"[\s:_]+(?:\[[^\]]*\]\(\s*)?<?(?:(?:https?://)?(?:www\.)?github\.com/)?_*"
               r"(?P<owner>[a-z0-9][a-z0-9-]*)/(?P<repo>[a-z0-9_.-]+)"
               r"(?:#|/issues/)(?P<number>[1-9][0-9]*)(?![0-9])"
           )
           local_repo = os.environ.get("GITHUB_REPOSITORY", "").lower()
-          for match in close_ref.finditer(body):
-              target = f"{match['owner']}/{match['repo']}".lower()
-              if target != local_repo:
-                  errors.append(
-                      f"Cross-repository issue closure {match.group()!r} is forbidden; "
-                      f"use 'Refs {target}#{match['number']}' and let its own repo close it."
-                  )
+          seen = set()
+          for view in views:
+              for match in close_ref.finditer(view):
+                  target = f"{match['owner']}/{match['repo']}".lower()
+                  if target != local_repo and (target, match["number"]) not in seen:
+                      seen.add((target, match["number"]))
+                      errors.append(
+                          f"Cross-repository issue closure {match.group()!r} is forbidden; "
+                          f"use 'Refs {target}#{match['number']}' and let its own repo close it."
+                      )
           # END cross-repo-closing-guard
 
           for message in warnings:
