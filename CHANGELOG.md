@@ -194,6 +194,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
 ### CI
+- **The PyPI duplicate guard uses `hashlib.file_digest()` (#742)** —
+  `scripts/pypi_duplicate_guard.py` hashes `dist/` files with the Python 3.11 stdlib
+  helper instead of a hand-written chunked read loop; the digests are the same. The
+  sqlalchemy-cubrid and cubrid-mcp-server copies get the same change, so the three stay
+  identical. No runtime change.
 - **Contributor tools moved from the published `dev` extra to dependency groups (#784)** —
   the `dev` and `mutation` extras are gone from the package metadata, so the wheel
   lists only the runtime dependency. `pyproject.toml` declares PEP 735 dependency
