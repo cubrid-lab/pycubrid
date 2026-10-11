@@ -211,7 +211,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   from 3.11/3.14 to 3.11/3.15. The ordinary PR smoke (3.12) and the
   representative live cells (3.14/11.4 and 3.11/10.2) are unchanged. A policy
   test ties the offline endpoints and the full matrix to the declared
-  classifiers. The manual `python-canary.yml` lane is kept.
+  classifiers. The manual `python-canary.yml` lane is kept; it now installs the
+  `dev` extras like `ci.yml`, because its first run failed to collect the
+  workflow-policy tests without PyYAML.
 - **Every workflow artifact has an explicit retention period (#750)** — the weekly SBOM
   upload had none and was kept for the repository default of 90 days, and
   `anchore/sbom-action` stored a second copy of the SBOM. `sbom.yml` now keeps the SBOM
