@@ -31,7 +31,7 @@ pycubrid를 설정·테스트·기여하는 데 필요한 모든 것.
 
 | 요구사항      | 버전    | 비고 |
 |---------------|---------|------|
-| Python        | 3.10+   | `X \| Y` 유니언 구문, `match` 문 사용 |
+| Python        | 3.11+   | `pyproject.toml`의 `requires-python`과 동일 |
 | Docker        | 최신    | 통합 테스트에만 필요 |
 | CUBRID Server | 10.2–11.4 | Docker 또는 로컬 설치 |
 

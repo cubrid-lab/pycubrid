@@ -86,15 +86,121 @@ flowchart TD
 
 ## 현재 릴리스 기준선
 
-현재 릴리스에 대해 공개된 벤치마크 수치는 아직 없습니다. 기준선은 [#797](https://github.com/cubrid-lab/pycubrid/issues/797)에서 추적합니다.
+2026-10-11에 [#797](https://github.com/cubrid-lab/pycubrid/issues/797)을 위해 `cubrid-benchmark`의 [`pycubrid-release-baseline`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/pycubrid-release-baseline) 실험으로 측정했습니다. 원시 결과, 재현 명령과 전체 표도 그 실험에 있습니다.
 
-| 측정 항목 | 상태 |
+| 항목 | 값 |
 |---|---|
-| 현재 릴리스와 1.10.0 비교 | **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| 같은 서버에서 `pycubrid`와 `CUBRIDdb` 비교 | **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| 동기와 비동기 비교 | **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| `executemany()` 배치 처리량 | **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| `fetch_size`별 fetch 처리량과 최대 메모리 | **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
+| CPU | Intel Core i5-9400F @ 2.90 GHz, 6코어 (코어당 스레드 1개) |
+| 메모리 | 31 GiB |
+| OS | Ubuntu 22.04.5 LTS, Linux 5.15.0-198-generic, x86_64 |
+| Python | CPython 3.12.13 |
+| CUBRID | 11.4.6 (Docker 29.2.1의 `cubrid/cubrid:11.4`, localhost) |
+| `pycubrid` | `2228d66` 시점의 `main`, 그리고 PyPI의 1.10.0 |
+| `CUBRIDdb` | cubrid-python `v11.3.0.51` (`c63ab9c`), CCI 위의 C 확장 |
+| 트랜잭션 모드 | 모든 연결에서 `autocommit=False` (`pycubrid`는 `connect(autocommit=False)`), 쓰기마다 명시적 `commit()` |
+| `fetch_size` | 100 (기본값), fetch 케이스에는 1,000과 10,000도 측정 |
+| 데이터 | `(INT PK, VARCHAR(100), VARCHAR(200), INT)` 10,000행 |
+| 반복 | 드라이버별 5회 시행, 순서를 돌아가며 실행, 샘플을 합침, 워밍업 제외 |
+| 부하 | 다른 사용자가 쓰는 공유 머신이므로 결과에 잡음이 있음 |
+
+보고된 모든 반복은 행 수와 값이 맞는지 검사했습니다. 시간은 연산당 밀리초 단위의 합친 중앙값이며, 전체 보고서에는 p95, IQR, 시행별 분산도 있습니다.
+
+<a id="현재-릴리스와-1100-비교"></a>
+
+### 현재 릴리스와 1.10.0 비교
+
+**회귀는 발견되지 않았습니다.** 여기서 회귀는 `main`의 중앙값이 5%보다 더 느리고 사분위 범위가 겹치지 않는 경우입니다. 두 번째 조건 때문에 샘플의 분산보다 큰 저하만 발견할 수 있습니다. 측정된 분산으로 볼 때, 이 규칙이 발견할 수 있는 최소 저하는 다음과 같습니다:
+
+| 연산 | 발견 가능한 최소 저하 |
+|---|---:|
+| `fetchone` / `fetchmany` / `fetchall`, 10,000행 | 6-8% |
+| `executemany()` 10,000 / 1,000 / 100행 | 5% / 18% / 172% |
+| connect + close | 22% |
+| 기본 키로 SELECT, 단일 행 쓰기 + commit | 25-26% |
+| commit 없는 단일 행 실행 | 271-307% |
+
+`main`과 1.10.0의 시행별 중앙값은 10,000행 `executemany()`를 제외한 모든 케이스에서 겹칩니다. 그 케이스에서 `main`은 모든 시행에서 약 0.7% 느리며, 이는 5% 임계값보다 훨씬 작습니다.
+
+| 연산 | `main` | 1.10.0 | 비율 |
+|---|---:|---:|---:|
+| connect + close | 1.50 | 1.49 | 1.01 |
+| 기본 키로 SELECT | 0.60 | 0.60 | 1.00 |
+| INSERT + commit | 34.5 | 33.9 | 1.02 |
+| UPDATE + commit | 33.8 | 33.9 | 1.00 |
+| DELETE + commit | 41.2 | 41.3 | 1.00 |
+| `executemany()` 100 / 1,000 / 10,000행 | 125 / 360 / 3,018 | 125 / 358 / 2,998 | 1.00 / 1.00 / 1.01 |
+| `fetchone` / `fetchmany` / `fetchall`, 10,000행 | 51.2 / 48.4 / 49.7 | 50.6 / 48.9 / 49.6 | 1.01 / 0.99 / 1.00 |
+
+<a id="같은-서버에서-pycubrid와-cubriddb-비교"></a>
+
+### 같은 서버에서 `pycubrid`와 `CUBRIDdb` 비교
+
+| 연산 | `pycubrid` | `CUBRIDdb` | `pycubrid` / `CUBRIDdb` |
+|---|---:|---:|---:|
+| connect + close | 1.50 | 1.00 | 1.49× |
+| 기본 키로 SELECT | 0.60 | 0.55 | 1.10× |
+| INSERT / UPDATE + commit | 34.5 / 33.8 | 33.5 / 33.6 | 1.03× / 1.01× |
+| `executemany()` 100 / 1,000 / 10,000행 | 125 / 360 / 3,018 | 109 / 266 / 2,150 | 1.15× / 1.35× / 1.40× |
+| `fetchone` / `fetchmany` / `fetchall`, 10,000행 | 51.2 / 48.4 / 49.7 | 40.6 / 40.7 / 39.4 | 1.26× / 1.19× / 1.26× |
+
+- 단일 행 쓰기는 서버의 commit에 묶여 있습니다. 두 드라이버 모두 지연 시간이 약 33, 41, 75, 83 ms 부근에 모이므로, 쓰기에서 드라이버 오버헤드가 차지하는 몫은 작습니다. (DELETE + commit이 33.8 ms 대비 41.2 ms로 측정된 것은 중앙값이 다른 묶음에 걸렸기 때문입니다.)
+- `executemany()`는 배치 요청 하나를 보내지만, 행마다 준비된 실행을 한 번씩 하는 `CUBRIDdb`보다 여전히 느립니다 ([#822](https://github.com/cubrid-lab/pycubrid/issues/822)).
+- 10,000행 fetch는 C 확장보다 19-26% 오래 걸립니다.
+
+<a id="동기와-비동기-비교"></a>
+
+### 동기와 비동기 비교
+
+기본 키 SELECT 처리량(초당 쿼리 수)입니다. 워커마다 자기 연결을 갖고 쿼리 200개를 실행합니다.
+
+| 워커 | 동기 (스레드) | 비동기 (`pycubrid.aio` 태스크) | `CUBRIDdb` (스레드) |
+|---:|---:|---:|---:|
+| 1 | 1,510 | 1,414 | 1,725 |
+| 8 | 5,336 | 5,672 | 981 |
+| 32 | 5,173 | 5,693 | 956 |
+
+연결 하나에서는 비동기가 동기보다 약 6% 느립니다. 동시 연결 8-32개에서는 6-10% 빠릅니다. 워커 1개에서 8개로 늘 때 동기는 약 3.5배, 비동기는 약 4.0배 늘어나고, 그 뒤로는 거의 늘지 않습니다. 워커 32개에서 쿼리별 p95는 동기 13.0 ms, 비동기 8.8 ms입니다. `CUBRIDdb`는 C 확장이 CCI 호출 중에 GIL을 놓지 않으므로, 둘 이상의 스레드가 쓰면 처리량이 떨어집니다.
+
+<a id="executemany-배치-처리량"></a>
+
+### `executemany()` 배치 처리량
+
+| 행 수 | commit 포함 시간 (ms) | 초당 행 수 | 최대 Python 힙 |
+|---:|---:|---:|---:|
+| 100 | 125 | 803 | 42 KiB |
+| 1,000 | 360 | 2,780 | 364 KiB |
+| 10,000 | 3,018 | 3,314 | 3.6 MiB |
+
+클라이언트 메모리는 행당 약 380바이트씩 늘어나며, [알려진 한계](#알려진-한계)의 설명과 일치합니다.
+
+<a id="fetch_size별-fetch-처리량과-최대-메모리"></a>
+
+### `fetch_size`별 fetch 처리량과 최대 메모리
+
+localhost에서 10,000행:
+
+| 방법 | `fetch_size` 100 | 1,000 | 10,000 | 최대 Python 힙 (`fetch_size` 100) |
+|---|---:|---:|---:|---:|
+| `fetchone()` 반복 | 51.2 ms | — | — | 130 KiB |
+| `fetchmany(100)` 반복 | 48.4 ms | 49.0 ms | 49.5 ms | 132 KiB |
+| `fetchall()` | 49.7 ms | 48.9 ms | 48.1 ms | 2.1 MiB (결과 리스트) |
+
+모든 경우 초당 약 200,000행입니다. localhost에서는 `fetch_size`에 따른 차이가 측정되지 않았습니다. 지연이 더 큰 네트워크에서는 차이가 날 수 있지만 측정하지 않았습니다. 최대 메모리는 기본 `fetch_size` 100에서만 측정했습니다.
+
+<a id="측정하지-않은-항목"></a>
+
+### 측정하지 않은 항목
+
+- `CUBRIDdb`의 비동기. 비동기 API가 없습니다.
+- `CUBRIDdb`의 `fetch_size` 비교. fetch 크기를 노출하지 않습니다.
+- `CUBRIDdb`의 네이티브(C) 메모리. `tracemalloc`은 Python 힙만 봅니다.
+- `fetch_size` 1,000과 10,000에서의 최대 메모리.
+- 연산별 RSS. 프로세스 최대값(약 39 MiB)만 기록했습니다.
+- UPDATE, DELETE, MERGE의 `executemany()`.
+- `executemany()` 시간이 클라이언트와 서버에 어떻게 나뉘는지.
+- 추가 `lastrowid` 왕복.
+- 원격 네트워크, TLS, LOB, 컬렉션 타입.
+- Python 3.12 외의 버전, CUBRID 11.4 외의 버전.
 
 <a id="과거-결과-2026-03-pycubrid-050"></a>
 
@@ -116,7 +222,7 @@ flowchart TD
 
 주간 **Bug Hunt** 워크플로(`.github/workflows/bug-hunt.yml`, 잡 `perf-trend`)는 CUBRID 11.4에서 `tests/test_benchmarks.py`를 실행하고 `scripts/bench_regression.py`로 이전 실행과 중앙값을 비교합니다. 이것은 추세 보고서입니다: 실패 임계값을 두지 않으며 풀 리퀘스트나 릴리스를 막지 않습니다.
 
-릴리스 간 비교는 아직 **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) 참고.
+릴리스 간 비교는 [현재 릴리스 기준선](#현재-릴리스-기준선)에 있습니다: `main`과 1.10.0 비교.
 
 다음과 같을 때 조사하세요:
 
@@ -163,7 +269,7 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 - `AsyncConnection`은 `asyncio.Lock`으로 요청을 직렬화합니다: 연결 하나는 한 번에 요청 하나를 실행합니다. 비동기는 하나의 이벤트 루프에서 여러 연결이나 다른 I/O가 동시에 실행될 때 도움이 되며, 연결 하나가 쿼리를 차례로 실행할 때는 도움이 되지 않습니다.
 - [타이밍 훅](#타이밍--프로파일링-훅)의 비동기 타이밍에는 이벤트 루프 스케줄링 지연이 포함됩니다.
 
-현재 릴리스의 동기와 비동기 상대 처리량은 **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) 참고.
+측정된 동기와 비동기 처리량은 [동기와 비동기 비교](#동기와-비동기-비교)에 있습니다.
 
 ---
 
@@ -184,7 +290,7 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 - 쓰기 폭주는 문장마다 커밋하지 말고 하나의 명시적 트랜잭션으로 묶으세요.
 - 매우 큰 파라미터 시퀀스는 나누어 보내세요. 이유는 [알려진 한계](#알려진-한계)를 참고하세요.
 
-현재 릴리스의 배치 처리량은 **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) 참고.
+측정된 배치 처리량은 [`executemany()` 배치 처리량](#executemany-배치-처리량)에 있습니다.
 
 ---
 
@@ -201,7 +307,7 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 - `fetchall()`은 남은 모든 행으로 리스트 하나를 만들므로 메모리가 결과 집합 크기에 비례해 커집니다. 끝나면 내부 버퍼를 해제합니다.
 - `fetch_size`가 크면 왕복이 줄고 배치당 메모리가 늘어나며, 작으면 그 반대입니다.
 
-현재 릴리스에서 `fetch_size` 값별 fetch 처리량과 최대 메모리는 **측정되지 않음** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) 참고.
+측정된 `fetch_size` 값별 fetch 처리량과 최대 메모리는 [`fetch_size`별 fetch 처리량과 최대 메모리](#fetch_size별-fetch-처리량과-최대-메모리)에 있습니다.
 
 <a id="fetch-프로파일링"></a>
 
@@ -415,7 +521,7 @@ if conn.timing_stats is not None:
 - **`executemany()`는 배치 전체를 메모리에 보관합니다.** 배치 경로는 보내기 전에 모든 파라미터 세트를 SQL 문자열로 렌더링한 뒤, 전부를 하나의 요청으로 직렬화합니다. 클라이언트 메모리는 파라미터 세트의 수와 크기에 비례해 늘어나므로, 매우 큰 시퀀스는 나누어 보내세요.
 - **`fetchall()`은 결과를 모두 메모리에 올립니다.** 큰 결과 집합에는 `fetchone()`, `fetchmany()`, 반복을 사용하세요.
 - **비동기 타이밍에는 이벤트 루프가 포함됩니다.** [동기와 비동기 특성](#동기와-비동기-특성)을 참고하세요.
-- **현재 릴리스 수치 없음.** 기준선은 [#797](https://github.com/cubrid-lab/pycubrid/issues/797)에서 추적하며, 공개된 2026-03 수치는 [과거 결과](#과거-결과-2026-03-pycubrid-050)입니다.
+- **공개된 2026-03 수치는 [과거 결과](#과거-결과-2026-03-pycubrid-050)입니다.** 대신 [현재 릴리스 기준선](#현재-릴리스-기준선)을 사용하세요.
 
 ---
 

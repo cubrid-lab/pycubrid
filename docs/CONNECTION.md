@@ -26,7 +26,7 @@ This guide covers how to install pycubrid, connect to a CUBRID database, and und
 
 | Requirement   | Version    |
 |---------------|------------|
-| Python        | 3.10+      |
+| Python        | 3.11+      |
 | CUBRID Server | 10.2–11.4  |
 
 No C compiler or native libraries required — pycubrid is pure Python.

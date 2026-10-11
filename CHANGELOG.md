@@ -34,6 +34,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments).
 
 ### Fixed
+- **The second occurrence of a repeated DST hour binds as itself (#819)** — an
+  aware `datetime` with a region `tzinfo` (`ZoneInfo`) in a repeated wall time
+  was sent with the region alone, which CUBRID resolves to the first
+  occurrence, so `datetime(2026, 11, 1, 1, 30, fold=1,
+  tzinfo=ZoneInfo("America/New_York"))` (01:30 EST, 06:30 UTC) was stored as
+  01:30 EDT, one hour off, with no error. When the wall time repeats in its
+  zone and `fold=1`, the literal now names the second occurrence by its
+  abbreviation (`DATETIMETZ'2026-11-01 01:30:00.000 America/New_York EST'`),
+  so it reads back with its region. A numeric abbreviation (Santiago `-04`),
+  one not matching `[A-Za-z]{3,6}`, or one both occurrences share (Moscow
+  `MSK` in 2014) is never put in the SQL; the `fold=1` literal then carries
+  the offset alone (`-05:00`), which keeps the instant but not the region. A
+  `fold=0` value keeps the region-only literal, which CUBRID already resolves
+  to the first occurrence. Every other value, including every `fold=0`
+  value, renders byte-identically, and a skipped spring-forward wall time is
+  still sent with the region alone, which CUBRID rejects with an error.
+  Verified on CUBRID 10.2 and 11.4 for `DATETIMETZ` and `TIMESTAMPTZ`, sync
+  and async.
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
   Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
   literal (for example `[bad]` or `[127.0.0.1]`) is now recorded as
@@ -101,6 +119,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+- **Contributor and development guides state the Python 3.11+ requirement (#700)** —
+  the prerequisites in `CONTRIBUTING.md` and `docs/DEVELOPMENT.md`, with their Korean
+  copies, still said Python 3.10+. They now say 3.11+, and the development guide's note
+  points to `requires-python` instead of naming Python 3.10 syntax. The recorded past CI
+  matrix in the development guide is unchanged. Docs only.
+- **Connection guide and PRD state the Python 3.11+ requirement (#701)** — the
+  prerequisite row in `docs/CONNECTION.md` and the runtime row of the PRD dependency
+  matrix, with their Korean copies, still said Python 3.10+ after 1.10.0 raised
+  `requires-python` to `>=3.11`. They now say 3.11+. Recorded past measurements and
+  behavior that name Python 3.10 are unchanged. Docs only.
 - **Private vulnerability reporting is the preferred security channel (#751)** — GitHub
   private vulnerability reporting is now enabled for the repository. `SECURITY.md` names it
   as the preferred private route and keeps the maintainer email as the fallback; `README.md`

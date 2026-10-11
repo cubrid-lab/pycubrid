@@ -29,7 +29,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 
 | Requirement   | Version  | Notes |
 |---------------|----------|-------|
-| Python        | 3.10+    | Uses `X | Y` union syntax, `match` statements |
+| Python        | 3.11+    | Matches `requires-python` in `pyproject.toml` |
 | Docker        | Latest   | Only for integration tests |
 | CUBRID Server | 10.2–11.4 | Via Docker or local install |
 

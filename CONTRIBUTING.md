@@ -9,7 +9,7 @@ welcome, and no specific translation tool is required.
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Git
 - Docker (for integration tests)
 
@@ -99,6 +99,18 @@ Dependabot's `pip` ecosystem can bump the `pyproject.toml` pin on its own and CI
 stays green, since the pre-commit hooks always run whatever is installed.
 
 ## Pull Request Guidelines
+
+Maintainer/agent-authored PRs use the tool-specific review route in
+[AGENTS.md](AGENTS.md#development-workflow-cubrid-lab-org-standard):
+non-trivial OpenCode work uses documented Oracle design and post-implementation
+reviews; trivial OpenCode edits may skip those reviews with a recorded reason.
+Standalone Claude Code, Codex, ChatGPT or other agent tools wait for a substantive
+submitted GitHub Copilot review or another person's review before merge.
+Reviewer requests, self-review, green CI and automated approval suggestions
+alone do not complete the review route. The final outcome, addressed findings
+and unresolved threads are recorded as described in AGENTS.md. Human
+contributions follow ordinary contributor review; no contributor is required
+to install or use any agent or internal review tool.
 
 1. Keep changes focused and explain the motivation in the PR description.
 2. Add or update tests for behavior changes.

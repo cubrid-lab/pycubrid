@@ -85,16 +85,132 @@ Larger workloads and the harness for comparing drivers live in
 
 ## Current Release Baseline
 
-No benchmark numbers are published for the current release yet. The baseline is tracked in
-[#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+Measured on 2026-10-11 for [#797](https://github.com/cubrid-lab/pycubrid/issues/797) with the
+[`pycubrid-release-baseline`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/pycubrid-release-baseline)
+experiment in `cubrid-benchmark`. That experiment also holds the raw results, the
+reproduction command and the full tables.
 
-| Measurement | Status |
+| Item | Value |
 |---|---|
-| Current release against 1.10.0 | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| `pycubrid` against `CUBRIDdb` on the same server | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| Sync against async | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| `executemany()` batch throughput | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| Fetch throughput and peak memory by `fetch_size` | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
+| CPU | Intel Core i5-9400F @ 2.90 GHz, 6 cores (1 thread per core) |
+| Memory | 31 GiB |
+| OS | Ubuntu 22.04.5 LTS, Linux 5.15.0-198-generic, x86_64 |
+| Python | CPython 3.12.13 |
+| CUBRID | 11.4.6 (`cubrid/cubrid:11.4` in Docker 29.2.1, localhost) |
+| `pycubrid` | `main` at `2228d66`, and 1.10.0 from PyPI |
+| `CUBRIDdb` | cubrid-python `v11.3.0.51` (`c63ab9c`), C extension over CCI |
+| Transaction mode | `autocommit=False` on every connection (`connect(autocommit=False)` for `pycubrid`), explicit `commit()` per write |
+| `fetch_size` | 100 (default), plus 1,000 and 10,000 for the fetch cases |
+| Data | 10,000 rows of `(INT PK, VARCHAR(100), VARCHAR(200), INT)` |
+| Repetitions | 5 trials per driver in rotating order; samples pooled; warm-up discarded |
+| Load | Shared machine with other users active, so results are noisy |
+
+Every reported iteration was checked for the right row counts and values. Times are pooled
+medians in milliseconds per operation; the full report also has p95, IQR and the per-trial
+spread.
+
+### Current release against 1.10.0
+
+**No regression was detected.** A regression here means the `main` median is more than 5%
+slower and the interquartile ranges do not overlap. The second condition means that only a
+slowdown larger than the spread of the samples can be detected. Given the measured spread, the
+rule detects slowdowns of at least:
+
+| Operation | Minimum detectable slowdown |
+|---|---:|
+| `fetchone` / `fetchmany` / `fetchall`, 10,000 rows | 6-8% |
+| `executemany()` 10,000 / 1,000 / 100 rows | 5% / 18% / 172% |
+| connect + close | 22% |
+| SELECT by primary key, single-row writes + commit | 25-26% |
+| single-row execute without commit | 271-307% |
+
+The per-trial medians of `main` and 1.10.0 overlap in every case except `executemany()` of
+10,000 rows, where `main` is about 0.7% slower in every trial. That is well below the 5%
+threshold.
+
+| Operation | `main` | 1.10.0 | Ratio |
+|---|---:|---:|---:|
+| connect + close | 1.50 | 1.49 | 1.01 |
+| SELECT by primary key | 0.60 | 0.60 | 1.00 |
+| INSERT + commit | 34.5 | 33.9 | 1.02 |
+| UPDATE + commit | 33.8 | 33.9 | 1.00 |
+| DELETE + commit | 41.2 | 41.3 | 1.00 |
+| `executemany()` 100 / 1,000 / 10,000 rows | 125 / 360 / 3,018 | 125 / 358 / 2,998 | 1.00 / 1.00 / 1.01 |
+| `fetchone` / `fetchmany` / `fetchall`, 10,000 rows | 51.2 / 48.4 / 49.7 | 50.6 / 48.9 / 49.6 | 1.01 / 0.99 / 1.00 |
+
+### `pycubrid` against `CUBRIDdb` on the same server
+
+| Operation | `pycubrid` | `CUBRIDdb` | `pycubrid` / `CUBRIDdb` |
+|---|---:|---:|---:|
+| connect + close | 1.50 | 1.00 | 1.49× |
+| SELECT by primary key | 0.60 | 0.55 | 1.10× |
+| INSERT / UPDATE + commit | 34.5 / 33.8 | 33.5 / 33.6 | 1.03× / 1.01× |
+| `executemany()` 100 / 1,000 / 10,000 rows | 125 / 360 / 3,018 | 109 / 266 / 2,150 | 1.15× / 1.35× / 1.40× |
+| `fetchone` / `fetchmany` / `fetchall`, 10,000 rows | 51.2 / 48.4 / 49.7 | 40.6 / 40.7 / 39.4 | 1.26× / 1.19× / 1.26× |
+
+- Single-row writes are bound by the server commit. Latency falls into clusters at about 33,
+  41, 75 and 83 ms for both drivers, so driver overhead is a small share of a write.
+  (DELETE + commit measured 41.2 ms against 33.8 ms only because the median fell into a
+  different cluster.)
+- `executemany()` sends one batch request, but it is still slower than `CUBRIDdb`, which runs
+  one prepared execute per row
+  ([#822](https://github.com/cubrid-lab/pycubrid/issues/822)).
+- Fetching 10,000 rows takes 19-26% longer than with the C extension.
+
+### Sync against async
+
+PK SELECT throughput, in queries per second. Each worker has its own connection and runs 200
+queries.
+
+| Workers | Sync (threads) | Async (`pycubrid.aio` tasks) | `CUBRIDdb` (threads) |
+|---:|---:|---:|---:|
+| 1 | 1,510 | 1,414 | 1,725 |
+| 8 | 5,336 | 5,672 | 981 |
+| 32 | 5,173 | 5,693 | 956 |
+
+On one connection, async is about 6% slower than sync. With 8-32 concurrent connections it
+is 6-10% faster. From 1 to 8 workers, sync scales about 3.5× and async about 4.0×; both level
+off after that. Per-query p95 at 32 workers is 13.0 ms for sync and 8.8 ms for async.
+`CUBRIDdb` throughput drops when more than one thread uses it, because its C extension does
+not release the GIL during CCI calls.
+
+### `executemany()` batch throughput
+
+| Rows | Time incl. commit (ms) | Rows/s | Peak Python heap |
+|---:|---:|---:|---:|
+| 100 | 125 | 803 | 42 KiB |
+| 1,000 | 360 | 2,780 | 364 KiB |
+| 10,000 | 3,018 | 3,314 | 3.6 MiB |
+
+Client memory grows by about 380 bytes per row, which confirms
+[Known Limitations](#known-limitations).
+
+### Fetch throughput and peak memory by `fetch_size`
+
+10,000 rows over localhost:
+
+| Method | `fetch_size` 100 | 1,000 | 10,000 | Peak Python heap (`fetch_size` 100) |
+|---|---:|---:|---:|---:|
+| `fetchone()` loop | 51.2 ms | — | — | 130 KiB |
+| `fetchmany(100)` loop | 48.4 ms | 49.0 ms | 49.5 ms | 132 KiB |
+| `fetchall()` | 49.7 ms | 48.9 ms | 48.1 ms | 2.1 MiB (the result list) |
+
+About 200,000 rows/s in every case. Over localhost, `fetch_size` makes no measurable
+difference; it may matter on a network with higher latency, which was not measured. Peak memory
+was measured only at the default `fetch_size` of 100.
+
+### Not measured
+
+- Async for `CUBRIDdb`, which has no async API.
+- A `fetch_size` sweep for `CUBRIDdb`, which does not expose a fetch size.
+- Native (C) memory of `CUBRIDdb`. `tracemalloc` only sees the Python heap.
+- Peak memory at `fetch_size` 1,000 and 10,000.
+- Per-operation RSS. Only the process peak was recorded (about 39 MiB).
+- `executemany()` for UPDATE, DELETE and MERGE.
+- How `executemany()` time splits between client and server.
+- The extra `lastrowid` round trip.
+- Remote networks, TLS, LOB and collection types.
+- Python versions other than 3.12, and CUBRID versions other than 11.4.
 
 ### Historical Results (2026-03, pycubrid 0.5.0)
 
@@ -125,8 +241,8 @@ The weekly **Bug Hunt** workflow (`.github/workflows/bug-hunt.yml`, job `perf-tr
 using `scripts/bench_regression.py`. It is a trend report: it does not set a fail threshold and
 does not gate pull requests or releases.
 
-A release-to-release comparison is **not measured** yet — see
-[#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+The release-to-release comparison is published in
+[Current Release Baseline](#current-release-baseline): `main` against 1.10.0.
 
 Investigate when:
 
@@ -176,8 +292,7 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 - Async timings from the [timing hooks](#timing--profiling-hooks) include event-loop scheduling
   latency.
 
-Relative sync and async throughput is **not measured** for the current release — see
-[#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+Measured sync and async throughput is in [Sync against async](#sync-against-async).
 
 ---
 
@@ -202,8 +317,7 @@ Practical advice:
 - Split very large parameter sequences into chunks; see
   [Known Limitations](#known-limitations) for why.
 
-Batch throughput is **not measured** for the current release — see
-[#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+Measured batch throughput is in [`executemany()` batch throughput](#executemany-batch-throughput).
 
 ---
 
@@ -223,8 +337,8 @@ the cursor's row buffer instead of adding to it, so the buffer holds at most one
 - A larger `fetch_size` means fewer round trips and more memory per batch; a smaller one means
   the reverse.
 
-Fetch throughput and peak memory for different `fetch_size` values are **not measured** for the
-current release — see [#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+Measured fetch throughput and peak memory for different `fetch_size` values are in
+[Fetch throughput and peak memory by `fetch_size`](#fetch-throughput-and-peak-memory-by-fetch_size).
 
 ### Profiling Fetch
 
@@ -455,9 +569,8 @@ All cursors created from a connection report into the same `TimingStats`. Stats 
   large result sets.
 - **Async timing includes the event loop.** See
   [Sync and Async Characteristics](#sync-and-async-characteristics).
-- **No current-release numbers.** The baseline is tracked in
-  [#797](https://github.com/cubrid-lab/pycubrid/issues/797); the published 2026-03 numbers are
-  [historical](#historical-results-2026-03-pycubrid-050).
+- **The published 2026-03 numbers are [historical](#historical-results-2026-03-pycubrid-050).**
+  Use the [Current Release Baseline](#current-release-baseline) instead.
 
 ---
 
