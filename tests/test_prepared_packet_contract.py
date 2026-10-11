@@ -9,7 +9,7 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 
 from pycubrid import protocol
 from pycubrid.constants import CCIPrepareOption, CUBRIDStatementType
-from pycubrid.exceptions import DataError, ProgrammingError
+from pycubrid.exceptions import DataError, NotSupportedError, ProgrammingError
 
 _CAS_INFO = b"\x01\x00\x00\x00"
 
@@ -170,12 +170,12 @@ def test_prepare_rejects_invalid_sql_before_serialization(sql: str, error: type[
 @pytest.mark.parametrize(
     ("value", "error"),
     [
-        (True, ProgrammingError),
-        (b"bytes", ProgrammingError),
+        (object(), ProgrammingError),
+        (b"", NotSupportedError),
         ("a\x00b", ProgrammingError),
         ("\ud800", DataError),
-        (2**31, DataError),
-        (-(2**31) - 1, DataError),
+        (10**38, DataError),
+        (-(10**38), DataError),
     ],
 )
 def test_prepared_scalar_rejects_unsupported_values(value: object, error: type[Exception]) -> None:

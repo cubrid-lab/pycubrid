@@ -557,7 +557,12 @@ class cursor:
             self._invalidate_result()
 
     def bind_param(self, index: int, value: Any, bind_type: int = 0, /) -> None:
-        """Bind a one-based INT, string or SQL NULL without wire I/O."""
+        """Bind one one-based typed value without wire I/O.
+
+        ``None``, ``bool``/``int`` (INT, BIGINT or NUMERIC by range), ``str``,
+        ``float``, ``Decimal``, ``date``, ``time``, ``datetime`` and
+        ``bytes``/``bytearray``; see ``docs/PARAMETER_BINDING.md`` (#840).
+        """
         with self._connection._session_lock:
             driver, _handle, _generation = self._check_handle()
             if type(bind_type) is not int or bind_type != 0:
