@@ -12,9 +12,17 @@ from typing import cast
 
 import pytest
 
+from pycubrid._cursor_common import _CDecimal
 from pycubrid.exceptions import DataError, ProgrammingError
 
 _INJECTED = "1; DROP TABLE t"
+
+# Decimal subclasses render by value only with the C decimal module; without it
+# (a Python built without libmpdec, such as the actions/setup-python 3.15.0
+# build) pycubrid refuses them, which TestPureDecimalFallback covers.
+requires_c_decimal = pytest.mark.skipif(
+    _CDecimal is None, reason="Decimal subclass parameters need the C decimal module"
+)
 
 
 class _Color(enum.IntEnum):
@@ -345,8 +353,8 @@ class TestFormatParameterTypes:
             (_HostileInt(-(10**40)), "-1" + "0" * 40),
             (_HostileFloat(2.5), "2.5"),
             (_HostileFloat(1e20), "1e+20"),
-            (_HostileDecimal("1E-7"), "0.0000001"),
-            (_HostileDecimal("-1.10"), "-1.10"),
+            pytest.param(_HostileDecimal("1E-7"), "0.0000001", marks=requires_c_decimal),
+            pytest.param(_HostileDecimal("-1.10"), "-1.10", marks=requires_c_decimal),
         ],
         ids=[
             "IntEnum",
@@ -372,10 +380,12 @@ class TestFormatParameterTypes:
         with pytest.raises(ProgrammingError, match="nan and inf"):
             cursor._format_parameter(_HostileFloat("nan"))
 
+    @requires_c_decimal
     def test_decimal_subclass_nan_raises(self, cursor: object) -> None:
         with pytest.raises(ProgrammingError, match="nan and inf"):
             cursor._format_parameter(_HostileDecimal("NaN"))
 
+    @requires_c_decimal
     def test_decimal_subclass_precision_check_uses_value(self, cursor: object) -> None:
         # A lying as_tuple() override must not bypass the 38-digit check.
         with pytest.raises(DataError, match="at most 38 digits"):
@@ -1045,11 +1055,21 @@ class TestPureDecimalFallback:
         # A plain pure-Python Decimal still renders.
         assert _cursor_common.format_parameter(_pydecimal.Decimal("1E-7")) == "0.0000001"
 
+    @requires_c_decimal
     def test_c_decimal_subclass_is_forge_proof(self) -> None:
         from pycubrid._cursor_common import format_parameter
 
         forged = self._forging_subclass(Decimal)("1.5")
         assert format_parameter(forged) == "1.5"
+
+    @pytest.mark.skipif(_CDecimal is not None, reason="the C decimal module is available")
+    def test_subclass_rejected_on_a_python_without_c_decimal(self) -> None:
+        # The real environment, not a monkeypatch: the interpreter has no _decimal.
+        from pycubrid._cursor_common import format_parameter
+
+        with pytest.raises(ProgrammingError, match="require the C decimal module"):
+            format_parameter(_HostileDecimal("1.5"))
+        assert format_parameter(Decimal("1.5")) == "1.5"
 
 
 class _RepeatedHourTZ(datetime.tzinfo):

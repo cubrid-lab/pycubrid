@@ -32,6 +32,7 @@ from .test_param_security import (
     _HostileStr,
     _HostileTime,
     _spoof,
+    requires_c_decimal,
 )
 
 _KINDS = [(Set, "SET"), (Multiset, "MULTISET"), (Sequence, "SEQUENCE")]
@@ -198,6 +199,7 @@ class TestRendering:
 class TestHostileElements:
     """Elements render from their stored values, never from overridden methods."""
 
+    @requires_c_decimal
     @pytest.mark.parametrize("kind, keyword", _KINDS)
     @pytest.mark.parametrize("no_backslash_escapes", [True, False])
     def test_hostile_subclass_elements(

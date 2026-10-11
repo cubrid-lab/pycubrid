@@ -37,9 +37,11 @@ free-threaded 빌드는 지원하지 않습니다. 전체 호환성 매트릭스
 wheel/sdist의 새 환경 설치를 확인합니다. 환경 참고 사항:
 
 - Decimal 하위 클래스 파라미터에는 C `_decimal` 모듈이 필요합니다. `libmpdec` 없이
-  빌드한 Python(`python:3.15-rc` Docker 이미지와 `libmpdec-dev` 없는 소스 빌드에서
-  확인)에는 이 모듈이 없으며, 이런 파라미터는 `ProgrammingError`를 발생시킵니다.
-  일반 `Decimal` 값은 영향이 없습니다.
+  빌드한 Python에는 이 모듈이 없으며, 이런 파라미터는 `ProgrammingError`를
+  발생시킵니다. 일반 `Decimal` 값은 영향이 없습니다. CI가 쓰는 `actions/setup-python`
+  3.15.0 빌드, `python:3.15-rc` Docker 이미지, `libmpdec-dev` 없는 소스 빌드 모두에서
+  이 모듈이 없음을 확인했습니다. 따라서 CI는 C 모듈 없이 3.15 셀을 실행하며, 이 모듈이
+  필요한 테스트는 그곳에서 건너뜁니다.
 - Python 3.15는 `ksc5601` 코덱 별칭과 다른 KS C 5601 별칭을 CP949로 매핑합니다.
   pycubrid는 `charset="ksc5601"`을 EUC-KR로 유지하며, 다른 별칭은 Python을 따르므로
   거부됩니다([연결](CONNECTION.md) 참고).

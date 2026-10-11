@@ -37,9 +37,11 @@ manual `python-canary.yml` lane still checks fresh wheel/sdist installs on 3.15.
 Environment notes:
 
 - Decimal-subclass parameters need the C `_decimal` module. A Python built
-  without `libmpdec` (observed for the `python:3.15-rc` Docker image and a
-  source build without `libmpdec-dev`) lacks it, and such a parameter raises
-  `ProgrammingError`; plain `Decimal` values are unaffected.
+  without `libmpdec` lacks it, and such a parameter raises `ProgrammingError`;
+  plain `Decimal` values are unaffected. The `actions/setup-python` 3.15.0
+  build that CI uses, the `python:3.15-rc` Docker image and a source build
+  without `libmpdec-dev` were all observed without it, so CI runs the 3.15
+  cells without the C module and the tests that need it are skipped there.
 - Python 3.15 maps its `ksc5601` codec alias and the other KS C 5601 aliases to
   CP949. pycubrid keeps `charset="ksc5601"` as EUC-KR; the other aliases follow
   Python and are rejected (see [Connection](CONNECTION.md)).

@@ -12,9 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 (20 cells) on manual dispatch and
   every release. Standard GIL builds only; free-threaded builds are not
   supported. `requires-python` stays `>=3.11`. Decimal-subclass parameters need
-  the C `_decimal` module; a Python built without `libmpdec` lacks it (the
-  `python:3.15-rc` Docker image and a source build without `libmpdec-dev` were
-  observed without it). See the support matrix.
+  the C `_decimal` module; a Python built without `libmpdec` lacks it, and the
+  `actions/setup-python` 3.15.0 build, the `python:3.15-rc` Docker image and a
+  source build without `libmpdec-dev` were observed without it. See the support
+  matrix.
 - **CUBRIDdb wrapper collection arguments and `executemany()` (#610)** — the
   opt-in `pycubrid.compat.cubriddb` cursors now accept the official wrapper's
   collection call shapes. `execute(query, args, set_type)` binds `list`,
@@ -214,6 +215,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   classifiers. The manual `python-canary.yml` lane is kept; it now installs the
   `dev` extras like `ci.yml`, because its first run failed to collect the
   workflow-policy tests without PyYAML.
+- **Tests that need the C decimal module skip without it** — CI's Python 3.15.0
+  has no `_decimal`, so the Decimal-subclass rendering tests are skipped there,
+  the parity round trip binds a plain `Decimal` instead, and a new test checks
+  that such a Python rejects a Decimal subclass with `ProgrammingError`.
 - **Every workflow artifact has an explicit retention period (#750)** — the weekly SBOM
   upload had none and was kept for the repository default of 90 days, and
   `anchore/sbom-action` stored a second copy of the SBOM. `sbom.yml` now keeps the SBOM

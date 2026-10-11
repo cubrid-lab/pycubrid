@@ -11,6 +11,7 @@ import pytest
 
 import pycubrid
 import pycubrid.aio
+from pycubrid._cursor_common import _CDecimal
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import DataError, NotSupportedError
@@ -268,7 +269,9 @@ class TestParityNumericSubclassLiterals:
             _Perm.R | _Perm.W,
             _HostileInt(42),
             _HostileFloat(2.5),
-            _HostileDecimal("0.0000001"),
+            # Without the C decimal module pycubrid refuses Decimal subclasses
+            # (tests/test_param_security.py TestPureDecimalFallback).
+            (_HostileDecimal if _CDecimal is not None else Decimal)("0.0000001"),
         ]
         table = table_name("num518")
         conn = await adapter.connect()
