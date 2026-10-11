@@ -541,7 +541,8 @@ make tooling-check
 Make와 일반/정기 CI는 `Makefile`의 `LINT_PATHS` 목록을 공유합니다:
 `pycubrid tests scripts demos examples`. Ruff CLI와 훅은 명시적으로 Python/pyi만 검사하므로
 Markdown은 이 포맷 범위에 포함하지 않습니다. 훅에도 같은 관리 파일 범위를 적용하며,
-Mypy는 기존의 엄격한 패키지 전용 검사를 유지합니다. 검사는 현재 Python 환경의
+Mypy는 패키지에 대한 엄격한 검사를 유지합니다. `make typecheck`와 CI는
+`tests/typing_self_contract.py` 정적 계약도 검사하며, pre-commit 훅은 `pycubrid/`만 검사합니다. 검사는 현재 Python 환경의
 도구를 사용하므로 `dev` 의존성 그룹을 설치하고 해당 환경을 활성화하세요.
 
 Ruff/Mypy의 정확한 버전은 `pyproject.toml`의 `lint` 의존성 그룹에서 관리합니다. Ruff와 Mypy

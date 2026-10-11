@@ -4,7 +4,7 @@ import inspect
 import logging
 import struct
 from types import TracebackType
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, Self
 
 from .constants import CUBRIDDataType as CCI_U_TYPE
 from .exceptions import DataError, InterfaceError, NotSupportedError, OperationalError
@@ -177,7 +177,7 @@ class Lob:
         """
         self._closed = True
 
-    def __enter__(self) -> Lob:
+    def __enter__(self) -> Self:
         """Enter the runtime context and return this LOB."""
         return self
 

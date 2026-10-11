@@ -6,7 +6,7 @@ import contextlib
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence, Self
 
 from pycubrid._cursor_common import (
     CursorParamsMixin,
@@ -446,7 +446,7 @@ class AsyncCursor(_AsyncCursorBase):
         self._check_closed()
         raise NotSupportedError("CUBRID does not support multiple result sets")
 
-    def __aiter__(self) -> AsyncCursor:
+    def __aiter__(self) -> Self:
         return self
 
     async def __anext__(self) -> tuple[Any, ...]:
@@ -455,7 +455,7 @@ class AsyncCursor(_AsyncCursorBase):
             raise StopAsyncIteration
         return row
 
-    async def __aenter__(self) -> AsyncCursor:
+    async def __aenter__(self) -> Self:
         self._check_closed()
         return self
 

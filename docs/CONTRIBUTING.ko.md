@@ -97,8 +97,9 @@ Make나 pre-commit을 실행하기 전에 프로젝트 개발 환경
 `make tooling-check`는 설치된 Ruff/Mypy 버전과 고정값을 비교하고 훅이 활성
 환경을 통해 실행되는지 확인합니다. Make와 CI는 명시적인 Python/pyi 검색과 훅
 타입을 사용하며 `LINT_PATHS` (`pycubrid tests scripts demos
-examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. 패키지 전용 strict
-Mypy는 별도이며, pre-commit 훅도 명시적으로 `pycubrid/`를 검사합니다.
+examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. strict Mypy(패키지와
+`make typecheck`의 `tests/typing_self_contract.py` 정적 계약)는 별도이며, pre-commit
+훅도 명시적으로 `pycubrid/`를 검사합니다.
 
 도구를 갱신하려면 `pyproject.toml`의 `lint` 의존성 그룹에 있는 버전 고정값을 변경하고
 `dev` 그룹을 다시 설치한 뒤 `make check-all`과 `pre-commit run --all-files`를 실행하세요.

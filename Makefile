@@ -29,7 +29,7 @@ format: tooling-check ## Auto-fix lint issues and format maintained Python files
 	$(RUFF) format $(LINT_PATHS)
 
 typecheck: tooling-check ## Run mypy type checking
-	$(MYPY) $(SRC)/ --config-file=pyproject.toml
+	$(MYPY) $(SRC)/ tests/typing_self_contract.py --config-file=pyproject.toml
 
 security: ## Run security scans (bandit)
 	$(BANDIT) -r $(SRC)/ -c pyproject.toml

@@ -98,7 +98,8 @@ pinned one. `make tooling-check` verifies the installed Ruff/Mypy versions
 against those pins and confirms the hooks are wired to run through the active
 environment. Make and CI share `LINT_PATHS` (`pycubrid tests scripts demos
 examples`) with explicit Python/pyi discovery and hook types, so Markdown is not
-reformatted; package-only strict Mypy remains separate, and its pre-commit hook
+reformatted; strict Mypy (the package plus the `tests/typing_self_contract.py`
+static contract in `make typecheck`) remains separate, and its pre-commit hook
 explicitly checks `pycubrid/`.
 
 When updating either tool, change its pin in the `lint` dependency group of `pyproject.toml`,

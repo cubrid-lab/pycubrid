@@ -25,6 +25,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Round trips against the literal path pass on CUBRID 10.2, 11.0, 11.2 and
   11.4. The encoder is shared so the planned opt-in `EXECUTE_ARRAY` batch path
   (#839) can reuse it.
+- **`typing.Self` for context-manager and iterator returns (#689)** —
+  `Connection.__enter__`, `Cursor.__enter__` / `__iter__`, `Lob.__enter__`,
+  `AsyncConnection.__aenter__` and `AsyncCursor.__aenter__` / `__aiter__` are now
+  annotated `-> Self` instead of the concrete class, so subclasses keep their own
+  type in `with` / `async with` blocks and `for` / `async for` loops. A static
+  contract module, `tests/typing_self_contract.py`, is part of `make typecheck` and
+  fails mypy if any of these annotations regresses. Annotations only; no runtime
+  change.
 
 ### Changed
 

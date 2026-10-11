@@ -6,7 +6,7 @@ import contextlib
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence, Self
 
 from .constants import CUBRIDStatementType
 from ._cursor_common import (
@@ -481,7 +481,7 @@ class Cursor(_CursorBase):
         self._check_closed()
         raise NotSupportedError("CUBRID does not support multiple result sets")
 
-    def __iter__(self) -> Cursor:
+    def __iter__(self) -> Self:
         """Return the cursor itself as an iterator over rows."""
         return self
 
@@ -492,7 +492,7 @@ class Cursor(_CursorBase):
             raise StopIteration
         return row
 
-    def __enter__(self) -> Cursor:
+    def __enter__(self) -> Self:
         """Enter context manager scope with this cursor."""
         self._check_closed()
         return self

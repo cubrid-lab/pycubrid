@@ -585,7 +585,8 @@ make tooling-check
 Make and regular/maintenance CI share the `LINT_PATHS` list in `Makefile`:
 `pycubrid tests scripts demos examples`. Ruff CLI discovery and hook types are explicitly
 Python/pyi-only; Markdown is outside this formatting contract. Hooks use the same maintained-file scope;
-Mypy remains strict and package-only. The tools run through the active Python
+Mypy remains strict on the package. `make typecheck` and CI also check the
+`tests/typing_self_contract.py` static contract; the pre-commit hook checks `pycubrid/` only. The tools run through the active Python
 environment, so install the `dev` dependency group and activate it before running checks.
 
 The `lint` dependency group in `pyproject.toml` owns the exact Ruff/Mypy versions. The Ruff and Mypy pre-commit
