@@ -1,7 +1,8 @@
 """Fail when declared pins, local hooks, installed tools, or lint scopes drift.
 
-The narrow extraction matches this repository's dev dependency/hook layout and
-works on Python 3.10 without a TOML/YAML dependency. pyproject owns tool versions;
+The narrow extraction matches this repository's lint dependency group/hook layout
+and works on Python 3.10 without a TOML/YAML dependency. The pyproject `lint`
+dependency group owns tool versions;
 Ruff/Mypy pre-commit hooks run as `repo: local` / `language: system` entries that
 invoke `python3 -m <tool>` against the same active environment, so there is no
 separate hook revision to keep in sync with the pyproject pin. Makefile
@@ -35,20 +36,20 @@ REQUIRED_PATHS = {"pycubrid", "tests", "scripts", "demos", "examples"}
 def declared_pins(root: Path) -> dict[str, str]:
     content = (root / "pyproject.toml").read_text()
     blocks = re.findall(
-        r"^\[project\.optional-dependencies\]\s*\n(.*?)(?=^\[|\Z)",
+        r"^\[dependency-groups\]\s*\n(.*?)(?=^\[|\Z)",
         content,
         re.MULTILINE | re.DOTALL,
     )
     if len(blocks) != 1:
-        raise ValueError("exactly one project.optional-dependencies block is required")
-    dev = re.findall(r"^dev\s*=\s*\[(.*?)^\]\s*$", blocks[0], re.MULTILINE | re.DOTALL)
-    if len(dev) != 1:
-        raise ValueError("exactly one dev dependency list is required")
+        raise ValueError("exactly one dependency-groups block is required")
+    lint = re.findall(r"^lint\s*=\s*\[(.*?)^\]\s*$", blocks[0], re.MULTILINE | re.DOTALL)
+    if len(lint) != 1:
+        raise ValueError("exactly one lint dependency group is required")
     pins = {}
     for tool in LOCAL_HOOK_IDS:
-        versions = re.findall(rf'^\s*["\']{tool}==([^"\']+)["\']\s*,?\s*$', dev[0], re.MULTILINE)
+        versions = re.findall(rf'^\s*["\']{tool}==([^"\']+)["\']\s*,?\s*$', lint[0], re.MULTILINE)
         if len(versions) != 1:
-            raise ValueError(f"{tool}: exactly one exact dev pin is required")
+            raise ValueError(f"{tool}: exactly one exact lint group pin is required")
         pins[tool] = versions[0]
     return pins
 
@@ -88,7 +89,7 @@ def check_configuration(root: Path = ROOT) -> dict[str, str]:
             body = hooks_by_id[hook_id]
             if not re.search(r"^        language: system\s*$", body, re.MULTILINE):
                 raise ValueError(
-                    f"{hook_id}: hook must run via language: system against the active .[dev] "
+                    f"{hook_id}: hook must run via language: system against the active dev group "
                     f"environment, matching the pyproject {tool} pin"
                 )
             expected_entry = EXPECTED_HOOK_ENTRY[hook_id]
@@ -154,7 +155,7 @@ def check_environment(
         actual = version(tool)
         if actual != expected:
             raise ValueError(
-                f"{tool}: installed {actual}, expected {expected}; install .[dev] in the active environment"
+                f"{tool}: installed {actual}, expected {expected}; install the dev dependency group in the active environment"
             )
 
 

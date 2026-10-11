@@ -323,6 +323,14 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   issued and the connect fails with `OperationalError`. No public API changes;
   the sync driver is unaffected.
 
+- **Contributor tools in dependency groups (#784)** — packaging metadata /
+  PATCH eligible. The `dev` and `mutation` extras, which only installed test,
+  lint, release and mutation tools, are removed from the published metadata and
+  replaced by PEP 735 dependency groups in `pyproject.toml`. Installing
+  `pycubrid[dev]` from PyPI now installs only the driver and its runtime
+  dependency; contributors use `pip install -e . --group dev`. No driver
+  behavior, public API, runtime dependency or supported-version change.
+
 - **README Quick Start examples (#327)** — documentation-only / PATCH eligible.
   Parameterized CRUD, DML commit/rollback and `ProgrammingError` examples use a
   dedicated scratch table with explicit setup and cleanup; no driver behavior,

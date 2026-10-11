@@ -134,6 +134,7 @@ jobs:
               - 'docs/**'
             site:
               - 'docs/**'
+              - 'pyproject.toml'
               - 'mkdocs.yml'
               - 'scripts/generate_llms_full.py'
               - '.github/workflows/docs.yml'
@@ -227,7 +228,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install the pinned documentation tools
         run: |
-          uv pip install --system -r docs/requirements.txt
+          uv pip install --system --group docs
           uv pip freeze --system
       - name: Generate llms-full.txt
         run: python scripts/generate_llms_full.py
@@ -281,7 +282,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pinned ruff from pyproject.toml
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Check tool consistency, lint, and format maintained Python
         run: make lint
@@ -322,7 +323,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install dependencies
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Mypy strict
         run: make typecheck
@@ -358,7 +359,7 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip install --system pytest-cov
           uv pip freeze --system
       - name: Run representative PR smoke tests
@@ -432,7 +433,7 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Run repository tooling tests
         shell: bash
@@ -516,7 +517,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
@@ -570,7 +571,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
@@ -614,7 +615,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Start CUBRID broker with SSL=ON
         run: |
@@ -814,7 +815,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Restore the official oracle build
         id: oracle-cache

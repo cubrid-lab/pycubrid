@@ -51,7 +51,7 @@ pip install pycubrid
 ```bash
 git clone https://github.com/cubrid-lab/pycubrid.git
 cd pycubrid
-pip install -e ".[dev]"
+pip install -e . --group dev   # pip 25.1 이상, 기여자 도구는 의존성 그룹입니다
 ```
 
 ---

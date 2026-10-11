@@ -108,7 +108,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
@@ -154,7 +154,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Start CUBRID broker with SSL=ON
         run: |
@@ -365,7 +365,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
@@ -462,7 +462,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Wait for every CUBRID of the matrix
         run: |
@@ -540,7 +540,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Restore the official oracle build
         id: oracle-cache
@@ -623,7 +623,7 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip install --system pytest-cov
           uv pip freeze --system
       - name: Run offline tests with coverage
@@ -668,7 +668,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install pinned ruff from pyproject.toml
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Check tool consistency, lint, and format maintained Python
         run: make lint
@@ -710,7 +710,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       - name: Install dependencies
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Mypy strict
         run: make typecheck
@@ -770,7 +770,7 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e . --group dev
           uv pip freeze --system
       - name: Run repository tooling tests
         shell: bash

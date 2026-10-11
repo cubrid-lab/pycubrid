@@ -190,7 +190,7 @@ heterogeneous failover.
 ```bash
 git clone https://github.com/cubrid-lab/pycubrid.git
 cd pycubrid
-make install          # pip install -e ".[dev]"
+make install          # pip install -e . --group dev (pip 25.1+)
 ```
 
 ### Key Commands

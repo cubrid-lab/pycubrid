@@ -36,23 +36,46 @@ dependencies = [
     "tzdata; sys_platform == 'win32'",
 ]
 
-[project.optional-dependencies]
-dev = [
+# Contributor tooling lives in PEP 735 dependency groups, not in extras, so it
+# never reaches the published package metadata (#784). Install a group with
+# `pip install -e . --group dev` (pip 25.1 or later) or
+# `uv pip install -e . --group dev`. Each pin is declared once, here.
+[dependency-groups]
+test = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "pytest-cov",
     "pytest-benchmark>=4.0",
+    "hypothesis>=6.0",
+]
+lint = [
     "ruff==0.16.10",
     "mypy==2.4.0",
-    "bandit[toml]==1.9.4",
     "pre-commit",
-    "tox",
+]
+security = [
+    "bandit[toml]==1.9.4",
+]
+release = [
     "build",
     "twine",
-    "hypothesis>=6.0",
+]
+docs = [
+    "mkdocs==1.6.1",
+    "mkdocs-material==9.7.7",
+    "pymdown-extensions==12.1",
 ]
 mutation = [
     "mutmut>=3.8,<4",
+]
+# Everything a contributor needs for `make check-all` and `make test`; the same
+# set the former `dev` extra installed.
+dev = [
+    {include-group = "test"},
+    {include-group = "lint"},
+    {include-group = "security"},
+    {include-group = "release"},
+    "tox",
 ]
 
 [project.urls]

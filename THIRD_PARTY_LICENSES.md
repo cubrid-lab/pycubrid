@@ -101,16 +101,19 @@ remains authoritative.
 - Dependency declarations: commit `a1a5fb0ee77c67f887a5f8bac219c4fb933e501c`
 - Environment: CPython 3.12.13 on Linux x86_64 (glibc 2.35), uv 0.11.7,
   generated 2026-10-09
-- Commands (one fresh environment per extra; `--exclude pycubrid` drops the
-  project itself):
+- Commands (one fresh environment per dependency group; `--exclude pycubrid`
+  drops the project itself). At the commit above these sets were the `.[dev]`
+  and `.[mutation]` extras; #784 moved them to the `dev` and `mutation`
+  PEP 735 dependency groups. A fresh install of each group after that change
+  resolved the same 63 and 19 package names, so the tables were not regenerated:
 
 ```bash
 uv venv -p 3.12 /tmp/tpl-dev
-uv pip install -p /tmp/tpl-dev/bin/python -e ".[dev]"
+uv pip install -p /tmp/tpl-dev/bin/python -e . --group dev
 /tmp/tpl-dev/bin/python scripts/generate_third_party_licenses.py --exclude pycubrid
 
 uv venv -p 3.12 /tmp/tpl-mutation
-uv pip install -p /tmp/tpl-mutation/bin/python -e ".[mutation]"
+uv pip install -p /tmp/tpl-mutation/bin/python -e . --group mutation
 /tmp/tpl-mutation/bin/python scripts/generate_third_party_licenses.py --exclude pycubrid
 ```
 
@@ -125,7 +128,7 @@ they are authoritative in `pyproject.toml`, so a routine pin bump does not
 require regenerating this snapshot. Transitive rows are kept accurate by
 regenerating the tables, not by the test.
 
-## Development / test dependencies: `.[dev]` (63 packages, not distributed)
+## Development / test dependencies: `dev` dependency group (63 packages, not distributed)
 
 | Name | Version | License | Category | URL |
 |---|---|---|---|---|
@@ -193,7 +196,7 @@ regenerating the tables, not by the test.
 | pathspec | 1.1.1 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/cpburnz/python-pathspec |
 | docutils | 0.23 | BSD License / GNU General Public License (GPL) / Public Domain | Needs review | https://docutils.sourceforge.io |
 
-## Mutation-testing dependencies: `.[mutation]` (19 packages, not distributed)
+## Mutation-testing dependencies: `mutation` dependency group (19 packages, not distributed)
 
 | Name | Version | License | Category | URL |
 |---|---|---|---|---|

@@ -137,13 +137,13 @@ def test_removed_maintained_scope_fails(project: Path, directory: str) -> None:
 
 
 @pytest.mark.parametrize("duplicate", [False, True])
-def test_missing_or_ambiguous_dev_pin_fails(project: Path, duplicate: bool) -> None:
+def test_missing_or_ambiguous_lint_group_pin_fails(project: Path, duplicate: bool) -> None:
     path = project / "pyproject.toml"
     pin = declared_pins(project)["ruff"]
     item = f'    "ruff=={pin}",'
     replacement = item + "\n" + item if duplicate else item.replace("==", ">=")
     path.write_text(path.read_text().replace(item, replacement))
-    with pytest.raises(ValueError, match="exactly one exact dev pin"):
+    with pytest.raises(ValueError, match="exactly one exact lint group pin"):
         check_configuration(project)
 
 

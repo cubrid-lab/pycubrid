@@ -1,7 +1,7 @@
 """THIRD_PARTY_LICENSES.md stays consistent with pyproject.toml (#735).
 
 The inventory is a generated snapshot; this check makes drift visible instead of
-silent: every declared dev/mutation dependency must appear (within its declared
+silent: every dependency of the dev/mutation dependency groups must appear (within its declared
 range, unless it is an exact ``==`` pin, which pyproject.toml already records),
 every row's category must be what the generator assigns to its
 license, and every MPL or "Needs review" row must be explained in the prose.
@@ -20,7 +20,9 @@ from packaging.utils import canonicalize_name
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = (ROOT / "THIRD_PARTY_LICENSES.md").read_text(encoding="utf-8")
-PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+PROJECT = PYPROJECT["project"]
+GROUPS = PYPROJECT["dependency-groups"]
 pytestmark = pytest.mark.repo_tooling
 
 _spec = importlib.util.spec_from_file_location(
@@ -31,8 +33,8 @@ generator = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(generator)
 
 SECTIONS = {
-    "dev": "## Development / test dependencies: `.[dev]`",
-    "mutation": "## Mutation-testing dependencies: `.[mutation]`",
+    "dev": "## Development / test dependencies: `dev` dependency group",
+    "mutation": "## Mutation-testing dependencies: `mutation` dependency group",
 }
 
 
@@ -53,8 +55,15 @@ def table(extra: str) -> dict[str, dict[str, str]]:
     return rows
 
 
-def requirements(extra: str) -> list[Requirement]:
-    return [Requirement(req) for req in PROJECT["optional-dependencies"][extra]]
+def requirements(group: str) -> list[Requirement]:
+    # PEP 735: a group entry is a requirement string or an {include-group = ...} table.
+    reqs = []
+    for entry in GROUPS[group]:
+        if isinstance(entry, dict):
+            reqs += requirements(entry["include-group"])
+        else:
+            reqs.append(Requirement(entry))
+    return reqs
 
 
 @pytest.mark.parametrize("extra", sorted(SECTIONS))
@@ -63,7 +72,9 @@ def test_every_declared_dependency_is_inventoried_within_its_range(extra: str) -
     assert len(rows) >= len(requirements(extra))
     for req in requirements(extra):
         name = canonicalize_name(req.name)
-        assert name in rows, f"{name} from .[{extra}] is missing from THIRD_PARTY_LICENSES.md"
+        assert name in rows, (
+            f"{name} from the {extra} group is missing from THIRD_PARTY_LICENSES.md"
+        )
         if any(s.operator in {"==", "==="} and "*" not in s.version for s in req.specifier):
             continue  # Exact pins are authoritative in pyproject.toml; bumps need no regen.
         version = rows[name]["version"]
@@ -128,4 +139,4 @@ def test_generation_inputs_are_recorded() -> None:
     assert re.search(r"commit `[0-9a-f]{40}`", record)
     assert re.search(r"CPython 3\.\d+\.\d+ on Linux", record)
     assert "scripts/generate_third_party_licenses.py --exclude pycubrid" in record
-    assert '-e ".[dev]"' in record and '-e ".[mutation]"' in record
+    assert "-e . --group dev" in record and "-e . --group mutation" in record

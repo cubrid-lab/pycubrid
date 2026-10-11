@@ -22,8 +22,18 @@ cd pycubrid
 python3 -m venv venv
 source venv/bin/activate
 
-pip install -e ".[dev]"
+# Contributor tools are PEP 735 dependency groups in pyproject.toml, not extras,
+# so `--group` needs pip 25.1 or later (`uv pip install -e . --group dev` also works).
+python -m pip install --upgrade pip
+pip install -e . --group dev
 ```
+
+The `dev` group includes the `test`, `lint`, `security` and `release` groups.
+Install a single group when only that tool set is needed, for example
+`pip install --group docs` for the documentation site or
+`pip install -e . --group dev --group mutation` for mutation testing. The former
+`pip install -e ".[dev]"` extra no longer exists; it is replaced by
+`pip install -e . --group dev` (#784).
 
 ## Running Tests
 
@@ -77,7 +87,7 @@ To auto-fix:
 make format
 ```
 
-Activate the project development environment (`pip install -e ".[dev]"`) before
+Activate the project development environment (`pip install -e . --group dev`) before
 running Make or pre-commit. The Ruff and Mypy pre-commit hooks are `repo: local`,
 `language: system` hooks that invoke `python3 -m ruff`/`python3 -m mypy` from that
 same active environment, so there is a single source of truth for each tool's
@@ -91,8 +101,8 @@ examples`) with explicit Python/pyi discovery and hook types, so Markdown is not
 reformatted; package-only strict Mypy remains separate, and its pre-commit hook
 explicitly checks `pycubrid/`.
 
-When updating either tool, change its dev pin in `pyproject.toml`, reinstall
-`.[dev]`, then run `make check-all` and `pre-commit run --all-files`; there is no
+When updating either tool, change its pin in the `lint` dependency group of `pyproject.toml`,
+reinstall the `dev` group, then run `make check-all` and `pre-commit run --all-files`; there is no
 separate hook revision to edit. The drift gate rejects missing/ambiguous pins,
 an installed version that no longer matches the pin, and narrowed scopes.
 Dependabot's `pip` ecosystem can bump the `pyproject.toml` pin on its own and CI
@@ -147,7 +157,7 @@ When changing docs, regenerate `docs/llms-full.txt` with
 `docs/llms.txt` index to the root `llms.txt`; edit only `docs/llms.txt`, and CI
 fails if either generated file is stale) and run the existing site check
 `mkdocs build --strict` after installing its documented tooling
-(`pip install -r docs/requirements.txt`). AI review feedback is separate from commands
+(`pip install --group docs`). AI review feedback is separate from commands
 actually executed; report both accurately, including gaps and existing warnings.
 
 Maintainers update shared workflow callers through a reviewed upstream commit SHA:

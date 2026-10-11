@@ -82,7 +82,7 @@ jobs:
       - name: Install pycubrid
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e . --group dev
       - name: Wait for CUBRID readiness
         run: >-
           python scripts/wait_for_cubrid.py --server-info
@@ -153,7 +153,7 @@ jobs:
       - name: Install pycubrid
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,mutation]"
+          pip install -e . --group dev --group mutation
       - name: Run mutation testing
         env:
           MUTANTS: ${{ matrix.mutants }}
@@ -205,7 +205,7 @@ jobs:
       - name: Install pycubrid
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e . --group dev
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
       - name: Run benchmarks to JSON

@@ -49,7 +49,7 @@ pip install pycubrid
 ```bash
 git clone https://github.com/cubrid-lab/pycubrid.git
 cd pycubrid
-pip install -e ".[dev]"
+pip install -e . --group dev   # pip 25.1+; contributor tools are a dependency group
 ```
 
 ---

@@ -178,6 +178,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
 ### CI
+- **Contributor tools moved from the published `dev` extra to dependency groups (#784)** —
+  the `dev` and `mutation` extras are gone from the package metadata, so the wheel
+  lists only the runtime dependency. `pyproject.toml` declares PEP 735 dependency
+  groups instead: `test`, `lint`, `security`, `release`, `docs` (the pins from the
+  removed `docs/requirements.txt`) and `mutation`, plus `dev`, which includes the
+  first four and resolves to the same packages the `dev` extra did. Each pin is
+  declared once and the workflows, `scripts/check_quality_tools.py` and the policy
+  tests read it from there. Contributors replace `pip install -e ".[dev]"` with
+  `pip install -e . --group dev` (pip 25.1 or later) or `make install`. No driver,
+  runtime dependency or supported-version change.
 - **Every workflow artifact has an explicit retention period (#750)** — the weekly SBOM
   upload had none and was kept for the repository default of 90 days, and
   `anchore/sbom-action` stored a second copy of the SBOM. `sbom.yml` now keeps the SBOM

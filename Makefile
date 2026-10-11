@@ -13,8 +13,8 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install in development mode with all dependencies
-	pip install -e ".[dev]"
+install: ## Install in development mode with the dev dependency group (pip 25.1+)
+	pip install -e . --group dev
 	pre-commit install
 
 tooling-check: ## Verify declared, hook, installed-tool, and quality-scope consistency
@@ -49,7 +49,7 @@ test: ## Run offline tests with coverage (no DB required)
 		--cov-report=term-missing \
 		--cov-fail-under=95
 
-mutation: ## Run mutation testing on the driver core (pip install -e ".[dev,mutation]"; Python 3.12+)
+mutation: ## Run mutation testing on the driver core (pip install -e . --group dev --group mutation; Python 3.12+)
 	@$(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else "make mutation needs Python 3.12+: mutmut 3.8 fails at stats collection on 3.11 (#812)")'
 	$(PYTHON) -m mutmut run
 	$(PYTHON) -m mutmut results

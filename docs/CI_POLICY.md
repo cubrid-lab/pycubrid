@@ -374,20 +374,22 @@ version log, and that no other `pip install` remains in these workflows.
 
 ## Pinned documentation tools and scan concurrency
 
-`docs.yml` installs the site tools only from `docs/requirements.txt`, which pins
-`mkdocs`, `mkdocs-material` and `pymdown-extensions` to exact versions (#782), so an
+`docs.yml` installs the site tools only from the `docs` dependency group in
+`pyproject.toml` (`pip install --group docs`, after upgrading pip to a release that
+supports `--group`), which pins `mkdocs`, `mkdocs-material` and `pymdown-extensions`
+to exact versions (#782, moved from `docs/requirements.txt` in #784), so an
 upstream release cannot break the `mkdocs build --strict` gate without a repository
-change. Dependabot (pip, `/docs`) proposes updates, and `mkdocs.yml` excludes the file
-from the published site.
+change. Dependabot's root `pip` entry proposes updates with the other
+`pyproject.toml` pins.
 
 `ci.yml` also builds the site on pull requests (#786), so a bump or a docs edit that
 breaks `mkdocs build --strict` fails before merge instead of later on `main`. The
 `docs-build` job is selected by the `site` path filter: `docs/**` (content and
-`docs/requirements.txt`), `mkdocs.yml`, `scripts/generate_llms_full.py`,
+nav assets), `pyproject.toml` (the `docs` group), `mkdocs.yml`, `scripts/generate_llms_full.py`,
 `.github/workflows/docs.yml` and `.github/workflows/ci.yml`. Root `*.md` files are not
 site inputs (the changelog is linked, not staged), so they do not select it, and
 `workflow_dispatch` forces it like the other lanes. The job runs the `docs.yml` build
-steps (install from `docs/requirements.txt`, `scripts/generate_llms_full.py`,
+steps (install the `docs` group, `scripts/generate_llms_full.py`,
 `mkdocs build --strict`) with read-only permissions, pinned actions, a 10-minute timeout
 and `persist-credentials: false`; it never uploads a Pages artifact or deploys. The
 `CI Gate` expects `docs-build` to succeed exactly when `site` is selected and accepts a
