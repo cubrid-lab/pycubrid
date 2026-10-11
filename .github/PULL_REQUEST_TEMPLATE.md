@@ -47,13 +47,14 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 
 ## Review Route and Final Disposition
 
-<!-- For maintainer/agent-authored PRs; ordinary external contributors do not need a specific tool. -->
-- Development route: OpenCode + Oracle pre/post / standalone Claude Code / standalone Codex / human/other (select one).
+<!-- Record the route actually used; human contributors do not need a specific AI tool. -->
+- Development route: OpenCode + Oracle pre/post / trivial OpenCode with recorded Oracle skip / standalone Claude Code / standalone Codex / standalone ChatGPT or other agent (name it) / human (select one).
+- Trivial OpenCode exception, if used: skipped Oracle phases and reason, or not applicable.
 - Review evidence: reviewer or Oracle design/post-review references, reviewed head SHA, or **pending**.
 - Finding dispositions: fixed commit + verification / rejected with reason / deferred issue.
-- Unresolved review threads and reason, or "none verified".
-- Merge decision: maintainer to confirm the applicable route, required CI, and final reviewed code.
-<!-- A review request, green CI, or automated "approval recommended" text is not a completed review. -->
+- Unresolved review threads and reason, or "none" after verification.
+- Merge decision: **pending**; maintainer to confirm the applicable review route, final code, required CI and thread dispositions.
+<!-- A review request, green CI, or automated "approval recommended" text alone does not complete the review route. -->
 
 ## Validation Evidence
 
@@ -63,7 +64,7 @@ Checks not run and reasons:
 
 Live CUBRID evidence (connection/protocol/SQL changes; CUBRID version and command, or "not applicable"):
 
-Optional AI review (tool/findings; separate from executed tests):
+Optional additional AI review (tool/findings; separate from executed tests and not a replacement for the required review route):
 
 ## Related Issues
 
