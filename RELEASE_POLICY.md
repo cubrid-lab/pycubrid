@@ -1092,4 +1092,7 @@ The [CI execution policy](docs/CI_POLICY.md) reduces routine execution frequency
 and representative matrix cells. This CI-only maintenance changes no runtime API,
 supported-version declaration or release publisher; it does not require a MINOR
 version by itself. Candidate releases still invoke the full compatibility workflow
-at their immutable SHA before publication.
+at their immutable SHA before publication. That workflow also repeats the `ci.yml`
+lint, type check, public API check and repository tooling tests at the same SHA
+and requires them in its fail-closed gate (#750), so publication never depends on
+a `main` push run of `ci.yml`.

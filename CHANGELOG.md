@@ -150,6 +150,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
 ### CI
+- **The release runs lint, type checking, the public API check and the
+  repository tooling tests itself (#750)** — the release path (`publish-pypi.yml`
+  → `integration-full.yml`) used to rely on the release PR and the `main` push run
+  of `ci.yml` for these four checks, but nothing required that push run to succeed
+  and a later merge could cancel it. `integration-full.yml` now runs copies of the
+  `ci.yml` `lint`, `typecheck`, `compat-check` and `repo-tooling-tests` jobs (same
+  Python version, timeout and steps) on the release SHA, on every manual dispatch
+  and release call, and `full-matrix-result` needs all four and fails on any
+  non-success result, so a failed, cancelled or skipped check blocks publication.
+  `publish-pypi.yml` is unchanged; it stays identical across cubrid-lab
+  repositories. `tests/test_ci_policy.py` pins the copies to their `ci.yml`
+  sources and the gate's `needs`; `docs/CI_POLICY.md` (+ ko), `RELEASING.md` and
+  `RELEASE_POLICY.md` describe the new release coverage. About 1.5 extra runner
+  minutes per release. No runtime change.
 - **Weekly mutation testing is sharded under the 180-minute cap (#750)** — the
   `bug-hunt.yml` `mutation` job runs as four matrix shards selected by mutant name
   (`protocol`, `connection`, `packet-aio-cursor-lob`, `cursor-common`), about

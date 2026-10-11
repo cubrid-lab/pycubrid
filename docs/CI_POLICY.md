@@ -9,7 +9,7 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | High-risk PR | Full offline regressions without coverage on Python 3.11 and 3.14, plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
 | Code push to main | Full offline suite on Ubuntu/Python 3.11 and 3.14, each with the existing 95% coverage floor; oldest/newest live endpoints |
 | Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.14 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests, and lanes a successful push run of the same SHA already ran are not repeated (see [Event tiers and cost evidence](#event-tiers-and-cost-evidence)) |
-| Explicit full dispatch or release | Existing full Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.14 offline suite with the 95% floor |
+| Explicit full dispatch or release | Existing full Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.14 offline suite with the 95% floor, lint, type checking, the public API baseline and the repository tooling tests |
 
 The PR smoke suite is deliberately bounded. Contributors must run the regression
 checks relevant to their change locally and record commands/results in the PR.
@@ -154,10 +154,11 @@ Median per-job runner minutes on successful code pushes:
 | Mutation testing | `bug-hunt.yml` `mutation` | Same as bug hunt |
 | Benchmark trend | `bug-hunt.yml` `perf-trend` | Same as bug hunt |
 | Downstream corpus (advisory) | `bug-hunt.yml` `downstream-corpus` | Same as bug hunt |
-| Type checking | `ci.yml` `typecheck` | Every code event (not repeated by the release) |
-| Public API baseline | `ci.yml` `compat-check` | Every code event (not repeated by the release) |
+| Lint, CHANGELOG structure, translation structure, `llms-full.txt` sync | `ci.yml` `lint`; `integration-full.yml` `lint` (same steps) | Every event; release and full dispatch |
+| Type checking | `ci.yml` `typecheck`; `integration-full.yml` `typecheck` (same steps) | Every code event; release and full dispatch |
+| Public API baseline | `ci.yml` `compat-check`; `integration-full.yml` `compat-check` (same steps) | Every code event; release and full dispatch |
 | Packaging | `ci.yml` `packaging-smoke-test`; `publish-pypi.yml` `consistency` and `build` | Risk PR, non-PR code; release |
-| Repository tooling | `ci.yml` `repo-tooling-tests` | Tooling-path events |
+| Repository tooling | `ci.yml` `repo-tooling-tests`; `integration-full.yml` `repo-tooling-tests` (same steps) | Tooling-path events; release and full dispatch |
 | Python 3.15 preview (advisory) | `python-canary.yml` | Manual only |
 
 ### Consolidation
@@ -208,7 +209,7 @@ Expected effect, computed from the measured runs above:
 | Weekly `ci.yml`, head push run green with code lanes | 19 → 9 | about 13 → about 1.8 | about 26 → 9 |
 | Weekly `ci.yml`, head push run not green or docs-only | 19 → 19 | about 13 → about 13 | about 26 → about 26 |
 | Weekly `bug-hunt.yml` | 7 → 7 (Thursday) | 149.4 → 149.4 | 152 → 152 |
-| Release | 34 → 36 | 41.8 → about 44.7 | 60.5 → about 64.5 |
+| Release (with the release-run copies of lint, typecheck, public API and repository tooling) | 34 → 40 | 41.8 → about 46.2 | 60.5 → about 68.5 |
 
 These are expectations. Compare them with the next weeks of Actions data before
 claiming a saving.
@@ -234,9 +235,27 @@ the `ci.yml` push run.
 the exact SHA. `full-matrix-result` requires it. This adds about 2.9 runner
 minutes per release.
 
-Type checking, the public API baseline, lint and repository tooling are still
-not repeated by the release; the release path relies on the release PR and the
-`main` push run for them.
+The same gap covered the other `main` push evidence, and the maintainer chose
+to close it the same way (2026-10-11, as in sqlalchemy-cubrid #737).
+`integration-full.yml` also runs copies of `ci.yml` `lint`, `typecheck`,
+`compat-check` (the public API baseline) and `repo-tooling-tests`, with the same
+Python version, timeout and steps, at the exact SHA. Three things differ from
+`ci.yml`, and `tests/test_ci_policy.py` keeps everything else equal:
+
+- **No changed-path selection.** Each copy needs only `validate-target`, so it
+  runs on every manual dispatch and release call. A skipped copy can only follow
+  a failed `validate-target`, which already fails the gate.
+- **Checkout.** The checkout sets `persist-credentials: false`, like the other
+  `integration-full.yml` jobs.
+- **Cache mode.** setup-uv uses the `auto` cache mode of this workflow.
+
+`full-matrix-result` lists all four in `needs` and fails on any result other
+than `success`, so a failed, cancelled, skipped or missing copy blocks
+publication. `publish-pypi.yml` is unchanged, because it is kept identical
+across cubrid-lab repositories. The alternative, making `main` push runs
+non-cancellable and having the publisher require them, would have changed it.
+From the per-job medians above, the copies add about 1.5 runner minutes
+(4 rounded minutes) per release or full dispatch.
 
 ## Offline endpoint versions
 
