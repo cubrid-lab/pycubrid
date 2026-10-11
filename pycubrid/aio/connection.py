@@ -7,7 +7,7 @@ import logging
 import ssl as ssl_module
 import struct
 import time
-from typing import Any
+from typing import Any, Self
 
 from pycubrid._connection_common import (
     ESCAPE_PROBE_FAILED,
@@ -815,7 +815,7 @@ class AsyncConnection(ConnectionCommonMixin):
         for packet in list(self._schema_results):
             await self._close_schema_info_locked(packet)
 
-    async def __aenter__(self) -> AsyncConnection:
+    async def __aenter__(self) -> Self:
         self._ensure_connected()
         return self
 

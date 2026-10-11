@@ -6,7 +6,7 @@ import ssl as ssl_module
 import struct
 import time
 from threading import RLock
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 from ._connection_common import (
     ESCAPE_PROBE_FAILED,
@@ -801,7 +801,7 @@ class Connection(ConnectionCommonMixin):
         for packet in list(self._schema_results):
             self.close_schema_info(packet)
 
-    def __enter__(self) -> Connection:
+    def __enter__(self) -> Self:
         """Enter context manager scope and return this connection."""
         self._ensure_connected()
         return self
