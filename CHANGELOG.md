@@ -12,7 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   rejects direct closing keywords targeting a different GitHub repository; local
   `Closes #N` and cross-repository `Refs owner/repo#N` remain valid. PR body text
   is treated as untrusted data, without checkout or token permissions. Fenced
-  examples and HTML comments are ignored; regression tests cover both routes.
+  examples (any fence length) and HTML comments are ignored in one pass, while
+  indented lines are always checked; `Fixes:` with a colon and `http://` issue
+  URLs are caught too. The guard matches the cookbook and sibling repositories;
+  regression tests cover both routes.
 
 ## [1.11.0] - 2026-10-11
 
