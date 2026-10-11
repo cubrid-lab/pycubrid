@@ -313,9 +313,10 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 
 > **반복되는 DST 시각(#819):** 반복되는 벽시계 시각에 있는, 지역 `tzinfo`
 > (`ZoneInfo`)를 가진 aware `datetime`을 바인딩하면 `fold`가 유지됩니다.
-> pycubrid는 타임존 약어를 덧붙이고(`fold=1`이면 `America/New_York EST`), 약어가
-> 숫자이거나 두 발생이 같은 약어를 쓰면 오프셋만 보냅니다. 따라서 두 번째 발생이
-> 더 이상 첫 번째로 저장되지 않습니다. 건너뛴 봄철 시각은 CUBRID가 거부합니다.
+> `fold=0` 값은 지역 이름만 있는 리터럴을 유지하며, CUBRID는 이를 첫 번째 발생으로
+> 해석합니다. `fold=1`이면 pycubrid는 타임존 약어를 덧붙이고
+> (`America/New_York EST`), 약어가 숫자이거나 두 발생이 같은 약어를 쓰면 오프셋만
+> 보냅니다. 따라서 두 번째 발생이 더 이상 첫 번째로 저장되지 않습니다. 건너뛴 봄철 시각은 CUBRID가 거부합니다.
 > [파라미터 바인딩](PARAMETER_BINDING.md)을 참고하세요.
 
 > **0 날짜 (#512):** CUBRID는 `DATE'0000-00-00'`, `DATETIME'0000-00-00 00:00:00'`

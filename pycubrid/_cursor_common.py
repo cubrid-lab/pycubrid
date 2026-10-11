@@ -287,10 +287,12 @@ def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
             raise ProgrammingError("time zone key must be an IANA name matching [A-Za-z0-9_+/-]+")
         # A region alone makes CUBRID take the first occurrence of a repeated
         # wall time, so the second one (fold=1) would be stored an hour off
-        # (#819). When the wall time repeats (the fold=0 offset is larger than
-        # the fold=1 one), name the occurrence: by its abbreviation when it is
-        # alphabetic and the two differ, else by the offset alone. A skipped
-        # wall time keeps the region, which CUBRID rejects.
+        # (#819). The region alone already stores fold=0 correctly and keeps
+        # the region, so only a repeated wall time (the fold=0 offset larger
+        # than the fold=1 one) with fold=1 names its occurrence: by its
+        # abbreviation when it is alphabetic and differs from the first one's,
+        # else by the offset alone. A skipped wall time keeps the region, which
+        # CUBRID rejects.
         try:
             fields = (
                 _DATE_YEAR(value),
@@ -305,13 +307,12 @@ def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
             second = datetime.datetime(*fields, tzinfo=tzinfo, fold=1)
             first_us = _offset_us(datetime.datetime.utcoffset(first))
             second_us = _offset_us(datetime.datetime.utcoffset(second))
-            if first_us <= second_us:
+            if first_us <= second_us or not _DT_FOLD(value):
                 return tz_key
-            fold = _DT_FOLD(value)
-            names = (datetime.datetime.tzname(first), datetime.datetime.tzname(second))
+            other = datetime.datetime.tzname(first)
+            name = datetime.datetime.tzname(second)
         except Exception as exc:
             raise ProgrammingError("invalid tzinfo on datetime parameter") from exc
-        name, other = names[fold], names[1 - fold]
         if (
             type(name) is str
             and type(other) is str
@@ -319,7 +320,7 @@ def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
             and _RE_TZ_ABBREV.fullmatch(name)
         ):
             return "%s %s" % (tz_key, name)
-        total_us = second_us if fold else first_us
+        total_us = second_us
     else:
         try:
             total_us = _offset_us(offset)

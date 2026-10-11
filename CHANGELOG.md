@@ -40,13 +40,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   occurrence, so `datetime(2026, 11, 1, 1, 30, fold=1,
   tzinfo=ZoneInfo("America/New_York"))` (01:30 EST, 06:30 UTC) was stored as
   01:30 EDT, one hour off, with no error. When the wall time repeats in its
-  zone, the literal now names the occurrence by its abbreviation
-  (`DATETIMETZ'2026-11-01 01:30:00.000 America/New_York EST'`, and `EDT` for
-  `fold=0`), so it reads back with its region. A numeric abbreviation (`-04`),
+  zone and `fold=1`, the literal now names the second occurrence by its
+  abbreviation (`DATETIMETZ'2026-11-01 01:30:00.000 America/New_York EST'`),
+  so it reads back with its region. A numeric abbreviation (Santiago `-04`),
   one not matching `[A-Za-z]{3,6}`, or one both occurrences share (Moscow
-  `MSK` in 2014) is never put in the SQL; the literal then carries the offset
-  alone (`-05:00`), which keeps the instant but not the region. Every other
-  value renders byte-identically, and a skipped spring-forward wall time is
+  `MSK` in 2014) is never put in the SQL; the `fold=1` literal then carries
+  the offset alone (`-05:00`), which keeps the instant but not the region. A
+  `fold=0` value keeps the region-only literal, which CUBRID already resolves
+  to the first occurrence. Every other value, including every `fold=0`
+  value, renders byte-identically, and a skipped spring-forward wall time is
   still sent with the region alone, which CUBRID rejects with an error.
   Verified on CUBRID 10.2 and 11.4 for `DATETIMETZ` and `TIMESTAMPTZ`, sync
   and async.

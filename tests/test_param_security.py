@@ -1078,15 +1078,17 @@ class TestRepeatedWallTime:
     @pytest.mark.parametrize(
         ("zone", "wall", "fold", "expected"),
         [
-            ("America/New_York", (2026, 11, 1, 1, 30), 0, "America/New_York EDT"),
+            # fold=0 keeps the region alone, which CUBRID resolves to the first
+            # occurrence.
+            ("America/New_York", (2026, 11, 1, 1, 30), 0, "America/New_York"),
             ("America/New_York", (2026, 11, 1, 1, 30), 1, "America/New_York EST"),
-            ("Europe/Dublin", (2026, 10, 25, 1, 30), 0, "Europe/Dublin IST"),
+            ("Europe/Dublin", (2026, 10, 25, 1, 30), 0, "Europe/Dublin"),
             ("Europe/Dublin", (2026, 10, 25, 1, 30), 1, "Europe/Dublin GMT"),
             # Numeric abbreviations are not sent: the offset names the instant.
-            ("America/Santiago", (2026, 4, 4, 23, 30), 0, "-03:00"),
+            ("America/Santiago", (2026, 4, 4, 23, 30), 0, "America/Santiago"),
             ("America/Santiago", (2026, 4, 4, 23, 30), 1, "-04:00"),
             # Both occurrences share "MSK": the offset names the instant.
-            ("Europe/Moscow", (2014, 10, 26, 1, 30), 0, "+04:00"),
+            ("Europe/Moscow", (2014, 10, 26, 1, 30), 0, "Europe/Moscow"),
             ("Europe/Moscow", (2014, 10, 26, 1, 30), 1, "+03:00"),
         ],
     )

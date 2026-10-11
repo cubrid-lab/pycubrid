@@ -798,13 +798,15 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   data-corruption correction to the documented parameter-binding contract
   (`docs/PARAMETER_BINDING.md`). An aware `datetime` with a region `tzinfo` in a
   repeated wall time was sent with the region alone and stored as the first
-  occurrence; the literal now adds the alphabetic zone abbreviation
-  (`America/New_York EST`), or carries the `±HH:MM` offset alone when the
-  abbreviation is numeric, invalid or shared by both occurrences. The
-  abbreviation is checked against `[A-Za-z]{3,6}` before it reaches the SQL,
-  and a failing `tzname()` callback raises `ProgrammingError`. Every other
-  value, including a skipped spring-forward wall time (still rejected by
-  CUBRID), renders byte-identically; public signatures, dependencies and
+  occurrence; for `fold=1` the literal now adds the alphabetic zone
+  abbreviation (`America/New_York EST`), or carries the `±HH:MM` offset alone
+  when the abbreviation is numeric, invalid or shared by both occurrences. A
+  `fold=0` value keeps the region-only literal, which CUBRID resolves to the
+  first occurrence. The abbreviation is checked against `[A-Za-z]{3,6}`
+  before it reaches the SQL, and a failing `tzname()` callback raises
+  `ProgrammingError`. Every other value, including every `fold=0` value and a
+  skipped spring-forward wall time (still rejected by CUBRID), renders
+  byte-identically; public signatures, dependencies and
   supported versions are unchanged.
 
 - **`str`, `bytes`, date and time parameters render by value; years are

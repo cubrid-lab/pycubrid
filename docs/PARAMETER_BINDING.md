@@ -106,7 +106,7 @@ implementation; see the fallback restrictions below.
 | `str` (and subclasses) | Single-quoted literal; escaping per [String Escaping](#string-escaping), applied to a plain `str` copy of the value; NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). See [Text, binary and temporal subclasses](#text-binary-and-temporal-subclasses) | `_cursor_common.format_parameter` / `_cursor_common.escape_string` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
 | `bytes`, `bytearray` (and subclasses) | `X'<hex>'` (lowercase hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
 | `datetime.datetime` (naive, and subclasses) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — year zero-padded to 4 digits; microseconds truncated to milliseconds (`microsecond // 1000`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:124-127`, `::TestTemporalSubclassRendering` |
-| `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`; in a repeated DST hour followed by the abbreviation, or replaced by the offset, see below), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.format_parameter` / `_cursor_common._format_tz` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
+| `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`; for `fold=1` in a repeated DST hour followed by the abbreviation, or replaced by the offset, see below), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.format_parameter` / `_cursor_common._format_tz` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.format_parameter` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.format_parameter` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
 | `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (each keyword renders as `KEYWORD{}` when empty, e.g. `SET{}`); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
@@ -179,14 +179,16 @@ through methods the subclass can override (#528):
   anything else raises `ProgrammingError`. A missing, `None` or empty key still
   falls back to the numeric `±HH:MM` offset.
 - Repeated wall time (#819): CUBRID resolves a region-only literal in a
-  repeated DST hour to the first occurrence. When the `fold=0` offset of the
-  value's wall time is larger than the `fold=1` offset, the literal names the
-  occurrence chosen by `value.fold`: `<key> <abbreviation>` when both
-  `tzname()` results are plain `str`s that differ and the chosen one matches
-  `[A-Za-z]{3,6}` (`America/New_York EST`), otherwise the `±HH:MM` offset of
-  that occurrence alone (`-05:00`), which loses the region but keeps the
-  instant. A `tzname()` result is never spliced into SQL unless it matches
-  that pattern. Other wall times keep the region alone. A skipped wall time
+  repeated DST hour to the first occurrence, so a `fold=0` value keeps the
+  region-only literal (`America/New_York`), byte-identical to earlier
+  releases. When the `fold=0` offset of the value's wall time is larger than
+  the `fold=1` offset and `value.fold` is 1, the literal names the second
+  occurrence: `<key> <abbreviation>` when both `tzname()` results are plain
+  `str`s that differ and the second one matches `[A-Za-z]{3,6}`
+  (`America/New_York EST`), otherwise the `±HH:MM` offset of the second
+  occurrence alone (`-05:00`), which loses the region but keeps the instant.
+  A `tzname()` result is never spliced into SQL unless it matches that
+  pattern. Other wall times keep the region alone. A skipped wall time
   (spring forward, `fold=1` offset larger) is also sent with the region alone;
   CUBRID 10.2 and 11.4 reject it (`Invalid utime`) in every literal form.
 - Ordinary exceptions from timezone callbacks, key lookup or offset-field
@@ -206,9 +208,13 @@ Plain values render exactly as before, except the year padding.
 Pinned by `tests/test_param_security.py::TestPlainLiteralsUnchanged`,
 `::TestStrSubclassEscaping`, `::TestBinarySubclassRendering`,
 `::TestTemporalSubclassRendering`, `::TestTzinfoKey`, `::TestHostileTzinfo`,
-`::TestRepeatedWallTime`, `::test_temporal_subclasses_in_real_pure_python_fallback`, `::TestClassSpoofing`,
+`::test_temporal_subclasses_in_real_pure_python_fallback`, `::TestClassSpoofing`,
 and live on CUBRID 10.2 and 11.4 (sync and async) by
-`tests/test_parity_integration.py::TestParityLiteralHardening`.
+`tests/test_parity_integration.py::TestParityLiteralHardening`. The repeated
+DST hour behavior is pinned by `tests/test_param_security.py::TestRepeatedWallTime`
+and live on CUBRID 10.2 and 11.4 (sync and async, `DATETIMETZ` and
+`TIMESTAMPTZ`) by
+`tests/test_integration_timezone.py::test_repeated_hour_binds_both_occurrences`.
 
 ### Decimal parameters
 

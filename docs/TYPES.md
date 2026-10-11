@@ -314,10 +314,12 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
 
 > **Repeated DST hour (#819):** a bound aware `datetime` with a region
-> `tzinfo` (`ZoneInfo`) in a repeated wall time keeps its `fold`. pycubrid adds
-> the zone abbreviation (`America/New_York EST` for `fold=1`), or sends the
-> offset alone when the abbreviation is numeric or shared by both occurrences,
-> so the second occurrence is no longer stored as the first. A skipped
+> `tzinfo` (`ZoneInfo`) in a repeated wall time keeps its `fold`. A `fold=0`
+> value keeps the region-only literal, which CUBRID resolves to the first
+> occurrence. For `fold=1` pycubrid adds the zone abbreviation
+> (`America/New_York EST`), or sends the offset alone when the abbreviation is
+> numeric or shared by both occurrences, so the second occurrence is no longer
+> stored as the first. A skipped
 > spring-forward wall time is rejected by CUBRID. See
 > [parameter binding](PARAMETER_BINDING.md).
 
