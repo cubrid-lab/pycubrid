@@ -21,9 +21,12 @@ jobs:
         with:
           format: spdx-json
           output-file: sbom.spdx.json
+          # The next step uploads the file once, with a retention period.
+          upload-artifact: false
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sbom
           path: sbom.spdx.json
+          retention-days: 30

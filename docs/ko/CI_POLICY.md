@@ -381,6 +381,21 @@ upstream 릴리스가 저장소 변경 없이 `mkdocs build --strict` 게이트�
 예약 실행이 취소되거나 누락되지 않습니다. `security.yml`은 `pyproject.toml`에 고정된 `bandit[toml]==1.9.4`를
 설치합니다. `tests/test_workflow_pins.py`가 세 가지를 모두 검증합니다.
 
+## 아티팩트 보존 기간과 캐시
+
+모든 `actions/upload-artifact` 단계는 `retention-days`를 지정하므로, 저장소 기본값인 90일로
+남는 아티팩트가 없습니다. 디버깅용·증거용 아티팩트는 14일 또는 30일, 릴리스 아티팩트는 14일
+보관합니다. `anchore/sbom-action`은 `upload-artifact: false`로 실행합니다. 워크플로가 SBOM을
+직접 업로드하므로, 그대로 두면 액션이 기본 보존 기간으로 사본을 하나 더 저장하기 때문입니다.
+`tests/test_workflow_pins.py::test_every_artifact_upload_sets_a_retention_period`가 두 규칙을
+고정합니다.
+
+2026-10-11 점검(#750): Actions 캐시는 항목 162개, 7.6 GB로 GitHub 저장소 한도 10 GB에
+가까웠습니다. 그중 3.0 GB는 지금 어떤 워크플로도 만들지 않는 `setup-python` pip 캐시로,
+uv 설치로 바꾸기 전에 남은 것입니다. 마지막 사용일이 2026-10-08이고 GitHub는 7일 동안 쓰이지
+않은 캐시를 지우므로 저절로 정리됩니다. 나머지는 잡별 `setup-uv` 캐시입니다. 캐시 설정은 바꿀
+필요가 없었습니다.
+
 ## Dependabot 그룹
 
 이전에는 Dependabot이 pip(`/`), pip(`/docs`), GitHub Actions의 패키지마다 PR을 하나씩

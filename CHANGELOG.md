@@ -150,6 +150,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
 ### CI
+- **Every workflow artifact has an explicit retention period (#750)** — the weekly SBOM
+  upload had none and was kept for the repository default of 90 days, and
+  `anchore/sbom-action` stored a second copy of the SBOM. `sbom.yml` now keeps the SBOM
+  for 30 days and turns off the action's own upload. A test requires `retention-days` on
+  every `actions/upload-artifact` step. `docs/CI_POLICY.md` (+ ko) records the rule and
+  the 2026-10-11 cache review (no cache change needed). CI only.
 - **The release runs lint, type checking, the public API check and the
   repository tooling tests itself (#750)** — the release path (`publish-pypi.yml`
   → `integration-full.yml`) used to rely on the release PR and the `main` push run
