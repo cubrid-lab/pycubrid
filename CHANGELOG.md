@@ -6,7 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-11
+
 ### Added
+
 - **Python 3.15 support (cubrid-lab/sqlalchemy-cubrid#666)** — the package
   declares the Python 3.15 classifier, and the full compatibility matrix now runs
   Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 (20 cells) on manual dispatch and
@@ -42,7 +45,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   unchanged. See
   [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments).
 
+* **compat:** accept collection parameters in wrapper execute and executemany ([#813](https://github.com/cubrid-lab/pycubrid/issues/813)) ([1accfaa](https://github.com/cubrid-lab/pycubrid/commit/1accfaa22945d3bd868f5940a68f085dae32a3ec))
+* **python:** declare Python 3.15 support ([#831](https://github.com/cubrid-lab/pycubrid/issues/831)) ([0563613](https://github.com/cubrid-lab/pycubrid/commit/056361386e3cb41af0558bd7cd974eb07d75a0a1))
+
 ### Fixed
+
 - **`charset="ksc5601"` works on Python 3.15** — Python 3.15 maps its own
   `ksc5601` codec alias to CP949, which pycubrid rejects because CP949 can emit
   ASCII bytes inside a multibyte character, so connecting with
@@ -84,7 +91,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   mutation job already uses 3.12. Contributor tooling only; the driver is
   unchanged.
 
+* **collect_repro:** redact passwords of CUBRID_TEST_URL values without "://" ([#778](https://github.com/cubrid-lab/pycubrid/issues/778)) ([dc0683f](https://github.com/cubrid-lab/pycubrid/commit/dc0683fd27ad1a7f0500b640baa0c74276c1030c))
+* **collect_repro:** treat non-IPv6 bracketed hosts as unparseable ([#776](https://github.com/cubrid-lab/pycubrid/issues/776)) ([164d0d5](https://github.com/cubrid-lab/pycubrid/commit/164d0d58819aea81281606708e3acfa07492c916))
+* **types:** bind the second occurrence of a repeated DST hour as itself ([#820](https://github.com/cubrid-lab/pycubrid/issues/820)) ([2228d66](https://github.com/cubrid-lab/pycubrid/commit/2228d663b6e2c9462c648b9dd941720219c464ae))
+
 ### Security
+
 - **`scripts/collect_repro.py` redacts more forms of the password of a
   `CUBRID_TEST_URL` that `urllib` splits in the wrong place (#777)** — a URL
   without `://` (`u:pw@host/db`, `cubrid:u:pw@host/db`, `cubrid:/u:pw@host/db`),
@@ -135,6 +147,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+
 - **Performance guide records the prepared batch evaluation (#836)** — `docs/PERFORMANCE.md`
   and its Korean copy gain a section on the prepared alternatives to the literal
   `executemany()` batch, measured on CUBRID 10.2, 11.0, 11.2 and 11.4
@@ -211,7 +224,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `CUBRIDdb` driver on the same server), and the Performance issue template no
   longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
+* **agents:** move stale planning context out of AGENTS.md ([#779](https://github.com/cubrid-lab/pycubrid/issues/779)) ([98acc87](https://github.com/cubrid-lab/pycubrid/commit/98acc8707dea72576c2394a3cd87487fe0e23871))
+* **aio:** correct Python version notes in TLS docstrings ([#824](https://github.com/cubrid-lab/pycubrid/issues/824)) ([b20a1b6](https://github.com/cubrid-lab/pycubrid/commit/b20a1b63a4f4e23527b44504924510a980cecefd))
+* **dev:** point the development guide to the current CI cost evidence ([#808](https://github.com/cubrid-lab/pycubrid/issues/808)) ([7d43169](https://github.com/cubrid-lab/pycubrid/commit/7d43169ee2beba9ecad700829a119460254389c3)), closes [#750](https://github.com/cubrid-lab/pycubrid/issues/750)
+* explain the executemany() gap against CUBRIDdb in the performance guide ([#838](https://github.com/cubrid-lab/pycubrid/issues/838)) ([f8d906d](https://github.com/cubrid-lab/pycubrid/commit/f8d906df0eb0ad0099e1e0342bf702937ae7ec2c))
+* name private vulnerability reporting as the preferred security channel ([#816](https://github.com/cubrid-lab/pycubrid/issues/816)) ([fe49031](https://github.com/cubrid-lab/pycubrid/commit/fe4903168c903c5680c44be3010bccd1a137da29)), closes [#751](https://github.com/cubrid-lab/pycubrid/issues/751)
+* **performance:** focus the guide on pycubrid on CUBRID and mark historical numbers ([#802](https://github.com/cubrid-lab/pycubrid/issues/802)) ([7cc4b20](https://github.com/cubrid-lab/pycubrid/commit/7cc4b20f5e0997d71da0568e35c3901358f45c1e)), closes [#795](https://github.com/cubrid-lab/pycubrid/issues/795)
+* publish the current performance baseline ([#823](https://github.com/cubrid-lab/pycubrid/issues/823)) ([35770b1](https://github.com/cubrid-lab/pycubrid/commit/35770b10346f4bae644e2af61da9b2550a39760a))
+* **python:** state the Python 3.11+ requirement in the connection guide and PRD ([#825](https://github.com/cubrid-lab/pycubrid/issues/825)) ([4f6c3ff](https://github.com/cubrid-lab/pycubrid/commit/4f6c3ff69393e23689e19850f548d32ce19f15fa))
+* **python:** state the Python 3.11+ requirement in the contributor and development guides ([#826](https://github.com/cubrid-lab/pycubrid/issues/826)) ([d727224](https://github.com/cubrid-lab/pycubrid/commit/d72722467c81cb690f002c921dc2e468110192fe)), closes [#700](https://github.com/cubrid-lab/pycubrid/issues/700)
+* **readme:** describe the full compatibility matrix as 4 × 4 on dispatch and release ([#803](https://github.com/cubrid-lab/pycubrid/issues/803)) ([d30bedb](https://github.com/cubrid-lab/pycubrid/commit/d30bedb55c74aa97b96a790f607d7c41967f06e3))
+* record the prepared batch evaluation for executemany() in the performance guide ([#843](https://github.com/cubrid-lab/pycubrid/issues/843)) ([6b28f5b](https://github.com/cubrid-lab/pycubrid/commit/6b28f5b943628bac0ddb2a7ac1508feebe40ef08))
+* **release:** list timed-out runs as rerunnable in the blocked-preparation recovery ([#800](https://github.com/cubrid-lab/pycubrid/issues/800)) ([2ff0d39](https://github.com/cubrid-lab/pycubrid/commit/2ff0d390c7241842a868d648971395c79f0ed7c3))
+* **release:** skip the green-publisher step for an abandoned release ([#806](https://github.com/cubrid-lab/pycubrid/issues/806)) ([f66e8de](https://github.com/cubrid-lab/pycubrid/commit/f66e8de1675e8f5dfa53d7e55d877f5d4e15d034)), closes [#801](https://github.com/cubrid-lab/pycubrid/issues/801)
+* **review:** specify tool-based review routes and thread closure ([#821](https://github.com/cubrid-lab/pycubrid/issues/821)) ([5f5fef1](https://github.com/cubrid-lab/pycubrid/commit/5f5fef17dd503140990dfbc13011ac37244ddd38))
+* update Python requirement in LLM index ([#804](https://github.com/cubrid-lab/pycubrid/issues/804)) ([0bc0a21](https://github.com/cubrid-lab/pycubrid/commit/0bc0a214cc48f12fb204a610581df95fd1060d8c))
+
 ### CI
+
 - **The cookbook verifies the built wheel before it is published
   (cubrid-lab/cubrid-cookbook-python#240)** — `publish-pypi.yml` gains
   `verify-candidate`, which calls the cookbook smoke test in candidate mode on the
@@ -424,6 +454,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   module needed a new mark; this is a test-only change.
 
 ### Tests
+
 - **Release-please push guards are pinned (#801)** — `tests/test_release_workflows.py`
   now asserts the exact, ordered guards of `release-please.yml`: the push is
   directly preceded by the stale-main `exit` and the `autorelease: review`
