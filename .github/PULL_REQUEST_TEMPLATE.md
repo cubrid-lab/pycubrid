@@ -45,6 +45,16 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 
 <!-- Docs exceptions need real text after "Docs: not needed -" on a standalone physical source line outside quotes/comments/fences. The line may be adjacent to ordinary prose without its own paragraph. Do not leave the template placeholder as a reason. Maintainers coordinate internal reviews, labels and approved translation follow-up. -->
 
+## Review Route and Final Disposition
+
+<!-- For maintainer/agent-authored PRs; ordinary external contributors do not need a specific tool. -->
+- Development route: OpenCode + Oracle pre/post / standalone Claude Code / standalone Codex / human/other (select one).
+- Review evidence: reviewer or Oracle design/post-review references, reviewed head SHA, or **pending**.
+- Finding dispositions: fixed commit + verification / rejected with reason / deferred issue.
+- Unresolved review threads and reason, or "none verified".
+- Merge decision: maintainer to confirm the applicable route, required CI, and final reviewed code.
+<!-- A review request, green CI, or automated "approval recommended" text is not a completed review. -->
+
 ## Validation Evidence
 
 Commands actually run and results:
