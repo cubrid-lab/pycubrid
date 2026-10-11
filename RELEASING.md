@@ -132,8 +132,9 @@ GitHub PR creation, repository settings or a full broker matrix. Test-generated
 1.9.0 is a fixture, not the approved next release version. The existing full
 publisher dry-run evidence below covers unchanged publisher code only.
 Fresh wheel/sdist metadata/install smoke and the full live matrix remain
-required publisher gates; PyPI cookbook verification checks the published
-version, not an unpublished local candidate artifact.
+required publisher gates. Since cubrid-cookbook-python#240 the cookbook also
+verifies the unpublished `release-dist` wheel of the run (`verify-candidate`)
+before `publish`, in addition to the published version afterwards.
 
 ### 4. Automatic release (`publish-pypi.yml`)
 
@@ -160,17 +161,61 @@ and chained with explicit `needs:` (tags and Releases created with
 | `consistency` | `make release-check VERSION=X.Y.Z` at the SHA: `__version__`, CHANGELOG lint and dated section, `build` + `twine check`. |
 | `matrix` | The full Python × CUBRID matrix, TLS, EUC-KR, version-differential and official-differential lanes, and the Python 3.11/3.15 offline suite with the 95% coverage floor (`offline-endpoints`), and copies of the `ci.yml` `lint`, `typecheck`, `compat-check` (public API) and `repo-tooling-tests` jobs (#750): `integration-full.yml` called through `workflow_call` at the SHA. Its `full-matrix-result` job fails unless every one of these jobs succeeds. |
 | `build` | Builds the wheel and sdist **once**, `twine check`, wheel/sdist install smoke tests, extracts the release notes (the CHANGELOG section byte for byte plus one `**Full Changelog**` link to the previous CHANGELOG version; none for the first release or when the section already has a compare link), generates the SPDX SBOM and records SHA-256 hashes. Artifacts `release-dist` and `release-meta` are kept for 14 days. |
-| `publish` | In the `pypi` environment: re-checks the hashes, creates the annotated tag `vX.Y.Z` at the SHA (or accepts one already there), creates a **draft** GitHub Release titled exactly `vX.Y.Z` with the notes and `sbom.spdx.json` (an existing Release found on resume must already carry that title, or the job fails closed; it is never renamed), uploads the same artifact to PyPI through `scripts/pypi_duplicate_guard.py` and Trusted Publishing (OIDC), then publishes the Release. |
+| `verify-candidate` | Calls the same pinned cookbook smoke test in **candidate mode** before anything is published: `mode: candidate`, `candidate_artifact: release-dist`, `candidate_hashes` = the `build` job's `sha256` output, `candidate_source_sha` = the release SHA, and `request_id: pycubrid-rc-vX.Y.Z-<run id>` (no run attempt, so `gh run rerun --failed` replaces only the failed cells). The cookbook checks the artifact's file set and every SHA-256, installs only that wheel and runs the release smoke on it. Skipped only to complete a publish whose tag already points at the release commit. |
+| `require-candidate` | Fails unless the call succeeded and its outputs report `status == success`, `evidence == candidate artifact`, `installed_version == requested_version == X.Y.Z` and `candidate_sha256` equal to the wheel's entry in the `build` job's `sha256` map. It also downloads the candidate report `release-candidate-verification-<request_id>` of this run and requires it to name this package, `request_id`, version and run, the artifact `release-dist`, the release commit as `source_sha`, exactly the `build` job's file map, and the same verified wheel and digest. Every value reaches the check through `env:` or the downloaded file, never through shell interpolation. It holds no permission. `publish` needs this job. |
+| `publish` | In the `pypi` environment: checks `dist/` and `release-meta/` against the `build` job outputs `sha256` and `meta_sha256` (`scripts/verify_dist.py`: exact file set, every digest) and re-checks `SHA256SUMS`, creates the annotated tag `vX.Y.Z` at the SHA (or accepts one already there), creates a **draft** GitHub Release titled exactly `vX.Y.Z` with the notes and `sbom.spdx.json` (an existing Release found on resume must already carry that title, or the job fails closed; it is never renamed), uploads the same artifact to PyPI through `scripts/pypi_duplicate_guard.py` and Trusted Publishing (OIDC), then publishes the Release. |
 | `verify-cookbook` | Calls the cookbook smoke test (`smoke-test.yml` of cubrid-cookbook-python) as a **reusable workflow** with `package=pycubrid`, `version=X.Y.Z` and a `request_id`; its jobs run inside this release run. |
 | `require-cookbook` | Fails unless the called workflow succeeded and its outputs report `status == success` with `installed_version == requested_version == X.Y.Z`. |
-| `summary` | Always runs; one table with SHA, tag, version, artifact hashes, matrix result, PyPI and Release URLs, cookbook run and the final state. |
+| `summary` | Always runs; one table with SHA, tag, version, artifact hashes, matrix result, candidate verification, PyPI and Release URLs, cookbook run and the final state. |
 
 Only `publish` has write access (`contents: write` for the tag and Release,
-`id-token: write` for PyPI); every other job reads.
+`id-token: write` for PyPI); every other job reads (`require-candidate` and
+`require-cookbook` hold no permission at all). `publish` runs only when
+`consistency`, `matrix`, `build` and `require-candidate` all succeeded
+(`!cancelled()` plus each explicit result, so a skipped `verify-candidate` on a
+tagged resume does not skip `publish`). It uploads the same `release-dist`
+bytes the cookbook verified, never a rebuild: the trust anchor is the `build`
+job's outputs, which no later job of the run can change, not the artifacts.
+
+#### Candidate verification (before publish)
+
+`verify-candidate` uses the candidate mode of the cookbook's release
+verification contract
+([`docs/internal/rc-verification-design.md`, section 13](https://github.com/cubrid-lab/cubrid-cookbook-python/blob/main/docs/internal/rc-verification-design.md#13-implemented-cookbook-contract-c1-c2)):
+
+```yaml
+uses: cubrid-lab/cubrid-cookbook-python/.github/workflows/smoke-test.yml@<40-hex cookbook main commit> # main
+with:
+  package: pycubrid
+  version: X.Y.Z
+  request_id: pycubrid-rc-vX.Y.Z-<run id>
+  mode: candidate
+  candidate_artifact: release-dist
+  candidate_hashes: <build job sha256 output>
+  candidate_source_sha: <release SHA>
+```
+
+The jobs appear as `Cookbook candidate verification / …` in the release run
+and upload `release-candidate-part-…` parts and the report
+`release-candidate-verification-<request_id>`, so they never mix with the
+post-publication report. The cookbook fails before any install on a missing
+or extra file, a wrong digest, a wheel of another package or version, or a
+corrupt wheel, and after installing when the wheel was replaced by another
+copy. The other drivers come from PyPI, so a candidate that needs an
+unpublished release of another cubrid-lab package fails here: release
+dependent packages one after the other.
+
+`verify-candidate` is skipped, and `require-candidate` passes with a notice,
+only when `detect` reports `publish == true` and `tag_state == same` (a
+`resume`, or a push whose tag already points at the release commit). The tag
+is created only after `require-candidate` passed, so the version already
+passed the gate (or predates it), and blocking the completion of a partly
+public release would protect nobody. A `verify-only` dispatch builds nothing,
+so it has no candidate.
 
 #### Cookbook verification
 
-`verify-cookbook` uses the release verification contract of
+`verify-cookbook` (after `publish`, with `mode` unset) uses the release verification contract of
 [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python/blob/main/CONTRIBUTING.md)
 ("Calling the smoke test from a release workflow"):
 
@@ -200,7 +245,9 @@ The release verification report needs all three cells (CUBRID 11.2 / Python 3.12
 CUBRID 11.4 / Python 3.12 and CUBRID 11.4 / Python 3.11) to succeed; a missing or
 failed cell fails the report and therefore the verification.
 
-The pin is a full commit SHA of the cookbook's `main` branch. Dependabot
+`verify-candidate` and `verify-cookbook` use the **same** pin; the release
+workflow tests require one SHA for every `smoke-test.yml@` reference. The pin
+is a full commit SHA of the cookbook's `main` branch. Dependabot
 (`github-actions` ecosystem) updates it: the cookbook's version tags do not
 contain the pinned commit, so Dependabot proposes the newest `main` commit.
 To bump it by hand, replace the SHA with the current
@@ -212,7 +259,7 @@ the `# main` comment.
 | Final state | Meaning |
 | --- | --- |
 | `no release: …` | Ordinary push; nothing ran after `detect`. |
-| `failed before publish in <job> …` | `consistency`, `matrix` or `build` failed. No tag, no Release, no upload. |
+| `failed before publish in <job> …` | `consistency`, `matrix`, `build` or `require-candidate` failed. No tag, no Release, no upload. |
 | `publish failure; … may be partial` | Failed inside `publish`; see recovery below. |
 | `published and verified` | Done. |
 | `published; post-release verification failed` | On PyPI, but the called cookbook workflow failed or was cancelled, or its outputs do not report `status == success` with `installed_version == X.Y.Z`. |
@@ -225,6 +272,7 @@ the `# main` comment.
 | `detect` says "no release" on a release merge | Version unchanged, CHANGELOG section not dated, or the tag exists at another commit (see the warning). | Fix through a new PR. If the tag is at another commit, that version is taken: prepare `X.Y.(Z+1)`. |
 | `consistency`, `matrix` or `build` failed | Nothing published; no tag, no Release. | Transient (flaky lane, runner error): `gh run rerun <run-id> --failed`. Real defect at that commit: `X.Y.Z` stays unpublished. Fix it in a normal PR (no version change, so no release), unblock preparation (see "A merged `X.Y.Z` is abandoned" below), then prepare `X.Y.(Z+1)`; in that release PR fold the unpublished `## [X.Y.Z]` entries into the new section. A skipped version number on PyPI is harmless. |
 | A merged `X.Y.Z` is abandoned (it will not be published) | The merged release PR stays `autorelease: pending`, so reconciliation reports it as blocked (or release-please aborts while it is still in progress) and no newer candidate can be prepared. | Record on the release PR why `X.Y.Z` is abandoned, then remove `autorelease: pending` from it. Do **not** add `autorelease: tagged`: nothing was published. Merge the fix, then dispatch **Prepare release**. The next version is computed from the commits after the `X.Y.Z` merge (normally `X.Y.(Z+1)`; a `feat` gives `X.(Y+1).0`, and hidden types alone open no candidate). In that release PR fold the unpublished `## [X.Y.Z]` entries into the new section. |
+| `verify-candidate` or `require-candidate` failed | Nothing published; no tag, no Release. The cookbook rejected the built wheel, or the call failed, was cancelled or reported other bytes. | Read the candidate report artifact (`release-candidate-verification-<request_id>`). Infrastructure flake (runner, Docker, CUBRID start): `gh run rerun <run-id> --failed`; `build` is not re-run, so the same artifact and digests are verified again under the same `request_id`. A driver defect: as for a real defect above, abandon `X.Y.Z` and release the fix as the next version. A cookbook defect: fix the cookbook, bump the pin through a PR, then abandon `X.Y.Z` and release the next version (an untagged `resume` of `X.Y.Z` is not supported yet). |
 | `publish` failed (tag/Release/PyPI error, partial upload) | The tag and a draft Release may exist; PyPI may hold some files. | `gh run rerun <run-id> --failed` of the **same** run. It reuses the verified artifact, accepts the tag at the same SHA, reuses the draft Release, and the duplicate guard drops files PyPI already serves byte for byte. |
 | `publish` fails with `the title must be exactly 'vX.Y.Z'` | The existing Release for the tag (draft or published) has another title. | Fix only the title by hand, keeping notes, assets, published and prerelease state; for a draft, resend `tag_name` (`gh api -X PATCH repos/cubrid-lab/pycubrid/releases/<id> -f name=vX.Y.Z -f tag_name=vX.Y.Z`). Then rerun. Never delete or recreate the Release or the tag. |
 | release-please preparation fails with `unsupported generated section` | The composer met a generated heading outside the standard list, for example from a breaking commit of a type that `changelog-sections` does not map (`foo!:`). | Add the commit type to `changelog-sections` in `release-please-config.json` with a standard section (hidden if it should not create a release by itself) through a reviewed PR, then regenerate. |
@@ -305,9 +353,9 @@ creates a new version, never moves a tag and never deletes anything.
 
 | `action` | Allowed when | Runs |
 | --- | --- | --- |
-| `resume` | Dispatched from `main`; tag `vX.Y.Z` exists; its commit is on `main`; `__version__` and a dated CHANGELOG section at that commit equal `X.Y.Z`. | consistency → matrix → build → publish → verify at the tag commit. For an interrupted release whose run can no longer be rerun (for example the artifacts expired before anything reached PyPI). A rebuilt file that differs from one already on PyPI fails the guard. |
+| `resume` | Dispatched from `main`; tag `vX.Y.Z` exists; its commit is on `main`; `__version__` and a dated CHANGELOG section at that commit equal `X.Y.Z`. | consistency → matrix → build → publish → verify at the tag commit (the tag exists, so the candidate gate is skipped). For an interrupted release whose run can no longer be rerun (for example the artifacts expired before anything reached PyPI). A rebuilt file that differs from one already on PyPI fails the guard. |
 | `verify-only` | Same conditions as `resume`. | Only `verify-cookbook`, `require-cookbook` and `summary` for the already-published version, through the same reusable cookbook workflow. |
-| `dry-run` | Any branch; `X.Y.Z` must equal `__version__` at the dispatched commit and have a dated CHANGELOG section. | consistency → matrix → build → verify-cookbook → require-cookbook, **no** tag, Release or upload. The cookbook jobs verify the already-published `X.Y.Z`. |
+| `dry-run` | Any branch; `X.Y.Z` must equal `__version__` at the dispatched commit and have a dated CHANGELOG section. | consistency → matrix → build → verify-candidate → require-candidate, **no** tag, Release or upload (`publish` needs `detect`'s `publish == true`, which a dry run never sets, and the `pypi` environment allows only `main`). The cookbook verifies the wheel this run built; the post-publication `verify-cookbook` does not run. |
 
 ```bash
 gh workflow run publish-pypi.yml -f action=resume -f version=X.Y.Z
@@ -362,15 +410,19 @@ d1c32a3ea22d0be2e52345976c0d30e280347260305d16b726dc342b9cc01ca6  pycubrid-1.8.0
 c13207dae94aaf239bc84325ae0bfe986c5123b3dc00b841e39a630bedcbd04e  pycubrid-1.8.0.tar.gz
 ```
 
-**Limit:** the `build` job's own smoke tests do install the freshly built
+**Limit (before the candidate gate):** the `build` job's own smoke tests do install the freshly built
 wheel and sdist into clean virtual environments and check their imports and
 metadata, so a passing dry run proves the fresh artifacts install cleanly.
 What it does not prove is that those fresh artifacts pass the cookbook
 suite: `verify-cookbook` on a `dry-run` installs the already-published
 `pycubrid==1.8.0` from PyPI (the cookbook's release verification contract
 only ever installs from PyPI), never the wheel this dry run just built.
-Only `publish` followed by its own `verify-cookbook` verifies the newly
-built artifact through the cookbook.
+Only `publish` followed by its own `verify-cookbook` verified the newly
+built artifact through the cookbook. Since the candidate gate, a dry run
+verifies the freshly built wheel through the cookbook (`verify-candidate`)
+instead of the published version. A dry run never reaches `publish`, so the
+`scripts/verify_dist.py` steps first run on a real release; they run before the
+tag step, so a failure there leaves nothing tagged or uploaded.
 
 ## Repository settings this relies on
 

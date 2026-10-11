@@ -30,6 +30,9 @@ JOB_MAX_OVERRIDES: dict[tuple[str, str], int] = {}
 EXTERNAL_REUSABLE_CALLERS = {
     ("ci.yml", "doc-lint"): "cubrid-lab/.github/.github/workflows/doc-lint.yml",
     ("codeql.yml", "analyze"): "cubrid-lab/.github/.github/workflows/codeql.yml",
+    ("publish-pypi.yml", "verify-candidate"): (
+        "cubrid-lab/cubrid-cookbook-python/.github/workflows/smoke-test.yml"
+    ),
     ("publish-pypi.yml", "verify-cookbook"): (
         "cubrid-lab/cubrid-cookbook-python/.github/workflows/smoke-test.yml"
     ),
