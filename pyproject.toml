@@ -47,6 +47,10 @@ test = [
     "pytest-cov",
     "pytest-benchmark>=4.0",
     "hypothesis>=6.0",
+    # Imported directly by the repository-tooling tests (workflow YAML, version
+    # specifiers); tests/test_workflow_pins.py keeps this list complete.
+    "packaging",
+    "pyyaml",
 ]
 lint = [
     "ruff==0.16.10",

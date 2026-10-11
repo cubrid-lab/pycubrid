@@ -6,12 +6,16 @@ dependency group, and workflows install the group instead of repeating a pin.
 
 from __future__ import annotations
 
+import ast
 import re
+import sys
 import tomllib
 from pathlib import Path
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
@@ -38,6 +42,57 @@ def test_published_metadata_has_no_contributor_extras() -> None:
     # #784: test, lint, docs and release tools stay out of the wheel metadata.
     assert "optional-dependencies" not in PYPROJECT["project"]
     assert {"test", "lint", "security", "release", "docs", "mutation", "dev"} <= set(GROUPS)
+
+
+# Import name -> distribution for every third-party module imported under tests/.
+# A new import must be added here and to the `test` group (#784: the Python
+# canary installs only `--group test --group release` and failed to collect
+# without pyyaml, which the old dev extra pulled in through pre-commit).
+TEST_IMPORT_DISTRIBUTIONS = {
+    "hypothesis": "hypothesis",
+    "packaging": "packaging",
+    "pytest": "pytest",
+    "pytest_asyncio": "pytest-asyncio",
+    "yaml": "pyyaml",
+}
+# First-party code, and the official CUBRIDdb driver that only the official
+# differential job installs (imported inside its fixture, guarded by a skip).
+NOT_FROM_THE_TEST_GROUP = {"pycubrid", "tests", "scripts", "demos", "CUBRIDdb", "_cubrid"}
+
+
+def _group_names(group: str) -> set[str]:
+    names = set()
+    for entry in GROUPS[group]:
+        if isinstance(entry, dict):
+            names |= _group_names(entry["include-group"])
+        else:
+            names.add(canonicalize_name(Requirement(entry).name))
+    return names
+
+
+def _test_imports() -> set[str]:
+    found = set()
+    for path in (ROOT / "tests").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                found |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                found.add(node.module.split(".")[0])
+    return found - set(sys.stdlib_module_names) - NOT_FROM_THE_TEST_GROUP
+
+
+def test_test_group_provides_every_third_party_module_the_tests_import() -> None:
+    imports = _test_imports()
+    unmapped = imports - TEST_IMPORT_DISTRIBUTIONS.keys()
+    assert not unmapped, f"add these test imports to TEST_IMPORT_DISTRIBUTIONS: {unmapped}"
+    provided = _group_names("test")
+    missing = {dist for mod in imports if (dist := TEST_IMPORT_DISTRIBUTIONS[mod]) not in provided}
+    assert not missing, f"tests import modules the test dependency group lacks: {missing}"
+
+
+def test_canary_installs_the_test_group() -> None:
+    installs = [ln for ln in _pip_lines("python-canary.yml") if "--group" in ln]
+    assert installs == ["python -m pip install -e . --group test --group release"]
 
 
 def test_docs_group_is_exact_pins() -> None:
