@@ -1,4 +1,4 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: PEP 249 — DB-API 2.0
     url: https://peps.python.org/pep-0249/
