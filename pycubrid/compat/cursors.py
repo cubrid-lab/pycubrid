@@ -1,16 +1,21 @@
-"""Qualified CUBRIDdb-style row cursors over the explicit native scalar path.
+"""Qualified CUBRIDdb-style row cursors over the explicit native prepared path.
 
-This module does not add wrapper collection/LOB binding, positional scrolling
-or ordinary DB-API execution. Its cursors keep the official wrapper's row and
-converter behavior while reusing the already-supported native FC2/FC3 subset.
+Its cursors keep the official wrapper's row and converter behavior while
+reusing the already-supported native FC2/FC3 subset: INT32/string/NULL scalars
+and collections through the native ``set.imports()``/``bind_set()`` (#610).
+This module does not add wrapper LOB binding, positional scrolling or ordinary
+DB-API execution.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
+from datetime import date, time
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Iterator, Protocol
 
-from pycubrid.constants import CUBRIDStatementType
+from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.exceptions import InterfaceError, NotSupportedError, ProgrammingError
 
 if TYPE_CHECKING:
@@ -28,6 +33,66 @@ _ROWCOUNT_TYPES = frozenset(
         CUBRIDStatementType.CALL,
     }
 )
+# Exact positional argument types bound as a collection, like the official
+# is_iterable() check but without dicts, generators or other iterables.
+_COLLECTION_ARGS = (list, tuple, set, frozenset)
+_BIT_CODES = frozenset({CUBRIDDataType.BIT, CUBRIDDataType.VARBIT})
+
+
+def _element_code(value: Any) -> int:
+    """The official get_set_element_type() category of one non-None element."""
+    # Same order as upstream: bool is an int, and datetime is a date.
+    if isinstance(value, int):
+        return CUBRIDDataType.INT
+    if isinstance(value, float):
+        return CUBRIDDataType.FLOAT
+    if isinstance(value, Decimal):
+        return CUBRIDDataType.NUMERIC
+    if isinstance(value, date):
+        return CUBRIDDataType.DATE
+    if isinstance(value, time):
+        return CUBRIDDataType.TIME
+    if isinstance(value, str):
+        return CUBRIDDataType.STRING
+    if isinstance(value, (bytes, bytearray)):
+        return CUBRIDDataType.VARBIT
+    raise ProgrammingError("unsupported collection element type")
+
+
+def _infer_code(elements: Iterable[Any]) -> int:
+    """Infer one element type code; ``None`` elements are skipped."""
+    chosen: int | None = None
+    for value in elements:
+        if value is None:
+            continue
+        code = _element_code(value)
+        if chosen is None:
+            chosen = code
+        elif code != chosen:
+            raise TypeError(
+                f"Iterable contains elements of different types: {int(code)} != {int(chosen)}"
+            )
+    return CUBRIDDataType.STRING if chosen is None else chosen
+
+
+def _collection_code(set_type: Any, index: int) -> Any:
+    """The explicit code for one-based ``index``, or ``None`` to infer it."""
+    if isinstance(set_type, (list, tuple)):  # as upstream, subclasses included
+        try:
+            return set_type[index - 1]
+        except IndexError:
+            return None
+    return set_type
+
+
+def _positional(args: Any) -> tuple[Any, ...]:
+    if args is None:
+        return ()
+    if type(args) in (tuple, list):
+        return tuple(args)
+    if type(args) in (int, str):
+        return (args,)
+    raise ProgrammingError("wrapper args must be positional native scalar values")
 
 
 class _RowCursorOwner(Protocol):
@@ -77,26 +142,57 @@ class _CursorBase:
             except BaseException:
                 return
 
-    def execute(self, query: str, args: Any = None, set_type: Any = None) -> int:
-        """Run only scalars that the existing native prepared cursor can bind."""
-        cursor = self._open()
-        if set_type is not None:
-            raise NotSupportedError("wrapper set_type binding is not supported")
-        if args is None:
-            values: tuple[Any, ...] | list[Any] = ()
-        elif type(args) in (tuple, list):
-            values = args
-        elif type(args) in (int, str):
-            values = (args,)
-        else:
-            raise ProgrammingError("wrapper args must be positional native scalar values")
-        cursor.prepare(query)
-        for index, value in enumerate(values, 1):
-            cursor.bind_param(index, value)
-        result = cursor.execute()
+    def _collection(self, value: Any, code: Any) -> Any:
+        """Build a native set for one collection argument; no I/O."""
+        elements = tuple(value)
+        if code is None:
+            code = _infer_code(elements)
+        elif isinstance(code, bool) or not isinstance(code, int):
+            raise InterfaceError("collection element type must be an int type code")
+        if code in _BIT_CODES:
+            raise NotSupportedError("BIT/VARBIT collection elements are not supported")
+        adapted: list[str | None] = []
+        for element in elements:
+            if element is None:
+                adapted.append(None)  # a NULL element, not the official text 'None'
+            elif isinstance(element, str):
+                adapted.append(element)
+            elif _element_code(element) == CUBRIDDataType.VARBIT:
+                raise NotSupportedError("BIT/VARBIT collection elements are not supported")
+            else:
+                adapted.append(str(element))  # the official adapt=str text
+        collection = self.con.connection.set()
+        collection.imports(tuple(adapted), code)
+        return collection
+
+    def _plan(self, args: Any, set_type: Any) -> list[tuple[bool, Any]]:
+        """Check one parameter group and build its collections before any I/O."""
+        plan: list[tuple[bool, Any]] = []
+        for index, value in enumerate(_positional(args), 1):
+            if type(value) in _COLLECTION_ARGS:
+                code = None if set_type is None else _collection_code(set_type, index)
+                plan.append((True, self._collection(value, code)))
+            elif value is None or (not isinstance(value, bool) and isinstance(value, (int, str))):
+                plan.append((False, value))  # range/NUL/charset are checked by bind
+            else:
+                raise ProgrammingError("unsupported prepared parameter type")
+        return plan
+
+    @staticmethod
+    def _bind(cursor: NativeCursor, plan: list[tuple[bool, Any]]) -> None:
+        for index, (is_collection, value) in enumerate(plan, 1):
+            if is_collection:
+                cursor.bind_set(index, value)
+            else:
+                cursor.bind_param(index, value)
+
+    def _snapshot(self, cursor: NativeCursor, result: int | None) -> None:
         statement_type = cursor._statement_type
-        self.rowcount = result if statement_type in _ROWCOUNT_TYPES else -1
-        if statement_type == CUBRIDStatementType.SELECT:
+        if result is None:  # executemany() with no parameter groups
+            self.rowcount = -1
+        else:
+            self.rowcount = result if statement_type in _ROWCOUNT_TYPES else -1
+        if result is not None and statement_type == CUBRIDStatementType.SELECT:
             metadata: Description = tuple(
                 (
                     column.name,
@@ -114,7 +210,73 @@ class _CursorBase:
         else:
             self._native_description = None
             self.description = None
+
+    def _discard(self, cursor: NativeCursor) -> None:
+        """Drop the previous result and snapshot without I/O, as a failed call does.
+
+        Upstream prepares before binding, so a bind error leaves no fetchable
+        result; the open handle is released by the next prepare or close.
+        """
+        with cursor._connection._session_lock:
+            cursor._invalidate_result()
+        self.rowcount = -1
+        self.description = None
+        self._native_description = None
+
+    def execute(self, query: str, args: Any = None, set_type: Any = None) -> int:
+        """Prepare, bind and execute once; returns the native result count.
+
+        Positional INT32/string/NULL scalars bind as native parameters; a
+        ``list``, ``tuple``, ``set`` or ``frozenset`` argument binds as a native
+        collection. ``set_type`` is one element type code for every collection
+        argument or a per-position list/tuple (missing or ``None`` entries are
+        inferred). Argument, type and collection errors are raised before any
+        I/O and discard the previous result, ``rowcount`` and ``description``.
+        Scalar range, NUL and charset errors are raised at bind time, after the
+        prepare.
+        """
+        cursor = self._open()
+        try:
+            plan = self._plan(args, set_type)
+        except BaseException:
+            self._discard(cursor)
+            raise
+        cursor.prepare(query)
+        self._bind(cursor, plan)
+        result = cursor.execute()
+        self._snapshot(cursor, result)
         return result
+
+    def executemany(self, query: str, args_list: Iterable[Any]) -> None:
+        """Prepare once, then bind and execute each parameter group in order.
+
+        Every group follows the ``execute()`` rules with inferred collection
+        types and is checked before the statement is prepared; an error there
+        discards the previous result like ``execute()``. After the prepare,
+        every group's value count must equal the placeholder count before any
+        group runs. ``rowcount`` and ``description`` come from the last
+        execution; with no groups the statement is only prepared and they are
+        ``-1`` and ``None`` (pycubrid's own choice).
+        """
+        cursor = self._open()
+        try:
+            plans = [self._plan(args, None) for args in args_list]
+        except BaseException:
+            self._discard(cursor)
+            raise
+        cursor.prepare(query)
+        expected = cursor._bind_count
+        for number, plan in enumerate(plans, 1):
+            if len(plan) != expected:
+                # Checked for every group first, so no group runs.
+                raise ProgrammingError(
+                    f"executemany group {number} has {len(plan)} values for {expected} placeholders"
+                )
+        result: int | None = None
+        for plan in plans:
+            self._bind(cursor, plan)
+            result = cursor.execute()
+        self._snapshot(cursor, result)
 
     def _shape(self, row: tuple[Any, ...]) -> Any:
         return row

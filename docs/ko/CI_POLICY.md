@@ -11,7 +11,7 @@
 | 고위험 PR | Python 3.11과 3.14에서 커버리지를 제외한 전체 오프라인 회귀와 Python 3.14/CUBRID 11.4. 필요하면 대상 레인 추가 |
 | main으로의 코드 푸시 | Ubuntu/Python 3.11과 3.14에서 각각 기존 95% 커버리지 기준을 적용한 전체 오프라인 스위트. 최저·최신 라이브 엔드포인트 |
 | 월요일 03:00 UTC | main 푸시와 같은 정책(Python 3.11/3.14 오프라인 스위트 포함)으로 최근 7일의 변경을 비교. 변경이 없거나 문서만 바뀐 이력은 런타임 테스트를 선택하지 않으며, 같은 SHA의 성공한 푸시 실행이 이미 실행한 레인은 반복하지 않음([이벤트 계층과 비용 근거](#이벤트-계층과-비용-근거) 참고) |
-| 명시적 전체 실행 또는 릴리스 | 기존 전체 Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 통합 워크플로와 필수 릴리스 레인, 그리고 95% 기준을 적용한 Python 3.11/3.14 오프라인 스위트 |
+| 명시적 전체 실행 또는 릴리스 | 기존 전체 Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 통합 워크플로와 필수 릴리스 레인, 그리고 95% 기준을 적용한 Python 3.11/3.14 오프라인 스위트, lint, 타입 검사, 공개 API 기준선, 저장소 도구 테스트 |
 
 PR 스모크 스위트는 의도적으로 범위가 제한되어 있습니다. 기여자는 자신의 변경과
 관련된 회귀 검사를 로컬에서 실행하고 명령과 결과를 PR에 기록해야 합니다.
@@ -150,10 +150,11 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 뮤테이션 테스트 | `bug-hunt.yml` `mutation` | 버그 탐색과 같음 |
 | 벤치마크 추세 | `bug-hunt.yml` `perf-trend` | 버그 탐색과 같음 |
 | 다운스트림 코퍼스 (권고용) | `bug-hunt.yml` `downstream-corpus` | 버그 탐색과 같음 |
-| 타입 검사 | `ci.yml` `typecheck` | 모든 코드 이벤트 (릴리스에서 반복하지 않음) |
-| 공개 API 기준선 | `ci.yml` `compat-check` | 모든 코드 이벤트 (릴리스에서 반복하지 않음) |
+| lint, CHANGELOG 구조, 번역 구조, `llms-full.txt` 동기화 | `ci.yml` `lint`, `integration-full.yml` `lint` (같은 단계) | 모든 이벤트, 릴리스와 전체 수동 실행 |
+| 타입 검사 | `ci.yml` `typecheck`, `integration-full.yml` `typecheck` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
+| 공개 API 기준선 | `ci.yml` `compat-check`, `integration-full.yml` `compat-check` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 패키징 | `ci.yml` `packaging-smoke-test`, `publish-pypi.yml` `consistency`와 `build` | 위험 PR, PR이 아닌 코드 이벤트, 릴리스 |
-| 저장소 도구 | `ci.yml` `repo-tooling-tests` | 도구 경로 이벤트 |
+| 저장소 도구 | `ci.yml` `repo-tooling-tests`, `integration-full.yml` `repo-tooling-tests` (같은 단계) | 도구 경로 이벤트, 릴리스와 전체 수동 실행 |
 | Python 3.15 미리보기 (권고용) | `python-canary.yml` | 수동 실행만 |
 
 ### 통합
@@ -199,7 +200,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 주간 `ci.yml`, head 푸시 실행이 코드 레인과 함께 성공 | 19 → 9 | 약 13 → 약 1.8 | 약 26 → 9 |
 | 주간 `ci.yml`, head 푸시 실행이 성공하지 않았거나 문서 전용 | 19 → 19 | 약 13 → 약 13 | 약 26 → 약 26 |
 | 주간 `bug-hunt.yml` | 7 → 7 (목요일) | 149.4 → 149.4 | 152 → 152 |
-| 릴리스 | 34 → 36 | 41.8 → 약 44.7 | 60.5 → 약 64.5 |
+| 릴리스(lint, typecheck, 공개 API, 저장소 도구의 릴리스 실행 사본 포함) | 34 → 40 | 41.8 → 약 46.2 | 60.5 → 약 68.5 |
 
 이 값은 예상치입니다. 절감을 주장하기 전에 이후 몇 주의 Actions 데이터와 비교하세요.
 
@@ -223,8 +224,25 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 `ci.yml` `offline-tests`와 같은 설치와 pytest 명령으로 Python 3.11과 3.14를 씁니다.
 `full-matrix-result`가 이를 요구합니다. 릴리스마다 약 2.9 러너 분이 늘어납니다.
 
-타입 검사, 공개 API 기준선, lint, 저장소 도구는 여전히 릴리스에서 반복하지 않습니다.
-릴리스 경로는 이를 위해 릴리스 PR과 `main` 푸시 실행에 의존합니다.
+같은 공백이 나머지 `main` 푸시 증거에도 있었고, 메인테이너는 이를 같은 방식으로
+닫기로 결정했습니다(2026-10-11, sqlalchemy-cubrid #737과 같음). `integration-full.yml`은
+`ci.yml` `lint`, `typecheck`, `compat-check`(공개 API 기준선), `repo-tooling-tests`의
+사본도 정확한 SHA에서 같은 Python 버전, 타임아웃, 단계로 실행합니다. `ci.yml`과 다른
+점은 세 가지이며, `tests/test_ci_policy.py`가 나머지를 같게 유지합니다.
+
+- **변경 경로로 선택하지 않습니다.** 각 사본은 `validate-target`만 필요로 하므로 모든
+  수동 실행과 릴리스 호출에서 실행됩니다. 사본이 건너뛰어지는 경우는 `validate-target`이
+  실패했을 때뿐이며, 그때는 이미 게이트가 실패합니다.
+- **체크아웃.** 다른 `integration-full.yml` 잡처럼 체크아웃에서
+  `persist-credentials: false`를 설정합니다.
+- **캐시 모드.** setup-uv는 이 워크플로의 `auto` 캐시 모드를 씁니다.
+
+`full-matrix-result`는 네 잡을 모두 `needs`에 두고 `success`가 아닌 결과에는 실패하므로,
+실패·취소·건너뜀·누락된 사본은 게시를 막습니다. `publish-pypi.yml`은 바뀌지 않습니다.
+이 워크플로는 cubrid-lab 저장소 사이에서 동일하게 유지되기 때문입니다. 다른 방안인
+`main` 푸시 실행을 취소 불가로 만들고 게시 워크플로가 이를 요구하게 하는 방식은
+이 파일을 바꿔야 했습니다. 위의 잡별 중앙값으로 보면 사본은 릴리스나 전체 수동 실행마다
+약 1.5 러너 분(반올림 4분)을 더합니다.
 
 ## 오프라인 엔드포인트 버전
 
@@ -292,9 +310,11 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 하한을 둡니다. 게이트와 작은 잡은 5분, lint/type/오프라인/도구 잡은 10–15분, 라이브
 통합 레인은 20–30분입니다. 두 개의 긴 주간 잡은 더 작은 배수를 쓰는 명시적
 예외입니다. property/fault/soak 잡은 120분(관측 최대 63분의 약 1.9배, soak 단계는
-별도로 90분 상한)입니다. 뮤테이션 테스트는 300분으로, 성공한 단 한 번의 120분
-실행의 약 2.5배입니다. 이는 180분 상한의 유일한 문서화된 예외이며 360분 기본값보다
-낮게 유지합니다. 뮤테이션 범위 제한(샤딩)은 #750에서 추적합니다. 집계
+별도로 90분 상한)입니다. 뮤테이션 테스트는 뮤턴트 수가
+거의 같은 네 개의 샤드로 실행됩니다(#750). 6,812개 뮤턴트 중 샤드마다 약 1,550–1,850개이므로,
+단일 잡 120분 기준으로 샤드당 약 30분입니다. 샤드마다 90분을 주어 이전의 300분 예외를
+없앴으며, 180분 상한을 넘는 잡은 없습니다. `tests/test_mutation_shards.py`가 모든
+`only_mutate` 모듈이 정확히 한 샤드에 속하는지 검증합니다. 집계
 게이트(`ci-gate`, `full-matrix-result`)는 `if: always()`와 짧은 타임아웃으로
 실행됩니다. 타임아웃된 의존 잡은 성공이 아닌 결과(`cancelled`/`failure`)로
 보고되며 게이트는 이를 실패로 처리합니다.
@@ -360,6 +380,41 @@ upstream 릴리스가 저장소 변경 없이 `mkdocs build --strict` 게이트�
 `cancel-in-progress`가 false여도 대기 중인 실행이 새 실행으로 대체되므로, main 푸시와
 예약 실행이 취소되거나 누락되지 않습니다. `security.yml`은 `pyproject.toml`에 고정된 `bandit[toml]==1.9.4`를
 설치합니다. `tests/test_workflow_pins.py`가 세 가지를 모두 검증합니다.
+
+## 아티팩트 보존 기간과 캐시
+
+모든 `actions/upload-artifact` 단계는 `retention-days`를 지정하므로, 저장소 기본값인 90일로
+남는 아티팩트가 없습니다. 디버깅용·증거용 아티팩트는 14일 또는 30일, 릴리스 아티팩트는 14일
+보관합니다. `anchore/sbom-action`은 `upload-artifact: false`로 실행합니다. 워크플로가 SBOM을
+직접 업로드하므로, 그대로 두면 액션이 기본 보존 기간으로 사본을 하나 더 저장하기 때문입니다.
+`tests/test_workflow_pins.py::test_every_artifact_upload_sets_a_retention_period`가 두 규칙을
+고정합니다.
+
+2026-10-11 점검(#750): Actions 캐시는 항목 162개, 7.6 GB로 GitHub 저장소 한도 10 GB에
+가까웠습니다. 그중 3.0 GB는 지금 어떤 워크플로도 만들지 않는 `setup-python` pip 캐시로,
+uv 설치로 바꾸기 전에 남은 것입니다. 마지막 사용일이 2026-10-08이고 GitHub는 7일 동안 쓰이지
+않은 캐시를 지우므로 저절로 정리됩니다. 나머지는 잡별 `setup-uv` 캐시입니다. 캐시 설정은 바꿀
+필요가 없었습니다.
+
+## Dependabot 그룹
+
+이전에는 Dependabot이 pip(`/`), pip(`/docs`), GitHub Actions의 패키지마다 PR을 하나씩
+열었고, PR마다 전체 PR 계층이 실행되었습니다. 이제 `.github/dependabot.yml`은 minor와
+patch 버전 업데이트를 생태계와 디렉터리별로 PR 하나에 묶으므로(`dev-tools`,
+`docs-tools`, `github-actions`), 주간 업데이트 묶음은 그룹당 CI 실행 한 번으로
+끝납니다(#750). 다음은 여전히 별도 PR로 열립니다.
+
+- **Major 업데이트**는 모든 그룹에서 제외되며(`update-types`는 `minor`와 `patch`뿐),
+  `dependabot-auto-merge.yml`은 여전히 사람의 리뷰를 위해 보류합니다.
+- **보안 업데이트**는 그룹이 `applies-to: version-updates`로 설정되어 있어 분리됩니다.
+- **런타임 의존성 `tzdata`**는 `dev-tools`에서 제외됩니다.
+
+그룹은 아무것도 우회하지 않습니다. 그룹 PR도 같은 필수 체크를 거치며, 체크가 통과해야
+자동 병합이 완료됩니다. `dependabot/fetch-metadata`는 그룹 PR의 `update-type`으로 가장
+높은 semver 변경을 보고하므로, 그룹이 major 업데이트를 자동 병합으로 가져갈 수 없습니다.
+패키지 하나가 실패하면 그룹 전체가 막힙니다. 그룹 PR에서 고치거나, 별도 작업이 필요하면
+리뷰된 PR로 해당 패키지를 그룹의 `exclude-patterns`에 추가해 Dependabot이 단독 PR로 열게 하세요. `tests/test_workflow_pins.py`가
+그룹 설정을 검증합니다.
 
 ## Python 3.15 프리뷰 준비
 

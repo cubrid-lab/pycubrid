@@ -252,7 +252,7 @@ This guide covers how to install pycubrid, connect to a CUBRID database, and und
 
 | Requirement   | Version    |
 |---------------|------------|
-| Python        | 3.10+      |
+| Python        | 3.11+      |
 | CUBRID Server | 10.2–11.4  |
 
 No C compiler or native libraries required — pycubrid is pure Python.
@@ -1583,11 +1583,13 @@ falsey argument and a dictionary-row cursor for a truthy argument. Direct
 construction is available as `pycubrid.compat.cursors.Cursor(conn)` and
 `DictCursor(conn)`; these classes are not added to the package-level exports.
 The cursor starts with `arraysize=1`, `rowcount=-1` and `description=None`.
-`execute(query, args=None, set_type=None)` delegates only the existing native
-INT32, string and SQL NULL prepared-binding subset. A non-`None` `set_type`,
-mapping arguments and unsupported native values fail before execution;
-`executemany`, collection/LOB arguments and broad DB-API execution are not
-part of this wrapper slice.
+`execute(query, args=None, set_type=None)` delegates the existing native
+INT32, string and SQL NULL prepared-binding subset, and since #610 binds
+`list`/`tuple`/`set`/`frozenset` arguments as collections;
+`executemany(query, args_list)` prepares once and executes each group (see
+[Wrapper collection arguments](#wrapper-collection-arguments)). Mapping
+arguments and unsupported values fail before execution; LOB arguments and
+broad DB-API execution are not part of this wrapper slice.
 
 For a SELECT, `description` contains seven-field tuples
 `(name, native_type, 0, 0, precision, scale, null_ok)` with integer `null_ok`.
@@ -1689,8 +1691,8 @@ server error -494 raises `ProgrammingError` by the driver-wide mapping
 
 As with the official module, `from pycubrid.compat.native import *` binds the
 name `set` to `native.set`, shadowing the builtin `set` in that namespace. The wrapper
-`execute(query, args, set_type)` and `executemany()` collection shapes are not
-provided, and ordinary `pycubrid` cursors still use the typed
+`execute(query, args, set_type)` and `executemany()` collection shapes build on
+this API (next section). Ordinary `pycubrid` cursors still use the typed
 `pycubrid.types.Set`/`Multiset`/`Sequence` literal parameters (#567).
 
 ```python
@@ -1709,6 +1711,75 @@ try:
         cur.bind_set(1, tags)
         cur.bind_set(2, scores)
         cur.execute()
+    finally:
+        cur.close()
+finally:
+    conn.close()
+```
+
+### Wrapper collection arguments (#610) {#wrapper-collection-arguments}
+
+The qualified wrapper cursors accept the official CUBRIDdb collection call
+shapes (pinned upstream `CUBRIDdb/cursors.py` at `e75ec36`). Each collection
+argument becomes `conn.connection.set()`, `imports(tuple(elements), code)` and
+`bind_set(index, s)` on the native API above. Every element is sent as STRING
+text with the SET kind, and the type code only labels the import. For
+collections whose elements are all supported and not `None`, the request bytes
+equal the official driver's; a `None` element and the cases listed under the
+differences below are not byte-equivalent.
+
+| Item | Contract |
+| --- | --- |
+| Call shapes | `execute(query, args=None, set_type=None) -> int` and `executemany(query, args_list) -> None` |
+| `args` | `None`, a `tuple` or `list` of positional values, or a bare `int`/`str` (wrapped). Other top-level values, including a `set`, raise `ProgrammingError` |
+| Positional values | `int` (INT32), `str` and `None` (SQL NULL) as before; a `list`, `tuple`, `set` or `frozenset` is a collection. Other values (`bool`, `float`, `bytes`, `dict`, generators, other iterables) raise `ProgrammingError` |
+| `set_type` | `None` infers every collection. An `int` code applies to every collection. A `list`/`tuple` gives the code by position; a `None` entry or a position past its end is inferred. It is ignored when no collection is passed. A used code that is not an `int` (or is a `bool`) raises `InterfaceError` |
+| Inferred codes | `int` and `bool` INT (8), `float` FLOAT (11), `Decimal` NUMERIC (7), `date` and `datetime` DATE (13), `time` TIME (14), `str` STRING (2). `None` elements are skipped; an empty or all-`None` collection is STRING |
+| Elements | `None` is a NULL element; `str` is sent as is; other supported elements are sent as `str(element)` (`True` becomes `'True'`, a `datetime` its ISO text) and the server converts the text to the column type |
+| Errors | Mixed inferred categories raise `TypeError`, as upstream. `bytes`/`bytearray` elements and the BIT (5)/VARBIT (6) codes raise `NotSupportedError`. Other element types (nested containers, objects) raise `ProgrammingError`; NUL and charset errors follow `imports()` |
+| `executemany` | Checks every group (inferred types, no `set_type`) and builds its collections, then prepares once. Every group's value count must equal the placeholder count, else `ProgrammingError` and no group runs. Then each group is bound and executed in order. `rowcount` and `description` come from the last execution. An empty `args_list` only prepares and leaves `rowcount=-1`, `description=None`; this is pycubrid's own choice, not compared with the official wrapper |
+| Timing and state | Argument, type and collection errors of `execute()` and of every `executemany()` group are raised before the prepare, with no server I/O. Like the official prepare-then-bind, they discard the previous result (a later `fetchone()` raises `InterfaceError`) and set `rowcount=-1`, `description=None`. `executemany()` group counts are checked after the prepare but before any execute. Scalar range, NUL and charset errors are raised at bind time, after the prepare. After the prepare, a failure leaves `rowcount` and `description` at their previous values; a server error from one `executemany()` group leaves the earlier groups executed, and the cursor stays usable |
+
+Deliberate differences from the official wrapper. The first four are pinned
+by live differential claims (`wrapper-collection-null-element` and
+`wrapper-collection-errors`); the others are covered only by offline tests
+(`tests/test_compat_wrapper_collections.py`):
+
+- A `None` element binds a NULL element; the official wrapper sends the text
+  `'None'`, or raises `UnboundLocalError` when inference meets `None` first.
+- BIT/VARBIT collection elements are not supported (`NotSupportedError`); the
+  official wrapper converts `bytes` to bit strings.
+- Only `list`, `tuple`, `set` and `frozenset` arguments are collections; the
+  official wrapper treats any iterable as one (a generator is consumed while
+  inferring and binds an empty set).
+- Server error -494 raises `ProgrammingError` (official `IntegrityError`).
+- A type or argument error in a later `executemany()` group, or a group whose
+  value count does not match the placeholders, runs no group at all; the
+  official wrapper executes the earlier groups first.
+- With an explicit `set_type`, unsupported elements still raise (a nested
+  list or object is `ProgrammingError`, `bytes` with a non-VARBIT code is
+  `NotSupportedError`); the official wrapper sends their `str()` text.
+- The scalar subset is unchanged: the official wrapper also binds `bool`,
+  `float`, `Decimal`, dates, `bytes` and BIGINT scalars and skips `None`
+  arguments, while this wrapper binds `None` as SQL NULL.
+
+Like the official wrapper, every collection binds with the SET kind (claim
+`wrapper-collection-executemany-kinds`), so a MULTISET or SEQUENCE column
+receives deduplicated, server-ordered elements; use the native
+`imports(..., kind=...)` to keep duplicates or order.
+
+```python
+from pycubrid.compat import cubriddb
+from pycubrid.constants import CUBRIDDataType
+
+conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    cur = conn.cursor()
+    try:
+        sql = "INSERT INTO t (id, tags, scores) VALUES (?, ?, ?)"
+        cur.execute(sql, (1, ("a", "b"), (3, 1)))  # inferred STRING and INT
+        cur.execute(sql, (2, ["c"], ["4"]), set_type=[None, None, CUBRIDDataType.INT])
+        cur.executemany(sql, [(3, {"d"}, (5,)), (4, (), ())])
     finally:
         cur.close()
 finally:
@@ -3778,6 +3849,16 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > [CAS recycled at a transaction boundary](CONNECTION.md#cas-recycled-at-a-transaction-boundary)).
 > If the session zone changes, the same stored instant is returned with a
 > different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
+
+> **Repeated DST hour (#819):** a bound aware `datetime` with a region
+> `tzinfo` (`ZoneInfo`) in a repeated wall time keeps its `fold`. A `fold=0`
+> value keeps the region-only literal, which CUBRID resolves to the first
+> occurrence. For `fold=1` pycubrid adds the zone abbreviation
+> (`America/New_York EST`), or sends the offset alone when the abbreviation is
+> numeric or shared by both occurrences, so the second occurrence is no longer
+> stored as the first. A skipped
+> spring-forward wall time is rejected by CUBRID. See
+> [parameter binding](PARAMETER_BINDING.md).
 
 > **Zero dates (#512):** CUBRID accepts zero values such as `DATE'0000-00-00'`,
 > `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
@@ -6232,16 +6313,132 @@ Larger workloads and the harness for comparing drivers live in
 
 ## Current Release Baseline
 
-No benchmark numbers are published for the current release yet. The baseline is tracked in
-[#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+Measured on 2026-10-11 for [#797](https://github.com/cubrid-lab/pycubrid/issues/797) with the
+[`pycubrid-release-baseline`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/pycubrid-release-baseline)
+experiment in `cubrid-benchmark`. That experiment also holds the raw results, the
+reproduction command and the full tables.
 
-| Measurement | Status |
+| Item | Value |
 |---|---|
-| Current release against 1.10.0 | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| `pycubrid` against `CUBRIDdb` on the same server | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| Sync against async | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| `executemany()` batch throughput | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
-| Fetch throughput and peak memory by `fetch_size` | **Not measured** — [#797](https://github.com/cubrid-lab/pycubrid/issues/797) |
+| CPU | Intel Core i5-9400F @ 2.90 GHz, 6 cores (1 thread per core) |
+| Memory | 31 GiB |
+| OS | Ubuntu 22.04.5 LTS, Linux 5.15.0-198-generic, x86_64 |
+| Python | CPython 3.12.13 |
+| CUBRID | 11.4.6 (`cubrid/cubrid:11.4` in Docker 29.2.1, localhost) |
+| `pycubrid` | `main` at `2228d66`, and 1.10.0 from PyPI |
+| `CUBRIDdb` | cubrid-python `v11.3.0.51` (`c63ab9c`), C extension over CCI |
+| Transaction mode | `autocommit=False` on every connection (`connect(autocommit=False)` for `pycubrid`), explicit `commit()` per write |
+| `fetch_size` | 100 (default), plus 1,000 and 10,000 for the fetch cases |
+| Data | 10,000 rows of `(INT PK, VARCHAR(100), VARCHAR(200), INT)` |
+| Repetitions | 5 trials per driver in rotating order; samples pooled; warm-up discarded |
+| Load | Shared machine with other users active, so results are noisy |
+
+Every reported iteration was checked for the right row counts and values. Times are pooled
+medians in milliseconds per operation; the full report also has p95, IQR and the per-trial
+spread.
+
+### Current release against 1.10.0
+
+**No regression was detected.** A regression here means the `main` median is more than 5%
+slower and the interquartile ranges do not overlap. The second condition means that only a
+slowdown larger than the spread of the samples can be detected. Given the measured spread, the
+rule detects slowdowns of at least:
+
+| Operation | Minimum detectable slowdown |
+|---|---:|
+| `fetchone` / `fetchmany` / `fetchall`, 10,000 rows | 6-8% |
+| `executemany()` 10,000 / 1,000 / 100 rows | 5% / 18% / 172% |
+| connect + close | 22% |
+| SELECT by primary key, single-row writes + commit | 25-26% |
+| single-row execute without commit | 271-307% |
+
+The per-trial medians of `main` and 1.10.0 overlap in every case except `executemany()` of
+10,000 rows, where `main` is about 0.7% slower in every trial. That is well below the 5%
+threshold.
+
+| Operation | `main` | 1.10.0 | Ratio |
+|---|---:|---:|---:|
+| connect + close | 1.50 | 1.49 | 1.01 |
+| SELECT by primary key | 0.60 | 0.60 | 1.00 |
+| INSERT + commit | 34.5 | 33.9 | 1.02 |
+| UPDATE + commit | 33.8 | 33.9 | 1.00 |
+| DELETE + commit | 41.2 | 41.3 | 1.00 |
+| `executemany()` 100 / 1,000 / 10,000 rows | 125 / 360 / 3,018 | 125 / 358 / 2,998 | 1.00 / 1.00 / 1.01 |
+| `fetchone` / `fetchmany` / `fetchall`, 10,000 rows | 51.2 / 48.4 / 49.7 | 50.6 / 48.9 / 49.6 | 1.01 / 0.99 / 1.00 |
+
+### `pycubrid` against `CUBRIDdb` on the same server
+
+| Operation | `pycubrid` | `CUBRIDdb` | `pycubrid` / `CUBRIDdb` |
+|---|---:|---:|---:|
+| connect + close | 1.50 | 1.00 | 1.49× |
+| SELECT by primary key | 0.60 | 0.55 | 1.10× |
+| INSERT / UPDATE + commit | 34.5 / 33.8 | 33.5 / 33.6 | 1.03× / 1.01× |
+| `executemany()` 100 / 1,000 / 10,000 rows | 125 / 360 / 3,018 | 109 / 266 / 2,150 | 1.15× / 1.35× / 1.40× |
+| `fetchone` / `fetchmany` / `fetchall`, 10,000 rows | 51.2 / 48.4 / 49.7 | 40.6 / 40.7 / 39.4 | 1.26× / 1.19× / 1.26× |
+
+- Single-row writes are bound by the server commit. Latency falls into clusters at about 33,
+  41, 75 and 83 ms for both drivers, so driver overhead is a small share of a write.
+  (DELETE + commit measured 41.2 ms against 33.8 ms only because the median fell into a
+  different cluster.)
+- `executemany()` sends one batch request, but it is still slower than `CUBRIDdb`, which runs
+  one prepared execute per row
+  ([#822](https://github.com/cubrid-lab/pycubrid/issues/822)).
+- Fetching 10,000 rows takes 19-26% longer than with the C extension.
+
+### Sync against async
+
+PK SELECT throughput, in queries per second. Each worker has its own connection and runs 200
+queries.
+
+| Workers | Sync (threads) | Async (`pycubrid.aio` tasks) | `CUBRIDdb` (threads) |
+|---:|---:|---:|---:|
+| 1 | 1,510 | 1,414 | 1,725 |
+| 8 | 5,336 | 5,672 | 981 |
+| 32 | 5,173 | 5,693 | 956 |
+
+On one connection, async is about 6% slower than sync. With 8-32 concurrent connections it
+is 6-10% faster. From 1 to 8 workers, sync scales about 3.5× and async about 4.0×; both level
+off after that. Per-query p95 at 32 workers is 13.0 ms for sync and 8.8 ms for async.
+`CUBRIDdb` throughput drops when more than one thread uses it, because its C extension does
+not release the GIL during CCI calls.
+
+### `executemany()` batch throughput
+
+| Rows | Time incl. commit (ms) | Rows/s | Peak Python heap |
+|---:|---:|---:|---:|
+| 100 | 125 | 803 | 42 KiB |
+| 1,000 | 360 | 2,780 | 364 KiB |
+| 10,000 | 3,018 | 3,314 | 3.6 MiB |
+
+Client memory grows by about 380 bytes per row, which confirms
+[Known Limitations](#known-limitations).
+
+### Fetch throughput and peak memory by `fetch_size`
+
+10,000 rows over localhost:
+
+| Method | `fetch_size` 100 | 1,000 | 10,000 | Peak Python heap (`fetch_size` 100) |
+|---|---:|---:|---:|---:|
+| `fetchone()` loop | 51.2 ms | — | — | 130 KiB |
+| `fetchmany(100)` loop | 48.4 ms | 49.0 ms | 49.5 ms | 132 KiB |
+| `fetchall()` | 49.7 ms | 48.9 ms | 48.1 ms | 2.1 MiB (the result list) |
+
+About 200,000 rows/s in every case. Over localhost, `fetch_size` makes no measurable
+difference; it may matter on a network with higher latency, which was not measured. Peak memory
+was measured only at the default `fetch_size` of 100.
+
+### Not measured
+
+- Async for `CUBRIDdb`, which has no async API.
+- A `fetch_size` sweep for `CUBRIDdb`, which does not expose a fetch size.
+- Native (C) memory of `CUBRIDdb`. `tracemalloc` only sees the Python heap.
+- Peak memory at `fetch_size` 1,000 and 10,000.
+- Per-operation RSS. Only the process peak was recorded (about 39 MiB).
+- `executemany()` for UPDATE, DELETE and MERGE.
+- How `executemany()` time splits between client and server.
+- The extra `lastrowid` round trip.
+- Remote networks, TLS, LOB and collection types.
+- Python versions other than 3.12, and CUBRID versions other than 11.4.
 
 ### Historical Results (2026-03, pycubrid 0.5.0)
 
@@ -6272,8 +6469,8 @@ The weekly **Bug Hunt** workflow (`.github/workflows/bug-hunt.yml`, job `perf-tr
 using `scripts/bench_regression.py`. It is a trend report: it does not set a fail threshold and
 does not gate pull requests or releases.
 
-A release-to-release comparison is **not measured** yet — see
-[#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+The release-to-release comparison is published in
+[Current Release Baseline](#current-release-baseline): `main` against 1.10.0.
 
 Investigate when:
 
@@ -6323,8 +6520,7 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 - Async timings from the [timing hooks](#timing--profiling-hooks) include event-loop scheduling
   latency.
 
-Relative sync and async throughput is **not measured** for the current release — see
-[#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+Measured sync and async throughput is in [Sync against async](#sync-against-async).
 
 ---
 
@@ -6349,8 +6545,7 @@ Practical advice:
 - Split very large parameter sequences into chunks; see
   [Known Limitations](#known-limitations) for why.
 
-Batch throughput is **not measured** for the current release — see
-[#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+Measured batch throughput is in [`executemany()` batch throughput](#executemany-batch-throughput).
 
 ---
 
@@ -6370,8 +6565,8 @@ the cursor's row buffer instead of adding to it, so the buffer holds at most one
 - A larger `fetch_size` means fewer round trips and more memory per batch; a smaller one means
   the reverse.
 
-Fetch throughput and peak memory for different `fetch_size` values are **not measured** for the
-current release — see [#797](https://github.com/cubrid-lab/pycubrid/issues/797).
+Measured fetch throughput and peak memory for different `fetch_size` values are in
+[Fetch throughput and peak memory by `fetch_size`](#fetch-throughput-and-peak-memory-by-fetch_size).
 
 ### Profiling Fetch
 
@@ -6602,9 +6797,8 @@ All cursors created from a connection report into the same `TimingStats`. Stats 
   large result sets.
 - **Async timing includes the event loop.** See
   [Sync and Async Characteristics](#sync-and-async-characteristics).
-- **No current-release numbers.** The baseline is tracked in
-  [#797](https://github.com/cubrid-lab/pycubrid/issues/797); the published 2026-03 numbers are
-  [historical](#historical-results-2026-03-pycubrid-050).
+- **The published 2026-03 numbers are [historical](#historical-results-2026-03-pycubrid-050).**
+  Use the [Current Release Baseline](#current-release-baseline) instead.
 
 ---
 
@@ -8467,7 +8661,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 
 | Requirement   | Version  | Notes |
 |---------------|----------|-------|
-| Python        | 3.10+    | Uses `X | Y` union syntax, `match` statements |
+| Python        | 3.11+    | Matches `requires-python` in `pyproject.toml` |
 | Docker        | Latest   | Only for integration tests |
 | CUBRID Server | 10.2–11.4 | Via Docker or local install |
 
@@ -8748,6 +8942,10 @@ against the offline suite:
 pip install -e ".[dev,mutation]"
 make mutation          # mutmut run && mutmut results
 ```
+
+`make mutation` needs Python 3.12 or newer and stops with a message on 3.11:
+mutmut 3.8 fails at stats collection there (#812). CI's weekly mutation job
+uses 3.12.
 
 Focus on meaningful surviving mutants (a flipped comparison or dropped cleanup
 that no test kills), not the raw score.
@@ -9330,107 +9528,27 @@ suite with 95% coverage on Python 3.11 and 3.14 and use oldest/newest live
 endpoints. Repository
 tooling is path-selected on one Linux lane. Full integration is explicit/manual
 and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
-validation requirements. Historical cost measurements below describe the earlier
-workflow, not current job counts or new savings.
+validation requirements.
 
-### PR verification cost (#564)
+### PR verification cost
 
-Measured from real `ci.yml` runs (GitHub REST `/actions/runs/{id}/timing`
-`run_duration_ms`, and job-step `started_at`/`completed_at`), not estimates.
-The ordinary run object omits `run_duration_ms`; the `/timing` endpoint
-provides it. Baseline code PR:
-[run 36929613502](https://github.com/cubrid-lab/pycubrid/actions/runs/36929613502),
-2026-10-01, 306s (5m06s), with all integration paths selected. A separate
-docs-only example, [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)
-(`RELEASING.md` only), took 419s in
-[run 36865409050](https://github.com/cubrid-lab/pycubrid/actions/runs/36865409050):
-all four code/TLS-gated integration jobs skipped and doc-lint passed. Its
-`detect-changes` job did not start until about three minutes after the workflow,
-so that elapsed time mainly illustrates queue variance, not a cache comparison.
+Current CI cost evidence lives in [CI execution policy](CI_POLICY.md#event-tiers-and-cost-evidence):
+runner minutes, job counts and failure yield per event tier, with reproducible
+definitions, plus the coverage-ownership table (#750, #781). Use those numbers,
+not older ones, when you reason about CI cost.
 
-| Job group | Jobs | Wall time (longest job) | Notes |
-|---|---|---|---|
-| `offline-tests` matrix | 10 (2 OS × 5 Python) | 78s–124s | Editable dev installs took 11–23s; macOS was 9–51% slower than Linux by Python version in this one run, not a stable ratio. |
-| `integration-tests` / `integration-charset` / `integration-tls` / `official-differential` | 5 jobs, 6 CUBRID containers | 65s–118s | Service-container initialization took 15–41s where present; TLS starts Docker inside its own step. Editable dev installs took 17–22s. |
-| `repo-tooling-tests` matrix | 2 (ubuntu, macos) | 32s–51s | Editable dev installs took 14–15s. |
-| `lint` / `typecheck` / `compat-check` / `packaging-smoke-test` | 4 | 9s–24s | Lint/typecheck install dev tools; compat installs the package only (3s), packaging installs `build` (2s). |
-| `doc-lint` (reusable) | path-gated on docs changes | 2s–8s per sub-step | Skips entirely when no Markdown/`docs/**` changed. |
+The earlier #564 baseline (2026-10-01) measured a workflow that no longer exists:
+a 2 OS × 5 Python offline matrix including Python 3.10, with pip caching. It is kept
+in [#564](https://github.com/cubrid-lab/pycubrid/issues/564) and in this file's git
+history. Two of its outcomes still apply:
 
-In this baseline run, the `needs:` graph had parallel roots: `detect-changes`,
-the offline matrix, lint, typecheck, repository tooling and compat-check, and
-offline jobs started *before* `detect-changes` finished. Packaging waited for all
-offline cells, and the container-based jobs then waited for packaging, offline,
-lint, typecheck and `detect-changes`. The live lanes now start right after
-`validate-target` and `detect-changes`, alongside the static and offline jobs
-(see [Parallel live lanes](CI_POLICY.md#parallel-live-lanes)); `ci-gate` still
-waits for every result.
-Queue time and the slowest prerequisite branch also affect workflow elapsed
-time; a simple sum of job durations is not the critical path.
+- `scripts/wait_for_cubrid.py` selects code-gated integration
+  (`tests/test_workflow_path_impact.py`).
+- A repository-tooling test runs the `CI Gate` against synthetic failed and
+  cancelled results.
 
-**Fixable setup cost**: the baseline expanded to 21 jobs using
-`actions/setup-python`; 19 performed an editable dev install, while compat
-installed `-e .` and packaging installed `build`. Each job still needs its
-own install. The new `cache: pip` input caches pip's global download cache,
-**not** the installed environment. Its key includes OS, Python version and
-the dependency-file hash: matching OS/Python jobs can reuse downloads once a
-cache is saved, including on later runs, but distinct matrix cells do not
-share a single cache. Concurrent first-run jobs can all miss. See the
-[setup-python caching guide](https://github.com/actions/setup-python#caching-packages-dependencies).
-The first changed-head run had a pip cache miss for Ubuntu/Python 3.10 and
-saved the cache afterward; it took 328s versus the 306s baseline. That cold
-run does **not** demonstrate an overall speedup. Docker startup is also a
-substantial cost and remains unchanged here.
-
-**Path-filter trigger audit**: spot-checked `detect-changes` outputs against
-actual job results across recent PR runs.
-[PR #597](https://github.com/cubrid-lab/pycubrid/pull/597), which fixes
-[issue #595](https://github.com/cubrid-lab/pycubrid/issues/595) without
-touching TLS paths, produced a `skipped` `integration-tls` job in
-[run 36879861578](https://github.com/cubrid-lab/pycubrid/actions/runs/36879861578),
-while both regular integration cells, charset and official differential
-passed. Docs-only [PR #587](https://github.com/cubrid-lab/pycubrid/pull/587)
-skipped all four code/TLS-gated integration jobs as intended. The unchanged
-`ci-gate` accepts `skipped` only for these path-gated jobs, not a failed or
-cancelled one.
-The audit found one real gap: `scripts/wait_for_cubrid.py` is invoked by
-every container-based job (`integration-tests`, `integration-charset`,
-`official-differential`) but was missing from the `code:` filter list, so a
-PR touching only that script would have skipped all code-gated integration
-coverage before merge. Added to `code:` and locked by a repository-tooling
-test, so this only *adds* coverage and cannot produce a new skip.
-
-The failure gate also has real evidence: in
-[run 36776514307](https://github.com/cubrid-lab/pycubrid/actions/runs/36776514307),
-a claimed official behavior comparison failed and the `CI Gate` failed.
-A repository-tooling test now executes the unchanged gate shell with synthetic
-`failure`/`cancelled` official and integration results; each exits nonzero,
-while expected docs-only skips pass. Neither the official comparison nor the
-gate was weakened.
-
-**Changes made** (both additive/safe; no job removed, no coverage reduced, no
-required check or branch-protection context touched, `ci-gate`'s
-pass/fail logic for skipped vs. failed/cancelled required jobs is unchanged):
-
-1. `cache: pip` + `cache-dependency-path: pyproject.toml` added to every
-   `actions/setup-python` step in `ci.yml` (10 YAML steps, 21 expanded jobs).
-   Jobs with a matching OS/Python/cache key can reuse downloaded wheels once
-   an earlier job or run has saved them; the editable install still runs.
-2. `scripts/wait_for_cubrid.py` added to the `code:` path filter (closes the
-   gap above).
-
-**After**: this PR's first changed-head run,
-[36932083505 attempt 1](https://github.com/cubrid-lab/pycubrid/actions/runs/36932083505),
-missed the Ubuntu/Python 3.10 pip cache and saved it afterward. Its elapsed
-time was about 328s, *longer* than the 306s baseline. One rerun of the
-same head (attempt 2) logged a cache hit and successful restore for that
-OS/Python key and finished in 295s by `/timing`: 11s (about 3.6%) below
-the baseline and about 33s below its cold attempt. Across the same 19
-editable-dev install steps, the sum of per-job durations was 321s baseline,
-275s cold and 266s warm. Those jobs overlap, so their sum is **not**
-wall-clock time saved; individual installs varied (the warm lint install
-was slower). The observed result supports a modest, targeted setup gain,
-not a guaranteed per-PR speedup or proof that the cache alone caused the
-workflow-level difference. Runner queue and Docker startup also varied.
+Dependency installation has since moved to uv
+([Dependency installation](CI_POLICY.md#dependency-installation)).
 
 ---
 
@@ -9562,7 +9680,7 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | High-risk PR | Full offline regressions without coverage on Python 3.11 and 3.14, plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
 | Code push to main | Full offline suite on Ubuntu/Python 3.11 and 3.14, each with the existing 95% coverage floor; oldest/newest live endpoints |
 | Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.14 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests, and lanes a successful push run of the same SHA already ran are not repeated (see [Event tiers and cost evidence](#event-tiers-and-cost-evidence)) |
-| Explicit full dispatch or release | Existing full Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.14 offline suite with the 95% floor |
+| Explicit full dispatch or release | Existing full Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.14 offline suite with the 95% floor, lint, type checking, the public API baseline and the repository tooling tests |
 
 The PR smoke suite is deliberately bounded. Contributors must run the regression
 checks relevant to their change locally and record commands/results in the PR.
@@ -9707,10 +9825,11 @@ Median per-job runner minutes on successful code pushes:
 | Mutation testing | `bug-hunt.yml` `mutation` | Same as bug hunt |
 | Benchmark trend | `bug-hunt.yml` `perf-trend` | Same as bug hunt |
 | Downstream corpus (advisory) | `bug-hunt.yml` `downstream-corpus` | Same as bug hunt |
-| Type checking | `ci.yml` `typecheck` | Every code event (not repeated by the release) |
-| Public API baseline | `ci.yml` `compat-check` | Every code event (not repeated by the release) |
+| Lint, CHANGELOG structure, translation structure, `llms-full.txt` sync | `ci.yml` `lint`; `integration-full.yml` `lint` (same steps) | Every event; release and full dispatch |
+| Type checking | `ci.yml` `typecheck`; `integration-full.yml` `typecheck` (same steps) | Every code event; release and full dispatch |
+| Public API baseline | `ci.yml` `compat-check`; `integration-full.yml` `compat-check` (same steps) | Every code event; release and full dispatch |
 | Packaging | `ci.yml` `packaging-smoke-test`; `publish-pypi.yml` `consistency` and `build` | Risk PR, non-PR code; release |
-| Repository tooling | `ci.yml` `repo-tooling-tests` | Tooling-path events |
+| Repository tooling | `ci.yml` `repo-tooling-tests`; `integration-full.yml` `repo-tooling-tests` (same steps) | Tooling-path events; release and full dispatch |
 | Python 3.15 preview (advisory) | `python-canary.yml` | Manual only |
 
 ### Consolidation
@@ -9761,7 +9880,7 @@ Expected effect, computed from the measured runs above:
 | Weekly `ci.yml`, head push run green with code lanes | 19 → 9 | about 13 → about 1.8 | about 26 → 9 |
 | Weekly `ci.yml`, head push run not green or docs-only | 19 → 19 | about 13 → about 13 | about 26 → about 26 |
 | Weekly `bug-hunt.yml` | 7 → 7 (Thursday) | 149.4 → 149.4 | 152 → 152 |
-| Release | 34 → 36 | 41.8 → about 44.7 | 60.5 → about 64.5 |
+| Release (with the release-run copies of lint, typecheck, public API and repository tooling) | 34 → 40 | 41.8 → about 46.2 | 60.5 → about 68.5 |
 
 These are expectations. Compare them with the next weeks of Actions data before
 claiming a saving.
@@ -9787,9 +9906,27 @@ the `ci.yml` push run.
 the exact SHA. `full-matrix-result` requires it. This adds about 2.9 runner
 minutes per release.
 
-Type checking, the public API baseline, lint and repository tooling are still
-not repeated by the release; the release path relies on the release PR and the
-`main` push run for them.
+The same gap covered the other `main` push evidence, and the maintainer chose
+to close it the same way (2026-10-11, as in sqlalchemy-cubrid #737).
+`integration-full.yml` also runs copies of `ci.yml` `lint`, `typecheck`,
+`compat-check` (the public API baseline) and `repo-tooling-tests`, with the same
+Python version, timeout and steps, at the exact SHA. Three things differ from
+`ci.yml`, and `tests/test_ci_policy.py` keeps everything else equal:
+
+- **No changed-path selection.** Each copy needs only `validate-target`, so it
+  runs on every manual dispatch and release call. A skipped copy can only follow
+  a failed `validate-target`, which already fails the gate.
+- **Checkout.** The checkout sets `persist-credentials: false`, like the other
+  `integration-full.yml` jobs.
+- **Cache mode.** setup-uv uses the `auto` cache mode of this workflow.
+
+`full-matrix-result` lists all four in `needs` and fails on any result other
+than `success`, so a failed, cancelled, skipped or missing copy blocks
+publication. `publish-pypi.yml` is unchanged, because it is kept identical
+across cubrid-lab repositories. The alternative, making `main` push runs
+non-cancellable and having the publisher require them, would have changed it.
+From the per-job medians above, the copies add about 1.5 runner minutes
+(4 rounded minutes) per release or full dispatch.
 
 ## Offline endpoint versions
 
@@ -9862,9 +9999,11 @@ observed maximum Actions duration with a floor: 5 minutes for gates and small jo
 10–15 for lint/type/offline/tooling and 20–30 for live integration lanes. The two
 long weekly jobs are explicit exceptions with smaller multipliers. Property/fault/soak
 gets 120 (about 1.9× its observed 63; its soak step is separately capped at 90).
-Mutation testing gets 300, about 2.5× its single successful 120-minute run; this is
-the one documented exception to the 180-minute cap and stays below the 360 default.
-Bounding the mutation scope (sharding) is tracked in #750.
+Mutation testing runs as four shards of roughly equal mutant counts (#750): about
+1,550–1,850 of the 6,812 mutants each, so about 30 minutes per shard on the 120-minute
+single-job baseline. Each shard gets 90, which retires the former 300-minute exception;
+no job is above the 180-minute cap. `tests/test_mutation_shards.py` checks that every
+`only_mutate` module is in exactly one shard.
 Aggregate gates (`ci-gate`, `full-matrix-result`) run with `if: always()` and a
 short timeout; a timed-out dependency reports a non-success result
 (`cancelled`/`failure`), which the gate treats as a failure.
@@ -9934,6 +10073,43 @@ group, because within one group GitHub replaces a pending run even when
 `cancel-in-progress` is false, so main pushes and scheduled runs are never cancelled or dropped. `security.yml` installs `bandit[toml]==1.9.4`, the version pinned in
 `pyproject.toml`. `tests/test_workflow_pins.py` enforces all three.
 
+## Artifact retention and caches
+
+Every `actions/upload-artifact` step sets `retention-days`, so no artifact falls back to
+the repository default of 90 days. Debugging and evidence artifacts keep 14 or 30 days,
+and release artifacts keep 14 days. `anchore/sbom-action` runs with
+`upload-artifact: false`, because the workflow uploads the SBOM itself; otherwise the
+action would store a second copy with the default retention.
+`tests/test_workflow_pins.py::test_every_artifact_upload_sets_a_retention_period` pins
+both rules.
+
+Review on 2026-10-11 (#750): the Actions cache held 7.6 GB in 162 entries, against
+GitHub's 10 GB repository limit. 3.0 GB of it was `setup-python` pip caches that no
+current workflow creates, left over from before the uv installs; they were last used on
+2026-10-08 and GitHub evicts caches after 7 days without use. The rest are the per-job
+`setup-uv` caches. No cache change was needed.
+
+## Dependabot grouping
+
+Dependabot used to open one PR per package for pip (`/`), pip (`/docs`) and GitHub
+Actions, and each one ran the full PR tier. `.github/dependabot.yml` now groups minor
+and patch version updates into one PR per ecosystem and directory (`dev-tools`,
+`docs-tools`, `github-actions`), so a weekly batch costs one CI run per group (#750).
+These stay in their own PRs:
+
+- **Major updates** are excluded from every group (`update-types` is only `minor` and
+  `patch`), and `dependabot-auto-merge.yml` still holds them for human review.
+- **Security updates** stay separate: the groups set `applies-to: version-updates`.
+- **The runtime dependency `tzdata`** is excluded from `dev-tools`.
+
+Grouping does not bypass anything. A grouped PR runs the same required checks, and
+auto-merge completes only after they pass. `dependabot/fetch-metadata` reports the
+highest semver change of a grouped PR as its `update-type`, so a group can never carry
+a major update into auto-merge. One failing package blocks the whole group: fix it in
+the group PR, or, if it needs separate work, add it to the group's `exclude-patterns`
+through a reviewed PR so Dependabot opens it on its own.
+`tests/test_workflow_pins.py` enforces the group settings.
+
 ## Python 3.15 preview preparation
 
 `python-canary.yml` is manual-only: supply the full SHA and dispatch the branch
@@ -9961,7 +10137,7 @@ GitHub 이슈, PR과 댓글은 영어로 작성하세요. 현지화 문서 기�
 
 ### 사전 준비
 
-- Python 3.10+
+- Python 3.11+
 - Git
 - Docker (통합 테스트용)
 
@@ -10383,7 +10559,7 @@ implementation; see the fallback restrictions below.
 | `str` (and subclasses) | Single-quoted literal; escaping per [String Escaping](#string-escaping), applied to a plain `str` copy of the value; NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). See [Text, binary and temporal subclasses](#text-binary-and-temporal-subclasses) | `_cursor_common.format_parameter` / `_cursor_common.escape_string` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
 | `bytes`, `bytearray` (and subclasses) | `X'<hex>'` (lowercase hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
 | `datetime.datetime` (naive, and subclasses) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — year zero-padded to 4 digits; microseconds truncated to milliseconds (`microsecond // 1000`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:124-127`, `::TestTemporalSubclassRendering` |
-| `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.format_parameter` / `_cursor_common._format_tz` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
+| `datetime.datetime` (tz-aware, and subclasses) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` where `<tz>` is `tzinfo.key` when present (e.g. `Asia/Seoul`; for `fold=1` in a repeated DST hour followed by the abbreviation, or replaced by the offset, see below), otherwise a `±HH:MM` numeric offset. A non-empty `key` must be a plain `str` matching `[A-Za-z0-9_+/-]+`, otherwise `ProgrammingError` (current message: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.format_parameter` / `_cursor_common._format_tz` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (and subclasses) | `DATE'YYYY-MM-DD'` — year zero-padded to 4 digits | `_cursor_common.format_parameter` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (and subclasses) | `TIME'HH:MM:SS'` — microseconds and `tzinfo` dropped | `_cursor_common.format_parameter` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
 | `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (each keyword renders as `KEYWORD{}` when empty, e.g. `SET{}`); each element rendered by the rows of this table with the connection's escape mode. Nested typed collections raise `ProgrammingError` (current message: `"nested collection parameters are not supported"`); plain containers as elements are rejected as below. See [Typed collection parameters](#typed-collection-parameters) | `_cursor_common.py` `format_parameter` typed-collection branch | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
@@ -10455,6 +10631,19 @@ through methods the subclass can override (#528):
   as `Asia/Seoul`, `Etc/GMT+5` or `America/Port-au-Prince`, qualifies);
   anything else raises `ProgrammingError`. A missing, `None` or empty key still
   falls back to the numeric `±HH:MM` offset.
+- Repeated wall time (#819): CUBRID resolves a region-only literal in a
+  repeated DST hour to the first occurrence, so a `fold=0` value keeps the
+  region-only literal (`America/New_York`), byte-identical to earlier
+  releases. When the `fold=0` offset of the value's wall time is larger than
+  the `fold=1` offset and `value.fold` is 1, the literal names the second
+  occurrence: `<key> <abbreviation>` when both `tzname()` results are plain
+  `str`s that differ and the second one matches `[A-Za-z]{3,6}`
+  (`America/New_York EST`), otherwise the `±HH:MM` offset of the second
+  occurrence alone (`-05:00`), which loses the region but keeps the instant.
+  A `tzname()` result is never spliced into SQL unless it matches that
+  pattern. Other wall times keep the region alone. A skipped wall time
+  (spring forward, `fold=1` offset larger) is also sent with the region alone;
+  CUBRID 10.2 and 11.4 reject it (`Invalid utime`) in every literal form.
 - Ordinary exceptions from timezone callbacks, key lookup or offset-field
   reads raise `ProgrammingError` (current message: `"invalid tzinfo on datetime
   parameter"`) with the original exception as the cause, without formatting
@@ -10474,7 +10663,11 @@ Pinned by `tests/test_param_security.py::TestPlainLiteralsUnchanged`,
 `::TestTemporalSubclassRendering`, `::TestTzinfoKey`, `::TestHostileTzinfo`,
 `::test_temporal_subclasses_in_real_pure_python_fallback`, `::TestClassSpoofing`,
 and live on CUBRID 10.2 and 11.4 (sync and async) by
-`tests/test_parity_integration.py::TestParityLiteralHardening`.
+`tests/test_parity_integration.py::TestParityLiteralHardening`. The repeated
+DST hour behavior is pinned by `tests/test_param_security.py::TestRepeatedWallTime`
+and live on CUBRID 10.2 and 11.4 (sync and async, `DATETIMETZ` and
+`TIMESTAMPTZ`) by
+`tests/test_integration_timezone.py::test_repeated_hour_binds_both_occurrences`.
 
 ### Decimal parameters
 
@@ -11189,12 +11382,13 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close, #467 autocommit access, #86 selectable charset and #466 bounded row cursors are delivered; HA and unsupported DSN options remain rejected. |
 | Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require wrapper cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The compatibility modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. The native subset's private RLock is not a general thread-sharing promise. |
 | Settings (#467) | Delivered as writable raw native snapshots (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and separate effective `set_autocommit(mode, /)` / `set_isolation_level(level, /)`. Raw assignment accepts objects and sends nothing. The bool autocommit setter changes local CCI-equivalent mode; only a changed mode during an active transaction commits. Isolation SET (4/5/6) does not commit and skips an already effective level on the same physical session. The wrapper `.autocommit` property delegates its bool setter but its getter reads the raw native cache. Constructor reads actual lock/max/isolation; a complete max-string server error alone falls back to 0, and initial numeric level 4 retains the pinned official `CUBRID_TRAN_UNKNOWN_ISOLATION` text quirk. No effective lock/max setters, ordinary-default change or unsafe native parser parity. |
-| Wrapper cursor (#466) | Delivered as qualified `pycubrid.compat.cursors.Cursor/DictCursor` and `Connection.cursor(dictCursor=None)`. `execute(query, args=None, set_type=None) -> int` delegates only native INT32/string/NULL scalar binding; non-None `set_type` and mappings fail before I/O. SELECT seven-field description, exact-name tuple/dict rows (last duplicate wins), and the current per-connection converter are supported. Falsey converter results stop bulk fetch after consuming a row; iteration stops only on None. `executemany`, collection/LOB args and mapping/default_cursor docstrings are not delivered. Non-SELECT description remains stable None rather than the official extension's possibly missing attribute after reprepare. |
+| Wrapper cursor (#466) | Delivered as qualified `pycubrid.compat.cursors.Cursor/DictCursor` and `Connection.cursor(dictCursor=None)`. `execute(query, args=None, set_type=None) -> int` delegates native INT32/string/NULL scalar binding and, since #610, collection arguments (row below); mappings fail before I/O. SELECT seven-field description, exact-name tuple/dict rows (last duplicate wins), and the current per-connection converter are supported. Falsey converter results stop bulk fetch after consuming a row; iteration stops only on None. LOB args and mapping/default_cursor docstrings are not delivered. Non-SELECT description remains stable None rather than the official extension's possibly missing attribute after reprepare. |
 | Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
-| Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. Wrapper `execute(..., set_type)`/`executemany` collection shapes are not delivered (#610). |
+| Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. The wrapper collection call shapes build on it (#610, next row). |
+| Wrapper collection arguments (#610) | Delivered sync-only on the qualified wrapper cursors: `execute(query, args, set_type)` binds `list`/`tuple`/`set`/`frozenset` arguments through native `set()`/`imports()`/`bind_set()`, with one `set_type` code for every collection, a per-position list/tuple (missing or None entries inferred) or upstream inference (int/bool INT, float FLOAT, Decimal NUMERIC, date/datetime DATE, time TIME, str STRING; empty STRING; mixed TypeError). Elements are sent as their `str()` text with the SET kind; for supported non-None elements these are the official bytes. `executemany(query, args_list) -> None` checks every group before one prepare, checks every group's value count after the prepare but before any execute, and keeps the last rowcount; an empty list leaves -1/None (pycubrid's own choice, not compared). Errors before the prepare discard the previous result and snapshot. A None element is a NULL element (official text 'None' or UnboundLocalError), BIT/VARBIT elements raise NotSupportedError, other iterables raise ProgrammingError and server -494 is ProgrammingError; these are classified deviations. Offline tests only: a later-group error runs no group (official runs earlier groups), and unsupported elements raise even with an explicit set_type (official sends str()). The scalar subset is unchanged. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
 | Extended metadata (#445) | Delivered native-only `cursor.result_info([n])` reads cached successful-execution metadata, returning tuple-of-15-tuples (one outer entry for a one-based selector), or None for executed zero-column statements. It uses measured CCI types, integer flags and actual strings in the implemented official order. Supported CUBRID producers encode absent text as an empty string, not None; no attribute/default value is inferred. Ordinary/wrapper description and row position are unchanged. |
-| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid does not deliver, so no differential claim is made for them. |
+| Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid delivers only on the compatibility wrapper (#610), so no differential claim is made for these ordinary-cursor parameters. |
 | Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
 | Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in effective autocommit mode; a manually fetched holder remains non-transferable after a later commit until re-fetched in autocommit mode. Stream operations are delivered in #442 below; raw file transfer is documented separately in #443. |
 | Native LOB stream (#442) | Delivered sync-only: `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`, plus exported `SEEK_*` constants. Position and size count bytes; UTF-8 text is returned for BLOB and CLOB. SEEK_END computes size-offset. Writes create a BLOB/CLOB lazily and append only at the end. Safe deviations: non-end writes and invalid resulting positions fail before I/O, while empty/EOF and oversized reads return available text instead of reproducing unsafe CCI behavior. The native holder's close remains terminal; created handles stay on their original session and first autocommit bind consumes their temp file. Ordinary absolute-offset `Lob` is unchanged; additive native file operations are documented below (#443). |
@@ -11431,13 +11625,13 @@ claims without cases and oracle pins that differ from the build script.
 
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
-| Wrapper (`CUBRIDdb`) | 15 | 2 | 17 |
+| Wrapper (`CUBRIDdb`) | 18 | 4 | 22 |
 | Native (`_cubrid`) | 33 | 13 | 46 |
-| **Total** | **48** | **15** | **63** |
+| **Total** | **51** | **17** | **68** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.11
 - Required servers: CUBRID 10.2, CUBRID 11.4
-- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445), `native-position-error-args` (#444)
+- Classified deviations: `fetch-monetary` (#344), `description-size-and-null-ok` (#438), `prepared-bind-null` (#439), `bind-multiset-duplicates` (#440), `bind-sequence-order` (#440), `bind-set-null-text` (#440), `bind-set-empty-string` (#440), `bind-set-python-int` (#440), `bind-set-nul-truncation` (#440), `bind-set-error-classes` (#440), `wrapper-collection-null-element` (#610), `wrapper-collection-errors` (#610), `lob-bind-without-value` (#441), `lob-error-classes` (#441), `lob-fetch-into-closed-or-foreign` (#441), `native-result-info-error-args` (#445), `native-position-error-args` (#444)
 
 <!-- official-differential-summary:end -->
 

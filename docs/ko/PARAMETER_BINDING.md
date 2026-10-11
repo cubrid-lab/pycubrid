@@ -77,7 +77,7 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 이
 | `str` (하위 클래스 포함) | 작은따옴표 리터럴; 값을 일반 `str`로 복사한 뒤 [문자열 이스케이프](#문자열-이스케이프) 적용; NUL(`U+0000`)과 Ctrl-Z(`U+001A`, `\x1a`)는 각각 `ProgrammingError` 발생 (현재 메시지: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). [텍스트, 바이너리, 날짜/시간 하위 클래스](#텍스트-바이너리-날짜시간-하위-클래스) 참고 | `_cursor_common.format_parameter` / `_cursor_common.escape_string` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
 | `bytes`, `bytearray` (하위 클래스 포함) | `X'<hex>'` (소문자 hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
 | `datetime.datetime` (naive, 하위 클래스 포함) | `DATETIME'YYYY-MM-DD HH:MM:SS.mmm'` — 연도는 4자리로 0 채움; 마이크로초는 밀리초로 절사(`microsecond // 1000`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:124-127`, `::TestTemporalSubclassRendering` |
-| `datetime.datetime` (tz 포함, 하위 클래스 포함) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` — `<tz>`는 `tzinfo.key`가 있으면 그 값(예: `Asia/Seoul`), 없으면 `±HH:MM` 숫자 오프셋. 비어 있지 않은 `key`는 `[A-Za-z0-9_+/-]+`에 맞는 일반 `str`이어야 하며, 아니면 `ProgrammingError` 발생 (현재 메시지: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.format_parameter` / `_cursor_common._format_tz` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
+| `datetime.datetime` (tz 포함, 하위 클래스 포함) | `DATETIMETZ'YYYY-MM-DD HH:MM:SS.mmm <tz>'` — `<tz>`는 `tzinfo.key`가 있으면 그 값(예: `Asia/Seoul`; 반복되는 DST 시각의 `fold=1`에서는 약어가 덧붙거나 오프셋으로 바뀜, 아래 참고), 없으면 `±HH:MM` 숫자 오프셋. 비어 있지 않은 `key`는 `[A-Za-z0-9_+/-]+`에 맞는 일반 `str`이어야 하며, 아니면 `ProgrammingError` 발생 (현재 메시지: `"time zone key must be an IANA name matching [A-Za-z0-9_+/-]+"`) | `_cursor_common.format_parameter` / `_cursor_common._format_tz` | `tests/test_param_security.py:147-169`, `::TestTzinfoKey` |
 | `datetime.date` (하위 클래스 포함) | `DATE'YYYY-MM-DD'` — 연도는 4자리로 0 채움 | `_cursor_common.format_parameter` | `tests/test_param_security.py:116-118`, `::TestTemporalSubclassRendering` |
 | `datetime.time` (하위 클래스 포함) | `TIME'HH:MM:SS'` — 마이크로초와 `tzinfo` 버림 | `_cursor_common.format_parameter` | `tests/test_param_security.py:120-122`, `::TestTemporalSubclassRendering` |
 | `pycubrid.types.Set` / `Multiset` / `Sequence` | `SET{e1, e2, ...}` / `MULTISET{...}` / `SEQUENCE{...}` (각 키워드는 비어 있으면 `KEYWORD{}`로 렌더링됨, 예: `SET{}`); 각 원소는 연결의 이스케이프 모드로 이 표의 행에 따라 렌더링. 중첩된 타입 지정 컬렉션은 `ProgrammingError` 발생 (현재 메시지: `"nested collection parameters are not supported"`); 원소로 쓴 일반 컨테이너는 아래와 같이 거부. [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터) 참고 | `_cursor_common.py` `format_parameter`의 타입 지정 컬렉션 분기 | `tests/test_typed_collections.py`; `tests/test_replay_parity.py::typed_collection_parameters`, `::executemany_typed_collection_parameters`, `::typed_collection_backslash_escape_processing`; `tests/test_integration_collections.py::TestTypedCollectionParameters` |
@@ -147,6 +147,17 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 이
   `America/Port-au-Prince` 등 모든 IANA 이름이 해당). 그 외에는 `ProgrammingError`가
   발생합니다. key가 없거나 `None` 또는 빈 문자열이면 이전처럼 `±HH:MM` 숫자
   오프셋을 사용합니다.
+- 반복되는 벽시계 시각(#819): CUBRID는 반복되는 DST 시간대의 지역 이름만 있는
+  리터럴을 첫 번째 발생으로 해석하므로, `fold=0` 값은 지역 이름만 있는
+  리터럴(`America/New_York`)을 그대로 유지하며 이전 릴리스와 바이트 단위로 같습니다.
+  값의 벽시계 시각에서 `fold=0` 오프셋이 `fold=1` 오프셋보다 크고 `value.fold`가
+  1이면, 리터럴은 두 번째 발생을 명시합니다. 두 `tzname()` 결과가 서로 다른 일반
+  `str`이고 두 번째 쪽이 `[A-Za-z]{3,6}`에 맞으면 `<key> <약어>`
+  (`America/New_York EST`), 아니면 두 번째 발생의 `±HH:MM` 오프셋만(`-05:00`)
+  보냅니다. 이 경우 지역은 사라지지만 시점은 유지됩니다. `tzname()` 결과는 이
+  패턴에 맞을 때만 SQL에 들어갑니다. 그 외 시각은 지역 이름만 유지합니다.
+  건너뛴 시각(봄철 시간 변경, `fold=1` 오프셋이 더 큼)도 지역 이름만 보내며,
+  CUBRID 10.2와 11.4는 어떤 리터럴 형식이든 이를 거부합니다(`Invalid utime`).
 - 시간대 콜백, key 조회, 오프셋 필드 읽기에서 발생한 일반 예외는 원래 예외를
   원인으로 보존하는 `ProgrammingError`로 보고합니다(현재 메시지:
   `"invalid tzinfo on datetime parameter"`). 호출자가 제어하는 예외 텍스트를
@@ -165,6 +176,10 @@ UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 이
 `::TestHostileTzinfo`, `::test_temporal_subclasses_in_real_pure_python_fallback`,
 `::TestClassSpoofing`, 그리고 CUBRID 10.2와 11.4(sync, async)에서
 `tests/test_parity_integration.py::TestParityLiteralHardening`이 이 동작을 고정합니다.
+반복되는 DST 시각 동작은 `tests/test_param_security.py::TestRepeatedWallTime`과,
+CUBRID 10.2와 11.4(sync, async, `DATETIMETZ`와 `TIMESTAMPTZ`)에서
+`tests/test_integration_timezone.py::test_repeated_hour_binds_both_occurrences`가
+고정합니다.
 
 ### Decimal 파라미터
 

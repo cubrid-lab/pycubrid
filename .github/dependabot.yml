@@ -1,3 +1,7 @@
+# Minor and patch version updates are grouped into one PR per ecosystem and
+# directory, so CI runs once instead of once per package (#750). Major updates,
+# security updates and the runtime dependency tzdata stay in their own PRs; the
+# grouped PR still has to pass the required checks before auto-merge completes.
 version: 2
 updates:
   - package-ecosystem: "pip"
@@ -9,6 +13,16 @@ updates:
     labels:
       - "dependencies"
     open-pull-requests-limit: 10
+    groups:
+      dev-tools:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "tzdata"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "pip"
     directory: "/docs"
@@ -19,6 +33,14 @@ updates:
     labels:
       - "dependencies"
     open-pull-requests-limit: 5
+    groups:
+      docs-tools:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -30,3 +52,11 @@ updates:
       - "dependencies"
       - "github-actions"
     open-pull-requests-limit: 10
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

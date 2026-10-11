@@ -9,7 +9,7 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | High-risk PR | Full offline regressions without coverage on Python 3.11 and 3.14, plus Python 3.14/CUBRID 11.4; targeted additional lanes where relevant |
 | Code push to main | Full offline suite on Ubuntu/Python 3.11 and 3.14, each with the existing 95% coverage floor; oldest/newest live endpoints |
 | Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.14 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests, and lanes a successful push run of the same SHA already ran are not repeated (see [Event tiers and cost evidence](#event-tiers-and-cost-evidence)) |
-| Explicit full dispatch or release | Existing full Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.14 offline suite with the 95% floor |
+| Explicit full dispatch or release | Existing full Python 3.11–3.14 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.14 offline suite with the 95% floor, lint, type checking, the public API baseline and the repository tooling tests |
 
 The PR smoke suite is deliberately bounded. Contributors must run the regression
 checks relevant to their change locally and record commands/results in the PR.
@@ -154,10 +154,11 @@ Median per-job runner minutes on successful code pushes:
 | Mutation testing | `bug-hunt.yml` `mutation` | Same as bug hunt |
 | Benchmark trend | `bug-hunt.yml` `perf-trend` | Same as bug hunt |
 | Downstream corpus (advisory) | `bug-hunt.yml` `downstream-corpus` | Same as bug hunt |
-| Type checking | `ci.yml` `typecheck` | Every code event (not repeated by the release) |
-| Public API baseline | `ci.yml` `compat-check` | Every code event (not repeated by the release) |
+| Lint, CHANGELOG structure, translation structure, `llms-full.txt` sync | `ci.yml` `lint`; `integration-full.yml` `lint` (same steps) | Every event; release and full dispatch |
+| Type checking | `ci.yml` `typecheck`; `integration-full.yml` `typecheck` (same steps) | Every code event; release and full dispatch |
+| Public API baseline | `ci.yml` `compat-check`; `integration-full.yml` `compat-check` (same steps) | Every code event; release and full dispatch |
 | Packaging | `ci.yml` `packaging-smoke-test`; `publish-pypi.yml` `consistency` and `build` | Risk PR, non-PR code; release |
-| Repository tooling | `ci.yml` `repo-tooling-tests` | Tooling-path events |
+| Repository tooling | `ci.yml` `repo-tooling-tests`; `integration-full.yml` `repo-tooling-tests` (same steps) | Tooling-path events; release and full dispatch |
 | Python 3.15 preview (advisory) | `python-canary.yml` | Manual only |
 
 ### Consolidation
@@ -208,7 +209,7 @@ Expected effect, computed from the measured runs above:
 | Weekly `ci.yml`, head push run green with code lanes | 19 → 9 | about 13 → about 1.8 | about 26 → 9 |
 | Weekly `ci.yml`, head push run not green or docs-only | 19 → 19 | about 13 → about 13 | about 26 → about 26 |
 | Weekly `bug-hunt.yml` | 7 → 7 (Thursday) | 149.4 → 149.4 | 152 → 152 |
-| Release | 34 → 36 | 41.8 → about 44.7 | 60.5 → about 64.5 |
+| Release (with the release-run copies of lint, typecheck, public API and repository tooling) | 34 → 40 | 41.8 → about 46.2 | 60.5 → about 68.5 |
 
 These are expectations. Compare them with the next weeks of Actions data before
 claiming a saving.
@@ -234,9 +235,27 @@ the `ci.yml` push run.
 the exact SHA. `full-matrix-result` requires it. This adds about 2.9 runner
 minutes per release.
 
-Type checking, the public API baseline, lint and repository tooling are still
-not repeated by the release; the release path relies on the release PR and the
-`main` push run for them.
+The same gap covered the other `main` push evidence, and the maintainer chose
+to close it the same way (2026-10-11, as in sqlalchemy-cubrid #737).
+`integration-full.yml` also runs copies of `ci.yml` `lint`, `typecheck`,
+`compat-check` (the public API baseline) and `repo-tooling-tests`, with the same
+Python version, timeout and steps, at the exact SHA. Three things differ from
+`ci.yml`, and `tests/test_ci_policy.py` keeps everything else equal:
+
+- **No changed-path selection.** Each copy needs only `validate-target`, so it
+  runs on every manual dispatch and release call. A skipped copy can only follow
+  a failed `validate-target`, which already fails the gate.
+- **Checkout.** The checkout sets `persist-credentials: false`, like the other
+  `integration-full.yml` jobs.
+- **Cache mode.** setup-uv uses the `auto` cache mode of this workflow.
+
+`full-matrix-result` lists all four in `needs` and fails on any result other
+than `success`, so a failed, cancelled, skipped or missing copy blocks
+publication. `publish-pypi.yml` is unchanged, because it is kept identical
+across cubrid-lab repositories. The alternative, making `main` push runs
+non-cancellable and having the publisher require them, would have changed it.
+From the per-job medians above, the copies add about 1.5 runner minutes
+(4 rounded minutes) per release or full dispatch.
 
 ## Offline endpoint versions
 
@@ -309,9 +328,11 @@ observed maximum Actions duration with a floor: 5 minutes for gates and small jo
 10–15 for lint/type/offline/tooling and 20–30 for live integration lanes. The two
 long weekly jobs are explicit exceptions with smaller multipliers. Property/fault/soak
 gets 120 (about 1.9× its observed 63; its soak step is separately capped at 90).
-Mutation testing gets 300, about 2.5× its single successful 120-minute run; this is
-the one documented exception to the 180-minute cap and stays below the 360 default.
-Bounding the mutation scope (sharding) is tracked in #750.
+Mutation testing runs as four shards of roughly equal mutant counts (#750): about
+1,550–1,850 of the 6,812 mutants each, so about 30 minutes per shard on the 120-minute
+single-job baseline. Each shard gets 90, which retires the former 300-minute exception;
+no job is above the 180-minute cap. `tests/test_mutation_shards.py` checks that every
+`only_mutate` module is in exactly one shard.
 Aggregate gates (`ci-gate`, `full-matrix-result`) run with `if: always()` and a
 short timeout; a timed-out dependency reports a non-success result
 (`cancelled`/`failure`), which the gate treats as a failure.
@@ -380,6 +401,43 @@ pull request cancels the superseded scan, while every other event gets a unique 
 group, because within one group GitHub replaces a pending run even when
 `cancel-in-progress` is false, so main pushes and scheduled runs are never cancelled or dropped. `security.yml` installs `bandit[toml]==1.9.4`, the version pinned in
 `pyproject.toml`. `tests/test_workflow_pins.py` enforces all three.
+
+## Artifact retention and caches
+
+Every `actions/upload-artifact` step sets `retention-days`, so no artifact falls back to
+the repository default of 90 days. Debugging and evidence artifacts keep 14 or 30 days,
+and release artifacts keep 14 days. `anchore/sbom-action` runs with
+`upload-artifact: false`, because the workflow uploads the SBOM itself; otherwise the
+action would store a second copy with the default retention.
+`tests/test_workflow_pins.py::test_every_artifact_upload_sets_a_retention_period` pins
+both rules.
+
+Review on 2026-10-11 (#750): the Actions cache held 7.6 GB in 162 entries, against
+GitHub's 10 GB repository limit. 3.0 GB of it was `setup-python` pip caches that no
+current workflow creates, left over from before the uv installs; they were last used on
+2026-10-08 and GitHub evicts caches after 7 days without use. The rest are the per-job
+`setup-uv` caches. No cache change was needed.
+
+## Dependabot grouping
+
+Dependabot used to open one PR per package for pip (`/`), pip (`/docs`) and GitHub
+Actions, and each one ran the full PR tier. `.github/dependabot.yml` now groups minor
+and patch version updates into one PR per ecosystem and directory (`dev-tools`,
+`docs-tools`, `github-actions`), so a weekly batch costs one CI run per group (#750).
+These stay in their own PRs:
+
+- **Major updates** are excluded from every group (`update-types` is only `minor` and
+  `patch`), and `dependabot-auto-merge.yml` still holds them for human review.
+- **Security updates** stay separate: the groups set `applies-to: version-updates`.
+- **The runtime dependency `tzdata`** is excluded from `dev-tools`.
+
+Grouping does not bypass anything. A grouped PR runs the same required checks, and
+auto-merge completes only after they pass. `dependabot/fetch-metadata` reports the
+highest semver change of a grouped PR as its `update-type`, so a group can never carry
+a major update into auto-merge. One failing package blocks the whole group: fix it in
+the group PR, or, if it needs separate work, add it to the group's `exclude-patterns`
+through a reviewed PR so Dependabot opens it on its own.
+`tests/test_workflow_pins.py` enforces the group settings.
 
 ## Python 3.15 preview preparation
 

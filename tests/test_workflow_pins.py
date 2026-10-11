@@ -81,3 +81,36 @@ def test_workflows_pin_bandit_to_pyproject(workflow: str) -> None:
     assert installs, f"{workflow} must install bandit"
     for ln in installs:
         assert ln == f'pip install "{pinned}"', ln
+
+
+def test_dependabot_groups_only_minor_and_patch_version_updates() -> None:
+    # #750: one grouped PR per ecosystem/directory; majors, security updates and
+    # the runtime dependency tzdata keep their own PRs.
+    cfg = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    groups = {(u["package-ecosystem"], u["directory"]): u.get("groups") for u in cfg["updates"]}
+    assert set(groups) == {("pip", "/"), ("pip", "/docs"), ("github-actions", "/")}
+    for key, group in groups.items():
+        assert group is not None and len(group) == 1, key
+        (spec,) = group.values()
+        assert spec["applies-to"] == "version-updates", key
+        assert spec["patterns"] == ["*"], key
+        assert spec["update-types"] == ["minor", "patch"], key
+    assert groups[("pip", "/")]["dev-tools"]["exclude-patterns"] == ["tzdata"]
+
+
+def test_every_artifact_upload_sets_a_retention_period() -> None:
+    # Without retention-days an artifact is kept for the repository default
+    # (90 days); every upload states its own period instead (#750).
+    missing = []
+    for wf in sorted(WORKFLOWS.glob("*.yml")):
+        jobs = yaml.safe_load(wf.read_text()).get("jobs", {})
+        for job_id, job in jobs.items():
+            for step in job.get("steps", []):
+                uses = step.get("uses", "")
+                if uses.startswith("actions/upload-artifact@"):
+                    if "retention-days" not in step.get("with", {}):
+                        missing.append(f"{wf.name}:{job_id}:{step.get('name', uses)}")
+                if uses.startswith("anchore/sbom-action@"):
+                    if step.get("with", {}).get("upload-artifact") is not False:
+                        missing.append(f"{wf.name}:{job_id}: sbom-action uploads its own artifact")
+    assert missing == []

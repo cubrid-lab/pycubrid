@@ -72,6 +72,45 @@ async def test_ambiguous_hour_follows_server_abbreviation(adapter: ParityAdapter
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("column_type", ["DATETIMETZ", "TIMESTAMPTZ"])
+async def test_repeated_hour_binds_both_occurrences(
+    adapter: ParityAdapter, column_type: str
+) -> None:
+    # #819: fold=1 (01:30 EST, 06:30 UTC) was stored as fold=0 (EDT, 05:30 UTC).
+    zone = zoneinfo.ZoneInfo("America/New_York")
+    first = datetime.datetime(2026, 11, 1, 1, 30, tzinfo=zone)
+    second = first.replace(fold=1)
+    utc = datetime.timezone.utc
+    name = table_name("p819")
+    connection = await adapter.connect()
+    cursor = adapter.cursor(connection)
+    try:
+        await adapter.execute(cursor, f"CREATE TABLE {name} (k INT, v {column_type})")
+        await adapter.executemany(
+            cursor, f"INSERT INTO {name} VALUES (?, ?)", [(0, first), (1, second)]
+        )
+        await adapter.execute(
+            cursor,
+            f"SELECT k, v = ? FROM {name} ORDER BY k",
+            [datetime.datetime(2026, 11, 1, 6, 30, tzinfo=utc)],
+        )
+        assert await adapter.fetchall(cursor) == [(0, 0), (1, 1)]
+        await adapter.execute(cursor, f"SELECT v FROM {name} ORDER BY k")
+        rows = await adapter.fetchall(cursor)
+        values = [cast(datetime.datetime, row[0]) for row in rows]
+        assert [value.astimezone(utc) for value in values] == [
+            datetime.datetime(2026, 11, 1, 5, 30, tzinfo=utc),
+            datetime.datetime(2026, 11, 1, 6, 30, tzinfo=utc),
+        ]
+        assert [(value.tzinfo, value.fold) for value in values] == [(zone, 0), (zone, 1)]
+    finally:
+        with contextlib.suppress(Exception):
+            await adapter.execute(cursor, f"DROP TABLE IF EXISTS {name}")
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)
+
+
+@pytest.mark.asyncio
 @pytest.mark.usefixtures("no_tz_database")
 @pytest.mark.parametrize(
     ("literal", "token"),

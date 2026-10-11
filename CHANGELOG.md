@@ -6,7 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **CUBRIDdb wrapper collection arguments and `executemany()` (#610)** — the
+  opt-in `pycubrid.compat.cubriddb` cursors now accept the official wrapper's
+  collection call shapes. `execute(query, args, set_type)` binds `list`,
+  `tuple`, `set` and `frozenset` arguments through the native
+  `set()`/`imports()`/`bind_set()` API, with one `set_type` code for every
+  collection, a per-position list or tuple, or the official inference
+  (`int`/`bool` INT, `float` FLOAT, `Decimal` NUMERIC, `date`/`datetime` DATE,
+  `time` TIME, `str` STRING; empty collections STRING; mixed types
+  `TypeError`). Elements are sent as their `str()` text with the SET kind; for
+  supported non-`None` elements this is the same request as the official
+  wrapper's. `executemany(query, args_list)` checks
+  every group before one prepare and every group's value count after the
+  prepare but before any execute, so an invalid group runs no group; it then
+  executes each group and keeps the last `rowcount`. An empty list leaves
+  `rowcount=-1` and `description=None`, pycubrid's own choice. A `None`
+  element binds a NULL element (the official wrapper sends the text
+  `'None'`), BIT/VARBIT elements raise `NotSupportedError`, and other
+  iterables raise `ProgrammingError`; these differences are pinned by
+  official differential claims. Argument errors now discard the previous
+  result and set `rowcount=-1`, `description=None`, and unsupported
+  positional values now fail before the prepare instead of at bind time. A
+  non-`None` `set_type` without a collection argument is now ignored instead
+  of raising `NotSupportedError`. The scalar subset and ordinary cursors are
+  unchanged. See
+  [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments).
+
 ### Fixed
+- **The second occurrence of a repeated DST hour binds as itself (#819)** — an
+  aware `datetime` with a region `tzinfo` (`ZoneInfo`) in a repeated wall time
+  was sent with the region alone, which CUBRID resolves to the first
+  occurrence, so `datetime(2026, 11, 1, 1, 30, fold=1,
+  tzinfo=ZoneInfo("America/New_York"))` (01:30 EST, 06:30 UTC) was stored as
+  01:30 EDT, one hour off, with no error. When the wall time repeats in its
+  zone and `fold=1`, the literal now names the second occurrence by its
+  abbreviation (`DATETIMETZ'2026-11-01 01:30:00.000 America/New_York EST'`),
+  so it reads back with its region. A numeric abbreviation (Santiago `-04`),
+  one not matching `[A-Za-z]{3,6}`, or one both occurrences share (Moscow
+  `MSK` in 2014) is never put in the SQL; the `fold=1` literal then carries
+  the offset alone (`-05:00`), which keeps the instant but not the region. A
+  `fold=0` value keeps the region-only literal, which CUBRID already resolves
+  to the first occurrence. Every other value, including every `fold=0`
+  value, renders byte-identically, and a skipped spring-forward wall time is
+  still sent with the region alone, which CUBRID rejects with an error.
+  Verified on CUBRID 10.2 and 11.4 for `DATETIMETZ` and `TIMESTAMPTZ`, sync
+  and async.
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
   Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
   literal (for example `[bad]` or `[127.0.0.1]`) is now recorded as
@@ -15,6 +60,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   password-redacted URL instead. The password was redacted either way. Valid
   IPv6 literals such as `[::1]` still parse and keep their host and port. This
   is a contributor tooling fix; the driver is unchanged.
+- **`make mutation` stops with a message on Python 3.11 (#812)** — mutmut 3.8
+  fails at stats collection on 3.11 with a `TypeError` inside its trampoline,
+  before testing any mutant. The target now checks for Python 3.12+ first and
+  says why, and runs mutmut as `$(PYTHON) -m mutmut` so the check and mutmut
+  use the same interpreter; `docs/DEVELOPMENT.md` (+ ko) documents the requirement. CI's weekly
+  mutation job already uses 3.12. Contributor tooling only; the driver is
+  unchanged.
 
 ### Security
 - **`scripts/collect_repro.py` redacts more forms of the password of a
@@ -67,6 +119,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+- **Contributor and development guides state the Python 3.11+ requirement (#700)** —
+  the prerequisites in `CONTRIBUTING.md` and `docs/DEVELOPMENT.md`, with their Korean
+  copies, still said Python 3.10+. They now say 3.11+, and the development guide's note
+  points to `requires-python` instead of naming Python 3.10 syntax. The recorded past CI
+  matrix in the development guide is unchanged. Docs only.
+- **Connection guide and PRD state the Python 3.11+ requirement (#701)** — the
+  prerequisite row in `docs/CONNECTION.md` and the runtime row of the PRD dependency
+  matrix, with their Korean copies, still said Python 3.10+ after 1.10.0 raised
+  `requires-python` to `>=3.11`. They now say 3.11+. Recorded past measurements and
+  behavior that name Python 3.10 are unchanged. Docs only.
+- **Private vulnerability reporting is the preferred security channel (#751)** — GitHub
+  private vulnerability reporting is now enabled for the repository. `SECURITY.md` names it
+  as the preferred private route and keeps the maintainer email as the fallback; `README.md`
+  and the translated READMEs say the same. Docs only.
+- **Development guide points to the current CI cost evidence (#750)** —
+  `docs/DEVELOPMENT.md` and its Korean copy replace the historical #564 cost
+  baseline (a 2 OS × 5 Python matrix with Python 3.10 and pip caching, which no
+  longer exists) with a pointer to the measurements and coverage-ownership table
+  in `docs/CI_POLICY.md`, keeping the two outcomes that still apply. Docs only.
 - **README family states the full compatibility matrix as 4 × 4 on dispatch and
   release (#796)** — `README.md` and the Korean, German, Hindi, Russian and
   Chinese READMEs said the full live matrix was 5 × 4, and the German, Hindi,
@@ -107,6 +178,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
 ### CI
+- **Every workflow artifact has an explicit retention period (#750)** — the weekly SBOM
+  upload had none and was kept for the repository default of 90 days, and
+  `anchore/sbom-action` stored a second copy of the SBOM. `sbom.yml` now keeps the SBOM
+  for 30 days and turns off the action's own upload. A test requires `retention-days` on
+  every `actions/upload-artifact` step. `docs/CI_POLICY.md` (+ ko) records the rule and
+  the 2026-10-11 cache review (no cache change needed). CI only.
+- **The release runs lint, type checking, the public API check and the
+  repository tooling tests itself (#750)** — the release path (`publish-pypi.yml`
+  → `integration-full.yml`) used to rely on the release PR and the `main` push run
+  of `ci.yml` for these four checks, but nothing required that push run to succeed
+  and a later merge could cancel it. `integration-full.yml` now runs copies of the
+  `ci.yml` `lint`, `typecheck`, `compat-check` and `repo-tooling-tests` jobs (same
+  Python version, timeout and steps) on the release SHA, on every manual dispatch
+  and release call, and `full-matrix-result` needs all four and fails on any
+  non-success result, so a failed, cancelled or skipped check blocks publication.
+  `publish-pypi.yml` is unchanged; it stays identical across cubrid-lab
+  repositories. `tests/test_ci_policy.py` pins the copies to their `ci.yml`
+  sources and the gate's `needs`; `docs/CI_POLICY.md` (+ ko), `RELEASING.md` and
+  `RELEASE_POLICY.md` describe the new release coverage. About 1.5 extra runner
+  minutes per release. No runtime change.
+- **Weekly mutation testing is sharded under the 180-minute cap (#750)** — the
+  `bug-hunt.yml` `mutation` job runs as four matrix shards selected by mutant name
+  (`protocol`, `connection`, `packet-aio-cursor-lob`, `cursor-common`), about
+  1,550–1,850 of the 6,812 mutants each, with a 90-minute timeout. The former
+  300-minute timeout exception is gone. Each shard uploads its own
+  `mutation-cache-<shard>` artifact, and `tests/test_mutation_shards.py` checks
+  that every `only_mutate` module is in exactly one shard. mutmut's sandbox now
+  also copies `THIRD_PARTY_LICENSES.md`: `tests/test_third_party_licenses.py`
+  (#772) reads it, and without it every mutation run failed at stats collection.
+  mutmut runs its selected tests in set order, which exposed an order dependence
+  in `tests/test_protocol_fuzz.py`: after a test cleared the `ZoneInfo` cache, a
+  decoded `Asia/Seoul` value was a different object from the expected one, and
+  `ZoneInfo` compares by identity. The comparison now checks the zone key. No
+  runtime change.
+- **Dependabot groups minor and patch updates (#750)** — `.github/dependabot.yml`
+  groups minor and patch version updates into one PR per ecosystem and directory
+  (`dev-tools` for pip `/`, `docs-tools` for pip `/docs`, `github-actions`), so a
+  weekly batch runs CI once per group instead of once per package. Major updates,
+  security updates (`applies-to: version-updates`) and the runtime dependency
+  `tzdata` stay in their own PRs; majors are still held from auto-merge, and a
+  grouped PR still needs the required checks. `docs/CI_POLICY.md` (+ ko) documents
+  it and `tests/test_workflow_pins.py` pins the settings. No runtime change.
 - **"Prepare release" fails visibly when a merged release is blocked** —
   `scripts/reconcile_release_labels.py` now classifies every merged
   `autorelease: pending` release PR it cannot mark tagged by the newest
@@ -226,6 +339,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   module needed a new mark; this is a test-only change.
 
 ### Tests
+- **Release-please push guards are pinned (#801)** — `tests/test_release_workflows.py`
+  now asserts the exact, ordered guards of `release-please.yml`: the push is
+  directly preceded by the stale-main `exit` and the `autorelease: review`
+  re-check, the compose step starts with `set -euo pipefail`, the branch `case`
+  guard runs before checkout and is followed by the generation-time stale-main
+  `exit`, the freeze step counts
+  the exact `autorelease: review` label, and the checkout keeps
+  `persist-credentials: false`. Removing or weakening any of them now fails a
+  test; before, these mutations passed. `RELEASING.md` gains the recovery row
+  for abandoning a merged release (remove `autorelease: pending`, never add
+  `autorelease: tagged`), and the blocked-preparation steps say to skip waiting
+  for a green publisher run in that case. Test and docs only; the driver and workflows are
+  unchanged.
 - **Makefile signal-cleanup test no longer depends on how pytest was launched
   (#775)** — `test_signal_cleanup_preserves_volumes[SIGINT-*]` failed every time
   pytest ran as a background job of a non-interactive shell (for example two

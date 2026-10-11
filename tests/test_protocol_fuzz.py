@@ -50,6 +50,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from hypothesis import assume, given, note, settings, strategies as st
@@ -282,6 +283,16 @@ class TestRawByteFloods:
 # ---------------------------------------------------------------------------
 
 
+def _same_zone(actual: datetime.tzinfo | None, expected: datetime.tzinfo | None) -> bool:
+    # ZoneInfo compares by identity, and the expected values are built at import.
+    # A test that calls ZoneInfo.clear_cache() (no_tz_database in test_tz_datetime)
+    # makes the driver build a second Asia/Seoul object, so the comparison depended
+    # on test order (#750: mutmut runs its selected tests in set order).
+    if isinstance(actual, ZoneInfo) and isinstance(expected, ZoneInfo):
+        return actual.key == expected.key
+    return actual == expected
+
+
 def _same(actual: object, expected: object) -> bool:
     """Exact equality that also pins types, float bits and time zones."""
     if type(actual) is not type(expected):
@@ -293,7 +304,7 @@ def _same(actual: object, expected: object) -> bool:
         assert isinstance(actual, datetime.datetime)
         return (
             actual == expected
-            and actual.tzinfo == expected.tzinfo
+            and _same_zone(actual.tzinfo, expected.tzinfo)
             and actual.utcoffset() == expected.utcoffset()
             and actual.fold == expected.fold
         )
