@@ -20,18 +20,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### CI
 
 - **Repository-local issue closure in PRs** — the required `PR title` check now
-  rejects direct closing keywords targeting a different GitHub repository; local
-  `Closes #N` and cross-repository `Refs owner/repo#N` remain valid. PR body text
-  is treated as untrusted data, without checkout or token permissions. The check
-  ignores only what GitHub never renders as live text: fenced code (any fence
-  length), indented code blocks, HTML comments and code spans. It follows list
-  items, lazy continuation lines and the headings, block quotes, rules and fences
-  that end a list item, so a real indented code block stays ignored while list
-  text stays checked. Fences and code spans inside raw HTML such as `<details>`,
-  escaped or unclosed markers, and code spans closed on a later line never hide
-  text. Keywords wrapped in emphasis or inline HTML (`**Closes**`, `*Fixes*`,
-  `__Resolves__`), entities and escapes, `Fixes:` with a colon, and `http://`,
-  `www.`, autolink and Markdown-link issue URLs are all caught. Regression tests
+  rejects direct closing keywords targeting a different GitHub repository in the
+  PR body and in the PR's commit messages, which make up the squash commit
+  message; local `Closes #N` and cross-repository `Refs owner/repo#N` remain
+  valid. The body is treated as untrusted data without checkout; the job's token
+  can only read pull requests, to list the commit messages. The body is read the
+  way GitHub renders it (cmark-gfm block quotes, list items, lazy continuation,
+  setext headings, HTML blocks, tables, link reference definitions), and only
+  fenced and indented code, HTML comments and code spans are ignored. Where the
+  structure is ambiguous every reading is checked, and text that any reading
+  shows counts as live. Keywords wrapped in emphasis, inline HTML, entities or escapes, and
+  `http://`, `www.`, autolink, inline and reference-link issue URLs are caught.
+  Commit messages are plain text and are checked as written. Regression tests
   cover each case.
 
 ## [1.11.0] - 2026-10-11

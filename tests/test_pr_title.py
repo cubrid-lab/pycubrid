@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -99,20 +100,31 @@ def _validator() -> str:
     return textwrap.dedent(text[line_start:stop])
 
 
-def _run(title: str, body: str = "") -> subprocess.CompletedProcess[str]:
+def _run(
+    title: str, body: str = "", commits: str | None = None
+) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
         "PR_TITLE": title,
         "PR_BODY": body,
         "GITHUB_REPOSITORY": "cubrid-lab/pycubrid",
     }
-    return subprocess.run(
-        [sys.executable, "-c", _validator()],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
+    env.pop("PR_COMMITS_FILE", None)
+    if commits is not None:
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write(commits)
+        env["PR_COMMITS_FILE"] = handle.name
+    try:
+        return subprocess.run(
+            [sys.executable, "-c", _validator()],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+    finally:
+        if commits is not None:
+            os.unlink(env["PR_COMMITS_FILE"])
 
 
 class PrTitleValidatorTest(unittest.TestCase):
@@ -155,6 +167,11 @@ class PrTitleValidatorTest(unittest.TestCase):
         self.assertIn("  pull_request:\n    types: [opened, edited, reopened, synchronize]", text)
         self.assertNotRegex(text, r"(?m)^\s*pull_request_target:")
         self.assertIn("\npermissions: {}\n", text)
+        job = text.split("\njobs:\n", 1)[1]
+        self.assertEqual(
+            re.findall(r"(?m)^ +permissions:.*(?:\n {6,}\S.*)*", job),
+            ["    permissions:\n      pull-requests: read"],
+        )
         self.assertNotIn("actions/checkout", text)
         self.assertIn("PR_TITLE: ${{ github.event.pull_request.title }}", text)
         self.assertIn("PR_BODY: ${{ github.event.pull_request.body }}", text)
@@ -207,6 +224,13 @@ class PrTitleValidatorTest(unittest.TestCase):
             "Closes&nbsp;another-org/another-repo#42",
             "Clo&#115;es another-org/another-repo#42",
             "Closes another-org/another-repo\\#42",
+            "x*Closes another-org/another-repo#42",
+            "Clo<i title='>'></i>ses another-org/another-repo#42",
+            "Closes\\\nanother-org/another-repo#42",
+            "Closes [the [bug]](https://github.com/another-org/another-repo/issues/42)",
+            "Closes [another-org/another-repo#42]\n\n"
+            "[another-org/another-repo#42]: https://github.com/another-org/another-repo/issues/42",
+            "Closes [bug][1]\n\n[1]: https://github.com/another-org/another-repo/issues/42",
         ):
             with self.subTest(body=body):
                 self._assert_rejected(body)
@@ -222,6 +246,23 @@ class PrTitleValidatorTest(unittest.TestCase):
         ):
             with self.subTest(body=body):
                 self._assert_accepted(body)
+
+    def test_foreign_closure_in_a_commit_message_fails(self) -> None:
+        commits = "fix: keep cursor state\n\nCloses another-org/another-repo#42\n"
+        result = _run("docs: align issue ownership", "Closes #815", commits)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("in a commit message", result.stdout)
+        # Commit messages are plain text: Markdown code does not hide a keyword.
+        self._assert_rejected_commits("docs: x\n\n`Closes another-org/another-repo#42`")
+        self._assert_accepted_commits("fix: a\n\nCloses #815\nRefs another-org/another-repo#42\n")
+
+    def _assert_rejected_commits(self, commits: str) -> None:
+        result = _run("docs: align issue ownership", "", commits)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def _assert_accepted_commits(self, commits: str) -> None:
+        result = _run("docs: align issue ownership", "", commits)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_inert_markdown_is_ignored(self) -> None:
         fence = chr(96) * 3
@@ -243,6 +284,10 @@ class PrTitleValidatorTest(unittest.TestCase):
             "Example: `Closes another-org/another-repo#42`.",
             f"Use {chr(96) * 2}Closes another-org/another-repo#42{chr(96) * 2} only there.",
             "- Summary\nlazy\n\nend\n\n    Closes another-org/another-repo#42",
+            "Intro <!--\nCloses another-org/another-repo#42\n-->",
+            "> ~~~\n> Closes another-org/another-repo#42\n> ~~~",
+            "> - Item\n>\n>       Closes another-org/another-repo#42",
+            "-\n\n    Closes another-org/another-repo#42",
         ):
             with self.subTest(body=body):
                 self._assert_accepted(body)
@@ -307,6 +352,39 @@ class PrTitleValidatorTest(unittest.TestCase):
             f"<details>\n{fence}\nCloses another-org/another-repo#42\n{fence}\n</details>",
             f"<pre>\n\n{fence}\nCloses another-org/another-repo#42\n{fence}\n</pre>",
             "<div>\n`Closes another-org/another-repo#42`\n</div>",
+            f"<? >\n{fence}Closes another-org/another-repo#42",
+            "> <A\n\tCloses another-org/another-repo#42",
+            f">`\n<e>\n1) {fence}Closes another-org/another-repo#42",
+            "<div><!-- a --!> Closes another-org/another-repo#42 --></div>",
+            # Only an ordered list starting at 1 interrupts a paragraph.
+            f"Summary\n2. {fence}\n   Closes another-org/another-repo#42",
+            f"- Summary\n  2. {fence}\n     Closes another-org/another-repo#42",
+            # An invalid fence line is lazy text and keeps the list item open.
+            f"- Summary\n{fence} a{chr(96)}b\n\n    Closes another-org/another-repo#42",
+            # Fence and list indentation is relative to the enclosing container.
+            f"  {fence}\ncode\n  {fence}\n  Closes another-org/another-repo#42",
+            f"- a\n   {fence}\n  code\n   {fence}\n   Closes another-org/another-repo#42",
+            f">- {fence}\n>  Closes another-org/another-repo#42",
+            # An item that starts empty ends at a blank line, unless it is indented.
+            "-\n  \n    Closes another-org/another-repo#42",
+            "2.\n\n   ->\n\t-     Closes another-org/another-repo#42",
+            # Code spans across quoted lines, after escapes, in tables and around HTML.
+            "> Run `make\n> test` then Closes another-org/another-repo#42 `ok`",
+            "a `x\n<3 `Closes another-org/another-repo#42` c",
+            f"a `x\n{fence}b` Closes another-org/another-repo#42 `c`",
+            "\\\\`x` Closes another-org/another-repo#42 `y`",
+            "\\\\<!X`>`[Closes another-org/another-repo#42`",
+            "| a | b | c |\n|---|---|---|\n| `x | Closes another-org/another-repo#42 | y` |",
+            "Note <span title='`'>Closes another-org/another-repo#42</span> `x`",
+            "See <https://x.test/`> Closes another-org/another-repo#42 `y`",
+            "http://x`Closes another-org/another-repo#42`",
+            # Comments that are text under some CommonMark version.
+            "Text <!-- Closes another-org/another-repo#42 -- note -->",
+            "Text <!-- Closes another-org/another-repo#42 --->",
+            # Link reference definitions change how the rest of a paragraph reads.
+            "[r]:``\nCloses another-org/another-repo#42``",
+            "[r]:`\n-\n    Closes another-org/another-repo#42",
+            "[r]:`\n---\n    Closes another-org/another-repo#42",
         ):
             with self.subTest(body=body):
                 self._assert_rejected(body)
