@@ -100,6 +100,17 @@ stays green, since the pre-commit hooks always run whatever is installed.
 
 ## Pull Request Guidelines
 
+Maintainer/agent-authored PRs use the tool-specific review route in
+[AGENTS.md](AGENTS.md#development-workflow-cubrid-lab-org-standard):
+OpenCode uses documented Oracle design and post-implementation reviews;
+standalone Claude Code or Codex work waits for a substantive submitted GitHub
+Copilot review or another person's review before merge. Reviewer requests,
+self-review, green CI and automated approval suggestions are not review
+completion. The final outcome, addressed findings and unresolved threads are
+recorded as described in AGENTS.md. Outside contributors are not required to
+install or use any agent or internal review tool.
+
+
 1. Keep changes focused and explain the motivation in the PR description.
 2. Add or update tests for behavior changes.
 3. Run `make check-all` and `make test`; report commands/results and checks not run.
