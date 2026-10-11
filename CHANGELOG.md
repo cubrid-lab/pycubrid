@@ -194,6 +194,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer asks for a PyMySQL ratio. Docs only; the driver is unchanged.
 
 ### CI
+- **Repository-local issue closure in PRs** — the required `PR title` check now
+  rejects direct closing keywords targeting a different GitHub repository; local
+  `Closes #N` and cross-repository `Refs owner/repo#N` remain valid. PR body text
+  is treated as untrusted data, without checkout or token permissions. Fenced
+  examples and HTML comments are ignored; regression tests cover both routes.
 - **The PyPI duplicate guard uses `hashlib.file_digest()` (#742)** —
   `scripts/pypi_duplicate_guard.py` hashes `dist/` files with the Python 3.11 stdlib
   helper instead of a hand-written chunked read loop; the digests are the same. The
