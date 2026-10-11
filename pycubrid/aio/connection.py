@@ -414,13 +414,22 @@ class AsyncConnection(ConnectionCommonMixin):
         ``StreamWriter`` via their private ``_transport`` attribute because
         the public alternatives (``StreamReader.set_transport`` + rebuilt
         ``StreamWriter``) desynchronise the shared ``StreamReaderProtocol``
-        state and break subsequent reads after the upgrade.
+        state and break subsequent reads after the upgrade. In the referenced
+        CPython implementations, the high-level ``StreamWriter.start_tls``
+        updates the writer and ``StreamReaderProtocol`` state, but does not
+        rebind ``StreamReader._transport``. The protocol update uses
+        ``_replace_writer`` in CPython 3.11/3.12 and ``_replace_transport`` in
+        CPython 3.13. This driver therefore retains its manual reader/writer
+        rebind instead of delegating to the high-level method.
 
         ``ssl_handshake_timeout`` is passed explicitly so a stalled
         handshake cannot block the event loop indefinitely, and the
         pre-TLS transport is ``abort()``ed on any failure so the next
         reconnect starts cleanly instead of leaking a half-upgraded SSL
-        transport.
+        transport. The ``abort()`` + ``connection_lost(None)`` cleanup is
+        kept too: the high-level ``StreamWriter.start_tls`` does not implement
+        this driver's #513 workaround for the SSLProtocol that stops
+        forwarding ``connection_lost`` mid-handshake.
         """
         ssl_context = self._ssl_context
         if ssl_context is None:
@@ -464,8 +473,10 @@ class AsyncConnection(ConnectionCommonMixin):
         # The stream protocol was built for the plaintext transport and still
         # has _over_ssl = False, so its eof_received() returns True and
         # SSLProtocol logs "returning true from eof_received() has no effect
-        # when using ssl" on every TLS peer close (#514). Record the upgrade as
-        # StreamReaderProtocol._replace_transport() (3.11+) would.
+        # when using ssl" on every TLS peer close (#514). The high-level
+        # StreamWriter.start_tls would set this via _replace_writer (3.11/3.12)
+        # or _replace_transport (3.13); because this driver uses the low-level
+        # loop.start_tls directly, it must record the upgrade manually.
         setattr(protocol, "_over_ssl", True)
 
     async def close(self) -> None:

@@ -228,8 +228,7 @@ class Connection(ConnectionCommonMixin):
 
         Sync TLS uses blocking :meth:`ssl.SSLContext.wrap_socket`, which
         raises :class:`ssl.SSLCertVerificationError` synchronously on
-        verification failure (unlike the async path on Python 3.10 — see
-        `#156 <https://github.com/cubrid-lab/pycubrid/issues/156>`_).
+        verification failure.
 
         When this opens a new physical session after an earlier one (``close()``
         then ``connect()``, ``ping()`` recovery, or a failed ``CHECK_CAS``
