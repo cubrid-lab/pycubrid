@@ -314,8 +314,7 @@ jobs:
           set -euxo pipefail
           # `-p no:cacheprovider` keeps the run isolated from prior caches
           # in container layers.  We assert that broker-provisioning skips
-          # cannot pass silently: every selected test must run. The driver's
-          # TLS preflight now handles Python 3.10 verification failures too.
+          # cannot pass silently: every selected test must run.
           python -m pytest tests/ -m "integration and tls" -v --tb=short \
             -o addopts="" -p no:cacheprovider \
             --junitxml=tls-results.xml \
