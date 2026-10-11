@@ -9950,6 +9950,22 @@ group, because within one group GitHub replaces a pending run even when
 `cancel-in-progress` is false, so main pushes and scheduled runs are never cancelled or dropped. `security.yml` installs `bandit[toml]==1.9.4`, the version pinned in
 `pyproject.toml`. `tests/test_workflow_pins.py` enforces all three.
 
+## Artifact retention and caches
+
+Every `actions/upload-artifact` step sets `retention-days`, so no artifact falls back to
+the repository default of 90 days. Debugging and evidence artifacts keep 14 or 30 days,
+and release artifacts keep 14 days. `anchore/sbom-action` runs with
+`upload-artifact: false`, because the workflow uploads the SBOM itself; otherwise the
+action would store a second copy with the default retention.
+`tests/test_workflow_pins.py::test_every_artifact_upload_sets_a_retention_period` pins
+both rules.
+
+Review on 2026-10-11 (#750): the Actions cache held 7.6 GB in 162 entries, against
+GitHub's 10 GB repository limit. 3.0 GB of it was `setup-python` pip caches that no
+current workflow creates, left over from before the uv installs; they were last used on
+2026-10-08 and GitHub evicts caches after 7 days without use. The rest are the per-job
+`setup-uv` caches. No cache change was needed.
+
 ## Dependabot grouping
 
 Dependabot used to open one PR per package for pip (`/`), pip (`/docs`) and GitHub
