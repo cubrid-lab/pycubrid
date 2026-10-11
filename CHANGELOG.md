@@ -135,6 +135,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+- **Performance guide records the prepared batch evaluation (#836)** — `docs/PERFORMANCE.md`
+  and its Korean copy gain a section on the prepared alternatives to the literal
+  `executemany()` batch, measured on CUBRID 10.2, 11.0, 11.2 and 11.4
+  (cubrid-lab/cubrid-benchmark#23). A prototype `EXECUTE_ARRAY` request took 0.33-0.55x
+  of `executemany()` for INSERT, UPDATE and DELETE and 0.15-0.61x for MERGE at 10,000 rows.
+  Its transaction, partial-failure and `rowcount` behaviour matched the current batch on
+  all four versions, but it accepts only the narrow prepared type set. The prepare-once
+  loop was slower than the batch on 10.2 and 11.0. `executemany()` keeps the literal batch
+  by default; the opt-in path, the wider prepared types and per-row failure reporting are
+  tracked in #839, #840 and #841. Docs only; driver behaviour is unchanged.
 - **Performance guide explains the `executemany()` gap against CUBRIDdb (#822)** —
   `docs/PERFORMANCE.md` and its Korean copy gain a section with the measured ratios
   (INSERT 1.13x, 1.39x and 1.54x at 100, 1,000 and 10,000 rows; MERGE up to 4.72x), the

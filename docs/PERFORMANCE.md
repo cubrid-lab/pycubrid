@@ -234,11 +234,56 @@ What you can do:
 - Do not use `execute()` in a loop as a faster alternative. It was 1.6-6.1× `CUBRIDdb`'s
   `executemany()`, because every row is a new prepare plus extra requests.
 
-Not established: results on CUBRID 10.2, 11.0 and 11.2, and how the server time splits between
-the CAS and the engine. A prepared batch path, including the unused `EXECUTE_ARRAY` request,
-is tracked in [#836](https://github.com/cubrid-lab/pycubrid/issues/836); caching the
-placeholder tokenisation is tracked in
+Not established: the gap against `CUBRIDdb` on CUBRID 10.2, 11.0 and 11.2, and how the server
+time splits between the CAS and the engine. Prepared batch paths were measured on all four
+versions; see the next section. Caching the placeholder tokenisation is tracked in
 [#837](https://github.com/cubrid-lab/pycubrid/issues/837).
+
+### Prepared batch paths: the `EXECUTE_ARRAY` evaluation
+
+[#836](https://github.com/cubrid-lab/pycubrid/issues/836) measured two prepared alternatives to
+the literal batch with the same workload, in the
+[`pycubrid-prepared-batch`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/pycubrid-prepared-batch)
+experiment. Autocommit was off, the commit was included, and the medians come from five trials on
+11.4 and three on the other versions, on a shared machine:
+
+- a prepared loop with `pycubrid.compat.native`: one `PREPARE`, then one execute per row;
+- a prototype of the `EXECUTE_ARRAY` request (function code 21): one `PREPARE`, one request
+  carrying every row's bound values, one close. pycubrid does not send this request today; the
+  prototype lived in the benchmark harness.
+
+Time of the `EXECUTE_ARRAY` prototype as a fraction of `executemany()` at 10,000 rows:
+
+| CUBRID | INSERT | UPDATE | DELETE | MERGE |
+|---|---:|---:|---:|---:|
+| 11.4.6 | 0.40 | 0.33 | 0.35 | 0.15 |
+| 11.2.9 | 0.44 | 0.38 | 0.39 | 0.16 |
+| 11.0.16 | 0.55 | 0.50 | 0.51 | 0.16 |
+| 10.2.18 | 0.53 | 0.51 | 0.51 | 0.61 |
+
+- **`EXECUTE_ARRAY` is the fastest path on every version.** On 11.4 the statement phase for 10,000
+  rows falls from 2,887 to 954 ms for INSERT and from 13,020 to 1,739 ms for MERGE. It is also
+  0.41-0.54× of the prepared loop for INSERT, UPDATE and DELETE.
+- **The prepared loop is not faster everywhere.** It is 0.79-1.06× of `executemany()` on 11.4 and
+  11.2, but 1.13-1.22× on 11.0 and 10.2 for INSERT, UPDATE and DELETE. MERGE is faster with it on
+  every version.
+- **Transactions, partial failures and `rowcount` match the current batch.** On all four versions,
+  when one row fails `EXECUTE_ARRAY` still executes the other rows, as `executemany()` does today.
+  Only the failing row is undone. With autocommit on, each successful row is committed. With
+  autocommit off, `rollback()` removes every row and `commit()` keeps the successful ones. The
+  per-row counts and their sum are identical. The prepared loop stops at the first failing row
+  instead.
+- **Types and coercion differ.** The prepared encoders take only a 32-bit `int`, `str`, `None`,
+  INT/STRING collections and LOB handles. `bool`, larger ints, `float`, `Decimal`, `date`,
+  `datetime` and `bytes` are rejected, while `executemany()` renders them all. Values are coerced
+  as host variables, not literals, so server error text differs. With autocommit on, a LOB handle
+  fails after the first row's commit.
+
+Decision: `executemany()` keeps the literal batch by default, because a default switch would change
+which values are accepted and how they are converted. An opt-in `EXECUTE_ARRAY` path is tracked
+in [#839](https://github.com/cubrid-lab/pycubrid/issues/839), the wider prepared type set it needs
+in [#840](https://github.com/cubrid-lab/pycubrid/issues/840), and reporting which batch rows failed
+in [#841](https://github.com/cubrid-lab/pycubrid/issues/841).
 
 ### Fetch throughput and peak memory by `fetch_size`
 
@@ -261,11 +306,12 @@ was measured only at the default `fetch_size` of 100.
 - Native (C) memory of `CUBRIDdb`. `tracemalloc` only sees the Python heap.
 - Peak memory at `fetch_size` 1,000 and 10,000.
 - Per-operation RSS. Only the process peak was recorded (about 39 MiB).
-- `executemany()` for UPDATE, DELETE and MERGE on CUBRID versions other than 11.4, and the
-  split of `executemany()` server time between the CAS and the engine.
+- `executemany()` against `CUBRIDdb` on CUBRID versions other than 11.4, and the split of
+  `executemany()` server time between the CAS and the engine.
 - The extra `lastrowid` round trip.
 - Remote networks, TLS, LOB and collection types.
-- Python versions other than 3.12, and CUBRID versions other than 11.4.
+- Python versions other than 3.12, and CUBRID versions other than 11.4 (except the prepared batch
+  evaluation, which ran on 10.2-11.4).
 
 ### Historical Results (2026-03, pycubrid 0.5.0)
 
