@@ -144,7 +144,7 @@ flowchart TD
 | `fetchone` / `fetchmany` / `fetchall`, 10,000행 | 51.2 / 48.4 / 49.7 | 40.6 / 40.7 / 39.4 | 1.26× / 1.19× / 1.26× |
 
 - 단일 행 쓰기는 서버의 commit에 묶여 있습니다. 두 드라이버 모두 지연 시간이 약 33, 41, 75, 83 ms 부근에 모이므로, 쓰기에서 드라이버 오버헤드가 차지하는 몫은 작습니다. (DELETE + commit이 33.8 ms 대비 41.2 ms로 측정된 것은 중앙값이 다른 묶음에 걸렸기 때문입니다.)
-- `executemany()`는 배치 요청 하나를 보내지만, 행마다 준비된 실행을 한 번씩 하는 `CUBRIDdb`보다 여전히 느립니다 ([#822](https://github.com/cubrid-lab/pycubrid/issues/822)).
+- `executemany()`는 배치 요청 하나를 보내지만, 행마다 준비된 실행을 한 번씩 하는 `CUBRIDdb`보다 여전히 느립니다. 시간은 서버에서 쓰입니다. [격차의 원인](#executemany-cubriddb-비교-격차의-원인)을 참고하세요.
 - 10,000행 fetch는 C 확장보다 19-26% 오래 걸립니다.
 
 <a id="동기와-비동기-비교"></a>
@@ -173,6 +173,34 @@ flowchart TD
 
 클라이언트 메모리는 행당 약 380바이트씩 늘어나며, [알려진 한계](#알려진-한계)의 설명과 일치합니다.
 
+<a id="executemany-cubriddb-비교-격차의-원인"></a>
+
+### `executemany()`와 `CUBRIDdb` 비교: 격차의 원인
+
+위의 격차는 [#822](https://github.com/cubrid-lab/pycubrid/issues/822)에서
+[`pycubrid-executemany-overhead`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/pycubrid-executemany-overhead)
+실험으로 조사했습니다(CUBRID 11.4.6, 5회 시행, 중앙값, commit 포함). 수치는 다른 사용자도 쓰는 부하가 걸린 머신에서 얻었으므로, 중앙값과 단계별 비중만 신뢰할 수 있습니다.
+
+| 배치 크기 | `pycubrid` / `CUBRIDdb` INSERT | UPDATE | DELETE | MERGE |
+|---|---:|---:|---:|---:|
+| 100행 | 1.13× | 1.13× | 1.13× | 1.49× |
+| 1,000행 | 1.39× | 1.65× | 1.48× | 2.64× |
+| 10,000행 | 1.54× | 1.56× | 1.47× | 4.72× |
+
+- **격차는 드라이버가 아니라 서버에 있습니다.** INSERT 10,000행에서 문장 실행 구간의 95%는 브로커의 응답을 기다리는 시간입니다. 파라미터를 SQL로 렌더링하는 데 4%, 패킷 쓰기와 파싱을 합쳐 1% 미만이 듭니다. 브로커 SQL 로그에서 CAS는 클라이언트가 잰 2,865 ms 중 2,734 ms 동안 배치를 처리했습니다.
+- **왕복이 한 번이라고 배치가 더 싸지지는 않습니다.** 서버는 배치 안의 리터럴 문장 하나에 약 275 µs를 쓰고, 한 번 준비한 문장의 실행 한 번에는 약 131 µs를 씁니다. 루프백 왕복은 약 76 µs이므로, 준비된 실행 10,000번을 보내는 쪽이 리터럴 문장 10,000개를 한 번에 보내는 배치보다 먼저 끝납니다.
+- **클라이언트 최적화로는 메울 수 없습니다.** 플레이스홀더 토큰화 캐시 같은 작업으로 되찾을 수 있는 것은 문장 실행 구간의 최대 약 2-4%입니다.
+- **MERGE가 최악의 경우입니다.** 리터럴 MERGE 문장은 계획 캐시 적중이 적어(브로커 로그에서 1,000개 중 548-702개) 배치가 `CUBRIDdb`의 최대 4.72배입니다.
+- **메모리:** 배치를 만드는 동안 행당 약 360바이트이며, 호출이 끝나면 해제됩니다.
+
+할 수 있는 일:
+
+- commit은 행마다가 아니라 배치마다 한 번만 하세요. commit은 100행 배치 시간의 53%를 차지하며 두 드라이버에서 같습니다.
+- 큰 MERGE 배치이거나, 배치가 직접 측정한 행 단위 실행보다 훨씬 느리다면 명시적 `pycubrid.compat.native` 커서로 준비된 루프(`PREPARE` 한 번, 이후 행마다 실행 한 번)를 고려하세요. 10,000행에서 INSERT, UPDATE, DELETE는 `CUBRIDdb`의 0.99-1.31배, MERGE는 1.17배였습니다. 측정은 autocommit을 끄고 배치마다 명시적 commit을 한 번 하는 방식으로 했으며, 측정 하네스는 드라이버의 autocommit 플래그를 직접 설정했습니다. 같은 모드를 얻는 공개 방법은 `connection.set_autocommit(False)` 후 `commit()`입니다. 먼저 자신의 워크로드에서 측정하세요. `bind_param()`은 스칼라 INT, 문자열, `NULL`만 받고(컬렉션과 LOB은 전용 `bind_set()`, `bind_lob()` API를 씁니다), 오류 동작도 다릅니다. 준비된 루프는 처음 실패한 행에서 멈춥니다. 배치는 한 문장이 실패해도 모든 문장을 서버로 보내지만, `executemany()`는 반환된 첫 오류만 예외로 발생시키므로 이후의 실패는 보고되지 않습니다.
+- `execute()`를 반복문에서 쓰는 것은 더 빠른 대안이 아닙니다. 행마다 새로 준비하고 요청이 추가되므로 `CUBRIDdb`의 `executemany()`의 1.6-6.1배였습니다.
+
+확인되지 않은 것: CUBRID 10.2, 11.0, 11.2에서의 결과, 그리고 서버 시간이 CAS와 엔진에 어떻게 나뉘는지. 사용되지 않는 `EXECUTE_ARRAY` 요청을 포함한 준비된 배치 경로는 [#836](https://github.com/cubrid-lab/pycubrid/issues/836)에서, 플레이스홀더 토큰화 캐시는 [#837](https://github.com/cubrid-lab/pycubrid/issues/837)에서 추적합니다.
+
 <a id="fetch_size별-fetch-처리량과-최대-메모리"></a>
 
 ### `fetch_size`별 fetch 처리량과 최대 메모리
@@ -196,8 +224,7 @@ localhost에서 10,000행:
 - `CUBRIDdb`의 네이티브(C) 메모리. `tracemalloc`은 Python 힙만 봅니다.
 - `fetch_size` 1,000과 10,000에서의 최대 메모리.
 - 연산별 RSS. 프로세스 최대값(약 39 MiB)만 기록했습니다.
-- UPDATE, DELETE, MERGE의 `executemany()`.
-- `executemany()` 시간이 클라이언트와 서버에 어떻게 나뉘는지.
+- CUBRID 11.4 외의 버전에서 UPDATE, DELETE, MERGE의 `executemany()`, 그리고 `executemany()`의 서버 시간이 CAS와 엔진에 어떻게 나뉘는지.
 - 추가 `lastrowid` 왕복.
 - 원격 네트워크, TLS, LOB, 컬렉션 타입.
 - Python 3.12 외의 버전, CUBRID 11.4 외의 버전.
@@ -291,6 +318,7 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 - 매우 큰 파라미터 시퀀스는 나누어 보내세요. 이유는 [알려진 한계](#알려진-한계)를 참고하세요.
 
 측정된 배치 처리량은 [`executemany()` 배치 처리량](#executemany-배치-처리량)에 있습니다.
+`CUBRIDdb`와의 비교와 배치가 더 느릴 수 있는 이유는 [격차의 원인](#executemany-cubriddb-비교-격차의-원인)에 있습니다.
 
 ---
 

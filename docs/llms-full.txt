@@ -6383,8 +6383,8 @@ threshold.
   (DELETE + commit measured 41.2 ms against 33.8 ms only because the median fell into a
   different cluster.)
 - `executemany()` sends one batch request, but it is still slower than `CUBRIDdb`, which runs
-  one prepared execute per row
-  ([#822](https://github.com/cubrid-lab/pycubrid/issues/822)).
+  one prepared execute per row; the time is spent on the server, see
+  [where the gap comes from](#executemany-against-cubriddb-where-the-gap-comes-from).
 - Fetching 10,000 rows takes 19-26% longer than with the C extension.
 
 ### Sync against async
@@ -6415,6 +6415,61 @@ not release the GIL during CCI calls.
 Client memory grows by about 380 bytes per row, which confirms
 [Known Limitations](#known-limitations).
 
+### `executemany()` against `CUBRIDdb`: where the gap comes from
+
+The gap above was investigated in
+[#822](https://github.com/cubrid-lab/pycubrid/issues/822) with the
+[`pycubrid-executemany-overhead`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/pycubrid-executemany-overhead)
+experiment (CUBRID 11.4.6, five trials, medians, commit included). The numbers come from a
+shared, loaded machine; only the medians and the phase shares are reliable.
+
+| Batch of | `pycubrid` / `CUBRIDdb` INSERT | UPDATE | DELETE | MERGE |
+|---|---:|---:|---:|---:|
+| 100 rows | 1.13× | 1.13× | 1.13× | 1.49× |
+| 1,000 rows | 1.39× | 1.65× | 1.48× | 2.64× |
+| 10,000 rows | 1.54× | 1.56× | 1.47× | 4.72× |
+
+- **The gap is on the server, not in the driver.** For 10,000 INSERT rows, 95% of the
+  statement phase is waiting for the broker's reply. Rendering parameters into SQL is 4% and
+  packet write and parse together are under 1%. The broker SQL log shows the CAS busy for
+  2,734 of the 2,865 ms the client measured.
+- **One round trip does not make a batch cheaper.** The server spends about 275 µs on each
+  literal statement in the batch, against about 131 µs on each execute of a statement
+  prepared once. A round trip on loopback costs about 76 µs, so sending 10,000 prepared
+  executes still finishes sooner than one batch of 10,000 literal statements.
+- **Client optimisation cannot close it.** Caching the placeholder tokenisation and similar
+  work would recover at most about 2-4% of the statement phase.
+- **MERGE is the worst case.** Literal MERGE statements get few plan-cache hits (548-702 of
+  1,000 in the broker log), which is why the batch is up to 4.72× `CUBRIDdb`.
+- **Memory:** about 360 bytes per row while the batch is built; it is released after the
+  call.
+
+What you can do:
+
+- Keep committing once per batch, not once per row. Commit is already 53% of a 100-row batch
+  and identical for both drivers.
+- For large MERGE batches, or when a batch is much slower than your own row-by-row
+  measurement, consider a prepared loop with the explicit `pycubrid.compat.native` cursor
+  (one `PREPARE`, then one execute per row). It reached 0.99-1.31× of `CUBRIDdb` for INSERT,
+  UPDATE and DELETE and 1.17× for MERGE at 10,000 rows. The measurement ran with autocommit off
+  and one explicit commit per batch; the harness set the driver's autocommit flag directly,
+  and the public way to get the same mode is `connection.set_autocommit(False)` followed by
+  `commit()`.
+  Measure it on your own workload first:
+  `bind_param()` takes only scalar INT, string and `NULL` values (collections and LOBs use the
+  dedicated `bind_set()` and `bind_lob()` APIs), and the error behaviour differs. A prepared
+  loop stops at the first failing row. A batch sends every statement to the server even after
+  one fails, but `executemany()` raises only the first returned error, so later failures are
+  not reported.
+- Do not use `execute()` in a loop as a faster alternative. It was 1.6-6.1× `CUBRIDdb`'s
+  `executemany()`, because every row is a new prepare plus extra requests.
+
+Not established: results on CUBRID 10.2, 11.0 and 11.2, and how the server time splits between
+the CAS and the engine. A prepared batch path, including the unused `EXECUTE_ARRAY` request,
+is tracked in [#836](https://github.com/cubrid-lab/pycubrid/issues/836); caching the
+placeholder tokenisation is tracked in
+[#837](https://github.com/cubrid-lab/pycubrid/issues/837).
+
 ### Fetch throughput and peak memory by `fetch_size`
 
 10,000 rows over localhost:
@@ -6436,8 +6491,8 @@ was measured only at the default `fetch_size` of 100.
 - Native (C) memory of `CUBRIDdb`. `tracemalloc` only sees the Python heap.
 - Peak memory at `fetch_size` 1,000 and 10,000.
 - Per-operation RSS. Only the process peak was recorded (about 39 MiB).
-- `executemany()` for UPDATE, DELETE and MERGE.
-- How `executemany()` time splits between client and server.
+- `executemany()` for UPDATE, DELETE and MERGE on CUBRID versions other than 11.4, and the
+  split of `executemany()` server time between the CAS and the engine.
 - The extra `lastrowid` round trip.
 - Remote networks, TLS, LOB and collection types.
 - Python versions other than 3.12, and CUBRID versions other than 11.4.
@@ -6548,6 +6603,8 @@ Practical advice:
   [Known Limitations](#known-limitations) for why.
 
 Measured batch throughput is in [`executemany()` batch throughput](#executemany-batch-throughput).
+How the batch compares with `CUBRIDdb`, and why it can be slower, is in
+[where the gap comes from](#executemany-against-cubriddb-where-the-gap-comes-from).
 
 ---
 

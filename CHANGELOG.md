@@ -135,6 +135,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+- **Performance guide explains the `executemany()` gap against CUBRIDdb (#822)** —
+  `docs/PERFORMANCE.md` and its Korean copy gain a section with the measured ratios
+  (INSERT 1.13x, 1.39x and 1.54x at 100, 1,000 and 10,000 rows; MERGE up to 4.72x), the
+  finding that about 95% of the statement phase is waiting for the broker (about 275 µs per
+  literal batch statement against about 131 µs per prepared execute), and what users can do.
+  The "not measured" list no longer names UPDATE, DELETE, MERGE and the client/server split.
+  The prepared-statement batch path and the cached placeholder tokenisation are tracked in
+  #836 and #837. Docs only; driver behaviour is unchanged.
 - **Contributor and development guides state the Python 3.11+ requirement (#700)** —
   the prerequisites in `CONTRIBUTING.md` and `docs/DEVELOPMENT.md`, with their Korean
   copies, still said Python 3.10+. They now say 3.11+, and the development guide's note
