@@ -34,6 +34,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments).
 
 ### Fixed
+- **The second occurrence of a repeated DST hour binds as itself (#819)** — an
+  aware `datetime` with a region `tzinfo` (`ZoneInfo`) in a repeated wall time
+  was sent with the region alone, which CUBRID resolves to the first
+  occurrence, so `datetime(2026, 11, 1, 1, 30, fold=1,
+  tzinfo=ZoneInfo("America/New_York"))` (01:30 EST, 06:30 UTC) was stored as
+  01:30 EDT, one hour off, with no error. When the wall time repeats in its
+  zone, the literal now names the occurrence by its abbreviation
+  (`DATETIMETZ'2026-11-01 01:30:00.000 America/New_York EST'`, and `EDT` for
+  `fold=0`), so it reads back with its region. A numeric abbreviation (`-04`),
+  one not matching `[A-Za-z]{3,6}`, or one both occurrences share (Moscow
+  `MSK` in 2014) is never put in the SQL; the literal then carries the offset
+  alone (`-05:00`), which keeps the instant but not the region. Every other
+  value renders byte-identically, and a skipped spring-forward wall time is
+  still sent with the region alone, which CUBRID rejects with an error.
+  Verified on CUBRID 10.2 and 11.4 for `DATETIMETZ` and `TIMESTAMPTZ`, sync
+  and async.
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
   Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
   literal (for example `[bad]` or `[127.0.0.1]`) is now recorded as

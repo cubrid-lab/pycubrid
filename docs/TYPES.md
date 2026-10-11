@@ -313,6 +313,14 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > If the session zone changes, the same stored instant is returned with a
 > different UTC offset. `TIMESTAMPTZ` and `DATETIMETZ` carry their own zone.
 
+> **Repeated DST hour (#819):** a bound aware `datetime` with a region
+> `tzinfo` (`ZoneInfo`) in a repeated wall time keeps its `fold`. pycubrid adds
+> the zone abbreviation (`America/New_York EST` for `fold=1`), or sends the
+> offset alone when the abbreviation is numeric or shared by both occurrences,
+> so the second occurrence is no longer stored as the first. A skipped
+> spring-forward wall time is rejected by CUBRID. See
+> [parameter binding](PARAMETER_BINDING.md).
+
 > **Zero dates (#512):** CUBRID accepts zero values such as `DATE'0000-00-00'`,
 > `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
 > `TIMESTAMPLTZ`, `DATETIMETZ` and `DATETIMELTZ` values, but Python's `datetime`
