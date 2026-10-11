@@ -119,6 +119,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tooling fix; the driver is unchanged.
 
 ### Documentation
+- **Contributor and development guides state the Python 3.11+ requirement (#700)** —
+  the prerequisites in `CONTRIBUTING.md` and `docs/DEVELOPMENT.md`, with their Korean
+  copies, still said Python 3.10+. They now say 3.11+, and the development guide's note
+  points to `requires-python` instead of naming Python 3.10 syntax. The recorded past CI
+  matrix in the development guide is unchanged. Docs only.
 - **Connection guide and PRD state the Python 3.11+ requirement (#701)** — the
   prerequisite row in `docs/CONNECTION.md` and the runtime row of the PRD dependency
   matrix, with their Korean copies, still said Python 3.10+ after 1.10.0 raised

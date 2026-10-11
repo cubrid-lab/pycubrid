@@ -8661,7 +8661,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 
 | Requirement   | Version  | Notes |
 |---------------|----------|-------|
-| Python        | 3.10+    | Uses `X | Y` union syntax, `match` statements |
+| Python        | 3.11+    | Matches `requires-python` in `pyproject.toml` |
 | Docker        | Latest   | Only for integration tests |
 | CUBRID Server | 10.2–11.4 | Via Docker or local install |
 
@@ -10137,7 +10137,7 @@ GitHub 이슈, PR과 댓글은 영어로 작성하세요. 현지화 문서 기�
 
 ### 사전 준비
 
-- Python 3.10+
+- Python 3.11+
 - Git
 - Docker (통합 테스트용)
 

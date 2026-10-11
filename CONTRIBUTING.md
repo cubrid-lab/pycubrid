@@ -9,7 +9,7 @@ welcome, and no specific translation tool is required.
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Git
 - Docker (for integration tests)
 
