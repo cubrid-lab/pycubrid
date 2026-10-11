@@ -327,7 +327,8 @@ This section does **not** change the literal contract above. It describes the
 typed values that the explicit `pycubrid.compat.native` cursor's
 `bind_param()` sends through FC3 (`pycubrid/protocol.py`
 `_encode_prepared_scalar`). Since #840 it accepts the same Python types as the
-literal path, except typed collections (bind those with `bind_set()`). Each
+literal path, except typed collections (bind those with `bind_set()`) and empty
+`bytes`. Each
 value is sent as one type byte and its value bytes; nothing is rendered into
 SQL. The checks match the literal path: `nan`/`inf` raise `ProgrammingError`, a
 `Decimal` that needs more than 38 digits raises `DataError`, and forged or
@@ -349,7 +350,7 @@ messages never contain the value.
 | `datetime.datetime`, naive | `DATETIME'…'` | DATETIME (22), seven int16 fields with milliseconds |
 | `datetime.datetime`, aware | `DATETIMETZ'… <tz>'` | DATETIMETZ (31), the seven fields and the same `<tz>` text, without NUL |
 | `datetime.date` | `DATE'…'` | DATE (13), year, month, day and four zero fields |
-| `datetime.time` | `TIME'…'` | TIME (14), three zero fields, hour, minute, second and a zero field |
+| `datetime.time` | `TIME'…'` | TIME (14), three zero fields, hour, minute, second and a zero field; `tzinfo` is ignored, as in the literal path |
 
 Every temporal value uses the 14-byte DATETIME layout, because the broker reads
 TIME from offset 6 and does not check the length. Microseconds are truncated to

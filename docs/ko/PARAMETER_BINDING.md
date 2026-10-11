@@ -253,8 +253,8 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 이 절은 위의 리터럴 계약을 **바꾸지 않습니다**. 명시적
 `pycubrid.compat.native` 커서의 `bind_param()`이 FC3로 보내는 타입 지정 값을
 설명합니다(`pycubrid/protocol.py` `_encode_prepared_scalar`). #840부터 이 커서는
-타입 지정 컬렉션(`bind_set()`으로 바인딩)을 제외하고 리터럴 경로와 같은 Python
-타입을 받습니다. 각 값은 타입 바이트 하나와 값 바이트로 전송되며, SQL로
+타입 지정 컬렉션(`bind_set()`으로 바인딩)과 빈 `bytes`를 제외하고 리터럴 경로와
+같은 Python 타입을 받습니다. 각 값은 타입 바이트 하나와 값 바이트로 전송되며, SQL로
 렌더링되지 않습니다. 검사는 리터럴 경로와 같습니다. `nan`/`inf`는
 `ProgrammingError`, 38자리가 넘게 필요한 `Decimal`은 `DataError`이며, 위조된
 하위 클래스나 대체 모듈의 하위 클래스도 같은 방식으로 거부합니다. 값은 기반
@@ -275,7 +275,7 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 | naive `datetime.datetime` | `DATETIME'…'` | DATETIME (22), 밀리초를 포함한 int16 필드 7개 |
 | tz 포함 `datetime.datetime` | `DATETIMETZ'… <tz>'` | DATETIMETZ (31), 필드 7개와 같은 `<tz>` 텍스트, NUL 없음 |
 | `datetime.date` | `DATE'…'` | DATE (13), 연, 월, 일과 0 필드 4개 |
-| `datetime.time` | `TIME'…'` | TIME (14), 0 필드 3개, 시, 분, 초와 0 필드 하나 |
+| `datetime.time` | `TIME'…'` | TIME (14), 0 필드 3개, 시, 분, 초와 0 필드 하나; 리터럴 경로와 같이 `tzinfo`는 무시 |
 
 브로커가 TIME을 오프셋 6에서 읽고 길이를 검사하지 않으므로 모든 날짜/시간
 값은 14바이트 DATETIME 배치를 씁니다. 마이크로초는 리터럴 경로와 같이 DATETIME에서는

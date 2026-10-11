@@ -140,7 +140,7 @@ pooling 비활성과 알 수 없는 브로커 정보 값은 핸들 재사용의
 #439에서는 `bool`, float, 날짜/시간, bytes, 객체, 컬렉션과 LOB 핸들을
 지원하지 않았고 I/O 전에 거부했습니다. #440과 #441이 컬렉션(`bind_set()`)과
 LOB 핸들(`bind_lob()`)을, #840이 위의 스칼라 행을 추가했으므로 이제
-`bind_param()`은 타입 지정 컬렉션을 제외하고 리터럴 경로가 렌더링하는 모든 Python
+`bind_param()`은 타입 지정 컬렉션과 빈 `bytes`를 제외하고 리터럴 경로가 렌더링하는 모든 Python
 타입을 받습니다. 객체는 계속 지원하지 않습니다. 호스트 변수 변환 차이는
 [Prepared 호스트 변수 매핑](PARAMETER_BINDING.md#prepared-호스트-변수-매핑)에 정리되어 있습니다. 네이티브의 직접 `bind_param(None)`은 현재
 `SystemError`를 발생시키며, 이 upstream 버그는 패리티 목표가 아닙니다. 지원하지 않는

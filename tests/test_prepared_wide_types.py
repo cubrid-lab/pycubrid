@@ -217,6 +217,14 @@ class _LyingBytearray(bytearray):
         return memoryview(bytearray(b"EVIL"))
 
 
+class _LyingStr(str):
+    def __contains__(self, item: object) -> bool:
+        return False
+
+    def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
+        return b"EVIL"
+
+
 class _LyingFloat(float):
     def __float__(self) -> float:
         return 99.0
@@ -236,6 +244,9 @@ def test_subclasses_bind_by_their_stored_value() -> None:
     assert _pair(_LyingBytes(b"real")) == (6, b"real")
     assert _pair(_LyingBytearray(b"real")) == (6, b"real")
     assert _pair(_LyingFloat(1.25)) == (12, struct.pack(">d", 1.25))
+    assert _pair(_LyingStr("real")) == (1, b"real\x00")
+    with pytest.raises(ProgrammingError):
+        _encode_prepared_scalar(_LyingStr("a\x00b"))
     assert _pair(_LyingDatetime(2024, 1, 2)) == (22, _T.pack(2024, 1, 2, 0, 0, 0, 0))
 
 

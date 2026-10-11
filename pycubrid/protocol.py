@@ -31,7 +31,6 @@ from ._cursor_common import (
     _checked_decimal,
     _format_tz,
 )
-
 from .constants import (
     CASFunctionCode,
     CASProtocol,
@@ -222,6 +221,8 @@ def _encode_prepared_scalar(value: Any, encoding: str = "utf-8") -> _PreparedSca
             raise DataError("prepared integer needs more than 38 digits")
         return _PreparedScalar(CUBRIDDataType.NUMERIC, int.__repr__(number).encode() + b"\x00")
     if issubclass(cls, str):
+        # A plain copy: a subclass cannot override __contains__() or encode().
+        value = str.__str__(value)
         if "\x00" in value:
             raise ProgrammingError("prepared string contains NUL")
         encoded, _position = _encode_text(value, encoding)

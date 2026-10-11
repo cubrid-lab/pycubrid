@@ -139,7 +139,8 @@ In #439, `bool`, floats, date/time, bytes, objects, collections and LOB
 handles were unsupported and rejected before I/O. #440 and #441 added
 collections (`bind_set()`) and LOB handles (`bind_lob()`), and #840 added the
 scalar rows above, so `bind_param()` now accepts every Python type the literal
-path renders except typed collections; objects stay unsupported. The
+path renders except typed collections and empty `bytes`; objects stay
+unsupported. The
 host-variable coercion differences are listed in
 [Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping). Native direct `bind_param(None)` currently
 raises a `SystemError`; that upstream bug is not a parity target. Unsupported
