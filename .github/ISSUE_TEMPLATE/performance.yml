@@ -6,6 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
+        File problems and implementation requests in the repository that owns
+        the affected code or docs. Other repositories keep separate acceptance,
+        assignees and closure; cross-repository links are references only.
         Use this template when cubrid-benchmark detects a measurable performance gap or regression.
         Link to the benchmark run that triggered this investigation.
         Keep the `perf:` title prefix. You do not need to apply labels;
