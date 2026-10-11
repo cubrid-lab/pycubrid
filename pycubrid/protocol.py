@@ -834,8 +834,6 @@ def _add_error_hints(error_message: str) -> str:
 
     # Hint for reserved word syntax errors
     if "syntax" in msg_lower and "unexpected" in msg_lower:
-        import re
-
         # The unexpected token marks the diagnostic position, which may follow
         # the reserved identifier; the message does not identify that identifier.
         match = re.search(r"unexpected\s+'(\w+)'", error_message)

@@ -15,7 +15,7 @@ import math
 import re
 from decimal import Decimal
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Protocol, Sequence, TypeVar
 
 from .exceptions import (
     DatabaseError,
@@ -46,8 +46,6 @@ try:
 except ImportError:  # pragma: no cover - exercised in a fresh subprocess
     _CDateTime = None
 
-if TYPE_CHECKING:
-    from .protocol import ColumnMetaData
 
 # ---- constants -------------------------------------------------------------
 
@@ -502,8 +500,22 @@ def bind_parameters(
 # ---- result description ----------------------------------------------------
 
 
+class _ColumnMetadata(Protocol):
+    """The ``protocol.ColumnMetaData`` fields a description reads.
+
+    A structural type keeps this module free of a ``protocol`` import, which
+    imports this module for the shared value checks (#840).
+    """
+
+    name: str
+    column_type: int
+    precision: int
+    scale: int
+    is_nullable: bool
+
+
 def build_description(
-    columns: list[ColumnMetaData],
+    columns: Sequence[_ColumnMetadata],
 ) -> tuple[DescriptionItem, ...] | None:
     """Convert protocol column metadata into a DB-API ``cursor.description``."""
     if not columns:
@@ -581,7 +593,7 @@ class CursorParamsMixin(Generic[_ConnT]):
 
     def _build_description(
         self,
-        columns: list[ColumnMetaData],
+        columns: Sequence[_ColumnMetadata],
     ) -> tuple[DescriptionItem, ...] | None:
         return build_description(columns)
 

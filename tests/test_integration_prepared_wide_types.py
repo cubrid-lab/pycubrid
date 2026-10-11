@@ -96,35 +96,29 @@ def ordinary() -> Generator[Connection, None, None]:
 @pytest.fixture
 def table(ordinary: Connection) -> Generator[str, None, None]:
     name = table_name("p840")
-    cursor = ordinary.cursor()
     columns = ", ".join(f"{column} {sql_type}" for column, sql_type in _COLUMNS)
-    cursor.execute(f"CREATE TABLE {name} (id INTEGER, path VARCHAR(8), {columns})")
+    with ordinary.cursor() as cursor:
+        cursor.execute(f"CREATE TABLE {name} (id INTEGER, path VARCHAR(8), {columns})")
     try:
         yield name
     finally:
-        cursor.execute(f"DROP TABLE IF EXISTS {name}")
-        cursor.close()
+        with ordinary.cursor() as cursor:
+            cursor.execute(f"DROP TABLE IF EXISTS {name}")
 
 
 def _stored(ordinary: Connection, table: str, path: str) -> list[tuple[Any, ...]]:
-    cursor = ordinary.cursor()
-    try:
-        names = ", ".join(column for column, _sql_type in _COLUMNS)
+    names = ", ".join(column for column, _sql_type in _COLUMNS)
+    with ordinary.cursor() as cursor:
         cursor.execute(f"SELECT id, {names} FROM {table} WHERE path = ? ORDER BY id", (path,))
         return [tuple(row) for row in cursor.fetchall()]
-    finally:
-        cursor.close()
 
 
 def test_prepared_binds_store_the_same_values_as_literals(ordinary: Connection, table: str) -> None:
     markers = ", ".join("?" * (len(_COLUMNS) + 2))
     sql = f"INSERT INTO {table} VALUES ({markers})"
-    cursor = ordinary.cursor()
-    try:
+    with ordinary.cursor() as cursor:
         for row_id, row in enumerate(_ROWS):
             cursor.execute(sql, (row_id, "literal", *row))
-    finally:
-        cursor.close()
 
     conn = _native()
     try:
