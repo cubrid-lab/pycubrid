@@ -213,9 +213,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   representative live cells (3.14/11.4 and 3.11/10.2) are unchanged. A policy
   test ties the offline endpoints and the full matrix to the declared
   classifiers. The manual `python-canary.yml` lane is kept and renamed "Python 3.15
-  Packaging Check" (it no longer says 3.15 is unsupported); it now installs the
-  `dev` extras like `ci.yml`, because its first run failed to collect the
-  workflow-policy tests without PyYAML.
+  Packaging Check" (it no longer says 3.15 is unsupported); its install step is
+  the `test` and `release` dependency groups from #784.
 - **Tests that need the C decimal module skip without it** — CI's Python 3.15.0
   has no `_decimal`, so the Decimal-subclass rendering tests are skipped there,
   the parity round trip binds a plain `Decimal` instead (the collection test keeps its
