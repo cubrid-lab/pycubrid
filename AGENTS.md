@@ -260,17 +260,19 @@ The two Oracle reviews satisfy this tool's review route; an additional GitHub
 Copilot review is not automatically required. Existing repository/branch
 protection, maintainer and CI requirements still apply.
 
-**Standalone Claude Code or Codex** — implement and validate first, then open
-a GitHub PR and **wait for a substantive submitted GitHub Copilot review or a
-review from another person** before merging. A Copilot `COMMENTED` review
-with an actual code assessment can count; an automated suggestion without
-substantive assessment does not. Review-requested/pending status never counts.
+**Standalone agents (Claude Code, Codex, ChatGPT, or other agent tools)** —
+implement and validate first, then open a GitHub PR and **wait for a substantive
+submitted GitHub Copilot review or a review from another person** before merging.
+A Copilot `COMMENTED` review with an actual code assessment can count;
+an automated suggestion without substantive assessment does not.
+Review-requested/pending status never counts.
 Triage the findings and verify accepted fixes against the final relevant head.
 If no qualifying review arrives, leave the PR unmerged (Draft/pending review);
 do not substitute Oracle reviews that were not actually performed.
 
-**Human/other contribution** — use the repository's ordinary contributor and
-review requirements. Maintainers coordinate tooling, integration and release
+**Human contributions** — use the repository's ordinary contributor and review
+requirements. This route is not a fallback for unnamed standalone agents, which
+use the route above. Maintainers coordinate tooling, integration and release
 classification. No outside contributor is required to install OpenCode, Oracle,
 Claude Code, Codex or Copilot. Preserve authorship and use tool attribution only
 for work actually produced with that tool.
