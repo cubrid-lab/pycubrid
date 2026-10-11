@@ -63,6 +63,9 @@ _RE_LEADING_COMMENTS = re.compile(r"^(\s*(/\*.*?\*/|--[^\n]*(\n|$)|//[^\n]*(\n|$
 
 # IANA-style time zone name accepted from ``tzinfo.key`` in DATETIMETZ literals.
 _RE_TZ_KEY = re.compile(r"[A-Za-z0-9_+/-]+")
+# Alphabetic zone abbreviation (``EST``) from ``tzinfo.tzname()``, appended to
+# the region of a repeated wall time (#819). Numeric ones (``-04``) are not used.
+_RE_TZ_ABBREV = re.compile(r"[A-Za-z]{3,6}")
 
 # Field readers taken from the base classes. A subclass can shadow ``year``,
 # ``strftime()`` and friends, but not the base-class descriptors, so literals
@@ -75,6 +78,7 @@ _DT_MINUTE = datetime.datetime.minute.__get__
 _DT_SECOND = datetime.datetime.second.__get__
 _DT_MICROSECOND = datetime.datetime.microsecond.__get__
 _DT_TZINFO = datetime.datetime.tzinfo.__get__
+_DT_FOLD = datetime.datetime.fold.__get__
 _TIME_HOUR = datetime.time.hour.__get__
 _TIME_MINUTE = datetime.time.minute.__get__
 _TIME_SECOND = datetime.time.second.__get__
@@ -253,6 +257,18 @@ def escape_string(value: str, *, no_backslash_escapes: bool = True) -> str:
     return "'%s'" % escaped
 
 
+def _offset_us(offset: datetime.timedelta | None) -> int:
+    """Return *offset* in microseconds, read through the base-class fields."""
+    if offset is None:
+        raise TypeError("utcoffset() returned None")
+    if datetime.datetime is not _CDateTime and type(offset) is not datetime.timedelta:
+        raise TypeError("timedelta subclasses require the C datetime module")
+    total_us: int = (_TD_DAYS(offset) * 86400 + _TD_SECONDS(offset)) * 1000000 + _TD_MICROSECONDS(
+        offset
+    )
+    return total_us
+
+
 def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
     """Return the DATETIMETZ zone for an aware *value*, or ``None`` if naive."""
     # The unbound call bypasses a datetime subclass override, but tzinfo
@@ -269,13 +285,47 @@ def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
     if tz_key is not None and not (type(tz_key) is str and tz_key == ""):
         if type(tz_key) is not str or not _RE_TZ_KEY.fullmatch(tz_key):
             raise ProgrammingError("time zone key must be an IANA name matching [A-Za-z0-9_+/-]+")
-        return tz_key
-    try:
-        total_us = (_TD_DAYS(offset) * 86400 + _TD_SECONDS(offset)) * 1000000 + _TD_MICROSECONDS(
-            offset
-        )
-    except Exception as exc:
-        raise ProgrammingError("invalid tzinfo on datetime parameter") from exc
+        # A region alone makes CUBRID take the first occurrence of a repeated
+        # wall time, so the second one (fold=1) would be stored an hour off
+        # (#819). The region alone already stores fold=0 correctly and keeps
+        # the region, so only a repeated wall time (the fold=0 offset larger
+        # than the fold=1 one) with fold=1 names its occurrence: by its
+        # abbreviation when it is alphabetic and differs from the first one's,
+        # else by the offset alone. A skipped wall time keeps the region, which
+        # CUBRID rejects.
+        try:
+            fields = (
+                _DATE_YEAR(value),
+                _DATE_MONTH(value),
+                _DATE_DAY(value),
+                _DT_HOUR(value),
+                _DT_MINUTE(value),
+                _DT_SECOND(value),
+                _DT_MICROSECOND(value),
+            )
+            first = datetime.datetime(*fields, tzinfo=tzinfo, fold=0)
+            second = datetime.datetime(*fields, tzinfo=tzinfo, fold=1)
+            first_us = _offset_us(datetime.datetime.utcoffset(first))
+            second_us = _offset_us(datetime.datetime.utcoffset(second))
+            if first_us <= second_us or not _DT_FOLD(value):
+                return tz_key
+            other = datetime.datetime.tzname(first)
+            name = datetime.datetime.tzname(second)
+        except Exception as exc:
+            raise ProgrammingError("invalid tzinfo on datetime parameter") from exc
+        if (
+            type(name) is str
+            and type(other) is str
+            and name != other
+            and _RE_TZ_ABBREV.fullmatch(name)
+        ):
+            return "%s %s" % (tz_key, name)
+        total_us = second_us
+    else:
+        try:
+            total_us = _offset_us(offset)
+        except Exception as exc:
+            raise ProgrammingError("invalid tzinfo on datetime parameter") from exc
     # Truncate toward zero, as int(offset.total_seconds()) did.
     total_seconds = abs(total_us) // 1000000
     sign = "-" if total_us < 0 and total_seconds else "+"
