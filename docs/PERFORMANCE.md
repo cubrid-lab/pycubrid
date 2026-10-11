@@ -221,10 +221,16 @@ What you can do:
 - For large MERGE batches, or when a batch is much slower than your own row-by-row
   measurement, consider a prepared loop with the explicit `pycubrid.compat.native` cursor
   (one `PREPARE`, then one execute per row). It reached 0.99-1.31× of `CUBRIDdb` for INSERT,
-  UPDATE and DELETE and 1.17× for MERGE at 10,000 rows. Measure it on your own workload
-  first: it binds only INT, string and `NULL` values, it has no public manual-commit mode
-  yet, and its error behaviour differs from a batch (a loop stops at the first failing row,
-  while a batch continues and reports each failure).
+  UPDATE and DELETE and 1.17× for MERGE at 10,000 rows. The measurement ran with autocommit off
+  and one explicit commit per batch; the harness set the driver's autocommit flag directly,
+  and the public way to get the same mode is `connection.set_autocommit(False)` followed by
+  `commit()`.
+  Measure it on your own workload first:
+  `bind_param()` takes only scalar INT, string and `NULL` values (collections and LOBs use the
+  dedicated `bind_set()` and `bind_lob()` APIs), and the error behaviour differs. A prepared
+  loop stops at the first failing row. A batch sends every statement to the server even after
+  one fails, but `executemany()` raises only the first returned error, so later failures are
+  not reported.
 - Do not use `execute()` in a loop as a faster alternative. It was 1.6-6.1× `CUBRIDdb`'s
   `executemany()`, because every row is a new prepare plus extra requests.
 
