@@ -183,6 +183,13 @@ class PrTitleValidatorTest(unittest.TestCase):
             f"<!--\n{chr(96) * 3}\n-->\nCloses another-org/another-repo#42",
             f"- a\n  {chr(96) * 3}\n  code\nCloses another-org/another-repo#42\n{chr(96) * 3}",
             "<!-- a --> <!-- b\nCloses another-org/another-repo#42\n-->",
+            "_Closes another-org/another-repo#42_",
+            "__Fixes another-org/another-repo#42__",
+            "Closes www.github.com/another-org/another-repo/issues/42",
+            f"<details>\n{chr(96) * 3}\nCloses another-org/another-repo#42\n{chr(96) * 3}\n</details>",
+            f"{chr(96)}<!--{chr(96)} Closes another-org/another-repo#42 {chr(96)}-->{chr(96)}",
+            "\\<!-- Closes another-org/another-repo#42 -->",
+            "<!-->Closes another-org/another-repo#42 -->",
         ):
             with self.subTest(body=body):
                 result = _run("docs: align issue ownership", body)
@@ -200,6 +207,7 @@ class PrTitleValidatorTest(unittest.TestCase):
             f"{chr(96) * 3}markdown\nCloses another-org/another-repo#42\n{chr(96) * 3}",
             f"{chr(96) * 4}markdown\nCloses another-org/another-repo#42\n{chr(96) * 5}",
             "~~~~yaml\nCloses another-org/another-repo#42\n~~~~~",
+            f"<details>\n\n{chr(96) * 3}\nCloses another-org/another-repo#42\n{chr(96) * 3}\n\n</details>",
             f"{chr(96) * 4}md\nCloses another-org/another-repo#42\n~~~\nCloses another-org/another-repo#43\n{chr(96) * 4}",
         ):
             with self.subTest(body=body):

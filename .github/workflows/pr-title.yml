@@ -102,13 +102,15 @@ jobs:
           def strip_inert_markdown(text: str) -> str:
               # One scan over fenced code and HTML comments, so a marker inside one
               # cannot hide live text in the other. Anything uncertain (indented
-              # lines, inline comments that span lines) stays live: a false positive
-              # only asks for a body edit, a false negative closes a foreign issue.
+              # lines, inline comments that share a line with text, fences inside
+              # an HTML block) stays live: a false positive only asks for a body
+              # edit, a false negative closes a foreign issue.
               output = []
               fence_char = None
               fence_size = 0
               fence_indent = 0
               in_comment = False
+              in_html_block = False
               for line in text.splitlines(keepends=True):
                   stripped = line.lstrip(" ")
                   indent = len(line) - len(stripped)
@@ -130,14 +132,19 @@ jobs:
                       if not (fence_indent and stripped.strip() and indent < fence_indent):
                           continue
                       fence_char = None  # A less indented line ends the list item and fence.
-                  if delimiter is not None and not (
+                  if not line.strip():
+                      in_html_block = False
+                  elif indent <= 3 and re.match(r"</?[a-z]", stripped, re.I):
+                      in_html_block = True  # Raw HTML until a blank line: no fences.
+                  if delimiter is not None and not in_html_block and not (
                       delimiter.group()[0] == "\x60" and "\x60" in stripped[len(delimiter.group()):]
                   ):
                       fence_char, fence_size = delimiter.group()[0], len(delimiter.group())
                       fence_indent = indent
                       continue
                   starts_comment = indent <= 3 and stripped.startswith("<!--") and "-->" not in line
-                  line = re.sub(r"<!--.*?-->", "", line)
+                  if re.fullmatch(r"\s*<!--(?!-?>)(?:(?!-->).)*-->\s*", line):
+                      continue  # Only a whole-line comment is inert.
                   if starts_comment:
                       in_comment = True
                       line = line.split("<!--", 1)[0]
@@ -146,10 +153,10 @@ jobs:
 
           body = strip_inert_markdown(os.environ.get("PR_BODY", ""))
           close_ref = re.compile(
-              r"(?i)\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?\s+"
-              r"(?:https?://(?:www\.)?github\.com/)?"
+              r"(?i)(?<![a-z0-9])(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)"
+              r":?\s+(?:(?:https?://)?(?:www\.)?github\.com/)?"
               r"(?P<owner>[a-z0-9][a-z0-9-]*)/(?P<repo>[a-z0-9_.-]+)"
-              r"(?:#|/issues/)(?P<number>[1-9][0-9]*)\b"
+              r"(?:#|/issues/)(?P<number>[1-9][0-9]*)(?![0-9])"
           )
           local_repo = os.environ.get("GITHUB_REPOSITORY", "").lower()
           for match in close_ref.finditer(body):

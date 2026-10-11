@@ -12,10 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   rejects direct closing keywords targeting a different GitHub repository; local
   `Closes #N` and cross-repository `Refs owner/repo#N` remain valid. PR body text
   is treated as untrusted data, without checkout or token permissions. Fenced
-  examples (any fence length) and HTML comments are ignored in one pass, while
-  indented lines are always checked; `Fixes:` with a colon and `http://` issue
-  URLs are caught too. The guard matches the cookbook and sibling repositories;
-  regression tests cover both routes.
+  examples (any fence length) and whole-line or multi-line HTML comments are
+  ignored in one pass; indented lines, fences inside a raw HTML block such as
+  `<details>` without a blank line, and comments sharing a line with text are
+  always checked. `Fixes:` with a colon, `_emphasis_` around the keyword and
+  `http://` or `www.` issue URLs are caught too. Regression tests cover each case.
 
 ## [1.11.0] - 2026-10-11
 
@@ -252,6 +253,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 * update Python requirement in LLM index ([#804](https://github.com/cubrid-lab/pycubrid/issues/804)) ([0bc0a21](https://github.com/cubrid-lab/pycubrid/commit/0bc0a214cc48f12fb204a610581df95fd1060d8c))
 
 ### CI
+
 - **The cookbook verifies the built wheel before it is published
   (cubrid-lab/cubrid-cookbook-python#240)** — `publish-pypi.yml` gains
   `verify-candidate`, which calls the cookbook smoke test in candidate mode on the
