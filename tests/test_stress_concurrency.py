@@ -1,7 +1,7 @@
 """Concurrency stress tests against a live CUBRID instance.
 
 Threading: each thread owns its own Connection (threadsafety=1).
-Asyncio: many AsyncConnections invoked via asyncio.gather().
+Asyncio: many AsyncConnections run concurrently as tasks of one asyncio.TaskGroup.
 
 Skipped when no CUBRID server is configured; errors when a configured one is
 unreachable (see the shared ``tests/conftest.py`` gate).
@@ -170,7 +170,9 @@ class TestAsyncConcurrency:
                 await cur.close()
                 await conn.close()
 
-        results = await asyncio.gather(*(worker(i) for i in range(n)))
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(worker(i)) for i in range(n)]
+        results = [task.result() for task in tasks]
         assert all(r == per_task for r in results), results
 
         verify = await _connect_async()
@@ -204,5 +206,7 @@ class TestAsyncConcurrency:
                 await cur.close()
                 await conn.close()
 
-        results = await asyncio.gather(*(reader() for _ in range(n)))
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(reader()) for _ in range(n)]
+        results = [task.result() for task in tasks]
         assert all(r == 50 for r in results), results
