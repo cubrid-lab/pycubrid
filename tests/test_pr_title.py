@@ -95,7 +95,7 @@ INVALID = (
 
 TICK = chr(96)
 FENCE = TICK * 3
-GUARD_SHA256 = "154fa228aa6aee2cf8b8225f805544cccc30efd91f46ffc921584ee754f11db7"
+GUARD_SHA256 = "1ed60a9818652f1d7be308ed4e18f19e97f653bfa2416d322be571e87191acf3"
 
 
 def _validator() -> str:
@@ -791,16 +791,23 @@ class PrTitleValidatorTest(unittest.TestCase):
             '[Fixes](x "t") [another-org/another-repo#43](y)',
             "![Closes](i.png) another-org/another-repo#43",
             "[**Closes**](x) another-org/another-repo#43",
+            # Quoted continuation lines and images show nothing between the words.
+            "> [Closes](u)\n> another-org/another-repo#43",
+            "> Closes\n> another-org/another-repo#43",
+            "- > [Closes](u)\n  > another-org/another-repo#43",
+            "Closes ![](i) another-org/another-repo#43",
+            "Closes ![x](i) another-org/another-repo#43",
+            "[Closes ![i](p)](u) another-org/another-repo#43",
         )
         self.assert_allowed(
             "[Closes](https://example.com) the bug. Refs another-org/another-repo#43",
             "See [the fix](x) for another-org/another-repo#43",
+            "Ports the upstream [fix](https://github.com/o/r/pull/12).\n\n"
+            "Refs https://github.com/another-org/another-repo/issues/43",
+            "\n".join(
+                f"- [Fix](https://github.com/o/r/pull/{i}) type {i} (notes)" for i in range(300)
+            ),
         )
-
-    def test_too_many_link_branches_fail_closed(self) -> None:
-        result = _run("docs: align issue ownership", "Closes](" * 8000 + ")" * 100, timeout=5)
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("too many links", result.stdout)
 
     def test_a_leading_byte_order_mark_is_dropped(self) -> None:
         self.assert_blocked(
@@ -837,6 +844,9 @@ class PrTitleValidatorTest(unittest.TestCase):
             "Closes <?" * 7000,
             "fix<?" * 5000 + ">" + " " * 35000,
             "fix<!--" * 4000 + "-->" + " " * 35000,
+            "fix](" * 5000 + ")" * 40536,
+            "Closes][" * 4000 + "]" * 33536,
+            "Closes ![" * 7000 + "]" * 10000,
             "Closes #1" + ", #2" * 15000 + ", a",
             f"- a\n  {FENCE}\n" * 6000,
         ):
