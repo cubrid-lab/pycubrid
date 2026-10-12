@@ -10,6 +10,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -118,9 +119,9 @@ def test_unset_environment_variable_fails(dist: Path, monkeypatch: pytest.Monkey
 def test_os_error_fails_with_an_error_line(
     dist: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def unreadable(self: Path) -> bytes:
+    def unreadable(self: Path, *args: object, **kwargs: object) -> NoReturn:
         raise PermissionError(13, "Permission denied", str(self))
 
-    monkeypatch.setattr(Path, "read_bytes", unreadable)
+    monkeypatch.setattr(Path, "open", unreadable)
     assert run(dist, digests(CONTENT), monkeypatch) == 1
     assert "::error::" in capsys.readouterr().out

@@ -72,7 +72,8 @@ def verify(directory: Path, expected: dict[str, str]) -> None:
             f"file set differs from the build output: missing {missing}, extra {extra}"
         )
     for name in sorted(expected):
-        actual = hashlib.sha256(found[name].read_bytes()).hexdigest()
+        with found[name].open("rb") as stream:
+            actual = hashlib.file_digest(stream, "sha256").hexdigest()
         if actual != expected[name]:
             raise VerifyError(f"SHA-256 of {name} is {actual}, expected {expected[name]}")
 
