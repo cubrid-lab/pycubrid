@@ -407,7 +407,7 @@ content = lob.read(lob_handle["lob_length"])
 print(content)  # b'Hello, CLOB!'
 ```
 
-> **Important**: You cannot pass `Lob` objects as query parameters. Insert strings directly into CLOB columns and bytes directly into BLOB columns.
+> **Important**: You cannot pass `Lob` objects as query parameters to `execute()` or the default `executemany()`. Insert strings directly into CLOB columns and bytes directly into BLOB columns. The exception is `executemany(..., prepared=True)` on the sync cursor with autocommit off, which binds a `Lob` of the same connection by its handle ([API_REFERENCE.md](API_REFERENCE.md)).
 
 ---
 

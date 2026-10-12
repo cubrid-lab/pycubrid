@@ -924,7 +924,9 @@ conn.commit()
 ProgrammingError: Cannot convert parameter of type Lob
 ```
 
-**`Lob` 객체는 쿼리 파라미터로 사용할 수 없습니다.** 문자열/바이트를 직접 삽입하세요:
+**`Lob` 객체는 `execute()`나 기본 `executemany()`의 쿼리 파라미터로 사용할 수 없습니다.**
+문자열/바이트를 직접 삽입하세요(또는 autocommit이 꺼진 동기 커서에서는 같은 연결의 `Lob`을
+핸들로 바인딩하는 `executemany(..., prepared=True)`를 사용하세요):
 
 ```python
 # 잘못됨 — Lob 객체는 파라미터로 전달 불가

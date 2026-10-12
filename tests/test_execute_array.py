@@ -78,7 +78,7 @@ def _ok_row(count: int) -> bytes:
 
 def _error_row(code: int, message: str, *, v3: bool = True) -> bytes:
     text = message.encode() + b"\x00"
-    head = _int(-1) + _int(code) if v3 else _int(code)
+    head = _int(-2) + _int(code) if v3 else _int(code)  # DBMS_ERROR_INDICATOR
     return head + _int(len(text)) + text
 
 
@@ -205,6 +205,8 @@ def test_interrupted_reply_may_stop_after_the_interrupted_row() -> None:
         _reply(_error_row(-670, "duplicate")),  # stops early after a non-interrupt error
         _reply(_ok_row(1), _ok_row(1), _ok_row(1)),  # more rows than sent
         _reply(executed=-1),
+        # V3+ failures carry DBMS_ERROR_INDICATOR (-2), not CAS_ERROR_INDICATOR (-1)
+        _reply(_int(-1) + _int(-670) + _int(2) + b"x\x00", _ok_row(1)),
         CAS_INFO + _int(0) + _int(1) + _int(-1) + _int(-670) + _int(99) + b"x",
     ],
 )
@@ -949,12 +951,7 @@ def test_lob_rejections(case: str) -> None:
             owner._send_and_receive = lambda packet: packet
         lob = Lob(owner, CUBRIDDataType.CLOB, CLOB_HANDLE)
         if case == "forged":
-
-            class Forged(Lob):
-                def __init__(self) -> None:
-                    pass  # skips Lob.__init__()
-
-            lob = Forged()
+            lob = Lob.__new__(Lob)  # never ran Lob.__init__()
         if case == "untyped":
             lob._generation = None
         if case == "handle":

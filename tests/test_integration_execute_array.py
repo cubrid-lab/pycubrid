@@ -9,6 +9,7 @@ autocommit commits each successful row, and the per-row counts add up to
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Generator
 from decimal import Decimal
 from typing import Any
@@ -115,8 +116,7 @@ def test_duplicate_key_in_the_middle_undoes_only_that_row(
 ) -> None:
     with admin.cursor() as cursor:
         cursor.execute(f"INSERT INTO {table} (id) VALUES (3)")
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=autocommit)
-    try:
+    with contextlib.closing(pycubrid.connect(**connect_kwargs(), autocommit=autocommit)) as conn:
         with conn.cursor() as cursor:
             with pytest.raises(IntegrityError) as raised:
                 cursor.executemany(
@@ -135,8 +135,6 @@ def test_duplicate_key_in_the_middle_undoes_only_that_row(
                 (1, 0),
             ]
         getattr(conn, ending)()
-    finally:
-        conn.close()
     kept = [1, 2, 3, 4, 5] if autocommit or ending == "commit" else [3]
     assert _ids(admin, table) == kept
 
@@ -147,8 +145,7 @@ def test_conversion_error_matches_the_literal_batch(
 ) -> None:
     rows = [(1, 1), (2, "abc"), (3, 3)]
     sql = f"INSERT INTO {table} (id, k) VALUES (?, ?)"
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=autocommit)
-    try:
+    with contextlib.closing(pycubrid.connect(**connect_kwargs(), autocommit=autocommit)) as conn:
         with conn.cursor() as cursor:
             with pytest.raises(DatabaseError) as literal:
                 cursor.executemany(sql, rows)
@@ -159,8 +156,6 @@ def test_conversion_error_matches_the_literal_batch(
             assert prepared.value.code == literal.value.code
             assert [code for _count, code, _m in cursor._batch_row_results][::2] == [0, 0]
         conn.commit()
-    finally:
-        conn.close()
     assert _ids(admin, table) == ([1, 3, 11, 13] if autocommit else [11, 13])
 
 
@@ -173,8 +168,7 @@ def test_update_and_delete_rowcount_is_the_sum(
             f"INSERT INTO {table} (id, k) VALUES (?, ?)",
             [(1, 1), (2, 1), (3, 1), (4, 3), (5, 3)],
         )
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=autocommit)
-    try:
+    with contextlib.closing(pycubrid.connect(**connect_kwargs(), autocommit=autocommit)) as conn:
         with conn.cursor() as cursor:
             update = f"UPDATE {table} SET v = ? WHERE k = ?"
             cursor.executemany(update, [("x", 1), ("y", 2), ("z", 3)], prepared=True)
@@ -185,8 +179,6 @@ def test_update_and_delete_rowcount_is_the_sum(
             assert cursor.rowcount == 2
             assert [r[0] for r in cursor._batch_row_results] == [1, 0, 1]
         conn.commit()
-    finally:
-        conn.close()
     assert _rows(admin, f"SELECT id, v FROM {table} ORDER BY id") == [
         (3, "x"),
         (4, "z"),
@@ -203,14 +195,11 @@ def test_merge(admin: Connection, table: str, autocommit: bool) -> None:
         "WHEN MATCHED THEN UPDATE SET t.v = CAST(? AS VARCHAR(20)) "
         "WHEN NOT MATCHED THEN INSERT (id, v) VALUES (CAST(? AS INT), CAST(? AS VARCHAR(20)))"
     )
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=autocommit)
-    try:
+    with contextlib.closing(pycubrid.connect(**connect_kwargs(), autocommit=autocommit)) as conn:
         with conn.cursor() as cursor:
             cursor.executemany(merge, [(1, "new", 1, "new"), (2, "ins", 2, "ins")], prepared=True)
             assert cursor.rowcount == 2
         conn.commit()
-    finally:
-        conn.close()
     assert _rows(admin, f"SELECT id, v FROM {table} ORDER BY id") == [(1, "new"), (2, "ins")]
 
 
@@ -242,24 +231,23 @@ def test_lob_values_with_autocommit_off(admin: Connection) -> None:
     name = table_name("p839l")
     with admin.cursor() as cursor:
         cursor.execute(f"CREATE TABLE {name} (id INT, c CLOB, b BLOB)")
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=False)
     try:
-        rows = []
-        for i in range(3):
-            clob = conn.create_lob(CUBRIDDataType.CLOB)
-            clob.write(f"text {i}".encode())
-            blob = conn.create_lob(CUBRIDDataType.BLOB)
-            blob.write(bytes([i, 255]))
-            rows.append((i, clob, blob))
-        with conn.cursor() as cursor:
-            cursor.executemany(f"INSERT INTO {name} VALUES (?, ?, ?)", rows, prepared=True)
-            assert cursor.rowcount == 3
-        conn.commit()
+        with contextlib.closing(pycubrid.connect(**connect_kwargs(), autocommit=False)) as conn:
+            rows = []
+            for i in range(3):
+                clob = conn.create_lob(CUBRIDDataType.CLOB)
+                clob.write(f"text {i}".encode())
+                blob = conn.create_lob(CUBRIDDataType.BLOB)
+                blob.write(bytes([i, 255]))
+                rows.append((i, clob, blob))
+            with conn.cursor() as cursor:
+                cursor.executemany(f"INSERT INTO {name} VALUES (?, ?, ?)", rows, prepared=True)
+                assert cursor.rowcount == 3
+            conn.commit()
         assert _rows(
             admin, f"SELECT id, CLOB_TO_CHAR(c), BLOB_TO_BIT(b) FROM {name} ORDER BY id"
         ) == [(i, f"text {i}", bytes([i, 255])) for i in range(3)]
     finally:
-        conn.close()
         with admin.cursor() as cursor:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")
 
@@ -268,16 +256,17 @@ def test_lob_values_with_autocommit_on_are_rejected(admin: Connection) -> None:
     name = table_name("p839l")
     with admin.cursor() as cursor:
         cursor.execute(f"CREATE TABLE {name} (id INT, c CLOB)")
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=True)
     try:
-        clob = conn.create_lob(CUBRIDDataType.CLOB)
-        clob.write(b"x")
-        with conn.cursor() as cursor:
-            with pytest.raises(NotSupportedError, match="autocommit off"):
-                cursor.executemany(f"INSERT INTO {name} VALUES (?, ?)", [(1, clob)], prepared=True)
+        with contextlib.closing(pycubrid.connect(**connect_kwargs(), autocommit=True)) as conn:
+            clob = conn.create_lob(CUBRIDDataType.CLOB)
+            clob.write(b"x")
+            with conn.cursor() as cursor:
+                with pytest.raises(NotSupportedError, match="autocommit off"):
+                    cursor.executemany(
+                        f"INSERT INTO {name} VALUES (?, ?)", [(1, clob)], prepared=True
+                    )
         assert _rows(admin, f"SELECT COUNT(*) FROM {name}") == [(0,)]
     finally:
-        conn.close()
         with admin.cursor() as cursor:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")
 
@@ -307,14 +296,11 @@ def test_many_batches_do_not_leak_handles(admin: Connection, table: str) -> None
 def test_ten_thousand_rows_in_one_request(admin: Connection, table: str) -> None:
     # Autocommit off: with autocommit on the server commits every row.
     rows = [(i, "v%d" % i, i, i) for i in range(10_000)]
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=False)
-    try:
+    with contextlib.closing(pycubrid.connect(**connect_kwargs(), autocommit=False)) as conn:
         with conn.cursor() as cursor:
             cursor.executemany(f"INSERT INTO {table} VALUES (?, ?, ?, ?)", rows, prepared=True)
             assert cursor.rowcount == 10_000
         conn.commit()
-    finally:
-        conn.close()
     assert _rows(admin, f"SELECT COUNT(*), SUM(k) FROM {table}") == [(10_000, sum(range(10_000)))]
 
 

@@ -401,7 +401,7 @@ content = lob.read(lob_handle["lob_length"])
 print(content)  # b'Hello, CLOB!'
 ```
 
-> **중요**: `Lob` 객체를 쿼리 파라미터로 전달할 수 없습니다. CLOB 컬럼에는 문자열을, BLOB 컬럼에는 바이트를 직접 삽입하세요.
+> **중요**: `Lob` 객체를 `execute()`나 기본 `executemany()`의 쿼리 파라미터로 전달할 수 없습니다. CLOB 컬럼에는 문자열을, BLOB 컬럼에는 바이트를 직접 삽입하세요. 예외는 autocommit이 꺼진 동기 커서의 `executemany(..., prepared=True)`로, 같은 연결의 `Lob`을 핸들로 바인딩합니다([API_REFERENCE.md](API_REFERENCE.md)).
 
 ---
 

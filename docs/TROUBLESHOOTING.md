@@ -927,7 +927,10 @@ conn.commit()
 ProgrammingError: Cannot convert parameter of type Lob
 ```
 
-**`Lob` objects cannot be used as query parameters.** Insert strings/bytes directly:
+**`Lob` objects cannot be used as query parameters** of `execute()` or the default
+`executemany()`. Insert strings/bytes directly (or, with autocommit off on the sync cursor,
+use `executemany(..., prepared=True)`, which binds a `Lob` of the same connection by its
+handle):
 
 ```python
 # WRONG — Lob objects cannot be passed as parameters

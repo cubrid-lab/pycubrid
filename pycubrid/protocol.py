@@ -2197,6 +2197,8 @@ class BatchExecutePacket(_CasPacket):
 # CUBRID ER_INTERRUPTED (error_code.h): the only row error after which
 # ux_execute_array stops before the last row.
 _ER_INTERRUPTED = -4
+# cas_error.h: the per-row failure marker of a V3+ ux_execute_array reply.
+_DBMS_ERROR_INDICATOR = -2
 
 
 class ExecuteArrayPacket(_CasPacket):
@@ -2276,7 +2278,12 @@ class ExecuteArrayPacket(_CasPacket):
         for index in range(executed_count):
             result = reader._parse_int()
             if result < 0:
-                error_code = reader._parse_int() if self.protocol_version > 2 else result
+                if self.protocol_version > 2:
+                    if result != _DBMS_ERROR_INDICATOR:
+                        raise ValueError("invalid execute-array error indicator")
+                    error_code = reader._parse_int()
+                else:
+                    error_code = result
                 message_size = reader._parse_int()
                 if message_size < 0 or message_size > reader.bytes_remaining():
                     raise ValueError("invalid execute-array error length")

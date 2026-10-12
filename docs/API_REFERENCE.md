@@ -1162,7 +1162,7 @@ lob = conn.create_lob(CUBRIDDataType.CLOB)  # 24
 lob.write(b"Hello, CUBRID!")
 ```
 
-> **Important:** `Lob` objects cannot be passed as query parameters. Insert strings/bytes directly into CLOB/BLOB columns instead. See [TYPES.md](TYPES.md) for details.
+> **Important:** `Lob` objects cannot be passed as query parameters to `execute()` or the default `executemany()`. Insert strings/bytes directly into CLOB/BLOB columns instead. See [TYPES.md](TYPES.md) for details. The one exception is `executemany(..., prepared=True)` on the sync cursor with autocommit off, which binds a `Lob` of the same connection by its handle.
 
 ---
 

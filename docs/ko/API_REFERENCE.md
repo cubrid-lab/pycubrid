@@ -1112,7 +1112,7 @@ lob = conn.create_lob(CUBRIDDataType.CLOB)  # 24
 lob.write(b"Hello, CUBRID!")
 ```
 
-> **중요:** `Lob` 객체는 쿼리 파라미터로 전달할 수 없습니다. CLOB/BLOB 컬럼에는 문자열/바이트를 직접 삽입하세요. 자세한 내용은 [TYPES.md](TYPES.md) 참고.
+> **중요:** `Lob` 객체는 `execute()`나 기본 `executemany()`의 쿼리 파라미터로 전달할 수 없습니다. CLOB/BLOB 컬럼에는 문자열/바이트를 직접 삽입하세요. 자세한 내용은 [TYPES.md](TYPES.md) 참고. 유일한 예외는 autocommit이 꺼진 동기 커서의 `executemany(..., prepared=True)`로, 같은 연결의 `Lob`을 핸들로 바인딩합니다.
 
 ---
 

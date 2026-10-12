@@ -318,6 +318,8 @@ conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="d
 
 물음표(`qmark`) 스타일입니다: `cursor.execute("SELECT * FROM users WHERE id = ?", (1,))`
 
+파라미터는 드라이버 측에서 SQL 문자열에 바인딩되며 서버 측 prepared statement 바인딩이 아닙니다. 예외는 옵트인 `executemany(..., prepared=True)`로, `PREPARE` 한 번과 `EXECUTE_ARRAY` 요청 한 번으로 타입이 있는 값을 보냅니다([API 레퍼런스](ko/API_REFERENCE.md) 참고).
+
 ### pycubrid는 SQLAlchemy와 함께 사용할 수 있나요?
 
 예. `pip install "sqlalchemy-cubrid[pycubrid]"`로 설치한 뒤 연결 URL `cubrid+pycubrid://dba@localhost:33000/testdb`를 사용하세요.
