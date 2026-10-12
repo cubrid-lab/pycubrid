@@ -2857,6 +2857,9 @@ batch = cur.fetchmany(10)  # Up to 10 rows
 >
 > ```python
 > rows = cur.fetchmany(remaining) if remaining > 0 else []
+>
+> # AsyncCursor
+> rows = await cur.fetchmany(remaining) if remaining > 0 else []
 > ```
 
 ---

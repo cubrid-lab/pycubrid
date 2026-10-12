@@ -447,7 +447,7 @@ class AsyncCursor(_AsyncCursorBase):
         if type(fetch_size) is not int:
             raise ProgrammingError("size must be an integer")
         if fetch_size <= 0:
-            warn_nonpositive_fetch_size()
+            warn_nonpositive_fetch_size(asynchronous=True)
             return []
 
         rows: list[tuple[Any, ...]] = []

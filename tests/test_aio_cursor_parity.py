@@ -369,7 +369,10 @@ async def test_fetchmany_nonpositive_deprecation_names_the_caller_line(
     assert [w.category for w in caught] == [DeprecationWarning]
     message = str(caught[0].message)
     assert message.startswith("fetchmany() with a size of 0 or less returns []")
-    assert "rows = cursor.fetchmany(n) if n > 0 else []" in message
+    if cursor_class is AsyncCursor:
+        assert message.endswith("rows = await cursor.fetchmany(n) if n > 0 else []")
+    else:
+        assert message.endswith("rows = cursor.fetchmany(n) if n > 0 else []")
     assert caught[0].filename == __file__
     assert caught[0].lineno == line
 

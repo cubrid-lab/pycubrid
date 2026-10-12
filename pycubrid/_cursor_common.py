@@ -36,21 +36,24 @@ _NONPOSITIVE_FETCH_SIZE_MESSAGE = (
     "fetchmany() with a size of 0 or less returns [] without fetching rows; "
     "this is deprecated and will raise ProgrammingError in pycubrid 2.0. "
     "Skip the call instead, for example: "
-    "rows = cursor.fetchmany(n) if n > 0 else []"
 )
+_SYNC_FETCH_SIZE_REPLACEMENT = "rows = cursor.fetchmany(n) if n > 0 else []"
+_ASYNC_FETCH_SIZE_REPLACEMENT = "rows = await cursor.fetchmany(n) if n > 0 else []"
 
 
-def warn_nonpositive_fetch_size() -> None:
+def warn_nonpositive_fetch_size(*, asynchronous: bool = False) -> None:
     """Emit the 1.x deprecation warning for ``fetchmany(size)`` with ``size <= 0``.
 
     The 1.x result (``[]``, no row consumed, no FETCH) is unchanged; pycubrid
     2.0 will raise :class:`ProgrammingError` instead (#678). The plain
     sync ``fetchmany()`` and the async coroutine alike are called (or awaited)
     directly from the caller's frame, so level 3 (this helper, ``fetchmany()``,
-    then its caller) names the caller's own line in both cases.
+    then its caller) names the caller's own line in both cases. The suggested
+    replacement uses ``await`` for the async cursor.
     """
+    replacement = _ASYNC_FETCH_SIZE_REPLACEMENT if asynchronous else _SYNC_FETCH_SIZE_REPLACEMENT
     warnings.warn(
-        _NONPOSITIVE_FETCH_SIZE_MESSAGE,
+        _NONPOSITIVE_FETCH_SIZE_MESSAGE + replacement,
         DeprecationWarning,
         stacklevel=3,
     )

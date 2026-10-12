@@ -39,8 +39,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `pycubrid.compat` wrapper keeps returning `[]` for `size <= 0` without a
   warning, like the official CUBRIDdb driver. Replacement: skip the call when
   the size can reach 0, for example
-  `rows = cur.fetchmany(remaining) if remaining > 0 else []`, which works on 1.x
-  and 2.0. See [API reference](docs/API_REFERENCE.md#fetchmanysize).
+  `rows = cur.fetchmany(remaining) if remaining > 0 else []` (with `await` on an
+  `AsyncCursor`: `rows = await cur.fetchmany(remaining) if remaining > 0 else []`),
+  which works on 1.x and 2.0; the warning message names the matching form. See [API reference](docs/API_REFERENCE.md#fetchmanysize).
 
 ### Tests
 

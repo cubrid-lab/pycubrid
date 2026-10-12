@@ -1633,6 +1633,9 @@ batch = cur.fetchmany(10)  # 최대 10행
 >
 > ```python
 > rows = cur.fetchmany(remaining) if remaining > 0 else []
+>
+> # AsyncCursor
+> rows = await cur.fetchmany(remaining) if remaining > 0 else []
 > ```
 
 ---
