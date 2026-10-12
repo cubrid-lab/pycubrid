@@ -358,3 +358,11 @@ def test_impossible_statement_count_is_a_malformed_reply(asynchronous: bool) -> 
     script = _BatchScript({})
     script.batch_reply = Reply(cas_info(IN_TRAN) + _int(0) + _int(2) + _batch_ok(1) * 2 + _int(0))
     _run(asynchronous, steps, script=script)
+
+
+def test_batch_reply_rejects_another_error_indicator_for_v3() -> None:
+    # CAS ux_execute_batch writes DBMS_ERROR_INDICATOR (-2) before a V3+ error code.
+    row = _STMT + _int(-1) + _int(-670) + _int(2) + b"x\x00"
+    packet = BatchExecutePacket(["s"])
+    with pytest.raises(ValueError, match="invalid batch execute error indicator"):
+        packet.parse(_batch_reply(row))

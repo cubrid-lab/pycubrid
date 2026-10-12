@@ -2145,10 +2145,11 @@ class BatchExecutePacket(_CasPacket):
 
     Reply (CAS ``ux_execute_batch``): int result code, int executed statement
     count, then per statement a statement-type byte and either ``int count >=
-    0`` and an 8-byte OID, or a negative int, the error code for V3+ and a
-    length-prefixed message; shard id for V5+ last. As in ``ux_execute_array``,
-    the server runs every statement and stops early only after an interrupted
-    (``ER_INTERRUPTED``) statement, which it reports. ``results`` keeps the
+    0`` and an 8-byte OID, or a negative int (the DBMS error indicator for V3+,
+    else the error code), the error code for V3+ and a length-prefixed message;
+    shard id for V5+ last. As in ``ux_execute_array``, the server runs every
+    statement and stops early only after an interrupted (``ER_INTERRUPTED``)
+    statement, which it reports. ``results`` keeps the
     successes as ``(statement type, count)`` and ``errors`` the failures as
     ``{"code", "message", "index"}``; ``row_results`` keeps one ``(count,
     error code, message)`` per executed statement, in order, as
@@ -2197,7 +2198,12 @@ class BatchExecutePacket(_CasPacket):
             stmt_type = reader._parse_byte()
             result = reader._parse_int()
             if result < 0:
-                error_code = reader._parse_int() if self.protocol_version > 2 else result
+                if self.protocol_version > 2:
+                    if result != _DBMS_ERROR_INDICATOR:
+                        raise ValueError("invalid batch execute error indicator")
+                    error_code = reader._parse_int()
+                else:
+                    error_code = result
                 msg_len = reader._parse_int()
                 error_msg = reader._parse_lenient_text(msg_len)
                 self.errors.append({"code": error_code, "message": error_msg, "index": index})

@@ -391,10 +391,10 @@ conn.commit()
 ```python
 try:
     cur.executemany("INSERT INTO users (id, name) VALUES (?, ?)", rows)
-except pycubrid.IntegrityError as exc:
-    for index, error in exc.batch_errors:
+except pycubrid.DatabaseError as exc:
+    for index, error in exc.batch_errors or ():
         print(f"row {index} failed: {error.errno} {error.msg}")
-    print("applied:", sum(count for count in exc.batch_rowcounts if count >= 0))
+    print("applied:", sum(count for count in exc.batch_rowcounts or () if count >= 0))
     conn.rollback()  # 또는 성공한 행을 남기려면 conn.commit()
 ```
 

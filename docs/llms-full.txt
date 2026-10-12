@@ -4695,10 +4695,10 @@ names every failed row (#841); `rowcount` stays `-1`:
 ```python
 try:
     cur.executemany("INSERT INTO users (id, name) VALUES (?, ?)", rows)
-except pycubrid.IntegrityError as exc:
-    for index, error in exc.batch_errors:
+except pycubrid.DatabaseError as exc:
+    for index, error in exc.batch_errors or ():
         print(f"row {index} failed: {error.errno} {error.msg}")
-    print("applied:", sum(count for count in exc.batch_rowcounts if count >= 0))
+    print("applied:", sum(count for count in exc.batch_rowcounts or () if count >= 0))
     conn.rollback()  # or conn.commit() to keep the rows that succeeded
 ```
 
@@ -5708,8 +5708,8 @@ and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63a
 
 Reply (CAS `ux_execute_batch`): int result code, int executed statement count, then
 per statement a statement-type byte and either `int count >= 0` and an 8-byte OID,
-or a negative int, the error code (V3+, otherwise the negative int itself) and a
-length-prefixed message; a shard id follows for V5+. A failed statement does not
+or a negative int (`DBMS_ERROR_INDICATOR`, -2, for V3+, otherwise the error code
+itself), the error code (V3+) and a length-prefixed message; a shard id follows for V5+. A failed statement does not
 stop the later ones; as in `ux_execute_array`, the CAS stops early only after an
 `ER_INTERRUPTED` (-4) statement, which it reports, rewriting the executed count.
 An executed count that is negative or larger than the number of statements sent,

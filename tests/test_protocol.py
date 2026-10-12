@@ -1675,7 +1675,7 @@ class TestBatchExecutePacket:
         response.extend(struct.pack(">i", 2))  # executedCount = 2
         # Result 1: error (result < 0)
         response.append(0)  # stmtType
-        response.extend(struct.pack(">i", -1))  # result = -1 (error)
+        response.extend(struct.pack(">i", -2))  # DBMS_ERROR_INDICATOR (error, V3+)
         error_code = -493
         response.extend(struct.pack(">i", error_code))  # errorCode (proto > 2)
         error_msg = b"syntax error\x00"

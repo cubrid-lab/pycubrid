@@ -603,8 +603,8 @@ and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63a
 
 Reply (CAS `ux_execute_batch`): int result code, int executed statement count, then
 per statement a statement-type byte and either `int count >= 0` and an 8-byte OID,
-or a negative int, the error code (V3+, otherwise the negative int itself) and a
-length-prefixed message; a shard id follows for V5+. A failed statement does not
+or a negative int (`DBMS_ERROR_INDICATOR`, -2, for V3+, otherwise the error code
+itself), the error code (V3+) and a length-prefixed message; a shard id follows for V5+. A failed statement does not
 stop the later ones; as in `ux_execute_array`, the CAS stops early only after an
 `ER_INTERRUPTED` (-4) statement, which it reports, rewriting the executed count.
 An executed count that is negative or larger than the number of statements sent,
