@@ -8,7 +8,12 @@ Project knowledge base for AI coding agents.
 It communicates with CUBRID via the CAS wire protocol over TCP/IP, requiring no C extensions
 or native CCI library.
 
-- **Language**: Python; minimum version is `requires-python` in [`pyproject.toml`](pyproject.toml)
+- **Language**: Python; minimum version is `requires-python` in [`pyproject.toml`](pyproject.toml).
+  Supported Python and CUBRID versions are listed in the
+  [support matrix](docs/SUPPORT_MATRIX.md); do not copy them here.
+- **APIs**: sync `pycubrid.connect()`, asyncio `pycubrid.aio.connect()`, and the opt-in
+  `pycubrid.compat` namespaces (`compat.cubriddb`, `compat.native`) for code written
+  against the official CUBRIDdb driver
 - **Protocol**: CUBRID CAS binary protocol (version 8, since CUBRID 10.2+)
 - **License**: MIT
 - **Version source**: `pycubrid.__version__` in [`pycubrid/__init__.py`](pycubrid/__init__.py)
@@ -16,33 +21,61 @@ or native CCI library.
 ## Architecture
 
 The [current package tree](https://github.com/cubrid-lab/pycubrid/tree/main/pycubrid)
-includes the sync core, `aio` and opt-in `compat` namespaces. The diagram below
-summarizes the core responsibilities, not a complete module count.
+has the sync core, the `aio` asyncio package and the opt-in `compat` package. Shared
+sync/async logic lives in private `_*_common.py` modules so the two implementations do not
+drift. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the request flow, CAS reconnection
+and module boundaries; the diagram below is a map of the files, not a design document.
 
 ```mermaid
 graph TD
-    root["pycubrid/ - Main package"]
-    init["__init__.py - Public API, PEP 249 globals, connect(), exports"]
-    exceptions[exceptions.py - Full PEP 249 exception hierarchy]
-    types[types.py - PEP 249 type objects and constructors]
+    root["pycubrid/"]
+    init["__init__.py - PEP 249 globals, connect(), exports"]
+    exceptions[exceptions.py - PEP 249 exception hierarchy and warnings]
+    errcodes[error_codes.py - CAS/CUBRID error codes, descriptions, SQLSTATE]
+    types[types.py - PEP 249 type objects, constructors, typed collections]
     constants[constants.py - CAS protocol constants]
     packet[packet.py - PacketReader/PacketWriter binary serialization]
     protocol[protocol.py - CAS protocol packet classes]
-    connection[connection.py - PEP 249 Connection class]
-    cursor[cursor.py - PEP 249 Cursor class]
+    prepared[_prepared_binding.py - private typed bind encoders]
+    conncommon[_connection_common.py - shared connection logic]
+    cursorcommon[_cursor_common.py - shared cursor logic and literal binding]
+    connection[connection.py - sync Connection]
+    cursor[cursor.py - sync Cursor]
     lob[lob.py - LOB support]
+    timing[timing.py - optional timing statistics]
     typed[py.typed - PEP 561 marker]
+    aio["aio/ - asyncio API"]
+    aioinit["__init__.py - pycubrid.aio.connect()"]
+    aioconn[connection.py - AsyncConnection]
+    aiocursor[cursor.py - AsyncCursor]
+    compat["compat/ - opt-in official-driver compatibility"]
+    cubriddb[cubriddb.py - CUBRIDdb-style connection]
+    compatcursors[cursors.py - CUBRIDdb-style row cursors]
+    native[native.py - native-style prepared cursor, set, lob]
 
     root --> init
     root --> exceptions
+    root --> errcodes
     root --> types
     root --> constants
     root --> packet
     root --> protocol
+    root --> prepared
+    root --> conncommon
+    root --> cursorcommon
     root --> connection
     root --> cursor
     root --> lob
+    root --> timing
     root --> typed
+    root --> aio
+    root --> compat
+    aio --> aioinit
+    aio --> aioconn
+    aio --> aiocursor
+    compat --> cubriddb
+    compat --> compatcursors
+    compat --> native
 ```
 
 ### Module Responsibilities
@@ -50,15 +83,21 @@ graph TD
 | Module | Role |
 |---|---|
 | `__init__.py` | PEP 249 module globals (`apilevel`, `threadsafety`, `paramstyle`), `connect()`, re-exports |
-| `exceptions.py` | `Warning`, `Error`, `InterfaceError`, `DatabaseError` and the PEP 249 `DatabaseError` subclasses |
+| `exceptions.py` | `Warning`, `Error`, `InterfaceError`, `DatabaseError` and the PEP 249 `DatabaseError` subclasses, plus `UnknownConnectionOptionWarning` |
+| `error_codes.py` | CAS/CUBRID error-code descriptions, the error-code-to-exception map and SQLSTATE lookup |
 | `types.py` | `DBAPIType` class, `STRING`/`BINARY`/`NUMBER`/`DATETIME`/`ROWID` type objects, constructors, typed `Set`/`Multiset`/`Sequence` parameters |
 | `constants.py` | `CASFunctionCode`, `CUBRIDDataType`, `CUBRIDStatementType`, protocol/data-size constants (enum members are the source of truth) |
 | `packet.py` | Low-level binary read/write with big-endian byte ordering |
 | `protocol.py` | High-level CAS packet classes for the implemented function codes |
-| `_prepared_binding.py` | Private prepared bind types and encoders for FC3/FC21 (re-exported from `protocol.py`; must not import it) |
+| `_prepared_binding.py` | Private prepared bind types and encoders for FC3/FC21 (re-exported from `protocol.py`; must not import it, enforced by `tests/test_import_boundaries.py`) |
+| `_connection_common.py` | `ConnectionCommonMixin` and pure helpers shared by `connection.py` and `aio/connection.py`: option and timeout validation, charset and TLS context resolution, escape-mode probe, schema results |
+| `_cursor_common.py` | `CursorParamsMixin` and pure helpers shared by both cursors: literal parameter formatting and binding, placeholder splitting, `description` building, batch error mapping |
 | `connection.py` | `Connection` — TCP socket management, transactions, autocommit, LOB creation, schema info |
 | `cursor.py` | `Cursor` — execute, executemany, fetch, callproc, description, iteration |
 | `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |
+| `timing.py` | `TimingStats`, attached when `enable_timing=True` or `PYCUBRID_ENABLE_TIMING` is set |
+| `aio/` | `pycubrid.aio.connect()`, `AsyncConnection` and `AsyncCursor`, the asyncio counterparts of the sync classes |
+| `compat/` | Opt-in, provisional compatibility surfaces: `compat.cubriddb` (CUBRIDdb-style connection and `Cursor`/`DictCursor`) and `compat.native` (native-style prepared cursor, `set`, `lob`). See [docs/UPSTREAM_COMPATIBILITY.md](docs/UPSTREAM_COMPATIBILITY.md) and the staged-namespace rules in [RELEASE_POLICY.md](RELEASE_POLICY.md) |
 
 ## Wire Protocol Summary
 
@@ -230,8 +269,10 @@ make install          # pip install -e . --group dev (pip 25.1+)
 ```bash
 make test             # Offline tests with 95% coverage threshold
 make lint             # ruff check + format
+make typecheck        # mypy
 make format           # Auto-fix lint/format
 make integration      # Docker → readiness wait → integration tests → skip audit → cleanup
+make help             # Every target, including check, check-all, security and mutation
 ```
 
 ### Test Commands (manual)
@@ -425,6 +466,14 @@ These rules add to the release procedure above; the procedures and gates in
 | `.github/workflows/integration-full.yml` | Manual dispatch, release workflow_call | Full supported compatibility matrix |
 | `.github/workflows/release-please.yml` | Push main or manual dispatch | Prepare a PR-only release candidate (version + generated notes + canonical curated CHANGELOG) |
 | `.github/workflows/publish-pypi.yml` | Push to main; recovery dispatch (`resume` / `verify-only` / `dry-run`) | Detect a merged release, then matrix, build, tag + GitHub Release + PyPI, cookbook verification, summary |
+| `.github/workflows/docs-sync.yml` | PR | Requires matching docs or a `Docs: not needed -` reason (see Documentation definition of done) |
+| `.github/workflows/pr-title.yml` | PR | Conventional PR title; rejects closing keywords for other repositories' issues |
+| `.github/workflows/docs.yml` | Push to main, manual | Build and deploy the MkDocs site |
+| `.github/workflows/python-canary.yml` | Manual dispatch | Advisory fresh-install check on the newest Python |
+
+Other workflows (security, CodeQL, SBOM, maintenance, bug hunt, labels, issue triage,
+stale, badge sync, Dependabot auto-merge) are scheduled or housekeeping jobs; read the
+workflow file before relying on one.
 
 ### CI Matrix
 
@@ -439,67 +488,53 @@ These rules add to the release procedure above; the procedures and gates in
 
 ## Test Structure
 
-```mermaid
-graph TD
-    tests[tests/]
-    conftest[conftest.py - Shared fixtures]
-    test_exceptions[test_exceptions.py - PEP 249 exception hierarchy]
-    test_types[test_types.py - Type objects and constructors]
-    test_constants[test_constants.py - Protocol constants]
-    test_packet[test_packet.py - PacketReader/PacketWriter]
-    test_protocol[test_protocol.py - CAS protocol packets]
-    test_connection[test_connection.py - Connection class]
-    test_cursor[test_cursor.py - Cursor class]
-    test_lob[test_lob.py - LOB support]
-    test_init[test_init.py - Module-level API tests]
-    test_integration["test_integration.py - Live DB tests (requires Docker)"]
-    test_pep249[test_pep249.py - Full PEP 249 compliance]
+`tests/` is flat: one `test_*.py` module per behavior or contract, not one per source
+module, so look for a test by the behavior it pins (`rg -l fetchmany tests/`). Markers are
+declared in `pyproject.toml` `[tool.pytest.ini_options]`; the main ones are:
 
-    tests --> conftest
-    tests --> test_exceptions
-    tests --> test_types
-    tests --> test_constants
-    tests --> test_packet
-    tests --> test_protocol
-    tests --> test_connection
-    tests --> test_cursor
-    tests --> test_lob
-    tests --> test_init
-    tests --> test_integration
-    tests --> test_pep249
-```
+- `integration` — needs a live CUBRID server (`test_integration*.py` and others); skipped
+  when no server is configured, excluded from `make test`.
+- `repo_tooling` — repository policy and tooling checks (docs, release scripts, CI
+  workflow contracts, PR title) with no driver behavior.
+- `tls`, `version_matrix`, `official_differential`, `slow`, `benchmark` — dedicated
+  CI lanes; see [docs/CI_POLICY.md](docs/CI_POLICY.md).
+
+Shared fixtures are in `tests/conftest.py`, helpers in `tests/helpers/` and recorded data
+(official API inventory, differential claims, golden bytes) in `tests/fixtures/`. Sync and
+async parity tests usually parametrize over both cursor or connection classes. Test layout,
+the backslash-escape-mode pin and the fast-versus-tooling split are described in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#running-tests).
 
 ## Documentation
 
-```mermaid
-graph TD
-    docs[docs/]
-    connection[CONNECTION.md - Connection strings, URL format, configuration]
-    types[TYPES.md - Full type mapping, CUBRID-specific types]
-    binding["PARAMETER_BINDING.md - Driver-side literal binding contract: per-type SQL mapping, escaping, non-guarantees"]
-    api[API_REFERENCE.md - Complete API documentation]
-    protocol[PROTOCOL.md - CAS wire protocol reference]
-    development[DEVELOPMENT.md - Dev setup, testing, Docker, coverage, CI/CD]
-    examples[EXAMPLES.md - Practical usage examples with code]
-    ko[README.ko.md - Korean translation]
-    zh[README.zh.md - Chinese translation]
-    hi[README.hi.md - Hindi translation]
-    de[README.de.md - German translation]
-    ru[README.ru.md - Russian translation]
+User and contributor documentation lives in `docs/` and is published with MkDocs
+(`mkdocs.yml`). Every English page under `docs/` has a Korean counterpart under `docs/ko/`
+that must change in the same PR (`scripts/check_docs_translation.py`). A `README.md`
+change requires `docs/README.ko.md`; the other README translations (`docs/README.*.md`)
+are advisory (`scripts/check_translation_sync.py`).
+`docs/llms-full.txt` and the root `llms.txt` are generated by
+`scripts/generate_llms_full.py` from `docs/llms.txt`; regenerate them after doc edits.
 
-    docs --> connection
-    docs --> types
-    docs --> binding
-    docs --> api
-    docs --> protocol
-    docs --> development
-    docs --> examples
-    docs --> ko
-    docs --> zh
-    docs --> hi
-    docs --> de
-    docs --> ru
-```
+| Document | Content |
+|---|---|
+| `docs/quickstart.md`, `docs/EXAMPLES.md` | First connection and practical usage examples |
+| `docs/CONNECTION.md` | Connection strings, URL format, options, TLS, timeouts, reconnect |
+| `docs/API_REFERENCE.md` | Complete sync, async and compatibility API reference |
+| `docs/TYPES.md` | Type mapping and CUBRID-specific types |
+| `docs/PARAMETER_BINDING.md` | Driver-side literal binding contract: per-type SQL mapping, escaping, non-guarantees |
+| `docs/PROTOCOL.md` | CAS wire protocol reference |
+| `docs/ARCHITECTURE.md` | Request flow, CAS reconnection, module boundaries, design decisions |
+| `docs/SUPPORT_MATRIX.md` | Supported Python and CUBRID versions and features |
+| `docs/CI_POLICY.md` | CI event tiers, lane selection and release evidence |
+| `docs/DEVELOPMENT.md` | Dev setup, tests, Docker, coverage, CI/CD |
+| `docs/PERFORMANCE.md` | Benchmark methodology, profiling, timing hooks |
+| `docs/TROUBLESHOOTING.md`, `docs/faq.md` | Common errors and questions |
+| `docs/UPSTREAM_COMPATIBILITY.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/PREPARED_BINDING_DESIGN.md` | Official-driver compatibility inventory, scenario ledger and typed binding design |
+| `docs/PRD.md` | Product requirements |
+
+Repository-root policy documents: [RELEASE_POLICY.md](RELEASE_POLICY.md) (public surface,
+semantic versioning, behavior-change classifications), [RELEASING.md](RELEASING.md),
+[CONTRIBUTING.md](CONTRIBUTING.md), [ROADMAP.md](ROADMAP.md) and [SECURITY.md](SECURITY.md).
 
 ## Issue specification and ownership
 
@@ -641,20 +676,30 @@ Issue titles, pull request titles and commit subjects follow
 unless the first word is an API name, acronym, or proper noun; no trailing
 period, no issue numbers in pull request titles (use `Closes #N` /
 `Refs #N` in the body). Pull requests are squash-merged and the pull request
-title becomes the commit title. The `PR title` check enforces it.
+title becomes the commit title (GitHub appends `(#N)`). The `PR title` check enforces it.
 
-Preserve actual contributor authorship and existing credits. The following tool
-attribution applies to commits actually produced with that tool; it is not a
-required footer for outside contributors' commits.
+The type also drives release-please: `feat` proposes a minor release; `fix`, `perf`,
+`docs`, `deps` and `revert` a patch; `!` or a `BREAKING CHANGE` footer a major one; `ci`,
+`test`, `refactor`, `chore`, `build` and `style` alone create no release. There is no
+`deprecate` type; a deprecation is a `feat` with a `### Deprecated` entry in `CHANGELOG.md`.
+The mapping to CHANGELOG headings is `changelog-sections` in
+[`release-please-config.json`](release-please-config.json) (see [RELEASING.md](RELEASING.md)).
 
 ```
-<type>: <description>
+type(scope): description
 
-<body>
+<body: what changed and why>
 
-Ultraworked with [Sisyphus](https://github.com/code-yeongyu/oh-my-opencode)
-Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
+Refs #N
+
+<tool attribution trailer, only for work produced with that tool>
 ```
+
+Preserve actual contributor authorship and existing `Co-authored-by:` trailers. Add a
+tool attribution trailer only for commits actually produced with that tool, using that
+tool's own trailer (for example `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
+for Claude Code, or `Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>` for
+OpenCode/Sisyphus). It is not a required footer for outside contributors' commits.
 
 ## Performance and Roadmap Pointers
 
