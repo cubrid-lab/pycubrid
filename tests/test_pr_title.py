@@ -95,7 +95,7 @@ INVALID = (
 
 TICK = chr(96)
 FENCE = TICK * 3
-GUARD_SHA256 = "449fd724ae94cb2a2772ca45aa9c0c180fd9166e59867f87d8162545e51a0933"
+GUARD_SHA256 = "154fa228aa6aee2cf8b8225f805544cccc30efd91f46ffc921584ee754f11db7"
 
 
 def _validator() -> str:
@@ -202,7 +202,7 @@ class PrTitleValidatorTest(unittest.TestCase):
         result = _run("docs: align issue ownership", body)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_url_and_link_forms_fail(self) -> None:
+    def test_more_foreign_closing_forms_fail(self) -> None:
         for body in (
             "Resolves another-org/another-repo#42",
             "Fixes: another-org/another-repo#42",
@@ -301,8 +301,9 @@ class PrTitleValidatorTest(unittest.TestCase):
 
     def test_uncertain_markdown_is_checked_on_purpose(self) -> None:
         # The shared guard hides only what it can delimit exactly: inline code,
-        # inline comments, quoted and list-item fences, and code inside list items
-        # stay checked, so these may block a PR but never let a closure through.
+        # inline comments, quoted and list-item fences, code inside list items, and
+        # indented text after an empty list item or a thematic break stay checked.
+        # These trade a missed closure for a false positive.
         fence = chr(96) * 3
         for body in (
             "Intro <!-- Closes another-org/another-repo#42 --> outro",
@@ -780,11 +781,32 @@ class PrTitleValidatorTest(unittest.TestCase):
             "Refs another-org/another-repo#43.",
         )
 
+    def test_a_closing_keyword_as_link_text_fails(self) -> None:
+        # "[Closes](url) owner/repo#N" renders as "Closes owner/repo#N".
+        self.assert_blocked(
+            "[Closes](https://example.com) another-org/another-repo#43",
+            "[Closes](a(b)c) another-org/another-repo#43",
+            "[Closes][1] another-org/another-repo#43\n\n[1]: /x",
+            "[Closes] another-org/another-repo#43",
+            '[Fixes](x "t") [another-org/another-repo#43](y)',
+            "![Closes](i.png) another-org/another-repo#43",
+            "[**Closes**](x) another-org/another-repo#43",
+        )
+        self.assert_allowed(
+            "[Closes](https://example.com) the bug. Refs another-org/another-repo#43",
+            "See [the fix](x) for another-org/another-repo#43",
+        )
+
+    def test_too_many_link_branches_fail_closed(self) -> None:
+        result = _run("docs: align issue ownership", "Closes](" * 8000 + ")" * 100, timeout=5)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("too many links", result.stdout)
+
     def test_a_leading_byte_order_mark_is_dropped(self) -> None:
         self.assert_blocked(
-            f"﻿{FENCE}\nx\n{FENCE}\nCloses another-org/another-repo#43\n{FENCE}",
-            "﻿<div>\n# h\n    Closes another-org/another-repo#43",
-            f"﻿<pre>\n\n{FENCE}\n</pre>\nCloses another-org/another-repo#43\n{FENCE}",
+            f"\ufeff{FENCE}\nx\n{FENCE}\nCloses another-org/another-repo#43\n{FENCE}",
+            "\ufeff<div>\n# h\n    Closes another-org/another-repo#43",
+            f"\ufeff<pre>\n\n{FENCE}\n</pre>\nCloses another-org/another-repo#43\n{FENCE}",
         )
 
     def test_only_cr_and_lf_split_lines(self) -> None:
