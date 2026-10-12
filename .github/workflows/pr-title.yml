@@ -242,9 +242,16 @@ jobs:
                           elif found.group() in ("](", "]["):
                               # A link destination, title or label: its backticks and
                               # "<!--" are not code or comments.
+                              # Any later closer may end it (escapes and nested titles
+                              # included), so each of the next few is a reading.
                               closing = ")" if found.group() == "](" else "]"
-                              stop = text.find(closing, found.end())
-                              branch(start, {stop + 1} if stop >= 0 else set())
+                              stops, stop = set(), found.end()
+                              while len(stops) < 32:
+                                  stop = text.find(closing, stop) + 1
+                                  if not stop:
+                                      break
+                                  stops.add(stop)
+                              branch(start, stops)
                               keep(start, start + 1)
                               pos = start + 1
                           else:
@@ -481,7 +488,12 @@ jobs:
                   flags=re.I,
               )
               issue = r"<?(https?://(?:www\.)?github\.com/[^\s/>]+/[^\s/>]+/issues/[0-9]+)"
-              urls = set(re.findall(r"\]:\s*" + issue, text, flags=re.I))
+              # One foreign issue URL is enough to fail, so one is applied.
+              urls = sorted(
+                  url
+                  for url in set(re.findall(r"\]:\s*" + issue, text, flags=re.I))
+                  if "/".join(url.lower().split("/")[-4:-2]) != local_repo
+              )[:1]
               tags = (
                   r"</?[a-z][a-z0-9-]*"
                   r"(?:\s+[^\s\"'=<>/]+(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>\x60]+))?)*"
@@ -493,7 +505,7 @@ jobs:
                   for marks in (r"[*~]", r"[*~_]"):
                       marked = re.sub(marks, glue, view)
                       views += [marked, re.sub(r"[\[\]]", glue, marked)]
-                      for url in sorted(urls):
+                      for url in urls:
                           views.append(re.sub(r"\](?!\()", lambda _, url=url: f"]({url})", marked))
               return views
 

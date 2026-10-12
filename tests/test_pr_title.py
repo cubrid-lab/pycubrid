@@ -419,6 +419,10 @@ class PrTitleValidatorTest(unittest.TestCase):
             "![a](b`c) Closes another-org/another-repo#42 `d",
             "[a][b`c] Closes another-org/another-repo#42 `d\n\n[b`c]: /u",
             "[a](b<!--) Closes another-org/another-repo#42 -->",
+            "[a](b\\)`) Closes another-org/another-repo#42 `",
+            "[a](b (x\\)`)) Closes another-org/another-repo#42 `",
+            "[a][b\\]`] Closes another-org/another-repo#42 `\n\n[b\\]`]: /u",
+            "[a](b\\)<!--) Closes another-org/another-repo#42 -->",
             # Footnote definitions are containers that interrupt paragraphs.
             "Text[^n]\n\n[^n]: Note\n\n    Closes another-org/another-repo#42",
             "[^1]:\n\n\tCloses another-org/another-repo#42[^1]",
