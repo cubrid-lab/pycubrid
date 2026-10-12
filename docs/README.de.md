@@ -41,7 +41,16 @@ Probleme bei der Plattformkompatibilität.
 
 ## Anforderungen
 
-- Python 3.10+
+**Ende der Unterstützung für Python 3.10:** Python 3.10 hat am 2026-10-01 das
+Ende seiner Upstream-Lebensdauer erreicht
+([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
+Die Versionslinien 1.8.x und 1.9.x unterstützen Python 3.10; 1.9.0 enthielt die
+Vorankündigung. Ab 1.10.0 benötigt das Paket Python 3.11 oder neuer, daher
+installiert `pip` unter Python 3.10 weiterhin 1.9.x. Aktualisieren Sie Ihren
+Interpreter, erstellen Sie Ihre virtuelle Umgebung neu und prüfen Sie Ihre
+Anwendung, bevor Sie aktualisieren.
+
+- Python 3.11 oder neuer
 - CUBRID-Datenbankserver 10.2+
 
 ## Installation
@@ -242,16 +251,14 @@ SQLAlchemy-Funktionen (ORM, Core, Alembic-Migrationen, Schema-Reflexion) sind ü
 
 ## Kompatibilität
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **Offline-Tests** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.2** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.0** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
-
-CI führt die obige Matrix bei jedem PR/Push aus (Python 3.10 + 3.14 als Anker × alle CUBRID-Versionen).
-Die vollständige **4 × 4**-Matrix aus Python × CUBRID läuft bei ausdrücklichem Start über `workflow_dispatch` und bei jedem Release.
+Unterstützt: Python 3.11–3.15 und CUBRID 10.2, 11.0, 11.2, 11.4.
+Gewöhnliche PRs verwenden einen Offline-Smoke-Lauf unter Ubuntu/Python 3.12;
+Änderungen mit hohem Risiko fügen Python 3.14/CUBRID 11.4 hinzu. Die Validierung
+auf main und die wöchentliche Validierung bei Änderungen führen zusätzlich
+Python 3.11/CUBRID 10.2 live sowie die vollständige Offline-Suite unter Python 3.11
+und 3.15 aus. Die vollständige 5 × 4-Live-Matrix läuft bei ausdrücklichem Start und
+bei jedem Release.
+Siehe [CI-Ausführungsrichtlinie](CI_POLICY.md) und [Support-Matrix](SUPPORT_MATRIX.md).
 
 ## Architektur
 
@@ -318,7 +325,7 @@ Ja. Installieren Sie `pip install "sqlalchemy-cubrid[pycubrid]"` und verwenden S
 
 ### Welche Python-Versionen werden unterstützt?
 
-Python 3.10, 3.11, 3.12, 3.13 und 3.14.
+Python 3.11, 3.12, 3.13, 3.14 und 3.15 (Standard-Builds mit GIL).
 
 ### Unterstützt pycubrid LOBs (CLOB/BLOB)?
 
