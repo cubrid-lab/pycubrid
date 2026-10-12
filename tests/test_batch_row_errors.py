@@ -160,12 +160,6 @@ def test_interface_error_is_not_a_batch_error() -> None:
     assert not hasattr(Error("x"), "batch_errors")
 
 
-def _raise(row_results: Any, errors: Any, raised: Any) -> DatabaseError:
-    with pytest.raises(DatabaseError) as caught:
-        raise _batch_failure(row_results, errors, raised)
-    return caught.value
-
-
 ROWS = ((1, 0, ""), (-1, -670, "dup"), (1, 0, ""), (-1, -494, "bad"))
 ERRORS = [
     {"code": -670, "message": "dup", "index": 1},
@@ -174,7 +168,7 @@ ERRORS = [
 
 
 def test_raised_error_matches_the_single_error_mapping() -> None:
-    exc = _raise(ROWS, ERRORS, ERRORS[0])
+    exc = _batch_failure(ROWS, ERRORS, ERRORS[0])
     plain = _batch_exception({"code": -670, "message": "dup"})
     assert type(exc) is type(plain) is IntegrityError
     assert (exc.msg, exc.code, exc.errno, exc.sqlstate) == (
@@ -189,7 +183,7 @@ def test_raised_error_matches_the_single_error_mapping() -> None:
 
 
 def test_raised_error_lists_every_failed_row() -> None:
-    exc = _raise(ROWS, ERRORS, ERRORS[0])
+    exc = _batch_failure(ROWS, ERRORS, ERRORS[0])
     assert exc.batch_index == 1
     assert exc.batch_rowcounts == (1, -1, 1, -1)
     assert exc.batch_errors is not None
@@ -222,7 +216,7 @@ def test_raised_error_is_freed_without_the_cycle_collector() -> None:
 
 
 def test_batch_details_survive_pickle_and_copy() -> None:
-    exc = _raise(ROWS, ERRORS, ERRORS[0])
+    exc = _batch_failure(ROWS, ERRORS, ERRORS[0])
     for clone in (pickle.loads(pickle.dumps(exc)), copy.copy(exc), copy.deepcopy(exc)):
         assert type(clone) is IntegrityError
         assert str(clone) == str(exc)
@@ -340,7 +334,7 @@ def test_interrupted_literal_batch_still_raises_the_first_failure(asynchronous: 
 
 def test_unknown_code_falls_back_to_database_error() -> None:
     errors = [{"code": -99999, "message": "odd", "index": 0}]
-    exc = _raise(((-1, -99999, "odd"),), errors, errors[0])
+    exc = _batch_failure(((-1, -99999, "odd"),), errors, errors[0])
     assert type(exc) is DatabaseError
     assert exc.batch_errors is not None
     assert type(exc.batch_errors[0][1]) is DatabaseError
