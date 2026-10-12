@@ -46,19 +46,18 @@ INT32_MAX = 2**31 - 1
 ROWS = [(1, "a"), (2, "b"), (3, "c")]
 
 
-class _ClaimedLength(bytearray):
-    """A writer buffer that reports ``claimed`` bytes while holding only a few.
+def _claimed_length(data: bytes | bytearray, claimed: int) -> bytearray:
+    """A writer buffer that reports ``claimed`` bytes while holding only ``data``.
 
     ``PacketWriter.finalize()`` frames ``len(buffer)``, so this exercises the
     int32 ``DATA_LENGTH`` limit without allocating 2 GiB.
     """
 
-    def __init__(self, data: bytes | bytearray, claimed: int) -> None:
-        super().__init__(data)
-        self.claimed = claimed
+    class ClaimedLength(bytearray):
+        def __len__(self) -> int:
+            return claimed
 
-    def __len__(self) -> int:
-        return self.claimed
+    return ClaimedLength(data)
 
 
 # Requests that run SQL or carry rows; session setup and probes are left out.
@@ -93,7 +92,7 @@ def _assert_stays_closed(d: _Driver, cursor: Any) -> None:
 def test_frame_length_is_bounded_by_the_int32_data_length(payload: int) -> None:
     writer = PacketWriter()
     writer._write_byte(CASFunctionCode.EXECUTE_ARRAY)
-    writer._buffer = _ClaimedLength(writer._buffer, HEADER + payload)
+    writer._buffer = _claimed_length(writer._buffer, HEADER + payload)
     if payload > INT32_MAX:
         with pytest.raises(struct.error):
             writer.finalize(CAS_INFO)
@@ -129,7 +128,7 @@ def test_oversized_array_frame_fails_before_any_byte_is_sent(
 
     def oversized(self: PacketWriter, cas_info: bytes | bytearray) -> bytes:
         if self._header_size and self._buffer[HEADER] == CASFunctionCode.EXECUTE_ARRAY:
-            self._buffer = _ClaimedLength(self._buffer, HEADER + INT32_MAX + 1)
+            self._buffer = _claimed_length(self._buffer, HEADER + INT32_MAX + 1)
         return original(self, cas_info)
 
     monkeypatch.setattr(PacketWriter, "finalize", oversized)

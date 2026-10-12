@@ -18,7 +18,7 @@ rows are created while they are encoded.
 
 The endpoint is resolved as the test suite does (``tests/_cubrid_endpoint.py``:
 ``CUBRID_TEST_URL`` or ``CUBRID_TEST_HOST`` / ``_PORT`` / ``_DB`` / ``_USER`` /
-``_PASSWORD``). RSS comes from ``resource.getrusage`` and is in KiB on Linux.
+``_PASSWORD``). RSS comes from ``resource.getrusage`` (Unix only) and is in KiB on Linux.
 
 Usage:
     python scripts/measure_prepared_batch.py [--rows N ...] [--modes M ...] [--json PATH]
@@ -35,7 +35,6 @@ import asyncio
 import importlib.util
 import json
 import os
-import resource
 import subprocess
 import sys
 import time
@@ -82,11 +81,13 @@ def _record_request_sizes() -> dict[str, int]:
             sizes[_key] += len(data)
             return data
 
-        cls.write = write  # type: ignore[method-assign]
+        setattr(cls, "write", write)
     return sizes
 
 
 def _max_rss_kib() -> int:
+    import resource  # Unix only; imported here so the module imports everywhere
+
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
 
@@ -122,8 +123,7 @@ def _child(mode: str, count: int, trace: bool) -> dict[str, Any]:
     if mode.startswith("async"):
 
         async def run() -> None:
-            conn = await pycubrid.aio.connect(**kwargs)
-            try:
+            async with await pycubrid.aio.connect(**kwargs) as conn:
                 cursor = conn.cursor()
                 await cursor.execute(
                     f"CREATE TABLE {table} (id INT PRIMARY KEY, v VARCHAR(32), n INT)"
@@ -144,13 +144,10 @@ def _child(mode: str, count: int, trace: bool) -> dict[str, Any]:
                 finally:
                     await cursor.execute(f"DROP TABLE IF EXISTS {table}")
                     await conn.commit()
-            finally:
-                await conn.close()
 
         asyncio.run(run())
     else:
-        conn = pycubrid.connect(**kwargs)
-        try:
+        with pycubrid.connect(**kwargs) as conn:
             cursor = conn.cursor()
             cursor.execute(f"CREATE TABLE {table} (id INT PRIMARY KEY, v VARCHAR(32), n INT)")
             conn.commit()
@@ -169,8 +166,6 @@ def _child(mode: str, count: int, trace: bool) -> dict[str, Any]:
             finally:
                 cursor.execute(f"DROP TABLE IF EXISTS {table}")
                 conn.commit()
-        finally:
-            conn.close()
     result.update(sizes)
     result["load_average_1m"] = round(os.getloadavg()[0], 2)
     return result

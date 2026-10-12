@@ -16,8 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   frame size is a fixed head plus the same bytes per row. It also injects
   transport faults before `PREPARE`, after `PREPARE`, during a partial
   `EXECUTE_ARRAY` send and after a complete send. Each raises
-  `OperationalError` with its cause, retires the session and the cursor's
-  handle, and never sends the batch again. A new opt-in `slow` integration
+  `OperationalError`, retires the session and the cursor's handle, and never
+  sends the batch again. A send failure is the error's cause; a missing or cut
+  reply has `asyncio.IncompleteReadError` as the cause on the async cursor and
+  no cause on the sync cursor, which detects the end of the stream itself. A new opt-in `slow` integration
   test, `tests/test_integration_prepared_large_batch.py`, runs
   `scripts/measure_prepared_batch.py` for 10,000 and 100,000 rows, sync and
   async, with a list and a one-shot generator. It records peak RSS, the
