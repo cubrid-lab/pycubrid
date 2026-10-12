@@ -573,10 +573,18 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 
 **배치 실행** (FC=20) — 하나의 요청에 여러 SQL 문.
 
+응답(CAS `ux_execute_batch`): int 결과 코드, int 실행된 문장 수, 그 뒤 문장마다 문장 타입
+바이트와 `int count >= 0` 및 8바이트 OID, 또는 음수 int(V3 이상은 `DBMS_ERROR_INDICATOR` -2, 그 전은
+오류 코드 자체), 오류 코드(V3 이상), 길이 접두 메시지. V5 이상은 마지막에 shard id가 옵니다. 실패한 문장이 뒤의 문장을
+멈추지 않습니다. `ux_execute_array`처럼 CAS는 `ER_INTERRUPTED`(-4) 문장을 보고하고 실행된
+문장 수를 고쳐 쓴 뒤에만 일찍 멈춥니다. 실행된 문장 수가 음수이거나 보낸 문장 수보다 크거나,
+중단된 문장으로 끝나지 않는 짧은 응답은 잘못된 응답입니다.
+
 | 속성 | 타입  | 설명 |
 |-----------|-------|------|
-| `results` | `list[tuple[int, int]]` | 문장별 `(stmt_type, result_count)` |
-| `errors`  | `list[dict]` | 실패한 문장의 `{code, message}` |
+| `results` | `list[tuple[int, int]]` | 성공한 문장별 `(stmt_type, result_count)` |
+| `errors`  | `list[dict]` | 실패한 문장의 `{code, message, index}` |
+| `row_results` | `tuple[tuple[int, int, str], ...]` | 실행된 문장마다 순서대로 `(count, 0, "")` 또는 `(-1, code, message)` (#841) |
 
 ---
 

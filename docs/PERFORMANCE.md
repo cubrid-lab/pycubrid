@@ -229,8 +229,9 @@ What you can do:
   `bind_param()` takes only scalar INT, string and `NULL` values (collections and LOBs use the
   dedicated `bind_set()` and `bind_lob()` APIs), and the error behaviour differs. A prepared
   loop stops at the first failing row. A batch sends every statement to the server even after
-  one fails, but `executemany()` raises only the first returned error, so later failures are
-  not reported.
+  one fails; `executemany()` raises the first returned error and, since #841, reports every
+  failed row on it (`batch_index`, `batch_errors`, `batch_rowcounts`; see
+  [API_REFERENCE.md](API_REFERENCE.md#partial-failure-which-rows-failed)).
 - Do not use `execute()` in a loop as a faster alternative. It was 1.6-6.1× `CUBRIDdb`'s
   `executemany()`, because every row is a new prepare plus extra requests.
 
@@ -300,8 +301,8 @@ Time of the `EXECUTE_ARRAY` prototype as a fraction of `executemany()` at 10,000
   when one row fails `EXECUTE_ARRAY` still executes the other rows, as `executemany()` does today.
   Only the failing row is undone. With autocommit on, each successful row is committed. With
   autocommit off, `rollback()` removes every row and `commit()` keeps the successful ones. The
-  per-row counts and their sum are identical. The prepared loop stops at the first failing row
-  instead.
+  per-row counts and their sum are identical, and both paths report the same failed rows on
+  the raised exception (#841). The prepared loop stops at the first failing row instead.
 - **Types and coercion differ.** At the time of #836 the prepared encoders took only a 32-bit
   `int`, `str`, `None`, INT/STRING collections and LOB handles; #840 widened them to every scalar
   type the literal path renders. Values are coerced as host variables, not literals, so server
@@ -311,8 +312,9 @@ Decision: `executemany()` keeps the literal batch by default, because a default 
 which values are accepted and how they are converted. The `EXECUTE_ARRAY` path ships as an opt-in,
 `executemany(..., prepared=True)`
 ([#839](https://github.com/cubrid-lab/pycubrid/issues/839)), on the wider prepared type set of
-[#840](https://github.com/cubrid-lab/pycubrid/issues/840). Reporting which batch rows failed is
-tracked in [#841](https://github.com/cubrid-lab/pycubrid/issues/841).
+[#840](https://github.com/cubrid-lab/pycubrid/issues/840). Since
+[#841](https://github.com/cubrid-lab/pycubrid/issues/841) the raised exception reports every failed
+row on both paths; see [API_REFERENCE.md](API_REFERENCE.md#partial-failure-which-rows-failed).
 
 <a id="shipped-prepared-batch"></a>
 

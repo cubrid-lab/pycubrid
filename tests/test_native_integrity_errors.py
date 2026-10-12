@@ -23,7 +23,7 @@ NATIVE_INTEGRITY_CODES = [-631, -922, -924, -1284]
 
 def _batch_response(code: int, message: str, protocol_version: int) -> bytes:
     text = message.encode("utf-8") + b"\x00"
-    result = -1 if protocol_version > 2 else code
+    result = -2 if protocol_version > 2 else code  # DBMS_ERROR_INDICATOR for V3+
     body = struct.pack(">iiBi", 0, 1, CUBRIDStatementType.INSERT, result)
     if protocol_version > 2:
         body += struct.pack(">i", code)

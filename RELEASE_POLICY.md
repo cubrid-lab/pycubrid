@@ -312,6 +312,19 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   new keyword; the public API baseline gains one keyword-only parameter per
   cursor.
 
+- **Failed `executemany()` batch rows reported (#841)** — MINOR / additive.
+  `DatabaseError` instances gain `batch_index`, `batch_errors` and
+  `batch_rowcounts`, which are `None` except on an exception raised for a failed
+  row of `executemany()` (literal or `prepared=True`) or `executemany_batch()`,
+  sync and async. The raised exception's class, message, `code`, `errno` and
+  `sqlstate`, the choice of the raised row, `str()`/`repr()` and `rowcount`
+  (still `-1` after a partial failure) are unchanged. `BatchExecutePacket`
+  gains `row_results` and an `index` key in each `errors` entry, and now treats an
+  executed count that is negative or larger than the batch, a short reply that
+  does not end with an interrupted statement, or a V3+ error row without
+  `DBMS_ERROR_INDICATOR`, as a malformed reply (`OperationalError`); CAS
+  `ux_execute_batch` sends none of these.
+
 - **Wider typed prepared parameters (#840)** — MINOR / additive, within the
   provisional `pycubrid.compat` namespace. `pycubrid.compat.native`
   `cursor.bind_param()` accepts `bool`, 64-bit and up to 38-digit `int`,

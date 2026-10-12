@@ -836,13 +836,13 @@ BATCH_STATEMENTS: tuple[BatchStatement, ...] = (
     BatchStatement(CUBRIDStatementType.UPDATE, 3),
     BatchStatement(
         CUBRIDStatementType.INSERT,
-        -1,
+        -2,  # DBMS_ERROR_INDICATOR, as CAS ux_execute_batch writes for V3+
         -670,
         "Operation would have caused one or more unique constraint violations.",
     ),
     BatchStatement(CUBRIDStatementType.DELETE, 0),
     BatchStatement(
-        CUBRIDStatementType.INSERT, -1, -494, "Semantic: cannot coerce 'hé' to type integer"
+        CUBRIDStatementType.INSERT, -2, -494, "Semantic: cannot coerce 'hé' to type integer"
     ),
 )
 

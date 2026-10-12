@@ -1453,6 +1453,44 @@ cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 print(cur.rowcount)  # 3
 ```
 
+##### Partial failure: which rows failed
+
+When rows of a DML batch fail, the server still runs every other row and undoes
+only the failing ones (#841). With autocommit on, each successful row is
+committed; with autocommit off, `commit()` keeps them and `rollback()` removes
+them all. `executemany()` raises the first failing row's error, with the same
+class, message, `errno` and `sqlstate` as before, and the exception carries
+every row's outcome:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `batch_index` | `int` | Position in `seq_of_parameters` of the row this exception describes (the first failing row, or the interrupted row of a stopped prepared batch) |
+| `batch_errors` | `tuple[tuple[int, DatabaseError], ...]` | `(index, error)` for every failed row, in row order; each `error` is mapped like the raised one and has its own `batch_index` |
+| `batch_rowcounts` | `tuple[int, ...]` | One entry per executed row, in row order: the row's affected count, or `-1` for a failed row |
+
+`rowcount` stays `-1` after a partial failure, as before: the batch as a whole
+failed, and with autocommit off the applied rows may still be rolled back. The
+number of applied rows is `sum(c for c in exc.batch_rowcounts if c >= 0)`.
+
+```python
+try:
+    cur.executemany("INSERT INTO users (id) VALUES (?)", [(1,), (2,), (1,), (3,)])
+except pycubrid.IntegrityError as exc:
+    print(exc.batch_index)  # 2
+    print([i for i, _error in exc.batch_errors])  # [2]
+    print(exc.batch_rowcounts)  # (1, 1, -1, 1)
+    print(cur.rowcount)  # -1
+```
+
+Exceptions not raised for a batch row failure have `batch_index`, `batch_errors`
+and `batch_rowcounts` set to `None`. A non-DML statement (for example `SELECT`)
+runs row by row through `execute()`, stops at the first failure and does not set
+them. If the server interrupts a statement (`ER_INTERRUPTED`), it stops there:
+`batch_rowcounts` ends at the interrupted row, and the rows past its end did not
+run (when the last row is the interrupted one, it covers the whole batch). The literal batch still raises its first failing row's error in that case.
+The same contract applies to the async cursor and to
+`executemany(..., prepared=True)`.
+
 ##### Prepared batch: `prepared=True`
 
 `executemany(..., prepared=True)` (#839) sends an `INSERT`, `UPDATE`, `DELETE`
@@ -1499,12 +1537,18 @@ cur.executemany(
   every row and undoes only a failing one. With autocommit on, each successful
   row is committed; with autocommit off, `commit()` keeps the successful rows and
   `rollback()` removes them all. The first failing row's error is raised with the
-  same exception mapping as the literal batch and `rowcount` stays `-1`. On
-  success `rowcount` is the sum of the per-row counts. `lastrowid` is `None`.
+  same exception mapping and the same per-row attributes as the literal batch
+  ([Partial failure](#partial-failure-which-rows-failed)) and `rowcount` stays
+  `-1`. On success `rowcount` is the sum of the per-row counts. `lastrowid` is
+  `None`.
   With autocommit off, a deadlock or a server shutdown aborts the whole
   transaction and fails the whole request. An interrupted row
   (`ER_INTERRUPTED`) stops the server: the rows after it are not executed, and
-  the interruption's error is raised instead of an earlier row's error.
+  the interruption's error is raised instead of an earlier row's error. Its
+  `batch_index` is the interrupted row, `batch_errors` still starts with the
+  first failing row, and `batch_rowcounts` ends at the interrupted row, so the
+  rows past its end did not run. An interruption of the last row is raised the
+  same way.
 - **Server text.** Values are coerced as host variables, not as literals, so a
   conversion error reads "Cannot coerce host var to type ..." (error -494, the
   same exception class as the literal batch).
@@ -1576,7 +1620,7 @@ results = cur.executemany_batch([
 # statement_type 4 = CREATE_CLASS, 20 = INSERT
 ```
 
-> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249. Once the previous query handle is closed, prior cursor result state is cleared before the batch request. A failed batch, including transport or response-parse errors, leaves `description=None`, `rowcount=-1`, `lastrowid=None`, and no fetchable rows. A per-statement error still raises the appropriate database exception; successful partial results do not establish a final row count. If closing the previous handle fails, no batch is sent and the handle remains tracked. SQL passed directly to `executemany_batch` is rendered by the caller, so it is not generation-fenced: after an automatic reconnect (#485) it is sent to the new session as given. Only SQL that `execute()`/`executemany()` render from parameters is rejected when the session changed after binding.
+> **Note:** `executemany_batch` is a pycubrid extension, not part of PEP 249. Once the previous query handle is closed, prior cursor result state is cleared before the batch request. A failed batch, including transport or response-parse errors, leaves `description=None`, `rowcount=-1`, `lastrowid=None`, and no fetchable rows. A per-statement error still raises the appropriate database exception; successful partial results do not establish a final row count. The exception carries `batch_index`, `batch_errors` and `batch_rowcounts` with positions in `sql_list` (see [Partial failure](#partial-failure-which-rows-failed)). If closing the previous handle fails, no batch is sent and the handle remains tracked. SQL passed directly to `executemany_batch` is rendered by the caller, so it is not generation-fenced: after an automatic reconnect (#485) it is sent to the new session as given. Only SQL that `execute()`/`executemany()` render from parameters is rejected when the session changed after binding.
 
 ---
 
@@ -1783,7 +1827,7 @@ for col in cur.description:
 def rowcount(self) -> int
 ```
 
-Number of rows affected by the last `execute()` call. Returns `-1` for SELECT statements or if no statement has been executed.
+Number of rows affected by the last `execute()` call. Returns `-1` for SELECT statements or if no statement has been executed. After a failed batch it is `-1`, even when some rows were applied.
 
 ---
 
@@ -2231,6 +2275,13 @@ class DatabaseError(Error):
 ```
 
 Base class for database-side errors. Includes `errno` and `sqlstate` for server-reported error details.
+
+An exception raised for a failed row of an `executemany()` or `executemany_batch()`
+batch also has `batch_index` (`int`), `batch_errors`
+(`tuple[tuple[int, DatabaseError], ...]`) and `batch_rowcounts` (`tuple[int, ...]`),
+described in [Partial failure](#partial-failure-which-rows-failed) (#841). On
+every other `DatabaseError` they are `None`. They survive `pickle` and `copy`, and
+`str()` and `repr()` do not include them.
 
 ---
 

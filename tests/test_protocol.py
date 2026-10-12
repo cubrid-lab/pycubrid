@@ -1638,7 +1638,9 @@ class TestBatchExecutePacket:
 
     def test_parse_success(self) -> None:
         """Parse new wire format: responseCode + executedCount + per-result data."""
-        pkt = BatchExecutePacket(["INSERT INTO t VALUES(1)"], protocol_version=7)
+        pkt = BatchExecutePacket(
+            ["INSERT INTO t VALUES(1)", "INSERT INTO t VALUES(2)"], protocol_version=7
+        )
         response = bytearray()
         response.extend(DEFAULT_CAS_INFO)
         response.extend(struct.pack(">i", 0))  # response_code = 0 (success)
@@ -1673,7 +1675,7 @@ class TestBatchExecutePacket:
         response.extend(struct.pack(">i", 2))  # executedCount = 2
         # Result 1: error (result < 0)
         response.append(0)  # stmtType
-        response.extend(struct.pack(">i", -1))  # result = -1 (error)
+        response.extend(struct.pack(">i", -2))  # DBMS_ERROR_INDICATOR (error, V3+)
         error_code = -493
         response.extend(struct.pack(">i", error_code))  # errorCode (proto > 2)
         error_msg = b"syntax error\x00"

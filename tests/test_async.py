@@ -815,7 +815,8 @@ class TestAsyncCursorExecutemanyBatch:
 
         async def fake_send(packet):
             packet.results = [(0, 1)]
-            packet.errors = [{"code": -670, "message": "unique constraint violation"}]
+            packet.errors = [{"code": -670, "message": "unique constraint violation", "index": 1}]
+            packet.row_results = ((1, 0, ""), (-1, -670, "unique constraint violation"))
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
 
@@ -845,7 +846,8 @@ class TestAsyncCursorExecutemanyBatch:
 
         async def fake_send(packet):
             packet.results = []
-            packet.errors = [{"code": -11, "message": "handle is closed"}]
+            packet.errors = [{"code": -11, "message": "handle is closed", "index": 0}]
+            packet.row_results = ((-1, -11, "handle is closed"),)
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
 

@@ -141,8 +141,10 @@ class TestBatchFailure:
             # Pre-seed the PK that the batch's fail_pos row will collide with.
             cur.execute("INSERT INTO %s (id) VALUES (?)" % table, (fail_pos,))
             batch = [(i,) for i in range(size)]  # row at fail_pos duplicates the seed
-            with pytest.raises(DBAPIError):
+            with pytest.raises(DBAPIError) as raised:
                 cur.executemany("INSERT INTO %s (id) VALUES (?)" % table, batch)
+            # The exception names the failing row (#841).
+            assert getattr(raised.value, "batch_index", None) == fail_pos
             cur.close()
         finally:
             _drop_table(conn, table)
@@ -164,8 +166,14 @@ class TestBatchFailure:
             for sid in seed_ids:
                 cur.execute("INSERT INTO %s (id) VALUES (?)" % table, (sid,))
             batch = [(i,) for i in range(20)]  # rows at every seed_id collide
-            with pytest.raises(DBAPIError):
+            with pytest.raises(DBAPIError) as raised:
                 cur.executemany("INSERT INTO %s (id) VALUES (?)" % table, batch)
+            errors = getattr(raised.value, "batch_errors", None)
+            assert errors is not None
+            assert [index for index, _error in errors] == sorted(seed_ids)
+            assert raised.value.batch_rowcounts == tuple(
+                -1 if i in seed_ids else 1 for i in range(20)
+            )
             cur.close()
         finally:
             _drop_table(conn, table)
@@ -222,8 +230,9 @@ async def _async_failing_batch_raises(size: int, fail_pos: int) -> bool:
                 "INSERT INTO %s (id) VALUES (?)" % table, [(i,) for i in range(size)]
             )
             return False
-        except DBAPIError:
-            return True
+        except DBAPIError as exc:
+            # The exception names the failing row (#841).
+            return getattr(exc, "batch_index", None) == fail_pos
         finally:
             await cur.close()
     finally:

@@ -385,6 +385,19 @@ print(f"Inserted {cur.rowcount} rows")  # 3
 conn.commit()
 ```
 
+일부 행이 실패해도 서버는 나머지 행을 실행합니다. 발생한 예외는 실패한 모든 행을
+알려 주며(#841) `rowcount`는 `-1`로 남습니다:
+
+```python
+try:
+    cur.executemany("INSERT INTO users (id, name) VALUES (?, ?)", rows)
+except pycubrid.DatabaseError as exc:
+    for index, error in exc.batch_errors or ():
+        print(f"row {index} failed: {error.errno} {error.msg}")
+    print("applied:", sum(count for count in exc.batch_rowcounts or () if count >= 0))
+    conn.rollback()  # 또는 성공한 행을 남기려면 conn.commit()
+```
+
 ### executemany_batch
 
 **서로 다른** SQL 문을 한 번의 서버 왕복으로 실행:

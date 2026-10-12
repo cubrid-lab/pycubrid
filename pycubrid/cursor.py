@@ -15,7 +15,7 @@ from ._cursor_common import (
     DML_BATCH_VERBS,
     check_prepared_batch_operation,
     extract_first_keyword,
-    _raise_batch_error,
+    _batch_failure,
     split_on_placeholders,
 )
 from .exceptions import (
@@ -394,8 +394,11 @@ class Cursor(_CursorBase):
         if packet.errors:
             # A reply that stops early ends with the ER_INTERRUPTED row; raise
             # that, so the caller learns the later rows did not run.
-            interrupted = len(packet.row_results) < len(rows)
-            _raise_batch_error(packet.errors[-1] if interrupted else packet.errors[0])
+            raise _batch_failure(
+                packet.row_results,
+                packet.errors,
+                packet.errors[-1] if packet.interrupted else packet.errors[0],
+            )
         self._rowcount = sum(count for count, _code, _message in packet.row_results)
 
     def _executemany_loop(
@@ -457,12 +460,10 @@ class Cursor(_CursorBase):
         else:
             self._connection._send_and_receive(packet, bound_generation=bound_generation)
 
-        # Raise on per-statement batch failures (issue #186).
-        # The batch protocol returns partial results alongside per-statement
-        # errors; previously the errors were silently swallowed.
+        # Raise on per-statement batch failures (issue #186), with every
+        # row's outcome attached to the exception (#841).
         if packet.errors:
-            err = packet.errors[0]
-            _raise_batch_error(err)
+            raise _batch_failure(packet.row_results, packet.errors, packet.errors[0])
 
         if packet.results:
             self._rowcount = sum(count for _, count in packet.results)

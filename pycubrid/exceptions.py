@@ -75,7 +75,19 @@ class DatabaseError(Error):
     Base class for all database-side errors. Subclasses provide more
     specific error categorization.
     Defined by PEP 249.
+
+    An exception raised for a failed row of an ``executemany()`` or
+    ``executemany_batch()`` batch also carries the per-row outcome (#841);
+    on every other exception these attributes are ``None``:
+
+    - ``batch_index``: position of the row this exception describes.
+    - ``batch_errors``: ``(index, error)`` for every failed row, in order.
+    - ``batch_rowcounts``: one count per executed row, ``-1`` for a failed row.
     """
+
+    batch_index: int | None
+    batch_errors: tuple[tuple[int, DatabaseError], ...] | None
+    batch_rowcounts: tuple[int, ...] | None
 
     def __init__(
         self,
@@ -87,6 +99,9 @@ class DatabaseError(Error):
         super().__init__(msg, code)
         self.errno = errno
         self.sqlstate = sqlstate
+        self.batch_index = None
+        self.batch_errors = None
+        self.batch_rowcounts = None
 
     def __repr__(self) -> str:
         parts = [repr(self.msg)]

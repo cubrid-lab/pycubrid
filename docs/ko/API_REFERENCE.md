@@ -1396,6 +1396,42 @@ cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 print(cur.rowcount)  # 3
 ```
 
+##### 부분 실패: 실패한 행
+
+DML 배치의 일부 행이 실패해도 서버는 나머지 행을 모두 실행하고 실패한 행만
+되돌립니다(#841). autocommit이 켜져 있으면 성공한 행마다 커밋하고, 꺼져 있으면
+`commit()`은 성공한 행을 남기고 `rollback()`은 모두 지웁니다. `executemany()`는 첫 실패
+행의 오류를 이전과 같은 클래스, 메시지, `errno`, `sqlstate`로 내며, 예외에 모든 행의
+결과가 담깁니다.
+
+| 속성 | 타입 | 의미 |
+|---|---|---|
+| `batch_index` | `int` | 이 예외가 가리키는 행(첫 실패 행, 또는 멈춘 준비된 배치의 중단된 행)의 `seq_of_parameters` 안 위치 |
+| `batch_errors` | `tuple[tuple[int, DatabaseError], ...]` | 실패한 모든 행의 `(index, error)`, 행 순서. 각 `error`는 발생한 예외와 같은 매핑을 따르고 자신의 `batch_index`를 가집니다 |
+| `batch_rowcounts` | `tuple[int, ...]` | 실행된 행마다 하나씩, 행 순서: 그 행이 영향을 준 행 수, 실패한 행은 `-1` |
+
+부분 실패 뒤에도 `rowcount`는 이전처럼 `-1`입니다. 배치 전체는 실패했고,
+autocommit이 꺼져 있으면 적용된 행도 아직 롤백될 수 있기 때문입니다. 적용된 행 수는
+`sum(c for c in exc.batch_rowcounts if c >= 0)`입니다.
+
+```python
+try:
+    cur.executemany("INSERT INTO users (id) VALUES (?)", [(1,), (2,), (1,), (3,)])
+except pycubrid.IntegrityError as exc:
+    print(exc.batch_index)  # 2
+    print([i for i, _error in exc.batch_errors])  # [2]
+    print(exc.batch_rowcounts)  # (1, 1, -1, 1)
+    print(cur.rowcount)  # -1
+```
+
+배치 행 실패로 발생하지 않은 예외에서는 `batch_index`, `batch_errors`, `batch_rowcounts`가
+모두 `None`입니다. DML이 아닌 문(예: `SELECT`)은 `execute()`로 한 행씩 실행되어 첫 실패에서
+멈추며, 이 속성을 설정하지 않습니다. 서버가 문장을 중단하면(`ER_INTERRUPTED`) 거기서
+멈추므로 `batch_rowcounts`는 중단된 행에서 끝나고, 그 끝 뒤의 행은 실행되지 않은 것입니다(마지막
+행이 중단된 경우에는 배치 전체를 덮습니다). 이때도
+리터럴 배치는 첫 실패 행의 오류를 냅니다. 비동기 커서와 `executemany(..., prepared=True)`에도
+같은 계약이 적용됩니다.
+
 ##### 준비된 배치: `prepared=True`
 
 `executemany(..., prepared=True)`(#839)는 `INSERT`, `UPDATE`, `DELETE`, `MERGE`를
@@ -1435,11 +1471,14 @@ cur.executemany(
 - **부분 실패와 `rowcount`.** 리터럴 배치처럼 서버는 모든 행을 실행하고 실패한 행만
   되돌립니다. autocommit이 켜져 있으면 성공한 행마다 커밋하고, 꺼져 있으면 `commit()`은
   성공한 행을 남기고 `rollback()`은 모두 지웁니다. 첫 실패 행의 오류를 리터럴 배치와
-  같은 예외 매핑으로 내고 `rowcount`는 `-1`로 둡니다. 성공하면 `rowcount`는 행별
+  같은 예외 매핑과 같은 행별 속성([부분 실패](#부분-실패-실패한-행))으로 내고
+  `rowcount`는 `-1`로 둡니다. 성공하면 `rowcount`는 행별
   개수의 합입니다. `lastrowid`는 `None`입니다. autocommit이 꺼진 상태에서 교착 상태나
   서버 종료가 일어나면 트랜잭션 전체가 중단되고 요청 전체가 실패합니다. 중단된
   행(`ER_INTERRUPTED`)이 있으면 서버가 멈추며 그 뒤의 행은 실행되지 않고, 앞선 행의 오류
-  대신 중단 오류를 냅니다.
+  대신 중단 오류를 냅니다. 이때 `batch_index`는 중단된 행이고, `batch_errors`는 여전히
+  첫 실패 행부터 시작하며, `batch_rowcounts`는 중단된 행에서 끝나므로 그 끝 뒤의 행은 실행되지
+  않은 것입니다. 마지막 행이 중단된 경우도 같은 방식으로 냅니다.
 - **서버 메시지.** 값은 리터럴이 아니라 호스트 변수로 변환되므로 변환 오류는
   "Cannot coerce host var to type ..."(오류 -494, 리터럴 배치와 같은 예외 클래스)로
   나옵니다.
@@ -1505,7 +1544,7 @@ results = cur.executemany_batch([
 # statement_type 4 = CREATE_CLASS, 20 = INSERT
 ```
 
-> **참고:** `executemany_batch`는 pycubrid 확장이며 PEP 249의 일부가 아닙니다. 이전 쿼리 핸들을 닫은 뒤 배치 요청 전에 커서 결과 상태를 초기화합니다. 전송 또는 응답 파싱 오류를 포함한 배치 실패 시 `description=None`, `rowcount=-1`, `lastrowid=None`이며 이전 행을 가져올 수 없습니다. 문별 오류는 해당 데이터베이스 예외를 발생시키며 일부 성공 결과로 최종 행 수를 설정하지 않습니다. 이전 핸들 닫기가 실패하면 배치를 전송하지 않고 핸들을 계속 추적합니다. `executemany_batch`에 직접 넘긴 SQL은 호출자가 렌더링한 것이므로 세대 검사를 하지 않으며, 자동 재접속(#485) 뒤에도 그대로 새 세션으로 보냅니다. 바인딩 뒤 세션이 바뀌었을 때 거부되는 것은 `execute()`/`executemany()`가 파라미터로 렌더링한 SQL뿐입니다.
+> **참고:** `executemany_batch`는 pycubrid 확장이며 PEP 249의 일부가 아닙니다. 이전 쿼리 핸들을 닫은 뒤 배치 요청 전에 커서 결과 상태를 초기화합니다. 전송 또는 응답 파싱 오류를 포함한 배치 실패 시 `description=None`, `rowcount=-1`, `lastrowid=None`이며 이전 행을 가져올 수 없습니다. 문별 오류는 해당 데이터베이스 예외를 발생시키며 일부 성공 결과로 최종 행 수를 설정하지 않습니다. 예외에는 `sql_list` 안 위치로 `batch_index`, `batch_errors`, `batch_rowcounts`가 담깁니다([부분 실패](#부분-실패-실패한-행) 참고). 이전 핸들 닫기가 실패하면 배치를 전송하지 않고 핸들을 계속 추적합니다. `executemany_batch`에 직접 넘긴 SQL은 호출자가 렌더링한 것이므로 세대 검사를 하지 않으며, 자동 재접속(#485) 뒤에도 그대로 새 세션으로 보냅니다. 바인딩 뒤 세션이 바뀌었을 때 거부되는 것은 `execute()`/`executemany()`가 파라미터로 렌더링한 SQL뿐입니다.
 
 ---
 
@@ -1708,7 +1747,7 @@ for col in cur.description:
 def rowcount(self) -> int
 ```
 
-마지막 `execute()` 호출이 영향받은 행 수. SELECT 문이거나 실행된 문이 없으면 `-1`을 반환합니다.
+마지막 `execute()` 호출이 영향받은 행 수. SELECT 문이거나 실행된 문이 없으면 `-1`을 반환합니다. 배치가 실패하면(일부 행이 적용되었더라도) `-1`입니다.
 
 ---
 
@@ -2136,6 +2175,12 @@ class DatabaseError(Error):
 ```
 
 데이터베이스 측 오류의 기본 클래스. 서버가 보고한 오류 상세를 위한 `errno`와 `sqlstate`를 포함합니다.
+
+`executemany()` 또는 `executemany_batch()` 배치의 실패 행 때문에 발생한 예외는
+`batch_index`(`int`), `batch_errors`(`tuple[tuple[int, DatabaseError], ...]`),
+`batch_rowcounts`(`tuple[int, ...]`)도 가집니다. 의미는
+[부분 실패](#부분-실패-실패한-행)에 있습니다(#841). 그 밖의 `DatabaseError`에서는
+`None`입니다. `pickle`과 `copy`에서도 유지되며, `str()`과 `repr()`에는 포함되지 않습니다.
 
 ---
 

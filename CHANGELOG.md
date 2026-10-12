@@ -35,6 +35,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   as on `PREPARE_AND_EXECUTE` (#488). The default `executemany()` is unchanged.
   See [API_REFERENCE.md](docs/API_REFERENCE.md) and
   [PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md).
+- **Failed `executemany()` batch rows are reported (#841)** — when rows of a DML
+  batch fail, the server still runs the other rows, but the driver raised only the
+  first error and lost which rows failed. The raised exception keeps its class,
+  message, `code`, `errno` and `sqlstate`, and now also has `batch_index` (the row it
+  describes), `batch_errors` (`(index, error)` for every failed row, in order, each
+  mapped like the raised error) and `batch_rowcounts` (one count per executed row,
+  `-1` for a failed row). This applies to the literal batch, to
+  `executemany(..., prepared=True)` (an interrupted prepared batch names the
+  interrupted row) and to `executemany_batch()`, on the sync and async cursors.
+  Every other `DatabaseError` has the three attributes set to `None`. `rowcount`
+  stays `-1` after a partial failure; the applied rows can be counted from
+  `batch_rowcounts`. `BatchExecutePacket` keeps the statement order in a new
+  `row_results` and an `index` in each error, and rejects a reply whose executed
+  count is negative or larger than the batch, that stops early without an
+  interrupted (`ER_INTERRUPTED`) statement, or whose V3+ error row does not start
+  with `DBMS_ERROR_INDICATOR` (-2), none of which CAS sends. See
+  [API_REFERENCE.md](docs/API_REFERENCE.md#partial-failure-which-rows-failed).
 - **Wider typed prepared parameters (#840)** — `pycubrid.compat.native`
   `cursor.bind_param()` now sends `bool` (INT 1/0, the literal path's value),
   64-bit `int` (BIGINT), `int` past 64 bits up to 38 digits and `Decimal`

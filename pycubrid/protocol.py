@@ -2141,7 +2141,20 @@ class GetSchemaPacket(_CasPacket):
 
 
 class BatchExecutePacket(_CasPacket):
-    """Batch execute multiple SQL statements (FC=20)."""
+    """Batch execute multiple SQL statements (FC=20).
+
+    Reply (CAS ``ux_execute_batch``): int result code, int executed statement
+    count, then per statement a statement-type byte and either ``int count >=
+    0`` and an 8-byte OID, or a negative int (the DBMS error indicator for V3+,
+    else the error code), the error code for V3+ and a length-prefixed message;
+    shard id for V5+ last. As in ``ux_execute_array``, the server runs every
+    statement and stops early only after an interrupted (``ER_INTERRUPTED``)
+    statement, which it reports. ``results`` keeps the
+    successes as ``(statement type, count)`` and ``errors`` the failures as
+    ``{"code", "message", "index"}``; ``row_results`` keeps one ``(count,
+    error code, message)`` per executed statement, in order, as
+    ``ExecuteArrayPacket`` does (#841).
+    """
 
     def __init__(
         self,
@@ -2154,6 +2167,7 @@ class BatchExecutePacket(_CasPacket):
         self.protocol_version = protocol_version
         self.results: list[tuple[int, int]] = []
         self.errors: list[dict[str, Any]] = []
+        self.row_results: tuple[tuple[int, int, str], ...] = ()
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the batch execute request."""
@@ -2175,23 +2189,39 @@ class BatchExecutePacket(_CasPacket):
             remaining = len(data) - 8
             _raise_error(reader, remaining)
         executed_count = reader._parse_int()
+        if not 0 <= executed_count <= len(self.sql_list):
+            raise ValueError("invalid batch execute statement count")
         self.results = []
         self.errors = []
-        for _ in range(executed_count):
+        row_results: list[tuple[int, int, str]] = []
+        for index in range(executed_count):
             stmt_type = reader._parse_byte()
             result = reader._parse_int()
             if result < 0:
-                error_code = reader._parse_int() if self.protocol_version > 2 else result
+                if self.protocol_version > 2:
+                    if result != _DBMS_ERROR_INDICATOR:
+                        raise ValueError("invalid batch execute error indicator")
+                    error_code = reader._parse_int()
+                else:
+                    error_code = result
                 msg_len = reader._parse_int()
                 error_msg = reader._parse_lenient_text(msg_len)
-                self.errors.append({"code": error_code, "message": error_msg})
+                self.errors.append({"code": error_code, "message": error_msg, "index": index})
+                row_results.append((-1, error_code, error_msg))
             else:
                 self.results.append((stmt_type, result))
+                row_results.append((result, 0, ""))
                 reader._parse_int()  # unused
                 reader._parse_short()  # unused
                 reader._parse_short()  # unused
         if self.protocol_version > 4:
             _ = reader._parse_int()  # lastShardId
+        if executed_count < len(self.sql_list) and (
+            not row_results or row_results[-1][1] != _ER_INTERRUPTED
+        ):
+            # CAS stops early only after an interrupted statement, which it reports.
+            raise ValueError("batch execute reply covers fewer statements than sent")
+        self.row_results = tuple(row_results)
 
 
 # CUBRID ER_INTERRUPTED (error_code.h): the only row error after which
@@ -2218,7 +2248,7 @@ class ExecuteArrayPacket(_CasPacket):
     ``row_results`` keeps one ``(count, error_code, message)`` per executed
     row, in order: ``(count, 0, "")`` on success and ``(-1, code, message)``
     on failure. ``errors`` holds the failures as ``{"code", "message",
-    "index"}`` for :func:`_raise_batch_error`.
+    "index"}`` for :func:`_batch_failure`.
     """
 
     def __init__(
@@ -2236,6 +2266,8 @@ class ExecuteArrayPacket(_CasPacket):
         self.bind_count = bind_count
         self.protocol_version = protocol_version
         self.row_results: tuple[tuple[int, int, str], ...] = ()
+        # True when the reply ends with an ER_INTERRUPTED row (#841).
+        self.interrupted = False
         self.errors: list[dict[str, Any]] = []
 
     def write(self, cas_info: bytes) -> bytes:
@@ -2299,6 +2331,7 @@ class ExecuteArrayPacket(_CasPacket):
             # CAS stops early only after an interrupted row, which it reports.
             raise ValueError("execute-array reply covers fewer rows than sent")
         self.row_results = tuple(results)
+        self.interrupted = bool(results) and results[-1][1] == _ER_INTERRUPTED
 
 
 class LOBNewPacket(_CasPacket):

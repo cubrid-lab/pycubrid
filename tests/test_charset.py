@@ -499,12 +499,12 @@ def test_error_messages_decode_with_the_connection_codec_and_replace() -> None:
 
 def test_batch_error_messages_decode_with_the_connection_codec() -> None:
     text = "중복".encode("euc-kr") + b"\x00"
-    body = struct.pack(">iiBii", 0, 1, CUBRIDStatementType.INSERT, -1, -670)
+    body = struct.pack(">iiBii", 0, 1, CUBRIDStatementType.INSERT, -2, -670)
     body += struct.pack(">i", len(text)) + text + struct.pack(">i", 0)
     packet = BatchExecutePacket(["INSERT INTO t VALUES (1)"], protocol_version=8)
     packet.encoding = "euc_kr"
     packet.parse(CAS_INFO + body)
-    assert packet.errors == [{"code": -670, "message": "중복"}]
+    assert packet.errors == [{"code": -670, "message": "중복", "index": 0}]
 
 
 def test_default_reply_decoding_is_unchanged() -> None:
