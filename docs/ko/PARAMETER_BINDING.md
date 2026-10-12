@@ -298,7 +298,8 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   넣는 경우.
 - **타입 지정 컬렉션.** `Set`, `Multiset`, `Sequence`는 리터럴 경로에서는
   렌더링되지만 `bind_param()`에서는 `ProgrammingError`가 발생합니다.
-  `connection.set()`과 `bind_set()`을 사용하세요.
+  `connection.set()`과 `bind_set()`을 사용하세요. `executemany(..., prepared=True)`는
+  이를 문자열 원소의 컬렉션으로 보냅니다(아래 참고).
 - **38자리를 넘는 정수**는 I/O 전에 `DataError`가 발생합니다. 리터럴 경로는 숫자를
   그대로 보내고 서버가 거부합니다(-494, "Invalid numeric").
 
@@ -384,6 +385,25 @@ DML 동사(`INSERT`, `UPDATE`, `DELETE`, `MERGE`)에 대해 `executemany`는:
 비-DML 문장에서는 `executemany`가 행별 `execute` 루프로 폴백합니다(`pycubrid/cursor.py:220-238`, `pycubrid/aio/cursor.py:176-187`).
 
 각 행은 위의 동일한 타입 매핑 규칙으로 독립적으로 바인딩됩니다.
+
+### `executemany(..., prepared=True)`
+
+`prepared=True`(#839)에서는 SQL을 렌더링하지 않습니다. `INSERT`, `UPDATE`, `DELETE`,
+`MERGE`에 대해 커서는 `PREPARE` 한 번과, 행 순서대로 행마다 표시마다 타입 바이트와
+값 하나씩을 인자로 담은 `EXECUTE_ARRAY` 요청(함수 코드 21) 한 번을 보냅니다. 값은
+[Prepared 호스트 변수 매핑](#prepared-호스트-변수-매핑)을 따르며, 같은 검사와 리터럴과의
+같은 차이(호스트 변수 변환, `float`은 DOUBLE, 빈 `bytes` 거부)를 가집니다. 그 밖에:
+
+- `Set`, `Multiset`, `Sequence`는 STRING 원소의 컬렉션으로 보냅니다. `str` 원소는
+  그대로, `int` 원소(`bool` 제외)는 십진 텍스트로, `None`은 NULL 원소로 보내며 서버가
+  컬럼의 원소 타입으로 변환합니다. 다른 원소 타입은 `ProgrammingError`를 냅니다.
+  10.2-11.4 브로커가 MULTISET 바인딩 종류를 거부(-454)하고 SET 종류는 중복을 버리므로
+  `Multiset`은 SEQUENCE 종류로 보냅니다.
+- 같은 연결의 `pycubrid.Lob`은 autocommit이 꺼져 있을 때만 핸들로 바인딩합니다.
+- 아무것도 보내기 전에 모든 행을 인코딩합니다. 거부된 값은 위치(`rows[i][j]`)만
+  밝히고 내용은 밝히지 않습니다. 값마다 자기 타입을 가지므로 한 컬럼이 어떤 행에서는
+  `int`, 다음 행에서는 `Decimal`이나 `None`을 가질 수 있습니다.
+- 다른 문은 `NotSupportedError`를 내며 리터럴 배치로 대체하지 않습니다.
 
 ---
 

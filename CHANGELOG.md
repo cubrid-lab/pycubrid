@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Opt-in prepared batch for `executemany()` (#839)** — `Cursor.executemany()`
+  and `AsyncCursor.executemany()` take a keyword-only `prepared=False`. With
+  `prepared=True`, an INSERT, UPDATE, DELETE or MERGE is sent as one `PREPARE`
+  and one `EXECUTE_ARRAY` request (function code 21) carrying every row's values
+  as typed host variables, instead of N rendered SQL literals. The #836
+  measurement puts it at 0.33-0.55x of the literal batch's time for 10,000-row
+  INSERT, UPDATE and DELETE batches on CUBRID 11.0-11.4 and 0.15-0.16x for
+  MERGE. Every row is still executed and only a failing row is undone,
+  autocommit still commits each successful row, the first failing row's error is
+  raised with the same exception mapping, and `rowcount` is the sum of the
+  per-row counts. Values use the #840 prepared types; one column may mix types
+  from row to row; `Set`/`Multiset`/`Sequence` are sent as string-element
+  collections (`Multiset` as SEQUENCE, because the broker rejects the MULTISET
+  bind kind). Every row is checked before anything is sent, and errors name the
+  position (`rows[i][j]`) but never the value. Other statements raise
+  `NotSupportedError` instead of falling back. A `pycubrid.Lob` value is bound
+  by its handle on the sync cursor with autocommit off; with autocommit on it
+  raises `NotSupportedError` before any request, because each row's commit
+  deletes the session's temporary LOB files and later rows would fail (-1016).
+  The async cursor rejects `Lob` values. The default `executemany()` is
+  unchanged. See [API_REFERENCE.md](docs/API_REFERENCE.md) and
+  [PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md).
 - **Wider typed prepared parameters (#840)** — `pycubrid.compat.native`
   `cursor.bind_param()` now sends `bool` (INT 1/0, the literal path's value),
   64-bit `int` (BIGINT), `int` past 64 bits up to 38 digits and `Decimal`

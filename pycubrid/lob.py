@@ -69,6 +69,9 @@ class Lob:
         self._lob_type = lob_type
         self._lob_handle = lob_handle
         self._closed = False
+        # Physical session the handle belongs to: a newly written LOB lives in
+        # a temporary file of that session only (#839).
+        self._generation: int | None = getattr(connection, "_physical_generation", None)
 
     @classmethod
     def create(cls, connection: _ConnectionLike, lob_type: int) -> Lob:

@@ -29,6 +29,7 @@ pycubrid가 구현하는 CUBRID CAS(Common Application Server) 와이어 프로�
   - [GetEngineVersionPacket](#getengineversionpacket)
   - [GetSchemaPacket](#getschemapacket)
   - [BatchExecutePacket](#batchexecutepacket)
+  - [ExecuteArrayPacket](#executearraypacket)
   - [LOBNewPacket](#lobnewpacket)
   - [LOBWritePacket](#lobwritepacket)
   - [LOBReadPacket](#lobreadpacket)
@@ -573,6 +574,31 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 |-----------|-------|------|
 | `results` | `list[tuple[int, int]]` | 문장별 `(stmt_type, result_count)` |
 | `errors`  | `list[dict]` | 실패한 문장의 `{code, message}` |
+
+---
+
+### ExecuteArrayPacket
+
+**배열 실행** (FC=21, #839) — 준비된 문 하나를 바인딩 값의 행마다 한 번씩 실행합니다.
+`executemany(..., prepared=True)`가 같은 세션의 `PREPARE`(FC=2) 뒤에 보냅니다.
+
+요청(CAS `fn_execute_array`): int 쿼리 핸들, int 쿼리 타임아웃(`0`, 프로토콜 V4 이상만),
+byte autocommit, 그 뒤 행 순서대로 행마다 표시마다 (타입 바이트, 값) 인자 쌍 하나씩.
+이 쌍은 `ExecutePacket`이 바인딩 하나에 쓰는 것과 같습니다. 모든 행은 서버의 바인딩
+개수와 정확히 같아야 합니다. CAS는 남는 값을 조용히 무시합니다.
+
+응답(CAS `ux_execute_array`): int 결과 코드, int 실행된 행 수, 그 뒤 행마다
+`int count >= 0`과 8바이트 OID, 또는 음수 int(V3 이상은 DBMS 오류 표시, 그 전은 오류
+코드 자체), 오류 코드(V3 이상), 길이 접두 메시지. V5 이상은 마지막에 shard id가 옵니다.
+CAS는 중단된 행을 보고한 뒤에만 일찍 멈추며, 그 밖의 짧은 응답은 잘못된 응답입니다.
+
+| 속성 | 타입  | 설명 |
+|-----------|-------|------|
+| `row_results` | `tuple[tuple[int, int, str], ...]` | 실행된 행마다 행 순서대로 `(count, 0, "")` 또는 `(-1, code, message)` |
+| `errors`  | `list[dict]` | 실패한 행의 `{code, message, index}` |
+
+autocommit이 켜져 있으면 CAS는 성공한 행마다 커밋하고 실패한 행마다 중단합니다.
+꺼져 있으면 교착 상태나 서버 종료가 요청 전체를 실패시킵니다.
 
 ---
 

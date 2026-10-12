@@ -12,6 +12,7 @@ from pycubrid._cursor_common import (
     CursorParamsMixin,
     DescriptionItem,
     DML_BATCH_VERBS,
+    check_prepared_batch_operation,
     extract_first_keyword,
     _raise_batch_error,
 )
@@ -31,7 +32,9 @@ from pycubrid.protocol import (
     FetchPacket,
     GetLastInsertIdPacket,
     PrepareAndExecutePacket,
+    _encode_prepared_rows,
 )
+from pycubrid.lob import Lob
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,6 +48,15 @@ if TYPE_CHECKING:
     _AsyncCursorBase = CursorParamsMixin[AsyncConnection]
 else:
     _AsyncCursorBase = CursorParamsMixin
+
+
+def _reject_async_lob(value: Any) -> None:
+    """Refuse ``Lob`` values: async connections have no LOB support."""
+    if issubclass(type(value), Lob):
+        raise NotSupportedError(
+            "LOB values are not supported by AsyncCursor.executemany(prepared=True)"
+        )
+    return None
 
 
 class AsyncCursor(_AsyncCursorBase):
@@ -73,6 +85,9 @@ class AsyncCursor(_AsyncCursorBase):
         self._fetch_size: int = connection._fetch_size
         self._timing = connection._timing
         self._invalidated_by_reconnect: bool = False
+        # Ordered (count, error code, message) per row of the last
+        # executemany(prepared=True); kept for per-row reporting (#839, #841).
+        self._batch_row_results: tuple[tuple[int, int, str], ...] | None = None
 
     @property
     def description(self) -> tuple[DescriptionItem, ...] | None:
@@ -183,6 +198,7 @@ class AsyncCursor(_AsyncCursorBase):
         self._total_tuple_count = 0
         self._rowcount = -1
         self._lastrowid = None
+        self._batch_row_results = None
 
         sql = operation
         expected_escape_generation = None
@@ -263,8 +279,21 @@ class AsyncCursor(_AsyncCursorBase):
         self,
         operation: str,
         seq_of_parameters: Sequence[Sequence[Any]],
+        *,
+        prepared: bool = False,
     ) -> AsyncCursor:
+        """Execute the same operation with multiple parameter sets.
+
+        ``prepared=True`` sends an INSERT, UPDATE, DELETE or MERGE as one
+        ``PREPARE`` and one ``EXECUTE_ARRAY`` request, as on the sync cursor
+        (#839). ``Lob`` values are not supported on this cursor.
+        """
         self._check_closed()
+        if type(prepared) is not bool:
+            raise ProgrammingError("prepared must be True or False")
+        if prepared:
+            await self._executemany_prepared(operation, seq_of_parameters)
+            return self
         if not seq_of_parameters:
             await self._release_handle()
             self._description = None
@@ -278,6 +307,7 @@ class AsyncCursor(_AsyncCursorBase):
             self._invalidated_by_reconnect = False
             self._rowcount = 0
             self._lastrowid = None
+            self._batch_row_results = None
             return self
 
         first_word = extract_first_keyword(operation)
@@ -307,6 +337,44 @@ class AsyncCursor(_AsyncCursorBase):
             sql_list, auto_commit=None, expected_escape_generation=expected_escape_generation
         )
         return self
+
+    async def _executemany_prepared(
+        self,
+        operation: str,
+        seq_of_parameters: Sequence[Sequence[Any]],
+    ) -> None:
+        """Run ``executemany(prepared=True)``: PREPARE + EXECUTE_ARRAY (#839)."""
+        connection = self._connection
+        sql = check_prepared_batch_operation(operation)
+        connection._check_encodable("SQL", sql)
+        rows = _encode_prepared_rows(seq_of_parameters, connection._encoding, _reject_async_lob)
+        if not rows:
+            await self.executemany(sql, ())
+            return
+        await connection._wait_for_setup_if_needed()
+        connection._ensure_connected()
+        # Release the previous result first, then probe, as the literal batch does (#485).
+        await self._release_handle()
+        generation = await connection._generation_for_binding()
+        self._description = None
+        self._columns = []
+        self._rows = []
+        self._row_index = 0
+        self._fetched_count = 0
+        self._page_error = None
+        self._total_tuple_count = 0
+        self._query_handle = None
+        self._rowcount = -1
+        self._lastrowid = None
+        self._batch_row_results = None
+        connection._last_insert_id = None
+        _LOGGER.debug("executemany(prepared=True): batch_size=%d", len(rows))
+        packet = await connection._prepare_and_execute_array(self, sql, rows, generation)
+        self._invalidated_by_reconnect = False
+        self._batch_row_results = packet.row_results
+        if packet.errors:
+            _raise_batch_error(packet.errors[0])
+        self._rowcount = sum(count for count, _code, _message in packet.row_results)
 
     async def executemany_batch(
         self,
@@ -350,6 +418,7 @@ class AsyncCursor(_AsyncCursorBase):
         self._query_handle = None
         self._rowcount = -1
         self._lastrowid = None
+        self._batch_row_results = None
 
         # A failed transport or response parse must not expose prior results.
         if expected_escape_generation is None:

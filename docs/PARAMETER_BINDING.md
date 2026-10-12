@@ -376,7 +376,8 @@ text, so some results differ from the literal path. Verified on CUBRID 10.2,
   column when it is out of range, and a TIME into a DATETIME target.
 - **Typed collections.** `Set`, `Multiset` and `Sequence` are rendered by the
   literal path but raise `ProgrammingError` in `bind_param()`; use
-  `connection.set()` and `bind_set()`.
+  `connection.set()` and `bind_set()`. `executemany(..., prepared=True)` sends
+  them as collections of string elements (see below).
 - **Integers past 38 digits** raise `DataError` before any I/O. The literal path
   sends the digits and the server rejects them (-494, "Invalid numeric").
 
@@ -529,6 +530,31 @@ For non-DML statements, `executemany` falls back to a per-row `execute` loop
 (`pycubrid/cursor.py:220-238`, `pycubrid/aio/cursor.py:176-187`).
 
 Each row is bound independently with the same type-mapping rules above.
+
+### `executemany(..., prepared=True)`
+
+With `prepared=True` (#839) no SQL is rendered. For `INSERT`, `UPDATE`,
+`DELETE` and `MERGE` the cursor sends one `PREPARE` and one `EXECUTE_ARRAY`
+request (function code 21) whose arguments are one type byte and value per
+marker per row, in row order. Values follow the
+[prepared host-variable mapping](#prepared-host-variable-mapping), with the
+same checks and the same differences from literals (host-variable coercion,
+`float` as DOUBLE, empty `bytes` rejected). In addition:
+
+- `Set`, `Multiset` and `Sequence` are sent as collections of STRING elements:
+  `str` elements as they are, `int` elements (not `bool`) as decimal text and
+  `None` as a NULL element; the server converts them to the column's element
+  type. Other element types raise `ProgrammingError`. A `Multiset` is sent with
+  the SEQUENCE kind, because the 10.2-11.4 brokers reject the MULTISET bind kind
+  (-454) and a SET kind would drop duplicates.
+- A `pycubrid.Lob` of the same connection is bound by its handle, only with
+  autocommit off.
+- Every row is encoded before anything is sent; a rejected value names its
+  position (`rows[i][j]`) and never its contents. Each value carries its own
+  type, so a column may hold an `int` in one row and a `Decimal` or `None` in
+  the next.
+- Other statements raise `NotSupportedError`; there is no fallback to the
+  literal batch.
 
 ---
 

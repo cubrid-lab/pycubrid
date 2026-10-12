@@ -1370,13 +1370,15 @@ cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 
 ---
 
-#### `executemany(operation, seq_of_parameters)`
+#### `executemany(operation, seq_of_parameters, *, prepared=False)`
 
 ```python
 def executemany(
     self,
     operation: str,
     seq_of_parameters: Sequence[Sequence[Any]],
+    *,
+    prepared: bool = False,
 ) -> Cursor
 ```
 
@@ -1393,6 +1395,62 @@ data = [("alice", 30), ("bob", 25), ("carol", 28)]
 cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 print(cur.rowcount)  # 3
 ```
+
+##### 준비된 배치: `prepared=True`
+
+`executemany(..., prepared=True)`(#839)는 `INSERT`, `UPDATE`, `DELETE`, `MERGE`를
+`PREPARE` 한 번과, 모든 행의 값을 타입이 있는 호스트 변수로 담은 `EXECUTE_ARRAY`
+요청(함수 코드 21) 한 번으로 보냅니다. 기본값(`prepared=False`)은 위의 리터럴 배치를
+그대로 사용합니다. CUBRID 11.0-11.4에서 10,000행 INSERT, UPDATE, DELETE 배치는 리터럴
+배치 시간의 0.33-0.55배, MERGE는 0.15-0.16배가 걸립니다
+([PERFORMANCE.md](PERFORMANCE.md#준비된-배치-경로-execute_array-평가) 참고).
+
+```python
+cur.executemany(
+    "INSERT INTO users (name, age) VALUES (?, ?)",
+    [("alice", 30), ("bob", None), ("carol", 2**40)],
+    prepared=True,
+)
+```
+
+- **문.** 첫 키워드가 `INSERT`, `UPDATE`, `DELETE`, `MERGE`인 문만 받습니다. 그 밖의 문
+  (`SELECT`, `CALL`, `WITH ... INSERT` 포함)은 `NotSupportedError`를 내며 리터럴
+  배치로 대체하지 않습니다. 모든 자리표시자는 서버가 타입을 정할 수 있어야 합니다.
+  `MERGE`의 소스에는 `CAST(? AS INT)`처럼 씁니다.
+- **값.** [PARAMETER_BINDING.md](PARAMETER_BINDING.md#prepared-호스트-변수-매핑)의
+  준비된 호스트 변수 타입입니다. `None`, `bool`, `int`(범위에 따라 INT, BIGINT,
+  NUMERIC), `float`, `Decimal`, `str`, 비어 있지 않은 `bytes`/`bytearray`, `date`,
+  `time`, `datetime`. 값마다 자기 타입 바이트를 가지므로 한 컬럼에 행마다 다른 타입을
+  섞을 수 있습니다. `pycubrid.types.Set`, `Multiset`, `Sequence`는 서버가 변환하는
+  문자열 원소(`str`, `int`, `None`)의 컬렉션으로 보냅니다. 브로커가 MULTISET 바인딩
+  종류를 거부하므로 `Multiset`은 SEQUENCE로 보냅니다. `pycubrid.Lob` 값은 autocommit이
+  꺼진 동기 커서에서 받습니다(아래 참고).
+- **전송 전 검사.** 요청을 보내기 전에 모든 행을 인코딩합니다. 시퀀스가 아닌 행, 길이가
+  다른 행, `?` 표시가 없는 문, 위 집합 밖의 값은 위치를 담아 예외(`ProgrammingError`,
+  `DataError`, `NotSupportedError`)를 냅니다. 예:
+  `rows[2][1]: nan and inf are not supported by CUBRID`. 메시지에 값 자체는 들어가지
+  않습니다. `PREPARE` 뒤 서버의 표시 개수가 행 길이와 다르면 `ProgrammingError`를 내고
+  어떤 행도 실행하지 않습니다.
+- **부분 실패와 `rowcount`.** 리터럴 배치처럼 서버는 모든 행을 실행하고 실패한 행만
+  되돌립니다. autocommit이 켜져 있으면 성공한 행마다 커밋하고, 꺼져 있으면 `commit()`은
+  성공한 행을 남기고 `rollback()`은 모두 지웁니다. 첫 실패 행의 오류를 리터럴 배치와
+  같은 예외 매핑으로 내고 `rowcount`는 `-1`로 둡니다. 성공하면 `rowcount`는 행별
+  개수의 합입니다. `lastrowid`는 `None`입니다. autocommit이 꺼진 상태에서 교착 상태나
+  서버 종료가 일어나면 트랜잭션 전체가 중단되고 요청 전체가 실패합니다.
+- **서버 메시지.** 값은 리터럴이 아니라 호스트 변수로 변환되므로 변환 오류는
+  "Cannot coerce host var to type ..."(오류 -494, 리터럴 배치와 같은 예외 클래스)로
+  나옵니다.
+- **LOB 값.** 이 연결의 `create_lob()`으로 만든 `Lob`은 핸들로 바인딩합니다.
+  autocommit이 켜져 있으면 행마다의 커밋이 세션의 임시 LOB 파일을 모두 지워 두 번째
+  행이 -1016으로 실패하므로, `Lob`이 든 배치는 아무것도 보내기 전에
+  `NotSupportedError`를 냅니다. autocommit을 끄고 배치 뒤 `commit()`을 호출하십시오.
+  닫혔거나, 다른 연결의 것이거나, 재접속 전에 만든 `Lob`은 `InterfaceError`를 냅니다.
+  비동기 커서는 `Lob` 값을 `NotSupportedError`로 거부합니다.
+- **핸들.** 준비된 문 핸들은 다른 결과와 같이 해제됩니다. 커서의 다음 문,
+  `commit()`/`rollback()`, `close()`에서 해제됩니다.
+
+`prepared=False`는 리터럴 배치의 동작을 모두 유지합니다. bool이 아닌 `prepared`는
+`ProgrammingError`를 냅니다. `AsyncCursor.executemany()`에도 같은 계약이 적용됩니다.
 
 ---
 
@@ -1805,7 +1863,7 @@ if not await conn.ping(reconnect=False):
 | 메서드 | 시그니처 | 비고 |
 |---|---|---|
 | `execute()` | `async def execute(self, operation: str, parameters: Sequence[Any] \| None = None) -> AsyncCursor` | 시퀀스 전용 파라미터 바인딩, 동기 커서와 동일 규칙 |
-| `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]]) -> AsyncCursor` | 비-SELECT 문용 배치 경로 |
+| `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]], *, prepared: bool = False) -> AsyncCursor` | 비-SELECT 문용 배치 경로. `prepared=True`는 PREPARE + EXECUTE_ARRAY를 보냅니다(`Lob` 값 불가) |
 | `fetchone()` | `async def fetchone(self) -> tuple[Any, ...] \| None` | 한 행 또는 `None` 반환 |
 | `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | 생략/`None`은 `arraysize` 사용; 일반 `int`만 허용하고 0·음수는 `[]` 반환 |
 | `fetchall()` | `async def fetchall(self) -> list[tuple[Any, ...]]` | 남은 행 반환 |

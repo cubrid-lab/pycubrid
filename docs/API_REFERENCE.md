@@ -1424,13 +1424,15 @@ cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 
 ---
 
-#### `executemany(operation, seq_of_parameters)`
+#### `executemany(operation, seq_of_parameters, *, prepared=False)`
 
 ```python
 def executemany(
     self,
     operation: str,
     seq_of_parameters: Sequence[Sequence[Any]],
+    *,
+    prepared: bool = False,
 ) -> Cursor
 ```
 
@@ -1450,6 +1452,73 @@ data = [("alice", 30), ("bob", 25), ("carol", 28)]
 cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 print(cur.rowcount)  # 3
 ```
+
+##### Prepared batch: `prepared=True`
+
+`executemany(..., prepared=True)` (#839) sends an `INSERT`, `UPDATE`, `DELETE`
+or `MERGE` as one `PREPARE` and one `EXECUTE_ARRAY` request (function code 21)
+that carries every row's values as typed host variables. The default
+(`prepared=False`) keeps the literal batch described above. On CUBRID 11.0-11.4
+it takes 0.33-0.55x of the literal batch's time for 10,000-row INSERT, UPDATE and
+DELETE batches and 0.15-0.16x for MERGE (see
+[PERFORMANCE.md](PERFORMANCE.md#prepared-batch-paths-the-execute_array-evaluation)).
+
+```python
+cur.executemany(
+    "INSERT INTO users (name, age) VALUES (?, ?)",
+    [("alice", 30), ("bob", None), ("carol", 2**40)],
+    prepared=True,
+)
+```
+
+- **Statements.** Only statements whose first keyword is `INSERT`, `UPDATE`,
+  `DELETE` or `MERGE` are accepted; anything else (including `SELECT`, `CALL`
+  and `WITH ... INSERT`) raises `NotSupportedError`. There is no fallback to the
+  literal batch. Every placeholder must be a value the server can type: in a
+  `MERGE` source, write `CAST(? AS INT)`.
+- **Values.** The prepared host-variable types of
+  [PARAMETER_BINDING.md](PARAMETER_BINDING.md#prepared-host-variable-mapping):
+  `None`, `bool`, `int` (INT, BIGINT or NUMERIC by range), `float`, `Decimal`,
+  `str`, non-empty `bytes`/`bytearray`, `date`, `time` and `datetime`. Each value
+  carries its own type byte, so one column may mix types from row to row.
+  `pycubrid.types.Set`, `Multiset` and `Sequence` are sent as collections of
+  string elements (`str`, `int` or `None`) that the server converts; a `Multiset`
+  is sent as a SEQUENCE, because the broker rejects the MULTISET bind kind.
+  `pycubrid.Lob` values are accepted on the sync cursor with autocommit off (see
+  below).
+- **Checks before send.** Every row is encoded before any request: a row that is
+  not a sequence, rows of different lengths, a statement without `?` markers or a
+  value outside the set above raises (`ProgrammingError`, `DataError` or
+  `NotSupportedError`) with its position, for example
+  `rows[2][1]: nan and inf are not supported by CUBRID`. The value itself never
+  appears in the message. After `PREPARE`, a server marker count different from
+  the row length raises `ProgrammingError` and no row is executed.
+- **Partial failure and `rowcount`.** As with the literal batch, the server runs
+  every row and undoes only a failing one. With autocommit on, each successful
+  row is committed; with autocommit off, `commit()` keeps the successful rows and
+  `rollback()` removes them all. The first failing row's error is raised with the
+  same exception mapping as the literal batch and `rowcount` stays `-1`. On
+  success `rowcount` is the sum of the per-row counts. `lastrowid` is `None`.
+  With autocommit off, a deadlock or a server shutdown aborts the whole
+  transaction and fails the whole request.
+- **Server text.** Values are coerced as host variables, not as literals, so a
+  conversion error reads "Cannot coerce host var to type ..." (error -494, the
+  same exception class as the literal batch).
+- **LOB values.** A `Lob` from this connection's `create_lob()` is bound by its
+  handle. With autocommit on, each row's commit removes every temporary LOB file
+  of the session and the second row would fail with -1016, so a batch that
+  contains a `Lob` raises `NotSupportedError` before anything is sent: turn
+  autocommit off and call `commit()` after the batch. A `Lob` that is closed,
+  belongs to another connection or was created before a reconnect raises
+  `InterfaceError`. The async cursor rejects `Lob` values with
+  `NotSupportedError`.
+- **Handles.** The prepared statement handle is released like any other result:
+  with the next statement on the cursor, by `commit()`/`rollback()`, or by
+  `close()`.
+
+`prepared=False` keeps every behaviour of the literal batch. A non-bool
+`prepared` raises `ProgrammingError`. The same contract applies to
+`AsyncCursor.executemany()`.
 
 ---
 
@@ -1876,7 +1945,7 @@ Async counterpart to `Cursor`.
 | Method | Signature | Notes |
 |---|---|---|
 | `execute()` | `async def execute(self, operation: str, parameters: Sequence[Any] \| None = None) -> AsyncCursor` | Sequence-only parameter binding, same rules as sync cursor |
-| `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]]) -> AsyncCursor` | Batch path for non-SELECT statements |
+| `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]], *, prepared: bool = False) -> AsyncCursor` | Batch path for non-SELECT statements; `prepared=True` sends PREPARE + EXECUTE_ARRAY (no `Lob` values) |
 | `fetchone()` | `async def fetchone(self) -> tuple[Any, ...] \| None` | Returns one row or `None` |
 | `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | Omitted/`None` uses `arraysize`; plain `int` required, nonpositive integers return `[]` |
 | `fetchall()` | `async def fetchall(self) -> list[tuple[Any, ...]]` | Returns remaining rows |

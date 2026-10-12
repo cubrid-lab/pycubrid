@@ -16,6 +16,7 @@ from decimal import Decimal
 from typing import Any, Callable, Sequence
 
 from ._cursor_common import (
+    _COLLECTION_ELEMENTS,
     _DATE_DAY,
     _DATE_MONTH,
     _DATE_YEAR,
@@ -52,6 +53,8 @@ from .exceptions import (
     OperationalError,
     ProgrammingError,
 )
+from .types import Multiset, Set, _Collection
+from .types import Sequence as SequenceParam
 from .packet import (
     _STRUCT_INT,
     PacketReader,
@@ -502,6 +505,127 @@ class _PreparedLob:
     def payload(self) -> bytes:
         """Return the exact FC3 value argument (without its own length prefix)."""
         return self.packed_handle
+
+
+_PreparedBinding = _PreparedScalar | _PreparedCollection | _PreparedLob
+
+# The 10.2-11.4 brokers reject the MULTISET bind kind (-454: cas_execute.c
+# wraps it with db_make_set()) and a SET kind drops duplicates, so a Multiset
+# is sent as SEQUENCE, as compat.native does; the server stores it into a
+# MULTISET column with its duplicates.
+_COLLECTION_PARAM_TYPE_CODES: dict[type, int] = {
+    Set: CUBRIDDataType.SET,
+    Multiset: CUBRIDDataType.SEQUENCE,
+    SequenceParam: CUBRIDDataType.SEQUENCE,
+}
+
+
+def _write_prepared_binding(writer: PacketWriter, binding: Any, encoding: str) -> None:
+    """Write one (type byte, value) argument pair of an FC3 or FC21 request."""
+    text_encoding: str | None = None
+    if isinstance(binding, _PreparedScalar):
+        if binding.type_code == CUBRIDDataType.CHAR:
+            text_encoding = binding.encoding
+    elif isinstance(binding, _PreparedCollection):
+        if binding.element_type == CUBRIDDataType.STRING:
+            text_encoding = binding.encoding
+    elif not isinstance(binding, _PreparedLob):  # a LOB handle is not text
+        raise ProgrammingError("invalid prepared parameter encoding")
+    if text_encoding is not None and text_encoding != encoding:
+        raise ProgrammingError("prepared string was encoded for a different charset")
+    writer.add_byte(binding.type_code)
+    writer.add_bytes(binding.payload)
+
+
+def _encode_prepared_value(value: Any, encoding: str = "utf-8") -> _PreparedBinding:
+    """Encode one ``executemany(prepared=True)`` value as a typed bind (#839).
+
+    A ``pycubrid.types`` ``Set``, ``Multiset`` (sent as SEQUENCE) or
+    ``Sequence`` becomes a collection of STRING elements that the server converts to the column's
+    element type, as ``compat.native`` sends imported sets: ``str`` elements
+    as they are, ``int`` elements (not ``bool``) as decimal text and ``None``
+    as a NULL element. Every other value goes through
+    :func:`_encode_prepared_scalar`.
+    """
+    cls = type(value)
+    type_code = _COLLECTION_PARAM_TYPE_CODES.get(cls)
+    if type_code is None:
+        if issubclass(cls, (list, tuple, set, frozenset, dict)):
+            raise ProgrammingError(
+                "cannot bind a list/tuple/set/frozenset/dict as a single parameter; "
+                "wrap the elements in pycubrid.types.Set, Multiset or Sequence"
+            )
+        return _encode_prepared_scalar(value, encoding)
+    try:
+        elements = _COLLECTION_ELEMENTS(value)
+    except AttributeError:
+        raise ProgrammingError(
+            f"{cls.__name__} parameter is missing its elements; it was not "
+            f"constructed through {cls.__name__}(...)"
+        ) from None
+    if type(elements) is not tuple:
+        raise ProgrammingError("collection parameter elements must be a tuple")
+    texts: list[str | None] = []
+    for element in elements:
+        element_cls = type(element)
+        if element is None:
+            texts.append(None)
+        elif issubclass(element_cls, _Collection):
+            raise ProgrammingError("nested collection parameters are not supported")
+        elif issubclass(element_cls, str):
+            texts.append(str.__str__(element))
+        elif issubclass(element_cls, int) and element_cls is not bool:
+            number = int.__index__(element)
+            if not -_NUMERIC_LIMIT < number < _NUMERIC_LIMIT:
+                raise DataError("prepared integer element needs more than 38 digits")
+            texts.append(int.__repr__(number))
+        else:
+            raise ProgrammingError("unsupported prepared collection element type")
+    return _encode_prepared_collection(tuple(texts), type_code, CUBRIDDataType.STRING, encoding)
+
+
+def _encode_prepared_rows(
+    seq_of_parameters: Any,
+    encoding: str,
+    bind_other: Callable[[Any], _PreparedBinding | None] | None = None,
+) -> tuple[tuple[_PreparedBinding, ...], ...]:
+    """Encode every row of ``executemany(prepared=True)`` before any I/O (#839).
+
+    Each row must be a sequence (not ``str``/``bytes``) and every row must
+    have the same length, at least one. ``bind_other`` is tried first for
+    each value (the cursors pass their ``Lob`` handling); it returns ``None``
+    for values it does not handle. A rejected value names its position as
+    ``rows[i][j]`` in the message and never echoes the value.
+    """
+    if not isinstance(seq_of_parameters, Sequence) or isinstance(
+        seq_of_parameters, (str, bytes, bytearray)
+    ):
+        raise ProgrammingError("seq_of_parameters must be a sequence of parameter sequences")
+    encoded_rows: list[tuple[_PreparedBinding, ...]] = []
+    width: int | None = None
+    for i, row in enumerate(seq_of_parameters):
+        if not isinstance(row, Sequence) or isinstance(row, (str, bytes, bytearray)):
+            raise ProgrammingError(f"rows[{i}]: parameters must be a sequence")
+        values = list(row)
+        if width is None:
+            if not values:
+                raise NotSupportedError(
+                    "executemany(prepared=True) needs at least one ? parameter marker"
+                )
+            width = len(values)
+        elif len(values) != width:
+            raise ProgrammingError(f"rows[{i}]: wrong number of parameters")
+        bindings: list[_PreparedBinding] = []
+        for j, value in enumerate(values):
+            try:
+                binding = None if bind_other is None else bind_other(value)
+                if binding is None:
+                    binding = _encode_prepared_value(value, encoding)
+            except (DataError, InterfaceError, NotSupportedError, ProgrammingError) as exc:
+                raise type(exc)(f"rows[{i}][{j}]: {exc.msg}") from None
+            bindings.append(binding)
+        encoded_rows.append(tuple(bindings))
+    return tuple(encoded_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -1716,19 +1840,7 @@ class ExecutePacket(_CasPacket):
         writer.add_cache_time()
         writer.add_int(0)  # query timeout
         for binding in self.bindings:
-            text_encoding: str | None = None
-            if isinstance(binding, _PreparedScalar):
-                if binding.type_code == CUBRIDDataType.CHAR:
-                    text_encoding = binding.encoding
-            elif isinstance(binding, _PreparedCollection):
-                if binding.element_type == CUBRIDDataType.STRING:
-                    text_encoding = binding.encoding
-            elif not isinstance(binding, _PreparedLob):  # a LOB handle is not text
-                raise ProgrammingError("invalid prepared parameter encoding")
-            if text_encoding is not None and text_encoding != self.encoding:
-                raise ProgrammingError("prepared string was encoded for a different charset")
-            writer.add_byte(binding.type_code)
-            writer.add_bytes(binding.payload)
+            _write_prepared_binding(writer, binding, self.encoding)
         return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray, columns: list[ColumnMetaData] | None = None) -> None:
@@ -2069,6 +2181,101 @@ class BatchExecutePacket(_CasPacket):
                 reader._parse_short()  # unused
         if self.protocol_version > 4:
             _ = reader._parse_int()  # lastShardId
+
+
+class ExecuteArrayPacket(_CasPacket):
+    """Execute a prepared statement once per row of bound values (FC=21, #839).
+
+    Request (CAS ``fn_execute_array``, JDBC ``UStatement``
+    ``writeExecuteBatchRequest``): int query handle, int query timeout for
+    protocol V4+, byte autocommit, then one (type byte, value) argument pair
+    per marker per row, in row order, the pair ``ExecutePacket`` writes.
+
+    Reply (CAS ``ux_execute_array``): int result code, int executed row
+    count, then per row either ``int count >= 0`` and an 8-byte OID, or a
+    negative int (the DBMS error indicator for V3+, else the error code), the
+    error code for V3+ and a length-prefixed message; shard id for V5+ last.
+    The server executes every row and undoes only a failing one (it stops
+    early only after an interrupted row, which it reports), so
+    ``row_results`` keeps one ``(count, error_code, message)`` per executed
+    row, in order: ``(count, 0, "")`` on success and ``(-1, code, message)``
+    on failure. ``errors`` holds the failures as ``{"code", "message",
+    "index"}`` for :func:`_raise_batch_error`.
+    """
+
+    def __init__(
+        self,
+        query_handle: int,
+        rows: Sequence[Sequence[_PreparedBinding]],
+        *,
+        auto_commit: bool,
+        bind_count: int,
+        protocol_version: int = CASProtocol.VERSION,
+    ) -> None:
+        self.query_handle = query_handle
+        self.rows = rows
+        self.auto_commit = auto_commit
+        self.bind_count = bind_count
+        self.protocol_version = protocol_version
+        self.row_results: tuple[tuple[int, int, str], ...] = ()
+        self.errors: list[dict[str, Any]] = []
+
+    def write(self, cas_info: bytes) -> bytes:
+        """Serialize the execute-array request."""
+        if not isinstance(self.auto_commit, bool):
+            raise ProgrammingError("prepared autocommit must be a boolean")
+        if (
+            isinstance(self.bind_count, bool)
+            or not isinstance(self.bind_count, int)
+            or self.bind_count < 1
+        ):
+            raise ProgrammingError("prepared batch bind count must be a positive integer")
+        if not self.rows:
+            raise ProgrammingError("prepared batch needs at least one row")
+        if any(len(row) != self.bind_count for row in self.rows):
+            raise ProgrammingError("prepared parameter count does not match server bind count")
+        writer = PacketWriter()
+        writer._write_byte(CASFunctionCode.EXECUTE_ARRAY)
+        writer.add_int(self.query_handle)
+        if self.protocol_version > 3:
+            writer.add_int(0)  # query timeout
+        writer.add_byte(1 if self.auto_commit else 0)
+        for row in self.rows:
+            for binding in row:
+                _write_prepared_binding(writer, binding, self.encoding)
+        return writer.finalize(cas_info)
+
+    def parse(self, data: bytes | bytearray) -> None:
+        """Parse the execute-array response."""
+        reader = PacketReader(data, encoding=self.encoding)
+        reader._skip_bytes(DataSize.CAS_INFO)
+        response_code = reader._parse_int()
+        if response_code < 0:
+            _raise_error(reader, len(data) - 8)
+        executed_count = reader._parse_int()
+        if not 0 <= executed_count <= len(self.rows):
+            raise ValueError("invalid execute-array row count")
+        results: list[tuple[int, int, str]] = []
+        self.errors = []
+        for index in range(executed_count):
+            result = reader._parse_int()
+            if result < 0:
+                error_code = reader._parse_int() if self.protocol_version > 2 else result
+                message_size = reader._parse_int()
+                if message_size < 0 or message_size > reader.bytes_remaining():
+                    raise ValueError("invalid execute-array error length")
+                message = reader._parse_lenient_text(message_size)
+                results.append((-1, error_code, message))
+                self.errors.append({"code": error_code, "message": message, "index": index})
+            else:
+                _ = reader._parse_bytes(DataSize.OID)
+                results.append((result, 0, ""))
+        if self.protocol_version > 4:
+            _ = reader._parse_int()  # shard_id
+        if executed_count < len(self.rows) and (not results or results[-1][0] >= 0):
+            # CAS stops early only after an interrupted row, which it reports.
+            raise ValueError("execute-array reply covers fewer rows than sent")
+        self.row_results = tuple(results)
 
 
 class LOBNewPacket(_CasPacket):

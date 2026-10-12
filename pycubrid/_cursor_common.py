@@ -23,6 +23,7 @@ from .exceptions import (
     IntegrityError,
     InterfaceError,
     InternalError,
+    NotSupportedError,
     OperationalError,
     ProgrammingError,
 )
@@ -97,6 +98,26 @@ def extract_first_keyword(sql: str) -> str:
     if not stripped:
         return ""
     return stripped.split(None, 1)[0].upper()
+
+
+def check_prepared_batch_operation(operation: object) -> str:
+    """Return the SQL of ``executemany(prepared=True)`` after its checks (#839).
+
+    Only INSERT, UPDATE, DELETE and MERGE are sent as ``PREPARE`` +
+    ``EXECUTE_ARRAY``; every other statement raises ``NotSupportedError``
+    instead of falling back to the literal path. A ``str`` subclass is read
+    through ``str.__str__()``, so its overrides cannot change the SQL.
+    """
+    if not isinstance(operation, str):
+        raise ProgrammingError("prepared SQL must be a string without NUL")
+    operation = str.__str__(operation)
+    if "\x00" in operation:
+        raise ProgrammingError("prepared SQL must be a string without NUL")
+    if extract_first_keyword(operation) not in DML_BATCH_VERBS:
+        raise NotSupportedError(
+            "executemany(prepared=True) supports only INSERT, UPDATE, DELETE and MERGE"
+        )
+    return operation
 
 
 def split_on_placeholders(sql: str, *, no_backslash_escapes: bool = True) -> list[str]:

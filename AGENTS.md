@@ -112,6 +112,18 @@ MULTISET kind with -454. The public #440 `imports()` matches the official
 bytes: STRING elements whatever the requested type, default kind SET, and
 `kind=MULTISET` sent as SEQUENCE.
 
+EXECUTE_ARRAY (FC21, `ExecuteArrayPacket`; #839, public as
+`executemany(..., prepared=True)` on both cursors) sends int handle, int timeout
+(V4+), byte autocommit, then the FC3 (type, value) pair per marker per row in
+row order, from `_encode_prepared_value` (scalars as above; `Set`/`Sequence`
+and `Multiset`-as-SEQUENCE with STRING elements). The CAS ignores extra values,
+so rows are checked against the PREPARE bind count first. The reply is per row
+`count + 8-byte OID` or `-1, code, len, message` (V3+), then shard id (V5+);
+it stops early only after a reported interrupted row. Every row runs and only a
+failing row is undone; autocommit commits per row, which deletes the session's
+temp LOB files, so `Lob` values are refused with autocommit on. The cursor owns
+the PREPARE handle at once so #488/#584 release paths free it.
+
 Typed LOB-handle FC3 binds (#441; public only through `compat.native`
 `lob()`/`fetch_lob()`/`bind_lob()`) send BLOB `23`/CLOB `24` as the
 type argument and the packed handle `[int32 db_type 33/34][int64 size][int32
@@ -169,6 +181,9 @@ heterogeneous failover.
    limit later requests.
 3. **OpenDatabase**: Send db/user/password (628 bytes payload, no header — `PacketWriter(reserve_header=False)`)
 4. **PrepareAndExecute / Prepare+Execute → Fetch → CloseQuery → EndTran → CloseDatabase**
+   `executemany()` sends one EXECUTE_BATCH (FC20) of rendered literals by default;
+   `executemany(..., prepared=True)` (#839) sends PREPARE (FC2) + EXECUTE_ARRAY (FC21)
+   under one session-lock hold instead.
 
 ### Key Constants
 

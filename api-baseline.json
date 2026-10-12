@@ -2604,6 +2604,11 @@
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "seq_of_parameters"
+            },
+            {
+              "has_default": true,
+              "kind": "KEYWORD_ONLY",
+              "name": "prepared"
             }
           ]
         }
@@ -5795,6 +5800,11 @@
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "seq_of_parameters"
+            },
+            {
+              "has_default": true,
+              "kind": "KEYWORD_ONLY",
+              "name": "prepared"
             }
           ]
         }

@@ -13,6 +13,7 @@ from ._cursor_common import (
     CursorParamsMixin,
     DescriptionItem,
     DML_BATCH_VERBS,
+    check_prepared_batch_operation,
     extract_first_keyword,
     _raise_batch_error,
     split_on_placeholders,
@@ -32,7 +33,10 @@ from .protocol import (
     FetchPacket,
     GetLastInsertIdPacket,
     PrepareAndExecutePacket,
+    _PreparedLob,
+    _encode_prepared_rows,
 )
+from .lob import Lob
 
 if TYPE_CHECKING:
     from .connection import Connection
@@ -79,6 +83,9 @@ class Cursor(_CursorBase):
         self._fetch_size: int = connection._fetch_size
         self._timing = connection._timing
         self._invalidated_by_reconnect: bool = False
+        # Ordered (count, error code, message) per row of the last
+        # executemany(prepared=True); kept for per-row reporting (#839, #841).
+        self._batch_row_results: tuple[tuple[int, int, str], ...] | None = None
 
     @property
     def description(self) -> tuple[DescriptionItem, ...] | None:
@@ -201,6 +208,7 @@ class Cursor(_CursorBase):
         self._total_tuple_count = 0
         self._rowcount = -1
         self._lastrowid = None
+        self._batch_row_results = None
 
         sql = operation
         bound_generation = None
@@ -279,16 +287,29 @@ class Cursor(_CursorBase):
         self,
         operation: str,
         seq_of_parameters: Sequence[Sequence[Any]],
+        *,
+        prepared: bool = False,
     ) -> Cursor:
         """Execute the same operation repeatedly with multiple parameter sets.
 
-        For DML statements (INSERT, UPDATE, DELETE) the driver renders all
-        parameter sets into complete SQL strings and sends them as a single
-        batch request via ``BatchExecutePacket``, reducing N network
+        For DML statements (INSERT, UPDATE, DELETE, MERGE) the driver renders
+        all parameter sets into complete SQL strings and sends them as a
+        single batch request via ``BatchExecutePacket``, reducing N network
         round-trips to one.  SELECT statements fall back to the per-row loop
         to preserve cursor result-set semantics.
+
+        With ``prepared=True`` an INSERT, UPDATE, DELETE or MERGE is sent as
+        one ``PREPARE`` and one ``EXECUTE_ARRAY`` request carrying every row's
+        values as typed host variables (#839). Every row is encoded before
+        anything is sent; other statements raise ``NotSupportedError``. See
+        ``docs/API_REFERENCE.md`` for the accepted types and semantics.
         """
         self._check_closed()
+        if type(prepared) is not bool:
+            raise ProgrammingError("prepared must be True or False")
+        if prepared:
+            self._executemany_prepared(operation, seq_of_parameters)
+            return self
         if not seq_of_parameters:
             self._release_handle()
             self._description = None
@@ -302,6 +323,7 @@ class Cursor(_CursorBase):
             self._invalidated_by_reconnect = False
             self._rowcount = 0
             self._lastrowid = None
+            self._batch_row_results = None
             return self
 
         # Use DML whitelist: only batch for known DML verbs.
@@ -320,6 +342,59 @@ class Cursor(_CursorBase):
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
         self._executemany_batch(sql_list, None, bound_generation=bound_generation)
         return self
+
+    def _bind_prepared_lob(self, value: Any) -> _PreparedLob | None:
+        """Return a ``Lob`` of this connection as a typed bind, else ``None``."""
+        if not issubclass(type(value), Lob):
+            return None
+        if value._closed:
+            raise InterfaceError("LOB is closed")
+        if value._connection is not self._connection:
+            raise InterfaceError("LOB binding belongs to another connection")
+        if self._connection._autocommit:
+            raise NotSupportedError(
+                "LOB values require autocommit off in executemany(prepared=True)"
+            )
+        return _PreparedLob(value.lob_type, value.lob_handle, self._connection, value._generation)
+
+    def _executemany_prepared(
+        self,
+        operation: str,
+        seq_of_parameters: Sequence[Sequence[Any]],
+    ) -> None:
+        """Run ``executemany(prepared=True)``: PREPARE + EXECUTE_ARRAY (#839)."""
+        connection = self._connection
+        sql = check_prepared_batch_operation(operation)
+        connection._check_encodable("SQL", sql)
+        rows = _encode_prepared_rows(
+            seq_of_parameters, connection._encoding, self._bind_prepared_lob
+        )
+        if not rows:
+            self.executemany(sql, ())
+            return
+        connection._ensure_connected()
+        # Release the previous result first, then probe, as the literal batch does (#485).
+        self._release_handle()
+        generation = connection._generation_for_binding()
+        self._description = None
+        self._columns = []
+        self._rows = []
+        self._row_index = 0
+        self._fetched_count = 0
+        self._page_error = None
+        self._total_tuple_count = 0
+        self._query_handle = None
+        self._rowcount = -1
+        self._lastrowid = None
+        self._batch_row_results = None
+        connection._last_insert_id = None
+        _LOGGER.debug("executemany(prepared=True): batch_size=%d", len(rows))
+        packet = connection._prepare_and_execute_array(self, sql, rows, generation)
+        self._invalidated_by_reconnect = False
+        self._batch_row_results = packet.row_results
+        if packet.errors:
+            _raise_batch_error(packet.errors[0])
+        self._rowcount = sum(count for count, _code, _message in packet.row_results)
 
     def _executemany_loop(
         self,
@@ -380,6 +455,7 @@ class Cursor(_CursorBase):
         self._query_handle = None
         self._rowcount = -1
         self._lastrowid = None
+        self._batch_row_results = None
 
         # A failed transport or response parse must not expose prior results.
         if bound_generation is None:

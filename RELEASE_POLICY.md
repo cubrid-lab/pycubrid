@@ -301,6 +301,17 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Opt-in prepared `executemany()` batch (#839)** — MINOR / additive. `Cursor`
+  and `AsyncCursor` `executemany()` gain a keyword-only `prepared: bool = False`.
+  With the default, `executemany()` sends the same literal `EXECUTE_BATCH`
+  request and behaves exactly as before. `prepared=True` sends INSERT, UPDATE,
+  DELETE and MERGE as `PREPARE` + `EXECUTE_ARRAY` with typed host variables,
+  keeps the literal batch's transaction, partial-failure, error-mapping and
+  `rowcount` semantics, and raises `NotSupportedError` for other statements and
+  for `Lob` values under autocommit. New behaviour is reachable only through the
+  new keyword; the public API baseline gains one keyword-only parameter per
+  cursor.
+
 - **Wider typed prepared parameters (#840)** — MINOR / additive, within the
   provisional `pycubrid.compat` namespace. `pycubrid.compat.native`
   `cursor.bind_param()` accepts `bool`, 64-bit and up to 38-digit `int`,

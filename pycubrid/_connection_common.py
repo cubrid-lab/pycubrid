@@ -27,7 +27,7 @@ import weakref
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from .constants import DataSize
+from .constants import CUBRIDStatementType, DataSize
 from .exceptions import (
     DatabaseError,
     DataError,
@@ -45,6 +45,7 @@ from .packet import _codec_label, _encode_text, _unencodable_message
 from .protocol import (
     CloseQueryPacket,
     CommitPacket,
+    ExecuteArrayPacket,
     ExecutePacket,
     FetchPacket,
     GetEngineVersionPacket,
@@ -55,6 +56,8 @@ from .protocol import (
     PrepareAndExecutePacket,
     PreparePacket,
     RollbackPacket,
+    _PreparedBinding,
+    _PreparedLob,
     _SchemaColumn,
 )
 
@@ -333,6 +336,44 @@ def resolve_ssl_context(
 _resolve_ssl_context = resolve_ssl_context
 
 
+def _check_prepared_lobs(
+    rows: tuple[tuple[_PreparedBinding, ...], ...],
+    owner: object,
+    generation: int,
+    auto_commit: bool,
+) -> None:
+    """Check the LOB handles of ``executemany(prepared=True)`` before send (#839).
+
+    With autocommit on, each row's commit removes every temporary LOB file
+    of the session, so the second row's handle would fail (-1016): such a
+    batch is refused. A handle is valid only on the physical session that
+    wrote it.
+    """
+    for i, row in enumerate(rows):
+        for j, binding in enumerate(row):
+            if not isinstance(binding, _PreparedLob):
+                continue
+            if auto_commit:
+                raise NotSupportedError(
+                    f"rows[{i}][{j}]: LOB values require autocommit off in "
+                    "executemany(prepared=True)"
+                )
+            if binding.owner is not owner or binding.generation != generation:
+                raise InterfaceError(
+                    f"rows[{i}][{j}]: LOB binding belongs to another physical session"
+                )
+
+
+def _check_prepared_batch_statement(prepare: PreparePacket, width: int) -> None:
+    """Check a ``PREPARE`` reply of ``executemany(prepared=True)`` before FC21."""
+    if prepare.statement_type == CUBRIDStatementType.SELECT:
+        raise NotSupportedError(
+            "executemany(prepared=True) supports only INSERT, UPDATE, DELETE and MERGE"
+        )
+    if prepare.bind_count != width:
+        raise ProgrammingError("wrong number of parameters")
+
+
 class ConnectionCommonMixin:
     """Mixin providing shared state and pure helpers for Connection classes."""
 
@@ -602,7 +643,10 @@ class ConnectionCommonMixin:
         ):
             return
         ends_transaction = isinstance(packet, (CommitPacket, RollbackPacket))
-        if isinstance(packet, (PrepareAndExecutePacket, ExecutePacket, GetEngineVersionPacket)):
+        if isinstance(
+            packet,
+            (PrepareAndExecutePacket, ExecutePacket, ExecuteArrayPacket, GetEngineVersionPacket),
+        ):
             ends_transaction = packet.auto_commit
         elif isinstance(packet, PreparePacket):
             # ux_prepare's error path auto-rolls back; a successful prepare
@@ -695,6 +739,10 @@ class ConnectionCommonMixin:
                 "lastrowid is unavailable for the preceding INSERT"
             )
             raise OperationalError("last insert id lost due to broker reconnect")
+        if isinstance(packet, ExecuteArrayPacket):
+            raise OperationalError(
+                "prepared batch handle lost due to broker reconnect; retry executemany()"
+            )
         if isinstance(packet, (LOBReadPacket, LOBWritePacket)):
             raise OperationalError("LOB handle lost due to broker reconnect; fetch the LOB again")
         if isinstance(packet, FetchPacket):

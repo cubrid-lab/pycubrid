@@ -27,6 +27,7 @@ Technical documentation for the CUBRID CAS (Common Application Server) wire prot
   - [GetEngineVersionPacket](#getengineversionpacket)
   - [GetSchemaPacket](#getschemapacket)
   - [BatchExecutePacket](#batchexecutepacket)
+  - [ExecuteArrayPacket](#executearraypacket)
   - [LOBNewPacket](#lobnewpacket)
   - [LOBWritePacket](#lobwritepacket)
   - [LOBReadPacket](#lobreadpacket)
@@ -601,6 +602,34 @@ and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63a
 |-----------|-------|-------------|
 | `results` | `list[tuple[int, int]]` | `(stmt_type, result_count)` per statement |
 | `errors`  | `list[dict]` | `{code, message}` for failed statements |
+
+---
+
+### ExecuteArrayPacket
+
+**Execute array** (FC=21, #839) — one prepared statement executed once per row
+of bound values. Sent by `executemany(..., prepared=True)` after a `PREPARE`
+(FC=2) on the same session.
+
+Request (CAS `fn_execute_array`): int query handle, int query timeout (`0`, protocol
+V4+ only), byte autocommit, then one (type byte, value) argument pair per marker
+per row, in row order: the same pair `ExecutePacket` writes for one binding.
+Every row must have exactly the server's bind count; the CAS would silently
+ignore extra values.
+
+Reply (CAS `ux_execute_array`): int result code, int executed row count, then per
+row either `int count >= 0` and an 8-byte OID, or a negative int (the DBMS error
+indicator for V3+, otherwise the error code itself), the error code (V3+) and a
+length-prefixed message; a shard id follows for V5+. The CAS stops early only
+after an interrupted row, which it reports; any other short reply is malformed.
+
+| Attribute | Type  | Description |
+|-----------|-------|-------------|
+| `row_results` | `tuple[tuple[int, int, str], ...]` | `(count, 0, "")` or `(-1, code, message)` per executed row, in row order |
+| `errors`  | `list[dict]` | `{code, message, index}` for failed rows |
+
+With autocommit on, the CAS commits each successful row and aborts each failing
+one; with autocommit off, a deadlock or a server shutdown fails the whole request.
 
 ---
 
