@@ -503,7 +503,8 @@ async def test_async_probe_failure_releases_waiter_without_sending_sql(
 
     assert await recovery is False
     with pytest.raises(OperationalError, match="new-session probe failed"):
-        await asyncio.wait_for(query, timeout=2)
+        async with asyncio.timeout(2):
+            _ = await query
     assert conn._connected is False
     assert conn._setup_done.is_set()
     conn._do_send_and_receive.assert_not_awaited()
@@ -538,7 +539,8 @@ async def test_ping_that_passed_gate_does_not_close_a_new_session_during_probe()
 
     assert ping_waited
     assert not new_writer_closed
-    assert await asyncio.wait_for(ping, timeout=2) is True
+    async with asyncio.timeout(2):
+        assert await ping is True
     assert conn._writer is new_writer
     assert conn._physical_generation == 2
     conn.connect.assert_not_awaited()
@@ -637,13 +639,15 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
         task = asyncio.create_task(cursor.executemany("INSERT INTO t VALUES (?)", [(r"a\b",)]))
     else:
         task = asyncio.create_task(cursor.execute("SELECT ?", (r"a\b",)))
-    await asyncio.wait_for(bound.wait(), timeout=2)
+    async with asyncio.timeout(2):
+        await bound.wait()
     conn._physical_generation = 2
     conn._no_backslash_escapes = False
     conn._lock.release()
 
     with pytest.raises(OperationalError, match="parameter binding; retry operation"):
-        await asyncio.wait_for(task, timeout=2)
+        async with asyncio.timeout(2):
+            _ = await task
     conn._do_send_and_receive.assert_not_awaited()
 
 
