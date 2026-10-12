@@ -121,7 +121,7 @@ def test_temporal_types_use_the_seven_short_layout() -> None:
             b"Asia/Seoul",
         ),
         (
-            datetime.datetime(2024, 1, 2, 3, 4, 5, 6000, tzinfo=datetime.timezone.utc),
+            datetime.datetime(2024, 1, 2, 3, 4, 5, 6000, tzinfo=datetime.UTC),
             b"+00:00",
         ),
         (

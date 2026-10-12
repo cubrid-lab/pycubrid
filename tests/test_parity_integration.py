@@ -341,7 +341,7 @@ class TestParityLiteralHardening:
         # #519: '99-01-02' was read by CUBRID as 1999-01-02.
         date_value = datetime.date(year, 1, 2)
         dt_value = datetime.datetime(year, 1, 2, 3, 4, 5, 6000)
-        tz_value = datetime.datetime(year, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc)
+        tz_value = datetime.datetime(year, 1, 2, 3, 4, 5, tzinfo=datetime.UTC)
         table = table_name("year519")
         conn = await adapter.connect()
         cur = adapter.cursor(conn)

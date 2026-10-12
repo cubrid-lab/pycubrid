@@ -407,7 +407,7 @@ class TestFormatParameterTypes:
         assert result == "DATETIMETZ'2026-01-15 10:30:00.123 Asia/Seoul'"
 
     def test_datetime_tz_utc(self, cursor: object) -> None:
-        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
+        dt = datetime.datetime(2026, 1, 15, 10, 30, 0, tzinfo=datetime.UTC)
         result = cursor._format_parameter(dt)
         assert result == "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'"
 
@@ -582,11 +582,11 @@ _GOLDEN_PLAIN = [
     (datetime.date(2026, 1, 15), "DATE'2026-01-15'", None),
     (datetime.date(9999, 12, 31), "DATE'9999-12-31'", None),
     (datetime.time(13, 45, 30, 123456), "TIME'13:45:30'", None),
-    (datetime.time(1, 2, 3, tzinfo=datetime.timezone.utc), "TIME'01:02:03'", None),
+    (datetime.time(1, 2, 3, tzinfo=datetime.UTC), "TIME'01:02:03'", None),
     (datetime.datetime(2026, 1, 15, 13, 45, 30, 999999), "DATETIME'2026-01-15 13:45:30.999'", None),
     (datetime.datetime(1000, 1, 1), "DATETIME'1000-01-01 00:00:00.000'", None),
     (
-        datetime.datetime(2026, 1, 15, 10, 30, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2026, 1, 15, 10, 30, tzinfo=datetime.UTC),
         "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'",
         None,
     ),
@@ -741,7 +741,7 @@ class TestTemporalSubclassRendering:
             (datetime.date(1000, 1, 2), "DATE'1000-01-02'"),
             (datetime.datetime(99, 1, 2, 3, 4, 5, 6000), "DATETIME'0099-01-02 03:04:05.006'"),
             (
-                datetime.datetime(999, 1, 2, tzinfo=datetime.timezone.utc),
+                datetime.datetime(999, 1, 2, tzinfo=datetime.UTC),
                 "DATETIMETZ'0999-01-02 00:00:00.000 +00:00'",
             ),
             (_HostileDate(99, 1, 2), "DATE'0099-01-02'"),
@@ -885,7 +885,7 @@ class TestHostileTzinfo:
             raise error
 
         monkeypatch.setattr(_cursor_common, reader, fail)
-        value = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
+        value = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
         with pytest.raises(ProgrammingError) as caught:
             _cursor_common.format_parameter(value)
         assert str(caught.value) == "invalid tzinfo on datetime parameter"

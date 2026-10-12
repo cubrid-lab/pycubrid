@@ -64,7 +64,7 @@ async def test_ambiguous_hour_follows_server_abbreviation(adapter: ParityAdapter
         assert edt.utcoffset() == datetime.timedelta(hours=-4)
         assert est.utcoffset() == datetime.timedelta(hours=-5)
         assert ts_est.utcoffset() == datetime.timedelta(hours=-5)
-        utc = datetime.timezone.utc
+        utc = datetime.UTC
         assert est.astimezone(utc) - edt.astimezone(utc) == datetime.timedelta(hours=1)
     finally:
         await adapter.close_cursor(cursor)
@@ -80,7 +80,7 @@ async def test_repeated_hour_binds_both_occurrences(
     zone = zoneinfo.ZoneInfo("America/New_York")
     first = datetime.datetime(2026, 11, 1, 1, 30, tzinfo=zone)
     second = first.replace(fold=1)
-    utc = datetime.timezone.utc
+    utc = datetime.UTC
     name = table_name("p819")
     connection = await adapter.connect()
     cursor = adapter.cursor(connection)

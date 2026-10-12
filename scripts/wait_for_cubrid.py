@@ -30,7 +30,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Share the suite's endpoint resolution and probe so readiness and the tests can
@@ -58,7 +58,7 @@ def _write_identity(path: Path, endpoint: str, result: dict[str, object]) -> Non
         **result,
         "endpoint": endpoint,
         "github_sha": os.environ.get("GITHUB_SHA", ""),
-        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "observed_at": datetime.now(UTC).isoformat(),
     }
     sanitized = {key: _repro.sanitize(str(value)) for key, value in info.items()}
     if any(

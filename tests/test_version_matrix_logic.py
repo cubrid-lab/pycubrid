@@ -66,7 +66,7 @@ def test_normalize_value_keeps_type_and_exact_value() -> None:
 
 
 def test_normalize_value_distinguishes_time_zones() -> None:
-    utc = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
+    utc = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
     kst = utc.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
     assert utc == kst
     assert normalize_value(utc) != normalize_value(kst)

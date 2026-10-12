@@ -228,7 +228,7 @@ def test_null_and_utf8_values_are_typed_not_substituted(
         datetime.date(2024, 2, 29),
         datetime.time(1, 2, 3),
         datetime.datetime(2024, 2, 29, 1, 2, 3, 4000),
-        datetime.datetime(2024, 2, 29, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2024, 2, 29, tzinfo=datetime.UTC),
         b"\x01",
     ],
     ids=repr,

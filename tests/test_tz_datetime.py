@@ -301,7 +301,7 @@ def _decode(method: str, wire: bytes) -> datetime.datetime:
 
 def test_captured_region_and_offset_values() -> None:
     seoul = _decode("_parse_timestamptz", WIRE_TIMESTAMPTZ_SEOUL)
-    assert seoul == datetime.datetime(2026, 1, 15, 1, 30, tzinfo=datetime.timezone.utc)
+    assert seoul == datetime.datetime(2026, 1, 15, 1, 30, tzinfo=datetime.UTC)
     assert seoul.tzinfo == zoneinfo.ZoneInfo("Asia/Seoul")
 
     offset = _decode("_parse_timestamptz", WIRE_TIMESTAMPTZ_OFFSET)
@@ -311,7 +311,7 @@ def test_captured_region_and_offset_values() -> None:
     assert ltz.tzinfo == zoneinfo.ZoneInfo("UTC")
 
     dltz = _decode("_parse_datetimetz", WIRE_DATETIMELTZ_UTC)
-    assert dltz == datetime.datetime(2026, 1, 15, 10, 30, 0, 500000, tzinfo=datetime.timezone.utc)
+    assert dltz == datetime.datetime(2026, 1, 15, 10, 30, 0, 500000, tzinfo=datetime.UTC)
 
 
 def test_captured_ambiguous_hour_uses_abbreviation() -> None:
@@ -323,7 +323,7 @@ def test_captured_ambiguous_hour_uses_abbreviation() -> None:
     assert (edt.fold, edt.utcoffset(), edt.tzname()) == (0, datetime.timedelta(hours=-4), "EDT")
     assert (est.fold, est.utcoffset(), est.tzname()) == (1, datetime.timedelta(hours=-5), "EST")
     assert ts_est.utcoffset() == datetime.timedelta(hours=-5)
-    utc = datetime.timezone.utc
+    utc = datetime.UTC
     assert est.astimezone(utc) - edt.astimezone(utc) == datetime.timedelta(hours=1)
     assert est.microsecond == 250000
 
