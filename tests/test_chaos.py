@@ -181,7 +181,8 @@ class TestAsyncTransportChaos:
                 if writer is not None:
                     writer.transport.abort()
                 with pytest.raises(DBAPIError):
-                    await asyncio.wait_for(cur.execute("SELECT 1"), timeout=10.0)
+                    async with asyncio.timeout(10.0):
+                        await cur.execute("SELECT 1")
                 await cur.close()
             finally:
                 await conn.close()

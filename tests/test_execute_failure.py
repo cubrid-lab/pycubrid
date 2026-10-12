@@ -192,9 +192,11 @@ async def test_async_execute_cancellation_clears_previous_result() -> None:
 
     connection._send_and_receive.side_effect = wait_for_reply
     task = asyncio.create_task(cursor.execute("SELECT 99"))
-    await asyncio.wait_for(started.wait(), timeout=5)
+    async with asyncio.timeout(5):
+        await started.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=5)
+        async with asyncio.timeout(5):
+            _ = await task
     await _assert_no_result(cursor)
     assert cursor._query_handle is None

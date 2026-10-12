@@ -30,7 +30,6 @@ for those faults. The bound on a sync TLS handshake with ``read_timeout=None``
 
 from __future__ import annotations
 
-import asyncio
 import gc
 import os
 import ssl
@@ -353,8 +352,7 @@ def test_stalled_tls_handshake_is_bounded_by_read_timeout(mode: str) -> None:
         exc = _connect_error(mode, broker.port, client_context(), read_timeout=0.5)
         elapsed = time.monotonic() - started
 
-    # asyncio.TimeoutError is only an OSError subclass from Python 3.11 on.
-    assert isinstance(exc.__cause__, (OSError, asyncio.TimeoutError)), repr(exc.__cause__)
+    assert isinstance(exc.__cause__, OSError), repr(exc.__cause__)
     assert elapsed < 3.0
     _assert_no_plaintext_fallback(broker)
 

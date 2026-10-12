@@ -147,7 +147,8 @@ async def test_aio_ssl_out_tran_keeps_tls_session() -> None:
 async def test_aio_ssl_clean_shutdown() -> None:
     conn = await _connect_async(_custom_ssl_context())
 
-    await asyncio.wait_for(conn.close(), timeout=5)
+    async with asyncio.timeout(5):
+        await conn.close()
 
     assert conn._reader is None
     assert conn._writer is None
