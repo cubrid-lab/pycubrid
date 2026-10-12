@@ -78,7 +78,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   cubrid-lab/sqlalchemy-cubrid#820 and cubrid-lab/sqlalchemy-cubrid#821) now rewrites generated
   references to `, refs [#N](…)` on generated entry lines outside code blocks, and the
   **Prepare release** workflow applies the same rewrite to the release PR body right after
-  release-please updates it; no permission changes.
+  release-please updates it; no permission changes (#850).
 
 - **The closing guard is the one shared with sqlalchemy-cubrid, cubrid-mcp-server
   and cubrid-cookbook-python** — `pr-title.yml` is the shared file, and a test pins
