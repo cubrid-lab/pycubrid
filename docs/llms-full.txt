@@ -9245,36 +9245,35 @@ graph TD
     root --> readme
 
     pkg --> init[__init__.py - Public API, PEP 249 module attributes]
-    pkg --> connection["connection.py - Connection class (TCP, CAS handshake)"]
-    pkg --> cursor["cursor.py - Cursor class (execute, fetch, iterate)"]
+    pkg --> connection["connection.py - Sync Connection class"]
+    pkg --> cursor["cursor.py - Sync Cursor class"]
+    pkg --> aio["aio/ - asyncio Connection and Cursor"]
+    pkg --> compat["compat/ - opt-in CUBRIDdb and native compatibility layer"]
+    pkg --> conncommon[_connection_common.py - Logic shared by sync and async connections]
+    pkg --> cursorcommon[_cursor_common.py - Logic shared by sync and async cursors]
+    pkg --> prepared[_prepared_binding.py - Private typed bind encoders]
     pkg --> types[types.py - PEP 249 type objects and constructors]
-    pkg --> exceptions[exceptions.py - Full PEP 249 exception hierarchy]
-    pkg --> constants["constants.py - CAS protocol enums (41 function codes, 27+ types)"]
-    pkg --> protocol["protocol.py - 20 packet classes (serialize/deserialize)"]
+    pkg --> exceptions[exceptions.py - PEP 249 exception hierarchy]
+    pkg --> errcodes[error_codes.py - CAS and CUBRID error codes]
+    pkg --> constants["constants.py - CAS protocol enums"]
+    pkg --> protocol["protocol.py - CAS packet classes"]
     pkg --> packet[packet.py - PacketWriter + PacketReader primitives]
     pkg --> lob["lob.py - LOB (BLOB/CLOB) support"]
+    pkg --> timing[timing.py - Optional timing statistics]
     pkg --> typed[py.typed - PEP 561 marker]
 
-    tests --> conftest["conftest.py - Shared fixtures (mock connection, mock socket)"]
-    tests --> test_connection[test_connection.py - Connection lifecycle tests]
-    tests --> test_cursor[test_cursor.py - Cursor operations tests]
-    tests --> test_types[test_types.py - Type object tests]
-    tests --> test_exceptions[test_exceptions.py - Exception hierarchy tests]
-    tests --> test_constants[test_constants.py - Constants enumeration tests]
-    tests --> test_protocol[test_protocol.py - Packet serialization/deserialization tests]
-    tests --> test_packet[test_packet.py - PacketWriter/PacketReader tests]
-    tests --> test_lob[test_lob.py - LOB tests]
-    tests --> test_pep249[test_pep249.py - PEP 249 compliance tests]
-    tests --> test_integration["test_integration.py - Live DB integration tests (requires Docker)"]
-    tests --> test_suite[test_suite.py - Extended test suite]
+    tests --> conftest["conftest.py - Shared fixtures"]
+    tests --> unit["test_*.py - Behavior-oriented offline test modules"]
+    tests --> test_integration["Integration modules - Live DB tests (marked integration, require Docker)"]
+    tests --> helpers["helpers/ and fixtures/ - Shared test support and golden data"]
 
-    docs --> doc_connection[CONNECTION.md - Connection guide]
-    docs --> doc_types[TYPES.md - Type system reference]
-    docs --> doc_api[API_REFERENCE.md - Complete API documentation]
-    docs --> doc_protocol[PROTOCOL.md - CAS protocol reference]
+    docs --> doc_index[index.md - Documentation index]
+    docs --> doc_arch[ARCHITECTURE.md - Request flow and module boundaries]
     docs --> doc_dev[DEVELOPMENT.md - This file]
-    docs --> doc_examples[EXAMPLES.md - Usage examples]
+    docs --> doc_pages["Other guides - see the documentation index"]
 ```
+
+The diagram is a map of the files, not a design document, and it deliberately omits counts that change. See [ARCHITECTURE.md](ARCHITECTURE.md) for module boundaries, the `markers` list in `pyproject.toml` for the pytest markers, and the [documentation index](index.md) for every guide.
 
 ---
 
@@ -10099,7 +10098,7 @@ graph TD
     user[User Code] --> init[__init__.py - Module API connect/types/exceptions]
     init --> connection[connection.py - TCP socket, CAS handshake, session]
     connection --> cursor[cursor.py - SQL execution, parameter binding, fetch]
-    cursor --> protocol[protocol.py - 20 packet classes serialize/deserialize]
+    cursor --> protocol[protocol.py - CAS packet classes serialize/deserialize]
     protocol --> packet[packet.py - PacketWriter + PacketReader binary I/O]
     packet --> constants[constants.py - CAS function codes, data types, enums]
 

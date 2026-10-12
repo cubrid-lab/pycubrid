@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Docs: the `DEVELOPMENT.md` project structure and architecture diagrams match the
+  current repository (#878)** — the English and Korean guides now list the `aio` and
+  `compat` packages, the private shared modules, `error_codes.py` and `timing.py`, describe
+  `tests/` by its behavior-oriented modules instead of the removed `test_suite.py`, and no
+  longer hard-code function-code, type or packet-class counts. Documentation only.
+
 - **Internal: the prepared bind types and encoders moved out of `protocol.py`
   (#856)** — refactor with no behavior change. `_PreparedScalar`,
   `_PreparedCollection`, `_PreparedLob`, the encoders behind
