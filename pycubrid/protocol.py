@@ -2248,7 +2248,7 @@ class ExecuteArrayPacket(_CasPacket):
     ``row_results`` keeps one ``(count, error_code, message)`` per executed
     row, in order: ``(count, 0, "")`` on success and ``(-1, code, message)``
     on failure. ``errors`` holds the failures as ``{"code", "message",
-    "index"}`` for :func:`_raise_batch_failure`.
+    "index"}`` for :func:`_batch_failure`.
     """
 
     def __init__(

@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from pycubrid._cursor_common import _batch_exception, _raise_batch_failure
+from pycubrid._cursor_common import _batch_exception, _batch_failure
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import (
     DatabaseError,
@@ -162,7 +162,7 @@ def test_interface_error_is_not_a_batch_error() -> None:
 
 def _raise(row_results: Any, errors: Any, raised: Any) -> DatabaseError:
     with pytest.raises(DatabaseError) as caught:
-        _raise_batch_failure(row_results, errors, raised)
+        raise _batch_failure(row_results, errors, raised)
     return caught.value
 
 
@@ -209,7 +209,7 @@ def test_raised_error_is_freed_without_the_cycle_collector() -> None:
     gc.disable()
     try:
         try:
-            _raise_batch_failure(ROWS, ERRORS, ERRORS[0])
+            raise _batch_failure(ROWS, ERRORS, ERRORS[0])
         except DatabaseError as exc:
             assert exc.batch_errors is not None
             ref = weakref.ref(exc)
@@ -253,7 +253,7 @@ def test_partial_failure_reports_every_failed_row(asynchronous: bool, prepared: 
         return raised.value
 
     script = _BatchScript(failures, failing_rows=failures)
-    _requests, exc = _run(asynchronous, steps, script=script)
+    exc = _run(asynchronous, steps, script=script)[1]
     assert exc.errno == -670
     assert exc.sqlstate == "23000"
     assert exc.batch_index == 1
@@ -274,7 +274,7 @@ def test_executemany_batch_reports_every_failed_statement(asynchronous: bool) ->
         return raised.value
 
     # -8 (type conversion error) maps to DataError.
-    _requests, exc = _run(asynchronous, steps, script=_BatchScript({0: -8, 2: -670}))
+    exc = _run(asynchronous, steps, script=_BatchScript({0: -8, 2: -670}))[1]
     assert type(exc) is DataError
     assert exc.batch_index == 0
     assert [(i, type(e)) for i, e in exc.batch_errors] == [(0, DataError), (2, IntegrityError)]
@@ -288,7 +288,7 @@ def test_successful_batch_is_unchanged(asynchronous: bool) -> None:
         results = d.run(cursor.executemany_batch(["INSERT INTO t VALUES (1)"] * 2))
         return results, cursor.rowcount
 
-    _requests, (results, rowcount) = _run(asynchronous, steps, script=_BatchScript({}))
+    results, rowcount = _run(asynchronous, steps, script=_BatchScript({}))[1]
     assert results == [(CUBRIDStatementType.INSERT, 1)] * 2
     assert rowcount == 2
 
@@ -303,7 +303,7 @@ def test_interrupted_prepared_batch_names_the_interrupted_row(asynchronous: bool
         return raised.value
 
     script = _CasScript(failing_rows={0: -670, 2: -4})
-    _requests, exc = _run(asynchronous, steps, script=script)
+    exc = _run(asynchronous, steps, script=script)[1]
     assert exc.code == -4
     assert exc.batch_index == 2
     assert [(i, e.code) for i, e in exc.batch_errors] == [(0, -670), (2, -4)]
@@ -330,7 +330,7 @@ def test_interrupted_literal_batch_still_raises_the_first_failure(asynchronous: 
         + _batch_error(-4, "interrupted")
         + _int(0)
     )
-    _requests, exc = _run(asynchronous, steps, script=script)
+    exc = _run(asynchronous, steps, script=script)[1]
     # Unchanged literal behaviour: the first failing row is raised.
     assert exc.batch_index == 0
     assert [(i, e.code) for i, e in exc.batch_errors] == [(0, -670), (2, -4)]

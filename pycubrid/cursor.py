@@ -15,7 +15,7 @@ from ._cursor_common import (
     DML_BATCH_VERBS,
     check_prepared_batch_operation,
     extract_first_keyword,
-    _raise_batch_failure,
+    _batch_failure,
     split_on_placeholders,
 )
 from .exceptions import (
@@ -395,7 +395,7 @@ class Cursor(_CursorBase):
             # A reply that stops early ends with the ER_INTERRUPTED row; raise
             # that, so the caller learns the later rows did not run.
             interrupted = len(packet.row_results) < len(rows)
-            _raise_batch_failure(
+            raise _batch_failure(
                 packet.row_results,
                 packet.errors,
                 packet.errors[-1] if interrupted else packet.errors[0],
@@ -464,7 +464,7 @@ class Cursor(_CursorBase):
         # Raise on per-statement batch failures (issue #186), with every
         # row's outcome attached to the exception (#841).
         if packet.errors:
-            _raise_batch_failure(packet.row_results, packet.errors, packet.errors[0])
+            raise _batch_failure(packet.row_results, packet.errors, packet.errors[0])
 
         if packet.results:
             self._rowcount = sum(count for _, count in packet.results)

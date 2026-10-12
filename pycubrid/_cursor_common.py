@@ -676,28 +676,24 @@ def _raise_batch_error(err: dict[str, Any]) -> None:
     raise _batch_exception(err)
 
 
-def _raise_batch_failure(
+def _batch_failure(
     row_results: Sequence[tuple[int, int, str]],
     errors: Sequence[dict[str, Any]],
     raised: dict[str, Any],
-) -> None:
-    """Raise *raised* with the per-row outcome of the batch attached (#841).
+) -> DatabaseError:
+    """Return the exception for *raised* with the batch's per-row outcome (#841).
 
     *row_results* holds one ``(count, error code, message)`` per executed
     row, in order; *errors* holds the failed rows as ``{"code", "message",
-    "index"}``. The raised exception is the one ``_batch_exception``
-    builds; ``batch_errors`` holds a separate instance per failed row.
+    "index"}``. The exception is the one ``_batch_exception`` builds;
+    ``batch_errors`` holds a separate instance per failed row. The caller
+    raises it, so no frame of this helper is left holding it.
     """
     exc = _batch_exception(raised)
     exc.batch_index = raised["index"]
     exc.batch_errors = tuple(_batch_entry(err) for err in errors)
     exc.batch_rowcounts = tuple(count for count, _code, _message in row_results)
-    try:
-        raise exc
-    finally:
-        # The traceback references this frame; dropping the local keeps the
-        # exception free of a frame cycle, as ``raise _batch_exception(...)`` is.
-        del exc
+    return exc
 
 
 def _batch_entry(err: dict[str, Any]) -> tuple[int, DatabaseError]:
