@@ -63,6 +63,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Placeholder tokenisation cached per `executemany()` call (#837)** — the
+  literal batch path of `Cursor.executemany()` and `AsyncCursor.executemany()`
+  splits the SQL on its placeholders once per call instead of once per parameter
+  set, and an exact `tuple` or `list` parameter set skips the `typing.Sequence`
+  check. The rendered SQL is byte-identical (pinned against SQL rendered before
+  the change), and so are the errors and the row that raises them. For 10,000
+  five-parameter rows, client-side rendering went from 145 ms to 38.5 ms
+  offline and the client CPU inside a live `executemany()` from about 195 ms to
+  52-98 ms; the live wall time is dominated by the server. See
+  [PERFORMANCE.md](docs/PERFORMANCE.md#placeholder-tokenisation-cached-per-executemany-call).
 - **CUBRIDdb wrapper integers past 32 bits (#840)** — the
   `pycubrid.compat.cubriddb` cursors pass `int` arguments to native
   `bind_param()`, so a value past signed 32-bit now binds BIGINT (or NUMERIC

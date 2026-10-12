@@ -15,7 +15,7 @@ import math
 import re
 from decimal import Decimal
 from importlib import import_module
-from typing import Any, Generic, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Iterable, Protocol, Sequence, TypeVar
 
 from .exceptions import (
     DatabaseError,
@@ -501,16 +501,32 @@ def bind_parameters(
 
     Returns the fully-rendered SQL string ready for execution.
     """
-    if isinstance(parameters, Sequence) and not isinstance(parameters, (str, bytes, bytearray)):
-        values = list(parameters)
-    else:
-        raise ProgrammingError("parameters must be a sequence")
-
+    values = _parameter_values(parameters)
     parts = split_on_placeholders(operation, no_backslash_escapes=no_backslash_escapes)
-    placeholder_count = len(parts) - 1
-    if placeholder_count != len(values):
-        raise ProgrammingError("wrong number of parameters")
+    return _render_parameters(parts, values, no_backslash_escapes)
 
+
+def _parameter_values(parameters: Sequence[Any]) -> Sequence[Any]:
+    """Return a snapshot of one parameter set, or raise if it is not a sequence.
+
+    An exact ``tuple`` is immutable and an exact ``list`` is copied, so both
+    skip the ``typing.Sequence`` check (#837); every other type, subclasses
+    included, takes the full check.
+    """
+    cls = type(parameters)
+    if cls is tuple:
+        return parameters
+    if cls is list:
+        return list(parameters)
+    if isinstance(parameters, Sequence) and not isinstance(parameters, (str, bytes, bytearray)):
+        return list(parameters)
+    raise ProgrammingError("parameters must be a sequence")
+
+
+def _render_parameters(parts: list[str], values: Sequence[Any], no_backslash_escapes: bool) -> str:
+    """Join the placeholder-split *parts* with the rendered *values*."""
+    if len(parts) - 1 != len(values):
+        raise ProgrammingError("wrong number of parameters")
     result = [parts[0]]
     for index, value in enumerate(values, start=1):
         result.append(format_parameter(value, no_backslash_escapes=no_backslash_escapes))
@@ -633,6 +649,31 @@ class CursorParamsMixin(Generic[_ConnT]):
             parameters,
             no_backslash_escapes=self._resolve_escape_mode(),
         )
+
+    def _bind_parameter_sets(
+        self,
+        operation: str,
+        seq_of_parameters: Iterable[Sequence[Any]],
+    ) -> list[str]:
+        """Render *operation* once per parameter set, splitting it only once (#837).
+
+        The result is byte-identical to ``_bind_parameters`` per set: on the
+        first set the escape mode is resolved, the set is checked and the SQL
+        is split, in that order; every set is then checked and rendered in
+        turn, so the first bad set raises what it raised before.
+        """
+        rendered: list[str] = []
+        parts: list[str] | None = None
+        mode = True
+        for parameters in seq_of_parameters:
+            if parts is None:
+                mode = self._resolve_escape_mode()
+                values = _parameter_values(parameters)
+                parts = split_on_placeholders(operation, no_backslash_escapes=mode)
+            else:
+                values = _parameter_values(parameters)
+            rendered.append(_render_parameters(parts, values, mode))
+        return rendered
 
     def _format_parameter(self, value: Any) -> str:
         return format_parameter(value, no_backslash_escapes=self._resolve_escape_mode())

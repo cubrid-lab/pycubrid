@@ -338,7 +338,7 @@ class Cursor(_CursorBase):
         # can end OUT_TRAN, and the pre-bind check must run after it (#485).
         self._release_handle()
         bound_generation = self._connection._generation_for_binding()
-        sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
+        sql_list = self._bind_parameter_sets(operation, seq_of_parameters)
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
         self._executemany_batch(sql_list, None, bound_generation=bound_generation)
         return self

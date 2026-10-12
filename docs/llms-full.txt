@@ -6597,8 +6597,33 @@ What you can do:
 
 Not established: the gap against `CUBRIDdb` on CUBRID 10.2, 11.0 and 11.2, and how the server
 time splits between the CAS and the engine. Prepared batch paths were measured on all four
-versions; see the next section. Caching the placeholder tokenisation is tracked in
-[#837](https://github.com/cubrid-lab/pycubrid/issues/837).
+versions; see the next section. The placeholder tokenisation is now cached per call; see
+[below](#placeholder-tokenisation-cached-per-executemany-call).
+
+### Placeholder tokenisation cached per `executemany()` call
+
+Since [#837](https://github.com/cubrid-lab/pycubrid/issues/837), the literal batch path of
+`executemany()` splits the SQL on its `?` placeholders once per call instead of once per
+parameter set. An exact `tuple` or `list` parameter set also skips the `typing.Sequence`
+check; any other type takes the full check. The rendered SQL is byte-identical:
+`tests/test_executemany_bind_cache.py` compares 310 statements (every literal type, quotes,
+comments, identifiers, both escape modes) with SQL rendered before the change, and the
+binding contract in [PARAMETER_BINDING.md](PARAMETER_BINDING.md) is unchanged.
+
+10,000 rows of five parameters (`INT`, `VARCHAR`, `DOUBLE`, `DATETIME`, `NULL`), Python 3.12,
+Intel Core i5-9400F, medians:
+
+| Measurement | Before | After |
+|---|---:|---:|
+| Client-side rendering, offline (server reply mocked) | 145 ms | 38.5 ms |
+| Client CPU inside a live `executemany()`, CUBRID 11.4 | 194-198 ms | 52-98 ms |
+| Client CPU inside a live `executemany()`, CUBRID 10.2 | 195-196 ms | 85-87 ms |
+| `split_on_placeholders` time in a live cProfile | 0.12-0.13 s | 0.000 s |
+
+The wall time of the live statement (about 2-6 s on this shared machine) is dominated by the
+server and varied by more than the client gain from run to run, so no wall-clock speedup is
+claimed. The `SELECT` per-row loop of `executemany()` still tokenises once per row, because
+each row is a separate `execute()`.
 
 ### Prepared batch paths: the `EXECUTE_ARRAY` evaluation
 

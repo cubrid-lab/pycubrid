@@ -614,14 +614,16 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
     conn._do_send_and_receive = AsyncMock()
     cursor = conn.cursor()
     bound = asyncio.Event()
-    original_bind = cursor._bind_parameters
+    # executemany() binds every set through _bind_parameter_sets (#837).
+    name = "_bind_parameter_sets" if batch else "_bind_parameters"
+    original_bind = getattr(cursor, name)
 
-    def record_bind(operation: str, parameters: object) -> str:
+    def record_bind(operation: str, parameters: object) -> object:
         sql = original_bind(operation, parameters)
         bound.set()
         return sql
 
-    monkeypatch.setattr(cursor, "_bind_parameters", record_bind)
+    monkeypatch.setattr(cursor, name, record_bind)
     original_generation = conn._generation_for_binding
 
     async def generation_then_hold_lock() -> int:

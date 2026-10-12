@@ -330,7 +330,7 @@ class AsyncCursor(_AsyncCursorBase):
         # can end OUT_TRAN, and the pre-bind check must run after it (#485).
         await self._release_handle()
         expected_escape_generation = await self._connection._generation_for_binding()
-        sql_list = [self._bind_parameters(operation, params) for params in seq_of_parameters]
+        sql_list = self._bind_parameter_sets(operation, seq_of_parameters)
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
         await self._executemany_batch(
             sql_list, auto_commit=None, expected_escape_generation=expected_escape_generation

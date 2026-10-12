@@ -199,7 +199,31 @@ flowchart TD
 - 큰 MERGE 배치이거나, 배치가 직접 측정한 행 단위 실행보다 훨씬 느리다면 명시적 `pycubrid.compat.native` 커서로 준비된 루프(`PREPARE` 한 번, 이후 행마다 실행 한 번)를 고려하세요. 10,000행에서 INSERT, UPDATE, DELETE는 `CUBRIDdb`의 0.99-1.31배, MERGE는 1.17배였습니다. 측정은 autocommit을 끄고 배치마다 명시적 commit을 한 번 하는 방식으로 했으며, 측정 하네스는 드라이버의 autocommit 플래그를 직접 설정했습니다. 같은 모드를 얻는 공개 방법은 `connection.set_autocommit(False)` 후 `commit()`입니다. 먼저 자신의 워크로드에서 측정하세요. `bind_param()`은 스칼라 INT, 문자열, `NULL`만 받고(컬렉션과 LOB은 전용 `bind_set()`, `bind_lob()` API를 씁니다), 오류 동작도 다릅니다. 준비된 루프는 처음 실패한 행에서 멈춥니다. 배치는 한 문장이 실패해도 모든 문장을 서버로 보내지만, `executemany()`는 반환된 첫 오류만 예외로 발생시키므로 이후의 실패는 보고되지 않습니다.
 - `execute()`를 반복문에서 쓰는 것은 더 빠른 대안이 아닙니다. 행마다 새로 준비하고 요청이 추가되므로 `CUBRIDdb`의 `executemany()`의 1.6-6.1배였습니다.
 
-확인되지 않은 것: CUBRID 10.2, 11.0, 11.2에서 `CUBRIDdb`와의 격차, 그리고 서버 시간이 CAS와 엔진에 어떻게 나뉘는지. 준비된 배치 경로는 네 버전 모두에서 측정했습니다(다음 절 참고). 플레이스홀더 토큰화 캐시는 [#837](https://github.com/cubrid-lab/pycubrid/issues/837)에서 추적합니다.
+확인되지 않은 것: CUBRID 10.2, 11.0, 11.2에서 `CUBRIDdb`와의 격차, 그리고 서버 시간이 CAS와 엔진에 어떻게 나뉘는지. 준비된 배치 경로는 네 버전 모두에서 측정했습니다(다음 절 참고). 플레이스홀더 토큰화는 이제 호출마다 한 번만 합니다([아래](#executemany-호출마다-한-번만-하는-플레이스홀더-토큰화) 참고).
+
+### `executemany()` 호출마다 한 번만 하는 플레이스홀더 토큰화
+
+[#837](https://github.com/cubrid-lab/pycubrid/issues/837)부터 `executemany()`의 리터럴 배치
+경로는 SQL을 `?` 플레이스홀더로 나누는 작업을 파라미터 세트마다가 아니라 호출마다 한 번만
+합니다. 정확히 `tuple`이나 `list`인 파라미터 세트는 `typing.Sequence` 검사도 건너뛰며, 그
+밖의 타입은 전체 검사를 거칩니다. 렌더링된 SQL은 바이트 단위로 같습니다.
+`tests/test_executemany_bind_cache.py`가 문장 310개(모든 리터럴 타입, 따옴표, 주석, 식별자,
+두 이스케이프 모드)를 변경 전에 렌더링한 SQL과 비교하며,
+[PARAMETER_BINDING.md](PARAMETER_BINDING.md)의 바인딩 계약은 바뀌지 않습니다.
+
+파라미터 다섯 개(`INT`, `VARCHAR`, `DOUBLE`, `DATETIME`, `NULL`)짜리 10,000행, Python 3.12,
+Intel Core i5-9400F, 중앙값:
+
+| 측정 | 변경 전 | 변경 후 |
+|---|---:|---:|
+| 클라이언트 렌더링, 오프라인(서버 응답 모의) | 145 ms | 38.5 ms |
+| 실제 `executemany()` 안의 클라이언트 CPU, CUBRID 11.4 | 194-198 ms | 52-98 ms |
+| 실제 `executemany()` 안의 클라이언트 CPU, CUBRID 10.2 | 195-196 ms | 85-87 ms |
+| 실제 cProfile의 `split_on_placeholders` 시간 | 0.12-0.13 s | 0.000 s |
+
+실제 문장의 경과 시간(이 공유 머신에서 약 2-6초)은 서버가 대부분을 차지하고 실행마다
+클라이언트 이득보다 크게 흔들렸으므로, 경과 시간 단축은 주장하지 않습니다. `executemany()`의
+`SELECT` 행 단위 반복은 행마다 별도의 `execute()`이므로 여전히 행마다 토큰화합니다.
 
 <a id="준비된-배치-경로-execute_array-평가"></a>
 
