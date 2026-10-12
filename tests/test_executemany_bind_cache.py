@@ -122,7 +122,6 @@ SCALARS: list[Any] = [
     _Stamp(2026, 2, 3, 4, 5, 6, 7000),
     _Int(-42),
     _Float(2.25),
-    _Dec("-12.50"),
     _Bytes(b"\x01\x02"),
     _Perm.READ,
     Set([1, "a", None]),
@@ -337,16 +336,13 @@ def test_matches_the_frozen_per_row_renderer(data: Any, name: str, mode: bool) -
 def test_operation_is_split_once_per_call(
     monkeypatch: pytest.MonkeyPatch, asynchronous: bool
 ) -> None:
-    import pycubrid._cursor_common as common
-
     calls: list[str] = []
-    original = common.split_on_placeholders
 
     def counting(sql: str, *, no_backslash_escapes: bool = True) -> list[str]:
         calls.append(sql)
-        return original(sql, no_backslash_escapes=no_backslash_escapes)
+        return split_on_placeholders(sql, no_backslash_escapes=no_backslash_escapes)
 
-    monkeypatch.setattr(common, "split_on_placeholders", counting)
+    monkeypatch.setattr("pycubrid._cursor_common.split_on_placeholders", counting)
     rows = [(i, str(i)) for i in range(50)]
     sent = render_with_cursor(OPERATIONS["insert"], rows, True, asynchronous)
     assert len(sent) == 50
@@ -433,3 +429,16 @@ def test_escape_mode_is_resolved_only_for_a_first_set() -> None:
     assert cursor._bind_parameter_sets(OPERATIONS["insert"], iter(())) == []
     with pytest.raises(InterfaceError, match="escape mode not negotiated"):
         cursor._bind_parameter_sets(OPERATIONS["insert"], ["not a sequence"])
+
+
+def test_decimal_subclass_matches_the_frozen_renderer() -> None:
+    # Kept out of the golden corpus: without the C decimal module (some CPython
+    # builds) a Decimal subclass parameter raises ProgrammingError by contract.
+    pytest.importorskip("_decimal")
+    rows = [(_Dec("-12.50"), 1), [_Dec("1E+3"), _Dec("0.000")]]
+    expected = [_legacy_bind_parameters(OPERATIONS["insert"], row) for row in rows]
+    assert Cursor(_conn(True))._bind_parameter_sets(OPERATIONS["insert"], rows) == expected
+    assert expected == [
+        "INSERT INTO t (a, b) VALUES (-12.50, 1)",
+        "INSERT INTO t (a, b) VALUES (1000, 0.000)",
+    ]

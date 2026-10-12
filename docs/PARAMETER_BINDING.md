@@ -522,15 +522,18 @@ parameter cannot inadvertently consume the next placeholder.
 
 For DML verbs (`INSERT`, `UPDATE`, `DELETE`, `MERGE`), `executemany`:
 
-1. Calls `_bind_parameters(sql, params)` once per parameter row, producing one
-   fully-rendered SQL string per row.
+1. Renders every parameter row with `CursorParamsMixin._bind_parameter_sets()`
+   (`pycubrid/_cursor_common.py`). On the first row it resolves the escape mode,
+   checks the row and splits the SQL on its placeholders, once per call (#837).
+   Every row is then checked and rendered with that split. Each rendered string
+   is byte-identical to what `_bind_parameters(sql, params)` returns for that
+   row, and the first bad row raises the same error.
 2. Sends the list of rendered SQL strings in a single `BatchExecutePacket`
-   (`pycubrid/cursor.py:252-257`, `pycubrid/aio/cursor.py:206-211`), dispatched
-   from `executemany` via `executemany_batch`
-   (`pycubrid/cursor.py:217`, `pycubrid/aio/cursor.py:191`).
+   through the private `_executemany_batch()` of `Cursor` (`pycubrid/cursor.py`)
+   and `AsyncCursor` (`pycubrid/aio/cursor.py`).
 
 For non-DML statements, `executemany` falls back to a per-row `execute` loop
-(`pycubrid/cursor.py:220-238`, `pycubrid/aio/cursor.py:176-187`).
+(`Cursor._executemany_loop()`, and the loop inside `AsyncCursor.executemany()`).
 
 Each row is bound independently with the same type-mapping rules above.
 

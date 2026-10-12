@@ -380,10 +380,10 @@ CUBRID [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) 및 [11.4
 
 DML 동사(`INSERT`, `UPDATE`, `DELETE`, `MERGE`)에 대해 `executemany`는:
 
-1. 파라미터 행마다 `_bind_parameters(sql, params)`를 한 번 호출해 행마다 완전히 렌더링된 SQL 문자열을 만듭니다.
-2. 렌더링된 SQL 문자열 리스트를 하나의 `BatchExecutePacket`으로 보냅니다(`pycubrid/cursor.py:252-257`, `pycubrid/aio/cursor.py:206-211`), `executemany`에서 `executemany_batch`로 디스패치(`pycubrid/cursor.py:217`, `pycubrid/aio/cursor.py:191`).
+1. `CursorParamsMixin._bind_parameter_sets()`(`pycubrid/_cursor_common.py`)로 모든 파라미터 행을 렌더링합니다. 첫 행에서 이스케이프 모드를 확인하고 행을 검사한 뒤 SQL을 플레이스홀더로 나누는 작업을 호출마다 한 번만 합니다(#837). 그 뒤 모든 행을 그 분할로 검사·렌더링합니다. 렌더링된 각 문자열은 그 행에 대해 `_bind_parameters(sql, params)`가 반환하는 것과 바이트 단위로 같고, 처음 잘못된 행은 같은 오류를 냅니다.
+2. 렌더링된 SQL 문자열 리스트를 `Cursor`(`pycubrid/cursor.py`)와 `AsyncCursor`(`pycubrid/aio/cursor.py`)의 비공개 `_executemany_batch()`를 통해 하나의 `BatchExecutePacket`으로 보냅니다.
 
-비-DML 문장에서는 `executemany`가 행별 `execute` 루프로 폴백합니다(`pycubrid/cursor.py:220-238`, `pycubrid/aio/cursor.py:176-187`).
+비-DML 문장에서는 `executemany`가 행별 `execute` 루프로 폴백합니다(`Cursor._executemany_loop()`, 그리고 `AsyncCursor.executemany()` 안의 루프).
 
 각 행은 위의 동일한 타입 매핑 규칙으로 독립적으로 바인딩됩니다.
 

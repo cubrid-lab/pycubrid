@@ -246,7 +246,7 @@ Since [#837](https://github.com/cubrid-lab/pycubrid/issues/837), the literal bat
 `executemany()` splits the SQL on its `?` placeholders once per call instead of once per
 parameter set. An exact `tuple` or `list` parameter set also skips the `typing.Sequence`
 check; any other type takes the full check. The rendered SQL is byte-identical:
-`tests/test_executemany_bind_cache.py` compares 400 statements (every literal type family
+`tests/test_executemany_bind_cache.py` compares 390 statements (every literal type family
 including subclasses, IANA time zones and the repeated DST hour, quotes, comments,
 identifiers, both escape modes) with SQL that `executemany()` rendered before the change, and
 the binding contract in [PARAMETER_BINDING.md](PARAMETER_BINDING.md) is unchanged.

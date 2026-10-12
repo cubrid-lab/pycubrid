@@ -209,7 +209,7 @@ flowchart TD
 경로는 SQL을 `?` 플레이스홀더로 나누는 작업을 파라미터 세트마다가 아니라 호출마다 한 번만
 합니다. 정확히 `tuple`이나 `list`인 파라미터 세트는 `typing.Sequence` 검사도 건너뛰며, 그
 밖의 타입은 전체 검사를 거칩니다. 렌더링된 SQL은 바이트 단위로 같습니다.
-`tests/test_executemany_bind_cache.py`가 문장 400개(하위 클래스, IANA 시간대, DST 반복 시간을
+`tests/test_executemany_bind_cache.py`가 문장 390개(하위 클래스, IANA 시간대, DST 반복 시간을
 포함한 모든 리터럴 타입 계열, 따옴표, 주석, 식별자, 두 이스케이프 모드)를 변경 전
 `executemany()`가 렌더링한 SQL과 비교하며, [PARAMETER_BINDING.md](PARAMETER_BINDING.md)의
 바인딩 계약은 바뀌지 않습니다.
