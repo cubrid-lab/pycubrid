@@ -792,24 +792,38 @@ class TestAsyncPositiveRestoreOnReconnect:
         conn._do_send_and_receive = fake_send  # type: ignore[method-assign]
 
         ping = asyncio.create_task(conn.ping(reconnect=True))
-        await asyncio.wait_for(connect_started.wait(), timeout=1.0)
-        query = asyncio.create_task(conn._send_and_receive(CommitPacket()))
-        await asyncio.sleep(0)
-        assert not query.done()
+        query: asyncio.Task[object] | None = None
+        try:
+            async with asyncio.timeout(1.0):
+                await connect_started.wait()
+            query = asyncio.create_task(conn._send_and_receive(CommitPacket()))
+            await asyncio.sleep(0)
+            assert not query.done()
 
-        release_connect.set()
-        await asyncio.wait_for(probe_started.wait(), timeout=1.0)
-        await asyncio.sleep(0)
-        assert not query.done()
+            release_connect.set()
+            async with asyncio.timeout(1.0):
+                await probe_started.wait()
+            await asyncio.sleep(0)
+            assert not query.done()
 
-        release_probe.set()
-        await asyncio.wait_for(restore_started.wait(), timeout=1.0)
-        await asyncio.sleep(0)
-        assert not query.done()
+            release_probe.set()
+            async with asyncio.timeout(1.0):
+                await restore_started.wait()
+            await asyncio.sleep(0)
+            assert not query.done()
 
-        release_restore.set()
-        assert await asyncio.wait_for(ping, timeout=1.0) is True
-        await asyncio.wait_for(query, timeout=1.0)
+            release_restore.set()
+            async with asyncio.timeout(1.0):
+                assert await ping is True
+            async with asyncio.timeout(1.0):
+                await query
+        finally:
+            # A failed step must not leave the ping or the fenced query running,
+            # and an exception of a task that already ended must be retrieved.
+            tasks = [task for task in (ping, query) if task is not None]
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         assert order == ["connect", "probe", "restore", "query"]
 
     @pytest.mark.asyncio
@@ -901,7 +915,9 @@ class TestAsyncPositiveRestoreOnReconnect:
         conn._connect_locked = fake_connect_locked  # type: ignore[method-assign]
         conn._send_and_receive_locked = fake_send_locked  # type: ignore[method-assign]
 
-        await asyncio.gather(conn.connect(), conn.connect())
+        async with asyncio.TaskGroup() as group:
+            group.create_task(conn.connect())
+            group.create_task(conn.connect())
 
         from pycubrid.protocol import SetDbParameterPacket
 
