@@ -118,8 +118,8 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 | Feature | Status | Since | Notes |
 |---|---|---|---|
 | `connect_timeout` | ✅ | 1.0.0 | Connect-phase timeout (seconds) |
-| `read_timeout` (sync) | ✅ | 1.2.0 (#81) | Per-recv socket timeout |
-| `read_timeout` (async) | ✅ | 1.2.0 (#82) | `asyncio.wait_for()` deadline |
+| `read_timeout` (sync) | ✅ | 1.2.0 (#81) | Per socket send/receive call; a reply arriving in timely pieces is not cut off (#855) |
+| `read_timeout` (async) | ✅ | 1.2.0 (#82) | `asyncio.wait_for()` deadline for each whole request round trip; neither driver's timeout is an SQL wall-clock deadline or cancels the statement on the server (#855) |
 | `fetch_size` | ✅ | 1.2.0 (#81) | Configurable result batch size (default 100) |
 | `autocommit` property | ✅ | 1.0.0 | Get/set on `Connection` |
 | `Connection.ping()` | ✅ | 1.2.0 (#70) | Native CHECK_CAS health check, no SQL needed |

@@ -89,14 +89,42 @@ def connect(
 
 | Kwarg | Type | Default | Description |
 |---|---|---|---|
-| `connect_timeout` | `int \| float \| None` | `None` | Socket connection timeout in seconds |
-| `read_timeout` | `int \| float \| None` | `None` | Socket read timeout in seconds |
+| `connect_timeout` | `int \| float \| None` | `None` | TCP connect timeout in seconds |
+| `read_timeout` | `int \| float \| None` | `None` | Request I/O timeout in seconds: each socket operation (sync) or each whole request round trip (async); see [What the timeouts bound](#what-the-timeouts-bound) |
 | `fetch_size` | `int` | `100` | Server-side fetch batch size |
 | `enable_timing` | `bool \| None` | `None` | Enable driver timing stats, or fall back to `PYCUBRID_ENABLE_TIMING` |
 | `no_backslash_escapes` | `bool \| None` | `None` (auto) | Probe each new physical session's string-escape mode; explicit `True`/`False` skips detection and remains pinned across recovery |
 | `autocommit` | `bool` | `False` | Enable immediate commit per statement |
 
 `connect_timeout` and `read_timeout` accept `None` or finite non-negative numbers. Negative values, NaN and infinity raise `ValueError`; incompatible types raise `TypeError`. Both sync and async connections validate these settings before acquiring transport resources, without wrapping configuration errors in `OperationalError`. Zero remains accepted and does not disable deadlines; `None` means no deadline. The sync driver's zero-timeout behavior is unchanged. The async driver bounds the TCP connect (`connect_timeout`), the connect handshake and each request round trip (`read_timeout`) with `asyncio.wait_for()`, so a zero deadline cancels the fresh, not-yet-started operation before it runs: `connect_timeout=0` fails before the TCP connect is attempted and `read_timeout=0` fails before any handshake bytes are sent, both with `OperationalError`. The driver keeps `wait_for()` rather than `asyncio.timeout()` because on CPython 3.11.0–3.11.2 an expired `timeout()` block entered by an already-cancelled task (for example cleanup after a caught `CancelledError`) re-raises `CancelledError` ([python/cpython#102780](https://github.com/python/cpython/issues/102780)); with `wait_for()` a driver deadline is reported as `OperationalError` there too, while a new cancellation of the calling task still raises `asyncio.CancelledError` ([#744](https://github.com/cubrid-lab/pycubrid/issues/744)).
+
+<a id="what-the-timeouts-bound"></a>
+**What the timeouts bound.** Each setting limits one network wait; none is a
+wall-clock deadline for a whole SQL statement or `execute()` call, and none
+cancels a statement on the server
+([#855](https://github.com/cubrid-lab/pycubrid/issues/855)):
+
+| Setting | Sync driver | Async driver |
+|---|---|---|
+| `connect_timeout` | Each TCP connection attempt (`socket.create_connection()`), including the reconnect to a redirected CAS port | Each `asyncio.open_connection()` call, including the reconnect to a redirected CAS port |
+| `read_timeout` (connect) | Each socket send or receive call of the broker handshake and `OPEN_DATABASE` | The whole connect handshake: broker handshake, TLS handshake and `OPEN_DATABASE` together |
+| `read_timeout` (request) | Each socket send or receive call of a request; a reply that keeps arriving in pieces, each within the timeout, is waited for however long it takes | The whole round trip of one request: sending it and reading its complete reply |
+| TLS handshake | The whole TLS handshake (Python's `ssl` module applies the socket timeout to it as one deadline): `read_timeout`, or 10 seconds when it is unset | The whole TLS handshake (`ssl_handshake_timeout`): `read_timeout`, or 10 seconds when it is unset |
+
+So the same `read_timeout` can end differently on the two drivers: a broker that
+sends a reply slowly in pieces, each piece within `read_timeout` but the whole
+reply taking longer, completes on the sync driver and raises
+`OperationalError('read timeout: ...')` on the async driver
+(`tests/test_slow_stream_timeout.py`). A statement whose execution itself takes
+long sends no reply bytes until it finishes, so both drivers raise once
+`read_timeout` passes. When a timeout fires, the driver only stops waiting and
+retires the session (see below): the CAS may still be running, committing or
+rolling back the statement, and the driver never resends it. An operation that
+sends several requests (for example a `CHECK_CAS` probe before the statement, or
+a `FETCH` for each later page) applies the timeout to each request separately.
+To bound a whole operation, wrap the call in your own deadline (for example
+`asyncio.timeout()` around an async call) and treat its expiry as an unknown
+outcome: it does not cancel the statement on the server either.
 
 ### Unknown Options
 

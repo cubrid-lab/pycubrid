@@ -938,7 +938,7 @@ class Connection:
 |---|---|---|---|
 | `enable_timing` | `bool \| None` | `None` | Enable optional driver-level timing instrumentation for `connect`, `execute`, `fetch`, and `close` operations. When `None`, falls back to the `PYCUBRID_ENABLE_TIMING` environment variable (truthy values: `1`, `true`, `yes`, case-insensitive). When disabled, the timing module is not imported and `connection.timing_stats` is `None` (zero overhead). See [Timing & Profiling Hooks](PERFORMANCE.md#timing--profiling-hooks). |
 | `ssl` | `bool \| ssl.SSLContext \| None` | `None` | TLS configuration shared by sync and async connections. `True` uses the default verified context with `minimum_version = TLSv1_2`; see [Connection guide](CONNECTION.md). |
-| `read_timeout` | `float \| None` | `None` | Socket read timeout in seconds. |
+| `read_timeout` | `float \| None` | `None` | Timeout in seconds for each socket send or receive call (the async connection bounds each whole request round trip instead); not an SQL wall-clock deadline. See [What the timeouts bound](CONNECTION.md#what-the-timeouts-bound). |
 | `fetch_size` | `int` | `100` | Server-side fetch batch size. |
 | `json_deserializer` | `Callable[[str], Any] \| None` | `None` | Opt-in JSON column decoder. |
 | `charset` | `str` | `"utf-8"` | Connection codec; see [`charset`](#charset). Kept across reconnects. |

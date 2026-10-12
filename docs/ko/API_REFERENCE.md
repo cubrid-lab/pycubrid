@@ -892,7 +892,7 @@ class Connection:
 |---|---|---|---|
 | `enable_timing` | `bool \| None` | `None` | `connect`, `execute`, `fetch`, `close` 연산에 대한 드라이버 수준 타이밍 계측 옵트인. `None`이면 `PYCUBRID_ENABLE_TIMING` 환경 변수로 폴백(참값: `1`, `true`, `yes`, 대소문자 무시). 비활성 시 타이밍 모듈을 임포트하지 않고 `connection.timing_stats`는 `None`(오버헤드 0). [타이밍·프로파일링 훅](PERFORMANCE.md#타이밍--프로파일링-훅) 참고. |
 | `ssl` | `bool \| ssl.SSLContext \| None` | `None` | 동기·비동기 연결이 공유하는 TLS 설정. `True`면 `minimum_version = TLSv1_2`인 기본 검증 컨텍스트 사용. [연결 가이드](CONNECTION.md) 참고. |
-| `read_timeout` | `float \| None` | `None` | 소켓 읽기 타임아웃(초). |
+| `read_timeout` | `float \| None` | `None` | 소켓 송신·수신 호출 하나마다의 타임아웃(초)(비동기 연결은 대신 요청 왕복 전체를 제한). SQL 벽시계 기한이 아닙니다. [타임아웃이 제한하는 범위](CONNECTION.md#what-the-timeouts-bound) 참고. |
 | `fetch_size` | `int` | `100` | 서버 측 fetch 배치 크기. |
 | `json_deserializer` | `Callable[[str], Any] \| None` | `None` | 옵트인 JSON 컬럼 디코더. |
 | `charset` | `str` | `"utf-8"` | 연결 코덱. [`charset`](#charset) 참고. 재연결 후에도 유지. |

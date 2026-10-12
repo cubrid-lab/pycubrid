@@ -91,14 +91,38 @@ def connect(
 
 | Kwarg | 타입 | 기본값 | 설명 |
 |---|---|---|---|
-| `connect_timeout` | `int \| float \| None` | `None` | 소켓 연결 타임아웃(초) |
-| `read_timeout` | `int \| float \| None` | `None` | 소켓 읽기 타임아웃(초) |
+| `connect_timeout` | `int \| float \| None` | `None` | TCP 연결 타임아웃(초) |
+| `read_timeout` | `int \| float \| None` | `None` | 요청 I/O 타임아웃(초): 소켓 작업 하나마다(동기) 또는 요청 왕복 전체마다(비동기). [타임아웃이 제한하는 범위](#what-the-timeouts-bound) 참고 |
 | `fetch_size` | `int` | `100` | 서버 측 가져오기 배치 크기 |
 | `enable_timing` | `bool \| None` | `None` | 드라이버 타이밍 통계 활성화, 또는 `PYCUBRID_ENABLE_TIMING`으로 폴백 |
 | `no_backslash_escapes` | `bool \| None` | `None` (자동 감지) | 새 물리 세션마다 문자열 이스케이프 모드 감지; 명시적 `True`/`False`는 감지를 생략하고 복구 후에도 유지 |
 | `autocommit` | `bool` | `False` | 문장별 즉시 커밋 활성화 |
 
 `connect_timeout`과 `read_timeout`은 `None` 또는 유한한 0 이상의 숫자를 받습니다. 음수, NaN, 무한대는 `ValueError`를, 호환되지 않는 타입은 `TypeError`를 발생시킵니다. 동기·비동기 연결 모두 전송 자원을 획득하기 전에 설정을 검증하며, 이 오류는 `OperationalError`로 감싸지 않습니다. `0`은 계속 허용되며 타임아웃 제한을 비활성화하지 않습니다. `None`은 기한 없음을 뜻합니다. 동기 드라이버의 0 타임아웃 동작은 그대로입니다. 비동기 드라이버는 TCP 연결(`connect_timeout`), 연결 핸드셰이크와 각 요청 왕복(`read_timeout`)을 `asyncio.wait_for()`로 제한하므로, 0 기한은 아직 시작하지 않은 새 작업을 실행 전에 취소합니다. `connect_timeout=0`은 TCP 연결을 시도하기 전에, `read_timeout=0`은 핸드셰이크 바이트를 보내기 전에 모두 `OperationalError`로 실패합니다. 드라이버가 `asyncio.timeout()` 대신 `wait_for()`를 유지하는 이유는 CPython 3.11.0–3.11.2에서 이미 취소된 태스크(예: 잡은 `CancelledError` 이후의 정리 코드)가 진입한 `timeout()` 블록이 만료되면 `CancelledError`를 다시 발생시키기 때문입니다([python/cpython#102780](https://github.com/python/cpython/issues/102780)). `wait_for()`를 쓰면 이 버전에서도 드라이버 기한 만료는 `OperationalError`로 보고되고, 호출 태스크에 대한 새 취소는 여전히 `asyncio.CancelledError`를 발생시킵니다([#744](https://github.com/cubrid-lab/pycubrid/issues/744)).
+
+<a id="what-the-timeouts-bound"></a>
+**타임아웃이 제한하는 범위.** 각 설정은 네트워크 대기 하나를 제한할 뿐이며, 어느 것도
+SQL 문 전체나 `execute()` 호출 전체의 벽시계 기한이 아니고 서버에서 실행 중인 문을
+취소하지도 않습니다([#855](https://github.com/cubrid-lab/pycubrid/issues/855)):
+
+| 설정 | 동기 드라이버 | 비동기 드라이버 |
+|---|---|---|
+| `connect_timeout` | TCP 연결 시도 하나마다(`socket.create_connection()`), 리다이렉트된 CAS 포트로의 재연결 포함 | `asyncio.open_connection()` 호출 하나마다, 리다이렉트된 CAS 포트로의 재연결 포함 |
+| `read_timeout` (연결) | 브로커 핸드셰이크와 `OPEN_DATABASE`의 소켓 송신·수신 호출 하나마다 | 연결 핸드셰이크 전체: 브로커 핸드셰이크, TLS 핸드셰이크, `OPEN_DATABASE`를 합친 시간 |
+| `read_timeout` (요청) | 요청의 소켓 송신·수신 호출 하나마다. 조각마다 타임아웃 안에 계속 도착하는 응답은 전체가 얼마나 걸리든 기다립니다 | 요청 하나의 왕복 전체: 요청을 보내고 완전한 응답을 읽기까지 |
+| TLS 핸드셰이크 | TLS 핸드셰이크 전체(Python `ssl` 모듈이 소켓 타임아웃을 하나의 기한으로 적용): `read_timeout`, 설정하지 않으면 10초 | TLS 핸드셰이크 전체(`ssl_handshake_timeout`): `read_timeout`, 설정하지 않으면 10초 |
+
+따라서 같은 `read_timeout`이라도 두 드라이버의 결과가 다를 수 있습니다. 브로커가 응답을
+조각으로 천천히 보내되 조각 사이는 `read_timeout` 안이고 전체는 더 오래 걸리면, 동기
+드라이버는 완료되고 비동기 드라이버는 `OperationalError('read timeout: ...')`를
+발생시킵니다(`tests/test_slow_stream_timeout.py`). 실행 자체가 오래 걸리는 문은 끝날 때까지
+응답 바이트를 보내지 않으므로, 두 드라이버 모두 `read_timeout`이 지나면 예외를 발생시킵니다.
+타임아웃이 발생하면 드라이버는 기다림을 멈추고 세션을 폐기할 뿐입니다(아래 참고). CAS는
+그 문을 계속 실행하거나 커밋·롤백하고 있을 수 있으며, 드라이버는 그 문을 다시 보내지
+않습니다. 여러 요청을 보내는 작업(예: 문 앞의 `CHECK_CAS` 확인, 이후 페이지마다의 `FETCH`)은
+요청마다 타임아웃을 따로 적용합니다. 작업 전체를 제한하려면 호출을 직접 기한으로 감싸고
+(예: 비동기 호출을 `asyncio.timeout()`으로 감싸기) 기한 만료를 결과를 알 수 없는 상태로
+다루세요. 이 경우에도 서버의 문은 취소되지 않습니다.
 
 <a id="unknown-options"></a>
 

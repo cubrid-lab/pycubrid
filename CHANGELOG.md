@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Tests
 
+- **What `read_timeout` bounds when a reply arrives slowly, pinned and documented
+  (#855)** — the new offline `tests/test_slow_stream_timeout.py` has the scripted
+  replay broker send a reply in ten pieces 0.1 s apart (0.9 s in all) with
+  `read_timeout=0.3`. The sync driver, whose `read_timeout` bounds each socket
+  send or receive call, completes it and keeps the session; the async driver,
+  whose `read_timeout` bounds the whole request round trip, raises
+  `OperationalError('read timeout: ...')` with the `asyncio.TimeoutError` as its
+  cause, and completes the same reply when the bound is larger than it. The tests
+  also cover a sync stall longer than `read_timeout` after half a frame and an
+  async caller cancellation after part of a frame. Each failure retires the
+  session and its cursor and schema handles, keeps buffered rows readable, sends
+  nothing until `ping(reconnect=True)`, which then gives a clean session, and
+  never sends the interrupted SQL again; the cancellation still raises
+  `asyncio.CancelledError`. `docs/CONNECTION.md` (and its Korean translation)
+  gains a table of what `connect_timeout`, `read_timeout` and the TLS handshake
+  bound on each driver, and states that none is a wall-clock deadline for a
+  statement or cancels it on the server; `docs/SUPPORT_MATRIX.md` and
+  `docs/API_REFERENCE.md` say the same in brief. Tests and docs only; the driver
+  is unchanged.
+
 - **Large `executemany(..., prepared=True)` batches measured and their failure
   states pinned (#854)** — the new offline
   `tests/test_prepared_batch_failure_invariants.py` checks, sync and async, that
