@@ -80,15 +80,15 @@ async def test_concurrent_execute_calls_are_serialized_per_connection() -> None:
 
     conn._do_send_and_receive = AsyncMock(side_effect=fake_do_send_and_receive)
 
-    task1 = asyncio.create_task(cur1.execute("SELECT 1"))
-    await first_started.wait()
+    async with asyncio.TaskGroup() as group:
+        group.create_task(cur1.execute("SELECT 1"))
+        await first_started.wait()
 
-    task2 = asyncio.create_task(cur2.execute("SELECT 2"))
-    await asyncio.sleep(0)
-    assert not task2.done()
+        task2 = group.create_task(cur2.execute("SELECT 2"))
+        await asyncio.sleep(0)
+        assert not task2.done()
 
-    release_first.set()
-    await asyncio.gather(task1, task2)
+        release_first.set()
 
     assert max_in_flight == 1
     assert cur1._query_handle == 1
@@ -169,15 +169,15 @@ async def test_concurrent_connect_performs_single_handshake() -> None:
     conn._do_connect_handshake = AsyncMock(side_effect=fake_do_connect_handshake)
 
     n = 5
-    first = asyncio.create_task(conn.connect())
-    await started.wait()
-    others = [asyncio.create_task(conn.connect()) for _ in range(n - 1)]
-    await asyncio.sleep(0)
-    for task in others:
-        assert not task.done(), "concurrent connect() should wait on the lock"
+    async with asyncio.TaskGroup() as group:
+        group.create_task(conn.connect())
+        await started.wait()
+        others = [group.create_task(conn.connect()) for _ in range(n - 1)]
+        await asyncio.sleep(0)
+        for task in others:
+            assert not task.done(), "concurrent connect() should wait on the lock"
 
-    release.set()
-    await asyncio.gather(first, *others)
+        release.set()
 
     assert handshake_calls == 1, (
         f"expected single handshake under concurrency, got {handshake_calls}"
@@ -219,7 +219,9 @@ async def test_concurrent_ping_reconnect_performs_single_reconnect() -> None:
     conn._do_send_and_receive = AsyncMock(side_effect=fake_do_send_and_receive)
 
     n = 5
-    results = await asyncio.gather(*[conn.ping(reconnect=True) for _ in range(n)])
+    async with asyncio.TaskGroup() as group:
+        pings = [group.create_task(conn.ping(reconnect=True)) for _ in range(n)]
+    results = [ping.result() for ping in pings]
 
     assert all(results)
     assert handshake_calls == 1
@@ -241,7 +243,9 @@ async def test_concurrent_ping_out_tran_keeps_original_stream() -> None:
     conn._open_connection = AsyncMock(side_effect=AssertionError("unexpected reconnect"))
     conn._do_send_and_receive = AsyncMock(side_effect=fake_do_send_and_receive)
 
-    results = await asyncio.gather(*[conn.ping(reconnect=True) for _ in range(5)])
+    async with asyncio.TaskGroup() as group:
+        pings = [group.create_task(conn.ping(reconnect=True)) for _ in range(5)]
+    results = [ping.result() for ping in pings]
 
     assert all(results)
     conn._open_connection.assert_not_awaited()
@@ -299,12 +303,11 @@ async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> 
 
     n = 3
     try:
-        results = await asyncio.wait_for(
-            asyncio.gather(*[conn.ping(reconnect=True) for _ in range(n)]),
-            timeout=2.0,
-        )
-    except asyncio.TimeoutError:
+        async with asyncio.timeout(2.0), asyncio.TaskGroup() as group:
+            pings = [group.create_task(conn.ping(reconnect=True)) for _ in range(n)]
+    except TimeoutError:
         pytest.fail("ping(reconnect=True) with subclass connect() override deadlocked")
+    results = [ping.result() for ping in pings]
 
     assert all(results)
     assert conn._no_backslash_escapes is True

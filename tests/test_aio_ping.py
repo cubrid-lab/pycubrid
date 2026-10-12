@@ -88,10 +88,9 @@ class TestAsyncConnectionPing:
 
         conn._connect_locked = AsyncMock(side_effect=reconnect)
 
-        assert await asyncio.gather(conn.ping(reconnect=True), conn.ping(reconnect=True)) == [
-            True,
-            True,
-        ]
+        async with asyncio.TaskGroup() as group:
+            pings = [group.create_task(conn.ping(reconnect=True)) for _ in range(2)]
+        assert [ping.result() for ping in pings] == [True, True]
         assert physical_connects == 1
 
     @pytest.mark.asyncio
@@ -205,13 +204,14 @@ class TestAsyncConnectionPing:
         conn._connect_locked = AsyncMock(side_effect=reconnect)
         conn._send_and_receive_locked = AsyncMock(return_value=SimpleNamespace(response_code=0))
 
-        first = asyncio.create_task(conn.ping(reconnect=True))
-        await reconnect_started.wait()
-        second = asyncio.create_task(conn.ping(reconnect=True))
-        await asyncio.sleep(0)
-        release_reconnect.set()
+        async with asyncio.TaskGroup() as group:
+            first = group.create_task(conn.ping(reconnect=True))
+            await reconnect_started.wait()
+            second = group.create_task(conn.ping(reconnect=True))
+            await asyncio.sleep(0)
+            release_reconnect.set()
 
-        assert await asyncio.gather(first, second) == [True, True]
+        assert [first.result(), second.result()] == [True, True]
         assert physical_connects == 1
 
     @pytest.mark.asyncio
