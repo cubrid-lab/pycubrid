@@ -122,13 +122,25 @@ def test_prepared_binding_names_are_reexported_from_protocol_as_the_same_objects
     assert not names & _module_defined_names((_PACKAGE / "protocol.py").read_text())
 
 
+def _module_path(module: str) -> Path | None:
+    """Return the source file of a pycubrid module or subpackage, if it exists."""
+    path = _PACKAGE / (module.removeprefix("pycubrid").lstrip(".").replace(".", "/") + ".py")
+    if path.exists():
+        return path
+    init = path.with_suffix("") / "__init__.py"
+    return init if init.exists() else None
+
+
 def _package_imports(module: str) -> set[str]:
-    """Return the pycubrid modules ``module`` imports (relative or absolute)."""
-    path = _PACKAGE / (module.removeprefix("pycubrid.").replace(".", "/") + ".py")
-    package = module.rsplit(".", 1)[0]
-    if not path.exists():  # a subpackage: its __init__ is its own package
-        path = path.with_suffix("") / "__init__.py"
-        package = module
+    """Return the pycubrid modules ``module`` imports (relative or absolute).
+
+    ``from . import protocol`` and ``from pycubrid import protocol`` name the
+    module in the alias, not in ``ImportFrom.module``, so an alias that is a
+    submodule of the target counts as an import of that submodule.
+    """
+    path = _module_path(module)
+    assert path is not None, module
+    package = module if path.name == "__init__.py" else module.rsplit(".", 1)[0]
     found: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text())):
         if isinstance(node, ast.ImportFrom):
@@ -139,6 +151,12 @@ def _package_imports(module: str) -> set[str]:
                 target = node.module or ""
             if target.startswith("pycubrid."):
                 found.add(target)
+            if target == "pycubrid" or target.startswith("pycubrid."):
+                found.update(
+                    f"{target}.{alias.name}"
+                    for alias in node.names
+                    if _module_path(f"{target}.{alias.name}") is not None
+                )
         elif isinstance(node, ast.Import):
             found.update(a.name for a in node.names if a.name.startswith("pycubrid."))
     return found

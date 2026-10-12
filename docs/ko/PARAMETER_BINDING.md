@@ -253,7 +253,8 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 
 이 절은 위의 리터럴 계약을 **바꾸지 않습니다**. 명시적
 `pycubrid.compat.native` 커서의 `bind_param()`이 FC3로 보내는 타입 지정 값을
-설명합니다(`pycubrid/protocol.py` `_encode_prepared_scalar`). #840부터 이 커서는
+설명합니다(`pycubrid/_prepared_binding.py` `_encode_prepared_scalar`,
+`pycubrid.protocol`에서 다시 내보냄). #840부터 이 커서는
 타입 지정 컬렉션(`bind_set()`으로 바인딩)과 빈 `bytes`를 제외하고 리터럴 경로와
 같은 Python 타입을 받습니다. 각 값은 타입 바이트 하나와 값 바이트로 전송되며, SQL로
 렌더링되지 않습니다. 검사는 리터럴 경로와 같습니다. `nan`/`inf`는
