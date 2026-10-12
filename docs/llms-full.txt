@@ -2538,13 +2538,15 @@ cur.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["alice", 30])
 
 ---
 
-#### `executemany(operation, seq_of_parameters)`
+#### `executemany(operation, seq_of_parameters, *, prepared=False)`
 
 ```python
 def executemany(
     self,
     operation: str,
     seq_of_parameters: Sequence[Sequence[Any]],
+    *,
+    prepared: bool = False,
 ) -> Cursor
 ```
 
@@ -2564,6 +2566,73 @@ data = [("alice", 30), ("bob", 25), ("carol", 28)]
 cur.executemany("INSERT INTO users (name, age) VALUES (?, ?)", data)
 print(cur.rowcount)  # 3
 ```
+
+##### Prepared batch: `prepared=True`
+
+`executemany(..., prepared=True)` (#839) sends an `INSERT`, `UPDATE`, `DELETE`
+or `MERGE` as one `PREPARE` and one `EXECUTE_ARRAY` request (function code 21)
+that carries every row's values as typed host variables. The default
+(`prepared=False`) keeps the literal batch described above. For 10,000-row
+batches on CUBRID 10.2-11.4 it took 0.33-0.62x of the literal batch's time for
+INSERT, UPDATE and DELETE and 0.12-0.21x for MERGE (see
+[PERFORMANCE.md](PERFORMANCE.md#shipped-prepared-batch)).
+
+```python
+cur.executemany(
+    "INSERT INTO users (name, age) VALUES (?, ?)",
+    [("alice", 30), ("bob", None), ("carol", 2**40)],
+    prepared=True,
+)
+```
+
+- **Statements.** Only statements whose first keyword is `INSERT`, `UPDATE`,
+  `DELETE` or `MERGE` are accepted; anything else (including `SELECT`, `CALL`
+  and `WITH ... INSERT`) raises `NotSupportedError`. There is no fallback to the
+  literal batch. Every placeholder must be a value the server can type: in a
+  `MERGE` source, write `CAST(? AS INT)`.
+- **Values.** The prepared host-variable types of
+  [PARAMETER_BINDING.md](PARAMETER_BINDING.md#prepared-host-variable-mapping):
+  `None`, `bool`, `int` (INT, BIGINT or NUMERIC by range), `float`, `Decimal`,
+  `str`, non-empty `bytes`/`bytearray`, `date`, `time` and `datetime`. Each value
+  carries its own type byte, so one column may mix types from row to row.
+  `pycubrid.types.Set`, `Multiset` and `Sequence` are sent as collections of
+  string elements (`str`, `int` or `None`) that the server converts; a `Multiset`
+  is sent as a SEQUENCE, because the broker rejects the MULTISET bind kind.
+  `pycubrid.Lob` values are accepted on the sync cursor with autocommit off (see
+  below).
+- **Checks before send.** Every row is encoded before any request: a row that is
+  not a sequence, rows of different lengths, a statement without `?` markers or a
+  value outside the set above raises (`ProgrammingError`, `DataError` or
+  `NotSupportedError`) with its position, for example
+  `rows[2][1]: nan and inf are not supported by CUBRID`. The value itself never
+  appears in the message. After `PREPARE`, a server marker count different from
+  the row length raises `ProgrammingError` and no row is executed.
+- **Partial failure and `rowcount`.** As with the literal batch, the server runs
+  every row and undoes only a failing one. With autocommit on, each successful
+  row is committed; with autocommit off, `commit()` keeps the successful rows and
+  `rollback()` removes them all. The first failing row's error is raised with the
+  same exception mapping as the literal batch and `rowcount` stays `-1`. On
+  success `rowcount` is the sum of the per-row counts. `lastrowid` is `None`.
+  With autocommit off, a deadlock or a server shutdown aborts the whole
+  transaction and fails the whole request.
+- **Server text.** Values are coerced as host variables, not as literals, so a
+  conversion error reads "Cannot coerce host var to type ..." (error -494, the
+  same exception class as the literal batch).
+- **LOB values.** A `Lob` from this connection's `create_lob()` is bound by its
+  handle. With autocommit on, each row's commit removes every temporary LOB file
+  of the session and the second row would fail with -1016, so a batch that
+  contains a `Lob` raises `NotSupportedError` before anything is sent: turn
+  autocommit off and call `commit()` after the batch. A `Lob` that is closed,
+  belongs to another connection or was created before a reconnect raises
+  `InterfaceError`. The async cursor rejects `Lob` values with
+  `NotSupportedError`.
+- **Handles.** The prepared statement handle is released like any other result:
+  with the next statement on the cursor, by `commit()`/`rollback()`, or by
+  `close()`.
+
+`prepared=False` keeps every behaviour of the literal batch. A non-bool
+`prepared` raises `ProgrammingError`. The same contract applies to
+`AsyncCursor.executemany()`.
 
 ---
 
@@ -2990,7 +3059,7 @@ Async counterpart to `Cursor`.
 | Method | Signature | Notes |
 |---|---|---|
 | `execute()` | `async def execute(self, operation: str, parameters: Sequence[Any] \| None = None) -> AsyncCursor` | Sequence-only parameter binding, same rules as sync cursor |
-| `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]]) -> AsyncCursor` | Batch path for non-SELECT statements |
+| `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]], *, prepared: bool = False) -> AsyncCursor` | Batch path for non-SELECT statements; `prepared=True` sends PREPARE + EXECUTE_ARRAY (no `Lob` values) |
 | `fetchone()` | `async def fetchone(self) -> tuple[Any, ...] \| None` | Returns one row or `None` |
 | `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | Omitted/`None` uses `arraysize`; plain `int` required, nonpositive integers return `[]` |
 | `fetchall()` | `async def fetchall(self) -> list[tuple[Any, ...]]` | Returns remaining rows |
@@ -4992,6 +5061,7 @@ Technical documentation for the CUBRID CAS (Common Application Server) wire prot
   - [GetEngineVersionPacket](#getengineversionpacket)
   - [GetSchemaPacket](#getschemapacket)
   - [BatchExecutePacket](#batchexecutepacket)
+  - [ExecuteArrayPacket](#executearraypacket)
   - [LOBNewPacket](#lobnewpacket)
   - [LOBWritePacket](#lobwritepacket)
   - [LOBReadPacket](#lobreadpacket)
@@ -5566,6 +5636,34 @@ and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63a
 |-----------|-------|-------------|
 | `results` | `list[tuple[int, int]]` | `(stmt_type, result_count)` per statement |
 | `errors`  | `list[dict]` | `{code, message}` for failed statements |
+
+---
+
+### ExecuteArrayPacket
+
+**Execute array** (FC=21, #839) — one prepared statement executed once per row
+of bound values. Sent by `executemany(..., prepared=True)` after a `PREPARE`
+(FC=2) on the same session.
+
+Request (CAS `fn_execute_array`): int query handle, int query timeout (`0`, protocol
+V4+ only), byte autocommit, then one (type byte, value) argument pair per marker
+per row, in row order: the same pair `ExecutePacket` writes for one binding.
+Every row must have exactly the server's bind count; the CAS would silently
+ignore extra values.
+
+Reply (CAS `ux_execute_array`): int result code, int executed row count, then per
+row either `int count >= 0` and an 8-byte OID, or a negative int (the DBMS error
+indicator for V3+, otherwise the error code itself), the error code (V3+) and a
+length-prefixed message; a shard id follows for V5+. The CAS stops early only
+after an interrupted row, which it reports; any other short reply is malformed.
+
+| Attribute | Type  | Description |
+|-----------|-------|-------------|
+| `row_results` | `tuple[tuple[int, int, str], ...]` | `(count, 0, "")` or `(-1, code, message)` per executed row, in row order |
+| `errors`  | `list[dict]` | `{code, message, index}` for failed rows |
+
+With autocommit on, the CAS commits each successful row and aborts each failing
+one; with autocommit off, a deadlock or a server shutdown fails the whole request.
 
 ---
 
@@ -6500,8 +6598,8 @@ experiment. Autocommit was off, the commit was included, and the medians come fr
 
 - a prepared loop with `pycubrid.compat.native`: one `PREPARE`, then one execute per row;
 - a prototype of the `EXECUTE_ARRAY` request (function code 21): one `PREPARE`, one request
-  carrying every row's bound values, one close. pycubrid does not send this request today; the
-  prototype lived in the benchmark harness.
+  carrying every row's bound values, one close. The prototype lived in the benchmark harness;
+  pycubrid now sends this request with `executemany(..., prepared=True)` (#839, below).
 
 Time of the `EXECUTE_ARRAY` prototype as a fraction of `executemany()` at 10,000 rows:
 
@@ -6524,17 +6622,40 @@ Time of the `EXECUTE_ARRAY` prototype as a fraction of `executemany()` at 10,000
   autocommit off, `rollback()` removes every row and `commit()` keeps the successful ones. The
   per-row counts and their sum are identical. The prepared loop stops at the first failing row
   instead.
-- **Types and coercion differ.** The prepared encoders take only a 32-bit `int`, `str`, `None`,
-  INT/STRING collections and LOB handles. `bool`, larger ints, `float`, `Decimal`, `date`,
-  `datetime` and `bytes` are rejected, while `executemany()` renders them all. Values are coerced
-  as host variables, not literals, so server error text differs. With autocommit on, a LOB handle
-  fails after the first row's commit.
+- **Types and coercion differ.** At the time of #836 the prepared encoders took only a 32-bit
+  `int`, `str`, `None`, INT/STRING collections and LOB handles; #840 widened them to every scalar
+  type the literal path renders. Values are coerced as host variables, not literals, so server
+  error text differs. With autocommit on, a LOB handle fails after the first row's commit.
 
 Decision: `executemany()` keeps the literal batch by default, because a default switch would change
-which values are accepted and how they are converted. An opt-in `EXECUTE_ARRAY` path is tracked
-in [#839](https://github.com/cubrid-lab/pycubrid/issues/839), the wider prepared type set it needs
-in [#840](https://github.com/cubrid-lab/pycubrid/issues/840), and reporting which batch rows failed
-in [#841](https://github.com/cubrid-lab/pycubrid/issues/841).
+which values are accepted and how they are converted. The `EXECUTE_ARRAY` path ships as an opt-in,
+`executemany(..., prepared=True)`
+([#839](https://github.com/cubrid-lab/pycubrid/issues/839)), on the wider prepared type set of
+[#840](https://github.com/cubrid-lab/pycubrid/issues/840). Reporting which batch rows failed is
+tracked in [#841](https://github.com/cubrid-lab/pycubrid/issues/841).
+
+<a id="shipped-prepared-batch"></a>
+
+#### The shipped opt-in: `executemany(..., prepared=True)`
+
+The same comparison through the driver itself, after #839: 10,000 rows of a three-column table
+with a primary key, autocommit off, commit included, median of three trials (order alternated),
+one container per version on a shared machine (one-minute load average 2.1-2.6). Times are the
+literal `executemany()` and then `prepared=True`, in milliseconds:
+
+| CUBRID | INSERT | UPDATE | DELETE | MERGE |
+|---|---:|---:|---:|---:|
+| 11.4.6 | 3,044 → 1,159 (0.38) | 3,141 → 1,121 (0.36) | 3,116 → 1,117 (0.36) | 10,047 → 2,012 (0.20) |
+| 11.2 | 2,942 → 1,300 (0.44) | 3,615 → 1,196 (0.33) | 5,042 → 1,191 (0.24) | 17,708 → 2,164 (0.12) |
+| 11.0 | 1,876 → 1,067 (0.57) | 2,131 → 1,094 (0.51) | 1,817 → 1,125 (0.62) | 8,979 → 1,860 (0.21) |
+| 10.2 | 2,054 → 1,102 (0.54) | 2,384 → 1,090 (0.46) | 2,092 → 984 (0.47) | 10,426 → 1,842 (0.18) |
+
+The ratios match the prototype for INSERT, UPDATE and DELETE. MERGE gains more than the prototype
+measured on 10.2 (0.18 against 0.61) with this statement shape (`MERGE ... USING db_root ON
+(t.id = CAST(? AS INT))` on a primary key). The literal 11.2 DELETE time is noisier than the
+others. The integration tests (`tests/test_integration_execute_array.py`) check the transaction,
+partial-failure, `rowcount`, NULL, mixed-type, collection and LOB behaviour on all four versions.
+See [API_REFERENCE.md](API_REFERENCE.md) for the contract.
 
 ### Fetch throughput and peak memory by `fetch_size`
 
@@ -6660,6 +6781,10 @@ Measured sync and async throughput is in [Sync against async](#sync-against-asyn
 3. `rowcount` is the sum of the affected rows.
 
 Other statements, such as `SELECT`, fall back to calling `execute()` once per parameter set.
+With `prepared=True`, an INSERT, UPDATE, DELETE or MERGE is instead sent as one `PREPARE` and one
+`EXECUTE_ARRAY` request with typed values, which takes about a third to a half of the literal
+batch's time (a fifth or less for MERGE); see
+[the shipped opt-in](#shipped-prepared-batch).
 `executemany_batch(sql_list)` sends a list of SQL strings you have already rendered in the same
 single request.
 
@@ -10999,7 +11124,8 @@ text, so some results differ from the literal path. Verified on CUBRID 10.2,
   column when it is out of range, and a TIME into a DATETIME target.
 - **Typed collections.** `Set`, `Multiset` and `Sequence` are rendered by the
   literal path but raise `ProgrammingError` in `bind_param()`; use
-  `connection.set()` and `bind_set()`.
+  `connection.set()` and `bind_set()`. `executemany(..., prepared=True)` sends
+  them as collections of string elements (see below).
 - **Integers past 38 digits** raise `DataError` before any I/O. The literal path
   sends the digits and the server rejects them (-494, "Invalid numeric").
 
@@ -11152,6 +11278,31 @@ For non-DML statements, `executemany` falls back to a per-row `execute` loop
 (`pycubrid/cursor.py:220-238`, `pycubrid/aio/cursor.py:176-187`).
 
 Each row is bound independently with the same type-mapping rules above.
+
+### `executemany(..., prepared=True)`
+
+With `prepared=True` (#839) no SQL is rendered. For `INSERT`, `UPDATE`,
+`DELETE` and `MERGE` the cursor sends one `PREPARE` and one `EXECUTE_ARRAY`
+request (function code 21) whose arguments are one type byte and value per
+marker per row, in row order. Values follow the
+[prepared host-variable mapping](#prepared-host-variable-mapping), with the
+same checks and the same differences from literals (host-variable coercion,
+`float` as DOUBLE, empty `bytes` rejected). In addition:
+
+- `Set`, `Multiset` and `Sequence` are sent as collections of STRING elements:
+  `str` elements as they are, `int` elements (not `bool`) as decimal text and
+  `None` as a NULL element; the server converts them to the column's element
+  type. Other element types raise `ProgrammingError`. A `Multiset` is sent with
+  the SEQUENCE kind, because the 10.2-11.4 brokers reject the MULTISET bind kind
+  (-454) and a SET kind would drop duplicates.
+- A `pycubrid.Lob` of the same connection is bound by its handle, only with
+  autocommit off.
+- Every row is encoded before anything is sent; a rejected value names its
+  position (`rows[i][j]`) and never its contents. Each value carries its own
+  type, so a column may hold an `int` in one row and a `Decimal` or `None` in
+  the next.
+- Other statements raise `NotSupportedError`; there is no fallback to the
+  literal batch.
 
 ---
 

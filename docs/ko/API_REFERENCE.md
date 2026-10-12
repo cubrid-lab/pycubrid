@@ -1401,9 +1401,9 @@ print(cur.rowcount)  # 3
 `executemany(..., prepared=True)`(#839)는 `INSERT`, `UPDATE`, `DELETE`, `MERGE`를
 `PREPARE` 한 번과, 모든 행의 값을 타입이 있는 호스트 변수로 담은 `EXECUTE_ARRAY`
 요청(함수 코드 21) 한 번으로 보냅니다. 기본값(`prepared=False`)은 위의 리터럴 배치를
-그대로 사용합니다. CUBRID 11.0-11.4에서 10,000행 INSERT, UPDATE, DELETE 배치는 리터럴
-배치 시간의 0.33-0.55배, MERGE는 0.15-0.16배가 걸립니다
-([PERFORMANCE.md](PERFORMANCE.md#준비된-배치-경로-execute_array-평가) 참고).
+그대로 사용합니다. CUBRID 10.2-11.4에서 10,000행 배치는 INSERT, UPDATE, DELETE가 리터럴
+배치 시간의 0.33-0.62배, MERGE가 0.12-0.21배 걸렸습니다
+([PERFORMANCE.md](PERFORMANCE.md#shipped-prepared-batch) 참고).
 
 ```python
 cur.executemany(

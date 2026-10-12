@@ -1458,10 +1458,10 @@ print(cur.rowcount)  # 3
 `executemany(..., prepared=True)` (#839) sends an `INSERT`, `UPDATE`, `DELETE`
 or `MERGE` as one `PREPARE` and one `EXECUTE_ARRAY` request (function code 21)
 that carries every row's values as typed host variables. The default
-(`prepared=False`) keeps the literal batch described above. On CUBRID 11.0-11.4
-it takes 0.33-0.55x of the literal batch's time for 10,000-row INSERT, UPDATE and
-DELETE batches and 0.15-0.16x for MERGE (see
-[PERFORMANCE.md](PERFORMANCE.md#prepared-batch-paths-the-execute_array-evaluation)).
+(`prepared=False`) keeps the literal batch described above. For 10,000-row
+batches on CUBRID 10.2-11.4 it took 0.33-0.62x of the literal batch's time for
+INSERT, UPDATE and DELETE and 0.12-0.21x for MERGE (see
+[PERFORMANCE.md](PERFORMANCE.md#shipped-prepared-batch)).
 
 ```python
 cur.executemany(

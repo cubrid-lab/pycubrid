@@ -12,10 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and `AsyncCursor.executemany()` take a keyword-only `prepared=False`. With
   `prepared=True`, an INSERT, UPDATE, DELETE or MERGE is sent as one `PREPARE`
   and one `EXECUTE_ARRAY` request (function code 21) carrying every row's values
-  as typed host variables, instead of N rendered SQL literals. The #836
-  measurement puts it at 0.33-0.55x of the literal batch's time for 10,000-row
-  INSERT, UPDATE and DELETE batches on CUBRID 11.0-11.4 and 0.15-0.16x for
-  MERGE. Every row is still executed and only a failing row is undone,
+  as typed host variables, instead of N rendered SQL literals. For 10,000-row
+  batches on CUBRID 10.2-11.4 it took 0.33-0.62x of the literal batch's time for
+  INSERT, UPDATE and DELETE and 0.12-0.21x for MERGE
+  ([PERFORMANCE.md](docs/PERFORMANCE.md#shipped-prepared-batch)). Every row is still executed and only a failing row is undone,
   autocommit still commits each successful row, the first failing row's error is
   raised with the same exception mapping, and `rowcount` is the sum of the
   per-row counts. Values use the #840 prepared types; one column may mix types

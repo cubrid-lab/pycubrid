@@ -249,8 +249,8 @@ experiment. Autocommit was off, the commit was included, and the medians come fr
 
 - a prepared loop with `pycubrid.compat.native`: one `PREPARE`, then one execute per row;
 - a prototype of the `EXECUTE_ARRAY` request (function code 21): one `PREPARE`, one request
-  carrying every row's bound values, one close. pycubrid does not send this request today; the
-  prototype lived in the benchmark harness.
+  carrying every row's bound values, one close. The prototype lived in the benchmark harness;
+  pycubrid now sends this request with `executemany(..., prepared=True)` (#839, below).
 
 Time of the `EXECUTE_ARRAY` prototype as a fraction of `executemany()` at 10,000 rows:
 
@@ -273,17 +273,40 @@ Time of the `EXECUTE_ARRAY` prototype as a fraction of `executemany()` at 10,000
   autocommit off, `rollback()` removes every row and `commit()` keeps the successful ones. The
   per-row counts and their sum are identical. The prepared loop stops at the first failing row
   instead.
-- **Types and coercion differ.** The prepared encoders take only a 32-bit `int`, `str`, `None`,
-  INT/STRING collections and LOB handles. `bool`, larger ints, `float`, `Decimal`, `date`,
-  `datetime` and `bytes` are rejected, while `executemany()` renders them all. Values are coerced
-  as host variables, not literals, so server error text differs. With autocommit on, a LOB handle
-  fails after the first row's commit.
+- **Types and coercion differ.** At the time of #836 the prepared encoders took only a 32-bit
+  `int`, `str`, `None`, INT/STRING collections and LOB handles; #840 widened them to every scalar
+  type the literal path renders. Values are coerced as host variables, not literals, so server
+  error text differs. With autocommit on, a LOB handle fails after the first row's commit.
 
 Decision: `executemany()` keeps the literal batch by default, because a default switch would change
-which values are accepted and how they are converted. An opt-in `EXECUTE_ARRAY` path is tracked
-in [#839](https://github.com/cubrid-lab/pycubrid/issues/839), the wider prepared type set it needs
-in [#840](https://github.com/cubrid-lab/pycubrid/issues/840), and reporting which batch rows failed
-in [#841](https://github.com/cubrid-lab/pycubrid/issues/841).
+which values are accepted and how they are converted. The `EXECUTE_ARRAY` path ships as an opt-in,
+`executemany(..., prepared=True)`
+([#839](https://github.com/cubrid-lab/pycubrid/issues/839)), on the wider prepared type set of
+[#840](https://github.com/cubrid-lab/pycubrid/issues/840). Reporting which batch rows failed is
+tracked in [#841](https://github.com/cubrid-lab/pycubrid/issues/841).
+
+<a id="shipped-prepared-batch"></a>
+
+#### The shipped opt-in: `executemany(..., prepared=True)`
+
+The same comparison through the driver itself, after #839: 10,000 rows of a three-column table
+with a primary key, autocommit off, commit included, median of three trials (order alternated),
+one container per version on a shared machine (one-minute load average 2.1-2.6). Times are the
+literal `executemany()` and then `prepared=True`, in milliseconds:
+
+| CUBRID | INSERT | UPDATE | DELETE | MERGE |
+|---|---:|---:|---:|---:|
+| 11.4.6 | 3,044 → 1,159 (0.38) | 3,141 → 1,121 (0.36) | 3,116 → 1,117 (0.36) | 10,047 → 2,012 (0.20) |
+| 11.2 | 2,942 → 1,300 (0.44) | 3,615 → 1,196 (0.33) | 5,042 → 1,191 (0.24) | 17,708 → 2,164 (0.12) |
+| 11.0 | 1,876 → 1,067 (0.57) | 2,131 → 1,094 (0.51) | 1,817 → 1,125 (0.62) | 8,979 → 1,860 (0.21) |
+| 10.2 | 2,054 → 1,102 (0.54) | 2,384 → 1,090 (0.46) | 2,092 → 984 (0.47) | 10,426 → 1,842 (0.18) |
+
+The ratios match the prototype for INSERT, UPDATE and DELETE. MERGE gains more than the prototype
+measured on 10.2 (0.18 against 0.61) with this statement shape (`MERGE ... USING db_root ON
+(t.id = CAST(? AS INT))` on a primary key). The literal 11.2 DELETE time is noisier than the
+others. The integration tests (`tests/test_integration_execute_array.py`) check the transaction,
+partial-failure, `rowcount`, NULL, mixed-type, collection and LOB behaviour on all four versions.
+See [API_REFERENCE.md](API_REFERENCE.md) for the contract.
 
 ### Fetch throughput and peak memory by `fetch_size`
 
@@ -409,6 +432,10 @@ Measured sync and async throughput is in [Sync against async](#sync-against-asyn
 3. `rowcount` is the sum of the affected rows.
 
 Other statements, such as `SELECT`, fall back to calling `execute()` once per parameter set.
+With `prepared=True`, an INSERT, UPDATE, DELETE or MERGE is instead sent as one `PREPARE` and one
+`EXECUTE_ARRAY` request with typed values, which takes about a third to a half of the literal
+batch's time (a fifth or less for MERGE); see
+[the shipped opt-in](#shipped-prepared-batch).
 `executemany_batch(sql_list)` sends a list of SQL strings you have already rendered in the same
 single request.
 

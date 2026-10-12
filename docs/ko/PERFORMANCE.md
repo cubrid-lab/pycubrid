@@ -210,7 +210,7 @@ flowchart TD
 실험에서 측정했습니다. autocommit은 끄고 commit을 포함했으며, 중앙값은 11.4에서 5회, 다른 버전에서 3회 시행으로 얻었습니다. 다른 사용자도 쓰는 머신에서 측정했습니다.
 
 - `pycubrid.compat.native`의 준비된 루프: `PREPARE` 한 번, 이후 행마다 실행 한 번
-- `EXECUTE_ARRAY` 요청(함수 코드 21)의 프로토타입: `PREPARE` 한 번, 모든 행의 바인딩 값을 담은 요청 한 번, 닫기 한 번. pycubrid는 현재 이 요청을 보내지 않으며, 프로토타입은 벤치마크 하네스 안에 있었습니다.
+- `EXECUTE_ARRAY` 요청(함수 코드 21)의 프로토타입: `PREPARE` 한 번, 모든 행의 바인딩 값을 담은 요청 한 번, 닫기 한 번. 프로토타입은 벤치마크 하네스 안에 있었고, 이제 pycubrid는 `executemany(..., prepared=True)`로 이 요청을 보냅니다(#839, 아래 참고).
 
 10,000행에서 `EXECUTE_ARRAY` 프로토타입의 시간을 `executemany()`에 대한 비율로 나타낸 값:
 
@@ -224,9 +224,24 @@ flowchart TD
 - **모든 버전에서 `EXECUTE_ARRAY`가 가장 빠릅니다.** 11.4에서 10,000행의 문장 실행 구간은 INSERT가 2,887 ms에서 954 ms로, MERGE가 13,020 ms에서 1,739 ms로 줄었습니다. INSERT, UPDATE, DELETE에서는 준비된 루프의 0.41-0.54배이기도 합니다.
 - **준비된 루프가 어디서나 빠르지는 않습니다.** INSERT, UPDATE, DELETE에서 11.4와 11.2에서는 `executemany()`의 0.79-1.06배이지만 11.0과 10.2에서는 1.13-1.22배입니다. MERGE는 모든 버전에서 준비된 루프가 더 빠릅니다.
 - **트랜잭션, 부분 실패, `rowcount`는 현재 배치와 같습니다.** 네 버전 모두에서 한 행이 실패해도 `EXECUTE_ARRAY`는 지금의 `executemany()`처럼 나머지 행을 실행합니다. 실패한 행만 취소됩니다. autocommit이 켜져 있으면 성공한 행마다 commit되고, 꺼져 있으면 `rollback()`은 모든 행을 없애고 `commit()`은 성공한 행을 남깁니다. 행별 건수와 그 합도 같습니다. 반면 준비된 루프는 처음 실패한 행에서 멈춥니다.
-- **타입과 변환은 다릅니다.** 준비된 인코더는 32비트 `int`, `str`, `None`, INT/STRING 컬렉션, LOB 핸들만 받습니다. `bool`, 더 큰 정수, `float`, `Decimal`, `date`, `datetime`, `bytes`는 거부되지만 `executemany()`는 모두 렌더링합니다. 값은 리터럴이 아니라 호스트 변수로 변환되므로 서버 오류 문구가 다릅니다. autocommit이 켜져 있으면 LOB 핸들은 첫 행의 commit 뒤에 실패합니다.
+- **타입과 변환은 다릅니다.** #836 당시 준비된 인코더는 32비트 `int`, `str`, `None`, INT/STRING 컬렉션, LOB 핸들만 받았고, #840이 리터럴 경로가 렌더링하는 모든 스칼라 타입으로 넓혔습니다. 값은 리터럴이 아니라 호스트 변수로 변환되므로 서버 오류 문구가 다릅니다. autocommit이 켜져 있으면 LOB 핸들은 첫 행의 commit 뒤에 실패합니다.
 
-결정: `executemany()`는 기본으로 리터럴 배치를 유지합니다. 기본 경로를 바꾸면 받을 수 있는 값과 변환 방식이 달라지기 때문입니다. 옵트인 `EXECUTE_ARRAY` 경로는 [#839](https://github.com/cubrid-lab/pycubrid/issues/839)에서, 이 경로에 필요한 더 넓은 준비된 타입 집합은 [#840](https://github.com/cubrid-lab/pycubrid/issues/840)에서, 배치에서 실패한 행을 알려 주는 기능은 [#841](https://github.com/cubrid-lab/pycubrid/issues/841)에서 추적합니다.
+결정: `executemany()`는 기본으로 리터럴 배치를 유지합니다. 기본 경로를 바꾸면 받을 수 있는 값과 변환 방식이 달라지기 때문입니다. `EXECUTE_ARRAY` 경로는 [#840](https://github.com/cubrid-lab/pycubrid/issues/840)의 더 넓은 준비된 타입 집합 위에서 옵트인 `executemany(..., prepared=True)`([#839](https://github.com/cubrid-lab/pycubrid/issues/839))로 제공됩니다. 배치에서 실패한 행을 알려 주는 기능은 [#841](https://github.com/cubrid-lab/pycubrid/issues/841)에서 추적합니다.
+
+<a id="shipped-prepared-batch"></a>
+
+#### 제공된 옵트인: `executemany(..., prepared=True)`
+
+#839 이후 드라이버 자체로 같은 비교를 했습니다. 기본 키가 있는 3컬럼 테이블에 10,000행, autocommit 끔, commit 포함, 세 번 시행의 중앙값(순서 교대), 버전마다 컨테이너 하나, 다른 사용자도 쓰는 머신(1분 부하 평균 2.1-2.6)입니다. 리터럴 `executemany()` 시간과 `prepared=True` 시간(밀리초)입니다.
+
+| CUBRID | INSERT | UPDATE | DELETE | MERGE |
+|---|---:|---:|---:|---:|
+| 11.4.6 | 3,044 → 1,159 (0.38) | 3,141 → 1,121 (0.36) | 3,116 → 1,117 (0.36) | 10,047 → 2,012 (0.20) |
+| 11.2 | 2,942 → 1,300 (0.44) | 3,615 → 1,196 (0.33) | 5,042 → 1,191 (0.24) | 17,708 → 2,164 (0.12) |
+| 11.0 | 1,876 → 1,067 (0.57) | 2,131 → 1,094 (0.51) | 1,817 → 1,125 (0.62) | 8,979 → 1,860 (0.21) |
+| 10.2 | 2,054 → 1,102 (0.54) | 2,384 → 1,090 (0.46) | 2,092 → 984 (0.47) | 10,426 → 1,842 (0.18) |
+
+INSERT, UPDATE, DELETE의 비율은 프로토타입과 같습니다. 이 문 형태(기본 키에 대한 `MERGE ... USING db_root ON (t.id = CAST(? AS INT))`)에서 MERGE는 10.2에서 프로토타입이 측정한 것보다 더 빨라집니다(0.61 대신 0.18). 11.2의 리터럴 DELETE 시간은 다른 값보다 잡음이 큽니다. 통합 테스트(`tests/test_integration_execute_array.py`)가 네 버전 모두에서 트랜잭션, 부분 실패, `rowcount`, NULL, 타입 혼합, 컬렉션, LOB 동작을 확인합니다. 계약은 [API_REFERENCE.md](API_REFERENCE.md)를 참고하세요.
 
 <a id="fetch_size별-fetch-처리량과-최대-메모리"></a>
 
@@ -337,7 +352,7 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 2. 모든 문자열을 하나의 `BatchExecutePacket`으로 보내므로, 배치 전체가 행마다 왕복하는 대신 한 번의 왕복으로 끝납니다.
 3. `rowcount`는 영향받은 행 수의 합입니다.
 
-`SELECT` 같은 다른 문장은 파라미터 세트마다 `execute()`를 한 번씩 호출하는 방식으로 대체됩니다. `executemany_batch(sql_list)`는 이미 렌더링한 SQL 문자열 목록을 같은 단일 요청으로 보냅니다.
+`SELECT` 같은 다른 문장은 파라미터 세트마다 `execute()`를 한 번씩 호출하는 방식으로 대체됩니다. `prepared=True`이면 INSERT, UPDATE, DELETE, MERGE를 타입이 있는 값과 함께 `PREPARE` 한 번과 `EXECUTE_ARRAY` 요청 한 번으로 보내며, 리터럴 배치 시간의 약 3분의 1에서 2분의 1(MERGE는 5분의 1 이하)이 걸립니다. [제공된 옵트인](#shipped-prepared-batch)을 참고하세요. `executemany_batch(sql_list)`는 이미 렌더링한 SQL 문자열 목록을 같은 단일 요청으로 보냅니다.
 
 실용적인 조언:
 
