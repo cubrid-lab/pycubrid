@@ -174,7 +174,10 @@ Sibling repositories may be cited with Refs owner/repo#N when they supply a real
 dependency or compatibility contract; their priorities and completion are not
 inherited. Close only this repository's issues (Closes #N). PRs with no local
 issue may state N/A and a reason. The existing PR title check rejects direct
-cross-repository issue-closing keywords in the PR body. External contributors
+cross-repository issue-closing keywords in the PR body, the PR title and commit
+messages (the title and commit messages make up the squash commit); code and
+comments in the body are ignored, the title and commit messages are read as
+plain text. External contributors
 do not need to install internal agent tools or create duplicate work.
 
 ## Pull request and commit titles

@@ -39,7 +39,7 @@ CUBRID 是一款高性能开源关系型数据库，在韩国公共部门和企�
 
 ## 环境要求
 
-- Python 3.10+
+- Python 3.11 或更高版本
 - CUBRID 数据库服务器 10.2+
 
 ## 安装
@@ -240,16 +240,12 @@ with engine.connect() as conn:
 
 ## 兼容性
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **离线测试** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.2** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.0** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
-
-CI 会在每次 PR/推送时运行上述矩阵（以 Python 3.10 和 3.14 为锚点 × 全部 CUBRID 版本）。
-完整的 **4 × 4** Python × CUBRID 矩阵会在显式 `workflow_dispatch` 触发时以及每次发布时运行。
+支持：Python 3.11–3.15 和 CUBRID 10.2、11.0、11.2、11.4。
+普通 PR 使用一条 Ubuntu/Python 3.12 离线冒烟通道；高风险变更额外运行
+Python 3.14/CUBRID 11.4。main 分支及每周变更验证还会运行 Python
+3.11/CUBRID 10.2 实时测试，以及 Python 3.11 和 3.15 上的完整离线套件。完整的
+5 × 4 实时矩阵会在显式触发 dispatch 时以及每次发布时运行。
+参见 [CI 执行策略](CI_POLICY.md) 和 [支持矩阵](SUPPORT_MATRIX.md)。
 
 ## 架构
 
@@ -316,7 +312,7 @@ conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="d
 
 ### 支持哪些 Python 版本？
 
-支持 Python 3.10、3.11、3.12、3.13 和 3.14。
+支持 Python 3.11、3.12、3.13、3.14 和 3.15（标准 GIL 构建）。
 
 ### pycubrid 支持 LOB（CLOB/BLOB）吗？
 

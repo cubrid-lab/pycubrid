@@ -72,14 +72,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### CI
 
 - **Repository-local issue closure in PRs** — the required `PR title` check now
-  rejects direct closing keywords targeting a different GitHub repository; local
-  `Closes #N` and cross-repository `Refs owner/repo#N` remain valid. PR body text
-  is treated as untrusted data, without checkout or token permissions. Fenced
-  examples (any fence length) and whole-line or multi-line HTML comments are
-  ignored in one pass; indented lines, fences inside a raw HTML block such as
-  `<details>` without a blank line, and comments sharing a line with text are
-  always checked. `Fixes:` with a colon, `_emphasis_` around the keyword and
-  `http://` or `www.` issue URLs are caught too. Regression tests cover each case.
+  rejects direct closing keywords targeting a different GitHub repository in the
+  PR body, the PR title and the PR's commit messages (the title and commit
+  messages make up the squash commit); local `Closes #N` and cross-repository
+  `Refs owner/repo#N` remain valid. The body is untrusted data and nothing is
+  checked out; the job's token can only read pull requests, to list the commit
+  messages, and a PR with 250 or more commits fails because GitHub lists only
+  250. The body is read the way GitHub's cmark-gfm renders it: block quotes,
+  list items, footnote definitions, lazy continuation, setext headings, HTML
+  blocks, tables and link reference definitions. Only fenced and indented code,
+  HTML comments and code spans are ignored; where a construct can be read more
+  than one way every reading is checked, and text that any reading shows counts
+  as live. Keywords and references split by emphasis (`*`, `_`, `~`), inline
+  HTML, comments, entities or escapes are caught, as are `http://`, `www.`,
+  autolink, `<a href>`, inline and reference-link issue URLs. The title and
+  commit messages are plain text and are checked as written. Regression tests
+  cover each case.
 
 ## [1.11.0] - 2026-10-11
 
