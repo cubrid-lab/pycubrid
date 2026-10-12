@@ -1,7 +1,9 @@
 """Fail when declared pins, local hooks, installed tools, or lint scopes drift.
 
-The narrow extraction matches this repository's lint dependency group/hook layout
-and works on Python 3.10 without a TOML/YAML dependency. The pyproject `lint`
+`pyproject.toml` is parsed with the standard-library `tomllib`, so any valid TOML
+formatting of the `lint` dependency group and the `[tool.ruff]` include list is
+accepted; the pre-commit YAML, Makefile and workflows are still matched narrowly
+because the standard library has no YAML parser. The pyproject `lint`
 dependency group owns tool versions;
 Ruff/Mypy pre-commit hooks run as `repo: local` / `language: system` entries that
 invoke `python3 -m <tool>` against the same active environment, so there is no
@@ -12,9 +14,10 @@ LINT_PATHS owns scope and CI invokes the shared Make targets.
 from __future__ import annotations
 
 import re
+import tomllib
 from importlib import metadata
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_HOOK_IDS = {
@@ -33,35 +36,70 @@ EXPECTED_HOOK_ENTRY = {
 REQUIRED_PATHS = {"pycubrid", "tests", "scripts", "demos", "examples"}
 
 
+# An exact pin is the bare tool name, `==` and one version; extras, markers,
+# ranges, wildcards and arbitrary equality (===) are rejected (PEP 508 allows spaces around `==`).
+EXACT_PIN = re.compile(
+    r"^\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*==\s*(?P<version>[0-9][A-Za-z0-9.+!_-]*)\s*$"
+)
+REQUIREMENT_NAME = re.compile(r"^\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def _normalized(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _pyproject(root: Path) -> dict[str, Any]:
+    try:
+        return tomllib.loads((root / "pyproject.toml").read_text())
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"pyproject.toml is not valid TOML: {exc}") from exc
+
+
+def _table(data: dict[str, Any], *keys: str) -> Any:
+    value: Any = data
+    for depth, key in enumerate(keys):
+        if not isinstance(value, dict) or key not in value:
+            name = ".".join(keys[: depth + 1])
+            raise ValueError(f"pyproject.toml: `{name}` is required")
+        value = value[key]
+    return value
+
+
 def declared_pins(root: Path) -> dict[str, str]:
-    content = (root / "pyproject.toml").read_text()
-    blocks = re.findall(
-        r"^\[dependency-groups\]\s*\n(.*?)(?=^\[|\Z)",
-        content,
-        re.MULTILINE | re.DOTALL,
-    )
-    if len(blocks) != 1:
-        raise ValueError("exactly one dependency-groups block is required")
-    lint = re.findall(r"^lint\s*=\s*\[(.*?)^\]\s*$", blocks[0], re.MULTILINE | re.DOTALL)
-    if len(lint) != 1:
-        raise ValueError("exactly one lint dependency group is required")
+    lint = _table(_pyproject(root), "dependency-groups", "lint")
+    if not isinstance(lint, list):
+        raise ValueError("pyproject.toml: `dependency-groups.lint` must be an array")
+    requirements = []
+    for entry in lint:
+        if isinstance(entry, str):
+            requirements.append(entry)
+        elif not (isinstance(entry, dict) and set(entry) == {"include-group"}):
+            raise ValueError(
+                "pyproject.toml: `dependency-groups.lint` entries must be requirement strings "
+                f"or include-group tables, got {entry!r}"
+            )
     pins = {}
     for tool in LOCAL_HOOK_IDS:
-        versions = re.findall(rf'^\s*["\']{tool}==([^"\']+)["\']\s*,?\s*$', lint[0], re.MULTILINE)
-        if len(versions) != 1:
+        entries = [
+            requirement
+            for requirement in requirements
+            if (match := REQUIREMENT_NAME.match(requirement)) and _normalized(match["name"]) == tool
+        ]
+        exact = EXACT_PIN.match(entries[0]) if len(entries) == 1 else None
+        if exact is None:
             raise ValueError(f"{tool}: exactly one exact lint group pin is required")
-        pins[tool] = versions[0]
+        pins[tool] = exact["version"]
     return pins
 
 
 def check_configuration(root: Path = ROOT) -> dict[str, str]:
     pins = declared_pins(root)
-    config = (root / "pyproject.toml").read_text()
-    ruff = re.findall(r"^\[tool\.ruff\]\s*\n(.*?)(?=^\[|\Z)", config, re.MULTILINE | re.DOTALL)
-    if len(ruff) != 1 or not re.search(
-        r'^include = \["\*\.py", "\*\.pyi"\]\s*$', ruff[0], re.MULTILINE
-    ):
-        raise ValueError("Ruff CLI discovery must be explicitly Python/pyi-only")
+    include = _table(_pyproject(root), "tool", "ruff", "include")
+    if not isinstance(include, list) or sorted(map(str, include)) != ["*.py", "*.pyi"]:
+        raise ValueError(
+            "Ruff CLI discovery must be explicitly Python/pyi-only: `tool.ruff.include` must "
+            f'be exactly ["*.py", "*.pyi"], got {include!r}'
+        )
     hooks = (root / ".pre-commit-config.yaml").read_text()
     local_blocks = re.findall(
         r"^  - repo: local\s*\n(.*?)(?=^  - repo:|\Z)", hooks, re.MULTILINE | re.DOTALL

@@ -209,6 +209,117 @@ def test_cli_file_discovery_cannot_expand_to_markdown_or_drop_pyi(
         check_configuration(project)
 
 
+def _replace_lint_group(project: Path, replacement: str) -> None:
+    path = project / "pyproject.toml"
+    original = path.read_text()
+    start = original.index("lint = [")
+    end = original.index("]\n", start) + 2
+    path.write_text(original[:start] + replacement + original[end:])
+
+
+def test_equivalent_toml_formatting_is_accepted(project: Path) -> None:
+    """tomllib reads the configuration structurally, so other valid TOML layouts
+    of the same policy (one-line arrays, single quotes, spaces around `==`, a
+    reordered include list) are accepted with the same pins."""
+    pins = declared_pins(project)
+    _replace_lint_group(
+        project,
+        f"lint = ['ruff == {pins['ruff']}', \"mypy=={pins['mypy']}\", 'pre-commit']\n",
+    )
+    path = project / "pyproject.toml"
+    path.write_text(
+        path.read_text().replace(
+            'include = ["*.py", "*.pyi"]', "include = [\n    '*.pyi',\n    '*.py',\n]"
+        )
+    )
+    assert check_configuration(project) == pins
+
+
+@pytest.mark.parametrize(
+    "lint",
+    [
+        'lint = ["ruff[all]==0.16.10", "mypy==2.4.0"]\n',
+        'lint = ["ruff==0.16.*", "mypy==2.4.0"]\n',
+        'lint = ["ruff===0.16.10", "mypy==2.4.0"]\n',
+        'lint = ["ruff==0.16.10; python_version >= \'3.11\'", "mypy==2.4.0"]\n',
+        'lint = ["ruff==0.16.10", "Ruff==0.16.11", "mypy==2.4.0"]\n',
+        'lint = ["mypy==2.4.0"]\n',
+    ],
+    ids=[
+        "extras",
+        "wildcard",
+        "arbitrary-equality",
+        "marker",
+        "duplicate-normalized-name",
+        "missing",
+    ],
+)
+def test_non_exact_or_ambiguous_toml_pin_fails(project: Path, lint: str) -> None:
+    _replace_lint_group(project, lint)
+    with pytest.raises(ValueError, match="ruff: exactly one exact lint group pin"):
+        declared_pins(project)
+
+
+def test_malformed_toml_reports_a_validation_error(project: Path) -> None:
+    path = project / "pyproject.toml"
+    path.write_text(path.read_text() + "\n[tool.ruff\n")
+    with pytest.raises(ValueError, match="pyproject.toml is not valid TOML"):
+        check_configuration(project)
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (("[dependency-groups]", "[unrelated-groups]"), "`dependency-groups` is required"),
+        (("lint = [", "lint-tools = ["), "`dependency-groups.lint` is required"),
+        (('include = ["*.py", "*.pyi"]', 'extend-include = ["*.py"]'), "`tool.ruff.include`"),
+    ],
+    ids=["no-dependency-groups", "no-lint-group", "no-ruff-include"],
+)
+def test_missing_toml_keys_report_the_key(
+    project: Path, edit: tuple[str, str], message: str
+) -> None:
+    path = project / "pyproject.toml"
+    original = path.read_text()
+    assert original.count(edit[0]) == 1
+    path.write_text(original.replace(*edit))
+    with pytest.raises(ValueError, match=re.escape(message)):
+        check_configuration(project)
+
+
+@pytest.mark.parametrize(
+    ("lint", "message"),
+    [
+        ('lint = "ruff==0.16.10"\n', "`dependency-groups.lint` must be an array"),
+        (
+            'lint = ["ruff==0.16.10", "mypy==2.4.0", 42]\n',
+            "entries must be requirement strings or include-group tables, got 42",
+        ),
+    ],
+    ids=["not-an-array", "entry-not-a-string"],
+)
+def test_wrongly_typed_lint_group_fails(project: Path, lint: str, message: str) -> None:
+    _replace_lint_group(project, lint)
+    with pytest.raises(ValueError, match=re.escape(message)):
+        check_configuration(project)
+
+
+def test_wrongly_typed_ruff_include_fails(project: Path) -> None:
+    path = project / "pyproject.toml"
+    path.write_text(path.read_text().replace('include = ["*.py", "*.pyi"]', 'include = "*.py"'))
+    with pytest.raises(ValueError, match="explicitly Python/pyi-only"):
+        check_configuration(project)
+
+
+def test_include_group_entries_in_the_lint_group_are_allowed(project: Path) -> None:
+    pins = declared_pins(project)
+    _replace_lint_group(
+        project,
+        f'lint = [{{include-group = "test"}}, "ruff=={pins["ruff"]}", "mypy=={pins["mypy"]}"]\n',
+    )
+    assert declared_pins(project) == pins
+
+
 def _python_source_files(root: Path) -> list[str]:
     if (root / ".git").exists():
         try:
