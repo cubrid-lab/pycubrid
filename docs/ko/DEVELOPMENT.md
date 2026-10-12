@@ -600,9 +600,23 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | 레인 | 선택식 | 실행 워크플로 |
 |---|---|---|
 | 일반 | `integration and not slow and not tls` | 일반 PR/push CI, 전체 호환성 매트릭스, 주간 bug hunt |
-| 장시간 | `integration and slow and not tls` | 주간/수동 bug hunt의 soak, chaos, 동시성 stress |
+| 장시간 | `integration and slow and not tls` | 주간/수동 bug hunt의 soak, chaos, 동시성 stress, 대량 준비된 배치 측정 |
 | TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
 | 공식 드라이버 차분 | `integration and official_differential` | 일반 CI와 전체 워크플로의 필수 `official-differential` 잡 (Python 3.11, CUBRID 10.2와 11.4) |
+
+대량 준비된 배치 측정(#854)은 `executemany(..., prepared=True)`를 10,000행과
+100,000행으로, 동기와 비동기에서 리스트와 한 번만 순회할 수 있는 제너레이터로 실행합니다.
+오래 걸리므로 서버 하나를 대상으로 필요할 때 실행하세요. `-s`를 주면 측정값을 출력합니다.
+스크립트만 실행하면 원하는 행 수를 지정하고 JSON으로 저장할 수 있습니다:
+
+```bash
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  pytest tests/test_integration_prepared_large_batch.py -m "integration and slow" -s
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python scripts/measure_prepared_batch.py --rows 10000 100000 --json prepared-batch.json
+```
+
+기록된 결과는 [PERFORMANCE.md](PERFORMANCE.md#large-prepared-batch)를 참고하세요.
 
 `python scripts/check_integration_lanes.py`는 현재 마커 목록을 수집하고 각 레인의 실제
 워크플로 명령을 확인합니다. JUnit 검사(`--results FILE`)는 알려지지 않은 스킵,

@@ -645,9 +645,23 @@ filename-glob inventory:
 | Lane | Selection | Executable workflow path |
 |---|---|---|
 | Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and weekly bug hunt |
-| Slow | `integration and slow and not tls` | Weekly/manual bug hunt: soak, chaos, and concurrency stress |
+| Slow | `integration and slow and not tls` | Weekly/manual bug hunt: soak, chaos, concurrency stress, and the large prepared batch measurement |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
 | Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.11, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
+
+The large prepared batch measurement (#854) runs 10,000 and 100,000 rows of
+`executemany(..., prepared=True)`, sync and async, with a list and a one-shot
+generator. It is slow, so run it on demand against one server; `-s` prints the
+measured numbers. The script alone takes any row counts and writes JSON:
+
+```bash
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  pytest tests/test_integration_prepared_large_batch.py -m "integration and slow" -s
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python scripts/measure_prepared_batch.py --rows 10000 100000 --json prepared-batch.json
+```
+
+See [PERFORMANCE.md](PERFORMANCE.md#large-prepared-batch) for the recorded results.
 
 `python scripts/check_integration_lanes.py` collects the current marker inventory
 and checks that each lane has an executable workflow command. The JUnit audit

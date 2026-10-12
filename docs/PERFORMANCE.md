@@ -339,6 +339,92 @@ others. The integration tests (`tests/test_integration_execute_array.py`) check 
 partial-failure, `rowcount`, NULL, mixed-type, collection and LOB behaviour on all four versions.
 See [API_REFERENCE.md](API_REFERENCE.md) for the contract.
 
+<a id="large-prepared-batch"></a>
+
+#### Large prepared batches: memory, frame size and failures
+
+[#854](https://github.com/cubrid-lab/pycubrid/issues/854) measured what one large
+`executemany(..., prepared=True)` costs the client. Every row is encoded first and all rows go in
+one `EXECUTE_ARRAY` frame, so cost grows with the batch.
+
+Setup: rows `(i, "v%09d" % i, i)` into `(id INT PRIMARY KEY, v VARCHAR(32), n INT)`, autocommit
+off, one commit. Each case ran once, in a fresh child process. A second fresh process with
+`tracemalloc` gave the heap peak; its time is not used. The measurement ran on 2026-10-12 with
+pycubrid 1.12.0 (`main` at `65bdd93`) and Python 3.12.13, on Linux 5.15, an Intel i5-9400F
+(6 cores) and 31 GiB of RAM. The servers were Docker containers on the same host:
+`cubrid/cubrid:10.2` (10.2.18.9024) and `cubrid/cubrid:11.4` (11.4.6.1963). The machine was shared,
+with a one-minute load average of 2.3-6.2.
+
+"List" passes a list built before the measurement; "generator" passes a one-shot generator. Time
+is the `executemany()` call. Peak RSS is the process maximum (`getrusage`), and growth is that peak
+minus the peak before the call. The heap peak is `tracemalloc` during the call. The
+1,000,000-row cases ran on 11.4 only. The other RSS and heap values come from the 10.2 run; the
+11.4 run differed by at most 0.2 MiB.
+
+| Rows | Input | 10.2 time | 11.4 time | Peak RSS | RSS growth | Heap peak | `EXECUTE_ARRAY` bytes |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 10,000 | sync, list | 970 ms | 1,132 ms | 30.7 MiB | 5.6 MiB | 4.7 MiB | 460,030 |
+| 10,000 | sync, generator | 960 ms | 1,032 ms | 28.9 MiB | 5.6 MiB | 4.7 MiB | 460,030 |
+| 10,000 | async, list | 915 ms | 1,063 ms | 31.5 MiB | 5.4 MiB | 4.7 MiB | 460,030 |
+| 10,000 | async, generator | 944 ms | 1,083 ms | 29.9 MiB | 5.4 MiB | 4.7 MiB | 460,030 |
+| 100,000 | sync, list | 9,318 ms | 10,866 ms | 92.1 MiB | 52.4 MiB | 47.3 MiB | 4,600,030 |
+| 100,000 | sync, generator | 8,746 ms | 10,482 ms | 76.0 MiB | 52.8 MiB | 47.3 MiB | 4,600,030 |
+| 100,000 | async, list | 9,567 ms | 10,176 ms | 93.6 MiB | 53.0 MiB | 47.3 MiB | 4,600,030 |
+| 100,000 | async, generator | 10,805 ms | 12,522 ms | 77.4 MiB | 53.0 MiB | 47.3 MiB | 4,600,030 |
+| 1,000,000 | sync, list | — | 123,905 ms | 707.0 MiB | 522.4 MiB | 473.5 MiB | 46,000,030 |
+| 1,000,000 | async, generator | — | 122,718 ms | 547.8 MiB | 523.4 MiB | 473.5 MiB | 46,000,030 |
+
+Every case inserted every row: `rowcount` and `COUNT(*)` matched the row count. The `PREPARE`
+request was 81 bytes in every case. The commit took 68-164 ms on 10.2 and 131-645 ms on 11.4 up
+to 100,000 rows.
+
+- **Memory grows linearly with the rows, about 0.5 KB per row here.** The heap peak is about 496
+  bytes per row at 100,000 and at 1,000,000 rows, about 10.8 times the 46 bytes each row takes on
+  the wire. It holds the encoded rows (one binding object per value), the writer's buffer and the
+  final frame. Sync and async are the same.
+- **A generator lowers the peak only by the size of the input list.** It saves building the list
+  (about 16 MiB at 100,000 rows), but the encoded rows are still all kept until the reply.
+- **The frame size is exact and predictable.** The `EXECUTE_ARRAY` request is 30 bytes plus
+  46 bytes per row for this schema. The slow test checks that.
+- **Time grows roughly linearly, and most of it is the server.** 100,000 rows took 8.7-12.5 s.
+  1,000,000 rows took about 123 s on 11.4, 11 times the 100,000-row time, while the load
+  average rose from 3.3 to 6.2. Encoding and serializing alone, timed offline with
+  `_encode_prepared_rows()` and `ExecuteArrayPacket.write()`, take about 0.85 s per 100,000 rows.
+- **The frame limit is far beyond these sizes.** `DATA_LENGTH` is a signed 32-bit integer, so a
+  frame can carry at most 2,147,483,647 bytes. That is about 46.7 million rows of this schema,
+  which would need about 22 GiB of heap first. A batch with large values reaches it sooner: about
+  2,000 rows of 1 MiB text. Then `executemany()` raises `DataError` (caused by `struct.error`)
+  before any byte of the request is sent. `PREPARE` has run by then: the session stays open, and
+  the cursor owns the prepared handle and releases it with its next statement.
+
+Transport failures (offline, sync and async, in
+`tests/test_prepared_batch_failure_invariants.py`):
+
+| Failure point | Raised | Can rows have run? | Session afterwards |
+|---|---|---|---|
+| Before `PREPARE` is sent | `OperationalError`, caused by the socket error | No | Retired |
+| After `PREPARE`, before any `EXECUTE_ARRAY` byte | `OperationalError`, caused by the socket error | No | Retired |
+| Part of `EXECUTE_ARRAY` sent | `OperationalError`, caused by the socket error | No (no complete request) | Retired |
+| Whole request sent, reply missing or cut | `OperationalError` "connection lost during receive" | Yes, and with autocommit they may be committed | Retired |
+| Frame over 2,147,483,647 bytes | `DataError`, caused by `struct.error` | No (only `PREPARE`) | Kept |
+
+When a failure retires the session, the cursor's handle is dropped, `rowcount` is `-1` and no row
+results are kept. The connection stays closed: the next call raises `InterfaceError` until the
+caller reconnects. The batch is never sent again, before or after that reconnect. A generator that
+raises while it is read propagates its own exception before anything is sent. After a missing or
+cut reply the async cursor reports `asyncio.IncompleteReadError` as the cause; the sync cursor
+detects the end of the stream itself and has no cause.
+
+Decision: no runtime change. No failure, unsafe frame or excessive allocation was reproduced up to
+1,000,000 rows, and the behavior is linear and predictable. To bound memory, split the input into
+several `executemany()` calls. Automatic chunking or an input limit would change transaction and
+error semantics, so it is not part of this change.
+
+Not measured: CUBRID 11.0 and 11.2; 1,000,000 rows on 10.2 and for the other two inputs; repeated
+trials (each case ran once); server memory; whether a broker refuses a request below the 32-bit
+limit (the largest frame sent was 43.9 MiB, which 11.4 accepted); wide rows, LOB and collection
+values; TLS and remote networks; Python versions other than 3.12; RSS on other operating systems.
+
 ### Fetch throughput and peak memory by `fetch_size`
 
 10,000 rows over localhost:

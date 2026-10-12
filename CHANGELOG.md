@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Tests
+
+- **Large `executemany(..., prepared=True)` batches measured and their failure
+  states pinned (#854)** — the new offline
+  `tests/test_prepared_batch_failure_invariants.py` checks, sync and async, that
+  an `EXECUTE_ARRAY` frame over the 32-bit `DATA_LENGTH` limit raises
+  `DataError` before any byte of it is sent and keeps the session, and that the
+  frame size is a fixed head plus the same bytes per row. It also injects
+  transport faults before `PREPARE`, after `PREPARE`, during a partial
+  `EXECUTE_ARRAY` send and after a complete send. Each raises
+  `OperationalError` with its cause, retires the session and the cursor's
+  handle, and never sends the batch again. A new opt-in `slow` integration
+  test, `tests/test_integration_prepared_large_batch.py`, runs
+  `scripts/measure_prepared_batch.py` for 10,000 and 100,000 rows, sync and
+  async, with a list and a one-shot generator. It records peak RSS, the
+  `tracemalloc` peak, request bytes and time. On CUBRID 10.2 and 11.4, 100,000
+  rows took 8.7-12.5 s with a heap peak of 47.3 MiB, and 1,000,000 rows took about
+  123 s with 473.5 MiB; every row was inserted. The results and the decision
+  (no runtime change) are in `docs/PERFORMANCE.md`, and the command is in
+  `docs/DEVELOPMENT.md`. Test, script and docs only; the driver is unchanged.
+
 ## [1.12.0] - 2026-10-12
 
 ### Added
