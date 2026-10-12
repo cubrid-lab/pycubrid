@@ -2266,6 +2266,8 @@ class ExecuteArrayPacket(_CasPacket):
         self.bind_count = bind_count
         self.protocol_version = protocol_version
         self.row_results: tuple[tuple[int, int, str], ...] = ()
+        # True when the reply ends with an ER_INTERRUPTED row (#841).
+        self.interrupted = False
         self.errors: list[dict[str, Any]] = []
 
     def write(self, cas_info: bytes) -> bytes:
@@ -2329,6 +2331,7 @@ class ExecuteArrayPacket(_CasPacket):
             # CAS stops early only after an interrupted row, which it reports.
             raise ValueError("execute-array reply covers fewer rows than sent")
         self.row_results = tuple(results)
+        self.interrupted = bool(results) and results[-1][1] == _ER_INTERRUPTED
 
 
 class LOBNewPacket(_CasPacket):

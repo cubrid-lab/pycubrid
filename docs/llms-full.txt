@@ -2600,8 +2600,8 @@ Exceptions not raised for a batch row failure have `batch_index`, `batch_errors`
 and `batch_rowcounts` set to `None`. A non-DML statement (for example `SELECT`)
 runs row by row through `execute()`, stops at the first failure and does not set
 them. If the server interrupts a statement (`ER_INTERRUPTED`), it stops there:
-`batch_rowcounts` is shorter than the batch, and the rows past its end did not
-run. The literal batch still raises its first failing row's error in that case.
+`batch_rowcounts` ends at the interrupted row, and the rows past its end did not
+run (when the last row is the interrupted one, it covers the whole batch). The literal batch still raises its first failing row's error in that case.
 The same contract applies to the async cursor and to
 `executemany(..., prepared=True)`.
 
@@ -2660,8 +2660,9 @@ cur.executemany(
   (`ER_INTERRUPTED`) stops the server: the rows after it are not executed, and
   the interruption's error is raised instead of an earlier row's error. Its
   `batch_index` is the interrupted row, `batch_errors` still starts with the
-  first failing row, and `batch_rowcounts` is shorter than the batch, so the rows
-  past its end did not run.
+  first failing row, and `batch_rowcounts` ends at the interrupted row, so the
+  rows past its end did not run. An interruption of the last row is raised the
+  same way.
 - **Server text.** Values are coerced as host variables, not as literals, so a
   conversion error reads "Cannot coerce host var to type ..." (error -494, the
   same exception class as the literal batch).

@@ -366,3 +366,36 @@ def test_batch_reply_rejects_another_error_indicator_for_v3() -> None:
     packet = BatchExecutePacket(["s"])
     with pytest.raises(ValueError, match="invalid batch execute error indicator"):
         packet.parse(_batch_reply(row))
+
+
+@ASYNC
+def test_interruption_on_the_last_row_is_still_raised(asynchronous: bool) -> None:
+    # The reply covers every row, so only the last row's code shows the interruption.
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        with pytest.raises(DatabaseError) as raised:
+            d.run(cursor.executemany(INSERT, [(i, "v") for i in range(5)], prepared=True))
+        assert cursor.rowcount == -1
+        return raised.value
+
+    exc = _run(asynchronous, steps, script=_CasScript(failing_rows={0: -670, 4: -4}))[1]
+    assert exc.code == -4
+    assert exc.batch_index == 4
+    assert [(i, e.code) for i, e in exc.batch_errors] == [(0, -670), (4, -4)]
+    assert exc.batch_rowcounts == (-1, 1, 1, 1, -1)
+
+
+def test_execute_array_packet_reports_an_interrupted_reply() -> None:
+    from pycubrid.protocol import ExecuteArrayPacket, _encode_prepared_scalar
+
+    def packet() -> ExecuteArrayPacket:
+        bound = tuple((_encode_prepared_scalar(i),) for i in range(2))
+        return ExecuteArrayPacket(7, bound, auto_commit=False, bind_count=1)
+
+    assert packet().interrupted is False
+    full = packet()
+    full.parse(_batch_reply(_ok_row(1), _error_row(-4, "stop")))
+    assert full.interrupted is True
+    failed = packet()
+    failed.parse(_batch_reply(_error_row(-4, "stop"), _error_row(-670, "dup")))
+    assert failed.interrupted is False

@@ -394,11 +394,10 @@ class Cursor(_CursorBase):
         if packet.errors:
             # A reply that stops early ends with the ER_INTERRUPTED row; raise
             # that, so the caller learns the later rows did not run.
-            interrupted = len(packet.row_results) < len(rows)
             raise _batch_failure(
                 packet.row_results,
                 packet.errors,
-                packet.errors[-1] if interrupted else packet.errors[0],
+                packet.errors[-1] if packet.interrupted else packet.errors[0],
             )
         self._rowcount = sum(count for count, _code, _message in packet.row_results)
 

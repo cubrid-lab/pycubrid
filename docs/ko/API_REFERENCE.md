@@ -1427,7 +1427,8 @@ except pycubrid.IntegrityError as exc:
 배치 행 실패로 발생하지 않은 예외에서는 `batch_index`, `batch_errors`, `batch_rowcounts`가
 모두 `None`입니다. DML이 아닌 문(예: `SELECT`)은 `execute()`로 한 행씩 실행되어 첫 실패에서
 멈추며, 이 속성을 설정하지 않습니다. 서버가 문장을 중단하면(`ER_INTERRUPTED`) 거기서
-멈추므로 `batch_rowcounts`가 배치보다 짧고, 그 끝 뒤의 행은 실행되지 않은 것입니다. 이때도
+멈추므로 `batch_rowcounts`는 중단된 행에서 끝나고, 그 끝 뒤의 행은 실행되지 않은 것입니다(마지막
+행이 중단된 경우에는 배치 전체를 덮습니다). 이때도
 리터럴 배치는 첫 실패 행의 오류를 냅니다. 비동기 커서와 `executemany(..., prepared=True)`에도
 같은 계약이 적용됩니다.
 
@@ -1476,8 +1477,8 @@ cur.executemany(
   서버 종료가 일어나면 트랜잭션 전체가 중단되고 요청 전체가 실패합니다. 중단된
   행(`ER_INTERRUPTED`)이 있으면 서버가 멈추며 그 뒤의 행은 실행되지 않고, 앞선 행의 오류
   대신 중단 오류를 냅니다. 이때 `batch_index`는 중단된 행이고, `batch_errors`는 여전히
-  첫 실패 행부터 시작하며, `batch_rowcounts`가 배치보다 짧으므로 그 끝 뒤의 행은 실행되지
-  않은 것입니다.
+  첫 실패 행부터 시작하며, `batch_rowcounts`는 중단된 행에서 끝나므로 그 끝 뒤의 행은 실행되지
+  않은 것입니다. 마지막 행이 중단된 경우도 같은 방식으로 냅니다.
 - **서버 메시지.** 값은 리터럴이 아니라 호스트 변수로 변환되므로 변환 오류는
   "Cannot coerce host var to type ..."(오류 -494, 리터럴 배치와 같은 예외 클래스)로
   나옵니다.
