@@ -65,19 +65,41 @@ def _table(data: dict[str, Any], *keys: str) -> Any:
     return value
 
 
-def declared_pins(root: Path) -> dict[str, str]:
-    lint = _table(_pyproject(root), "dependency-groups", "lint")
-    if not isinstance(lint, list):
-        raise ValueError("pyproject.toml: `dependency-groups.lint` must be an array")
+def _group_requirements(groups: Any, name: str, chain: tuple[str, ...] = ()) -> list[str]:
+    """Requirement strings of a PEP 735 group, with `include-group` entries expanded."""
+    if name in chain:
+        raise ValueError(
+            f"pyproject.toml: dependency group include cycle: {' -> '.join((*chain, name))}"
+        )
+    if name not in groups:
+        raise ValueError(f"pyproject.toml: `dependency-groups.{name}` is required")
+    group = groups[name]
+    if not isinstance(group, list):
+        raise ValueError(f"pyproject.toml: `dependency-groups.{name}` must be an array")
     requirements = []
-    for entry in lint:
+    for entry in group:
         if isinstance(entry, str):
             requirements.append(entry)
-        elif not (isinstance(entry, dict) and set(entry) == {"include-group"}):
+        elif (
+            isinstance(entry, dict)
+            and set(entry) == {"include-group"}
+            and isinstance(entry["include-group"], str)
+        ):
+            requirements += _group_requirements(groups, entry["include-group"], (*chain, name))
+        else:
             raise ValueError(
-                "pyproject.toml: `dependency-groups.lint` entries must be requirement strings "
+                f"pyproject.toml: `dependency-groups.{name}` entries must be requirement strings "
                 f"or include-group tables, got {entry!r}"
             )
+    return requirements
+
+
+def declared_pins(root: Path) -> dict[str, str]:
+    groups = _table(_pyproject(root), "dependency-groups")
+    if not isinstance(groups, dict):
+        raise ValueError("pyproject.toml: `dependency-groups` must be a table")
+    # The effective lint group, as PEP 735 installs it: included groups count too.
+    requirements = _group_requirements(groups, "lint")
     pins = {}
     for tool in LOCAL_HOOK_IDS:
         entries = [

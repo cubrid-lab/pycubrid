@@ -320,6 +320,52 @@ def test_include_group_entries_in_the_lint_group_are_allowed(project: Path) -> N
     assert declared_pins(project) == pins
 
 
+def test_a_pin_from_an_included_group_counts(project: Path) -> None:
+    """PEP 735 installs included groups as part of `lint`, so a pin may live there."""
+    pins = declared_pins(project)
+    _replace_lint_group(
+        project,
+        f'lint = [{{include-group = "ruff-pin"}}, "mypy=={pins["mypy"]}"]\n'
+        f'ruff-pin = ["ruff=={pins["ruff"]}"]\n',
+    )
+    assert declared_pins(project) == pins
+
+
+@pytest.mark.parametrize(
+    "included",
+    ['["ruff>=0.16"]', '["ruff==0.16.11"]', '[{include-group = "test"}, "Ruff>=0.1"]'],
+    ids=["ranged", "duplicate", "nested-ranged"],
+)
+def test_included_groups_cannot_bypass_the_exact_pin_rule(project: Path, included: str) -> None:
+    pins = declared_pins(project)
+    _replace_lint_group(
+        project,
+        f'lint = ["ruff=={pins["ruff"]}", "mypy=={pins["mypy"]}", {{include-group = "extra"}}]\n'
+        f"extra = {included}\n",
+    )
+    with pytest.raises(ValueError, match="ruff: exactly one exact lint group pin"):
+        declared_pins(project)
+
+
+@pytest.mark.parametrize(
+    ("lint", "message"),
+    [
+        ('lint = [{include-group = "absent"}]\n', "`dependency-groups.absent` is required"),
+        (
+            'lint = [{include-group = "loop"}]\nloop = [{include-group = "lint"}]\n',
+            "include cycle: lint -> loop -> lint",
+        ),
+        ("lint = [{include-group = 1}]\n", "entries must be requirement strings"),
+        ('lint = [{include-group = "test", extra = 1}]\n', "entries must be requirement strings"),
+    ],
+    ids=["missing-group", "cycle", "name-not-a-string", "extra-key"],
+)
+def test_invalid_include_group_references_fail(project: Path, lint: str, message: str) -> None:
+    _replace_lint_group(project, lint)
+    with pytest.raises(ValueError, match=re.escape(message)):
+        declared_pins(project)
+
+
 def _python_source_files(root: Path) -> list[str]:
     if (root / ".git").exists():
         try:
