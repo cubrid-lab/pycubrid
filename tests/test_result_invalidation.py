@@ -142,10 +142,12 @@ async def test_size_zero_fresh_execute_and_empty_reset(asynchronous: bool) -> No
     connection, cursor = _cursor(asynchronous)
     await _boundary(connection, "commit")
     if isinstance(cursor, AsyncCursor):
-        assert await cursor.fetchmany(0) == []
+        with pytest.deprecated_call():
+            assert await cursor.fetchmany(0) == []
         await cursor.execute("SELECT 9")
     else:
-        assert cursor.fetchmany(0) == []
+        with pytest.deprecated_call():
+            assert cursor.fetchmany(0) == []
         cursor.execute("SELECT 9")
     assert await _fetch(cursor, "all") == [(9,)]
     if isinstance(cursor, AsyncCursor):

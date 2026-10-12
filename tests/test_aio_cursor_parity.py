@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import json
+import warnings
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -318,12 +320,92 @@ async def test_fetchmany_nonpositive_integer_preserves_result_without_fetching(
     cursor._fetched_count = 1
     cursor._total_tuple_count = 2
 
-    if isinstance(cursor, AsyncCursor):
-        assert await cursor.fetchmany(size) == []
-    else:
-        assert cursor.fetchmany(size) == []
+    with pytest.warns(DeprecationWarning, match="ProgrammingError in pycubrid 2.0"):
+        if isinstance(cursor, AsyncCursor):
+            assert await cursor.fetchmany(size) == []
+        else:
+            assert cursor.fetchmany(size) == []
 
     assert cursor._rows == [(1,)]
     assert cursor._row_index == row_index
     assert cursor._query_handle == 1
     connection._send_and_receive.assert_not_called()
+
+
+def _caller_line() -> int:
+    frame = inspect.currentframe()
+    assert frame is not None and frame.f_back is not None
+    return frame.f_back.f_lineno
+
+
+def _cursor_with_one_buffered_row(cursor_class: type[Cursor | AsyncCursor]) -> Cursor | AsyncCursor:
+    cursor = cursor_class(make_connection())
+    cursor._description = (("id", CUBRIDDataType.INT, None, None, 10, 0, False),)
+    cursor._rows = [(1,)]
+    cursor._row_index = 0
+    cursor._query_handle = 1
+    cursor._fetched_count = 1
+    cursor._total_tuple_count = 1
+    return cursor
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor], ids=["sync", "async"])
+async def test_fetchmany_nonpositive_deprecation_names_the_caller_line(
+    cursor_class: type[Cursor | AsyncCursor],
+) -> None:
+    cursor = _cursor_with_one_buffered_row(cursor_class)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        if isinstance(cursor, AsyncCursor):
+            line = _caller_line() + 1
+            rows = await cursor.fetchmany(0)
+        else:
+            line = _caller_line() + 1
+            rows = cursor.fetchmany(0)
+
+    assert rows == []
+    assert [w.category for w in caught] == [DeprecationWarning]
+    message = str(caught[0].message)
+    assert message.startswith("fetchmany() with a size of 0 or less returns []")
+    assert "rows = cursor.fetchmany(n) if n > 0 else []" in message
+    assert caught[0].filename == __file__
+    assert caught[0].lineno == line
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor], ids=["sync", "async"])
+@pytest.mark.parametrize("args", [(), (None,), (1,), (5,)], ids=["default", "none", "one", "five"])
+async def test_fetchmany_positive_none_and_default_sizes_do_not_warn(
+    cursor_class: type[Cursor | AsyncCursor], args: tuple[int | None, ...]
+) -> None:
+    cursor = _cursor_with_one_buffered_row(cursor_class)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        if isinstance(cursor, AsyncCursor):
+            rows = await cursor.fetchmany(*args)
+        else:
+            rows = cursor.fetchmany(*args)
+
+    assert rows == [(1,)]
+    assert caught == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor_class", [Cursor, AsyncCursor], ids=["sync", "async"])
+async def test_fetchmany_invalid_size_type_still_raises_before_any_warning(
+    cursor_class: type[Cursor | AsyncCursor],
+) -> None:
+    cursor = _cursor_with_one_buffered_row(cursor_class)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(ProgrammingError, match="size must be an integer"):
+            if isinstance(cursor, AsyncCursor):
+                await cursor.fetchmany(cast(int, False))
+            else:
+                cursor.fetchmany(cast(int, False))
+
+    assert caught == []

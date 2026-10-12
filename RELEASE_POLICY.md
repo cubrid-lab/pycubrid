@@ -301,6 +301,21 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`fetchmany(size)` with `size <= 0` deprecated (#678)** — MINOR /
+  deprecation, the first phase of the positive-only fetch-size migration. Sync
+  and async `fetchmany()` emit a `DeprecationWarning` at the caller's line when
+  an explicit integer `size` is 0 or negative; the result is unchanged (`[]`,
+  no row consumed, no FETCH sent), so no 1.x caller breaks. Omitted/`None`
+  sizes, positive integers, the type check and the closed-cursor and
+  missing-result precedence are unchanged, and the `pycubrid.compat` wrapper
+  keeps its separate `[]` contract without a warning. Public signatures are
+  unchanged. This follows the deprecation flow in `docs/PARAMETER_BINDING.md`
+  (a `### Deprecated` entry with the replacement, at least one minor release
+  before removal). The breaking second phase, raising
+  `ProgrammingError("size must be a positive integer")`, is reserved for
+  pycubrid 2.0 under §3 and stays tracked in
+  [#678](https://github.com/cubrid-lab/pycubrid/issues/678).
+
 - **Opt-in prepared `executemany()` batch (#839)** — MINOR / additive. `Cursor`
   and `AsyncCursor` `executemany()` gain a keyword-only `prepared: bool = False`.
   With the default, `executemany()` sends the same literal `EXECUTE_BATCH`
@@ -1120,7 +1135,8 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   precedence. The separate `pycubrid.compat` wrapper and public signatures
   are unchanged. Positive-only sizes would change the preserved 1.x
   nonpositive-integer contract and are reserved for a future MAJOR release
-  in [#678](https://github.com/cubrid-lab/pycubrid/issues/678).
+  in [#678](https://github.com/cubrid-lab/pycubrid/issues/678); the 1.x
+  contract is deprecated with a `DeprecationWarning` (see the #678 entry above).
 
 - **`executemany_batch()` now closes an active query handle before the batch (#374)** — PATCH /
   backward-compatible bug fix. Public signatures are unchanged; batch execution now matches

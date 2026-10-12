@@ -27,6 +27,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   CODEOWNERS include it. `docs/ARCHITECTURE.md`, `docs/PARAMETER_BINDING.md`
   and `AGENTS.md` name the new module.
 
+### Deprecated
+
+- **`fetchmany(size)` with a size of 0 or less (#678)** — sync `Cursor` and
+  async `AsyncCursor` `fetchmany()` now emit a `DeprecationWarning` when an
+  explicit integer `size` is 0 or negative. The result is unchanged in 1.x: `[]`
+  without consuming rows or sending a FETCH. pycubrid 2.0 will raise
+  `ProgrammingError("size must be a positive integer")`, the rule the
+  `arraysize` setter already applies. The warning names the calling line.
+  Omitted/`None` sizes and positive integers do not warn, and the
+  `pycubrid.compat` wrapper keeps returning `[]` for `size <= 0` without a
+  warning, like the official CUBRIDdb driver. Replacement: skip the call when
+  the size can reach 0, for example
+  `rows = cur.fetchmany(remaining) if remaining > 0 else []`, which works on 1.x
+  and 2.0. See [API reference](docs/API_REFERENCE.md#fetchmanysize).
+
 ### Tests
 
 - **What `read_timeout` bounds when a reply arrives slowly, pinned and documented

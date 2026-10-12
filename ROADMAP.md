@@ -21,7 +21,7 @@ The remaining larger work in the 2026-10-04 snapshot is:
 | 1 | [#634](https://github.com/cubrid-lab/pycubrid/issues/634) — release-please integration audit | medium / L | Migration is integrated; reviewed candidate and publisher/recovery evidence remain separate. |
 | 2 | [#336](https://github.com/cubrid-lab/pycubrid/issues/336) — adversarial verification audit | medium / XL | Reconcile actual runs, measurements and known limitations; passing child PRs do not complete the parent. |
 | 3 | [#610](https://github.com/cubrid-lab/pycubrid/issues/610) — wrapper collection call shapes | low / M | Decide and verify the explicit compatibility contract before implementation. |
-| 4 | [#678](https://github.com/cubrid-lab/pycubrid/issues/678) — positive-only fetch-size migration | low / M | Decide a major-release migration while preserving the shipped nonpositive-integer contract in 1.x. |
+| 4 | [#678](https://github.com/cubrid-lab/pycubrid/issues/678) — positive-only fetch-size migration | low / M | Decided: deprecate in 1.x (`DeprecationWarning`, result unchanged), raise `ProgrammingError` in 2.0. The 2.0 step remains. |
 
 Small release-preparation work is tracked by
 [#371](https://github.com/cubrid-lab/pycubrid/issues/371) (fetch-size validation)

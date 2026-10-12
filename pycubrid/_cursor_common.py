@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime
 import math
 import re
+import warnings
 from decimal import Decimal
 from importlib import import_module
 from typing import Any, Generic, Iterable, Protocol, Sequence, TypeVar
@@ -30,6 +31,30 @@ from .exceptions import (
 from .error_codes import CAS_ERROR_TO_EXCEPTION, _DEFAULT_SQLSTATE, get_sqlstate
 from .types import Multiset, Set, _Collection
 from .types import Sequence as SequenceParam
+
+_NONPOSITIVE_FETCH_SIZE_MESSAGE = (
+    "fetchmany() with a size of 0 or less returns [] without fetching rows; "
+    "this is deprecated and will raise ProgrammingError in pycubrid 2.0. "
+    "Skip the call instead, for example: "
+    "rows = cursor.fetchmany(n) if n > 0 else []"
+)
+
+
+def warn_nonpositive_fetch_size() -> None:
+    """Emit the 1.x deprecation warning for ``fetchmany(size)`` with ``size <= 0``.
+
+    The 1.x result (``[]``, no row consumed, no FETCH) is unchanged; pycubrid
+    2.0 will raise :class:`ProgrammingError` instead (#678). The plain
+    sync ``fetchmany()`` and the async coroutine alike are called (or awaited)
+    directly from the caller's frame, so level 3 (this helper, ``fetchmany()``,
+    then its caller) names the caller's own line in both cases.
+    """
+    warnings.warn(
+        _NONPOSITIVE_FETCH_SIZE_MESSAGE,
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
 
 # The C implementation of Decimal, or None when only _pydecimal is available.
 _CDecimal: type[Decimal] | None

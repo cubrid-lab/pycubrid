@@ -495,6 +495,8 @@ SELECT가 아닌 경우 `description=None`을 안정적으로 설정합니다. �
 참이지만 호출 불가능한 값은 행을 소비한 뒤 `TypeError`를 냅니다. 변환기 예외도
 행을 소비합니다. 공식 래퍼처럼 `fetchmany()`/`fetchall()`은 거짓인 변환 결과를
 소비하고 멈추지만 반복자는 `None`에서만 멈추며 이후 fetch로 재개할 수 있습니다.
+공식 래퍼처럼 `size <= 0`인 `fetchmany(size)`는 경고 없이 `[]`를 반환합니다. 이
+호출을 사용 중단 예정으로 표시한 네이티브 커서와 의도적으로 다른 동작입니다.
 `next()`는 공식 래퍼가 제공하는 `__next__()`의 명시적 별칭입니다.
 핸들을 확실히 해제하려면 `close()`를 호출하세요. 버려진 래퍼 커서는 GC 때 같은
 세션에서 커밋·재연결 없이 정리를 시도하지만, 이 정리는 최선 노력이며 I/O에서
@@ -1609,13 +1611,29 @@ def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]
 `cursor.arraysize`를 사용합니다. 명시적인 `size`는 일반 Python `int`여야 합니다.
 실수, 불리언과 그 밖의 타입은 행을 소비하거나 다음 페이지를 요청하기 전에
 `ProgrammingError`를 발생시킵니다. 0과 음의 정수는 행을 소비하거나 서버에
-접속하지 않고 빈 리스트를 반환합니다. `AsyncCursor.fetchmany()`에도 같은 규칙을
-적용하며, 닫힌 커서와 결과 집합 유무를 먼저 검사합니다.
+접속하지 않고 빈 리스트를 반환하며 `DeprecationWarning`을 발생시킵니다(아래 참고).
+`AsyncCursor.fetchmany()`에도 같은 규칙을 적용하며, 닫힌 커서와 결과 집합 유무를
+먼저 검사합니다.
 
 ```python
 cur.execute("SELECT * FROM users")
 batch = cur.fetchmany(10)  # 최대 10행
 ```
+
+> **사용 중단 예정: `size <= 0`인 `fetchmany(size)`.** pycubrid 1.13.0부터
+> 동기·비동기 `fetchmany()`는 명시적인 정수 `size`가 0 또는 음수이면 호출한 줄을
+> 가리키는 `DeprecationWarning`을 발생시킵니다. 1.x에서는 결과가 바뀌지 않습니다
+> (`[]` 반환, 행 소비 없음, FETCH 전송 없음). pycubrid 2.0에서는 대신
+> `ProgrammingError("size must be a positive integer")`를 발생시키며, 이는
+> `arraysize` 설정자가 이미 적용하는 규칙과 같습니다
+> ([#678](https://github.com/cubrid-lab/pycubrid/issues/678)). 생략/`None`과 양의
+> 정수는 경고하지 않으며, `pycubrid.compat` 래퍼는 `size <= 0`에 대해 경고 없이
+> 계속 `[]`를 반환합니다. 계산된 크기가 0이 될 수 있으면 호출을 건너뛰세요. 이
+> 방식은 1.x와 2.0 모두에서 동작합니다:
+>
+> ```python
+> rows = cur.fetchmany(remaining) if remaining > 0 else []
+> ```
 
 ---
 
@@ -1910,7 +1928,7 @@ if not await conn.ping(reconnect=False):
 | `execute()` | `async def execute(self, operation: str, parameters: Sequence[Any] \| None = None) -> AsyncCursor` | 시퀀스 전용 파라미터 바인딩, 동기 커서와 동일 규칙 |
 | `executemany()` | `async def executemany(self, operation: str, seq_of_parameters: Sequence[Sequence[Any]], *, prepared: bool = False) -> AsyncCursor` | 비-SELECT 문용 배치 경로. `prepared=True`는 PREPARE + EXECUTE_ARRAY를 보냅니다(`Lob` 값 불가) |
 | `fetchone()` | `async def fetchone(self) -> tuple[Any, ...] \| None` | 한 행 또는 `None` 반환 |
-| `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | 생략/`None`은 `arraysize` 사용; 일반 `int`만 허용하고 0·음수는 `[]` 반환 |
+| `fetchmany()` | `async def fetchmany(self, size: int \| None = None) -> list[tuple[Any, ...]]` | 생략/`None`은 `arraysize` 사용; 일반 `int`만 허용하고 0·음수는 `DeprecationWarning`과 함께 `[]` 반환(2.0은 `ProgrammingError`) |
 | `fetchall()` | `async def fetchall(self) -> list[tuple[Any, ...]]` | 남은 행 반환 |
 | `nextset()` | `async def nextset(self) -> None` | DB-API 호환 메서드. 항상 `None` 반환 |
 | `close()` | `async def close(self) -> None` | 활성 쿼리 핸들 해제 |

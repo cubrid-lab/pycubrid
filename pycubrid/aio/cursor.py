@@ -15,6 +15,7 @@ from pycubrid._cursor_common import (
     check_prepared_batch_operation,
     extract_first_keyword,
     _batch_failure,
+    warn_nonpositive_fetch_size,
 )
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import (
@@ -445,6 +446,9 @@ class AsyncCursor(_AsyncCursorBase):
         fetch_size = self.arraysize if size is None else size
         if type(fetch_size) is not int:
             raise ProgrammingError("size must be an integer")
+        if fetch_size <= 0:
+            warn_nonpositive_fetch_size()
+            return []
 
         rows: list[tuple[Any, ...]] = []
         remaining = fetch_size

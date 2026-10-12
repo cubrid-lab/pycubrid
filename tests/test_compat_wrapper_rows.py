@@ -7,6 +7,7 @@ import gc
 import logging
 import subprocess
 import sys
+import warnings
 import weakref
 from typing import Any
 
@@ -480,6 +481,19 @@ def test_execution_bridge_rejects_mappings_and_ignores_unused_set_type(
     executed = [packet for packet, _ in driver.requests if isinstance(packet, ExecutePacket)]
     assert len(executed) == 1
     assert executed[0].bind_count == 1
+
+
+@pytest.mark.parametrize("size", [0, -1])
+def test_wrapper_nonpositive_fetchmany_keeps_official_contract_without_warning(
+    wrapped: cubriddb.Connection, size: int
+) -> None:
+    cur = wrapped.cursor()
+    _selected(cur)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert cur.fetchmany(size) == []
+    assert caught == []
+    assert cur.fetchone() == (1, "한", None, "한")
 
 
 def test_nonselect_description_none_and_closed_operations_fail(

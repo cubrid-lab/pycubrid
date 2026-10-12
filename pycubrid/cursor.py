@@ -17,6 +17,7 @@ from ._cursor_common import (
     extract_first_keyword,
     _batch_failure,
     split_on_placeholders,
+    warn_nonpositive_fetch_size,
 )
 from .exceptions import (
     DataError,
@@ -492,6 +493,9 @@ class Cursor(_CursorBase):
         fetch_size = self.arraysize if size is None else size
         if type(fetch_size) is not int:
             raise ProgrammingError("size must be an integer")
+        if fetch_size <= 0:
+            warn_nonpositive_fetch_size()
+            return []
 
         rows: list[tuple[Any, ...]] = []
         remaining = fetch_size
