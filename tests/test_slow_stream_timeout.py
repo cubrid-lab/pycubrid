@@ -48,20 +48,57 @@ _DRIP = {"fragments": 10, "fragment_interval": 0.1}
 _STALL = {"fragments": 2, "fragment_interval": 1.0}
 
 
-def _paced(pacing: dict[str, Any]) -> tuple[Any, dict[str, ReplayBroker]]:
-    """A script that sends the default ``_SLOW_SQL`` reply in paced fragments."""
-    holder: dict[str, ReplayBroker] = {}
+def _paced(pacing: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    """A script that sends the default ``_SLOW_SQL`` reply in paced fragments.
+
+    The holder takes the broker (``"broker"``) and records the framed reply
+    length (``"frame"``).
+    """
+    holder: dict[str, Any] = {}
 
     def script(request: Request, session: Session) -> Reply | None:
         if request.sql != _SLOW_SQL:
             return None
         body = holder["broker"].default_reply(request, session).body
         assert body is not None
+        holder["frame"] = len(framed(body))
         # Every fragment carries bytes, so every pause happens mid-frame.
-        assert len(framed(body)) >= pacing["fragments"]
+        assert holder["frame"] >= pacing["fragments"]
         return Reply(body=body, **pacing)
 
     return script, holder
+
+
+class _CountingSocket:
+    """Delegates to the real socket and counts the reply bytes received."""
+
+    def __init__(self, real: socket.socket) -> None:
+        self._real = real
+        self.received = 0
+
+    def recv_into(self, buffer: Any, nbytes: int = 0) -> int:
+        count = self._real.recv_into(buffer, nbytes)
+        self.received += count
+        return count
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+def _record_reads(conn: Any) -> tuple[list[int], asyncio.Event]:
+    """Record each completed ``readexactly()``; the event fires on the first."""
+    completed: list[int] = []
+    first = asyncio.Event()
+    real = conn._reader.readexactly
+
+    async def readexactly(size: int) -> bytes:
+        data = await real(size)
+        completed.append(len(data))
+        first.set()
+        return data
+
+    conn._reader.readexactly = readexactly
+    return completed, first
 
 
 def _slow_sql_sent(broker: ReplayBroker) -> int:
@@ -114,11 +151,15 @@ def test_sync_stall_mid_frame_retires_session_without_replay() -> None:
             paged = conn.cursor()
             paged.execute(_PAGED_SQL)
             conn.get_schema_info(1, "t")
+            counting = _CountingSocket(conn._socket)
+            conn._socket = counting
 
             with pytest.raises(OperationalError, match="socket communication failed") as raised:
                 conn.cursor().execute(_SLOW_SQL)
 
             assert isinstance(raised.value.__cause__, socket.timeout)
+            # The timeout hit inside the frame: its first half had been read.
+            assert 0 < counting.received < holder["frame"]
             _assert_retired(conn, paged)
             assert conn._socket is None
             # Buffered rows stay readable; the next required FETCH fails closed.
@@ -152,11 +193,14 @@ async def test_async_slow_reply_exceeding_total_read_timeout_times_out() -> None
             paged = conn.cursor()
             await paged.execute(_PAGED_SQL)
             await conn.get_schema_info(1, "t")
+            completed, _ = _record_reads(conn)
 
             with pytest.raises(OperationalError, match=r"read timeout.*read_timeout=0\.3") as r:
                 await conn.cursor().execute(_SLOW_SQL)
 
             assert isinstance(r.value.__cause__, asyncio.TimeoutError)
+            # The deadline hit inside the frame: DATA_LENGTH was read, the body not.
+            assert completed == [4]
             _assert_retired(conn, paged)
             # The partly read frame goes with the streams it was read from.
             assert conn._writer is None and conn._reader is None
@@ -210,9 +254,11 @@ async def test_async_caller_cancellation_mid_frame_propagates_without_replay() -
             paged = conn.cursor()
             await paged.execute(_PAGED_SQL)
             await conn.get_schema_info(1, "t")
+            completed, first = _record_reads(conn)
             task = asyncio.ensure_future(conn.cursor().execute(_SLOW_SQL))
-            # About a third of the 0.9 s reply has arrived; the rest is pending.
-            await asyncio.sleep(0.35)
+            # Cancel once DATA_LENGTH was read; the body arrives over 0.9 s.
+            await asyncio.wait_for(first.wait(), timeout=5.0)
+            assert completed == [4]
             assert not task.done()
             task.cancel()
             await asyncio.wait({task})
