@@ -189,15 +189,11 @@ def _fail_reads(conn: Any, exc: BaseException) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("read_timeout", [None, _TIMEOUT])
-@pytest.mark.parametrize(
-    "timeout_type", [TimeoutError, asyncio.TimeoutError], ids=["socket", "asyncio"]
-)
 async def test_async_transport_timeout_is_not_called_a_read_timeout(
     read_timeout: float | None,
-    timeout_type: type[Exception],
 ) -> None:
     """A transport TimeoutError (e.g. ETIMEDOUT) is not the read_timeout deadline."""
-    exc = timeout_type(110, "Connection timed out")
+    exc = TimeoutError(110, "Connection timed out")
     with run_replay_broker(results=_RESULTS) as broker:
         conn, paged = await _open_async(broker.port, read_timeout=read_timeout)
         try:
@@ -225,7 +221,7 @@ async def test_async_read_timeout_deadline_names_the_option_and_retires_handles(
         try:
             with pytest.raises(OperationalError, match=r"read timeout.*read_timeout=0\.1") as r:
                 await conn.cursor().execute("SELECT 1")
-            assert isinstance(r.value.__cause__, asyncio.TimeoutError)
+            assert isinstance(r.value.__cause__, TimeoutError)
             _assert_retired(conn, paged)
             assert conn._writer is None
             # Buffered rows stay readable; the next required FETCH fails closed.
@@ -425,8 +421,8 @@ def test_sync_parse_callback_os_error_keeps_session(exc: BaseException) -> None:
 @pytest.mark.parametrize("read_timeout", [None, _TIMEOUT])
 @pytest.mark.parametrize(
     "exc",
-    [TimeoutError("callback"), asyncio.TimeoutError("callback"), ConnectionError("callback")],
-    ids=["socket-timeout", "asyncio-timeout", "connection-error"],
+    [TimeoutError("callback"), ConnectionError("callback")],
+    ids=["timeout-error", "connection-error"],
 )
 async def test_async_parse_callback_os_error_keeps_session(
     exc: BaseException, read_timeout: float | None
@@ -466,7 +462,7 @@ async def test_async_deadline_during_malformed_reply_cleanup_is_a_read_timeout()
             with patch.object(writer, "wait_closed", side_effect=slow_wait_closed):
                 with pytest.raises(OperationalError, match="read timeout") as raised:
                     await conn.cursor().execute("SELECT 1")
-            assert isinstance(raised.value.__cause__, asyncio.TimeoutError)
+            assert isinstance(raised.value.__cause__, TimeoutError)
             _assert_retired(conn, paged)
         finally:
             writer.close()
