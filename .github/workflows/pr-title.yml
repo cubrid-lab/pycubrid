@@ -251,6 +251,7 @@ jobs:
           closers = {"<!--": ("-->", "--!>"), "<?": ("?>", ">"), "<![CDATA[": ("]]>", ">")}
           # ">" also joins quoted lines: "> Closes\n> owner/repo#N" is one paragraph.
           separator = re.compile(r"[\s:*_~\[(<>\\]")
+          definition = re.compile(r"\n[ ]{0,3}\[[^\]\n]+\]:[^\n]*")  # Renders as nothing.
           keyword = re.compile(
               r"(?<![a-z0-9])(?:closes|closed|close|fixes|fixed|fix|resolves|resolved|resolve)"
               r"(?![a-z0-9])",
@@ -321,6 +322,9 @@ jobs:
                       closer = {"(": ")", "[": "]"}.get(text[pos + 1 : pos + 2])
                       if closer is not None:
                           todo.extend(closer_ends(text, pos + 2, closer, scanned))
+                  line = definition.match(text, pos)
+                  if line is not None:
+                      todo.append(line.end())
                   if text.startswith("![", pos):
                       # An image shows no text: skip its alt text to any "]" and walk
                       # on from there, through the "](destination)".

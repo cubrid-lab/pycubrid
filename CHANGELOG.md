@@ -75,27 +75,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and cubrid-cookbook-python** — `pr-title.yml` is the shared file, and a test pins
   the guard block's SHA-256. This change also catches a closing keyword used as link
   text (`[Closes](url) owner/repo#N`, which renders as "Closes owner/repo#N"), a
-  quoted continuation line or an image between the keyword and the reference, and
-  stays fast on adversarial link syntax; the three sibling repositories take the
-  same fix in their own pull requests, after which the file is byte-identical in all
-  four. The shared guard is the union of both versions. It keeps this repository's
-  title, commit-message, underscore-owner and 250-commit checks, checks each commit
-  message on its own, and blocks forms this guard let through: a comment that ends
-  at `--!>`, `<?` and `<![CDATA[` that a browser ends at the first `>`, a quote
-  inside an earlier tag's attribute that reopens a later comment, raw-text elements
-  such as `<select>`, a leading byte order mark, a fence in a block quote followed
-  by top-level text, lowercase `<!x` declaration lines, inline instructions and
-  CDATA between the keyword and the reference, relative issue links, a lazy `<span>`
-  continuation under a list item, and a foreign issue listed after another one
-  (`Closes #1, owner/repo#2`). Code spans and inline comments are now checked, and
-  so are fences inside list items or block quotes, indented code inside list items,
-  and indented text after an empty list item or a thematic break: hiding them needs
-  inline or container parsing that a mis-paired fence or a link destination can
-  defeat, so some bodies this guard accepted are now blocked; the change trades
-  missed closures for false positives. Every regression case from this repository is
-  kept; the 13 whose expectation changed are in
-  `test_uncertain_markdown_is_checked_on_purpose`, and CONTRIBUTING (English and
-  Korean) and AGENTS.md describe the shared rules.
+  quoted continuation line, an image or a link reference definition between the
+  keyword and the reference, and stays fast on adversarial link syntax; the three
+  sibling repositories take the same fix in their own pull requests, after which the
+  file is byte-identical in all four. The shared guard is the union of both
+  versions. It keeps this repository's title, commit-message, underscore-owner and
+  250-commit checks, checks each commit message on its own, and blocks forms this
+  guard let through: a comment that ends at `--!>`, `<?` and `<![CDATA[` that a
+  browser ends at the first `>`, a quote inside an earlier tag's attribute that
+  reopens a later comment, raw-text elements such as `<select>`, a leading byte
+  order mark, a fence in a block quote followed by top-level text, lowercase `<!x`
+  declaration lines, inline instructions and CDATA between the keyword and the
+  reference, relative issue links, a lazy `<span>` continuation under a list item,
+  and a foreign issue listed after another one (`Closes #1, owner/repo#2`). Code
+  spans and inline comments are now checked, and so are fences inside list items or
+  block quotes, indented code inside list items, and indented text after an empty
+  list item or a thematic break: hiding them needs inline or container parsing that
+  a mis-paired fence or a link destination can defeat, so some bodies this guard
+  accepted are now blocked; the change trades missed closures for false positives.
+  Every regression case from this repository is kept; the 13 whose expectation
+  changed are in `test_uncertain_markdown_is_checked_on_purpose`, and CONTRIBUTING
+  (English and Korean) and AGENTS.md describe the shared rules.
 - **Repository-local issue closure in PRs** — the required `PR title` check now
   rejects direct closing keywords targeting a different GitHub repository in the PR
   body, the PR title and the PR's commit messages (the title and commit messages
