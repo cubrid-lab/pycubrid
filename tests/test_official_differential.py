@@ -1837,7 +1837,8 @@ def environment() -> Iterator[dict[str, Any]]:
     if IMPORT_ERROR is not None:
         pytest.fail(f"official oracle required but not importable: {IMPORT_ERROR}")
     extension = Path(_cubrid.__file__)
-    sha256 = hashlib.sha256(extension.read_bytes()).hexdigest()
+    with extension.open("rb") as stream:
+        sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
     manifest: dict[str, Any] = {}
     manifest_path = os.environ.get("PYCUBRID_OFFICIAL_ORACLE_MANIFEST")
     if manifest_path:

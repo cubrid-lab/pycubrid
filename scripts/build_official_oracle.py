@@ -68,7 +68,8 @@ def _checkout(repo: str, commit: str, dest: Path) -> None:
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def _extension_name() -> str:

@@ -311,12 +311,14 @@ def _fake_oracle(out: Path) -> dict[str, Any]:
     (out / "CUBRIDdb" / "__init__.py").write_text("")
     extension = out / ("_cubrid" + str(sysconfig.get_config_var("EXT_SUFFIX")))
     extension.write_bytes(b"not really an extension")
+    with extension.open("rb") as stream:
+        extension_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
     manifest = {
         "cubrid_python_commit": oracle.CUBRID_PYTHON_COMMIT,
         "cci_commit": oracle.CCI_COMMIT,
         "python": oracle.platform.python_version(),
         "extension": extension.name,
-        "extension_sha256": hashlib.sha256(extension.read_bytes()).hexdigest(),
+        "extension_sha256": extension_sha256,
     }
     (out / oracle.MANIFEST).write_text(json.dumps(manifest))
     return manifest
