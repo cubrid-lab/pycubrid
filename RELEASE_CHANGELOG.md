@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.12.0](https://github.com/cubrid-lab/pycubrid/compare/v1.11.0...v1.12.0) (2026-10-12)
+
+
+### Added
+
+* **cursor:** opt-in EXECUTE_ARRAY prepared batch for executemany() ([#848](https://github.com/cubrid-lab/pycubrid/issues/848)) ([7f1747d](https://github.com/cubrid-lab/pycubrid/commit/7f1747d006bf5ac13d009ac191794d6c5cc066ca))
+* **cursor:** report which executemany() batch rows failed ([#852](https://github.com/cubrid-lab/pycubrid/issues/852)) ([b646cb6](https://github.com/cubrid-lab/pycubrid/commit/b646cb64873cf13c1eefc228559bb325dc549802))
+* **protocol:** encode BIGINT, DOUBLE, NUMERIC, temporal and binary prepared parameters ([#846](https://github.com/cubrid-lab/pycubrid/issues/846)) ([29fd19c](https://github.com/cubrid-lab/pycubrid/commit/29fd19cafc3af665c2f25664bca6caceff03b922))
+* **typing:** annotate context manager and iterator returns with typing.Self ([#773](https://github.com/cubrid-lab/pycubrid/issues/773)) ([a441d70](https://github.com/cubrid-lab/pycubrid/commit/a441d7092ab254b47aa4ae052d15238e669861de))
+
+
+### Performance
+
+* **cursor:** split the executemany() SQL on its placeholders once per call ([#853](https://github.com/cubrid-lab/pycubrid/issues/853)) ([98b8263](https://github.com/cubrid-lab/pycubrid/commit/98b8263ba8d17f022e232524c06590d80601b7da))
+
+
+### Documentation
+
+* **i18n:** update the Python requirement in the Chinese README ([#847](https://github.com/cubrid-lab/pycubrid/issues/847)) ([f0b09d2](https://github.com/cubrid-lab/pycubrid/commit/f0b09d240fadf13ec70787152b7a2a474880d349))
+
 ## [1.11.0](https://github.com/cubrid-lab/pycubrid/compare/v1.10.0...v1.11.0) (2026-10-11)
 
 
