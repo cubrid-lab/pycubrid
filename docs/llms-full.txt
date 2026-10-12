@@ -2600,13 +2600,14 @@ cur.executemany(
   is sent as a SEQUENCE, because the broker rejects the MULTISET bind kind.
   `pycubrid.Lob` values are accepted on the sync cursor with autocommit off (see
   below).
-- **Checks before send.** Every row is encoded before any request: a row that is
-  not a sequence, rows of different lengths, a statement without `?` markers or a
-  value outside the set above raises (`ProgrammingError`, `DataError` or
-  `NotSupportedError`) with its position, for example
-  `rows[2][1]: nan and inf are not supported by CUBRID`. The value itself never
-  appears in the message. After `PREPARE`, a server marker count different from
-  the row length raises `ProgrammingError` and no row is executed.
+- **Checks before send.** `seq_of_parameters` may be any iterable of rows (a
+  generator is consumed once). Every row is encoded before any request: a row
+  that is not a sequence, rows of different lengths or a value outside the set
+  above raises (`ProgrammingError`, `DataError` or `NotSupportedError`) with its
+  position, for example `rows[2][1]: nan and inf are not supported by CUBRID`;
+  empty rows raise `NotSupportedError`. The value itself never appears in the
+  message. After `PREPARE`, a server marker count different from the row length
+  raises `ProgrammingError` and no row is executed.
 - **Partial failure and `rowcount`.** As with the literal batch, the server runs
   every row and undoes only a failing one. With autocommit on, each successful
   row is committed; with autocommit off, `commit()` keeps the successful rows and
@@ -2614,7 +2615,8 @@ cur.executemany(
   same exception mapping as the literal batch and `rowcount` stays `-1`. On
   success `rowcount` is the sum of the per-row counts. `lastrowid` is `None`.
   With autocommit off, a deadlock or a server shutdown aborts the whole
-  transaction and fails the whole request.
+  transaction and fails the whole request. An interrupted row
+  (`ER_INTERRUPTED`) stops the server: the rows after it are not executed.
 - **Server text.** Values are coerced as host variables, not as literals, so a
   conversion error reads "Cannot coerce host var to type ..." (error -494, the
   same exception class as the literal batch).
@@ -2628,7 +2630,11 @@ cur.executemany(
   `NotSupportedError`.
 - **Handles.** The prepared statement handle is released like any other result:
   with the next statement on the cursor, by `commit()`/`rollback()`, or by
-  `close()`.
+  `close()`. With autocommit on and broker statement pooling, the release rides
+  on the next statement's request (a `PREPARE_AND_EXECUTE` or the next batch's
+  `PREPARE`) instead of a separate `CLOSE_REQ`. With autocommit on, a broker
+  that closes its connection right after `PREPARE` makes the batch fail with
+  `OperationalError`; nothing is retried automatically.
 
 `prepared=False` keeps every behaviour of the literal batch. A non-bool
 `prepared` raises `ProgrammingError`. The same contract applies to
@@ -5446,6 +5452,9 @@ The internal packet accepts `prepare_flag=NORMAL` (legacy default) or
 `HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or text the
 connection charset cannot encode is rejected before FC2. This is internal wire groundwork for
 [#439](PREPARED_BINDING_DESIGN.md), **not** a public prepared cursor.
+`executemany(..., prepared=True)` (#839) sets `carries_deferred_closes`: its FC2 then appends
+queued deferred-close handle ids after the autocommit byte, which CAS `fn_prepare_internal`
+frees before preparing, as for `PREPARE_AND_EXECUTE` (#488).
 
 | Attribute        | Type   | Description |
 |------------------|--------|-------------|
@@ -5652,10 +5661,11 @@ Every row must have exactly the server's bind count; the CAS would silently
 ignore extra values.
 
 Reply (CAS `ux_execute_array`): int result code, int executed row count, then per
-row either `int count >= 0` and an 8-byte OID, or a negative int (the DBMS error
-indicator for V3+, otherwise the error code itself), the error code (V3+) and a
-length-prefixed message; a shard id follows for V5+. The CAS stops early only
-after an interrupted row, which it reports; any other short reply is malformed.
+row either `int count >= 0` and an 8-byte OID, or a negative int
+(`DBMS_ERROR_INDICATOR`, -2, for V3+, otherwise the error code itself), the error
+code (V3+) and a length-prefixed message; a shard id follows for V5+. The CAS stops
+early only after an `ER_INTERRUPTED` (-4) row, which it reports; any other short
+reply is malformed.
 
 | Attribute | Type  | Description |
 |-----------|-------|-------------|
@@ -10773,6 +10783,7 @@ change to the rules below is a contract change governed by
   - [Escape-processing mode](#escape-processing-mode-no_backslash_escapesfalse)
 - [Placeholder Tokenizer](#placeholder-tokenizer)
 - [`executemany`](#executemany)
+  - [`executemany(..., prepared=True)`](#executemany-preparedtrue)
 - [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits)
 - [Compatibility Policy (1.x)](#compatibility-policy-1x)
 - [Pinned Tests](#pinned-tests)
@@ -11411,6 +11422,12 @@ any of these are contract regressions:
 - `tests/test_typed_collections.py` — typed `Set`/`Multiset`/`Sequence`
   rendering, element hardening and nested-collection rejection; sync/async
   parity in `tests/test_replay_parity.py::typed_collection_parameters`.
+- `tests/test_execute_array.py` — `executemany(..., prepared=True)`: the
+  EXECUTE_ARRAY request and reply bytes, per-row value encoding and position
+  messages, the statement and LOB rules, and sync/async handle ownership.
+- `tests/test_integration_execute_array.py` — live prepared batches on CUBRID
+  10.2-11.4: partial failure, autocommit, `rowcount`, mixed types, NULLs,
+  collections and LOB values against the literal batch.
 
 Together these tests provide the executable specification of this contract.
 

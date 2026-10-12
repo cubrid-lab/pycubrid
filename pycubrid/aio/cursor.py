@@ -56,7 +56,6 @@ def _reject_async_lob(value: Any) -> None:
         raise NotSupportedError(
             "LOB values are not supported by AsyncCursor.executemany(prepared=True)"
         )
-    return None
 
 
 class AsyncCursor(_AsyncCursorBase):
@@ -356,17 +355,7 @@ class AsyncCursor(_AsyncCursorBase):
         # Release the previous result first, then probe, as the literal batch does (#485).
         await self._release_handle()
         generation = await connection._generation_for_binding()
-        self._description = None
-        self._columns = []
-        self._rows = []
-        self._row_index = 0
-        self._fetched_count = 0
-        self._page_error = None
-        self._total_tuple_count = 0
-        self._query_handle = None
-        self._rowcount = -1
-        self._lastrowid = None
-        self._batch_row_results = None
+        self._clear_result_for_batch()
         connection._last_insert_id = None
         _LOGGER.debug("executemany(prepared=True): batch_size=%d", len(rows))
         packet = await connection._prepare_and_execute_array(self, sql, rows, generation)
@@ -410,15 +399,7 @@ class AsyncCursor(_AsyncCursorBase):
             auto_commit=auto_commit,
             protocol_version=self._connection._protocol_version,
         )
-        self._description = None
-        self._rows = []
-        self._row_index = 0
-        self._fetched_count = 0
-        self._page_error = None
-        self._query_handle = None
-        self._rowcount = -1
-        self._lastrowid = None
-        self._batch_row_results = None
+        self._clear_result_for_batch()
 
         # A failed transport or response parse must not expose prior results.
         if expected_escape_generation is None:

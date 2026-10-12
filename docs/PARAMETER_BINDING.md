@@ -25,6 +25,7 @@ change to the rules below is a contract change governed by
   - [Escape-processing mode](#escape-processing-mode-no_backslash_escapesfalse)
 - [Placeholder Tokenizer](#placeholder-tokenizer)
 - [`executemany`](#executemany)
+  - [`executemany(..., prepared=True)`](#executemany-preparedtrue)
 - [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits)
 - [Compatibility Policy (1.x)](#compatibility-policy-1x)
 - [Pinned Tests](#pinned-tests)
@@ -663,6 +664,12 @@ any of these are contract regressions:
 - `tests/test_typed_collections.py` — typed `Set`/`Multiset`/`Sequence`
   rendering, element hardening and nested-collection rejection; sync/async
   parity in `tests/test_replay_parity.py::typed_collection_parameters`.
+- `tests/test_execute_array.py` — `executemany(..., prepared=True)`: the
+  EXECUTE_ARRAY request and reply bytes, per-row value encoding and position
+  messages, the statement and LOB rules, and sync/async handle ownership.
+- `tests/test_integration_execute_array.py` — live prepared batches on CUBRID
+  10.2-11.4: partial failure, autocommit, `rowcount`, mixed types, NULLs,
+  collections and LOB values against the literal batch.
 
 Together these tests provide the executable specification of this contract.
 

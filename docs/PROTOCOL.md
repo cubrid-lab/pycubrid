@@ -412,6 +412,9 @@ The internal packet accepts `prepare_flag=NORMAL` (legacy default) or
 `HOLDABLE=0x08`, plus effective autocommit. SQL with an embedded NUL or text the
 connection charset cannot encode is rejected before FC2. This is internal wire groundwork for
 [#439](PREPARED_BINDING_DESIGN.md), **not** a public prepared cursor.
+`executemany(..., prepared=True)` (#839) sets `carries_deferred_closes`: its FC2 then appends
+queued deferred-close handle ids after the autocommit byte, which CAS `fn_prepare_internal`
+frees before preparing, as for `PREPARE_AND_EXECUTE` (#488).
 
 | Attribute        | Type   | Description |
 |------------------|--------|-------------|
@@ -618,10 +621,11 @@ Every row must have exactly the server's bind count; the CAS would silently
 ignore extra values.
 
 Reply (CAS `ux_execute_array`): int result code, int executed row count, then per
-row either `int count >= 0` and an 8-byte OID, or a negative int (the DBMS error
-indicator for V3+, otherwise the error code itself), the error code (V3+) and a
-length-prefixed message; a shard id follows for V5+. The CAS stops early only
-after an interrupted row, which it reports; any other short reply is malformed.
+row either `int count >= 0` and an 8-byte OID, or a negative int
+(`DBMS_ERROR_INDICATOR`, -2, for V3+, otherwise the error code itself), the error
+code (V3+) and a length-prefixed message; a shard id follows for V5+. The CAS stops
+early only after an `ER_INTERRUPTED` (-4) row, which it reports; any other short
+reply is malformed.
 
 | Attribute | Type  | Description |
 |-----------|-------|-------------|

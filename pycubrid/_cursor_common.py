@@ -579,6 +579,35 @@ class CursorParamsMixin(Generic[_ConnT]):
     """
 
     _connection: _ConnT
+    _description: tuple[DescriptionItem, ...] | None
+    _columns: list[Any]
+    _rows: list[tuple[Any, ...]]
+    _row_index: int
+    _fetched_count: int
+    _page_error: DataError | None
+    _total_tuple_count: int
+    _query_handle: int | None
+    _rowcount: int
+    _lastrowid: int | None
+    _batch_row_results: tuple[tuple[int, int, str], ...] | None
+
+    def _clear_result_for_batch(self) -> None:
+        """Forget the previous result before a batch request is sent (#375, #839).
+
+        A failed transport, parse or server error then leaves no stale rows,
+        ``description=None``, ``rowcount=-1`` and ``lastrowid=None``.
+        """
+        self._description = None
+        self._columns = []
+        self._rows = []
+        self._row_index = 0
+        self._fetched_count = 0
+        self._page_error = None
+        self._total_tuple_count = 0
+        self._query_handle = None
+        self._rowcount = -1
+        self._lastrowid = None
+        self._batch_row_results = None
 
     def _resolve_escape_mode(self) -> bool:
         """Return the negotiated backslash-escape mode as a concrete bool.

@@ -297,6 +297,9 @@ def test_many_batches_do_not_leak_handles(admin: Connection, table: str) -> None
             cursor.executemany(
                 f"UPDATE {table} SET k = ? WHERE id = ?", [(i, 1), (i, 2)], prepared=True
             )
+            # Each PREPARE carries the previous batch's handle (#488), so the
+            # deferred-close queue never grows.
+            assert len(admin._deferred_closes) <= 1
         cursor.execute(f"SELECT COUNT(*) FROM {table}")
         assert cursor.fetchall() == [(0,)]
 

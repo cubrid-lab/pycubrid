@@ -1486,13 +1486,14 @@ cur.executemany(
   is sent as a SEQUENCE, because the broker rejects the MULTISET bind kind.
   `pycubrid.Lob` values are accepted on the sync cursor with autocommit off (see
   below).
-- **Checks before send.** Every row is encoded before any request: a row that is
-  not a sequence, rows of different lengths, a statement without `?` markers or a
-  value outside the set above raises (`ProgrammingError`, `DataError` or
-  `NotSupportedError`) with its position, for example
-  `rows[2][1]: nan and inf are not supported by CUBRID`. The value itself never
-  appears in the message. After `PREPARE`, a server marker count different from
-  the row length raises `ProgrammingError` and no row is executed.
+- **Checks before send.** `seq_of_parameters` may be any iterable of rows (a
+  generator is consumed once). Every row is encoded before any request: a row
+  that is not a sequence, rows of different lengths or a value outside the set
+  above raises (`ProgrammingError`, `DataError` or `NotSupportedError`) with its
+  position, for example `rows[2][1]: nan and inf are not supported by CUBRID`;
+  empty rows raise `NotSupportedError`. The value itself never appears in the
+  message. After `PREPARE`, a server marker count different from the row length
+  raises `ProgrammingError` and no row is executed.
 - **Partial failure and `rowcount`.** As with the literal batch, the server runs
   every row and undoes only a failing one. With autocommit on, each successful
   row is committed; with autocommit off, `commit()` keeps the successful rows and
@@ -1500,7 +1501,8 @@ cur.executemany(
   same exception mapping as the literal batch and `rowcount` stays `-1`. On
   success `rowcount` is the sum of the per-row counts. `lastrowid` is `None`.
   With autocommit off, a deadlock or a server shutdown aborts the whole
-  transaction and fails the whole request.
+  transaction and fails the whole request. An interrupted row
+  (`ER_INTERRUPTED`) stops the server: the rows after it are not executed.
 - **Server text.** Values are coerced as host variables, not as literals, so a
   conversion error reads "Cannot coerce host var to type ..." (error -494, the
   same exception class as the literal batch).
@@ -1514,7 +1516,11 @@ cur.executemany(
   `NotSupportedError`.
 - **Handles.** The prepared statement handle is released like any other result:
   with the next statement on the cursor, by `commit()`/`rollback()`, or by
-  `close()`.
+  `close()`. With autocommit on and broker statement pooling, the release rides
+  on the next statement's request (a `PREPARE_AND_EXECUTE` or the next batch's
+  `PREPARE`) instead of a separate `CLOSE_REQ`. With autocommit on, a broker
+  that closes its connection right after `PREPARE` makes the batch fail with
+  `OperationalError`; nothing is retried automatically.
 
 `prepared=False` keeps every behaviour of the literal batch. A non-bool
 `prepared` raises `ProgrammingError`. The same contract applies to

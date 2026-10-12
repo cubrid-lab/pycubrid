@@ -53,8 +53,6 @@ from .exceptions import (
     OperationalError,
     ProgrammingError,
 )
-from .types import Multiset, Set, _Collection
-from .types import Sequence as SequenceParam
 from .packet import (
     _STRUCT_INT,
     PacketReader,
@@ -63,6 +61,8 @@ from .packet import (
     _decode_text,
     _encode_text,
 )
+from .types import Multiset, Set, _Collection
+from .types import Sequence as SequenceParam
 
 
 # ---------------------------------------------------------------------------
@@ -591,19 +591,24 @@ def _encode_prepared_rows(
 ) -> tuple[tuple[_PreparedBinding, ...], ...]:
     """Encode every row of ``executemany(prepared=True)`` before any I/O (#839).
 
+    ``seq_of_parameters`` may be any iterable (a generator is consumed once).
     Each row must be a sequence (not ``str``/``bytes``) and every row must
     have the same length, at least one. ``bind_other`` is tried first for
     each value (the cursors pass their ``Lob`` handling); it returns ``None``
     for values it does not handle. A rejected value names its position as
     ``rows[i][j]`` in the message and never echoes the value.
     """
-    if not isinstance(seq_of_parameters, Sequence) or isinstance(
-        seq_of_parameters, (str, bytes, bytearray)
-    ):
-        raise ProgrammingError("seq_of_parameters must be a sequence of parameter sequences")
+    if isinstance(seq_of_parameters, (str, bytes, bytearray)):
+        raise ProgrammingError("seq_of_parameters must be an iterable of parameter sequences")
+    try:
+        iterator = iter(seq_of_parameters)
+    except TypeError:
+        raise ProgrammingError(
+            "seq_of_parameters must be an iterable of parameter sequences"
+        ) from None
     encoded_rows: list[tuple[_PreparedBinding, ...]] = []
     width: int | None = None
-    for i, row in enumerate(seq_of_parameters):
+    for i, row in enumerate(iterator):
         if not isinstance(row, Sequence) or isinstance(row, (str, bytes, bytearray)):
             raise ProgrammingError(f"rows[{i}]: parameters must be a sequence")
         values = list(row)
@@ -622,7 +627,7 @@ def _encode_prepared_rows(
                 if binding is None:
                     binding = _encode_prepared_value(value, encoding)
             except (DataError, InterfaceError, NotSupportedError, ProgrammingError) as exc:
-                raise type(exc)(f"rows[{i}][{j}]: {exc.msg}") from None
+                raise type(exc)(f"rows[{i}][{j}]: {exc.msg}", code=exc.code) from None
             bindings.append(binding)
         encoded_rows.append(tuple(bindings))
     return tuple(encoded_rows)
@@ -1728,6 +1733,10 @@ class PreparePacket(_CasPacket):
         self.sql = sql
         self.auto_commit = auto_commit
         self.prepare_flag = prepare_flag
+        # Only executemany(prepared=True) lets queued handles ride on its FC2,
+        # as FC41 does (#488, #839); CAS fn_prepare_internal frees them first.
+        self.carries_deferred_closes = False
+        self.deferred_close_handles: tuple[int, ...] = ()
 
         self.response_code: int = 0
         self.query_handle: int = 0
@@ -1758,6 +1767,8 @@ class PreparePacket(_CasPacket):
             ) from None
         writer.add_byte(self.prepare_flag)
         writer.add_byte(1 if self.auto_commit else 0)
+        for handle in self.deferred_close_handles:
+            writer.add_int(handle)
         return writer.finalize(cas_info)
 
     def parse(self, data: bytes | bytearray) -> None:
@@ -2183,6 +2194,11 @@ class BatchExecutePacket(_CasPacket):
             _ = reader._parse_int()  # lastShardId
 
 
+# CUBRID ER_INTERRUPTED (error_code.h): the only row error after which
+# ux_execute_array stops before the last row.
+_ER_INTERRUPTED = -4
+
+
 class ExecuteArrayPacket(_CasPacket):
     """Execute a prepared statement once per row of bound values (FC=21, #839).
 
@@ -2272,7 +2288,7 @@ class ExecuteArrayPacket(_CasPacket):
                 results.append((result, 0, ""))
         if self.protocol_version > 4:
             _ = reader._parse_int()  # shard_id
-        if executed_count < len(self.rows) and (not results or results[-1][0] >= 0):
+        if executed_count < len(self.rows) and (not results or results[-1][1] != _ER_INTERRUPTED):
             # CAS stops early only after an interrupted row, which it reports.
             raise ValueError("execute-array reply covers fewer rows than sent")
         self.row_results = tuple(results)

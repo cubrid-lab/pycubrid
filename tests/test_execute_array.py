@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import struct
+import threading
+import time
 from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
@@ -188,10 +190,11 @@ def test_reply_without_shard_id_before_protocol_v5() -> None:
     assert packet.row_results == ((3, 0, ""),)
 
 
-def test_interrupted_reply_may_stop_after_an_error() -> None:
+def test_interrupted_reply_may_stop_after_the_interrupted_row() -> None:
+    # ux_execute_array breaks its loop only after ER_INTERRUPTED (-4).
     packet = _packet(rows=3)
-    packet.parse(_reply(_ok_row(1), _error_row(-495, "interrupted")))
-    assert packet.row_results == ((1, 0, ""), (-1, -495, "interrupted"))
+    packet.parse(_reply(_ok_row(1), _error_row(-4, "interrupted")))
+    assert packet.row_results == ((1, 0, ""), (-1, -4, "interrupted"))
 
 
 @pytest.mark.parametrize(
@@ -199,6 +202,7 @@ def test_interrupted_reply_may_stop_after_an_error() -> None:
     [
         _reply(_ok_row(1)),  # fewer rows than sent, without an error
         _reply(executed=0),
+        _reply(_error_row(-670, "duplicate")),  # stops early after a non-interrupt error
         _reply(_ok_row(1), _ok_row(1), _ok_row(1)),  # more rows than sent
         _reply(executed=-1),
         CAS_INFO + _int(0) + _int(1) + _int(-1) + _int(-670) + _int(99) + b"x",
@@ -299,8 +303,8 @@ def test_rows_accept_an_empty_sequence() -> None:
 @pytest.mark.parametrize(
     ("rows", "error", "message"),
     [
-        ("ab", ProgrammingError, "sequence of parameter sequences"),
-        (5, ProgrammingError, "sequence of parameter sequences"),
+        ("ab", ProgrammingError, "iterable of parameter sequences"),
+        (5, ProgrammingError, "iterable of parameter sequences"),
         ([5], ProgrammingError, r"rows\[0\]: parameters must be a sequence"),
         (["ab"], ProgrammingError, r"rows\[0\]: parameters must be a sequence"),
         ([()], NotSupportedError, "at least one \\? parameter marker"),
@@ -312,6 +316,15 @@ def test_rows_accept_an_empty_sequence() -> None:
 def test_row_rejections_name_the_position(rows: Any, error: type[Exception], message: str) -> None:
     with pytest.raises(error, match=message):
         _encode_prepared_rows(rows, "utf-8")
+
+
+def test_row_errors_keep_their_code() -> None:
+    def hook(value: Any) -> Any:
+        raise DataError("boom", code=-5)
+
+    with pytest.raises(DataError, match=r"rows\[0\]\[0\]: boom") as raised:
+        _encode_prepared_rows([(1,)], "utf-8", hook)
+    assert raised.value.code == -5
 
 
 def test_rows_try_the_cursor_hook_first() -> None:
@@ -376,7 +389,11 @@ class _CasScript:
         prepare_error: bool = False,
         array_error: bool = False,
         pooling: int = 0,
+        array_reply: Reply | None = None,
+        prepare_delay: float = 0.0,
     ) -> None:
+        self.array_reply = array_reply
+        self.prepare_delay = prepare_delay
         self.bind_count = bind_count
         self.statement_type = statement_type
         self.failing_rows = failing_rows or {}
@@ -386,6 +403,10 @@ class _CasScript:
 
     def __call__(self, request: Request, session: Session) -> Reply | None:
         if request.function == "PREPARE":
+            # args: SQL, flag, autocommit, then deferred-close handle ids
+            for arg in request.args[3:]:
+                session.results.pop(struct.unpack(">i", arg)[0], None)
+            time.sleep(self.prepare_delay)
             if self.prepare_error:
                 return Reply(error_body(session.status, -493, "Syntax: unexpected end"))
             handle = session.allocate_handle()
@@ -402,6 +423,8 @@ class _CasScript:
             return None
         if self.array_error:
             return Reply(error_body(session.status, -1009, "invalid handle"))
+        if self.array_reply is not None:
+            return self.array_reply
         auto_commit = request.args[2] == b"\x01"
         rows = []
         for index in range(_array_rows(request, self.bind_count)):
@@ -541,6 +564,7 @@ def test_empty_batch_sends_nothing(asynchronous: bool) -> None:
             NotSupportedError,
             "only INSERT",
         ),
+        (_CasScript(statement_type=99), NotSupportedError, "only INSERT"),
         (_CasScript(array_error=True), Exception, "invalid handle"),
     ],
 )
@@ -599,16 +623,102 @@ def test_pooling_off_autocommit_retires_the_handle(asynchronous: bool) -> None:
 def test_pooling_on_autocommit_defers_the_close(asynchronous: bool) -> None:
     def steps(d: _Driver) -> Any:
         cursor = d.cursor()
-        d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
-        handle = cursor._query_handle
-        assert handle is not None
+        handles = []
+        for _ in range(3):
+            d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
+            handles.append(cursor._query_handle)
         d.run(cursor.execute("SELECT 1"))
-        return handle
+        return handles
 
-    requests, handle = _run(asynchronous, steps, script=_CasScript(pooling=1), autocommit=True)
+    requests, handles = _run(asynchronous, steps, script=_CasScript(pooling=1), autocommit=True)
+    assert None not in handles
     assert "CLOSE_REQ_HANDLE" not in _functions(requests)
+    # Each prepared batch's PREPARE carries the previous batch's handle, as FC41 does,
+    # so repeated batches never queue more than one handle (#488).
+    prepares = [r for r in requests if r.function == "PREPARE"]
+    carried = [tuple(struct.unpack(">i", arg)[0] for arg in r.args[3:]) for r in prepares]
+    assert carried == [(), (handles[0],), (handles[1],)]
+    assert len(set(handles)) == 1  # the freed id is reused, as CAS allocates
     statement = [r for r in requests if r.function == "PREPARE_AND_EXECUTE"][-1]
-    assert statement.deferred_closes == (handle,)
+    assert statement.deferred_closes == (handles[2],)
+
+
+@ASYNC
+def test_manual_commit_prepare_carries_no_handles(asynchronous: bool) -> None:
+    def steps(d: _Driver) -> None:
+        cursor = d.cursor()
+        d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
+        d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
+
+    requests, _ = _run(asynchronous, steps, script=_CasScript(pooling=1))
+    assert _functions(requests) == [
+        "PREPARE",
+        "EXECUTE_ARRAY",
+        "CLOSE_REQ_HANDLE",
+        "PREPARE",
+        "EXECUTE_ARRAY",
+    ]
+    assert all(len(r.args) == 3 for r in requests if r.function == "PREPARE")
+
+
+@ASYNC
+def test_session_replaced_after_the_probe_sends_nothing(asynchronous: bool) -> None:
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        original = d.conn._generation_for_binding
+
+        if asynchronous:
+
+            async def stale() -> int:
+                return await original() - 1
+
+        else:
+
+            def stale() -> int:
+                return original() - 1
+
+        d.conn._generation_for_binding = stale
+        with pytest.raises(OperationalError, match="CAS session replaced"):
+            d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
+        return cursor
+
+    requests, cursor = _run(asynchronous, steps)
+    assert _functions(requests) == []
+    assert cursor._query_handle is None
+    assert cursor.rowcount == -1
+
+
+@ASYNC
+@pytest.mark.parametrize(
+    "reply",
+    [
+        Reply(cas_info(IN_TRAN) + _int(0) + _int(5)),  # truncated
+        Reply(close=True),  # transport closed before a reply
+    ],
+    ids=["malformed", "transport"],
+)
+def test_broken_array_reply_retires_the_session(asynchronous: bool, reply: Reply) -> None:
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        with pytest.raises(OperationalError):
+            d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
+        assert cursor._query_handle is None
+        assert cursor.rowcount == -1
+        assert cursor._batch_row_results is None
+        return cursor
+
+    _run(asynchronous, steps, script=_CasScript(array_reply=reply))
+
+
+@ASYNC
+def test_generator_rows_are_accepted(asynchronous: bool) -> None:
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        d.run(cursor.executemany(INSERT, ((i, "v") for i in range(3)), prepared=True))
+        return cursor.rowcount
+
+    _requests, rowcount = _run(asynchronous, steps)
+    assert rowcount == 3
 
 
 @ASYNC
@@ -660,6 +770,34 @@ def test_async_prepare_and_array_hold_the_lock_together() -> None:
     assert functions[functions.index("PREPARE") + 1] == "EXECUTE_ARRAY"
 
 
+def test_sync_prepare_and_array_hold_the_lock_together() -> None:
+    def steps(d: _Driver) -> None:
+        cursor = d.cursor()
+        started = threading.Event()
+
+        def commit_while_preparing() -> None:
+            started.wait(5)
+            d.conn.commit()
+
+        thread = threading.Thread(target=commit_while_preparing)
+        thread.start()
+        original = d.conn._send_and_receive
+
+        def send(packet: Any, **kwargs: Any) -> Any:
+            if type(packet).__name__ == "PreparePacket":
+                started.set()
+            return original(packet, **kwargs)
+
+        d.conn._send_and_receive = send
+        cursor.executemany(INSERT, [(1, "a")], prepared=True)
+        thread.join(5)
+
+    requests, _ = _run(False, steps, script=_CasScript(prepare_delay=0.2))
+    functions = _functions(requests)
+    assert functions.index("EXECUTE_ARRAY") == functions.index("PREPARE") + 1
+    assert "END_TRAN" in functions[functions.index("EXECUTE_ARRAY") :]
+
+
 def test_async_cursor_rejects_lob_values() -> None:
     def steps(d: _Driver) -> None:
         cursor = d.cursor()
@@ -691,7 +829,7 @@ def test_lob_values_bind_with_autocommit_off() -> None:
     assert array.args[3:7] == (bytes((CUBRIDDataType.INT,)), _int(1), b"\x18", CLOB_HANDLE)
 
 
-@pytest.mark.parametrize("case", ["autocommit", "closed", "other", "stale"])
+@pytest.mark.parametrize("case", ["autocommit", "closed", "other", "stale", "forged", "untyped"])
 def test_lob_rejections(case: str) -> None:
     def steps(d: _Driver) -> None:
         cursor = d.cursor()
@@ -700,6 +838,15 @@ def test_lob_rejections(case: str) -> None:
             owner = type("C", (), {"_ensure_connected": lambda self: None})()
             owner._send_and_receive = lambda packet: packet
         lob = Lob(owner, CUBRIDDataType.CLOB, CLOB_HANDLE)
+        if case == "forged":
+
+            class Forged(Lob):
+                def __init__(self) -> None:
+                    pass  # skips Lob.__init__()
+
+            lob = Forged()
+        if case == "untyped":
+            lob._generation = None
         if case == "closed":
             lob.close()
         if case == "stale":
@@ -709,6 +856,8 @@ def test_lob_rejections(case: str) -> None:
             "closed": (InterfaceError, r"rows\[1\]\[1\]: LOB is closed"),
             "other": (InterfaceError, "another connection"),
             "stale": (InterfaceError, r"rows\[1\]\[1\]: LOB binding belongs to another physical"),
+            "forged": (InterfaceError, r"rows\[1\]\[1\]: LOB is closed"),
+            "untyped": (InterfaceError, r"rows\[1\]\[1\]: LOB binding belongs to another physical"),
         }[case]
         with pytest.raises(error, match=message):
             cursor.executemany(INSERT, [(1, "a"), (2, lob)], prepared=True)

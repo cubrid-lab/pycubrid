@@ -336,6 +336,18 @@ def resolve_ssl_context(
 _resolve_ssl_context = resolve_ssl_context
 
 
+# Server statement types executemany(prepared=True) runs; CUBRIDStatementType
+# has no MERGE member, so its CAS code (57) is listed here.
+_PREPARED_BATCH_STATEMENT_TYPES = frozenset(
+    {
+        CUBRIDStatementType.INSERT,
+        CUBRIDStatementType.UPDATE,
+        CUBRIDStatementType.DELETE,
+        57,  # MERGE
+    }
+)
+
+
 def _check_prepared_lobs(
     rows: tuple[tuple[_PreparedBinding, ...], ...],
     owner: object,
@@ -347,7 +359,9 @@ def _check_prepared_lobs(
     With autocommit on, each row's commit removes every temporary LOB file
     of the session, so the second row's handle would fail (-1016): such a
     batch is refused. A handle is valid only on the physical session that
-    wrote it.
+    wrote it. Today a ``Lob`` comes only from ``create_lob()`` (a temporary
+    handle), so the rule does not yet distinguish a committed fetched handle,
+    which ``compat.native`` may rebind.
     """
     for i, row in enumerate(rows):
         for j, binding in enumerate(row):
@@ -366,7 +380,7 @@ def _check_prepared_lobs(
 
 def _check_prepared_batch_statement(prepare: PreparePacket, width: int) -> None:
     """Check a ``PREPARE`` reply of ``executemany(prepared=True)`` before FC21."""
-    if prepare.statement_type == CUBRIDStatementType.SELECT:
+    if prepare.statement_type not in _PREPARED_BATCH_STATEMENT_TYPES:
         raise NotSupportedError(
             "executemany(prepared=True) supports only INSERT, UPDATE, DELETE and MERGE"
         )
@@ -740,6 +754,7 @@ class ConnectionCommonMixin:
             )
             raise OperationalError("last insert id lost due to broker reconnect")
         if isinstance(packet, ExecuteArrayPacket):
+            # Defensive: FC21 is always sent with allow_reconnect=False.
             raise OperationalError(
                 "prepared batch handle lost due to broker reconnect; retry executemany()"
             )

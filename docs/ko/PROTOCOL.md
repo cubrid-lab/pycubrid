@@ -396,6 +396,9 @@ CAS 프로토콜은 클라이언트 문자셋을 전달하지 않고 브로커�
 값을 받습니다. SQL에 NUL이나 연결 문자셋으로 인코딩할 수 없는 문자가 있으면 FC2를 보내기 전에
 거부합니다. 이는 [#439 설계](../PREPARED_BINDING_DESIGN.md)를 위한 내부 와이어
 기반이며, 공개 prepared 커서가 아닙니다.
+`executemany(..., prepared=True)`(#839)는 `carries_deferred_closes`를 설정합니다. 그러면
+FC2가 autocommit 바이트 뒤에 대기 중인 지연 닫기 핸들 id를 붙이며, CAS
+`fn_prepare_internal`은 `PREPARE_AND_EXECUTE`처럼 준비 전에 이를 해제합니다(#488).
 
 | 속성        | 타입   | 설명 |
 |------------------|--------|------|
@@ -588,9 +591,10 @@ byte autocommit, 그 뒤 행 순서대로 행마다 표시마다 (타입 바이�
 개수와 정확히 같아야 합니다. CAS는 남는 값을 조용히 무시합니다.
 
 응답(CAS `ux_execute_array`): int 결과 코드, int 실행된 행 수, 그 뒤 행마다
-`int count >= 0`과 8바이트 OID, 또는 음수 int(V3 이상은 DBMS 오류 표시, 그 전은 오류
-코드 자체), 오류 코드(V3 이상), 길이 접두 메시지. V5 이상은 마지막에 shard id가 옵니다.
-CAS는 중단된 행을 보고한 뒤에만 일찍 멈추며, 그 밖의 짧은 응답은 잘못된 응답입니다.
+`int count >= 0`과 8바이트 OID, 또는 음수 int(V3 이상은 `DBMS_ERROR_INDICATOR` -2, 그
+전은 오류 코드 자체), 오류 코드(V3 이상), 길이 접두 메시지. V5 이상은 마지막에 shard id가
+옵니다. CAS는 `ER_INTERRUPTED`(-4) 행을 보고한 뒤에만 일찍 멈추며, 그 밖의 짧은 응답은
+잘못된 응답입니다.
 
 | 속성 | 타입  | 설명 |
 |-----------|-------|------|

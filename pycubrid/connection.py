@@ -9,8 +9,6 @@ from threading import RLock
 from typing import TYPE_CHECKING, Any, Self
 
 from ._connection_common import (
-    _check_prepared_batch_statement,
-    _check_prepared_lobs,
     ESCAPE_PROBE_FAILED,
     ESCAPE_PROBE_ROLLBACK_FAILED,
     ESCAPE_PROBE_SQL,
@@ -18,17 +16,19 @@ from ._connection_common import (
     no_backslash_escapes_from_probe,
     resolve_ssl_context,
     warn_unknown_connection_options,
+    _check_prepared_batch_statement,
+    _check_prepared_lobs,
 )
 from .constants import CCIDbParam, DataSize
 from .exceptions import DataError, Error, InterfaceError, OperationalError
 from .protocol import (
     BatchExecutePacket,
-    ExecuteArrayPacket,
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
     CloseQueryPacket,
     CommitPacket,
+    ExecuteArrayPacket,
     FetchPacket,
     GetEngineVersionPacket,
     GetSchemaPacket,
@@ -925,6 +925,7 @@ class Connection(ConnectionCommonMixin):
             auto_commit = self._autocommit
             _check_prepared_lobs(rows, self, generation, auto_commit)
             prepare = PreparePacket(sql, auto_commit=auto_commit)
+            prepare.carries_deferred_closes = True
             self._send_and_receive(prepare, bound_generation=generation)
             owner._query_handle = prepare.query_handle
             owner._handle_generation = generation
@@ -991,7 +992,9 @@ class Connection(ConnectionCommonMixin):
             # Every request on this connection uses its charset (#86); encoding
             # happens in write(), so an unencodable value sends nothing.
             packet.encoding = self._encoding
-            if isinstance(packet, PrepareAndExecutePacket):
+            if isinstance(packet, PrepareAndExecutePacket) or (
+                isinstance(packet, PreparePacket) and packet.carries_deferred_closes
+            ):
                 # Release queued handles of this session with this request (#488).
                 deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
             elif (

@@ -347,15 +347,19 @@ class Cursor(_CursorBase):
         """Return a ``Lob`` of this connection as a typed bind, else ``None``."""
         if not issubclass(type(value), Lob):
             return None
-        if value._closed:
+        # getattr: a subclass that skipped Lob.__init__() is refused, not crashed on.
+        if getattr(value, "_closed", True):
             raise InterfaceError("LOB is closed")
-        if value._connection is not self._connection:
+        if getattr(value, "_connection", None) is not self._connection:
             raise InterfaceError("LOB binding belongs to another connection")
         if self._connection._autocommit:
             raise NotSupportedError(
                 "LOB values require autocommit off in executemany(prepared=True)"
             )
-        return _PreparedLob(value.lob_type, value.lob_handle, self._connection, value._generation)
+        generation = getattr(value, "_generation", None)
+        if type(generation) is not int:
+            raise InterfaceError("LOB binding belongs to another physical session")
+        return _PreparedLob(value.lob_type, value.lob_handle, self._connection, generation)
 
     def _executemany_prepared(
         self,
@@ -376,17 +380,7 @@ class Cursor(_CursorBase):
         # Release the previous result first, then probe, as the literal batch does (#485).
         self._release_handle()
         generation = connection._generation_for_binding()
-        self._description = None
-        self._columns = []
-        self._rows = []
-        self._row_index = 0
-        self._fetched_count = 0
-        self._page_error = None
-        self._total_tuple_count = 0
-        self._query_handle = None
-        self._rowcount = -1
-        self._lastrowid = None
-        self._batch_row_results = None
+        self._clear_result_for_batch()
         connection._last_insert_id = None
         _LOGGER.debug("executemany(prepared=True): batch_size=%d", len(rows))
         packet = connection._prepare_and_execute_array(self, sql, rows, generation)
@@ -447,15 +441,7 @@ class Cursor(_CursorBase):
             auto_commit=auto_commit,
             protocol_version=self._connection._protocol_version,
         )
-        self._description = None
-        self._rows = []
-        self._row_index = 0
-        self._fetched_count = 0
-        self._page_error = None
-        self._query_handle = None
-        self._rowcount = -1
-        self._lastrowid = None
-        self._batch_row_results = None
+        self._clear_result_for_batch()
 
         # A failed transport or response parse must not expose prior results.
         if bound_generation is None:

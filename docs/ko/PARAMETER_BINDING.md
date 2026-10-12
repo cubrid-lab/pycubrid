@@ -22,6 +22,7 @@ pycubrid 1.x의 드라이버 측 파라미터 바인딩 계약.
   - [이스케이프 처리 모드](#이스케이프-처리-모드-no_backslash_escapesfalse)
 - [플레이스홀더 토크나이저](#플레이스홀더-토크나이저)
 - [`executemany`](#executemany)
+  - [`executemany(..., prepared=True)`](#executemany-preparedtrue)
 - [비보장과 명시적 한계](#비보장과-명시적-한계)
 - [호환성 정책 (1.x)](#호환성-정책-1x)
 - [고정 테스트](#고정-테스트)
@@ -457,6 +458,8 @@ DML 동사(`INSERT`, `UPDATE`, `DELETE`, `MERGE`)에 대해 `executemany`는:
 - `tests/test_cursor.py` (183-235행) — 다중 타입 파라미터 시퀀스의 종단 간 바인딩, 플레이스홀더 수 검증, `Mapping`/`str` 파라미터 거부.
 - `tests/test_aio_cursor_parity.py` (76-105행) — NUL 거부, 기본 이스케이프, `no_backslash_escapes` 모드의 동기/비동기 동등성.
 - `tests/test_typed_collections.py` — 타입 지정 `Set`/`Multiset`/`Sequence` 렌더링, 원소 보호, 중첩 컬렉션 거부; 동기/비동기 동등성은 `tests/test_replay_parity.py::typed_collection_parameters`.
+- `tests/test_execute_array.py` — `executemany(..., prepared=True)`: EXECUTE_ARRAY 요청·응답 바이트, 행별 값 인코딩과 위치 메시지, 문과 LOB 규칙, 동기/비동기 핸들 소유.
+- `tests/test_integration_execute_array.py` — CUBRID 10.2-11.4에서의 실제 준비된 배치: 리터럴 배치와 비교한 부분 실패, autocommit, `rowcount`, 타입 혼합, NULL, 컬렉션, LOB 값.
 
 이 테스트들이 이 계약의 실행 가능한 명세를 제공합니다.
 

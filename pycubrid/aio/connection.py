@@ -10,8 +10,6 @@ import time
 from typing import Any, Self
 
 from pycubrid._connection_common import (
-    _check_prepared_batch_statement,
-    _check_prepared_lobs,
     ESCAPE_PROBE_FAILED,
     ESCAPE_PROBE_ROLLBACK_FAILED,
     ESCAPE_PROBE_SQL,
@@ -19,6 +17,8 @@ from pycubrid._connection_common import (
     no_backslash_escapes_from_probe,
     resolve_ssl_context,
     warn_unknown_connection_options,
+    _check_prepared_batch_statement,
+    _check_prepared_lobs,
 )
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import (
@@ -31,12 +31,12 @@ from pycubrid.exceptions import (
 )
 from pycubrid.protocol import (
     BatchExecutePacket,
-    ExecuteArrayPacket,
     CheckCasPacket,
     ClientInfoExchangePacket,
     CloseDatabasePacket,
     CloseQueryPacket,
     CommitPacket,
+    ExecuteArrayPacket,
     FetchPacket,
     GetEngineVersionPacket,
     GetSchemaPacket,
@@ -1070,7 +1070,9 @@ class AsyncConnection(ConnectionCommonMixin):
         # happens in write(), so an unencodable value sends nothing.
         packet.encoding = self._encoding
         deferred_count = 0
-        if isinstance(packet, PrepareAndExecutePacket):
+        if isinstance(packet, PrepareAndExecutePacket) or (
+            isinstance(packet, PreparePacket) and packet.carries_deferred_closes
+        ):
             # Release queued handles of this session with this request (#488).
             deferred_count, packet.deferred_close_handles = self._peek_deferred_closes()
         elif (
@@ -1164,6 +1166,7 @@ class AsyncConnection(ConnectionCommonMixin):
             auto_commit = self._autocommit
             _check_prepared_lobs(rows, self, generation, auto_commit)
             prepare = PreparePacket(sql, auto_commit=auto_commit)
+            prepare.carries_deferred_closes = True
             await self._send_and_receive_locked(prepare, expected_escape_generation=generation)
             owner._query_handle = prepare.query_handle
             owner._handle_generation = generation
