@@ -159,7 +159,8 @@ class Reply:
     ``body`` (CAS_INFO first) is framed with its DATA_LENGTH unless ``raw`` is
     given, which is sent as is. ``close`` closes the session afterwards; a
     reply with neither ``body`` nor ``raw`` closes it without answering.
-    ``fragments`` > 1 sends the bytes in that many near-equal pieces with
+    ``fragments`` > 1 sends the bytes in that many near-equal pieces (at most
+    one per byte) with
     ``fragment_interval`` seconds between consecutive pieces (a slow peer).
     """
 
@@ -358,11 +359,12 @@ class ReplayBroker:
         if data is None and reply.body is not None:
             data = framed(reply.body)
         if data is not None:
-            step = max(1, -(-len(data) // max(reply.fragments, 1)))
-            for start in range(0, len(data), step):
-                if start:
+            pieces = max(1, min(reply.fragments, len(data)))
+            bounds = [len(data) * i // pieces for i in range(pieces + 1)]
+            for i in range(pieces):
+                if i:
                     time.sleep(reply.fragment_interval)
-                client.sendall(data[start : start + step])
+                client.sendall(data[bounds[i] : bounds[i + 1]])
         return data is not None and not reply.close
 
     # -- default replies -----------------------------------------------------

@@ -101,14 +101,14 @@ def connect(
 `connect_timeout`과 `read_timeout`은 `None` 또는 유한한 0 이상의 숫자를 받습니다. 음수, NaN, 무한대는 `ValueError`를, 호환되지 않는 타입은 `TypeError`를 발생시킵니다. 동기·비동기 연결 모두 전송 자원을 획득하기 전에 설정을 검증하며, 이 오류는 `OperationalError`로 감싸지 않습니다. `0`은 계속 허용되며 타임아웃 제한을 비활성화하지 않습니다. `None`은 기한 없음을 뜻합니다. 동기 드라이버의 0 타임아웃 동작은 그대로입니다. 비동기 드라이버는 TCP 연결(`connect_timeout`), 연결 핸드셰이크와 각 요청 왕복(`read_timeout`)을 `asyncio.wait_for()`로 제한하므로, 0 기한은 아직 시작하지 않은 새 작업을 실행 전에 취소합니다. `connect_timeout=0`은 TCP 연결을 시도하기 전에, `read_timeout=0`은 핸드셰이크 바이트를 보내기 전에 모두 `OperationalError`로 실패합니다. 드라이버가 `asyncio.timeout()` 대신 `wait_for()`를 유지하는 이유는 CPython 3.11.0–3.11.2에서 이미 취소된 태스크(예: 잡은 `CancelledError` 이후의 정리 코드)가 진입한 `timeout()` 블록이 만료되면 `CancelledError`를 다시 발생시키기 때문입니다([python/cpython#102780](https://github.com/python/cpython/issues/102780)). `wait_for()`를 쓰면 이 버전에서도 드라이버 기한 만료는 `OperationalError`로 보고되고, 호출 태스크에 대한 새 취소는 여전히 `asyncio.CancelledError`를 발생시킵니다([#744](https://github.com/cubrid-lab/pycubrid/issues/744)).
 
 <a id="what-the-timeouts-bound"></a>
-**타임아웃이 제한하는 범위.** 각 설정은 네트워크 대기 하나를 제한할 뿐이며, 어느 것도
+**타임아웃이 제한하는 범위.** 각 설정은 연결 시도 하나, 소켓 호출 하나 또는 요청 왕복 하나를 제한할 뿐이며, 어느 것도
 SQL 문 전체나 `execute()` 호출 전체의 벽시계 기한이 아니고 서버에서 실행 중인 문을
 취소하지도 않습니다([#855](https://github.com/cubrid-lab/pycubrid/issues/855)):
 
 | 설정 | 동기 드라이버 | 비동기 드라이버 |
 |---|---|---|
 | `connect_timeout` | TCP 연결 시도 하나마다(`socket.create_connection()`), 리다이렉트된 CAS 포트로의 재연결 포함 | `asyncio.open_connection()` 호출 하나마다, 리다이렉트된 CAS 포트로의 재연결 포함 |
-| `read_timeout` (연결) | 브로커 핸드셰이크와 `OPEN_DATABASE`의 소켓 송신·수신 호출 하나마다 | 연결 핸드셰이크 전체: 브로커 핸드셰이크, TLS 핸드셰이크, `OPEN_DATABASE`를 합친 시간 |
+| `read_timeout` (연결) | 브로커 핸드셰이크와 `OPEN_DATABASE`의 소켓 송신·수신 호출 하나마다 | 연결 핸드셰이크 전체: 브로커 핸드셰이크, 리다이렉트 재연결, TLS 핸드셰이크, `OPEN_DATABASE`를 합친 시간 |
 | `read_timeout` (요청) | 요청의 소켓 송신·수신 호출 하나마다. 조각마다 타임아웃 안에 계속 도착하는 응답은 전체가 얼마나 걸리든 기다립니다 | 요청 하나의 왕복 전체: 요청을 보내고 완전한 응답을 읽기까지 |
 | TLS 핸드셰이크 | TLS 핸드셰이크 전체(Python `ssl` 모듈이 소켓 타임아웃을 하나의 기한으로 적용): `read_timeout`, 설정하지 않으면 10초 | TLS 핸드셰이크 전체(`ssl_handshake_timeout`): `read_timeout`, 설정하지 않으면 10초 |
 
@@ -122,7 +122,9 @@ SQL 문 전체나 `execute()` 호출 전체의 벽시계 기한이 아니고 서
 않습니다. 여러 요청을 보내는 작업(예: 문 앞의 `CHECK_CAS` 확인, 이후 페이지마다의 `FETCH`)은
 요청마다 타임아웃을 따로 적용합니다. 작업 전체를 제한하려면 호출을 직접 기한으로 감싸고
 (예: 비동기 호출을 `asyncio.timeout()`으로 감싸기) 기한 만료를 결과를 알 수 없는 상태로
-다루세요. 이 경우에도 서버의 문은 취소되지 않습니다.
+다루세요. 이 경우에도 서버의 문은 취소되지 않습니다. `read_timeout=0`은 어느 드라이버에서도
+쓸 수 있는 제한이 아닙니다. 동기 소켓을 논블로킹으로 만들어 연결이 즉시 `OperationalError`
+(원인 `BlockingIOError`)로 실패하고, 비동기 드라이버는 핸드셰이크를 시작하기 전에 실패합니다.
 
 <a id="unknown-options"></a>
 

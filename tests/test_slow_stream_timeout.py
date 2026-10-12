@@ -185,7 +185,12 @@ async def test_async_slow_reply_within_total_read_timeout_completes() -> None:
         conn = await pycubrid.aio.connect(**_options(broker.port, read_timeout=5.0))
         try:
             cur = conn.cursor()
+            started = time.monotonic()
             await cur.execute(_SLOW_SQL)
+            elapsed = time.monotonic() - started
+
+            # The reply was as slow as the one that fails with read_timeout=0.3.
+            assert elapsed > 2 * _READ_TIMEOUT
             assert await cur.fetchall() == [(1,)]
             assert conn._connected is True
             await cur.execute(_NEXT_SQL)
@@ -204,6 +209,7 @@ async def test_async_caller_cancellation_mid_frame_propagates_without_replay() -
         try:
             paged = conn.cursor()
             await paged.execute(_PAGED_SQL)
+            await conn.get_schema_info(1, "t")
             task = asyncio.ensure_future(conn.cursor().execute(_SLOW_SQL))
             # About a third of the 0.9 s reply has arrived; the rest is pending.
             await asyncio.sleep(0.35)
@@ -215,6 +221,9 @@ async def test_async_caller_cancellation_mid_frame_propagates_without_replay() -
 
             _assert_retired(conn, paged)
             assert conn._writer is None and conn._reader is None
+            assert await paged.fetchone() == (1,)
+            with pytest.raises(InterfaceError, match="result set invalidated"):
+                await paged.fetchone()
             with pytest.raises(InterfaceError, match="connection is closed"):
                 conn.cursor()
 
