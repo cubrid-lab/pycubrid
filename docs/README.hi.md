@@ -40,7 +40,14 @@ CUBRID एक उच्च-प्रदर्शन ओपन-सोर्स �
 
 ## आवश्यकताएँ
 
-- Python 3.10+
+**Python 3.10 support की समाप्ति:** Python 3.10 का upstream end of life
+2026-10-01 को हुआ ([PEP 619](https://peps.python.org/pep-0619/#310-lifespan))।
+1.8.x और 1.9.x lines Python 3.10 को support करती हैं; 1.9.0 में इसकी पूर्व सूचना
+दी गई थी। 1.10.0 से package को Python 3.11 या नया version चाहिए, इसलिए Python 3.10
+पर `pip` 1.9.x ही install करता रहेगा। Upgrade करने से पहले अपना interpreter
+upgrade करें, virtual environment फिर से बनाएँ और अपने application को validate करें।
+
+- Python 3.11 या नया
 - CUBRID डेटाबेस सर्वर 10.2+
 
 ## इंस्टॉलेशन
@@ -241,16 +248,12 @@ with engine.connect() as conn:
 
 ## संगतता
 
-| | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **ऑफ़लाइन टेस्ट** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **CUBRID 11.4** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.2** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 11.0** | ✅ | -- | -- | -- | ✅ |
-| **CUBRID 10.2** | ✅ | -- | -- | -- | ✅ |
-
-CI हर PR/push पर ऊपर दी गई matrix चलाता है (Python 3.10 + 3.14 anchors × सभी CUBRID versions)।
-पूर्ण **4 × 4** Python × CUBRID matrix स्पष्ट `workflow_dispatch` पर और हर release पर चलती है।
+समर्थित: Python 3.11–3.15 और CUBRID 10.2, 11.0, 11.2, 11.4।
+सामान्य PRs एक Ubuntu/Python 3.12 offline smoke lane चलाते हैं; high-risk changes
+Python 3.14/CUBRID 11.4 जोड़ते हैं। Main और बदलाव वाले साप्ताहिक validation में
+Python 3.11/CUBRID 10.2 live और Python 3.11 व 3.15 पर पूरा offline suite भी चलता है।
+पूर्ण 5 × 4 live matrix स्पष्ट dispatch पर और हर release पर चलती है।
+[CI execution policy](CI_POLICY.md) और [support matrix](SUPPORT_MATRIX.md) देखें।
 
 ## आर्किटेक्चर
 
@@ -317,7 +320,7 @@ Question mark (`qmark`) शैली: `cursor.execute("SELECT * FROM users WHERE
 
 ### कौन-से Python versions समर्थित हैं?
 
-Python 3.10, 3.11, 3.12, 3.13, और 3.14।
+Python 3.11, 3.12, 3.13, 3.14, और 3.15 (standard GIL builds)।
 
 ### क्या pycubrid LOBs (CLOB/BLOB) को सपोर्ट करता है?
 
