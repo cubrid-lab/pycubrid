@@ -1426,7 +1426,7 @@ cur.executemany(
   종류를 거부하므로 `Multiset`은 SEQUENCE로 보냅니다. `pycubrid.Lob` 값은 autocommit이
   꺼진 동기 커서에서 받습니다(아래 참고).
 - **전송 전 검사.** `seq_of_parameters`는 행의 어떤 이터러블이든 됩니다(제너레이터는 한
-  번 소비합니다). 요청을 보내기 전에 모든 행을 인코딩합니다. 시퀀스가 아닌 행, 길이가
+  번 소비합니다. 타입 주석은 기본 경로처럼 `Sequence[Sequence[Any]]`로 둡니다). 요청을 보내기 전에 모든 행을 인코딩합니다. 시퀀스가 아닌 행, 길이가
   다른 행, 위 집합 밖의 값은 위치를 담아 예외(`ProgrammingError`, `DataError`,
   `NotSupportedError`)를 냅니다. 예:
   `rows[2][1]: nan and inf are not supported by CUBRID`. 빈 행은 `NotSupportedError`를
@@ -1438,7 +1438,8 @@ cur.executemany(
   같은 예외 매핑으로 내고 `rowcount`는 `-1`로 둡니다. 성공하면 `rowcount`는 행별
   개수의 합입니다. `lastrowid`는 `None`입니다. autocommit이 꺼진 상태에서 교착 상태나
   서버 종료가 일어나면 트랜잭션 전체가 중단되고 요청 전체가 실패합니다. 중단된
-  행(`ER_INTERRUPTED`)이 있으면 서버가 멈추며 그 뒤의 행은 실행되지 않습니다.
+  행(`ER_INTERRUPTED`)이 있으면 서버가 멈추며 그 뒤의 행은 실행되지 않고, 앞선 행의 오류
+  대신 중단 오류를 냅니다.
 - **서버 메시지.** 값은 리터럴이 아니라 호스트 변수로 변환되므로 변환 오류는
   "Cannot coerce host var to type ..."(오류 -494, 리터럴 배치와 같은 예외 클래스)로
   나옵니다.

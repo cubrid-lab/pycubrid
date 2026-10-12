@@ -392,6 +392,8 @@ class _CasScript:
         array_reply: Reply | None = None,
         prepare_delay: float = 0.0,
     ) -> None:
+        # Set by a test: the next CHECK_CAS finds the CAS gone (#485).
+        self.close_on_probe = False
         self.array_reply = array_reply
         self.prepare_delay = prepare_delay
         self.bind_count = bind_count
@@ -402,6 +404,9 @@ class _CasScript:
         self.pooling = pooling
 
     def __call__(self, request: Request, session: Session) -> Reply | None:
+        if request.function == "CHECK_CAS" and self.close_on_probe:
+            self.close_on_probe = False
+            return Reply(close=True)
         if request.function == "PREPARE":
             # args: SQL, flag, autocommit, then deferred-close handle ids
             for arg in request.args[3:]:
@@ -430,6 +435,8 @@ class _CasScript:
         for index in range(_array_rows(request, self.bind_count)):
             code = self.failing_rows.get(index)
             rows.append(_ok_row(1) if code is None else _error_row(code, "row failed"))
+            if code == -4:
+                break  # ux_execute_array stops after ER_INTERRUPTED
         if auto_commit:
             session.status = OUT_TRAN
             if not self.pooling:
@@ -565,6 +572,11 @@ def test_empty_batch_sends_nothing(asynchronous: bool) -> None:
             "only INSERT",
         ),
         (_CasScript(statement_type=99), NotSupportedError, "only INSERT"),
+        (
+            _CasScript(statement_type=CUBRIDStatementType.CALL),
+            NotSupportedError,
+            "only INSERT",
+        ),
         (_CasScript(array_error=True), Exception, "invalid handle"),
     ],
 )
@@ -711,6 +723,102 @@ def test_broken_array_reply_retires_the_session(asynchronous: bool, reply: Reply
 
 
 @ASYNC
+@pytest.mark.parametrize(
+    "statement_type",
+    [
+        CUBRIDStatementType.INSERT,
+        CUBRIDStatementType.UPDATE,
+        CUBRIDStatementType.DELETE,
+        57,  # MERGE
+    ],
+)
+def test_dml_statement_types_run(asynchronous: bool, statement_type: int) -> None:
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
+        return cursor.rowcount
+
+    requests, rowcount = _run(asynchronous, steps, script=_CasScript(statement_type=statement_type))
+    assert _functions(requests) == ["PREPARE", "EXECUTE_ARRAY"]
+    assert rowcount == 1
+
+
+@ASYNC
+def test_interrupted_batch_raises_the_interruption(asynchronous: bool) -> None:
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        with pytest.raises(Exception) as raised:
+            d.run(cursor.executemany(INSERT, [(i, "v") for i in range(5)], prepared=True))
+        assert getattr(raised.value, "code", None) == -4
+        return cursor
+
+    script = _CasScript(failing_rows={0: -670, 2: -4})
+    _requests, cursor = _run(asynchronous, steps, script=script)
+    assert cursor.rowcount == -1
+    assert [code for _count, code, _m in cursor._batch_row_results] == [-670, 0, -4]
+
+
+@ASYNC
+def test_failed_probe_reconnects_before_prepare(asynchronous: bool) -> None:
+    script = _CasScript()
+
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        d.conn._cas_info = bytes((OUT_TRAN,)) + d.conn._cas_info[1:]
+        d.conn._cas_reply_verified = False
+        script.close_on_probe = True
+        d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
+        assert not d.conn._deferred_closes
+        return cursor.rowcount
+
+    requests, rowcount = _run(asynchronous, steps, script=script)
+    assert rowcount == 1
+    sessions = {
+        r.function: r.session for r in requests if r.function in ("PREPARE", "EXECUTE_ARRAY")
+    }
+    first = requests[0].session
+    assert sessions["PREPARE"] == sessions["EXECUTE_ARRAY"] != first
+
+
+@ASYNC
+def test_replacement_between_probe_and_prepare_sends_nothing(asynchronous: bool) -> None:
+    script = _CasScript()
+
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        original = d.conn._generation_for_binding
+
+        def lose_the_cas() -> None:
+            # The CAS closes after an OUT_TRAN reply; the PREPARE preflight probes it.
+            d.conn._cas_info = bytes((OUT_TRAN,)) + d.conn._cas_info[1:]
+            d.conn._cas_reply_verified = False
+            script.close_on_probe = True
+
+        if asynchronous:
+
+            async def probed() -> int:
+                generation = await original()
+                lose_the_cas()
+                return generation
+
+        else:
+
+            def probed() -> int:
+                generation = original()
+                lose_the_cas()
+                return generation
+
+        d.conn._generation_for_binding = probed
+        with pytest.raises(OperationalError, match="CAS session replaced"):
+            d.run(cursor.executemany(INSERT, [(1, "a")], prepared=True))
+        assert cursor._query_handle is None
+        return cursor
+
+    requests, _ = _run(asynchronous, steps, script=script)
+    assert [r for r in requests if r.function in ("PREPARE", "EXECUTE_ARRAY")] == []
+
+
+@ASYNC
 def test_generator_rows_are_accepted(asynchronous: bool) -> None:
     def steps(d: _Driver) -> Any:
         cursor = d.cursor()
@@ -731,7 +839,7 @@ def test_open_schema_result_is_closed_before_an_autocommit_array(asynchronous: b
 
     requests, _ = _run(asynchronous, steps, autocommit=True)
     functions = _functions(requests)
-    assert functions.index("CLOSE_REQ_HANDLE") < functions.index("EXECUTE_ARRAY")
+    assert functions.index("CLOSE_REQ_HANDLE") < functions.index("PREPARE")
 
 
 @ASYNC
@@ -829,7 +937,9 @@ def test_lob_values_bind_with_autocommit_off() -> None:
     assert array.args[3:7] == (bytes((CUBRIDDataType.INT,)), _int(1), b"\x18", CLOB_HANDLE)
 
 
-@pytest.mark.parametrize("case", ["autocommit", "closed", "other", "stale", "forged", "untyped"])
+@pytest.mark.parametrize(
+    "case", ["autocommit", "closed", "other", "stale", "forged", "untyped", "handle"]
+)
 def test_lob_rejections(case: str) -> None:
     def steps(d: _Driver) -> None:
         cursor = d.cursor()
@@ -847,6 +957,8 @@ def test_lob_rejections(case: str) -> None:
             lob = Forged()
         if case == "untyped":
             lob._generation = None
+        if case == "handle":
+            lob._lob_handle = None
         if case == "closed":
             lob.close()
         if case == "stale":
@@ -858,6 +970,7 @@ def test_lob_rejections(case: str) -> None:
             "stale": (InterfaceError, r"rows\[1\]\[1\]: LOB binding belongs to another physical"),
             "forged": (InterfaceError, r"rows\[1\]\[1\]: LOB is closed"),
             "untyped": (InterfaceError, r"rows\[1\]\[1\]: LOB binding belongs to another physical"),
+            "handle": (InterfaceError, r"rows\[1\]\[1\]: invalid LOB handle"),
         }[case]
         with pytest.raises(error, match=message):
             cursor.executemany(INSERT, [(1, "a"), (2, lob)], prepared=True)

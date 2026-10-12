@@ -924,6 +924,11 @@ class Connection(ConnectionCommonMixin):
         with self._session_lock:
             auto_commit = self._autocommit
             _check_prepared_lobs(rows, self, generation, auto_commit)
+            if auto_commit and self._schema_results:
+                # Close them before PREPARE: FC21 would otherwise send their
+                # CLOSE_REQ between the two, where no CHECK_CAS may run. A
+                # reconnect here makes PREPARE fail its generation fence.
+                self._close_schema_results()
             prepare = PreparePacket(sql, auto_commit=auto_commit)
             prepare.carries_deferred_closes = True
             self._send_and_receive(prepare, bound_generation=generation)

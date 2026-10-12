@@ -2601,7 +2601,8 @@ cur.executemany(
   `pycubrid.Lob` values are accepted on the sync cursor with autocommit off (see
   below).
 - **Checks before send.** `seq_of_parameters` may be any iterable of rows (a
-  generator is consumed once). Every row is encoded before any request: a row
+  generator is consumed once; the annotation stays `Sequence[Sequence[Any]]`,
+  as for the default path). Every row is encoded before any request: a row
   that is not a sequence, rows of different lengths or a value outside the set
   above raises (`ProgrammingError`, `DataError` or `NotSupportedError`) with its
   position, for example `rows[2][1]: nan and inf are not supported by CUBRID`;
@@ -2616,7 +2617,8 @@ cur.executemany(
   success `rowcount` is the sum of the per-row counts. `lastrowid` is `None`.
   With autocommit off, a deadlock or a server shutdown aborts the whole
   transaction and fails the whole request. An interrupted row
-  (`ER_INTERRUPTED`) stops the server: the rows after it are not executed.
+  (`ER_INTERRUPTED`) stops the server: the rows after it are not executed, and
+  the interruption's error is raised instead of an earlier row's error.
 - **Server text.** Values are coerced as host variables, not as literals, so a
   conversion error reads "Cannot coerce host var to type ..." (error -494, the
   same exception class as the literal batch).
@@ -6295,7 +6297,7 @@ flowchart TD
 
 - **Pure Python over C extension**: Zero system dependencies ensure the driver runs anywhere Python is available, simplifying deployment and avoiding cross-compilation issues.
 - **CAS protocol v8**: The driver targets the current broker protocol, including JSON-aware parsing paths and modern feature support, without carrying compatibility code for legacy protocol revisions.
-- **`qmark` paramstyle with driver-side binding**: Parameters use `?` placeholders. The driver escapes and interpolates values locally (type-aware escaping for strings, bytes, dates, decimals, None → NULL) before sending the final SQL to the CAS broker. This is not server-side prepared statement binding — the broker receives a complete SQL string. This design avoids a protocol round-trip for PREPARE and simplifies the implementation while maintaining injection safety through strict type-dispatch escaping.
+- **`qmark` paramstyle with driver-side binding**: Parameters use `?` placeholders. The driver escapes and interpolates values locally (type-aware escaping for strings, bytes, dates, decimals, None → NULL) before sending the final SQL to the CAS broker. This is not server-side prepared statement binding — the broker receives a complete SQL string. The exception is the opt-in `executemany(..., prepared=True)` (#839), which sends typed host variables with one `PREPARE` and one `EXECUTE_ARRAY` request. This design avoids a protocol round-trip for PREPARE and simplifies the implementation while maintaining injection safety through strict type-dispatch escaping.
 - **Dict-based type dispatch**: Utilizing the `_TYPE_READERS` dictionary provides O(1) lookup performance, ensuring high-speed result parsing compared to iterative conditional checks.
 - **Opaque collection types**: Returning SET, MULTISET, and SEQUENCE types as raw `bytes` avoids the performance overhead and complexity of recursive parsing for features that are rarely used in standard applications.
 - **Identify as JDBC client**: Sending `CLIENT_JDBC=3` during handshake ensures the CAS treats pycubrid with the same stability and feature set as the official JDBC driver.
@@ -10815,7 +10817,9 @@ between sync and async binding; parity is enforced by
 
 **This is not server-side prepared-statement binding.** pycubrid does not send
 parameter values as a separate typed payload; the broker receives a complete
-SQL text per execute. See
+SQL text per execute. The one exception on the ordinary cursors is the opt-in
+[`executemany(..., prepared=True)`](#executemany-preparedtrue) (#839), which
+sends typed host variables with `PREPARE` + `EXECUTE_ARRAY`. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 The separate, **explicit sync-only** `pycubrid.compat.native` prepared cursor
 does send typed values (INT, BIGINT, DOUBLE, NUMERIC, DATE, TIME, DATETIME,
@@ -11326,7 +11330,9 @@ them implicitly.
 - **Ordinary sync/async cursors do not use server-side prepared binding.**
   `pycubrid.Cursor` and `pycubrid.aio.AsyncCursor` render parameters into SQL
   text on the client, so their `execute()` sends a complete SQL string without
-  a typed value payload or statement-handle cache. The separate, opt-in
+  a typed value payload or statement-handle cache. Only the opt-in
+  `executemany(..., prepared=True)` (#839) sends typed host variables; it
+  prepares the statement once per call and caches no handle across calls. The separate, opt-in
   `pycubrid.compat.native` sync cursor has a narrow typed scalar contract;
   its performance and plan-cache effects are not claimed here.
 - **Identifiers are not escaped.** Code paths that interpolate identifiers

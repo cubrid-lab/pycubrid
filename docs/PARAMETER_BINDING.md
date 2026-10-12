@@ -57,7 +57,9 @@ between sync and async binding; parity is enforced by
 
 **This is not server-side prepared-statement binding.** pycubrid does not send
 parameter values as a separate typed payload; the broker receives a complete
-SQL text per execute. See
+SQL text per execute. The one exception on the ordinary cursors is the opt-in
+[`executemany(..., prepared=True)`](#executemany-preparedtrue) (#839), which
+sends typed host variables with `PREPARE` + `EXECUTE_ARRAY`. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 The separate, **explicit sync-only** `pycubrid.compat.native` prepared cursor
 does send typed values (INT, BIGINT, DOUBLE, NUMERIC, DATE, TIME, DATETIME,
@@ -568,7 +570,9 @@ them implicitly.
 - **Ordinary sync/async cursors do not use server-side prepared binding.**
   `pycubrid.Cursor` and `pycubrid.aio.AsyncCursor` render parameters into SQL
   text on the client, so their `execute()` sends a complete SQL string without
-  a typed value payload or statement-handle cache. The separate, opt-in
+  a typed value payload or statement-handle cache. Only the opt-in
+  `executemany(..., prepared=True)` (#839) sends typed host variables; it
+  prepares the statement once per call and caches no handle across calls. The separate, opt-in
   `pycubrid.compat.native` sync cursor has a narrow typed scalar contract;
   its performance and plan-cache effects are not claimed here.
 - **Identifiers are not escaped.** Code paths that interpolate identifiers

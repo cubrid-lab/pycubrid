@@ -1487,7 +1487,8 @@ cur.executemany(
   `pycubrid.Lob` values are accepted on the sync cursor with autocommit off (see
   below).
 - **Checks before send.** `seq_of_parameters` may be any iterable of rows (a
-  generator is consumed once). Every row is encoded before any request: a row
+  generator is consumed once; the annotation stays `Sequence[Sequence[Any]]`,
+  as for the default path). Every row is encoded before any request: a row
   that is not a sequence, rows of different lengths or a value outside the set
   above raises (`ProgrammingError`, `DataError` or `NotSupportedError`) with its
   position, for example `rows[2][1]: nan and inf are not supported by CUBRID`;
@@ -1502,7 +1503,8 @@ cur.executemany(
   success `rowcount` is the sum of the per-row counts. `lastrowid` is `None`.
   With autocommit off, a deadlock or a server shutdown aborts the whole
   transaction and fails the whole request. An interrupted row
-  (`ER_INTERRUPTED`) stops the server: the rows after it are not executed.
+  (`ER_INTERRUPTED`) stops the server: the rows after it are not executed, and
+  the interruption's error is raised instead of an earlier row's error.
 - **Server text.** Values are coerced as host variables, not as literals, so a
   conversion error reads "Cannot coerce host var to type ..." (error -494, the
   same exception class as the literal batch).

@@ -359,7 +359,12 @@ class Cursor(_CursorBase):
         generation = getattr(value, "_generation", None)
         if type(generation) is not int:
             raise InterfaceError("LOB binding belongs to another physical session")
-        return _PreparedLob(value.lob_type, value.lob_handle, self._connection, generation)
+        lob_type = getattr(value, "_lob_type", None)
+        handle = getattr(value, "_lob_handle", None)
+        if not isinstance(lob_type, int) or not isinstance(handle, bytes):
+            raise InterfaceError("invalid LOB handle")
+        # _PreparedLob checks the type code and the handle framing.
+        return _PreparedLob(lob_type, handle, self._connection, generation)
 
     def _executemany_prepared(
         self,
@@ -387,7 +392,10 @@ class Cursor(_CursorBase):
         self._invalidated_by_reconnect = False
         self._batch_row_results = packet.row_results
         if packet.errors:
-            _raise_batch_error(packet.errors[0])
+            # A reply that stops early ends with the ER_INTERRUPTED row; raise
+            # that, so the caller learns the later rows did not run.
+            interrupted = len(packet.row_results) < len(rows)
+            _raise_batch_error(packet.errors[-1] if interrupted else packet.errors[0])
         self._rowcount = sum(count for count, _code, _message in packet.row_results)
 
     def _executemany_loop(

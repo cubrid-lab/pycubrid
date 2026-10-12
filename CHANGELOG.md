@@ -15,20 +15,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   as typed host variables, instead of N rendered SQL literals. For 10,000-row
   batches on CUBRID 10.2-11.4 it took 0.33-0.62x of the literal batch's time for
   INSERT, UPDATE and DELETE and 0.12-0.21x for MERGE
-  ([PERFORMANCE.md](docs/PERFORMANCE.md#shipped-prepared-batch)). Every row is still executed and only a failing row is undone,
-  autocommit still commits each successful row, the first failing row's error is
-  raised with the same exception mapping, and `rowcount` is the sum of the
-  per-row counts. Values use the #840 prepared types; one column may mix types
-  from row to row; `Set`/`Multiset`/`Sequence` are sent as string-element
-  collections (`Multiset` as SEQUENCE, because the broker rejects the MULTISET
-  bind kind). Every row is checked before anything is sent, and errors name the
-  position (`rows[i][j]`) but never the value. Other statements raise
-  `NotSupportedError` instead of falling back. A `pycubrid.Lob` value is bound
-  by its handle on the sync cursor with autocommit off; with autocommit on it
-  raises `NotSupportedError` before any request, because each row's commit
-  deletes the session's temporary LOB files and later rows would fail (-1016).
-  The async cursor rejects `Lob` values. The default `executemany()` is
-  unchanged. See [API_REFERENCE.md](docs/API_REFERENCE.md) and
+  ([PERFORMANCE.md](docs/PERFORMANCE.md#shipped-prepared-batch)). Every row is
+  still executed and only a failing row is undone, autocommit still commits each
+  successful row, the first failing row's error is raised with the same
+  exception mapping (an interrupted batch raises the interruption), and
+  `rowcount` is the sum of the per-row counts. Values use the #840 prepared
+  types; one column may mix types from row to row; `Set`/`Multiset`/`Sequence`
+  are sent as string-element collections (`Multiset` as SEQUENCE, because the
+  broker rejects the MULTISET bind kind). Rows may come from any iterable. Every
+  row is encoded before anything is sent, and errors name the position
+  (`rows[i][j]`) but never the value; after `PREPARE`, a server statement type
+  or marker count that does not match raises before any row runs. Other
+  statements raise `NotSupportedError` instead of falling back. A
+  `pycubrid.Lob` value is bound by its handle on the sync cursor with autocommit
+  off; with autocommit on it raises `NotSupportedError` before any request,
+  because each row's commit deletes the session's temporary LOB files and later
+  rows would fail (-1016). The async cursor rejects `Lob` values. With
+  autocommit on, the previous batch's handle is released on the next `PREPARE`,
+  as on `PREPARE_AND_EXECUTE` (#488). The default `executemany()` is unchanged.
+  See [API_REFERENCE.md](docs/API_REFERENCE.md) and
   [PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md).
 - **Wider typed prepared parameters (#840)** — `pycubrid.compat.native`
   `cursor.bind_param()` now sends `bool` (INT 1/0, the literal path's value),

@@ -362,7 +362,10 @@ class AsyncCursor(_AsyncCursorBase):
         self._invalidated_by_reconnect = False
         self._batch_row_results = packet.row_results
         if packet.errors:
-            _raise_batch_error(packet.errors[0])
+            # A reply that stops early ends with the ER_INTERRUPTED row; raise
+            # that, so the caller learns the later rows did not run.
+            interrupted = len(packet.row_results) < len(rows)
+            _raise_batch_error(packet.errors[-1] if interrupted else packet.errors[0])
         self._rowcount = sum(count for count, _code, _message in packet.row_results)
 
     async def executemany_batch(
