@@ -1464,7 +1464,7 @@ every row's outcome:
 
 | Attribute | Type | Meaning |
 |---|---|---|
-| `batch_index` | `int` | Position in `seq_of_parameters` of the row this exception describes (the first failing row) |
+| `batch_index` | `int` | Position in `seq_of_parameters` of the row this exception describes (the first failing row, or the interrupted row of a stopped prepared batch) |
 | `batch_errors` | `tuple[tuple[int, DatabaseError], ...]` | `(index, error)` for every failed row, in row order; each `error` is mapped like the raised one and has its own `batch_index` |
 | `batch_rowcounts` | `tuple[int, ...]` | One entry per executed row, in row order: the row's affected count, or `-1` for a failed row |
 
@@ -1482,10 +1482,13 @@ except pycubrid.IntegrityError as exc:
     print(cur.rowcount)  # -1
 ```
 
-Every exception that a batch does not raise has `batch_index`, `batch_errors`
+Exceptions not raised for a batch row failure have `batch_index`, `batch_errors`
 and `batch_rowcounts` set to `None`. A non-DML statement (for example `SELECT`)
 runs row by row through `execute()`, stops at the first failure and does not set
-them. The same contract applies to the async cursor and to
+them. If the server interrupts a statement (`ER_INTERRUPTED`), it stops there:
+`batch_rowcounts` is shorter than the batch, and the rows past its end did not
+run. The literal batch still raises its first failing row's error in that case.
+The same contract applies to the async cursor and to
 `executemany(..., prepared=True)`.
 
 ##### Prepared batch: `prepared=True`

@@ -283,8 +283,9 @@ Decision: `executemany()` keeps the literal batch by default, because a default 
 which values are accepted and how they are converted. The `EXECUTE_ARRAY` path ships as an opt-in,
 `executemany(..., prepared=True)`
 ([#839](https://github.com/cubrid-lab/pycubrid/issues/839)), on the wider prepared type set of
-[#840](https://github.com/cubrid-lab/pycubrid/issues/840). Reporting which batch rows failed is
-tracked in [#841](https://github.com/cubrid-lab/pycubrid/issues/841).
+[#840](https://github.com/cubrid-lab/pycubrid/issues/840). Since
+[#841](https://github.com/cubrid-lab/pycubrid/issues/841) the raised exception reports every failed
+row on both paths; see [API_REFERENCE.md](API_REFERENCE.md#partial-failure-which-rows-failed).
 
 <a id="shipped-prepared-batch"></a>
 

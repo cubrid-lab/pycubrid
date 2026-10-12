@@ -2146,7 +2146,9 @@ class BatchExecutePacket(_CasPacket):
     Reply (CAS ``ux_execute_batch``): int result code, int executed statement
     count, then per statement a statement-type byte and either ``int count >=
     0`` and an 8-byte OID, or a negative int, the error code for V3+ and a
-    length-prefixed message; shard id for V5+ last. ``results`` keeps the
+    length-prefixed message; shard id for V5+ last. As in ``ux_execute_array``,
+    the server runs every statement and stops early only after an interrupted
+    (``ER_INTERRUPTED``) statement, which it reports. ``results`` keeps the
     successes as ``(statement type, count)`` and ``errors`` the failures as
     ``{"code", "message", "index"}``; ``row_results`` keeps one ``(count,
     error code, message)`` per executed statement, in order, as
@@ -2208,6 +2210,11 @@ class BatchExecutePacket(_CasPacket):
                 reader._parse_short()  # unused
         if self.protocol_version > 4:
             _ = reader._parse_int()  # lastShardId
+        if executed_count < len(self.sql_list) and (
+            not row_results or row_results[-1][1] != _ER_INTERRUPTED
+        ):
+            # CAS stops early only after an interrupted statement, which it reports.
+            raise ValueError("batch execute reply covers fewer statements than sent")
         self.row_results = tuple(row_results)
 
 
@@ -2235,7 +2242,7 @@ class ExecuteArrayPacket(_CasPacket):
     ``row_results`` keeps one ``(count, error_code, message)`` per executed
     row, in order: ``(count, 0, "")`` on success and ``(-1, code, message)``
     on failure. ``errors`` holds the failures as ``{"code", "message",
-    "index"}`` for :func:`_raise_batch_error`.
+    "index"}`` for :func:`_raise_batch_failure`.
     """
 
     def __init__(

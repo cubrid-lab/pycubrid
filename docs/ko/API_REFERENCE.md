@@ -1406,7 +1406,7 @@ DML 배치의 일부 행이 실패해도 서버는 나머지 행을 모두 실�
 
 | 속성 | 타입 | 의미 |
 |---|---|---|
-| `batch_index` | `int` | 이 예외가 가리키는 행(첫 실패 행)의 `seq_of_parameters` 안 위치 |
+| `batch_index` | `int` | 이 예외가 가리키는 행(첫 실패 행, 또는 멈춘 준비된 배치의 중단된 행)의 `seq_of_parameters` 안 위치 |
 | `batch_errors` | `tuple[tuple[int, DatabaseError], ...]` | 실패한 모든 행의 `(index, error)`, 행 순서. 각 `error`는 발생한 예외와 같은 매핑을 따르고 자신의 `batch_index`를 가집니다 |
 | `batch_rowcounts` | `tuple[int, ...]` | 실행된 행마다 하나씩, 행 순서: 그 행이 영향을 준 행 수, 실패한 행은 `-1` |
 
@@ -1424,9 +1424,11 @@ except pycubrid.IntegrityError as exc:
     print(cur.rowcount)  # -1
 ```
 
-배치가 내지 않은 예외에서는 `batch_index`, `batch_errors`, `batch_rowcounts`가 모두
-`None`입니다. DML이 아닌 문(예: `SELECT`)은 `execute()`로 한 행씩 실행되어 첫 실패에서
-멈추며, 이 속성을 설정하지 않습니다. 비동기 커서와 `executemany(..., prepared=True)`에도
+배치 행 실패로 발생하지 않은 예외에서는 `batch_index`, `batch_errors`, `batch_rowcounts`가
+모두 `None`입니다. DML이 아닌 문(예: `SELECT`)은 `execute()`로 한 행씩 실행되어 첫 실패에서
+멈추며, 이 속성을 설정하지 않습니다. 서버가 문장을 중단하면(`ER_INTERRUPTED`) 거기서
+멈추므로 `batch_rowcounts`가 배치보다 짧고, 그 끝 뒤의 행은 실행되지 않은 것입니다. 이때도
+리터럴 배치는 첫 실패 행의 오류를 냅니다. 비동기 커서와 `executemany(..., prepared=True)`에도
 같은 계약이 적용됩니다.
 
 ##### 준비된 배치: `prepared=True`

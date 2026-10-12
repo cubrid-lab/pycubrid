@@ -18,7 +18,7 @@ import pytest
 import pycubrid
 import pycubrid.aio
 from pycubrid.connection import Connection
-from pycubrid.exceptions import DatabaseError, IntegrityError
+from pycubrid.exceptions import DatabaseError, IntegrityError, ProgrammingError
 
 from ._parity_helpers import connect_kwargs, table_name
 
@@ -118,7 +118,9 @@ def test_executemany_batch_reports_statement_positions(admin: Connection, table:
     assert exc.batch_index == 1
     assert exc.batch_errors is not None
     assert [i for i, _e in exc.batch_errors] == [1, 3]
-    assert exc.batch_errors[1][1].errno is not None
+    # 'abc' into INT is a semantic error (-494) on CUBRID 10.2-11.4.
+    assert type(exc.batch_errors[1][1]) is ProgrammingError
+    assert exc.batch_errors[1][1].errno == -494
     assert exc.batch_rowcounts == (1, -1, 2, -1)
 
 

@@ -2578,7 +2578,7 @@ every row's outcome:
 
 | Attribute | Type | Meaning |
 |---|---|---|
-| `batch_index` | `int` | Position in `seq_of_parameters` of the row this exception describes (the first failing row) |
+| `batch_index` | `int` | Position in `seq_of_parameters` of the row this exception describes (the first failing row, or the interrupted row of a stopped prepared batch) |
 | `batch_errors` | `tuple[tuple[int, DatabaseError], ...]` | `(index, error)` for every failed row, in row order; each `error` is mapped like the raised one and has its own `batch_index` |
 | `batch_rowcounts` | `tuple[int, ...]` | One entry per executed row, in row order: the row's affected count, or `-1` for a failed row |
 
@@ -2596,10 +2596,13 @@ except pycubrid.IntegrityError as exc:
     print(cur.rowcount)  # -1
 ```
 
-Every exception that a batch does not raise has `batch_index`, `batch_errors`
+Exceptions not raised for a batch row failure have `batch_index`, `batch_errors`
 and `batch_rowcounts` set to `None`. A non-DML statement (for example `SELECT`)
 runs row by row through `execute()`, stops at the first failure and does not set
-them. The same contract applies to the async cursor and to
+them. If the server interrupts a statement (`ER_INTERRUPTED`), it stops there:
+`batch_rowcounts` is shorter than the batch, and the rows past its end did not
+run. The literal batch still raises its first failing row's error in that case.
+The same contract applies to the async cursor and to
 `executemany(..., prepared=True)`.
 
 ##### Prepared batch: `prepared=True`
@@ -4686,6 +4689,19 @@ print(f"Inserted {cur.rowcount} rows")  # 3
 conn.commit()
 ```
 
+When some rows fail, the server still runs the others. The raised exception
+names every failed row (#841); `rowcount` stays `-1`:
+
+```python
+try:
+    cur.executemany("INSERT INTO users (id, name) VALUES (?, ?)", rows)
+except pycubrid.IntegrityError as exc:
+    for index, error in exc.batch_errors:
+        print(f"row {index} failed: {error.errno} {error.msg}")
+    print("applied:", sum(count for count in exc.batch_rowcounts if count >= 0))
+    conn.rollback()  # or conn.commit() to keep the rows that succeeded
+```
+
 ### executemany_batch
 
 Execute **different** SQL statements in a single server round-trip:
@@ -5693,9 +5709,11 @@ and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63a
 Reply (CAS `ux_execute_batch`): int result code, int executed statement count, then
 per statement a statement-type byte and either `int count >= 0` and an 8-byte OID,
 or a negative int, the error code (V3+, otherwise the negative int itself) and a
-length-prefixed message; a shard id follows for V5+. The server runs every
-statement, so a failed statement does not stop the later ones. An executed count
-that is negative or larger than the number of statements sent is a malformed reply.
+length-prefixed message; a shard id follows for V5+. A failed statement does not
+stop the later ones; as in `ux_execute_array`, the CAS stops early only after an
+`ER_INTERRUPTED` (-4) statement, which it reports, rewriting the executed count.
+An executed count that is negative or larger than the number of statements sent,
+or a short reply that does not end with an interrupted statement, is malformed.
 
 | Attribute | Type  | Description |
 |-----------|-------|-------------|
@@ -6699,8 +6717,9 @@ Decision: `executemany()` keeps the literal batch by default, because a default 
 which values are accepted and how they are converted. The `EXECUTE_ARRAY` path ships as an opt-in,
 `executemany(..., prepared=True)`
 ([#839](https://github.com/cubrid-lab/pycubrid/issues/839)), on the wider prepared type set of
-[#840](https://github.com/cubrid-lab/pycubrid/issues/840). Reporting which batch rows failed is
-tracked in [#841](https://github.com/cubrid-lab/pycubrid/issues/841).
+[#840](https://github.com/cubrid-lab/pycubrid/issues/840). Since
+[#841](https://github.com/cubrid-lab/pycubrid/issues/841) the raised exception reports every failed
+row on both paths; see [API_REFERENCE.md](API_REFERENCE.md#partial-failure-which-rows-failed).
 
 <a id="shipped-prepared-batch"></a>
 

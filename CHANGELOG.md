@@ -38,7 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Failed `executemany()` batch rows are reported (#841)** — when rows of a DML
   batch fail, the server still runs the other rows, but the driver raised only the
   first error and lost which rows failed. The raised exception keeps its class,
-  message, `errno` and `sqlstate`, and now also has `batch_index` (the row it
+  message, `code`, `errno` and `sqlstate`, and now also has `batch_index` (the row it
   describes), `batch_errors` (`(index, error)` for every failed row, in order, each
   mapped like the raised error) and `batch_rowcounts` (one count per executed row,
   `-1` for a failed row). This applies to the literal batch, to
@@ -48,7 +48,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stays `-1` after a partial failure; the applied rows can be counted from
   `batch_rowcounts`. `BatchExecutePacket` keeps the statement order in a new
   `row_results` and an `index` in each error, and rejects a reply whose executed
-  count is negative or larger than the batch. See
+  count is negative or larger than the batch, or that stops early without an
+  interrupted (`ER_INTERRUPTED`) statement, which CAS never sends. See
   [API_REFERENCE.md](docs/API_REFERENCE.md#partial-failure-which-rows-failed).
 - **Wider typed prepared parameters (#840)** — `pycubrid.compat.native`
   `cursor.bind_param()` now sends `bool` (INT 1/0, the literal path's value),

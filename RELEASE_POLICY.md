@@ -320,8 +320,9 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   `sqlstate`, the choice of the raised row, `str()`/`repr()` and `rowcount`
   (still `-1` after a partial failure) are unchanged. `BatchExecutePacket`
   gains `row_results` and an `index` key in each `errors` entry, and now treats an
-  executed count that is negative or larger than the batch as a malformed reply
-  (`OperationalError`), which a CUBRID server does not send.
+  executed count that is negative or larger than the batch, or a short reply that
+  does not end with an interrupted statement, as a malformed reply
+  (`OperationalError`); CAS `ux_execute_batch` sends neither.
 
 - **Wider typed prepared parameters (#840)** — MINOR / additive, within the
   provisional `pycubrid.compat` namespace. `pycubrid.compat.native`

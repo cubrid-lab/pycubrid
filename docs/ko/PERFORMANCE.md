@@ -226,7 +226,7 @@ flowchart TD
 - **트랜잭션, 부분 실패, `rowcount`는 현재 배치와 같습니다.** 네 버전 모두에서 한 행이 실패해도 `EXECUTE_ARRAY`는 지금의 `executemany()`처럼 나머지 행을 실행합니다. 실패한 행만 취소됩니다. autocommit이 켜져 있으면 성공한 행마다 commit되고, 꺼져 있으면 `rollback()`은 모든 행을 없애고 `commit()`은 성공한 행을 남깁니다. 행별 건수와 그 합도 같고, 두 경로 모두 발생한 예외에 같은 실패 행을 보고합니다(#841). 반면 준비된 루프는 처음 실패한 행에서 멈춥니다.
 - **타입과 변환은 다릅니다.** #836 당시 준비된 인코더는 32비트 `int`, `str`, `None`, INT/STRING 컬렉션, LOB 핸들만 받았고, #840이 리터럴 경로가 렌더링하는 모든 스칼라 타입으로 넓혔습니다. 값은 리터럴이 아니라 호스트 변수로 변환되므로 서버 오류 문구가 다릅니다. autocommit이 켜져 있으면 LOB 핸들은 첫 행의 commit 뒤에 실패합니다.
 
-결정: `executemany()`는 기본으로 리터럴 배치를 유지합니다. 기본 경로를 바꾸면 받을 수 있는 값과 변환 방식이 달라지기 때문입니다. `EXECUTE_ARRAY` 경로는 [#840](https://github.com/cubrid-lab/pycubrid/issues/840)의 더 넓은 준비된 타입 집합 위에서 옵트인 `executemany(..., prepared=True)`([#839](https://github.com/cubrid-lab/pycubrid/issues/839))로 제공됩니다. 배치에서 실패한 행을 알려 주는 기능은 [#841](https://github.com/cubrid-lab/pycubrid/issues/841)에서 추적합니다.
+결정: `executemany()`는 기본으로 리터럴 배치를 유지합니다. 기본 경로를 바꾸면 받을 수 있는 값과 변환 방식이 달라지기 때문입니다. `EXECUTE_ARRAY` 경로는 [#840](https://github.com/cubrid-lab/pycubrid/issues/840)의 더 넓은 준비된 타입 집합 위에서 옵트인 `executemany(..., prepared=True)`([#839](https://github.com/cubrid-lab/pycubrid/issues/839))로 제공됩니다. [#841](https://github.com/cubrid-lab/pycubrid/issues/841)부터 두 경로 모두 발생한 예외가 실패한 모든 행을 알려 줍니다. [API_REFERENCE.md](API_REFERENCE.md#부분-실패-실패한-행)를 참고하세요.
 
 <a id="shipped-prepared-batch"></a>
 

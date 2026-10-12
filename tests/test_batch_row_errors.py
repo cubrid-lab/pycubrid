@@ -11,7 +11,9 @@ and async cursors against the replay broker for the literal batch
 from __future__ import annotations
 
 import copy
+import gc
 import pickle
+import weakref
 from typing import Any
 
 import pytest
@@ -114,6 +116,25 @@ def test_batch_reply_rejects_an_impossible_statement_count(executed: int) -> Non
         packet.parse(_batch_reply(_batch_ok(1), _batch_ok(1), executed=executed))
 
 
+def test_batch_reply_may_stop_after_an_interrupted_statement() -> None:
+    # CAS ux_execute_batch rewrites the count and stops after ER_INTERRUPTED.
+    packet = BatchExecutePacket(["s"] * 4)
+    packet.parse(_batch_reply(_batch_error(-670, "dup"), _batch_ok(1), _batch_error(-4, "stop")))
+    assert packet.row_results == ((-1, -670, "dup"), (1, 0, ""), (-1, -4, "stop"))
+    assert [error["index"] for error in packet.errors] == [0, 2]
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [(), (_batch_ok(1),), (_batch_error(-670, "dup"),)],
+    ids=["empty", "success", "other-error"],
+)
+def test_batch_reply_rejects_any_other_short_reply(rows: tuple[bytes, ...]) -> None:
+    packet = BatchExecutePacket(["s"] * 2)
+    with pytest.raises(ValueError, match="fewer statements than sent"):
+        packet.parse(_batch_reply(*rows))
+
+
 # ---------------------------------------------------------------------------
 # Exception attributes
 # ---------------------------------------------------------------------------
@@ -181,6 +202,23 @@ def test_raised_error_lists_every_failed_row() -> None:
     assert (first.batch_index, second.batch_index) == (1, 3)
     assert first.batch_errors is None and first.batch_rowcounts is None
     assert all(error is not exc for _index, error in exc.batch_errors)
+
+
+def test_raised_error_is_freed_without_the_cycle_collector() -> None:
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        try:
+            _raise_batch_failure(ROWS, ERRORS, ERRORS[0])
+        except DatabaseError as exc:
+            assert exc.batch_errors is not None
+            ref = weakref.ref(exc)
+            entry = weakref.ref(exc.batch_errors[0][1])
+        assert ref() is None
+        assert entry() is None
+    finally:
+        if enabled:
+            gc.enable()
 
 
 def test_batch_details_survive_pickle_and_copy() -> None:
@@ -261,6 +299,7 @@ def test_interrupted_prepared_batch_names_the_interrupted_row(asynchronous: bool
         cursor = d.cursor()
         with pytest.raises(DatabaseError) as raised:
             d.run(cursor.executemany(INSERT, [(i, "v") for i in range(5)], prepared=True))
+        assert cursor.rowcount == -1
         return raised.value
 
     script = _CasScript(failing_rows={0: -670, 2: -4})
@@ -269,6 +308,33 @@ def test_interrupted_prepared_batch_names_the_interrupted_row(asynchronous: bool
     assert exc.batch_index == 2
     assert [(i, e.code) for i, e in exc.batch_errors] == [(0, -670), (2, -4)]
     # Three of five rows executed: rows 3 and 4 never ran.
+    assert exc.batch_rowcounts == (-1, 1, -1)
+
+
+@ASYNC
+def test_interrupted_literal_batch_still_raises_the_first_failure(asynchronous: bool) -> None:
+    def steps(d: _Driver) -> Any:
+        cursor = d.cursor()
+        with pytest.raises(IntegrityError) as raised:
+            d.run(cursor.executemany(INSERT, [(i, "v") for i in range(5)]))
+        assert cursor.rowcount == -1
+        return raised.value
+
+    script = _BatchScript({})
+    script.batch_reply = Reply(
+        cas_info(IN_TRAN)
+        + _int(0)
+        + _int(3)
+        + _batch_error(-670, "dup")
+        + _batch_ok(1)
+        + _batch_error(-4, "interrupted")
+        + _int(0)
+    )
+    _requests, exc = _run(asynchronous, steps, script=script)
+    # Unchanged literal behaviour: the first failing row is raised.
+    assert exc.batch_index == 0
+    assert [(i, e.code) for i, e in exc.batch_errors] == [(0, -670), (2, -4)]
+    # Three of five statements executed: rows 3 and 4 never ran.
     assert exc.batch_rowcounts == (-1, 1, -1)
 
 
