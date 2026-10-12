@@ -816,7 +816,7 @@ class TestAsyncPositiveRestoreOnReconnect:
             async with asyncio.timeout(1.0):
                 assert await ping is True
             async with asyncio.timeout(1.0):
-                await query
+                _ = await query
         finally:
             # A failed step must not leave the ping or the fenced query running,
             # and an exception of a task that already ended must be retrieved.
