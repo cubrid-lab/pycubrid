@@ -107,7 +107,7 @@ graph TD
 
     tests --> conftest["conftest.py - Shared fixtures"]
     tests --> unit["test_*.py - Behavior-oriented offline test modules"]
-    tests --> test_integration["Integration modules - Live DB tests (marked integration, require Docker)"]
+    tests --> test_integration["Integration modules - Live DB tests (marked integration, require a live CUBRID server)"]
     tests --> helpers["helpers/ and fixtures/ - Shared test support and golden data"]
 
     docs --> doc_index[index.md - Documentation index]
