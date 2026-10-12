@@ -601,10 +601,18 @@ and [JDBC schema request](https://github.com/CUBRID/cubrid-jdbc/blob/ba59be0c63a
 
 **Batch execute** (FC=20) — multiple SQL statements in one request.
 
+Reply (CAS `ux_execute_batch`): int result code, int executed statement count, then
+per statement a statement-type byte and either `int count >= 0` and an 8-byte OID,
+or a negative int, the error code (V3+, otherwise the negative int itself) and a
+length-prefixed message; a shard id follows for V5+. The server runs every
+statement, so a failed statement does not stop the later ones. An executed count
+that is negative or larger than the number of statements sent is a malformed reply.
+
 | Attribute | Type  | Description |
 |-----------|-------|-------------|
-| `results` | `list[tuple[int, int]]` | `(stmt_type, result_count)` per statement |
-| `errors`  | `list[dict]` | `{code, message}` for failed statements |
+| `results` | `list[tuple[int, int]]` | `(stmt_type, result_count)` per successful statement |
+| `errors`  | `list[dict]` | `{code, message, index}` for failed statements |
+| `row_results` | `tuple[tuple[int, int, str], ...]` | `(count, 0, "")` or `(-1, code, message)` per executed statement, in order (#841) |
 
 ---
 

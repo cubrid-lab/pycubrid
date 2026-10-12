@@ -14,7 +14,7 @@ from pycubrid._cursor_common import (
     DML_BATCH_VERBS,
     check_prepared_batch_operation,
     extract_first_keyword,
-    _raise_batch_error,
+    _raise_batch_failure,
 )
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import (
@@ -365,7 +365,11 @@ class AsyncCursor(_AsyncCursorBase):
             # A reply that stops early ends with the ER_INTERRUPTED row; raise
             # that, so the caller learns the later rows did not run.
             interrupted = len(packet.row_results) < len(rows)
-            _raise_batch_error(packet.errors[-1] if interrupted else packet.errors[0])
+            _raise_batch_failure(
+                packet.row_results,
+                packet.errors,
+                packet.errors[-1] if interrupted else packet.errors[0],
+            )
         self._rowcount = sum(count for count, _code, _message in packet.row_results)
 
     async def executemany_batch(
@@ -412,10 +416,10 @@ class AsyncCursor(_AsyncCursorBase):
                 packet, expected_escape_generation=expected_escape_generation
             )
 
-        # Raise on per-statement batch failures (issue #186).
+        # Raise on per-statement batch failures (issue #186), with every
+        # row's outcome attached to the exception (#841).
         if packet.errors:
-            err = packet.errors[0]
-            _raise_batch_error(err)
+            _raise_batch_failure(packet.row_results, packet.errors, packet.errors[0])
 
         if packet.results:
             self._rowcount = sum(count for _, count in packet.results)

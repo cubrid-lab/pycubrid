@@ -504,7 +504,7 @@ def test_batch_error_messages_decode_with_the_connection_codec() -> None:
     packet = BatchExecutePacket(["INSERT INTO t VALUES (1)"], protocol_version=8)
     packet.encoding = "euc_kr"
     packet.parse(CAS_INFO + body)
-    assert packet.errors == [{"code": -670, "message": "중복"}]
+    assert packet.errors == [{"code": -670, "message": "중복", "index": 0}]
 
 
 def test_default_reply_decoding_is_unchanged() -> None:

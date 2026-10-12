@@ -637,10 +637,17 @@ class TestRealisticSeedsRoundTrip:
     def test_batch_reply_round_trips(self) -> None:
         pkt = protocol.BatchExecutePacket(sql_list=["x"] * len(cas_reply.BATCH_STATEMENTS))
         pkt.parse(cas_reply.batch_reply().data)
-        ok = [s for s in cas_reply.BATCH_STATEMENTS if s.result >= 0]
-        failed = [s for s in cas_reply.BATCH_STATEMENTS if s.result < 0]
+        statements = cas_reply.BATCH_STATEMENTS
+        ok = [s for s in statements if s.result >= 0]
+        failed = [(i, s) for i, s in enumerate(statements) if s.result < 0]
         assert pkt.results == [(s.statement_type, s.result) for s in ok]
-        assert pkt.errors == [{"code": s.error_code, "message": s.message} for s in failed]
+        assert pkt.errors == [
+            {"code": s.error_code, "message": s.message, "index": i} for i, s in failed
+        ]
+        assert pkt.row_results == tuple(
+            (s.result, 0, "") if s.result >= 0 else (-1, s.error_code, s.message)
+            for s in statements
+        )
 
     def test_lob_replies_round_trip(self) -> None:
         new = protocol.LOBNewPacket(CUBRIDDataType.BLOB)

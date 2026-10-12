@@ -1638,7 +1638,9 @@ class TestBatchExecutePacket:
 
     def test_parse_success(self) -> None:
         """Parse new wire format: responseCode + executedCount + per-result data."""
-        pkt = BatchExecutePacket(["INSERT INTO t VALUES(1)"], protocol_version=7)
+        pkt = BatchExecutePacket(
+            ["INSERT INTO t VALUES(1)", "INSERT INTO t VALUES(2)"], protocol_version=7
+        )
         response = bytearray()
         response.extend(DEFAULT_CAS_INFO)
         response.extend(struct.pack(">i", 0))  # response_code = 0 (success)

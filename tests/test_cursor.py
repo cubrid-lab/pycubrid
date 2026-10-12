@@ -611,7 +611,8 @@ def test_executemany_batch_raises_on_partial_failure(
     def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = [(0, 1)]  # first statement succeeded
-            packet.errors = [{"code": -670, "message": "unique constraint violation"}]
+            packet.errors = [{"code": -670, "message": "unique constraint violation", "index": 1}]
+            packet.row_results = ((1, 0, ""), (-1, -670, "unique constraint violation"))
         return packet
 
     mock_connection._send_and_receive.side_effect = send
@@ -642,7 +643,8 @@ def test_executemany_batch_error_uses_cas_code_dispatch(
     def send(packet: object, **_: object) -> object:
         if isinstance(packet, BatchExecutePacket):
             packet.results = []
-            packet.errors = [{"code": -494, "message": "syntax error near 'SELCT'"}]
+            packet.errors = [{"code": -494, "message": "syntax error near 'SELCT'", "index": 0}]
+            packet.row_results = ((-1, -494, "syntax error near 'SELCT'"),)
         return packet
 
     mock_connection._send_and_receive.side_effect = send

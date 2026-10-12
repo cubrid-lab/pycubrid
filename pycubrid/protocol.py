@@ -2141,7 +2141,17 @@ class GetSchemaPacket(_CasPacket):
 
 
 class BatchExecutePacket(_CasPacket):
-    """Batch execute multiple SQL statements (FC=20)."""
+    """Batch execute multiple SQL statements (FC=20).
+
+    Reply (CAS ``ux_execute_batch``): int result code, int executed statement
+    count, then per statement a statement-type byte and either ``int count >=
+    0`` and an 8-byte OID, or a negative int, the error code for V3+ and a
+    length-prefixed message; shard id for V5+ last. ``results`` keeps the
+    successes as ``(statement type, count)`` and ``errors`` the failures as
+    ``{"code", "message", "index"}``; ``row_results`` keeps one ``(count,
+    error code, message)`` per executed statement, in order, as
+    ``ExecuteArrayPacket`` does (#841).
+    """
 
     def __init__(
         self,
@@ -2154,6 +2164,7 @@ class BatchExecutePacket(_CasPacket):
         self.protocol_version = protocol_version
         self.results: list[tuple[int, int]] = []
         self.errors: list[dict[str, Any]] = []
+        self.row_results: tuple[tuple[int, int, str], ...] = ()
 
     def write(self, cas_info: bytes) -> bytes:
         """Serialize the batch execute request."""
@@ -2175,23 +2186,29 @@ class BatchExecutePacket(_CasPacket):
             remaining = len(data) - 8
             _raise_error(reader, remaining)
         executed_count = reader._parse_int()
+        if not 0 <= executed_count <= len(self.sql_list):
+            raise ValueError("invalid batch execute statement count")
         self.results = []
         self.errors = []
-        for _ in range(executed_count):
+        row_results: list[tuple[int, int, str]] = []
+        for index in range(executed_count):
             stmt_type = reader._parse_byte()
             result = reader._parse_int()
             if result < 0:
                 error_code = reader._parse_int() if self.protocol_version > 2 else result
                 msg_len = reader._parse_int()
                 error_msg = reader._parse_lenient_text(msg_len)
-                self.errors.append({"code": error_code, "message": error_msg})
+                self.errors.append({"code": error_code, "message": error_msg, "index": index})
+                row_results.append((-1, error_code, error_msg))
             else:
                 self.results.append((stmt_type, result))
+                row_results.append((result, 0, ""))
                 reader._parse_int()  # unused
                 reader._parse_short()  # unused
                 reader._parse_short()  # unused
         if self.protocol_version > 4:
             _ = reader._parse_int()  # lastShardId
+        self.row_results = tuple(row_results)
 
 
 # CUBRID ER_INTERRUPTED (error_code.h): the only row error after which

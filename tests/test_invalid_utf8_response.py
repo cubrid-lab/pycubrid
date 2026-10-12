@@ -66,7 +66,7 @@ def test_batch_error_message_with_cut_character_is_replaced() -> None:
     body += struct.pack(">i", len(text)) + text + struct.pack(">i", 0)
     packet = BatchExecutePacket(["INSERT INTO t VALUES ('x')"], protocol_version=8)
     packet.parse(CAS_INFO + body)
-    assert packet.errors == [{"code": -494, "message": "too long �"}]
+    assert packet.errors == [{"code": -494, "message": "too long �", "index": 0}]
 
 
 @pytest.mark.parametrize(

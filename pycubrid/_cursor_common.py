@@ -648,8 +648,8 @@ class CursorParamsMixin(Generic[_ConnT]):
         return build_description(columns)
 
 
-def _raise_batch_error(err: dict[str, Any]) -> None:
-    """Raise the appropriate PEP 249 exception for a batch statement failure.
+def _batch_exception(err: dict[str, Any]) -> DatabaseError:
+    """Return the PEP 249 exception for one failed batch statement.
 
     Uses CAS error code dispatch (same mapping as protocol._raise_error)
     to select the correct exception class. Falls back to DatabaseError
@@ -668,4 +668,33 @@ def _raise_batch_error(err: dict[str, Any]) -> None:
         "DatabaseError": DatabaseError,
     }
     exc_cls = exc_map.get(exc_name, DatabaseError)
-    raise exc_cls(message, code=code, errno=code, sqlstate=sqlstate)
+    return exc_cls(message, code=code, errno=code, sqlstate=sqlstate)
+
+
+def _raise_batch_error(err: dict[str, Any]) -> None:
+    """Raise the appropriate PEP 249 exception for a batch statement failure."""
+    raise _batch_exception(err)
+
+
+def _raise_batch_failure(
+    row_results: Sequence[tuple[int, int, str]],
+    errors: Sequence[dict[str, Any]],
+    raised: dict[str, Any],
+) -> None:
+    """Raise *raised* with the per-row outcome of the batch attached (#841).
+
+    *row_results* holds one ``(count, error code, message)`` per executed
+    row, in order; *errors* holds the failed rows as ``{"code", "message",
+    "index"}``. The raised exception is the one ``_raise_batch_error``
+    builds; ``batch_errors`` holds a separate instance per failed row.
+    """
+    exc = _batch_exception(raised)
+    entries = []
+    for err in errors:
+        entry = _batch_exception(err)
+        entry.batch_index = err["index"]
+        entries.append((err["index"], entry))
+    exc.batch_index = raised["index"]
+    exc.batch_errors = tuple(entries)
+    exc.batch_rowcounts = tuple(count for count, _code, _message in row_results)
+    raise exc

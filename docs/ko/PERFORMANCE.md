@@ -196,7 +196,7 @@ flowchart TD
 할 수 있는 일:
 
 - commit은 행마다가 아니라 배치마다 한 번만 하세요. commit은 100행 배치 시간의 53%를 차지하며 두 드라이버에서 같습니다.
-- 큰 MERGE 배치이거나, 배치가 직접 측정한 행 단위 실행보다 훨씬 느리다면 명시적 `pycubrid.compat.native` 커서로 준비된 루프(`PREPARE` 한 번, 이후 행마다 실행 한 번)를 고려하세요. 10,000행에서 INSERT, UPDATE, DELETE는 `CUBRIDdb`의 0.99-1.31배, MERGE는 1.17배였습니다. 측정은 autocommit을 끄고 배치마다 명시적 commit을 한 번 하는 방식으로 했으며, 측정 하네스는 드라이버의 autocommit 플래그를 직접 설정했습니다. 같은 모드를 얻는 공개 방법은 `connection.set_autocommit(False)` 후 `commit()`입니다. 먼저 자신의 워크로드에서 측정하세요. `bind_param()`은 스칼라 INT, 문자열, `NULL`만 받고(컬렉션과 LOB은 전용 `bind_set()`, `bind_lob()` API를 씁니다), 오류 동작도 다릅니다. 준비된 루프는 처음 실패한 행에서 멈춥니다. 배치는 한 문장이 실패해도 모든 문장을 서버로 보내지만, `executemany()`는 반환된 첫 오류만 예외로 발생시키므로 이후의 실패는 보고되지 않습니다.
+- 큰 MERGE 배치이거나, 배치가 직접 측정한 행 단위 실행보다 훨씬 느리다면 명시적 `pycubrid.compat.native` 커서로 준비된 루프(`PREPARE` 한 번, 이후 행마다 실행 한 번)를 고려하세요. 10,000행에서 INSERT, UPDATE, DELETE는 `CUBRIDdb`의 0.99-1.31배, MERGE는 1.17배였습니다. 측정은 autocommit을 끄고 배치마다 명시적 commit을 한 번 하는 방식으로 했으며, 측정 하네스는 드라이버의 autocommit 플래그를 직접 설정했습니다. 같은 모드를 얻는 공개 방법은 `connection.set_autocommit(False)` 후 `commit()`입니다. 먼저 자신의 워크로드에서 측정하세요. `bind_param()`은 스칼라 INT, 문자열, `NULL`만 받고(컬렉션과 LOB은 전용 `bind_set()`, `bind_lob()` API를 씁니다), 오류 동작도 다릅니다. 준비된 루프는 처음 실패한 행에서 멈춥니다. 배치는 한 문장이 실패해도 모든 문장을 서버로 보냅니다. `executemany()`는 반환된 첫 오류를 예외로 발생시키며, #841부터 그 예외에 실패한 모든 행을 담습니다(`batch_index`, `batch_errors`, `batch_rowcounts`, [API_REFERENCE.md](API_REFERENCE.md#부분-실패-실패한-행) 참고).
 - `execute()`를 반복문에서 쓰는 것은 더 빠른 대안이 아닙니다. 행마다 새로 준비하고 요청이 추가되므로 `CUBRIDdb`의 `executemany()`의 1.6-6.1배였습니다.
 
 확인되지 않은 것: CUBRID 10.2, 11.0, 11.2에서 `CUBRIDdb`와의 격차, 그리고 서버 시간이 CAS와 엔진에 어떻게 나뉘는지. 준비된 배치 경로는 네 버전 모두에서 측정했습니다(다음 절 참고). 플레이스홀더 토큰화 캐시는 [#837](https://github.com/cubrid-lab/pycubrid/issues/837)에서 추적합니다.
@@ -223,7 +223,7 @@ flowchart TD
 
 - **모든 버전에서 `EXECUTE_ARRAY`가 가장 빠릅니다.** 11.4에서 10,000행의 문장 실행 구간은 INSERT가 2,887 ms에서 954 ms로, MERGE가 13,020 ms에서 1,739 ms로 줄었습니다. INSERT, UPDATE, DELETE에서는 준비된 루프의 0.41-0.54배이기도 합니다.
 - **준비된 루프가 어디서나 빠르지는 않습니다.** INSERT, UPDATE, DELETE에서 11.4와 11.2에서는 `executemany()`의 0.79-1.06배이지만 11.0과 10.2에서는 1.13-1.22배입니다. MERGE는 모든 버전에서 준비된 루프가 더 빠릅니다.
-- **트랜잭션, 부분 실패, `rowcount`는 현재 배치와 같습니다.** 네 버전 모두에서 한 행이 실패해도 `EXECUTE_ARRAY`는 지금의 `executemany()`처럼 나머지 행을 실행합니다. 실패한 행만 취소됩니다. autocommit이 켜져 있으면 성공한 행마다 commit되고, 꺼져 있으면 `rollback()`은 모든 행을 없애고 `commit()`은 성공한 행을 남깁니다. 행별 건수와 그 합도 같습니다. 반면 준비된 루프는 처음 실패한 행에서 멈춥니다.
+- **트랜잭션, 부분 실패, `rowcount`는 현재 배치와 같습니다.** 네 버전 모두에서 한 행이 실패해도 `EXECUTE_ARRAY`는 지금의 `executemany()`처럼 나머지 행을 실행합니다. 실패한 행만 취소됩니다. autocommit이 켜져 있으면 성공한 행마다 commit되고, 꺼져 있으면 `rollback()`은 모든 행을 없애고 `commit()`은 성공한 행을 남깁니다. 행별 건수와 그 합도 같고, 두 경로 모두 발생한 예외에 같은 실패 행을 보고합니다(#841). 반면 준비된 루프는 처음 실패한 행에서 멈춥니다.
 - **타입과 변환은 다릅니다.** #836 당시 준비된 인코더는 32비트 `int`, `str`, `None`, INT/STRING 컬렉션, LOB 핸들만 받았고, #840이 리터럴 경로가 렌더링하는 모든 스칼라 타입으로 넓혔습니다. 값은 리터럴이 아니라 호스트 변수로 변환되므로 서버 오류 문구가 다릅니다. autocommit이 켜져 있으면 LOB 핸들은 첫 행의 commit 뒤에 실패합니다.
 
 결정: `executemany()`는 기본으로 리터럴 배치를 유지합니다. 기본 경로를 바꾸면 받을 수 있는 값과 변환 방식이 달라지기 때문입니다. `EXECUTE_ARRAY` 경로는 [#840](https://github.com/cubrid-lab/pycubrid/issues/840)의 더 넓은 준비된 타입 집합 위에서 옵트인 `executemany(..., prepared=True)`([#839](https://github.com/cubrid-lab/pycubrid/issues/839))로 제공됩니다. 배치에서 실패한 행을 알려 주는 기능은 [#841](https://github.com/cubrid-lab/pycubrid/issues/841)에서 추적합니다.
