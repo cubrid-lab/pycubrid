@@ -70,12 +70,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `bool`, `float`, `bytes` and temporal scalars.
 
 ### CI
+
 - **Generated issue references are written as "refs", not "closes", in `CHANGELOG.md` and the
   release PR body** — release-please 17.6.0 renders every issue trailer in a commit's final
   footer block as `, closes [#N](…)`, so a commit that only said `Refs #N` was listed as
   closing that issue, and GitHub read the release PR body as closing it on merge.
-  `scripts/compose_release_changelog.py` (shared byte for byte with sqlalchemy-cubrid,
-  cubrid-lab/sqlalchemy-cubrid#820 and cubrid-lab/sqlalchemy-cubrid#821) now rewrites generated
+  `scripts/compose_release_changelog.py` (shared byte for byte with sqlalchemy-cubrid and
+  cubrid-mcp-server; cubrid-lab/sqlalchemy-cubrid#820, cubrid-lab/sqlalchemy-cubrid#821,
+  cubrid-lab/cubrid-mcp-server#280) now rewrites generated
   references to `, refs [#N](…)` on generated entry lines outside code blocks, and the
   **Prepare release** workflow applies the same rewrite to the release PR body right after
   release-please updates it; no permission changes (#850).
