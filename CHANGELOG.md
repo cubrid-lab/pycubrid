@@ -72,13 +72,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### CI
 
 - **The closing guard skips a multi-line link reference definition** — CommonMark
-  lets a definition's destination and title sit on the next two lines, so `Closes`,
-  a `[a]:` line, an indented `/target` line and then `owner/repo#N` still renders
-  nothing between the keyword and the reference. The gap walk now reaches the ends
-  of the next two lines after a definition line, which can only add blocking.
-  Copilot found this in cubrid-lab/sqlalchemy-cubrid#822; `pr-title.yml` stays
-  byte-identical across pycubrid, sqlalchemy-cubrid, cubrid-mcp-server and
-  cubrid-cookbook-python.
+  lets a definition's destination and title run on to later lines, so `Closes`, a
+  `[a]:` line, an indented `/target` line and then `owner/repo#N` still renders
+  nothing between the keyword and the reference. The gap walk now reaches every
+  later line end of the paragraph after a definition line, up to a blank line, which
+  can only add blocking; each line end is scanned once per check. Copilot found this
+  in cubrid-lab/sqlalchemy-cubrid#822; `pr-title.yml` stays byte-identical across
+  pycubrid, sqlalchemy-cubrid, cubrid-mcp-server and cubrid-cookbook-python.
 - **The closing guard is the one shared with sqlalchemy-cubrid, cubrid-mcp-server
   and cubrid-cookbook-python** — `pr-title.yml` is the shared file, and a test pins
   the guard block's SHA-256. This change also catches a closing keyword used as link
