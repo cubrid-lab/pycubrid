@@ -7,10 +7,30 @@ parse() for response deserialization.
 
 from __future__ import annotations
 
+import datetime
+import math
+import re
 import struct
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Callable, Sequence
 
+from ._cursor_common import (
+    _DATE_DAY,
+    _DATE_MONTH,
+    _DATE_YEAR,
+    _DT_HOUR,
+    _DT_MICROSECOND,
+    _DT_MINUTE,
+    _DT_SECOND,
+    _DT_TZINFO,
+    _TIME_HOUR,
+    _TIME_MINUTE,
+    _TIME_SECOND,
+    _check_temporal_subclass,
+    _checked_decimal,
+    _format_tz,
+)
 from .constants import (
     CASFunctionCode,
     CASProtocol,
@@ -28,6 +48,7 @@ from .exceptions import (
     InterfaceError,
     IntegrityError,
     InternalError,
+    NotSupportedError,
     OperationalError,
     ProgrammingError,
 )
@@ -89,6 +110,21 @@ class ResultInfo:
     cache_time_usec: int = 0
 
 
+# Every DATE/TIME/DATETIME bind uses the seven-short DATETIME layout: the
+# broker reads TIME from offset 6 and does not check the length (#840).
+_TEMPORAL = struct.Struct(">7h")
+_TEMPORAL_SIZE = _TEMPORAL.size
+_TEMPORAL_TYPE_CODES = frozenset(
+    {CUBRIDDataType.DATE, CUBRIDDataType.TIME, CUBRIDDataType.DATETIME}
+)
+_NUMERIC_LIMIT = 10**38
+_DIGITS = frozenset(b"0123456789")
+_NUMERIC_PAYLOAD = re.compile(rb"-?(?=\.?[0-9])[0-9]*(?:\.[0-9]*)?\x00")
+# The CAS limit is 63 bytes (CCI_TZ_SIZE); a region with "fold" abbreviation
+# or a +hh:mm offset, never a NUL.
+_TIME_ZONE_TEXT = re.compile(rb"[A-Za-z0-9_+/: -]{1,63}")
+
+
 @dataclass(frozen=True, slots=True)
 class _PreparedScalar:
     """One validated type/value pair for a prepared FC3 request."""
@@ -117,30 +153,134 @@ class _PreparedScalar:
                 raise DataError(
                     f"prepared CHAR is not valid {_codec_label(self.encoding)}"
                 ) from None
+        elif self.type_code == CUBRIDDataType.BIGINT:
+            if len(self.payload) != 8:
+                raise ProgrammingError("prepared BIGINT must have eight value bytes")
+        elif self.type_code == CUBRIDDataType.DOUBLE:
+            if len(self.payload) != 8:
+                raise ProgrammingError("prepared DOUBLE must have eight value bytes")
+            # The broker stores NaN silently; the literal path rejects it.
+            if not math.isfinite(struct.unpack(">d", self.payload)[0]):
+                raise ProgrammingError("nan and inf are not supported by CUBRID")
+        elif self.type_code == CUBRIDDataType.NUMERIC:
+            if not _NUMERIC_PAYLOAD.fullmatch(self.payload) or (
+                sum(byte in _DIGITS for byte in self.payload) > 38
+            ):
+                raise ProgrammingError("prepared NUMERIC must be plain decimal text and one NUL")
+        elif self.type_code in _TEMPORAL_TYPE_CODES:
+            if len(self.payload) != _TEMPORAL_SIZE:
+                raise ProgrammingError("prepared DATE/TIME/DATETIME must have fourteen bytes")
+            if self.type_code == CUBRIDDataType.DATE and any(self.payload[6:]):
+                raise ProgrammingError("prepared DATE must have zero time fields")
+            if self.type_code == CUBRIDDataType.TIME and (
+                any(self.payload[:6]) or any(self.payload[12:])
+            ):
+                raise ProgrammingError("prepared TIME must have zero date and millisecond fields")
+        elif self.type_code == CUBRIDDataType.DATETIMETZ:
+            if len(self.payload) <= _TEMPORAL_SIZE or not _TIME_ZONE_TEXT.fullmatch(
+                self.payload[_TEMPORAL_SIZE:]
+            ):
+                raise ProgrammingError("prepared DATETIMETZ must end with a time zone name")
+        elif self.type_code == CUBRIDDataType.VARBIT:
+            if not self.payload:
+                raise ProgrammingError("prepared VARBIT must not be empty")
         else:
             raise ProgrammingError("unsupported prepared parameter type code")
 
 
 def _encode_prepared_scalar(value: Any, encoding: str = "utf-8") -> _PreparedScalar:
-    """Encode the intentionally narrow #439 scalar set without SQL rendering.
+    """Encode one Python value as a typed prepared bind, without SQL rendering.
 
-    Strings use ``encoding``, the connection charset (#86).
+    The #439 subset (``None``, a 32-bit ``int`` and ``str``) keeps its exact
+    bytes. #840 adds ``bool`` (INT 1/0, as the literal path), 64-bit ``int``
+    (BIGINT), ``float`` (DOUBLE), ``Decimal`` (NUMERIC text), ``date``,
+    ``time`` and ``datetime`` (DATE, TIME, DATETIME, or DATETIMETZ when
+    aware) and ``bytes``/``bytearray`` (VARBIT). The checks are the literal
+    path's: nan and inf, more than 38 Decimal digits and forged subclasses
+    are rejected the same way. Strings use ``encoding``, the connection
+    charset (#86). Messages never echo the value.
     """
     if value is None:
         return _PreparedScalar(CUBRIDDataType.NULL, b"")
-    if isinstance(value, bool):
-        raise ProgrammingError("unsupported prepared parameter type")
-    if isinstance(value, int):
-        if not -(2**31) <= value < 2**31:
-            raise DataError("prepared INT value is outside signed 32-bit range")
-        return _PreparedScalar(CUBRIDDataType.INT, struct.pack(">i", value))
-    if isinstance(value, str):
+    # Dispatch on type(value), as the literal path does: isinstance() also
+    # trusts an overridden __class__. Values are read through the base-class
+    # methods, so a subclass cannot change the bytes (#518, #528).
+    cls = type(value)
+    if cls is bool:
+        # The literal path renders True/False as the INTEGER literals 1/0.
+        return _PreparedScalar(CUBRIDDataType.INT, struct.pack(">i", 1 if value else 0))
+    if issubclass(cls, int):
+        number = int.__index__(value)
+        if -(2**31) <= number < 2**31:
+            return _PreparedScalar(CUBRIDDataType.INT, struct.pack(">i", number))
+        if -(2**63) <= number < 2**63:
+            return _PreparedScalar(CUBRIDDataType.BIGINT, struct.pack(">q", number))
+        # Past BIGINT the literal is a NUMERIC; check before int.__repr__,
+        # which has a digit limit.
+        if not -_NUMERIC_LIMIT < number < _NUMERIC_LIMIT:
+            raise DataError("prepared integer needs more than 38 digits")
+        return _PreparedScalar(CUBRIDDataType.NUMERIC, int.__repr__(number).encode() + b"\x00")
+    if issubclass(cls, str):
+        # A plain copy: a subclass cannot override __contains__() or encode().
+        value = str.__str__(value)
         if "\x00" in value:
             raise ProgrammingError("prepared string contains NUL")
         encoded, _position = _encode_text(value, encoding)
         if encoded is None:
             raise DataError(f"prepared string cannot be encoded as {_codec_label(encoding)}")
         return _PreparedScalar(CUBRIDDataType.CHAR, encoded + b"\x00", encoding)
+    if issubclass(cls, float):
+        if math.isnan(value) or math.isinf(value):
+            raise ProgrammingError("nan and inf are not supported by CUBRID")
+        return _PreparedScalar(CUBRIDDataType.DOUBLE, struct.pack(">d", value))
+    if issubclass(cls, Decimal):
+        text = format(_checked_decimal(cls, value), "f")
+        # The broker counts every character but the sign and the point as
+        # precision, so "0.5" would need one digit more than the literal.
+        if text.startswith("0."):
+            text = text[1:]
+        elif text.startswith("-0."):
+            text = "-" + text[2:]
+        return _PreparedScalar(CUBRIDDataType.NUMERIC, text.encode("ascii") + b"\x00")
+    if issubclass(cls, (bytes, bytearray)):
+        # The unbound slice copies the stored bytes; no overridden method
+        # (__bytes__, __buffer__) runs (#528).
+        if issubclass(cls, bytes):
+            data = bytes.__getitem__(value, slice(None))
+        else:
+            data = bytes(bytearray.__getitem__(value, slice(None)))
+        if not data:
+            # X'' is valid SQL, but the broker reads a zero-length bind as NULL.
+            raise NotSupportedError("an empty bytes value cannot be sent as a prepared bind")
+        return _PreparedScalar(CUBRIDDataType.VARBIT, data)
+    _check_temporal_subclass(cls)
+    if issubclass(cls, datetime.datetime):
+        fields = _TEMPORAL.pack(
+            _DATE_YEAR(value),
+            _DATE_MONTH(value),
+            _DATE_DAY(value),
+            _DT_HOUR(value),
+            _DT_MINUTE(value),
+            _DT_SECOND(value),
+            _DT_MICROSECOND(value) // 1000,
+        )
+        tzinfo = _DT_TZINFO(value)
+        zone = None if tzinfo is None else _format_tz(value, tzinfo)
+        if zone is None:
+            return _PreparedScalar(CUBRIDDataType.DATETIME, fields)
+        # The broker reads the zone by length; a terminal NUL breaks a region.
+        return _PreparedScalar(CUBRIDDataType.DATETIMETZ, fields + zone.encode("ascii"))
+    if issubclass(cls, datetime.date):
+        return _PreparedScalar(
+            CUBRIDDataType.DATE,
+            _TEMPORAL.pack(_DATE_YEAR(value), _DATE_MONTH(value), _DATE_DAY(value), 0, 0, 0, 0),
+        )
+    if issubclass(cls, datetime.time):
+        # The broker reads TIME from the DATETIME layout's time fields.
+        return _PreparedScalar(
+            CUBRIDDataType.TIME,
+            _TEMPORAL.pack(0, 0, 0, _TIME_HOUR(value), _TIME_MINUTE(value), _TIME_SECOND(value), 0),
+        )
     raise ProgrammingError("unsupported prepared parameter type")
 
 
@@ -694,8 +834,6 @@ def _add_error_hints(error_message: str) -> str:
 
     # Hint for reserved word syntax errors
     if "syntax" in msg_lower and "unexpected" in msg_lower:
-        import re
-
         # The unexpected token marks the diagnostic position, which may follow
         # the reserved identifier; the message does not identify that identifier.
         match = re.search(r"unexpected\s+'(\w+)'", error_message)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime
+import decimal
 import struct
 from threading import RLock
 from typing import Any
@@ -25,6 +27,7 @@ from pycubrid.protocol import (
     GetDbParameterPacket,
     PrepareAndExecutePacket,
     PreparePacket,
+    _encode_prepared_scalar,
 )
 
 
@@ -215,13 +218,41 @@ def test_null_and_utf8_values_are_typed_not_substituted(
 
 
 @pytest.mark.parametrize(
+    "value",
+    [
+        True,
+        2**40,
+        2**70,
+        1.5,
+        decimal.Decimal("-0.5"),
+        datetime.date(2024, 2, 29),
+        datetime.time(1, 2, 3),
+        datetime.datetime(2024, 2, 29, 1, 2, 3, 4000),
+        datetime.datetime(2024, 2, 29, tzinfo=datetime.timezone.utc),
+        b"\x01",
+    ],
+    ids=repr,
+)
+def test_wider_values_bind_with_the_shared_encoder(fake_driver: FakeDriver, value: object) -> None:
+    conn, cur = _owner(fake_driver)
+    try:
+        cur.prepare("SELECT ?")
+        before = len(fake_driver.requests)
+        cur.bind_param(1, value)
+        assert len(fake_driver.requests) == before  # binding does no I/O
+        assert cur._bindings == [_encode_prepared_scalar(value)]
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
     ("value", "error"),
     [
-        (True, ProgrammingError),
-        (1.5, ProgrammingError),
-        (b"bytes", ProgrammingError),
-        (2**31, DataError),
-        (-(2**31) - 1, DataError),
+        (object(), ProgrammingError),
+        (float("inf"), ProgrammingError),
+        (b"", NotSupportedError),
+        (10**38, DataError),
+        (-(10**38), DataError),
         ("bad\x00value", ProgrammingError),
         ("\ud800", DataError),
     ],

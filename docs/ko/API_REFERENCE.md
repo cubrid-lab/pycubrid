@@ -198,8 +198,11 @@ conn = pycubrid.connect(
 
 ## 명시적 네이티브 호환 기능
 
-옵트인 `pycubrid.compat.native`는 순수 Python 동기 전송 위에 INT32,
-문자열, SQL NULL, [SET/MULTISET/SEQUENCE 컬렉션 값](#컬렉션-바인딩-set-imports-bind_set)과
+옵트인 `pycubrid.compat.native`는 순수 Python 동기 전송 위에 스칼라 값
+(`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`/`bytearray`, `date`,
+`time`, `datetime`; #840부터 타입 지정,
+[Prepared 호스트 변수 매핑](PARAMETER_BINDING.md#prepared-호스트-변수-매핑) 참고),
+[SET/MULTISET/SEQUENCE 컬렉션 값](#컬렉션-바인딩-set-imports-bind_set)과
 [조회한 BLOB/CLOB 핸들](#네이티브-lob-스트림과-핸들-lob-fetch_lob-bind_lob)만
 지원하는 **동기 prepared 커서**를 제공합니다. 문자열은 연결
 문자셋을 사용합니다.
@@ -231,7 +234,15 @@ autocommit이 켜진 상태로 시작하며 기존 드라이버의 `dba`/수동 
 커서는 `prepare(sql)`, 1부터 시작하는 `bind_param(index, value,
 bind_type=0)`, `bind_set(index, s)`, `bind_lob(index, lob)`, `execute(option=0, max_col_size=0) -> int`,
 튜플만 반환하는 `fetch_row(how=0)`, `fetch_lob(col, lob)`, `result_info([n])`,
-`data_seek(n)`, `row_seek(offset)`, `row_tell()`, `close()`를 지원합니다. 기본값이 아닌 플래그와 다른
+`data_seek(n)`, `row_seek(offset)`, `row_tell()`, `close()`를 지원합니다.
+`bind_param()`은 `bool`을 INT 1/0으로, `int`를 INT, BIGINT 또는 (64비트를 넘고
+38자리 이하이면) NUMERIC으로, `float`를 DOUBLE로, `Decimal`을 NUMERIC 텍스트로,
+`date`/`time`/`datetime`을 DATE, TIME, DATETIME(tz 포함 `datetime`은 DATETIMETZ)으로,
+`bytes`/`bytearray`를 VARBIT로 보냅니다. `nan`/`inf`, 위조된 하위 클래스와 그 밖의
+객체는 `ProgrammingError`, 38자리가 넘게 필요한 값은 `DataError`, 빈 `bytes`는
+브로커가 NULL로 읽으므로 `NotSupportedError`입니다. 서버 측 호스트 변수 변환은
+리터럴 경로와 다를 수 있습니다(예: `float`는 NUMERIC 리터럴이 아니라 DOUBLE).
+차이는 위에 링크한 매핑에 정리되어 있습니다. 기본값이 아닌 플래그와 다른
 Python 값 형식은 실행 전 거부합니다. 브로커가 현재 세션의 statement
 pooling을 알리지 않거나 비활성화한 경우 FC2 전에 거부합니다. 핸들은
 물리 CAS 세션에 묶이며 재접속 뒤 자동 재실행하지 않고, 실패한 트랜잭션을
@@ -462,8 +473,9 @@ Ping은 소비한 결과 페이지를 검증하고 아직 소유한 핸들만 �
 참이면 사전 커서를 만듭니다. `pycubrid.compat.cursors.Cursor(conn)`와
 `DictCursor(conn)`로 직접 생성할 수도 있지만 패키지 전역 내보내기에는
 추가하지 않습니다. 초기값은 `arraysize=1`, `rowcount=-1`, `description=None`입니다.
-`execute(query, args=None, set_type=None)`는 기존 네이티브 준비 실행의 INT32,
-문자열, SQL NULL을 사용하고, #610부터 `list`/`tuple`/`set`/`frozenset` 인자를
+`execute(query, args=None, set_type=None)`는 `int`, `str`, `None` 스칼라를 네이티브
+`bind_param()`에 넘기고(#840부터 부호 있는 32비트를 넘는 `int`는 `DataError` 대신
+BIGINT 또는 NUMERIC으로 바인딩), #610부터 `list`/`tuple`/`set`/`frozenset` 인자를
 컬렉션으로 바인딩합니다. `executemany(query, args_list)`는 한 번 준비한 뒤 각
 그룹을 실행합니다([래퍼 컬렉션 인자](#wrapper-collection-arguments) 참고).
 매핑 인자와 미지원 값은 실행 전에 실패합니다. LOB 인자와 범용 DB-API 실행은
@@ -595,7 +607,7 @@ finally:
 | --- | --- |
 | 호출 형태 | `execute(query, args=None, set_type=None) -> int`, `executemany(query, args_list) -> None` |
 | `args` | `None`, 위치 값의 `tuple`/`list`, 또는 단일 `int`/`str`(감싸서 사용). `set`을 포함한 다른 최상위 값은 `ProgrammingError` |
-| 위치 값 | 기존처럼 `int`(INT32), `str`, `None`(SQL NULL). `list`, `tuple`, `set`, `frozenset`은 컬렉션. 다른 값(`bool`, `float`, `bytes`, `dict`, 제너레이터, 기타 이터러블)은 `ProgrammingError` |
+| 위치 값 | 기존처럼 `int`(INT32; #840부터 부호 있는 32비트를 넘으면 BIGINT 또는 NUMERIC), `str`, `None`(SQL NULL). `list`, `tuple`, `set`, `frozenset`은 컬렉션. 다른 값(`bool`, `float`, `bytes`, `dict`, 제너레이터, 기타 이터러블)은 `ProgrammingError` |
 | `set_type` | `None`이면 모든 컬렉션을 추론합니다. `int` 코드는 모든 컬렉션에 적용됩니다. `list`/`tuple`은 위치별 코드이며 `None` 항목이나 끝을 넘는 위치는 추론합니다. 컬렉션이 없으면 무시합니다. 사용되는 코드가 `int`가 아니거나 `bool`이면 `InterfaceError` |
 | 추론 코드 | `int`와 `bool`은 INT(8), `float`는 FLOAT(11), `Decimal`은 NUMERIC(7), `date`와 `datetime`은 DATE(13), `time`은 TIME(14), `str`은 STRING(2). `None` 원소는 건너뛰며 비었거나 모두 `None`이면 STRING |
 | 원소 | `None`은 NULL 원소, `str`은 그대로, 다른 지원 원소는 `str(element)`로 전송합니다(`True`는 `'True'`, `datetime`은 ISO 텍스트). 서버가 텍스트를 컬럼 타입으로 변환합니다 |
@@ -619,9 +631,10 @@ finally:
 - 명시적 `set_type`이 있어도 미지원 원소는 오류입니다(중첩 리스트나 객체는
   `ProgrammingError`, VARBIT가 아닌 코드의 `bytes`는 `NotSupportedError`). 공식
   래퍼는 그 `str()` 텍스트를 보냅니다.
-- 스칼라 범위는 그대로입니다. 공식 래퍼는 `bool`, `float`, `Decimal`, 날짜,
-  `bytes`, BIGINT 스칼라도 바인딩하고 `None` 인자는 건너뛰지만, 이 래퍼는 `None`을
-  SQL NULL로 바인딩합니다.
+- 그 밖의 스칼라 범위는 그대로입니다. 공식 래퍼는 `bool`, `float`, `Decimal`, 날짜,
+  `bytes` 스칼라도 바인딩하고 `None` 인자는 건너뛰지만, 이 래퍼는 그 타입들을 거부하고
+  `None`을 SQL NULL로 바인딩합니다. #840부터 부호 있는 32비트를 넘는 `int` 인자는
+  네이티브 `bind_param()`과 같이 BIGINT 또는 NUMERIC으로 바인딩합니다.
 
 공식 래퍼처럼 모든 컬렉션은 SET 종류로 바인딩되므로(클레임
 `wrapper-collection-executemany-kinds`) MULTISET이나 SEQUENCE 컬럼에는 중복이

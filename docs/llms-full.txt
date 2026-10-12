@@ -1315,8 +1315,11 @@ conn = pycubrid.connect(
 ## Explicit Native Compatibility Subset
 
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
-It now provides a bounded **sync-only prepared cursor** for INT32, string
-and SQL NULL values, [SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set)
+It now provides a bounded **sync-only prepared cursor** for scalar values
+(`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`/`bytearray`, `date`,
+`time` and `datetime`, typed since #840; see
+[Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping)),
+[SET/MULTISET/SEQUENCE collection values](#collection-binding-set-imports-bind_set)
 and [fetched BLOB/CLOB handles](#native-lob-streams-and-handles-lob-fetch_lob-bind_lob);
 strings use the connection charset. This does not change ordinary `pycubrid.connect()` or
 `pycubrid.aio` execution: their `execute()` methods still send complete SQL
@@ -1350,6 +1353,15 @@ Its cursor supports `prepare(sql)`, one-based
 `execute(option=0, max_col_size=0) -> int`, tuple-only `fetch_row(how=0)`,
 `fetch_lob(col, lob)`, `result_info([n])`, `data_seek(n)`, `row_seek(offset)`,
 `row_tell()` and `close()`.
+`bind_param()` sends `bool` as INT 1/0, an `int` as INT, BIGINT or (past
+64 bits, up to 38 digits) NUMERIC, `float` as DOUBLE, `Decimal` as NUMERIC
+text, `date`/`time`/`datetime` as DATE, TIME and DATETIME (DATETIMETZ when the
+`datetime` is aware) and `bytes`/`bytearray` as VARBIT. `nan`/`inf`, forged
+subclasses and other objects raise `ProgrammingError`; values needing more than
+38 digits raise `DataError`; empty `bytes` raise `NotSupportedError`, because
+the broker would read them as NULL. Server-side host-variable coercion can
+differ from the literal path (for example, a `float` is DOUBLE rather than a
+NUMERIC literal); the differences are listed in the mapping linked above.
 Nondefault flags and other Python value types fail before a prepared execute.
 Preparation requires the current broker session to advertise statement
 pooling; pooling-off or unknown is rejected before FC2. Prepared handles are
@@ -1585,8 +1597,9 @@ falsey argument and a dictionary-row cursor for a truthy argument. Direct
 construction is available as `pycubrid.compat.cursors.Cursor(conn)` and
 `DictCursor(conn)`; these classes are not added to the package-level exports.
 The cursor starts with `arraysize=1`, `rowcount=-1` and `description=None`.
-`execute(query, args=None, set_type=None)` delegates the existing native
-INT32, string and SQL NULL prepared-binding subset, and since #610 binds
+`execute(query, args=None, set_type=None)` delegates `int`, `str` and `None`
+scalars to native `bind_param()` (since #840 an `int` past signed 32-bit binds
+BIGINT or NUMERIC instead of raising `DataError`), and since #610 binds
 `list`/`tuple`/`set`/`frozenset` arguments as collections;
 `executemany(query, args_list)` prepares once and executes each group (see
 [Wrapper collection arguments](#wrapper-collection-arguments)). Mapping
@@ -1734,7 +1747,7 @@ differences below are not byte-equivalent.
 | --- | --- |
 | Call shapes | `execute(query, args=None, set_type=None) -> int` and `executemany(query, args_list) -> None` |
 | `args` | `None`, a `tuple` or `list` of positional values, or a bare `int`/`str` (wrapped). Other top-level values, including a `set`, raise `ProgrammingError` |
-| Positional values | `int` (INT32), `str` and `None` (SQL NULL) as before; a `list`, `tuple`, `set` or `frozenset` is a collection. Other values (`bool`, `float`, `bytes`, `dict`, generators, other iterables) raise `ProgrammingError` |
+| Positional values | `int` (INT32; since #840 BIGINT or NUMERIC past signed 32-bit), `str` and `None` (SQL NULL) as before; a `list`, `tuple`, `set` or `frozenset` is a collection. Other values (`bool`, `float`, `bytes`, `dict`, generators, other iterables) raise `ProgrammingError` |
 | `set_type` | `None` infers every collection. An `int` code applies to every collection. A `list`/`tuple` gives the code by position; a `None` entry or a position past its end is inferred. It is ignored when no collection is passed. A used code that is not an `int` (or is a `bool`) raises `InterfaceError` |
 | Inferred codes | `int` and `bool` INT (8), `float` FLOAT (11), `Decimal` NUMERIC (7), `date` and `datetime` DATE (13), `time` TIME (14), `str` STRING (2). `None` elements are skipped; an empty or all-`None` collection is STRING |
 | Elements | `None` is a NULL element; `str` is sent as is; other supported elements are sent as `str(element)` (`True` becomes `'True'`, a `datetime` its ISO text) and the server converts the text to the column type |
@@ -1761,9 +1774,11 @@ by live differential claims (`wrapper-collection-null-element` and
 - With an explicit `set_type`, unsupported elements still raise (a nested
   list or object is `ProgrammingError`, `bytes` with a non-VARBIT code is
   `NotSupportedError`); the official wrapper sends their `str()` text.
-- The scalar subset is unchanged: the official wrapper also binds `bool`,
-  `float`, `Decimal`, dates, `bytes` and BIGINT scalars and skips `None`
-  arguments, while this wrapper binds `None` as SQL NULL.
+- The scalar subset is otherwise unchanged: the official wrapper also binds
+  `bool`, `float`, `Decimal`, dates and `bytes` scalars and skips `None`
+  arguments, while this wrapper rejects those types and binds `None` as SQL
+  NULL. Since #840 its `int` arguments past signed 32-bit bind BIGINT or
+  NUMERIC, as native `bind_param()` does.
 
 Like the official wrapper, every collection binds with the SET kind (claim
 `wrapper-collection-executemany-kinds`), so a MULTISET or SEQUENCE column
@@ -5380,7 +5395,13 @@ After ten fixed arguments, the packet writes two length-prefixed arguments
 per validated scalar binding: type byte and value bytes. The supported
 internal subset is signed INT32 (`8`, four big-endian bytes), CHAR in the
 connection charset (`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
-NUL byte, not NULL. The optional `bind_count` must match the number of
+NUL byte, not NULL. Since #840 it also covers BIGINT (`21`, eight big-endian
+bytes), DOUBLE (`12`, eight bytes, finite only), NUMERIC (`7`, ASCII decimal
+text plus NUL), DATE (`13`), TIME (`14`) and DATETIME (`22`) as seven
+big-endian int16 fields (14 bytes; the broker reads TIME at offset 6),
+DATETIMETZ (`31`, those 14 bytes plus the zone text without NUL) and VARBIT
+(`6`, at least one byte; a zero-length value reads as NULL). See
+[Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping). The optional `bind_count` must match the number of
 bindings. The forward-only byte follows effective autocommit: `1` in auto
 mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
 
@@ -10621,6 +10642,7 @@ change to the rules below is a contract change governed by
 - [Type Mapping (Guarantees)](#type-mapping-guarantees)
   - [Decimal parameters](#decimal-parameters)
   - [Typed collection parameters](#typed-collection-parameters)
+  - [Prepared host-variable mapping](#prepared-host-variable-mapping)
 - [String Escaping](#string-escaping)
   - [Escape-mode negotiation](#escape-mode-negotiation)
   - [Literal mode](#literal-mode-no_backslash_escapestrue)
@@ -10661,7 +10683,9 @@ parameter values as a separate typed payload; the broker receives a complete
 SQL text per execute. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 The separate, **explicit sync-only** `pycubrid.compat.native` prepared cursor
-does send typed INT32, UTF-8 string and SQL NULL values through FC2/FC3. It is
+does send typed values (INT, BIGINT, DOUBLE, NUMERIC, DATE, TIME, DATETIME,
+DATETIMETZ, VARBIT, string and SQL NULL) through FC2/FC3; see
+[Prepared host-variable mapping](#prepared-host-variable-mapping). It is
 not a replacement for this ordinary 1.x contract; see its bounded
 [#418 typed CAS design](PREPARED_BINDING_DESIGN.md) and
 [API reference](API_REFERENCE.md#explicit-native-compatibility-subset).
@@ -10920,6 +10944,71 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   says so.
 - Arbitrary Python objects — raises
   `ProgrammingError("unsupported parameter type")`.
+
+### Prepared host-variable mapping
+
+This section does **not** change the literal contract above. It describes the
+typed values that the explicit `pycubrid.compat.native` cursor's
+`bind_param()` sends through FC3 (`pycubrid/protocol.py`
+`_encode_prepared_scalar`). Since #840 it accepts the same Python types as the
+literal path, except typed collections (bind those with `bind_set()`) and empty
+`bytes`. Each
+value is sent as one type byte and its value bytes; nothing is rendered into
+SQL. The checks match the literal path: `nan`/`inf` raise `ProgrammingError`, a
+`Decimal` that needs more than 38 digits raises `DataError`, and forged or
+fallback-module subclasses are refused in the same way. Values are read
+through the base-class methods, so a subclass cannot change the bytes. Error
+messages never contain the value.
+
+| Python value | Literal path | Prepared type and value bytes |
+|---|---|---|
+| `None` | `NULL` | NULL (0), no value bytes |
+| `bool` | `1` / `0` | INT (8), int32 `1` / `0`: the literal path's INTEGER value |
+| `int` in signed 32-bit range | decimal digits | INT (8), int32 (unchanged since #439) |
+| `int` in signed 64-bit range, outside 32-bit | decimal digits | BIGINT (21), int64 |
+| `int` outside 64-bit, at most 38 digits | decimal digits (a NUMERIC literal) | NUMERIC (7), decimal text and NUL; more digits raise `DataError` |
+| `float` | `float.__repr__` | DOUBLE (12), IEEE 754 binary64 |
+| `decimal.Decimal` | fixed-point digits | NUMERIC (7), the same fixed-point text with a lone leading `0` dropped (`.5`, `-.05`) and a NUL |
+| `str` | quoted literal | CHAR (1), connection-charset bytes and NUL (unchanged) |
+| `bytes`, `bytearray` | `X'<hex>'` | VARBIT (6), the bytes |
+| `datetime.datetime`, naive | `DATETIME'…'` | DATETIME (22), seven int16 fields with milliseconds |
+| `datetime.datetime`, aware | `DATETIMETZ'… <tz>'` | DATETIMETZ (31), the seven fields and the same `<tz>` text, without NUL |
+| `datetime.date` | `DATE'…'` | DATE (13), year, month, day and four zero fields |
+| `datetime.time` | `TIME'…'` | TIME (14), three zero fields, hour, minute, second and a zero field; `tzinfo` is ignored, as in the literal path |
+
+Every temporal value uses the 14-byte DATETIME layout, because the broker reads
+TIME from offset 6 and does not check the length. Microseconds are truncated to
+milliseconds for DATETIME and dropped for TIME, as in the literal path. The
+leading zero is dropped from NUMERIC text because the broker counts every
+character except the sign and the point as precision, so `0.` followed by 38
+digits would otherwise fail where the literal succeeds.
+
+Host variables are coerced by the server as host variables, not parsed as SQL
+text, so some results differ from the literal path. Verified on CUBRID 10.2,
+11.0, 11.2 and 11.4 (`tests/test_integration_prepared_wide_types.py`):
+
+- **Empty bytes.** `b""` and `bytearray()` raise `NotSupportedError`: the broker
+  reads a zero-length value as NULL, while the literal `X''` is an empty bit
+  string.
+- **Floats.** The literal `1.5` is a NUMERIC literal in CUBRID (only exponent
+  forms such as `1e-07` are DOUBLE); the prepared value is always DOUBLE. Stored
+  column values are the same, but the result type of `SELECT ?` and of
+  expressions such as `? / 3` can differ.
+- **Server-side conversion errors.** A value the target type cannot hold fails
+  with error -494 (`ProgrammingError`, "Cannot coerce host var to type …")
+  instead of the literal path's message. Examples: a BIGINT into an INTEGER
+  column when it is out of range, and a TIME into a DATETIME target.
+- **Typed collections.** `Set`, `Multiset` and `Sequence` are rendered by the
+  literal path but raise `ProgrammingError` in `bind_param()`; use
+  `connection.set()` and `bind_set()`.
+- **Integers past 38 digits** raise `DataError` before any I/O. The literal path
+  sends the digits and the server rejects them (-494, "Invalid numeric").
+
+The `pycubrid.compat.cubriddb` wrapper cursors still accept only `int`, `str`
+and `None` scalars, so their `bool`, `float`, `bytes` and temporal arguments
+keep raising `ProgrammingError`. Their `int` arguments reach `bind_param()`, so
+a value past signed 32-bit now binds BIGINT or NUMERIC instead of raising
+`DataError`.
 
 ---
 
@@ -11317,22 +11406,36 @@ different local states.
 
 | Python input | FC3 type argument | FC3 value argument | Boundary |
 | --- | --- | --- | --- |
-| `int` but not `bool`, range `[-2^31, 2^31-1]` | length 1, INT=8 | length 4, signed big-endian int32 | Out-of-range raises `DataError` before I/O; no truncation. |
+| `int` (and, since #840, `bool` as 1/0), range `[-2^31, 2^31-1]` | length 1, INT=8 | length 4, signed big-endian int32 | Unchanged bytes. Before #840 a value outside this range raised `DataError`; it now selects the BIGINT or NUMERIC row. |
+| `int`, signed 64-bit range outside int32 (#840) | length 1, BIGINT=21 | length 8, signed big-endian int64 | No truncation. |
+| `int` past int64 with at most 38 digits (#840) | length 1, NUMERIC=7 | ASCII decimal digits and one NUL | More digits raise `DataError` before I/O. |
+| `float` (#840) | length 1, DOUBLE=12 | length 8, big-endian IEEE 754 binary64 | `nan`/`inf` raise `ProgrammingError` before I/O; the broker would store NaN silently. |
+| `Decimal` (#840) | length 1, NUMERIC=7 | the literal path's fixed-point text with a lone leading `0` dropped, and one NUL | NaN/Infinity `ProgrammingError`; more than 38 digits `DataError`, as in the literal path. The broker counts every character but the sign and point as precision. |
+| `date`, `time`, naive `datetime` (#840) | length 1, DATE=13 / TIME=14 / DATETIME=22 | length 14, seven big-endian int16 fields (year, month, day, hour, minute, second, millisecond); DATE zeroes the time fields, TIME zeroes the date and millisecond fields | The broker reads TIME at offset 6 and does not check the length, so the layout is always 14 bytes. Microseconds are truncated as in the literal path. |
+| aware `datetime` (#840) | length 1, DATETIMETZ=31 | the 14-byte fields followed by the literal path's zone text (region, region and abbreviation, or `+hh:mm`) without NUL | A terminal NUL makes the broker reject a region name (-1162). Invalid `tzinfo` raises `ProgrammingError`. |
+| `bytes`, `bytearray` (#840) | length 1, VARBIT=6 | the bytes | An empty value raises `NotSupportedError`: the broker reads a zero-length value as NULL. |
 | `str` without embedded NUL | length 1, CHAR=1 | UTF-8 bytes plus one NUL; empty string is one NUL byte | Encoding failure or embedded NUL is rejected before I/O. Quotes/backslashes stay **value bytes**, never rendered into SQL. |
 | `None` | length 1, NULL=0 | length 0, no payload | A complete, explicitly bound SQL NULL, not an omitted slot. |
 
-`bool`, floats, date/time, bytes, objects, collections and LOB handles are
-unsupported in #439 and rejected before I/O; their appropriate slices or
-explicit gap records remain open. Native direct `bind_param(None)` currently
+In #439, `bool`, floats, date/time, bytes, objects, collections and LOB
+handles were unsupported and rejected before I/O. #440 and #441 added
+collections (`bind_set()`) and LOB handles (`bind_lob()`), and #840 added the
+scalar rows above, so `bind_param()` now accepts every Python type the literal
+path renders except typed collections and empty `bytes`; objects stay
+unsupported. The
+host-variable coercion differences are listed in
+[Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping). Native direct `bind_param(None)` currently
 raises a `SystemError`; that upstream bug is not a parity target. Unsupported
 execute flags, nonzero `max_col_size`, incomplete/extra parameters and invalid
 one-based indexes likewise fail before FC3. A validation failure must leave
 the previous usable result and handle intact; no FC41 fallback is allowed.
 The initial error contract is `ProgrammingError` for bad index/arity, unbound
 slot, embedded NUL in SQL or a value, unsupported input type or option,
-`DataError` for INT overflow and SQL/value UTF-8 encoding failure,
+`DataError` for an integer or `Decimal` that needs more than 38 digits
+(INT overflow before #840) and SQL/value UTF-8 encoding failure,
 `InterfaceError` for an unprepared/closed/stale owner,
-`NotSupportedError` for pooling-off/unknown broker capability, and
+`NotSupportedError` for pooling-off/unknown broker capability and for an empty
+`bytes` value (#840), and
 `OperationalError` for uncertain transport. Exact message text is not stable.
 
 ## Owner and lifecycle state machine
@@ -11412,7 +11515,7 @@ are not parity evidence.
 | --- | --- | --- |
 | P01 | FC2 SQL/flag/autocommit and bind count 0/1/N; server metadata retained. | Exact FC2 frame; negative response releases no invented handle. |
 | P02 | INT min/0/max, CHAR ASCII/Korean/quote/backslash/empty, explicit NULL each round-trip with value and Python type. | Exact FC3 `10+2N` argument lengths; no FC41 or SQL literal substitution. |
-| P03 | Index 0/N+1, unbound slot, extra/short arity, int overflow, `bool`, embedded NUL, unsupported type/option reject with the named exception classes above. | Zero FC3/FC6/write; previous usable result survives validation failure. |
+| P03 | Index 0/N+1, unbound slot, extra/short arity, int overflow (past 38 digits since #840; `bool` is accepted since #840), embedded NUL, unsupported type/option reject with the named exception classes above. | Zero FC3/FC6/write; previous usable result survives validation failure. |
 | P04 | `prepare; bind; execute; bind; execute` returns distinct SELECT rows and inserts two distinct DML values in both modes. | One FC2, two FC3, same current-generation handle; observer sees manual DML only after commit, auto DML after each FC3. |
 | P05 | Public `commit()` preserves active HOLDABLE SELECT fetch across multiple FC8 pages; public `rollback()` invalidates active result, but both retain the same-generation prepared owner. Use private manual-mode test setup to prove a real transaction boundary; public default auto-mode tests remain separate. | Native 10.2/11.4 comparison, explicit result/fetch assertions, one FC2 across re-execution, no silent partial row success. |
 | P06 | FC3 refreshed-column-info absent and present, then shard and inline FETCH. | Full frame consumed; updated metadata parsed before row decode; malformed block fails closed. |
@@ -11532,8 +11635,8 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Factories (#465) | Wrapper `Connect/connect/connection(*args, **kwargs)` delegate to `Connection(dsn='', user='public', password='', charset='utf8')`; up to three positional values override dsn/user/password keywords. Native `connect(url, user='public', passwd='')` and lower-case connection construction start with autocommit=True. Wrapper `.connection` is the exact compatibility native object, not the ordinary object. Construction/close, #467 autocommit access, #86 selectable charset and #466 bounded row cursors are delivered; HA and unsupported DSN options remain rejected. |
 | Sharing / globals (future) | Wrapper apilevel='2.0', paramstyle='qmark', threadsafety=2 require wrapper cursor support and explicit-object per-connection request/lifecycle serialization with two-thread tests first. The compatibility modules export none of these globals. Ordinary unlocked objects/global threadsafety=1 remain unchanged. The native subset's private RLock is not a general thread-sharing promise. |
 | Settings (#467) | Delivered as writable raw native snapshots (`autocommit`, `isolation_level`, `lock_timeout`, `max_string_len`) and separate effective `set_autocommit(mode, /)` / `set_isolation_level(level, /)`. Raw assignment accepts objects and sends nothing. The bool autocommit setter changes local CCI-equivalent mode; only a changed mode during an active transaction commits. Isolation SET (4/5/6) does not commit and skips an already effective level on the same physical session. The wrapper `.autocommit` property delegates its bool setter but its getter reads the raw native cache. Constructor reads actual lock/max/isolation; a complete max-string server error alone falls back to 0, and initial numeric level 4 retains the pinned official `CUBRID_TRAN_UNKNOWN_ISOLATION` text quirk. No effective lock/max setters, ordinary-default change or unsafe native parser parity. |
-| Wrapper cursor (#466) | Delivered as qualified `pycubrid.compat.cursors.Cursor/DictCursor` and `Connection.cursor(dictCursor=None)`. `execute(query, args=None, set_type=None) -> int` delegates native INT32/string/NULL scalar binding and, since #610, collection arguments (row below); mappings fail before I/O. SELECT seven-field description, exact-name tuple/dict rows (last duplicate wins), and the current per-connection converter are supported. Falsey converter results stop bulk fetch after consuming a row; iteration stops only on None. LOB args and mapping/default_cursor docstrings are not delivered. Non-SELECT description remains stable None rather than the official extension's possibly missing attribute after reprepare. |
-| Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags work; dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
+| Wrapper cursor (#466) | Delivered as qualified `pycubrid.compat.cursors.Cursor/DictCursor` and `Connection.cursor(dictCursor=None)`. `execute(query, args=None, set_type=None) -> int` delegates native `int`/string/NULL scalar binding (an `int` past signed 32-bit binds BIGINT or NUMERIC since #840) and, since #610, collection arguments (row below); mappings fail before I/O. SELECT seven-field description, exact-name tuple/dict rows (last duplicate wins), and the current per-connection converter are supported. Falsey converter results stop bulk fetch after consuming a row; iteration stops only on None. LOB args and mapping/default_cursor docstrings are not delivered. Non-SELECT description remains stable None rather than the official extension's possibly missing attribute after reprepare. |
+| Native prepared cursor (#439) | Delivered sync-only: `prepare(sql) -> None`; `bind_param(index, value, bind_type=0, /) -> None`, index one-based; `execute(option=0, max_col_size=0, /) -> int`; `fetch_row(how=0, /)` returns a tuple or None. Only INT32, UTF-8 strings, SQL NULL and default flags worked in #439; #840 adds typed `bool`, BIGINT, DOUBLE, NUMERIC, DATE, TIME, DATETIME, DATETIMETZ and VARBIT scalars ([mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping)); their bytes are not compared with the official extension. Dict rows/converters are #466. Physical-session ownership, pooling-on gate, commit/rollback result behavior and guarded FC2/FC3/FC6/FETCH are part of this subset. No ordinary FC41 or public async change. |
 | Native collection binding (#440) | Delivered sync-only: `connection.set() -> set`, `set(connection, /)`, `set.imports(data, type, /, *, kind=SET) -> None` and `cursor.bind_set(index, set, /) -> None`. `data` is a tuple (else InterfaceError); `type` is any int type code except BIT/VARBIT (NotSupportedError), only labelling the import as in the official driver. Like the official driver every element is sent as STRING (2) whatever `type` is, and the default kind SET sends the official bytes; `kind=MULTISET` keeps duplicates (it is sent as SEQUENCE, because the broker rejects MULTISET with -454, and the column does not keep order) and `kind=SEQUENCE` keeps duplicates and order. None is the NULL element; `'NULL'`, `''`, Python int elements (INT only), NUL rejection and the #439 error classes are deliberate classified deviations. A never-imported set binds SQL NULL. The wrapper collection call shapes build on it (#610, next row). |
 | Wrapper collection arguments (#610) | Delivered sync-only on the qualified wrapper cursors: `execute(query, args, set_type)` binds `list`/`tuple`/`set`/`frozenset` arguments through native `set()`/`imports()`/`bind_set()`, with one `set_type` code for every collection, a per-position list/tuple (missing or None entries inferred) or upstream inference (int/bool INT, float FLOAT, Decimal NUMERIC, date/datetime DATE, time TIME, str STRING; empty STRING; mixed TypeError). Elements are sent as their `str()` text with the SET kind; for supported non-None elements these are the official bytes. `executemany(query, args_list) -> None` checks every group before one prepare, checks every group's value count after the prepare but before any execute, and keeps the last rowcount; an empty list leaves -1/None (pycubrid's own choice, not compared). Errors before the prepare discard the previous result and snapshot. A None element is a NULL element (official text 'None' or UnboundLocalError), BIT/VARBIT elements raise NotSupportedError, other iterables raise ProgrammingError and server -494 is ProgrammingError; these are classified deviations. Offline tests only: a later-group error runs no group (official runs earlier groups), and unsupported elements raise even with an explicit set_type (official sends str()). The scalar subset is unchanged. |
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |

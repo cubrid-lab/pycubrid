@@ -115,7 +115,9 @@ modules are all permitted in minor releases.
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
 includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
 (#467), plus the bounded
-sync prepared INT32/string/NULL cursor in `pycubrid.compat.native` (#439),
+sync prepared INT32/string/NULL cursor in `pycubrid.compat.native` (#439;
+#840 widens its scalar binds to `bool`, BIGINT, DOUBLE, NUMERIC, DATE, TIME,
+DATETIME, DATETIMETZ and VARBIT),
 with its SET/MULTISET/SEQUENCE binding (`connection.set()`, `native.set`,
 `set.imports()`, `cursor.bind_set()`, #440) and BLOB/CLOB handle fetch and bind
 (`connection.lob()`, `native.lob`, `lob.close()`, `cursor.fetch_lob()`,
@@ -298,6 +300,19 @@ Code without a corresponding documentation update is considered incomplete.
 
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
+
+- **Wider typed prepared parameters (#840)** — MINOR / additive, within the
+  provisional `pycubrid.compat` namespace. `pycubrid.compat.native`
+  `cursor.bind_param()` accepts `bool`, 64-bit and up to 38-digit `int`,
+  `float`, `Decimal`, `date`, `time`, `datetime` and `bytes`/`bytearray`, which
+  raised `ProgrammingError` or `DataError` before; existing INT32, string and
+  NULL binds keep their exact bytes. New errors are confined to values that
+  were rejected before (`nan`/`inf` and more than 38 digits as in the literal
+  path; an empty `bytes` value raises `NotSupportedError`). As a consequence the
+  `pycubrid.compat.cubriddb` wrapper binds an `int` past signed 32-bit as BIGINT
+  or NUMERIC instead of raising `DataError`. The ordinary `pycubrid` and
+  `pycubrid.aio` cursors and the literal binding contract in
+  `docs/PARAMETER_BINDING.md` are unchanged; no signature changes.
 
 - **Python 3.15 support** — MINOR / additive supported-version change. The
   package declares the `Programming Language :: Python :: 3.15` classifier

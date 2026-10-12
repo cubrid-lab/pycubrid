@@ -334,3 +334,14 @@ def test_closed_cursor_rejects_executemany(wrapped: cubriddb.Connection) -> None
     cur.close()
     with pytest.raises(InterfaceError):
         cur.executemany("INSERT INTO t VALUES (?)", [(1,)])
+
+
+def test_wrapper_int_past_int32_binds_bigint(wrapped: cubriddb.Connection) -> None:
+    # The wrapper passes ints to native bind_param(), which binds BIGINT since
+    # #840; bool, float and bytes stay rejected by the wrapper itself.
+    wrapped.cursor().execute("INSERT INTO t VALUES (?)", (2**40,))
+    (binding,) = _executed(wrapped)[-1].bindings
+    assert (binding.type_code, binding.payload) == (
+        CUBRIDDataType.BIGINT,
+        (2**40).to_bytes(8, "big"),
+    )

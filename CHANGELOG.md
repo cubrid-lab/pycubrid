@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Wider typed prepared parameters (#840)** — `pycubrid.compat.native`
+  `cursor.bind_param()` now sends `bool` (INT 1/0, the literal path's value),
+  64-bit `int` (BIGINT), `int` past 64 bits up to 38 digits and `Decimal`
+  (NUMERIC text), `float` (DOUBLE), `date`, `time` and naive `datetime` (DATE,
+  TIME, DATETIME), aware `datetime` (DATETIMETZ with the literal path's zone
+  text) and `bytes`/`bytearray` (VARBIT) as typed host variables. The checks
+  match the literal path: `nan`/`inf` raise `ProgrammingError`, more than 38
+  digits raise `DataError`, and forged subclasses are refused. An empty `bytes`
+  value raises `NotSupportedError`, because the broker reads a zero-length bind
+  as NULL. Existing INT32, string and NULL binds keep their exact bytes, and the
+  ordinary cursors' literal binding is unchanged. Host-variable coercion differs
+  from literal coercion in a few documented cases (a `float` is DOUBLE, not a
+  NUMERIC literal; conversion failures are server error -494); see
+  [Prepared host-variable mapping](docs/PARAMETER_BINDING.md#prepared-host-variable-mapping).
+  Round trips against the literal path pass on CUBRID 10.2, 11.0, 11.2 and
+  11.4. The encoder is shared so the planned opt-in `EXECUTE_ARRAY` batch path
+  (#839) can reuse it.
 - **`typing.Self` for context-manager and iterator returns (#689)** —
   `Connection.__enter__`, `Cursor.__enter__` / `__iter__`, `Lob.__enter__`,
   `AsyncConnection.__aenter__` and `AsyncCursor.__aenter__` / `__aiter__` are now
@@ -16,6 +33,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   contract module, `tests/typing_self_contract.py`, is part of `make typecheck` and
   fails mypy if any of these annotations regresses. Annotations only; no runtime
   change.
+
+### Changed
+
+- **CUBRIDdb wrapper integers past 32 bits (#840)** — the
+  `pycubrid.compat.cubriddb` cursors pass `int` arguments to native
+  `bind_param()`, so a value past signed 32-bit now binds BIGINT (or NUMERIC
+  past 64 bits) instead of raising `DataError`. The wrapper still rejects
+  `bool`, `float`, `bytes` and temporal scalars.
 
 ### CI
 

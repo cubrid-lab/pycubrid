@@ -15,6 +15,7 @@ pycubrid 1.x의 드라이버 측 파라미터 바인딩 계약.
 - [타입 매핑 (보장)](#타입-매핑-보장)
   - [Decimal 파라미터](#decimal-파라미터)
   - [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터)
+  - [Prepared 호스트 변수 매핑](#prepared-호스트-변수-매핑)
 - [문자열 이스케이프](#문자열-이스케이프)
   - [이스케이프 모드 협상](#이스케이프-모드-협상)
   - [리터럴 모드](#리터럴-모드-no_backslash_escapestrue)
@@ -41,8 +42,10 @@ pycubrid는 **드라이버 측 리터럴 바인딩**을 수행합니다. `cursor
 바인딩 구현은 `CursorParamsMixin`을 통해 동기(`Cursor`)와 비동기(`AsyncCursor`) 경로에서 **그대로 공유**됩니다(`pycubrid/_cursor_common.py:237-257`). 동기·비동기 바인딩에 동작 차이가 없으며, 동등성은 `tests/test_aio_cursor_parity.py`와 `tests/test_split_placeholders.py`로 강제됩니다.
 
 **이것은 서버 측 prepared-statement 바인딩이 아닙니다.** pycubrid는 파라미터 값을 별도의 타입 페이로드로 보내지 않으며, 브로커는 execute마다 완전한 SQL 텍스트를 받습니다. [비보장과 명시적 한계](#비보장과-명시적-한계)를 참고하세요.
-별도의 명시적 동기 `pycubrid.compat.native` prepared 커서는 INT32,
-UTF-8 문자열, SQL NULL을 FC2/FC3 타입 페이로드로 전송합니다. 이 커서는 이
+별도의 명시적 동기 `pycubrid.compat.native` prepared 커서는 타입 지정 값(INT,
+BIGINT, DOUBLE, NUMERIC, DATE, TIME, DATETIME, DATETIMETZ, VARBIT, 문자열,
+SQL NULL)을 FC2/FC3 타입 페이로드로 전송합니다.
+[Prepared 호스트 변수 매핑](#prepared-호스트-변수-매핑)을 참고하세요. 이 커서는 이
 일반 1.x 계약을 대체하지 않습니다. 제한된 범위는
 [#418 타입 지정 CAS 설계](PREPARED_BINDING_DESIGN.md)와
 [API 참조](API_REFERENCE.md#명시적-네이티브-호환-기능)를 참고하세요.
@@ -244,6 +247,65 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 - `pycubrid.Lob` — `Lob` 인스턴스는 SQL 리터럴로 변환되지 않습니다. `BLOB`/`BIT` 타입 컬럼에는 raw `bytes`를 삽입하고, 대형 객체 워크플로우에는 `Connection.create_lob()`과 LOB 쓰기 API를 사용하세요(`pycubrid/lob.py`, `pycubrid/connection.py:333-339`).
 - 컬렉션(`list`, `tuple`, `set`, `frozenset`, `dict`)을 단일 바인딩 값으로 — 실행 가능한 메시지와 함께 `ProgrammingError` 발생 (현재 문구: `cannot bind a collection (list/tuple/set/frozenset/dict) as a single parameter; pycubrid does not auto-expand IN (?, ?, ...) — expand the placeholders explicitly in the SQL, or wrap the elements in pycubrid.types.Set, Multiset or Sequence to bind a CUBRID collection`). **자동 `IN (?, ?, ?)` 확장은 없습니다**. SQL에 플레이스홀더를 명시적으로 펼치세요. CUBRID 컬렉션을 바인딩하려면 원소를 [타입 지정 컬렉션 파라미터](#타입-지정-컬렉션-파라미터)로 감싸세요. 메시지도 이를 안내합니다.
 - 임의의 Python 객체 — `ProgrammingError("unsupported parameter type")` 발생.
+
+### Prepared 호스트 변수 매핑
+
+이 절은 위의 리터럴 계약을 **바꾸지 않습니다**. 명시적
+`pycubrid.compat.native` 커서의 `bind_param()`이 FC3로 보내는 타입 지정 값을
+설명합니다(`pycubrid/protocol.py` `_encode_prepared_scalar`). #840부터 이 커서는
+타입 지정 컬렉션(`bind_set()`으로 바인딩)과 빈 `bytes`를 제외하고 리터럴 경로와
+같은 Python 타입을 받습니다. 각 값은 타입 바이트 하나와 값 바이트로 전송되며, SQL로
+렌더링되지 않습니다. 검사는 리터럴 경로와 같습니다. `nan`/`inf`는
+`ProgrammingError`, 38자리가 넘게 필요한 `Decimal`은 `DataError`이며, 위조된
+하위 클래스나 대체 모듈의 하위 클래스도 같은 방식으로 거부합니다. 값은 기반
+클래스 메서드로 읽으므로 하위 클래스가 바이트를 바꿀 수 없습니다. 오류
+메시지에는 값이 들어가지 않습니다.
+
+| Python 값 | 리터럴 경로 | Prepared 타입과 값 바이트 |
+|---|---|---|
+| `None` | `NULL` | NULL (0), 값 바이트 없음 |
+| `bool` | `1` / `0` | INT (8), int32 `1` / `0`: 리터럴 경로의 INTEGER 값 |
+| 부호 있는 32비트 범위의 `int` | 10진 숫자 | INT (8), int32 (#439 이후 변경 없음) |
+| 32비트 밖이고 부호 있는 64비트 범위의 `int` | 10진 숫자 | BIGINT (21), int64 |
+| 64비트 밖이고 38자리 이하인 `int` | 10진 숫자(NUMERIC 리터럴) | NUMERIC (7), 10진 텍스트와 NUL; 자릿수가 더 많으면 `DataError` |
+| `float` | `float.__repr__` | DOUBLE (12), IEEE 754 binary64 |
+| `decimal.Decimal` | 고정소수점 숫자 | NUMERIC (7), 같은 고정소수점 텍스트에서 단독 선행 `0`을 뺀 값(`.5`, `-.05`)과 NUL |
+| `str` | 따옴표 리터럴 | CHAR (1), 연결 charset 바이트와 NUL (변경 없음) |
+| `bytes`, `bytearray` | `X'<hex>'` | VARBIT (6), 바이트 그대로 |
+| naive `datetime.datetime` | `DATETIME'…'` | DATETIME (22), 밀리초를 포함한 int16 필드 7개 |
+| tz 포함 `datetime.datetime` | `DATETIMETZ'… <tz>'` | DATETIMETZ (31), 필드 7개와 같은 `<tz>` 텍스트, NUL 없음 |
+| `datetime.date` | `DATE'…'` | DATE (13), 연, 월, 일과 0 필드 4개 |
+| `datetime.time` | `TIME'…'` | TIME (14), 0 필드 3개, 시, 분, 초와 0 필드 하나; 리터럴 경로와 같이 `tzinfo`는 무시 |
+
+브로커가 TIME을 오프셋 6에서 읽고 길이를 검사하지 않으므로 모든 날짜/시간
+값은 14바이트 DATETIME 배치를 씁니다. 마이크로초는 리터럴 경로와 같이 DATETIME에서는
+밀리초로 절사하고 TIME에서는 버립니다. 브로커는 부호와 소수점을 뺀 모든 문자를
+정밀도로 세므로 NUMERIC 텍스트에서 선행 0을 뺍니다. 그러지 않으면 `0.` 뒤에
+38자리가 오는 값이 리터럴에서는 성공하고 여기서는 실패합니다.
+
+호스트 변수는 SQL 텍스트로 파싱되지 않고 서버가 호스트 변수로 변환하므로 일부
+결과는 리터럴 경로와 다릅니다. CUBRID 10.2, 11.0, 11.2, 11.4에서 확인했습니다
+(`tests/test_integration_prepared_wide_types.py`).
+
+- **빈 bytes.** `b""`와 `bytearray()`는 `NotSupportedError`가 발생합니다. 브로커는
+  길이 0인 값을 NULL로 읽지만, 리터럴 `X''`는 빈 비트 문자열입니다.
+- **float.** CUBRID에서 리터럴 `1.5`는 NUMERIC 리터럴입니다(`1e-07` 같은 지수
+  형식만 DOUBLE). prepared 값은 항상 DOUBLE입니다. 저장되는 컬럼 값은 같지만
+  `SELECT ?`나 `? / 3` 같은 식의 결과 타입은 다를 수 있습니다.
+- **서버 측 변환 오류.** 대상 타입에 담을 수 없는 값은 리터럴 경로의 메시지 대신
+  오류 -494(`ProgrammingError`, "Cannot coerce host var to type …")로 실패합니다.
+  예: 범위를 벗어난 BIGINT를 INTEGER 컬럼에 넣는 경우, TIME을 DATETIME 대상에
+  넣는 경우.
+- **타입 지정 컬렉션.** `Set`, `Multiset`, `Sequence`는 리터럴 경로에서는
+  렌더링되지만 `bind_param()`에서는 `ProgrammingError`가 발생합니다.
+  `connection.set()`과 `bind_set()`을 사용하세요.
+- **38자리를 넘는 정수**는 I/O 전에 `DataError`가 발생합니다. 리터럴 경로는 숫자를
+  그대로 보내고 서버가 거부합니다(-494, "Invalid numeric").
+
+`pycubrid.compat.cubriddb` 래퍼 커서는 여전히 `int`, `str`, `None` 스칼라만
+받으므로 `bool`, `float`, `bytes`, 날짜/시간 인자는 계속 `ProgrammingError`가
+발생합니다. `int` 인자는 `bind_param()`에 전달되므로 부호 있는 32비트를 넘는 값은
+이제 `DataError` 대신 BIGINT 또는 NUMERIC으로 바인딩됩니다.
 
 ---
 

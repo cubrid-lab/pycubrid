@@ -18,6 +18,7 @@ change to the rules below is a contract change governed by
 - [Type Mapping (Guarantees)](#type-mapping-guarantees)
   - [Decimal parameters](#decimal-parameters)
   - [Typed collection parameters](#typed-collection-parameters)
+  - [Prepared host-variable mapping](#prepared-host-variable-mapping)
 - [String Escaping](#string-escaping)
   - [Escape-mode negotiation](#escape-mode-negotiation)
   - [Literal mode](#literal-mode-no_backslash_escapestrue)
@@ -58,7 +59,9 @@ parameter values as a separate typed payload; the broker receives a complete
 SQL text per execute. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
 The separate, **explicit sync-only** `pycubrid.compat.native` prepared cursor
-does send typed INT32, UTF-8 string and SQL NULL values through FC2/FC3. It is
+does send typed values (INT, BIGINT, DOUBLE, NUMERIC, DATE, TIME, DATETIME,
+DATETIMETZ, VARBIT, string and SQL NULL) through FC2/FC3; see
+[Prepared host-variable mapping](#prepared-host-variable-mapping). It is
 not a replacement for this ordinary 1.x contract; see its bounded
 [#418 typed CAS design](PREPARED_BINDING_DESIGN.md) and
 [API reference](API_REFERENCE.md#explicit-native-compatibility-subset).
@@ -317,6 +320,71 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   says so.
 - Arbitrary Python objects — raises
   `ProgrammingError("unsupported parameter type")`.
+
+### Prepared host-variable mapping
+
+This section does **not** change the literal contract above. It describes the
+typed values that the explicit `pycubrid.compat.native` cursor's
+`bind_param()` sends through FC3 (`pycubrid/protocol.py`
+`_encode_prepared_scalar`). Since #840 it accepts the same Python types as the
+literal path, except typed collections (bind those with `bind_set()`) and empty
+`bytes`. Each
+value is sent as one type byte and its value bytes; nothing is rendered into
+SQL. The checks match the literal path: `nan`/`inf` raise `ProgrammingError`, a
+`Decimal` that needs more than 38 digits raises `DataError`, and forged or
+fallback-module subclasses are refused in the same way. Values are read
+through the base-class methods, so a subclass cannot change the bytes. Error
+messages never contain the value.
+
+| Python value | Literal path | Prepared type and value bytes |
+|---|---|---|
+| `None` | `NULL` | NULL (0), no value bytes |
+| `bool` | `1` / `0` | INT (8), int32 `1` / `0`: the literal path's INTEGER value |
+| `int` in signed 32-bit range | decimal digits | INT (8), int32 (unchanged since #439) |
+| `int` in signed 64-bit range, outside 32-bit | decimal digits | BIGINT (21), int64 |
+| `int` outside 64-bit, at most 38 digits | decimal digits (a NUMERIC literal) | NUMERIC (7), decimal text and NUL; more digits raise `DataError` |
+| `float` | `float.__repr__` | DOUBLE (12), IEEE 754 binary64 |
+| `decimal.Decimal` | fixed-point digits | NUMERIC (7), the same fixed-point text with a lone leading `0` dropped (`.5`, `-.05`) and a NUL |
+| `str` | quoted literal | CHAR (1), connection-charset bytes and NUL (unchanged) |
+| `bytes`, `bytearray` | `X'<hex>'` | VARBIT (6), the bytes |
+| `datetime.datetime`, naive | `DATETIME'…'` | DATETIME (22), seven int16 fields with milliseconds |
+| `datetime.datetime`, aware | `DATETIMETZ'… <tz>'` | DATETIMETZ (31), the seven fields and the same `<tz>` text, without NUL |
+| `datetime.date` | `DATE'…'` | DATE (13), year, month, day and four zero fields |
+| `datetime.time` | `TIME'…'` | TIME (14), three zero fields, hour, minute, second and a zero field; `tzinfo` is ignored, as in the literal path |
+
+Every temporal value uses the 14-byte DATETIME layout, because the broker reads
+TIME from offset 6 and does not check the length. Microseconds are truncated to
+milliseconds for DATETIME and dropped for TIME, as in the literal path. The
+leading zero is dropped from NUMERIC text because the broker counts every
+character except the sign and the point as precision, so `0.` followed by 38
+digits would otherwise fail where the literal succeeds.
+
+Host variables are coerced by the server as host variables, not parsed as SQL
+text, so some results differ from the literal path. Verified on CUBRID 10.2,
+11.0, 11.2 and 11.4 (`tests/test_integration_prepared_wide_types.py`):
+
+- **Empty bytes.** `b""` and `bytearray()` raise `NotSupportedError`: the broker
+  reads a zero-length value as NULL, while the literal `X''` is an empty bit
+  string.
+- **Floats.** The literal `1.5` is a NUMERIC literal in CUBRID (only exponent
+  forms such as `1e-07` are DOUBLE); the prepared value is always DOUBLE. Stored
+  column values are the same, but the result type of `SELECT ?` and of
+  expressions such as `? / 3` can differ.
+- **Server-side conversion errors.** A value the target type cannot hold fails
+  with error -494 (`ProgrammingError`, "Cannot coerce host var to type …")
+  instead of the literal path's message. Examples: a BIGINT into an INTEGER
+  column when it is out of range, and a TIME into a DATETIME target.
+- **Typed collections.** `Set`, `Multiset` and `Sequence` are rendered by the
+  literal path but raise `ProgrammingError` in `bind_param()`; use
+  `connection.set()` and `bind_set()`.
+- **Integers past 38 digits** raise `DataError` before any I/O. The literal path
+  sends the digits and the server rejects them (-494, "Invalid numeric").
+
+The `pycubrid.compat.cubriddb` wrapper cursors still accept only `int`, `str`
+and `None` scalars, so their `bool`, `float`, `bytes` and temporal arguments
+keep raising `ProgrammingError`. Their `int` arguments reach `bind_param()`, so
+a value past signed 32-bit now binds BIGINT or NUMERIC instead of raising
+`DataError`.
 
 ---
 

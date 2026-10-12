@@ -15,7 +15,7 @@ import math
 import re
 from decimal import Decimal
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Protocol, Sequence, TypeVar
 
 from .exceptions import (
     DatabaseError,
@@ -46,8 +46,6 @@ try:
 except ImportError:  # pragma: no cover - exercised in a fresh subprocess
     _CDateTime = None
 
-if TYPE_CHECKING:
-    from .protocol import ColumnMetaData
 
 # ---- constants -------------------------------------------------------------
 
@@ -333,6 +331,53 @@ def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
     return "%s%02d:%02d" % (sign, hours, remainder // 60)
 
 
+def _check_temporal_subclass(cls: type) -> None:
+    """Refuse date/time subclasses when only the pure-Python datetime is active."""
+    # Pure-Python descriptors read attributes such as _year, which a subclass
+    # can forge. Refuse those subclasses before any field read or callback.
+    if datetime.datetime is not _CDateTime and issubclass(cls, (datetime.date, datetime.time)):
+        if cls is not datetime.datetime and cls is not datetime.date and cls is not datetime.time:
+            raise ProgrammingError(
+                "date/time subclass parameters require the C datetime module; "
+                "pass a plain date, datetime or time"
+            )
+
+
+def _checked_decimal(cls: type, value: Decimal) -> Decimal:
+    """Return *value* as a plain finite ``Decimal`` of at most 38 digits.
+
+    Shared by the literal renderer and the prepared NUMERIC encoder (#840).
+    """
+    # With CPython's C decimal module, Decimal(subclass) copies the
+    # internal value without calling any overridable method, so the checks
+    # below see the real value. The pure-Python fallback (_pydecimal)
+    # copies _sign/_int/_exp through ordinary attribute reads, which a
+    # subclass can forge, so subclasses are refused there.
+    if cls is not Decimal and Decimal is not _CDecimal:
+        raise ProgrammingError(
+            "Decimal subclass parameters require the C decimal module; pass a plain Decimal"
+        )
+    value = Decimal(value)
+    if value.is_nan() or value.is_infinite():
+        raise ProgrammingError("nan and inf are not supported by CUBRID")
+    # str() switches to E notation (1E-7), which CUBRID parses as DOUBLE.
+    # Render plain fixed-point digits instead; the server rejects a plain
+    # numeric literal with more than 38 digits (leading fractional zeros
+    # count), so check that before expanding a possibly huge exponent.
+    _, digits, exponent = value.as_tuple()
+    assert isinstance(exponent, int)
+    if exponent >= 0:
+        precision = len(digits) + exponent if value else 1
+    else:
+        precision = max(len(digits), -exponent)
+    if precision > 38:
+        raise DataError(
+            "Decimal parameter needs %d digits; CUBRID NUMERIC literals allow "
+            "at most 38 digits" % precision
+        )
+    return value
+
+
 def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
     """Format a single Python value as a CUBRID SQL literal string."""
     if value is None:
@@ -351,14 +396,7 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
         return "X'%s'" % bytes.hex(value)
     if issubclass(cls, bytearray):
         return "X'%s'" % bytearray.hex(value)
-    # Pure-Python descriptors read attributes such as _year, which a subclass
-    # can forge. Refuse those subclasses before any field read or callback.
-    if datetime.datetime is not _CDateTime and issubclass(cls, (datetime.date, datetime.time)):
-        if cls is not datetime.datetime and cls is not datetime.date and cls is not datetime.time:
-            raise ProgrammingError(
-                "date/time subclass parameters require the C datetime module; "
-                "pass a plain date, datetime or time"
-            )
+    _check_temporal_subclass(cls)
     # Dates and times are built from their integer fields, read through the
     # base-class descriptors, instead of strftime(): a subclass can override
     # strftime() or the field properties (#528), and %Y does not zero-pad
@@ -391,33 +429,7 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
     # user type) can override __str__/__repr__/__format__ and would otherwise
     # put arbitrary text into the SQL (#518).
     if issubclass(cls, Decimal):
-        # With CPython's C decimal module, Decimal(subclass) copies the
-        # internal value without calling any overridable method, so the checks
-        # below see the real value. The pure-Python fallback (_pydecimal)
-        # copies _sign/_int/_exp through ordinary attribute reads, which a
-        # subclass can forge, so subclasses are refused there.
-        if cls is not Decimal and Decimal is not _CDecimal:
-            raise ProgrammingError(
-                "Decimal subclass parameters require the C decimal module; pass a plain Decimal"
-            )
-        value = Decimal(value)
-        if value.is_nan() or value.is_infinite():
-            raise ProgrammingError("nan and inf are not supported by CUBRID")
-        # str() switches to E notation (1E-7), which CUBRID parses as DOUBLE.
-        # Render plain fixed-point digits instead; the server rejects a plain
-        # numeric literal with more than 38 digits (leading fractional zeros
-        # count), so check that before expanding a possibly huge exponent.
-        _, digits, exponent = value.as_tuple()
-        assert isinstance(exponent, int)
-        if exponent >= 0:
-            precision = len(digits) + exponent if value else 1
-        else:
-            precision = max(len(digits), -exponent)
-        if precision > 38:
-            raise DataError(
-                "Decimal parameter needs %d digits; CUBRID NUMERIC literals allow "
-                "at most 38 digits" % precision
-            )
+        value = _checked_decimal(cls, value)
         return format(value, "f")
     if issubclass(cls, int):
         return int.__repr__(value)
@@ -488,8 +500,22 @@ def bind_parameters(
 # ---- result description ----------------------------------------------------
 
 
+class _ColumnMetadata(Protocol):
+    """The ``protocol.ColumnMetaData`` fields a description reads.
+
+    A structural type keeps this module free of a ``protocol`` import, which
+    imports this module for the shared value checks (#840).
+    """
+
+    name: str
+    column_type: int
+    precision: int
+    scale: int
+    is_nullable: bool
+
+
 def build_description(
-    columns: list[ColumnMetaData],
+    columns: Sequence[_ColumnMetadata],
 ) -> tuple[DescriptionItem, ...] | None:
     """Convert protocol column metadata into a DB-API ``cursor.description``."""
     if not columns:
@@ -567,7 +593,7 @@ class CursorParamsMixin(Generic[_ConnT]):
 
     def _build_description(
         self,
-        columns: list[ColumnMetaData],
+        columns: Sequence[_ColumnMetadata],
     ) -> tuple[DescriptionItem, ...] | None:
         return build_description(columns)
 

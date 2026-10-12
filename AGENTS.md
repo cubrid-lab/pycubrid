@@ -86,6 +86,19 @@ bytes even after a complete element raises DataError (#595). Later structural
 damage wins; complete collections retain the first conversion error. Opaque
 and unsupported nested member layouts keep their existing raw-byte contracts.
 
+Scalar FC3 binds (`_encode_prepared_scalar`, public through `compat.native`
+`bind_param()`; #439, widened by #840) send one type byte and its value bytes:
+INT `8` (int32; `bool` as 1/0), BIGINT `21` (int64), NUMERIC `7` (ASCII
+fixed-point text plus NUL, a lone leading `0` dropped because the CAS counts
+every character but sign and point as precision; also ints past int64 up to
+38 digits), DOUBLE `12` (finite only; the broker stores NaN), CHAR `1`
+(charset bytes plus NUL), DATE `13`/TIME `14`/DATETIME `22` (always the
+14-byte seven-int16 layout: the CAS reads TIME at offset 6 without a length
+check), DATETIMETZ `31` (those 14 bytes plus the literal path's zone text, no
+NUL: a NUL breaks region names, -1162), VARBIT `6` (non-empty: a zero-length
+value is read as NULL) and NULL `0`. Dispatch on `type(value)` and read values
+through base-class methods, as the literal path does (#518, #528).
+
 Typed collection FC3 binds (#482; public only through `compat.native`
 `set.imports()`/`bind_set()`, #440) send
 the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument

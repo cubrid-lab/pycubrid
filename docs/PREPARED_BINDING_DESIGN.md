@@ -124,22 +124,36 @@ different local states.
 
 | Python input | FC3 type argument | FC3 value argument | Boundary |
 | --- | --- | --- | --- |
-| `int` but not `bool`, range `[-2^31, 2^31-1]` | length 1, INT=8 | length 4, signed big-endian int32 | Out-of-range raises `DataError` before I/O; no truncation. |
+| `int` (and, since #840, `bool` as 1/0), range `[-2^31, 2^31-1]` | length 1, INT=8 | length 4, signed big-endian int32 | Unchanged bytes. Before #840 a value outside this range raised `DataError`; it now selects the BIGINT or NUMERIC row. |
+| `int`, signed 64-bit range outside int32 (#840) | length 1, BIGINT=21 | length 8, signed big-endian int64 | No truncation. |
+| `int` past int64 with at most 38 digits (#840) | length 1, NUMERIC=7 | ASCII decimal digits and one NUL | More digits raise `DataError` before I/O. |
+| `float` (#840) | length 1, DOUBLE=12 | length 8, big-endian IEEE 754 binary64 | `nan`/`inf` raise `ProgrammingError` before I/O; the broker would store NaN silently. |
+| `Decimal` (#840) | length 1, NUMERIC=7 | the literal path's fixed-point text with a lone leading `0` dropped, and one NUL | NaN/Infinity `ProgrammingError`; more than 38 digits `DataError`, as in the literal path. The broker counts every character but the sign and point as precision. |
+| `date`, `time`, naive `datetime` (#840) | length 1, DATE=13 / TIME=14 / DATETIME=22 | length 14, seven big-endian int16 fields (year, month, day, hour, minute, second, millisecond); DATE zeroes the time fields, TIME zeroes the date and millisecond fields | The broker reads TIME at offset 6 and does not check the length, so the layout is always 14 bytes. Microseconds are truncated as in the literal path. |
+| aware `datetime` (#840) | length 1, DATETIMETZ=31 | the 14-byte fields followed by the literal path's zone text (region, region and abbreviation, or `+hh:mm`) without NUL | A terminal NUL makes the broker reject a region name (-1162). Invalid `tzinfo` raises `ProgrammingError`. |
+| `bytes`, `bytearray` (#840) | length 1, VARBIT=6 | the bytes | An empty value raises `NotSupportedError`: the broker reads a zero-length value as NULL. |
 | `str` without embedded NUL | length 1, CHAR=1 | UTF-8 bytes plus one NUL; empty string is one NUL byte | Encoding failure or embedded NUL is rejected before I/O. Quotes/backslashes stay **value bytes**, never rendered into SQL. |
 | `None` | length 1, NULL=0 | length 0, no payload | A complete, explicitly bound SQL NULL, not an omitted slot. |
 
-`bool`, floats, date/time, bytes, objects, collections and LOB handles are
-unsupported in #439 and rejected before I/O; their appropriate slices or
-explicit gap records remain open. Native direct `bind_param(None)` currently
+In #439, `bool`, floats, date/time, bytes, objects, collections and LOB
+handles were unsupported and rejected before I/O. #440 and #441 added
+collections (`bind_set()`) and LOB handles (`bind_lob()`), and #840 added the
+scalar rows above, so `bind_param()` now accepts every Python type the literal
+path renders except typed collections and empty `bytes`; objects stay
+unsupported. The
+host-variable coercion differences are listed in
+[Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping). Native direct `bind_param(None)` currently
 raises a `SystemError`; that upstream bug is not a parity target. Unsupported
 execute flags, nonzero `max_col_size`, incomplete/extra parameters and invalid
 one-based indexes likewise fail before FC3. A validation failure must leave
 the previous usable result and handle intact; no FC41 fallback is allowed.
 The initial error contract is `ProgrammingError` for bad index/arity, unbound
 slot, embedded NUL in SQL or a value, unsupported input type or option,
-`DataError` for INT overflow and SQL/value UTF-8 encoding failure,
+`DataError` for an integer or `Decimal` that needs more than 38 digits
+(INT overflow before #840) and SQL/value UTF-8 encoding failure,
 `InterfaceError` for an unprepared/closed/stale owner,
-`NotSupportedError` for pooling-off/unknown broker capability, and
+`NotSupportedError` for pooling-off/unknown broker capability and for an empty
+`bytes` value (#840), and
 `OperationalError` for uncertain transport. Exact message text is not stable.
 
 ## Owner and lifecycle state machine
@@ -219,7 +233,7 @@ are not parity evidence.
 | --- | --- | --- |
 | P01 | FC2 SQL/flag/autocommit and bind count 0/1/N; server metadata retained. | Exact FC2 frame; negative response releases no invented handle. |
 | P02 | INT min/0/max, CHAR ASCII/Korean/quote/backslash/empty, explicit NULL each round-trip with value and Python type. | Exact FC3 `10+2N` argument lengths; no FC41 or SQL literal substitution. |
-| P03 | Index 0/N+1, unbound slot, extra/short arity, int overflow, `bool`, embedded NUL, unsupported type/option reject with the named exception classes above. | Zero FC3/FC6/write; previous usable result survives validation failure. |
+| P03 | Index 0/N+1, unbound slot, extra/short arity, int overflow (past 38 digits since #840; `bool` is accepted since #840), embedded NUL, unsupported type/option reject with the named exception classes above. | Zero FC3/FC6/write; previous usable result survives validation failure. |
 | P04 | `prepare; bind; execute; bind; execute` returns distinct SELECT rows and inserts two distinct DML values in both modes. | One FC2, two FC3, same current-generation handle; observer sees manual DML only after commit, auto DML after each FC3. |
 | P05 | Public `commit()` preserves active HOLDABLE SELECT fetch across multiple FC8 pages; public `rollback()` invalidates active result, but both retain the same-generation prepared owner. Use private manual-mode test setup to prove a real transaction boundary; public default auto-mode tests remain separate. | Native 10.2/11.4 comparison, explicit result/fetch assertions, one FC2 across re-execution, no silent partial row success. |
 | P06 | FC3 refreshed-column-info absent and present, then shard and inline FETCH. | Full frame consumed; updated metadata parsed before row decode; malformed block fails closed. |

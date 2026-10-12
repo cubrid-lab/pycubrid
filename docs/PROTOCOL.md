@@ -430,7 +430,13 @@ After ten fixed arguments, the packet writes two length-prefixed arguments
 per validated scalar binding: type byte and value bytes. The supported
 internal subset is signed INT32 (`8`, four big-endian bytes), CHAR in the
 connection charset (`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
-NUL byte, not NULL. The optional `bind_count` must match the number of
+NUL byte, not NULL. Since #840 it also covers BIGINT (`21`, eight big-endian
+bytes), DOUBLE (`12`, eight bytes, finite only), NUMERIC (`7`, ASCII decimal
+text plus NUL), DATE (`13`), TIME (`14`) and DATETIME (`22`) as seven
+big-endian int16 fields (14 bytes; the broker reads TIME at offset 6),
+DATETIMETZ (`31`, those 14 bytes plus the zone text without NUL) and VARBIT
+(`6`, at least one byte; a zero-length value reads as NULL). See
+[Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping). The optional `bind_count` must match the number of
 bindings. The forward-only byte follows effective autocommit: `1` in auto
 mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
 

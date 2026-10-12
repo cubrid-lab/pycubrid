@@ -413,7 +413,12 @@ CAS 프로토콜은 클라이언트 문자셋을 전달하지 않고 브로커�
 고정 인자 10개 뒤에 검증된 스칼라 바인딩마다 타입 바이트와 값 바이트를 길이 접두 인자
 2개로 보냅니다. 지원하는 내부 범위는 부호 있는 INT32(`8`, 빅엔디언 4바이트), 연결 문자셋의 CHAR(`1`,
 바이트와 끝 NUL), SQL NULL(`0`, 0바이트)입니다. 빈 CHAR는 NUL 1바이트이며 NULL이
-아닙니다. 선택적 `bind_count`는 전달된 바인딩 수와 일치해야 하며 forward-only
+아닙니다. #840부터 BIGINT(`21`, 빅엔디언 8바이트), DOUBLE(`12`, 8바이트, 유한값만),
+NUMERIC(`7`, ASCII 10진 텍스트와 NUL), 빅엔디언 int16 필드 7개(14바이트, 브로커는
+TIME을 오프셋 6에서 읽음)인 DATE(`13`), TIME(`14`), DATETIME(`22`), 그 14바이트 뒤에
+NUL 없는 시간대 텍스트를 붙인 DATETIMETZ(`31`), VARBIT(`6`, 1바이트 이상; 길이 0이면
+NULL로 읽힘)도 포함합니다.
+[Prepared 호스트 변수 매핑](PARAMETER_BINDING.md#prepared-호스트-변수-매핑)을 참고하세요. 선택적 `bind_count`는 전달된 바인딩 수와 일치해야 하며 forward-only
 바이트는 실제 autocommit을 따라 auto 모드일 때 `1`, 수동 모드일 때 `0`입니다. FC41 폴백이나 SQL 리터럴
 변환은 하지 않습니다.
 
