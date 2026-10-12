@@ -14,15 +14,17 @@ import datetime
 import enum
 import json
 import pathlib
+import typing
 from collections.abc import Sequence as AbcSequence
 from decimal import Decimal
 from typing import Any, NamedTuple
+from zoneinfo import ZoneInfo
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from pycubrid._cursor_common import bind_parameters
+from pycubrid._cursor_common import bind_parameters, format_parameter, split_on_placeholders
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.cursor import Cursor
 from pycubrid.exceptions import DataError, ProgrammingError
@@ -38,7 +40,31 @@ class _Color(enum.IntEnum):
     RED = 1
 
 
+class _Perm(enum.IntFlag):
+    READ = 4
+
+
 class _Text(str):
+    pass
+
+
+class _Int(int):
+    pass
+
+
+class _Float(float):
+    pass
+
+
+class _Dec(Decimal):
+    pass
+
+
+class _Bytes(bytes):
+    pass
+
+
+class _Stamp(datetime.datetime):
     pass
 
 
@@ -89,6 +115,16 @@ SCALARS: list[Any] = [
     datetime.datetime(2026, 10, 12, 1, 2, 3, 456789),
     datetime.datetime(2026, 10, 12, 1, 2, 3, 999, tzinfo=KST),
     datetime.datetime(2026, 1, 1, tzinfo=MINUS_0330),
+    datetime.datetime(2026, 10, 12, 9, 30, tzinfo=ZoneInfo("Asia/Seoul")),
+    # The repeated wall-clock hour of a DST change, second occurrence (#819).
+    datetime.datetime(2026, 11, 1, 1, 30, fold=1, tzinfo=ZoneInfo("America/New_York")),
+    datetime.time(7, 8, 9, tzinfo=KST),
+    _Stamp(2026, 2, 3, 4, 5, 6, 7000),
+    _Int(-42),
+    _Float(2.25),
+    _Dec("-12.50"),
+    _Bytes(b"\x01\x02"),
+    _Perm.READ,
     Set([1, "a", None]),
     Multiset([]),
     Sequence(["x'y", 2]),
@@ -123,9 +159,27 @@ def _rows(operation: str, no_backslash_escapes: bool) -> list[Any]:
 
 
 def _split(operation: str, no_backslash_escapes: bool) -> list[str]:
-    from pycubrid._cursor_common import split_on_placeholders
-
     return split_on_placeholders(operation, no_backslash_escapes=no_backslash_escapes)
+
+
+def _legacy_bind_parameters(
+    operation: str, parameters: Any, *, no_backslash_escapes: bool = True
+) -> str:
+    """A frozen copy of ``bind_parameters`` before #837, the reference renderer."""
+    if isinstance(parameters, typing.Sequence) and not isinstance(
+        parameters, (str, bytes, bytearray)
+    ):
+        values = list(parameters)
+    else:
+        raise ProgrammingError("parameters must be a sequence")
+    parts = split_on_placeholders(operation, no_backslash_escapes=no_backslash_escapes)
+    if len(parts) - 1 != len(values):
+        raise ProgrammingError("wrong number of parameters")
+    result = [parts[0]]
+    for index, value in enumerate(values, start=1):
+        result.append(format_parameter(value, no_backslash_escapes=no_backslash_escapes))
+        result.append(parts[index])
+    return "".join(result)
 
 
 def _cases() -> list[tuple[str, str, bool]]:
@@ -182,9 +236,14 @@ def render_with_cursor(
 
 
 def generate() -> dict[str, list[str]]:
-    """Render the corpus with the per-row ``bind_parameters`` (the pre-#837 path)."""
+    """Render the corpus through ``Cursor.executemany()`` of the imported ``pycubrid``.
+
+    The fixture was written by running this against an unmodified copy of the
+    package from before #837 (``PYTHONPATH`` pointing at a ``git archive`` of
+    the parent commit).
+    """
     return {
-        case_id: [bind_parameters(op, row, no_backslash_escapes=mode) for row in _rows(op, mode)]
+        case_id: render_with_cursor(op, _rows(op, mode), mode, asynchronous=False)
         for case_id, op, mode in _cases()
     }
 
@@ -210,26 +269,53 @@ def test_fixture_covers_every_case() -> None:
     assert all(len(fixture[c]) == len(SCALARS) for c in fixture)
 
 
-@settings(deadline=None, max_examples=200)
-@given(
-    rows=st.lists(
-        st.tuples(
-            st.one_of(st.none(), st.integers(), st.text(), st.booleans(), st.binary()),
-            st.one_of(st.none(), st.integers(), st.text(), st.decimals(allow_nan=False)),
-        ),
-        min_size=1,
-        max_size=8,
-    ),
-    mode=st.booleans(),
-    as_list=st.booleans(),
+_VALUES = st.one_of(
+    st.none(),
+    st.booleans(),
+    st.integers(),
+    st.floats(allow_nan=False, allow_infinity=False),
+    st.decimals(allow_nan=False, allow_infinity=False, places=4),
+    st.text(),
+    st.binary(),
+    st.datetimes(),
+    st.dates(),
+    st.times(),
 )
-def test_matches_the_per_row_renderer(
-    rows: list[tuple[Any, Any]], mode: bool, as_list: bool
-) -> None:
-    operation = OPERATIONS["quoted"].replace("(?)", "(1)")
-    sets = [list(row) if as_list else row for row in rows]
+
+
+@st.composite
+def _parameter_sets(draw: Any, count: int) -> list[Any]:
+    sets: list[Any] = []
+    for _ in range(draw(st.integers(min_value=1, max_value=6))):
+        size = count + draw(st.sampled_from([0, 0, 0, 0, -1, 1]))
+        values = draw(st.lists(_VALUES, min_size=max(size, 0), max_size=max(size, 0)))
+        kind = draw(st.sampled_from(["tuple", "list", "row", "pair", "str", "dict"]))
+        if kind == "tuple":
+            sets.append(tuple(values))
+        elif kind == "list":
+            sets.append(values)
+        elif kind == "row":
+            sets.append(_Row(*values))
+        elif kind == "pair" and len(values) == 2:
+            sets.append(_Pair(*values))
+        elif kind == "str":
+            sets.append("".join(map(str, values)))
+        elif kind == "dict":
+            sets.append(dict(enumerate(values)))
+        else:
+            sets.append(tuple(values))
+    return sets
+
+
+@settings(deadline=None, max_examples=300)
+@given(data=st.data(), name=st.sampled_from(sorted(OPERATIONS)), mode=st.booleans())
+def test_matches_the_frozen_per_row_renderer(data: Any, name: str, mode: bool) -> None:
+    operation = OPERATIONS[name]
+    sets = data.draw(_parameter_sets(len(_split(operation, mode)) - 1))
     try:
-        expected: Any = [bind_parameters(operation, row, no_backslash_escapes=mode) for row in sets]
+        expected: Any = [
+            _legacy_bind_parameters(operation, row, no_backslash_escapes=mode) for row in sets
+        ]
     except (ProgrammingError, DataError) as exc:
         expected = (type(exc), str(exc))
     try:
@@ -237,6 +323,9 @@ def test_matches_the_per_row_renderer(
     except (ProgrammingError, DataError) as exc:
         actual = (type(exc), str(exc))
     assert actual == expected
+    # The single-statement path shares the renderer and must agree as well.
+    if isinstance(expected, list):
+        assert [bind_parameters(operation, r, no_backslash_escapes=mode) for r in sets] == expected
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +356,7 @@ def test_operation_is_split_once_per_call(
 def _old_error(operation: str, rows: list[Any], mode: bool) -> tuple[type, str]:
     with pytest.raises((ProgrammingError, DataError)) as raised:
         for row in rows:
-            bind_parameters(operation, row, no_backslash_escapes=mode)
+            _legacy_bind_parameters(operation, row, no_backslash_escapes=mode)
     return type(raised.value), str(raised.value)
 
 

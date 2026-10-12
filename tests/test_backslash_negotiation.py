@@ -618,8 +618,8 @@ async def test_async_prebound_sql_cannot_cross_mode_generation(
     name = "_bind_parameter_sets" if batch else "_bind_parameters"
     original_bind = getattr(cursor, name)
 
-    def record_bind(operation: str, parameters: object) -> object:
-        sql = original_bind(operation, parameters)
+    def record_bind(operation: str, params_or_sets: object) -> object:
+        sql = original_bind(operation, params_or_sets)
         bound.set()
         return sql
 

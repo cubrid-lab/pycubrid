@@ -602,8 +602,11 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
 - **Placeholder tokenisation cached per `executemany()` call (#837)** — PATCH /
   internal performance change with no behavior change. The SQL that
   `executemany()` renders, its errors and the parameter set that raises them,
-  the escape-mode timing, request bytes and public signatures are unchanged;
-  the `PARAMETER_BINDING.md` contract is untouched.
+  request bytes and public signatures are unchanged; the `PARAMETER_BINDING.md`
+  contract is untouched. The escape mode is read once per call, before the first
+  set is checked, instead of once per set; the two differ only if iterating the
+  parameter sets reconnects the connection, and the send-time generation check
+  rejects such SQL either way.
 
 - **Faster FETCH row parsing (#559)** — PATCH / internal performance change
   with no behavior change. Row values, `DataError` / malformed-reply

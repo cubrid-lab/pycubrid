@@ -201,18 +201,23 @@ flowchart TD
 
 확인되지 않은 것: CUBRID 10.2, 11.0, 11.2에서 `CUBRIDdb`와의 격차, 그리고 서버 시간이 CAS와 엔진에 어떻게 나뉘는지. 준비된 배치 경로는 네 버전 모두에서 측정했습니다(다음 절 참고). 플레이스홀더 토큰화는 이제 호출마다 한 번만 합니다([아래](#executemany-호출마다-한-번만-하는-플레이스홀더-토큰화) 참고).
 
+<a id="executemany-호출마다-한-번만-하는-플레이스홀더-토큰화"></a>
+
 ### `executemany()` 호출마다 한 번만 하는 플레이스홀더 토큰화
 
 [#837](https://github.com/cubrid-lab/pycubrid/issues/837)부터 `executemany()`의 리터럴 배치
 경로는 SQL을 `?` 플레이스홀더로 나누는 작업을 파라미터 세트마다가 아니라 호출마다 한 번만
 합니다. 정확히 `tuple`이나 `list`인 파라미터 세트는 `typing.Sequence` 검사도 건너뛰며, 그
 밖의 타입은 전체 검사를 거칩니다. 렌더링된 SQL은 바이트 단위로 같습니다.
-`tests/test_executemany_bind_cache.py`가 문장 310개(모든 리터럴 타입, 따옴표, 주석, 식별자,
-두 이스케이프 모드)를 변경 전에 렌더링한 SQL과 비교하며,
-[PARAMETER_BINDING.md](PARAMETER_BINDING.md)의 바인딩 계약은 바뀌지 않습니다.
+`tests/test_executemany_bind_cache.py`가 문장 400개(하위 클래스, IANA 시간대, DST 반복 시간을
+포함한 모든 리터럴 타입 계열, 따옴표, 주석, 식별자, 두 이스케이프 모드)를 변경 전
+`executemany()`가 렌더링한 SQL과 비교하며, [PARAMETER_BINDING.md](PARAMETER_BINDING.md)의
+바인딩 계약은 바뀌지 않습니다.
 
 파라미터 다섯 개(`INT`, `VARCHAR`, `DOUBLE`, `DATETIME`, `NULL`)짜리 10,000행, Python 3.12,
-Intel Core i5-9400F, 중앙값:
+Intel Core i5-9400F, 중앙값. "오프라인"은 그 테스트의 `render_with_cursor`처럼
+`_send_and_receive`가 배치에 응답하도록 모의한 `Cursor.executemany()`를 잽니다. "실제"는 로컬
+Docker 서버에 autocommit을 끄고 실행하며 commit은 CPU 측정 밖에 둡니다:
 
 | 측정 | 변경 전 | 변경 후 |
 |---|---:|---:|

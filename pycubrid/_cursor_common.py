@@ -518,6 +518,8 @@ def _parameter_values(parameters: Sequence[Any]) -> Sequence[Any]:
         return parameters
     if cls is list:
         return list(parameters)
+    # typing.Sequence checks type(obj), not __class__; collections.abc.Sequence
+    # would accept an object that only claims a sequence type through __class__.
     if isinstance(parameters, Sequence) and not isinstance(parameters, (str, bytes, bytearray)):
         return list(parameters)
     raise ProgrammingError("parameters must be a sequence")
@@ -660,11 +662,14 @@ class CursorParamsMixin(Generic[_ConnT]):
         The result is byte-identical to ``_bind_parameters`` per set: on the
         first set the escape mode is resolved, the set is checked and the SQL
         is split, in that order; every set is then checked and rendered in
-        turn, so the first bad set raises what it raised before.
+        turn, so the first bad set raises what it raised before. The escape
+        mode is read once per call, before the first set is checked, instead
+        of once per set; the two differ only if iterating the sets reconnects
+        the connection, and the send-time generation check rejects that SQL.
         """
         rendered: list[str] = []
         parts: list[str] | None = None
-        mode = True
+        mode: bool
         for parameters in seq_of_parameters:
             if parts is None:
                 mode = self._resolve_escape_mode()
