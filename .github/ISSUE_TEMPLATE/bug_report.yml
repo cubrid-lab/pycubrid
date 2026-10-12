@@ -69,7 +69,7 @@ body:
       label: Environment
       description: Provide details about your environment
       placeholder: |
-        - Python version: 3.10
+        - Python version: 3.12
         - CUBRID version: 11.2
         - pycubrid version: 0.6.0
         - Operating System: Linux/macOS/Windows
