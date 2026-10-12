@@ -13,6 +13,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 try:
@@ -231,9 +232,24 @@ class PrTitleValidatorTest(unittest.TestCase):
             "Closes [another-org/another-repo#42]\n\n"
             "[another-org/another-repo#42]: https://github.com/another-org/another-repo/issues/42",
             "Closes [bug][1]\n\n[1]: https://github.com/another-org/another-repo/issues/42",
+            "Closes [x][a\\]b]\n\n[a\\]b]: https://github.com/another-org/another-repo/issues/42",
+            "Closes [x][a b]\n\n[a\nb]: https://github.com/another-org/another-repo/issues/42",
+            "Closes [x][\u1e9e]\n\n[SS]: https://github.com/another-org/another-repo/issues/42",
+            "Closes [x\ny](https://github.com/another-org/another-repo/issues/42)",
+            'Closes <a href="https://github.com/another-org/another-repo/issues/42">x</a>',
+            "Closes _another-org_/another-repo#42",
+            "Closes __another-org__/another-repo#42",
+            "Closes another-org/another-repo#_42_",
+            "Closes https://github.com/another-org/another-repo/issues/__42__",
+            "Clo<!-- -->ses another-org/another-repo#42",
+            "Closes another-org/another-repo#<!-- -->42",
+            "Closes another-org/another-repo#042",
         ):
             with self.subTest(body=body):
                 self._assert_rejected(body)
+
+    def test_enterprise_managed_owner_fails(self) -> None:
+        self._assert_rejected("Closes alice_acme/another-repo#42", "alice_acme/another-repo#42")
 
     def test_local_closures_and_foreign_refs_pass(self) -> None:
         for body in (
@@ -255,6 +271,18 @@ class PrTitleValidatorTest(unittest.TestCase):
         # Commit messages are plain text: Markdown code does not hide a keyword.
         self._assert_rejected_commits("docs: x\n\n`Closes another-org/another-repo#42`")
         self._assert_accepted_commits("fix: a\n\nCloses #815\nRefs another-org/another-repo#42\n")
+
+    def test_foreign_closure_in_the_title_fails(self) -> None:
+        result = _run("fix: closes https://github.com/another-org/another-repo/issues/42")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("in a PR title", result.stdout)
+
+    def test_too_many_commits_to_list_fails(self) -> None:
+        env = {**os.environ, "PR_COMMIT_COUNT": "250"}
+        with unittest.mock.patch.dict(os.environ, env):
+            result = _run("docs: align issue ownership", "", "fix: a\n")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("250 or more commits", result.stdout)
 
     def _assert_rejected_commits(self, commits: str) -> None:
         result = _run("docs: align issue ownership", "", commits)
@@ -385,6 +413,17 @@ class PrTitleValidatorTest(unittest.TestCase):
             "[r]:``\nCloses another-org/another-repo#42``",
             "[r]:`\n-\n    Closes another-org/another-repo#42",
             "[r]:`\n---\n    Closes another-org/another-repo#42",
+            # Link destinations, titles and labels hold no code spans or comments.
+            "[a](b`c) Closes another-org/another-repo#42 `d",
+            '[a](b "`") Closes another-org/another-repo#42 `"',
+            "![a](b`c) Closes another-org/another-repo#42 `d",
+            "[a][b`c] Closes another-org/another-repo#42 `d\n\n[b`c]: /u",
+            "[a](b<!--) Closes another-org/another-repo#42 -->",
+            # Footnote definitions are containers that interrupt paragraphs.
+            "Text[^n]\n\n[^n]: Note\n\n    Closes another-org/another-repo#42",
+            "[^1]:\n\n\tCloses another-org/another-repo#42[^1]",
+            "`<!--Closes another-org/another-repo#42\n[^1]:-->",
+            "``\n[^1]:\nCloses another-org/another-repo#42``",
         ):
             with self.subTest(body=body):
                 self._assert_rejected(body)

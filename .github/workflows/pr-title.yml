@@ -6,9 +6,9 @@ name: PR title
 # Security: runs on `pull_request` (never `pull_request_target`), checks out
 # nothing and receives the title and body only through environment variables, so
 # no PR-controlled code or string is executed. The job's token can only read pull
-# requests: it lists the PR's commit messages, which are read as data only.
-# Also rejects foreign-issue closing keywords in the PR body and in the commit
-# messages, which make up the squash commit message.
+# requests: `gh api` lists the PR's commit messages into a file that is read as
+# data only. Also rejects foreign-issue closing keywords in the PR body, and in
+# the title and commit messages, which make up the squash commit.
 # The job name "PR title" is the required-status-check context; keep it stable.
 
 on:
@@ -34,6 +34,7 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_COMMIT_COUNT: ${{ github.event.pull_request.commits }}
           GH_TOKEN: ${{ github.token }}
         run: |
           export PR_COMMITS_FILE="$RUNNER_TEMP/pr-commit-messages.txt"
@@ -108,6 +109,7 @@ jobs:
 
           # BEGIN cross-repo-closing-guard
           # No checkout or execution of untrusted PR-body text is needed.
+          import bisect
           import html as html_lib
 
           def strip_inert_markdown(text: str) -> str:
@@ -131,6 +133,7 @@ jobs:
               setext = re.compile(r"(?:=+|-+) *$")
               opener = re.compile(r"\x60{3,}|~{3,}")
               heading = re.compile(r"#{1,6}(?: |$)")
+              footnote = re.compile(r"\[\^[^\]\s]+\]:")  # A GFM footnote definition.
               raw_tag = re.compile(r"<(pre|script|style|textarea)(?:\s|>|$)", re.I)
               block_tag = re.compile(  # HTML block type 6 (cmark-gfm 0.29).
                   r"</?(?:address|article|aside|base|basefont|blockquote|body|caption|center"
@@ -157,7 +160,7 @@ jobs:
                   + r")*\s*/?>|</[a-z][a-z0-9-]*\s*>)\s*$",
                   re.I,
               )
-              token = re.compile(r"<|\x60+|(?:https?://|ftp://|www\.)", re.I)
+              token = re.compile(r"<|\x60+|\]\(|\]\[|(?:https?://|ftp://|www\.)", re.I)
 
               def fence_opener(content: str) -> "re.Match[str] | None":
                   found = opener.match(content)
@@ -167,37 +170,58 @@ jobs:
 
               def scan(text: str) -> str:
                   # Blank out inline comments and code spans, left to right as CommonMark
-                  # does. Raw HTML, autolinks and GFM extended autolinks take precedence
-                  # and are not always recognisable for certain, so every reading is
-                  # followed and a character stays live if any reading keeps it live.
+                  # does. Raw HTML, autolinks, GFM extended autolinks and link
+                  # destinations take precedence and are not always recognisable for
+                  # certain, so every reading is followed and a character stays live if
+                  # any reading keeps it live. Hidden text becomes "\0" so the views can
+                  # read it as nothing or as a space. Past a work budget the whole text
+                  # stays live: that only adds false positives.
                   live = [False] * len(text)
-                  todo, visited = [0], set()
+                  todo, visited, closers = [0], set(), {}
+                  angles = [i for i, char in enumerate(text) if char == ">"]
+                  budget = 20000
 
                   def keep(start: int, end: int) -> None:
                       live[start:end] = [True] * (end - start)
+
+                  def branch(start: int, ends: "set[int]") -> None:
+                      for end in ends - {0, start}:
+                          keep(start, end)  # Raw HTML, links and destinations stay live.
+                          todo.append(end)
 
                   while todo:
                       pos = todo.pop()
                       while pos not in visited and pos < len(text):
                           visited.add(pos)
+                          budget -= 1
+                          if budget < 0:
+                              return text
                           found = token.search(text, pos)
                           if found is None:
                               keep(pos, len(text))
                               break
                           start = found.start()
                           keep(pos, start)
-                          slashes = start - len(text[:start].rstrip("\\"))
-                          if slashes % 2:  # An escaped "<" or backtick is literal text.
+                          slashes = 0
+                          while start > slashes and text[start - slashes - 1] == "\\":
+                              slashes += 1
+                          if slashes % 2:  # An escaped character is literal text.
                               keep(start, start + 1)
                               pos = start + 1
                           elif found.group()[0] == "\x60":
-                              run = re.escape(found.group())
-                              close = re.compile(rf"(?<!\x60){run}(?!\x60)").search(text, found.end())
-                              if close is None:
+                              run = len(found.group())
+                              if run not in closers:
+                                  closers[run] = [
+                                      m.start()
+                                      for m in re.finditer(rf"(?<!\x60)\x60{{{run}}}(?!\x60)", text)
+                                  ]
+                              index = bisect.bisect_left(closers[run], found.end())
+                              later = closers[run][index:index + 1]
+                              if not later:
                                   keep(start, found.end())
                                   pos = found.end()
                               else:
-                                  pos = close.end()  # Inline code is inert.
+                                  pos = later[0] + run  # Inline code is inert.
                           elif text.startswith("<!--", start):
                               body = text[start + 4:]
                               close = body.find("-->")
@@ -215,20 +239,29 @@ jobs:
                                       todo.append(start + 7 + close)
                                   keep(start, start + 1)
                                   pos = start + 1
+                          elif found.group() in ("](", "]["):
+                              # A link destination, title or label: its backticks and
+                              # "<!--" are not code or comments.
+                              closing = ")" if found.group() == "](" else "]"
+                              stop = text.find(closing, found.end())
+                              branch(start, {stop + 1} if stop >= 0 else set())
+                              keep(start, start + 1)
+                              pos = start + 1
                           else:
                               if found.group() == "<":
                                   tag = inline_html.match(text, start)
-                                  ends = {text.find(">", start) + 1, tag.end() if tag else 0}
+                                  index = bisect.bisect_left(angles, start)
+                                  angle = angles[index] + 1 if index < len(angles) else 0
+                                  ends = {angle, tag.end() if tag else 0}
                               else:  # A GFM extended autolink runs to whitespace or "<".
                                   stop = re.compile(r"[^\s<]*").match(text, start).end()
-                                  ends = {stop} | {i for i in range(start, stop) if text[i] == "\x60"}
-                              for end in ends - {0, start}:
-                                  keep(start, end)  # Raw HTML and links stay live.
-                                  todo.append(end)
+                                  tick = text.find("\x60", start, stop)
+                                  ends = {stop, tick if tick >= 0 else 0}
+                              branch(start, ends)
                               keep(start, start + 1)
                               pos = start + 1
                   return "".join(
-                      char if live[i] or char == "\n" else " " for i, char in enumerate(text)
+                      char if live[i] or char == "\n" else "\0" for i, char in enumerate(text)
                   )
 
               def flush(as_heading: bool = False) -> None:
@@ -271,6 +304,7 @@ jobs:
                   return bool(
                       fence_opener(content)
                       or content.startswith((">", "<!--"))
+                      or footnote.match(content)
                       or html_block(content, True) is not None
                       or heading.match(content)
                       or rule.match(content)
@@ -387,6 +421,13 @@ jobs:
                           containers.append(["quote", 0, False])
                           col += indent + 1 + (content[1:2] == " ")
                           continue
+                      found = footnote.match(content)
+                      if found is not None:
+                          # Its paragraphs continue on lines indented by four columns.
+                          containers.append(["item", 4, False])
+                          after = content[found.end():]
+                          col += indent + found.end() + len(after) - len(after.lstrip(" "))
+                          continue
                       found = marker.match(content)
                       if found is not None and not rule.match(content):
                           after = content[found.end():]
@@ -428,18 +469,19 @@ jobs:
 
           def rendered_views(text: str) -> list[str]:
               # Read the text as rendered: hard breaks, escapes and entities resolved,
-              # reference links resolved, then inline tags, emphasis markers and link
-              # brackets removed or turned into spaces.
+              # hidden text, inline tags, emphasis markers and link brackets removed or
+              # turned into spaces, and anchors and link definitions pointing at an
+              # issue applied to every bracket, whatever its label.
               text = text.replace("\\\n", "\n")
               text = html_lib.unescape(re.sub(r"\\([!-/:-@\[-\x60{-~])", r"\1", text))
-              definition = re.compile(r"(?m)^ {0,3}\[([^\]\n]+)\]:[ \t]*\n?[ \t]*<?([^\s>]+)>?")
-              for label, url in definition.findall(text):
-                  if not label.strip():
-                      continue
-                  name = r"\[\s*" + r"\s+".join(map(re.escape, label.split())) + r"\s*\]"
-                  link = lambda found, url=url: f"{found.group(1)}({url})"  # noqa: E731
-                  text = re.sub(r"(\[[^\]\n]*\])" + name, link, text, flags=re.I)
-                  text = re.sub(rf"({name})(?:\[\])?(?![\[(:])", link, text, flags=re.I)
+              text = re.sub(
+                  r"<a\s[^<>]{0,2000}?\bhref\s*=\s*[\"']?([^\"'\s<>]+)[^<>]{0,2000}>",
+                  r" \1 ",
+                  text,
+                  flags=re.I,
+              )
+              issue = r"<?(https?://(?:www\.)?github\.com/[^\s/>]+/[^\s/>]+/issues/[0-9]+)"
+              urls = set(re.findall(r"\]:\s*" + issue, text, flags=re.I))
               tags = (
                   r"</?[a-z][a-z0-9-]*"
                   r"(?:\s+[^\s\"'=<>/]+(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>\x60]+))?)*"
@@ -447,22 +489,34 @@ jobs:
               )
               views = []
               for glue in ("", " "):
-                  view = re.sub(r"[*~]", glue, re.sub(tags, glue, text, flags=re.I))
-                  views += [view, re.sub(r"[\[\]]", glue, view)]
+                  view = re.sub(tags, glue, text.replace("\0", glue), flags=re.I)
+                  for marks in (r"[*~]", r"[*~_]"):
+                      marked = re.sub(marks, glue, view)
+                      views += [marked, re.sub(r"[\[\]]", glue, marked)]
+                      for url in sorted(urls):
+                          views.append(re.sub(r"\](?!\()", lambda _, url=url: f"]({url})", marked))
               return views
 
           close_ref = re.compile(
               r"(?i)(?<![a-z0-9])(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)"
-              r"[\s:_]+(?:\[[^\n]*?\]\(\s*)?<?(?:(?:https?://)?(?:www\.)?github\.com/)?_*"
-              r"(?P<owner>[a-z0-9][a-z0-9-]*)/(?P<repo>[a-z0-9_.-]+)"
-              r"(?:#|/issues/)(?P<number>[1-9][0-9]*)(?![0-9])"
+              r"[\s:_]+(?:\[(?s:.{0,1000}?)\]\(\s*)?<?(?:(?:https?://)?(?:www\.)?github\.com/)?_*"
+              r"(?P<owner>[a-z0-9][a-z0-9_-]*)/(?P<repo>[a-z0-9_.-]+)"
+              r"(?:#|/issues/)0*(?P<number>[1-9][0-9]*)(?![0-9])"
           )
           local_repo = os.environ.get("GITHUB_REPOSITORY", "").lower()
-          # The squash commit message lists the PR's commit messages, which GitHub
+          # The PR title and the commit messages form the squash commit, which GitHub
           # reads as plain text, so they are checked without Markdown stripping.
-          sources = [("PR body", strip_inert_markdown(os.environ.get("PR_BODY", "")))]
+          sources = [
+              ("PR body", strip_inert_markdown(os.environ.get("PR_BODY", ""))),
+              ("PR title", title),
+          ]
           commits_file = os.environ.get("PR_COMMITS_FILE")
           if commits_file:
+              if int(os.environ.get("PR_COMMIT_COUNT") or 0) >= 250:
+                  errors.append(
+                      "The PR has 250 or more commits; GitHub lists only 250, so their "
+                      "messages cannot all be checked for foreign issue closures."
+                  )
               with open(commits_file, encoding="utf-8") as handle:
                   sources.append(("commit message", handle.read()))
           for where, text in sources:
