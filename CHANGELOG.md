@@ -81,23 +81,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **The closing guard skips a multi-line link reference definition** — CommonMark
+  lets a definition's destination and title run on to later lines, so `Closes`, a
+  `[a]:` line, an indented `/target` line and then `owner/repo#N` still renders
+  nothing between the keyword and the reference. The gap walk now reaches every
+  later line end of the paragraph after a definition line, up to a blank line, which
+  can only add blocking; each line end is scanned once per check. Copilot found this
+  in cubrid-lab/sqlalchemy-cubrid#822; `pr-title.yml` stays byte-identical across
+  pycubrid, sqlalchemy-cubrid, cubrid-mcp-server and cubrid-cookbook-python.
+
+- **Generated issue references are written as "refs", not "closes", in `CHANGELOG.md` and the
+  release PR body** — release-please 17.6.0 renders every issue trailer in a commit's final
+  footer block as `, closes [#N](…)`, so a commit that only said `Refs #N` was listed as
+  closing that issue, and GitHub read the release PR body as closing it on merge.
+  `scripts/compose_release_changelog.py` (shared byte for byte with sqlalchemy-cubrid and
+  cubrid-mcp-server; cubrid-lab/sqlalchemy-cubrid#820, cubrid-lab/sqlalchemy-cubrid#821,
+  cubrid-lab/cubrid-mcp-server#280) now rewrites generated
+  references to `, refs [#N](…)` on generated entry lines outside code blocks, and the
+  **Prepare release** workflow applies the same rewrite to the release PR body right after
+  release-please updates it; no permission changes (#850).
+
+- **The closing guard is the one shared with sqlalchemy-cubrid, cubrid-mcp-server
+  and cubrid-cookbook-python** — `pr-title.yml` is the shared file, and a test pins
+  the guard block's SHA-256. This change also catches a closing keyword used as link
+  text (`[Closes](url) owner/repo#N`, which renders as "Closes owner/repo#N"), a
+  quoted continuation line, an image or a link reference definition between the
+  keyword and the reference, and stays fast on adversarial link syntax; the three
+  sibling repositories take the same fix in their own pull requests, after which the
+  file is byte-identical in all four. The shared guard is the union of both
+  versions. It keeps this repository's title, commit-message, underscore-owner and
+  250-commit checks, checks each commit message on its own, and blocks forms this
+  guard let through: a comment that ends at `--!>`, `<?` and `<![CDATA[` that a
+  browser ends at the first `>`, a quote inside an earlier tag's attribute that
+  reopens a later comment, raw-text elements such as `<select>`, a leading byte
+  order mark, a fence in a block quote followed by top-level text, lowercase `<!x`
+  declaration lines, inline instructions and CDATA between the keyword and the
+  reference, relative issue links, a lazy `<span>` continuation under a list item,
+  and a foreign issue listed after another one (`Closes #1, owner/repo#2`). Code
+  spans and inline comments are now checked, and so are fences inside list items or
+  block quotes, indented code inside list items, and indented text after an empty
+  list item or a thematic break: hiding them needs inline or container parsing that
+  a mis-paired fence or a link destination can defeat, so some bodies this guard
+  accepted are now blocked; the change trades missed closures for false positives.
+  Every regression case from this repository is kept; the 13 whose expectation
+  changed are in `test_uncertain_markdown_is_checked_on_purpose`, and CONTRIBUTING
+  (English and Korean) and AGENTS.md describe the shared rules.
 - **Repository-local issue closure in PRs** — the required `PR title` check now
-  rejects direct closing keywords targeting a different GitHub repository in the
-  PR body, the PR title and the PR's commit messages (the title and commit
-  messages make up the squash commit); local `Closes #N` and cross-repository
+  rejects direct closing keywords targeting a different GitHub repository in the PR
+  body, the PR title and the PR's commit messages (the title and commit messages
+  make up the squash commit); local `Closes #N` and cross-repository
   `Refs owner/repo#N` remain valid. The body is untrusted data and nothing is
   checked out; the job's token can only read pull requests, to list the commit
-  messages, and a PR with 250 or more commits fails because GitHub lists only
-  250. The body is read the way GitHub's cmark-gfm renders it: block quotes,
-  list items, footnote definitions, lazy continuation, setext headings, HTML
-  blocks, tables and link reference definitions. Only fenced and indented code,
-  HTML comments and code spans are ignored; where a construct can be read more
-  than one way every reading is checked, and text that any reading shows counts
-  as live. Keywords and references split by emphasis (`*`, `_`, `~`), inline
-  HTML, comments, entities or escapes are caught, as are `http://`, `www.`,
-  autolink, `<a href>`, inline and reference-link issue URLs. The title and
-  commit messages are plain text and are checked as written. Regression tests
-  cover each case.
+  messages, and a PR with 250 or more commits fails because GitHub lists only 250.
+  Keywords and references split by emphasis (`*`, `_`, `~`), inline HTML, comments,
+  entities or escapes are caught, as are `http://`, `www.`, autolink, `<a href>`,
+  inline and reference-link issue URLs. The title and commit messages are plain text
+  and are checked as written. How the body's Markdown is read is described in the
+  entry above.
 
 ## [1.11.0] - 2026-10-11
 
