@@ -30,6 +30,7 @@
 
 # Wire protocol and connection critical paths
 /pycubrid/protocol.py               @yeongseon @paikend
+/pycubrid/_prepared_binding.py      @yeongseon @paikend
 /pycubrid/packet.py                 @yeongseon @paikend
 /pycubrid/_connection_common.py     @yeongseon @paikend
 /pycubrid/connection.py             @yeongseon @paikend

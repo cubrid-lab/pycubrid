@@ -85,6 +85,7 @@ def test_workflow_impact_table(name: str) -> None:
         ("pycubrid/aio/connection.py", {"code", "risk", "tls", "charset"}),
         ("pycubrid/compat/__init__.py", {"code", "risk", "official"}),
         ("pycubrid/protocol.py", {"code", "risk", "tls", "charset", "official"}),
+        ("pycubrid/_prepared_binding.py", {"code", "risk", "charset", "official"}),
         ("tests/test_tls_matrix_offline.py", {"code", "risk", "tls"}),
         ("scripts/wait_for_cubrid.py", {"code", "risk", "tooling", "official"}),
         ("pyproject.toml", {"code", "risk", "tooling", "site"}),

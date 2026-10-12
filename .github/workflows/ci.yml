@@ -176,6 +176,7 @@ jobs:
             charset:
               - 'pycubrid/packet.py'
               - 'pycubrid/protocol.py'
+              - 'pycubrid/_prepared_binding.py'
               - 'pycubrid/connection.py'
               - 'pycubrid/_connection_common.py'
               - 'tests/test_integration_charset.py'
@@ -185,6 +186,7 @@ jobs:
             official:
               - 'pycubrid/compat/**'
               - 'pycubrid/protocol.py'
+              - 'pycubrid/_prepared_binding.py'
               - 'pycubrid/cursor.py'
               - 'tests/test_official*.py'
               - 'tests/fixtures/official*'

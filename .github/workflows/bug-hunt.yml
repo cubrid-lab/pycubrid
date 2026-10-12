@@ -138,7 +138,7 @@ jobs:
       matrix:
         include:
           - shard: protocol
-            mutants: "pycubrid.protocol.*"
+            mutants: "pycubrid.protocol.* pycubrid._prepared_binding.*"
           - shard: connection
             mutants: "pycubrid.connection.* pycubrid.aio.connection.*"
           - shard: packet-aio-cursor-lob

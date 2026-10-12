@@ -328,8 +328,8 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 
 This section does **not** change the literal contract above. It describes the
 typed values that the explicit `pycubrid.compat.native` cursor's
-`bind_param()` sends through FC3 (`pycubrid/protocol.py`
-`_encode_prepared_scalar`). Since #840 it accepts the same Python types as the
+`bind_param()` sends through FC3 (`pycubrid/_prepared_binding.py`
+`_encode_prepared_scalar`, re-exported from `pycubrid.protocol`). Since #840 it accepts the same Python types as the
 literal path, except typed collections (bind those with `bind_set()`) and empty
 `bytes`. Each
 value is sent as one type byte and its value bytes; nothing is rendered into

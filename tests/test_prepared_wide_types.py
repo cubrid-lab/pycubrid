@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from pycubrid import _cursor_common, protocol
+from pycubrid import _cursor_common, _prepared_binding, protocol
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.exceptions import DataError, NotSupportedError, ProgrammingError
 from pycubrid.protocol import _encode_prepared_scalar, _PreparedScalar
@@ -262,7 +262,7 @@ def test_overridden_class_attribute_is_not_trusted(claimed: type) -> None:
 def test_decimal_subclass_needs_the_c_module(monkeypatch: pytest.MonkeyPatch) -> None:
     _pydecimal = pytest.importorskip("_pydecimal")
     monkeypatch.setattr(_cursor_common, "Decimal", _pydecimal.Decimal)
-    monkeypatch.setattr(protocol, "Decimal", _pydecimal.Decimal)
+    monkeypatch.setattr(_prepared_binding, "Decimal", _pydecimal.Decimal)
     sub = type("Sub", (_pydecimal.Decimal,), {})
     with pytest.raises(ProgrammingError, match="Decimal subclass"):
         _encode_prepared_scalar(sub("1"))

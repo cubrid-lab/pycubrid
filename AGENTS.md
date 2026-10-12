@@ -55,6 +55,7 @@ graph TD
 | `constants.py` | `CASFunctionCode`, `CUBRIDDataType`, `CUBRIDStatementType`, protocol/data-size constants (enum members are the source of truth) |
 | `packet.py` | Low-level binary read/write with big-endian byte ordering |
 | `protocol.py` | High-level CAS packet classes for the implemented function codes |
+| `_prepared_binding.py` | Private prepared bind types and encoders for FC3/FC21 (re-exported from `protocol.py`; must not import it) |
 | `connection.py` | `Connection` — TCP socket management, transactions, autocommit, LOB creation, schema info |
 | `cursor.py` | `Cursor` — execute, executemany, fetch, callproc, description, iteration |
 | `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |

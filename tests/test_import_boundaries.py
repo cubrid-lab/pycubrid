@@ -1,7 +1,8 @@
-"""Fresh import orders and preserved cursor/exception boundaries (#561)."""
+"""Fresh import orders and preserved cursor/exception boundaries (#561, #856)."""
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,8 @@ from pycubrid.exceptions import DatabaseError, ProgrammingError
         "pycubrid.aio.cursor",
         "pycubrid._cursor_common",
         "pycubrid.exceptions",
+        "pycubrid.protocol",
+        "pycubrid._prepared_binding",
     ],
 )
 def test_import_order_preserves_real_cursor_factories_and_aliases(first: str) -> None:
@@ -87,3 +90,69 @@ def test_shared_batch_error_preserves_known_and_unknown_metadata(
     assert caught.value.msg == "batch failure"
     assert caught.value.code == caught.value.errno == code
     assert caught.value.sqlstate == sqlstate
+
+
+_PACKAGE = Path(__file__).resolve().parents[1] / "pycubrid"
+
+
+def _module_defined_names(source: str) -> set[str]:
+    """Return the names a module binds at top level by definition, not import."""
+    names: set[str] = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+    return names
+
+
+def test_prepared_binding_names_are_reexported_from_protocol_as_the_same_objects() -> None:
+    # The binding types and encoders moved out of protocol.py (#856); every
+    # name, private or not, keeps resolving on pycubrid.protocol to the very
+    # same object, so isinstance() checks and existing imports are unchanged.
+    from pycubrid import _prepared_binding, protocol
+
+    names = _module_defined_names((_PACKAGE / "_prepared_binding.py").read_text())
+    assert {"_PreparedScalar", "_encode_prepared_rows", "_write_prepared_binding"} <= names
+    for name in sorted(names):
+        assert getattr(protocol, name) is getattr(_prepared_binding, name), name
+    # protocol.py defines none of them itself (no second copy to drift).
+    assert not names & _module_defined_names((_PACKAGE / "protocol.py").read_text())
+
+
+def _package_imports(module: str) -> set[str]:
+    """Return the pycubrid modules ``module`` imports (relative or absolute)."""
+    path = _PACKAGE / (module.removeprefix("pycubrid.").replace(".", "/") + ".py")
+    package = module.rsplit(".", 1)[0]
+    if not path.exists():  # a subpackage: its __init__ is its own package
+        path = path.with_suffix("") / "__init__.py"
+        package = module
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package.split(".")[: len(package.split(".")) - node.level + 1]
+                target = ".".join(base + ([node.module] if node.module else []))
+            else:
+                target = node.module or ""
+            if target.startswith("pycubrid."):
+                found.add(target)
+        elif isinstance(node, ast.Import):
+            found.update(a.name for a in node.names if a.name.startswith("pycubrid."))
+    return found
+
+
+def test_prepared_binding_does_not_import_protocol_directly_or_transitively() -> None:
+    # The dependency is one-way (protocol -> _prepared_binding); a back edge
+    # would make the import order matter (#856).
+    seen: set[str] = set()
+    pending = ["pycubrid._prepared_binding"]
+    while pending:
+        module = pending.pop()
+        if module in seen:
+            continue
+        seen.add(module)
+        pending.extend(_package_imports(module))
+    assert "pycubrid.protocol" not in seen, sorted(seen)

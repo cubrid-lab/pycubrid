@@ -159,6 +159,7 @@ source_paths = ["pycubrid"]
 only_mutate = [
     "pycubrid/packet.py",
     "pycubrid/protocol.py",
+    "pycubrid/_prepared_binding.py",
     "pycubrid/_cursor_common.py",
     "pycubrid/_connection_common.py",
     "pycubrid/cursor.py",

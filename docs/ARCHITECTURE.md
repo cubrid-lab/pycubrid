@@ -154,6 +154,7 @@ flowchart TD
     conn["connection.py<br/>TCP socket, transactions, LOB"]
     cursor["cursor.py<br/>execute, fetch, callproc"]
     protocol["protocol.py<br/>18 CAS packet classes"]
+    binding["_prepared_binding.py<br/>Prepared bind encoders"]
     packet["packet.py<br/>PacketReader / PacketWriter"]
     constants["constants.py<br/>CASFunctionCode, CUBRIDDataType"]
     types["types.py<br/>DBAPIType, STRING, NUMBER, ..."]
@@ -171,6 +172,8 @@ flowchart TD
     cursor --> protocol
     cursor --> packet
     cursor --> exceptions
+    protocol --> binding
+    binding --> packet
     protocol --> packet
     protocol --> constants
     protocol --> exceptions
@@ -181,6 +184,7 @@ flowchart TD
 - **`connection.py` — TCP Socket & Transaction Management**: Manages the physical TCP connection to the CAS, handles transactions (commit/rollback), and acts as the owner for LOB operations.
 - **`cursor.py` — SQL Execution & Result Fetching**: Implements the `Cursor` object, handling SQL preparation, execution, and the various fetch operations while maintaining state of results.
 - **`protocol.py` — CAS Packet Classes**: Defines 18 specialized packet classes that map to CUBRID CAS function codes, handling the serialization and deserialization of specific requests and responses.
+- **`_prepared_binding.py` — Prepared Bind Encoders (private)**: Validates Python values and encodes them as the typed bind arguments of the prepared FC3 (`EXECUTE`) and FC21 (`EXECUTE_ARRAY`) requests: scalars, `Set`/`Multiset`/`Sequence` collections and LOB handles, with no SQL rendering and no I/O. It imports nothing from `protocol.py`; `protocol.py` re-exports every name, so `pycubrid.protocol._PreparedScalar` and the other names are the same objects (#856).
 - **`packet.py` — PacketReader / PacketWriter**: Provides low-level utilities for reading from and writing to the wire format, handling byte order and primitive type serialization. Both carry the connection `charset` codec (#86): the connection sets it on every packet before `write()`, so SQL text, credentials, character values, column names, error text and LOB locators use the database charset, while fetched JSON, NUMERIC and timezone names stay UTF-8. See [Character Encoding](CONNECTION.md#character-encoding).
 - **`constants.py` — CAS Constants**: Contains enumeration for CAS function codes, CUBRID data types, and other protocol-level constants.
 - **`types.py` — DB-API Types**: Defines the type objects required by PEP 249 and manages the mapping between CUBRID types and Python types.

@@ -111,6 +111,9 @@ def test_bind_count_mismatch_rejects_before_frame_is_built() -> None:
         (1, b"not terminated", ProgrammingError),
         (1, b"\xff\x00", DataError),
         (255, b"", ProgrammingError),
+        (True, b"\x00\x00\x00\x01", ProgrammingError),
+        ("8", b"\x00\x00\x00\x01", ProgrammingError),
+        (8, bytearray(b"\x00\x00\x00\x01"), ProgrammingError),
     ],
 )
 def test_malformed_prepared_scalar_cannot_be_serialized(

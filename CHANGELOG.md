@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal: the prepared bind types and encoders moved out of `protocol.py`
+  (#856)** — refactor with no behavior change. `_PreparedScalar`,
+  `_PreparedCollection`, `_PreparedLob`, the encoders behind
+  `executemany(..., prepared=True)` and `compat.native` `bind_param()`/`bind_set()`,
+  `_write_prepared_binding` and the packed LOB handle helpers now live in the
+  private `pycubrid/_prepared_binding.py`, moved verbatim (24 names).
+  `pycubrid.protocol` re-exports every one of them as the same object, so
+  existing imports and `isinstance()` checks are unchanged; only their
+  `__module__` is now `pycubrid._prepared_binding`. The new module imports
+  nothing from `protocol.py`, so no import cycle is added. Packet classes,
+  framing and reply parsing did not move. The byte-exact FC2/FC3/FC21 fixtures pass
+  unchanged, and a 10,000-row mixed-type `EXECUTE_ARRAY` request is
+  byte-identical before and after. New tests check the re-export identity, fresh
+  imports of both modules and the one-way import direction. `ci.yml` selects the
+  charset and official-differential lanes for the new file as it does for
+  `protocol.py`; mutation testing (`only_mutate` and the `protocol` shard) and
+  CODEOWNERS include it. `docs/ARCHITECTURE.md`, `docs/PARAMETER_BINDING.md`
+  and `AGENTS.md` name the new module.
+
 ### Tests
 
 - **What `read_timeout` bounds when a reply arrives slowly, pinned and documented
