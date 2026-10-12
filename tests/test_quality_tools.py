@@ -331,6 +331,26 @@ def test_a_pin_from_an_included_group_counts(project: Path) -> None:
     assert declared_pins(project) == pins
 
 
+def test_group_names_are_compared_after_normalization(project: Path) -> None:
+    pins = declared_pins(project)
+    _replace_lint_group(
+        project,
+        f'Lint = [{{include-group = "RUFF_PIN"}}, "mypy=={pins["mypy"]}"]\n'
+        f'ruff-pin = ["ruff=={pins["ruff"]}"]\n',
+    )
+    assert declared_pins(project) == pins
+
+
+def test_group_names_that_normalize_alike_are_rejected(project: Path) -> None:
+    pins = declared_pins(project)
+    _replace_lint_group(
+        project,
+        f'lint = ["ruff=={pins["ruff"]}", "mypy=={pins["mypy"]}"]\nLINT = ["ruff>=0.1"]\n',
+    )
+    with pytest.raises(ValueError, match="`lint` and `LINT` have the same normalized name"):
+        declared_pins(project)
+
+
 @pytest.mark.parametrize(
     "included",
     ['["ruff>=0.16"]', '["ruff==0.16.11"]', '[{include-group = "test"}, "Ruff>=0.1"]'],
@@ -352,8 +372,8 @@ def test_included_groups_cannot_bypass_the_exact_pin_rule(project: Path, include
     [
         ('lint = [{include-group = "absent"}]\n', "`dependency-groups.absent` is required"),
         (
-            'lint = [{include-group = "loop"}]\nloop = [{include-group = "lint"}]\n',
-            "include cycle: lint -> loop -> lint",
+            'lint = [{include-group = "loop"}]\nloop = [{include-group = "Lint"}]\n',
+            "include cycle: lint -> loop -> Lint",
         ),
         ("lint = [{include-group = 1}]\n", "entries must be requirement strings"),
         ('lint = [{include-group = "test", extra = 1}]\n', "entries must be requirement strings"),

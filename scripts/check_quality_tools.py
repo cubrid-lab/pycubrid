@@ -65,15 +65,20 @@ def _table(data: dict[str, Any], *keys: str) -> Any:
     return value
 
 
-def _group_requirements(groups: Any, name: str, chain: tuple[str, ...] = ()) -> list[str]:
-    """Requirement strings of a PEP 735 group, with `include-group` entries expanded."""
-    if name in chain:
+def _group_requirements(
+    groups: dict[str, tuple[str, Any]], name: str, chain: tuple[str, ...] = ()
+) -> list[str]:
+    """Requirement strings of a PEP 735 group, with `include-group` entries expanded.
+
+    `groups` maps each normalized group name to its declared name and value.
+    """
+    if _normalized(name) in map(_normalized, chain):
         raise ValueError(
             f"pyproject.toml: dependency group include cycle: {' -> '.join((*chain, name))}"
         )
-    if name not in groups:
+    if _normalized(name) not in groups:
         raise ValueError(f"pyproject.toml: `dependency-groups.{name}` is required")
-    group = groups[name]
+    name, group = groups[_normalized(name)]
     if not isinstance(group, list):
         raise ValueError(f"pyproject.toml: `dependency-groups.{name}` must be an array")
     requirements = []
@@ -95,9 +100,18 @@ def _group_requirements(groups: Any, name: str, chain: tuple[str, ...] = ()) -> 
 
 
 def declared_pins(root: Path) -> dict[str, str]:
-    groups = _table(_pyproject(root), "dependency-groups")
-    if not isinstance(groups, dict):
+    declared = _table(_pyproject(root), "dependency-groups")
+    if not isinstance(declared, dict):
         raise ValueError("pyproject.toml: `dependency-groups` must be a table")
+    # PEP 735 compares group names after PEP 503 normalization.
+    groups: dict[str, tuple[str, Any]] = {}
+    for name, value in declared.items():
+        if (key := _normalized(name)) in groups:
+            raise ValueError(
+                f"pyproject.toml: dependency groups `{groups[key][0]}` and `{name}` have the "
+                "same normalized name"
+            )
+        groups[key] = (name, value)
     # The effective lint group, as PEP 735 installs it: included groups count too.
     requirements = _group_requirements(groups, "lint")
     pins = {}
