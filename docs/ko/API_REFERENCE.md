@@ -1510,9 +1510,11 @@ cur.executemany(
 `prepared=False`는 리터럴 배치의 동작을 모두 유지합니다. bool이 아닌 `prepared`는
 `ProgrammingError`를 냅니다. `AsyncCursor.executemany()`에도 같은 계약이 적용됩니다.
 
-**비동기 인코딩과 취소(#882).** `AsyncCursor.executemany()`는 모든 행을 동기적으로
-인코딩(`prepared=True`)하거나 렌더링(`prepared=False`)하므로, 그동안 이벤트 루프의 다른
-태스크는 실행되지 않고 취소도 이를 중단할 수 없습니다. 걸리는 시간은 행 인코딩 비용과
+**비동기 인코딩과 취소(#882).** `prepared=True`인 `AsyncCursor.executemany()`와
+`INSERT`, `UPDATE`, `DELETE`, `MERGE`의 기본 리터럴 배치는 첫 요청 전에 모든 행을 동기적으로
+인코딩하거나 렌더링하므로, 그동안 이벤트 루프의 다른 태스크는 실행되지 않고 취소도 이를 중단할
+수 없습니다. 그 밖의 문(예: `SELECT`)은 행마다 await하는 `execute()`를 한 번씩 실행하므로,
+행 사이에 다른 태스크가 실행되고 나중 행에서 요청된 취소는 앞선 행의 요청 뒤에 반영됩니다. 걸리는 시간은 행 인코딩 비용과
 비슷합니다([동기와 비동기 특성](PERFORMANCE.md#동기와-비동기-특성) 참고). 루프의 응답성이
 중요하면 아주 큰 배치는 나누세요. 느리거나 블로킹되는 행 이터레이터도 같은 방식으로 루프를
 막습니다. 취소가 반영되는 지점:
@@ -1521,7 +1523,7 @@ cur.executemany(
   발생합니다. 세션은 열린 채로 유지되며 서버에서 실행된 것은 없습니다.
 - `PREPARE`를 보낸 뒤: 응답이 나중에 도착할 수 있으므로 세션을 폐기하며,
   `EXECUTE_ARRAY`는 보내지 않습니다.
-- `EXECUTE_ARRAY`(또는 `EXECUTE_BATCH`)를 보낸 뒤: 행이 실행되었을 수 있고, autocommit이면
+- `EXECUTE_ARRAY`(리터럴 배치는 `EXECUTE_BATCH`)를 보낸 뒤: 행이 실행되었을 수 있고, autocommit이면
   커밋되었을 수 있습니다. 세션을 폐기하며 배치를 다시 보내지 않습니다. 재시도하기 전에
   데이터를 확인하세요.
 

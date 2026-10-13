@@ -416,8 +416,10 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 
 측정된 동기와 비동기 처리량은 [동기와 비동기 비교](#동기와-비동기-비교)에 있습니다.
 
-**비동기 배치의 이벤트 루프 점유(#882).** `AsyncCursor.executemany()`는 첫 요청 전에 양보하지
-않고 모든 행을 인코딩합니다. `scripts/measure_async_prepared_encoding.py`는 같은 루프에서
+**비동기 배치의 이벤트 루프 점유(#882).** `AsyncCursor.executemany(..., prepared=True)`는 첫
+요청 전에 양보하지 않고 모든 행을 인코딩하며, `INSERT`, `UPDATE`, `DELETE`, `MERGE`의 기본
+리터럴 배치도 같은 방식으로 행을 렌더링합니다(그 밖의 문은 행마다 await하는 요청을 하나씩
+보냅니다). `scripts/measure_async_prepared_encoding.py`는 같은 루프에서
 `sleep(0)`으로 자신을 다시 예약하는 두 번째 태스크로 이 점유 시간을 측정합니다. 아래 값은
 Docker의 CUBRID 11.4, 한 Linux 호스트의 Python 3.11.15에서 `(int, 'v%09d', int)` 행으로
 `prepared=True`를 한 번 실행한 결과입니다:
@@ -432,7 +434,9 @@ Docker의 CUBRID 11.4, 한 Linux 호스트의 Python 3.11.15에서 `(int, 'v%09d
 | 100,000 | generator | 759.2 | 8,964.5 | 755.9 |
 
 최장 대기는 인코딩 시간과 같습니다. 드라이버가 제어하는 점유는 이 형태의 행 하나당
-약 7-10 µs이며, 호출의 네트워크 부분(`PREPARE`와 `EXECUTE_ARRAY`)은 다른 태스크에 양보합니다.
+약 7-10 µs입니다. 호출의 나머지는 순수한 네트워크 시간이 아니라 `EXECUTE_ARRAY` 프레임을 만들고
+보내는 시간도 포함하지만, `PREPARE`와 `EXECUTE_ARRAY` 응답을 기다리는 동안 다른 태스크에
+양보하므로 그 구간에서는 더 긴 대기가 보이지 않았습니다.
 제너레이터는 자신의 비용을 같은 점유에 더합니다. 첫 경우에는 한 번의 준비 시간이 포함됩니다.
 점유는 바꾸지 않았습니다. 인코딩 중에 양보하려면 동기 드라이버와 별도인 비동기 인코더가
 필요합니다. 루프의 응답성이 중요하면 수만 행의 배치는 나누세요. 인코딩 중에 요청된 취소는

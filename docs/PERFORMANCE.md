@@ -535,8 +535,10 @@ python scripts/bench_regression.py --baseline before.json --current after.json
 
 Measured sync and async throughput is in [Sync against async](#sync-against-async).
 
-**Event-loop hold of an async batch (#882).** `AsyncCursor.executemany()` encodes every row
-before its first request, without yielding. `scripts/measure_async_prepared_encoding.py`
+**Event-loop hold of an async batch (#882).** `AsyncCursor.executemany(..., prepared=True)`
+encodes every row before its first request, without yielding; the default literal batch of an
+`INSERT`, `UPDATE`, `DELETE` or `MERGE` renders its rows the same way. (Other statements run
+one awaited request per row.) `scripts/measure_async_prepared_encoding.py`
 measures that hold with a second task on the same loop that re-schedules itself with
 `sleep(0)`. The figures below are for `prepared=True` with rows `(int, 'v%09d', int)` on
 CUBRID 11.4 in Docker, with Python 3.11.15 on one Linux host, from one run:
@@ -551,8 +553,9 @@ CUBRID 11.4 in Docker, with Python 3.11.15 on one Linux host, from one run:
 | 100,000 | generator | 759.2 | 8,964.5 | 755.9 |
 
 The longest wait matches the encoding time: the driver-controlled hold is about 7-10 µs per
-row of this shape, and the network part of the call (`PREPARE` and `EXECUTE_ARRAY`) yields to
-other tasks. A generator adds its own cost to the same hold. The first case includes one-time
+row of this shape. The rest of the call is not pure network time: it also builds and sends the
+`EXECUTE_ARRAY` frame. But it yields to other tasks while it waits for the `PREPARE` and
+`EXECUTE_ARRAY` replies, so no longer wait was seen there. A generator adds its own cost to the same hold. The first case includes one-time
 warm-up. The hold is not changed: yielding during encoding would need an async encoder separate
 from the sync driver's. Split batches of tens of thousands of rows if the loop must stay
 responsive. A cancellation requested during encoding is raised before any request is sent (see

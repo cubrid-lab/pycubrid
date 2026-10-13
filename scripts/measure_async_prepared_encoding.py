@@ -10,7 +10,9 @@ measures, per row count and input shape:
   ``PREPARE`` and ``EXECUTE_ARRAY`` on a live server;
 * ``max_loop_gap_ms``: the longest time a second task on the same loop waited
   for its turn during that call (it re-schedules itself with ``sleep(0)``);
-* ``network_ms``: ``executemany_ms - encode_ms``.
+* ``after_encoding_ms``: ``executemany_ms - encode_ms``, the rest of the call:
+  setup checks, ``PREPARE``, building and sending the ``EXECUTE_ARRAY`` frame and
+  waiting for both replies. It is not pure network time.
 
 Shapes: ``list`` is built before the measurement; ``generator`` is a one-shot
 generator, so the rows are created while they are encoded. Rows are
@@ -85,12 +87,12 @@ async def _measure(kwargs: dict[str, Any], shape: str, count: int) -> dict[str, 
         await conn.commit()
         try:
             rows = _input(shape, count)
-            stop = False
+            done = asyncio.Event()
             max_gap = 0.0
 
             async def ticker() -> None:
                 nonlocal max_gap
-                while not stop:
+                while not done.is_set():
                     before = time.perf_counter()
                     await asyncio.sleep(0)
                     max_gap = max(max_gap, time.perf_counter() - before)
@@ -102,7 +104,7 @@ async def _measure(kwargs: dict[str, Any], shape: str, count: int) -> dict[str, 
                 f"INSERT INTO {table} (id, v, n) VALUES (?, ?, ?)", rows, prepared=True
             )
             elapsed = (time.perf_counter() - started) * 1000
-            stop = True
+            done.set()
             await tick
             rowcount = cursor.rowcount
             await conn.rollback()
@@ -116,7 +118,7 @@ async def _measure(kwargs: dict[str, Any], shape: str, count: int) -> dict[str, 
         "rowcount": rowcount,
         "encode_ms": round(encode, 1),
         "executemany_ms": round(elapsed, 1),
-        "network_ms": round(elapsed - encode, 1),
+        "after_encoding_ms": round(elapsed - encode, 1),
         "max_loop_gap_ms": round(max_gap * 1000, 1),
     }
 

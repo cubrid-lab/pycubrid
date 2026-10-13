@@ -42,8 +42,10 @@ def _statements(requests: list[Request]) -> list[str]:
     return [r.function for r in requests if r.function in _STATEMENTS]
 
 
-def _run(scenario: Callable[[pycubrid.aio.AsyncConnection], Any]) -> tuple[list[Request], Any]:
-    with run_replay_broker(_BatchScript({})) as broker:
+def _run(
+    scenario: Callable[[pycubrid.aio.AsyncConnection], Any], *, prepare_delay: float = 0.0
+) -> tuple[list[Request], Any]:
+    with run_replay_broker(_BatchScript({}, prepare_delay=prepare_delay)) as broker:
 
         async def main() -> Any:
             conn = await pycubrid.aio.connect(
@@ -120,11 +122,11 @@ def test_encoding_is_one_synchronous_step() -> None:
 
     async def scenario(conn: pycubrid.aio.AsyncConnection) -> Any:
         ticks = 0
-        stop = False
+        done = asyncio.Event()
 
         async def ticker() -> None:
             nonlocal ticks
-            while not stop:
+            while not done.is_set():
                 ticks += 1
                 await asyncio.sleep(0)
 
@@ -135,18 +137,31 @@ def test_encoding_is_one_synchronous_step() -> None:
                 seen.append(ticks)
                 yield (i, "v")
 
+        # Ticks counted when PREPARE and EXECUTE_ARRAY are written.
+        at_write: dict[int, int] = {}
+        writer = conn._writer
+        assert writer is not None
+        real_write = writer.write
+
+        def write(data: bytes) -> None:
+            at_write.setdefault(data[HEADER], ticks)
+            real_write(data)
+
+        setattr(writer, "write", write)
         tick_task = asyncio.create_task(ticker())
         await asyncio.sleep(0)
         cursor = conn.cursor()
         await cursor.executemany(INSERT, rows(), prepared=True)
-        stop = True
+        done.set()
         await tick_task
-        return seen, ticks, cursor.rowcount
+        return seen, at_write, cursor.rowcount
 
-    _, (seen, ticks, rowcount) = _run(scenario)
+    # The broker holds the PREPARE reply, so the driver must await it.
+    _, (seen, at_write, rowcount) = _run(scenario, prepare_delay=0.05)
     assert rowcount == 200
     assert len(set(seen)) == 1  # no tick between the first and the last row
-    assert ticks > seen[0]  # the ticker ran during the network awaits
+    # The ticker ran while the PREPARE reply was awaited.
+    assert at_write[CASFunctionCode.EXECUTE_ARRAY] > at_write[CASFunctionCode.PREPARE]
 
 
 # --- cancellation after a request was written ----------------------------------

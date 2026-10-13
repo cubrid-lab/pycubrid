@@ -1586,10 +1586,13 @@ cur.executemany(
 `prepared` raises `ProgrammingError`. The same contract applies to
 `AsyncCursor.executemany()`.
 
-**Async encoding and cancellation (#882).** `AsyncCursor.executemany()` encodes
-(`prepared=True`) or renders (`prepared=False`) every row synchronously, so no
-other task on the event loop runs meanwhile and a cancellation cannot interrupt
-it. The time is about the cost of encoding the rows, see
+**Async encoding and cancellation (#882).** `AsyncCursor.executemany()` with
+`prepared=True`, and the default literal batch of an `INSERT`, `UPDATE`,
+`DELETE` or `MERGE`, encode or render every row synchronously before the first
+request, so no other task on the event loop runs meanwhile and a cancellation
+cannot interrupt it. Other statements (for example `SELECT`) run one awaited
+`execute()` per row: other tasks run between rows, and a cancellation during a
+later row lands after the earlier rows' requests. The time is about the cost of encoding the rows, see
 [Sync and Async Characteristics](PERFORMANCE.md#sync-and-async-characteristics);
 split very large batches if the loop must stay responsive. A slow or blocking
 row iterator blocks the loop the same way. Where a cancellation lands:
@@ -1598,7 +1601,7 @@ row iterator blocks the loop the same way. Where a cancellation lands:
   request is sent. The session stays open. Nothing ran on the server.
 - After `PREPARE` was sent: the session is retired (the reply could arrive
   later), and `EXECUTE_ARRAY` is never sent.
-- After `EXECUTE_ARRAY` (or `EXECUTE_BATCH`) was sent: the rows may have run,
+- After `EXECUTE_ARRAY` (or, for the literal batch, `EXECUTE_BATCH`) was sent: the rows may have run,
   and with autocommit been committed. The session is retired, and the batch is
   never sent again; check the data before you retry.
 

@@ -64,7 +64,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - **An async batch cancelled while its rows are encoded sends nothing and keeps the session
-  (#882)** — `AsyncCursor.executemany()` encodes or renders every row without yielding, so a
+  (#882)** — `AsyncCursor.executemany()` with `prepared=True`, and the default literal batch of an
+  `INSERT`, `UPDATE`, `DELETE` or `MERGE`, encode or render every row without yielding, so a
   cancellation requested meanwhile was raised only after the first request (`PREPARE`, or
   `EXECUTE_BATCH` for the literal batch) had been written, and the session was then retired.
   Both paths now yield once after encoding, so that cancellation is raised before any request
