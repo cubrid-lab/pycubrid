@@ -1994,7 +1994,7 @@ def create(cls, connection: Connection, lob_type: int) -> Lob
 #### `write(data, offset)`
 
 ```python
-def write(self, data: bytes, offset: int = 0) -> int
+def write(self, data: bytes | bytearray | memoryview, offset: int = 0) -> int
 ```
 
 `offset`부터 LOB에 바이트를 씁니다.

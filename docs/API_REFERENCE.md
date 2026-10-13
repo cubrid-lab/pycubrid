@@ -2086,7 +2086,7 @@ Create a new LOB object on the server. Prefer using `connection.create_lob()` in
 #### `write(data, offset)`
 
 ```python
-def write(self, data: bytes, offset: int = 0) -> int
+def write(self, data: bytes | bytearray | memoryview, offset: int = 0) -> int
 ```
 
 Write bytes to the LOB starting from `offset`.

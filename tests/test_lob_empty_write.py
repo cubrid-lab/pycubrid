@@ -134,7 +134,8 @@ def test_empty_write_keeps_handle_serialization_rejection(connection: MagicMock)
 def test_other_empty_bytes_like_data_skips_broker_io(connection: MagicMock, data: object) -> None:
     # The docstring promise covers every empty bytes-like value, not only bytes (#898).
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    assert lob.write(data) == 0
+    written = lob.write(data)
+    assert written == 0
     connection._send_and_receive.assert_not_called()
 
 

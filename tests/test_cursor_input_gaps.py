@@ -165,7 +165,8 @@ def connection() -> MagicMock:
 def test_lob_write_counts_bytes_of_a_multibyte_memoryview(connection: MagicMock) -> None:
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
     data = memoryview(array.array("i", [1, 2]))
-    assert lob.write(data) == data.nbytes
+    written = lob.write(data)
+    assert written == data.nbytes
     packet = connection._send_and_receive.call_args.args[0]
     assert packet.data == data.tobytes()
 
@@ -176,5 +177,6 @@ def test_lob_write_does_not_call_a_subclass_bytes_method(connection: MagicMock) 
             raise AssertionError("__bytes__ must not be called")
 
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    assert lob.write(Sneaky(b"abc")) == 3
+    written = lob.write(Sneaky(b"abc"))
+    assert written == 3
     assert connection._send_and_receive.call_args.args[0].data == b"abc"
