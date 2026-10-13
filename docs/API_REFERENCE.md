@@ -1317,11 +1317,17 @@ assert stats is not None
 print(stats)
 # TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
 #             execute=1 calls, 0.987ms total, 0.987ms avg,
-#             fetch=1 calls, 0.123ms total, 0.123ms avg,
+#             fetch=0 calls,
 #             close=0 calls)
 
 print(stats.execute_count, stats.execute_total_ns)  # 1 987000
+```
 
+The escape-mode probe that `connect()` runs on a new session is not counted. The single
+row of `SELECT 1` arrives with the execute reply, so `fetchall()` sends no `FETCH` request
+and `fetch` stays at 0 (#899).
+
+```python
 stats.reset()  # clear all counters
 ```
 
@@ -2207,8 +2213,8 @@ object is safe to read from a thread other than the one driving the connection.
 | Attribute | Type | Description |
 |---|---|---|
 | `connect_count` / `connect_total_ns` | `int` | Total number of `Connection.connect()` calls and cumulative elapsed time. Recorded even on failure. |
-| `execute_count` / `execute_total_ns` | `int` | `Cursor.execute()` and `executemany()` calls and cumulative elapsed time. |
-| `fetch_count`   / `fetch_total_ns`   | `int` | `fetchone()` / `fetchmany()` / `fetchall()` calls combined and cumulative elapsed time. |
+| `execute_count` / `execute_total_ns` | `int` | Successful `execute()` and `executemany()` calls on sync and async cursors, and cumulative elapsed time. One `executemany()` call counts once, whatever its path (`EXECUTE_BATCH`, `prepared=True` or the per-row loop). Driver-internal requests, such as the escape-mode probe of a new session, are not counted (#899). |
+| `fetch_count`   / `fetch_total_ns`   | `int` | Server `FETCH` requests that `fetchone()` / `fetchmany()` / `fetchall()` send for rows beyond those already buffered, and cumulative elapsed time. Rows that arrive with the execute reply cost no `FETCH`, so a fetch call served from the buffer is not counted. |
 | `close_count`   / `close_total_ns`   | `int` | `Connection.close()` calls and cumulative elapsed time. |
 
 ### Methods

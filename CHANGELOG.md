@@ -63,6 +63,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **`TimingStats` counts executes and fetches consistently and as documented (#899)** — the
+  escape-mode probe that `connect()` runs on a new session was counted as an application
+  execute, so "connect + one `execute()`" reported `execute_count == 2`; it is no longer
+  counted. One successful `executemany()` call now counts as one execute in both drivers:
+  the `EXECUTE_BATCH` and `prepared=True` paths recorded nothing, and the per-row loop
+  counted every row. `fetch_count` is unchanged and now documented as the number of server
+  `FETCH` requests, so the `SELECT 1` + `fetchall()` example reports `fetch=0`.
+
 - **Sub-minute UTC offsets, verbs followed by a comment and `Lob.write()` input (#898)** —
   three input-handling gaps, fixed in both drivers where they apply:
   - An aware `datetime` parameter whose UTC offset is not a whole number of minutes (for

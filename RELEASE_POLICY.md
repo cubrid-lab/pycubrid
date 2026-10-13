@@ -305,6 +305,15 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`TimingStats` counts (#899)** — PATCH / bug fix to the documented
+  `TimingStats` counters (`docs/API_REFERENCE.md`). The new-session escape
+  probe is no longer counted as an execute, and one successful
+  `executemany()` call counts once on every path in both drivers. The
+  `fetch_count` code is unchanged; its documentation now says it counts server
+  `FETCH` requests. The diagnostic counters change value for the same
+  workload; public signatures, timing-disabled behavior and the wire bytes are
+  unchanged.
+
 - **Sub-minute offsets, comment after a verb, `Lob.write()` input (#898)** —
   PATCH / bug fix to the documented parameter-binding, prepared-batch and
   `Lob.write()` contracts (`docs/PARAMETER_BINDING.md`,

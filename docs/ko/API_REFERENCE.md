@@ -1263,11 +1263,17 @@ assert stats is not None
 print(stats)
 # TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
 #             execute=1 calls, 0.987ms total, 0.987ms avg,
-#             fetch=1 calls, 0.123ms total, 0.123ms avg,
+#             fetch=0 calls,
 #             close=0 calls)
 
 print(stats.execute_count, stats.execute_total_ns)  # 1 987000
+```
 
+`connect()`가 새 세션에서 실행하는 이스케이프 모드 probe는 집계하지 않습니다. `SELECT 1`의
+한 행은 execute 응답에 함께 오므로 `fetchall()`은 `FETCH` 요청을 보내지 않고 `fetch`는 0으로
+남습니다(#899).
+
+```python
 stats.reset()  # 모든 카운터 초기화
 ```
 
@@ -2106,8 +2112,8 @@ cur.execute("INSERT INTO my_table (clob_col) VALUES (?)", ["large text content"]
 | 속성 | 타입 | 설명 |
 |---|---|---|
 | `connect_count` / `connect_total_ns` | `int` | `Connection.connect()` 호출 총 횟수와 누적 경과 시간. 실패 시에도 기록됨. |
-| `execute_count` / `execute_total_ns` | `int` | `Cursor.execute()`와 `executemany()` 호출과 누적 경과 시간. |
-| `fetch_count`   / `fetch_total_ns`   | `int` | `fetchone()` / `fetchmany()` / `fetchall()` 호출 합계와 누적 경과 시간. |
+| `execute_count` / `execute_total_ns` | `int` | 동기·비동기 커서에서 성공한 `execute()`와 `executemany()` 호출과 누적 경과 시간. `executemany()` 한 번은 경로(`EXECUTE_BATCH`, `prepared=True`, 행별 루프)와 관계없이 한 번으로 집계합니다. 새 세션의 이스케이프 모드 probe 같은 드라이버 내부 요청은 집계하지 않습니다(#899). |
+| `fetch_count`   / `fetch_total_ns`   | `int` | `fetchone()` / `fetchmany()` / `fetchall()`이 이미 버퍼에 있는 행 이후의 행을 위해 보내는 서버 `FETCH` 요청과 누적 경과 시간. execute 응답에 함께 온 행은 `FETCH`가 필요 없으므로, 버퍼에서 처리한 fetch 호출은 집계하지 않습니다. |
 | `close_count`   / `close_total_ns`   | `int` | `Connection.close()` 호출과 누적 경과 시간. |
 
 ### 메서드

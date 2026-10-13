@@ -288,6 +288,26 @@ class AsyncCursor(_AsyncCursorBase):
         ``PREPARE`` and one ``EXECUTE_ARRAY`` request, as on the sync cursor
         (#839). ``Lob`` values are not supported on this cursor.
         """
+        _timing = self._timing
+        if _timing is None:
+            return await self._executemany(operation, seq_of_parameters, prepared)
+        # One successful call is one execute in TimingStats, whatever the path
+        # (#899): the per-row execute() calls of the loop path are part of it.
+        _start = time.perf_counter_ns()
+        self._timing = None
+        try:
+            await self._executemany(operation, seq_of_parameters, prepared)
+        finally:
+            self._timing = _timing
+        _timing.record_execute(time.perf_counter_ns() - _start)
+        return self
+
+    async def _executemany(
+        self,
+        operation: str,
+        seq_of_parameters: Sequence[Sequence[Any]],
+        prepared: bool,
+    ) -> AsyncCursor:
         self._check_closed()
         if type(prepared) is not bool:
             raise ProgrammingError("prepared must be True or False")

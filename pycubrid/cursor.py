@@ -305,6 +305,26 @@ class Cursor(_CursorBase):
         anything is sent; other statements raise ``NotSupportedError``. See
         ``docs/API_REFERENCE.md`` for the accepted types and semantics.
         """
+        _timing = self._timing
+        if _timing is None:
+            return self._executemany(operation, seq_of_parameters, prepared)
+        # One successful call is one execute in TimingStats, whatever the path
+        # (#899): the per-row execute() calls of the loop path are part of it.
+        _start = time.perf_counter_ns()
+        self._timing = None
+        try:
+            self._executemany(operation, seq_of_parameters, prepared)
+        finally:
+            self._timing = _timing
+        _timing.record_execute(time.perf_counter_ns() - _start)
+        return self
+
+    def _executemany(
+        self,
+        operation: str,
+        seq_of_parameters: Sequence[Sequence[Any]],
+        prepared: bool,
+    ) -> Cursor:
         self._check_closed()
         if type(prepared) is not bool:
             raise ProgrammingError("prepared must be True or False")

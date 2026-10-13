@@ -179,6 +179,7 @@ class Connection(ConnectionCommonMixin):
         try:
             try:
                 cursor = self.cursor()
+                cursor._timing = None  # a driver probe, not an application execute (#899)
                 try:
                     cursor.execute(ESCAPE_PROBE_SQL)
                     row = cursor.fetchone()

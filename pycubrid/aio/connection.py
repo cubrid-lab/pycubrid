@@ -228,6 +228,7 @@ class AsyncConnection(ConnectionCommonMixin):
         try:
             try:
                 cursor = self.cursor()
+                cursor._timing = None  # a driver probe, not an application execute (#899)
                 try:
                     await cursor.execute(ESCAPE_PROBE_SQL)
                     row = await cursor.fetchone()
