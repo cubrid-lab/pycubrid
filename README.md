@@ -2,8 +2,9 @@
 
 <!-- CUBRID-LAB-DRIVER-ICON:START -->
 <a href="https://github.com/cubrid-lab/brand">
-  <img src="https://raw.githubusercontent.com/cubrid-lab/brand/d342189b49ac96d911e0f24a536ee7e9dd4a008a/dist/icons/pycubrid.svg" alt="CUBRID Lab Driver icon (Python)" width="80" />
+  <img src="https://raw.githubusercontent.com/cubrid-lab/brand/b9686425f34177549929debd25dc28b412ff3461/dist/icons/pycubrid.svg" alt="CUBRID Lab Driver icon (Python)" width="80" />
 </a>
+<p><sub>Part of <a href="https://github.com/cubrid-lab">CUBRID Lab</a> · Python Driver</sub></p>
 <!-- CUBRID-LAB-DRIVER-ICON:END -->
 
 **Pure Python DB-API 2.0 driver for the CUBRID database** — no C extensions, no compilation, implements the PEP 249 (DB-API 2.0) interface.
