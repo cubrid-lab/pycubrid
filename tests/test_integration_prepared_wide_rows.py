@@ -75,3 +75,14 @@ def test_wide_prepared_batch(profile: str, mode: str) -> None:
         assert len(values) == connections
     expected = sorted(_HEAD + ROWS * (_ID + 5 + 4 + v) for v in values)
     assert result["execute_array_frames"] == expected
+    # Timing fields (#914): present, one value per connection, non-negative. No
+    # upper limit is asserted: these are measured, not assumed.
+    for key in ("executemany_ms", "commit_ms"):
+        assert len(result[key]) == connections
+        assert all(value >= 0 for value in result[key])
+    # Each value is rounded to 0.1 ms on its own, hence the small allowance.
+    assert result["batch_window_ms"] >= max(result["executemany_ms"]) - 0.2
+    assert result["elapsed_ms"] >= result["batch_window_ms"] - 0.2
+    assert result["start_skew_ms"] >= 0
+    if connections == 1:
+        assert result["start_skew_ms"] == 0

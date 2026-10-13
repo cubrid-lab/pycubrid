@@ -7038,7 +7038,7 @@ The modes are:
 - `sync-2conn`: two threads with one connection each.
 - `async-2conn`: two connections on one event loop.
 
-The two connections are separate physical sessions, each with its own table. Both modes open both connections, create the tables and build the rows first, then start `executemany()` together: the threads at a `threading.Barrier`, the tasks at an `asyncio.Barrier` (#914).
+The two connections are separate physical sessions, each with its own table. Both modes synchronize readiness: each connection opens, creates its table and builds its rows, then waits at a barrier (`threading.Barrier` for the threads, `asyncio.Barrier` for the tasks, #914). After the barrier, the threads start `executemany()` within 5 ms of each other. The tasks start one after the other, as the start spread below shows.
 
 Each case inserted 10,000 rows per connection with autocommit off and one commit, in a fresh child process. A second process with `tracemalloc` gave the heap peak. The heap peak includes the input rows, which are built in the measured process. RSS growth is the process peak minus the peak at start.
 

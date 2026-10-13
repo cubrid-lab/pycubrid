@@ -197,9 +197,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Tests
 
-- **The wide-row measurement starts both async batches together and reports batch time
-  alone (#914)** — `scripts/measure_prepared_wide_rows.py` now starts the two async
-  connections' `executemany()` at an `asyncio.Barrier`, as the sync threads do at a
+- **The wide-row measurement synchronizes the async batches' readiness and reports batch time
+  alone (#914)** — in `scripts/measure_prepared_wide_rows.py` the two async connections now
+  wait at an `asyncio.Barrier` once their rows are built, as the sync threads do at a
   `threading.Barrier`. It reports each connection's `executemany()` and commit times, the
   batch window and the start spread separately from the whole workload, which also includes
   connecting, `CREATE TABLE`, building the rows, `COUNT(*)` and `DROP TABLE`. The

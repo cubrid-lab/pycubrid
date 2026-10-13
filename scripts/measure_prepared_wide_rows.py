@@ -28,9 +28,12 @@ per row, RSS growth and the row count checked with ``COUNT(*)``. Times
 from the first ``executemany()`` start to the last end, the spread of the start
 times, and ``elapsed_ms`` for the whole child workload (connect, ``CREATE
 TABLE``, rows, batch, commit, ``COUNT(*)``, ``DROP TABLE``). Both two-connection
-modes start ``executemany()`` together: the threads at a ``threading.Barrier``,
-the tasks at an ``asyncio.Barrier``, after both connections have built their
-rows. Every batch is committed and its table dropped. The rows are built as a
+modes synchronize readiness: each connection waits at a barrier
+(``threading.Barrier`` for the threads, ``asyncio.Barrier`` for the tasks) once
+it has built its rows. The threads then start ``executemany()`` within a few
+milliseconds; the tasks start one after the other, because the first encodes
+its rows without yielding to the event loop (#882). ``start_skew_ms`` records
+the difference. Every batch is committed and its table dropped. The rows are built as a
 list in the measured process, so the heap peak and RSS growth include them. RSS comes from ``resource.getrusage`` (Unix only, KiB on
 Linux). The endpoint is resolved as the test suite does
 (``tests/_cubrid_endpoint.py``).
@@ -182,8 +185,9 @@ async def _async_batch(
         try:
             rows = [(i, _value(profile, i)) for i in range(count)]
             if start is not None:
-                # Both connections are open, their tables exist and their rows are
-                # built: start both batches together, as the sync threads do.
+                # Wait until both connections are open, have their tables and have
+                # built their rows, as the sync threads do. The first task then
+                # encodes without yielding (#882), so the second starts later.
                 await start.wait()
             started = time.perf_counter()
             await cursor.executemany(
