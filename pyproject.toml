@@ -54,7 +54,7 @@ test = [
     "pyyaml",
 ]
 lint = [
-    "ruff==0.16.10",
+    "ruff==0.17.0",
     "mypy==2.4.0",
     "pre-commit",
 ]
