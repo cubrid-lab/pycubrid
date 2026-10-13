@@ -776,8 +776,8 @@ if conn.timing_stats is not None:
 | Category | What it covers |
 |---|---|
 | `connect` | TCP socket setup + CAS broker handshake + database open. Recorded even on failure. |
-| `execute` | `Cursor.execute()` and `executemany()` — wraps prepare-and-execute round-trip. |
-| `fetch` | `fetchone()` / `fetchmany()` / `fetchall()` combined. |
+| `execute` | Successful `Cursor.execute()` and `executemany()` calls, including their round trips. One `executemany()` call counts once on every path; the escape-mode probe of a new session is not counted (#899). |
+| `fetch` | Server `FETCH` requests that `fetchone()` / `fetchmany()` / `fetchall()` send for rows beyond the buffer. Rows that arrived with the execute reply are not counted. |
 | `close` | `Connection.close()` — `CloseDatabasePacket` round-trip + socket teardown. |
 
 All cursors created from a connection report into the same `TimingStats`. Stats are

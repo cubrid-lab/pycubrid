@@ -639,8 +639,8 @@ if conn.timing_stats is not None:
 | 분류 | 다루는 것 |
 |---|---|
 | `connect` | TCP 소켓 설정 + CAS 브로커 핸드셰이크 + 데이터베이스 열기. 실패 시에도 기록됨. |
-| `execute` | `Cursor.execute()`와 `executemany()` — prepare-and-execute 왕복을 포함. |
-| `fetch` | `fetchone()` / `fetchmany()` / `fetchall()` 합산. |
+| `execute` | 성공한 `Cursor.execute()`와 `executemany()` 호출과 그 왕복. `executemany()` 한 번은 모든 경로에서 한 번으로 집계하며, 새 세션의 이스케이프 모드 probe는 집계하지 않음(#899). |
+| `fetch` | `fetchone()` / `fetchmany()` / `fetchall()`이 버퍼 이후의 행을 위해 보내는 서버 `FETCH` 요청. execute 응답과 함께 온 행은 집계하지 않음. |
 | `close` | `Connection.close()` — `CloseDatabasePacket` 왕복 + 소켓 해체. |
 
 연결에서 만들어진 모든 커서는 같은 `TimingStats`에 보고합니다. 통계는 **연결별**이며 마지막 `reset()` 이후 누적됩니다.
