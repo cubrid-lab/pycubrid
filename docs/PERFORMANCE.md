@@ -444,46 +444,56 @@ The modes are:
 - `sync-2conn`: two threads with one connection each.
 - `async-2conn`: two connections on one event loop.
 
-The two connections are separate physical sessions, each with its own table, and their batches start together.
+The two connections are separate physical sessions, each with its own table. Both modes open both connections, create the tables and build the rows first, then start `executemany()` together: the threads at a `threading.Barrier`, the tasks at an `asyncio.Barrier` (#914).
 
 Each case inserted 10,000 rows per connection with autocommit off and one commit, in a fresh child process. A second process with `tracemalloc` gave the heap peak. The heap peak includes the input rows, which are built in the measured process. RSS growth is the process peak minus the peak at start.
 
-The run was on 2026-10-13, with pycubrid `main` at `22b0117`, Python 3.11.15 and CUBRID 11.4.6.1963 in Docker, on the host of the #854 measurement. That host was shared, with a load average of 1.1-8.3. Each case ran once.
+The time columns cover only the batches:
+- `executemany()` is each connection's call alone, without the commit that follows. The commit took 0.2-0.5 s.
+- The batch window runs from the first `executemany()` start to the last end.
+- The start spread is the gap between the two `executemany()` starts.
 
-| Values | Mode | Rows | Time | Request bytes per row | Heap peak per row | Heap / request | Heap peak | RSS growth |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| `text-1k` | sync | 10,000 | 1,225 ms | 1,023 | 4,566 | 4.5 | 43.5 MiB | 44.0 MiB |
-| `text-1k` | async | 10,000 | 2,018 ms | 1,023 | 4,545 | 4.4 | 43.3 MiB | 43.8 MiB |
-| `text-1k` | sync-2conn | 20,000 | 1,881 ms | 1,023 | 3,991 | 3.9 | 76.1 MiB | 77.4 MiB |
-| `text-1k` | async-2conn | 20,000 | 1,823 ms | 1,023 | 3,981 | 3.9 | 75.9 MiB | 77.6 MiB |
-| `text-utf8-8k` | sync | 10,000 | 2,070 ms | 8,123 | 30,984 | 3.8 | 295.5 MiB | 289.6 MiB |
-| `text-utf8-8k` | async | 10,000 | 2,093 ms | 8,123 | 36,290 | 4.5 | 346.1 MiB | 348.2 MiB |
-| `text-utf8-8k` | sync-2conn | 20,000 | 2,599 ms | 8,123 | 30,970 | 3.8 | 590.7 MiB | 578.0 MiB |
-| `text-utf8-8k` | async-2conn | 20,000 | 2,785 ms | 8,123 | 32,821 | 4.0 | 626.0 MiB | 624.2 MiB |
-| `bytes-1k` | sync | 10,000 | 2,360 ms | 1,046 | 3,589 | 3.4 | 34.2 MiB | 34.4 MiB |
-| `bytes-1k` | async | 10,000 | 2,313 ms | 1,046 | 3,568 | 3.4 | 34.0 MiB | 34.1 MiB |
-| `bytes-1k` | sync-2conn | 20,000 | 3,448 ms | 1,046 | 3,001 | 2.9 | 57.2 MiB | 58.4 MiB |
-| `bytes-1k` | async-2conn | 20,000 | 3,206 ms | 1,046 | 2,990 | 2.9 | 57.0 MiB | 58.3 MiB |
-| `sequence-50` | sync | 10,000 | 5,992 ms | 923 | 8,651 | 9.4 | 82.5 MiB | 84.5 MiB |
-| `sequence-50` | async | 10,000 | 4,649 ms | 923 | 8,631 | 9.4 | 82.3 MiB | 84.2 MiB |
-| `sequence-50` | sync-2conn | 20,000 | 9,058 ms | 923 | 8,131 | 8.8 | 155.1 MiB | 159.9 MiB |
-| `sequence-50` | async-2conn | 20,000 | 6,653 ms | 923 | 8,316 | 9.0 | 158.6 MiB | 164.7 MiB |
-| `blob` | sync | 10,000 | 2,731 ms | 86 | 527 | 6.1 | 5.0 MiB | 6.0 MiB |
-| `blob` | sync-2conn | 20,000 | 2,975 ms | 86 | 470 | 5.5 | 9.0 MiB | 10.5 MiB |
+Connecting, creating and dropping the table and building the rows are not in these columns.
+
+The run was on 2026-10-13, with pycubrid `main` at `d9435cc`, Python 3.11.15 and CUBRID 11.4.6.1963 in Docker, on the host of the #854 measurement. That host was shared, with a load average of 2.6-8.3. Each case ran once.
+
+| Values | Mode | Rows | `executemany()` per connection | Batch window | Start spread | Request bytes per row | Heap peak per row | Heap / request | Heap peak | RSS growth |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `text-1k` | sync | 10,000 | 882 ms | 882 ms | 0 ms | 1,023 | 4,566 | 4.5 | 43.5 MiB | 41.3 MiB |
+| `text-1k` | async | 10,000 | 908 ms | 908 ms | 0 ms | 1,023 | 4,545 | 4.4 | 43.3 MiB | 40.8 MiB |
+| `text-1k` | sync-2conn | 20,000 | 1,038 / 1,052 ms | 1,052 ms | 5 ms | 1,023 | 4,041 | 4.0 | 77.1 MiB | 84.7 MiB |
+| `text-1k` | async-2conn | 20,000 | 919 / 999 ms | 999 ms | 70 ms | 1,023 | 3,981 | 3.9 | 75.9 MiB | 74.6 MiB |
+| `text-utf8-8k` | sync | 10,000 | 1,303 ms | 1,303 ms | 0 ms | 8,123 | 30,984 | 3.8 | 295.5 MiB | 286.6 MiB |
+| `text-utf8-8k` | async | 10,000 | 1,477 ms | 1,477 ms | 0 ms | 8,123 | 36,997 | 4.6 | 352.8 MiB | 345.2 MiB |
+| `text-utf8-8k` | sync-2conn | 20,000 | 1,694 / 1,700 ms | 1,705 ms | 5 ms | 8,123 | 26,512 | 3.3 | 505.7 MiB | 574.8 MiB |
+| `text-utf8-8k` | async-2conn | 20,000 | 1,603 / 1,708 ms | 1,827 ms | 223 ms | 8,123 | 28,020 | 3.4 | 534.4 MiB | 497.3 MiB |
+| `bytes-1k` | sync | 10,000 | 1,119 ms | 1,119 ms | 0 ms | 1,046 | 3,589 | 3.4 | 34.2 MiB | 31.5 MiB |
+| `bytes-1k` | async | 10,000 | 1,607 ms | 1,607 ms | 0 ms | 1,046 | 3,568 | 3.4 | 34.0 MiB | 31.1 MiB |
+| `bytes-1k` | sync-2conn | 20,000 | 1,072 / 1,074 ms | 1,079 ms | 5 ms | 1,046 | 3,575 | 3.4 | 68.2 MiB | 55.4 MiB |
+| `bytes-1k` | async-2conn | 20,000 | 1,076 / 1,115 ms | 1,122 ms | 46 ms | 1,046 | 2,991 | 2.9 | 57.0 MiB | 55.2 MiB |
+| `sequence-50` | sync | 10,000 | 5,005 ms | 5,005 ms | 0 ms | 923 | 8,651 | 9.4 | 82.5 MiB | 81.6 MiB |
+| `sequence-50` | async | 10,000 | 6,663 ms | 6,663 ms | 0 ms | 923 | 8,631 | 9.4 | 82.3 MiB | 81.4 MiB |
+| `sequence-50` | sync-2conn | 20,000 | 4,562 / 4,565 ms | 4,570 ms | 5 ms | 923 | 8,177 | 8.9 | 156.0 MiB | 156.7 MiB |
+| `sequence-50` | async-2conn | 20,000 | 3,775 / 4,445 ms | 4,445 ms | 635 ms | 923 | 8,121 | 8.8 | 154.9 MiB | 156.6 MiB |
+| `blob` | sync | 10,000 | 1,462 ms | 1,462 ms | 0 ms | 86 | 527 | 6.1 | 5.0 MiB | 3.0 MiB |
+| `blob` | sync-2conn | 20,000 | 1,835 / 1,836 ms | 1,841 ms | 5 ms | 86 | 465 | 5.4 | 8.9 MiB | 7.5 MiB |
 
 Every case inserted every row on every connection: `rowcount` and `COUNT(*)` matched. The request size per row is exactly the predicted encoding, which the slow test checks.
 
-- **Wide values cost about three to four and a half times their wire size.** The peak holds the input value, its encoded bytes, the writer's buffer and the final frame. For `text-utf8-8k` that is about 31-36 KB per row, or 296-346 MiB for 10,000 rows.
-  - The async cursor adds up to one more copy of the frame (36 KB per row), because the transport keeps a copy of what the socket has not yet accepted.
+- **Wide values cost about three to four and a half times their wire size** (2.9-4.6). The peak holds the input value, its encoded bytes, the writer's buffer and the final frame. For `text-utf8-8k` that is about 31-37 KB per row, or 296-353 MiB for 10,000 rows.
+  - The async cursor adds up to one more copy of the frame (37 KB per row), because the transport keeps a copy of what the socket has not yet accepted.
   - Collections cost more per wire byte (about 9 times), because every element is a separate bound string.
   - A LOB row carries only its 64-byte handle and is the cheapest.
-- **Two connections cost the sum of two batches, not more.** The peak with two connections is 1.7-2.0 times the one-connection peak, so the per-row heap is not larger. Concurrency adds no amplification, in threads or in tasks. Each connection still holds its whole batch until its reply, so the client peak is the sum of the concurrent batches.
+- **Two connections cost the sum of two batches, not more.** The peak with two connections is 1.5-2.0 times the one-connection peak, so the per-row heap is not larger. Concurrency adds no amplification, in threads or in tasks. Each connection still holds its whole batch until its reply, so the client peak is the sum of the concurrent batches.
+  - The two sync threads start within 5 ms of each other.
+  - The async tasks leave the barrier together, but each encodes its rows without yielding to the loop (#882), so the second batch starts 46-635 ms after the first, about one batch's encoding time.
+  - The batch window of two connections was 0.7-1.3 times the `executemany()` time of one connection. One-connection times varied on this shared host: async `bytes-1k` and `sequence-50`, for example, were slower alone than as a pair. So these times show no clear cost of concurrency, not a precise ratio.
 - **Large single values and server rejections behave as specified** (live, 11.4):
   - One 16, 64 and 128 MiB string, each in a one-row prepared batch into a `STRING` column, was stored and read back. A frame of 128 MiB is accepted.
   - A value too wide for its column (11 characters into `VARCHAR(10)`) fails only its row on the server, with `ProgrammingError` -494, `batch_index` 1 and `batch_rowcounts` `(1, -1, 1)`. The session stays open, and the other rows are kept after `commit()`.
   - The client can only know the 32-bit frame limit before sending, and #854 already covers it.
 
-Decision: no runtime change. No unsafe condition was reproduced. Memory is predictable from the request size: about 3-4.5 times the frame for scalar values, more for collections, and summed over concurrent batches. To bound it, split the input into several `executemany()` calls.
+Decision: no runtime change. No unsafe condition was reproduced. Memory is predictable from the request size: about 3-4.6 times the frame for scalar values, more for collections, and summed over concurrent batches. To bound it, split the input into several `executemany()` calls.
 
 Not measured:
 - CUBRID 10.2 to 11.2;

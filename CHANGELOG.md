@@ -197,12 +197,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Tests
 
+- **The wide-row measurement starts both async batches together and reports batch time
+  alone (#914)** — `scripts/measure_prepared_wide_rows.py` now starts the two async
+  connections' `executemany()` at an `asyncio.Barrier`, as the sync threads do at a
+  `threading.Barrier`. It reports each connection's `executemany()` and commit times, the
+  batch window and the start spread separately from the whole workload, which also includes
+  connecting, `CREATE TABLE`, building the rows, `COUNT(*)` and `DROP TABLE`. The
+  `docs/PERFORMANCE.md` tables were rerun. The async second batch still starts one batch's
+  encoding time after the first, because encoding does not yield (#882). Memory conclusions are
+  unchanged; two connections cost 1.5-2.0 times one. Script and docs only.
+
 - **Wide-value and two-connection prepared batches measured (#881)** — the new
   `scripts/measure_prepared_wide_rows.py` and the opt-in `slow`
   `tests/test_integration_prepared_wide_rows.py` measure `executemany(..., prepared=True)` with
   1 KB text, 8 KB UTF-8 text, 1 KB bytes, 50-element sequences and LOB handles, sync and
   async, on one connection and on two at once, and check the predicted `EXECUTE_ARRAY` size.
-  On CUBRID 11.4 the client heap peak is about 3-4.5 times the request size for scalar values and
+  On CUBRID 11.4 the client heap peak is about 3-4.6 times the request size for scalar values and
   about 9 times for sequences; two concurrent connections cost the sum of two batches, with no
   extra amplification. 16-128 MiB single values are accepted and a value too wide for its column
   fails only its row. No runtime change; results in `docs/PERFORMANCE.md`.

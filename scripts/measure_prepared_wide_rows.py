@@ -23,9 +23,15 @@ same time on two connections (separate physical sessions), on a live CUBRID:
 Each case runs in a fresh child process twice: once untraced for time and peak
 RSS, once with ``tracemalloc`` for the Python heap peak. Reported: rows per
 connection, ``EXECUTE_ARRAY`` request bytes (summed over connections), heap peak
-per row, RSS growth, elapsed time and the row count checked with ``COUNT(*)``.
-Every batch is committed and its table dropped. Rows are built in a list before
-the measurement starts. RSS comes from ``resource.getrusage`` (Unix only, KiB on
+per row, RSS growth and the row count checked with ``COUNT(*)``. Times
+(#914): ``executemany_ms`` and ``commit_ms`` per connection, the batch window
+from the first ``executemany()`` start to the last end, the spread of the start
+times, and ``elapsed_ms`` for the whole child workload (connect, ``CREATE
+TABLE``, rows, batch, commit, ``COUNT(*)``, ``DROP TABLE``). Both two-connection
+modes start ``executemany()`` together: the threads at a ``threading.Barrier``,
+the tasks at an ``asyncio.Barrier``, after both connections have built their
+rows. Every batch is committed and its table dropped. The rows are built as a
+list in the measured process, so the heap peak and RSS growth include them. RSS comes from ``resource.getrusage`` (Unix only, KiB on
 Linux). The endpoint is resolved as the test suite does
 (``tests/_cubrid_endpoint.py``).
 
@@ -121,9 +127,19 @@ def _max_rss_kib() -> int:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
 
+def _timed(started: float, executed: float, committed: float, count: int) -> dict[str, Any]:
+    return {
+        "count": count,
+        "started": started,
+        "executed": executed,
+        "executemany_ms": round((executed - started) * 1000, 1),
+        "commit_ms": round((committed - executed) * 1000, 1),
+    }
+
+
 def _sync_batch(
     kwargs: dict[str, Any], profile: str, count: int, start: threading.Barrier | None
-) -> int:
+) -> dict[str, Any]:
     table = "p881_" + uuid.uuid4().hex[:12]
     with pycubrid.connect(**kwargs) as conn:
         cursor = conn.cursor()
@@ -140,19 +156,24 @@ def _sync_batch(
                 rows = [(i, _value(profile, i)) for i in range(count)]
             if start is not None:
                 start.wait()
+            started = time.perf_counter()
             cursor.executemany(f"INSERT INTO {table} (id, v) VALUES (?, ?)", rows, prepared=True)
+            executed = time.perf_counter()
             conn.commit()
+            committed = time.perf_counter()
             assert cursor.rowcount == count
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
             row = cursor.fetchone()
             assert row is not None
-            return int(row[0])
+            return _timed(started, executed, committed, int(row[0]))
         finally:
             cursor.execute(f"DROP TABLE IF EXISTS {table}")
             conn.commit()
 
 
-async def _async_batch(kwargs: dict[str, Any], profile: str, count: int) -> int:
+async def _async_batch(
+    kwargs: dict[str, Any], profile: str, count: int, start: asyncio.Barrier | None
+) -> dict[str, Any]:
     table = "p881_" + uuid.uuid4().hex[:12]
     async with await pycubrid.aio.connect(**kwargs) as conn:
         cursor = conn.cursor()
@@ -160,15 +181,22 @@ async def _async_batch(kwargs: dict[str, Any], profile: str, count: int) -> int:
         await conn.commit()
         try:
             rows = [(i, _value(profile, i)) for i in range(count)]
+            if start is not None:
+                # Both connections are open, their tables exist and their rows are
+                # built: start both batches together, as the sync threads do.
+                await start.wait()
+            started = time.perf_counter()
             await cursor.executemany(
                 f"INSERT INTO {table} (id, v) VALUES (?, ?)", rows, prepared=True
             )
+            executed = time.perf_counter()
             await conn.commit()
+            committed = time.perf_counter()
             assert cursor.rowcount == count
             await cursor.execute(f"SELECT COUNT(*) FROM {table}")
             row = await cursor.fetchone()
             assert row is not None
-            return int(row[0])
+            return _timed(started, executed, committed, int(row[0]))
         finally:
             await cursor.execute(f"DROP TABLE IF EXISTS {table}")
             await conn.commit()
@@ -181,11 +209,12 @@ def _child(profile: str, mode: str, count: int, trace: bool) -> dict[str, Any]:
     if trace:
         tracemalloc.start()
     started = time.perf_counter()
+    batches: list[dict[str, Any]]
     if mode == "sync":
-        counts = [_sync_batch(kwargs, profile, count, None)]
+        batches = [_sync_batch(kwargs, profile, count, None)]
     elif mode == "sync-2conn":
         barrier = threading.Barrier(2)
-        results: list[int] = []
+        results: list[dict[str, Any]] = []
         errors: list[Exception] = []
 
         def run() -> None:
@@ -202,25 +231,40 @@ def _child(profile: str, mode: str, count: int, trace: bool) -> dict[str, Any]:
             thread.join()
         if errors:
             raise errors[0]
-        counts = results
+        batches = results
     elif mode == "async":
-        counts = [asyncio.run(_async_batch(kwargs, profile, count))]
+        batches = [asyncio.run(_async_batch(kwargs, profile, count, None))]
     else:
 
-        async def both() -> list[int]:
+        async def both() -> list[dict[str, Any]]:
+            start = asyncio.Barrier(2)
             return list(
                 await asyncio.gather(
-                    _async_batch(kwargs, profile, count), _async_batch(kwargs, profile, count)
+                    _async_batch(kwargs, profile, count, start),
+                    _async_batch(kwargs, profile, count, start),
                 )
             )
 
-        counts = asyncio.run(both())
+        batches = asyncio.run(both())
     elapsed = time.perf_counter() - started
     result: dict[str, Any] = {
         "profile": profile,
         "mode": mode,
         "rows_per_connection": count,
-        "counts": counts,
+        "counts": sorted(b["count"] for b in batches),
+        # Per connection: the executemany() call alone and the commit after it.
+        "executemany_ms": sorted(b["executemany_ms"] for b in batches),
+        "commit_ms": sorted(b["commit_ms"] for b in batches),
+        # From the first executemany() start to the last one's end.
+        "batch_window_ms": round(
+            (max(b["executed"] for b in batches) - min(b["started"] for b in batches)) * 1000, 1
+        ),
+        # Spread of the executemany() start times (0 for one connection).
+        "start_skew_ms": round(
+            (max(b["started"] for b in batches) - min(b["started"] for b in batches)) * 1000, 1
+        ),
+        # The whole child workload: connect, CREATE TABLE, rows, batch, commit,
+        # COUNT(*) and DROP TABLE.
         "elapsed_ms": round(elapsed * 1000, 1),
         "execute_array_bytes": sum(sizes),
         "execute_array_frames": sorted(sizes),
