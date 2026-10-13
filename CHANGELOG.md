@@ -57,9 +57,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   probe, raised "connection setup in progress; retry operation" as before, but
   `get_schema_info()` then dropped the new session and `commit()`, `rollback()` and cursor
   statements treated the refused `CHECK_CAS` as a dead CAS and replaced it. The probe then
-  failed and `ping()` returned `False`. These entry points, plus `fetch_schema_info()` and
-  `close_schema_info()`, now raise the same retryable `OperationalError` before any cleanup
-  or recovery, without sending anything. The setup task's own requests are unchanged.
+  failed and `ping()` returned `False`. These entry points now raise the same retryable
+  `OperationalError` before any cleanup or recovery, without sending anything. A schema
+  result from the replaced session keeps its retired outcome (`fetch_schema_info()` raises
+  `InterfaceError`, `close_schema_info()` is a no-op); both also check the gate before they
+  send. The setup task's own requests are unchanged.
 
 ### Security
 

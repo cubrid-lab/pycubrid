@@ -1870,9 +1870,11 @@ with conn.cursor() as cur:
 
 설정이 시작되기 전에 이 대기를 통과한 요청이, 설정 task가 이스케이프 probe를 위해 lock을 놓은 사이에 lock을
 얻으면 아무것도 보내지 않고 재시도 가능한 `OperationalError`("connection setup in progress; retry operation")를
-발생시킵니다(#894). 이 거부는 설정 중인 세션을 끊거나 교체하지 않습니다. `get_schema_info()`,
-`fetch_schema_info()`, `close_schema_info()`, `commit()`, `rollback()`과 커서 문장은 정리 작업이나
-`CHECK_CAS` 복구보다 먼저 이 오류를 발생시키므로, 설정 task의 probe와 `ping(reconnect=True)`는 계속 성공합니다.
+발생시킵니다(#894). 이 거부는 설정 중인 세션을 끊거나 교체하지 않습니다. `get_schema_info()`, `commit()`, `rollback()`과
+커서 문장은 정리 작업이나 `CHECK_CAS` 복구보다 먼저 이 오류를 발생시키므로, 설정 task의 probe와
+`ping(reconnect=True)`는 계속 성공합니다. 교체된 세션의 스키마 결과는 이미 폐기되었으므로
+`fetch_schema_info()`는 여전히 `InterfaceError`("schema result has been retired")를 발생시키고
+`close_schema_info()`는 여전히 아무 작업도 하지 않습니다.
 
 `AsyncConnection.__init__`은 키워드 전용 `autocommit: bool = False` 인자를 받으며, `await conn.connect()`가 처음 완료될 때 자동 적용됩니다 — `await conn.set_autocommit(True)`과 같은 효과이지만, `pycubrid.aio.connect()` 팩토리를 거치지 않고 `AsyncConnection`을 직접 생성할 때도 사용할 수 있습니다.
 
