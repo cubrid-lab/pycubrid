@@ -196,7 +196,9 @@ sequenceDiagram
 - **CAS version**: `PROTO_INDICATOR(0x40) | VERSION(8) = 0x48`
 - **Status int32**: signed big-endian
     - `> 0` — redirect port: close socket, reconnect to `(host, status)`, **do not** repeat the
-      handshake (mirrors the JDBC `BrokerHandler.connectBroker` behavior)
+      handshake (mirrors the JDBC `BrokerHandler.connectBroker` behavior). A status above
+      `65535` is not a TCP port and raises `OperationalError` in both drivers before any
+      reconnect (#896)
     - `< 0` — fail-fast: raise `OperationalError(status)`
     - `== 0` — reuse the current socket (direct mode)
 

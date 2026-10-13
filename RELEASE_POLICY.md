@@ -305,6 +305,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Failed `ping()` reconnect and invalid redirect port (#896)** — PATCH / bug
+  fix to the documented `ping()` contract (`docs/API_REFERENCE.md`), which
+  returns a bool. A sync reconnect rejected by the server at `OPEN_DATABASE`
+  now returns `False` instead of raising `DatabaseError`, matching the async
+  driver. A broker redirect port above `65535` raises `OperationalError` in
+  both drivers, which is the documented class for connection failures, instead
+  of a raw `OverflowError` (async) or a connection to the port reduced to 16
+  bits (sync). Public signatures, successful pings and redirects, and the wire
+  bytes are unchanged.
+
 - **Native error code mapping corrected (#895)** — PATCH / bug correction of
   misnumbered error dispatch. Every entry of the `pycubrid.error_codes` tables
   now matches CUBRID `src/base/error_code.h`. Descriptions and SQLSTATEs are

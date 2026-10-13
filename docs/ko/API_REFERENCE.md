@@ -1083,6 +1083,10 @@ def ping(self, reconnect: bool = True) -> bool
   명시적 `True`/`False`는 유지됩니다. 정상적인 동일 세션 ping은 감지하지
   않습니다. 감지 실패 시 대체 세션을 폐기하고 `False`를 반환하며, 모드를
   추측하거나 SQL을 재실행하지 않습니다.
+- 재접속이 실패하면 오류 종류와 관계없이 `False`를 반환합니다. 잘못된
+  비밀번호(`-171`)나 없는 사용자(`-165`)처럼 서버가 `OPEN_DATABASE`를 거부한
+  경우도 포함합니다. #896 이전의 동기 드라이버는 그 `DatabaseError`를
+  발생시켰습니다. 비동기 드라이버도 같게 동작합니다.
 
 ```python
 if not conn.ping():
@@ -1918,6 +1922,9 @@ async def ping(self, reconnect: bool = True) -> bool
   감지 실패 시 대체 세션을 폐기하고 `False`를 반환합니다. 이전 세션 세대에서
   바인딩한 비동기 파라미터 SQL은 전송 전에 거부하며, 자동 재바인딩·재실행
   대신 호출자가 재시도 여부를 결정합니다.
+- 재접속이 실패하면 동기 드라이버처럼 오류 종류와 관계없이 `False`를
+  반환합니다. 잘못된 비밀번호(`-171`)처럼 서버가 `OPEN_DATABASE`를 거부한
+  경우도 포함합니다.
 
 ```python
 if not await conn.ping(reconnect=False):

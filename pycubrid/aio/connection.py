@@ -374,6 +374,11 @@ class AsyncConnection(ConnectionCommonMixin):
                 f"CUBRID broker rejected handshake with status "
                 f"{client_info_packet.new_connection_port} (ssl={use_ssl})"
             )
+        # asyncio would raise a raw OverflowError for a port above 65535.
+        if client_info_packet.new_connection_port > 65535:
+            raise OperationalError(
+                f"CUBRID broker redirected to invalid port {client_info_packet.new_connection_port}"
+            )
 
         if client_info_packet.new_connection_port > 0:
             hs_writer.close()

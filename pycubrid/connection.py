@@ -281,6 +281,13 @@ class Connection(ConnectionCommonMixin):
                     f"CUBRID broker rejected handshake with status "
                     f"{client_info_packet.new_connection_port} (ssl={use_ssl})"
                 )
+            # The resolver would silently reduce a port above 65535 to 16 bits
+            # and connect elsewhere; report it as a bad broker reply instead.
+            if client_info_packet.new_connection_port > 65535:
+                raise OperationalError(
+                    f"CUBRID broker redirected to invalid port "
+                    f"{client_info_packet.new_connection_port}"
+                )
 
             if client_info_packet.new_connection_port > 0:
                 handshake_socket.close()
@@ -684,7 +691,7 @@ class Connection(ConnectionCommonMixin):
                 _LOGGER.debug("ping: reconnecting")
                 self.connect()  # also restores explicit session state
                 return True
-            except (OSError, OperationalError, InterfaceError):
+            except (OSError, Error):
                 return False
         # OUT_TRAN is not a release signal. Probe this socket before deciding
         # whether an explicit recovery attempt is needed.
@@ -707,7 +714,7 @@ class Connection(ConnectionCommonMixin):
             _LOGGER.debug("ping: reconnecting after CHECK_CAS failure")
             self.connect()  # also restores explicit session state
             return True
-        except (OSError, OperationalError, InterfaceError):
+        except (OSError, Error):
             return False
 
     def create_lob(self, lob_type: int) -> Any:

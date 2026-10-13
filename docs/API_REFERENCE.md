@@ -1134,6 +1134,10 @@ read-only escape-mode probe before accepting application SQL.
   new physical session before use; an explicit `True`/`False` remains pinned.
   A healthy same-session ping does not probe. Probe failure retires the
   replacement and returns `False`, without guessing a mode or replaying SQL.
+- A failed reconnect returns `False` whatever the error, including a server
+  rejection of `OPEN_DATABASE` such as a wrong password (`-171`) or an unknown
+  user (`-165`); before #896 the sync driver raised that `DatabaseError`. The
+  async driver behaves the same.
 
 ```python
 if not conn.ping():
@@ -2010,6 +2014,9 @@ without SQL. Recovery can execute the read-only escape-mode probe.
   Probe failure retires the replacement and returns `False`. Parameterized SQL
   bound against a prior session generation is rejected before send rather than
   silently rebound or replayed; retry is the caller's decision.
+- A failed reconnect returns `False` whatever the error, including a server
+  rejection of `OPEN_DATABASE` such as a wrong password (`-171`), as in the sync
+  driver.
 
 ```python
 if not await conn.ping(reconnect=False):

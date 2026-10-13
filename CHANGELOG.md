@@ -63,6 +63,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **`ping(reconnect=True)` and broker redirects fail the same way in both drivers (#896)**
+  — a sync `Connection.ping(reconnect=True)` whose reconnect the server rejected at
+  `OPEN_DATABASE`, for example a wrong password (`-171`), raised `DatabaseError` instead of
+  returning `False`; it now returns `False`, as the async driver already did. A broker
+  redirect to a port above `65535` now raises `OperationalError` in both drivers before any
+  reconnect. Before, the async driver let a raw `OverflowError` escape for a numeric host,
+  and the sync driver's resolver reduced the port to 16 bits and tried that other port.
+
 - **Async requests refused during another task's session setup keep that session (#894)**
   — an `AsyncConnection` request that passed the setup wait before `ping(reconnect=True)`
   or `connect()` began, and then took the lock while setup released it for the escape-mode

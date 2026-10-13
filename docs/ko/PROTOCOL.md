@@ -189,7 +189,7 @@ sequenceDiagram
 - **클라이언트 타입**: `CLIENT_JDBC = 3` (pycubrid는 JDBC 호환 클라이언트로 식별됨)
 - **CAS 버전**: `PROTO_INDICATOR(0x40) | VERSION(8) = 0x48`
 - **상태 int32**: 부호 있는 big-endian
-    - `> 0` — 리다이렉트 포트: 소켓을 닫고 `(host, status)`로 재연결, 핸드셰이크는 **반복하지 않음** (JDBC `BrokerHandler.connectBroker` 동작 미러링)
+    - `> 0` — 리다이렉트 포트: 소켓을 닫고 `(host, status)`로 재연결, 핸드셰이크는 **반복하지 않음** (JDBC `BrokerHandler.connectBroker` 동작 미러링). `65535`보다 큰 상태 값은 TCP 포트가 아니므로 두 드라이버 모두 재연결 전에 `OperationalError`를 발생시킴 (#896)
     - `< 0` — 즉시 실패: `OperationalError(status)` 발생
     - `== 0` — 현재 소켓 재사용 (다이렉트 모드)
 
