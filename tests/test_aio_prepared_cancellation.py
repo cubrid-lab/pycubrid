@@ -19,6 +19,7 @@ iterator or when a given request is written. The measured event-loop hold is in
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -28,7 +29,7 @@ import pycubrid.aio
 from pycubrid.constants import CASFunctionCode
 from pycubrid.exceptions import InterfaceError
 
-from .helpers.replay_broker import Request, run_replay_broker
+from .helpers.replay_broker import Reply, Request, Session, run_replay_broker
 from .test_batch_row_errors import _BatchScript
 from .test_execute_array import INSERT
 
@@ -42,10 +43,25 @@ def _statements(requests: list[Request]) -> list[str]:
     return [r.function for r in requests if r.function in _STATEMENTS]
 
 
+class _GatedPrepareScript(_BatchScript):
+    """Answers ``PREPARE`` only after the test opens ``gate``."""
+
+    def __init__(self) -> None:
+        super().__init__({})
+        self.gate = threading.Event()
+
+    def __call__(self, request: Request, session: Session) -> Reply | None:
+        if request.function == "PREPARE":
+            assert self.gate.wait(10), "the PREPARE gate was never opened"
+        return super().__call__(request, session)
+
+
 def _run(
-    scenario: Callable[[pycubrid.aio.AsyncConnection], Any], *, prepare_delay: float = 0.0
+    scenario: Callable[[pycubrid.aio.AsyncConnection], Any],
+    *,
+    script: _BatchScript | None = None,
 ) -> tuple[list[Request], Any]:
-    with run_replay_broker(_BatchScript({}, prepare_delay=prepare_delay)) as broker:
+    with run_replay_broker(script or _BatchScript({})) as broker:
 
         async def main() -> Any:
             conn = await pycubrid.aio.connect(
@@ -120,6 +136,8 @@ def test_cancel_during_encoding_sends_nothing_and_keeps_the_session(
 def test_encoding_is_one_synchronous_step() -> None:
     """Another task on the loop does not run while the rows are encoded."""
 
+    script = _GatedPrepareScript()
+
     async def scenario(conn: pycubrid.aio.AsyncConnection) -> Any:
         ticks = 0
         done = asyncio.Event()
@@ -128,6 +146,10 @@ def test_encoding_is_one_synchronous_step() -> None:
             nonlocal ticks
             while not done.is_set():
                 ticks += 1
+                if CASFunctionCode.PREPARE in at_write:
+                    # Only this task, running after the PREPARE write, lets the
+                    # broker answer it: the driver must have yielded meanwhile.
+                    script.gate.set()
                 await asyncio.sleep(0)
 
         seen: list[int] = []
@@ -156,11 +178,10 @@ def test_encoding_is_one_synchronous_step() -> None:
         await tick_task
         return seen, at_write, cursor.rowcount
 
-    # The broker holds the PREPARE reply, so the driver must await it.
-    _, (seen, at_write, rowcount) = _run(scenario, prepare_delay=0.05)
+    _, (seen, at_write, rowcount) = _run(scenario, script=script)
     assert rowcount == 200
     assert len(set(seen)) == 1  # no tick between the first and the last row
-    # The ticker ran while the PREPARE reply was awaited.
+    # The ticker ran between the PREPARE and EXECUTE_ARRAY writes.
     assert at_write[CASFunctionCode.EXECUTE_ARRAY] > at_write[CASFunctionCode.PREPARE]
 
 
