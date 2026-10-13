@@ -7000,7 +7000,7 @@ values and with two batches at once, using `scripts/measure_prepared_wide_rows.p
 | Profile | Value | Column |
 |---|---|---|
 | `text-1k` | 1,000 ASCII characters | `VARCHAR(1000)` |
-| `text-utf8-8k` | 2,700 Hangul characters (8,100 UTF-8 bytes) | `VARCHAR(8192)` |
+| `text-utf8-8k` | 2,700 Hangul characters (8,100 UTF-8 bytes), a new string per row | `VARCHAR(8192)` |
 | `bytes-1k` | 1,024 bytes | `BIT VARYING(8192)` |
 | `sequence-50` | `pycubrid.types.Sequence` of 50 strings of 13 characters | `SEQUENCE(VARCHAR(16))` |
 | `blob` | one `create_lob()` handle (1 KiB written) bound in every row | `BLOB` (sync only) |
@@ -7022,10 +7022,10 @@ The run was on 2026-10-13, with pycubrid `main` at `22b0117`, Python 3.11.15 and
 | `text-1k` | async | 10,000 | 2,018 ms | 1,023 | 4,545 | 4.4 | 43.3 MiB | 43.8 MiB |
 | `text-1k` | sync-2conn | 20,000 | 1,881 ms | 1,023 | 3,991 | 3.9 | 76.1 MiB | 77.4 MiB |
 | `text-1k` | async-2conn | 20,000 | 1,823 ms | 1,023 | 3,981 | 3.9 | 75.9 MiB | 77.6 MiB |
-| `text-utf8-8k` | sync | 10,000 | 2,698 ms | 8,123 | 25,510 | 3.1 | 243.3 MiB | 237.1 MiB |
-| `text-utf8-8k` | async | 10,000 | 2,009 ms | 8,123 | 31,104 | 3.8 | 296.6 MiB | 296.3 MiB |
-| `text-utf8-8k` | sync-2conn | 20,000 | 3,345 ms | 8,123 | 25,496 | 3.1 | 486.3 MiB | 395.9 MiB |
-| `text-utf8-8k` | async-2conn | 20,000 | 2,566 ms | 8,123 | 27,236 | 3.4 | 519.5 MiB | 521.6 MiB |
+| `text-utf8-8k` | sync | 10,000 | 2,070 ms | 8,123 | 30,984 | 3.8 | 295.5 MiB | 289.6 MiB |
+| `text-utf8-8k` | async | 10,000 | 2,093 ms | 8,123 | 36,290 | 4.5 | 346.1 MiB | 348.2 MiB |
+| `text-utf8-8k` | sync-2conn | 20,000 | 2,599 ms | 8,123 | 30,970 | 3.8 | 590.7 MiB | 578.0 MiB |
+| `text-utf8-8k` | async-2conn | 20,000 | 2,785 ms | 8,123 | 32,821 | 4.0 | 626.0 MiB | 624.2 MiB |
 | `bytes-1k` | sync | 10,000 | 2,360 ms | 1,046 | 3,589 | 3.4 | 34.2 MiB | 34.4 MiB |
 | `bytes-1k` | async | 10,000 | 2,313 ms | 1,046 | 3,568 | 3.4 | 34.0 MiB | 34.1 MiB |
 | `bytes-1k` | sync-2conn | 20,000 | 3,448 ms | 1,046 | 3,001 | 2.9 | 57.2 MiB | 58.4 MiB |
@@ -7039,17 +7039,17 @@ The run was on 2026-10-13, with pycubrid `main` at `22b0117`, Python 3.11.15 and
 
 Every case inserted every row on every connection: `rowcount` and `COUNT(*)` matched. The request size per row is exactly the predicted encoding, which the slow test checks.
 
-- **Wide values cost about three to four times their wire size.** The peak holds the input value, its encoded bytes, the writer's buffer and the final frame. For `text-utf8-8k` that is about 25-31 KB per row, or 243-297 MiB for 10,000 rows.
-  - The async cursor adds up to one more copy of the frame (31 KB per row), because the transport keeps a copy of what the socket has not yet accepted.
+- **Wide values cost about three to four and a half times their wire size.** The peak holds the input value, its encoded bytes, the writer's buffer and the final frame. For `text-utf8-8k` that is about 31-36 KB per row, or 296-346 MiB for 10,000 rows.
+  - The async cursor adds up to one more copy of the frame (36 KB per row), because the transport keeps a copy of what the socket has not yet accepted.
   - Collections cost more per wire byte (about 9 times), because every element is a separate bound string.
   - A LOB row carries only its 64-byte handle and is the cheapest.
-- **Two connections cost the sum of two batches, not more.** The peak with two connections is 1.7-1.9 times the one-connection peak, so the per-row heap is not larger. Concurrency adds no amplification, in threads or in tasks. Each connection still holds its whole batch until its reply, so the client peak is the sum of the concurrent batches.
+- **Two connections cost the sum of two batches, not more.** The peak with two connections is 1.7-2.0 times the one-connection peak, so the per-row heap is not larger. Concurrency adds no amplification, in threads or in tasks. Each connection still holds its whole batch until its reply, so the client peak is the sum of the concurrent batches.
 - **Large single values and server rejections behave as specified** (live, 11.4):
   - One 16, 64 and 128 MiB string, each in a one-row prepared batch into a `STRING` column, was stored and read back. A frame of 128 MiB is accepted.
   - A value too wide for its column (11 characters into `VARCHAR(10)`) fails only its row on the server, with `ProgrammingError` -494, `batch_index` 1 and `batch_rowcounts` `(1, -1, 1)`. The session stays open, and the other rows are kept after `commit()`.
   - The client can only know the 32-bit frame limit before sending, and #854 already covers it.
 
-Decision: no runtime change. No unsafe condition was reproduced. Memory is predictable from the request size: about 3-4 times the frame for scalar values, more for collections, and summed over concurrent batches. To bound it, split the input into several `executemany()` calls.
+Decision: no runtime change. No unsafe condition was reproduced. Memory is predictable from the request size: about 3-4.5 times the frame for scalar values, more for collections, and summed over concurrent batches. To bound it, split the input into several `executemany()` calls.
 
 Not measured:
 - CUBRID 10.2 to 11.2;

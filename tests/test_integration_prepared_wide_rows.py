@@ -46,7 +46,7 @@ _VALUE = {
     "bytes-1k": 1024,
     # element type byte, then per element a length word and "eKK-NNNNNNNNN" and a NUL
     "sequence-50": 1 + 50 * (4 + 13 + 1),
-    # packed handle: db_type, size, locator length, then the NUL-terminated locator
+    # the packed handle, whose length the child reports
     "blob": None,
 }
 
@@ -68,9 +68,10 @@ def test_wide_prepared_batch(profile: str, mode: str) -> None:
     assert result["counts"] == [ROWS] * connections
     value = _VALUE[profile]
     if value is not None:
-        per_row = _ID + 5 + 4 + value
-        assert result["execute_array_bytes"] == connections * (_HEAD + ROWS * per_row)
+        values = [value] * connections
     else:
-        # The locator length varies with the server's LOB path; it is the same in every row.
-        frame = result["execute_array_bytes"] // connections
-        assert (frame - _HEAD) % ROWS == 0
+        # One packed handle per connection; its locator length comes from the server.
+        values = result["blob_handle_bytes"]
+        assert len(values) == connections
+    expected = sorted(_HEAD + ROWS * (_ID + 5 + 4 + v) for v in values)
+    assert result["execute_array_frames"] == expected

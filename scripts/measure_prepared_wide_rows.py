@@ -8,7 +8,8 @@ same time on two connections (separate physical sessions), on a live CUBRID:
 * profiles (one value column next to ``id INT PRIMARY KEY``):
 
   - ``text-1k``: ASCII text of 1,000 characters into ``VARCHAR(1000)``;
-  - ``text-utf8-8k``: 2,700 Hangul characters (8,100 UTF-8 bytes) into
+  - ``text-utf8-8k``: 2,700 Hangul characters (8,100 UTF-8 bytes, a new string
+    per row) into
     ``VARCHAR(8192)`` (wide enough in characters or bytes, whatever the database charset);
   - ``bytes-1k``: 1,024 bytes into ``BIT VARYING(8192)``;
   - ``sequence-50``: a ``pycubrid.types.Sequence`` of 50 short strings into
@@ -84,12 +85,19 @@ def _value(profile: str, i: int) -> Any:
     if profile == "text-1k":
         return ("%09d" % i) + "x" * 991
     if profile == "text-utf8-8k":
-        return "가" * 2700
+        # A fresh string per row (the first character varies), so the input is
+        # not one constant shared by every row.
+        return chr(0xAC00 + i % 11172) + "가" * 2699
     if profile == "bytes-1k":
         return bytes((i + k) % 256 for k in range(1024))
     if profile == "sequence-50":
         return Sequence(["e%02d-%09d" % (k, i) for k in range(50)])
     raise ValueError(profile)
+
+
+# Packed LOB handle length bound by each sync connection (one handle per batch).
+_BLOB_HANDLE_BYTES: list[int] = []
+_HANDLE_LOCK = threading.Lock()
 
 
 def _record_execute_array_bytes() -> list[int]:
@@ -125,6 +133,8 @@ def _sync_batch(
             if profile == "blob":
                 lob = conn.create_lob(CUBRIDDataType.BLOB)
                 lob.write(b"\x5a" * 1024)
+                with _HANDLE_LOCK:
+                    _BLOB_HANDLE_BYTES.append(len(lob.lob_handle))
                 rows: list[tuple[Any, ...]] = [(i, lob) for i in range(count)]
             else:
                 rows = [(i, _value(profile, i)) for i in range(count)]
@@ -176,12 +186,12 @@ def _child(profile: str, mode: str, count: int, trace: bool) -> dict[str, Any]:
     elif mode == "sync-2conn":
         barrier = threading.Barrier(2)
         results: list[int] = []
-        errors: list[BaseException] = []
+        errors: list[Exception] = []
 
         def run() -> None:
             try:
                 results.append(_sync_batch(kwargs, profile, count, barrier))
-            except BaseException as exc:  # noqa: BLE001 - reported below
+            except Exception as exc:  # noqa: BLE001 - re-raised below
                 errors.append(exc)
                 barrier.abort()
 
@@ -213,6 +223,8 @@ def _child(profile: str, mode: str, count: int, trace: bool) -> dict[str, Any]:
         "counts": counts,
         "elapsed_ms": round(elapsed * 1000, 1),
         "execute_array_bytes": sum(sizes),
+        "execute_array_frames": sorted(sizes),
+        "blob_handle_bytes": sorted(_BLOB_HANDLE_BYTES),
         "rss_growth_kib": _max_rss_kib() - rss_before,
         "load_average_1m": round(os.getloadavg()[0], 2),
     }
