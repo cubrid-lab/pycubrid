@@ -63,6 +63,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Sub-minute UTC offsets, verbs followed by a comment and `Lob.write()` input (#898)** —
+  three input-handling gaps, fixed in both drivers where they apply:
+  - An aware `datetime` parameter whose UTC offset is not a whole number of minutes (for
+    example `+05:30:45`) now raises `DataError` in the literal and prepared paths. Before, the
+    offset was truncated to `+05:30` and the server stored an instant 45 seconds off.
+  - A statement whose verb is followed directly by a comment, such as `INSERT/*x*/INTO t ...`,
+    is now detected as `INSERT`. `executemany(..., prepared=True)` raised `NotSupportedError`
+    for it, and the default `executemany()` ran one request per row instead of one
+    `EXECUTE_BATCH`.
+  - `Lob.write()` accepts only `bytes`, `bytearray` and `memoryview`; anything else, such as
+    a `str`, raises `InterfaceError` instead of a raw `TypeError` or a request. Every empty
+    value returns `0` without broker I/O, as the docstring said, and a multi-byte
+    `memoryview` writes and reports its byte count instead of its item count.
+
 - **Malformed FC20 and FC40 replies are reported as malformed (#897)** — an `EXECUTE_BATCH`
   reply whose row error has a negative message length was read as an empty message, and a
   `GET_LAST_INSERT_ID` reply whose two-byte type header did not fit its one-byte value read

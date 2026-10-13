@@ -87,6 +87,8 @@ DML_BATCH_VERBS = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE"})
 # CUBRID C++-style line // ... (each to EOL/EOF).  Kept consistent with the
 # comment styles skipped by split_on_placeholders().
 _RE_LEADING_COMMENTS = re.compile(r"^(\s*(/\*.*?\*/|--[^\n]*(\n|$)|//[^\n]*(\n|$)))*\s*", re.DOTALL)
+# A comment that starts inside the first word ends it: INSERT/*x*/INTO (#898).
+_RE_COMMENT_START = re.compile(r"/\*|--|//")
 
 # IANA-style time zone name accepted from ``tzinfo.key`` in DATETIMETZ literals.
 _RE_TZ_KEY = re.compile(r"[A-Za-z0-9_+/-]+")
@@ -125,7 +127,11 @@ def extract_first_keyword(sql: str) -> str:
     stripped = _RE_LEADING_COMMENTS.sub("", sql)
     if not stripped:
         return ""
-    return stripped.split(None, 1)[0].upper()
+    word = stripped.split(None, 1)[0]
+    comment = _RE_COMMENT_START.search(word)
+    if comment is not None:
+        word = word[: comment.start()]
+    return word.upper()
 
 
 def check_prepared_batch_operation(operation: object) -> str:
@@ -373,7 +379,10 @@ def _format_tz(value: datetime.datetime, tzinfo: datetime.tzinfo) -> str | None:
             total_us = _offset_us(offset)
         except Exception as exc:
             raise ProgrammingError("invalid tzinfo on datetime parameter") from exc
-    # Truncate toward zero, as int(offset.total_seconds()) did.
+    # CUBRID zone offsets are +HH:MM; rendering a finer offset would silently
+    # store a different instant (#898).
+    if total_us % 60000000:
+        raise DataError("UTC offset of a datetime parameter must be a whole number of minutes")
     total_seconds = abs(total_us) // 1000000
     sign = "-" if total_us < 0 and total_seconds else "+"
     hours, remainder = divmod(total_seconds, 3600)

@@ -305,6 +305,20 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Sub-minute offsets, comment after a verb, `Lob.write()` input (#898)** —
+  PATCH / bug fix to the documented parameter-binding, prepared-batch and
+  `Lob.write()` contracts (`docs/PARAMETER_BINDING.md`,
+  `docs/API_REFERENCE.md`). A UTC offset that is not a whole number of minutes
+  raises `DataError` instead of being truncated, which silently stored a
+  different instant. `INSERT/*x*/INTO` is detected as `INSERT`, so it is
+  batched and accepted by `prepared=True`. `Lob.write()` raises
+  `InterfaceError` for data that is not bytes-like, where it raised a raw
+  `TypeError` (`str`, `None`) or sent a request (an empty `str` or list); an
+  empty `bytearray` or `memoryview` no longer sends I/O; a multi-byte
+  `memoryview` reports its byte count. Whole-minute offsets, regions,
+  public signatures (the `Lob.write()` annotation now names the accepted
+  types) and the wire bytes of valid requests are unchanged.
+
 - **Malformed FC20/FC40 replies and undecodable JSON (#897, #900)** — PATCH /
   bug fix to the documented reply-bounds contract (`docs/PROTOCOL.md`, AGENTS.md
   wire protocol summary). A negative or overrunning FC20 row error length and an

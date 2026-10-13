@@ -83,19 +83,28 @@ class Lob:
         _LOGGER.debug("LOB created: type=%d handle=%d bytes", lob_type, len(packet.lob_handle))
         return cls(connection, lob_type, packet.lob_handle)
 
-    def write(self, data: bytes, offset: int = 0) -> int:
+    def write(self, data: bytes | bytearray | memoryview, offset: int = 0) -> int:
         """Write bytes to the LOB starting from ``offset``.
 
-        Empty bytes return zero without broker I/O after the existing checks
-        and wire argument validation.
+        ``data`` must be ``bytes``, ``bytearray`` or ``memoryview``; anything
+        else raises ``InterfaceError`` (#898). Empty data returns zero without
+        broker I/O after the existing checks and wire argument validation.
         Raises ``OperationalError`` if the server writes fewer bytes than
         requested (e.g. disk full, quota exceeded).
         """
         self._check_open()
         _require_non_negative_int(offset, "offset")
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise InterfaceError(
+                f"data must be bytes, bytearray or memoryview, got {type(data).__name__}"
+            )
+        if type(data) is not bytes:
+            # Count bytes, not memoryview items, and copy through the buffer
+            # so a subclass __bytes__() is never called.
+            data = bytes(memoryview(data))
         self._connection._ensure_connected()
         packet = LOBWritePacket(self._lob_handle, offset, data)
-        if isinstance(data, bytes) and len(data) == 0:
+        if len(data) == 0:
             try:
                 packet.write(b"\x00" * 4)  # Validate without broker I/O.
             except struct.error as exc:

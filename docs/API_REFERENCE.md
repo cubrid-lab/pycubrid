@@ -1517,7 +1517,8 @@ cur.executemany(
 ```
 
 - **Statements.** Only statements whose first keyword is `INSERT`, `UPDATE`,
-  `DELETE` or `MERGE` are accepted; anything else (including `SELECT`, `CALL`
+  `DELETE` or `MERGE` are accepted (a comment right after the verb, as in
+  `INSERT/*x*/INTO`, ends the keyword, #898); anything else (including `SELECT`, `CALL`
   and `WITH ... INSERT`) raises `NotSupportedError`. There is no fallback to the
   literal batch. Every placeholder must be a value the server can type: in a
   `MERGE` source, write `CAST(? AS INT)`.
@@ -2095,13 +2096,19 @@ rejected, so `bool` (a subclass of `int`) and other types such as `float` or
 `str` raise `InterfaceError` before the open-LOB check's connection step or
 any packet send.
 
-An empty `bytes` value returns `0` without a broker request after the same
+`data` must be `bytes`, `bytearray` or `memoryview` (#898). Anything else,
+including `str` and `None`, raises `InterfaceError` after the offset check and
+before the connection check or any packet send. A `bytearray` or `memoryview`
+is copied through the buffer protocol, so a multi-byte `memoryview` writes
+and returns its byte count (`nbytes`), not its item count.
+
+An empty value of any of these types returns `0` without a broker request after the same
 open-LOB, offset-type-and-range and connected-connection checks. Existing wire
 argument validation still applies before this local return. The LOB's bytes
 and handle are unchanged; nonempty writes retain server-acknowledgement checks.
 Signed-64-bit packing failures still raise `DataError`, as they do through the
 real connection's nonempty write path, with the serialization error as the cause.
-This does not introduce a new offset/data-type policy or async LOB support.
+This does not introduce async LOB support.
 
 **Returns:** Number of bytes written.
 

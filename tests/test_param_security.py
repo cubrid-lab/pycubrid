@@ -597,34 +597,8 @@ _GOLDEN_PLAIN = [
         "DATETIMETZ'2026-01-15 10:30:00.000 -03:30'",
         None,
     ),
-    (
-        datetime.datetime(
-            2026, 1, 15, 10, 30, tzinfo=datetime.timezone(datetime.timedelta(seconds=-1))
-        ),
-        "DATETIMETZ'2026-01-15 10:30:00.000 -00:00'",
-        None,
-    ),
-    (
-        datetime.datetime(
-            2026, 1, 15, 10, 30, tzinfo=datetime.timezone(datetime.timedelta(microseconds=-1))
-        ),
-        "DATETIMETZ'2026-01-15 10:30:00.000 +00:00'",
-        None,
-    ),
-    (
-        datetime.datetime(
-            2026,
-            1,
-            15,
-            10,
-            30,
-            tzinfo=datetime.timezone(
-                -datetime.timedelta(hours=23, minutes=59, seconds=59, microseconds=999999)
-            ),
-        ),
-        "DATETIMETZ'2026-01-15 10:30:00.000 -23:59'",
-        None,
-    ),
+    # Offsets that are not whole minutes (-1 s, -1 us, -23:59:59.999999) were
+    # truncated here; they raise DataError since #898 (test_cursor_input_gaps.py).
 ]
 
 

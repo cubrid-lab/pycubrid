@@ -1455,7 +1455,8 @@ cur.executemany(
 )
 ```
 
-- **문.** 첫 키워드가 `INSERT`, `UPDATE`, `DELETE`, `MERGE`인 문만 받습니다. 그 밖의 문
+- **문.** 첫 키워드가 `INSERT`, `UPDATE`, `DELETE`, `MERGE`인 문만 받습니다(`INSERT/*x*/INTO`처럼
+  동사 바로 뒤의 주석은 키워드를 끝냅니다, #898). 그 밖의 문
   (`SELECT`, `CALL`, `WITH ... INSERT` 포함)은 `NotSupportedError`를 내며 리터럴
   배치로 대체하지 않습니다. 모든 자리표시자는 서버가 타입을 정할 수 있어야 합니다.
   `MERGE`의 소스에는 `CAST(? AS INT)`처럼 씁니다.
@@ -2002,11 +2003,16 @@ def write(self, data: bytes, offset: int = 0) -> int
 거부되므로, `bool`(`int`의 서브클래스)과 `float`, `str` 등 다른 타입은 열린
 LOB 검사 이후 연결 확인이나 패킷 전송 전에 `InterfaceError`를 발생시킵니다.
 
-빈 `bytes` 값은 기존 열린 LOB·offset 타입/범위·연결 상태 검사를 거친 뒤 브로커
+`data`는 `bytes`, `bytearray`, `memoryview`여야 합니다(#898). `str`과 `None`을
+포함한 그 밖의 값은 offset 검사 뒤, 연결 확인이나 패킷 전송 전에
+`InterfaceError`를 발생시킵니다. `bytearray`와 `memoryview`는 버퍼 프로토콜로
+복사하므로, 여러 바이트 항목의 `memoryview`도 항목 수가 아니라 바이트
+수(`nbytes`)를 쓰고 반환합니다.
+
+이 타입들의 빈 값은 기존 열린 LOB·offset 타입/범위·연결 상태 검사를 거친 뒤 브로커
 요청 없이 `0`을 반환합니다. 이 로컬 반환 전에 기존 와이어 인자 검증도
 유지합니다. LOB의 바이트와 핸들은 바뀌지 않으며, 비어 있지 않은 쓰기는
-서버 ACK 검사를 유지합니다. 새로운 offset/데이터 타입 정책이나 비동기
-LOB 지원을 추가하지 않습니다.
+서버 ACK 검사를 유지합니다. 비동기 LOB 지원은 추가하지 않습니다.
 
 부호 있는 64비트 패킹 오류는 실제 연결의 비어 있지 않은 쓰기 경로와 동일하게
 직렬화 오류를 원인으로 하는 `DataError`를 발생시킵니다.

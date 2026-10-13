@@ -130,18 +130,21 @@ def test_empty_write_keeps_handle_serialization_rejection(connection: MagicMock)
     connection._ensure_connected.assert_called_once_with()
 
 
-@pytest.mark.parametrize("data", [bytearray(), memoryview(b""), "", []])
-def test_other_falsey_data_keeps_existing_send_path(connection: MagicMock, data: object) -> None:
+@pytest.mark.parametrize("data", [bytearray(), memoryview(b"")], ids=["bytearray", "memoryview"])
+def test_other_empty_bytes_like_data_skips_broker_io(connection: MagicMock, data: object) -> None:
+    # The docstring promise covers every empty bytes-like value, not only bytes (#898).
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    written = lob.write(data)  # Simulated broker ACK: the send path must not be shortcut.
-    assert written == 0
-    connection._send_and_receive.assert_called_once()
+    assert lob.write(data) == 0
+    connection._send_and_receive.assert_not_called()
 
 
-def test_none_data_does_not_become_success(connection: MagicMock) -> None:
+@pytest.mark.parametrize("data", [None, "", "text", [], [1], 1])
+def test_non_bytes_like_data_raises_interface_error(connection: MagicMock, data: object) -> None:
     lob = Lob(connection, CUBRIDDataType.BLOB, b"handle")
-    with pytest.raises(TypeError):
-        lob.write(None)
+    with pytest.raises(InterfaceError, match="data must be bytes, bytearray or memoryview"):
+        lob.write(data)
+    connection._ensure_connected.assert_not_called()
+    connection._send_and_receive.assert_not_called()
 
 
 @pytest.mark.parametrize("ack", [0, 2, 6])

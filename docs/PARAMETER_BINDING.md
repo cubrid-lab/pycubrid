@@ -184,6 +184,10 @@ through methods the subclass can override (#528):
   as `Asia/Seoul`, `Etc/GMT+5` or `America/Port-au-Prince`, qualifies);
   anything else raises `ProgrammingError`. A missing, `None` or empty key still
   falls back to the numeric `±HH:MM` offset.
+- Numeric offsets must be a whole number of minutes (#898). An offset with
+  seconds or microseconds, such as `+05:30:45`, raises `DataError` in the
+  literal and prepared paths instead of being truncated to `+05:30`, which
+  stored an instant 45 seconds off. A `tzinfo.key` region is unaffected.
 - Repeated wall time (#819): CUBRID resolves a region-only literal in a
   repeated DST hour to the first occurrence, so a `fold=0` value keeps the
   region-only literal (`America/New_York`), byte-identical to earlier
