@@ -6988,8 +6988,77 @@ error semantics, so it is not part of this change.
 
 Not measured: CUBRID 11.0 and 11.2; 1,000,000 rows on 10.2 and for the other two inputs; repeated
 trials (each case ran once); server memory; whether a broker refuses a request below the 32-bit
-limit (the largest frame sent was 43.9 MiB, which 11.4 accepted); wide rows, LOB and collection
-values; TLS and remote networks; Python versions other than 3.12; RSS on other operating systems.
+limit (the largest frame sent was 43.9 MiB, which 11.4 accepted; #881 below sent 128 MiB); wide
+rows, LOB and collection values (measured in #881 below); TLS and remote networks; Python versions other than 3.12; RSS on other operating systems.
+
+#### Wide values and two connections (#881)
+
+[#881](https://github.com/cubrid-lab/pycubrid/issues/881) repeated the measurement with larger
+values and with two batches at once, using `scripts/measure_prepared_wide_rows.py`. Each row is
+`(id INT PRIMARY KEY, v <type>)`:
+
+| Profile | Value | Column |
+|---|---|---|
+| `text-1k` | 1,000 ASCII characters | `VARCHAR(1000)` |
+| `text-utf8-8k` | 2,700 Hangul characters (8,100 UTF-8 bytes) | `VARCHAR(8192)` |
+| `bytes-1k` | 1,024 bytes | `BIT VARYING(8192)` |
+| `sequence-50` | `pycubrid.types.Sequence` of 50 strings of 13 characters | `SEQUENCE(VARCHAR(16))` |
+| `blob` | one `create_lob()` handle (1 KiB written) bound in every row | `BLOB` (sync only) |
+
+The modes are:
+- `sync` and `async`: one connection.
+- `sync-2conn`: two threads with one connection each.
+- `async-2conn`: two connections on one event loop.
+
+The two connections are separate physical sessions, each with its own table, and their batches start together.
+
+Each case inserted 10,000 rows per connection with autocommit off and one commit, in a fresh child process. A second process with `tracemalloc` gave the heap peak. The heap peak includes the input rows, which are built in the measured process. RSS growth is the process peak minus the peak at start.
+
+The run was on 2026-10-13, with pycubrid `main` at `22b0117`, Python 3.11.15 and CUBRID 11.4.6.1963 in Docker, on the host of the #854 measurement. That host was shared, with a load average of 1.1-8.3. Each case ran once.
+
+| Values | Mode | Rows | Time | Request bytes per row | Heap peak per row | Heap / request | Heap peak | RSS growth |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `text-1k` | sync | 10,000 | 1,225 ms | 1,023 | 4,566 | 4.5 | 43.5 MiB | 44.0 MiB |
+| `text-1k` | async | 10,000 | 2,018 ms | 1,023 | 4,545 | 4.4 | 43.3 MiB | 43.8 MiB |
+| `text-1k` | sync-2conn | 20,000 | 1,881 ms | 1,023 | 3,991 | 3.9 | 76.1 MiB | 77.4 MiB |
+| `text-1k` | async-2conn | 20,000 | 1,823 ms | 1,023 | 3,981 | 3.9 | 75.9 MiB | 77.6 MiB |
+| `text-utf8-8k` | sync | 10,000 | 2,698 ms | 8,123 | 25,510 | 3.1 | 243.3 MiB | 237.1 MiB |
+| `text-utf8-8k` | async | 10,000 | 2,009 ms | 8,123 | 31,104 | 3.8 | 296.6 MiB | 296.3 MiB |
+| `text-utf8-8k` | sync-2conn | 20,000 | 3,345 ms | 8,123 | 25,496 | 3.1 | 486.3 MiB | 395.9 MiB |
+| `text-utf8-8k` | async-2conn | 20,000 | 2,566 ms | 8,123 | 27,236 | 3.4 | 519.5 MiB | 521.6 MiB |
+| `bytes-1k` | sync | 10,000 | 2,360 ms | 1,046 | 3,589 | 3.4 | 34.2 MiB | 34.4 MiB |
+| `bytes-1k` | async | 10,000 | 2,313 ms | 1,046 | 3,568 | 3.4 | 34.0 MiB | 34.1 MiB |
+| `bytes-1k` | sync-2conn | 20,000 | 3,448 ms | 1,046 | 3,001 | 2.9 | 57.2 MiB | 58.4 MiB |
+| `bytes-1k` | async-2conn | 20,000 | 3,206 ms | 1,046 | 2,990 | 2.9 | 57.0 MiB | 58.3 MiB |
+| `sequence-50` | sync | 10,000 | 5,992 ms | 923 | 8,651 | 9.4 | 82.5 MiB | 84.5 MiB |
+| `sequence-50` | async | 10,000 | 4,649 ms | 923 | 8,631 | 9.4 | 82.3 MiB | 84.2 MiB |
+| `sequence-50` | sync-2conn | 20,000 | 9,058 ms | 923 | 8,131 | 8.8 | 155.1 MiB | 159.9 MiB |
+| `sequence-50` | async-2conn | 20,000 | 6,653 ms | 923 | 8,316 | 9.0 | 158.6 MiB | 164.7 MiB |
+| `blob` | sync | 10,000 | 2,731 ms | 86 | 527 | 6.1 | 5.0 MiB | 6.0 MiB |
+| `blob` | sync-2conn | 20,000 | 2,975 ms | 86 | 470 | 5.5 | 9.0 MiB | 10.5 MiB |
+
+Every case inserted every row on every connection: `rowcount` and `COUNT(*)` matched. The request size per row is exactly the predicted encoding, which the slow test checks.
+
+- **Wide values cost about three to four times their wire size.** The peak holds the input value, its encoded bytes, the writer's buffer and the final frame. For `text-utf8-8k` that is about 25-31 KB per row, or 243-297 MiB for 10,000 rows.
+  - The async cursor adds up to one more copy of the frame (31 KB per row), because the transport keeps a copy of what the socket has not yet accepted.
+  - Collections cost more per wire byte (about 9 times), because every element is a separate bound string.
+  - A LOB row carries only its 64-byte handle and is the cheapest.
+- **Two connections cost the sum of two batches, not more.** The peak with two connections is 1.7-1.9 times the one-connection peak, so the per-row heap is not larger. Concurrency adds no amplification, in threads or in tasks. Each connection still holds its whole batch until its reply, so the client peak is the sum of the concurrent batches.
+- **Large single values and server rejections behave as specified** (live, 11.4):
+  - One 16, 64 and 128 MiB string, each in a one-row prepared batch into a `STRING` column, was stored and read back. A frame of 128 MiB is accepted.
+  - A value too wide for its column (11 characters into `VARCHAR(10)`) fails only its row on the server, with `ProgrammingError` -494, `batch_index` 1 and `batch_rowcounts` `(1, -1, 1)`. The session stays open, and the other rows are kept after `commit()`.
+  - The client can only know the 32-bit frame limit before sending, and #854 already covers it.
+
+Decision: no runtime change. No unsafe condition was reproduced. Memory is predictable from the request size: about 3-4 times the frame for scalar values, more for collections, and summed over concurrent batches. To bound it, split the input into several `executemany()` calls.
+
+Not measured:
+- CUBRID 10.2 to 11.2;
+- more than 10,000 rows per connection for these profiles;
+- repeated trials;
+- server memory;
+- more than two connections;
+- TLS and remote networks;
+- other Python versions and operating systems.
 
 ### Fetch throughput and peak memory by `fetch_size`
 
@@ -9920,6 +9989,17 @@ CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
   pytest tests/test_integration_prepared_large_batch.py -m "integration and slow" -s
 CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
   python scripts/measure_prepared_batch.py --rows 10000 100000 --json prepared-batch.json
+```
+
+The wide-value and two-connection measurement (#881) is run the same way. The slow
+test runs 1,000 rows per connection for every value profile and mode; the script
+takes `--rows` (per connection), `--profiles` and `--modes`:
+
+```bash
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  pytest tests/test_integration_prepared_wide_rows.py -m "integration and slow" -s
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python scripts/measure_prepared_wide_rows.py --rows 10000 --json prepared-wide-rows.json
 ```
 
 See [PERFORMANCE.md](PERFORMANCE.md#large-prepared-batch) for the recorded results.

@@ -660,6 +660,17 @@ CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
   python scripts/measure_prepared_batch.py --rows 10000 100000 --json prepared-batch.json
 ```
 
+The wide-value and two-connection measurement (#881) is run the same way. The slow
+test runs 1,000 rows per connection for every value profile and mode; the script
+takes `--rows` (per connection), `--profiles` and `--modes`:
+
+```bash
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  pytest tests/test_integration_prepared_wide_rows.py -m "integration and slow" -s
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python scripts/measure_prepared_wide_rows.py --rows 10000 --json prepared-wide-rows.json
+```
+
 See [PERFORMANCE.md](PERFORMANCE.md#large-prepared-batch) for the recorded results.
 
 `python scripts/check_integration_lanes.py` collects the current marker inventory

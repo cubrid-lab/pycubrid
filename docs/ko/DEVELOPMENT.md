@@ -615,6 +615,17 @@ CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
   python scripts/measure_prepared_batch.py --rows 10000 100000 --json prepared-batch.json
 ```
 
+넓은 값과 두 연결 측정(#881)도 같은 방식으로 실행합니다. slow 테스트는 모든 값 프로필과
+모드를 연결당 1,000행으로 실행하며, 스크립트는 `--rows`(연결당), `--profiles`, `--modes`를
+받습니다:
+
+```bash
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  pytest tests/test_integration_prepared_wide_rows.py -m "integration and slow" -s
+CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
+  python scripts/measure_prepared_wide_rows.py --rows 10000 --json prepared-wide-rows.json
+```
+
 기록된 결과는 [PERFORMANCE.md](PERFORMANCE.md#large-prepared-batch)를 참고하세요.
 
 `python scripts/check_integration_lanes.py`는 현재 마커 목록을 수집하고 각 레인의 실제

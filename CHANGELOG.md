@@ -177,6 +177,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Tests
 
+- **Wide-value and two-connection prepared batches measured (#881)** — the new
+  `scripts/measure_prepared_wide_rows.py` and the opt-in `slow`
+  `tests/test_integration_prepared_wide_rows.py` measure `executemany(..., prepared=True)` with
+  1 KB text, 8 KB UTF-8 text, 1 KB bytes, 50-element sequences and LOB handles, sync and
+  async, on one connection and on two at once, and check the predicted `EXECUTE_ARRAY` size.
+  On CUBRID 11.4 the client heap peak is about 3-4 times the request size for scalar values and
+  about 9 times for sequences; two concurrent connections cost the sum of two batches, with no
+  extra amplification. 16-128 MiB single values are accepted and a value too wide for its column
+  fails only its row. No runtime change; results in `docs/PERFORMANCE.md`.
+
 - **What `read_timeout` bounds when a reply arrives slowly, pinned and documented
   (#855)** — the new offline `tests/test_slow_stream_timeout.py` has the scripted
   replay broker send a reply in ten pieces 0.1 s apart (0.9 s in all) with
