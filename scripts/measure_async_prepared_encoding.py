@@ -105,7 +105,7 @@ async def _measure(kwargs: dict[str, Any], shape: str, count: int) -> dict[str, 
             )
             elapsed = (time.perf_counter() - started) * 1000
             done.set()
-            await tick
+            await asyncio.wait_for(tick, timeout=10)
             rowcount = cursor.rowcount
             await conn.rollback()
         finally:

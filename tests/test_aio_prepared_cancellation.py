@@ -175,7 +175,7 @@ def test_encoding_is_one_synchronous_step() -> None:
         cursor = conn.cursor()
         await cursor.executemany(INSERT, rows(), prepared=True)
         done.set()
-        await tick_task
+        await asyncio.wait_for(tick_task, timeout=10)
         return seen, at_write, cursor.rowcount
 
     _, (seen, at_write, rowcount) = _run(scenario, script=script)
