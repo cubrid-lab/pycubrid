@@ -1954,6 +1954,14 @@ cancels only that task. A waiting task that is itself cancelled still raises
 connection lock instead; its failure is raised in the request that triggered it, and
 later requests find the connection closed (`InterfaceError`).
 
+A request that passed that wait before the setup began, and then takes the lock while the
+setup task has released it for its escape probe, sends nothing and raises the retryable
+`OperationalError` ("connection setup in progress; retry operation") (#894). This refusal
+never drops or replaces the session being set up: `get_schema_info()`,
+`fetch_schema_info()`, `close_schema_info()`, `commit()`, `rollback()` and cursor
+statements raise it before any cleanup or `CHECK_CAS` recovery, so the setup task's probe
+and `ping(reconnect=True)` still succeed.
+
 `AsyncConnection.__init__` accepts a keyword-only `autocommit: bool = False` argument, applied
 automatically the first time `await conn.connect()` completes — the same effect as
 `await conn.set_autocommit(True)`, but usable when constructing `AsyncConnection` directly

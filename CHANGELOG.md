@@ -49,6 +49,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `AsyncCursor`: `rows = await cur.fetchmany(remaining) if remaining > 0 else []`),
   which works on 1.x and 2.0; the warning message names the matching form. See [API reference](docs/API_REFERENCE.md#fetchmanysize).
 
+### Fixed
+
+- **Async requests refused during another task's session setup keep that session (#894)**
+  — an `AsyncConnection` request that passed the setup wait before `ping(reconnect=True)`
+  or `connect()` began, and then took the lock while setup released it for the escape-mode
+  probe, raised "connection setup in progress; retry operation" as before, but
+  `get_schema_info()` then dropped the new session and `commit()`, `rollback()` and cursor
+  statements treated the refused `CHECK_CAS` as a dead CAS and replaced it. The probe then
+  failed and `ping()` returned `False`. These entry points, plus `fetch_schema_info()` and
+  `close_schema_info()`, now raise the same retryable `OperationalError` before any cleanup
+  or recovery, without sending anything. The setup task's own requests are unchanged.
+
 ### Security
 
 - **A negative number bound after a minus sign no longer starts a comment

@@ -739,6 +739,8 @@ class AsyncConnection(ConnectionCommonMixin):
         await self._wait_for_setup_if_needed()
         async with self._lock:
             self._ensure_connected()
+            # Refuse before the broad handler below can drop the new session.
+            self._refuse_during_other_setup_locked()
             # An unencodable argument fails here, before the request can drop
             # the session below (#86).
             self._check_encodable("schema argument", table_name)
@@ -763,6 +765,7 @@ class AsyncConnection(ConnectionCommonMixin):
         await self._wait_for_setup_if_needed()
         async with self._lock:
             result = self._active_schema_result(packet)
+            self._refuse_during_other_setup_locked()
             rows: list[tuple[Any, ...]] = []
             try:
                 while len(rows) < result.count:
@@ -818,6 +821,7 @@ class AsyncConnection(ConnectionCommonMixin):
         result = self._owned_schema_result(packet)
         if result is None:
             return
+        self._refuse_during_other_setup_locked()
         try:
             await self._send_and_receive_locked(
                 CloseQueryPacket(result.handle), allow_reconnect=False
@@ -970,6 +974,18 @@ class AsyncConnection(ConnectionCommonMixin):
         ):
             raise OperationalError("CAS session replaced after parameter binding; retry operation")
 
+    def _refuse_during_other_setup_locked(self) -> None:
+        """Raise before anything is sent while another task sets up a session.
+
+        A caller may have passed the outer gate before recovery began, then
+        taken the lock while the setup owner released it around its escape
+        probe. Never send its prebuilt SQL while the new mode is unverified,
+        and raise before any request-scoped cleanup can drop or replace the
+        session the owner is still setting up (#894).
+        """
+        if not self._setup_done.is_set() and self._setup_owner is not asyncio.current_task():
+            raise OperationalError("connection setup in progress; retry operation")
+
     async def _send_and_receive_locked(
         self,
         packet: Any,
@@ -979,10 +995,7 @@ class AsyncConnection(ConnectionCommonMixin):
     ) -> Any:
         if isinstance(packet, PrepareAndExecutePacket):
             packet._query_handle_retired = False
-        if not self._setup_done.is_set() and self._setup_owner is not asyncio.current_task():
-            # A caller may have passed the outer gate before recovery began.
-            # Never send its prebuilt SQL while the new mode is unverified.
-            raise OperationalError("connection setup in progress; retry operation")
+        self._refuse_during_other_setup_locked()
         self._validate_escape_generation(expected_escape_generation)
         if await self._preflight_locked(packet, allow_reconnect):
             return packet
@@ -1202,6 +1215,9 @@ class AsyncConnection(ConnectionCommonMixin):
         can observe the new session before its setup is complete.
         """
         self._ensure_connected()
+        # A refused probe is not a dead CAS: never replace the session that
+        # another task is still setting up (#894).
+        self._refuse_during_other_setup_locked()
         if self._writer is None or not self._needs_cas_probe(allow_reconnect):
             return False
         try:

@@ -301,6 +301,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Async request refused during another task's setup (#894)** — PATCH / bug
+  fix to the documented async setup contract (`docs/API_REFERENCE.md`). A
+  request that passed the setup wait before setup began and took the lock
+  during the escape probe already raised the retryable `OperationalError`
+  ("connection setup in progress; retry operation"); it now raises it before
+  any cleanup or `CHECK_CAS` recovery, so it no longer drops or replaces the
+  session being set up. The error class and message, the setup task's own
+  requests, the sync driver, public signatures and the wire bytes of every
+  sent request are unchanged.
+
 - **Negative literal after a minus sign (#893)** — PATCH / security correction
   to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
   When a rendered literal starts with `-` and the SQL text right before its
