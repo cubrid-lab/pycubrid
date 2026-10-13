@@ -49,6 +49,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `AsyncCursor`: `rows = await cur.fetchmany(remaining) if remaining > 0 else []`),
   which works on 1.x and 2.0; the warning message names the matching form. See [API reference](docs/API_REFERENCE.md#fetchmanysize).
 
+### Security
+
+- **A negative number bound after a minus sign no longer starts a comment
+  (#893)** — the literal binding of sync and async `execute()` and of the default
+  `executemany()` pasted a negative `int`, `float` or `Decimal` straight after the
+  SQL text, so `UPDATE t SET x = x-? WHERE id = ?` with `(-5, 1)` was sent as
+  `x--5 WHERE id = 1`. CUBRID reads `--` as a line comment, so the `WHERE` clause
+  was dropped and every row was updated; anyone who controls a numeric parameter
+  could truncate the statement this way. A space now separates a literal that
+  starts with `-` from a `-` right before its placeholder (`x- -5`). Every other
+  rendering, including negative values after any other character and collection
+  elements, is byte-identical. The prepared paths (`executemany(..., prepared=True)`
+  and `compat.native`) send typed values and were not affected. See
+  [Parameter binding](docs/PARAMETER_BINDING.md#placeholder-tokenizer).
+
 ### Tests
 
 - **What `read_timeout` bounds when a reply arrives slowly, pinned and documented

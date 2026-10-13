@@ -516,6 +516,21 @@ The replacement step concatenates segments and rendered literals
 `str.replace("?", ...)`, so a literal `?` in the rendered value of one
 parameter cannot inadvertently consume the next placeholder.
 
+A rendered value never joins the SQL text before it into a comment (#893).
+When a literal that starts with `-` (a negative `int`, `float` or `Decimal`,
+including `-0.0` and `Decimal("-0")`) directly follows a `-` in the SQL text,
+one space is inserted between them, so `x-?` with `-5` is sent as `x- -5`
+(`x - (-5)`) instead of `x--5`, which CUBRID reads as a line comment that drops
+the rest of the statement. Nothing else changes: a negative value after any
+other character (`= -5`, `IN (-1, -2)`, `LIMIT -1`, `1+-2`), a non-negative
+value after `-` (`1-2`) and collection elements (`SET{-1, -2}`, whose elements
+follow `{` or `, `) render exactly as before. No other rendered literal starts
+with `-` or `/`, or ends with `-`, `/` or `*`, so no value can open `--`, `//`
+or `/*` with the surrounding SQL. A placeholder written directly against other
+SQL text (`1?`, `?1`, `x?`) still pastes the value next to it; write a space or
+an operator there. Pinned by `tests/test_negative_literal_comment.py` and, on a
+live server, `tests/test_integration_negative_literal.py`.
+
 ---
 
 ## `executemany`

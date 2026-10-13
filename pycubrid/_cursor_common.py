@@ -559,7 +559,15 @@ def _render_parameters(parts: list[str], values: Sequence[Any], no_backslash_esc
         raise ProgrammingError("wrong number of parameters")
     result = [parts[0]]
     for index, value in enumerate(values, start=1):
-        result.append(format_parameter(value, no_backslash_escapes=no_backslash_escapes))
+        literal = format_parameter(value, no_backslash_escapes=no_backslash_escapes)
+        # A negative number placed right after a "-" in the SQL would form
+        # "--", a line comment that drops the rest of the statement (#893).
+        # A space keeps the two minus signs separate tokens. result[-1] is
+        # always the SQL text just before this placeholder, and no rendered
+        # value ends with "-", so an empty part needs no check.
+        if literal[:1] == "-" and result[-1][-1:] == "-":
+            result.append(" ")
+        result.append(literal)
         result.append(parts[index])
     return "".join(result)
 

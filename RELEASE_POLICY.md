@@ -301,6 +301,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Negative literal after a minus sign (#893)** — PATCH / security correction
+  to the documented parameter-binding contract (`docs/PARAMETER_BINDING.md`).
+  When a rendered literal starts with `-` and the SQL text right before its
+  placeholder ends with `-`, one space is inserted, so `x-?` with `-5` is sent as
+  `x- -5` instead of the `x--5` line comment that dropped the rest of the
+  statement. Every other rendered statement is byte-identical; the prepared
+  paths, public signatures, dependencies and supported versions are unchanged.
+
 - **`fetchmany(size)` with `size <= 0` deprecated (#678)** — MINOR /
   deprecation, the first phase of the positive-only fetch-size migration. Sync
   and async `fetchmany()` emit a `DeprecationWarning` at the caller's line when
