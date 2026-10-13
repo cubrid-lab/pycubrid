@@ -55,7 +55,22 @@ _DEEP_MARK = pytest.mark.skipif(
     reason="this interpreter's json.loads decodes the nesting depth",
 )
 _DEEP = pytest.param(DEEP_JSON, id="deep-nesting", marks=_DEEP_MARK)
-_BIG = pytest.param(BIG_INT_JSON, id="int-digit-limit")
+
+
+def _big_int_json_hits_digit_limit() -> bool:
+    # PYTHONINTMAXSTRDIGITS=0 (or -X int_max_str_digits=0) disables the limit.
+    try:
+        json.loads(BIG_INT_JSON)
+    except ValueError:
+        return True
+    return False
+
+
+_BIG_MARK = pytest.mark.skipif(
+    not _big_int_json_hits_digit_limit(),
+    reason="the integer string conversion limit is disabled",
+)
+_BIG = pytest.param(BIG_INT_JSON, id="int-digit-limit", marks=_BIG_MARK)
 
 
 def _int(value: int) -> bytes:
@@ -162,7 +177,7 @@ async def test_async_last_insert_id_header_overrun_is_malformed() -> None:
 @pytest.mark.parametrize(
     ("text", "cause"),
     [
-        pytest.param(BIG_INT_JSON, ValueError, id="int-digit-limit"),
+        pytest.param(BIG_INT_JSON, ValueError, id="int-digit-limit", marks=_BIG_MARK),
         pytest.param(DEEP_JSON, RecursionError, id="deep-nesting", marks=_DEEP_MARK),
     ],
 )
@@ -207,15 +222,23 @@ async def test_async_undecodable_json_keeps_connection(text: bytes) -> None:
     assert conn._writer is not None
 
 
-def test_recursion_error_from_json_loads_raises_data_error(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("Exceeds the limit (4300 digits) for integer string conversion"),
+        RecursionError("maximum recursion depth exceeded while decoding a JSON array"),
+    ],
+    ids=["value-error", "recursion-error"],
+)
+def test_json_loads_failure_raises_data_error(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException
 ) -> None:
-    # Version-independent check of the RecursionError branch: the built-in
+    # Check both branches whatever the interpreter configuration: the built-in
     # deserializer is recognized by identity, so patch json.loads itself.
-    def _too_deep(_value: str) -> None:
-        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+    def _fail(_value: str) -> None:
+        raise error
 
-    monkeypatch.setattr(json, "loads", _too_deep)
+    monkeypatch.setattr(json, "loads", _fail)
     payload = b"[[]]\x00"
     with pytest.raises(DataError, match="JSON value cannot be decoded") as raised:
         _read_value(
@@ -223,7 +246,7 @@ def test_recursion_error_from_json_loads_raises_data_error(
             CUBRIDDataType.JSON,
             len(payload),
         )
-    assert type(raised.value.__cause__) is RecursionError
+    assert raised.value.__cause__ is error
 
 
 def test_invalid_json_text_message_is_unchanged() -> None:
