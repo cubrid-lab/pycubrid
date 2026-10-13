@@ -489,8 +489,16 @@ def _classify_by_text(error_message: str) -> str:
     return "DatabaseError"
 
 
-def _raise_error(reader: PacketReader, response_length: int) -> None:
+# Reply indicator before an error code (CUBRID src/broker/cas.h) -> error_source (#903).
+_ERROR_SOURCE_BY_INDICATOR = {-1: "cas", -2: "server"}
+
+
+def _raise_error(reader: PacketReader, response_length: int, indicator: int | None = None) -> None:
     """Parse an error response and raise the appropriate DB-API exception.
+
+    *indicator* is the negative response code that precedes the error code:
+    ``CAS_ERROR_INDICATOR`` (-1) or ``DBMS_ERROR_INDICATOR`` (-2). It sets the
+    exception's ``error_source``; the error number is kept as sent (#903).
 
     Dispatches primarily by CAS error code (deterministic, stable across
     CUBRID versions). Falls back to text heuristics ONLY for code -1
@@ -520,6 +528,7 @@ def _raise_error(reader: PacketReader, response_length: int) -> None:
         sqlstate=sqlstate or _DEFAULT_SQLSTATE.get(exc_name, "HY000"),
     )
     setattr(error, "_cas_server_error", True)
+    error._error_source = _ERROR_SOURCE_BY_INDICATOR.get(indicator) if indicator else None
     raise error
 
 
@@ -970,6 +979,7 @@ def _parse_result_infos(
                 sqlstate=get_sqlstate(error_code) or _DEFAULT_SQLSTATE[exc_name],
             )
             setattr(error, "_cas_server_error", True)
+            error._error_source = _ERROR_SOURCE_BY_INDICATOR.get(count)
             raise error
         oid = reader._parse_bytes(DataSize.OID)
         cache_sec = reader._parse_int()
@@ -1007,7 +1017,7 @@ class _CasPacket:
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
-            _raise_error(reader, len(data) - 8)
+            _raise_error(reader, len(data) - 8, response_code)
         return reader, response_code
 
 
@@ -1072,7 +1082,7 @@ class OpenDatabasePacket(_CasPacket):
         self.response_code = reader._parse_int()
         if self.response_code < 0:
             remaining = len(data) - 8  # 4 cas_info + 4 response_code
-            _raise_error(reader, remaining)
+            _raise_error(reader, remaining, self.response_code)
         broker_bytes = reader._parse_bytes(DataSize.BROKER_INFO)
         self.broker_info = {
             "db_type": broker_bytes[0],
@@ -1151,7 +1161,7 @@ class PrepareAndExecutePacket(_CasPacket):
         self.response_code = reader._parse_int()
         if self.response_code < 0:
             remaining = len(data) - 8
-            _raise_error(reader, remaining)
+            _raise_error(reader, remaining, self.response_code)
 
         self.query_handle = self.response_code
         # Same layout as the FC2 tail, so the same count checks apply (#581).
@@ -1259,7 +1269,7 @@ class PreparePacket(_CasPacket):
         self.response_code = reader._parse_int()
         if self.response_code < 0:
             remaining = len(data) - 8
-            _raise_error(reader, remaining)
+            _raise_error(reader, remaining, self.response_code)
 
         self.query_handle = self.response_code
         self.statement_type, self.bind_count, self.columns, metadata_error = _parse_prepare_info(
@@ -1349,7 +1359,7 @@ class ExecutePacket(_CasPacket):
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
-            _raise_error(reader, remaining)
+            _raise_error(reader, remaining, response_code)
 
         self.total_tuple_count = response_code
         metadata_error = None
@@ -1444,7 +1454,7 @@ class FetchPacket(_CasPacket):
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
-            _raise_error(reader, remaining)
+            _raise_error(reader, remaining, response_code)
 
         effective_columns = columns if columns is not None else self._columns
         effective_stmt_type = statement_type if statement_type is not None else self._statement_type
@@ -1611,7 +1621,7 @@ class GetSchemaPacket(_CasPacket):
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
-            _raise_error(reader, remaining)
+            _raise_error(reader, remaining, response_code)
         self.query_handle = response_code
         self.tuple_count = reader._parse_int()
         if self.tuple_count < 0:
@@ -1668,7 +1678,7 @@ class BatchExecutePacket(_CasPacket):
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
-            _raise_error(reader, remaining)
+            _raise_error(reader, remaining, response_code)
         executed_count = reader._parse_int()
         if not 0 <= executed_count <= len(self.sql_list):
             raise ValueError("invalid batch execute statement count")
@@ -1784,7 +1794,7 @@ class ExecuteArrayPacket(_CasPacket):
         reader._skip_bytes(DataSize.CAS_INFO)
         response_code = reader._parse_int()
         if response_code < 0:
-            _raise_error(reader, len(data) - 8)
+            _raise_error(reader, len(data) - 8, response_code)
         executed_count = reader._parse_int()
         if not 0 <= executed_count <= len(self.rows):
             raise ValueError("invalid execute-array row count")
@@ -1919,7 +1929,7 @@ class GetLastInsertIdPacket(_CasPacket):
         response_code = reader._parse_int()
         if response_code < 0:
             remaining = len(data) - 8
-            _raise_error(reader, remaining)
+            _raise_error(reader, remaining, response_code)
         value_size = reader._parse_int()
         if value_size > 0:
             # The type header counts in value_size; a header longer than the

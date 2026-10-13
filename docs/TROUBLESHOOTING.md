@@ -154,8 +154,8 @@ ConnectionRefusedError: [Errno 111] Connection refused
 **Symptom:**
 
 ```
-DatabaseError: Incorrect or missing password. (errno=-171, sqlstate='HY000')
-DatabaseError: User "app" is invalid. (errno=-165, sqlstate='HY000')
+OperationalError: Incorrect or missing password. (errno=-171, description='Invalid password', sqlstate='28000')
+OperationalError: User "app" is invalid. (errno=-165, description='Invalid user', sqlstate='28000')
 ```
 
 **Fixes:**

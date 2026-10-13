@@ -947,8 +947,10 @@ The CUBRID broker is not running or not listening on the expected port.
 
 #### Wrong password or unknown user
 
-A wrong password raises `DatabaseError` with `errno=-171` ("Incorrect or missing
-password."), and an unknown user `errno=-165`. CUBRID's default `dba` user has no password. If you set one, ensure it matches:
+A wrong password raises `OperationalError` with `errno=-171` ("Incorrect or missing
+password.") and SQLSTATE `28000`, and an unknown user `errno=-165` with the same
+class and SQLSTATE (#903; `DatabaseError` / `HY000` before). `error_source` is
+`"server"`. CUBRID's default `dba` user has no password. If you set one, ensure it matches:
 
 ```python
 # If dba has no password
@@ -3500,6 +3502,24 @@ described in [Partial failure](#partial-failure-which-rows-failed) (#841). On
 every other `DatabaseError` they are `None`. They survive `pickle` and `copy`, and
 `str()` and `repr()` do not include them.
 
+`error_source` (read-only, `str | None`, #903) says who generated an error the
+broker reported. The broker puts an indicator before each error code
+(`CAS_ERROR_INDICATOR` or `DBMS_ERROR_INDICATOR` in CUBRID `src/broker/cas.h`):
+
+| `error_source` | Indicator | Example |
+|---|---|---|
+| `"cas"` | `-1`: the CAS itself | `get_schema_info()` with an invalid schema type: `errno=-1015` |
+| `"server"` | `-2`: the database server | a syntax error (`-493`), a wrong password (`-171`), a failed batch row |
+| `None` | none | an error the driver raised itself, such as a closed connection or a malformed reply |
+
+`errno` and `code` keep the number on the wire. The driver does not request the
+renewed CAS numbering, so a CAS error keeps its old value (`-1000` to `-1200`,
+the CAS code plus 9000). That range overlaps server codes; `error_source` tells
+them apart. `CAS_ER_NOT_AUTHORIZED_CLIENT` (`-1018`, a client address rejected by
+the broker's access control) is sent with the server indicator and reports
+`"server"`. `error_source` survives `pickle` and `copy`, and is not part of
+`str()` or `repr()`.
+
 ---
 
 ### DataError
@@ -3632,6 +3652,10 @@ Native `-3`
 (`ER_OUT_OF_VIRTUAL_MEMORY`) and the I/O errors `-13`, `-14` and `-15`
 (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`) use `OperationalError`, and
 `-2` (`ER_GENERIC_ERROR`) uses `InternalError`.
+The authentication failures `-165` (`ER_AU_INVALID_USER`) and `-171`
+(`ER_AU_INVALID_PASSWORD`) use `OperationalError` / `28000` (invalid
+authorization specification) in both drivers (#903); earlier releases raised
+`DatabaseError` / `HY000`.
 SQLSTATE values are driver translations of the native meanings. Batch dispatch
 uses the same known-code SQLSTATE lookup as single statements, retaining the
 class default for unknown codes.
@@ -6163,7 +6187,11 @@ mapping. Only an unmapped inner code exactly `-1` uses the text fallback below;
 an outer CAS indicator of `-1` does not select that fallback. Other unmapped
 codes raise `DatabaseError`, regardless of their message text. Exceptions retain
 the received inner number unchanged in `code` and `errno`; the outer domain is
-not exposed as a public exception attribute.
+exposed as `DatabaseError.error_source`: `"cas"` for `-1`, `"server"` for `-2`,
+and `None` for any other value (#903). The driver does not set
+`BROKER_RENEWED_ERROR_CODE` in the handshake, so a CAS error arrives in the old
+numbering (`CAS_ER_*` plus 9000, `-1000` to `-1200`), which overlaps server codes;
+the indicator is what tells them apart.
 
 Text fallback for inner code `-1` only:
 
@@ -7662,8 +7690,8 @@ ConnectionRefusedError: [Errno 111] Connection refused
 **Symptom:**
 
 ```
-DatabaseError: Incorrect or missing password. (errno=-171, sqlstate='HY000')
-DatabaseError: User "app" is invalid. (errno=-165, sqlstate='HY000')
+OperationalError: Incorrect or missing password. (errno=-171, description='Invalid password', sqlstate='28000')
+OperationalError: User "app" is invalid. (errno=-165, description='Invalid user', sqlstate='28000')
 ```
 
 **Fixes:**

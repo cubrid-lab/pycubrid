@@ -2354,6 +2354,24 @@ described in [Partial failure](#partial-failure-which-rows-failed) (#841). On
 every other `DatabaseError` they are `None`. They survive `pickle` and `copy`, and
 `str()` and `repr()` do not include them.
 
+`error_source` (read-only, `str | None`, #903) says who generated an error the
+broker reported. The broker puts an indicator before each error code
+(`CAS_ERROR_INDICATOR` or `DBMS_ERROR_INDICATOR` in CUBRID `src/broker/cas.h`):
+
+| `error_source` | Indicator | Example |
+|---|---|---|
+| `"cas"` | `-1`: the CAS itself | `get_schema_info()` with an invalid schema type: `errno=-1015` |
+| `"server"` | `-2`: the database server | a syntax error (`-493`), a wrong password (`-171`), a failed batch row |
+| `None` | none | an error the driver raised itself, such as a closed connection or a malformed reply |
+
+`errno` and `code` keep the number on the wire. The driver does not request the
+renewed CAS numbering, so a CAS error keeps its old value (`-1000` to `-1200`,
+the CAS code plus 9000). That range overlaps server codes; `error_source` tells
+them apart. `CAS_ER_NOT_AUTHORIZED_CLIENT` (`-1018`, a client address rejected by
+the broker's access control) is sent with the server indicator and reports
+`"server"`. `error_source` survives `pickle` and `copy`, and is not part of
+`str()` or `repr()`.
+
 ---
 
 ### DataError
@@ -2486,6 +2504,10 @@ Native `-3`
 (`ER_OUT_OF_VIRTUAL_MEMORY`) and the I/O errors `-13`, `-14` and `-15`
 (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`) use `OperationalError`, and
 `-2` (`ER_GENERIC_ERROR`) uses `InternalError`.
+The authentication failures `-165` (`ER_AU_INVALID_USER`) and `-171`
+(`ER_AU_INVALID_PASSWORD`) use `OperationalError` / `28000` (invalid
+authorization specification) in both drivers (#903); earlier releases raised
+`DatabaseError` / `HY000`.
 SQLSTATE values are driver translations of the native meanings. Batch dispatch
 uses the same known-code SQLSTATE lookup as single statements, retaining the
 class default for unknown codes.

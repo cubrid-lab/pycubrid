@@ -721,8 +721,10 @@ The CUBRID broker is not running or not listening on the expected port.
 
 #### Wrong password or unknown user
 
-A wrong password raises `DatabaseError` with `errno=-171` ("Incorrect or missing
-password."), and an unknown user `errno=-165`. CUBRID's default `dba` user has no password. If you set one, ensure it matches:
+A wrong password raises `OperationalError` with `errno=-171` ("Incorrect or missing
+password.") and SQLSTATE `28000`, and an unknown user `errno=-165` with the same
+class and SQLSTATE (#903; `DatabaseError` / `HY000` before). `error_source` is
+`"server"`. CUBRID's default `dba` user has no password. If you set one, ensure it matches:
 
 ```python
 # If dba has no password

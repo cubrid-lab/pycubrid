@@ -771,6 +771,7 @@ def _batch_failure(
     row_results: Sequence[tuple[int, int, str]],
     errors: Sequence[dict[str, Any]],
     raised: dict[str, Any],
+    protocol_version: int | None = None,
 ) -> DatabaseError:
     """Return the exception for *raised* with the batch's per-row outcome (#841).
 
@@ -779,16 +780,23 @@ def _batch_failure(
     "index"}``. The exception is the one ``_batch_exception`` builds;
     ``batch_errors`` holds a separate instance per failed row. The caller
     raises it, so no frame of this helper is left holding it.
+
+    From protocol 3 the reply puts ``DBMS_ERROR_INDICATOR`` before each row's
+    code, so with *protocol_version* above 2 every exception has
+    ``error_source == "server"``; otherwise it is ``None`` (#903).
     """
+    source = "server" if type(protocol_version) is int and protocol_version > 2 else None
     exc = _batch_exception(raised)
     exc.batch_index = raised["index"]
-    exc.batch_errors = tuple(_batch_entry(err) for err in errors)
+    exc._error_source = source
+    exc.batch_errors = tuple(_batch_entry(err, source) for err in errors)
     exc.batch_rowcounts = tuple(count for count, _code, _message in row_results)
     return exc
 
 
-def _batch_entry(err: dict[str, Any]) -> tuple[int, DatabaseError]:
+def _batch_entry(err: dict[str, Any], source: str | None = None) -> tuple[int, DatabaseError]:
     """Return ``(index, exception)`` for one failed batch row (#841)."""
     entry = _batch_exception(err)
     entry.batch_index = err["index"]
+    entry._error_source = source
     return err["index"], entry

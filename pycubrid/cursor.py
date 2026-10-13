@@ -419,6 +419,7 @@ class Cursor(_CursorBase):
                 packet.row_results,
                 packet.errors,
                 packet.errors[-1] if packet.interrupted else packet.errors[0],
+                packet.protocol_version,
             )
         self._rowcount = sum(count for count, _code, _message in packet.row_results)
 
@@ -484,7 +485,9 @@ class Cursor(_CursorBase):
         # Raise on per-statement batch failures (issue #186), with every
         # row's outcome attached to the exception (#841).
         if packet.errors:
-            raise _batch_failure(packet.row_results, packet.errors, packet.errors[0])
+            raise _batch_failure(
+                packet.row_results, packet.errors, packet.errors[0], packet.protocol_version
+            )
 
         if packet.results:
             self._rowcount = sum(count for _, count in packet.results)

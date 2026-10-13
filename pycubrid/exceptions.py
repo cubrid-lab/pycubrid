@@ -83,6 +83,13 @@ class DatabaseError(Error):
     - ``batch_index``: position of the row this exception describes.
     - ``batch_errors``: ``(index, error)`` for every failed row, in order.
     - ``batch_rowcounts``: one count per executed row, ``-1`` for a failed row.
+
+    ``error_source`` (read-only, #903) says who generated an error the broker
+    reported: ``"cas"`` for the CAS itself (reply indicator ``-1``, for
+    example an invalid schema type), ``"server"`` for the database server
+    (indicator ``-2``, for example a syntax error or a wrong password), and
+    ``None`` when the reply carries no indicator or the driver raised the
+    error itself. ``errno`` keeps the number on the wire either way.
     """
 
     batch_index: int | None
@@ -102,6 +109,12 @@ class DatabaseError(Error):
         self.batch_index = None
         self.batch_errors = None
         self.batch_rowcounts = None
+        self._error_source: str | None = None
+
+    @property
+    def error_source(self) -> str | None:
+        """``"cas"``, ``"server"`` or ``None``: who generated this error (#903)."""
+        return self._error_source
 
     def __repr__(self) -> str:
         parts = [repr(self.msg)]

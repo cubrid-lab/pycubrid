@@ -88,16 +88,17 @@ class TestRaiseErrorErrnoSqlstate:
         assert exc_info.value.errno == -671
         assert exc_info.value.sqlstate == "08S01"
 
-    def test_authentication_failure_is_unlisted(self) -> None:
+    def test_authentication_failure_is_operational_28000(self) -> None:
         # A wrong password is native -171 (ER_AU_INVALID_PASSWORD); -21001 is a
-        # JDBC client code the broker never sends (#895).
+        # JDBC client code the broker never sends (#895). Since #903 it is an
+        # OperationalError with SQLSTATE 28000.
         body = _build_error_body(-171, "Incorrect or missing password.")
         reader = PacketReader(body)
         with pytest.raises(DatabaseError) as exc_info:
             _raise_error(reader, len(body))
-        assert type(exc_info.value) is DatabaseError
+        assert type(exc_info.value) is OperationalError
         assert exc_info.value.errno == -171
-        assert exc_info.value.sqlstate == "HY000"
+        assert exc_info.value.sqlstate == "28000"
 
 
 class TestGetSqlstate:

@@ -305,6 +305,18 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Error source and authentication error class (#903)** — MINOR / additive
+  attribute and exception-class change, decided by the maintainer on #903.
+  `DatabaseError` gains the read-only `error_source` (`"cas"`, `"server"` or
+  `None`), taken from the reply indicator. The public API baseline gains it as
+  a property of every `DatabaseError` class. `-165` and `-171` change from
+  `DatabaseError` to its subclass `OperationalError`, and from SQLSTATE `HY000`
+  to `28000`. The exception class is public (§1), so this is not a PATCH;
+  every `except DatabaseError` handler still catches them, so it is not
+  breaking either. The CHANGELOG upgrade note lists the affected checks. Error
+  numbers, messages, the handshake bytes and every other code's class and
+  SQLSTATE are unchanged.
+
 - **Async batch cancellation during encoding (#882)** — PATCH / bug fix to the
   async `executemany()` cancellation behavior, now documented in
   `docs/API_REFERENCE.md`. A cancellation requested while rows are encoded is

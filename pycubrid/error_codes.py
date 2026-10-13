@@ -21,6 +21,8 @@ CUBRID_ERROR_CODES: dict[int, str] = {
     -14: "I/O write error",  # ER_IO_WRITE
     -15: "Out of disk space",  # ER_IO_WRITE_OUT_OF_SPACE
     -111: "Transaction aborted by the server",  # ER_TM_SERVER_DOWN_UNILATERALLY_ABORTED
+    -165: "Invalid user",  # ER_AU_INVALID_USER
+    -171: "Invalid password",  # ER_AU_INVALID_PASSWORD
     -493: "Syntax error",  # ER_PT_SYNTAX
     -494: "Semantic error",  # ER_PT_SEMANTIC
     -631: "NOT NULL constraint violation",  # ER_NULL_CONSTRAINT_VIOLATION
@@ -41,6 +43,8 @@ CAS_ERROR_TO_SQLSTATE: dict[int, str] = {
     -13: "HY000",  # ER_IO_READ
     -14: "HY000",  # ER_IO_WRITE
     -15: "HY000",  # ER_IO_WRITE_OUT_OF_SPACE
+    -165: "28000",  # ER_AU_INVALID_USER: invalid authorization specification
+    -171: "28000",  # ER_AU_INVALID_PASSWORD: invalid authorization specification
     -493: "42000",  # ER_PT_SYNTAX: not a specific missing-table condition
     -494: "42000",  # ER_PT_SEMANTIC
     -631: "23000",  # ER_NULL_CONSTRAINT_VIOLATION
@@ -71,6 +75,9 @@ CAS_ERROR_TO_EXCEPTION: dict[int, str] = {
     -14: "OperationalError",  # ER_IO_WRITE
     -15: "OperationalError",  # ER_IO_WRITE_OUT_OF_SPACE
     -671: "OperationalError",  # ER_CSS_RECV_OR_SEND
+    # OperationalError (SQLSTATE 28000) — authentication failures (#903)
+    -165: "OperationalError",  # ER_AU_INVALID_USER
+    -171: "OperationalError",  # ER_AU_INVALID_PASSWORD
     # InternalError — server-internal fault
     -2: "InternalError",  # ER_GENERIC_ERROR
 }

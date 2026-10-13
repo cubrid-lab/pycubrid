@@ -2247,6 +2247,23 @@ class DatabaseError(Error):
 [부분 실패](#부분-실패-실패한-행)에 있습니다(#841). 그 밖의 `DatabaseError`에서는
 `None`입니다. `pickle`과 `copy`에서도 유지되며, `str()`과 `repr()`에는 포함되지 않습니다.
 
+`error_source`(읽기 전용, `str | None`, #903)는 브로커가 보고한 오류를 누가 만들었는지
+알려 줍니다. 브로커는 각 오류 코드 앞에 인디케이터를 넣습니다(CUBRID `src/broker/cas.h`의
+`CAS_ERROR_INDICATOR` 또는 `DBMS_ERROR_INDICATOR`):
+
+| `error_source` | 인디케이터 | 예 |
+|---|---|---|
+| `"cas"` | `-1`: CAS 자체 | 잘못된 스키마 타입으로 호출한 `get_schema_info()`: `errno=-1015` |
+| `"server"` | `-2`: 데이터베이스 서버 | 구문 오류(`-493`), 잘못된 비밀번호(`-171`), 실패한 배치 행 |
+| `None` | 없음 | 닫힌 연결이나 잘못된 형식의 응답처럼 드라이버가 직접 발생시킨 오류 |
+
+`errno`와 `code`는 와이어의 번호를 그대로 유지합니다. 드라이버는 새 CAS 번호 체계를
+요청하지 않으므로 CAS 오류는 이전 값(`-1000`부터 `-1200`, CAS 코드에 9000을 더한 값)을
+유지합니다. 이 범위는 서버 코드와 겹치며, `error_source`로 둘을 구분합니다.
+`CAS_ER_NOT_AUTHORIZED_CLIENT`(`-1018`, 브로커의 접근 제어가 클라이언트 주소를 거부)는
+서버 인디케이터로 전송되므로 `"server"`를 보고합니다. `error_source`는 `pickle`과 `copy`에서도
+유지되며, `str()`과 `repr()`에는 포함되지 않습니다.
+
 ---
 
 ### DataError
@@ -2371,7 +2388,10 @@ pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 �
 인터럽트된 트랜잭션을 이미 철회(abort)했을 수 있으므로(`cubrid killtran` 뒤 다음 문장은 `-111`을
 보고함), 다시 사용하기 전에 롤백하세요. `-3` (`ER_OUT_OF_VIRTUAL_MEMORY`)과
 I/O 오류 `-13`, `-14`, `-15` (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`)는
-`OperationalError`, `-2` (`ER_GENERIC_ERROR`)는 `InternalError`입니다. SQLSTATE는 드라이버가
+`OperationalError`, `-2` (`ER_GENERIC_ERROR`)는 `InternalError`입니다. 인증 실패
+`-165` (`ER_AU_INVALID_USER`)와 `-171` (`ER_AU_INVALID_PASSWORD`)은 두 드라이버 모두
+`OperationalError` / `28000`(잘못된 권한 지정)입니다(#903). 이전 릴리스에서는 `DatabaseError` /
+`HY000`이었습니다. SQLSTATE는 드라이버가
 네이티브 의미를 변환한 값입니다. 배치도 단일 문장과 동일한 알려진 코드 SQLSTATE
 조회 방식을 사용하며, 알 수 없는 코드는 기존 클래스 기본값을 유지합니다.
 

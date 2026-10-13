@@ -189,6 +189,10 @@ repeat across connections. The server only appends (any other offset is
 temp handle is taken over by its first autocommit statement, even a failed
 one.
 
+An error reply's indicator (`-1` CAS, `-2` DBMS) becomes
+`DatabaseError.error_source` (`"cas"`/`"server"`, else `None`); error numbers stay
+as sent, with no renewed-code flag in the handshake (#903).
+
 `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
 OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
 session. Because the CAS may still close the socket after an OUT_TRAN reply

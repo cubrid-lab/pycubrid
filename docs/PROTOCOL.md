@@ -936,7 +936,11 @@ mapping. Only an unmapped inner code exactly `-1` uses the text fallback below;
 an outer CAS indicator of `-1` does not select that fallback. Other unmapped
 codes raise `DatabaseError`, regardless of their message text. Exceptions retain
 the received inner number unchanged in `code` and `errno`; the outer domain is
-not exposed as a public exception attribute.
+exposed as `DatabaseError.error_source`: `"cas"` for `-1`, `"server"` for `-2`,
+and `None` for any other value (#903). The driver does not set
+`BROKER_RENEWED_ERROR_CODE` in the handshake, so a CAS error arrives in the old
+numbering (`CAS_ER_*` plus 9000, `-1000` to `-1200`), which overlaps server codes;
+the indicator is what tells them apart.
 
 Text fallback for inner code `-1` only:
 

@@ -494,6 +494,7 @@ class cursor:
                 sqlstate=exc.sqlstate,
             )
             setattr(redacted_error, "_cas_server_error", True)
+            redacted_error._error_source = exc.error_source
         if redacted_error is not None:
             # Raise outside the except suite: `from None` still retains the
             # original broker message in __context__ for error collectors.

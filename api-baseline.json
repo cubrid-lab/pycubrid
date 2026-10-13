@@ -121,7 +121,9 @@
             }
           }
         },
-        "properties": []
+        "properties": [
+          "error_source"
+        ]
       },
       "DatabaseError": {
         "bases": [
@@ -187,7 +189,9 @@
             }
           }
         },
-        "properties": []
+        "properties": [
+          "error_source"
+        ]
       },
       "Date": {
         "kind": "callable",
@@ -329,7 +333,9 @@
             }
           }
         },
-        "properties": []
+        "properties": [
+          "error_source"
+        ]
       },
       "InterfaceError": {
         "bases": [
@@ -439,7 +445,9 @@
             }
           }
         },
-        "properties": []
+        "properties": [
+          "error_source"
+        ]
       },
       "Lob": {
         "bases": [],
@@ -717,7 +725,9 @@
             }
           }
         },
-        "properties": []
+        "properties": [
+          "error_source"
+        ]
       },
       "OperationalError": {
         "bases": [
@@ -783,7 +793,9 @@
             }
           }
         },
-        "properties": []
+        "properties": [
+          "error_source"
+        ]
       },
       "ProgrammingError": {
         "bases": [
@@ -849,7 +861,9 @@
             }
           }
         },
-        "properties": []
+        "properties": [
+          "error_source"
+        ]
       },
       "ROWID": {
         "kind": "attribute",

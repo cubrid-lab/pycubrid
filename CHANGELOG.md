@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Upgrade notes
 
+- **Authentication failures are `OperationalError` with SQLSTATE `28000` (#903)** — a wrong
+  password (`-171`) or an unknown user (`-165`) used to raise plain `DatabaseError` with
+  `HY000`. `except DatabaseError` still catches them, because `OperationalError` is a subclass.
+  Code that tested `type(exc) is DatabaseError` or `sqlstate == "HY000"` for these codes, or that
+  treats every `OperationalError` from `connect()` as a transient connection failure worth
+  retrying, should check `errno` or `sqlstate == "28000"`. `errno` is unchanged.
+
 - **Native error code meanings now follow CUBRID `error_code.h` (#895)** — code that
   matched `sqlstate == "08S01"` or `description='Communication error'` for errno `-4`
   now sees `HY008` and `'Interrupted'`: `-4` is an interrupted statement, and the connection
@@ -17,6 +24,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `-6`, `-11` and `-12` were `OperationalError`, `-7` and `-8` `DataError` and `-394`
   `ProgrammingError`, each for a client-side meaning the server never sends under that
   number. `-14` (`ER_IO_WRITE`) is now `OperationalError`. See Fixed.
+
+### Added
+
+- **`DatabaseError.error_source` tells CAS errors from server errors (#903)** — a new
+  read-only attribute, sync and async: `"cas"` when the broker reported the error with
+  `CAS_ERROR_INDICATOR` (the CAS itself, for example `get_schema_info()` with an invalid
+  schema type), `"server"` with `DBMS_ERROR_INDICATOR` (the database server, including every
+  failed batch row), and `None` for errors the driver raises itself. Error numbers are
+  unchanged: a CAS error keeps its old numbering (`-1000` to `-1200`), which overlaps server
+  codes, so `error_source` is the way to tell them apart. It survives `pickle` and `copy`.
+  `-165` (`ER_AU_INVALID_USER`) and `-171` (`ER_AU_INVALID_PASSWORD`) are now described as
+  "Invalid user" and "Invalid password" and raise `OperationalError` with SQLSTATE `28000`
+  (see Upgrade notes).
 
 ### Changed
 
