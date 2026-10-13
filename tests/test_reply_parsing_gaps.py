@@ -40,6 +40,24 @@ BIG_INT_JSON = b"1" * 5000
 DEEP_JSON = b"[" * 100_000 + b"]" * 100_000
 
 
+def _deep_json_hits_recursion_limit() -> bool:
+    # Some interpreters decode this depth without RecursionError (CI saw it on
+    # Python 3.15), so the real-value cases run only where json.loads fails.
+    try:
+        json.loads(DEEP_JSON)
+    except RecursionError:
+        return True
+    return False
+
+
+_DEEP_MARK = pytest.mark.skipif(
+    not _deep_json_hits_recursion_limit(),
+    reason="this interpreter's json.loads decodes the nesting depth",
+)
+_DEEP = pytest.param(DEEP_JSON, id="deep-nesting", marks=_DEEP_MARK)
+_BIG = pytest.param(BIG_INT_JSON, id="int-digit-limit")
+
+
 def _int(value: int) -> bytes:
     return struct.pack(">i", value)
 
@@ -143,8 +161,10 @@ async def test_async_last_insert_id_header_overrun_is_malformed() -> None:
 
 @pytest.mark.parametrize(
     ("text", "cause"),
-    [(BIG_INT_JSON, ValueError), (DEEP_JSON, RecursionError)],
-    ids=["int-digit-limit", "deep-nesting"],
+    [
+        pytest.param(BIG_INT_JSON, ValueError, id="int-digit-limit"),
+        pytest.param(DEEP_JSON, RecursionError, id="deep-nesting", marks=_DEEP_MARK),
+    ],
 )
 def test_undecodable_json_raises_data_error(text: bytes, cause: type[BaseException]) -> None:
     payload = text + b"\x00"
@@ -161,7 +181,7 @@ def _json_select_body(text: bytes) -> bytes:
     return _build_select_response([(CUBRIDDataType.JSON, "payload")], [text + b"\x00"])
 
 
-@pytest.mark.parametrize("text", [BIG_INT_JSON, DEEP_JSON], ids=["int-digit-limit", "deep-nesting"])
+@pytest.mark.parametrize("text", [_BIG, _DEEP])
 def test_sync_undecodable_json_keeps_connection(
     socket_queue: list[MagicMock],  # noqa: F811
     text: bytes,
@@ -176,7 +196,7 @@ def test_sync_undecodable_json_keeps_connection(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("text", [BIG_INT_JSON, DEEP_JSON], ids=["int-digit-limit", "deep-nesting"])
+@pytest.mark.parametrize("text", [_BIG, _DEEP])
 async def test_async_undecodable_json_keeps_connection(text: bytes) -> None:
     conn = _async_connection_with_reply(_json_select_body(text))
     with pytest.raises(DataError, match="JSON value cannot be decoded"):
@@ -185,6 +205,25 @@ async def test_async_undecodable_json_keeps_connection(text: bytes) -> None:
         )
     assert conn._connected is True
     assert conn._writer is not None
+
+
+def test_recursion_error_from_json_loads_raises_data_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Version-independent check of the RecursionError branch: the built-in
+    # deserializer is recognized by identity, so patch json.loads itself.
+    def _too_deep(_value: str) -> None:
+        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+
+    monkeypatch.setattr(json, "loads", _too_deep)
+    payload = b"[[]]\x00"
+    with pytest.raises(DataError, match="JSON value cannot be decoded") as raised:
+        _read_value(
+            PacketReader(payload, json_deserializer=json.loads),
+            CUBRIDDataType.JSON,
+            len(payload),
+        )
+    assert type(raised.value.__cause__) is RecursionError
 
 
 def test_invalid_json_text_message_is_unchanged() -> None:

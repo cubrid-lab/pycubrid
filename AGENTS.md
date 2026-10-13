@@ -113,8 +113,11 @@ Reply parsing never reads past the end of a reply (#383): a negative or
 overrunning length, a row cell whose value does not use exactly its declared
 size (#523), or collection elements that do not fill their size, raise
 `ValueError`, which the connection reports as `OperationalError('malformed
-response from broker')` and closes. Trailing bytes after the last declared
-value are not checked; `DataError` is only for a complete reply (#492, #512):
+response from broker')` and closes. That includes an FC20/FC21 row error
+message length outside `0..remaining` and an FC40 type header longer than its
+value (#897). Trailing bytes after the last declared
+value are not checked; `DataError` is only for a complete reply (#492, #512),
+including JSON text the built-in `json.loads` cannot decode (#543, #900):
 undecodable column metadata text re-walks the remaining metadata by length
 (#581), and FC41/refreshed FC3 defer that error until their declared tail and
 inline rows have been validated without application hooks (#591). Later
