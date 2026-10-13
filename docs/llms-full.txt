@@ -945,9 +945,10 @@ The CUBRID broker is not running or not listening on the expected port.
    docker compose logs cubrid
    ```
 
-#### `Authentication failed`
+#### Wrong password or unknown user
 
-CUBRID's default `dba` user has no password. If you set one, ensure it matches:
+A wrong password raises `DatabaseError` with `errno=-171` ("Incorrect or missing
+password."), and an unknown user `errno=-165`. CUBRID's default `dba` user has no password. If you set one, ensure it matches:
 
 ```python
 # If dba has no password
@@ -3583,6 +3584,12 @@ Native `-493` (`ER_PT_SYNTAX`) and `-494` (`ER_PT_SEMANTIC`) use
 `-493` can accompany either malformed SQL or an unknown class; the code alone
 does not establish a missing-table SQLSTATE. Native `-671`
 (`ER_CSS_RECV_OR_SEND`) uses `OperationalError` / `08S01`, not an integrity error.
+Native `-4` (`ER_INTERRUPTED`, an interrupted statement on a live session) uses
+`OperationalError` / `HY008` (operation canceled), not the `08S01` communication
+link failure that pools and ORMs treat as a dead connection (#895). Native `-3`
+(`ER_OUT_OF_VIRTUAL_MEMORY`) and the I/O errors `-13`, `-14` and `-15`
+(`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`) use `OperationalError`, and
+`-2` (`ER_GENERIC_ERROR`) uses `InternalError`.
 SQLSTATE values are driver translations of the native meanings. Batch dispatch
 uses the same known-code SQLSTATE lookup as single statements, retaining the
 class default for unknown codes.
@@ -3591,10 +3598,15 @@ Consumers must not infer missing tables from `-493` alone or from generated
 description text. The corresponding SQLAlchemy reflection correction is tracked
 in [sqlalchemy-cubrid #454](https://github.com/cubrid-lab/sqlalchemy-cubrid/issues/454).
 
-The native identifiers are defined in the
-[official CCI error header](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h).
-Protocol error responses with the generic DBMS code `-1` retain the existing
-message-based fallback below; per-statement batch dispatch remains code-based:
+The native identifiers are defined in the CUBRID server header
+[`src/base/error_code.h`](https://github.com/CUBRID/cubrid/blob/a761f59ad7a5ee25e6de4c42847a947e0fd7574e/src/base/error_code.h)
+(release/11.4; release/10.2 has the same values except `-1284`) and its
+[official CCI copy](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h).
+Every code in the driver's tables is one of these server codes. Client-side
+driver codes, such as CCI `CCI_ER_*` or JDBC `UErrorCode`, are never sent by the
+broker and are not listed. Protocol error responses with the generic failure code
+`-1` (`ER_FAILED`) retain the existing message-based fallback below; per-statement
+batch dispatch remains code-based:
 
 | Keywords in error message | Exception raised |
 |---------------------------|-----------------|
@@ -3610,7 +3622,7 @@ message-based fallback below; per-statement batch dispatch remains code-based:
 pycubrid.get_error_description(code: int) -> str | None
 ```
 
-Returns the driver's short English description of a native CUBRID or CAS error
+Returns the driver's short English description of a native CUBRID server error
 code, or `None` when the code is not in the driver's table. The table is a
 fixed subset built into the driver and the lookup does not query the server.
 A missing entry only means there is no description: the lookup never raises,
@@ -3620,7 +3632,7 @@ and a server error with an unlisted code is still raised as `DatabaseError`.
 import pycubrid
 
 pycubrid.get_error_description(-493)    # 'Syntax error'
-pycubrid.get_error_description(-21003)  # 'Connection refused'
+pycubrid.get_error_description(-4)      # 'Interrupted'
 pycubrid.get_error_description(-99999)  # None
 ```
 
@@ -7503,7 +7515,8 @@ ConnectionRefusedError: [Errno 111] Connection refused
 **Symptom:**
 
 ```
-OperationalError: Authentication failed
+DatabaseError: Incorrect or missing password. (errno=-171, sqlstate='HY000')
+DatabaseError: User "app" is invalid. (errno=-165, sqlstate='HY000')
 ```
 
 **Fixes:**

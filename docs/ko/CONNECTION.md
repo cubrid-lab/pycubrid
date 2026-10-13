@@ -615,9 +615,10 @@ CUBRID 브로커가 실행 중이 아니거나 예상 포트에서 수신하지 
    docker compose logs cubrid
    ```
 
-#### `Authentication failed`
+#### 잘못된 비밀번호 또는 알 수 없는 사용자
 
-CUBRID 기본 `dba` 사용자에게는 비밀번호가 없습니다. 설정했다면 일치해야 합니다:
+잘못된 비밀번호는 `errno=-171`("Incorrect or missing password.")의 `DatabaseError`를,
+알 수 없는 사용자는 `errno=-165`를 발생시킵니다. CUBRID 기본 `dba` 사용자에게는 비밀번호가 없습니다. 설정했다면 일치해야 합니다:
 
 ```python
 # dba에 비밀번호가 없으면

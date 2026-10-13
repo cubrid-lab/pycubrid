@@ -719,9 +719,10 @@ The CUBRID broker is not running or not listening on the expected port.
    docker compose logs cubrid
    ```
 
-#### `Authentication failed`
+#### Wrong password or unknown user
 
-CUBRID's default `dba` user has no password. If you set one, ensure it matches:
+A wrong password raises `DatabaseError` with `errno=-171` ("Incorrect or missing
+password."), and an unknown user `errno=-165`. CUBRID's default `dba` user has no password. If you set one, ensure it matches:
 
 ```python
 # If dba has no password

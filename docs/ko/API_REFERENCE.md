@@ -2329,7 +2329,11 @@ pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 �
 `ProgrammingError` / `42000`을 사용하며 설명은 각각 구문 오류와 의미 오류입니다.
 `-493`은 잘못된 SQL과 존재하지 않는 클래스 모두에서 반환될 수 있으므로 코드만으로
 테이블 부재 SQLSTATE를 판단할 수 없습니다. `-671` (`ER_CSS_RECV_OR_SEND`)은
-무결성 오류가 아닌 `OperationalError` / `08S01`입니다. SQLSTATE는 드라이버가
+무결성 오류가 아닌 `OperationalError` / `08S01`입니다. `-4` (`ER_INTERRUPTED`, 살아 있는
+세션에서 중단된 문장)는 풀과 ORM이 끊긴 연결로 취급하는 `08S01` 통신 링크 실패가 아니라
+`OperationalError` / `HY008`(작업 취소)입니다(#895). `-3` (`ER_OUT_OF_VIRTUAL_MEMORY`)과
+I/O 오류 `-13`, `-14`, `-15` (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`)는
+`OperationalError`, `-2` (`ER_GENERIC_ERROR`)는 `InternalError`입니다. SQLSTATE는 드라이버가
 네이티브 의미를 변환한 값입니다. 배치도 단일 문장과 동일한 알려진 코드 SQLSTATE
 조회 방식을 사용하며, 알 수 없는 코드는 기존 클래스 기본값을 유지합니다.
 
@@ -2337,10 +2341,14 @@ pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 �
 관련 SQLAlchemy 리플렉션 수정은
 [sqlalchemy-cubrid #454](https://github.com/cubrid-lab/sqlalchemy-cubrid/issues/454)에서 추적합니다.
 
-네이티브 식별자는
-[공식 CCI 오류 헤더](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h)에
-정의돼 있습니다. 일반 DBMS 코드 `-1`의 프로토콜 오류 응답은 아래의 기존
-메시지 기반 폴백을 유지하며, 배치의 개별 문장 오류는 코드로만 분류합니다:
+네이티브 식별자는 CUBRID 서버 헤더
+[`src/base/error_code.h`](https://github.com/CUBRID/cubrid/blob/a761f59ad7a5ee25e6de4c42847a947e0fd7574e/src/base/error_code.h)
+(release/11.4, release/10.2는 `-1284`를 제외하고 값이 같음)와
+[공식 CCI 사본](https://github.com/CUBRID/cubrid-cci/blob/7d1eb8f40f04089b8218d08e36e2c24a2de11b24/src/cci/base_error_code.h)에
+정의돼 있습니다. 드라이버 표의 모든 코드는 이 서버 코드입니다. CCI `CCI_ER_*`나 JDBC
+`UErrorCode` 같은 클라이언트 측 드라이버 코드는 브로커가 보내지 않으므로 표에 없습니다.
+일반 실패 코드 `-1` (`ER_FAILED`)의 프로토콜 오류 응답은 아래의 기존 메시지 기반 폴백을
+유지하며, 배치의 개별 문장 오류는 코드로만 분류합니다:
 
 | 오류 메시지 키워드 | 발생하는 예외 |
 |---------------------------|-----------------|
@@ -2356,7 +2364,7 @@ pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 �
 pycubrid.get_error_description(code: int) -> str | None
 ```
 
-네이티브 CUBRID 또는 CAS 오류 코드에 대해 드라이버가 가진 짧은 영어 설명을
+네이티브 CUBRID 서버 오류 코드에 대해 드라이버가 가진 짧은 영어 설명을
 반환하고, 드라이버 표에 없는 코드이면 `None`을 반환합니다. 이 표는 드라이버에
 내장된 고정 부분 집합이며, 조회는 서버에 질의하지 않습니다. 표에 항목이 없다는
 것은 설명이 없다는 뜻일 뿐입니다. 조회는 예외를 내지 않으며, 표에 없는 코드의
@@ -2366,7 +2374,7 @@ pycubrid.get_error_description(code: int) -> str | None
 import pycubrid
 
 pycubrid.get_error_description(-493)    # 'Syntax error'
-pycubrid.get_error_description(-21003)  # 'Connection refused'
+pycubrid.get_error_description(-4)      # 'Interrupted'
 pycubrid.get_error_description(-99999)  # None
 ```
 

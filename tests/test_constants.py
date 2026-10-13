@@ -402,14 +402,18 @@ class TestErrorCode:
     def test_no_error(self) -> None:
         assert ErrorCode.ER_NO_ERROR == 0
 
-    def test_dbms(self) -> None:
-        assert ErrorCode.ER_DBMS == -1
+    def test_failed(self) -> None:
+        assert ErrorCode.ER_FAILED == -1
 
-    def test_communication(self) -> None:
-        assert ErrorCode.ER_COMMUNICATION == -4
+    def test_interrupted(self) -> None:
+        # error_code.h ER_INTERRUPTED, not a communication error (#895).
+        assert ErrorCode.ER_INTERRUPTED == -4
+        assert not hasattr(ErrorCode, "ER_COMMUNICATION")
 
-    def test_is_closed(self) -> None:
-        assert ErrorCode.ER_IS_CLOSED == -11
+    def test_io_errors(self) -> None:
+        assert ErrorCode.ER_IO_READ == -13
+        assert ErrorCode.ER_IO_WRITE == -14
+        assert ErrorCode.ER_IO_WRITE_OUT_OF_SPACE == -15
 
 
 # ---------------------------------------------------------------------------

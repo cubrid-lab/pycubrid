@@ -473,7 +473,7 @@ _EXCEPTION_CLASSES = {
 
 
 def _classify_by_text(error_message: str) -> str:
-    """Classify an error by message text — fallback for CAS code -1 (ER_DBMS).
+    """Classify an error by message text — fallback for code -1 (ER_FAILED).
 
     CAS wraps many server-engine errors with the generic code -1 and only the
     message for differentiation. This heuristic preserves backward
@@ -494,7 +494,7 @@ def _raise_error(reader: PacketReader, response_length: int) -> None:
 
     Dispatches primarily by CAS error code (deterministic, stable across
     CUBRID versions). Falls back to text heuristics ONLY for code -1
-    (ER_DBMS), where CAS wraps server-engine errors with a generic code and
+    (ER_FAILED), where CAS wraps server-engine errors with a generic code and
     only the message is informative.
     """
     error_code, error_message = reader.read_error(response_length)
@@ -504,7 +504,7 @@ def _raise_error(reader: PacketReader, response_length: int) -> None:
     # Primary dispatch: CAS error code → exception class
     exc_name = CAS_ERROR_TO_EXCEPTION.get(error_code)
 
-    # Fallback: ER_DBMS (-1) uses text classification (CAS passthrough)
+    # Fallback: ER_FAILED (-1) uses text classification (CAS passthrough)
     if exc_name is None and error_code == -1:
         exc_name = _classify_by_text(error_message)
 

@@ -176,7 +176,9 @@ class TestExceptionRepr:
 
     def test_error_repr_with_known_code_description(self) -> None:
         r = repr(Error("operation failed", code=-111))
-        assert r == "Error('operation failed', code=-111, description='Invalid operation')"
+        assert r == (
+            "Error('operation failed', code=-111, description='Transaction aborted by the server')"
+        )
 
     def test_error_repr_with_unknown_code_no_description(self) -> None:
         r = repr(Error("operation failed", code=-99999))
@@ -208,13 +210,13 @@ class TestExceptionRepr:
 class TestErrorCodeLookup:
     def test_get_error_description_known(self) -> None:
         assert get_error_description(-493) == "Syntax error"
-        assert get_error_description(-21003) == "Connection refused"
+        assert get_error_description(-4) == "Interrupted"
 
     def test_get_error_description_unknown(self) -> None:
         assert get_error_description(-99999) is None
 
     def test_get_error_description_exported_in_public_api(self) -> None:
-        assert public_get_error_description(-394) == "Column not found"
+        assert public_get_error_description(-670) == "Unique constraint violation"
 
 
 # ---------------------------------------------------------------------------

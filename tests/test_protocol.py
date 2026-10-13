@@ -23,7 +23,6 @@ from pycubrid.constants import (
 )
 from pycubrid.exceptions import (
     DatabaseError,
-    DataError,
     IntegrityError,
     InternalError,
     OperationalError,
@@ -329,18 +328,19 @@ class TestRaiseErrorCodeDispatch:
     """
 
     def test_code_minus4_dispatches_operational_error(self) -> None:
-        # Communication error — text is irrelevant
+        # ER_INTERRUPTED — text is irrelevant
         error_body = struct.pack(">i", -4) + b"nonsense message\x00"
         reader = PacketReader(error_body)
         with pytest.raises(OperationalError, match="nonsense"):
             _raise_error(reader, len(error_body))
 
-    def test_code_minus8_dispatches_data_error(self) -> None:
-        # Type conversion error
-        error_body = struct.pack(">i", -8) + b"conversion failed\x00"
+    def test_code_minus8_unmapped_falls_to_database_error(self) -> None:
+        # ER_IO_FORMAT_FAIL (error_code.h), not a type conversion error (#895).
+        error_body = struct.pack(">i", -8) + b"format failed\x00"
         reader = PacketReader(error_body)
-        with pytest.raises(DataError, match="conversion"):
+        with pytest.raises(DatabaseError, match="format failed") as exc_info:
             _raise_error(reader, len(error_body))
+        assert type(exc_info.value) is DatabaseError
 
     def test_code_minus9_unmapped_falls_to_database_error(self) -> None:
         # Invalid bind index — not in mapping table, falls to DatabaseError

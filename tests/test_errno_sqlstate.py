@@ -7,7 +7,7 @@ import struct
 import pytest
 
 from pycubrid.error_codes import CAS_ERROR_TO_SQLSTATE, get_sqlstate
-from pycubrid.exceptions import DatabaseError, IntegrityError, ProgrammingError
+from pycubrid.exceptions import DatabaseError, IntegrityError, OperationalError, ProgrammingError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import _raise_error
 
@@ -70,28 +70,42 @@ class TestRaiseErrorErrnoSqlstate:
         assert exc_info.value.errno == -493
         assert exc_info.value.sqlstate == "42000"
 
-    def test_communication_error_sqlstate(self) -> None:
-        body = _build_error_body(-4, "Communication error with server")
+    def test_interrupted_sqlstate_is_not_a_link_failure(self) -> None:
+        # error_code.h ER_INTERRUPTED (-4): a canceled statement on a live session (#895).
+        body = _build_error_body(-4, "Has been interrupted.")
         reader = PacketReader(body)
-        with pytest.raises(DatabaseError) as exc_info:
+        with pytest.raises(OperationalError) as exc_info:
             _raise_error(reader, len(body))
         assert exc_info.value.errno == -4
+        assert exc_info.value.sqlstate == "HY008"
+        assert "description='Interrupted'" in str(exc_info.value)
+
+    def test_communication_error_sqlstate(self) -> None:
+        body = _build_error_body(-671, "A network read/write error occurred")
+        reader = PacketReader(body)
+        with pytest.raises(OperationalError) as exc_info:
+            _raise_error(reader, len(body))
+        assert exc_info.value.errno == -671
         assert exc_info.value.sqlstate == "08S01"
 
-    def test_auth_failed_sqlstate(self) -> None:
-        body = _build_error_body(-21001, "Authentication failed")
+    def test_authentication_failure_is_unlisted(self) -> None:
+        # A wrong password is native -171 (ER_AU_INVALID_PASSWORD); -21001 is a
+        # JDBC client code the broker never sends (#895).
+        body = _build_error_body(-171, "Incorrect or missing password.")
         reader = PacketReader(body)
         with pytest.raises(DatabaseError) as exc_info:
             _raise_error(reader, len(body))
-        assert exc_info.value.errno == -21001
-        assert exc_info.value.sqlstate == "28000"
+        assert type(exc_info.value) is DatabaseError
+        assert exc_info.value.errno == -171
+        assert exc_info.value.sqlstate == "HY000"
 
 
 class TestGetSqlstate:
     def test_known_code_returns_sqlstate(self) -> None:
         assert get_sqlstate(-670) == "23000"
         assert get_sqlstate(-494) == "42000"
-        assert get_sqlstate(-4) == "08S01"
+        assert get_sqlstate(-4) == "HY008"
+        assert get_sqlstate(-671) == "08S01"
 
     def test_unknown_code_returns_none(self) -> None:
         assert get_sqlstate(-99999) is None

@@ -22,7 +22,6 @@ from pycubrid._cursor_common import _batch_exception, _batch_failure
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import (
     DatabaseError,
-    DataError,
     Error,
     IntegrityError,
     InterfaceError,
@@ -262,16 +261,19 @@ def test_partial_failure_reports_every_failed_row(asynchronous: bool, prepared: 
 def test_executemany_batch_reports_every_failed_statement(asynchronous: bool) -> None:
     def steps(d: _Driver) -> Any:
         cursor = d.cursor()
-        with pytest.raises(DataError) as raised:
+        with pytest.raises(ProgrammingError) as raised:
             d.run(cursor.executemany_batch(["INSERT INTO t VALUES (1)"] * 3))
         assert cursor.rowcount == -1
         return raised.value
 
-    # -8 (type conversion error) maps to DataError.
-    exc = _run(asynchronous, steps, script=_BatchScript({0: -8, 2: -670}))[1]
-    assert type(exc) is DataError
+    # -494 (ER_PT_SEMANTIC) maps to ProgrammingError.
+    exc = _run(asynchronous, steps, script=_BatchScript({0: -494, 2: -670}))[1]
+    assert type(exc) is ProgrammingError
     assert exc.batch_index == 0
-    assert [(i, type(e)) for i, e in exc.batch_errors] == [(0, DataError), (2, IntegrityError)]
+    assert [(i, type(e)) for i, e in exc.batch_errors] == [
+        (0, ProgrammingError),
+        (2, IntegrityError),
+    ]
     assert exc.batch_rowcounts == (-1, 1, -1)
 
 

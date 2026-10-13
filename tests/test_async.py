@@ -846,12 +846,13 @@ class TestAsyncCursorExecutemanyBatch:
 
         async def fake_send(packet):
             packet.results = []
-            packet.errors = [{"code": -11, "message": "handle is closed", "index": 0}]
-            packet.row_results = ((-1, -11, "handle is closed"),)
+            # ER_INTERRUPTED (error_code.h -4), #895.
+            packet.errors = [{"code": -4, "message": "Has been interrupted.", "index": 0}]
+            packet.row_results = ((-1, -4, "Has been interrupted."),)
 
         conn._send_and_receive = AsyncMock(side_effect=fake_send)
 
-        with pytest.raises(AsyncOperationalError, match="handle is closed"):
+        with pytest.raises(AsyncOperationalError, match="interrupted"):
             await cur.executemany_batch(["SELECT 1"])
 
 

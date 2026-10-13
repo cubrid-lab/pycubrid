@@ -446,22 +446,18 @@ class DataSize:
 
 
 class ErrorCode(IntEnum):
-    """Commonly encountered CUBRID CAS error codes."""
+    """Low-numbered native CUBRID error codes (``src/base/error_code.h``, #895).
 
-    # CAS errors
-    ER_NO_ERROR = 0
-    ER_DBMS = -1
-    ER_INTERNAL = -2
-    ER_NO_MORE_MEMORY = -3
-    ER_COMMUNICATION = -4
-    ER_NO_MORE_DATA = -5
-    ER_TRAN_TYPE = -6
-    ER_STRING_PARAM = -7
-    ER_TYPE_CONVERSION = -8
-    ER_BIND_INDEX = -9
-    ER_ARGS = -10
-    ER_IS_CLOSED = -11
-    ER_ISOLATION_LEVEL = -12
-    ER_NO_SHARD_AVAILABLE = -13
-    ER_INVALID_CURSOR_POS = -14
-    ER_STMT_POOLING = -15
+    These are server codes, carried after ``DBMS_ERROR_INDICATOR``; the
+    ``-5`` to ``-12`` codes are internal hash-table and volume errors and are
+    not listed.
+    """
+
+    ER_NO_ERROR = 0  # NO_ERROR
+    ER_FAILED = -1
+    ER_GENERIC_ERROR = -2
+    ER_OUT_OF_VIRTUAL_MEMORY = -3
+    ER_INTERRUPTED = -4
+    ER_IO_READ = -13
+    ER_IO_WRITE = -14
+    ER_IO_WRITE_OUT_OF_SPACE = -15

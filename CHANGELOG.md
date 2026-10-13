@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **Native error code meanings now follow CUBRID `error_code.h` (#895)** — code that
+  matched `sqlstate == "08S01"` or `description='Communication error'` for errno `-4`
+  now sees `HY008` and `'Interrupted'`: `-4` is an interrupted statement, and the session
+  is still usable. Errors with codes `-5` to `-12`, `-394`, `-21001` or `-21003` no longer
+  carry a description and are raised as `DatabaseError` with SQLSTATE `HY000`. See Fixed.
+
 ### Changed
 
 - **Docs: the `DEVELOPMENT.md` project structure and architecture diagrams match the
@@ -62,6 +70,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   result from the replaced session keeps its retired outcome (`fetch_schema_info()` raises
   `InterfaceError`, `close_schema_info()` is a no-op); both also check the gate before they
   send. The setup task's own requests are unchanged.
+
+- **CAS error `-4` is an interrupted statement, not a communication error (#895)** — the
+  error tables in `pycubrid.error_codes` followed an old client-side CCI numbering for
+  `-1` to `-15` and had several other misnumbered codes, so an interrupted statement
+  raised `OperationalError(description='Communication error', sqlstate='08S01')` and pools
+  and ORMs discarded a healthy session. Every entry was checked against CUBRID
+  `src/base/error_code.h` (release/10.2 and release/11.4) and each one now cites its
+  `ER_*` constant:
+  - `-4` (`ER_INTERRUPTED`): `'Interrupted'`, `OperationalError`, SQLSTATE `HY008`.
+  - `-1` (`ER_FAILED`) is described as `'Generic failure'`, and `-111`
+    (`ER_TM_SERVER_DOWN_UNILATERALLY_ABORTED`) as `'Transaction aborted by the server'`;
+    their classes and SQLSTATEs are unchanged.
+  - `-13`, `-14` and `-15` (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`) are
+    I/O errors raised as `OperationalError` / `HY000`. Before, they were described as
+    shard, cursor position and statement pooling errors (and `-14` had SQLSTATE `24000`).
+  - Removed: `-5` to `-12` (server hash-table and volume errors that the table described
+    as client conditions, such as type conversion or handle closed), `-394`
+    (`ER_TX_ENDPOINT_TOO_LARGE`, not "Column not found": an unknown column is `-494`), and
+    `-21001`/`-21003` (JDBC client codes the broker never sends; a wrong password is
+    `-171`). These codes are now `DatabaseError` / `HY000` without a description.
+  - `pycubrid.constants.ErrorCode` uses the same server names: `ER_FAILED`,
+    `ER_GENERIC_ERROR`, `ER_OUT_OF_VIRTUAL_MEMORY`, `ER_INTERRUPTED`, `ER_IO_READ`,
+    `ER_IO_WRITE` and `ER_IO_WRITE_OUT_OF_SPACE` replace the old CCI-style names.
+
+  The API reference and the troubleshooting and connection guides now show the real
+  authentication errors.
 
 ### Security
 

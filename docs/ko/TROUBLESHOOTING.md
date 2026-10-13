@@ -156,7 +156,8 @@ ConnectionRefusedError: [Errno 111] Connection refused
 **증상:**
 
 ```
-OperationalError: Authentication failed
+DatabaseError: Incorrect or missing password. (errno=-171, sqlstate='HY000')
+DatabaseError: User "app" is invalid. (errno=-165, sqlstate='HY000')
 ```
 
 **해결:**

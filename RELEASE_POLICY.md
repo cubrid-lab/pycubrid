@@ -59,7 +59,8 @@ without notice:
 - `pycubrid.constants` (CAS function codes, data-type codes, framing constants).
   These are tied to the wire protocol and are not a user-facing surface.
 - The `pycubrid.error_codes.CAS_ERROR_TO_SQLSTATE` mapping table is exposed via
-  `get_error_description`; the mapping data itself may grow over time.
+  `get_error_description`; the mapping data itself may grow over time, and an
+  entry that does not match CUBRID `src/base/error_code.h` is corrected or removed.
 - The `pycubrid.timing` module beyond the `TimingStats` re-export from the top
   level. The internal accumulator implementation may change.
 - Type annotations on public methods. Refining a type (e.g. `Any` → a more
@@ -300,6 +301,19 @@ Code without a corresponding documentation update is considered incomplete.
 
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
+
+- **Native error code mapping corrected (#895)** — PATCH / bug fix to error
+  metadata, which §1 excludes from the stable surface ("Exception messages and
+  SQLSTATE codes returned in error metadata"; `pycubrid.constants` is likewise
+  excluded). Every entry of the `pycubrid.error_codes` tables now matches CUBRID
+  `src/base/error_code.h`: `-4` (`ER_INTERRUPTED`) is `OperationalError` /
+  `HY008` / `'Interrupted'` instead of `08S01` / `'Communication error'`, `-1`,
+  `-111`, `-13`, `-14` and `-15` are re-described, and the misnumbered `-5` to
+  `-12`, `-394`, `-21001` and `-21003` are removed, so those codes become
+  `DatabaseError` / `HY000` without a description. Callers that matched the old
+  `-4` SQLSTATE or descriptions see the new values; the CHANGELOG upgrade note
+  lists them. Public signatures, the `-1` text fallback, every other mapped code
+  and the wire bytes are unchanged.
 
 - **Async request refused during another task's setup (#894)** — PATCH / bug
   fix to the documented async setup contract (`docs/API_REFERENCE.md`). A
