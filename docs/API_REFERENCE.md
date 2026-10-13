@@ -1586,6 +1586,22 @@ cur.executemany(
 `prepared` raises `ProgrammingError`. The same contract applies to
 `AsyncCursor.executemany()`.
 
+**Async encoding and cancellation (#882).** `AsyncCursor.executemany()` encodes
+(`prepared=True`) or renders (`prepared=False`) every row synchronously, so no
+other task on the event loop runs meanwhile and a cancellation cannot interrupt
+it. The time is about the cost of encoding the rows, see
+[Sync and Async Characteristics](PERFORMANCE.md#sync-and-async-characteristics);
+split very large batches if the loop must stay responsive. A slow or blocking
+row iterator blocks the loop the same way. Where a cancellation lands:
+
+- Requested while the rows are encoded: raised once encoding ends, before any
+  request is sent. The session stays open. Nothing ran on the server.
+- After `PREPARE` was sent: the session is retired (the reply could arrive
+  later), and `EXECUTE_ARRAY` is never sent.
+- After `EXECUTE_ARRAY` (or `EXECUTE_BATCH`) was sent: the rows may have run,
+  and with autocommit been committed. The session is retired, and the batch is
+  never sent again; check the data before you retry.
+
 ---
 
 #### `nextset()`

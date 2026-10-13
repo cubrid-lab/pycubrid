@@ -63,6 +63,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **An async batch cancelled while its rows are encoded sends nothing and keeps the session
+  (#882)** — `AsyncCursor.executemany()` encodes or renders every row without yielding, so a
+  cancellation requested meanwhile was raised only after the first request (`PREPARE`, or
+  `EXECUTE_BATCH` for the literal batch) had been written, and the session was then retired.
+  Both paths now yield once after encoding, so that cancellation is raised before any request
+  with the session kept. The event-loop hold itself is unchanged and now measured and documented
+  (about 7-10 µs per row of a simple three-column row on CUBRID 11.4; see
+  `docs/PERFORMANCE.md` and `scripts/measure_async_prepared_encoding.py`), together with the
+  cancellation semantics after `PREPARE` and after `EXECUTE_ARRAY`.
+
 - **`TimingStats` counts executes and fetches consistently and as documented (#899)** — the
   escape-mode probe that `connect()` runs on a new session was counted as an application
   execute, so "connect + one `execute()`" reported `execute_count == 2`; it is no longer

@@ -305,6 +305,15 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Async batch cancellation during encoding (#882)** — PATCH / bug fix to the
+  async `executemany()` cancellation behavior, now documented in
+  `docs/API_REFERENCE.md`. A cancellation requested while rows are encoded is
+  raised before any request with the session kept, instead of after the first
+  request with the session retired. The async batch yields once to the event
+  loop after encoding; nothing else changes: encoding before any I/O, one-shot
+  iterators, errors before send, transaction outcomes, the sync driver, public
+  signatures and the wire bytes are unchanged.
+
 - **`TimingStats` counts (#899)** — PATCH / bug fix to the documented
   `TimingStats` counters (`docs/API_REFERENCE.md`). The new-session escape
   probe is no longer counted as an execute, and one successful

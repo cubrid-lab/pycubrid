@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import re
@@ -352,6 +353,9 @@ class AsyncCursor(_AsyncCursorBase):
         await self._release_handle()
         expected_escape_generation = await self._connection._generation_for_binding()
         sql_list = self._bind_parameter_sets(operation, seq_of_parameters)
+        # As for the prepared batch: observe a cancellation that arrived while
+        # the rows were rendered before EXECUTE_BATCH is written (#882).
+        await asyncio.sleep(0)
         _LOGGER.debug("executemany: batch_size=%d", len(sql_list))
         await self._executemany_batch(
             sql_list, auto_commit=None, expected_escape_generation=expected_escape_generation
@@ -371,6 +375,10 @@ class AsyncCursor(_AsyncCursorBase):
         if not rows:
             await self.executemany(sql, ())
             return
+        # Encoding ran without yielding. Yield once before any request, so a
+        # cancellation that arrived meanwhile is raised here, with nothing sent
+        # and the session kept, instead of after PREPARE was written (#882).
+        await asyncio.sleep(0)
         await connection._wait_for_setup_if_needed()
         connection._ensure_connected()
         # Release the previous result first, then probe, as the literal batch does (#485).
