@@ -10,8 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Native error code meanings now follow CUBRID `error_code.h` (#895)** — code that
   matched `sqlstate == "08S01"` or `description='Communication error'` for errno `-4`
-  now sees `HY008` and `'Interrupted'`: `-4` is an interrupted statement, and the session
-  is still usable. Errors with codes `-5` to `-12`, `-394`, `-21001` or `-21003` no longer
+  now sees `HY008` and `'Interrupted'`: `-4` is an interrupted statement, and the connection
+  stays open. The server may have aborted the interrupted transaction (after
+  `cubrid killtran` the next statement reports `-111`), so roll back before reusing it. Errors with codes `-5` to `-12`, `-394`, `-21001` or `-21003` no longer
   carry a description and are raised as `DatabaseError` with SQLSTATE `HY000`. Before,
   `-6`, `-11` and `-12` were `OperationalError`, `-7` and `-8` `DataError` and `-394`
   `ProgrammingError`, each for a client-side meaning the server never sends under that

@@ -2331,7 +2331,9 @@ pycubrid는 메시지 문구보다 숫자 오류 코드를 우선하여 서버 �
 테이블 부재 SQLSTATE를 판단할 수 없습니다. `-671` (`ER_CSS_RECV_OR_SEND`)은
 무결성 오류가 아닌 `OperationalError` / `08S01`입니다. `-4` (`ER_INTERRUPTED`, 살아 있는
 세션에서 중단된 문장)는 풀과 ORM이 끊긴 연결로 취급하는 `08S01` 통신 링크 실패가 아니라
-`OperationalError` / `HY008`(작업 취소)입니다(#895). `-3` (`ER_OUT_OF_VIRTUAL_MEMORY`)과
+`OperationalError` / `HY008`(작업 취소)입니다(#895). 연결은 열린 채로 유지되지만 서버가
+인터럽트된 트랜잭션을 이미 철회(abort)했을 수 있으므로(`cubrid killtran` 뒤 다음 문장은 `-111`을
+보고함), 다시 사용하기 전에 롤백하세요. `-3` (`ER_OUT_OF_VIRTUAL_MEMORY`)과
 I/O 오류 `-13`, `-14`, `-15` (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`)는
 `OperationalError`, `-2` (`ER_GENERIC_ERROR`)는 `InternalError`입니다. SQLSTATE는 드라이버가
 네이티브 의미를 변환한 값입니다. 배치도 단일 문장과 동일한 알려진 코드 SQLSTATE

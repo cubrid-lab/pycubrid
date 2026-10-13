@@ -2440,7 +2440,10 @@ does not establish a missing-table SQLSTATE. Native `-671`
 (`ER_CSS_RECV_OR_SEND`) uses `OperationalError` / `08S01`, not an integrity error.
 Native `-4` (`ER_INTERRUPTED`, an interrupted statement on a live session) uses
 `OperationalError` / `HY008` (operation canceled), not the `08S01` communication
-link failure that pools and ORMs treat as a dead connection (#895). Native `-3`
+link failure that pools and ORMs treat as a dead connection (#895). The connection
+stays open, but the server may have aborted the interrupted transaction (after
+`cubrid killtran` the next statement reports `-111`), so roll back before reusing it.
+Native `-3`
 (`ER_OUT_OF_VIRTUAL_MEMORY`) and the I/O errors `-13`, `-14` and `-15`
 (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`) use `OperationalError`, and
 `-2` (`ER_GENERIC_ERROR`) uses `InternalError`.
