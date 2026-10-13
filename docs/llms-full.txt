@@ -3996,6 +3996,10 @@ b3 = pycubrid.Binary("hello")                    # from str → UTF-8 encoded by
 
 These integer codes are used on the CAS wire protocol and appear in `cursor.description[n][1]`.
 
+`CUBRIDDataType.NULL` is an alias of `CUBRIDDataType.UNKNOWN` (both are `0`):
+`CUBRIDDataType.NULL is CUBRIDDataType.UNKNOWN`, and `CUBRIDDataType(0).name` is
+`"UNKNOWN"`.
+
 | Constant | Code | CUBRID Type | Category |
 |---|---|---|---|
 | `UNKNOWN` / `NULL` | 0 | NULL | — |
@@ -5989,7 +5993,11 @@ still wins (#591). This error path does not call application JSON deserializers,
 and validates subsequent cells even if an earlier row value is unrepresentable.
 Known collection framing is checked even when normal results use opaque bytes;
 negative element counts are malformed. A partially present inline-fetch header
-is malformed; an absent optional header remains supported. The
+is malformed; an absent optional header remains supported. A per-row error
+message length in an FC20 (`EXECUTE_BATCH`) or FC21 (`EXECUTE_ARRAY`) reply
+must be `0 <= length <= bytes_remaining()`, and the type header of the FC40
+(`GET_LAST_INSERT_ID`) value counts in its size like a row cell's, so a header
+longer than the value is malformed (#897). The
 connection turns these exceptions into `OperationalError("malformed response
 from broker")` and closes; `DataError` stays reserved for a complete reply
 whose value Python cannot represent (#492, #512). Unread bytes after the last
@@ -8240,7 +8248,11 @@ line 1 column 1 (char 0)
 
 With `json_deserializer=json.loads` (see [JSON Columns](TYPES.md#json-columns)),
 a `JSON` column value that is not valid JSON text raises `DataError`; the
-original `json.JSONDecodeError` is its `__cause__`. The reply was read in
+original `json.JSONDecodeError` is its `__cause__`. Valid JSON text that
+`json.loads` cannot decode raises `DataError: JSON value cannot be decoded`
+in the same way: an integer longer than Python's integer string conversion
+limit (`ValueError`) or nesting deeper than the recursion limit
+(`RecursionError`) (#900). The reply was read in
 full, so the connection stays usable, whether the value is in the first page
 returned by `execute()` or in a later fetch page. After a failed `execute()`
 the cursor has no result set (`description` is `None`), but, exactly as for

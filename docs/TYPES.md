@@ -229,6 +229,10 @@ b3 = pycubrid.Binary("hello")                    # from str → UTF-8 encoded by
 
 These integer codes are used on the CAS wire protocol and appear in `cursor.description[n][1]`.
 
+`CUBRIDDataType.NULL` is an alias of `CUBRIDDataType.UNKNOWN` (both are `0`):
+`CUBRIDDataType.NULL is CUBRIDDataType.UNKNOWN`, and `CUBRIDDataType(0).name` is
+`"UNKNOWN"`.
+
 | Constant | Code | CUBRID Type | Category |
 |---|---|---|---|
 | `UNKNOWN` / `NULL` | 0 | NULL | — |

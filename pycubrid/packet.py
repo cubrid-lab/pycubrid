@@ -640,17 +640,22 @@ class PacketReader:
             # connection stays usable. A caller-supplied ``json_deserializer``
             # is not wrapped here: its failures are between the application
             # and its own deserializer.
+            # json.loads also raises a plain ValueError for an integer longer
+            # than the int-digit limit and RecursionError for deep nesting; the
+            # text was read in full, so both are data errors too (#900).
             try:
                 return json.loads(value)
             except json.JSONDecodeError as exc:
                 raise DataError(f"JSON value is not valid JSON: {exc}") from exc
+            except (ValueError, RecursionError) as exc:
+                raise DataError(f"JSON value cannot be decoded: {exc}") from exc
         return self._json_deserializer(value)
 
     def _parse_collection(self, size: int) -> object:
-        # ``element_count`` below is bounded by ``size`` (validated upstream by
-        # ``_validate_data_length`` to max 256 MB). A malicious ``element_count``
-        # cannot cause unbounded iteration: once ``_offset`` exceeds the buffer,
-        # ``_parse_int()`` raises ``struct.error``. See Oracle review (GAP-3).
+        # ``element_count`` cannot cause unbounded iteration: the loop below
+        # checks that each element size word and payload fit inside the
+        # declared ``size`` (itself bounded by the buffer) and raises
+        # ``ValueError`` as soon as one does not.
         if not self._decode_collections:
             return self._parse_bytes(size)
 

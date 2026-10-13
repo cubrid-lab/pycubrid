@@ -1686,6 +1686,8 @@ class BatchExecutePacket(_CasPacket):
                 else:
                     error_code = result
                 msg_len = reader._parse_int()
+                if msg_len < 0 or msg_len > reader.bytes_remaining():
+                    raise ValueError("invalid batch execute error length")
                 error_msg = reader._parse_lenient_text(msg_len)
                 self.errors.append({"code": error_code, "message": error_msg, "index": index})
                 row_results.append((-1, error_code, error_msg))
@@ -1920,11 +1922,9 @@ class GetLastInsertIdPacket(_CasPacket):
             _raise_error(reader, remaining)
         value_size = reader._parse_int()
         if value_size > 0:
-            type_byte = reader._parse_byte()
-            type_header_size = 2 if (type_byte & 0x80) else 1
-            if type_header_size == 2:
-                reader._skip_bytes(1)  # consume second type byte
-            remaining = value_size - type_header_size
+            # The type header counts in value_size; a header longer than the
+            # value is a malformed reply, as for a row cell (#897).
+            _, remaining = _parse_cell_type(reader, value_size)
             if remaining > 0:
                 self.last_insert_id = reader._parse_null_terminated_string(remaining)
 

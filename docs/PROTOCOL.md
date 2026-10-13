@@ -798,7 +798,11 @@ still wins (#591). This error path does not call application JSON deserializers,
 and validates subsequent cells even if an earlier row value is unrepresentable.
 Known collection framing is checked even when normal results use opaque bytes;
 negative element counts are malformed. A partially present inline-fetch header
-is malformed; an absent optional header remains supported. The
+is malformed; an absent optional header remains supported. A per-row error
+message length in an FC20 (`EXECUTE_BATCH`) or FC21 (`EXECUTE_ARRAY`) reply
+must be `0 <= length <= bytes_remaining()`, and the type header of the FC40
+(`GET_LAST_INSERT_ID`) value counts in its size like a row cell's, so a header
+longer than the value is malformed (#897). The
 connection turns these exceptions into `OperationalError("malformed response
 from broker")` and closes; `DataError` stays reserved for a complete reply
 whose value Python cannot represent (#492, #512). Unread bytes after the last

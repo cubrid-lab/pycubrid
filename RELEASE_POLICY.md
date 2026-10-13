@@ -305,6 +305,19 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Malformed FC20/FC40 replies and undecodable JSON (#897, #900)** — PATCH /
+  bug fix to the documented reply-bounds contract (`docs/PROTOCOL.md`, AGENTS.md
+  wire protocol summary). A negative or overrunning FC20 row error length and an
+  FC40 type header longer than its value raise `ValueError`, reported as
+  `OperationalError('malformed response from broker')`, as FC21 and row cells
+  already did. JSON text that `json.loads` reads in full but cannot decode
+  (int-digit limit, recursion limit) raises `DataError` and keeps the session,
+  under the existing #492/#512/#543 complete-reply rule; before, it raised
+  `OperationalError` and closed the session, or let a raw `RecursionError`
+  escape. Valid replies, invalid JSON text, caller-supplied deserializers,
+  public signatures and the wire bytes are unchanged. Documenting the
+  `CUBRIDDataType.NULL` alias changes no behavior.
+
 - **Failed `ping()` reconnect and invalid redirect port (#896)** — PATCH / bug
   fix to the documented `ping()` contract (`docs/API_REFERENCE.md`), which
   returns a bool. A sync reconnect rejected by the server at `OPEN_DATABASE`

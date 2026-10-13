@@ -228,6 +228,10 @@ b3 = pycubrid.Binary("hello")                    # str로부터 → UTF-8 인코
 
 이 정수 코드들은 CAS 와이어 프로토콜에서 사용되며 `cursor.description[n][1]`에 나타납니다.
 
+`CUBRIDDataType.NULL`은 `CUBRIDDataType.UNKNOWN`의 별칭입니다(둘 다 `0`).
+`CUBRIDDataType.NULL is CUBRIDDataType.UNKNOWN`이 참이고
+`CUBRIDDataType(0).name`은 `"UNKNOWN"`입니다.
+
 | 상수 | 코드 | CUBRID 타입 | 분류 |
 |---|---|---|---|
 | `UNKNOWN` / `NULL` | 0 | NULL | — |

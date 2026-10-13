@@ -867,7 +867,11 @@ line 1 column 1 (char 0)
 
 With `json_deserializer=json.loads` (see [JSON Columns](TYPES.md#json-columns)),
 a `JSON` column value that is not valid JSON text raises `DataError`; the
-original `json.JSONDecodeError` is its `__cause__`. The reply was read in
+original `json.JSONDecodeError` is its `__cause__`. Valid JSON text that
+`json.loads` cannot decode raises `DataError: JSON value cannot be decoded`
+in the same way: an integer longer than Python's integer string conversion
+limit (`ValueError`) or nesting deeper than the recursion limit
+(`RecursionError`) (#900). The reply was read in
 full, so the connection stays usable, whether the value is in the first page
 returned by `execute()` or in a later fetch page. After a failed `execute()`
 the cursor has no result set (`description` is `None`), but, exactly as for

@@ -73,6 +73,7 @@ class CUBRIDDataType(IntEnum):
     """CUBRID CCI unified type codes used on the wire."""
 
     UNKNOWN = 0
+    # IntEnum alias: NULL is UNKNOWN, so CUBRIDDataType(0).name is "UNKNOWN".
     NULL = 0
     CHAR = 1
     STRING = 2

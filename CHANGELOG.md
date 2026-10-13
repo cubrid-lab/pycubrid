@@ -63,6 +63,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Malformed FC20 and FC40 replies are reported as malformed (#897)** — an `EXECUTE_BATCH`
+  reply whose row error has a negative message length was read as an empty message, and a
+  `GET_LAST_INSERT_ID` reply whose two-byte type header did not fit its one-byte value read
+  the second byte past the value and returned `''`. Both now raise
+  `OperationalError('malformed response from broker')` and close the session, as the
+  `EXECUTE_ARRAY` and row-cell parsers already did.
+
+- **Undecodable JSON values raise `DataError` and keep the session (#900)** — with
+  `json_deserializer=json.loads`, complete JSON text that `json.loads` cannot decode now
+  raises `DataError: JSON value cannot be decoded` with the original error as its cause:
+  an integer longer than Python's integer string conversion limit (a plain `ValueError`,
+  reported as a malformed reply that closed the session) or nesting deeper than the
+  recursion limit (an unwrapped `RecursionError`). Invalid JSON text still raises
+  `DataError: JSON value is not valid JSON` (#543). CUBRID 11.4 stores and returns a JSON
+  array nested 20,000 levels deep, which raised the raw `RecursionError`; it rejects a
+  5,000-digit integer at insert, so that case was reproduced offline only. The `CUBRIDDataType.NULL` alias of `UNKNOWN` is now documented, and a
+  stale comment about collection element bounds in `packet.py` matches the code.
+
 - **`ping(reconnect=True)` and broker redirects fail the same way in both drivers (#896)**
   — a sync `Connection.ping(reconnect=True)` whose reconnect the server rejected at
   `OPEN_DATABASE`, for example a wrong password (`-171`), raised `DatabaseError` instead of

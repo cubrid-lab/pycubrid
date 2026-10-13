@@ -864,7 +864,11 @@ line 1 column 1 (char 0)
 
 `json_deserializer=json.loads`를 사용할 때([JSON 컬럼](TYPES.md#json-컬럼) 참고),
 유효한 JSON 텍스트가 아닌 `JSON` 컬럼 값은 `DataError`를 발생시킵니다. 원래의
-`json.JSONDecodeError`는 그 `__cause__`가 됩니다. 응답은 모두 읽었으므로
+`json.JSONDecodeError`는 그 `__cause__`가 됩니다. `json.loads`가 디코딩할 수
+없는 유효한 JSON 텍스트도 같은 방식으로
+`DataError: JSON value cannot be decoded`를 발생시킵니다: Python의 정수 문자열
+변환 한도보다 긴 정수(`ValueError`)나 재귀 한도보다 깊은 중첩(`RecursionError`)이
+그렇습니다(#900). 응답은 모두 읽었으므로
 연결은 계속 사용할 수 있습니다. 그 값이 `execute()`가 반환한 첫 페이지에
 있든 이후 fetch 페이지에 있든 마찬가지입니다. `execute()`가 실패하면
 커서에는 결과 집합이 없지만(`description`은 `None`), 잘못된 UTF-8(#492)이나
