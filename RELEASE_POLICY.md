@@ -58,9 +58,12 @@ without notice:
   evolves; users must not import from them directly.
 - `pycubrid.constants` (CAS function codes, data-type codes, framing constants).
   These are tied to the wire protocol and are not a user-facing surface.
-- The `pycubrid.error_codes.CAS_ERROR_TO_SQLSTATE` mapping table is exposed via
-  `get_error_description`; the mapping data itself may grow over time, and an
-  entry that does not match CUBRID `src/base/error_code.h` is corrected or removed.
+- The data in the `pycubrid.error_codes` tables: `CUBRID_ERROR_CODES` (the
+  descriptions that `get_error_description()` returns) and
+  `CAS_ERROR_TO_SQLSTATE` (SQLSTATE metadata). It may grow over time, and an
+  entry that does not match CUBRID `src/base/error_code.h` is corrected or
+  removed. Which exception class a native code raises is not covered by this
+  exclusion; see the exception-class rule below.
 - The `pycubrid.timing` module beyond the `TimingStats` re-export from the top
   level. The internal accumulator implementation may change.
 - Type annotations on public methods. Refining a type (e.g. `Any` → a more
@@ -302,18 +305,39 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
-- **Native error code mapping corrected (#895)** — PATCH / bug fix to error
-  metadata, which §1 excludes from the stable surface ("Exception messages and
-  SQLSTATE codes returned in error metadata"; `pycubrid.constants` is likewise
-  excluded). Every entry of the `pycubrid.error_codes` tables now matches CUBRID
-  `src/base/error_code.h`: `-4` (`ER_INTERRUPTED`) is `OperationalError` /
-  `HY008` / `'Interrupted'` instead of `08S01` / `'Communication error'`, `-1`,
-  `-111`, `-13`, `-14` and `-15` are re-described, and the misnumbered `-5` to
-  `-12`, `-394`, `-21001` and `-21003` are removed, so those codes become
-  `DatabaseError` / `HY000` without a description. Callers that matched the old
-  `-4` SQLSTATE or descriptions see the new values; the CHANGELOG upgrade note
-  lists them. Public signatures, the `-1` text fallback, every other mapped code
-  and the wire bytes are unchanged.
+- **Native error code mapping corrected (#895)** — PATCH / bug correction of
+  misnumbered error dispatch. Every entry of the `pycubrid.error_codes` tables
+  now matches CUBRID `src/base/error_code.h`. Descriptions and SQLSTATEs are
+  error metadata that §1 excludes from the stable surface, and so is
+  `pycubrid.constants`, whose `ErrorCode` members take the server names. `-4`
+  (`ER_INTERRUPTED`) is `HY008` / `'Interrupted'` instead of `08S01` /
+  `'Communication error'`. `-1`, `-111`, `-13`, `-14` and `-15` are
+  re-described. The misnumbered `-5` to `-12`, `-394`, `-21001` and `-21003` are
+  removed, so they become `HY000` without a description.
+
+  The exception class is public (§1), and it changes for some codes. Each old
+  class was chosen for a different, client-side meaning that the server never
+  sends under that number, so it was a dispatch defect, not a contract. The
+  same reasoning made earlier class corrections PATCH, for example #543 and
+  #555:
+  - `-6`, `-11` and `-12` were `OperationalError` and `-7` and `-8` were
+    `DataError` for CCI conditions (transaction type, closed handle, isolation
+    level, string parameter, type conversion). On the wire they are server
+    hash-table and volume errors and are now `DatabaseError`, the class of every
+    unlisted code.
+  - `-394` was `ProgrammingError` as "Column not found". It is
+    `ER_TX_ENDPOINT_TOO_LARGE`, and a real unknown column is `-494`, which stays
+    `ProgrammingError`.
+  - `-21001` and `-21003` are JDBC client codes that no broker reply carries.
+    Their removal changes no raised exception.
+  - `-14` (`ER_IO_WRITE`) becomes `OperationalError` like `-13` and `-15`, which
+    already were.
+  - `-4` stays `OperationalError`.
+
+  Callers that matched the old `-4` SQLSTATE or descriptions see the new values;
+  the CHANGELOG upgrade note lists them. Public signatures, `errno`/`code`
+  values, the `-1` text fallback, every other mapped code and the wire bytes are
+  unchanged.
 
 - **Async request refused during another task's setup (#894)** — PATCH / bug
   fix to the documented async setup contract (`docs/API_REFERENCE.md`). A

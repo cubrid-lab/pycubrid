@@ -12,7 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   matched `sqlstate == "08S01"` or `description='Communication error'` for errno `-4`
   now sees `HY008` and `'Interrupted'`: `-4` is an interrupted statement, and the session
   is still usable. Errors with codes `-5` to `-12`, `-394`, `-21001` or `-21003` no longer
-  carry a description and are raised as `DatabaseError` with SQLSTATE `HY000`. See Fixed.
+  carry a description and are raised as `DatabaseError` with SQLSTATE `HY000`. Before,
+  `-6`, `-11` and `-12` were `OperationalError`, `-7` and `-8` `DataError` and `-394`
+  `ProgrammingError`, each for a client-side meaning the server never sends under that
+  number. `-14` (`ER_IO_WRITE`) is now `OperationalError`. See Fixed.
 
 ### Changed
 
