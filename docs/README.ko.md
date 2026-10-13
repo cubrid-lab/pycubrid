@@ -2,8 +2,9 @@
 
 <!-- CUBRID-LAB-DRIVER-ICON:START -->
 <a href="https://github.com/cubrid-lab/brand">
-  <img src="https://raw.githubusercontent.com/cubrid-lab/brand/d342189b49ac96d911e0f24a536ee7e9dd4a008a/dist/icons/pycubrid.svg" alt="CUBRID Lab Driver icon (Python)" width="80" />
+  <img src="https://raw.githubusercontent.com/cubrid-lab/brand/b9686425f34177549929debd25dc28b412ff3461/dist/icons/pycubrid.svg" alt="CUBRID Lab Driver icon (Python)" width="80" />
 </a>
+<p><sub><a href="https://github.com/cubrid-lab">CUBRID Lab</a> · Python 드라이버</sub></p>
 <!-- CUBRID-LAB-DRIVER-ICON:END -->
 
 > 🌐 Translated from [README.md](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) — 한국어는 심사 기간 동안 동기화가 **필수**입니다: README.md가 바뀌면 같은 PR에서 이 파일도 업데이트하세요 (`translation-sync` CI 검사, 보류 시 `translations-deferred` 라벨). English is canonical.
