@@ -25,11 +25,13 @@ Workload revision ``micro-explicit-keys-v2`` (#922):
 - The untimed ``teardown`` checks every fetched row, every affected-row count
   and the full table contents. A missing or wrong row raises
   ``WorkloadVerificationError`` and fails the benchmark instead of reporting a
-  time. ``extra_info`` records the revision and the number of verified rounds.
+  time. ``extra_info`` records the revision and, for every benchmark that
+  touches rows, the number of verified rounds.
 
-Results of the earlier workload (before #922) are historical: its SELECT,
-UPDATE and loop cases could address rows that did not exist. The benchmarks
-were renamed so ``scripts/bench_regression.py`` does not compare the two.
+Results of the earlier workload (before #922) are historical: its primary-key
+SELECT looked up a row that did not exist, and other cases timed different
+work than their names said. The benchmarks were renamed so
+``scripts/bench_regression.py`` does not compare the two.
 """
 
 from __future__ import annotations

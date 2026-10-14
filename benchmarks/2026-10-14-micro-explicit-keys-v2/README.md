@@ -36,6 +36,6 @@ Medians in milliseconds (one timed call; rounds after warm-up rounds):
 | `test_bench_execute_parameterized_loop_100` | 10 + 1 | 473.129 | 369.008 |
 
 Every round of every CRUD benchmark, warm-up rounds included, passed its row check
-(`extra_info.verified_rounds`). The write cases are dominated by the server's commit on this
-host. Compare only with a run of the same workload revision on the same host and server; the
+(`extra_info.verified_rounds`). The single-row write cases are dominated by the server's
+commit on this host. Compare only with a run of the same workload revision on the same host and server; the
 two server columns are not a version comparison.

@@ -7178,7 +7178,8 @@ Investigate when:
 - An untimed check after every round compares every fetched row, every affected-row count and
   the whole table. A missing or wrong row fails the benchmark instead of reporting a time. With
   `--benchmark-disable` each benchmark runs and is checked once.
-- Each result's `extra_info` records `workload_revision` and `verified_rounds`.
+- Each result's `extra_info` records `workload_revision`, and every benchmark that touches rows
+  also records `verified_rounds`. `test_bench_connect_disconnect` reads no rows.
 
 | Benchmark | One timed call | Rounds (+ warm-up) |
 |---|---|---|

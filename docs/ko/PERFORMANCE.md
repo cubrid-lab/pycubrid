@@ -466,7 +466,8 @@ localhost에서 10,000행:
 - 매 라운드 뒤 시간 측정 밖의 검사가 가져온 모든 행, 모든 영향 행 수, 테이블 전체를
   비교합니다. 행이 없거나 다르면 시간을 보고하지 않고 벤치마크가 실패합니다.
   `--benchmark-disable`이면 각 벤치마크를 한 번 실행하고 검사합니다.
-- 각 결과의 `extra_info`에 `workload_revision`과 `verified_rounds`가 기록됩니다.
+- 각 결과의 `extra_info`에 `workload_revision`이 기록되고, 행을 다루는 벤치마크에는
+  `verified_rounds`도 기록됩니다. `test_bench_connect_disconnect`는 행을 읽지 않습니다.
 
 | 벤치마크 | 측정되는 호출 한 번 | 라운드 (+ 워밍업) |
 |---|---|---|
