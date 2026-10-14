@@ -46,7 +46,7 @@ test = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "pytest-cov",
-    "pytest-benchmark>=4.0",
+    "pytest-benchmark>=5.0",
     "hypothesis>=6.0",
     # Imported directly by the repository-tooling tests (workflow YAML, version
     # specifiers); tests/test_workflow_pins.py keeps this list complete.
