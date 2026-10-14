@@ -205,6 +205,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Tests
 
+- **The live microbenchmarks check that they act on real rows (#922)** — the table of
+  `tests/test_benchmarks.py` had an `AUTO_INCREMENT` key that `DELETE` does not reset, and
+  nothing checked results, so `test_bench_single_select` timed a lookup of a missing row
+  (reproduced on CUBRID 11.4.6 and 10.2.18). The benchmarks now use explicit primary keys, seed
+  and check the starting state in an untimed setup before every round, warm-up rounds included,
+  and check every fetched row, affected-row count and the whole table after every round; a
+  missing or wrong row fails the benchmark. They connect to the shared test endpoint
+  (`CUBRID_TEST_URL`/`CUBRID_TEST_HOST`) that also enables them, instead of `CUBRID_HOST`,
+  `CUBRID_PORT` and `CUBRID_DB`. They were renamed (workload revision
+  `micro-explicit-keys-v2`) so older results are not compared with them;
+  `test_bench_prepared_reuse` is now `test_bench_execute_parameterized_loop_100`, because it was
+  always an ordinary parameterized `execute()` loop. The new offline
+  `tests/test_benchmarks_workload.py` runs the workloads on SQLite, and the first reference run
+  on CUBRID 11.4 and 10.2 is in `benchmarks/2026-10-14-micro-explicit-keys-v2`. The dev group
+  needs pytest-benchmark 5.0. Test harness only; no driver change.
+
 - **The wide-row measurement synchronizes the async batches' readiness and reports batch time
   alone (#914)** — in `scripts/measure_prepared_wide_rows.py` the two async connections now
   wait at an `asyncio.Barrier` once their rows are built, as the sync threads do at a

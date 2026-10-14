@@ -73,7 +73,7 @@ flowchart TD
 
 | 도구 | 측정 대상 | 서버 필요 |
 |---|---|---|
-| `tests/test_benchmarks.py` | 연결, 단일 행 CRUD, 100행 삽입/조회, prepared 재사용 (pytest-benchmark) | 예 |
+| `tests/test_benchmarks.py` | 연결, 기본 키 단일 행 CRUD, 100행 삽입/조회, 100회 매개변수 execute 루프, 모든 라운드 검증 (pytest-benchmark) | 예 |
 | `tests/test_bench_fetch_parsing.py` | 합성 2000행 응답의 FETCH 응답 파싱 | 아니요 |
 | `scripts/bench_regression.py` | 두 pytest-benchmark JSON 파일 간 중앙값 변화 | 아니요 |
 | `scripts/profile_*.py` | connect, execute, fetch의 cProfile | 예 |
@@ -451,6 +451,51 @@ localhost에서 10,000행:
 - 추세 보고서가 이전 실행 대비 중앙값 증가를 보일 때.
 - CI 실행이 이전 실행 수치와의 편차를 플래그할 때.
 - 핫 경로(protocol.py, packet.py, cursor.py)에 변경을 제출하기 직전.
+
+### 라이브 마이크로벤치마크 워크로드
+
+`tests/test_benchmarks.py`는 워크로드 리비전 `micro-explicit-keys-v2`(#922)를 측정합니다:
+
+- 공유 테스트 엔드포인트(`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`)가 설정되었을 때만
+  실행되며, 통합 테스트와 똑같이 해석한 그 엔드포인트에 연결합니다. `bench_pycubrid_micro`
+  테이블을 삭제하고 다시 만들므로 버려도 되는 데이터베이스를 사용하세요. `CUBRID_HOST`,
+  `CUBRID_PORT`, `CUBRID_DB`는 읽지 않습니다.
+- 테이블은 명시적 기본 키를 쓰며 `AUTO_INCREMENT` 열이 없습니다. 워밍업 라운드를 포함한 모든
+  라운드는 시간 측정 밖의 setup이 채우고 확인한 같은 상태에서 시작합니다.
+- 측정 구간에는 측정 대상 문장과, 쓰기의 경우 그 커밋만 들어갑니다.
+- 매 라운드 뒤 시간 측정 밖의 검사가 가져온 모든 행, 모든 영향 행 수, 테이블 전체를
+  비교합니다. 행이 없거나 다르면 시간을 보고하지 않고 벤치마크가 실패합니다.
+  `--benchmark-disable`이면 각 벤치마크를 한 번 실행하고 검사합니다.
+- 각 결과의 `extra_info`에 `workload_revision`과 `verified_rounds`가 기록됩니다.
+
+| 벤치마크 | 측정되는 호출 한 번 | 라운드 (+ 워밍업) |
+|---|---|---|
+| `test_bench_connect_disconnect` | 연결 후 닫기 | 20 (+2) |
+| `test_bench_insert_one_row` | 빈 테이블에 INSERT 1회 + 커밋 | 100 (+5) |
+| `test_bench_select_one_row_by_pk` | 기본 키 SELECT 1회 + `fetchone()` | 100 (+5) |
+| `test_bench_update_one_row_by_pk` | 기본 키 UPDATE 1회 + 커밋 | 100 (+5) |
+| `test_bench_delete_one_row_by_pk` | 기본 키 DELETE 1회 + 커밋 | 100 (+5) |
+| `test_bench_insert_100_rows` | 단일 행 INSERT 100회 + 커밋 1회 | 10 (+1) |
+| `test_bench_select_100_rows` | 100행 SELECT 1회 + `fetchall()` | 50 (+5) |
+| `test_bench_execute_parameterized_loop_100` | `execute(sql, params)` SELECT 100회 + `fetchone()` | 10 (+1) |
+
+`test_bench_execute_parameterized_loop_100`은 일반 PREPARE_AND_EXECUTE 요청 100개를 보냅니다.
+서버 측 prepared statement 재사용도, `executemany(..., prepared=True)`도 아닙니다.
+
+이 리비전의 CUBRID 11.4와 10.2 기준 실행은 원시 pytest-benchmark JSON 및 환경과 함께
+[`benchmarks/2026-10-14-micro-explicit-keys-v2`](https://github.com/cubrid-lab/pycubrid/tree/main/benchmarks/2026-10-14-micro-explicit-keys-v2)에
+있습니다.
+
+#922 이전 결과는 과거 기록이며 비교할 수 없습니다. 당시 벤치마크 이름은
+`test_bench_single_insert`, `test_bench_single_select`, `test_bench_single_update`,
+`test_bench_single_delete`, `test_bench_bulk_insert_100`, `test_bench_select_all_100`,
+`test_bench_prepared_reuse`였습니다. 이전 테이블은 `DELETE`로 초기화되지 않는 `AUTO_INCREMENT`
+키를 썼고 결과를 검사하지 않았습니다. 그래서 `test_bench_single_select`는 앞선 벤치마크가 키를
+지나쳐 놓은 뒤 `id = 1`을 조회해, 없는 행의 조회 시간을 쟀습니다(CUBRID 11.4.6과 10.2.18에서
+재현). 이전 INSERT 케이스는 커지는 테이블에 썼고, 이전 DELETE 케이스는 INSERT까지 쟀으며,
+이전 100행 INSERT는 앞 라운드의 `DELETE`까지 쟀습니다. 벤치마크 이름을 바꿨으므로
+`scripts/bench_regression.py`는 이전 이름과 새 이름을 비교하지 않고 따로 나열합니다. 이름과
+작업이 그대로인 것은 `test_bench_connect_disconnect`뿐입니다.
 
 ### 두 실행 비교
 

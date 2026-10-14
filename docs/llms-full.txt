@@ -6667,7 +6667,7 @@ Tools in this repository:
 
 | Tool | What it measures | Needs a server |
 |---|---|---|
-| `tests/test_benchmarks.py` | Connect, single-row CRUD, 100-row insert/select and prepared reuse (pytest-benchmark) | Yes |
+| `tests/test_benchmarks.py` | Connect, single-row CRUD by primary key, 100-row insert/select and a 100-execute parameterized loop, every round checked (pytest-benchmark) | Yes |
 | `tests/test_bench_fetch_parsing.py` | FETCH reply parsing of synthetic 2000-row replies | No |
 | `scripts/bench_regression.py` | Median change between two pytest-benchmark JSON files | No |
 | `scripts/profile_*.py` | cProfile of connect, execute and fetch | Yes |
@@ -7163,6 +7163,52 @@ Investigate when:
 - The trend report shows a median increase over the previous run.
 - A CI run flags a deviation from the previous run's numbers.
 - You are about to submit a change to the hot path (protocol.py, packet.py, cursor.py).
+
+### Live Microbenchmark Workload
+
+`tests/test_benchmarks.py` measures workload revision `micro-explicit-keys-v2` (#922):
+
+- It runs only when the shared test endpoint is configured (`CUBRID_TEST_URL` or
+  `CUBRID_TEST_HOST`) and connects to that endpoint, resolved exactly as for the integration
+  tests. It drops and recreates the table `bench_pycubrid_micro`, so use a disposable database.
+  `CUBRID_HOST`, `CUBRID_PORT` and `CUBRID_DB` are not read.
+- The table has explicit primary keys and no `AUTO_INCREMENT` column. Every round, warm-up
+  rounds included, starts from the same state, which an untimed setup seeds and checks.
+- The timed region holds only the measured statements and, for writes, their commit.
+- An untimed check after every round compares every fetched row, every affected-row count and
+  the whole table. A missing or wrong row fails the benchmark instead of reporting a time. With
+  `--benchmark-disable` each benchmark runs and is checked once.
+- Each result's `extra_info` records `workload_revision` and `verified_rounds`.
+
+| Benchmark | One timed call | Rounds (+ warm-up) |
+|---|---|---|
+| `test_bench_connect_disconnect` | connect and close | 20 (+2) |
+| `test_bench_insert_one_row` | 1 INSERT into an empty table + commit | 100 (+5) |
+| `test_bench_select_one_row_by_pk` | 1 SELECT by primary key + `fetchone()` | 100 (+5) |
+| `test_bench_update_one_row_by_pk` | 1 UPDATE by primary key + commit | 100 (+5) |
+| `test_bench_delete_one_row_by_pk` | 1 DELETE by primary key + commit | 100 (+5) |
+| `test_bench_insert_100_rows` | 100 single-row INSERTs + 1 commit | 10 (+1) |
+| `test_bench_select_100_rows` | 1 SELECT of 100 rows + `fetchall()` | 50 (+5) |
+| `test_bench_execute_parameterized_loop_100` | 100 SELECTs with `execute(sql, params)` + `fetchone()` | 10 (+1) |
+
+`test_bench_execute_parameterized_loop_100` sends 100 ordinary PREPARE_AND_EXECUTE requests. It
+is not server-side prepared-statement reuse and not `executemany(..., prepared=True)`.
+
+The reference run of this revision on CUBRID 11.4 and 10.2, with its raw pytest-benchmark JSON
+and environment, is in
+[`benchmarks/2026-10-14-micro-explicit-keys-v2`](https://github.com/cubrid-lab/pycubrid/tree/main/benchmarks/2026-10-14-micro-explicit-keys-v2).
+
+Results from before #922 are historical and are not comparable. Their benchmarks were named
+`test_bench_single_insert`, `test_bench_single_select`, `test_bench_single_update`,
+`test_bench_single_delete`, `test_bench_bulk_insert_100`, `test_bench_select_all_100` and
+`test_bench_prepared_reuse`. The old table had an `AUTO_INCREMENT` key, which `DELETE` does not
+reset, and nothing checked results. `test_bench_single_select` therefore looked up `id = 1`
+after earlier benchmarks had moved the keys past it, and timed a lookup of a missing row
+(reproduced on CUBRID 11.4.6 and 10.2.18). The old INSERT cases also wrote to a growing table,
+the old DELETE case timed an INSERT as well, and the old 100-row INSERT timed a `DELETE` of the
+previous round. Because the benchmarks were renamed, `scripts/bench_regression.py` lists the old
+and the new names separately instead of comparing them; only `test_bench_connect_disconnect`
+keeps its name and work.
 
 ### Comparing Two Runs
 
