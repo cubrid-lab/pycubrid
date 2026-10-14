@@ -738,7 +738,8 @@ unchanged. If this probe fails, the session is retired and `ping()` returns
 `False`. No interrupted SQL is replayed. Sync and async parameterized SQL bound
 before a session replacement, including one made by that request's own
 `CHECK_CAS`, is rejected before send because its generation changed; the caller
-decides whether to retry. A healthy same-session ping does not
+decides whether to retry. A sync `Lob` of the earlier session is refused the
+same way: its `read()` and `write()` raise before send (#932). A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
@@ -3231,6 +3232,19 @@ assert await cur.nextset() is None
 `pycubrid.lob.Lob`
 
 Represents a CUBRID Large Object (BLOB or CLOB).
+
+A `Lob` belongs to the physical session it was created or wrapped on (#932).
+After `ping(reconnect=True)` or a failed out-of-transaction `CHECK_CAS` probe
+replaces that session, `read()` and `write()` of the older `Lob` raise
+`InterfaceError` ("LOB handle belongs to an earlier physical session") before
+any request is sent. They do not reconnect, retry or adopt the new session. If
+the replacement happens in the `CHECK_CAS` probe of the call itself, that call
+raises `OperationalError` ("LOB handle lost due to broker reconnect") and later
+calls raise `InterfaceError`. Create the LOB again with
+`connection.create_lob()`, or fetch the row again and wrap its handle in a new
+`Lob`. `Lob` does not record whether its handle was created or fetched, so this
+also applies to a handle of a committed row. Async connections have no LOB
+support; `compat.native` lobs keep their own session check.
 
 ### Lob Factory Method
 

@@ -70,8 +70,11 @@ class Lob:
         self._lob_handle = lob_handle
         self._closed = False
         # Physical session the handle belongs to: a newly written LOB lives in
-        # a temporary file of that session only (#839).
-        self._generation: int | None = getattr(connection, "_physical_generation", None)
+        # a temporary file of that session only (#839). read()/write() refuse
+        # to send it on a later session (#932). A transport without a
+        # generation (compat.native's fixed-session one) checks it itself.
+        generation = getattr(connection, "_physical_generation", None)
+        self._generation: int | None = generation if type(generation) is int else None
 
     @classmethod
     def create(cls, connection: _ConnectionLike, lob_type: int) -> Lob:
@@ -111,7 +114,7 @@ class Lob:
                 # Match Connection's existing request-serialization boundary.
                 raise DataError("parameter value too large to serialize into CAS request") from exc
             return 0
-        self._connection._send_and_receive(packet)
+        self._send_on_own_session(packet)
         if packet.bytes_written > len(data):
             # CCI rejects this reply without touching the handle's size.
             raise OperationalError(
@@ -148,7 +151,7 @@ class Lob:
         cursor = offset
         while remaining > 0:
             packet = LOBReadPacket(self._lob_handle, cursor, remaining)
-            self._connection._send_and_receive(packet)
+            self._send_on_own_session(packet)
             got = len(packet.lob_data)
             if got > remaining:
                 raise OperationalError(
@@ -178,6 +181,27 @@ class Lob:
         """Raise ``InterfaceError`` if this LOB has been closed."""
         if self._closed:
             raise InterfaceError("LOB is closed")
+
+    def _send_on_own_session(self, packet: Any) -> None:
+        """Send a LOB request only on the physical session that owns the handle.
+
+        A replaced session (``ping(reconnect=True)``, a failed CHECK_CAS probe)
+        knows nothing of the handle, so a stale ``Lob`` raises before any byte
+        is sent and is never retried there (#932). The check holds the session
+        lock, and ``expected_generation`` fences a replacement during the request.
+        """
+        generation = self._generation
+        if generation is None:
+            self._connection._send_and_receive(packet)
+            return
+        connection: Any = self._connection
+        with connection._session_lock:
+            if connection._physical_generation != generation:
+                raise InterfaceError(
+                    "LOB handle belongs to an earlier physical session; "
+                    "create or fetch the LOB again on this connection"
+                )
+            connection._send_and_receive(packet, expected_generation=generation)
 
     def close(self) -> None:
         """Invalidate this LOB object (client-side only).

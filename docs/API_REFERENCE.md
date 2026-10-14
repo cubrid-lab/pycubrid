@@ -2084,6 +2084,19 @@ assert await cur.nextset() is None
 
 Represents a CUBRID Large Object (BLOB or CLOB).
 
+A `Lob` belongs to the physical session it was created or wrapped on (#932).
+After `ping(reconnect=True)` or a failed out-of-transaction `CHECK_CAS` probe
+replaces that session, `read()` and `write()` of the older `Lob` raise
+`InterfaceError` ("LOB handle belongs to an earlier physical session") before
+any request is sent. They do not reconnect, retry or adopt the new session. If
+the replacement happens in the `CHECK_CAS` probe of the call itself, that call
+raises `OperationalError` ("LOB handle lost due to broker reconnect") and later
+calls raise `InterfaceError`. Create the LOB again with
+`connection.create_lob()`, or fetch the row again and wrap its handle in a new
+`Lob`. `Lob` does not record whether its handle was created or fetched, so this
+also applies to a handle of a committed row. Async connections have no LOB
+support; `compat.native` lobs keep their own session check.
+
 ### Lob Factory Method
 
 #### `Lob.create(connection, lob_type)`

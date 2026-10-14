@@ -15,7 +15,7 @@ def mock_connection() -> MagicMock:
     connection = MagicMock()
     connection._ensure_connected = MagicMock()
 
-    def send_and_receive(packet: object) -> object:
+    def send_and_receive(packet: object, **_kwargs: object) -> object:
         if isinstance(packet, LOBWritePacket):
             packet.bytes_written = len(packet.data)
         return packet
@@ -306,3 +306,59 @@ def test_create_rejects_async_connection_before_sending() -> None:
     # Guard must fire before any connection interaction (no un-awaited coroutine).
     assert conn.ensure_connected_calls == 0
     assert conn.send_calls == 0
+
+
+# -- physical-session ownership (#932) -----------------------------------------
+
+
+def test_init_ignores_a_non_int_physical_generation(mock_connection: MagicMock) -> None:
+    # A MagicMock attribute (or any non-int) is not a session generation.
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    assert lob._generation is None
+    lob.read(1)
+    assert mock_connection._send_and_receive.call_args.kwargs == {}
+
+
+@pytest.mark.parametrize("operation", ["read", "write"])
+def test_stale_generation_raises_before_sending(mock_connection: MagicMock, operation: str) -> None:
+    mock_connection._physical_generation = 4
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
+    mock_connection._physical_generation = 5  # ping(reconnect=True) or a failed probe
+
+    with pytest.raises(InterfaceError, match="earlier physical session; create or fetch"):
+        if operation == "read":
+            lob.read(5)
+        else:
+            lob.write(b"hello")
+
+    mock_connection._send_and_receive.assert_not_called()
+    assert lob._generation == 4  # no adoption of the new session
+
+
+def test_current_generation_sends_with_expected_generation(mock_connection: MagicMock) -> None:
+    mock_connection._physical_generation = 4
+    handle = b"\x00\x00\x00\x21" + b"\x00" * 8 + b"\x00\x00\x00\x02a\x00"
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, handle)
+
+    assert lob.write(b"hello") == 5
+    assert mock_connection._send_and_receive.call_args.kwargs == {"expected_generation": 4}
+    assert lob.read(5) == b""
+    assert mock_connection._send_and_receive.call_args.kwargs == {"expected_generation": 4}
+    mock_connection._session_lock.__enter__.assert_called()
+
+
+def test_current_generation_keeps_partial_write_handling(mock_connection: MagicMock) -> None:
+    mock_connection._physical_generation = 4
+    handle = b"\x00\x00\x00\x21" + b"\x00" * 8 + b"\x00\x00\x00\x02a\x00"
+
+    def short_write(packet: object, **_kwargs: object) -> object:
+        if isinstance(packet, LOBWritePacket):
+            packet.bytes_written = 2
+        return packet
+
+    mock_connection._send_and_receive.side_effect = short_write
+    lob = Lob(mock_connection, CUBRIDDataType.BLOB, handle)
+
+    with pytest.raises(OperationalError, match="wrote 2 of 5"):
+        lob.write(b"hello")
+    assert lob.lob_handle[4:12] == b"\x00" * 7 + b"\x02"

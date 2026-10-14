@@ -305,6 +305,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Stale `Lob` handles after a session replacement (#932)** — PATCH / bug fix
+  to the documented session ownership of `Lob` (`docs/API_REFERENCE.md`,
+  `docs/CONNECTION.md`). `Lob.read()` and `Lob.write()` on a `Lob` whose
+  physical session was replaced raise `InterfaceError` before any request,
+  instead of sending the old handle to the new CAS. A `Lob` of the current
+  session sends the same bytes as before. Public signatures, the wire format,
+  async connections, `compat.native` lobs and supported versions are unchanged.
+
 - **Error source and authentication error class (#903)** — MINOR / additive
   attribute and exception-class change, decided by the maintainer on #903.
   `DatabaseError` gains the read-only `error_source` (`"cas"`, `"server"` or

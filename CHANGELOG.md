@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `Lob` is not sent on a replaced physical session (#932)** — after
+  `ping(reconnect=True)` or a failed out-of-transaction `CHECK_CAS` probe replaced the
+  session, `Lob.read()` and `Lob.write()` sent the old session's handle to the new CAS.
+  They now raise `InterfaceError` before any request is sent, without reconnecting or
+  retrying; create the LOB again or fetch its row again. The check holds the connection's
+  session lock, and the request itself is fenced to the `Lob`'s session. A `Lob` created
+  or wrapped on the current session, partial-write handling, async connections (no LOB
+  support) and `compat.native` lobs are unchanged.
+
 ### Documentation
 
 - **Abandoned release without a tag** — RELEASING.md's abandoned-version recovery now says

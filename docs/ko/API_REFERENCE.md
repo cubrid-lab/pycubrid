@@ -1990,6 +1990,18 @@ assert await cur.nextset() is None
 
 CUBRID 대형 객체(BLOB 또는 CLOB)를 나타냅니다.
 
+`Lob`은 생성되거나 감싸진 물리 세션에 속합니다(#932). `ping(reconnect=True)`
+또는 트랜잭션 밖에서 실패한 `CHECK_CAS` 검사가 그 세션을 교체하면, 이전 `Lob`의
+`read()`와 `write()`는 요청을 보내기 전에 `InterfaceError`("LOB handle belongs
+to an earlier physical session")를 발생시킵니다. 재접속, 재시도, 새 세션 채택은
+하지 않습니다. 호출 자신의 `CHECK_CAS` 검사에서 교체가 일어나면 그 호출은
+`OperationalError`("LOB handle lost due to broker reconnect")를, 이후 호출은
+`InterfaceError`를 발생시킵니다. `connection.create_lob()`으로 LOB를 다시
+만들거나, 행을 다시 조회해 그 핸들을 새 `Lob`으로 감싸십시오. `Lob`은 핸들이
+생성된 것인지 조회된 것인지 기록하지 않으므로 커밋된 행의 핸들에도 같은 규칙이
+적용됩니다. 비동기 연결은 LOB를 지원하지 않으며, `compat.native` lob은 자체 세션
+검사를 유지합니다.
+
 ### Lob 팩토리 메서드
 
 #### `Lob.create(connection, lob_type)`

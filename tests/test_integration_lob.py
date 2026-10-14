@@ -10,6 +10,7 @@ not present in pycubrid — see #405 for the divergence documentation.
 from __future__ import annotations
 
 import os
+import socket
 import uuid
 from collections.abc import Generator
 from typing import Any
@@ -19,6 +20,7 @@ import pytest
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDDataType
 from pycubrid.cursor import Cursor
+from pycubrid.exceptions import InterfaceError
 from pycubrid.lob import Lob
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
@@ -163,3 +165,43 @@ class TestLobMixedTable:
             assert result == blob_data
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
+
+
+class TestLobSessionOwnership:
+    def test_lob_of_a_replaced_session_is_refused(self, conn: Connection, cursor: Cursor) -> None:
+        """After ping(reconnect=True) replaces the session, older Lobs raise (#932)."""
+        table = _tbl()
+        try:
+            cursor.execute("CREATE TABLE %s (payload BLOB)" % table)
+            cursor.execute("INSERT INTO %s (payload) VALUES (?)" % table, (b"stored",))
+            conn.commit()
+            cursor.execute("SELECT payload FROM %s" % table)
+            row = cursor.fetchone()
+            assert row is not None
+            handle = row[0]["packed_lob_handle"]
+            fetched = Lob(conn, CUBRIDDataType.BLOB, handle)
+            created = conn.create_lob(CUBRIDDataType.BLOB)
+            assert created.write(b"temp") == 4
+            generation = conn._physical_generation
+
+            # The CAS can no longer answer CHECK_CAS, so ping replaces the session.
+            assert conn._socket is not None
+            conn._socket.shutdown(socket.SHUT_RDWR)
+            assert conn.ping(reconnect=True) is True
+            assert conn._physical_generation == generation + 1
+
+            for stale in (fetched, created):
+                with pytest.raises(InterfaceError, match="earlier physical session"):
+                    stale.read(4)
+                with pytest.raises(InterfaceError, match="earlier physical session"):
+                    stale.write(b"x", 4)
+
+            # The committed row's handle wrapped again, and a new LOB, work there.
+            assert Lob(conn, CUBRIDDataType.BLOB, handle).read(6) == b"stored"
+            fresh = conn.create_lob(CUBRIDDataType.BLOB)
+            assert fresh.write(b"new") == 3
+            assert fresh.read(3) == b"new"
+            conn.rollback()
+        finally:
+            cursor.execute("DROP TABLE IF EXISTS %s" % table)
+            conn.commit()

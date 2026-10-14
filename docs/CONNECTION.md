@@ -512,7 +512,8 @@ unchanged. If this probe fails, the session is retired and `ping()` returns
 `False`. No interrupted SQL is replayed. Sync and async parameterized SQL bound
 before a session replacement, including one made by that request's own
 `CHECK_CAS`, is rejected before send because its generation changed; the caller
-decides whether to retry. A healthy same-session ping does not
+decides whether to retry. A sync `Lob` of the earlier session is refused the
+same way: its `read()` and `write()` raise before send (#932). A healthy same-session ping does not
 probe. This does not claim a dynamic per-session setting toggle or verified
 heterogeneous failover.
 
