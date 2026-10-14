@@ -189,6 +189,16 @@ code, later comments are checked; and after a raw-text element name such as
 are always checked. External contributors do not need to install internal agent
 tools or create duplicate work.
 
+### Good first issues and claiming work
+
+An unassigned `good first issue` is open to **human contributors**, including contributors who direct and review AI-assisted code. You may begin work and open a PR **without prior maintainer permission, GitHub Assignee access, or any internal agent tool**.
+
+Before working, check the issue's Assignees, comments and open PRs. A brief comment that you plan to contribute is encouraged but optional: it is coordination, not an approval requirement or an exclusive reservation. If the issue is already claimed or a PR is in progress, ask before duplicating or taking over that work. Maintainers manage Assignees and labels; lack of self-assignment privileges does **not** block a human contributor's PR.
+
+**Maintainer-operated autonomous agents** are different from human-directed AI-assisted contributions: an agent may not consume a newcomer-reserved `good first issue` unless a maintainer explicitly authorizes **that specific issue** and assigns the implementer before coding. Broad backlog-fixing or release requests do not count.
+
+Normal testing, docs and review requirements still apply. Maintainers decide whether and when to merge.
+
 ## Pull request and commit titles
 
 This rule covers issue titles, pull request titles and commit subjects in every
@@ -371,7 +381,10 @@ current behavior. Priorities/sizes belong in labels, execution order in the
 backlog tracker. Research closes on a documented decision, not an implied
 promise to implement every proposed option.
 
-Confirm availability and have the actual implementer set in GitHub Assignees
-before starting. If you cannot assign yourself, ask a maintainer. Coordinate
-with existing claimants/open PRs; update assignments on handoff or return.
+For human-led contributions to an unclaimed issue, GitHub Assignee access and
+maintainer preapproval are not required. Check existing Assignees, comments and
+open PRs, and coordinate before overlapping another contributor's work.
+Maintainers manage assignment and handoffs. Maintainer-operated autonomous
+agents must be assigned before implementation and need explicit authorization
+for each newcomer-reserved `good first issue`.
 A reviewer does not need to be an issue assignee.

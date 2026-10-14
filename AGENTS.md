@@ -357,8 +357,7 @@ classification. No outside contributor is required to install OpenCode, Oracle,
 Claude Code, Codex or Copilot. Preserve authorship and use tool attribution only
 for work actually produced with that tool.
 
-Broad requests to review, fix or prepare a release do not authorize taking an
-assigned issue or an unclaimed `good first issue`.
+For maintainer-operated autonomous agents, broad requests to review, fix or prepare a release do not authorize taking an assigned issue or a newcomer-reserved `good first issue`. Human-led community contributions follow the open participation rules below.
 
 ## Agent PR scope and review guardrails
 
@@ -580,15 +579,10 @@ implementation follows the agreed contract.
   related PR merges, work is handed over or the issue is closed. Closed work
   is reference evidence, not a blocker. A merged upstream PR is not proof
   that a compatible release is available.
-- Set the actual implementer in GitHub Assignees before implementation.
-  Comments alone do not replace assignment. Preserve existing contributor
-  claims and open PRs; agree a handoff before changing ownership. If assignment
-  permission is missing, request maintainer assignment before starting.
-  A release-blocker handoff requires an explicit maintainer decision after
-  checking assignees, comments and open PRs; never silently take assigned
-  contributor work.
-- On handoff, update Assignees; unassign when returning unfinished work.
-  Preserve a contributor's evidence and scope when editing their issue.
+- **Maintainer-owned work and autonomous agents:** assign the actual implementer in GitHub Assignees before starting; a comment alone does not constitute an assignment. Obtain issue-specific authorization before an autonomous agent takes a newcomer-reserved `good first issue`.
+- **Human-led outside contributions (including AI-assisted work):** do not require assignment rights or prior maintainer permission to work on an unclaimed issue or open a PR. Check existing Assignees, comments and PRs first; a coordination comment is welcome but optional. Maintainers handle assignment and label changes, and contributors must coordinate before overlapping someone else's claimed work.
+- Preserve a contributor's work and evidence on handoff; maintainers update Assignees and unassign returned work. Release-blocker handoffs require explicit maintainer decisions.
+
 - Before saving an issue edit, check for contradictory current statuses,
   stale dependency/checklist entries, duplicate criteria and unproven claims.
   Re-read the issue after saving. Never mark a tracker complete just because
@@ -651,12 +645,16 @@ Rules:
 
 ### Good first issue lifecycle
 
-- Unclaimed: `good first issue`.
-- A PR is opened for it: remove `good first issue`, add `status: in progress`.
-- PR merged: the issue closes.
-- PR closed without merging: first check that no other open PR still addresses the issue. Only if none remains, remove `status: in progress` and restore `good first issue`; otherwise keep it in progress.
-- Do not implement an issue labelled `good first issue` unless a maintainer explicitly asks for that specific issue. These issues are reserved for new contributors. Broad instructions to clear a backlog, review repositories, or prepare a release are not permission to consume them.
-- Keep at least 3 genuinely unclaimed good first issues per repository; a good first issue should have a small blast radius and an existing pattern or reference PR to follow, not just a small diff.
+- **Human-led contributions, including AI-assisted coding under a human contributor's direction:** an unassigned `good first issue` is open for participation. No prior maintainer authorization, GitHub Assignee permission, or internal agent tooling is required to start work or submit a pull request.
+- **Coordination, not permission:** before starting, check current Assignees, comments, and open PRs. A short comment expressing interest is welcome but optional; it does not grant exclusive ownership. If someone already owns or is working on the issue, coordinate first and do not silently take over.
+- **Maintainer-operated autonomous coding agents:** implementing a newcomer-reserved `good first issue` requires explicit maintainer authorization naming that specific issue and an actual GitHub assignment before implementation. General instructions to clear the backlog, review code, or prepare a release do not grant this authorization.
+- Maintainers update Assignees and labels as needed. Outside contributors lacking assignment rights may still submit PRs; reviewer approval, CI, and the existing merge policy remain unchanged.
+- Unclaimed: retain `good first issue`.
+- When a PR opens: maintainers remove `good first issue` and add `status: in progress`, coordinating the issue owner.
+- When a PR merges: close the issue.
+- When a PR closes without merging: check that no other open PR still owns the work before restoring `good first issue` and removing `status: in progress`.
+- Keep at least three genuinely unclaimed newcomer issues per repository. They should remain XS/S, small in blast radius, with a reference implementation or pattern.
+- Release/blocker handoff to an autonomous agent needs a recorded maintainer decision after checking assignees, comments and existing PRs.
 
 ## Documentation definition of done
 
