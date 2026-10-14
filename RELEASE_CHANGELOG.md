@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.13.0](https://github.com/cubrid-lab/pycubrid/compare/v1.12.0...v1.13.0) (2026-10-14)
+
+
+### Added
+
+* **cursor:** deprecate fetchmany() sizes of 0 or less ([#876](https://github.com/cubrid-lab/pycubrid/issues/876)) ([fb30d0a](https://github.com/cubrid-lab/pycubrid/commit/fb30d0a6c3eeaa9d29e4409209b156f23ec7d081)), closes [#678](https://github.com/cubrid-lab/pycubrid/issues/678)
+* **errors:** identify and classify CAS-generated and authentication error codes ([#915](https://github.com/cubrid-lab/pycubrid/issues/915)) ([d9435cc](https://github.com/cubrid-lab/pycubrid/commit/d9435cca61fa3bd55c03c47240fdf2fd3a1d9829)), closes [#903](https://github.com/cubrid-lab/pycubrid/issues/903)
+
+
+### Fixed
+
+* **aio:** keep get_schema_info() from dropping a session another task is setting up ([#902](https://github.com/cubrid-lab/pycubrid/issues/902)) ([ffa0069](https://github.com/cubrid-lab/pycubrid/commit/ffa006989c234aedf7b4f07f7d4b529342e7cb6f))
+* **binding:** keep a negative number after a minus sign from starting a comment ([#901](https://github.com/cubrid-lab/pycubrid/issues/901)) ([626e2f4](https://github.com/cubrid-lab/pycubrid/commit/626e2f4dcff36ee50f0fe39c7a31fe4779e738af))
+* **connection:** align ping() reconnect failures and redirect port checks across drivers ([#905](https://github.com/cubrid-lab/pycubrid/issues/905)) ([4562360](https://github.com/cubrid-lab/pycubrid/commit/4562360f3b80a1df5eb3b975f07825e87ce7f9e4)), closes [#896](https://github.com/cubrid-lab/pycubrid/issues/896)
+* **cursor:** reject sub-minute offsets, detect verbs before comments and tighten Lob.write() ([#907](https://github.com/cubrid-lab/pycubrid/issues/907)) ([5ce7ae7](https://github.com/cubrid-lab/pycubrid/commit/5ce7ae7ebea0d4749ebf23529cd7dfdb5507e0d0))
+* **cursor:** suggest the awaited fetchmany() replacement on the async cursor ([#879](https://github.com/cubrid-lab/pycubrid/issues/879)) ([0f507ca](https://github.com/cubrid-lab/pycubrid/commit/0f507cab93a080c3906703883ebfd9305de85eee)), closes [#678](https://github.com/cubrid-lab/pycubrid/issues/678)
+* **errors:** map CAS error -4 to an interrupted statement, not a communication error ([#904](https://github.com/cubrid-lab/pycubrid/issues/904)) ([411bfd4](https://github.com/cubrid-lab/pycubrid/commit/411bfd4609998ce054c8b456a366d50954780976))
+* **protocol:** reject malformed FC20/FC40 replies and map undecodable JSON to DataError ([#906](https://github.com/cubrid-lab/pycubrid/issues/906)) ([25a0708](https://github.com/cubrid-lab/pycubrid/commit/25a070838004584974ce6456db132ce9a262e2e6))
+* **timing:** count executes and fetches consistently and as documented ([#908](https://github.com/cubrid-lab/pycubrid/issues/908)) ([46012b3](https://github.com/cubrid-lab/pycubrid/commit/46012b325e6e4cacade5fed5dc278ab6835697a0))
+
+
+### Documentation
+
+* **agents:** refresh the module map, test, docs and commit sections ([#877](https://github.com/cubrid-lab/pycubrid/issues/877)) ([6e05ce0](https://github.com/cubrid-lab/pycubrid/commit/6e05ce0fce91e92dde2c9e249dcf5eba9e8cac1f))
+* **brand:** add shared Driver icon to README ([#920](https://github.com/cubrid-lab/pycubrid/issues/920)) ([05f1db3](https://github.com/cubrid-lab/pycubrid/commit/05f1db339de618113ee6305f5988dd71c47cf7db))
+* **brand:** show the centered repository icon in the README and docs site ([#921](https://github.com/cubrid-lab/pycubrid/issues/921)) ([0719025](https://github.com/cubrid-lab/pycubrid/commit/0719025d48398a7b691c576c9501fa35ab06f13b))
+* **development:** match the structure diagrams to the repository ([#880](https://github.com/cubrid-lab/pycubrid/issues/880)) ([f6a2734](https://github.com/cubrid-lab/pycubrid/commit/f6a2734655aca5506c4551f85387c50cc8fbec05))
+* **i18n:** update the Python requirement in the German README ([#870](https://github.com/cubrid-lab/pycubrid/issues/870)) ([5a7638e](https://github.com/cubrid-lab/pycubrid/commit/5a7638e6634ef776632b57e4476e61713bb84a33)), closes [#702](https://github.com/cubrid-lab/pycubrid/issues/702)
+* **i18n:** update the Python requirement in the Hindi README ([#871](https://github.com/cubrid-lab/pycubrid/issues/871)) ([cc0b879](https://github.com/cubrid-lab/pycubrid/commit/cc0b8794099754d4d08779a7c843df13bed6bd97)), closes [#703](https://github.com/cubrid-lab/pycubrid/issues/703)
+* **i18n:** update the Python requirement in the Russian README ([#873](https://github.com/cubrid-lab/pycubrid/issues/873)) ([4f81fa3](https://github.com/cubrid-lab/pycubrid/commit/4f81fa3561d1a167679b9fc151bdb1b4539854f6)), closes [#704](https://github.com/cubrid-lab/pycubrid/issues/704)
+
 ## [1.12.0](https://github.com/cubrid-lab/pycubrid/compare/v1.11.0...v1.12.0) (2026-10-12)
 
 
