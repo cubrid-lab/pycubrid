@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+
+- **Abandoned release without a tag** — RELEASING.md's abandoned-version recovery now says
+  to set the top-level `last-release-sha` in `release-please-config.json` to the abandoned
+  merge SHA before preparing the next release. Otherwise release-please 17.6.0 falls back to
+  `bootstrap-sha` and lists every commit since then again. The recovery also says to fold the
+  unpublished section under `autorelease: review` and to remove the override after the next
+  release is tagged. sqlalchemy-cubrid documents the same recovery
+  (cubrid-lab/sqlalchemy-cubrid#912).
+
 ## [1.13.0] - 2026-10-14
 
 ### Upgrade notes
