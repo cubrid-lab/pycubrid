@@ -195,6 +195,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and `compat.native`) send typed values and were not affected. See
   [Parameter binding](docs/PARAMETER_BINDING.md#placeholder-tokenizer).
 
+### Documentation
+
+- **The README and the documentation site show the CUBRID Lab repository icon (#919)** — the
+  English README and its Korean, Chinese, Hindi, German and Russian translations open with the
+  pycubrid icon, centered and without a caption, and the documentation site uses it as its
+  header logo and favicon. All of them load the SVG from one immutable
+  [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit.
+
 ### Tests
 
 - **The wide-row measurement synchronizes the async batches' readiness and reports batch time

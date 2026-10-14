@@ -1,11 +1,10 @@
-# pycubrid
+<!-- CUBRID-LAB-ICON:START -->
+<p align="center">
+  <a href="https://github.com/cubrid-lab/brand"><img src="https://raw.githubusercontent.com/cubrid-lab/brand/94e2bf6b915d7ef6a1111e06376f693f70bf6c4e/dist/icons/pycubrid.svg" alt="pycubrid" width="120"></a>
+</p>
+<!-- CUBRID-LAB-ICON:END -->
 
-<!-- CUBRID-LAB-DRIVER-ICON:START -->
-<a href="https://github.com/cubrid-lab/brand">
-  <img src="https://raw.githubusercontent.com/cubrid-lab/brand/aa62d38b48d165e39f0c56ed706a9dadb090a2bb/dist/icons/pycubrid.svg" alt="CUBRID Lab Driver icon (Python)" width="80" />
-</a>
-<p><sub><a href="https://github.com/cubrid-lab">CUBRID Lab</a> · Python 드라이버</sub></p>
-<!-- CUBRID-LAB-DRIVER-ICON:END -->
+# pycubrid
 
 > 🌐 Translated from [README.md](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) — 한국어는 심사 기간 동안 동기화가 **필수**입니다: README.md가 바뀌면 같은 PR에서 이 파일도 업데이트하세요 (`translation-sync` CI 검사, 보류 시 `translations-deferred` 라벨). English is canonical.
 
