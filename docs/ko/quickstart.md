@@ -37,13 +37,18 @@ x86_64(amd64) Linux에서 검증했습니다. `cubrid/cubrid:11.4` 이미지는 
 다른 아키텍처(예: Apple silicon)와 Windows에서의 동작은 검증하지 않았습니다.
 
 ```bash
-docker run -d --name pycubrid-quickstart -e CUBRID_DB=testdb -p 33000:33000 cubrid/cubrid:11.4
-until docker exec pycubrid-quickstart csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; do sleep 5; done; echo "CUBRID is ready"
+docker run -d --name pycubrid-quickstart -e CUBRID_DB=testdb -p 127.0.0.1:33000:33000 cubrid/cubrid:11.4
+ready=no; for i in $(seq 36); do if docker exec pycubrid-quickstart csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; then ready=yes; break; fi; sleep 5; done; if [ "$ready" = yes ]; then echo "CUBRID is ready"; else echo "CUBRID did not answer within 3 minutes; see: docker logs pycubrid-quickstart"; fi
 ```
 
-두 번째 명령은 데이터베이스가 응답할 때까지(처음에는 1분쯤) 기다린 뒤 `CUBRID is ready`를
-출력합니다. 실습 환경은 비밀번호가 빈 `dba` 계정을 씁니다. 이것은 이 로컬 일회용 컨테이너에서만
-허용되는 설정입니다. 다른 사람이 접속할 수 있는 서버에서는 절대 빈 비밀번호를 쓰지 마세요.
+`127.0.0.1:`은 포트를 이 컴퓨터에만 공개하므로 다른 컴퓨터는 실습 환경에 접속할 수 없습니다. 두 번째
+명령은 데이터베이스가 응답할 때까지 최대 3분 기다린 뒤(보통 1분이 채 안 걸립니다) `CUBRID is ready`를
+출력합니다. 대신 `CUBRID did not answer within 3 minutes`가 출력되면
+`docker logs pycubrid-quickstart`로 원인을 확인하세요. `docker run` 자체가 실패했다면(예: 포트
+33000을 이미 다른 프로그램이 쓰는 경우) 그 문제를 먼저 해결하고 `docker rm -f pycubrid-quickstart`로
+컨테이너를 지운 뒤 다시 시작하세요. 실습 환경은 비밀번호가 빈 `dba` 계정을 씁니다. 이것은 이 로컬
+일회용 컨테이너에서만 허용되는 설정입니다. 다른 사람이 접속할 수 있는 서버에서는 절대 빈 비밀번호를
+쓰지 마세요.
 
 튜토리얼을 모두 마치면 `docker rm -f pycubrid-quickstart`로 실습 환경을 지웁니다.
 

@@ -110,14 +110,20 @@ and a shell such as bash. The commands were verified on Linux on x86_64
 architectures (for example Apple silicon) and Windows are unverified.
 
 ```bash
-docker run -d --name pycubrid-quickstart -e CUBRID_DB=testdb -p 33000:33000 cubrid/cubrid:11.4
-until docker exec pycubrid-quickstart csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; do sleep 5; done; echo "CUBRID is ready"
+docker run -d --name pycubrid-quickstart -e CUBRID_DB=testdb -p 127.0.0.1:33000:33000 cubrid/cubrid:11.4
+ready=no; for i in $(seq 36); do if docker exec pycubrid-quickstart csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; then ready=yes; break; fi; sleep 5; done; if [ "$ready" = yes ]; then echo "CUBRID is ready"; else echo "CUBRID did not answer within 3 minutes; see: docker logs pycubrid-quickstart"; fi
 ```
 
-The second command waits until the database answers (about a minute the first
-time) and prints `CUBRID is ready`. The lab uses the `dba` account with an
-empty password. That is only acceptable for this local, disposable container:
-never use an empty password on a server other people can reach.
+`127.0.0.1:` publishes the port on this computer only, so no other machine can
+connect to the lab. The second command waits up to three minutes for the
+database to answer (it usually takes well under a minute) and prints
+`CUBRID is ready`. If it prints `CUBRID did not answer within 3 minutes`
+instead, `docker logs pycubrid-quickstart` shows why; if `docker run` itself
+failed, for example because port 33000 is already in use, fix that first,
+remove the container with `docker rm -f pycubrid-quickstart` and start again.
+The lab uses the `dba` account with an empty password. That is only acceptable
+for this local, disposable container: never use an empty password on a server
+other people can reach.
 
 When you are done with the whole tutorial, remove the lab with
 `docker rm -f pycubrid-quickstart`.
