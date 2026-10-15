@@ -69,12 +69,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### CI
 
 - **The documentation check converges with sqlalchemy-cubrid's parser (#941)** —
-  `scripts/_markdown.py` is now the same file as in sqlalchemy-cubrid, apart from its issue
-  references (cubrid-lab/sqlalchemy-cubrid#922, cubrid-lab/sqlalchemy-cubrid#924,
-  cubrid-lab/sqlalchemy-cubrid#928, cubrid-lab/sqlalchemy-cubrid#930):
+  `scripts/_markdown.py` takes sqlalchemy-cubrid's reviewed parser
+  (cubrid-lab/sqlalchemy-cubrid#922, cubrid-lab/sqlalchemy-cubrid#924,
+  cubrid-lab/sqlalchemy-cubrid#928, cubrid-lab/sqlalchemy-cubrid#930), plus two shell fixes
+  from this change's review that sqlalchemy-cubrid receives next:
   - adjacent shell operators such as `;>` are separate tokens, and `&>>` is one redirection;
   - a shell comment starts only at the start of a word, and a quote that spans lines keeps its
-    `make` lines quoted;
+    `make` lines quoted; a quote the block never closes is prose, also before a final backslash;
+  - a command or process substitution (`$(...)`, `<(...)`, `>(...)`) is part of its word, so
+    `make test ENV_FILE=<(true)` names only `test`, and its body is checked as a command of
+    its own;
   - the lines after a link come from its own source tail, recorded by markdown-it's link and
     image rules, instead of from decoded titles;
   - only the inline HTML, autolinks and inline link tails that markdown-it parsed are masked
