@@ -18,6 +18,7 @@ from pycubrid.packet import (
 
 
 def _build_lob_handle(db_type: int, lob_length: int, file_locator: str) -> bytes:
+    """A packed handle as the CAS sends it; db_type is the DB_TYPE (BLOB 33, CLOB 34)."""
     locator = file_locator.encode("utf-8") + b"\x00"
     return struct.pack(">iqi", db_type, lob_length, len(locator)) + locator
 
@@ -282,7 +283,7 @@ class TestPacketReaderParseMethods:
 
 class TestPacketReaderComplexPackets:
     def test_read_blob(self) -> None:
-        handle = _build_lob_handle(int(CUBRIDDataType.BLOB), 123456789, "file:/tmp/blob1")
+        handle = _build_lob_handle(33, 123456789, "file:/tmp/blob1")
         reader = PacketReader(handle)
 
         result = reader.read_blob(len(handle))
@@ -294,7 +295,7 @@ class TestPacketReaderComplexPackets:
         assert reader.bytes_remaining() == 0
 
     def test_read_clob(self) -> None:
-        handle = _build_lob_handle(int(CUBRIDDataType.CLOB), 987654321, "file:/tmp/clob1")
+        handle = _build_lob_handle(34, 987654321, "file:/tmp/clob1")
         reader = PacketReader(handle + b"TAIL")
 
         result = reader.read_clob(len(handle))
@@ -394,3 +395,75 @@ class TestRoundTrip:
         assert _call_method(reader, "_parse_datetime") == datetime.datetime(
             2032, 8, 9, 14, 15, 16, 123000
         )
+
+
+class TestPackedLobHandleFraming:
+    """The packed LOB handle inside a declared cell size (#933).
+
+    cas_execute.c (10.2-11.4) ``add_res_data_lob_handle`` declares exactly
+    ``4 + 8 + 4 + locator_size`` bytes and ``dblob_to_caslob`` sets the
+    server DB_TYPE (BLOB 33, CLOB 34), a NUL-terminated locator, or size -1
+    with no locator for a value without an ELO. Live 11.4 and 10.2 handles
+    have this shape, with no padding.
+    """
+
+    # The shape of a handle fetched from a CUBRID 11.4 BLOB column.
+    LIVE_BLOB = _build_lob_handle(33, 3, "file:/var/lib/cubrid/testdb/lob/ces_334/fx933.0001_1")
+
+    @pytest.mark.parametrize(("read", "db_type"), [("read_blob", 33), ("read_clob", 34)])
+    def test_well_formed_handle_keeps_following_bytes(self, read: str, db_type: int) -> None:
+        handle = _build_lob_handle(db_type, 3, "file:/x/ces_1/t.0001_1")
+        reader = PacketReader(handle + b"NEXT-FIELD")
+
+        result = getattr(reader, read)(len(handle))
+
+        assert result["packed_lob_handle"] == handle
+        assert result["file_locator"] == "file:/x/ces_1/t.0001_1"
+        assert reader._parse_bytes(reader.bytes_remaining()) == b"NEXT-FIELD"
+
+    def test_value_without_elo_is_accepted(self) -> None:
+        handle = struct.pack(">iqi", 34, -1, 0)
+        result = PacketReader(handle).read_clob(len(handle))
+        assert (result["lob_length"], result["file_locator"]) == (-1, "")
+
+    @pytest.mark.parametrize("size", [0, 4, 12, 15])
+    def test_shortened_header_is_malformed(self, size: int) -> None:
+        reader = PacketReader(self.LIVE_BLOB[:size] + b"\x00" * 32)
+        with pytest.raises(ValueError, match="shorter than its header"):
+            reader.read_blob(size)
+
+    def test_locator_past_the_handle_is_malformed(self) -> None:
+        # The next field's bytes must not be read as the rest of the locator.
+        handle = struct.pack(">iqi", 33, 3, 20) + b"file:/x\x00"
+        reader = PacketReader(handle + b"\x01" * 32)
+        with pytest.raises(ValueError, match="past the end of the broker reply"):
+            reader.read_blob(len(handle))
+
+    def test_negative_locator_size_is_malformed(self) -> None:
+        handle = struct.pack(">iqi", 33, 3, -1) + b"file:/x\x00"
+        with pytest.raises(ValueError, match="negative length"):
+            PacketReader(handle).read_blob(len(handle))
+
+    def test_locator_shorter_than_the_handle_is_malformed(self) -> None:
+        # Bytes inside the declared handle that its locator does not cover.
+        handle = struct.pack(">iqi", 33, 3, 8) + b"file:/x\x00" + b"PAD"
+        with pytest.raises(ValueError, match="locator does not fill the handle"):
+            PacketReader(handle).read_blob(len(handle))
+
+    @pytest.mark.parametrize(
+        ("read", "db_type"),
+        [
+            ("read_blob", 34),  # a CLOB handle in a BLOB cell
+            ("read_clob", 33),
+            ("read_blob", int(CUBRIDDataType.BLOB)),  # the CCI type 23, not DB_TYPE
+            ("read_clob", int(CUBRIDDataType.CLOB)),
+            ("read_blob", 0),
+            ("read_blob", 9),  # the obsolete DB_TYPE_ELO
+        ],
+    )
+    def test_mismatched_or_unknown_embedded_type_is_malformed(
+        self, read: str, db_type: int
+    ) -> None:
+        handle = _build_lob_handle(db_type, 3, "file:/x")
+        with pytest.raises(ValueError, match="embedded type does not match the column"):
+            getattr(PacketReader(handle), read)(len(handle))

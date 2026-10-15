@@ -286,9 +286,12 @@ def json_(document: str, decoded: Any) -> Value:
 
 
 def lob(column_type: int, lob_length: int, locator: str) -> Value:
-    """A packed BLOB/CLOB handle: type, length, locator size and locator."""
+    """A packed BLOB/CLOB handle: DB type, length, locator size and locator.
+
+    The embedded type is the server DB_TYPE (BLOB 33, CLOB 34), not the CCI type.
+    """
     handle = Wire()
-    handle.i32(column_type)
+    handle.i32({T.BLOB: 33, T.CLOB: 34}[column_type])
     handle.i64(lob_length)
     handle.text(locator)
     packed = bytes(handle.buf)

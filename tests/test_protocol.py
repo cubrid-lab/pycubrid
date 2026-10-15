@@ -638,7 +638,7 @@ class TestReadValue:
         # Build a LOB handle: db_type(4B) + lobLength(8B) + locatorSize(4B) + locator
         locator = b"/tmp/blob\x00"
         lob_handle = (
-            struct.pack(">i", CUBRIDDataType.BLOB)
+            struct.pack(">i", 33)  # server DB_TYPE_BLOB
             + struct.pack(">q", 1024)
             + struct.pack(">i", len(locator))
             + locator
@@ -651,7 +651,7 @@ class TestReadValue:
     def test_clob(self) -> None:
         locator = b"/tmp/clob\x00"
         lob_handle = (
-            struct.pack(">i", CUBRIDDataType.CLOB)
+            struct.pack(">i", 34)  # server DB_TYPE_CLOB
             + struct.pack(">q", 2048)
             + struct.pack(">i", len(locator))
             + locator

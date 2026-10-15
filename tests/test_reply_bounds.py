@@ -455,9 +455,9 @@ def test_lob_short_read_matching_its_payload_is_valid() -> None:
     assert packet.lob_data == b"abc"
 
 
-def _lob_handle(locator: bytes, locator_size: int | None = None) -> bytes:
+def _lob_handle(locator: bytes, locator_size: int | None = None, db_type: int = 33) -> bytes:
     size = len(locator) if locator_size is None else locator_size
-    return struct.pack(">iqi", CUBRIDDataType.BLOB, 5, size) + locator
+    return struct.pack(">iqi", db_type, 5, size) + locator
 
 
 def test_lob_handle_with_locator_past_its_end_is_malformed() -> None:
@@ -475,7 +475,7 @@ def test_lob_handle_past_end_of_reply_is_malformed() -> None:
 
 
 def test_valid_lob_handle_is_unchanged() -> None:
-    handle = _lob_handle(b"file:/x\x00")
+    handle = _lob_handle(b"file:/x\x00", db_type=34)
     (row,) = _fetch([CUBRIDDataType.CLOB], _fetch_body([[_cell(handle)]])).rows
     assert row[0]["lob_length"] == 5
     assert row[0]["file_locator"] == "file:/x"
@@ -499,9 +499,27 @@ def _truncated_lob_read() -> tuple[LOBReadPacket, bytes]:
     return LOBReadPacket(b"fixture-handle", offset=0, length=10), _lob_read_body(10, b"abc")
 
 
+def _lob_handle_fetch(handle: bytes) -> tuple[FetchPacket, bytes]:
+    packet = FetchPacket(
+        1,
+        0,
+        columns=[ColumnMetaData(column_type=CUBRIDDataType.BLOB)],
+        statement_type=CUBRIDStatementType.SELECT,
+    )
+    return packet, _fetch_body([[_cell(handle)]])
+
+
 MALFORMED_REPLIES = [
     pytest.param(_truncated_bit_fetch, id="bit-cell"),
     pytest.param(_truncated_lob_read, id="lob-read"),
+    # Corruption inside a complete reply's declared LOB handle (#933).
+    pytest.param(
+        lambda: _lob_handle_fetch(_lob_handle(b"file:/x\x00PAD", locator_size=8)),
+        id="lob-handle-short-locator",
+    ),
+    pytest.param(
+        lambda: _lob_handle_fetch(_lob_handle(b"file:/x\x00", db_type=23)), id="lob-handle-cci-type"
+    ),
 ]
 
 

@@ -305,6 +305,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Packed LOB handle framing (#933)** — PATCH / correction of a
+  protocol-robustness defect, extending #383 (`docs/PROTOCOL.md`). A fetched
+  BLOB/CLOB cell must be one packed handle exactly: a 16-byte header, a
+  locator filling the rest of the cell, and the server DB_TYPE `33`/`34` that
+  matches the cell type. Anything else raises `OperationalError('malformed
+  response from broker')` and closes the connection. The CUBRID 10.2 and 11.4
+  broker source and live handles from both versions show that a normal server
+  does not send such cells. Valid handles, size `-1` handles, public
+  signatures, dependencies and supported versions are unchanged.
+
 - **Stale `Lob` handles after a session replacement (#932)** — PATCH / bug fix
   to the documented session ownership of `Lob` (`docs/API_REFERENCE.md`,
   `docs/CONNECTION.md`). `Lob.read()` and `Lob.write()` on a `Lob` whose

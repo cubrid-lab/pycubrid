@@ -779,7 +779,17 @@ otherwise; a fixed-width read past the end raises `struct.error` or
 `IndexError`. A failed read leaves the offset unchanged. Text readers return
 `""` for a non-positive length without moving. A decoded collection's elements
 must fill its declared size exactly, and a `LOB_READ` byte count must fit the
-reply (a count below the requested length is a valid short read). Each row cell
+reply (a count below the requested length is a valid short read). A fetched
+BLOB/CLOB cell must be exactly the packed handle the CAS writes
+(`cas_execute.c` `add_res_data_lob_handle`, 10.2 to 11.4; #933): a 16-byte header
+`[int32 db_type][int64 size][int32 locator size]`, then a locator that fills
+the rest of the cell. The embedded `db_type` must be the server DB_TYPE of the
+cell's type, BLOB `33` or CLOB `34` (not the CCI type `23`/`24`). A shorter
+header, a negative locator size, a locator longer or shorter than the rest of
+the cell, or another embedded type raises `ValueError`. Bytes after the
+declared cell belong to the next field. A size of `-1` with an empty locator
+(a value without an external file) stays valid, and the decoder does not check
+the locator's trailing NUL. Each row cell
 of a FETCH or inline execute reply must use exactly the bytes its size word
 declares: fixed-width values (`INT`, `DATE`, `OBJECT`, ...) do not read the size
 themselves, so the row parser checks it against the type's width before reading

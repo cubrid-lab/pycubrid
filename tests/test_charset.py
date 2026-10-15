@@ -749,14 +749,14 @@ def test_unencodable_euc_kr_credential_fails_before_socket_work(
 
 def test_lob_locator_decodes_leniently_with_the_connection_codec() -> None:
     locator = b"file:ces_700/dba." + "한글표".encode("euc-kr") + b".00001_0001\x00"
-    handle = struct.pack(">iqi", 24, 4, len(locator)) + locator
+    handle = struct.pack(">iqi", 34, 4, len(locator)) + locator
     reader = PacketReader(handle, encoding="euc_kr")
     value = _read_value(reader, CUBRIDDataType.CLOB, len(handle))
     assert value["file_locator"] == "file:ces_700/dba.한글표.00001_0001"
     assert value["packed_lob_handle"] == handle
     assert value["lob_length"] == 4
     # A codec mismatch must not fail the fetch: the locator is informational.
-    value = _read_value(PacketReader(handle), CUBRIDDataType.BLOB, len(handle))
+    value = _read_value(PacketReader(handle), CUBRIDDataType.CLOB, len(handle))
     assert value["file_locator"].startswith("file:ces_700/dba.\ufffd")
     assert value["packed_lob_handle"] == handle
 

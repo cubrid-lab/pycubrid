@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import socket
+import struct
 import uuid
 from collections.abc import Generator
 from typing import Any
@@ -206,6 +207,31 @@ class TestLobSessionOwnership:
             data = fresh.read(3)
             assert (written, data) == (3, b"new")
             conn.rollback()
+        finally:
+            cursor.execute("DROP TABLE IF EXISTS %s" % table)
+            conn.commit()
+
+
+class TestPackedHandleFraming:
+    def test_fetched_handles_match_the_decoded_framing(
+        self, conn: Connection, cursor: Cursor
+    ) -> None:
+        """Live handles: DB_TYPE 33/34, locator fills the cell, NUL-terminated (#933)."""
+        table = _tbl()
+        try:
+            cursor.execute("CREATE TABLE %s (b BLOB, c CLOB)" % table)
+            cursor.execute("INSERT INTO %s VALUES (?, ?)" % table, (b"\x01\x02\x03", "hello"))
+            cursor.execute("INSERT INTO %s VALUES (?, ?)" % table, (b"", ""))
+            conn.commit()
+            cursor.execute("SELECT b, c FROM %s" % table)
+            rows = cursor.fetchall()
+            assert len(rows) == 2
+            for row, sizes in zip(rows, ((3, 5), (0, 0))):
+                for cell, db_type, size in zip(row, (33, 34), sizes):
+                    handle = cell["packed_lob_handle"]
+                    assert struct.unpack_from(">iqi", handle) == (db_type, size, len(handle) - 16)
+                    assert handle.endswith(b"\x00") and b"\x00" not in handle[16:-1]
+                    assert cell["file_locator"] == handle[16:-1].decode()
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)
             conn.commit()

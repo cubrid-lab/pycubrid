@@ -72,6 +72,10 @@ def _unencodable_message(what: str, encoding: str, position: int) -> str:
     )
 
 
+# Packed LOB handle header: int db_type, int64 size, int locator size (#933).
+_LOB_HANDLE_HEADER_SIZE = 16
+_LOB_HANDLE_DB_TYPES = {CUBRIDDataType.BLOB: 33, CUBRIDDataType.CLOB: 34}
+
 # Pre-compiled struct objects — avoids format-string parsing on every call.
 _STRUCT_SHORT = struct.Struct(">h")
 _STRUCT_INT = struct.Struct(">i")
@@ -785,10 +789,23 @@ class PacketReader:
 
     def _read_lob(self, size: int, lob_type: CUBRIDDataType) -> dict[str, object]:
         packed_lob_handle = self._parse_buffer(size)
+        # The CAS sends exactly [int db_type][int64 size][int locator_size]
+        # [locator] (cas_execute.c add_res_data_lob_handle, 10.2-11.4; #933).
+        # db_type is the server DB_TYPE (BLOB 33, CLOB 34), not the CCI type.
+        # A size of -1 and an empty locator are valid, from a value with no ELO.
+        if size < _LOB_HANDLE_HEADER_SIZE:
+            raise ValueError("malformed LOB handle: shorter than its header")
         lob_reader = PacketReader(packed_lob_handle, encoding=self._encoding)
-        _ = lob_reader._parse_int()
+        db_type = lob_reader._parse_int()
         lob_length = lob_reader._parse_long()
         locator_size = lob_reader._parse_int()
+        remaining = size - _LOB_HANDLE_HEADER_SIZE
+        if locator_size < 0 or locator_size > remaining:
+            raise _out_of_bounds(locator_size, _LOB_HANDLE_HEADER_SIZE, size)
+        if locator_size != remaining:
+            raise ValueError("malformed LOB handle: locator does not fill the handle")
+        if db_type != _LOB_HANDLE_DB_TYPES[lob_type]:
+            raise ValueError("malformed LOB handle: embedded type does not match the column")
         # The locator is a server file path that embeds the table name, in the
         # database charset. It is informational (``packed_lob_handle`` is what
         # goes back to the server), so decode it leniently: a mismatch must not

@@ -17,6 +17,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   or wrapped on the current session, partial-write handling, async connections (no LOB
   support) and `compat.native` lobs are unchanged.
 
+- **Corrupted packed LOB handles in a reply are rejected (#933)** — a fetched BLOB/CLOB
+  cell whose packed handle had a negative locator size, a locator shorter than the rest of
+  the cell, or an embedded type other than the cell's server DB_TYPE (BLOB `33`, CLOB `34`)
+  was accepted and returned with a wrong or shortened locator. These now raise `ValueError`
+  (a header shorter than 16 bytes, already rejected through `struct.error`, does too), which the connection
+  reports as `OperationalError('malformed response from broker')` and closes, as for other
+  framing damage (#383). The rules follow the CUBRID 10.2 and 11.4 broker source
+  (`add_res_data_lob_handle`) and live handles from both versions. Valid handles, a value
+  without an external file (size `-1`, empty locator) and bytes after the cell are
+  unchanged.
+
 ### Documentation
 
 - **Abandoned release without a tag** — RELEASING.md's abandoned-version recovery now says
