@@ -158,6 +158,7 @@ jobs:
               - 'setup.cfg'
               - 'tests/test_*workflow*.py'
               - 'tests/test_ci_policy.py'
+              - 'tests/test_agent_review_gate.py'
               - 'tests/test_check_docs_links.py'
               - 'tests/test_check_agents_docs.py'
               - 'tests/test_official_fixture_setup.py'

@@ -64,6 +64,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **Advisory `agent-review` check for review evidence (#924)** —
+  `.github/workflows/agent-review.yml` runs `scripts/agent_review_gate.py` from the base
+  branch with a read-only token on every pull request and review event, and reports
+  whether GitHub's own review records meet the review route of 2026-10-15: a substantive
+  Copilot review within the two-round AI review budget, or a maintainer's `APPROVED`
+  review, or a `COMMENTED` review that opens an inline thread. Changes to the
+  literal-binding, prepared-bind, protocol, packet, connection/TLS and `compat` modules,
+  every workflow, `release-please-config.json`, the release and lane-audit scripts and the
+  gate itself need a maintainer's `APPROVED` review. Pending requests, PR-body checkboxes,
+  summary-only bot text, other people's reviews and stale reviews never count; unresolved
+  or author-resolved critical or security threads, incomplete thread or commit identities
+  and missing API data fail the check. release-please PRs that change only release-please
+  files, and Dependabot PRs, are exempt. The gate is a copy of the cubrid-mcp-server gate
+  (Refs cubrid-lab/cubrid-mcp-server#341) with only its constants block changed. The check
+  is advisory: a pull request can publish a check with the same name, so it must not be
+  made a required check until it is posted from an identity a PR cannot impersonate
+  (#945). `CONTRIBUTING.md`, `AGENTS.md`, the PR template and `docs/CONTRIBUTING.ko.md`
+  document it.
 - **The documentation check closes its parser gaps (#939)** — `scripts/_markdown.py` now
   matches sqlalchemy-cubrid's reviewed parser (cubrid-lab/sqlalchemy-cubrid#919), plus the
   four cases of cubrid-lab/sqlalchemy-cubrid#921:
