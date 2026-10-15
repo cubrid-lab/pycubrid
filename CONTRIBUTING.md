@@ -116,7 +116,9 @@ Maintainer/agent-authored PRs use the tool-specific review route in
 non-trivial OpenCode work uses documented Oracle design and post-implementation
 reviews; trivial OpenCode edits may skip those reviews with a recorded reason.
 Standalone Claude Code, Codex, ChatGPT or other agent tools wait for a substantive
-submitted GitHub Copilot review or another person's review before merge.
+submitted GitHub Copilot review or a maintainer's review, recorded on the PR, before
+merge (maintainer decision, 2026-10-15); a reviewer agent the implementer runs does not
+count.
 Reviewer requests, self-review, green CI and automated approval suggestions
 alone do not complete the review route. The final outcome, addressed findings
 and unresolved threads are recorded as described in AGENTS.md. Human

@@ -31,6 +31,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **A maintainer's review is the standalone-agent alternative to Copilot (#943)** —
+  `AGENTS.md` and `CONTRIBUTING.md` now say that a standalone agent PR waits for a
+  substantive submitted GitHub Copilot review or a maintainer's review, recorded on the
+  PR, instead of "another person's" review (maintainer decision, 2026-10-15). A reviewer
+  agent run by the implementer does not count. The Korean contributor guide gains the
+  review-route paragraph it lacked.
+
 - **Wrapped issue numbers no longer render as headings on the site (#938)** — 33 paragraph
   lines under `docs/` began with an issue number (for example `#750 gives each ...`), which
   Python-Markdown, unlike GitHub, renders as an `<h1>`. Their leading `#` is now escaped as

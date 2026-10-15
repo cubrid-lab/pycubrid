@@ -117,7 +117,9 @@ protection, maintainer and CI requirements still apply.
 
 **Standalone agents (Claude Code, Codex, ChatGPT, or other agent tools)** —
 implement and validate first, then open a GitHub PR and **wait for a substantive
-submitted GitHub Copilot review or a review from another person** before merging.
+submitted GitHub Copilot review or a maintainer's review**, recorded on the PR,
+before merging (maintainer decision, 2026-10-15). A reviewer agent that the
+implementer runs may be an extra check, but it does not satisfy this route.
 A Copilot `COMMENTED` review with an actual code assessment can count;
 an automated suggestion without substantive assessment does not.
 Review-requested/pending status never counts.
