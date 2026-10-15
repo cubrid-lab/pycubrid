@@ -1287,6 +1287,10 @@ stats.reset()  # 모든 카운터 초기화
 
 - 성공적 종료 시: `commit()` 후 `close()` 호출.
 - 예외 시: `rollback()` 후 `close()` 호출.
+- 블록의 예외는 항상 그대로 전파됩니다. 그 예외가 이미 폐기한 세션은 닫기만 하며(롤백이나
+  재연결 없음), 실패한 롤백은 로그로 남기고 원래 예외의 note에 기록합니다.
+  `AsyncConnection`(`async with`)도 같으며, 취소된 블록은 취소 상태로 남습니다.
+  [컨텍스트 매니저 프로토콜](CONNECTION.md#컨텍스트-매니저-프로토콜)을 참고하세요.
 
 ```python
 with pycubrid.connect(database="testdb") as conn:

@@ -1341,6 +1341,11 @@ See [Timing & Profiling Hooks](PERFORMANCE.md#timing--profiling-hooks) for the f
 
 - On successful exit: calls `commit()` then `close()`.
 - On exception: calls `rollback()` then `close()`.
+- The block's exception always propagates unchanged: a session it already
+  retired is only closed (no rollback or reconnect), and a failed rollback is
+  logged and noted on the original exception. `AsyncConnection` (`async with`)
+  behaves the same, and a cancelled block stays cancelled. See
+  [Context Manager Protocol](CONNECTION.md#context-manager-protocol).
 
 ```python
 with pycubrid.connect(database="testdb") as conn:

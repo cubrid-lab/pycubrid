@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Leaving a connection context keeps the original error of a retired session (#951)** —
+  when the body of `with conn:` or `async with conn:` failed in a way that already retired
+  the physical session (a transport failure, or a cancelled `AsyncConnection` request),
+  the exit's rollback raised `InterfaceError('connection is closed')` and replaced the
+  original error; a cancelled asyncio task finished failed instead of cancelled. The exit
+  now only closes a retired session (no rollback, reconnect or statement replay), so the
+  original `OperationalError` or `asyncio.CancelledError` propagates. A rollback that fails
+  on a live session is logged as a `pycubrid` warning and named in a note on the body
+  exception instead of replacing it. Commit on success, a commit failure on a successful
+  body, rollback on a healthy failure and a new cancellation during cleanup are unchanged.
+
 - **A `Lob` is not sent on a replaced physical session (#932)** — after
   `ping(reconnect=True)` or a failed out-of-transaction `CHECK_CAS` probe replaced the
   session, `Lob.read()` and `Lob.write()` sent the old session's handle to the new CAS.

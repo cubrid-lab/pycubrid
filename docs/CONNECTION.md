@@ -373,12 +373,24 @@ with pycubrid.connect(
 |-------------------|-----------------------------------------|
 | No exception      | `conn.commit()` then `conn.close()`     |
 | Exception raised  | `conn.rollback()` then `conn.close()`   |
+| Exception raised after the session was retired | `conn.close()` only |
 
 The `__enter__` method returns the connection itself. The `__exit__` method:
 
-1. Commits the transaction if no exception occurred
+1. Commits the transaction if no exception occurred; a commit failure propagates
 2. Rolls back the transaction if an exception was raised
 3. Always closes the connection
+
+An exception raised in the block always propagates unchanged. When it already
+retired the physical session (a transport failure, or a cancelled
+`AsyncConnection` request), there is no transaction left: no rollback,
+reconnect or statement replay is attempted, and the caller gets the original
+`OperationalError` (or `asyncio.CancelledError`; the task finishes cancelled)
+instead of `InterfaceError('connection is closed')`. If the rollback itself
+fails, that failure is logged as a `pycubrid` warning and named in a note on the
+original exception, which still propagates. `AsyncConnection`'s `async with`
+follows the same rules; a new cancellation during its cleanup propagates as
+cancellation.
 
 ### Manual Transaction Control
 

@@ -19,6 +19,7 @@ from pycubrid._connection_common import (
     warn_unknown_connection_options,
     _check_prepared_batch_statement,
     _check_prepared_lobs,
+    _note_context_rollback_failure,
 )
 from pycubrid.constants import CCIDbParam, DataSize
 from pycubrid.exceptions import (
@@ -846,12 +847,24 @@ class AsyncConnection(ConnectionCommonMixin):
         return self
 
     async def __aexit__(self, *args: Any) -> None:
-        exc_type = args[0]
+        """Commit on success, rollback on exception, then close the connection.
+
+        A body exception, including :class:`asyncio.CancelledError`, always
+        propagates unchanged (#951): a session the failure already retired is
+        not rolled back, and a failed rollback is logged and noted on the body
+        exception instead of replacing it. A new cancellation during cleanup
+        still propagates as cancellation; a commit failure on a successful body
+        still propagates.
+        """
+        exc_type, exc = args[0], args[1]
         try:
             if exc_type is None:
                 await self.commit()
-            else:
-                await self.rollback()
+            elif self._connected:
+                try:
+                    await self.rollback()
+                except Exception as rollback_error:
+                    _note_context_rollback_failure(exc, rollback_error)
         finally:
             await self.close()
 

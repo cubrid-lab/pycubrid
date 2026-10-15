@@ -305,6 +305,16 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Context exit after a retired session (#951)** — PATCH / bug fix to the
+  documented context-manager contract (`docs/CONNECTION.md`,
+  `docs/API_REFERENCE.md`). Leaving `with conn:` / `async with conn:` after a
+  body failure that already retired the physical session only closes the
+  connection, so the original `OperationalError` or `asyncio.CancelledError`
+  propagates instead of `InterfaceError('connection is closed')`. A rollback
+  failure on a live session is logged and noted on the body exception instead
+  of replacing it. Commit on success, commit failures, public signatures, the
+  wire format and supported versions are unchanged.
+
 - **Packed LOB handle framing (#933)** — PATCH / correction of a
   protocol-robustness defect, extending #383 (`docs/PROTOCOL.md`). A fetched
   BLOB/CLOB cell must be one packed handle exactly: a 16-byte header, a

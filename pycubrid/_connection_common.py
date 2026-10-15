@@ -348,6 +348,24 @@ _PREPARED_BATCH_STATEMENT_TYPES = frozenset(
 )
 
 
+def _note_context_rollback_failure(primary: BaseException | None, error: Exception) -> None:
+    """Record a failed context-exit rollback without replacing the body error (#951).
+
+    The body exception stays the outward error. The rollback failure is logged
+    with its traceback and named in a note on the body exception; its message is
+    not copied into the note.
+    """
+    _LOGGER.warning(
+        "rollback while leaving the connection context failed; the original exception propagates",
+        exc_info=error,
+    )
+    if primary is not None:
+        primary.add_note(
+            f"pycubrid: rollback while leaving the connection context also failed "
+            f"({type(error).__name__}); see the pycubrid log for details"
+        )
+
+
 def _check_prepared_lobs(
     rows: tuple[tuple[_PreparedBinding, ...], ...],
     owner: object,
