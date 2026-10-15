@@ -82,6 +82,48 @@ def test_external_links_and_code_spans_are_not_checked(tmp_path: Path) -> None:
     assert check.run(_tree(tmp_path, ROOT_DOC + extra)) == []
 
 
+def test_titled_links_are_checked(tmp_path: Path) -> None:
+    root_doc = ROOT_DOC.replace(
+        "(docs/agents/protocol.md#wire-protocol-summary)",
+        '(docs/agents/protocol.md#wire-protocol-summary "Protocol")',
+    )
+    assert check.run(_tree(tmp_path, root_doc)) == []
+    broken = (
+        root_doc + "\nSee [gone](docs/GONE.md 'title') and [x](<docs/agents/protocol.md#nope>).\n"
+    )
+    assert check.run(_tree(tmp_path / "broken", broken)) == [
+        "AGENTS.md:13: link target 'docs/GONE.md' does not exist",
+        "AGENTS.md:13: anchor #nope is not a heading of docs/agents/protocol.md",
+    ]
+
+
+def test_guide_named_only_in_code_is_not_reachable(tmp_path: Path) -> None:
+    root_doc = ROOT_DOC.replace(
+        "[Wire protocol guide](docs/agents/protocol.md#wire-protocol-summary)",
+        "`[Wire protocol guide](docs/agents/protocol.md)`",
+    )
+    assert check.run(_tree(tmp_path, root_doc)) == [
+        "docs/agents/protocol.md: not linked from AGENTS.md"
+    ]
+    fenced = root_doc + "\n```\n[Wire protocol guide](docs/agents/protocol.md)\n```\n"
+    assert check.run(_tree(tmp_path / "fenced", fenced)) == [
+        "docs/agents/protocol.md: not linked from AGENTS.md"
+    ]
+
+
+@pytest.mark.parametrize(
+    "owner",
+    [
+        "`[support matrix](../SUPPORT_MATRIX.md)`",
+        "\n```\n[support matrix](../SUPPORT_MATRIX.md)\n```",
+    ],
+)
+def test_version_owner_link_in_code_does_not_count(tmp_path: Path, owner: str) -> None:
+    guide = GUIDE.replace("[support matrix](../SUPPORT_MATRIX.md)", owner)
+    (problem,) = check.run(_tree(tmp_path, guide=guide))
+    assert "names 'CUBRID 10.2' but links neither" in problem
+
+
 def test_guide_not_linked_from_root_is_reported(tmp_path: Path) -> None:
     root = _tree(tmp_path)
     (root / "docs/agents/release.md").write_text("# Release guide\n", encoding="utf-8")

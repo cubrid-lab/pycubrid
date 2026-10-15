@@ -32,7 +32,8 @@ ROOT_DOC = "AGENTS.md"
 GUIDE_DIR = "docs/agents"
 VERSION_OWNERS = ("docs/SUPPORT_MATRIX.md", "docs/CI_POLICY.md")
 
-_LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
+# A Markdown link or image target, with an optional "title", 'title' or (title).
+_LINK = re.compile(r"\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _MAKE = re.compile(r"\bmake\s+([a-z][a-z0-9_-]*)")
 _SCRIPT = re.compile(r"\bscripts/[A-Za-z0-9_./-]+\.(?:py|cjs|sh)\b")
@@ -58,6 +59,19 @@ def _prose_and_code(text: str) -> tuple[list[tuple[int, str]], list[tuple[int, s
             continue
         (code if fence else prose).append((number, line))
     return prose, code
+
+
+def navigable_links(text: str) -> list[tuple[int, str]]:
+    """Return ``(line, target)`` of the links a reader can follow.
+
+    Fenced code and inline code spans are examples, not links.
+    """
+    prose, _ = _prose_and_code(text)
+    return [
+        (number, match.group(1))
+        for number, line in prose
+        for match in _LINK.finditer(re.sub(r"`[^`]*`", "", line))
+    ]
 
 
 def slugify(heading: str) -> str:
@@ -91,23 +105,20 @@ def _is_external(target: str) -> bool:
 def check_links(root: Path, path: Path) -> list[str]:
     """Report relative links whose file or anchor does not exist."""
     problems = []
-    prose, _ = _prose_and_code(path.read_text(encoding="utf-8"))
     rel = path.relative_to(root).as_posix()
-    for number, line in prose:
-        for match in _LINK.finditer(re.sub(r"`[^`]*`", "", line)):
-            target = match.group(1)
-            if _is_external(target):
-                continue
-            file_part, _, anchor = target.partition("#")
-            dest = path if not file_part else (path.parent / file_part).resolve()
-            if not dest.exists():
-                problems.append(f"{rel}:{number}: link target {target!r} does not exist")
-                continue
-            if anchor and dest.suffix == ".md" and anchor not in anchors(dest):
-                problems.append(
-                    f"{rel}:{number}: anchor #{anchor} is not a heading of "
-                    f"{dest.relative_to(root).as_posix()}"
-                )
+    for number, target in navigable_links(path.read_text(encoding="utf-8")):
+        if _is_external(target):
+            continue
+        file_part, _, anchor = target.partition("#")
+        dest = path if not file_part else (path.parent / file_part).resolve()
+        if not dest.exists():
+            problems.append(f"{rel}:{number}: link target {target!r} does not exist")
+            continue
+        if anchor and dest.suffix == ".md" and anchor not in anchors(dest):
+            problems.append(
+                f"{rel}:{number}: anchor #{anchor} is not a heading of "
+                f"{dest.relative_to(root).as_posix()}"
+            )
     return problems
 
 
@@ -117,12 +128,10 @@ def check_reachable(root: Path) -> list[str]:
     if not entry.is_file():
         return [f"{ROOT_DOC}: missing"]
     linked = set()
-    prose, _ = _prose_and_code(entry.read_text(encoding="utf-8"))
-    for _, line in prose:
-        for match in _LINK.finditer(line):
-            file_part = match.group(1).partition("#")[0]
-            if file_part and not _is_external(file_part):
-                linked.add((root / file_part).resolve())
+    for _, target in navigable_links(entry.read_text(encoding="utf-8")):
+        file_part = target.partition("#")[0]
+        if file_part and not _is_external(file_part):
+            linked.add((root / file_part).resolve())
     return [
         f"{guide.relative_to(root).as_posix()}: not linked from {ROOT_DOC}"
         for guide in sorted((root / GUIDE_DIR).glob("*.md"))
@@ -157,8 +166,8 @@ def check_versions(root: Path, path: Path) -> list[str]:
     if not found:
         return []
     owners = {(root / owner).resolve() for owner in VERSION_OWNERS}
-    for match in _LINK.finditer(text):
-        file_part = match.group(1).partition("#")[0]
+    for _, target in navigable_links(text):
+        file_part = target.partition("#")[0]
         if file_part and not _is_external(file_part):
             if (path.parent / file_part).resolve() in owners:
                 return []
