@@ -94,8 +94,10 @@ def test_invalid_anchor_fails_with_suggestion(tmp_path: Path) -> None:
     root = _tree(tmp_path, "# Page\n\nSee [options](TARGET.md#option) and [x](#nowhere).\n")
     assert check.run(root) == [
         "docs/PAGE.md:3: anchor #nowhere is not a heading or anchor of docs/PAGE.md",
-        "docs/PAGE.md:3: anchor #option is not a heading or anchor of docs/TARGET.md; "
-        "did you mean 'options'?",
+        (
+            "docs/PAGE.md:3: anchor #option is not a heading or anchor of docs/TARGET.md; "
+            + "did you mean 'options'?"
+        ),
     ]
 
 
@@ -103,8 +105,10 @@ def test_absolute_and_escaping_paths_fail(tmp_path: Path) -> None:
     root = _tree(tmp_path, "[a](/docs/TARGET.md) and [b](../../outside.md)\n")
     assert check.run(root) == [
         "docs/PAGE.md:1: link target '../../outside.md' points outside the repository",
-        "docs/PAGE.md:1: link target '/docs/TARGET.md' is absolute; use a path relative to "
-        "the file",
+        (
+            "docs/PAGE.md:1: link target '/docs/TARGET.md' is absolute; use a path relative to "
+            + "the file"
+        ),
     ]
 
 
@@ -139,8 +143,22 @@ def test_unclosed_fence_fails(tmp_path: Path, page: str, line: int) -> None:
 
 
 def test_closed_fences_pass(tmp_path: Path) -> None:
-    page = "```\nx\n```\n\n~~~~\n~~~\n~~~~\n\n```\nlast\n```\n"
+    page = (
+        "```\nx\n```\n\n~~~~\n~~~\n~~~~\n\n> ~~~\n> quoted\n> ~~~\n\n"
+        "- item\n\n  ```bash\n  make test\n  ```\n\n```\nlast\n```\n"
+    )
     assert check.run(_tree(tmp_path, page)) == []
+
+
+@pytest.mark.parametrize(
+    ("page", "line"),
+    [
+        ("> ~~~\n> text\n\nAfter the quote.\n", 1),
+        ("- item\n\n  ```\n  code\n\nnot indented\n", 3),
+    ],
+)
+def test_unclosed_fence_inside_a_container_fails(tmp_path: Path, page: str, line: int) -> None:
+    assert check.run(_tree(tmp_path, page)) == [f"docs/PAGE.md:{line}: code fence is never closed"]
 
 
 def test_commands_are_checked_only_in_code(tmp_path: Path) -> None:
@@ -162,6 +180,62 @@ def test_release_history_keeps_old_commands(tmp_path: Path) -> None:
     assert check.run(root) == []
     (root / "CHANGELOG.md").write_text(history + "\nSee [gone](GONE.md).\n", encoding="utf-8")
     assert check.run(root) == ["CHANGELOG.md:5: link target 'GONE.md' does not exist"]
+
+
+def test_literal_brackets_are_not_references(tmp_path: Path) -> None:
+    page = (
+        "Escaped \\[text\\]\\[label\\], an index rows[0][1], a closing ][label] alone,\n"
+        "`[x][y]` in code and a defined [link][t].\n\n[t]: TARGET.md\n"
+    )
+    assert check.run(_tree(tmp_path, page)) == []
+
+
+def test_html_anchors_in_code_or_comments_do_not_count(tmp_path: Path) -> None:
+    target = (
+        '# T\n\n`<a id="inline"></a>`\n\n```html\n<a id="fenced"></a>\n```\n\n'
+        '<!-- <a id="commented"></a> -->\n\n<a id="real"></a>\n'
+    )
+    page = "[a](T.md#inline) [b](T.md#fenced) [c](T.md#commented) [d](T.md#real)\n"
+    root = _tree(tmp_path, page, {"docs/T.md": target})
+    assert [p.split(": ", 1)[1].split(" is ")[0] for p in check.run(root)] == [
+        "anchor #commented",
+        "anchor #fenced",
+        "anchor #inline",
+    ]
+
+
+def test_explicit_heading_ids_follow_each_renderer(tmp_path: Path) -> None:
+    page = (
+        "[gh](TARGET.md#connection-options-options) [site](TARGET.md#options)\n"
+        "[stripped](TARGET.md#connection-options)\n"
+    )
+    assert check.run(_tree(tmp_path, page)) == [
+        (
+            "docs/PAGE.md:2: anchor #connection-options is not a heading or anchor of "
+            + "docs/TARGET.md; did you mean 'connection-options-options'?"
+        )
+    ]
+
+
+def test_findings_use_the_line_of_each_occurrence(tmp_path: Path) -> None:
+    page = (
+        "Intro line\n[a](GONE.md) <!-- docs-check: ignore -->\nthen `a code\nspan` and\n"
+        "[b](GONE.md) with [c][missing] and `make tset`.\n"
+    )
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:5: `make tset` is not a Makefile target; did you mean 'test'?",
+        "docs/PAGE.md:5: link target 'GONE.md' does not exist",
+        "docs/PAGE.md:5: reference [missing] has no definition",
+    ]
+
+
+def test_missing_or_empty_makefile_fails_closed(tmp_path: Path) -> None:
+    root = _tree(tmp_path, "Run `make test`.\n")
+    assert check.run(root) == []
+    (root / "Makefile").write_text("# no targets\n", encoding="utf-8")
+    assert check.run(root) == ["docs/PAGE.md:1: `make test` is not a Makefile target"]
+    (root / "Makefile").unlink()
+    assert check.run(root) == ["docs/PAGE.md:1: `make test` is not a Makefile target"]
 
 
 def test_suppression_comment_on_the_line_or_the_line_before(tmp_path: Path) -> None:
@@ -190,12 +264,25 @@ def test_github_slug_matches_github_rendering() -> None:
     assert github_slug("한글 제목 (Korean)") == "한글-제목-korean"
 
 
-def test_make_goals() -> None:
-    assert make_goals("make test") == ["test"]
-    assert make_goals("make -j2 -C sub lint VAR=1 test # comment") == ["lint", "test"]
-    assert make_goals("cd x && make integration CUBRID_TEST_PORT=1 | tee log") == ["integration"]
-    assert make_goals("make sure") == ["sure"]
-    assert make_goals("cmake build") == []
+@pytest.mark.parametrize(
+    ("command", "goals"),
+    [
+        ("make test", ["test"]),
+        ("make -j2 -C sub lint VAR=1 test # comment", ["lint", "test"]),
+        ("cd x && make integration CUBRID_TEST_PORT=1 | tee log", ["integration"]),
+        ("make -j 2 tset", ["tset"]),
+        ("make --directory . tset", ["tset"]),
+        ("make --directory docs tset", ["tset"]),
+        ("make --directory=docs --jobs=4 tset", ["tset"]),
+        ("make tset;make lint", ["tset", "lint"]),
+        ("(make a)&&make b||make c", ["a", "b", "c"]),
+        ("make sure", ["sure"]),
+        ("cmake build", []),
+        ("make 'unbalanced", []),
+    ],
+)
+def test_make_goals(command: str, goals: list[str]) -> None:
+    assert make_goals(command) == goals
 
 
 def test_parse_reports_heading_anchors(tmp_path: Path) -> None:
@@ -203,8 +290,8 @@ def test_parse_reports_heading_anchors(tmp_path: Path) -> None:
     path.write_text(TARGET, encoding="utf-8")
     assert parse(path).anchors == {
         "target",
-        "options",
-        "connection-options",
+        "options",  # the site uses the explicit id
+        "connection-options-options",  # GitHub keeps the literal {#options} text
         "legacy-anchor",
         "한글-제목",
         "same",

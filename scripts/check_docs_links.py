@@ -133,7 +133,8 @@ class Checker:
         historical = self.rel(path) in HISTORY
         for line, command in [] if historical else parsed.code:
             for goal in make_goals(command):
-                if self.make_targets and goal not in self.make_targets:
+                # A missing or emptied Makefile fails closed: no goal exists.
+                if goal not in self.make_targets:
                     found.append(
                         (
                             line,
