@@ -31,6 +31,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **Wrapped issue numbers no longer render as headings on the site (#938)** — 33 paragraph
+  lines under `docs/` began with an issue number (for example `#750 gives each ...`), which
+  Python-Markdown, unlike GitHub, renders as an `<h1>`. Their leading `#` is now escaped as
+  `\#`. The wording and line breaks are unchanged, and both renderers show `#750`.
+  `scripts/check_docs_links.py` reports such a line under `docs/` from now on.
+
 - **Agent guidance split into task guides (#926)** — the root `AGENTS.md` (733 lines,
   45,359 bytes) keeps the project overview, commands, code conventions and every review,
   release, issue, label, documentation and commit rule, and gains a task routing table. The

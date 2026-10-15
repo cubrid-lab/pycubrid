@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -23,6 +23,7 @@ from markdown_it.token import Token
 _PARSER = MarkdownIt("commonmark").enable("table")
 _ATTR_ID = re.compile(r"\s*\{[^}]*#([\w-]+)[^}]*\}\s*$")
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_HASH_DIGIT = re.compile(r"\s*#\d")
 _BACKTICKS = re.compile(r"`+")
 # A full or collapsed reference link whose brackets are not escaped; an opening
 # bracket after a word character (``rows[0][1]``) is an index, not a link.
@@ -66,6 +67,9 @@ class Parsed:
     anchors: set[str]
     code: list[tuple[int, str]]
     unclosed_fences: list[int]
+    # Paragraph lines starting with ``#<digit>``: plain text for CommonMark and
+    # GitHub, but an ATX heading for Python-Markdown, which builds the site (#938).
+    hash_digit_lines: list[int] = field(default_factory=list)
 
 
 def github_slug(text: str) -> str:
@@ -359,10 +363,17 @@ def parse(path: Path) -> Parsed:
     github_used: set[str] = set()
     site_used: set[str] = set()
     anchors = _html_anchors(tokens)
+    hash_digit_lines: list[int] = []
     for index, token in enumerate(tokens):
         if token.map is None:
             continue
         line = token.map[0] + 1
+        if token.type == "inline" and index and tokens[index - 1].type == "paragraph_open":
+            hash_digit_lines += [
+                number + 1
+                for number in range(token.map[0], token.map[1])
+                if number < len(lines) and _HASH_DIGIT.match(lines[number])
+            ]
         if token.type == "fence":
             code += _logical_lines(line + 1, token.content.splitlines())
             continue
@@ -403,6 +414,7 @@ def parse(path: Path) -> Parsed:
         anchors=anchors,
         code=sorted(code),
         unclosed_fences=_unclosed_fences(tokens),
+        hash_digit_lines=hash_digit_lines,
     )
 
 

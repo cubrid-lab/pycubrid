@@ -65,7 +65,7 @@ they remain available in main, changed-weekly and full release validation.
 
 ## Event tiers and cost evidence
 
-#750 gives each expensive event one purpose. Pull requests stay fast and
+\#750 gives each expensive event one purpose. Pull requests stay fast and
 representative. `main` pushes carry the endpoint evidence. The weekly schedules
 cover what a push run did not already prove at the same SHA, plus the deep bug
 hunt. The release runs the full matrix and fails closed. Changes were made only
@@ -408,6 +408,8 @@ and a suggested fix when one is close, on:
 - an `#anchor` that is not a heading (its GitHub or site slug, or `{#id}`) or an
   `<a id>`/`<a name>` of the target Markdown file;
 - a reference link `[text][label]` without a definition, and an unclosed code fence;
+- a paragraph line under `docs/` that starts with `#` and a digit, such as a wrapped issue
+  number: the MkDocs site renders it as a heading (#938), so write `\#750`;
 - a `make` goal written in inline code or a fenced block that the Makefile does not
   define, and a `scripts/` path that does not exist. Release history (`CHANGELOG.md`,
   `RELEASE_CHANGELOG.md`) keeps the commands of its time, so only its links are checked.

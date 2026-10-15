@@ -261,7 +261,7 @@ Docker 서버에 autocommit을 끄고 실행하며 commit은 CPU 측정 밖에 �
 
 #### 제공된 옵트인: `executemany(..., prepared=True)`
 
-#839 이후 드라이버 자체로 같은 비교를 했습니다. 기본 키가 있는 3컬럼 테이블에 10,000행, autocommit 끔, commit 포함, 세 번 시행의 중앙값(순서 교대), 버전마다 컨테이너 하나, 다른 사용자도 쓰는 머신(1분 부하 평균 2.1-2.6)입니다. 리터럴 `executemany()` 시간과 `prepared=True` 시간(밀리초)입니다.
+\#839 이후 드라이버 자체로 같은 비교를 했습니다. 기본 키가 있는 3컬럼 테이블에 10,000행, autocommit 끔, commit 포함, 세 번 시행의 중앙값(순서 교대), 버전마다 컨테이너 하나, 다른 사용자도 쓰는 머신(1분 부하 평균 2.1-2.6)입니다. 리터럴 `executemany()` 시간과 `prepared=True` 시간(밀리초)입니다.
 
 | CUBRID | INSERT | UPDATE | DELETE | MERGE |
 |---|---:|---:|---:|---:|
@@ -487,7 +487,7 @@ localhost에서 10,000행:
 [`benchmarks/2026-10-14-micro-explicit-keys-v2`](https://github.com/cubrid-lab/pycubrid/tree/main/benchmarks/2026-10-14-micro-explicit-keys-v2)에
 있습니다.
 
-#922 이전 결과는 과거 기록이며 비교할 수 없습니다. 당시 벤치마크 이름은
+\#922 이전 결과는 과거 기록이며 비교할 수 없습니다. 당시 벤치마크 이름은
 `test_bench_single_insert`, `test_bench_single_select`, `test_bench_single_update`,
 `test_bench_single_delete`, `test_bench_bulk_insert_100`, `test_bench_select_all_100`,
 `test_bench_prepared_reuse`였습니다. 이전 테이블은 `DELETE`로 초기화되지 않는 `AUTO_INCREMENT`

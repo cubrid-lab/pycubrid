@@ -519,7 +519,7 @@ finally:
 
 ### 컬렉션 바인딩 (`set`, `imports`, `bind_set`)
 
-#440부터 네이티브 기능은 공식 이름으로 SET, MULTISET, SEQUENCE 파라미터 값을
+\#440부터 네이티브 기능은 공식 이름으로 SET, MULTISET, SEQUENCE 파라미터 값을
 바인딩합니다. `conn.set()`(또는 `native.set(conn)`)은 빈 `native.set`을 반환하고,
 `s.imports(data, type, /, *, kind=SET)`가 값을 정하며, `cur.bind_set(index, s)`가
 그 값을 1부터 시작하는 파라미터에 바인딩합니다. `execute()` 전에는 아무것도 보내지
@@ -563,7 +563,7 @@ finally:
 `'NULL'`을 NULL 원소로 바꿈). 빈 문자열과 Python `int` 원소를 허용합니다(공식은
 `InterfaceError`). NUL이 든 원소는 `ProgrammingError`를 냅니다(공식은 조용히
 잘라냄). `kind`는 pycubrid 확장입니다(공식은 항상 SET으로 바인딩). 오류 클래스는
-#439 prepared 커서를 따릅니다. `float`/`bytes` 원소와 잘못된 `bind_set` 인덱스는
+\#439 prepared 커서를 따릅니다. `float`/`bytes` 원소와 잘못된 `bind_set` 인덱스는
 `ProgrammingError`(공식 `InterfaceError`), 연결이 아닌 값을 받은 `native.set()`은
 `InterfaceError`(공식 `TypeError`), 서버 오류 -494는 드라이버 전체 매핑에 따라
 `ProgrammingError`(공식 `IntegrityError`)입니다.
@@ -663,7 +663,7 @@ finally:
 
 ### 네이티브 LOB 스트림과 핸들 (`lob`, `fetch_lob`, `bind_lob`)
 
-#441부터 네이티브 기능은 공식 이름으로 BLOB/CLOB 핸들을 조회하고 바인딩합니다.
+\#441부터 네이티브 기능은 공식 이름으로 BLOB/CLOB 핸들을 조회하고 바인딩합니다.
 `conn.lob()`(또는 `native.lob(conn)`)은 비어 있는 `native.lob`을 반환하고,
 `cur.fetch_lob(col, lob)`은 다음 행에서 핸들을 가져와 채우며,
 `cur.bind_lob(index, lob)`은 그 핸들을 1부터 시작하는 매개변수에 바인딩합니다.
@@ -2292,7 +2292,7 @@ class DataError(DatabaseError)
 ±24시간을 벗어날 때도 발생합니다(#413). 응답은 모두 읽었으므로 일반 커서에서는 연결을
 계속 사용할 수 있으며, 이후 fetch 페이지에서 발생한 경우 그 페이지 전에 모은 행은
 먼저 반환됩니다([`fetchone()`](#fetchone)의 *이후 fetch 페이지의 데이터 오류* 참고,
-#507). `get_schema_info()`는 해석할 수 없는 FC9 응답을 받으면 연결을
+\#507). `get_schema_info()`는 해석할 수 없는 FC9 응답을 받으면 연결을
 폐기합니다. 명시적 prepared API(`pycubrid.compat.native`)는 대신 `OperationalError`를
 발생시키고 세션을 폐기합니다.
 

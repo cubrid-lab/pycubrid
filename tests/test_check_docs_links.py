@@ -296,6 +296,19 @@ def test_a_word_split_across_a_continuation_is_one_word(tmp_path: Path) -> None:
     ]
 
 
+def test_a_docs_line_starting_with_an_issue_number_is_reported(tmp_path: Path) -> None:
+    page = (
+        "# Page\n\nWrapped text that ends here and\n#750 starts the next line.\n\n"
+        "Escaped:\n\\#751 is text.\n\n## 12 a numbered heading\n\n"
+        "```\n#752 in code\n```\n\n`#753` inline\n\nAlso\n#754 suppressed <!-- docs-check: ignore -->\n"
+    )
+    root = _tree(tmp_path, page, {"README.md": "Text and\n#755 outside docs/.\n"})
+    assert check.run(root) == [
+        "docs/PAGE.md:4: line starts with '#<digit>', which the MkDocs site renders as a "
+        + "heading; escape it as '\\#'"
+    ]
+
+
 def test_html_attributes_are_parsed_like_a_browser(tmp_path: Path) -> None:
     page = (
         '<img data-src="https://example.invalid/lazy.svg" src="GONE.svg">\n\n'

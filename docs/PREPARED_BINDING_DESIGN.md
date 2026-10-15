@@ -247,11 +247,11 @@ are not parity evidence.
 
 Success of #418 is a design decision and evidence boundary only. #439 must
 implement and run these cases before its public surface can be advertised;
-#439 should be delivered as at least two reviewable PRs if its provisional M
+\#439 should be delivered as at least two reviewable PRs if its provisional M
 scope grows: first internal FC2/FC3 parser/serializer tests with **no public
 API or parity claim**, then the compatibility owner/fetch/transaction slice
 with the live/fault gates. Neither internal packet groundwork nor a partially
 passing public PR closes #439. Keep separate acceptance evidence for each PR.
-#440/#441 add whole/element NULL, empty collection, order/duplicates and
+\#440/#441 add whole/element NULL, empty collection, order/duplicates and
 session-bound LOB handle/short-transfer cases separately. #446 remains the
 blocking broader differential gate, and #396 cannot be closed from this RFC.

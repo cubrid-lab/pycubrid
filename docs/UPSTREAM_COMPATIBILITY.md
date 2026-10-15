@@ -262,7 +262,7 @@ deviations: official native `bind_param(None)` raised `SystemError` for INT and
 VARCHAR on both servers, whereas pycubrid returned SQL NULL. The native NULL
 failure is **not** a parity pass. This selected comparison does not certify
 collections, LOBs, arbitrary server settings or full official-driver parity;
-#446 owns the broader differential gate.
+\#446 owns the broader differential gate.
 
 - Native direct `bind_param(None)` raises `SystemError`; later execution of an
   unbound slot is not explicit NULL-binding success. The #439 compatibility
@@ -383,7 +383,7 @@ the baseline in the same PR. Future API slices must update that baseline again.
 There are no new root aliases or async changes. New explicit APIs are MINOR
 additions; ordinary promise corrections remain PATCH. #438 selected the design,
 while #465 delivers construction only, not the remaining leaf capabilities.
-#396 remains open until its scoped capabilities and verification are complete.
+\#396 remains open until its scoped capabilities and verification are complete.
 
 ## Source discrepancies are not parity targets
 

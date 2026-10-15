@@ -82,7 +82,7 @@ whenever the official lob type matches the column (official takes the type
 byte from result column 1; the broker uses the handle's own `db_type`).
 Fetched handles of committed rows may be bound on another connection (the
 server copies them); a native lob records its origin (fetched/created) so
-#442 can keep created temp handles on their own session.
+\#442 can keep created temp handles on their own session.
 The broker trusts the embedded size, so `Lob.write()` raises it to
 `offset + bytes_written` after each write, as CCI does (and leaves it alone
 when the reply claims more bytes than were sent). `_PreparedLob` records the
