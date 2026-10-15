@@ -514,6 +514,14 @@ def test_a_quote_never_closed_before_a_final_backslash_is_not_shell(tmp_path: Pa
     ]
 
 
+@pytest.mark.parametrize("first", ["echo $(printf x)#note \\", "cat <(true)#note \\"])
+def test_a_hash_after_a_substitution_stays_in_the_word(tmp_path: Path, first: str) -> None:
+    page = f"```bash\n{first}\nmake removed\nmake gone\n```\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:4: `make gone` is not a Makefile target"
+    ]
+
+
 def test_html_attributes_are_parsed_like_a_browser(tmp_path: Path) -> None:
     page = (
         '<img data-src="https://example.invalid/lazy.svg" src="GONE.svg">\n\n'

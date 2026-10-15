@@ -77,8 +77,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - a shell comment starts only at the start of a word, and a quote that spans lines keeps its
     `make` lines quoted; a quote the block never closes is prose, also before a final backslash;
   - a command or process substitution (`$(...)`, `<(...)`, `>(...)`) is part of its word, so
-    `make test ENV_FILE=<(true)` names only `test`, and its body is checked as a command of
-    its own;
+    `make test ENV_FILE=<(true)` names only `test`, its body is checked as a command of its
+    own, and a `#` right after it is not a comment;
   - the lines after a link come from its own source tail, recorded by markdown-it's link and
     image rules, instead of from decoded titles;
   - only the inline HTML, autolinks and inline link tails that markdown-it parsed are masked

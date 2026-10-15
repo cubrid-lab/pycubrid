@@ -477,7 +477,8 @@ def _continues(text: str) -> str:
     still open, so the newline is part of the quoted text. ``""``: the command
     ends here. A backslash or a quote in a comment continues nothing; ``#``
     starts a comment only at the start of a word, so not after ``x\\ `` (an
-    escaped space keeps the word open) or after a closing quote.
+    escaped space keeps the word open), a closing quote or a balanced
+    ``$(...)``, ``<(...)`` or ``>(...)`` substitution.
     """
     quote = ""
     in_word = False
@@ -493,6 +494,14 @@ def _continues(text: str) -> str:
             in_word = True
         elif quote:
             quote = "" if char == quote else quote
+        elif (
+            char in "$<>"
+            and text.startswith("(", index + 1)
+            and _substitution_end(text, index + 1) > 0
+        ):
+            # a balanced substitution is part of the word: ``$(x)#y`` is no comment
+            index, in_word = _substitution_end(text, index + 1), True
+            continue
         elif char in "'\"":
             quote, in_word = char, True
         elif char in " \t\n;&|()<>":
