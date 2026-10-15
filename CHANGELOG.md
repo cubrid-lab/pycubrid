@@ -31,6 +31,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **A block-quoted issue number no longer renders as a heading on the site (#941)** — in
+  `docs/API_REFERENCE.md`, a block quote line began with `#492`, which the MkDocs site rendered
+  as an `<h1>`. It is now escaped as `\#492`; GitHub shows the same text.
+
 - **A maintainer's review is the standalone-agent alternative to Copilot (#943)** —
   `AGENTS.md` and `CONTRIBUTING.md` now say that a standalone agent PR waits for a
   substantive submitted GitHub Copilot review or a maintainer's review, recorded on the
@@ -63,6 +67,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 
 ### CI
+
+- **The documentation check converges with sqlalchemy-cubrid's parser (#941)** —
+  `scripts/_markdown.py` is now the same file as in sqlalchemy-cubrid, apart from its issue
+  references (cubrid-lab/sqlalchemy-cubrid#922, cubrid-lab/sqlalchemy-cubrid#924,
+  cubrid-lab/sqlalchemy-cubrid#928, cubrid-lab/sqlalchemy-cubrid#930):
+  - adjacent shell operators such as `;>` are separate tokens, and `&>>` is one redirection;
+  - a shell comment starts only at the start of a word, and a quote that spans lines keeps its
+    `make` lines quoted;
+  - the lines after a link come from its own source tail, recorded by markdown-it's link and
+    image rules, instead of from decoded titles;
+  - only the inline HTML, autolinks and inline link tails that markdown-it parsed are masked
+    before references are checked, at their source positions, including inside image alt text;
+  - the `#<digit>` line check follows Python-Markdown's block quote, list marker and list
+    indentation rules, in linear time. It now also reports such lines as list items and in block
+    quotes, and no longer reports an indented continuation line.
 
 - **Advisory `agent-review` check for review evidence (#924)** —
   `.github/workflows/agent-review.yml` runs `scripts/agent_review_gate.py` from the base

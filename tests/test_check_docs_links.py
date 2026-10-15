@@ -1,4 +1,4 @@
-"""Deterministic documentation checks: local links, anchors, fences, commands (#927, #939)."""
+"""Deterministic documentation checks: local links, anchors, fences, commands (#927, #939, #941)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import importlib.util
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -296,6 +297,73 @@ def test_a_word_split_across_a_continuation_is_one_word(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("command", "goals"),
+    [
+        ("make test;>log make lint", ["test", "lint"]),
+        ("echo ok;>log make removed", ["removed"]),
+        ("make a&&make b", ["a", "b"]),
+        ("make test &>log", ["test"]),
+        ("make test &>>build.log", ["test"]),
+    ],
+)
+def test_adjacent_shell_operators_are_separate(command: str, goals: list[str]) -> None:
+    assert make_goals(command) == goals
+
+
+@pytest.mark.parametrize(
+    "first",
+    ['[t](TARGET.md "a &amp;\nb") then', '![i](TARGET.md "a \\" q\nb") then'],
+)
+def test_decoded_inline_titles_still_count_their_lines(tmp_path: Path, first: str) -> None:
+    page = f"{first}\n[bad](GONE.md)\n\n{first}\n[ok](GONE.md) <!-- docs-check: ignore -->\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:3: link target 'GONE.md' does not exist"
+    ]
+
+
+def test_a_backslash_in_a_comment_does_not_continue(tmp_path: Path) -> None:
+    page = "```bash\necho ok # note \\\nmake removed\necho 'a # b\\\nc'\n```\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:3: `make removed` is not a Makefile target"
+    ]
+
+
+def test_an_entity_newline_in_a_title_adds_no_line(tmp_path: Path) -> None:
+    page = '[t](TARGET.md "a&#10;b")\n[bad](GONE.md)\n'
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:2: link target 'GONE.md' does not exist"
+    ]
+
+
+def test_an_inline_title_equal_to_a_definition_title_still_counts(tmp_path: Path) -> None:
+    page = '[t](TARGET.md "a &amp;\nb") then\n[bad](GONE.md)\n\n[r]: TARGET.md "a &\nb"\n'
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:3: link target 'GONE.md' does not exist"
+    ]
+
+
+def test_a_link_like_fragment_in_a_comment_does_not_hide_references(tmp_path: Path) -> None:
+    page = "Inline <!-- [x](https://example.invalid/-->[broken][missing])\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:1: reference [missing] has no definition"
+    ]
+
+
+def test_a_make_line_inside_a_multi_line_quote_is_not_a_command(tmp_path: Path) -> None:
+    page = "```bash\necho 'a\\\nmake removed\nb'\nmake gone\n```\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:5: `make gone` is not a Makefile target"
+    ]
+
+
+def test_a_quote_never_closed_in_a_block_is_not_shell(tmp_path: Path) -> None:
+    page = "```text\nDon't run\nmake removed\n```\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:3: `make removed` is not a Makefile target"
+    ]
+
+
 def test_a_docs_line_starting_with_an_issue_number_is_reported(tmp_path: Path) -> None:
     page = (
         "# Page\n\nWrapped text that ends here and\n#750 starts the next line.\n\n"
@@ -307,6 +375,129 @@ def test_a_docs_line_starting_with_an_issue_number_is_reported(tmp_path: Path) -
         "docs/PAGE.md:4: line starts with '#<digit>', which the MkDocs site renders as a "
         + "heading; escape it as '\\#'"
     ]
+
+
+@pytest.mark.parametrize(
+    ("page", "lines"),
+    [
+        ("- #655 adapters\n- \\#656 escaped\n", [1]),
+        ("- a\n#657 lazy\n", [2]),
+        ("- a\n  #658 indented continuation is text\n", []),
+        ("- a\n\n    #659 later paragraph of the item\n", [3]),
+        ("- a\n    - #660 nested item\n", [2]),
+        ("1. #661 numbered\n\n1) #662 not a Python-Markdown list\n", [1]),
+        ("> quoted\n> #663 line\n\n>  #664 two spaces is text\n", [2]),
+        ("Text\n  #665 indented is text\n", []),
+        (" > #666 one\n\n  > #667 two\n\n   > #668 three spaces before >\n", [1, 3, 5]),
+        ("> a\n  > #669 indented marker on a continuation line\n", [2]),
+        # The site renders this line as a heading and the comment delimiters as text.
+        ("Text <!--\n#670 inside an inline comment\n--> tail\n", [2]),
+        # A block quote inside a list item (cubrid-lab/sqlalchemy-cubrid#925); two spaces after ">" stay text.
+        ("- > #750 issue\n\n1. > #751 numbered\n\n- >  #752 text\n", [1, 3]),
+        ("- a\n\n    > #753 later paragraph\n    > #754 next\n", [3, 4]),
+        ("> - > #755 nested both ways\n", [1]),
+        ("- a\n\n  > #756 quote after a two-space indent\n", [3]),
+    ],
+)
+def test_issue_number_lines_are_reported_where_the_site_makes_headings(
+    tmp_path: Path, page: str, lines: list[int]
+) -> None:
+    message = (
+        "line starts with '#<digit>', which the MkDocs site renders as a heading; "
+        "escape it as '\\#'"
+    )
+    assert check.run(_tree(tmp_path, page)) == [f"docs/PAGE.md:{n}: {message}" for n in lines]
+
+
+def test_a_quote_after_an_empty_destination_is_not_a_link(tmp_path: Path) -> None:
+    # CommonMark reads `"See` as a bare destination; no `)` follows, so this is
+    # not a link and `[foo][bar]` is literal text without a definition (cubrid-lab/sqlalchemy-cubrid#923).
+    page = '[site]( "See [foo][bar]")\n'
+    assert check.run(_tree(tmp_path, page)) == ["docs/PAGE.md:1: reference [bar] has no definition"]
+
+
+def test_an_escaped_space_keeps_a_hash_inside_the_word(tmp_path: Path) -> None:
+    page = "```bash\necho x\\ #note \\\nmake removed\nmake gone\n```\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:4: `make gone` is not a Makefile target"
+    ]
+
+
+@pytest.mark.parametrize("use", ["[r][ref]", "[ref]", "![r][ref]"])
+def test_a_reference_does_not_take_an_equal_inline_title(tmp_path: Path, use: str) -> None:
+    page = (
+        f'{use} [bad](GONE.md)\n[t](TARGET.md "a\nb")\n[bad2](GONE2.md)\n\n'
+        '[ref]: TARGET.md "a\nb"\n'
+    )
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:1: link target 'GONE.md' does not exist",
+        "docs/PAGE.md:4: link target 'GONE2.md' does not exist",
+    ]
+
+
+def test_a_reference_label_across_lines_counts_its_line(tmp_path: Path) -> None:
+    page = "[t][multi\nline] [bad](GONE.md)\n\n[multi line]: TARGET.md\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:2: link target 'GONE.md' does not exist"
+    ]
+
+
+@pytest.mark.parametrize("first", ['[t](TARGET.md "a `x`\nb")', '![i](TARGET.md "a `x`\nb")'])
+def test_backticks_in_a_title_keep_its_lines(tmp_path: Path, first: str) -> None:
+    page = f"{first}\n[bad](GONE.md)\n\n{first}\n[ok](GONE.md) <!-- docs-check: ignore -->\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:3: link target 'GONE.md' does not exist"
+    ]
+
+
+def test_a_link_like_fragment_in_an_html_attribute_does_not_hide_references(
+    tmp_path: Path,
+) -> None:
+    page = 'Inline <span title="[x](https://example.invalid/">[broken][missing])</span>\n'
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:1: reference [missing] has no definition"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("page", "found"),
+    [
+        # The destination is the local file "span": only that is reported.
+        (
+            '[site](<span> "See [foo][bar]") <span>text</span>\n',
+            ["docs/PAGE.md:1: link target 'span' does not exist"],
+        ),
+        ("[t](https://example.invalid/<span>/[foo][bar]) <span>visible</span>\n", []),
+        ("[x](<b> [broken][missing])\n", ["docs/PAGE.md:1: reference [missing] has no definition"]),
+        (
+            "Text <!-- x\n[y](z -->\nb [c][gone]\n",
+            ["docs/PAGE.md:3: reference [gone] has no definition"],
+        ),
+        ("See <https://example.invalid/[a][b]> ok\n", []),
+        # An image's alt text is parsed on its own: its spans are moved into the source.
+        ("![<https://example.invalid/[a][b]>](TARGET.md)\n", []),
+        ('![alt [site](https://example.invalid/ "See [foo][bar]")](TARGET.md)\n', []),
+        (
+            "![a <span title='[x](y'> b](TARGET.md) [c][gone]\n",
+            ["docs/PAGE.md:1: reference [gone] has no definition"],
+        ),
+        ("![a ![b](https://example.invalid/[c][d])](TARGET.md)\n", []),
+    ],
+)
+def test_only_parsed_html_and_link_tails_are_masked(
+    tmp_path: Path, page: str, found: list[str]
+) -> None:
+    assert check.run(_tree(tmp_path, page)) == found
+
+
+@pytest.mark.parametrize(
+    "line", ["-  " * 28 + "ordinary text", "1234567890.  " * 28 + "text", "> " * 200 + "text"]
+)
+def test_long_container_prefixes_are_scanned_in_linear_time(tmp_path: Path, line: str) -> None:
+    # A backtracking pattern took seconds on these lines (cubrid-lab/sqlalchemy-cubrid#930 review).
+    started = time.perf_counter()
+    assert check.run(_tree(tmp_path, f"{line}\n{line}\n")) == []
+    assert time.perf_counter() - started < 1.0
 
 
 def test_html_attributes_are_parsed_like_a_browser(tmp_path: Path) -> None:

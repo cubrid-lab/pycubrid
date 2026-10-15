@@ -2845,7 +2845,7 @@ if row:
 
 > **Data errors on a later fetch page (#507):** When a FETCH page contains a
 > value pycubrid cannot represent (text invalid in the connection charset
-> #492, an unresolved zone #413, a zero date #512), the `fetchone()`,
+> \#492, an unresolved zone #413, a zero date #512), the `fetchone()`,
 > `fetchmany()` or `fetchall()` call (or iteration step) that reaches the page
 > raises `DataError`. The whole page is withheld, including its rows before the
 > bad value. Rows that call had already collected are not lost: the next fetch
@@ -10915,7 +10915,8 @@ and a suggested fix when one is close, on:
   `<a id>`/`<a name>` of the target Markdown file;
 - a reference link `[text][label]` without a definition, and an unclosed code fence;
 - a paragraph line under `docs/` that starts with `#` and a digit, such as a wrapped issue
-  number: the MkDocs site renders it as a heading (#938), so write `\#750`;
+  number, also as a list item or in a block quote: the MkDocs site renders it as a heading
+  (#938, #941), so write `\#750`;
 - a `make` goal written in inline code or a fenced block that the Makefile does not
   define, and a `scripts/` path that does not exist. Release history (`CHANGELOG.md`,
   `RELEASE_CHANGELOG.md`) keeps the commands of its time, so only its links are checked.

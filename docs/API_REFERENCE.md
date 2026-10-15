@@ -1695,7 +1695,7 @@ if row:
 
 > **Data errors on a later fetch page (#507):** When a FETCH page contains a
 > value pycubrid cannot represent (text invalid in the connection charset
-> #492, an unresolved zone #413, a zero date #512), the `fetchone()`,
+> \#492, an unresolved zone #413, a zero date #512), the `fetchone()`,
 > `fetchmany()` or `fetchall()` call (or iteration step) that reaches the page
 > raises `DataError`. The whole page is withheld, including its rows before the
 > bad value. Rows that call had already collected are not lost: the next fetch

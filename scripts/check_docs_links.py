@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail on deterministic defects in the repository's Markdown files (#927, #939; shared with sqlalchemy-cubrid).
+"""Fail on deterministic defects in the repository's Markdown files (#927, #939, #941; shared with sqlalchemy-cubrid).
 
 Checks every tracked ``*.md`` file, offline and without network access:
 
