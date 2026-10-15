@@ -181,13 +181,15 @@ class TestLobSessionOwnership:
             handle = row[0]["packed_lob_handle"]
             fetched = Lob(conn, CUBRIDDataType.BLOB, handle)
             created = conn.create_lob(CUBRIDDataType.BLOB)
-            assert created.write(b"temp") == 4
+            written = created.write(b"temp")
+            assert written == 4
             generation = conn._physical_generation
 
             # The CAS can no longer answer CHECK_CAS, so ping replaces the session.
             assert conn._socket is not None
             conn._socket.shutdown(socket.SHUT_RDWR)
-            assert conn.ping(reconnect=True) is True
+            recovered = conn.ping(reconnect=True)
+            assert recovered is True
             assert conn._physical_generation == generation + 1
 
             for stale in (fetched, created):
@@ -197,10 +199,12 @@ class TestLobSessionOwnership:
                     stale.write(b"x", 4)
 
             # The committed row's handle wrapped again, and a new LOB, work there.
-            assert Lob(conn, CUBRIDDataType.BLOB, handle).read(6) == b"stored"
+            stored = Lob(conn, CUBRIDDataType.BLOB, handle).read(6)
+            assert stored == b"stored"
             fresh = conn.create_lob(CUBRIDDataType.BLOB)
-            assert fresh.write(b"new") == 3
-            assert fresh.read(3) == b"new"
+            written = fresh.write(b"new")
+            data = fresh.read(3)
+            assert (written, data) == (3, b"new")
             conn.rollback()
         finally:
             cursor.execute("DROP TABLE IF EXISTS %s" % table)

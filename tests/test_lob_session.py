@@ -43,7 +43,8 @@ def _stale_after_ping() -> tuple[Connection, Lob, MagicMock]:
     _script(old, [])  # CHECK_CAS gets no answer: the CAS is gone
     new = _replacement_socket()
     with patch("socket.create_connection", return_value=new):
-        assert conn.ping(reconnect=True) is True
+        recovered = conn.ping(reconnect=True)
+    assert recovered is True
     assert conn._physical_generation == lob._generation + 1
     return conn, lob, new
 
@@ -75,8 +76,9 @@ def test_lob_wrapped_on_the_new_session_reads_and_writes_there() -> None:
 
     lob = Lob(conn, CUBRIDDataType.BLOB, HANDLE)
     assert lob._generation == conn._physical_generation
-    assert lob.write(b"data") == 4
-    assert lob.read(4) == b"data"
+    written = lob.write(b"data")
+    data = lob.read(4)
+    assert (written, data) == (4, b"data")
     assert _function_codes(new, start) == [CASFunctionCode.LOB_WRITE, CASFunctionCode.LOB_READ]
 
 
@@ -109,7 +111,8 @@ def test_lob_created_after_a_failed_probe_belongs_to_the_new_session() -> None:
     assert lob._generation == generation + 1 == conn._physical_generation
 
     with patch("socket.create_connection") as create:
-        assert lob.write(b"data") == 4
+        written = lob.write(b"data")
+    assert written == 4
     create.assert_not_called()
     assert [code for code in _function_codes(new) if code in LOB_CODES] == [
         CASFunctionCode.LOB_NEW,

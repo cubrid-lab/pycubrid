@@ -340,9 +340,11 @@ def test_current_generation_sends_with_expected_generation(mock_connection: Magi
     handle = b"\x00\x00\x00\x21" + b"\x00" * 8 + b"\x00\x00\x00\x02a\x00"
     lob = Lob(mock_connection, CUBRIDDataType.BLOB, handle)
 
-    assert lob.write(b"hello") == 5
+    written = lob.write(b"hello")
+    assert written == 5
     assert mock_connection._send_and_receive.call_args.kwargs == {"expected_generation": 4}
-    assert lob.read(5) == b""
+    data = lob.read(5)
+    assert data == b""
     assert mock_connection._send_and_receive.call_args.kwargs == {"expected_generation": 4}
     mock_connection._session_lock.__enter__.assert_called()
 
