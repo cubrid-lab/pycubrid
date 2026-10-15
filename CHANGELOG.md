@@ -68,6 +68,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **The documentation check is in sync with sqlalchemy-cubrid's again (#953)** —
+  `scripts/_markdown.py` and its tests take the six shell fixes from
+  cubrid-lab/sqlalchemy-cubrid#935: a `case` pattern's `)` does not close a substitution, and
+  `case`/`esac` are keywords only at the start of a command; a `$(...)` inside double quotes is
+  checked, but not one inside single quotes; arithmetic `$((...))` runs no command except the
+  substitutions nested in it; an unquoted newline in a substitution body separates commands; and
+  text that is not shell names no goal. The two copies differ only in headers, issue references
+  and the test marker.
+
 - **`agent-review` no longer counts empty reply-only Copilot records as review rounds
   (#948)** — a Copilot record with no body and no thread-opening comment, such as a reply
   to an existing thread, is now ignored like an error or quota notice instead of counting
