@@ -5,6 +5,7 @@ Get from `pip install` to a working CRUD script with explicit transaction handli
 ## Recorded walkthrough
 
 <video controls preload="metadata" playsinline width="100%">
+  <!-- docs-check: ignore --> <!-- MkDocs serves this page one level down and does not rewrite raw HTML, so this path is relative to the site URL, not the file. -->
   <source src="../assets/videos/pycubrid-demo.mp4" type="video/mp4">
   Your browser cannot play this video. Use the download link below.
 </video>

@@ -67,6 +67,7 @@ Get from `pip install` to a working CRUD script with explicit transaction handli
 ## Recorded walkthrough
 
 <video controls preload="metadata" playsinline width="100%">
+  <!-- docs-check: ignore --> <!-- MkDocs serves this page one level down and does not rewrite raw HTML, so this path is relative to the site URL, not the file. -->
   <source src="../assets/videos/pycubrid-demo.mp4" type="video/mp4">
   Your browser cannot play this video. Use the download link below.
 </video>
@@ -10908,7 +10909,8 @@ on every tracked Markdown file. It is selected by the `docs` filter (`**/*.md`,
 script or make target strands the documents that name it. It fails, printing `file:line`
 and a suggested fix when one is close, on:
 
-- a relative link or image whose target is missing, absolute or outside the repository;
+- a relative Markdown or HTML (`<a href>`, `<img src>`, `<source src>`) link or image
+  whose target is missing, absolute or outside the repository;
 - an `#anchor` that is not a heading (its GitHub or site slug, or `{#id}`) or an
   `<a id>`/`<a name>` of the target Markdown file;
 - a reference link `[text][label]` without a definition, and an unclosed code fence;
@@ -10916,8 +10918,11 @@ and a suggested fix when one is close, on:
   define, and a `scripts/` path that does not exist. Release history (`CHANGELOG.md`,
   `RELEASE_CHANGELOG.md`) keeps the commands of its time, so only its links are checked.
 
-Markdown is parsed as CommonMark (`markdown-it-py`, pinned in the `docs` group), so links
-in code are examples. A reviewed false positive is marked with
+Markdown is parsed as CommonMark (`markdown-it-py`, pinned in the `docs` group) and HTML
+with the standard library parser, so links in code are examples, brackets in a URL, a title
+or an HTML comment are not references, and quoted text and redirections are not make goals
+(#939). A reviewed false positive, such as raw HTML written relative to the site URL, is
+marked with
 `<!-- docs-check: ignore -->` on the reported line or the line before it. The job never
 opens a network connection and the check takes about one second. The `CI Gate` expects
 `docs-check` to succeed exactly when either filter is selected and accepts a skip

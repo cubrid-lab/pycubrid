@@ -1,4 +1,4 @@
-"""Deterministic documentation checks: local links, anchors, fences, commands (#927)."""
+"""Deterministic documentation checks: local links, anchors, fences, commands (#927, #939)."""
 
 from __future__ import annotations
 
@@ -150,6 +150,14 @@ def test_closed_fences_pass(tmp_path: Path) -> None:
     assert check.run(_tree(tmp_path, page)) == []
 
 
+@pytest.mark.parametrize("closing", ["> ~~~", "    ~~~"])
+def test_a_quoted_or_over_indented_line_does_not_close_a_fence(
+    tmp_path: Path, closing: str
+) -> None:
+    page = f"~~~\nx\n{closing}\n"
+    assert check.run(_tree(tmp_path, page)) == ["docs/PAGE.md:1: code fence is never closed"]
+
+
 @pytest.mark.parametrize(
     ("page", "line"),
     [
@@ -186,6 +194,110 @@ def test_literal_brackets_are_not_references(tmp_path: Path) -> None:
     page = (
         "Escaped \\[text\\]\\[label\\], an index rows[0][1], a closing ][label] alone,\n"
         "`[x][y]` in code and a defined [link][t].\n\n[t]: TARGET.md\n"
+    )
+    assert check.run(_tree(tmp_path, page)) == []
+
+
+def test_html_link_and_image_targets_are_checked(tmp_path: Path) -> None:
+    page = (
+        '<p align="center"><img src="demo.gif" alt="Demo"></p>\n\n'
+        'Inline <a href="TARGET.md#options">options</a> and <img src="dem0.gif">.\n\n'
+        '<!-- <img src="commented.gif"> -->\n\n`<img src="code.gif">`\n'
+    )
+    root = _tree(tmp_path, page, {"docs/demo.gif": ""})
+    assert check.run(root) == [
+        "docs/PAGE.md:3: link target 'dem0.gif' does not exist; did you mean 'demo.gif'?"
+    ]
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        'Inline <a\nhref="https://example.invalid">x</a>',
+        '[t](TARGET.md "a\nb") then',
+        '![i](TARGET.md "a\nb") then',
+    ],
+)
+def test_lines_after_multi_line_tags_and_titles_are_exact(tmp_path: Path, first: str) -> None:
+    page = f"{first}\n[bad](GONE.md)\n\n{first}\n[ok](GONE.md) <!-- docs-check: ignore -->\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:3: link target 'GONE.md' does not exist"
+    ]
+
+
+def test_grouped_and_double_colon_make_rules_declare_every_target(tmp_path: Path) -> None:
+    root = _tree(tmp_path, "Run `make check-docs`, `make alpha beta` and `make again`.\n")
+    (root / "Makefile").write_text(
+        "check-docs alpha: ## grouped\n\ttrue\nbeta again::\n\ttrue\n"
+        "var := x\nother ?= y\n\tnot-a-rule: z\n",
+        encoding="utf-8",
+    )
+    assert check.run(root) == []
+    (root / "docs/PAGE.md").write_text("Run `make var` and `make not-a-rule`.\n", encoding="utf-8")
+    assert [p.split(": ", 1)[1] for p in check.run(root)] == [
+        "`make not-a-rule` is not a Makefile target",
+        "`make var` is not a Makefile target",
+    ]
+
+
+def test_an_apostrophe_in_a_destination_does_not_open_a_title(tmp_path: Path) -> None:
+    page = "[site](https://example.invalid/it's) and [broken][missing]\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:1: reference [missing] has no definition"
+    ]
+
+
+def test_a_word_split_across_a_continuation_is_one_word(tmp_path: Path) -> None:
+    assert check.run(_tree(tmp_path, "```bash\nmake te\\\nst\n```\n")) == []
+    (tmp_path / "split").mkdir()
+    assert check.run(_tree(tmp_path / "split", "```bash\nmake te\\\n st\n```\n")) == [
+        "docs/PAGE.md:2: `make st` is not a Makefile target",
+        "docs/PAGE.md:2: `make te` is not a Makefile target",
+    ]
+
+
+def test_html_attributes_are_parsed_like_a_browser(tmp_path: Path) -> None:
+    page = (
+        '<img data-src="https://example.invalid/lazy.svg" src="GONE.svg">\n\n'
+        "<img src=GONE2.svg alt=x>\n\n"
+        '<img src="demo&#46;gif"> <a data-href="x" href="TARGET.md#options">o</a>\n'
+    )
+    root = _tree(tmp_path, page, {"docs/demo.gif": ""})
+    assert check.run(root) == [
+        "docs/PAGE.md:1: link target 'GONE.svg' does not exist",
+        "docs/PAGE.md:3: link target 'GONE2.svg' does not exist",
+    ]
+
+
+def test_protocol_relative_urls_are_external(tmp_path: Path) -> None:
+    page = (
+        "![logo](//cdn.example.invalid/logo.svg) "
+        '<img src="//cdn.example.invalid/a.svg"> [x](//example.invalid/page)\n'
+    )
+    assert check.run(_tree(tmp_path, page)) == []
+
+
+def test_continued_shell_lines_are_one_command(tmp_path: Path) -> None:
+    page = "```bash\nmake removed \\\n  VAR=1\nmake \\\n  removed lint\n```\n"
+    assert check.run(_tree(tmp_path, page)) == [
+        "docs/PAGE.md:2: `make removed` is not a Makefile target",
+        "docs/PAGE.md:4: `make removed` is not a Makefile target",
+    ]
+
+
+@pytest.mark.parametrize(
+    "command", ["echo ';' make tset", "echo \\; make tset", 'echo "a && make" tset']
+)
+def test_quoted_or_escaped_separators_are_words(tmp_path: Path, command: str) -> None:
+    assert make_goals(command) == []
+    assert check.run(_tree(tmp_path, f"Run `{command}`.\n")) == []
+
+
+def test_brackets_in_urls_titles_and_comments_are_not_references(tmp_path: Path) -> None:
+    page = (
+        "[search](https://example.invalid/?filter=[a][b]) and\n"
+        '[site](https://example.invalid/ "See [foo][bar]") and\n'
+        "[nested](TARGET.md#options (title [x][y])) <!-- [c][d] --> <https://x.invalid/[e][f]>\n"
     )
     assert check.run(_tree(tmp_path, page)) == []
 
@@ -279,6 +391,13 @@ def test_github_slug_matches_github_rendering() -> None:
         ("make sure", ["sure"]),
         ("cmake build", []),
         ("make 'unbalanced", []),
+        ("make test VAR='value; make removed; tail'", ["test"]),
+        ("make test > test.log", ["test"]),
+        ("make test >> log 2>&1 | tee x", ["test"]),
+        ("make test < in.txt", ["test"]),
+        ("make test 2> err.txt", ["test"]),
+        ("echo make test", []),
+        ("VAR=1 make lint", ["lint"]),
     ],
 )
 def test_make_goals(command: str, goals: list[str]) -> None:

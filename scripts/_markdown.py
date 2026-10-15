@@ -1,4 +1,4 @@
-"""Shared CommonMark helpers for the repository documentation checks (#927).
+"""Shared CommonMark helpers for the repository documentation checks (#927, #939; shared with sqlalchemy-cubrid).
 
 ``markdown-it-py`` parses each file, so fenced code (backtick or tilde, any
 length, inside lists and block quotes), inline code spans of any backtick
@@ -12,9 +12,9 @@ diagnostic and its suppression comment refer to the same line.
 from __future__ import annotations
 
 import re
-import shlex
 import unicodedata
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 
 from markdown_it import MarkdownIt
@@ -22,9 +22,7 @@ from markdown_it.token import Token
 
 _PARSER = MarkdownIt("commonmark").enable("table")
 _ATTR_ID = re.compile(r"\s*\{[^}]*#([\w-]+)[^}]*\}\s*$")
-_HTML_ANCHOR = re.compile(r"<a\s[^>]*?\b(?:id|name)\s*=\s*[\"']([^\"']+)[\"']", re.I)
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-_CONTAINER_PREFIX = re.compile(r"^(?:\s*>)*\s*")
 _BACKTICKS = re.compile(r"`+")
 # A full or collapsed reference link whose brackets are not escaped; an opening
 # bracket after a word character (``rows[0][1]``) is an index, not a link.
@@ -48,7 +46,6 @@ _MAKE_ARG = {
     "--what-if",
 }
 _MAKE_OPTIONAL_NUMBER = {"-j", "-l", "--jobs", "--load-average", "--max-load"}
-_SHELL_SEPARATOR = re.compile(r"&&|\|\||[;|&()\n]")
 
 
 @dataclass(frozen=True)
@@ -132,15 +129,32 @@ def _mask_code_spans(raw: str) -> str:
 def _inline_items(token: Token) -> list[tuple[int, Token]]:
     """Return ``(line offset, child)`` for the children of an inline token.
 
-    Soft and hard breaks start a new line; a code span that spans lines moves
-    the following children down by its newlines, found in the raw source.
+    Soft and hard breaks start a new line. A code span or an inline HTML tag
+    that spans lines moves the following children down by its newlines (found
+    in the raw source for code spans), and a multi-line link or image title
+    moves the children after the link (the title follows the link text).
     """
     raw = token.content
     cursor, offset = 0, 0
+    pending_titles: list[int] = []
     items = []
     for child in token.children or []:
         items.append((offset, child))
-        if child.type in ("softbreak", "hardbreak"):
+        if child.type == "link_open":
+            pending_titles.append(str(child.attrGet("title") or "").count("\n"))
+        elif child.type == "link_close" and pending_titles:
+            offset += pending_titles.pop()
+        elif child.type == "image":
+            alt_breaks = sum(
+                1 for c in child.children or [] if c.type in ("softbreak", "hardbreak")
+            )
+            offset += alt_breaks + str(child.attrGet("title") or "").count("\n")
+        elif child.type == "html_inline":
+            start = raw.find(child.content, cursor)
+            if start >= 0:
+                cursor = start + len(child.content)
+            offset += child.content.count("\n")
+        elif child.type in ("softbreak", "hardbreak"):
             newline = raw.find("\n", cursor)
             if newline >= 0:
                 cursor = newline + 1
@@ -154,29 +168,108 @@ def _inline_items(token: Token) -> list[tuple[int, Token]]:
     return items
 
 
-def _closes(line: str, markup: str) -> bool:
-    """Return whether ``line`` (with block-quote markers removed) closes the fence."""
-    body = _CONTAINER_PREFIX.sub("", line).rstrip()
-    return len(body) >= len(markup) and set(body) == {markup[0]}
+def _unclosed_fences(tokens: list[Token]) -> list[int]:
+    """Return the opening lines of fences that run to the end of their container.
 
-
-def _unclosed_fences(lines: list[str], tokens: list[Token]) -> list[int]:
-    """Return the opening lines of fences that run to the end of their container."""
+    markdown-it maps a closed fence to its opening line, its content lines and
+    its closing line, and an unclosed one to the opening and content lines
+    only. That is exact inside lists and block quotes, and for a line such as
+    ``> ~~~`` or an over-indented ``~~~`` that does not close a top-level fence.
+    """
     unclosed = []
     for token in tokens:
-        if token.type != "fence" or token.map is None or not token.markup:
+        if token.type != "fence" or token.map is None:
             continue
         start, end = token.map
-        if end - 1 <= start or not _closes(lines[end - 1], token.markup):
+        if end - start != len(token.content.splitlines()) + 2:
             unclosed.append(start + 1)
     return unclosed
 
 
+def _blank(text: str) -> str:
+    return re.sub(r"[^\n]", " ", text)
+
+
+def _link_tail_end(raw: str, index: int) -> int:
+    """Return the index after the ``)`` of an inline link tail that starts at ``index``.
+
+    CommonMark: optional whitespace, a destination (``<...>``, or bare text with
+    balanced parentheses and no whitespace, where a quote is an ordinary
+    character), optional whitespace, an optional title (``"..."``, ``'...'`` or
+    ``(...)``, which must follow whitespace), optional whitespace, then ``)``.
+    Backslash escapes are honoured. A malformed tail ends at the first ``)``.
+    """
+    size = len(raw)
+
+    def skip_space(at: int) -> int:
+        while at < size and raw[at] in " \t\n":
+            at += 1
+        return at
+
+    index = skip_space(index)
+    if index < size and raw[index] == "<":
+        index += 1
+        while index < size and raw[index] not in ">\n":
+            index += 2 if raw[index] == "\\" else 1
+        index += 1
+    else:
+        depth = 0
+        while index < size and raw[index] not in " \t\n":
+            char = raw[index]
+            if char == "\\":
+                index += 2
+                continue
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                if depth == 0:
+                    return index + 1
+                depth -= 1
+            index += 1
+    before_title = index
+    index = skip_space(index)
+    if index > before_title and index < size and raw[index] in "\"'(":
+        closer = ")" if raw[index] == "(" else raw[index]
+        index += 1
+        while index < size and raw[index] != closer:
+            index += 2 if raw[index] == "\\" else 1
+        index += 1
+        index = skip_space(index)
+    if index < size and raw[index] == ")":
+        return index + 1
+    end = raw.find(")", before_title)
+    return end + 1 if end >= 0 else size
+
+
+def _mask_link_tails(raw: str) -> str:
+    """Blank inline link destinations and titles: ``](dest "title")``.
+
+    The tail is scanned as CommonMark defines it (``_link_tail_end``), so an
+    apostrophe inside a bare destination does not open a title.
+    """
+    out = list(raw)
+    position = 0
+    while (opening := raw.find("](", position)) >= 0:
+        index = _link_tail_end(raw, opening + 2)
+        for spot in range(opening + 1, min(index, len(raw))):
+            if out[spot] != "\n":
+                out[spot] = " "
+        position = index
+    return "".join(out)
+
+
 def _undefined_references(token: Token, defined: set[str]) -> list[Link]:
-    """Return unescaped ``[text][label]`` uses, outside code, whose label is undefined."""
+    """Return unescaped ``[text][label]`` uses, outside code, whose label is undefined.
+
+    Code spans, HTML (tags, autolinks, comments) and inline link destinations
+    and titles are blanked first, so brackets in a URL or a title are not links.
+    """
     if token.map is None:
         return []
     raw = _mask_code_spans(token.content)
+    raw = _HTML_COMMENT.sub(lambda m: _blank(m.group(0)), raw)
+    raw = re.sub(r"<[^<>\n]*>", lambda m: _blank(m.group(0)), raw)
+    raw = _mask_link_tails(raw)
     found = []
     for match in _REFERENCE.finditer(raw):
         label = " ".join((match.group(2) or match.group(1)).split()).casefold()
@@ -186,15 +279,52 @@ def _undefined_references(token: Token, defined: set[str]) -> list[Link]:
     return found
 
 
+class _HtmlAttributes(HTMLParser):
+    """Collect link targets and ``<a>`` anchors from HTML, as a browser parses it.
+
+    The standard library parser reads quoted and unquoted attribute values,
+    decodes entities and skips comments, so ``data-src`` is not ``src``.
+    """
+
+    TARGETS = {"a": "href", "img": "src", "source": "src"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.targets: list[tuple[int, str]] = []
+        self.anchors: set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {name: value for name, value in attrs if value is not None}
+        wanted = self.TARGETS.get(tag)
+        if wanted and values.get(wanted):
+            self.targets.append((self.getpos()[0], values[wanted]))
+        if tag == "a":
+            self.anchors |= {values[name] for name in ("id", "name") if values.get(name)}
+
+    handle_startendtag = handle_starttag
+
+
+def _html_parse(source: str) -> _HtmlAttributes:
+    parser = _HtmlAttributes()
+    parser.feed(source)
+    parser.close()
+    return parser
+
+
+def _html_targets(line: int, source: str) -> list[Link]:
+    """Return ``href``/``src`` targets of HTML, outside comments, with their lines."""
+    return [Link(line + row - 1, target) for row, target in _html_parse(source).targets]
+
+
 def _html_anchors(tokens: list[Token]) -> set[str]:
     """Return ``<a id>``/``<a name>`` anchors of HTML blocks and inline HTML, not comments."""
-    found = set()
+    found: set[str] = set()
     for token in tokens:
         sources = [token.content] if token.type == "html_block" else []
         if token.type == "inline":
             sources += [c.content for c in token.children or [] if c.type == "html_inline"]
         for source in sources:
-            found |= set(_HTML_ANCHOR.findall(_HTML_COMMENT.sub("", source)))
+            found |= _html_parse(source).anchors
     return found
 
 
@@ -220,7 +350,10 @@ def parse(path: Path) -> Parsed:
             continue
         line = token.map[0] + 1
         if token.type == "fence":
-            code += [(line + 1 + n, body) for n, body in enumerate(token.content.splitlines())]
+            code += _logical_lines(line + 1, token.content.splitlines())
+            continue
+        if token.type == "html_block":
+            links += _html_targets(line, token.content)
             continue
         if token.type != "inline":
             continue
@@ -231,6 +364,8 @@ def parse(path: Path) -> Parsed:
                 links.append(Link(line + offset, str(child.attrGet("src") or "")))
             elif child.type == "code_inline":
                 code.append((line + offset, child.content))
+            elif child.type == "html_inline":
+                links += _html_targets(line + offset, child.content)
         undefined += _undefined_references(token, defined)
         if index and tokens[index - 1].type == "heading_open":
             heading = _inline_text(token).strip()
@@ -253,8 +388,30 @@ def parse(path: Path) -> Parsed:
         undefined_references=undefined,
         anchors=anchors,
         code=sorted(code),
-        unclosed_fences=_unclosed_fences(lines, tokens),
+        unclosed_fences=_unclosed_fences(tokens),
     )
+
+
+def _logical_lines(first: int, lines: list[str]) -> list[tuple[int, str]]:
+    """Join backslash-continued lines into one command, reported at its first line.
+
+    The shell removes the backslash-newline pair and nothing else, so the
+    fragments are concatenated as they are: ``check-\\`` + ``all`` is ``check-all``.
+    """
+    result: list[tuple[int, str]] = []
+    start, parts = first, []
+    for number, line in enumerate(lines, first):
+        if not parts:
+            start = number
+        if line.rstrip().endswith("\\"):
+            parts.append(line.rstrip()[:-1])
+            continue
+        parts.append(line)
+        result.append((start, "".join(parts)))
+        parts = []
+    if parts:
+        result.append((start, "".join(parts)))
+    return result
 
 
 def _definition_line(lines: list[str], label: str) -> int:
@@ -265,42 +422,104 @@ def _definition_line(lines: list[str], label: str) -> int:
     return 1
 
 
-def _words(segment: str) -> list[str]:
-    try:
-        return shlex.split(segment, comments=True)
-    except ValueError:  # an unbalanced quote: fall back to whitespace words
-        return segment.split("#", 1)[0].split()
+_OPERATOR_CHARS = frozenset(";&|()<>")
+
+
+def _shell_tokens(command: str) -> list[tuple[str, bool]]:
+    """Split a shell command into ``(text, is_operator)`` tokens.
+
+    Quotes and backslashes make text literal, so a quoted or escaped ``;`` is
+    a word, not a separator. ``#`` starts a comment at the start of a word.
+    An unbalanced quote means the text is not a shell command: no tokens.
+    """
+    tokens: list[tuple[str, bool]] = []
+    word: list[str] = []
+    in_word = False
+    index, size = 0, len(command)
+
+    def flush() -> None:
+        nonlocal in_word
+        if in_word:
+            tokens.append(("".join(word), False))
+            word.clear()
+            in_word = False
+
+    while index < size:
+        char = command[index]
+        if char in " \t\n":
+            flush()
+            index += 1
+        elif char == "#" and not in_word:
+            break
+        elif char == "\\":
+            word.append(command[index + 1 : index + 2])
+            in_word = True
+            index += 2
+        elif char in "'\"":
+            end = index + 1
+            while end < size and command[end] != char:
+                end += 2 if char == '"' and command[end] == "\\" else 1
+            if end >= size:
+                return []
+            text = command[index + 1 : end]
+            word.append(re.sub(r'\\(["\\$`])', r"\1", text) if char == '"' else text)
+            in_word = True
+            index = end + 1
+        elif char in _OPERATOR_CHARS:
+            flush()
+            end = index
+            while end < size and command[end] in _OPERATOR_CHARS:
+                end += 1
+            tokens.append((command[index:end], True))
+            index = end
+        else:
+            word.append(char)
+            in_word = True
+            index += 1
+    flush()
+    return tokens
 
 
 def make_goals(command: str) -> list[str]:
     """Return the explicit goals of every ``make`` invocation in a command line.
 
-    Shell separators (``;``, ``&&``, ``||``, ``|``, ``&``, parentheses,
-    newlines) split invocations, with or without spaces. Options are skipped
-    with their arguments (``-C dir``, ``--directory=dir``, ``-j 4``), and
-    ``VAR=value`` assignments are skipped; every other operand is a goal.
+    Separators (``;``, ``&&``, ``||``, ``|``, ``&``, parentheses) end an
+    invocation, with or without spaces, but only outside quotes. Redirections
+    (``>``, ``2>&1``, ``<``) are skipped with their operand, options with
+    their arguments (``-C dir``, ``--directory=dir``, ``-j 4``), and
+    ``VAR=value`` assignments; every other operand is a goal.
     """
     goals = []
-    for segment in _SHELL_SEPARATOR.split(command):
-        words = _words(segment)
-        if not words or words[0] != "make":
+    tokens = _shell_tokens(command)
+    # ``make`` counts only as the command word of a simple command, after any
+    # ``VAR=value`` prefixes: ``echo make test`` names no goal.
+    index, in_make, at_start = 0, False, True
+    while index < len(tokens):
+        token, operator = tokens[index]
+        index += 1
+        if operator:
+            if "<" in token or ">" in token:
+                index += 1  # the redirection's operand
+            else:
+                in_make, at_start = False, True
             continue
-        index = 1
-        while index < len(words):
-            word = words[index]
+        if not in_make:
+            if at_start and "=" in token and not token.startswith("-"):
+                continue  # an environment prefix: the command word is still ahead
+            in_make, at_start = at_start and token == "make", False
+            continue
+        if token in _MAKE_ARG:
             index += 1
-            if word in _MAKE_ARG:
+        elif token in _MAKE_OPTIONAL_NUMBER:
+            if index < len(tokens) and tokens[index][0].isdigit():
                 index += 1
-            elif word in _MAKE_OPTIONAL_NUMBER:
-                if index < len(words) and words[index].isdigit():
-                    index += 1
-            elif word.startswith("-") or "=" in word:
-                continue
-            elif _MAKE_GOAL.match(word):
-                goals.append(word)
+        elif token.startswith("-") or "=" in token:
+            continue
+        elif _MAKE_GOAL.match(token):
+            goals.append(token)
     return goals
 
 
 def is_external(target: str) -> bool:
-    """Return whether a link target has a URI scheme (``https:``, ``mailto:`` ...)."""
-    return bool(re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:", target))
+    """Return whether a target is a URL: a scheme (``https:``, ``mailto:``) or ``//host``."""
+    return target.startswith("//") or bool(re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:", target))

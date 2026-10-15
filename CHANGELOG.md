@@ -51,6 +51,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **The documentation check closes its parser gaps (#939)** — `scripts/_markdown.py` now
+  matches sqlalchemy-cubrid's reviewed parser (cubrid-lab/sqlalchemy-cubrid#919), plus the
+  four cases of cubrid-lab/sqlalchemy-cubrid#921:
+  - HTML `href`/`src` targets are checked with the standard HTML parser (entities,
+    unquoted values; `data-*` and comments ignored);
+  - fence closure is exact, so `> ~~~` or an over-indented `~~~` no longer closes a
+    top-level fence;
+  - brackets in link destinations, titles and HTML comments are not references, even
+    after an apostrophe in a bare destination;
+  - `make` goals come from a quote-aware shell lexer that skips redirections and joins
+    backslash-continued lines without adding a space;
+  - protocol-relative URLs are external;
+  - grouped Makefile rules declare every target;
+  - findings after multi-line HTML tags and link titles keep their exact line.
+
+  The quickstart video's site-relative `<source src>` is marked as a reviewed exception.
+
 - **Deterministic documentation defects block the merge (#927)** — a new `docs-check` job
   in `ci.yml` runs `scripts/check_docs_links.py` and `scripts/check_agents_docs.py` on every
   tracked Markdown file when Markdown, `scripts/` or the `Makefile` change, and the `CI Gate`
