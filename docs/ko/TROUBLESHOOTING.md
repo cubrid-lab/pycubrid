@@ -199,6 +199,11 @@ TimeoutError: [Errno 110] Connection timed out
 socket.timeout: timed out
 ```
 
+요청 I/O에서 동기 `read_timeout`은 각 소켓 작업에 적용되므로, 응답이 조금씩
+도착하고 개별 수신 작업이 타임아웃되지 않으면 전체 응답 시간은 설정값을 초과할 수 있습니다.
+비동기 `read_timeout`은 요청을 보내고 전체 응답을 받는 왕복 시간에 적용됩니다.
+자세한 내용은 [타임아웃이 제한하는 범위](CONNECTION.md#what-the-timeouts-bound)를 참고하세요.
+
 **해결:**
 
 1. **느린 네트워크를 위한 타임아웃 증가**:

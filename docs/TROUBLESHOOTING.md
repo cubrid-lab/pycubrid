@@ -197,6 +197,11 @@ TimeoutError: [Errno 110] Connection timed out
 socket.timeout: timed out
 ```
 
+For request I/O, sync `read_timeout` applies to each socket operation, so a reply
+arriving slowly in pieces can take longer than that duration if no individual
+receive times out. Async `read_timeout` bounds the whole request round trip.
+See [What the timeouts bound](CONNECTION.md#what-the-timeouts-bound) for details.
+
 **Fixes:**
 
 1. **Increase timeout** for slow networks:
