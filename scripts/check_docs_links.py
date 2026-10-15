@@ -43,8 +43,9 @@ IGNORE = "<!-- docs-check: ignore -->"
 HISTORY = frozenset({"CHANGELOG.md", "RELEASE_CHANGELOG.md"})
 _SCRIPT = re.compile(r"(?<![\w/.-])scripts/[A-Za-z0-9_./-]+\.(?:py|cjs|sh)\b")
 # A rule line: one or more targets, then ``:`` or ``::``, but not an assignment
-# (``:=``, ``::=``). Recipe lines start with a tab and are not rules.
-_MAKE_RULE = re.compile(r"^([^\t#=:][^#=:]*?)\s*::?(?!=)")
+# (``:=``, ``::=``): after the colons comes neither ``=`` nor another ``:``.
+# Recipe lines start with a tab and are not rules.
+_MAKE_RULE = re.compile(r"^([^\t#=:][^#=:]*?)\s*::?(?![=:])")
 
 
 def make_targets(text: str) -> set[str]:
