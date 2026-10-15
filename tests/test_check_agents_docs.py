@@ -71,7 +71,8 @@ def test_missing_anchor_is_reported(tmp_path: Path) -> None:
     guide = GUIDE.replace("#release-process", "#release-processes")
     (problem,) = check.run(_tree(tmp_path, guide=guide))
     assert problem == (
-        "docs/agents/protocol.md:3: anchor #release-processes is not a heading of AGENTS.md"
+        "docs/agents/protocol.md:3: anchor #release-processes is not a heading or anchor of "
+        "AGENTS.md; did you mean 'release-process'?"
     )
 
 
@@ -92,8 +93,8 @@ def test_titled_links_are_checked(tmp_path: Path) -> None:
         root_doc + "\nSee [gone](docs/GONE.md 'title') and [x](<docs/agents/protocol.md#nope>).\n"
     )
     assert check.run(_tree(tmp_path / "broken", broken)) == [
+        "AGENTS.md:13: anchor #nope is not a heading or anchor of docs/agents/protocol.md",
         "AGENTS.md:13: link target 'docs/GONE.md' does not exist",
-        "AGENTS.md:13: anchor #nope is not a heading of docs/agents/protocol.md",
     ]
 
 
@@ -115,13 +116,66 @@ def test_guide_named_only_in_code_is_not_reachable(tmp_path: Path) -> None:
     "owner",
     [
         "`[support matrix](../SUPPORT_MATRIX.md)`",
-        "\n```\n[support matrix](../SUPPORT_MATRIX.md)\n```",
+        "\n```\n[support matrix](../SUPPORT_MATRIX.md)\n```\n",
     ],
 )
 def test_version_owner_link_in_code_does_not_count(tmp_path: Path, owner: str) -> None:
-    guide = GUIDE.replace("[support matrix](../SUPPORT_MATRIX.md)", owner)
+    # The fence closes on its own line; "```." would leave it open (CommonMark).
+    guide = GUIDE.replace("; see the [support matrix](../SUPPORT_MATRIX.md).", owner)
     (problem,) = check.run(_tree(tmp_path, guide=guide))
     assert "names 'CUBRID 10.2' but links neither" in problem
+
+
+def test_reference_style_links_are_resolved(tmp_path: Path) -> None:
+    valid = (
+        ROOT_DOC.replace(
+            "[Wire protocol guide](docs/agents/protocol.md#wire-protocol-summary)",
+            "[Wire protocol guide][protocol]",
+        )
+        + "\n[protocol]: docs/agents/protocol.md#wire-protocol-summary\n"
+    )
+    assert check.run(_tree(tmp_path, valid)) == []
+    broken = valid + "\nSee [the guide][gone] and [x][missing].\n\n[gone]: docs/GONE.md\n"
+    assert check.run(_tree(tmp_path / "broken", broken)) == [
+        "AGENTS.md:15: link target 'docs/GONE.md' does not exist",
+        "AGENTS.md:15: reference [missing] has no definition",
+        "AGENTS.md:17: link target 'docs/GONE.md' does not exist",
+    ]
+
+
+def test_reference_definition_without_a_use_is_not_a_link(tmp_path: Path) -> None:
+    unused = (
+        ROOT_DOC.replace(
+            "[Wire protocol guide](docs/agents/protocol.md#wire-protocol-summary)", "Protocol"
+        )
+        + "\n[protocol]: docs/agents/protocol.md\n"
+    )
+    assert check.run(_tree(tmp_path, unused)) == [
+        "docs/agents/protocol.md: not linked from AGENTS.md"
+    ]
+
+
+def test_multi_backtick_code_spans_are_code(tmp_path: Path) -> None:
+    root_doc = (
+        ROOT_DOC.replace(
+            "[Wire protocol guide](docs/agents/protocol.md#wire-protocol-summary)",
+            "``[Wire protocol guide](docs/agents/protocol.md)``",
+        )
+        + "\nAn example: ``[x](docs/NOPE.md) with a ` backtick``.\n"
+    )
+    assert check.run(_tree(tmp_path, root_doc)) == [
+        "docs/agents/protocol.md: not linked from AGENTS.md"
+    ]
+
+
+def test_prose_make_is_not_a_command_but_every_goal_is_checked(tmp_path: Path) -> None:
+    extra = (
+        "\nBefore editing, make sure the server is up; make good use of it.\n"
+        "\nRun `make test tset` or `make -j2 -C . tset VAR=1`.\n"
+    )
+    assert check.run(_tree(tmp_path, ROOT_DOC + extra)) == [
+        "AGENTS.md:15: `make tset` is not a Makefile target; did you mean 'test'?"
+    ]
 
 
 def test_guide_not_linked_from_root_is_reported(tmp_path: Path) -> None:
@@ -133,7 +187,7 @@ def test_guide_not_linked_from_root_is_reported(tmp_path: Path) -> None:
 def test_unknown_make_target_and_missing_script_are_reported(tmp_path: Path) -> None:
     root = _tree(tmp_path, ROOT_DOC + "\n```bash\nmake tset\npython scripts/missing.py\n```\n")
     assert check.run(root) == [
-        "AGENTS.md:14: `make tset` is not a Makefile target",
+        "AGENTS.md:14: `make tset` is not a Makefile target; did you mean 'test'?",
         "AGENTS.md:15: scripts/missing.py does not exist",
     ]
 
@@ -144,10 +198,14 @@ def test_version_without_an_owning_document_link_is_reported(tmp_path: Path) -> 
     assert problem.startswith("docs/agents/protocol.md:7: names 'CUBRID 10.2' but links neither")
 
 
-def test_duplicate_headings_get_github_suffixes(tmp_path: Path) -> None:
+def test_duplicate_headings_get_github_and_site_suffixes(tmp_path: Path) -> None:
     path = tmp_path / "x.md"
-    path.write_text("# A\n## Same\n## Same\n```\n## Not a heading\n```\n", encoding="utf-8")
-    assert check.anchors(path) == {"a", "same", "same-1"}
+    path.write_text(
+        "# A\n## Same\n## Same\n## Same-1\n```\n## Not a heading\n```\n", encoding="utf-8"
+    )
+    # GitHub skips a suffix another heading already took: same, same-1, same-1-1.
+    # The MkDocs site suffixes duplicates with _1 instead.
+    assert check.anchors(path) == {"a", "same", "same-1", "same-1-1", "same_1"}
     assert check.slugify("Development Workflow (cubrid-lab org standard)") == (
         "development-workflow-cubrid-lab-org-standard"
     )

@@ -142,7 +142,9 @@ Oracle/에이전트 검토, 통합 검증과 릴리스 분류를 조율합니다
 다시 생성하세요. 이 명령은 표준 `docs/llms.txt` 인덱스도 루트 `llms.txt`에
 복사합니다. `docs/llms.txt`만 편집하고, 생성 파일 중 하나라도 오래되면 CI가
 실패합니다. 고정된 도구(`pip install --group docs`)를 설치한 뒤
-기존 사이트 검사 `mkdocs build --strict`를 실행하세요. AI 검토 의견과 실제로
+기존 사이트 검사 `mkdocs build --strict`를 실행하세요.
+`python scripts/check_docs_links.py`는 필수 `docs-check` CI 작업처럼 깨진 로컬 링크,
+앵커, 닫히지 않은 코드 펜스와 없는 명령을 보고합니다. AI 검토 의견과 실제로
 실행한 명령은 별개입니다. 빠진 검증과 기존 경고를 포함해 모두 정확히 보고하세요.
 
 메인테이너는 검토한 upstream 커밋 SHA로 공유 워크플로 호출부를 갱신합니다.

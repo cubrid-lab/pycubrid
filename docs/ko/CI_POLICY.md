@@ -374,6 +374,37 @@ uv 설정, 버전 기록, 그리고 이 워크플로들에 다른 `pip install`�
 허용하므로, 필수 `CI Gate` 검사가 깨진 문서 빌드를 막습니다.
 `tests/test_ci_policy.py`와 `tests/test_workflow_path_impact.py`가 이를 검증합니다.
 
+스크립트로 확인할 수 있는 문서 결함도 병합을 막습니다(#927). `docs-check` 작업은
+추적되는 모든 Markdown 파일에 `scripts/check_docs_links.py`와
+`scripts/check_agents_docs.py`를 실행합니다. `docs` 필터(`**/*.md`, `docs/**`) 또는
+`tooling` 필터(`scripts/**`, `Makefile` 등)가 선택될 때 실행되는데, 스크립트나 make
+타깃을 제거하면 그 이름을 쓰는 문서가 깨지기 때문입니다. 다음 경우에 `file:line`과,
+비슷한 후보가 있으면 수정 제안을 출력하며 실패합니다.
+
+- 대상이 없거나, 절대 경로이거나, 저장소 밖을 가리키는 상대 링크나 이미지
+- 대상 Markdown 파일의 제목(GitHub 또는 사이트 슬러그, `{#id}`)이나
+  `<a id>`/`<a name>`이 아닌 `#앵커`
+- 정의가 없는 참조 링크 `[text][label]`, 닫히지 않은 코드 펜스
+- 인라인 코드나 펜스 블록에 쓴 `make` 목표 중 Makefile에 없는 것, 존재하지 않는
+  `scripts/` 경로. 릴리스 기록(`CHANGELOG.md`, `RELEASE_CHANGELOG.md`)은 당시의 명령을
+  그대로 두므로 링크만 확인합니다.
+
+Markdown은 CommonMark로 파싱하므로(`docs` 그룹에 고정된 `markdown-it-py`) 코드 안의
+링크는 예시로 취급합니다. 검토한 오탐은 보고된 줄이나 그 앞 줄에
+`<!-- docs-check: ignore -->`로 표시합니다. 이 작업은 네트워크 연결을 열지 않으며 검사는
+약 1초 걸립니다. `CI Gate`는 두 필터 중 하나가 선택된 경우에만 `docs-check`의 성공을
+요구하고 그 외에는 건너뜀을 허용하므로, 문서만 바꾼 풀 리퀘스트는 여전히 CUBRID 런타임
+레인을 건너뜁니다. `tests/test_check_docs_links.py`에 통과·실패 픽스처가 있습니다.
+
+공유 `doc-lint` 워크플로는 권고용으로 남습니다(`fail-on-issue: false`): markdownlint
+스타일, Mermaid 문법 검사, 공유 링크 검사기입니다. #936 헤드(2026-10-15)의 결과가 그
+이유입니다. markdownlint는 스타일 결과 2,605건(그중 2,014건이 표 스타일 MD060)을 보고했고,
+Mermaid 검사는 올바르게 렌더링되는 따옴표 레이블 하나에 4건을 보고했으며, lychee는
+`--exclude-mail` 인수에서 종료되어 링크를 하나도 확인하지 않았습니다.
+`fail-on-issue: true`로 바꾸면 이 모두가 게이트가 되므로 끈 채로 둡니다. 외부 링크는 풀
+리퀘스트에서 확인하지 않습니다. `docs-sync`, 한국어 번역 검사, `mkdocs build --strict`,
+공개 API 검사는 각자의 게이트를 유지하며 `docs-check`는 이를 반복하지 않습니다.
+
 `codeql.yml`과 `security.yml`은 호출부 수준 `concurrency`를 선언합니다. 그룹은
 `${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}`, 설정은
 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`입니다(#783). 풀

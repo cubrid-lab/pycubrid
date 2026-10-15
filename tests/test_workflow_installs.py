@@ -20,7 +20,7 @@ UV_ACTION = "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884"
 UV_VERSION = "0.12.17"
 # The release gate keeps setup-uv's event guard (`auto`); routine CI always caches.
 WORKFLOWS = {"ci.yml": True, "integration-full.yml": "auto"}
-EXPECTED_JOBS = {"ci.yml": 11, "integration-full.yml": 10}
+EXPECTED_JOBS = {"ci.yml": 12, "integration-full.yml": 10}
 PIP_INSTALL = re.compile(r"\bpip3?\s+install\b")
 PIP_SMOKE_ALLOWED = ("/tmp/test-wheel/bin/pip install", "/tmp/test-sdist/bin/pip install")
 

@@ -396,6 +396,38 @@ and `persist-credentials: false`; it never uploads a Pages artifact or deploys. 
 skip otherwise, so the required `CI Gate` check blocks a broken docs build.
 `tests/test_ci_policy.py` and `tests/test_workflow_path_impact.py` enforce this.
 
+Documentation defects that a script can verify also block the merge (#927). The
+`docs-check` job runs `scripts/check_docs_links.py` and `scripts/check_agents_docs.py`
+on every tracked Markdown file. It is selected by the `docs` filter (`**/*.md`,
+`docs/**`) or the `tooling` filter (`scripts/**`, `Makefile`, ...), because a removed
+script or make target strands the documents that name it. It fails, printing `file:line`
+and a suggested fix when one is close, on:
+
+- a relative link or image whose target is missing, absolute or outside the repository;
+- an `#anchor` that is not a heading (its GitHub or site slug, or `{#id}`) or an
+  `<a id>`/`<a name>` of the target Markdown file;
+- a reference link `[text][label]` without a definition, and an unclosed code fence;
+- a `make` goal written in inline code or a fenced block that the Makefile does not
+  define, and a `scripts/` path that does not exist. Release history (`CHANGELOG.md`,
+  `RELEASE_CHANGELOG.md`) keeps the commands of its time, so only its links are checked.
+
+Markdown is parsed as CommonMark (`markdown-it-py`, pinned in the `docs` group), so links
+in code are examples. A reviewed false positive is marked with
+`<!-- docs-check: ignore -->` on the reported line or the line before it. The job never
+opens a network connection and the check takes about one second. The `CI Gate` expects
+`docs-check` to succeed exactly when either filter is selected and accepts a skip
+otherwise, so a docs-only pull request still skips the CUBRID runtime lanes.
+`tests/test_check_docs_links.py` holds the passing and failing fixtures.
+
+The shared `doc-lint` workflow stays advisory (`fail-on-issue: false`): markdownlint style,
+the Mermaid syntax scan and the shared link checker. Their findings on the #936 head
+(2026-10-15) are why: markdownlint reported 2,605 style findings, 2,014 of them table
+style (MD060); the Mermaid scan reported 4 on one quoted label that renders correctly;
+and lychee exited on its `--exclude-mail` argument without checking a link. Setting
+`fail-on-issue: true` would gate all of these, so it stays off. External links are not
+checked on pull requests. `docs-sync`, the Korean translation check, `mkdocs build --strict`
+and the public API check keep their own gates; `docs-check` does not repeat them.
+
 `codeql.yml` and `security.yml` declare caller-level `concurrency` with group
 `${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}` and
 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` (#783): a new push to a

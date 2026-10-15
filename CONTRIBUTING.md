@@ -158,7 +158,9 @@ When changing docs, regenerate `docs/llms-full.txt` with
 `docs/llms.txt` index to the root `llms.txt`; edit only `docs/llms.txt`, and CI
 fails if either generated file is stale) and run the existing site check
 `mkdocs build --strict` after installing its documented tooling
-(`pip install --group docs`). AI review feedback is separate from commands
+(`pip install --group docs`). `python scripts/check_docs_links.py` reports broken local
+links, anchors, unclosed code fences and missing commands, as the required `docs-check`
+CI job does. AI review feedback is separate from commands
 actually executed; report both accurately, including gaps and existing warnings.
 
 Maintainers update shared workflow callers through a reviewed upstream commit SHA:

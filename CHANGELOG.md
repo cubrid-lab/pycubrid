@@ -48,6 +48,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   release is tagged. sqlalchemy-cubrid documents the same recovery
   (cubrid-lab/sqlalchemy-cubrid#912).
 
+
+### CI
+
+- **Deterministic documentation defects block the merge (#927)** — a new `docs-check` job
+  in `ci.yml` runs `scripts/check_docs_links.py` and `scripts/check_agents_docs.py` on every
+  tracked Markdown file when Markdown, `scripts/` or the `Makefile` change, and the `CI Gate`
+  requires it then. It fails with `file:line` and a suggested fix on:
+  - a missing, absolute or out-of-repository relative link target;
+  - an anchor that is not a heading or `<a id>` of its target;
+  - an undefined reference link, or an unclosed code fence;
+  - a `make` goal or `scripts/` path in a command that does not exist.
+
+  Release history keeps its old commands. Markdown is parsed as CommonMark with
+  `markdown-it-py` (pinned in the `docs` group), and `check_agents_docs.py` now uses the same
+  parser: reference links count where they are used, duplicate-heading anchors follow
+  GitHub and the site, and `make` in prose is not a command. External links are never
+  fetched. The shared `doc-lint` workflow stays advisory; its style, Mermaid and link findings
+  are recorded in `docs/CI_POLICY.md`. `<!-- docs-check: ignore -->` marks a reviewed false
+  positive.
+
 ## [1.13.0] - 2026-10-14
 
 ### Upgrade notes

@@ -52,6 +52,8 @@ test = [
     # specifiers); tests/test_workflow_pins.py keeps this list complete.
     "packaging",
     "pyyaml",
+    # scripts/check_docs_links.py and check_agents_docs.py parse Markdown (#927).
+    "markdown-it-py>=4",
 ]
 lint = [
     "ruff==0.17.0",
@@ -69,6 +71,8 @@ docs = [
     "mkdocs==1.6.1",
     "mkdocs-material==9.7.7",
     "pymdown-extensions==12.1",
+    # The deterministic documentation checks in the docs-check CI job (#927).
+    "markdown-it-py==4.2.0",
 ]
 mutation = [
     "mutmut>=3.8,<4",

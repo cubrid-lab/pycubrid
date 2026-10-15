@@ -203,6 +203,41 @@ jobs:
       exclude: "node_modules/,vendor/"
       fail-on-issue: false  # advisory mode during initial rollout
 
+  docs-check:
+    # #927: deterministic documentation defects block the merge; the shared
+    # doc-lint above stays advisory for style. Broken local links and anchors,
+    # undefined references, unclosed fences, and make goals or scripts/ paths
+    # that do not exist. No network: external links are never fetched. Runs on
+    # Markdown changes and on scripts/Makefile changes that can strand a doc.
+    name: Documentation links and references
+    needs: detect-changes
+    if: needs.detect-changes.outputs.docs == 'true' || needs.detect-changes.outputs.tooling == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          cache-suffix: ${{ github.job }}
+      - name: Install the pinned documentation tools
+        run: |
+          uv pip install --system --group docs
+          uv pip freeze --system
+      - name: Check local links, anchors, fences and commands
+        run: python scripts/check_docs_links.py
+      - name: Check the agent guidance
+        run: python scripts/check_agents_docs.py
+
 
   docs-build:
     # #786: build the site on pull requests exactly as docs.yml does on main, so a
@@ -873,7 +908,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validate-target, detect-changes, lint, doc-lint, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, docs-build, compat-check, integration-charset, integration-tls, official-differential]
+    needs: [validate-target, detect-changes, lint, doc-lint, docs-check, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, docs-build, compat-check, integration-charset, integration-tls, official-differential]
     steps:
       - name: Check selected job results
         env:
@@ -885,6 +920,8 @@ jobs:
           E_LINT: 'true'
           R_DOC_LINT: ${{ needs.doc-lint.result }}
           E_DOC_LINT: ${{ needs.detect-changes.outputs.docs }}
+          R_DOCS_CHECK: ${{ needs.docs-check.result }}
+          E_DOCS_CHECK: ${{ needs.detect-changes.outputs.docs == 'true' || needs.detect-changes.outputs.tooling == 'true' }}
           R_TYPECHECK: ${{ needs.typecheck.result }}
           E_TYPECHECK: ${{ needs.detect-changes.outputs.code }}
           R_OFFLINE_TESTS: ${{ needs.offline-tests.result }}
@@ -919,6 +956,7 @@ jobs:
           check detect-changes "$R_DETECT_CHANGES" "$E_DETECT_CHANGES"
           check lint "$R_LINT" "$E_LINT"
           check doc-lint "$R_DOC_LINT" "$E_DOC_LINT"
+          check docs-check "$R_DOCS_CHECK" "$E_DOCS_CHECK"
           check typecheck "$R_TYPECHECK" "$E_TYPECHECK"
           check offline-tests "$R_OFFLINE_TESTS" "$E_OFFLINE_TESTS"
           check packaging-smoke-test "$R_PACKAGING_SMOKE_TEST" "$E_PACKAGING_SMOKE_TEST"
