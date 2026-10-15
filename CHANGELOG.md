@@ -68,6 +68,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **`agent-review` no longer counts empty reply-only Copilot records as review rounds
+  (#948)** — a Copilot record with no body and no thread-opening comment, such as a reply
+  to an existing thread, is now ignored like an error or quota notice instead of counting
+  as a summary-only round, which could put a PR past the two-round budget and reject valid
+  evidence. A record that opens a thread still counts. Ported unchanged from
+  cubrid-lab/cubrid-mcp-server#349, so the gate copies stay identical outside their
+  constants.
 - **The documentation check converges with sqlalchemy-cubrid's parser (#941)** —
   `scripts/_markdown.py` takes sqlalchemy-cubrid's reviewed parser
   (cubrid-lab/sqlalchemy-cubrid#922, cubrid-lab/sqlalchemy-cubrid#924,
