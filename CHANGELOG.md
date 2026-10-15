@@ -31,6 +31,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **Agent guidance split into task guides (#926)** — the root `AGENTS.md` (733 lines,
+  45,359 bytes) keeps the project overview, commands, code conventions and every review,
+  release, issue, label, documentation and commit rule, and gains a task routing table. The
+  architecture map, wire protocol summary, CI and test layout, documentation map and
+  performance pointers moved unchanged to `docs/agents/`. The root file is now 402 lines and
+  25,807 bytes. `scripts/check_agents_docs.py` checks the links, anchors, guide reachability,
+  `make` targets and script paths of these files, and with `--retained-from REF` that no
+  line of an earlier `AGENTS.md` was dropped. No code, CI or release behavior changes.
+
 - **Abandoned release without a tag** — RELEASING.md's abandoned-version recovery now says
   to set the top-level `last-release-sha` in `release-please-config.json` to the abandoned
   merge SHA before preparing the next release. Otherwise release-please 17.6.0 falls back to
