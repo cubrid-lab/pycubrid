@@ -806,6 +806,9 @@ def _parse_cell_type(reader: PacketReader, size: int) -> tuple[int, int]:
     return column_type, size - header_size
 
 
+_LOB_COLUMN_TYPES = frozenset((CUBRIDDataType.BLOB, CUBRIDDataType.CLOB))
+
+
 def _check_row_data_bounds(
     reader: PacketReader,
     rows_start: int,
@@ -818,7 +821,8 @@ def _check_row_data_bounds(
     A size past the end of the reply raises ``ValueError`` from ``_skip_bytes``
     (#383), and a fixed-width value whose size disagrees with its width raises
     too (#523). ``typed`` marks CALL/NULL-typed columns, whose cells start with
-    their own one- or two-byte type header, counted in the size (#542).
+    their own one- or two-byte type header, counted in the size (#542). A
+    BLOB/CLOB cell is decoded, which checks its packed handle (#933).
     """
     reader.seek(rows_start)
     for _ in range(tuple_count):
@@ -833,7 +837,10 @@ def _check_row_data_bounds(
                 if size == 0:
                     continue
             _check_cell_size(column_type, size)
-            reader._skip_bytes(size)
+            if column_type in _LOB_COLUMN_TYPES:
+                reader._read_lob(size, CUBRIDDataType(column_type))
+            else:
+                reader._skip_bytes(size)
 
 
 def _deferred_value_reader(

@@ -23,7 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   was accepted and returned with a wrong or shortened locator. These now raise `ValueError`
   (a header shorter than 16 bytes, already rejected through `struct.error`, does too), which the connection
   reports as `OperationalError('malformed response from broker')` and closes, as for other
-  framing damage (#383). The rules follow the CUBRID 10.2 and 11.4 broker source
+  framing damage (#383), even when an earlier cell of the reply holds a value that would raise
+  `DataError`. The rules follow the CUBRID 10.2 and 11.4 broker source
   (`add_res_data_lob_handle`) and live handles from both versions. Valid handles, a value
   without an external file (size `-1`, empty locator) and bytes after the cell are
   unchanged.

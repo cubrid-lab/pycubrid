@@ -219,11 +219,11 @@ class TestPackedHandleFraming:
         """Live handles: DB_TYPE 33/34, locator fills the cell, NUL-terminated (#933)."""
         table = _tbl()
         try:
-            cursor.execute("CREATE TABLE %s (b BLOB, c CLOB)" % table)
-            cursor.execute("INSERT INTO %s VALUES (?, ?)" % table, (b"\x01\x02\x03", "hello"))
-            cursor.execute("INSERT INTO %s VALUES (?, ?)" % table, (b"", ""))
+            cursor.execute("CREATE TABLE %s (id INT, b BLOB, c CLOB)" % table)
+            cursor.execute("INSERT INTO %s VALUES (1, ?, ?)" % table, (b"\x01\x02\x03", "hello"))
+            cursor.execute("INSERT INTO %s VALUES (2, ?, ?)" % table, (b"", ""))
             conn.commit()
-            cursor.execute("SELECT b, c FROM %s" % table)
+            cursor.execute("SELECT b, c FROM %s ORDER BY id" % table)
             rows = cursor.fetchall()
             assert len(rows) == 2
             for row, sizes in zip(rows, ((3, 5), (0, 0))):

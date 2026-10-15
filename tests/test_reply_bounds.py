@@ -320,6 +320,40 @@ def test_fixed_width_cell_size_mismatch_after_an_unrepresentable_value_is_malfor
         _fetch([CUBRIDDataType.DATE, CUBRIDDataType.INT], body)
 
 
+def _lob_handle(locator: bytes, locator_size: int | None = None, db_type: int = 33) -> bytes:
+    size = len(locator) if locator_size is None else locator_size
+    return struct.pack(">iqi", db_type, 5, size) + locator
+
+
+_ZERO_DATE = struct.pack(">3h", 0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    ("handle", "match"),
+    [
+        pytest.param(_lob_handle(b"file:/x\x00", db_type=23), "embedded type", id="cci-type"),
+        pytest.param(
+            _lob_handle(b"file:/x\x00PAD", locator_size=8), "does not fill", id="short-locator"
+        ),
+        pytest.param(_lob_handle(b"")[:8], "shorter than its header", id="short-header"),
+    ],
+)
+def test_corrupted_lob_handle_after_an_unrepresentable_value_is_malformed(
+    handle: bytes, match: str
+) -> None:
+    # The re-walk before DataError checks a later packed handle as the first
+    # walk does (#933): structural damage wins over the earlier DataError.
+    body = _fetch_body([[_cell(_ZERO_DATE), _cell(handle)]])
+    with pytest.raises(ValueError, match=match):
+        _fetch([CUBRIDDataType.DATE, CUBRIDDataType.BLOB], body)
+
+
+def test_unrepresentable_value_before_a_valid_lob_handle_is_still_data_error() -> None:
+    body = _fetch_body([[_cell(_ZERO_DATE), _cell(_lob_handle(b"file:/x\x00"))]])
+    with pytest.raises(DataError):
+        _fetch([CUBRIDDataType.DATE, CUBRIDDataType.BLOB], body)
+
+
 def test_unrepresentable_value_in_a_complete_reply_is_still_data_error() -> None:
     zero_date = struct.pack(">3h", 0, 0, 0)
     body = _fetch_body([[_cell(zero_date), _cell(_INT_42)]])
@@ -455,11 +489,6 @@ def test_lob_short_read_matching_its_payload_is_valid() -> None:
     assert packet.lob_data == b"abc"
 
 
-def _lob_handle(locator: bytes, locator_size: int | None = None, db_type: int = 33) -> bytes:
-    size = len(locator) if locator_size is None else locator_size
-    return struct.pack(">iqi", db_type, 5, size) + locator
-
-
 def test_lob_handle_with_locator_past_its_end_is_malformed() -> None:
     handle = _lob_handle(b"file:/x\x00", locator_size=64)
     body = _fetch_body([[_cell(handle)]])
@@ -499,14 +528,12 @@ def _truncated_lob_read() -> tuple[LOBReadPacket, bytes]:
     return LOBReadPacket(b"fixture-handle", offset=0, length=10), _lob_read_body(10, b"abc")
 
 
-def _lob_handle_fetch(handle: bytes) -> tuple[FetchPacket, bytes]:
-    packet = FetchPacket(
-        1,
-        0,
-        columns=[ColumnMetaData(column_type=CUBRIDDataType.BLOB)],
-        statement_type=CUBRIDStatementType.SELECT,
-    )
-    return packet, _fetch_body([[_cell(handle)]])
+def _lob_handle_fetch(handle: bytes, *before: tuple[int, bytes]) -> tuple[FetchPacket, bytes]:
+    columns = [ColumnMetaData(column_type=column_type) for column_type, _ in before]
+    columns.append(ColumnMetaData(column_type=CUBRIDDataType.BLOB))
+    packet = FetchPacket(1, 0, columns=columns, statement_type=CUBRIDStatementType.SELECT)
+    cells = [_cell(value) for _, value in before] + [_cell(handle)]
+    return packet, _fetch_body([cells])
 
 
 MALFORMED_REPLIES = [
@@ -519,6 +546,13 @@ MALFORMED_REPLIES = [
     ),
     pytest.param(
         lambda: _lob_handle_fetch(_lob_handle(b"file:/x\x00", db_type=23)), id="lob-handle-cci-type"
+    ),
+    # A conversion error in an earlier cell must not hide the damage (#933).
+    pytest.param(
+        lambda: _lob_handle_fetch(
+            _lob_handle(b"file:/x\x00", db_type=23), (CUBRIDDataType.DATE, _ZERO_DATE)
+        ),
+        id="lob-handle-after-data-error",
     ),
 ]
 

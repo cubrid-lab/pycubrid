@@ -6051,7 +6051,8 @@ BLOB/CLOB cell must be exactly the packed handle the CAS writes
 the rest of the cell. The embedded `db_type` must be the server DB_TYPE of the
 cell's type, BLOB `33` or CLOB `34` (not the CCI type `23`/`24`). A shorter
 header, a negative locator size, a locator longer or shorter than the rest of
-the cell, or another embedded type raises `ValueError`. Bytes after the
+the cell, or another embedded type raises `ValueError`, also when the row parser re-walks a
+reply before raising `DataError` for an earlier cell. Bytes after the
 declared cell belong to the next field. A size of `-1` with an empty locator
 (a value without an external file) stays valid, and the decoder does not check
 the locator's trailing NUL. Each row cell
