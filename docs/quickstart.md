@@ -200,9 +200,10 @@ still there; run the cleanup below and then run `first_saved_row.py` again.
 
 ### Clean up
 
-`cleanup_quickstart.py` removes the tutorial table, and only if it carries the
-tutorial's comment. A table of the same name that you created yourself is left
-alone:
+`cleanup_quickstart.py` removes the tutorial table, and only if the table of
+that name owned by your user carries the tutorial's comment. A table of the
+same name that you created yourself, or one that belongs to another user, is
+left alone:
 
 ```python
 import pycubrid
@@ -213,7 +214,7 @@ MARK = "created by the pycubrid quickstart"
 conn = pycubrid.connect(**SETTINGS)
 cur = conn.cursor()
 cur.execute(
-    "SELECT comment FROM db_class WHERE class_name = ?",
+    "SELECT comment FROM db_class WHERE class_name = ? AND owner_name = CURRENT_USER",
     ("pycubrid_quickstart_notes",),
 )
 row = cur.fetchone()

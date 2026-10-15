@@ -191,8 +191,9 @@ Rows seen by a new connection: [(1, 'my first saved row')]
 
 ### 정리하기
 
-`cleanup_quickstart.py`는 튜토리얼의 주석이 붙어 있을 때만 튜토리얼 테이블을 지웁니다. 같은 이름으로
-여러분이 직접 만든 테이블은 그대로 둡니다.
+`cleanup_quickstart.py`는 여러분의 사용자가 소유한 그 이름의 테이블에 튜토리얼의 주석이 붙어 있을 때만
+튜토리얼 테이블을 지웁니다. 같은 이름으로 여러분이 직접 만든 테이블이나 다른 사용자의 테이블은 그대로
+둡니다.
 
 ```python
 import pycubrid
@@ -203,7 +204,7 @@ MARK = "created by the pycubrid quickstart"
 conn = pycubrid.connect(**SETTINGS)
 cur = conn.cursor()
 cur.execute(
-    "SELECT comment FROM db_class WHERE class_name = ?",
+    "SELECT comment FROM db_class WHERE class_name = ? AND owner_name = CURRENT_USER",
     ("pycubrid_quickstart_notes",),
 )
 row = cur.fetchone()
