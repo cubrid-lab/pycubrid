@@ -23,48 +23,57 @@
 
 ---
 
-> **Status: Stable (1.x).** The public API follows [semantic versioning](RELEASE_POLICY.md): minor releases add backward-compatible features and patch releases ship bug fixes; breaking changes are reserved for the next major version (2.0+) and gated by an automated `compat-check` CI job against [`api-baseline.json`](api-baseline.json). The one exception is the opt-in `pycubrid.compat` namespaces: names first released in 1.9.0 or later are provisional and may change in a minor release, announced in the changelog. Active development continues — see [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract.
+> **Status: Stable (1.x).** The public API follows [semantic versioning](RELEASE_POLICY.md); names first released in 1.9.0 or later in the opt-in `pycubrid.compat` namespaces are provisional. See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract.
 
-## Why pycubrid?
+## Start here
 
-CUBRID is a high-performance open-source relational database, widely adopted in
-Korean public-sector and enterprise applications. The existing C-extension driver
-(`CUBRIDdb`) had build dependencies and platform compatibility issues.
+pycubrid lets a Python program talk to a CUBRID database. CUBRID itself is a
+separate database server that must already be running; installing pycubrid
+does not install CUBRID or create a database. New to CUBRID? Follow
+[Your First CUBRID Connection](docs/quickstart.md): it shows what to prepare
+when you already have a database, how to start a disposable local one with
+Docker, and walks you to a first query and a first saved row.
 
-**pycubrid** solves these problems:
-
-- **Pure Python implementation** — no C build dependencies, install with `pip install` only
-- **Implements PEP 249 (DB-API 2.0)** — standard exception hierarchy, type objects, cursor interface
-- **Offline regression suite** with a **95% coverage floor on full coverage runs** — see [measured coverage](https://codecov.io/gh/cubrid-lab/pycubrid) and the [CI execution policy](docs/CI_POLICY.md); routine PR smoke does not measure coverage
-- **TLS/SSL for sync and async connections** — opt-in `ssl=True` (verified context, TLS 1.2 minimum) or custom `ssl.SSLContext` on `connect()` and `pycubrid.aio.connect()`.
-- **Native asyncio support** — async/await API via `pycubrid.aio` for high-concurrency applications
-- **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis support
-- **Direct CUBRID CAS protocol** implementation — no additional middleware required
-- **LOB (CLOB/BLOB) support** — handle large text and binary data
-
-## Requirements
-
-**Python 3.10 support retirement:** Python 3.10 reached upstream end of life on
-2026-10-01 ([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
-The 1.8.x and 1.9.x lines support Python 3.10; 1.9.0 carried the advance notice.
-From 1.10.0 the package requires Python 3.11 or newer, so `pip` on Python 3.10
-keeps installing 1.9.x. Upgrade your interpreter, recreate your virtual
-environment and validate your application before upgrading.
+### Requirements
 
 - Python 3.11 or later
 - CUBRID database server 10.2+ (CI validates 10.2, 11.0, 11.2, 11.4)
 
-<img src="docs/demo.gif" alt="pycubrid in action" width="100%"/>
-
-## Installation
+### Installation
 
 ```bash
 pip install pycubrid
 ```
 
-## Quick Start
+### Your first query
 
-### Basic Connection
+With a database to connect to, save this as `first_query.py` and run
+`python first_query.py`:
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba", password="")
+cur = conn.cursor()
+cur.execute("SELECT 1 + 1")
+print(cur.fetchone())  # (2,)
+cur.close()
+conn.close()
+```
+
+The connection values are those of the [local Docker lab](docs/quickstart.md#option-b-i-need-a-disposable-local-database);
+use your own for any other database. If the connection fails, see
+[If the first connection fails](docs/quickstart.md#if-the-first-connection-fails).
+
+<img src="docs/demo.gif" alt="pycubrid in action" width="100%"/>
+
+## Usage
+
+Task-oriented examples, once your first connection works.
+
+### Quick Start
+
+#### Basic Connection
 
 ```python
 import pycubrid
@@ -85,7 +94,7 @@ cur.close()
 conn.close()
 ```
 
-### Context Manager
+#### Context Manager
 
 ```python
 import pycubrid
@@ -101,7 +110,7 @@ with pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba
             print(row)
 ```
 
-### Async
+#### Async
 
 ```python
 import asyncio
@@ -120,11 +129,11 @@ async def main():
 asyncio.run(main())
 ```
 
-### Practical Examples
+#### Practical Examples
 
 Run the setup, the three examples and cleanup **in order in the same Python session** against a scratch database. Adjust the connection settings for your server. The dedicated table must not already exist: setup deliberately fails rather than reusing or deleting an existing table. Manual commit mode and the initial DDL commit keep rollback focused on the DML below.
 
-#### Setup
+##### Setup
 
 ```python
 import pycubrid
@@ -136,7 +145,7 @@ cur.execute("CREATE TABLE pycubrid_quickstart_327 (id INT PRIMARY KEY, name VARC
 conn.commit()
 ```
 
-#### Basic CRUD
+##### Basic CRUD
 
 ```python
 cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (1, "Alice"))
@@ -149,7 +158,7 @@ cur.execute("DELETE FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
 conn.commit()
 ```
 
-#### Transactions: commit and rollback
+##### Transactions: commit and rollback
 
 ```python
 cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (2, "Bob"))
@@ -161,7 +170,7 @@ print(cur.fetchone())  # ('Bob',)
 conn.rollback()
 ```
 
-#### Error handling
+##### Error handling
 
 ```python
 from pycubrid.exceptions import ProgrammingError
@@ -173,7 +182,7 @@ except ProgrammingError as exc:
     print(f"Query failed: {exc}")
 ```
 
-#### Cleanup
+##### Cleanup
 
 After setup succeeds, run this cleanup even if an example fails; it removes only the table created above. For more examples, see [EXAMPLES.md](docs/EXAMPLES.md).
 
@@ -185,44 +194,7 @@ cur.close()
 conn.close()
 ```
 
-## PEP 249 Compliance
-
-| Attribute | Value |
-|---|---|
-| `apilevel` | `"2.0"` |
-| `threadsafety` | `1` (connections cannot be shared between threads) |
-| `paramstyle` | `"qmark"` (positional parameters `?`) |
-
-- Full standard exception hierarchy: `Warning`, `Error`, `InterfaceError`, `DatabaseError`, `DataError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError` — also exposed as attributes on `Connection`/`AsyncConnection` (PEP 249 optional extension), e.g. `conn.IntegrityError is pycubrid.IntegrityError`
-- Standard type objects: `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
-- Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`, `DateFromTicks()`, `TimeFromTicks()`, `TimestampFromTicks()`
-- `nextset()` raises `NotSupportedError` (CUBRID does not support multiple result sets)
-
-## Features
-
-- **Pure Python** — no C extensions, no compilation, works everywhere Python runs
-- **Complete DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **Parameterized queries** — `cursor.execute(sql, params)` with driver-side parameter binding (`?` placeholders escaped and interpolated locally)
-- **Batch operations** — `executemany()` and `executemany_batch()` for bulk inserts
-- **LOB support** — `create_lob()`, read/write CLOB and BLOB columns
-- **Owned schema introspection** — `get_schema_info()` plus eager `fetch_schema_info()` or explicit `close_schema_info()`; the #457 live matrix verifies CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on CUBRID 10.2/11.4, not all schema codes or native-driver parity
-- **Auto-commit control** — `connection.autocommit` property for transaction management
-- **Server version detection** — `connection.get_server_version()` returns version string (e.g., `"11.2.0.0378"`)
-- **Iterator protocol** — iterate over cursor results with `for row in cursor`
-- **Context managers** — `with` statements for both connections and cursors
-- **Async support** — `pycubrid.aio.connect()` with `AsyncConnection` and `AsyncCursor` for asyncio event loops
-- **Per-cursor fetch size** — `cursor.fetch_size` property to tune server-side fetch batch size per cursor
-
-## Supported CUBRID Versions
-
-The project targets CUBRID 10.2+ (protocol-compatible). CI validates against:
-
-- 10.2
-- 11.0
-- 11.2
-- 11.4
-
-## SQLAlchemy Integration
+### SQLAlchemy Integration
 
 pycubrid works as a driver for [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — the SQLAlchemy 2.0 dialect for CUBRID:
 
@@ -242,10 +214,85 @@ with engine.connect() as conn:
 
 SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are accessible through the pycubrid driver when used with sqlalchemy-cubrid.
 
-## Documentation
+## Reference
+
+What pycubrid implements and supports, in detail.
+
+### Why pycubrid?
+
+CUBRID is a high-performance open-source relational database, widely adopted in
+Korean public-sector and enterprise applications. The existing C-extension driver
+(`CUBRIDdb`) had build dependencies and platform compatibility issues.
+
+**pycubrid** solves these problems:
+
+- **Pure Python implementation** — no C build dependencies, install with `pip install` only
+- **Implements PEP 249 (DB-API 2.0)** — standard exception hierarchy, type objects, cursor interface
+- **Offline regression suite** with a **95% coverage floor on full coverage runs** — see [measured coverage](https://codecov.io/gh/cubrid-lab/pycubrid) and the [CI execution policy](docs/CI_POLICY.md); routine PR smoke does not measure coverage
+- **TLS/SSL for sync and async connections** — opt-in `ssl=True` (verified context, TLS 1.2 minimum) or custom `ssl.SSLContext` on `connect()` and `pycubrid.aio.connect()`.
+- **Native asyncio support** — async/await API via `pycubrid.aio` for high-concurrency applications
+- **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis support
+- **Direct CUBRID CAS protocol** implementation — no additional middleware required
+- **LOB (CLOB/BLOB) support** — handle large text and binary data
+
+### PEP 249 Compliance
+
+| Attribute | Value |
+|---|---|
+| `apilevel` | `"2.0"` |
+| `threadsafety` | `1` (connections cannot be shared between threads) |
+| `paramstyle` | `"qmark"` (positional parameters `?`) |
+
+- Full standard exception hierarchy: `Warning`, `Error`, `InterfaceError`, `DatabaseError`, `DataError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError` — also exposed as attributes on `Connection`/`AsyncConnection` (PEP 249 optional extension), e.g. `conn.IntegrityError is pycubrid.IntegrityError`
+- Standard type objects: `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
+- Standard constructors: `Date()`, `Time()`, `Timestamp()`, `Binary()`, `DateFromTicks()`, `TimeFromTicks()`, `TimestampFromTicks()`
+- `nextset()` raises `NotSupportedError` (CUBRID does not support multiple result sets)
+
+### Features
+
+- **Pure Python** — no C extensions, no compilation, works everywhere Python runs
+- **Complete DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
+- **Parameterized queries** — `cursor.execute(sql, params)` with driver-side parameter binding (`?` placeholders escaped and interpolated locally)
+- **Batch operations** — `executemany()` and `executemany_batch()` for bulk inserts
+- **LOB support** — `create_lob()`, read/write CLOB and BLOB columns
+- **Owned schema introspection** — `get_schema_info()` plus eager `fetch_schema_info()` or explicit `close_schema_info()`; the #457 live matrix verifies CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on CUBRID 10.2/11.4, not all schema codes or native-driver parity
+- **Auto-commit control** — `connection.autocommit` property for transaction management
+- **Server version detection** — `connection.get_server_version()` returns version string (e.g., `"11.2.0.0378"`)
+- **Iterator protocol** — iterate over cursor results with `for row in cursor`
+- **Context managers** — `with` statements for both connections and cursors
+- **Async support** — `pycubrid.aio.connect()` with `AsyncConnection` and `AsyncCursor` for asyncio event loops
+- **Per-cursor fetch size** — `cursor.fetch_size` property to tune server-side fetch batch size per cursor
+
+### Supported CUBRID Versions
+
+The project targets CUBRID 10.2+ (protocol-compatible). CI validates against:
+
+- 10.2
+- 11.0
+- 11.2
+- 11.4
+
+### Compatibility
+
+**Python 3.10 support retirement:** Python 3.10 reached upstream end of life on
+2026-10-01 ([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
+The 1.8.x and 1.9.x lines support Python 3.10; 1.9.0 carried the advance notice.
+From 1.10.0 the package requires Python 3.11 or newer, so `pip` on Python 3.10
+keeps installing 1.9.x. Upgrade your interpreter, recreate your virtual
+environment and validate your application before upgrading.
+
+Supported: Python 3.11–3.15 and CUBRID 10.2, 11.0, 11.2, 11.4.
+Ordinary PRs use one Ubuntu/Python 3.12 offline smoke lane; high-risk changes add
+Python 3.14/CUBRID 11.4. Main/changed-weekly validation also runs Python
+3.11/CUBRID 10.2 live and the full offline suite on Python 3.11 and 3.15. The full
+5 × 4 live matrix runs on explicit dispatch and every release.
+See [CI execution policy](docs/CI_POLICY.md) and [support matrix](docs/SUPPORT_MATRIX.md).
+
+### Documentation
 
 | Guide | Description |
 |---|---|
+| [Your First CUBRID Connection](docs/quickstart.md) | Start here: prepare a database, first query, first saved row, first-connection problems |
 | [Connection](docs/CONNECTION.md) | Connection strings, URL format, configuration |
 | [Type Mapping](docs/TYPES.md) | Full type mapping, CUBRID-specific types, collection types |
 | [Parameter Binding](docs/PARAMETER_BINDING.md) | Driver-side literal-binding contract: per-type SQL mapping, escaping rules, non-guarantees |
@@ -255,16 +302,7 @@ SQLAlchemy features (ORM, Core, Alembic migrations, schema reflection) are acces
 | [Examples](docs/EXAMPLES.md) | Practical usage examples with code |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Connection errors, query problems, LOB handling, debugging |
 
-## Compatibility
-
-Supported: Python 3.11–3.15 and CUBRID 10.2, 11.0, 11.2, 11.4.
-Ordinary PRs use one Ubuntu/Python 3.12 offline smoke lane; high-risk changes add
-Python 3.14/CUBRID 11.4. Main/changed-weekly validation also runs Python
-3.11/CUBRID 10.2 live and the full offline suite on Python 3.11 and 3.15. The full
-5 × 4 live matrix runs on explicit dispatch and every release.
-See [CI execution policy](docs/CI_POLICY.md) and [support matrix](docs/SUPPORT_MATRIX.md).
-
-## Architecture
+### Architecture
 
 ```mermaid
 graph TD
@@ -306,67 +344,56 @@ graph TD
     aio["aio/ - AsyncConnection, AsyncCursor, async connect()"]
 ```
 
-## FAQ
+### FAQ
 
-### How do I connect to CUBRID with Python?
+#### How do I connect to CUBRID with Python?
 
 ```python
 import pycubrid
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
 ```
 
-### How do I install pycubrid?
+#### How do I install pycubrid?
 
 `pip install pycubrid` — no C extensions or build tools required.
 
-### What parameter style does pycubrid use?
+#### What parameter style does pycubrid use?
 
 Question mark (`qmark`) style: `cursor.execute("SELECT * FROM users WHERE id = ?", (1,))`
 
 Parameters are bound **driver-side** — pycubrid escapes and interpolates values into the SQL string locally before sending the final query to the server. This is **not** server-side prepared statement binding, except for the opt-in `executemany(..., prepared=True)`, which sends typed values with one `PREPARE` and one `EXECUTE_ARRAY` request (see [docs/API_REFERENCE.md](docs/API_REFERENCE.md)). The escaping logic is type-aware (strings, bytes, dates, decimals, None → NULL) and safe against SQL injection when used correctly via `?` placeholders. **Never use f-strings or `%` formatting to inject untrusted parameter *values* into SQL** — always pass them through `?` placeholders. Using f-strings to assemble the SQL *structure itself* from trusted inputs (for example, expanding an `IN`-clause with `','.join('?' * len(ids))`) is fine. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md) for the full 1.x contract — per-type mapping, escaping modes, and explicit non-guarantees.
 
-### Does pycubrid work with SQLAlchemy?
+#### Does pycubrid work with SQLAlchemy?
 
 Yes. Install `pip install "sqlalchemy-cubrid[pycubrid]"` and use the connection URL `cubrid+pycubrid://dba@localhost:33000/testdb`.
 
-### What Python versions are supported?
+#### What Python versions are supported?
 
 Python 3.11, 3.12, 3.13, 3.14, and 3.15 (standard GIL builds).
 
-### Does pycubrid support LOBs (CLOB/BLOB)?
+#### Does pycubrid support LOBs (CLOB/BLOB)?
 
 Yes. Insert strings/bytes directly into CLOB/BLOB columns. For reading, LOB columns return data that can be accessed through the cursor.
 
-### Is pycubrid thread-safe?
+#### Is pycubrid thread-safe?
 
 pycubrid has `threadsafety = 1`, meaning connections cannot be shared between threads. Create a separate connection per thread.
 
-### What CUBRID versions are supported?
+#### What CUBRID versions are supported?
 
 CUBRID 10.2, 11.0, 11.2, and 11.4 are tested in CI.
 
-### Does pycubrid support async/await?
+#### Does pycubrid support async/await?
 
 Yes. Use `pycubrid.aio.connect()` for native asyncio support. The async surface is similar to the sync API: `await conn.ping(reconnect=...)` performs the same native `CHECK_CAS` health check as sync `Connection.ping()`, `create_lob()` remains sync-only, and auto-commit changes use `await conn.set_autocommit(...)` instead of a property setter.
 
+## Development
 
-## Related Projects
-
-- [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — SQLAlchemy 2.0 dialect for CUBRID
-- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — Production-ready Python examples for CUBRID
-
-
-## Roadmap
-
-See [`ROADMAP.md`](ROADMAP.md) for this project's direction and next milestones.
-
-For the ecosystem-wide view, see the [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
-
-## Contributing
+### Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for development setup.
 
-### First contribution
+#### First contribution
 
 New to CUBRID? Pick the repository that matches what you want to work on:
 
@@ -378,6 +405,17 @@ Most first issues can be developed and tested with the offline checks in CONTRIB
 
 Browse open [`good first issue`](https://github.com/cubrid-lab/pycubrid/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22+no%3Aassignee) tasks.
 
+### Roadmap
+
+See [`ROADMAP.md`](ROADMAP.md) for this project's direction and next milestones.
+
+For the ecosystem-wide view, see the [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
+
+### Related Projects
+
+- [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — SQLAlchemy 2.0 dialect for CUBRID
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — Production-ready Python examples for CUBRID
+
 ## Security
 
 Report vulnerabilities privately through GitHub's private vulnerability reporting (email is the fallback) — see [SECURITY.md](SECURITY.md). Do not open public issues for security concerns.
@@ -388,11 +426,9 @@ During pycubrid's initial development, the official CUBRID Node.js driver — [n
 
 We also thank the maintainers and contributors of [CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python). Its `tests3` suite informed the SQL-feature and type/data regression scenarios added in #409, #410 and #433: INDEX, PARTITION, VIEW, TRIGGER, collections, ENUM and LOB round-trips. These scenarios were adapted to pycubrid's APIs and documented differences, not a claim of full CUBRIDdb API parity. See [NOTICE](NOTICE) for the source files and [third-party notes](THIRD_PARTY_LICENSES.md#reference-test-suite) for provenance and licensing limits.
 
-
 ## Disclaimer
 
 > This project is part of [CUBRID Lab](https://github.com/cubrid-lab), an independent open-source initiative for CUBRID developer tooling, and is not affiliated with, sponsored by, or endorsed by CUBRID Corporation or the official CUBRID project.
-
 
 ## License
 

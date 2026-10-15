@@ -31,6 +31,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **A first-connection path for CUBRID beginners (#955)** — `docs/quickstart.md` ("Your
+  First CUBRID Connection") now starts by explaining that pycubrid is a connector to a
+  separately running CUBRID server, then offers two prerequisites: the five values to
+  collect for an existing database, or a disposable CUBRID 11.4 lab in Docker with a
+  readiness check and removal command. It continues with a virtual environment, a named
+  `first_query.py` that prints `(2,)`, and `first_saved_row.py`, which creates its own
+  marked table, commits one row, rolls one back and reads the saved row from a second
+  connection. `cleanup_quickstart.py` drops only a table that carries the tutorial's
+  comment. Repeat and interrupted runs and the observed first-connection errors (wrong
+  interpreter, unreachable broker, wrong database, unknown user, wrong password) are
+  documented. The README is reordered into Start here, Usage, Reference and Development;
+  the previous section headings keep their text, so their anchors still work, and the
+  Python 3.10 note moves to Compatibility. The site navigation puts the quickstart and
+  Troubleshooting under Start here and moves Protocol to Reference. The Korean quickstart,
+  README and index match.
 - **A block-quoted issue number no longer renders as a heading on the site (#941)** — in
   `docs/API_REFERENCE.md`, a block quote line began with `#492`, which the MkDocs site rendered
   as an `<h1>`. It is now escaped as `\#492`; GitHub shows the same text.

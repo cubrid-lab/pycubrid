@@ -36,16 +36,17 @@ theme:
 
 nav:
   - Home: index.md
-  - Getting Started:
-      - Quick Start: quickstart.md
-      - Connection Guide: CONNECTION.md
-      - Examples: EXAMPLES.md
+  - Start here:
+      - Your First Connection: quickstart.md
+      - Troubleshooting: TROUBLESHOOTING.md
   - Usage:
-      - API Reference: API_REFERENCE.md
-      - Type Mapping: TYPES.md
+      - Examples: EXAMPLES.md
+      - Connection Guide: CONNECTION.md
       - Parameter Binding: PARAMETER_BINDING.md
-      - Protocol: PROTOCOL.md
+      - Type Mapping: TYPES.md
   - Reference:
+      - API Reference: API_REFERENCE.md
+      - Protocol: PROTOCOL.md
       - Architecture: ARCHITECTURE.md
       - Support Matrix: SUPPORT_MATRIX.md
       - Upstream Scenario Ledger: UPSTREAM_TEST_LEDGER.md
@@ -53,7 +54,6 @@ nav:
       - Typed CAS Binding Design: PREPARED_BINDING_DESIGN.md
   - Operations:
       - Performance: PERFORMANCE.md
-      - Troubleshooting: TROUBLESHOOTING.md
   - Project:
       - Development: DEVELOPMENT.md
       - CI Execution Policy: CI_POLICY.md
@@ -68,16 +68,17 @@ nav:
       - Contributing: https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md
   - 한국어:
       - 홈: ko/index.md
-      - 시작하기:
-          - 빠른 시작: ko/quickstart.md
-          - 연결 가이드: ko/CONNECTION.md
-          - 사용 예제: ko/EXAMPLES.md
+      - 여기서 시작:
+          - 처음으로 연결하기: ko/quickstart.md
+          - 문제 해결: ko/TROUBLESHOOTING.md
       - 사용:
-          - API 참조: ko/API_REFERENCE.md
-          - 타입 시스템: ko/TYPES.md
+          - 사용 예제: ko/EXAMPLES.md
+          - 연결 가이드: ko/CONNECTION.md
           - 파라미터 바인딩: ko/PARAMETER_BINDING.md
-          - CAS 프로토콜: ko/PROTOCOL.md
+          - 타입 시스템: ko/TYPES.md
       - 참고:
+          - API 참조: ko/API_REFERENCE.md
+          - CAS 프로토콜: ko/PROTOCOL.md
           - 아키텍처: ko/ARCHITECTURE.md
           - 지원 매트릭스: ko/SUPPORT_MATRIX.md
           - 업스트림 시나리오 원장: ko/UPSTREAM_TEST_LEDGER.md
@@ -85,7 +86,6 @@ nav:
           - 타입 지정 CAS 바인딩 설계: ko/PREPARED_BINDING_DESIGN.md
       - 운영:
           - 성능 가이드: ko/PERFORMANCE.md
-          - 문제 해결: ko/TROUBLESHOOTING.md
           - 자주 묻는 질문: ko/faq.md
       - 프로젝트:
           - 개발 가이드: ko/DEVELOPMENT.md

@@ -25,48 +25,56 @@
 
 ---
 
-> **상태: Stable (1.x).** 공개 API는 [시맨틱 버저닝](../RELEASE_POLICY.md)을 따릅니다. 마이너 릴리스는 하위 호환 기능 추가, 패치 릴리스는 버그 수정만 포함하며, 호환성 파괴 변경은 다음 메이저 버전(2.0+)에서만 허용되고 [`api-baseline.json`](../api-baseline.json)에 대한 자동 `compat-check` CI 잡으로 게이트됩니다. 유일한 예외는 opt-in `pycubrid.compat` 네임스페이스입니다: 1.9.0 이후 처음 릴리스된 이름은 잠정(provisional) 상태이며 마이너 릴리스에서 변경될 수 있고, 변경 사항은 변경 로그에 공지됩니다. 활발한 개발은 계속됩니다 — 전체 계약은 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)를 참고하세요.
+> **상태: Stable (1.x).** 공개 API는 [시맨틱 버저닝](../RELEASE_POLICY.md)을 따릅니다. opt-in `pycubrid.compat` 네임스페이스에서 1.9.0 이후 처음 릴리스된 이름은 잠정(provisional) 상태입니다. 전체 계약은 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)를 참고하세요.
 
-## 왜 pycubrid인가?
+## 여기서 시작하세요
 
-CUBRID는 고성능 오픈소스 관계형 데이터베이스로, 한국 공공기관 및 기업 환경에서
-널리 사용되고 있습니다. 기존 C 확장 드라이버(`CUBRIDdb`)는 빌드 의존성과
-플랫폼 호환성 문제가 있었습니다.
+pycubrid는 Python 프로그램이 CUBRID 데이터베이스와 대화하게 해 줍니다. CUBRID 자체는 이미 실행
+중이어야 하는 별도의 데이터베이스 서버이며, pycubrid를 설치해도 CUBRID가 설치되거나 데이터베이스가
+만들어지지는 않습니다. CUBRID가 처음이라면 [처음으로 CUBRID에 연결하기](ko/quickstart.md)를 따라
+하세요. 이미 데이터베이스가 있을 때 준비할 값, Docker로 일회용 로컬 데이터베이스를 띄우는 방법,
+첫 쿼리와 첫 행 저장까지 안내합니다.
 
-**pycubrid**는 이러한 문제를 해결합니다:
-
-- **순수 Python 구현** — C 빌드 의존성 없이 `pip install`만으로 설치
-- **PEP 249(DB-API 2.0) 구현** — 표준 예외 계층, 타입 객체, 커서 인터페이스 제공
-- **오프라인 회귀 검사**와 **전체 커버리지 실행의 95% 하한** — [측정된 커버리지](https://codecov.io/gh/cubrid-lab/pycubrid)와 [CI 실행 정책](CI_POLICY.md)을 참고하세요. 일반 PR 스모크는 커버리지를 측정하지 않습니다
-- **동기/비동기 연결용 TLS/SSL 지원** — `connect()`와 `pycubrid.aio.connect()`에서 `ssl=True`(검증된 컨텍스트, TLS 1.2 최소 버전) 또는 사용자 지정 `ssl.SSLContext` 선택 가능.
-- **네이티브 asyncio 지원** — 고동시성 애플리케이션을 위한 `pycubrid.aio` 기반 async/await API
-- **PEP 561 타입 패키지** — `py.typed` 마커로 최신 IDE 및 정적 분석 도구 지원
-- **CUBRID CAS 프로토콜 직접 구현** — 별도 미들웨어 불필요
-- **LOB(CLOB/BLOB) 지원** — 대용량 텍스트 및 바이너리 데이터 처리
-
-## 요구 사항
-
-**Python 3.10 지원 종료:** Python 3.10은 2026-10-01에 공식 지원이
-종료됐습니다([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
-1.8.x와 1.9.x는 Python 3.10을 지원하며, 1.9.0에 사전 안내가 포함됐습니다.
-1.10.0부터 패키지는 Python 3.11 이상을 요구하므로, Python 3.10의 `pip`은 계속
-1.9.x를 설치합니다. 업그레이드하기 전에 Python을 업그레이드하고 가상 환경을
-새로 만든 뒤 애플리케이션을 검증하세요.
+### 요구 사항
 
 - Python 3.11 이상
 - CUBRID 데이터베이스 서버 10.2+
 
-<img src="https://github.com/cubrid-lab/pycubrid/raw/main/docs/demo.gif" alt="pycubrid 데모" width="100%"/>
-
-## 설치
+### 설치
 
 ```bash
 pip install pycubrid
 ```
 
-## 빠른 시작
+### 첫 쿼리
 
-### 기본 연결
+연결할 데이터베이스가 있다면 다음을 `first_query.py`로 저장하고 `python first_query.py`로
+실행하세요.
+
+```python
+import pycubrid
+
+conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba", password="")
+cur = conn.cursor()
+cur.execute("SELECT 1 + 1")
+print(cur.fetchone())  # (2,)
+cur.close()
+conn.close()
+```
+
+연결 값은 [로컬 Docker 실습 환경](ko/quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)의
+값입니다. 다른 데이터베이스에서는 그 데이터베이스의 값을 쓰세요. 연결이 실패하면
+[첫 연결이 실패할 때](ko/quickstart.md#첫-연결이-실패할-때)를 보세요.
+
+<img src="https://github.com/cubrid-lab/pycubrid/raw/main/docs/demo.gif" alt="pycubrid 데모" width="100%"/>
+
+## 사용하기
+
+첫 연결이 성공한 뒤 작업별로 참고할 예제입니다.
+
+### 빠른 시작
+
+#### 기본 연결
 
 ```python
 import pycubrid
@@ -87,7 +95,7 @@ cur.close()
 conn.close()
 ```
 
-### 컨텍스트 매니저
+#### 컨텍스트 매니저
 
 ```python
 import pycubrid
@@ -103,7 +111,7 @@ with pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba
             print(row)
 ```
 
-### Async
+#### Async
 
 ```python
 import asyncio
@@ -122,11 +130,11 @@ async def main():
 asyncio.run(main())
 ```
 
-### 실용 예제
+#### 실용 예제
 
 테스트용 데이터베이스에서 준비 코드, 세 예제, 정리 코드를 **같은 Python 세션에서 순서대로** 실행하세요. 서버에 맞게 연결 설정을 바꾸세요. 전용 테이블이 이미 있으면 준비 단계가 실패하도록 하여 기존 테이블을 재사용하거나 삭제하지 않습니다. 수동 커밋 모드와 DDL 커밋으로 아래 롤백은 DML에만 적용됩니다.
 
-#### 준비
+##### 준비
 
 ```python
 import pycubrid
@@ -138,7 +146,7 @@ cur.execute("CREATE TABLE pycubrid_quickstart_327 (id INT PRIMARY KEY, name VARC
 conn.commit()
 ```
 
-#### 기본 CRUD
+##### 기본 CRUD
 
 ```python
 cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (1, "Alice"))
@@ -151,7 +159,7 @@ cur.execute("DELETE FROM pycubrid_quickstart_327 WHERE id = ?", (1,))
 conn.commit()
 ```
 
-#### 트랜잭션: 커밋과 롤백
+##### 트랜잭션: 커밋과 롤백
 
 ```python
 cur.execute("INSERT INTO pycubrid_quickstart_327 (id, name) VALUES (?, ?)", (2, "Bob"))
@@ -163,7 +171,7 @@ print(cur.fetchone())  # ('Bob',)
 conn.rollback()
 ```
 
-#### 오류 처리
+##### 오류 처리
 
 ```python
 from pycubrid.exceptions import ProgrammingError
@@ -175,7 +183,7 @@ except ProgrammingError as exc:
     print(f"Query failed: {exc}")
 ```
 
-#### 정리
+##### 정리
 
 준비가 성공했다면 예제가 실패해도 정리 코드를 실행하세요. 위에서 만든 테이블만 삭제합니다. 더 많은 예제는 [EXAMPLES.md](EXAMPLES.md)를 참고하세요.
 
@@ -187,42 +195,7 @@ cur.close()
 conn.close()
 ```
 
-## PEP 249 준수 사항
-
-| 속성 | 값 |
-|---|---|
-| `apilevel` | `"2.0"` |
-| `threadsafety` | `1` (연결은 스레드 간 공유 불가) |
-| `paramstyle` | `"qmark"` (위치 매개변수 `?`) |
-
-- 완전한 표준 예외 계층: `Warning`, `Error`, `InterfaceError`, `DatabaseError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError`
-- 표준 타입 객체: `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
-- 표준 생성자: `Date()`, `Time()`, `Timestamp()`, `Binary()`, `DateFromTicks()`, `TimeFromTicks()`, `TimestampFromTicks()`
-
-## 주요 기능
-
-- **순수 Python** — C 확장과 컴파일 없이, Python이 실행되는 곳이라면 어디서나 동작
-- **완전한 DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
-- **매개변수화된 쿼리** — 드라이버 측 파라미터 바인딩을 사용하는 `cursor.execute(sql, params)` (`?` 플레이스홀더를 로컬에서 이스케이프하여 SQL에 삽입)
-- **배치 작업** — 대량 삽입을 위한 `executemany()` 및 `executemany_batch()`
-- **LOB 지원** — `create_lob()`, CLOB/BLOB 컬럼 읽기/쓰기
-- **소유권 기반 스키마 조회** — `get_schema_info()` 후 `fetch_schema_info()`로 전체 행 소비 또는 `close_schema_info()`로 명시적 폐기. #457 실서버 행렬은 CUBRID 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 모든 스키마 코드나 네이티브 드라이버 동등성을 인증하지는 않습니다.
-- **자동 커밋 제어** — 트랜잭션 관리를 위한 `connection.autocommit` 속성
-- **서버 버전 감지** — `connection.get_server_version()`이 버전 문자열(예: `"11.2.0.0378"`) 반환
-- **이터레이터 프로토콜** — `for row in cursor`로 커서 결과 반복 가능
-- **컨텍스트 매니저** — 연결과 커서 모두 `with` 문 지원
-- **Async 지원** — asyncio 이벤트 루프를 위한 `AsyncConnection`, `AsyncCursor`, `pycubrid.aio.connect()`
-
-## 지원 CUBRID 버전
-
-이 프로젝트는 CUBRID 10.x 및 11.x를 대상으로 하며, CI에서 다음 버전을 검증합니다:
-
-- 10.2
-- 11.0
-- 11.2
-- 11.4
-
-## SQLAlchemy 연동
+### SQLAlchemy 연동
 
 pycubrid는 [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — CUBRID용 SQLAlchemy 2.0 방언의 드라이버로 동작합니다:
 
@@ -242,20 +215,70 @@ with engine.connect() as conn:
 
 sqlalchemy-cubrid와 함께 사용할 때 ORM, Core, Alembic 마이그레이션, 스키마 리플렉션 등 SQLAlchemy 기능을 pycubrid 드라이버를 통해 사용할 수 있습니다.
 
-## 문서
+## 참고
 
-| 가이드 | 설명 |
+pycubrid가 구현하고 지원하는 내용을 자세히 설명합니다.
+
+### 왜 pycubrid인가?
+
+CUBRID는 고성능 오픈소스 관계형 데이터베이스로, 한국 공공기관 및 기업 환경에서
+널리 사용되고 있습니다. 기존 C 확장 드라이버(`CUBRIDdb`)는 빌드 의존성과
+플랫폼 호환성 문제가 있었습니다.
+
+**pycubrid**는 이러한 문제를 해결합니다:
+
+- **순수 Python 구현** — C 빌드 의존성 없이 `pip install`만으로 설치
+- **PEP 249(DB-API 2.0) 구현** — 표준 예외 계층, 타입 객체, 커서 인터페이스 제공
+- **오프라인 회귀 검사**와 **전체 커버리지 실행의 95% 하한** — [측정된 커버리지](https://codecov.io/gh/cubrid-lab/pycubrid)와 [CI 실행 정책](CI_POLICY.md)을 참고하세요. 일반 PR 스모크는 커버리지를 측정하지 않습니다
+- **동기/비동기 연결용 TLS/SSL 지원** — `connect()`와 `pycubrid.aio.connect()`에서 `ssl=True`(검증된 컨텍스트, TLS 1.2 최소 버전) 또는 사용자 지정 `ssl.SSLContext` 선택 가능.
+- **네이티브 asyncio 지원** — 고동시성 애플리케이션을 위한 `pycubrid.aio` 기반 async/await API
+- **PEP 561 타입 패키지** — `py.typed` 마커로 최신 IDE 및 정적 분석 도구 지원
+- **CUBRID CAS 프로토콜 직접 구현** — 별도 미들웨어 불필요
+- **LOB(CLOB/BLOB) 지원** — 대용량 텍스트 및 바이너리 데이터 처리
+
+### PEP 249 준수 사항
+
+| 속성 | 값 |
 |---|---|
-| [연결](CONNECTION.md) | 연결 문자열, URL 형식, 구성 옵션 |
-| [타입 매핑](TYPES.md) | 전체 타입 매핑, CUBRID 전용 타입, 컬렉션 타입 |
-| [API 레퍼런스](API_REFERENCE.md) | 전체 API 문서 — 모듈, 클래스, 함수 |
-| [프로토콜](PROTOCOL.md) | CAS 와이어 프로토콜 레퍼런스 |
-| [성능 가이드](ko/PERFORMANCE.md) | 벤치마크 방법론, 회귀 확인, 프로파일링, 타이밍 훅 |
-| [개발 가이드](DEVELOPMENT.md) | 개발 환경 설정, 테스트, Docker, 커버리지, CI/CD |
-| [예제](EXAMPLES.md) | 실용적인 사용 예제와 코드 |
-| [문제 해결](TROUBLESHOOTING.md) | 연결 오류, 쿼리 문제, LOB 처리, 디버깅 |
+| `apilevel` | `"2.0"` |
+| `threadsafety` | `1` (연결은 스레드 간 공유 불가) |
+| `paramstyle` | `"qmark"` (위치 매개변수 `?`) |
 
-## 호환성
+- 완전한 표준 예외 계층: `Warning`, `Error`, `InterfaceError`, `DatabaseError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError`
+- 표준 타입 객체: `STRING`, `BINARY`, `NUMBER`, `DATETIME`, `ROWID`
+- 표준 생성자: `Date()`, `Time()`, `Timestamp()`, `Binary()`, `DateFromTicks()`, `TimeFromTicks()`, `TimestampFromTicks()`
+
+### 주요 기능
+
+- **순수 Python** — C 확장과 컴파일 없이, Python이 실행되는 곳이라면 어디서나 동작
+- **완전한 DB-API 2.0** — `connect()`, `Cursor`, `fetchone/many/all`, `executemany`, `callproc`
+- **매개변수화된 쿼리** — 드라이버 측 파라미터 바인딩을 사용하는 `cursor.execute(sql, params)` (`?` 플레이스홀더를 로컬에서 이스케이프하여 SQL에 삽입)
+- **배치 작업** — 대량 삽입을 위한 `executemany()` 및 `executemany_batch()`
+- **LOB 지원** — `create_lob()`, CLOB/BLOB 컬럼 읽기/쓰기
+- **소유권 기반 스키마 조회** — `get_schema_info()` 후 `fetch_schema_info()`로 전체 행 소비 또는 `close_schema_info()`로 명시적 폐기. #457 실서버 행렬은 CUBRID 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 모든 스키마 코드나 네이티브 드라이버 동등성을 인증하지는 않습니다.
+- **자동 커밋 제어** — 트랜잭션 관리를 위한 `connection.autocommit` 속성
+- **서버 버전 감지** — `connection.get_server_version()`이 버전 문자열(예: `"11.2.0.0378"`) 반환
+- **이터레이터 프로토콜** — `for row in cursor`로 커서 결과 반복 가능
+- **컨텍스트 매니저** — 연결과 커서 모두 `with` 문 지원
+- **Async 지원** — asyncio 이벤트 루프를 위한 `AsyncConnection`, `AsyncCursor`, `pycubrid.aio.connect()`
+
+### 지원 CUBRID 버전
+
+이 프로젝트는 CUBRID 10.x 및 11.x를 대상으로 하며, CI에서 다음 버전을 검증합니다:
+
+- 10.2
+- 11.0
+- 11.2
+- 11.4
+
+### 호환성
+
+**Python 3.10 지원 종료:** Python 3.10은 2026-10-01에 공식 지원이
+종료됐습니다([PEP 619](https://peps.python.org/pep-0619/#310-lifespan)).
+1.8.x와 1.9.x는 Python 3.10을 지원하며, 1.9.0에 사전 안내가 포함됐습니다.
+1.10.0부터 패키지는 Python 3.11 이상을 요구하므로, Python 3.10의 `pip`은 계속
+1.9.x를 설치합니다. 업그레이드하기 전에 Python을 업그레이드하고 가상 환경을
+새로 만든 뒤 애플리케이션을 검증하세요.
 
 Python 3.11–3.15와 CUBRID 10.2, 11.0, 11.2, 11.4를 지원합니다.
 일반 PR은 Ubuntu/Python 3.12 대표 오프라인 스모크 검사만 실행하고,
@@ -265,7 +288,21 @@ Python 3.11·3.15 전체 오프라인 검사를 추가합니다.
 전체 5 × 4 통합 매트릭스는 명시적 수동 실행과 릴리즈에서 유지합니다.
 [CI 실행 정책](ko/CI_POLICY.md)을 참고하세요.
 
-## 아키텍처
+### 문서
+
+| 가이드 | 설명 |
+|---|---|
+| [처음으로 CUBRID에 연결하기](ko/quickstart.md) | 여기서 시작: 데이터베이스 준비, 첫 쿼리, 첫 행 저장, 첫 연결 문제 |
+| [연결](CONNECTION.md) | 연결 문자열, URL 형식, 구성 옵션 |
+| [타입 매핑](TYPES.md) | 전체 타입 매핑, CUBRID 전용 타입, 컬렉션 타입 |
+| [API 레퍼런스](API_REFERENCE.md) | 전체 API 문서 — 모듈, 클래스, 함수 |
+| [프로토콜](PROTOCOL.md) | CAS 와이어 프로토콜 레퍼런스 |
+| [성능 가이드](ko/PERFORMANCE.md) | 벤치마크 방법론, 회귀 확인, 프로파일링, 타이밍 훅 |
+| [개발 가이드](DEVELOPMENT.md) | 개발 환경 설정, 테스트, Docker, 커버리지, CI/CD |
+| [예제](EXAMPLES.md) | 실용적인 사용 예제와 코드 |
+| [문제 해결](TROUBLESHOOTING.md) | 연결 오류, 쿼리 문제, LOB 처리, 디버깅 |
+
+### 아키텍처
 
 ```mermaid
 graph TD
@@ -307,67 +344,56 @@ graph TD
     aio["aio/ - AsyncConnection, AsyncCursor, async connect()"]
 ```
 
-## FAQ
+### FAQ
 
-### Python에서 CUBRID에 어떻게 연결하나요?
+#### Python에서 CUBRID에 어떻게 연결하나요?
 
 ```python
 import pycubrid
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
 ```
 
-### pycubrid는 어떻게 설치하나요?
+#### pycubrid는 어떻게 설치하나요?
 
 `pip install pycubrid` — C 확장이나 빌드 도구가 필요 없습니다.
 
-### pycubrid는 어떤 매개변수 스타일을 사용하나요?
+#### pycubrid는 어떤 매개변수 스타일을 사용하나요?
 
 물음표(`qmark`) 스타일입니다: `cursor.execute("SELECT * FROM users WHERE id = ?", (1,))`
 
 파라미터는 드라이버 측에서 SQL 문자열에 바인딩되며 서버 측 prepared statement 바인딩이 아닙니다. 예외는 옵트인 `executemany(..., prepared=True)`로, `PREPARE` 한 번과 `EXECUTE_ARRAY` 요청 한 번으로 타입이 있는 값을 보냅니다([API 레퍼런스](ko/API_REFERENCE.md) 참고).
 
-### pycubrid는 SQLAlchemy와 함께 사용할 수 있나요?
+#### pycubrid는 SQLAlchemy와 함께 사용할 수 있나요?
 
 예. `pip install "sqlalchemy-cubrid[pycubrid]"`로 설치한 뒤 연결 URL `cubrid+pycubrid://dba@localhost:33000/testdb`를 사용하세요.
 
-### 어떤 Python 버전을 지원하나요?
+#### 어떤 Python 버전을 지원하나요?
 
 Python 3.11, 3.12, 3.13, 3.14, 3.15(표준 GIL 빌드)를 지원합니다.
 
-### pycubrid는 LOB(CLOB/BLOB)를 지원하나요?
+#### pycubrid는 LOB(CLOB/BLOB)를 지원하나요?
 
 예. CLOB/BLOB 컬럼에 문자열/바이트를 직접 삽입할 수 있습니다. 읽을 때는 커서에서 접근 가능한 형태로 LOB 컬럼 데이터를 반환합니다.
 
-### pycubrid는 스레드 세이프한가요?
+#### pycubrid는 스레드 세이프한가요?
 
 pycubrid의 `threadsafety = 1`은 연결을 스레드 간에 공유할 수 없음을 의미합니다. 스레드마다 별도의 연결을 생성해야 합니다.
 
-### 어떤 CUBRID 버전을 지원하나요?
+#### 어떤 CUBRID 버전을 지원하나요?
 
 CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 
-### pycubrid는 async/await를 지원하나요?
+#### pycubrid는 async/await를 지원하나요?
 
 예. 네이티브 asyncio 지원을 위해 `pycubrid.aio.connect()`를 사용하세요. async API의 표면은 sync API와 비슷합니다. `await conn.ping(reconnect=...)`로 sync `Connection.ping()`과 동일한 네이티브 `CHECK_CAS` 헬스 체크를 수행할 수 있고, `create_lob()`만 여전히 sync 전용이며, 자동 커밋 변경은 속성 setter 대신 `await conn.set_autocommit(...)`를 사용합니다.
 
+## 개발
 
-## 관련 프로젝트
-
-- [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — CUBRID용 SQLAlchemy 2.0 방언
-- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — CUBRID를 위한 프로덕션용 Python 예제
-
-
-## 로드맵
-
-이 프로젝트의 방향과 다음 마일스톤은 [`ROADMAP.md`](../ROADMAP.md)를 참고하세요.
-
-생태계 전체 관점은 [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md)를 참고하세요.
-
-## 기여하기
+### 기여하기
 
 가이드라인은 [한국어 기여 안내](CONTRIBUTING.ko.md)와 [영어 원문](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md), 개발 환경 설정은 [docs/DEVELOPMENT.md](DEVELOPMENT.md)를 참고하세요.
 
-### 첫 기여
+#### 첫 기여
 
 CUBRID가 처음이신가요? 작업하려는 내용에 맞는 저장소를 선택하세요:
 
@@ -379,6 +405,17 @@ CUBRID가 처음이신가요? 작업하려는 내용에 맞는 저장소를 선�
 
 열려 있는 [`good first issue`](https://github.com/cubrid-lab/pycubrid/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22+no%3Aassignee) 작업을 둘러보세요.
 
+### 로드맵
+
+이 프로젝트의 방향과 다음 마일스톤은 [`ROADMAP.md`](../ROADMAP.md)를 참고하세요.
+
+생태계 전체 관점은 [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md)를 참고하세요.
+
+### 관련 프로젝트
+
+- [sqlalchemy-cubrid](https://github.com/cubrid-lab/sqlalchemy-cubrid) — CUBRID용 SQLAlchemy 2.0 방언
+- [cubrid-cookbook-python](https://github.com/cubrid-lab/cubrid-cookbook-python) — CUBRID를 위한 프로덕션용 Python 예제
+
 ## 보안
 
 취약점은 GitHub의 비공개 취약점 제보(private vulnerability reporting)로 제보해 주세요(대체 수단은 이메일) — 자세한 내용은 [SECURITY.md](../SECURITY.md)를 참고하세요. 보안 관련 사항은 공개 이슈로 등록하지 마세요.
@@ -388,7 +425,6 @@ CUBRID가 처음이신가요? 작업하려는 내용에 맞는 저장소를 선�
 pycubrid 초기 개발 당시, CUBRID의 공식 Node.js 드라이버인 [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause)를 참고 구현으로 삼아 CUBRID의 CAS(Common Application Server) 와이어 프로토콜 — 패킷 구조와 함수 코드 — 를 이해하는 데 활용했습니다. pycubrid는 독립적인 순수 Python 구현이며, 자세한 내용은 [NOTICE](../NOTICE)를 참고하세요.
 
 [CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python)의 메인테이너와 기여자분들께도 감사드립니다. 이 프로젝트의 `tests3` 스위트는 #409, #410, #433에서 추가한 INDEX, PARTITION, VIEW, TRIGGER, 컬렉션, ENUM, LOB 왕복 회귀 시나리오의 참고 자료였습니다. 시나리오는 pycubrid의 API와 문서화된 차이에 맞게 적용했으며, CUBRIDdb API 전체의 동등성을 주장하지 않습니다. 참고한 파일은 [NOTICE](../NOTICE), 출처와 라이선스 확인의 한계는 [서드파티 문서](../THIRD_PARTY_LICENSES.md#reference-test-suite)를 확인하세요.
-
 
 ## 라이선스
 

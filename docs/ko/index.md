@@ -13,6 +13,13 @@ C 확장 없이 순수 Python으로 작성된 CUBRID 데이터베이스용 DB-AP
 - 최신 IDE와 정적 분석을 위한 타입 패키지 지원 (`py.typed`)
 - CLOB 및 BLOB 작업을 위한 LOB 지원
 
+## 여기서 시작하세요
+
+pycubrid는 Python 프로그램이 CUBRID 데이터베이스와 대화하게 해 줍니다. CUBRID는 이미 실행 중이어야
+하는 별도의 서버이며, pycubrid를 설치해도 CUBRID가 설치되지는 않습니다.
+[처음으로 CUBRID에 연결하기](quickstart.md)는 데이터베이스 준비(이미 있는 데이터베이스 또는 Docker로
+띄우는 일회용 로컬 데이터베이스)부터 첫 쿼리와 첫 행 저장까지 안내합니다.
+
 ## 빠른 설치
 
 ```bash
@@ -33,8 +40,9 @@ conn.close()
 
 ## 문서
 
-- [시작하기](CONNECTION.md)
-- [사용자 가이드](TYPES.md)
+- [처음으로 CUBRID에 연결하기](quickstart.md)
+- [연결 가이드](CONNECTION.md)
+- [타입 시스템](TYPES.md)
 - [파라미터 바인딩 계약](PARAMETER_BINDING.md)
 - [API 참조](API_REFERENCE.md)
 

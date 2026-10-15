@@ -11,6 +11,14 @@ Pure Python DB-API 2.0 driver for CUBRID database with no C extensions.
 - Typed package support (`py.typed`) for modern IDEs and static analysis
 - LOB support for CLOB and BLOB operations
 
+## Start here
+
+pycubrid lets a Python program talk to a CUBRID database, a separate server
+that must already be running; installing pycubrid does not install CUBRID.
+[Your First CUBRID Connection](quickstart.md) walks you from preparing a
+database (your own, or a disposable local one in Docker) to a first query and
+a first saved row.
+
 ## Quick install
 
 ```bash
@@ -31,8 +39,9 @@ conn.close()
 
 ## Documentation
 
-- [Getting Started](CONNECTION.md)
-- [User Guide](TYPES.md)
+- [Your First CUBRID Connection](quickstart.md)
+- [Connection Guide](CONNECTION.md)
+- [Type Mapping](TYPES.md)
 - [Parameter Binding Contract](PARAMETER_BINDING.md)
 - [API Reference](API_REFERENCE.md)
 
