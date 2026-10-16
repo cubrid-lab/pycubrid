@@ -16,6 +16,10 @@ import jinja2
 import pytest
 import yaml
 
+# A documentation tooling check: it runs in the repo-tooling-tests lane, which
+# ci.yml also selects for changes under docs/overrides/.
+pytestmark = pytest.mark.repo_tooling
+
 ROOT = Path(__file__).resolve().parent.parent
 PARTIAL = ROOT / "docs" / "overrides" / "partials" / "channel.html"
 SHA = "4efe1307031b43a300bbb7fd675292e14cedc933"

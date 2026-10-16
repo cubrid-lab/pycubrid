@@ -161,6 +161,9 @@ jobs:
               - 'tests/test_agent_review_gate.py'
               - 'tests/test_check_docs_links.py'
               - 'tests/test_check_agents_docs.py'
+              # The site notice template and its rendering test (#960, #971).
+              - 'docs/overrides/**'
+              - 'tests/test_docs_channel_notice.py'
               - 'tests/test_official_fixture_setup.py'
               - 'tests/test_upstream_scenario_ledger.py'
               - 'tests/fixtures/upstream_scenarios.csv'

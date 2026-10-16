@@ -96,6 +96,10 @@ def test_workflow_impact_table(name: str) -> None:
         # The documentation checks' own tests run in the tooling lane (#927).
         ("tests/test_check_docs_links.py", {"code", "risk", "tooling"}),
         ("tests/test_check_agents_docs.py", {"code", "risk", "tooling"}),
+        # The site notice template is tested in the tooling lane (#971).
+        ("docs/overrides/partials/channel.html", {"docs", "site", "tooling"}),
+        ("docs/overrides/main.html", {"docs", "site", "tooling"}),
+        ("tests/test_docs_channel_notice.py", {"code", "risk", "tooling"}),
         ("CHANGELOG.md", {"docs"}),
     ],
 )
