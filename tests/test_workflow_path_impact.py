@@ -101,6 +101,15 @@ def test_workflow_impact_table(name: str) -> None:
         ("docs/overrides/main.html", {"docs", "site", "tooling"}),
         ("tests/test_docs_channel_notice.py", {"code", "risk", "tooling"}),
         ("CHANGELOG.md", {"docs"}),
+        # repo_tooling modules and the files only they read (#983).
+        ("tests/test_quality_tools.py", {"code", "risk", "tooling"}),
+        ("tests/test_agent_eval.py", {"code", "risk", "tooling"}),
+        ("agent-evals/tasks/lab-volume-964/task.toml", {"code", "tooling"}),
+        ("agent-evals/README.md", {"docs", "tooling"}),
+        ("docs/finish-safely.md", {"docs", "site", "tooling"}),
+        ("THIRD_PARTY_LICENSES.md", {"docs", "tooling"}),
+        ("release-please-config.json", {"code", "tooling"}),
+        ("api-baseline.json", {"code", "tooling"}),
     ],
 )
 def test_representative_paths_select_the_expected_tiers(path: str, expected: set[str]) -> None:
@@ -254,6 +263,65 @@ def test_tests_that_read_workflows_run_in_the_tooling_lane() -> None:
     # Non-ci.yml workflow changes select only the tooling lane on PRs, so any test
     # that reads a workflow file must be marked repo_tooling or it runs nowhere.
     assert _unmarked_workflow_readers(ROOT / "tests") == []
+
+
+def _has_repo_tooling_tests(tree: ast.Module) -> bool:
+    if _sets_repo_tooling(tree.body):
+        return True
+    return any(
+        (isinstance(node, (*_FUNCS, ast.ClassDef)) and _marks_repo_tooling(node.decorator_list))
+        or (isinstance(node, ast.ClassDef) and _sets_repo_tooling(node.body))
+        for node in ast.walk(tree)
+    )
+
+
+def _unselected_tooling_modules(test_dir: Path) -> list[str]:
+    return [
+        path.name
+        for path in sorted(test_dir.glob("test_*.py"))
+        if _has_repo_tooling_tests(ast.parse(path.read_text()))
+        and "tooling" not in _selected(f"tests/{path.name}")
+    ]
+
+
+def test_every_repo_tooling_module_selects_the_tooling_lane() -> None:
+    # The offline lanes deselect repo_tooling tests, so a module whose own path
+    # does not select the tooling lane runs nowhere when only it changes (#983).
+    assert _unselected_tooling_modules(ROOT / "tests") == []
+
+
+def test_the_guard_runs_in_the_always_on_lint_job() -> None:
+    # A PR that adds only an unlisted module selects no tooling lane, so the
+    # guard must also run where every event runs it (#983).
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    assert "if" not in jobs["lint"]
+    node = "tests/test_workflow_path_impact.py::test_every_repo_tooling_module_selects_the_tooling_lane"
+    assert any(node in step.get("run", "") for step in jobs["lint"]["steps"])
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "pytestmark = pytest.mark.repo_tooling\n\ndef test_x():\n    pass",
+        "pytestmark = [pytest.mark.slow, pytest.mark.repo_tooling]\n\ndef test_x():\n    pass",
+        "def test_a():\n    pass\n\n@pytest.mark.repo_tooling\ndef test_x():\n    pass",
+        "@pytest.mark.repo_tooling\nclass TestX:\n    def test_x(self):\n        pass",
+        (
+            "class TestX:\n    pytestmark = pytest.mark.repo_tooling\n\n    def test_x(self):\n"
+            "        pass"
+        ),
+    ],
+    ids=["module-mark", "module-mark-list", "one-test", "class-decorator", "class-pytestmark"],
+)
+def test_guard_finds_an_unselected_tooling_module(tmp_path: Path, body: str) -> None:
+    (tmp_path / "test_new_tooling_probe.py").write_text("import pytest\n\n" + body + "\n")
+    assert _unselected_tooling_modules(tmp_path) == ["test_new_tooling_probe.py"]
+
+
+def test_guard_ignores_modules_without_tooling_tests(tmp_path: Path) -> None:
+    body = 'def test_x():\n    assert "not repo_tooling" in "-m \'not repo_tooling\'"\n'
+    (tmp_path / "test_new_tooling_probe.py").write_text(body)
+    assert _unselected_tooling_modules(tmp_path) == []
 
 
 @pytest.mark.parametrize(

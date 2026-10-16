@@ -25,9 +25,13 @@ PR 스모크 스위트는 의도적으로 범위가 제한되어 있습니다. �
 Python과 최신 Python에서의 기존 오프라인 회귀 스위트를 선택합니다([오프라인 엔드포인트 버전](#오프라인-엔드포인트-버전) 참고). 그 밖의 워크플로 변경은 대신 저장소 도구
 레인을 선택합니다([워크플로 변경 영향](#워크플로-변경-영향) 참고). 그 밖의 코드 변경은 제한된 스모크
 스위트를 유지합니다. 저장소 도구 테스트는 도구가 바뀔 때 Linux 한 레인에서
-실행합니다. `tests/test_official_fixture_setup.py`, `tests/test_upstream_scenario_ledger.py`
-또는 `tests/fixtures/upstream_scenarios.csv` 변경은 같은 도구 레인을 명시적으로
-선택합니다. 이 마커 기반 검사는 드라이버 오프라인 레인에서 제외됩니다.
+실행합니다. `repo_tooling` 테스트가 있는 모든 테스트 모듈(`tests/test_official_fixture_setup.py`,
+`tests/test_upstream_scenario_ledger.py` 등)과 그 테스트만 읽는 파일
+(`tests/fixtures/upstream_scenarios.csv`, `agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
+`release-please-config.json`, `api-baseline.json` 등)의 변경은 같은 도구 레인을 명시적으로
+선택하며, 그런 모듈이 선택되지 않으면 항상 실행되는 린트 잡에서도 돌아가는
+`tests/test_workflow_path_impact.py`의 가드가 실패합니다.
+이 마커 기반 검사는 드라이버 오프라인 레인에서 제외됩니다.
 정적 린트 잡은 생성 문서 검사를 포함해 모든 이벤트에서 계속 실행됩니다.
 
 집계 필수 검사의 이름은 그대로 유지되며 변경 감지를 포함합니다. 선택된 잡은

@@ -25,8 +25,12 @@ supported Python (see [Offline endpoint versions](#offline-endpoint-versions)).
 Other workflow changes select the repository-tooling lane instead (see
 [Workflow change impact](#workflow-change-impact)). Other code
 changes retain the bounded smoke suite. Repository tooling tests run in one Linux lane when tooling changes.
-Changes to `tests/test_official_fixture_setup.py`, `tests/test_upstream_scenario_ledger.py`
-or `tests/fixtures/upstream_scenarios.csv` explicitly select that same tooling lane;
+Every test module with `repo_tooling` tests (such as `tests/test_official_fixture_setup.py`
+and `tests/test_upstream_scenario_ledger.py`) and the files only those tests read (such as
+`tests/fixtures/upstream_scenarios.csv`, `agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
+`release-please-config.json` and `api-baseline.json`) explicitly select that same tooling
+lane, and a guard in `tests/test_workflow_path_impact.py`, which the always-on lint job
+also runs, fails when such a module does not;
 these marker-based checks are excluded from the driver offline lane.
 The static lint job continues on all events, including generated documentation checks.
 

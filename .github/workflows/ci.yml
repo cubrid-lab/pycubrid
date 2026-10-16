@@ -169,6 +169,42 @@ jobs:
               - 'tests/test_official_fixture_setup.py'
               - 'tests/test_upstream_scenario_ledger.py'
               - 'tests/fixtures/upstream_scenarios.csv'
+              # Every module with repo_tooling tests, which only this lane
+              # runs, and the files only they read (#983). The guard in
+              # tests/test_workflow_path_impact.py keeps the module list whole.
+              - 'tests/test_agent_eval*.py'
+              - 'tests/test_check_docs_translation.py'
+              - 'tests/test_check_official_differential.py'
+              - 'tests/test_check_public_api.py'
+              - 'tests/test_check_release_title.py'
+              - 'tests/test_collect_repro.py'
+              - 'tests/test_compat_factories.py'
+              - 'tests/test_compose_release_changelog.py'
+              - 'tests/test_docs_reason.py'
+              - 'tests/test_downstream_corpus.py'
+              - 'tests/test_extract_release_notes.py'
+              - 'tests/test_integration_lanes.py'
+              - 'tests/test_issue_metadata.py'
+              - 'tests/test_makefile_mutation.py'
+              - 'tests/test_mutation_shards.py'
+              - 'tests/test_pr_title.py'
+              - 'tests/test_prepare_release.py'
+              - 'tests/test_pypi_duplicate_guard.py'
+              - 'tests/test_quality_tools.py'
+              - 'tests/test_reconcile_release_labels.py'
+              - 'tests/test_release_detect.py'
+              - 'tests/test_release_please_config.py'
+              - 'tests/test_release_summary.py'
+              - 'tests/test_third_party_licenses.py'
+              - 'tests/test_verify_dist.py'
+              - 'agent-evals/**'
+              - 'docs/quickstart.md'
+              - 'docs/ko/quickstart.md'
+              - 'docs/finish-safely.md'
+              - 'docs/ko/finish-safely.md'
+              - 'THIRD_PARTY_LICENSES.md'
+              - 'release-please-config.json'
+              - 'api-baseline.json'
             tls:
               - 'pycubrid/aio/**'
               - 'pycubrid/connection.py'
@@ -335,6 +371,10 @@ jobs:
         run: python scripts/lint_changelog.py
       - name: Korean documents keep the structure of their English source
         run: python scripts/check_docs_translation.py
+      # The guard is a repo_tooling test, and the tooling lane is skipped when
+      # only an unlisted module changes, so it also runs here on every event (#983).
+      - name: Every repository-tooling module selects the tooling lane
+        run: python -m pytest -q -p no:cacheprovider "tests/test_workflow_path_impact.py::test_every_repo_tooling_module_selects_the_tooling_lane"
       - name: llms-full.txt and root llms.txt are in sync with source docs
         run: |
           python scripts/generate_llms_full.py
