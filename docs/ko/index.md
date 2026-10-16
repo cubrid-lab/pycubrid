@@ -17,8 +17,9 @@ C 확장 없이 순수 Python으로 작성된 CUBRID 데이터베이스용 DB-AP
 
 pycubrid는 Python 프로그램이 CUBRID 데이터베이스와 대화하게 해 줍니다. CUBRID는 이미 실행 중이어야
 하는 별도의 서버이며, pycubrid를 설치해도 CUBRID가 설치되지는 않습니다.
-[처음으로 CUBRID에 연결하기](quickstart.md)는 데이터베이스 준비(이미 있는 데이터베이스 또는 Docker로
-띄우는 일회용 로컬 데이터베이스)부터 첫 쿼리와 첫 행 저장까지 안내합니다.
+[처음으로 CUBRID에 연결하기](quickstart.md)는 다섯 개의 짧은 단원 중 첫 번째입니다. 데이터베이스(이미
+있는 데이터베이스 또는 Docker로 띄우는 일회용 로컬 데이터베이스)와 Python을 준비하고, 다음 단원들에서
+첫 쿼리 실행, 행 저장, 커밋과 롤백, 안전하게 마치기를 차례로 다룹니다.
 
 ## 빠른 설치
 
@@ -40,11 +41,13 @@ conn.close()
 
 ## 문서
 
-- [처음으로 CUBRID에 연결하기](quickstart.md)
-- [연결 가이드](CONNECTION.md)
-- [타입 시스템](TYPES.md)
-- [파라미터 바인딩 계약](PARAMETER_BINDING.md)
-- [API 참조](API_REFERENCE.md)
+- 배우기: [처음으로 CUBRID에 연결하기](quickstart.md)와 그 페이지가 안내하는 단원들
+- 찾아보기: [API 참조](API_REFERENCE.md), [연결 옵션](CONNECTION.md),
+  [값을 안전하게 전달하기(파라미터 바인딩 계약)](PARAMETER_BINDING.md), [타입 시스템](TYPES.md),
+  [지원 매트릭스](SUPPORT_MATRIX.md)
+- 도움 받기: [문제 해결](TROUBLESHOOTING.md), [자주 묻는 질문](faq.md), 보안 문제는
+  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)의 비공개 제보 경로
+- 기여하기: [개발 가이드](DEVELOPMENT.md), [아키텍처](ARCHITECTURE.md), [CAS 프로토콜](PROTOCOL.md)
 
 ## 프로젝트 링크
 

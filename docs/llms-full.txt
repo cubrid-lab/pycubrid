@@ -19,9 +19,10 @@ Pure Python DB-API 2.0 driver for CUBRID database with no C extensions.
 
 pycubrid lets a Python program talk to a CUBRID database, a separate server
 that must already be running; installing pycubrid does not install CUBRID.
-[Your First CUBRID Connection](quickstart.md) walks you from preparing a
-database (your own, or a disposable local one in Docker) to a first query and
-a first saved row.
+[Your First CUBRID Connection](quickstart.md) is the first of five short
+lessons: it prepares a database (your own, or a disposable local one in Docker)
+and Python, and the next lessons run a first query, save a row, commit and roll
+back, and finish safely.
 
 ## Quick install
 
@@ -43,11 +44,16 @@ conn.close()
 
 ## Documentation
 
-- [Your First CUBRID Connection](quickstart.md)
-- [Connection Guide](CONNECTION.md)
-- [Type Mapping](TYPES.md)
-- [Parameter Binding Contract](PARAMETER_BINDING.md)
-- [API Reference](API_REFERENCE.md)
+- Learn: [Your First CUBRID Connection](quickstart.md), then the lessons it links.
+- Look up: [API Reference](API_REFERENCE.md),
+  [Connection Options](CONNECTION.md),
+  [Passing Values Safely (Parameter Binding Contract)](PARAMETER_BINDING.md),
+  [Type Mapping](TYPES.md) and [Support Matrix](SUPPORT_MATRIX.md).
+- Get help: [Troubleshooting](TROUBLESHOOTING.md), [FAQ](faq.md), and for a
+  security problem the private reporting route in
+  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md).
+- Contribute: [Development](DEVELOPMENT.md), [Architecture](ARCHITECTURE.md) and
+  [Protocol](PROTOCOL.md).
 
 ## Project links
 
@@ -76,10 +82,13 @@ CUBRID database. The database itself is a separate program, the CUBRID server,
 that must already be running somewhere. Installing pycubrid does not install
 CUBRID or create a database.
 
-This page prepares a database and Python, starting from an empty folder. The
-[first query](first-query.md) has its own lesson, and this page then continues
-with a first saved row. You do not need to know DB-API, the CUBRID wire protocol or this project's
-CI to follow it; those live in the [reference pages](#next-steps).
+This page is the first of five short lessons. It prepares a database and
+Python, starting from an empty folder. The next lessons each add one step:
+[run your first query](first-query.md), [save a row](save-a-row.md),
+[commit and roll back](commit-and-rollback.md) and
+[finish safely](finish-safely.md). You do not need to know DB-API, the CUBRID
+wire protocol or this project's CI to follow them; those live in the
+[reference pages](#next-steps).
 
 ---
 
@@ -97,10 +106,11 @@ Ask its administrator (or look in your own setup) for these five values:
 - **database**: the database name, for example `testdb`;
 - **user** and **password**: an account for that database.
 
-Step 3 creates and later removes one small table. Use a practice database, or
-an account that is allowed to create tables there. Do not use a production
-database or its `dba` account for this tutorial. Put your values in place of
-the lab values in Steps 2 and 3, then continue with Step 1.
+The lessons after this page create and later remove one small table. Use a
+practice database, or an account that is allowed to create tables there. Do not
+use a production database or its `dba` account for this tutorial. Put your
+values in place of the lab values in each lesson's program, then continue with
+Step 1.
 
 ### Option B: I need a disposable local database
 
@@ -110,24 +120,43 @@ and a shell such as bash. The commands were verified on Linux on x86_64
 (amd64); the `cubrid/cubrid:11.4` image is published for amd64 only, so other
 architectures (for example Apple silicon) and Windows are unverified.
 
+First start the container:
+
 ```bash
 docker run -d --name pycubrid-quickstart -e CUBRID_DB=testdb -p 127.0.0.1:33000:33000 cubrid/cubrid:11.4
-ready=no; for i in $(seq 36); do if docker exec pycubrid-quickstart csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; then ready=yes; break; fi; sleep 5; done; if [ "$ready" = yes ]; then echo "CUBRID is ready"; else echo "CUBRID did not answer within 3 minutes; see: docker logs pycubrid-quickstart"; fi
 ```
 
 `127.0.0.1:` publishes the port on this computer only, so no other machine can
-connect to the lab. The second command waits up to three minutes for the
-database to answer (it usually takes well under a minute) and prints
-`CUBRID is ready`. If it prints `CUBRID did not answer within 3 minutes`
-instead, `docker logs pycubrid-quickstart` shows why; if `docker run` itself
+connect to the lab. The database needs a little time to start. Paste this into
+the same shell; it asks the database every 5 seconds, for up to 3 minutes,
+whether it answers:
+
+```bash
+ready=no
+for attempt in $(seq 36); do
+  if docker exec pycubrid-quickstart csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; then
+    ready=yes
+    break
+  fi
+  sleep 5
+done
+if [ "$ready" = yes ]; then
+  echo "CUBRID is ready"
+else
+  echo "CUBRID did not answer within 3 minutes; see: docker logs pycubrid-quickstart"
+fi
+```
+
+It usually prints `CUBRID is ready` well within a minute. If it prints
+`CUBRID did not answer within 3 minutes` instead, `docker logs pycubrid-quickstart` shows why; if `docker run` itself
 failed, for example because port 33000 is already in use, fix that first,
 remove the container with `docker rm -f pycubrid-quickstart` and start again.
 The lab uses the `dba` account with an empty password. That is only acceptable
 for this local, disposable container: never use an empty password on a server
 other people can reach.
 
-When you are done with the whole tutorial, remove the lab with
-`docker rm -f pycubrid-quickstart`.
+When you are done with the whole tutorial,
+[Finish Safely](finish-safely.md#remove-the-docker-lab) removes the lab.
 
 ---
 
@@ -157,125 +186,21 @@ active. Next, [run your first query](first-query.md).
 
 The first query has its own lesson: [Run Your First Query](first-query.md)
 creates `first_query.py`, runs it and explains the connection and cursor it
-uses. Continue with Step 3 when that program prints `(2,)`.
+uses.
 
 ---
 
 ## Step 3: Save a row and read it back
 
-This step needs the connection that worked in
-[Run Your First Query](first-query.md). Create `first_saved_row.py` in the same
-folder, with the same five connection values:
-
-```python
-import pycubrid
-
-SETTINGS = {"host": "localhost", "port": 33000, "database": "testdb", "user": "dba", "password": ""}
-
-conn = pycubrid.connect(**SETTINGS)
-cur = conn.cursor()
-
-# 1. Create a table that belongs to this tutorial. The comment marks it, so the
-#    cleanup script only ever drops this tutorial's own table.
-cur.execute(
-    "CREATE TABLE pycubrid_quickstart_notes (id INT PRIMARY KEY, note VARCHAR(100))"
-    " COMMENT = 'created by the pycubrid quickstart'"
-)
-conn.commit()
-
-# 2. Insert one row. The ? marks are filled with the values that follow, in order.
-cur.execute(
-    "INSERT INTO pycubrid_quickstart_notes (id, note) VALUES (?, ?)",
-    (1, "my first saved row"),
-)
-conn.commit()  # commit makes the change permanent and visible to others
-
-# 3. Insert a second row, then undo it with rollback.
-cur.execute(
-    "INSERT INTO pycubrid_quickstart_notes (id, note) VALUES (?, ?)",
-    (2, "this row is rolled back"),
-)
-conn.rollback()  # rollback discards everything since the last commit
-
-cur.execute("SELECT id, note FROM pycubrid_quickstart_notes ORDER BY id")
-print("Rows in this session:", cur.fetchall())
-cur.close()
-conn.close()
-
-# 4. Check from a brand-new connection that the committed row was saved.
-check = pycubrid.connect(**SETTINGS)
-check_cur = check.cursor()
-check_cur.execute("SELECT id, note FROM pycubrid_quickstart_notes ORDER BY id")
-print("Rows seen by a new connection:", check_cur.fetchall())
-check_cur.close()
-check.close()
-```
-
-Changes are not permanent until you **commit**; **rollback** throws away
-everything since the last commit. The `?` marks are placeholders: pycubrid
-replaces each one with the matching value from the tuple, safely escaped,
-before it sends the statement. Always pass values this way instead of pasting
-them into the SQL text yourself. (How the values are converted is described in
-[Parameter Binding](PARAMETER_BINDING.md).)
-
-Run the file:
-
-```bash
-python first_saved_row.py
-```
-
-The rolled-back row is gone, and a second connection sees the saved row:
-
-```text
-Rows in this session: [(1, 'my first saved row')]
-Rows seen by a new connection: [(1, 'my first saved row')]
-```
-
-Running the file a second time, or again after it was interrupted, stops at
-the first statement with `Class dba.pycubrid_quickstart_notes already exists`
-(the owner name, here `dba`, is your user). The table from the earlier run is
-still there; run the cleanup below and then run `first_saved_row.py` again.
+Saving data now has two lessons of its own:
+[Save a Row and Read It Back](save-a-row.md) creates the tutorial table and
+commits one row, and [Commit and Roll Back](commit-and-rollback.md) adds a
+second row and undoes it.
 
 ### Clean up
 
-`cleanup_quickstart.py` removes the tutorial table, and only if the table of
-that name owned by your user carries the tutorial's comment. A table of the
-same name that you created yourself, or one that belongs to another user, is
-left alone:
-
-```python
-import pycubrid
-
-SETTINGS = {"host": "localhost", "port": 33000, "database": "testdb", "user": "dba", "password": ""}
-MARK = "created by the pycubrid quickstart"
-
-conn = pycubrid.connect(**SETTINGS)
-cur = conn.cursor()
-cur.execute(
-    "SELECT comment FROM db_class WHERE class_name = ? AND owner_name = CURRENT_USER",
-    ("pycubrid_quickstart_notes",),
-)
-row = cur.fetchone()
-if row is None:
-    print("Nothing to clean up: pycubrid_quickstart_notes does not exist.")
-elif row[0] != MARK:
-    print("Not dropped: pycubrid_quickstart_notes was not created by this quickstart.")
-else:
-    cur.execute("DROP TABLE pycubrid_quickstart_notes")
-    conn.commit()
-    print("Dropped pycubrid_quickstart_notes.")
-cur.close()
-conn.close()
-```
-
-```bash
-python cleanup_quickstart.py
-```
-
-It prints `Dropped pycubrid_quickstart_notes.`, or
-`Nothing to clean up: pycubrid_quickstart_notes does not exist.` when there is
-nothing left to remove. If you used the Docker lab, you can also remove the
-whole lab with `docker rm -f pycubrid-quickstart`.
+Removing the tutorial table and the Docker lab, and recovering from an
+interrupted or repeated run, is in [Finish Safely](finish-safely.md).
 
 ---
 
@@ -318,11 +243,13 @@ This is a recorded example, not a full compatibility or performance certificate.
 ## Next steps
 
 - [Examples](EXAMPLES.md): updates, deletes, `with` blocks, async code and LOBs.
-- [Connection Guide](CONNECTION.md): every connection option, URLs, timeouts and TLS.
-- [Troubleshooting](TROUBLESHOOTING.md): more connection, query and transaction problems.
+- [Connection Options](CONNECTION.md): every connection option, URLs, timeouts and TLS.
+- [Troubleshooting](TROUBLESHOOTING.md) and [FAQ](faq.md): more connection, query and
+  transaction problems.
 - Reference: [API Reference](API_REFERENCE.md), [Type Mapping](TYPES.md),
-  [Parameter Binding](PARAMETER_BINDING.md), [Support Matrix](SUPPORT_MATRIX.md)
-  and, for the wire protocol itself, [Protocol](PROTOCOL.md).
+  [Passing Values Safely (Parameter Binding)](PARAMETER_BINDING.md) and
+  [Support Matrix](SUPPORT_MATRIX.md). For contributors, the wire protocol itself is in
+  [Protocol](PROTOCOL.md).
 
 ============================================================
 File: first-query.md
@@ -421,8 +348,338 @@ other timeouts.
 ## Next step
 
 The first query only read a computed value. Next,
-[save a row and read it back](quickstart.md#step-3-save-a-row-and-read-it-back),
-which creates a small table, commits one row and rolls back another.
+[save a row and read it back](save-a-row.md): create a small table, save one
+row and read it from a new connection.
+
+============================================================
+File: save-a-row.md
+============================================================
+
+# Save a Row and Read It Back
+
+This lesson creates a small table, saves one row in it and reads that row from
+a new connection. It follows [Run Your First Query](first-query.md).
+
+---
+
+## Before you start
+
+You need what the earlier lessons set up:
+
+- `first_query.py` from [Run Your First Query](first-query.md) printed `(2,)`,
+  so the five connection values work;
+- the same folder and an active virtual environment (in a new terminal, run
+  `source .venv/bin/activate` again).
+
+This lesson creates a table named `pycubrid_quickstart_notes` for your user. Use
+the practice database or account from
+[Before you start](quickstart.md#before-you-start), not a production database.
+
+---
+
+## Write the program
+
+Create `first_saved_row.py` in the same folder. Put your own five values in
+`SETTINGS` if you do not use the Docker lab:
+
+```python
+import pycubrid
+
+SETTINGS = {"host": "localhost", "port": 33000, "database": "testdb", "user": "dba", "password": ""}
+
+conn = pycubrid.connect(**SETTINGS)
+cur = conn.cursor()
+
+# 1. Create a table that belongs to this tutorial. The comment marks it, so the
+#    cleanup script only ever drops this tutorial's own table.
+cur.execute(
+    "CREATE TABLE pycubrid_quickstart_notes (id INT PRIMARY KEY, note VARCHAR(100))"
+    " COMMENT = 'created by the pycubrid quickstart'"
+)
+conn.commit()
+
+# 2. Insert one row. The ? marks are filled with the values that follow, in order.
+cur.execute(
+    "INSERT INTO pycubrid_quickstart_notes (id, note) VALUES (?, ?)",
+    (1, "my first saved row"),
+)
+conn.commit()  # commit makes the change permanent and visible to others
+cur.close()
+conn.close()
+
+# 3. Check from a brand-new connection that the committed row was saved.
+check = pycubrid.connect(**SETTINGS)
+check_cur = check.cursor()
+check_cur.execute("SELECT id, note FROM pycubrid_quickstart_notes ORDER BY id")
+print("Rows seen by a new connection:", check_cur.fetchall())
+check_cur.close()
+check.close()
+```
+
+---
+
+## Run it
+
+```bash
+python first_saved_row.py
+```
+
+A second connection sees the saved row:
+
+```text
+Rows seen by a new connection: [(1, 'my first saved row')]
+```
+
+---
+
+## What the program did
+
+- `SETTINGS` holds the five connection values once, and `connect(**SETTINGS)`
+  passes them as keyword arguments, so both connections use the same values.
+- `CREATE TABLE` made the tutorial table. Its comment marks it as the
+  tutorial's own, which [Finish Safely](finish-safely.md) checks before it
+  drops anything.
+- The `?` marks are placeholders: pycubrid replaces each one with the matching
+  value from the tuple, safely escaped, before it sends the statement. Always
+  pass values this way instead of pasting them into the SQL text yourself.
+  [Parameter Binding](PARAMETER_BINDING.md) describes how each Python type is
+  sent.
+- `commit()` makes the changes permanent. Until you commit, other connections
+  do not see them. The new connection `check` proves that the row was saved.
+- `fetchall()` reads every remaining row of the result as a list of tuples.
+
+---
+
+## If you run it again
+
+Running the file a second time, or again after it was interrupted, stops at the
+first statement with `Class dba.pycubrid_quickstart_notes already exists` (the
+owner name, here `dba`, is your user). The table from the earlier run is still
+there. Do not drop it by hand: run the cleanup in
+[Finish Safely](finish-safely.md#clean-up-the-tutorial-table), then run
+`first_saved_row.py` again.
+
+---
+
+## Next step
+
+The row is saved. Next, [commit and roll back](commit-and-rollback.md): add a
+second row and undo it before it is saved.
+
+============================================================
+File: commit-and-rollback.md
+============================================================
+
+# Commit and Roll Back
+
+This lesson adds a second row to the tutorial table and then undoes it with a
+rollback, so you can see what a transaction keeps and what it discards. It
+follows [Save a Row and Read It Back](save-a-row.md).
+
+---
+
+## Before you start
+
+You need what the earlier lessons set up:
+
+- `first_saved_row.py` from [Save a Row and Read It Back](save-a-row.md)
+  printed `Rows seen by a new connection: [(1, 'my first saved row')]`, so the
+  table `pycubrid_quickstart_notes` exists with one row;
+- the same folder and an active virtual environment (in a new terminal, run
+  `source .venv/bin/activate` again).
+
+---
+
+## Write the program
+
+Create `first_rollback.py` in the same folder, with the same `SETTINGS`:
+
+```python
+import pycubrid
+
+SETTINGS = {"host": "localhost", "port": 33000, "database": "testdb", "user": "dba", "password": ""}
+
+conn = pycubrid.connect(**SETTINGS)
+cur = conn.cursor()
+
+# 1. Insert a second row, but do not commit it.
+cur.execute(
+    "INSERT INTO pycubrid_quickstart_notes (id, note) VALUES (?, ?)",
+    (2, "this row is rolled back"),
+)
+cur.execute("SELECT id, note FROM pycubrid_quickstart_notes ORDER BY id")
+print("Before rollback:", cur.fetchall())
+
+# 2. Undo it.
+conn.rollback()  # rollback discards everything since the last commit
+
+cur.execute("SELECT id, note FROM pycubrid_quickstart_notes ORDER BY id")
+print("After rollback:", cur.fetchall())
+cur.close()
+conn.close()
+```
+
+---
+
+## Run it
+
+```bash
+python first_rollback.py
+```
+
+The second row is visible inside the transaction, then gone after the
+rollback:
+
+```text
+Before rollback: [(1, 'my first saved row'), (2, 'this row is rolled back')]
+After rollback: [(1, 'my first saved row')]
+```
+
+---
+
+## What the program did
+
+- A **transaction** groups your changes until you end it. pycubrid starts one
+  for you: autocommit is off by default, so nothing is permanent until you call
+  `commit()`.
+- Inside the transaction, your own connection already sees the uncommitted
+  row, which is why the first `SELECT` shows two rows.
+- `rollback()` ends the transaction and discards every change since the last
+  `commit()`. The row saved in the previous lesson stays, because it was
+  committed.
+- Closing a connection without `commit()` does not save its changes either.
+  Commit what you want to keep before you close.
+
+You can run `first_rollback.py` again: each run adds and removes the same
+second row, so it prints the same two lines. If the program is interrupted
+before the rollback, the server discards the uncommitted row when the
+connection ends.
+
+---
+
+## Next step
+
+You have saved and undone changes. Last,
+[finish safely](finish-safely.md): remove the tutorial table and, if you used
+it, the Docker lab.
+
+============================================================
+File: finish-safely.md
+============================================================
+
+# Finish Safely
+
+This lesson removes what the tutorial created: the tutorial table and, if you
+used it, the Docker lab. It also tells you how to recover when a lesson was
+interrupted or run twice. It follows
+[Commit and Roll Back](commit-and-rollback.md).
+
+---
+
+## Before you start
+
+You need the same folder, the same five connection values and an active
+virtual environment (in a new terminal, run `source .venv/bin/activate` again).
+You can run this lesson at any point after
+[Save a Row and Read It Back](save-a-row.md), also when a lesson failed half
+way.
+
+---
+
+## Clean up the tutorial table
+
+`cleanup_quickstart.py` removes the tutorial table, and only if the table of
+that name owned by your user carries the tutorial's comment. A table of the
+same name that you created yourself, or one that belongs to another user, is
+left alone. Create it in the same folder, with the same `SETTINGS`:
+
+```python
+import pycubrid
+
+SETTINGS = {"host": "localhost", "port": 33000, "database": "testdb", "user": "dba", "password": ""}
+MARK = "created by the pycubrid quickstart"
+
+conn = pycubrid.connect(**SETTINGS)
+cur = conn.cursor()
+cur.execute(
+    "SELECT comment FROM db_class WHERE class_name = ? AND owner_name = CURRENT_USER",
+    ("pycubrid_quickstart_notes",),
+)
+row = cur.fetchone()
+if row is None:
+    print("Nothing to clean up: pycubrid_quickstart_notes does not exist.")
+elif row[0] != MARK:
+    print("Not dropped: pycubrid_quickstart_notes was not created by this quickstart.")
+else:
+    cur.execute("DROP TABLE pycubrid_quickstart_notes")
+    conn.commit()
+    print("Dropped pycubrid_quickstart_notes.")
+cur.close()
+conn.close()
+```
+
+Run it:
+
+```bash
+python cleanup_quickstart.py
+```
+
+It prints one of three lines:
+
+| Output | What it means |
+|---|---|
+| `Dropped pycubrid_quickstart_notes.` | The tutorial table was removed. |
+| `Nothing to clean up: pycubrid_quickstart_notes does not exist.` | Your user has no table of that name; nothing was changed. |
+| `Not dropped: pycubrid_quickstart_notes was not created by this quickstart.` | Your user has a table of that name without the tutorial's comment. It is left alone. |
+
+### How the check works
+
+`db_class` is the CUBRID catalog of tables. The query looks for a table with
+the tutorial's name whose owner is `CURRENT_USER`, the user you connected as,
+and reads its comment. The script drops the table only when the comment is the
+one that [Save a Row and Read It Back](save-a-row.md) wrote. The table name is
+passed with a `?` placeholder, like any other value.
+
+If you see `Not dropped`, the table is not the tutorial's: do not drop it to
+make the lessons work. Use another practice database or account instead, or
+ask whoever created that table.
+
+---
+
+## Remove the Docker lab
+
+If you used the disposable Docker lab from
+[Option B](quickstart.md#option-b-i-need-a-disposable-local-database), remove
+the whole container, with its database:
+
+```bash
+docker rm -f pycubrid-quickstart
+```
+
+This removes only the container named `pycubrid-quickstart`. Skip this step
+with your own database.
+
+---
+
+## If a lesson was interrupted or run twice
+
+| What you see | What to do |
+|---|---|
+| `first_saved_row.py` stops with `Class dba.pycubrid_quickstart_notes already exists` (with your user name) | The table from an earlier run is still there. Run `cleanup_quickstart.py`, then run `first_saved_row.py` again. |
+| `first_rollback.py` was interrupted before it printed `After rollback` | Nothing to clean up: the uncommitted row is discarded when the connection ends. Run it again. |
+| `first_rollback.py` stops with `Unknown class "dba.pycubrid_quickstart_notes"` (with your user name) | Run `first_saved_row.py` from [Save a Row and Read It Back](save-a-row.md) first. |
+
+---
+
+## Next step
+
+You have finished the lessons. From here:
+
+- [Examples](EXAMPLES.md): updates, deletes, `with` blocks, async code and LOBs.
+- [Connection Options](CONNECTION.md): every connection option, URLs, timeouts
+  and TLS.
+- [Troubleshooting](TROUBLESHOOTING.md) and [FAQ](faq.md) when something does
+  not work.
 
 ============================================================
 File: CONNECTION.md
@@ -10630,8 +10887,10 @@ The site serves three readers, and each page has one of these roles:
   in order, with one continuing example.
 - **User reference** (Usage, Reference): an experienced user looks up an option,
   an API contract, a type or a support limit.
-- **Development material** (Project): a contributor finds protocol, design and
-  verification evidence.
+- **Help** (Help): a user with a problem finds troubleshooting, the FAQ and the
+  existing bug and vulnerability reporting routes.
+- **Development material** (Development and contributing): a contributor finds
+  protocol, design and verification evidence.
 
 This map records each affected page's reader, the question it answers, what
 comes before and after it, and the decision for it. "Source" is the Markdown
@@ -10644,16 +10903,44 @@ them by hand.
 |---|---|---|---|---|
 | `docs/index.md`, `/` | Anyone: what is pycubrid and where do I start? | Nothing | `quickstart.md` | Keep. |
 | `README.md` (repository and PyPI page, not built into the site) | A visitor: what is this project? | Nothing | `quickstart.md` | Keep; its links to the start page stay valid. |
-| `docs/quickstart.md`, `/quickstart/` | Newcomer: how do I get a database and Python ready? | Python 3.11 or later, and Docker or an existing database | `first-query.md` | Keep as the single canonical start. Step 2 is a short landing that links to the first-query lesson; Step 3 and its cleanup are split into lessons next. Every existing heading stays, so old deep links still land. |
-| `docs/first-query.md`, `/first-query/` | Newcomer: how do I connect, execute one statement and read one row? | `quickstart.md` Step 1 | `quickstart.md` Step 3 | New lesson. |
-| Saving one row, commit and rollback, finishing safely (planned lessons) | Newcomer: how do I save data, undo it, and clean up what I created? | The previous lesson | The next lesson | Split from `quickstart.md` Step 3 and its cleanup, with the same table ownership check and warnings. |
+| `docs/quickstart.md`, `/quickstart/` | Newcomer: how do I get a database and Python ready? | Python 3.11 or later, and Docker or an existing database | `first-query.md` | Keep as the single canonical start (lesson 1, preparation). Steps 2 and 3 and Clean up are short landings that link to the lessons; every existing heading stays, so old deep links still land. The first-connection error table stays here. |
+| `docs/first-query.md`, `/first-query/` | Newcomer: how do I connect, execute one statement and read one row? | `quickstart.md` | `save-a-row.md` | Lesson 2. |
+| `docs/save-a-row.md`, `/save-a-row/` | Newcomer: how do I create a table, save one row and see it from another connection? | `first-query.md` | `commit-and-rollback.md` | Lesson 3, split from quickstart Step 3. |
+| `docs/commit-and-rollback.md`, `/commit-and-rollback/` | Newcomer: what does a transaction keep and discard? | `save-a-row.md` | `finish-safely.md` | Lesson 4, split from quickstart Step 3. |
+| `docs/finish-safely.md`, `/finish-safely/` | Newcomer: how do I remove what I created, and recover from an interrupted or repeated run? | `commit-and-rollback.md` | `EXAMPLES.md`, `CONNECTION.md`, Help | Lesson 5, split from quickstart Clean up, with the same table ownership check and warnings. |
 | `docs/EXAMPLES.md`, `/EXAMPLES/` | User: how do I do a common task? | The lessons | The reference pages | Keep in Usage. |
-| `docs/CONNECTION.md`, `/CONNECTION/` | User: which connection options, URLs, timeouts and TLS settings exist? | The lessons | `API_REFERENCE.md` | Keep the file and its anchors; the lessons link its sections. Moves to Reference in navigation. |
+| `docs/CONNECTION.md`, `/CONNECTION/` | User: which connection options, URLs, timeouts and TLS settings exist? | The lessons | `API_REFERENCE.md` | Keep the file and its anchors; the lessons link its sections. Reference, labelled Connection Options. |
 | `docs/PARAMETER_BINDING.md`, `/PARAMETER_BINDING/` | User: how are values passed safely, and what is not guaranteed? | The lessons | `TYPES.md` | Keep; Reference, labelled as passing values safely. |
 | `docs/TYPES.md`, `docs/API_REFERENCE.md`, `docs/SUPPORT_MATRIX.md` | User: which type, call or version is supported? | Any page | Any page | Keep in Reference. |
-| `docs/TROUBLESHOOTING.md`, `docs/faq.md` | User with a problem: what does this error mean? | Any page | The reporting instructions in `SECURITY.md` and the issue forms | Keep the files; group them as Help in navigation. |
-| `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | Contributor: how does the driver work, and what evidence backs it? | `DEVELOPMENT.md` | Any page | Keep the files; move in navigation from Reference to the development group. |
-| `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | Contributor or operator: how do I build, test, measure and release? | Any page | Any page | Keep. |
+| `docs/TROUBLESHOOTING.md`, `docs/faq.md` | User with a problem: what does this error mean? | Any page | The reporting instructions in `SECURITY.md` and the issue forms | Keep the files; Help, with links to the issue forms and `SECURITY.md`. |
+| `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | Contributor: how does the driver work, and what evidence backs it? | `DEVELOPMENT.md` | Any page | Keep the files; Development and contributing in navigation (moved from Reference). |
+| `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | Contributor or operator: how do I build, test, measure and release? | Any page | Any page | Keep; Development and contributing, except Performance, which stays in Operations. |
+
+### Writing a Lesson
+
+A lesson under Start here teaches one operation. Give each lesson these parts,
+in this order, and keep the Korean page in the same structure:
+
+1. **Goal**: one or two sentences on what the reader does, and which lesson it
+   follows.
+2. **Before you start**: what earlier lessons must have produced (a printed
+   result, a table, an active virtual environment). Do not assume an open
+   Python session or a previous notebook: every program is a file run from the
+   terminal.
+3. **Program or command**: the file name, the complete source, and the command
+   that runs it.
+4. **Expected result**: the exact output, verified on a disposable CUBRID
+   server.
+5. **Explanation**: what each new call did, with links to the reference
+   section that has the full contract. Put the timeout, retry or security
+   limitation that applies to the operation here, not only in the reference.
+6. **Next step**: a link to the next lesson.
+
+Recovery for a repeated or interrupted run goes in the lesson that creates the
+resource or in Finish Safely. Cleanup must stay limited to what the lessons
+created, with the ownership check visible in the program. When a program or
+command changes, rerun the whole sequence on a disposable server and record the
+platform it ran on.
 
 ---
 

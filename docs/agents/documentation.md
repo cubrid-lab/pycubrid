@@ -17,7 +17,7 @@ directly under `docs/` (except `PRD.md` and the README translations) and copies 
 | Document | Content |
 |---|---|
 | `docs/index.md` | Documentation site landing page |
-| `docs/quickstart.md`, `docs/first-query.md`, `docs/EXAMPLES.md` | Preparation, focused beginner lessons and practical usage examples (page roles: `docs/DEVELOPMENT.md#documentation-structure`) |
+| `docs/quickstart.md`, `docs/first-query.md`, `docs/save-a-row.md`, `docs/commit-and-rollback.md`, `docs/finish-safely.md`, `docs/EXAMPLES.md` | The five beginner lessons (preparation first) and practical usage examples (page roles and the lesson convention: `docs/DEVELOPMENT.md#documentation-structure`) |
 | `docs/CONNECTION.md` | Connection strings, URL format, options, TLS, timeouts, reconnect |
 | `docs/API_REFERENCE.md` | Complete sync, async and compatibility API reference |
 | `docs/TYPES.md` | Type mapping and CUBRID-specific types |

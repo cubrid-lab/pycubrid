@@ -6,10 +6,11 @@ pycubrid는 Python 프로그램이 CUBRID 데이터베이스와 대화할 때 �
 데이터베이스 자체인 CUBRID 서버는 별도의 프로그램이며, 어딘가에서 이미 실행되고 있어야 합니다.
 pycubrid를 설치한다고 CUBRID가 설치되거나 데이터베이스가 만들어지지는 않습니다.
 
-이 페이지는 빈 폴더에서 시작해 데이터베이스와 Python을 준비합니다. [첫 쿼리](first-query.md)는 별도
-단원에서 다루고, 이 페이지는 그다음 첫 행 저장으로 이어집니다. DB-API,
-CUBRID 통신 프로토콜, 이 프로젝트의 CI를 몰라도 따라 할 수 있으며, 그런 내용은
-[참고 문서](#다음-단계)에 있습니다.
+이 페이지는 다섯 개의 짧은 단원 중 첫 번째입니다. 빈 폴더에서 시작해 데이터베이스와 Python을
+준비합니다. 다음 단원들은 한 단계씩 더합니다. [첫 쿼리 실행하기](first-query.md),
+[행 저장하기](save-a-row.md), [커밋과 롤백](commit-and-rollback.md),
+[안전하게 마치기](finish-safely.md)입니다. DB-API, CUBRID 통신 프로토콜, 이 프로젝트의 CI를 몰라도
+따라 할 수 있으며, 그런 내용은 [참고 문서](#다음-단계)에 있습니다.
 
 ---
 
@@ -26,9 +27,9 @@ Python 3.11 이상과 연결할 수 있는 CUBRID 데이터베이스가 필요�
 - **database**(데이터베이스): 데이터베이스 이름. 예: `testdb`
 - **user**(사용자)와 **password**(비밀번호): 그 데이터베이스의 계정
 
-3단계에서는 작은 테이블 하나를 만들었다가 나중에 지웁니다. 연습용 데이터베이스나 그곳에 테이블을
-만들 수 있는 계정을 사용하세요. 운영 중인 데이터베이스나 그 `dba` 계정으로 이 튜토리얼을 따라 하지
-마세요. 2단계와 3단계의 실습용 값을 여러분의 값으로 바꾼 뒤 1단계로 진행하세요.
+이 페이지 다음의 단원들은 작은 테이블 하나를 만들었다가 나중에 지웁니다. 연습용 데이터베이스나 그곳에
+테이블을 만들 수 있는 계정을 사용하세요. 운영 중인 데이터베이스나 그 `dba` 계정으로 이 튜토리얼을 따라
+하지 마세요. 각 단원 프로그램의 실습용 값을 여러분의 값으로 바꾼 뒤 1단계로 진행하세요.
 
 ### 방법 B: 버리고 다시 만들 수 있는 로컬 데이터베이스가 필요합니다
 
@@ -37,21 +38,41 @@ Docker로 `testdb`라는 데이터베이스가 있는 일회용 CUBRID 11.4 서�
 x86_64(amd64) Linux에서 검증했습니다. `cubrid/cubrid:11.4` 이미지는 amd64용으로만 배포되므로
 다른 아키텍처(예: Apple silicon)와 Windows에서의 동작은 검증하지 않았습니다.
 
+먼저 컨테이너를 시작합니다.
+
 ```bash
 docker run -d --name pycubrid-quickstart -e CUBRID_DB=testdb -p 127.0.0.1:33000:33000 cubrid/cubrid:11.4
-ready=no; for i in $(seq 36); do if docker exec pycubrid-quickstart csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; then ready=yes; break; fi; sleep 5; done; if [ "$ready" = yes ]; then echo "CUBRID is ready"; else echo "CUBRID did not answer within 3 minutes; see: docker logs pycubrid-quickstart"; fi
 ```
 
-`127.0.0.1:`은 포트를 이 컴퓨터에만 공개하므로 다른 컴퓨터는 실습 환경에 접속할 수 없습니다. 두 번째
-명령은 데이터베이스가 응답할 때까지 최대 3분 기다린 뒤(보통 1분이 채 안 걸립니다) `CUBRID is ready`를
-출력합니다. 대신 `CUBRID did not answer within 3 minutes`가 출력되면
+`127.0.0.1:`은 포트를 이 컴퓨터에만 공개하므로 다른 컴퓨터는 실습 환경에 접속할 수 없습니다.
+데이터베이스가 시작되려면 시간이 조금 걸립니다. 다음을 같은 셸에 붙여 넣으세요. 최대 3분 동안 5초마다
+데이터베이스가 응답하는지 확인합니다.
+
+```bash
+ready=no
+for attempt in $(seq 36); do
+  if docker exec pycubrid-quickstart csql -u dba testdb -c "SELECT 1" >/dev/null 2>&1; then
+    ready=yes
+    break
+  fi
+  sleep 5
+done
+if [ "$ready" = yes ]; then
+  echo "CUBRID is ready"
+else
+  echo "CUBRID did not answer within 3 minutes; see: docker logs pycubrid-quickstart"
+fi
+```
+
+보통 1분이 채 안 되어 `CUBRID is ready`를 출력합니다. 대신 `CUBRID did not answer within 3 minutes`가 출력되면
 `docker logs pycubrid-quickstart`로 원인을 확인하세요. `docker run` 자체가 실패했다면(예: 포트
 33000을 이미 다른 프로그램이 쓰는 경우) 그 문제를 먼저 해결하고 `docker rm -f pycubrid-quickstart`로
 컨테이너를 지운 뒤 다시 시작하세요. 실습 환경은 비밀번호가 빈 `dba` 계정을 씁니다. 이것은 이 로컬
 일회용 컨테이너에서만 허용되는 설정입니다. 다른 사람이 접속할 수 있는 서버에서는 절대 빈 비밀번호를
 쓰지 마세요.
 
-튜토리얼을 모두 마치면 `docker rm -f pycubrid-quickstart`로 실습 환경을 지웁니다.
+튜토리얼을 모두 마치면 [안전하게 마치기](finish-safely.md#docker-실습-환경-제거하기)에서 실습 환경을
+지웁니다.
 
 ---
 
@@ -78,122 +99,20 @@ python -c "import pycubrid; print(pycubrid.__version__)"
 ## 2단계: 첫 쿼리 실행하기
 
 첫 쿼리는 별도 단원에서 다룹니다. [첫 쿼리 실행하기](first-query.md)에서 `first_query.py`를 만들어
-실행하고, 그 프로그램이 쓰는 연결과 커서를 설명합니다. 그 프로그램이 `(2,)`를 출력하면 3단계로
-이어 가세요.
+실행하고, 그 프로그램이 쓰는 연결과 커서를 설명합니다.
 
 ---
 
 ## 3단계: 행을 저장하고 다시 읽기
 
-이 단계에는 [첫 쿼리 실행하기](first-query.md)에서 성공한 연결 값이 필요합니다. 같은 폴더에 같은
-다섯 가지 연결 값으로 `first_saved_row.py`를 만듭니다.
-
-```python
-import pycubrid
-
-SETTINGS = {"host": "localhost", "port": 33000, "database": "testdb", "user": "dba", "password": ""}
-
-conn = pycubrid.connect(**SETTINGS)
-cur = conn.cursor()
-
-# 1. Create a table that belongs to this tutorial. The comment marks it, so the
-#    cleanup script only ever drops this tutorial's own table.
-cur.execute(
-    "CREATE TABLE pycubrid_quickstart_notes (id INT PRIMARY KEY, note VARCHAR(100))"
-    " COMMENT = 'created by the pycubrid quickstart'"
-)
-conn.commit()
-
-# 2. Insert one row. The ? marks are filled with the values that follow, in order.
-cur.execute(
-    "INSERT INTO pycubrid_quickstart_notes (id, note) VALUES (?, ?)",
-    (1, "my first saved row"),
-)
-conn.commit()  # commit makes the change permanent and visible to others
-
-# 3. Insert a second row, then undo it with rollback.
-cur.execute(
-    "INSERT INTO pycubrid_quickstart_notes (id, note) VALUES (?, ?)",
-    (2, "this row is rolled back"),
-)
-conn.rollback()  # rollback discards everything since the last commit
-
-cur.execute("SELECT id, note FROM pycubrid_quickstart_notes ORDER BY id")
-print("Rows in this session:", cur.fetchall())
-cur.close()
-conn.close()
-
-# 4. Check from a brand-new connection that the committed row was saved.
-check = pycubrid.connect(**SETTINGS)
-check_cur = check.cursor()
-check_cur.execute("SELECT id, note FROM pycubrid_quickstart_notes ORDER BY id")
-print("Rows seen by a new connection:", check_cur.fetchall())
-check_cur.close()
-check.close()
-```
-
-변경 사항은 **커밋**(commit)하기 전까지 확정되지 않으며, **롤백**(rollback)은 마지막 커밋
-이후의 모든 변경을 버립니다. `?` 표시는 자리 표시자입니다. pycubrid는 SQL 문을 보내기 전에 각
-`?`를 튜플의 해당 값으로 안전하게 이스케이프해 바꿔 넣습니다. 값을 SQL 문자열에 직접 붙여 넣지
-말고 항상 이 방식으로 전달하세요. (값이 어떻게 변환되는지는 [파라미터 바인딩](PARAMETER_BINDING.md)에
-설명되어 있습니다.)
-
-파일을 실행하세요.
-
-```bash
-python first_saved_row.py
-```
-
-롤백한 행은 사라졌고, 새 연결에서도 저장된 행이 보입니다.
-
-```text
-Rows in this session: [(1, 'my first saved row')]
-Rows seen by a new connection: [(1, 'my first saved row')]
-```
-
-이 파일을 두 번째로 실행하거나, 중간에 끊긴 뒤 다시 실행하면 첫 문장에서
-`Class dba.pycubrid_quickstart_notes already exists`로 멈춥니다(소유자 이름 `dba` 자리에는 여러분의
-사용자가 표시됩니다). 이전 실행에서 만든 테이블이 남아 있기 때문입니다. 아래의 정리를 실행한 뒤
-`first_saved_row.py`를 다시 실행하세요.
+데이터 저장은 이제 두 개의 단원에서 다룹니다. [행을 저장하고 다시 읽기](save-a-row.md)는 튜토리얼
+테이블을 만들고 행 하나를 커밋하며, [커밋과 롤백](commit-and-rollback.md)은 두 번째 행을 추가했다가
+되돌립니다.
 
 ### 정리하기
 
-`cleanup_quickstart.py`는 여러분의 사용자가 소유한 그 이름의 테이블에 튜토리얼의 주석이 붙어 있을 때만
-튜토리얼 테이블을 지웁니다. 같은 이름으로 여러분이 직접 만든 테이블이나 다른 사용자의 테이블은 그대로
-둡니다.
-
-```python
-import pycubrid
-
-SETTINGS = {"host": "localhost", "port": 33000, "database": "testdb", "user": "dba", "password": ""}
-MARK = "created by the pycubrid quickstart"
-
-conn = pycubrid.connect(**SETTINGS)
-cur = conn.cursor()
-cur.execute(
-    "SELECT comment FROM db_class WHERE class_name = ? AND owner_name = CURRENT_USER",
-    ("pycubrid_quickstart_notes",),
-)
-row = cur.fetchone()
-if row is None:
-    print("Nothing to clean up: pycubrid_quickstart_notes does not exist.")
-elif row[0] != MARK:
-    print("Not dropped: pycubrid_quickstart_notes was not created by this quickstart.")
-else:
-    cur.execute("DROP TABLE pycubrid_quickstart_notes")
-    conn.commit()
-    print("Dropped pycubrid_quickstart_notes.")
-cur.close()
-conn.close()
-```
-
-```bash
-python cleanup_quickstart.py
-```
-
-`Dropped pycubrid_quickstart_notes.`를 출력하며, 지울 것이 없으면
-`Nothing to clean up: pycubrid_quickstart_notes does not exist.`를 출력합니다. Docker 실습 환경을
-썼다면 `docker rm -f pycubrid-quickstart`로 실습 환경 전체도 지울 수 있습니다.
+튜토리얼 테이블과 Docker 실습 환경 제거, 그리고 중단되었거나 반복 실행된 경우의 복구는
+[안전하게 마치기](finish-safely.md)에 있습니다.
 
 ---
 
@@ -235,8 +154,9 @@ CUBRID 11.4 실습 환경에서 각 실수에 대해 pycubrid 1.13.0이 실제�
 ## 다음 단계
 
 - [예제](EXAMPLES.md): 수정, 삭제, `with` 블록, 비동기 코드, LOB
-- [연결 가이드](CONNECTION.md): 모든 연결 옵션, URL, 타임아웃, TLS
-- [문제 해결](TROUBLESHOOTING.md): 연결, 쿼리, 트랜잭션의 더 많은 문제
+- [연결 옵션](CONNECTION.md): 모든 연결 옵션, URL, 타임아웃, TLS
+- [문제 해결](TROUBLESHOOTING.md)과 [자주 묻는 질문](faq.md): 연결, 쿼리, 트랜잭션의 더 많은 문제
 - 참고: [API 참조](API_REFERENCE.md), [타입 시스템](TYPES.md),
-  [파라미터 바인딩](PARAMETER_BINDING.md), [지원 매트릭스](SUPPORT_MATRIX.md),
-  그리고 통신 프로토콜 자체는 [CAS 프로토콜](PROTOCOL.md)
+  [값을 안전하게 전달하기(파라미터 바인딩)](PARAMETER_BINDING.md),
+  [지원 매트릭스](SUPPORT_MATRIX.md). 기여자를 위한 통신 프로토콜 자체는 [CAS 프로토콜](PROTOCOL.md)에
+  있습니다.

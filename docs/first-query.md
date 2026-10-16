@@ -91,5 +91,5 @@ other timeouts.
 ## Next step
 
 The first query only read a computed value. Next,
-[save a row and read it back](quickstart.md#step-3-save-a-row-and-read-it-back),
-which creates a small table, commits one row and rolls back another.
+[save a row and read it back](save-a-row.md): create a small table, save one
+row and read it from a new connection.

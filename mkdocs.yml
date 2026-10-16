@@ -38,29 +38,35 @@ theme:
 nav:
   - Home: index.md
   - Start here:
-      - Your First Connection: quickstart.md
-      - Run Your First Query: first-query.md
-      - Troubleshooting: TROUBLESHOOTING.md
+      - "1. Your First Connection": quickstart.md
+      - "2. Run Your First Query": first-query.md
+      - "3. Save a Row": save-a-row.md
+      - "4. Commit and Roll Back": commit-and-rollback.md
+      - "5. Finish Safely": finish-safely.md
   - Usage:
       - Examples: EXAMPLES.md
-      - Connection Guide: CONNECTION.md
-      - Parameter Binding: PARAMETER_BINDING.md
-      - Type Mapping: TYPES.md
   - Reference:
       - API Reference: API_REFERENCE.md
-      - Protocol: PROTOCOL.md
-      - Architecture: ARCHITECTURE.md
+      - Connection Options (Connection Guide): CONNECTION.md
+      - Passing Values Safely (Parameter Binding): PARAMETER_BINDING.md
+      - Type Mapping: TYPES.md
       - Support Matrix: SUPPORT_MATRIX.md
-      - Upstream Scenario Ledger: UPSTREAM_TEST_LEDGER.md
-      - Official Driver API Inventory: UPSTREAM_COMPATIBILITY.md
-      - Typed CAS Binding Design: PREPARED_BINDING_DESIGN.md
+  - Help:
+      - Troubleshooting: TROUBLESHOOTING.md
+      - FAQ: faq.md
+      - Report a Bug: https://github.com/cubrid-lab/pycubrid/issues/new/choose
+      - Report a Vulnerability: https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md
   - Operations:
       - Performance: PERFORMANCE.md
-  - Project:
+  - Development and contributing:
       - Development: DEVELOPMENT.md
+      - Architecture: ARCHITECTURE.md
+      - Protocol: PROTOCOL.md
+      - Typed CAS Binding Design: PREPARED_BINDING_DESIGN.md
+      - Upstream Scenario Ledger: UPSTREAM_TEST_LEDGER.md
+      - Official Driver API Inventory: UPSTREAM_COMPATIBILITY.md
       - CI Execution Policy: CI_POLICY.md
       - Product Requirements: PRD.md
-      - FAQ: faq.md
       - Translations:
           - Deutsch: README.de.md
           - हिन्दी: README.hi.md
@@ -71,27 +77,33 @@ nav:
   - 한국어:
       - 홈: ko/index.md
       - 여기서 시작:
-          - 처음으로 연결하기: ko/quickstart.md
-          - 첫 쿼리 실행하기: ko/first-query.md
-          - 문제 해결: ko/TROUBLESHOOTING.md
+          - "1. 처음으로 연결하기": ko/quickstart.md
+          - "2. 첫 쿼리 실행하기": ko/first-query.md
+          - "3. 행 저장하기": ko/save-a-row.md
+          - "4. 커밋과 롤백": ko/commit-and-rollback.md
+          - "5. 안전하게 마치기": ko/finish-safely.md
       - 사용:
           - 사용 예제: ko/EXAMPLES.md
-          - 연결 가이드: ko/CONNECTION.md
-          - 파라미터 바인딩: ko/PARAMETER_BINDING.md
-          - 타입 시스템: ko/TYPES.md
       - 참고:
           - API 참조: ko/API_REFERENCE.md
-          - CAS 프로토콜: ko/PROTOCOL.md
-          - 아키텍처: ko/ARCHITECTURE.md
+          - 연결 옵션(연결 가이드): ko/CONNECTION.md
+          - 값을 안전하게 전달하기(파라미터 바인딩): ko/PARAMETER_BINDING.md
+          - 타입 시스템: ko/TYPES.md
           - 지원 매트릭스: ko/SUPPORT_MATRIX.md
-          - 업스트림 시나리오 원장: ko/UPSTREAM_TEST_LEDGER.md
-          - 공식 드라이버 API 목록: ko/UPSTREAM_COMPATIBILITY.md
-          - 타입 지정 CAS 바인딩 설계: ko/PREPARED_BINDING_DESIGN.md
+      - 도움말:
+          - 문제 해결: ko/TROUBLESHOOTING.md
+          - 자주 묻는 질문: ko/faq.md
+          - 버그 제보: https://github.com/cubrid-lab/pycubrid/issues/new/choose
+          - 취약점 제보: https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md
       - 운영:
           - 성능 가이드: ko/PERFORMANCE.md
-          - 자주 묻는 질문: ko/faq.md
-      - 프로젝트:
+      - 개발과 기여:
           - 개발 가이드: ko/DEVELOPMENT.md
+          - 아키텍처: ko/ARCHITECTURE.md
+          - CAS 프로토콜: ko/PROTOCOL.md
+          - 타입 지정 CAS 바인딩 설계: ko/PREPARED_BINDING_DESIGN.md
+          - 업스트림 시나리오 원장: ko/UPSTREAM_TEST_LEDGER.md
+          - 공식 드라이버 API 목록: ko/UPSTREAM_COMPATIBILITY.md
           - CI 실행 정책: ko/CI_POLICY.md
           - 제품 요구사항: ko/PRD.md
           - 기여 가이드: CONTRIBUTING.ko.md

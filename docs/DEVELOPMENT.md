@@ -954,8 +954,10 @@ The site serves three readers, and each page has one of these roles:
   in order, with one continuing example.
 - **User reference** (Usage, Reference): an experienced user looks up an option,
   an API contract, a type or a support limit.
-- **Development material** (Project): a contributor finds protocol, design and
-  verification evidence.
+- **Help** (Help): a user with a problem finds troubleshooting, the FAQ and the
+  existing bug and vulnerability reporting routes.
+- **Development material** (Development and contributing): a contributor finds
+  protocol, design and verification evidence.
 
 This map records each affected page's reader, the question it answers, what
 comes before and after it, and the decision for it. "Source" is the Markdown
@@ -968,16 +970,44 @@ them by hand.
 |---|---|---|---|---|
 | `docs/index.md`, `/` | Anyone: what is pycubrid and where do I start? | Nothing | `quickstart.md` | Keep. |
 | `README.md` (repository and PyPI page, not built into the site) | A visitor: what is this project? | Nothing | `quickstart.md` | Keep; its links to the start page stay valid. |
-| `docs/quickstart.md`, `/quickstart/` | Newcomer: how do I get a database and Python ready? | Python 3.11 or later, and Docker or an existing database | `first-query.md` | Keep as the single canonical start. Step 2 is a short landing that links to the first-query lesson; Step 3 and its cleanup are split into lessons next. Every existing heading stays, so old deep links still land. |
-| `docs/first-query.md`, `/first-query/` | Newcomer: how do I connect, execute one statement and read one row? | `quickstart.md` Step 1 | `quickstart.md` Step 3 | New lesson. |
-| Saving one row, commit and rollback, finishing safely (planned lessons) | Newcomer: how do I save data, undo it, and clean up what I created? | The previous lesson | The next lesson | Split from `quickstart.md` Step 3 and its cleanup, with the same table ownership check and warnings. |
+| `docs/quickstart.md`, `/quickstart/` | Newcomer: how do I get a database and Python ready? | Python 3.11 or later, and Docker or an existing database | `first-query.md` | Keep as the single canonical start (lesson 1, preparation). Steps 2 and 3 and Clean up are short landings that link to the lessons; every existing heading stays, so old deep links still land. The first-connection error table stays here. |
+| `docs/first-query.md`, `/first-query/` | Newcomer: how do I connect, execute one statement and read one row? | `quickstart.md` | `save-a-row.md` | Lesson 2. |
+| `docs/save-a-row.md`, `/save-a-row/` | Newcomer: how do I create a table, save one row and see it from another connection? | `first-query.md` | `commit-and-rollback.md` | Lesson 3, split from quickstart Step 3. |
+| `docs/commit-and-rollback.md`, `/commit-and-rollback/` | Newcomer: what does a transaction keep and discard? | `save-a-row.md` | `finish-safely.md` | Lesson 4, split from quickstart Step 3. |
+| `docs/finish-safely.md`, `/finish-safely/` | Newcomer: how do I remove what I created, and recover from an interrupted or repeated run? | `commit-and-rollback.md` | `EXAMPLES.md`, `CONNECTION.md`, Help | Lesson 5, split from quickstart Clean up, with the same table ownership check and warnings. |
 | `docs/EXAMPLES.md`, `/EXAMPLES/` | User: how do I do a common task? | The lessons | The reference pages | Keep in Usage. |
-| `docs/CONNECTION.md`, `/CONNECTION/` | User: which connection options, URLs, timeouts and TLS settings exist? | The lessons | `API_REFERENCE.md` | Keep the file and its anchors; the lessons link its sections. Moves to Reference in navigation. |
+| `docs/CONNECTION.md`, `/CONNECTION/` | User: which connection options, URLs, timeouts and TLS settings exist? | The lessons | `API_REFERENCE.md` | Keep the file and its anchors; the lessons link its sections. Reference, labelled Connection Options. |
 | `docs/PARAMETER_BINDING.md`, `/PARAMETER_BINDING/` | User: how are values passed safely, and what is not guaranteed? | The lessons | `TYPES.md` | Keep; Reference, labelled as passing values safely. |
 | `docs/TYPES.md`, `docs/API_REFERENCE.md`, `docs/SUPPORT_MATRIX.md` | User: which type, call or version is supported? | Any page | Any page | Keep in Reference. |
-| `docs/TROUBLESHOOTING.md`, `docs/faq.md` | User with a problem: what does this error mean? | Any page | The reporting instructions in `SECURITY.md` and the issue forms | Keep the files; group them as Help in navigation. |
-| `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | Contributor: how does the driver work, and what evidence backs it? | `DEVELOPMENT.md` | Any page | Keep the files; move in navigation from Reference to the development group. |
-| `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | Contributor or operator: how do I build, test, measure and release? | Any page | Any page | Keep. |
+| `docs/TROUBLESHOOTING.md`, `docs/faq.md` | User with a problem: what does this error mean? | Any page | The reporting instructions in `SECURITY.md` and the issue forms | Keep the files; Help, with links to the issue forms and `SECURITY.md`. |
+| `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | Contributor: how does the driver work, and what evidence backs it? | `DEVELOPMENT.md` | Any page | Keep the files; Development and contributing in navigation (moved from Reference). |
+| `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | Contributor or operator: how do I build, test, measure and release? | Any page | Any page | Keep; Development and contributing, except Performance, which stays in Operations. |
+
+### Writing a Lesson
+
+A lesson under Start here teaches one operation. Give each lesson these parts,
+in this order, and keep the Korean page in the same structure:
+
+1. **Goal**: one or two sentences on what the reader does, and which lesson it
+   follows.
+2. **Before you start**: what earlier lessons must have produced (a printed
+   result, a table, an active virtual environment). Do not assume an open
+   Python session or a previous notebook: every program is a file run from the
+   terminal.
+3. **Program or command**: the file name, the complete source, and the command
+   that runs it.
+4. **Expected result**: the exact output, verified on a disposable CUBRID
+   server.
+5. **Explanation**: what each new call did, with links to the reference
+   section that has the full contract. Put the timeout, retry or security
+   limitation that applies to the operation here, not only in the reference.
+6. **Next step**: a link to the next lesson.
+
+Recovery for a repeated or interrupted run goes in the lesson that creates the
+resource or in Finish Safely. Cleanup must stay limited to what the lessons
+created, with the ownership check visible in the program. When a program or
+command changes, rerun the whole sequence on a disposable server and record the
+platform it ran on.
 
 ---
 

@@ -65,6 +65,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **Five focused beginner lessons and a reader-based navigation (#958)** — the quickstart's
+  remaining steps are split into lessons, each with its prerequisites, program, command,
+  expected output, explanation and next step, in English and Korean:
+  `docs/save-a-row.md` (create the marked tutorial table, insert with `?` parameters,
+  commit, read from a new connection), `docs/commit-and-rollback.md` (an uncommitted row,
+  then `rollback()`) and `docs/finish-safely.md` (the same owner- and comment-checked
+  cleanup, removing the Docker lab, and what to do after an interrupted or repeated run).
+  The programs now save and roll back in separate files (`first_saved_row.py`,
+  `first_rollback.py`); the cleanup program is unchanged. The Docker readiness check in
+  `docs/quickstart.md` is written out over several lines with the same behavior. The
+  quickstart stays the canonical start; its Step 3 and Clean up are short landings, so
+  every old heading and anchor still resolves. The site navigation now has Start here
+  (lessons 1 to 5), Usage, Reference (API Reference, Connection Options, Passing Values
+  Safely, Type Mapping, Support Matrix), Help (Troubleshooting, FAQ and the existing bug
+  form and `SECURITY.md` reporting routes), Operations, and Development and contributing
+  (Protocol, Architecture, the upstream ledgers and the binding design move there), with
+  the same groups in Korean. The home pages group their links the same way, and
+  `docs/DEVELOPMENT.md` documents the lesson convention.
+
 - **The first query is its own lesson (#958)** — `docs/first-query.md` ("Run Your First
   Query", Korean `docs/ko/first-query.md`) is the first of the focused lessons split from the
   quickstart: it states what the reader needs from the preparation steps, then gives

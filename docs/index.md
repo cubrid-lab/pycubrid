@@ -15,9 +15,10 @@ Pure Python DB-API 2.0 driver for CUBRID database with no C extensions.
 
 pycubrid lets a Python program talk to a CUBRID database, a separate server
 that must already be running; installing pycubrid does not install CUBRID.
-[Your First CUBRID Connection](quickstart.md) walks you from preparing a
-database (your own, or a disposable local one in Docker) to a first query and
-a first saved row.
+[Your First CUBRID Connection](quickstart.md) is the first of five short
+lessons: it prepares a database (your own, or a disposable local one in Docker)
+and Python, and the next lessons run a first query, save a row, commit and roll
+back, and finish safely.
 
 ## Quick install
 
@@ -39,11 +40,16 @@ conn.close()
 
 ## Documentation
 
-- [Your First CUBRID Connection](quickstart.md)
-- [Connection Guide](CONNECTION.md)
-- [Type Mapping](TYPES.md)
-- [Parameter Binding Contract](PARAMETER_BINDING.md)
-- [API Reference](API_REFERENCE.md)
+- Learn: [Your First CUBRID Connection](quickstart.md), then the lessons it links.
+- Look up: [API Reference](API_REFERENCE.md),
+  [Connection Options](CONNECTION.md),
+  [Passing Values Safely (Parameter Binding Contract)](PARAMETER_BINDING.md),
+  [Type Mapping](TYPES.md) and [Support Matrix](SUPPORT_MATRIX.md).
+- Get help: [Troubleshooting](TROUBLESHOOTING.md), [FAQ](faq.md), and for a
+  security problem the private reporting route in
+  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md).
+- Contribute: [Development](DEVELOPMENT.md), [Architecture](ARCHITECTURE.md) and
+  [Protocol](PROTOCOL.md).
 
 ## Project links
 
