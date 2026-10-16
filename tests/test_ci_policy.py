@@ -17,6 +17,28 @@ ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.repo_tooling
 
 
+def test_dependabot_updates_the_committed_uv_lock() -> None:
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    root_python = [
+        entry
+        for entry in config["updates"]
+        if entry["directory"] == "/" and entry["package-ecosystem"] in {"pip", "uv"}
+    ]
+    assert len(root_python) == 1
+    assert root_python[0]["package-ecosystem"] == "uv"
+    assert (ROOT / "uv.lock").is_file()
+
+
+def test_dependabot_can_fetch_the_conditional_python_315_wheel() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    source = project["tool"]["uv"]["sources"]["pyyaml"]
+    # Dependabot's uv fetcher recognises path sources expressed as mappings.
+    assert isinstance(source, dict)
+    assert source["marker"] == "python_version == '3.15'"
+    wheel = ROOT / source["path"]
+    assert wheel.suffix == ".whl" and wheel.is_file()
+
+
 def workflow(name: str) -> dict:
     return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
 
