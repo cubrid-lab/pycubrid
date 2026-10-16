@@ -223,15 +223,44 @@ def prepare(task_dir: Path, out_dir: Path, repo: Path = ROOT) -> Path:
     # The runner's own record of when the attempt started, outside OUT_DIR,
     # which the attempt can write (#985).
     record = _prepare_record(out_dir)
-    record.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    record.write_text(
-        json.dumps(
-            {"task_digest": attempt["task_digest"], "prepared_epoch": attempt["prepared_epoch"]}
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    _state_directory(record.parent)
+    data = {"task_digest": attempt["task_digest"], "prepared_epoch": attempt["prepared_epoch"]}
+    _write_record(record, (json.dumps(data) + "\n").encode())
     return worktree
+
+
+def _state_directory(path: Path) -> None:
+    """Create the runner's state directory, or check and tighten an existing one."""
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode):
+        raise InputError(f"{path}: the runner state directory is not a directory")
+    if info.st_uid != os.getuid():
+        raise InputError(f"{path}: the runner state directory belongs to another user")
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        os.chmod(path, 0o700)  # checked above: a directory, not a link
+
+
+def _write_record(record: Path, data: bytes) -> None:
+    """Create the start record; never follow or write through an existing entry.
+
+    OUT_DIR was new or empty, so an entry already at this path is a stale
+    record of an earlier attempt there, or something planted. It is removed
+    (a symlink itself, never its target) and the record created afresh.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(record, flags, 0o600)
+    except FileExistsError:
+        if stat.S_ISDIR(os.lstat(record).st_mode):
+            raise InputError(f"{record}: a directory is in the way of the start record") from None
+        os.unlink(record)
+        try:
+            descriptor = os.open(record, flags, 0o600)
+        except FileExistsError as exc:
+            raise InputError(f"{record}: replaced again while being written") from exc
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(data)
 
 
 def _prepare_record(out_dir: Path) -> Path:
@@ -265,9 +294,9 @@ def _started_at(
     and the source says so; otherwise the duration is unknown.
     """
     try:
-        record = json.loads(_prepare_record(out_dir).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        record = None
+        record = json.loads(_read_regular(_prepare_record(out_dir), limit=4096))
+    except (InputError, ValueError):
+        record = None  # missing, a symlink, not a regular file, too large or not JSON
     if isinstance(record, dict) and record.get("task_digest") == task_digest:
         started = _epoch(record.get("prepared_epoch"), now)
         if started is not None:

@@ -86,9 +86,14 @@ The optional `--meta` file holds what the operator observed: `model`,
 `seed`, `tokens`, `cost` and `human_review_actions`. Anything missing is
 recorded as `"unknown"`, never guessed. `run.json` adds the base commit, the
 task digest, the attempt's duration and whether it went over `max_minutes`
-(`duration_source` says where the start time came from: `runner`, the
-record `prepare` keeps outside `OUT_DIR` in
-`$XDG_STATE_HOME/pycubrid-agent-eval/` (by default under `~/.local/state`);
+(`over_max_minutes` is `true`, `false` or `"unknown"`, so a consumer must
+not treat it as a boolean; `duration_source` says where the start time came
+from: `runner`, the record `prepare` keeps outside `OUT_DIR` in
+`$XDG_STATE_HOME/pycubrid-agent-eval/` (by default under `~/.local/state`;
+the directory is created or tightened to `0700` and refused if it is a
+symlink or another user's, and the record is created `0600` without
+following links, replacing a stale one, and read only as a small regular
+file);
 `attempt.json` when that record is missing, used only if it is a finite time
 not in the future; otherwise both are `"unknown"`, never a hidden `false`),
 whether the attempt moved `HEAD` (read from `.git/HEAD`), the verdict and failed checks, the commands

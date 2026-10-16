@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -883,3 +884,56 @@ def test_an_unreadable_directory_in_the_checkout_is_refused(
     finally:
         hidden.chmod(0o700)
     assert not (out / "candidate").exists()
+
+
+def test_prepare_replaces_a_stale_or_symlinked_record_without_following_it(
+    project: tuple[Path, Path, str], tmp_path: Path, _state_dir: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    record = runner._prepare_record(out)
+    _state_dir.mkdir(mode=0o700)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("untouched")
+    record.symlink_to(victim)  # planted before prepare
+    runner.prepare(task, out, repo)
+    assert victim.read_text() == "untouched"
+    assert not record.is_symlink() and stat.S_IMODE(record.stat().st_mode) == 0o600
+    first = json.loads(record.read_text())["prepared_epoch"]
+
+    shutil.rmtree(out)  # a stale record left by an earlier attempt at this path
+    record.write_text(json.dumps({"task_digest": "x", "prepared_epoch": 1.0}))
+    runner.prepare(task, out, repo)
+    assert json.loads(record.read_text())["prepared_epoch"] >= first
+
+
+def test_collect_reads_the_record_only_as_a_regular_file(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    record = runner._prepare_record(out)
+    forged = tmp_path / "forged.json"
+    forged.write_text(record.read_text())
+    record.unlink()
+    record.symlink_to(forged)
+    result = runner.collect(task, out, repo=repo, no_sandbox=True)
+    assert result["duration_source"] == "attempt.json"  # the symlinked record is ignored
+    assert forged.exists()
+
+
+def test_the_state_directory_is_private(
+    project: tuple[Path, Path, str], tmp_path: Path, _state_dir: Path
+) -> None:
+    repo, task, _ = project
+    _state_dir.mkdir(mode=0o777)
+    _state_dir.chmod(0o777)
+    runner.prepare(task, tmp_path / "out", repo)
+    assert stat.S_IMODE(_state_dir.stat().st_mode) == 0o700
+
+    linked = tmp_path / "linked-state"
+    linked.symlink_to(_state_dir, target_is_directory=True)
+    with pytest.raises(InputError, match="not a directory"):
+        runner._state_directory(linked)
