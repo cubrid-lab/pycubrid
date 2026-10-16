@@ -90,7 +90,7 @@ task digest, the attempt's duration and whether it went over `max_minutes`
 not treat it as a boolean; `duration_source` says where the start time came
 from: `runner`, the record `prepare` keeps outside `OUT_DIR` in
 `$XDG_STATE_HOME/pycubrid-agent-eval/` (by default under `~/.local/state`;
-the directory is created or tightened to `0700` and refused if it is a
+the directory is created with, or reset to, exactly `0700` and refused if it is a
 symlink or another user's, and the record is created `0600` without
 following links, replacing a stale one, and read only as a small regular
 file);

@@ -928,10 +928,11 @@ def test_the_state_directory_is_private(
     project: tuple[Path, Path, str], tmp_path: Path, _state_dir: Path
 ) -> None:
     repo, task, _ = project
-    _state_dir.mkdir(mode=0o777)
-    _state_dir.chmod(0o777)
-    runner.prepare(task, tmp_path / "out", repo)
-    assert stat.S_IMODE(_state_dir.stat().st_mode) == 0o700
+    _state_dir.mkdir()
+    for number, mode in enumerate((0o777, 0o500, 0o300)):  # too open, then too closed
+        _state_dir.chmod(mode)
+        runner.prepare(task, tmp_path / f"out{number}", repo)
+        assert stat.S_IMODE(_state_dir.stat().st_mode) == 0o700
 
     linked = tmp_path / "linked-state"
     linked.symlink_to(_state_dir, target_is_directory=True)

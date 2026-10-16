@@ -237,8 +237,11 @@ def _state_directory(path: Path) -> None:
         raise InputError(f"{path}: the runner state directory is not a directory")
     if info.st_uid != os.getuid():
         raise InputError(f"{path}: the runner state directory belongs to another user")
-    if stat.S_IMODE(info.st_mode) & 0o077:
-        os.chmod(path, 0o700)  # checked above: a directory, not a link
+    if stat.S_IMODE(info.st_mode) != stat.S_IRWXU:
+        # Owner-only and complete (0700): neither more for others nor less
+        # for the runner, which must write the record. Checked above: a
+        # directory, not a link.
+        os.chmod(path, stat.S_IRWXU)
 
 
 def _write_record(record: Path, data: bytes) -> None:
