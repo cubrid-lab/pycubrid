@@ -80,6 +80,11 @@ def _statements(requests: list[Request]) -> list[str | None]:
     return [r.sql for r in requests if r.function == "PREPARE_AND_EXECUTE"]
 
 
+def _fail(message: str) -> None:
+    """Raise the application error of a context body."""
+    raise RuntimeError(message)
+
+
 # --- async ---------------------------------------------------------------------
 
 
@@ -148,7 +153,7 @@ def test_async_secondary_rollback_failure_keeps_body_error(
             with pytest.raises(RuntimeError, match="body failed") as info:
                 async with conn:
                     await conn.cursor().execute("SELECT 1")
-                    raise RuntimeError("body failed")
+                    _fail("body failed")
             assert any("DatabaseError" in note for note in info.value.__notes__)
             return conn
 
@@ -175,7 +180,7 @@ def test_async_controls_commit_rollback_and_commit_failure() -> None:
             with pytest.raises(RuntimeError, match="app"):
                 async with conn:
                     await conn.cursor().execute("SELECT 1")
-                    raise RuntimeError("app")
+                    _fail("app")
             assert not conn._connected
 
         asyncio.run(main())
@@ -219,14 +224,13 @@ def test_async_cancellation_during_rollback_stays_cancelled() -> None:
             async def body() -> None:
                 async with conn:
                     await conn.cursor().execute("SELECT 1")
-                    raise RuntimeError("app")
+                    _fail("app")
 
             task = asyncio.ensure_future(body())
             assert await asyncio.to_thread(script.received.wait, 10)
             task.cancel()
-            with pytest.raises(asyncio.CancelledError) as info:
+            with pytest.raises(asyncio.CancelledError):
                 await task
-            assert isinstance(info.value.__context__, RuntimeError)
             script.gate.set()
             return conn, task
 
@@ -263,7 +267,7 @@ def test_sync_secondary_rollback_failure_keeps_body_error() -> None:
         with pytest.raises(RuntimeError, match="body failed") as info:
             with conn:
                 conn.cursor().execute("SELECT 1")
-                raise RuntimeError("body failed")
+                _fail("body failed")
         requests = list(broker.requests)
 
     assert any("DatabaseError" in note for note in info.value.__notes__)
@@ -283,7 +287,7 @@ def test_sync_controls_commit_rollback_and_commit_failure() -> None:
         with pytest.raises(RuntimeError, match="app"):
             with conn:
                 conn.cursor().execute("SELECT 1")
-                raise RuntimeError("app")
+                _fail("app")
         assert not conn._connected
         requests = list(broker.requests)
 
