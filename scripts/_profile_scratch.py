@@ -6,9 +6,10 @@ reusing or dropping a table the run does not own. Only a table this run created
 is dropped. Teardown runs after success and after a workload failure; a
 workload error stays the raised exception, with any cleanup failure named in a
 note, and a cleanup failure after a successful workload raises
-:class:`ScratchCleanupError`. Nothing reconnects to retry the cleanup: if the
-process dies or the connection is lost, the table can remain and is dropped by
-hand (``DROP TABLE _profile_tmp_<hex>``).
+:class:`ScratchCleanupError`. Teardown never reconnects, not even through the
+driver's implicit CHECK_CAS recovery: if the process dies or the connection is
+lost, the cleanup failure is reported and the table can remain; drop it by hand
+(``DROP TABLE _profile_tmp_<hex>``).
 """
 
 from __future__ import annotations
@@ -89,16 +90,26 @@ def _release(conn: Any, cursor: Any, drop_sql: str | None, *, failed: bool) -> l
         except Exception as exc:  # noqa: BLE001 - reported to the caller
             failures.append(f"{step}: {type(exc).__name__}: {exc}")
 
-    if cursor is not None:
-        if failed:
-            attempt("rollback", conn.rollback)  # end the failed workload transaction
-        if drop_sql is not None:
+    # Teardown never reconnects (#950): a CAS session lost after the last
+    # reply must fail the cleanup, not run it on a replacement session.
+    # ``Connection.close()`` uses the same guard.
+    suspends = hasattr(conn, "_implicit_reconnect_suspended")
+    if suspends:
+        conn._implicit_reconnect_suspended += 1
+    try:
+        if cursor is not None:
+            if failed:
+                attempt("rollback", conn.rollback)  # end the failed workload transaction
+            if drop_sql is not None:
 
-            def drop() -> None:
-                cursor.execute(drop_sql)
-                conn.commit()
+                def drop() -> None:
+                    cursor.execute(drop_sql)
+                    conn.commit()
 
-            attempt(f"drop {drop_sql.rsplit(' ', 1)[-1]}", drop)
-        attempt("cursor close", cursor.close)
+                attempt(f"drop {drop_sql.rsplit(' ', 1)[-1]}", drop)
+            attempt("cursor close", cursor.close)
+    finally:
+        if suspends:
+            conn._implicit_reconnect_suspended -= 1
     attempt("connection close", conn.close)
     return failures

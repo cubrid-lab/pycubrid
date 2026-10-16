@@ -347,3 +347,46 @@ def test_workload_values_stay_bound_parameters(monkeypatch: pytest.MonkeyPatch) 
         (f"INSERT INTO {table} (val) VALUES (?)", ("row-0",)),
         (f"INSERT INTO {table} (val) VALUES (?)", ("row-1",)),
     ]
+
+
+# --- no reconnect during teardown (real Connection, replay broker) --------------
+
+
+def test_teardown_on_a_lost_session_reports_failure_without_reconnecting() -> None:
+    """The CAS drops the session after the workload's final commit (OUT_TRAN).
+
+    Without the teardown guard, the DROP's CHECK_CAS probe fails and the driver
+    opens a replacement session to run it; the cleanup must fail instead.
+    """
+    from .helpers.replay_broker import OUT_TRAN, Reply, Request, Session, ok_body
+    from .helpers.replay_broker import run_replay_broker
+
+    last_sql: list[str] = [""]
+
+    def script(request: Request, session: Session) -> Reply | None:
+        if request.sql:
+            last_sql[0] = request.sql
+        if request.function == "END_TRAN" and last_sql[0].startswith("SELECT id, val"):
+            # The workload's final commit succeeds, then the CAS drops the session.
+            session.status = OUT_TRAN
+            return Reply(ok_body(OUT_TRAN), close=True)
+        return None
+
+    with run_replay_broker(script) as broker:
+        with pytest.raises(scratch.ScratchCleanupError, match="drop _profile_tmp_"):
+            profile_execute.run_execute_cycle(
+                host="127.0.0.1",
+                port=broker.port,
+                database="testdb",
+                user="dba",
+                password="",
+                iterations=1,
+                operation="select",
+            )
+        requests = list(broker.requests)
+
+    # No replacement session, and nothing reached the broker after the session
+    # was dropped: no CHECK_CAS probe, DROP, rollback or replayed statement.
+    assert {r.session for r in requests} == {0}
+    assert requests[-1].function == "END_TRAN"
+    assert not any((r.sql or "").startswith("DROP") for r in requests)
