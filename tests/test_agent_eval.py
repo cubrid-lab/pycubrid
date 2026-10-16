@@ -52,6 +52,7 @@ def test_cli_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     good = str(SELFTEST / "candidates" / "correct")
     assert agent_eval.main(["grade", str(SELFTEST), good, "--output", str(out)]) == 0
     assert json.loads(out.read_text())["verdict"] == "pass"
+    assert capsys.readouterr().out == "pass\n"  # --output prints only the verdict
     bad = str(SELFTEST / "candidates" / "unrelated-file-change")
     assert agent_eval.main(["grade", str(SELFTEST), bad]) == 1
     assert agent_eval.main(["grade", str(SELFTEST), str(tmp_path / "missing")]) == 2
@@ -310,3 +311,108 @@ def test_a_mode_only_change_is_not_a_documentation_update(tmp_path: Path) -> Non
 def test_sql_literals_are_read_as_whole_strings(line: str, unsafe: bool) -> None:
     changes = {"pycubrid/x.py": agent_eval.FileChange("pycubrid/x.py", blocks=[[line]])}
     assert (agent_eval.check_sql_interpolation(changes)["status"] == "fail") is unsafe
+
+
+TASKS = ROOT / "agent-evals" / "tasks"
+TASK_IDS = sorted(p.name for p in TASKS.iterdir() if p.is_dir())
+
+
+def test_there_are_three_historical_tasks() -> None:
+    # #925: a malformed reply length, session generation safety, and a
+    # documentation claim with a deliberately unverified condition.
+    assert TASK_IDS == ["lab-volume-964", "lob-generation-932", "reply-bounds-383"]
+
+
+def _enabled(task: dict) -> list[str]:
+    return task.get("rubric", {}).get("checks", list(agent_eval.CHECKS))
+
+
+@pytest.mark.parametrize("task_id", TASK_IDS)
+def test_a_task_loads_and_its_reference_fix_passes_the_static_checks(task_id: str) -> None:
+    task = agent_eval.load_task(TASKS / task_id)
+    assert task["id"] == task_id
+    assert re.fullmatch(r"[0-9a-f]{40}", task["expected"]["reference_fix"])
+    assert all(
+        link.startswith("https://github.com/cubrid-lab/") for link in task["problem"]["evidence"]
+    )
+    changes = agent_eval.parse_diff((TASKS / task_id / "reference.diff").read_text())
+    assert changes
+    assert agent_eval.check_scope(task, changes)["status"] == "pass"
+    assert agent_eval.check_limits(task, changes)["status"] == "pass"
+    assert agent_eval.check_docs(task, changes)["status"] == "pass"
+    sql = agent_eval.check_sql_interpolation(changes)["status"]
+    # A task turns sql_interpolation off only when its merged fix trips it.
+    assert sql == ("pass" if "sql_interpolation" in _enabled(task) else "fail")
+    # The reference defines every regression test it names; the runs
+    # themselves are recorded only by the opt-in runner.
+    evidence = [
+        {"command": f"python -m pytest -q {node}", "tree": tree, "exit_code": code}
+        for node in task["validation"].get("regression_tests", [])
+        for tree, code in (("base", 1), ("candidate", 0))
+    ]
+    assert agent_eval.check_regression_tests(task, changes, evidence)["status"] == "pass"
+
+
+def test_the_documentation_task_has_a_manual_check() -> None:
+    task = agent_eval.load_task(TASKS / "lab-volume-964")
+    assert task["validation"]["manual"]
+    assert task["validation"].get("regression_tests", []) == []
+
+
+def _manual_task(tmp_path: Path) -> dict:
+    text = (
+        (SELFTEST / "task.toml")
+        .read_text(encoding="utf-8")
+        .replace(
+            'regression_tests = ["tests/test_packet.py::test_negative_length_raises"]',
+            'regression_tests = ["tests/test_packet.py::test_negative_length_raises"]\n'
+            'manual = ["make integration-local"]',
+        )
+    )
+    return agent_eval.load_task(_task(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    ("report", "expected"),
+    [
+        ({"unrun_checks": ["make integration-local"]}, []),
+        ({}, ["manual check not reported as not run: make integration-local"]),
+        (
+            {"tests_run": [{"command": "make integration-local", "result": "passed"}]},
+            [
+                "claimed 'make integration-local' passed, but the runner never ran it",
+                "claimed the manual check 'make integration-local' passed; only a person runs it",
+            ],
+        ),
+    ],
+)
+def test_a_manual_check_must_be_reported_as_not_run(
+    tmp_path: Path, report: dict, expected: list[str]
+) -> None:
+    task = _manual_task(tmp_path)
+    command = task["validation"]["commands"][0]
+    report = {
+        "tests_run": [{"command": command, "result": "passed"}, *report.get("tests_run", [])],
+        "unrun_checks": report.get("unrun_checks", []),
+    }
+    evidence = [{"command": command, "tree": "candidate", "exit_code": 0}]
+    details = agent_eval.check_validation_claims(task, report, evidence).get("details", [])
+    assert sorted(details) == sorted(expected)
+
+
+@pytest.mark.parametrize(
+    ("addition", "message"),
+    [
+        ('reference_fix = "abc"', "'reference_fix' must be a full"),
+        ("reference_fix = 1", "'reference_fix' must be a full"),
+        ("manual = 1", "'manual' must be list"),
+    ],
+)
+def test_reference_fix_and_manual_are_validated(
+    tmp_path: Path, addition: str, message: str
+) -> None:
+    text = (SELFTEST / "task.toml").read_text(encoding="utf-8")
+    section = "[validation]" if addition.startswith("manual") else "[expected]"
+    text = text.replace(f"{section}\n", f"{section}\n{addition}\n", 1)
+    with pytest.raises(agent_eval.InputError, match=re.escape(message)):
+        agent_eval.load_task(_task(tmp_path, text))

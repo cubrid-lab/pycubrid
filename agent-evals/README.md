@@ -16,11 +16,30 @@ nothing here changes them or the default CI matrices.
 |---|---|
 | `selftest/task.toml` | A synthetic task that the grader's own fixtures use |
 | `selftest/candidates/<case>/` | Hand-written candidates, one per grader check, each with its `expected.json` |
+| `tasks/<id>/task.toml` | A real task, rebuilt from an earlier pycubrid issue and its merged fix |
+| `tasks/<id>/reference.diff` | That merged fix, `git diff --no-renames <base_sha> <reference_fix>`: the oracle |
 | `../scripts/agent_eval.py` | The offline grader |
 
-Real task manifests, built from earlier pycubrid bugs and fixes, and the
-opt-in runner that applies an attempt in a pinned worktree are added in later
-pull requests of #925.
+The opt-in runner that applies an attempt in a pinned worktree is added in a
+later pull request of #925.
+
+## Tasks
+
+| Task | From | What it measures |
+|---|---|---|
+| `reply-bounds-383` | #383, #533 | A malformed reply length must close the session without reading past the frame |
+| `lob-generation-932` | #932, #934 | A LOB handle of a replaced physical session must fail before anything is sent |
+| `lab-volume-964` | #964, #966 | A documentation fix whose macOS check cannot run here and must be reported as not run |
+
+Each task's regression tests were checked against its reference: on the base
+commit plus the reference's test files each one exits 1, and on the reference
+fix each one passes. `tests/test_agent_eval.py` checks that every task loads and
+that its reference passes the scope, limits, documentation and SQL checks and
+defines its regression tests.
+
+`lob-generation-932` turns `sql_interpolation` off in its `[rubric]`: the merged
+fix formats a generated table name into DDL with `%`, following its test
+file, and the scanner cannot tell an identifier from a value.
 
 ## Task manifest (format 1)
 
@@ -38,7 +57,9 @@ A task is a directory with a `task.toml`:
 | `[scope] required_docs` | Files the change must update, such as `CHANGELOG.md` |
 | `[validation] commands` | The commands the attempt must run, or report as not run |
 | `[validation] regression_tests` | pytest node IDs that the patch must add, that fail on the base and pass on the patch |
+| `[validation] manual` | Checks only a person can do, such as a live server or another operating system; the attempt must list them as not run |
 | `[expected] behavior` | The reference behavior a correct change produces |
+| `[expected] reference_fix` | Optional: the full SHA of the merged fix the task was built from |
 | `[limits]` | `max_files`, `max_changed_lines`, `max_minutes` |
 | `[rubric] checks` | The checks to apply; all of them by default |
 
@@ -53,7 +74,9 @@ A candidate is a directory with what one attempt produced:
 | `evidence.json` | What a runner actually executed: a list of `command`, `tree` (`base` or `candidate`) and `exit_code` |
 
 A regression test is checked through the command
-`python -m pytest -q <node id>`, run on both trees.
+`python -m pytest -q <node id>`, run on both trees. The base tree is
+`base_sha` with the candidate's test files applied, so a new test exists there
+and has to fail; the candidate tree is `base_sha` with the whole patch.
 
 The patch must be what `git diff` produces. Renames, mode changes and binary
 files count as changed files even without content lines, and a copy counts only its destination; a path that Git
@@ -67,6 +90,9 @@ skipped.
 python scripts/agent_eval.py grade TASK_DIR CANDIDATE_DIR --output grade.json
 ```
 
+With `--output` the grade goes to the file and only the verdict (`pass` or
+`fail`) is printed; without it the grade is printed.
+
 The grader reads only the three candidate files and the manifest. It runs no
 model, test or network request. It grades the final patch and the recorded
 evidence, never the attempt's explanation alone. Each check passes or fails
@@ -79,7 +105,7 @@ with its reasons:
 | `regression_tests` | a named test is not added by the patch, does not pass on the patched tree, or does not fail as a test on the base (pytest exit 1; a collection error or a missing test proves nothing) |
 | `docs` | a `required_docs` file has no content change (a mode change does not count), or is deleted or renamed away |
 | `sql_interpolation` | added Python code builds SQL with an f-string (also triple-quoted or wrapped over lines), `%` or `.format()`; whole Python string literals are read, so quotes inside SQL text do not confuse it |
-| `validation_claims` | the report claims a command passed (or failed) that the evidence shows otherwise or never ran, lists a validation command as neither run nor unrun, or a validation command fails on the patched tree, whatever the report says |
+| `validation_claims` | the report claims a command passed (or failed) that the evidence shows otherwise or never ran, lists a validation command as neither run nor unrun, or a validation command fails on the patched tree, whatever the report says; or a manual check is claimed as run or not listed as not run |
 
 The verdict passes only when every enabled check passes. The output is sorted
 JSON that records the SHA-256 of every input, so grading the same candidate

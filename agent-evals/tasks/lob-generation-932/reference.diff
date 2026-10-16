@@ -1,0 +1,483 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4aebf48..ae3ffba 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
+ 
+ ## [Unreleased]
+ 
++### Fixed
++
++- **A `Lob` is not sent on a replaced physical session (#932)** — after
++  `ping(reconnect=True)` or a failed out-of-transaction `CHECK_CAS` probe replaced the
++  session, `Lob.read()` and `Lob.write()` sent the old session's handle to the new CAS.
++  They now raise `InterfaceError` before any request is sent, without reconnecting or
++  retrying; create the LOB again or fetch its row again. The check holds the connection's
++  session lock, and the request itself is fenced to the `Lob`'s session. A `Lob` created
++  or wrapped on the current session, partial-write handling, async connections (no LOB
++  support) and `compat.native` lobs are unchanged.
++
+ ### Documentation
+ 
+ - **Abandoned release without a tag** — RELEASING.md's abandoned-version recovery now says
+diff --git a/RELEASE_POLICY.md b/RELEASE_POLICY.md
+index 3d186e8..2dc9325 100644
+--- a/RELEASE_POLICY.md
++++ b/RELEASE_POLICY.md
+@@ -305,6 +305,14 @@ Code without a corresponding documentation update is considered incomplete.
+ Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
+ the documented release contract stays complete alongside `CHANGELOG.md`:
+ 
++- **Stale `Lob` handles after a session replacement (#932)** — PATCH / bug fix
++  to the documented session ownership of `Lob` (`docs/API_REFERENCE.md`,
++  `docs/CONNECTION.md`). `Lob.read()` and `Lob.write()` on a `Lob` whose
++  physical session was replaced raise `InterfaceError` before any request,
++  instead of sending the old handle to the new CAS. A `Lob` of the current
++  session sends the same bytes as before. Public signatures, the wire format,
++  async connections, `compat.native` lobs and supported versions are unchanged.
++
+ - **Error source and authentication error class (#903)** — MINOR / additive
+   attribute and exception-class change, decided by the maintainer on #903.
+   `DatabaseError` gains the read-only `error_source` (`"cas"`, `"server"` or
+diff --git a/docs/API_REFERENCE.md b/docs/API_REFERENCE.md
+index 171e8c6..2eadcca 100644
+--- a/docs/API_REFERENCE.md
++++ b/docs/API_REFERENCE.md
+@@ -2084,6 +2084,19 @@ assert await cur.nextset() is None
+ 
+ Represents a CUBRID Large Object (BLOB or CLOB).
+ 
++A `Lob` belongs to the physical session it was created or wrapped on (#932).
++After `ping(reconnect=True)` or a failed out-of-transaction `CHECK_CAS` probe
++replaces that session, `read()` and `write()` of the older `Lob` raise
++`InterfaceError` ("LOB handle belongs to an earlier physical session") before
++any request is sent. They do not reconnect, retry or adopt the new session. If
++the replacement happens in the `CHECK_CAS` probe of the call itself, that call
++raises `OperationalError` ("LOB handle lost due to broker reconnect") and later
++calls raise `InterfaceError`. Create the LOB again with
++`connection.create_lob()`, or fetch the row again and wrap its handle in a new
++`Lob`. `Lob` does not record whether its handle was created or fetched, so this
++also applies to a handle of a committed row. Async connections have no LOB
++support; `compat.native` lobs keep their own session check.
++
+ ### Lob Factory Method
+ 
+ #### `Lob.create(connection, lob_type)`
+diff --git a/docs/CONNECTION.md b/docs/CONNECTION.md
+index 3b254ad..efb496d 100644
+--- a/docs/CONNECTION.md
++++ b/docs/CONNECTION.md
+@@ -512,7 +512,8 @@ unchanged. If this probe fails, the session is retired and `ping()` returns
+ `False`. No interrupted SQL is replayed. Sync and async parameterized SQL bound
+ before a session replacement, including one made by that request's own
+ `CHECK_CAS`, is rejected before send because its generation changed; the caller
+-decides whether to retry. A healthy same-session ping does not
++decides whether to retry. A sync `Lob` of the earlier session is refused the
++same way: its `read()` and `write()` raise before send (#932). A healthy same-session ping does not
+ probe. This does not claim a dynamic per-session setting toggle or verified
+ heterogeneous failover.
+ 
+diff --git a/docs/ko/API_REFERENCE.md b/docs/ko/API_REFERENCE.md
+index a7fd9c2..cbe8421 100644
+--- a/docs/ko/API_REFERENCE.md
++++ b/docs/ko/API_REFERENCE.md
+@@ -1990,6 +1990,18 @@ assert await cur.nextset() is None
+ 
+ CUBRID 대형 객체(BLOB 또는 CLOB)를 나타냅니다.
+ 
++`Lob`은 생성되거나 감싸진 물리 세션에 속합니다(#932). `ping(reconnect=True)`
++또는 트랜잭션 밖에서 실패한 `CHECK_CAS` 검사가 그 세션을 교체하면, 이전 `Lob`의
++`read()`와 `write()`는 요청을 보내기 전에 `InterfaceError`("LOB handle belongs
++to an earlier physical session")를 발생시킵니다. 재접속, 재시도, 새 세션 채택은
++하지 않습니다. 호출 자신의 `CHECK_CAS` 검사에서 교체가 일어나면 그 호출은
++`OperationalError`("LOB handle lost due to broker reconnect")를, 이후 호출은
++`InterfaceError`를 발생시킵니다. `connection.create_lob()`으로 LOB를 다시
++만들거나, 행을 다시 조회해 그 핸들을 새 `Lob`으로 감싸십시오. `Lob`은 핸들이
++생성된 것인지 조회된 것인지 기록하지 않으므로 커밋된 행의 핸들에도 같은 규칙이
++적용됩니다. 비동기 연결은 LOB를 지원하지 않으며, `compat.native` lob은 자체 세션
++검사를 유지합니다.
++
+ ### Lob 팩토리 메서드
+ 
+ #### `Lob.create(connection, lob_type)`
+diff --git a/docs/ko/CONNECTION.md b/docs/ko/CONNECTION.md
+index 5a36941..ff3c544 100644
+--- a/docs/ko/CONNECTION.md
++++ b/docs/ko/CONNECTION.md
+@@ -426,7 +426,8 @@ pycubrid는 전송 실패 후 임의의 SQL 요청을 자동 재실행하지 않
+ `ping()`은 `False`를 반환합니다. 중단된 SQL은 재실행하지 않습니다. 동기/비동기
+ 파라미터 SQL이 세션 교체(요청 자신의 `CHECK_CAS`가 일으킨 교체 포함) 전에
+ 바인딩되었다면 세대가 바뀌었으므로 전송 전에 거부하며, 재시도 여부는 호출자가
+-결정해야 합니다. 정상적인 동일 세션 ping은 감지하지
++결정해야 합니다. 이전 세션의 동기 `Lob`도 같은 방식으로 거부하여 `read()`와
++`write()`가 전송 전에 오류를 발생시킵니다(#932). 정상적인 동일 세션 ping은 감지하지
+ 않습니다. 세션 내 동적 설정 변경이나 이기종 페일오버 검증을 뜻하지 않습니다.
+ 
+ 위의 자동 재접속을 포함해 복구가 성공하면, 그리고 `close()` 후 `connect()`로 연결을 다시 열면(동기·비동기 동일, #520) pycubrid는 호출자가 **명시적으로** 설정한 세션 수준 설정을 복원합니다:
+diff --git a/docs/llms-full.txt b/docs/llms-full.txt
+index 2611f69..b313c17 100644
+--- a/docs/llms-full.txt
++++ b/docs/llms-full.txt
+@@ -738,7 +738,8 @@ unchanged. If this probe fails, the session is retired and `ping()` returns
+ `False`. No interrupted SQL is replayed. Sync and async parameterized SQL bound
+ before a session replacement, including one made by that request's own
+ `CHECK_CAS`, is rejected before send because its generation changed; the caller
+-decides whether to retry. A healthy same-session ping does not
++decides whether to retry. A sync `Lob` of the earlier session is refused the
++same way: its `read()` and `write()` raise before send (#932). A healthy same-session ping does not
+ probe. This does not claim a dynamic per-session setting toggle or verified
+ heterogeneous failover.
+ 
+@@ -3232,6 +3233,19 @@ assert await cur.nextset() is None
+ 
+ Represents a CUBRID Large Object (BLOB or CLOB).
+ 
++A `Lob` belongs to the physical session it was created or wrapped on (#932).
++After `ping(reconnect=True)` or a failed out-of-transaction `CHECK_CAS` probe
++replaces that session, `read()` and `write()` of the older `Lob` raise
++`InterfaceError` ("LOB handle belongs to an earlier physical session") before
++any request is sent. They do not reconnect, retry or adopt the new session. If
++the replacement happens in the `CHECK_CAS` probe of the call itself, that call
++raises `OperationalError` ("LOB handle lost due to broker reconnect") and later
++calls raise `InterfaceError`. Create the LOB again with
++`connection.create_lob()`, or fetch the row again and wrap its handle in a new
++`Lob`. `Lob` does not record whether its handle was created or fetched, so this
++also applies to a handle of a committed row. Async connections have no LOB
++support; `compat.native` lobs keep their own session check.
++
+ ### Lob Factory Method
+ 
+ #### `Lob.create(connection, lob_type)`
+diff --git a/pycubrid/lob.py b/pycubrid/lob.py
+index 75221e5..b905e58 100644
+--- a/pycubrid/lob.py
++++ b/pycubrid/lob.py
+@@ -70,8 +70,11 @@ class Lob:
+         self._lob_handle = lob_handle
+         self._closed = False
+         # Physical session the handle belongs to: a newly written LOB lives in
+-        # a temporary file of that session only (#839).
+-        self._generation: int | None = getattr(connection, "_physical_generation", None)
++        # a temporary file of that session only (#839). read()/write() refuse
++        # to send it on a later session (#932). A transport without a
++        # generation (compat.native's fixed-session one) checks it itself.
++        generation = getattr(connection, "_physical_generation", None)
++        self._generation: int | None = generation if type(generation) is int else None
+ 
+     @classmethod
+     def create(cls, connection: _ConnectionLike, lob_type: int) -> Lob:
+@@ -111,7 +114,7 @@ class Lob:
+                 # Match Connection's existing request-serialization boundary.
+                 raise DataError("parameter value too large to serialize into CAS request") from exc
+             return 0
+-        self._connection._send_and_receive(packet)
++        self._send_on_own_session(packet)
+         if packet.bytes_written > len(data):
+             # CCI rejects this reply without touching the handle's size.
+             raise OperationalError(
+@@ -148,7 +151,7 @@ class Lob:
+         cursor = offset
+         while remaining > 0:
+             packet = LOBReadPacket(self._lob_handle, cursor, remaining)
+-            self._connection._send_and_receive(packet)
++            self._send_on_own_session(packet)
+             got = len(packet.lob_data)
+             if got > remaining:
+                 raise OperationalError(
+@@ -179,6 +182,27 @@ class Lob:
+         if self._closed:
+             raise InterfaceError("LOB is closed")
+ 
++    def _send_on_own_session(self, packet: Any) -> None:
++        """Send a LOB request only on the physical session that owns the handle.
++
++        A replaced session (``ping(reconnect=True)``, a failed CHECK_CAS probe)
++        knows nothing of the handle, so a stale ``Lob`` raises before any byte
++        is sent and is never retried there (#932). The check holds the session
++        lock, and ``expected_generation`` fences a replacement during the request.
++        """
++        generation = self._generation
++        if generation is None:
++            self._connection._send_and_receive(packet)
++            return
++        connection: Any = self._connection
++        with connection._session_lock:
++            if connection._physical_generation != generation:
++                raise InterfaceError(
++                    "LOB handle belongs to an earlier physical session; "
++                    "create or fetch the LOB again on this connection"
++                )
++            connection._send_and_receive(packet, expected_generation=generation)
++
+     def close(self) -> None:
+         """Invalidate this LOB object (client-side only).
+ 
+diff --git a/tests/test_integration_lob.py b/tests/test_integration_lob.py
+index ebe44a3..0b5b74e 100644
+--- a/tests/test_integration_lob.py
++++ b/tests/test_integration_lob.py
+@@ -10,6 +10,7 @@ not present in pycubrid — see #405 for the divergence documentation.
+ from __future__ import annotations
+ 
+ import os
++import socket
+ import uuid
+ from collections.abc import Generator
+ from typing import Any
+@@ -19,6 +20,7 @@ import pytest
+ from pycubrid.connection import Connection
+ from pycubrid.constants import CUBRIDDataType
+ from pycubrid.cursor import Cursor
++from pycubrid.exceptions import InterfaceError
+ from pycubrid.lob import Lob
+ 
+ from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
+@@ -163,3 +165,47 @@ class TestLobMixedTable:
+             assert result == blob_data
+         finally:
+             cursor.execute("DROP TABLE IF EXISTS %s" % table)
++
++
++class TestLobSessionOwnership:
++    def test_lob_of_a_replaced_session_is_refused(self, conn: Connection, cursor: Cursor) -> None:
++        """After ping(reconnect=True) replaces the session, older Lobs raise (#932)."""
++        table = _tbl()
++        try:
++            cursor.execute("CREATE TABLE %s (payload BLOB)" % table)
++            cursor.execute("INSERT INTO %s (payload) VALUES (?)" % table, (b"stored",))
++            conn.commit()
++            cursor.execute("SELECT payload FROM %s" % table)
++            row = cursor.fetchone()
++            assert row is not None
++            handle = row[0]["packed_lob_handle"]
++            fetched = Lob(conn, CUBRIDDataType.BLOB, handle)
++            created = conn.create_lob(CUBRIDDataType.BLOB)
++            written = created.write(b"temp")
++            assert written == 4
++            generation = conn._physical_generation
++
++            # The CAS can no longer answer CHECK_CAS, so ping replaces the session.
++            assert conn._socket is not None
++            conn._socket.shutdown(socket.SHUT_RDWR)
++            recovered = conn.ping(reconnect=True)
++            assert recovered is True
++            assert conn._physical_generation == generation + 1
++
++            for stale in (fetched, created):
++                with pytest.raises(InterfaceError, match="earlier physical session"):
++                    stale.read(4)
++                with pytest.raises(InterfaceError, match="earlier physical session"):
++                    stale.write(b"x", 4)
++
++            # The committed row's handle wrapped again, and a new LOB, work there.
++            stored = Lob(conn, CUBRIDDataType.BLOB, handle).read(6)
++            assert stored == b"stored"
++            fresh = conn.create_lob(CUBRIDDataType.BLOB)
++            written = fresh.write(b"new")
++            data = fresh.read(3)
++            assert (written, data) == (3, b"new")
++            conn.rollback()
++        finally:
++            cursor.execute("DROP TABLE IF EXISTS %s" % table)
++            conn.commit()
+diff --git a/tests/test_lob.py b/tests/test_lob.py
+index ef7c81e..d974b03 100644
+--- a/tests/test_lob.py
++++ b/tests/test_lob.py
+@@ -15,7 +15,7 @@ def mock_connection() -> MagicMock:
+     connection = MagicMock()
+     connection._ensure_connected = MagicMock()
+ 
+-    def send_and_receive(packet: object) -> object:
++    def send_and_receive(packet: object, **_kwargs: object) -> object:
+         if isinstance(packet, LOBWritePacket):
+             packet.bytes_written = len(packet.data)
+         return packet
+@@ -306,3 +306,61 @@ def test_create_rejects_async_connection_before_sending() -> None:
+     # Guard must fire before any connection interaction (no un-awaited coroutine).
+     assert conn.ensure_connected_calls == 0
+     assert conn.send_calls == 0
++
++
++# -- physical-session ownership (#932) -----------------------------------------
++
++
++def test_init_ignores_a_non_int_physical_generation(mock_connection: MagicMock) -> None:
++    # A MagicMock attribute (or any non-int) is not a session generation.
++    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
++    assert lob._generation is None
++    lob.read(1)
++    assert mock_connection._send_and_receive.call_args.kwargs == {}
++
++
++@pytest.mark.parametrize("operation", ["read", "write"])
++def test_stale_generation_raises_before_sending(mock_connection: MagicMock, operation: str) -> None:
++    mock_connection._physical_generation = 4
++    lob = Lob(mock_connection, CUBRIDDataType.BLOB, b"lob-handle")
++    mock_connection._physical_generation = 5  # ping(reconnect=True) or a failed probe
++
++    with pytest.raises(InterfaceError, match="earlier physical session; create or fetch"):
++        if operation == "read":
++            lob.read(5)
++        else:
++            lob.write(b"hello")
++
++    mock_connection._send_and_receive.assert_not_called()
++    assert lob._generation == 4  # no adoption of the new session
++
++
++def test_current_generation_sends_with_expected_generation(mock_connection: MagicMock) -> None:
++    mock_connection._physical_generation = 4
++    handle = b"\x00\x00\x00\x21" + b"\x00" * 8 + b"\x00\x00\x00\x02a\x00"
++    lob = Lob(mock_connection, CUBRIDDataType.BLOB, handle)
++
++    written = lob.write(b"hello")
++    assert written == 5
++    assert mock_connection._send_and_receive.call_args.kwargs == {"expected_generation": 4}
++    data = lob.read(5)
++    assert data == b""
++    assert mock_connection._send_and_receive.call_args.kwargs == {"expected_generation": 4}
++    mock_connection._session_lock.__enter__.assert_called()
++
++
++def test_current_generation_keeps_partial_write_handling(mock_connection: MagicMock) -> None:
++    mock_connection._physical_generation = 4
++    handle = b"\x00\x00\x00\x21" + b"\x00" * 8 + b"\x00\x00\x00\x02a\x00"
++
++    def short_write(packet: object, **_kwargs: object) -> object:
++        if isinstance(packet, LOBWritePacket):
++            packet.bytes_written = 2
++        return packet
++
++    mock_connection._send_and_receive.side_effect = short_write
++    lob = Lob(mock_connection, CUBRIDDataType.BLOB, handle)
++
++    with pytest.raises(OperationalError, match="wrote 2 of 5"):
++        lob.write(b"hello")
++    assert lob.lob_handle[4:12] == b"\x00" * 7 + b"\x02"
+diff --git a/tests/test_lob_session.py b/tests/test_lob_session.py
+new file mode 100644
+index 0000000..8dc79d3
+--- /dev/null
++++ b/tests/test_lob_session.py
+@@ -0,0 +1,120 @@
++"""A ``Lob`` is never sent on a physical session that replaced its own (#932).
++
++LOB handles are session scoped. After ``ping(reconnect=True)`` or a failed
++OUT_TRAN CHECK_CAS probe replaces the physical session, an older ``Lob``
++raises before any LOB byte reaches the new session and never reconnects; a
++``Lob`` created or wrapped on the new session works there.
++"""
++
++from __future__ import annotations
++
++import struct
++from unittest.mock import MagicMock, patch
++
++import pytest
++
++from pycubrid.connection import Connection
++from pycubrid.constants import CASFunctionCode, CUBRIDDataType
++from pycubrid.exceptions import InterfaceError, OperationalError
++from pycubrid.lob import Lob
++
++from .test_cas_reconnect_probe import (
++    IN_TRAN,
++    _frames,
++    _function_codes,
++    _replacement_socket,
++    _script,
++    _sync_out_tran,
++)
++from .test_network_edge_cases import make_connected_connection
++
++HANDLE = struct.pack(">iqi", 33, 0, 4) + b"a/b\x00"
++LOB_CODES = {CASFunctionCode.LOB_NEW, CASFunctionCode.LOB_WRITE, CASFunctionCode.LOB_READ}
++
++
++def _reply(code: int, payload: bytes = b"", cas_info: bytes = IN_TRAN) -> bytes:
++    body = cas_info + struct.pack(">i", code) + payload
++    return struct.pack(">i", len(body) - 4) + body
++
++
++def _stale_after_ping() -> tuple[Connection, Lob, MagicMock]:
++    conn, old = make_connected_connection()
++    lob = Lob(conn, CUBRIDDataType.BLOB, HANDLE)
++    _script(old, [])  # CHECK_CAS gets no answer: the CAS is gone
++    new = _replacement_socket()
++    with patch("socket.create_connection", return_value=new):
++        recovered = conn.ping(reconnect=True)
++    assert recovered is True
++    assert conn._physical_generation == lob._generation + 1
++    return conn, lob, new
++
++
++@pytest.mark.parametrize("operation", ["read", "write"])
++def test_lob_from_before_ping_reconnect_sends_nothing_to_the_new_session(
++    operation: str,
++) -> None:
++    conn, lob, new = _stale_after_ping()
++    start = new.sendall.call_count
++
++    with patch("socket.create_connection") as create:
++        with pytest.raises(InterfaceError, match="earlier physical session"):
++            if operation == "read":
++                lob.read(4)
++            else:
++                lob.write(b"data")
++
++    create.assert_not_called()  # the guard never opens a connection
++    assert new.sendall.call_count == start
++    assert conn._connected is True
++    assert conn._socket is new
++
++
++def test_lob_wrapped_on_the_new_session_reads_and_writes_there() -> None:
++    conn, _stale, new = _stale_after_ping()
++    _script(new, _frames(_reply(4), _reply(4, b"data")))
++    start = new.sendall.call_count
++
++    lob = Lob(conn, CUBRIDDataType.BLOB, HANDLE)
++    assert lob._generation == conn._physical_generation
++    written = lob.write(b"data")
++    data = lob.read(4)
++    assert (written, data) == (4, b"data")
++    assert _function_codes(new, start) == [CASFunctionCode.LOB_WRITE, CASFunctionCode.LOB_READ]
++
++
++def test_failed_probe_before_a_lob_request_fails_it_and_later_ones() -> None:
++    conn, old = _sync_out_tran()
++    lob = Lob(conn, CUBRIDDataType.BLOB, HANDLE)
++    _script(old, [])
++    new = _replacement_socket()
++
++    with patch("socket.create_connection", return_value=new) as create:
++        with pytest.raises(OperationalError, match="LOB handle lost due to broker reconnect"):
++            lob.read(4)
++        assert create.call_count == 1
++        with pytest.raises(InterfaceError, match="earlier physical session"):
++            lob.write(b"data")
++        assert create.call_count == 1
++
++    assert not LOB_CODES & set(_function_codes(new))
++
++
++def test_lob_created_after_a_failed_probe_belongs_to_the_new_session() -> None:
++    conn, old = _sync_out_tran()
++    _script(old, [])
++    generation = conn._physical_generation
++    # LOB_NEW, then LOB_WRITE on the new session.
++    new = _replacement_socket(_reply(0, HANDLE), _reply(4))
++
++    with patch("socket.create_connection", return_value=new):
++        lob = conn.create_lob(CUBRIDDataType.BLOB)
++    assert lob._generation == generation + 1 == conn._physical_generation
++
++    with patch("socket.create_connection") as create:
++        written = lob.write(b"data")
++    assert written == 4
++    create.assert_not_called()
++    assert [code for code in _function_codes(new) if code in LOB_CODES] == [
++        CASFunctionCode.LOB_NEW,
++        CASFunctionCode.LOB_WRITE,
++    ]

@@ -1,0 +1,76 @@
+# Agent task built from merged pycubrid work (#925). The oracle is
+# reference.diff: `git diff 5357f66 4605671`, the fix as it was merged.
+format = 1
+id = "reply-bounds-383"
+title = "Reject byte reads past the end of a broker reply"
+base_sha = "5357f660a39ef048e4d90f06d38e91a47b742bc8"
+
+[problem]
+statement = """
+When a LOB read response declares more bytes than its payload contains, the
+parser accepts it as a successful response and leaves the connection usable.
+`PacketReader._parse_bytes(10)` on a 3-byte reply returns the 3 bytes and moves
+the position past the end. Reject an inconsistent frame instead: a read past
+the end of a reply, or of a negative length, must raise `ValueError` without
+moving the reader, and the connection must report it as
+`OperationalError('malformed response from broker')` and close the session,
+so a malformed reply never leaves a reusable session. The reproduction is
+offline: it does not claim a normal CUBRID server sends such a reply.
+"""
+evidence = [
+    "https://github.com/cubrid-lab/pycubrid/issues/383",
+    "https://github.com/cubrid-lab/pycubrid/pull/533",
+    "https://github.com/cubrid-lab/pycubrid/commit/4605671725dce24c895996770ed29d51bb1adb25",
+]
+
+[scope]
+allowed = [
+    "AGENTS.md",
+    "pycubrid/packet.py",
+    "pycubrid/protocol.py",
+    "tests/test_*.py",
+    "tests/helpers/*.py",
+    "docs/PROTOCOL.md",
+    "docs/ko/PROTOCOL.md",
+    "docs/TROUBLESHOOTING.md",
+    "docs/ko/TROUBLESHOOTING.md",
+    "docs/llms-full.txt",
+    "RELEASE_POLICY.md",
+    "CHANGELOG.md",
+]
+non_goals = [
+    "changing what a valid reply returns",
+    "reading or retrying past the declared frame",
+    "claiming that a real CUBRID server sends such a reply",
+]
+required_docs = [
+    "docs/PROTOCOL.md",
+    "docs/ko/PROTOCOL.md",
+]
+
+[validation]
+commands = [
+    "python -m pytest -q tests/test_reply_bounds.py tests/test_packet.py tests/test_protocol.py",
+]
+regression_tests = [
+    "tests/test_reply_bounds.py::test_parse_bytes_past_end_raises_without_moving",
+    "tests/test_reply_bounds.py::test_lob_read_declaring_more_than_payload_is_malformed",
+    "tests/test_reply_bounds.py::test_sync_read_past_end_closes_connection",
+]
+manual = []
+
+[expected]
+behavior = """
+PacketReader rejects a read past the end of the reply, or of a negative
+length, with ValueError and leaves its position unchanged. A LOB read that
+declares more bytes than it carries is malformed. The sync and async
+connections turn the ValueError into OperationalError('malformed response from
+broker') and close, and exact reads to the end of a reply still work.
+"""
+reference_fix = "4605671725dce24c895996770ed29d51bb1adb25"
+
+[limits]
+# The merged fix changed 13 files and 613 lines.
+max_files = 26
+max_changed_lines = 1226
+max_minutes = 90

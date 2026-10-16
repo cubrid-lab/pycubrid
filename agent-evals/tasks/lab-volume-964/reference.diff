@@ -1,0 +1,118 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index b2c9144..f19536a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -65,6 +65,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
+ 
+ ### Documentation
+ 
++- **Removing the Docker lab also removes its volume (#964)** — the `cubrid/cubrid` images
++  declare a `VOLUME` for the database directory, so `docker rm -f pycubrid-quickstart` left an
++  anonymous volume holding the tutorial's `testdb` behind after every lab. The quickstart and
++  Finish Safely lessons (English and Korean) now use `docker rm -f -v pycubrid-quickstart`,
++  and Finish Safely explains that `-v` deletes that volume and that without it the volume
++  stays (`docker volume ls`). The lab image, port, database and tutorial programs are
++  unchanged.
++
+ - **Five focused beginner lessons and a reader-based navigation (#958)** — the quickstart's
+   remaining steps are split into lessons, each with its prerequisites, program, command,
+   expected output, explanation and next step, in English and Korean:
+diff --git a/docs/finish-safely.md b/docs/finish-safely.md
+index f6c6a45..d6d75dc 100644
+--- a/docs/finish-safely.md
++++ b/docs/finish-safely.md
+@@ -84,11 +84,14 @@ If you used the disposable Docker lab from
+ the whole container, with its database:
+ 
+ ```bash
+-docker rm -f pycubrid-quickstart
++docker rm -f -v pycubrid-quickstart
+ ```
+ 
+-This removes only the container named `pycubrid-quickstart`. Skip this step
+-with your own database.
++This removes only the container named `pycubrid-quickstart`. The `-v` also
++deletes the container's anonymous Docker volume, which holds `testdb`. Without
++`-v`, the container goes but its volume stays behind on your computer (you
++would still see it in `docker volume ls`). Skip this step with your own
++database.
+ 
+ ---
+ 
+diff --git a/docs/ko/finish-safely.md b/docs/ko/finish-safely.md
+index 7308435..0443a67 100644
+--- a/docs/ko/finish-safely.md
++++ b/docs/ko/finish-safely.md
+@@ -79,11 +79,12 @@ python cleanup_quickstart.py
+ 실습 환경을 썼다면 데이터베이스와 함께 컨테이너 전체를 제거하세요.
+ 
+ ```bash
+-docker rm -f pycubrid-quickstart
++docker rm -f -v pycubrid-quickstart
+ ```
+ 
+-이 명령은 `pycubrid-quickstart`라는 이름의 컨테이너만 제거합니다. 직접 쓰는 데이터베이스라면 이 단계를
+-건너뛰세요.
++이 명령은 `pycubrid-quickstart`라는 이름의 컨테이너만 제거합니다. `-v`는 `testdb`가 들어 있는 컨테이너의
++익명 Docker 볼륨도 함께 지웁니다. `-v`가 없으면 컨테이너는 사라져도 볼륨은 컴퓨터에 남습니다
++(`docker volume ls`에 계속 보입니다). 직접 쓰는 데이터베이스라면 이 단계를 건너뛰세요.
+ 
+ ---
+ 
+diff --git a/docs/ko/quickstart.md b/docs/ko/quickstart.md
+index 3f19a3a..cc7c9ae 100644
+--- a/docs/ko/quickstart.md
++++ b/docs/ko/quickstart.md
+@@ -66,7 +66,7 @@ fi
+ 
+ 보통 1분이 채 안 되어 `CUBRID is ready`를 출력합니다. 대신 `CUBRID did not answer within 3 minutes`가 출력되면
+ `docker logs pycubrid-quickstart`로 원인을 확인하세요. `docker run` 자체가 실패했다면(예: 포트
+-33000을 이미 다른 프로그램이 쓰는 경우) 그 문제를 먼저 해결하고 `docker rm -f pycubrid-quickstart`로
++33000을 이미 다른 프로그램이 쓰는 경우) 그 문제를 먼저 해결하고 `docker rm -f -v pycubrid-quickstart`로
+ 컨테이너를 지운 뒤 다시 시작하세요. 실습 환경은 비밀번호가 빈 `dba` 계정을 씁니다. 이것은 이 로컬
+ 일회용 컨테이너에서만 허용되는 설정입니다. 다른 사람이 접속할 수 있는 서버에서는 절대 빈 비밀번호를
+ 쓰지 마세요.
+diff --git a/docs/llms-full.txt b/docs/llms-full.txt
+index f576276..285801b 100644
+--- a/docs/llms-full.txt
++++ b/docs/llms-full.txt
+@@ -150,7 +150,7 @@ fi
+ It usually prints `CUBRID is ready` well within a minute. If it prints
+ `CUBRID did not answer within 3 minutes` instead, `docker logs pycubrid-quickstart` shows why; if `docker run` itself
+ failed, for example because port 33000 is already in use, fix that first,
+-remove the container with `docker rm -f pycubrid-quickstart` and start again.
++remove the container with `docker rm -f -v pycubrid-quickstart` and start again.
+ The lab uses the `dba` account with an empty password. That is only acceptable
+ for this local, disposable container: never use an empty password on a server
+ other people can reach.
+@@ -653,11 +653,14 @@ If you used the disposable Docker lab from
+ the whole container, with its database:
+ 
+ ```bash
+-docker rm -f pycubrid-quickstart
++docker rm -f -v pycubrid-quickstart
+ ```
+ 
+-This removes only the container named `pycubrid-quickstart`. Skip this step
+-with your own database.
++This removes only the container named `pycubrid-quickstart`. The `-v` also
++deletes the container's anonymous Docker volume, which holds `testdb`. Without
++`-v`, the container goes but its volume stays behind on your computer (you
++would still see it in `docker volume ls`). Skip this step with your own
++database.
+ 
+ ---
+ 
+diff --git a/docs/quickstart.md b/docs/quickstart.md
+index c79b750..b937e1d 100644
+--- a/docs/quickstart.md
++++ b/docs/quickstart.md
+@@ -73,7 +73,7 @@ fi
+ It usually prints `CUBRID is ready` well within a minute. If it prints
+ `CUBRID did not answer within 3 minutes` instead, `docker logs pycubrid-quickstart` shows why; if `docker run` itself
+ failed, for example because port 33000 is already in use, fix that first,
+-remove the container with `docker rm -f pycubrid-quickstart` and start again.
++remove the container with `docker rm -f -v pycubrid-quickstart` and start again.
+ The lab uses the `dba` account with an empty password. That is only acceptable
+ for this local, disposable container: never use an empty password on a server
+ other people can reach.
