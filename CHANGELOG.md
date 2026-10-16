@@ -181,7 +181,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
-- **A change to the site notice template runs its tests (#971)** — `tests/test_docs_channel_notice.py` is now a `repo_tooling` test, and the `tooling` path filter in `ci.yml` selects `docs/overrides/**` and the test itself, so a pull request that changes only the template runs the rendering tests in `repo-tooling-tests` instead of just the strict site build. Before, `docs/**` counted as documentation only and selected no test lane.
+- **A change to the site notice template runs its tests (#971)** — `tests/test_docs_channel_notice.py` is now a `repo_tooling` test, and the `tooling` path filter in `ci.yml` selects `docs/overrides/**`, `mkdocs.yml` (whose notice wiring the test checks) and the test itself, so a pull request that changes only the template runs the rendering tests in `repo-tooling-tests` instead of just the strict site build. Before, `docs/**` counted as documentation only and selected no test lane.
 
 - **The site notice template tests run in CI (#971)** — `tests/test_docs_channel_notice.py` skipped its six rendering tests in every CI lane, because no lane that runs it installs Jinja2 (`offline-tests` installs the `dev` group; only the documentation build installs the `docs` group, and it runs no tests). The `test` dependency group now includes `jinja2>=3.1`, the test imports it directly instead of skipping, so a lane without it fails, and `tests/test_workflow_pins.py` and `THIRD_PARTY_LICENSES.md` (Jinja2 and MarkupSafe rows) record the new dependency. No workflow changes.
 

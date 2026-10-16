@@ -90,7 +90,7 @@ def test_workflow_impact_table(name: str) -> None:
         ("scripts/wait_for_cubrid.py", {"code", "risk", "tooling", "official"}),
         ("pyproject.toml", {"code", "risk", "tooling", "site"}),
         ("docs/CI_POLICY.md", {"docs", "site"}),
-        ("mkdocs.yml", {"code", "site"}),
+        ("mkdocs.yml", {"code", "site", "tooling"}),
         ("scripts/generate_llms_full.py", {"code", "risk", "tooling", "official", "site"}),
         ("README.md", {"docs"}),
         # The documentation checks' own tests run in the tooling lane (#927).
