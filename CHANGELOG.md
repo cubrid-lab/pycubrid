@@ -65,6 +65,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **Removing the Docker lab also removes its volume (#964)** — the `cubrid/cubrid` images
+  declare a `VOLUME` for the database directory, so `docker rm -f pycubrid-quickstart` left an
+  anonymous volume holding the tutorial's `testdb` behind after every lab. The quickstart and
+  Finish Safely lessons (English and Korean) now use `docker rm -f -v pycubrid-quickstart`,
+  and Finish Safely explains that `-v` deletes that volume and that without it the volume
+  stays (`docker volume ls`). The lab image, port, database and tutorial programs are
+  unchanged.
+
 - **Five focused beginner lessons and a reader-based navigation (#958)** — the quickstart's
   remaining steps are split into lessons, each with its prerequisites, program, command,
   expected output, explanation and next step, in English and Korean:

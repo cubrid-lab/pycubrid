@@ -73,7 +73,7 @@ fi
 It usually prints `CUBRID is ready` well within a minute. If it prints
 `CUBRID did not answer within 3 minutes` instead, `docker logs pycubrid-quickstart` shows why; if `docker run` itself
 failed, for example because port 33000 is already in use, fix that first,
-remove the container with `docker rm -f pycubrid-quickstart` and start again.
+remove the container with `docker rm -f -v pycubrid-quickstart` and start again.
 The lab uses the `dba` account with an empty password. That is only acceptable
 for this local, disposable container: never use an empty password on a server
 other people can reach.

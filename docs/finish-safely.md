@@ -84,11 +84,14 @@ If you used the disposable Docker lab from
 the whole container, with its database:
 
 ```bash
-docker rm -f pycubrid-quickstart
+docker rm -f -v pycubrid-quickstart
 ```
 
-This removes only the container named `pycubrid-quickstart`. Skip this step
-with your own database.
+This removes only the container named `pycubrid-quickstart`. The `-v` also
+deletes the container's anonymous Docker volume, which holds `testdb`. Without
+`-v`, the container goes but its volume stays behind on your computer (you
+would still see it in `docker volume ls`). Skip this step with your own
+database.
 
 ---
 

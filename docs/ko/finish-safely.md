@@ -79,11 +79,12 @@ python cleanup_quickstart.py
 실습 환경을 썼다면 데이터베이스와 함께 컨테이너 전체를 제거하세요.
 
 ```bash
-docker rm -f pycubrid-quickstart
+docker rm -f -v pycubrid-quickstart
 ```
 
-이 명령은 `pycubrid-quickstart`라는 이름의 컨테이너만 제거합니다. 직접 쓰는 데이터베이스라면 이 단계를
-건너뛰세요.
+이 명령은 `pycubrid-quickstart`라는 이름의 컨테이너만 제거합니다. `-v`는 `testdb`가 들어 있는 컨테이너의
+익명 Docker 볼륨도 함께 지웁니다. `-v`가 없으면 컨테이너는 사라져도 볼륨은 컴퓨터에 남습니다
+(`docker volume ls`에 계속 보입니다). 직접 쓰는 데이터베이스라면 이 단계를 건너뛰세요.
 
 ---
 

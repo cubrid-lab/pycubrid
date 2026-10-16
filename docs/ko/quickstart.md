@@ -66,7 +66,7 @@ fi
 
 보통 1분이 채 안 되어 `CUBRID is ready`를 출력합니다. 대신 `CUBRID did not answer within 3 minutes`가 출력되면
 `docker logs pycubrid-quickstart`로 원인을 확인하세요. `docker run` 자체가 실패했다면(예: 포트
-33000을 이미 다른 프로그램이 쓰는 경우) 그 문제를 먼저 해결하고 `docker rm -f pycubrid-quickstart`로
+33000을 이미 다른 프로그램이 쓰는 경우) 그 문제를 먼저 해결하고 `docker rm -f -v pycubrid-quickstart`로
 컨테이너를 지운 뒤 다시 시작하세요. 실습 환경은 비밀번호가 빈 `dba` 계정을 씁니다. 이것은 이 로컬
 일회용 컨테이너에서만 허용되는 설정입니다. 다른 사람이 접속할 수 있는 서버에서는 절대 빈 비밀번호를
 쓰지 마세요.
