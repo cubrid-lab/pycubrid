@@ -112,6 +112,10 @@ def load_task(task_dir: Path) -> dict:
     _strings(task["validation"], "commands", f"{where} [validation]", required=True)
     _strings(task["validation"], "regression_tests", f"{where} [validation]")
     _strings(task["validation"], "manual", f"{where} [validation]")
+    _strings(task["validation"], "acceptance", f"{where} [validation]")
+    for script in task["validation"].get("acceptance", []):
+        if Path(script).name != script or not (task_dir / script).is_file():
+            raise InputError(f"{where} [validation]: acceptance script not in the task: {script}")
     reference = task["expected"].get("reference_fix")
     if reference is not None and (
         not isinstance(reference, str) or not re.fullmatch(r"[0-9a-f]{40}", reference)
@@ -277,6 +281,23 @@ def check_regression_tests(
             # interruption, a usage error or no such test, which proves nothing.
             codes = sorted({run["exit_code"] for run in base})
             failures.append(f"{node} did not fail as a test on the base tree (exit {codes})")
+    # A task's own acceptance scripts are run by the runner on both trees and
+    # recorded under the script name; like a regression test, each one must
+    # find the defect on the base (exit 1) and pass on the patched tree.
+    for script in task["validation"].get("acceptance", []):
+        base, patched = _runs(evidence, script, "base"), _runs(evidence, script, "candidate")
+        if not patched:
+            failures.append(f"no evidence that acceptance check {script} ran on the patched tree")
+        elif any(run["exit_code"] != 0 for run in patched):
+            codes = sorted({run["exit_code"] for run in patched})
+            failures.append(f"acceptance check {script} fails on the patched tree (exit {codes})")
+        if not base:
+            failures.append(f"no evidence that acceptance check {script} ran on the base tree")
+        elif any(run["exit_code"] != 1 for run in base):
+            codes = sorted({run["exit_code"] for run in base})
+            failures.append(
+                f"acceptance check {script} did not find the defect on the base tree (exit {codes})"
+            )
     return _result(failures)
 
 

@@ -48,6 +48,8 @@ commands = [
     "python scripts/check_docs_translation.py",
 ]
 regression_tests = []
+# Run by the runner on both trees: exit 1 on the base, 0 on a correct patch.
+acceptance = ["acceptance.py"]
 manual = [
     "remove the lab with the documented command on macOS with Docker Desktop and confirm docker volume ls shows no leftover (not available on the Linux runner)",
 ]

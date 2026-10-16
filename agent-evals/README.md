@@ -29,13 +29,19 @@ later pull request of #925.
 |---|---|---|
 | `reply-bounds-383` | #383, #533 | A malformed reply length must close the session without reading past the frame |
 | `lob-generation-932` | #932, #934 | A LOB handle of a replaced physical session must fail before anything is sent |
-| `lab-volume-964` | #964, #966 | A documentation fix whose macOS check cannot run here and must be reported as not run |
+| `lab-volume-964` | #964, #966 | A documentation fix, checked by `acceptance.py`, whose macOS check cannot run here and must be reported as not run |
 
 Each task's regression tests were checked against its reference: on the base
 commit plus the reference's test files each one exits 1, and on the reference
 fix each one passes. `tests/test_agent_eval.py` checks that every task loads and
 that its reference passes the scope, limits, documentation and SQL checks and
 defines its regression tests.
+
+`lab-volume-964` has no pytest test, so `acceptance.py` checks the tutorial
+pages instead: every `docker rm` of the lab passes `-v`, each page still shows
+the command, and each Finish Safely page explains `-v` with the volume. It
+exits 1 on the base and 0 on the fix, so a patch that only touches the
+required documents fails. The wording itself stays a human review action.
 
 `lob-generation-932` turns `sql_interpolation` off in its `[rubric]`: the merged
 fix formats a generated table name into DDL with `%`, following its test
@@ -57,6 +63,7 @@ A task is a directory with a `task.toml`:
 | `[scope] required_docs` | Files the change must update, such as `CHANGELOG.md` |
 | `[validation] commands` | The commands the attempt must run, or report as not run |
 | `[validation] regression_tests` | pytest node IDs that the patch must add, that fail on the base and pass on the patch |
+| `[validation] acceptance` | Scripts in the task directory that check the result where no pytest test fits, such as documentation text |
 | `[validation] manual` | Checks only a person can do, such as a live server or another operating system; the attempt must list them as not run |
 | `[expected] behavior` | The reference behavior a correct change produces |
 | `[expected] reference_fix` | Optional: the full SHA of the merged fix the task was built from |
@@ -77,6 +84,9 @@ A regression test is checked through the command
 `python -m pytest -q <node id>`, run on both trees. The base tree is
 `base_sha` with the candidate's test files applied, so a new test exists there
 and has to fail; the candidate tree is `base_sha` with the whole patch.
+An acceptance script is run as `python <task dir>/<script> <tree>` on both
+trees and recorded in the evidence under the script name; it exits 1 when it
+finds the defect and 0 when it does not.
 
 The patch must be what `git diff` produces. Renames, mode changes and binary
 files count as changed files even without content lines, and a copy counts only its destination; a path that Git
@@ -102,7 +112,7 @@ with its reasons:
 |---|---|
 | `scope` | the patch touches a file outside `[scope] allowed` |
 | `limits` | the patch changes more files or lines than `[limits]` allows |
-| `regression_tests` | a named test is not added by the patch, does not pass on the patched tree, or does not fail as a test on the base (pytest exit 1; a collection error or a missing test proves nothing) |
+| `regression_tests` | a named test is not added by the patch, does not pass on the patched tree, or does not fail as a test on the base (pytest exit 1; a collection error or a missing test proves nothing); or an acceptance script did not exit 1 on the base and 0 on the patched tree |
 | `docs` | a `required_docs` file has no content change (a mode change does not count), or is deleted or renamed away |
 | `sql_interpolation` | added Python code builds SQL with an f-string (also triple-quoted or wrapped over lines), `%` or `.format()`; whole Python string literals are read, so quotes inside SQL text do not confuse it |
 | `validation_claims` | the report claims a command passed (or failed) that the evidence shows otherwise or never ran, lists a validation command as neither run nor unrun, or a validation command fails on the patched tree, whatever the report says; or a manual check is claimed as run or not listed as not run |

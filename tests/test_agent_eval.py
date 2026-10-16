@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -349,14 +350,140 @@ def test_a_task_loads_and_its_reference_fix_passes_the_static_checks(task_id: st
         {"command": f"python -m pytest -q {node}", "tree": tree, "exit_code": code}
         for node in task["validation"].get("regression_tests", [])
         for tree, code in (("base", 1), ("candidate", 0))
+    ] + [
+        {"command": script, "tree": tree, "exit_code": code}
+        for script in task["validation"].get("acceptance", [])
+        for tree, code in (("base", 1), ("candidate", 0))
     ]
     assert agent_eval.check_regression_tests(task, changes, evidence)["status"] == "pass"
 
 
-def test_the_documentation_task_has_a_manual_check() -> None:
-    task = agent_eval.load_task(TASKS / "lab-volume-964")
+LAB = TASKS / "lab-volume-964"
+
+
+def test_the_documentation_task_has_a_manual_and_an_acceptance_check() -> None:
+    task = agent_eval.load_task(LAB)
     assert task["validation"]["manual"]
     assert task["validation"].get("regression_tests", []) == []
+    assert task["validation"]["acceptance"] == ["acceptance.py"]
+
+
+def _lab_candidate(tmp_path: Path, patch: str, acceptance: tuple[int, int]) -> Path:
+    """A lab-volume-964 attempt whose runner evidence gives acceptance exits (base, patched)."""
+    task = agent_eval.load_task(LAB)
+    commands = task["validation"]["commands"]
+    candidate = tmp_path / "lab"
+    candidate.mkdir()
+    (candidate / "patch.diff").write_text(patch, encoding="utf-8")
+    report = {
+        "tests_run": [{"command": command, "result": "passed"} for command in commands],
+        "unrun_checks": task["validation"]["manual"],
+    }
+    evidence = [{"command": command, "tree": "candidate", "exit_code": 0} for command in commands]
+    evidence += [
+        {"command": "acceptance.py", "tree": "base", "exit_code": acceptance[0]},
+        {"command": "acceptance.py", "tree": "candidate", "exit_code": acceptance[1]},
+    ]
+    (candidate / "report.json").write_text(json.dumps(report), encoding="utf-8")
+    (candidate / "evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
+    return candidate
+
+
+# Adds an HTML comment to every required document and fixes nothing.
+_COMMENT_ONLY = "".join(
+    f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n"
+    "@@ -1,0 +2,1 @@\n+<!-- reviewed -->\n"
+    for path in ("CHANGELOG.md", "docs/finish-safely.md", "docs/ko/finish-safely.md")
+)
+
+
+def test_the_reference_fix_passes_the_documentation_task(tmp_path: Path) -> None:
+    candidate = _lab_candidate(tmp_path, (LAB / "reference.diff").read_text(), (1, 0))
+    assert agent_eval.grade(LAB, candidate)["verdict"] == "pass"
+
+
+@pytest.mark.parametrize(
+    ("evidence", "detail"),
+    [
+        ((1, 1), "acceptance check acceptance.py fails on the patched tree (exit [1])"),
+        ((1, None), "no evidence that acceptance check acceptance.py ran on the patched tree"),
+    ],
+)
+def test_a_comment_only_patch_fails_the_documentation_task(
+    tmp_path: Path, evidence: tuple[int, int | None], detail: str
+) -> None:
+    candidate = _lab_candidate(tmp_path, _COMMENT_ONLY, (evidence[0], 1))
+    if evidence[1] is None:  # the runner never ran the check on the patched tree
+        runs = json.loads((candidate / "evidence.json").read_text())
+        runs = [
+            r for r in runs if not (r["command"] == "acceptance.py" and r["tree"] == "candidate")
+        ]
+        (candidate / "evidence.json").write_text(json.dumps(runs))
+    grade = agent_eval.grade(LAB, candidate)
+    assert grade["checks"]["docs"]["status"] == "pass"  # the comments are content changes
+    assert grade["verdict"] == "fail"
+    assert grade["checks"]["regression_tests"]["details"] == [detail]
+
+
+def test_an_acceptance_check_must_find_the_defect_on_the_base(tmp_path: Path) -> None:
+    candidate = _lab_candidate(tmp_path, (LAB / "reference.diff").read_text(), (0, 0))
+    assert agent_eval.grade(LAB, candidate)["checks"]["regression_tests"]["details"] == [
+        "acceptance check acceptance.py did not find the defect on the base tree (exit [0])"
+    ]
+
+
+def _load_acceptance() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("lab_acceptance", LAB / "acceptance.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _lab_tree(tmp_path: Path, command: str, explain: bool) -> Path:
+    for page in ("docs/quickstart.md", "docs/ko/quickstart.md"):
+        (tmp_path / page).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / page).write_text(f"Remove it with `{command}`.\n", encoding="utf-8")
+    explanation = {
+        "docs/finish-safely.md": "The `-v` also deletes the anonymous volume.",
+        "docs/ko/finish-safely.md": "`-v`는 익명 Docker 볼륨도 함께 지웁니다.",
+    }
+    for page, text in explanation.items():
+        body = f"```bash\n{command}\n```\n\n" + (text if explain else "Done.") + "\n"
+        (tmp_path / page).write_text(body, encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("command", "explain", "code"),
+    [
+        ("docker rm -f -v pycubrid-quickstart", True, 0),
+        ("docker rm --force --volumes pycubrid-quickstart", True, 0),
+        ("docker rm -f pycubrid-quickstart", True, 1),
+        ("docker rm -f -v pycubrid-quickstart", False, 1),
+    ],
+)
+def test_the_acceptance_script_reads_the_tutorial_pages(
+    tmp_path: Path, command: str, explain: bool, code: int
+) -> None:
+    acceptance = _load_acceptance()
+    assert acceptance.main([str(_lab_tree(tmp_path, command, explain))]) == code
+
+
+def test_the_acceptance_script_passes_on_the_current_tutorial() -> None:
+    acceptance = _load_acceptance()
+    assert acceptance.problems(ROOT) == []
+    assert acceptance.main([str(ROOT / "missing")]) == 2
+
+
+def test_an_acceptance_script_must_be_a_file_of_the_task(tmp_path: Path) -> None:
+    text = (
+        (SELFTEST / "task.toml")
+        .read_text(encoding="utf-8")
+        .replace("[validation]\n", '[validation]\nacceptance = ["../agent_eval.py"]\n', 1)
+    )
+    with pytest.raises(agent_eval.InputError, match="acceptance script not in the task"):
+        agent_eval.load_task(_task(tmp_path, text))
 
 
 def _manual_task(tmp_path: Path) -> dict:
