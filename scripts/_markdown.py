@@ -695,8 +695,10 @@ def _substitution_end(command: str, index: int) -> int:
     start of a command and never inside arithmetic (``$((case + 1))``), so
     ``printf case`` is an argument. ``esac`` closes a ``case`` only where a
     clause may start, so ``case x in esac`` is an empty ``case`` while
-    ``(esac)`` and ``x|esac)`` are patterns. Nested substitutions stay in the
-    body, which the caller checks as a command of its own.
+    ``(esac)``, ``x|esac)`` and ``esac"x")`` are patterns; ``;;``, ``;&`` and
+    ``;;&`` end a clause, and a ``#`` comment changes nothing. Nested
+    substitutions stay in the body, which the caller checks as a command of
+    its own.
     """
     depth, size, at_start = 0, len(command), True
     # Whether each open parenthesis holds arithmetic rather than commands.
@@ -741,12 +743,18 @@ def _substitution_end(command: str, index: int) -> int:
         if char in " \t":
             index += 1
             continue
-        if char == ";" and command.startswith(";;", index) and state() in ("body", "more"):
-            cases[-1][1], at_start = "pattern", True  # ``;;`` ends a case clause
-            index += 2
+        if char == ";" and command.startswith((";;", ";&"), index) and state() in ("body", "more"):
+            # ``;;``, ``;&`` and ``;;&`` end a case clause.
+            cases[-1][1], at_start = "pattern", True
+            index += 3 if command.startswith(";;&", index) else 2
             continue
         if char in "\n;&|":
             index, at_start = index + 1, True
+            continue
+        if char == "#" and (index == 0 or command[index - 1] in " \t\n;&|("):
+            # A comment runs to the end of the line and changes no state.
+            newline = command.find("\n", index)
+            index = size if newline < 0 else newline
             continue
         if char == "(" and state() == "pattern":
             cases[-1][1] = "more"  # the optional ``(`` before a case pattern
@@ -773,7 +781,9 @@ def _substitution_end(command: str, index: int) -> int:
             end = index
             while end + 1 < size and command[end + 1] not in " \t\n;&|()'\"\\":
                 end += 1
-            word = command[index : end + 1]
+            # A word continued by a quote or a backslash is never a keyword.
+            whole = end + 1 >= size or command[end + 1] not in "'\"\\"
+            word = command[index : end + 1] if whole else None
             if not fragment(word) and at_start and not (arithmetic and arithmetic[-1]):
                 if word == "case":
                     cases.append([depth, "subject"])
