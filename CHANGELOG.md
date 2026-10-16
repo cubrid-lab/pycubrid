@@ -181,6 +181,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **Prepare release checks the `last-release-sha` baseline override (#969)** — the recovery for an abandoned version sets a temporary `last-release-sha` in `release-please-config.json`, but nothing enforced its removal, and a stale override makes a later recovery silently list commits that already shipped. `scripts/reconcile_release_labels.py`, which runs before release-please, now classifies the override exactly as sqlalchemy-cubrid does (byte-identical again, from cubrid-lab/sqlalchemy-cubrid#950): it is active only while it is the merge of a release PR on `main` with a recorded abandonment, no `autorelease: pending`/`tagged` label and no tag for its version; once a later release containing it passes the existing publication proof, it is obsolete and preparation stops with a request to remove it in a normal PR. A malformed, unrelated or unreadable override also stops preparation, and an API error is reported as unresolved rather than as absence. Nothing is edited automatically. `RELEASING.md` ("Baseline override lifecycle") and `AGENTS.md` describe the rule; `main` has no override today, so the check reports none.
+
 - **The documentation check is in sync with sqlalchemy-cubrid's again (#953)** —
   `scripts/_markdown.py` and its tests take the six shell fixes from
   cubrid-lab/sqlalchemy-cubrid#935: a `case` pattern's `)` does not close a substitution, and

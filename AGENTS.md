@@ -206,7 +206,9 @@ cookbook smoke test called as a pinned reusable workflow, no token) → summary 
 Freeze a release candidate with `autorelease: review` before branch-only note edits; wait for in-flight preparation to finish. Unfrozen notes come from main Unreleased. GITHUB_TOKEN updates require maintainer-triggered CI at the final head; before merging a release PR, complete the release review checklist in `RELEASING.md` (candidate head, per-check CI state, impact, release purpose). Pending labels are reconciled only after successful publication and cookbook verification.
 Ordinary PRs never change `__version__` or date a CHANGELOG section. Never push
 tags or publish by hand; the only manual entry point is the narrow recovery
-dispatch of `publish-pypi.yml`. Procedure, failure matrix and recovery:
+dispatch of `publish-pypi.yml`. A `last-release-sha` override is temporary:
+Prepare release stops once a later release containing it is verified, and a
+normal PR must remove it (never edit it away inside a release PR). Procedure, failure matrix and recovery:
 [`RELEASING.md`](RELEASING.md).
 
 ## GitHub Release Policy
