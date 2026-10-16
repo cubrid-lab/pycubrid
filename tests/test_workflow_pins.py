@@ -105,10 +105,17 @@ def test_docs_group_is_exact_pins() -> None:
 
 def test_docs_workflow_installs_only_the_docs_group() -> None:
     installs = _pip_lines("docs.yml")
-    assert installs, "docs.yml must install the docs tools"
-    for ln in installs:
-        assert ln in {"python -m pip install --upgrade pip", "pip install --group docs"}, ln
-    assert "pip install --group docs" in installs
+    assert installs == [
+        'uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"'
+    ]
+    exports = [
+        ln.strip()
+        for run in _runs("docs.yml")
+        for ln in run.splitlines()
+        if ln.strip().startswith("uv export ")
+    ]
+    assert len(exports) == 1
+    assert "--locked --no-build --only-group docs --no-emit-project" in exports[0]
 
 
 def test_no_workflow_builds_site_with_unpinned_tools() -> None:

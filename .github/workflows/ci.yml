@@ -135,6 +135,8 @@ jobs:
             site:
               - 'docs/**'
               - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/ci-wheels/**'
               - 'mkdocs.yml'
               - 'scripts/generate_llms_full.py'
               - '.github/workflows/docs.yml'
@@ -145,6 +147,8 @@ jobs:
               - 'pycubrid/**'
               - 'tests/**'
               - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/ci-wheels/**'
               - 'setup.cfg'
               - 'Makefile'
               - 'docker-compose.yml'
@@ -155,6 +159,7 @@ jobs:
               - '.github/**'
               - 'Makefile'
               - 'pyproject.toml'
+              - 'uv.lock'
               - 'setup.cfg'
               - 'tests/test_*workflow*.py'
               - 'tests/test_ci_policy.py'
@@ -235,11 +240,15 @@ jobs:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install the pinned documentation tools
         run: |
-          uv pip install --system --group docs
+          uv export --locked --no-build --only-group docs --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip freeze --system
       - name: Check local links, anchors, fences and commands
         run: python scripts/check_docs_links.py
@@ -269,11 +278,15 @@ jobs:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install the pinned documentation tools
         run: |
-          uv pip install --system --group docs
+          uv export --locked --no-build --only-group docs --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip freeze --system
       - name: Generate llms-full.txt
         run: python scripts/generate_llms_full.py
@@ -298,11 +311,16 @@ jobs:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid (import-only)
         run: |
-          uv pip install --system -e .
+          uv export --locked --no-build --no-default-groups --group build --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Verify public API surface matches api-baseline.json
         run: python scripts/check_public_api.py
@@ -323,11 +341,16 @@ jobs:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pinned ruff from pyproject.toml
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Check tool consistency, lint, and format maintained Python
         run: make lint
@@ -364,11 +387,16 @@ jobs:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install dependencies
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Mypy strict
         run: make typecheck
@@ -399,13 +427,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system -e . --group dev
-          uv pip install --system pytest-cov
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Run representative PR smoke tests
         if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true'
@@ -473,12 +505,17 @@ jobs:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Run repository tooling tests
         shell: bash
@@ -501,18 +538,22 @@ jobs:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install build tool
         run: |
-          uv pip install --system build
+          uv export --locked --no-build --only-group build --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip freeze --system
       - name: Build sdist and wheel
-        run: python -m build
+        run: python -m build --no-isolation
       - name: Smoke test wheel install
         run: |
           python -m venv /tmp/test-wheel
-          /tmp/test-wheel/bin/pip install dist/*.whl
+          /tmp/test-wheel/bin/pip install --no-index --no-deps dist/*.whl
           cd /tmp
           /tmp/test-wheel/bin/python -c "import pycubrid; print(pycubrid.__version__)"
           /tmp/test-wheel/bin/python -c "import pycubrid.aio; print('async OK')"
@@ -520,7 +561,8 @@ jobs:
       - name: Smoke test sdist install
         run: |
           python -m venv /tmp/test-sdist
-          /tmp/test-sdist/bin/pip install dist/*.tar.gz
+          uv pip install --python /tmp/test-sdist/bin/python --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          /tmp/test-sdist/bin/pip install --no-index --no-deps --no-build-isolation dist/*.tar.gz
           cd /tmp
           /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
 
@@ -558,11 +600,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
@@ -612,11 +659,16 @@ jobs:
           python-version: "3.14"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
@@ -656,11 +708,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Start CUBRID broker with SSL=ON
         run: |
@@ -856,11 +913,16 @@ jobs:
           python-version: "3.11"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Restore the official oracle build
         id: oracle-cache

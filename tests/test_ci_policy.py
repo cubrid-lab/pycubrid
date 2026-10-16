@@ -758,7 +758,7 @@ def test_docs_build_job_mirrors_docs_workflow_and_stays_build_only() -> None:
             assert len(step["uses"].split("@", 1)[1].split()[0]) == 40, step["uses"]
             assert "pages" not in step["uses"], "PRs never upload or deploy a Pages artifact"
     runs = [s["run"] for s in steps if "run" in s]
-    assert "uv pip install --system --group docs" in runs[0]
+    assert "uv export --locked --no-build --only-group docs --no-emit-project" in runs[0]
     # Same order and commands as docs.yml's build job.
     docs_runs = [s["run"] for s in workflow("docs.yml")["jobs"]["build"]["steps"] if "run" in s]
     assert (
@@ -769,7 +769,7 @@ def test_docs_build_job_mirrors_docs_workflow_and_stays_build_only() -> None:
             "mkdocs build --strict",
         ]
     )
-    assert docs_runs[0] == "python -m pip install --upgrade pip\npip install --group docs\n"
+    assert docs_runs[0] == runs[0]
 
 
 def test_docs_site_selection_covers_every_site_input() -> None:
@@ -779,6 +779,8 @@ def test_docs_site_selection_covers_every_site_input() -> None:
     assert set(filters["site"]) == {
         "docs/**",  # content and nav assets
         "pyproject.toml",  # the docs dependency group (#784)
+        "uv.lock",
+        ".github/ci-wheels/**",
         "mkdocs.yml",
         "scripts/generate_llms_full.py",
         ".github/workflows/docs.yml",
