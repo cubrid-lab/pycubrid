@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The execute and fetch profilers no longer drop an existing `_profile_tmp` table (#950)** —
+  `scripts/profile_execute.py` and `scripts/profile_fetch.py` ran
+  `DROP TABLE IF EXISTS _profile_tmp` before every run, even for `--operation select`, so an
+  unrelated table of that name or another run's table was deleted. A workload failure also
+  skipped the final DROP and the cursor close. Each run now creates its own
+  `_profile_tmp_<12 hex digits>` table with a plain `CREATE TABLE` (a collision fails the
+  run and drops nothing), drops only a table it created, and on a workload failure rolls
+  back, drops its table and closes the cursor and connection, keeping the workload error
+  and noting any cleanup failure on it. A cleanup failure after a successful workload
+  raises `ScratchCleanupError`. A killed run or a lost connection can still leave the
+  table; it is not retried through a reconnect. The driver itself is unchanged.
+
 ### Fixed
 
 - **Tasks waiting on async connection setup keep `error_source` (#952)** — when

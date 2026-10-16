@@ -1,6 +1,9 @@
 """Profile prepare+execute cycles for INSERT/SELECT/UPDATE/DELETE in pycubrid.
 
-Creates a temporary table ``_profile_tmp`` for the duration of the run, then drops it.
+Creates its own scratch table ``_profile_tmp_<12 hex digits>`` with a plain
+``CREATE TABLE``, so it never reuses or drops an existing table, and drops only
+that table after the run, also when the workload fails (#950). A run that is
+killed or loses its connection can leave the table behind; drop it by hand.
 
 Usage
 -----
@@ -28,19 +31,23 @@ import argparse
 import cProfile
 import pstats
 import sys
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Callable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _profile_scratch import run_with_scratch_table  # noqa: E402
 
 OPERATIONS = ("insert", "select", "update", "delete")
 
-_CREATE_TABLE = (
-    "CREATE TABLE IF NOT EXISTS _profile_tmp (id INT AUTO_INCREMENT PRIMARY KEY, val VARCHAR(64))"
-)
-_DROP_TABLE = "DROP TABLE IF EXISTS _profile_tmp"
-_INSERT_SQL = "INSERT INTO _profile_tmp (val) VALUES (?)"
-_SELECT_SQL = "SELECT id, val FROM _profile_tmp WHERE id > ?"
-_UPDATE_SQL = "UPDATE _profile_tmp SET val = ? WHERE id > ?"
-_DELETE_SQL = "DELETE FROM _profile_tmp WHERE id > ?"
+# ``{table}`` is filled only with the run's validated scratch-table name.
+_SQL = {
+    "insert": "INSERT INTO {table} (val) VALUES (?)",
+    "select": "SELECT id, val FROM {table} WHERE id > ?",
+    "update": "UPDATE {table} SET val = ? WHERE id > ?",
+    "delete": "DELETE FROM {table} WHERE id > ?",
+}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -72,29 +79,29 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_insert(cursor: Any, iterations: int) -> None:
+def _run_insert(cursor: Any, sql: Mapping[str, str], iterations: int) -> None:
     for i in range(iterations):
-        cursor.execute(_INSERT_SQL, ("row-" + str(i),))
+        cursor.execute(sql["insert"], ("row-" + str(i),))
 
 
-def _run_select(cursor: Any, iterations: int) -> None:
+def _run_select(cursor: Any, sql: Mapping[str, str], iterations: int) -> None:
     for _ in range(iterations):
-        cursor.execute(_SELECT_SQL, (0,))
+        cursor.execute(sql["select"], (0,))
         cursor.fetchall()
 
 
-def _run_update(cursor: Any, iterations: int) -> None:
+def _run_update(cursor: Any, sql: Mapping[str, str], iterations: int) -> None:
     for i in range(iterations):
-        cursor.execute(_UPDATE_SQL, ("upd-" + str(i), 0))
+        cursor.execute(sql["update"], ("upd-" + str(i), 0))
 
 
-def _run_delete(cursor: Any, iterations: int) -> None:
+def _run_delete(cursor: Any, sql: Mapping[str, str], iterations: int) -> None:
     # Re-seed before deleting so there is always data
-    cursor.execute(_INSERT_SQL, ("seed",))
+    cursor.execute(sql["insert"], ("seed",))
     for _ in range(iterations):
-        cursor.execute(_DELETE_SQL, (0,))
+        cursor.execute(sql["delete"], (0,))
         # Re-insert one row so subsequent deletes have something to hit
-        cursor.execute(_INSERT_SQL, ("seed",))
+        cursor.execute(sql["insert"], ("seed",))
 
 
 _RUNNERS: dict[str, Callable[..., None]] = {
@@ -114,7 +121,7 @@ def run_execute_cycle(
     iterations: int,
     operation: str,
 ) -> None:
-    """Set up the temp table, run the chosen operation(s), then tear down."""
+    """Create an owned scratch table, run the chosen operation(s), then tear down."""
     import pycubrid  # noqa: PLC0415 — intentional late import in profiling script
 
     conn = pycubrid.connect(
@@ -124,23 +131,15 @@ def run_execute_cycle(
         user=user,
         password=password,
     )
-    try:
-        cursor = conn.cursor()
-        cursor.execute(_DROP_TABLE)
-        cursor.execute(_CREATE_TABLE)
-        conn.commit()
 
+    def workload(cursor: Any, sql: Mapping[str, str]) -> None:
         ops_to_run = list(OPERATIONS) if operation == "all" else [operation]
         for op in ops_to_run:
             print(f"  Profiling: {op} ({iterations} iterations)")
-            _RUNNERS[op](cursor, iterations)
+            _RUNNERS[op](cursor, sql, iterations)
             conn.commit()
 
-        cursor.execute(_DROP_TABLE)
-        conn.commit()
-        cursor.close()
-    finally:
-        conn.close()
+    run_with_scratch_table(conn, workload, _SQL)
 
 
 def main() -> None:

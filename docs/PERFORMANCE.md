@@ -815,6 +815,15 @@ flowchart TD
 All scripts require a live CUBRID instance. Defaults target `localhost:33000/demodb` with
 user `dba`. For `scripts/profile_fetch.py`, see [Profiling Fetch](#profiling-fetch).
 
+`scripts/profile_execute.py` and `scripts/profile_fetch.py` write to the target database:
+each run creates its own table `_profile_tmp_<12 hex digits>` with a plain `CREATE TABLE`,
+so it never reuses or drops an existing table (a name collision fails the run), and drops
+only that table afterwards, also when the workload fails. A cleanup failure is reported: it
+is added as a note to the workload's exception, or raised as `ScratchCleanupError` after a
+successful workload. Nothing reconnects to retry the cleanup, so a killed run or a lost
+connection can leave the table behind; drop it with `DROP TABLE _profile_tmp_<hex>`. Use a
+disposable database.
+
 #### Connection handshake
 
 ```bash

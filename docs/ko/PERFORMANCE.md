@@ -679,6 +679,14 @@ flowchart TD
 
 모든 스크립트는 라이브 CUBRID 인스턴스가 필요합니다. 기본값은 사용자 `dba`로 `localhost:33000/demodb`를 대상으로 합니다. `scripts/profile_fetch.py`는 [Fetch 프로파일링](#fetch-프로파일링)을 참고하세요.
 
+`scripts/profile_execute.py`와 `scripts/profile_fetch.py`는 대상 데이터베이스에 씁니다.
+각 실행은 일반 `CREATE TABLE`로 자신만의 테이블 `_profile_tmp_<16진수 12자리>`를 만들므로
+기존 테이블을 재사용하거나 삭제하지 않으며(이름이 충돌하면 실행이 실패), 작업이 실패한
+경우에도 그 테이블만 삭제합니다. 정리 실패는 보고됩니다. 작업 예외의 note로 추가되거나,
+작업이 성공한 뒤에는 `ScratchCleanupError`로 발생합니다. 정리를 다시 시도하려고 재연결하지
+않으므로, 강제 종료된 실행이나 끊어진 연결은 테이블을 남길 수 있습니다.
+`DROP TABLE _profile_tmp_<hex>`로 삭제하세요. 버려도 되는 데이터베이스를 사용하세요.
+
 #### 연결 핸드셰이크
 
 ```bash
