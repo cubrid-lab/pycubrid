@@ -799,7 +799,9 @@ def test_a_relative_task_directory_still_runs_its_acceptance_scripts(
     assert result["verdict"] == "pass", result["regression_escapes"]
 
 
-@pytest.mark.parametrize("value", ["soon", None, float("nan"), 1e18, True])
+@pytest.mark.parametrize(
+    "value", ["soon", None, float("nan"), 1e18, True, 10**400, -(10**400), float("inf")]
+)
 def test_an_invalid_prepared_epoch_never_hides_the_duration(
     project: tuple[Path, Path, str], tmp_path: Path, _state_dir: Path, value: object
 ) -> None:
@@ -848,3 +850,16 @@ def test_without_a_record_a_valid_prepared_epoch_is_labelled_as_claimed(
     result = runner.collect(task, out, repo=repo, no_sandbox=True)
     assert result["duration_source"] == "attempt.json"
     assert isinstance(result["attempt_minutes"], float)
+
+
+def test_a_directory_symlink_in_the_checkout_is_kept_as_a_link(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    (out / "worktree" / "tests_link").symlink_to("tests", target_is_directory=True)
+    runner.collect(task, out, repo=repo, no_sandbox=True)
+    patch = (out / "candidate" / "patch.diff").read_text()
+    assert "diff --git a/tests_link b/tests_link\nnew file mode 120000" in patch

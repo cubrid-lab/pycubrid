@@ -43,7 +43,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
-import math
 import json
 import os
 import re
@@ -249,7 +248,11 @@ def _epoch(value: object, now: float) -> float | None:
     """A start time that is a finite number not later than now, else ``None``."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value) if math.isfinite(value) and 0 < value <= now else None
+    # Compare first: an int too large for a float, NaN and infinity all fail
+    # here without raising.
+    if not 0 < value <= now:
+        return None
+    return float(value)
 
 
 def _started_at(
@@ -320,9 +323,19 @@ def _copy_held(worktree_fd: int, destination: Path) -> None:
     for directory, subdirectories, files, directory_fd in os.fwalk(
         ".", dir_fd=worktree_fd, follow_symlinks=False
     ):
-        subdirectories[:] = [name for name in subdirectories if name != ".git"]
         target = destination / directory
         target.mkdir(exist_ok=True)
+        # fwalk lists a symlink to a directory among the subdirectories without
+        # descending into it; copy it as a link and keep it out of the walk.
+        walk = []
+        for name in subdirectories:
+            if name == ".git":
+                continue
+            if stat.S_ISLNK(os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode):
+                os.symlink(os.readlink(name, dir_fd=directory_fd), target / name)
+            else:
+                walk.append(name)
+        subdirectories[:] = walk
         for name in files:
             if name == ".git":
                 continue
