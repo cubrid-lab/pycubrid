@@ -290,6 +290,15 @@ def test_every_repo_tooling_module_selects_the_tooling_lane() -> None:
     assert _unselected_tooling_modules(ROOT / "tests") == []
 
 
+def test_the_guard_runs_in_the_always_on_lint_job() -> None:
+    # A PR that adds only an unlisted module selects no tooling lane, so the
+    # guard must also run where every event runs it (#983).
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    assert "if" not in jobs["lint"]
+    node = "tests/test_workflow_path_impact.py::test_every_repo_tooling_module_selects_the_tooling_lane"
+    assert any(node in step.get("run", "") for step in jobs["lint"]["steps"])
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -297,8 +306,10 @@ def test_every_repo_tooling_module_selects_the_tooling_lane() -> None:
         "pytestmark = [pytest.mark.slow, pytest.mark.repo_tooling]\n\ndef test_x():\n    pass",
         "def test_a():\n    pass\n\n@pytest.mark.repo_tooling\ndef test_x():\n    pass",
         "@pytest.mark.repo_tooling\nclass TestX:\n    def test_x(self):\n        pass",
-        "class TestX:\n    pytestmark = pytest.mark.repo_tooling\n\n    def test_x(self):\n"
-        "        pass",
+        (
+            "class TestX:\n    pytestmark = pytest.mark.repo_tooling\n\n    def test_x(self):\n"
+            "        pass"
+        ),
     ],
     ids=["module-mark", "module-mark-list", "one-test", "class-decorator", "class-pytestmark"],
 )

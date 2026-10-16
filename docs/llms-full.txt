@@ -11108,7 +11108,8 @@ Every test module with `repo_tooling` tests (such as `tests/test_official_fixtur
 and `tests/test_upstream_scenario_ledger.py`) and the files only those tests read (such as
 `tests/fixtures/upstream_scenarios.csv`, `agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
 `release-please-config.json` and `api-baseline.json`) explicitly select that same tooling
-lane, and `tests/test_workflow_path_impact.py` fails when such a module does not;
+lane, and a guard in `tests/test_workflow_path_impact.py`, which the always-on lint job
+also runs, fails when such a module does not;
 these marker-based checks are excluded from the driver offline lane.
 The static lint job continues on all events, including generated documentation checks.
 

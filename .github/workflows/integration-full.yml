@@ -676,6 +676,8 @@ jobs:
         run: python scripts/lint_changelog.py
       - name: Korean documents keep the structure of their English source
         run: python scripts/check_docs_translation.py
+      - name: Every repository-tooling module selects the tooling lane
+        run: python -m pytest -q -p no:cacheprovider "tests/test_workflow_path_impact.py::test_every_repo_tooling_module_selects_the_tooling_lane"
       - name: llms-full.txt and root llms.txt are in sync with source docs
         run: |
           python scripts/generate_llms_full.py
