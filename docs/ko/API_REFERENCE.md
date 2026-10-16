@@ -1894,7 +1894,7 @@ with conn.cursor() as cur:
 `close()` 후 `connect()`의 재연결도 포함 — 같은 연결에 대한 다른 task의 작업은 설정이 끝날 때까지 대기합니다.
 설정이 실패하면 세션은 폐기되고 대기 중인 각 task는 자신만의 예외를 발생시킵니다(#554). pycubrid 오류는 같은
 클래스(하위 클래스의 생성자가 다르면 가장 가까운 `pycubrid.exceptions` 클래스)와 같은 `code`, `errno`,
-`sqlstate`를 가진 새 인스턴스로(원래 예외는 `__cause__`), 그 밖의 오류는 그 오류를 명시한 `OperationalError`
+`sqlstate`, `error_source`(#952)를 가진 새 인스턴스로(원래 예외는 `__cause__`), 그 밖의 오류는 그 오류를 명시한 `OperationalError`
 (`connection setup failed in another task: TimeoutError()`)로, 취소된 설정은 `OperationalError`로 발생합니다.
 즉 `connect()`를 실행하는 task를 취소해도 그 task만 취소됩니다. 대기 중인 task 자체가 취소되면 여전히
 `asyncio.CancelledError`가 발생합니다. 요청 내부의 CHECK_CAS 복구(#485)는 대신 연결 lock 아래에서 실행되며,

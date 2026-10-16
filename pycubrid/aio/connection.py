@@ -908,9 +908,10 @@ class AsyncConnection(ConnectionCommonMixin):
         traceback. A cancelled or interrupted setup becomes
         :class:`OperationalError`; a pycubrid error is copied with its class
         (or the nearest :mod:`pycubrid.exceptions` class when a subclass
-        constructor differs), code, errno and sqlstate; any other error is wrapped in
-        :class:`OperationalError`. Non-cancellation originals are chained as
-        ``__cause__``. A waiter's own cancellation still propagates unchanged.
+        constructor differs), code, errno, sqlstate and ``error_source``; any
+        other error is wrapped in :class:`OperationalError`. Non-cancellation
+        originals are chained as ``__cause__``. A waiter's own cancellation
+        still propagates unchanged.
         """
         if self._setup_owner is asyncio.current_task():
             return
@@ -933,6 +934,7 @@ class AsyncConnection(ConnectionCommonMixin):
 
         A subclass whose constructor differs from ``Error``/``DatabaseError``
         is rebuilt as the nearest class defined in :mod:`pycubrid.exceptions`.
+        A ``DatabaseError`` copy keeps the read-only ``error_source`` (#952).
         """
         msg = getattr(error, "msg", str(error))
         code = getattr(error, "code", 0)
@@ -945,7 +947,9 @@ class AsyncConnection(ConnectionCommonMixin):
                 continue
             try:
                 if issubclass(cls, DatabaseError):
-                    return cls(msg, code, errno, sqlstate)
+                    copy = cls(msg, code, errno, sqlstate)
+                    copy._error_source = getattr(error, "error_source", None)
+                    return copy
                 return cls(msg, code)
             except Exception:  # noqa: BLE001 - fall back to a pycubrid base class
                 _LOGGER.debug("Cannot rebuild setup error as %s", cls.__name__, exc_info=True)

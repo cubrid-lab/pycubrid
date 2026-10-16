@@ -3279,7 +3279,7 @@ autocommit) — including the reconnect done by `ping(reconnect=True)` and `conn
 fails, the session is discarded and each waiting task raises its own exception (#554): a
 pycubrid error is re-raised as a new instance of the same class (or of the nearest
 `pycubrid.exceptions` class when a subclass has a different constructor) with the same
-`code`, `errno` and `sqlstate` and the original as `__cause__`; any other error as
+`code`, `errno`, `sqlstate` and `error_source` (#952) and the original as `__cause__`; any other error as
 `OperationalError` naming it (`connection setup failed in another task: TimeoutError()`);
 and a cancelled setup as `OperationalError` — cancelling the task that runs `connect()`
 cancels only that task. A waiting task that is itself cancelled still raises

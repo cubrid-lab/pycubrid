@@ -14,7 +14,16 @@ from typing import Any
 import pytest
 
 from pycubrid.aio.connection import AsyncConnection
-from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.exceptions import (
+    DatabaseError,
+    DataError,
+    InterfaceError,
+    IntegrityError,
+    InternalError,
+    NotSupportedError,
+    OperationalError,
+    ProgrammingError,
+)
 
 
 class _GatedSetup:
@@ -239,3 +248,83 @@ async def test_wrapped_setup_error_with_empty_text_names_its_type() -> None:
         assert type(result) is OperationalError
         assert str(result) == "connection setup failed in another task: TimeoutError()"
         assert result.__cause__ is original
+
+
+# --- error_source of copied setup failures (#952) ------------------------------
+
+
+@pytest.mark.parametrize("source", ["server", "cas", None])
+@pytest.mark.parametrize(
+    "cls",
+    [
+        DatabaseError,
+        OperationalError,
+        ProgrammingError,
+        IntegrityError,
+        DataError,
+        InternalError,
+        NotSupportedError,
+    ],
+)
+def test_copied_setup_error_keeps_error_source(
+    cls: type[DatabaseError], source: str | None
+) -> None:
+    original = cls("probe failed", -493, errno=-493, sqlstate="42000")
+    original._error_source = source
+
+    copied = AsyncConnection._copy_setup_error(original)
+
+    assert type(copied) is cls
+    assert copied is not original
+    assert isinstance(copied, DatabaseError)
+    assert copied.error_source == source
+    assert (copied.msg, copied.code, copied.errno, copied.sqlstate) == (
+        "probe failed",
+        -493,
+        -493,
+        "42000",
+    )
+    assert original.error_source == source
+
+
+def test_fallback_copy_keeps_error_source() -> None:
+    original = _DetailedOperationalError("probe failed", detail="x")
+    original._error_source = "cas"
+
+    copied = AsyncConnection._copy_setup_error(original)
+
+    assert type(copied) is OperationalError
+    assert isinstance(copied, DatabaseError)
+    assert copied.error_source == "cas"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["server", "cas", None])
+async def test_waiters_get_independent_errors_with_the_owner_error_source(
+    source: str | None,
+) -> None:
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "")
+    original = ProgrammingError("login failed", -171, errno=-171, sqlstate="28000")
+    original._error_source = source
+    setup = _GatedSetup(conn, error=original)
+    owner, waiters = await _owner_and_waiters(conn, setup)
+
+    setup.release.set()
+    with pytest.raises(ProgrammingError) as owner_info:
+        _ = await owner
+    assert owner_info.value is original
+    owner_frames = traceback.format_tb(original.__traceback__)
+
+    results = await asyncio.gather(*waiters, return_exceptions=True)
+    for result in results:
+        assert type(result) is ProgrammingError
+        assert result is not original
+        assert result.error_source == source
+        assert result.errno == -171
+        assert result.sqlstate == "28000"
+        assert result.__cause__ is original
+    assert results[0] is not results[1]
+    assert results[0].__traceback__ is not results[1].__traceback__
+    assert original.error_source == source
+    assert traceback.format_tb(original.__traceback__) == owner_frames
+    assert setup.sent == []

@@ -305,6 +305,13 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`error_source` of copied async setup failures (#952)** — PATCH / bug fix
+  to the documented setup-waiter contract (`docs/API_REFERENCE.md`, #554) and
+  the `error_source` attribute (#903). The `DatabaseError` copy each waiting
+  task raises keeps the setup owner's `error_source`. Exception classes,
+  constructors, public signatures, the wire format and supported versions are
+  unchanged.
+
 - **Context exit after a retired session (#951)** — PATCH / bug fix to the
   documented context-manager contract (`docs/CONNECTION.md`,
   `docs/API_REFERENCE.md`). Leaving `with conn:` / `async with conn:` after a

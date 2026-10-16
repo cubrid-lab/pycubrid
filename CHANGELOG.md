@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Tasks waiting on async connection setup keep `error_source` (#952)** — when
+  `AsyncConnection` setup failed with a `DatabaseError`, each task waiting on that setup
+  received a fresh copy with the same class, message, `code`, `errno` and `sqlstate`, but
+  its `error_source` was `None` even when the setup owner's error reported `"server"` or
+  `"cas"`. The copy now keeps `error_source` exactly (including `None`), also when a
+  subclass with another constructor falls back to the nearest `pycubrid.exceptions` class.
+  Each waiter still gets its own exception instance chained to the original as
+  `__cause__`, and owner and waiter cancellation handling is unchanged.
+
 - **Leaving a connection context keeps the original error of a retired session (#951)** —
   when the body of `with conn:` or `async with conn:` failed in a way that already retired
   the physical session (a transport failure, or a cancelled `AsyncConnection` request),
