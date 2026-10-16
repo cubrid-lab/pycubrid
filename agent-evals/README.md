@@ -82,7 +82,7 @@ task digest, the attempt's duration and whether it went over `max_minutes`,
 whether the attempt moved `HEAD`, the verdict and failed checks, the commands
 that passed, the out-of-scope edits, the regression escapes (regression-test
 and acceptance failures), the human review actions including every manual
-check, the Python version, the environment variable names, the network mode
+check, the Python version, the environment variable names, the sandbox mode
 and the SHA-256 of every artifact. Grading the same artifacts again gives the
 same `grade.json`.
 
@@ -92,22 +92,35 @@ success rate, and nothing is scored in CI.
 
 ### Sandbox
 
+- Each check, and the import check before it, runs in new user, mount, PID
+  and network namespaces (`unshare`) inside a private root. That root holds
+  the system directories (`/usr`, `/bin`, `/lib`, `/etc` and their siblings)
+  and the interpreter's prefixes, the task directory and the `python`
+  wrapper read-only, a fresh `/tmp`, a minimal `/dev` and `/proc`, and the
+  tree under test as the only writable path. The caller's home directory
+  (credential files included), host sockets under `/run`, the other tree and
+  the runner's own artifacts are not visible, and there is no network.
+- Where the sandbox cannot be built (no `unshare`, or unprivileged user
+  namespaces are disabled), `collect` refuses to run unless `--no-sandbox` is
+  passed, and `run.json` records `"sandbox": "none"` instead of
+  `"namespaces"`.
 - Commands get only an allowlisted environment (`LANG`, `LC_ALL`, `TERM`,
-  `TZ`, a `PATH` with the chosen interpreter, a temporary `HOME`, `PYTHONPATH`
-  set to the tree, `PIP_NO_INDEX=1` and an unusable proxy). Release tokens,
-  deploy credentials and `CUBRID_TEST_*` settings of the calling shell do not
-  reach them, so live integration tests skip.
-- Commands run in a network namespace without network access
-  (`unshare --net --map-root-user`). Where that is unavailable, `collect`
-  refuses to run unless `--allow-network` is passed, and `run.json` records
-  `"network": "allowed"`.
+  `TZ`, a `PATH` with the chosen interpreter, `HOME=/tmp`, `PYTHONPATH` set to
+  the tree, `PIP_NO_INDEX=1` and an unusable proxy). Release tokens, deploy
+  credentials and `CUBRID_TEST_*` settings of the calling shell do not reach
+  them, so live integration tests skip.
 - Logs are redacted: credential-shaped text (GitHub and PyPI tokens, AWS
   access keys, `Authorization` headers, `password=`-style values), the values
   of the caller's secret-named variables and the home directory are replaced.
-- Each command has a timeout (`--timeout`, 900 seconds by default), recorded
-  as exit code 124.
-- The runner never commits, pushes, merges or publishes. Its own trees and
-  temporary home are deleted after the run (`--keep-trees` keeps the trees).
+- Each command, and the import check, has a timeout (`--timeout`, 900 seconds
+  by default). A command that times out is recorded as exit code 124, and its
+  whole process group (all PID-namespace processes, in the sandbox) is
+  killed. An import check that times out makes the input unusable.
+- The trees are built outside any repository, so `git apply` applies every
+  path even when `OUT_DIR` is inside a checkout.
+- The runner never commits, pushes, merges or publishes. Its trees, sandbox
+  root and wrapper directory are deleted after the run (`--keep-trees` keeps
+  the trees).
 - The attempt's own sandbox, such as what the agent tool may run or reach
   while it works, is the operator's responsibility; the runner isolates only
   the checks it runs.

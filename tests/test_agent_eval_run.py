@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -121,7 +124,7 @@ def test_a_correct_attempt_is_graded_from_what_the_runner_ran(
     _attempt(out)
     meta = tmp_path / "meta.json"
     meta.write_text(json.dumps({"model": "m", "tokens": 12, "human_review_actions": ["read"]}))
-    result = runner.collect(out, meta_path=meta, allow_network=True)
+    result = runner.collect(out, meta_path=meta, no_sandbox=True)
     assert result["verdict"] == "pass", (out / "grade.json").read_text()
     evidence = json.loads((out / "candidate" / "evidence.json").read_text())
     assert evidence == [
@@ -139,7 +142,7 @@ def test_a_correct_attempt_is_graded_from_what_the_runner_ran(
     ]
     assert result["model"] == "m" and result["tokens"] == 12
     assert result["cost"] == "unknown" and result["seed"] == "unknown"
-    assert result["prompt_id"] == "calc-add" and result["network"] == "allowed"
+    assert result["prompt_id"] == "calc-add" and result["sandbox"] == "none"
     assert result["human_review_actions"] == ["read", "manual check: check the result by hand"]
     assert result["head_moved"] is False and result["over_max_minutes"] is False
     assert "patch.diff" not in result["artifacts"]
@@ -152,7 +155,7 @@ def test_a_correct_attempt_is_graded_from_what_the_runner_ran(
     # Nothing was committed: the checkout still holds only the base commit.
     assert _git(out / "worktree", "rev-list", "--count", "HEAD") == "1"
     with pytest.raises(InputError, match="collect already ran"):
-        runner.collect(out, allow_network=True)
+        runner.collect(out, no_sandbox=True)
 
 
 def test_an_unfixed_attempt_fails_on_the_runner_s_evidence(
@@ -162,7 +165,7 @@ def test_an_unfixed_attempt_fails_on_the_runner_s_evidence(
     out = tmp_path / "out"
     runner.prepare(task, out, repo)
     _attempt(out, fixed=False)  # adds the test but not the fix, and claims a pass
-    result = runner.collect(out, allow_network=True)
+    result = runner.collect(out, no_sandbox=True)
     assert result["verdict"] == "fail"
     assert result["failed_checks"] == ["regression_tests", "validation_claims"]
     assert "tests/test_calc.py::test_add fails on the patched tree" in result["regression_escapes"]
@@ -180,7 +183,7 @@ def test_commands_get_no_secrets_and_logs_are_redacted(
     out = tmp_path / "out"
     runner.prepare(task, out, repo)
     _attempt(out)
-    runner.collect(out, allow_network=True)
+    runner.collect(out, no_sandbox=True)
     log = (out / "logs" / "01-candidate.log").read_text()
     assert "None [REDACTED]" in log
     assert "do-not-leak-this-value" not in log
@@ -200,9 +203,9 @@ def test_a_failed_collect_can_be_run_again(
     with monkeypatch.context() as patched:
         patched.setattr(runner, "_tree", broken)
         with pytest.raises(InputError, match="does not apply"):
-            runner.collect(out, allow_network=True)
+            runner.collect(out, no_sandbox=True)
     assert not (out / "candidate").exists()
-    assert runner.collect(out, allow_network=True)["verdict"] == "pass"
+    assert runner.collect(out, no_sandbox=True)["verdict"] == "pass"
 
 
 def test_a_slow_command_is_recorded_as_a_timeout(
@@ -215,7 +218,7 @@ def test_a_slow_command_is_recorded_as_a_timeout(
     out = tmp_path / "out"
     runner.prepare(task, out, repo)
     _attempt(out)
-    runner.collect(out, timeout=1, allow_network=True)
+    runner.collect(out, timeout=1, no_sandbox=True)
     evidence = json.loads((out / "candidate" / "evidence.json").read_text())
     assert evidence[0] == {"command": slow, "tree": "candidate", "exit_code": 124}
 
@@ -230,26 +233,79 @@ def test_a_task_changed_after_prepare_is_refused(
     toml = task / "task.toml"
     toml.write_text(toml.read_text().replace("max_minutes = 60", "max_minutes = 61"))
     with pytest.raises(InputError, match="changed after prepare"):
-        runner.collect(out, allow_network=True)
+        runner.collect(out, no_sandbox=True)
 
 
-def test_missing_network_isolation_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(runner, "ISOLATE", ("false",))
-    with pytest.raises(InputError, match="pass --allow-network"):
-        runner._isolation(False)
-    assert runner._isolation(True) == ()
+def test_a_missing_sandbox_fails_closed(
+    project: tuple[Path, Path, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    for unshare in (("false",), ("no-such-unshare-binary",)):
+        monkeypatch.setattr(runner, "UNSHARE", unshare)
+        with pytest.raises(InputError, match="pass --no-sandbox"):
+            runner.collect(out)
+        assert sorted(p.name for p in out.iterdir()) == [
+            "attempt.json",
+            "prompt.md",
+            "report.json",
+            "worktree",
+        ]
 
 
-def test_isolated_commands_have_no_network() -> None:
+def _sandboxed(scratch: Path) -> bool:
+    scratch.mkdir()
     try:
-        prefix = runner._isolation(False)
+        runner._sandbox(scratch, [], False)
     except InputError:
-        pytest.skip("unprivileged network namespaces are not available here")
-    probe = "import socket; socket.create_connection(('192.0.2.1', 80), 2)"
-    run = subprocess.run(
-        [*prefix, sys.executable, "-c", probe], capture_output=True, text=True, check=False
+        return False
+    return True
+
+
+def test_a_sandboxed_check_sees_only_its_tree(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    secret = tmp_path / "secret.txt"  # outside the tree, like a credential file
+    secret.write_text("hidden")
+    probe = (
+        "import os, socket\n"
+        "open('written', 'w').write('ok')\n"
+        f"for path in ({str(secret)!r}, {str(out / 'attempt.json')!r}):\n"
+        "    assert not os.path.exists(path), path\n"
+        "try:\n"
+        "    open('/usr/agent-eval-write', 'w')\n"
+        "    raise SystemExit('the system directories are writable')\n"
+        "except OSError:\n"
+        "    pass\n"
+        "try:\n"
+        "    socket.create_connection(('192.0.2.1', 80), 2)\n"
+        "    raise SystemExit('the network is reachable')\n"
+        "except OSError:\n"
+        "    pass\n"
     )
-    assert run.returncode != 0 and "unreachable" in run.stderr.lower()
+    (tmp_path / "probe.py").write_text(probe)
+    toml = task / "task.toml"
+    shutil.copy(tmp_path / "probe.py", task / "probe.py")
+    toml.write_text(
+        toml.read_text().replace(
+            'manual = ["check the result by hand"]',
+            'manual = ["check the result by hand"]\nacceptance = ["probe.py"]',
+        )
+    )
+    if not _sandboxed(tmp_path / "probe"):
+        pytest.skip("unprivileged user, mount and network namespaces are not available here")
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    result = runner.collect(out, keep_trees=True)
+    assert result["sandbox"] == "namespaces"
+    log = (out / "logs" / "05-candidate.log").read_text()
+    assert "[exit 0]" in log, log
+    assert (out / "trees" / "candidate" / "written").read_text() == "ok"
+    assert result["verdict"] == "fail"  # the probe passes on the base tree too
 
 
 @pytest.mark.parametrize(
@@ -314,3 +370,74 @@ def test_summarize_reports_distributions(tmp_path: Path) -> None:
     (dirs[0] / "run.json").write_text("{}")
     with pytest.raises(InputError, match="not made by collect"):
         runner.summarize(dirs)
+
+
+def test_an_output_directory_inside_a_repository_still_applies_the_patch(
+    project: tuple[Path, Path, str],
+) -> None:
+    repo, task, _ = project
+    out = repo / "attempts" / "1"  # git apply must not use the enclosing repository
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    assert runner.collect(out, no_sandbox=True)["verdict"] == "pass"
+
+
+def test_a_relative_interpreter_path_works(
+    project: tuple[Path, Path, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    monkeypatch.chdir(tmp_path)
+    relative = Path(os.path.relpath(sys.executable, tmp_path))
+    assert runner.collect(out, python=relative, no_sandbox=True)["verdict"] == "pass"
+
+
+def test_a_timeout_kills_the_command_s_children(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    toml = task / "task.toml"
+    spawn = (
+        "python -c \"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(2); open(chr(108), chr(119))']); time.sleep(30)\""
+    )
+    toml.write_text(toml.read_text().replace('"python -m pytest -q tests"', json.dumps(spawn)))
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    runner.collect(out, timeout=1, no_sandbox=True, keep_trees=True)
+    time.sleep(3)
+    assert not (out / "trees" / "candidate" / "l").exists()
+
+
+def test_a_grading_error_leaves_the_attempt_collectable(
+    project: tuple[Path, Path, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+
+    def rejected(*args: object) -> None:
+        raise InputError("patch.diff: quoted paths are not supported")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(runner.agent_eval, "grade", rejected)
+        with pytest.raises(InputError, match="quoted paths"):
+            runner.collect(out, no_sandbox=True)
+    assert not (out / "candidate").exists() and not (out / "logs").exists()
+    assert runner.collect(out, no_sandbox=True)["verdict"] == "pass"
+
+
+def test_a_blocking_import_is_timed_out(project: tuple[Path, Path, str], tmp_path: Path) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    package = out / "worktree" / "pycubrid"
+    package.mkdir()
+    (package / "__init__.py").write_text("import time\ntime.sleep(30)\n")
+    with pytest.raises(InputError, match="took longer than 1s"):
+        runner.collect(out, timeout=1, no_sandbox=True)

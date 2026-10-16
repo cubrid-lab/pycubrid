@@ -16,8 +16,8 @@ runs a model. A person, or a tool they control, makes the attempt between
     Takes the attempt's uncommitted changes as ``patch.diff``, builds the base
     tree (base commit plus the patch's ``tests/`` files) and the candidate tree
     (base commit plus the whole patch) from ``git archive``, runs the task's
-    validation commands, regression tests and acceptance scripts there in a
-    reduced environment without network access, writes ``evidence.json`` and
+    validation commands, regression tests and acceptance scripts there in the
+    sandbox described below, writes ``evidence.json`` and
     redacted logs, grades the candidate with ``scripts/agent_eval.py`` and
     writes ``run.json``. It exits 0 for a passing verdict, 1 for a failing one
     and 2 for unusable input.
@@ -26,10 +26,14 @@ runs a model. A person, or a tool they control, makes the attempt between
     Reports repeated attempts as distributions of verdicts and failed checks
     per task, never as one success rate.
 
-The runner never commits, pushes, merges or publishes anything. Commands get
-only an allowlisted environment, so release tokens and credentials of the
-calling shell do not reach them, and they run in a network namespace without
-network access (``unshare --net``) unless ``--allow-network`` is given, which
+The runner never commits, pushes, merges or publishes anything. Each check
+runs in a sandbox: new user, mount, PID and network namespaces
+(``unshare``) with a private root that holds only the system directories and
+the interpreter read-only, a fresh ``/tmp``, a minimal ``/dev`` and the tree
+under test as the only writable path. The caller's home directory, host
+sockets, the other tree and the runner's own artifacts are not visible, there
+is no network, and the environment is allowlisted. Where the sandbox cannot
+be built, ``collect`` refuses to run unless ``--no-sandbox`` is given, which
 ``run.json`` records.
 """
 
@@ -43,6 +47,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -53,8 +58,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import agent_eval  # noqa: E402 - the grader next to this script
-from agent_eval import InputError  # noqa: E402
 
+InputError = agent_eval.InputError
 RUNNER_VERSION = 1
 ROOT = agent_eval.ROOT
 UNKNOWN = "unknown"
@@ -79,7 +84,44 @@ SECRET_TEXT = (
     re.compile(r"(?i)(authorization:\s*(?:bearer|token|basic)\s+)\S+"),
     re.compile(r"(?i)\b((?:token|password|passwd|secret|api_?key)\s*[=:]\s*)\S+"),
 )
-ISOLATE = ("unshare", "--net", "--map-root-user")
+UNSHARE = ("unshare", "--net", "--mount", "--map-root-user", "--pid", "--fork", "--kill-child")
+SYSTEM_DIRS = ("/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc")
+# Runs as root of the new user namespace: builds a private root from the
+# read-only system directories, the read-only paths given before "--", a
+# fresh /tmp, a minimal /dev and the writable tree, then runs the command
+# there. Any failed mount stops it before the command runs.
+SANDBOX = r"""
+set -eu
+root=$1; tree=$2; shift 2
+user_path=$PATH; PATH=/usr/sbin:/sbin:/usr/bin:/bin
+mount -t tmpfs -o mode=0755 none "$root"
+for p in SYSTEM_DIRS; do
+  if [ -L "$p" ]; then ln -s "$(readlink "$p")" "$root$p"
+  elif [ -d "$p" ]; then
+    mkdir -p "$root$p"; mount --rbind "$p" "$root$p"; mount -o remount,bind,ro "$root$p"
+  fi
+done
+mkdir -p "$root/dev" "$root/proc" "$root/tmp"
+mount -t tmpfs -o mode=0755 none "$root/dev"
+for d in null zero full random urandom; do
+  touch "$root/dev/$d"; mount --bind "/dev/$d" "$root/dev/$d"
+done
+ln -s /proc/self/fd "$root/dev/fd"
+mount -t proc proc "$root/proc"
+mount -t tmpfs -o mode=1777 none "$root/tmp"
+while [ "$1" != "--" ]; do
+  case "$1" in
+    link:*)  # a symlink of the interpreter chain outside the bound directories
+      spec=${1#link:}; path=${spec%%=*}
+      mkdir -p "$root$(dirname "$path")"; ln -s "${spec#*=}" "$root$path";;
+    *) mkdir -p "$root$1"; mount --rbind "$1" "$root$1"; mount -o remount,bind,ro "$root$1";;
+  esac
+  shift
+done
+shift
+mkdir -p "$root$tree"; mount --bind "$tree" "$root$tree"
+exec chroot "$root" /usr/bin/env PATH="$user_path" /bin/sh -c 'cd "$0" && exec "$@"' "$tree" "$@"
+""".replace("SYSTEM_DIRS", " ".join(SYSTEM_DIRS))
 
 
 def _git(*args: str, cwd: Path | None = None) -> str:
@@ -180,16 +222,29 @@ def _tree(worktree: Path, base_sha: str, dest: Path, patch: str) -> None:
     ).stdout
     dest.mkdir(parents=True)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-        # The archive is the repository's own base commit; the data filter,
-        # where this Python has it, also refuses links that leave dest.
+        members = tar.getmembers()
+        for member in members:
+            # The archive is the attempt checkout's base commit; refuse any
+            # entry that would land outside dest anyway.
+            name = Path(member.name)
+            if name.is_absolute() or ".." in name.parts or member.islnk() or member.isdev():
+                raise InputError(f"unsafe path in the base commit archive: {member.name}")
+            if member.issym() and (
+                Path(member.linkname).is_absolute() or ".." in Path(member.linkname).parts
+            ):
+                raise InputError(f"unsafe link in the base commit archive: {member.name}")
         if hasattr(tarfile, "data_filter"):
-            tar.extractall(dest, filter="data")
+            tar.extractall(dest, members=members, filter="data")
         else:  # pragma: no cover - Python 3.11 before 3.11.4
-            tar.extractall(dest)  # noqa: S202
+            tar.extractall(dest, members=members)  # noqa: S202
     if patch:
+        # The tree is not a repository: without the ceiling, git apply would
+        # find an enclosing one and skip paths outside its subdirectory.
+        env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(dest.parent.resolve())}
         applied = subprocess.run(
             ["git", "apply", "--whitespace=nowarn", "-"],
             cwd=dest,
+            env=env,
             input=patch.encode(),
             capture_output=True,
             check=False,
@@ -198,7 +253,7 @@ def _tree(worktree: Path, base_sha: str, dest: Path, patch: str) -> None:
             raise InputError(f"the patch does not apply to {dest.name}: {applied.stderr.decode()}")
 
 
-def _environment(home: Path, tree: Path, python: Path) -> dict[str, str]:
+def _environment(home: Path, tree: Path, python: Path, sandboxed: bool) -> dict[str, str]:
     bin_dir = home / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     # A wrapper, not a symlink: a virtual environment's interpreter finds its
@@ -211,7 +266,7 @@ def _environment(home: Path, tree: Path, python: Path) -> dict[str, str]:
     env.update(
         {
             "PATH": f"{bin_dir}:/usr/local/bin:/usr/bin:/bin",
-            "HOME": str(home),
+            "HOME": "/tmp" if sandboxed else str(home),
             "PYTHONPATH": str(tree),
             "PYTHONDONTWRITEBYTECODE": "1",
             "PIP_NO_INDEX": "1",
@@ -222,16 +277,93 @@ def _environment(home: Path, tree: Path, python: Path) -> dict[str, str]:
     return env
 
 
-def _isolation(allow_network: bool) -> tuple[str, ...]:
-    if allow_network:
-        return ()
-    probe = subprocess.run([*ISOLATE, "true"], capture_output=True, check=False)
-    if probe.returncode != 0:
-        raise InputError(
-            "network isolation (unshare --net --map-root-user) is unavailable here; "
-            "pass --allow-network to run without it, which run.json records"
+def _readonly_paths(python: Path, task_dir: Path, home: Path) -> list[str]:
+    """What a sandboxed check reads beyond the system directories.
+
+    The interpreter's prefixes, the task directory and the wrapper directory
+    are bound read-only; each symlink on the way from ``python`` to the real
+    interpreter outside them is recreated (``link:PATH=TARGET``) rather than
+    bound, so a virtual environment still finds its base interpreter.
+    """
+    probe = (
+        "import os, sys; print(sys.prefix); print(sys.base_prefix); "
+        "print(os.path.realpath(sys.executable))"
+    )
+    found = subprocess.run(
+        [str(python), "-c", probe], capture_output=True, text=True, check=False
+    ).stdout.split("\n")
+    paths = [*found[:2], str(Path(found[2]).parent.parent)] if len(found) > 2 else []
+    paths += [str(task_dir.resolve()), str((home / "bin").resolve())]
+    system = tuple(f"{d}/" for d in SYSTEM_DIRS)
+    unique: list[str] = []
+    for path in paths:
+        if path and not (path + "/").startswith(system) and path not in unique:
+            unique.append(path)
+    covered = (*system, *(f"{path}/" for path in unique))
+    # Resolve python one component at a time, so directory symlinks count too.
+    parts, current = list(Path(python).parts[1:]), Path("/")
+    for _ in range(256):
+        if not parts:
+            break
+        step = current / parts.pop(0)
+        if not step.is_symlink():
+            current = step
+            continue
+        target = os.readlink(step)
+        if not str(step).startswith(covered):
+            unique.append(f"link:{step}={target}")
+        parts = [*Path(os.path.normpath(current / target)).parts[1:], *parts]
+        current = Path("/")
+    return unique
+
+
+def _command(argv: list[str], tree: Path, sandbox: tuple[Path, list[str]] | None) -> list[str]:
+    if sandbox is None:
+        return argv
+    root, readonly = sandbox
+    return [*UNSHARE, "sh", "-c", SANDBOX, "sandbox", str(root), str(tree), *readonly, "--", *argv]
+
+
+def _execute(argv: list[str], cwd: Path, env: dict[str, str], timeout: int) -> tuple[int, str]:
+    """Run one check in its own process group; on timeout, kill the whole group."""
+    try:
+        process = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
-    return ISOLATE
+    except OSError as exc:
+        return 127, f"{exc}\n"
+    try:
+        output, _ = process.communicate(timeout=timeout)
+        return process.returncode, output.decode(errors="replace")
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        output, _ = process.communicate()
+        return 124, output.decode(errors="replace") + f"\n[timeout {timeout}s]\n"
+
+
+def _sandbox(out_dir: Path, readonly: list[str], disabled: bool) -> tuple[Path, list[str]] | None:
+    """The sandbox root and read-only paths, or ``None`` with ``--no-sandbox``."""
+    if disabled:
+        return None
+    root = out_dir.resolve() / "sandbox-root"
+    probe_tree = out_dir.resolve() / "sandbox-probe"
+    root.mkdir(exist_ok=True)
+    probe_tree.mkdir(exist_ok=True)
+    code, output = _execute(
+        _command(["true"], probe_tree, (root, readonly)), probe_tree, {"PATH": "/usr/bin:/bin"}, 60
+    )
+    probe_tree.rmdir()
+    if code != 0:
+        raise InputError(
+            "the sandbox (unshare user, mount, PID and network namespaces) cannot be built "
+            f"here: {output.strip()}; pass --no-sandbox to run without it, which run.json records"
+        )
+    return root, readonly
 
 
 def collect(
@@ -240,11 +372,12 @@ def collect(
     meta_path: Path | None = None,
     python: Path = Path(sys.executable),
     timeout: int = 900,
-    allow_network: bool = False,
+    no_sandbox: bool = False,
     keep_trees: bool = False,
 ) -> dict:
     """Run the attempt's checks and grade it; return ``run.json``."""
     started = time.time()
+    python = python.absolute()  # absolute, not resolved: a venv keeps its path
     attempt = agent_eval._read_json(out_dir / "attempt.json")
     if not isinstance(attempt, dict) or attempt.get("format") != agent_eval.FORMAT:
         raise InputError(f"{out_dir}/attempt.json: not made by prepare")
@@ -257,20 +390,21 @@ def collect(
     worktree = out_dir / "worktree"
     base_sha = task["base_sha"]
     head = _git("rev-parse", "HEAD", cwd=worktree).strip()
-    prefix = _isolation(allow_network)
 
     candidate = out_dir / "candidate"
     if candidate.exists():
         raise InputError(f"{candidate}: collect already ran for this attempt")
     candidate.mkdir()
     trees, logs, home = out_dir / "trees", out_dir / "logs", out_dir.resolve() / "home"
+    made = [candidate, trees, logs, home, out_dir / "sandbox-root", out_dir / "sandbox-probe"]
     try:
+        _environment(home, trees, python, sandboxed=False)  # writes the python wrappers
+        sandbox = _sandbox(out_dir, _readonly_paths(python, task_dir, home), no_sandbox)
         patch = _patch(worktree, base_sha)
         (candidate / "patch.diff").write_text(patch, encoding="utf-8")
         (candidate / "report.json").write_text(
             json.dumps(report, indent=2) + "\n", encoding="utf-8"
         )
-
         _tree(worktree, base_sha, trees / "base", _sections(patch, "tests/"))
         _tree(worktree, base_sha, trees / "candidate", patch)
         logs.mkdir()
@@ -291,27 +425,12 @@ def collect(
         env: dict[str, str] = {}
         for number, (tree_name, command, argv) in enumerate(plan, start=1):
             tree = (trees / tree_name).resolve()
-            env = _environment(home, tree, python)
+            env = _environment(home, tree, python, sandboxed=sandbox is not None)
             if tree_name not in checked:
-                _check_import(tree, env, prefix)
+                _check_import(tree, env, sandbox, timeout)
                 checked.add(tree_name)
             began = time.time()
-            try:
-                run = subprocess.run(
-                    [*prefix, *argv],
-                    cwd=tree,
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    timeout=timeout,
-                    check=False,
-                )
-                code, output = run.returncode, run.stdout.decode(errors="replace")
-            except subprocess.TimeoutExpired as exc:
-                code = 124
-                output = (exc.stdout or b"").decode(errors="replace") + f"\n[timeout {timeout}s]\n"
-            except FileNotFoundError as exc:
-                code, output = 127, f"{exc}\n"
+            code, output = _execute(_command(argv, tree, sandbox), tree, env, timeout)
             log = logs / f"{number:02d}-{tree_name}.log"
             log.write_text(
                 redact(f"$ {command}\n{output}\n[exit {code}]\n").replace(str(Path.home()), "~"),
@@ -322,15 +441,15 @@ def collect(
         (candidate / "evidence.json").write_text(
             json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
         )
+        grade = agent_eval.grade(task_dir, candidate)
     except BaseException:
         # Leave the attempt as prepare left it, so collect can run again.
-        for path in (candidate, trees, logs, home):
+        for path in made:
             shutil.rmtree(path, ignore_errors=True)
         raise
-    if not keep_trees:
-        shutil.rmtree(trees)
+    for path in made[3:] if keep_trees else [trees, *made[3:]]:
+        shutil.rmtree(path, ignore_errors=True)  # runner-owned scratch, not artifacts
 
-    grade = agent_eval.grade(task_dir, candidate)
     (out_dir / "grade.json").write_text(agent_eval.dumps(grade), encoding="utf-8")
     minutes = round((started - attempt["prepared_epoch"]) / 60, 1)
     max_minutes = task.get("limits", {}).get("max_minutes")
@@ -346,7 +465,7 @@ def collect(
         "collected_at": _now(),
         "attempt_minutes": minutes,
         "over_max_minutes": max_minutes is not None and minutes > max_minutes,
-        "network": "allowed" if allow_network else "isolated",
+        "sandbox": "none" if sandbox is None else "namespaces",
         "environment": sorted(env),
         "python": subprocess.run(
             [str(python), "-c", "import sys; print(sys.version.split()[0])"],
@@ -374,7 +493,6 @@ def collect(
         ],
         "timings": timings,
     }
-    shutil.rmtree(out_dir / "home", ignore_errors=True)
     result["artifacts"] = {
         str(path.relative_to(out_dir)): _digest(path)
         for path in sorted(out_dir.rglob("*"))
@@ -386,19 +504,18 @@ def collect(
     return result
 
 
-def _check_import(tree: Path, env: dict[str, str], prefix: tuple[str, ...]) -> None:
+def _check_import(
+    tree: Path, env: dict[str, str], sandbox: tuple[Path, list[str]] | None, timeout: int
+) -> None:
     """Fail when the tree's own ``pycubrid`` would be shadowed by an installed one."""
     if not (tree / "pycubrid" / "__init__.py").is_file():
         return
-    found = subprocess.run(
-        [*prefix, "python", "-c", "import pycubrid; print(pycubrid.__file__)"],
-        cwd=tree,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    ).stdout.strip()
-    if not found or tree not in Path(found).resolve().parents:
+    argv = ["python", "-c", "import pycubrid; print(pycubrid.__file__)"]
+    code, output = _execute(_command(argv, tree, sandbox), tree, env, timeout)
+    if code == 124:
+        raise InputError(f"importing pycubrid from {tree} took longer than {timeout}s")
+    found = output.strip().splitlines()[-1] if output.strip() else ""
+    if code != 0 or not found or tree not in Path(found).resolve().parents:
         raise InputError(f"pycubrid imports from {found or 'nowhere'}, not from {tree}")
 
 
@@ -453,7 +570,7 @@ def main(argv: list[str] | None = None) -> int:
     col.add_argument("--meta", type=Path)
     col.add_argument("--python", type=Path, default=Path(sys.executable))
     col.add_argument("--timeout", type=int, default=900, help="seconds per command")
-    col.add_argument("--allow-network", action="store_true")
+    col.add_argument("--no-sandbox", action="store_true", help="run checks unsandboxed")
     col.add_argument("--keep-trees", action="store_true")
     summ = sub.add_parser("summarize", help="distributions over repeated attempts")
     summ.add_argument("out_dirs", type=Path, nargs="+")
@@ -471,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             args.meta,
             args.python,
             args.timeout,
-            args.allow_network,
+            args.no_sandbox,
             args.keep_trees,
         )
     except InputError as exc:
