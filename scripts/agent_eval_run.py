@@ -120,7 +120,10 @@ while [ "$1" != "--" ]; do
 done
 shift
 mkdir -p "$root$tree"; mount --bind "$tree" "$root$tree"
-exec chroot "$root" /usr/bin/env PATH="$user_path" /bin/sh -c 'cd "$0" && exec "$@"' "$tree" "$@"
+# Drop every capability of the namespace root and forbid regaining any
+# before the check starts, so it can neither chroot out nor remount.
+exec chroot "$root" /usr/bin/setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
+  --no-new-privs -- /usr/bin/env PATH="$user_path" /bin/sh -c 'cd "$0" && exec "$@"' "$tree" "$@"
 """.replace("SYSTEM_DIRS", " ".join(SYSTEM_DIRS))
 
 
@@ -194,6 +197,7 @@ def prepare(task_dir: Path, out_dir: Path, repo: Path = ROOT) -> Path:
         "task_dir": str(task_dir.resolve()),
         "task_digest": _digest(task_dir / "task.toml"),
         "base_sha": task["base_sha"],
+        "repo": str(repo.resolve()),
         "prepared_at": _now(),
         "prepared_epoch": time.time(),
     }
@@ -201,13 +205,34 @@ def prepare(task_dir: Path, out_dir: Path, repo: Path = ROOT) -> Path:
     return worktree
 
 
-def _patch(worktree: Path, base_sha: str) -> str:
-    """The attempt's changes against the base, including new files, as ``git diff`` text."""
-    untracked = _git("ls-files", "--others", "--exclude-standard", "-z", cwd=worktree)
-    names = [name for name in untracked.split("\0") if name]
-    if names:
-        _git("add", "--intent-to-add", "--", *names, cwd=worktree)
-    return _git("diff", "--no-color", "--no-renames", base_sha, cwd=worktree)
+def _patch(worktree: Path, repo: Path, base_sha: str, scratch: Path) -> str:
+    """The attempt's changes against the base, new files included, as ``git diff`` text.
+
+    Git never runs in the attempt's checkout, whose configuration the attempt
+    controls (``core.fsmonitor``, filters, external diff and textconv
+    drivers). Its files, without ``.git``, are copied over a fresh depth-1
+    clone of the base, whose configuration is the runner's, and diffed there.
+    """
+    _git("init", "-q", str(scratch))
+    _git("fetch", "-q", "--depth", "1", repo.resolve().as_uri(), base_sha, cwd=scratch)
+    _git("checkout", "-q", "--detach", base_sha, cwd=scratch)
+    for entry in scratch.iterdir():
+        if entry.name != ".git":
+            shutil.rmtree(entry) if entry.is_dir() and not entry.is_symlink() else entry.unlink()
+    shutil.copytree(
+        worktree, scratch, symlinks=True, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git")
+    )
+    _git("add", "-A", cwd=scratch)
+    return _git(
+        "diff",
+        "--cached",
+        "--no-color",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        base_sha,
+        cwd=scratch,
+    )
 
 
 def _sections(patch: str, keep: str) -> str:
@@ -389,24 +414,37 @@ def collect(
     report = agent_eval.load_report(report_path or out_dir / "report.json")
     worktree = out_dir / "worktree"
     base_sha = task["base_sha"]
-    head = _git("rev-parse", "HEAD", cwd=worktree).strip()
+    if not isinstance(attempt.get("repo"), str):
+        raise InputError(f"{out_dir}/attempt.json: no source repository; prepare again")
+    repo = Path(attempt["repo"])
+    # Read, not git rev-parse: Git does not run in the attempt's checkout.
+    head = (worktree / ".git" / "HEAD").read_text(encoding="utf-8").strip()
 
     candidate = out_dir / "candidate"
     if candidate.exists():
         raise InputError(f"{candidate}: collect already ran for this attempt")
     candidate.mkdir()
     trees, logs, home = out_dir / "trees", out_dir / "logs", out_dir.resolve() / "home"
-    made = [candidate, trees, logs, home, out_dir / "sandbox-root", out_dir / "sandbox-probe"]
+    scratch = out_dir / "patch-repo"
+    made = [
+        candidate,
+        trees,
+        logs,
+        home,
+        scratch,
+        out_dir / "sandbox-root",
+        out_dir / "sandbox-probe",
+    ]
     try:
         _environment(home, trees, python, sandboxed=False)  # writes the python wrappers
         sandbox = _sandbox(out_dir, _readonly_paths(python, task_dir, home), no_sandbox)
-        patch = _patch(worktree, base_sha)
+        patch = _patch(worktree, repo, base_sha, scratch)
         (candidate / "patch.diff").write_text(patch, encoding="utf-8")
         (candidate / "report.json").write_text(
             json.dumps(report, indent=2) + "\n", encoding="utf-8"
         )
-        _tree(worktree, base_sha, trees / "base", _sections(patch, "tests/"))
-        _tree(worktree, base_sha, trees / "candidate", patch)
+        _tree(scratch, base_sha, trees / "base", _sections(patch, "tests/"))
+        _tree(scratch, base_sha, trees / "candidate", patch)
         logs.mkdir()
         validation = task["validation"]
         plan: list[tuple[str, str, list[str]]] = []
@@ -493,10 +531,13 @@ def collect(
         ],
         "timings": timings,
     }
+    # The runner's own outputs only: the checkout and kept trees hold
+    # attempt-controlled files, which are never opened on the host.
     result["artifacts"] = {
         str(path.relative_to(out_dir)): _digest(path)
-        for path in sorted(out_dir.rglob("*"))
-        if path.is_file() and worktree not in path.parents and path.name != "run.json"
+        for top in ("attempt.json", "prompt.md", "report.json", "grade.json", "candidate", "logs")
+        for path in sorted([out_dir / top, *(out_dir / top).rglob("*")])
+        if path.is_file() and not path.is_symlink()
     }
     (out_dir / "run.json").write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"

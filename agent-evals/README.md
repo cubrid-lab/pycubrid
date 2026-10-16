@@ -79,11 +79,13 @@ The optional `--meta` file holds what the operator observed: `model`,
 `seed`, `tokens`, `cost` and `human_review_actions`. Anything missing is
 recorded as `"unknown"`, never guessed. `run.json` adds the base commit, the
 task digest, the attempt's duration and whether it went over `max_minutes`,
-whether the attempt moved `HEAD`, the verdict and failed checks, the commands
+whether the attempt moved `HEAD` (read from `.git/HEAD`), the verdict and failed checks, the commands
 that passed, the out-of-scope edits, the regression escapes (regression-test
 and acceptance failures), the human review actions including every manual
 check, the Python version, the environment variable names, the sandbox mode
-and the SHA-256 of every artifact. Grading the same artifacts again gives the
+and the SHA-256 of every runner output (`attempt.json`, `prompt.md`,
+`report.json`, `grade.json`, `candidate/` and `logs/`; the checkout and kept
+trees hold attempt-controlled files and are never hashed). Grading the same artifacts again gives the
 same `grade.json`.
 
 `summarize` reports, per task, how many attempts there were and the
@@ -100,6 +102,9 @@ success rate, and nothing is scored in CI.
   tree under test as the only writable path. The caller's home directory
   (credential files included), host sockets under `/run`, the other tree and
   the runner's own artifacts are not visible, and there is no network.
+  Before the check starts, every capability of the namespace root is dropped
+  (`setpriv`, empty bounding set, no new privileges), so it can neither
+  `chroot` out of the root nor change its mounts.
 - Where the sandbox cannot be built (no `unshare`, or unprivileged user
   namespaces are disabled), `collect` refuses to run unless `--no-sandbox` is
   passed, and `run.json` records `"sandbox": "none"` instead of
@@ -116,6 +121,10 @@ success rate, and nothing is scored in CI.
   by default). A command that times out is recorded as exit code 124, and its
   whole process group (all PID-namespace processes, in the sandbox) is
   killed. An import check that times out makes the input unusable.
+- Git never runs in the attempt's checkout, whose configuration the attempt
+  controls (`core.fsmonitor`, filters, external diff and textconv drivers).
+  `collect` copies its files, without `.git`, over a fresh depth-1 clone of
+  the base and diffs them there with `--no-ext-diff --no-textconv`.
 - The trees are built outside any repository, so `git apply` applies every
   path even when `OUT_DIR` is inside a checkout.
 - The runner never commits, pushes, merges or publishes. Its trees, sandbox

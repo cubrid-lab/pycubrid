@@ -281,6 +281,17 @@ def test_a_sandboxed_check_sees_only_its_tree(
         "    raise SystemExit('the system directories are writable')\n"
         "except OSError:\n"
         "    pass\n"
+        "status = open('/proc/self/status').read()\n"
+        "assert 'CapEff:\\t0000000000000000' in status, status\n"
+        "assert 'CapBnd:\\t0000000000000000' in status, status\n"
+        "try:\n"
+        "    os.chroot('.')\n"
+        "    raise SystemExit('chroot is still allowed')\n"
+        "except PermissionError:\n"
+        "    pass\n"
+        "import subprocess\n"
+        "remount = subprocess.run(['mount', '-o', 'remount,rw', '/usr'], capture_output=True)\n"
+        "assert remount.returncode != 0, 'the read-only mounts can be changed'\n"
         "try:\n"
         "    socket.create_connection(('192.0.2.1', 80), 2)\n"
         "    raise SystemExit('the network is reachable')\n"
@@ -441,3 +452,51 @@ def test_a_blocking_import_is_timed_out(project: tuple[Path, Path, str], tmp_pat
     (package / "__init__.py").write_text("import time\ntime.sleep(30)\n")
     with pytest.raises(InputError, match="took longer than 1s"):
         runner.collect(out, timeout=1, no_sandbox=True)
+
+
+def test_git_helpers_configured_by_the_attempt_never_run(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    marker = tmp_path / "helper-ran"
+    helper = tmp_path / "helper.sh"
+    helper.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    helper.chmod(0o755)
+    worktree = out / "worktree"
+    for key, value in (
+        ("diff.external", str(helper)),
+        ("core.fsmonitor", str(helper)),
+        ("diff.calc.textconv", str(helper)),
+        ("filter.calc.clean", str(helper)),
+    ):
+        _git(worktree, "config", key, value)
+    (worktree / ".gitattributes").write_text("*.py diff=calc filter=calc\n")
+    result = runner.collect(out, no_sandbox=True)
+    assert not marker.exists()
+    assert (
+        "def add(a, b):\n-    return a - b\n+    return a + b"
+        in (out / "candidate" / "patch.diff").read_text()
+    )
+    assert result["out_of_scope_edits"] == ["out-of-scope change: .gitattributes"]
+
+
+def test_kept_trees_are_not_hashed_and_links_are_not_followed(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    unreadable = tmp_path / "unreadable"
+    unreadable.write_text("x")
+    unreadable.chmod(0)
+    (out / "worktree" / "tests" / "link_test.py").symlink_to(unreadable)
+    try:
+        result = runner.collect(out, no_sandbox=True, keep_trees=True)
+    finally:
+        unreadable.chmod(0o600)
+    assert (out / "trees" / "candidate" / "tests" / "link_test.py").is_symlink()
+    assert not any(name.startswith(("trees/", "worktree/")) for name in result["artifacts"])
