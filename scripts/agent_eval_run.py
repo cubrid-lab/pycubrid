@@ -51,6 +51,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -92,43 +93,58 @@ SYSTEM_DIRS = ("/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "
 # there. Any failed mount stops it before the command runs.
 SANDBOX = r"""
 set -eu
-root=$1; tree=$2; shift 2
+root=$1; tree=$2; nproc=$3; shift 3
 user_path=$PATH; PATH=/usr/sbin:/sbin:/usr/bin:/bin
-mount -t tmpfs -o mode=0755 none "$root"
+mount -t tmpfs -o mode=0755,size=16m none "$root"
 for p in SYSTEM_DIRS; do
   if [ -L "$p" ]; then ln -s "$(readlink "$p")" "$root$p"
   elif [ -d "$p" ]; then
-    mkdir -p "$root$p"; mount --rbind "$p" "$root$p"; mount -o remount,bind,ro "$root$p"
+    mkdir -p "$root$p"; mount --bind "$p" "$root$p"; mount -o remount,bind,ro "$root$p"
   fi
 done
 mkdir -p "$root/dev" "$root/proc" "$root/tmp"
-mount -t tmpfs -o mode=0755 none "$root/dev"
+mount -t tmpfs -o mode=0755,size=1m none "$root/dev"
 for d in null zero full random urandom; do
   touch "$root/dev/$d"; mount --bind "/dev/$d" "$root/dev/$d"
 done
 ln -s /proc/self/fd "$root/dev/fd"
 mount -t proc proc "$root/proc"
-mount -t tmpfs -o mode=1777 none "$root/tmp"
+mount -t tmpfs -o mode=1777,size=512m none "$root/tmp"
 while [ "$1" != "--" ]; do
   case "$1" in
     link:*)  # a symlink of the interpreter chain outside the bound directories
       spec=${1#link:}; path=${spec%%=*}
       mkdir -p "$root$(dirname "$path")"; ln -s "${spec#*=}" "$root$path";;
-    *) mkdir -p "$root$1"; mount --rbind "$1" "$root$1"; mount -o remount,bind,ro "$root$1";;
+    *) mkdir -p "$root$1"; mount --bind "$1" "$root$1"; mount -o remount,bind,ro "$root$1";;
   esac
   shift
 done
 shift
 mkdir -p "$root$tree"; mount --bind "$tree" "$root$tree"
-# Drop every capability of the namespace root and forbid regaining any
-# before the check starts, so it can neither chroot out nor remount.
-exec chroot "$root" /usr/bin/setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
-  --no-new-privs -- /usr/bin/env PATH="$user_path" /bin/sh -c 'cd "$0" && exec "$@"' "$tree" "$@"
+# Limit processes, address space and file size, then drop every capability
+# of the namespace root and forbid regaining any before the check starts, so
+# it can neither chroot out nor remount.
+exec chroot "$root" /usr/bin/prlimit --nproc="$nproc" --as=8589934592 --fsize=2147483648 -- \
+  /usr/bin/setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs -- \
+  /usr/bin/env PATH="$user_path" /bin/sh -c 'cd "$0" && exec "$@"' "$tree" "$@"
 """.replace("SYSTEM_DIRS", " ".join(SYSTEM_DIRS))
 
 
+# Host-side Git ignores the caller's global and system configuration and
+# attributes, so an attempt's .gitattributes cannot select a filter driver
+# that the caller configured (such as Git LFS).
+GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1"}
+
+
 def _git(*args: str, cwd: Path | None = None) -> str:
-    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        env={**os.environ, **GIT_ENV},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     if result.returncode != 0:
         raise InputError(f"git {' '.join(args)}: {result.stderr.strip()}")
     return result.stdout
@@ -243,7 +259,11 @@ def _sections(patch: str, keep: str) -> str:
 
 def _tree(worktree: Path, base_sha: str, dest: Path, patch: str) -> None:
     archive = subprocess.run(
-        ["git", "archive", "--format=tar", base_sha], cwd=worktree, capture_output=True, check=True
+        ["git", "archive", "--format=tar", base_sha],
+        cwd=worktree,
+        env={**os.environ, **GIT_ENV},
+        capture_output=True,
+        check=True,
     ).stdout
     dest.mkdir(parents=True)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
@@ -265,7 +285,7 @@ def _tree(worktree: Path, base_sha: str, dest: Path, patch: str) -> None:
     if patch:
         # The tree is not a repository: without the ceiling, git apply would
         # find an enclosing one and skip paths outside its subdirectory.
-        env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(dest.parent.resolve())}
+        env = {**os.environ, **GIT_ENV, "GIT_CEILING_DIRECTORIES": str(dest.parent.resolve())}
         applied = subprocess.run(
             ["git", "apply", "--whitespace=nowarn", "-"],
             cwd=dest,
@@ -317,8 +337,10 @@ def _readonly_paths(python: Path, task_dir: Path, home: Path) -> list[str]:
     found = subprocess.run(
         [str(python), "-c", probe], capture_output=True, text=True, check=False
     ).stdout.split("\n")
-    paths = [*found[:2], str(Path(found[2]).parent.parent)] if len(found) > 2 else []
-    paths += [str(task_dir.resolve()), str((home / "bin").resolve())]
+    interpreter = [*found[:2], str(Path(found[2]).parent.parent)] if len(found) > 2 else []
+    for path in interpreter:
+        _check_interpreter_path(Path(path))
+    paths = [*interpreter, str(task_dir.resolve()), str((home / "bin").resolve())]
     system = tuple(f"{d}/" for d in SYSTEM_DIRS)
     unique: list[str] = []
     for path in paths:
@@ -342,11 +364,63 @@ def _readonly_paths(python: Path, task_dir: Path, home: Path) -> list[str]:
     return unique
 
 
+# Interpreter installs under the home directory that hold only Python.
+KNOWN_INSTALLS = (
+    ".local/share/uv/python",
+    ".pyenv/versions",
+    ".local/share/mise/installs",
+    ".asdf/installs",
+    ".rye/py",
+    ".local/share/hatch/pythons",
+)
+
+
+def _check_interpreter_path(path: Path) -> None:
+    """Refuse to bind an interpreter prefix that would expose the home directory."""
+    home, path = Path.home().resolve(), path.resolve()
+    if path == home or path in home.parents:
+        raise InputError(f"the interpreter prefix {path} contains the home directory {home}")
+    if home not in path.parents:
+        return
+    known = any(path == home / d or home / d in path.parents for d in KNOWN_INSTALLS)
+    if not known and not (path / "pyvenv.cfg").is_file():
+        raise InputError(
+            f"the interpreter prefix {path} is inside the home directory and is neither a "
+            "virtual environment nor a known interpreter install; pass --python from another "
+            "location"
+        )
+
+
 def _command(argv: list[str], tree: Path, sandbox: tuple[Path, list[str]] | None) -> list[str]:
     if sandbox is None:
         return argv
     root, readonly = sandbox
-    return [*UNSHARE, "sh", "-c", SANDBOX, "sandbox", str(root), str(tree), *readonly, "--", *argv]
+    nproc = str(_user_processes() + 1024)  # RLIMIT_NPROC counts the caller's processes too
+    return [
+        *UNSHARE,
+        "sh",
+        "-c",
+        SANDBOX,
+        "sandbox",
+        str(root),
+        str(tree),
+        nproc,
+        *readonly,
+        "--",
+        *argv,
+    ]
+
+
+def _user_processes() -> int:
+    uid, count = str(os.getuid()), 0
+    for status in Path("/proc").glob("[0-9]*/status"):
+        try:
+            text = status.read_text()
+        except OSError:
+            continue
+        if any(line.split()[1:2] == [uid] for line in text.splitlines() if line.startswith("Uid:")):
+            count += 1
+    return count
 
 
 def _execute(argv: list[str], cwd: Path, env: dict[str, str], timeout: int) -> tuple[int, str]:
@@ -367,18 +441,26 @@ def _execute(argv: list[str], cwd: Path, env: dict[str, str], timeout: int) -> t
         return process.returncode, output.decode(errors="replace")
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
-        output, _ = process.communicate()
+        try:
+            output, _ = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            # Unsandboxed, a process that left the group (setsid) can keep the
+            # output pipe open; stop reading instead of waiting for it.
+            if process.stdout is not None:
+                process.stdout.close()
+            process.wait()
+            output = b""
         return 124, output.decode(errors="replace") + f"\n[timeout {timeout}s]\n"
 
 
-def _sandbox(out_dir: Path, readonly: list[str], disabled: bool) -> tuple[Path, list[str]] | None:
+def _sandbox(scratch: Path, readonly: list[str], disabled: bool) -> tuple[Path, list[str]] | None:
     """The sandbox root and read-only paths, or ``None`` with ``--no-sandbox``."""
     if disabled:
         return None
-    root = out_dir.resolve() / "sandbox-root"
-    probe_tree = out_dir.resolve() / "sandbox-probe"
-    root.mkdir(exist_ok=True)
-    probe_tree.mkdir(exist_ok=True)
+    root = scratch.resolve() / "sandbox-root"
+    probe_tree = scratch.resolve() / "sandbox-probe"
+    root.mkdir()
+    probe_tree.mkdir()
     code, output = _execute(
         _command(["true"], probe_tree, (root, readonly)), probe_tree, {"PATH": "/usr/bin:/bin"}, 60
     )
@@ -403,6 +485,18 @@ def collect(
     """Run the attempt's checks and grade it; return ``run.json``."""
     started = time.time()
     python = python.absolute()  # absolute, not resolved: a venv keeps its path
+    out_dir = out_dir.absolute()
+    worktree = out_dir / "worktree"
+    candidate, logs = out_dir / "candidate", out_dir / "logs"
+    report_path = report_path or out_dir / "report.json"
+    # The attempt can write in OUT_DIR. Paths the runner reads there must not
+    # be symlinks, and paths it writes there must not exist yet.
+    for path in (out_dir / "attempt.json", report_path, worktree, worktree / ".git"):
+        if path.is_symlink():
+            raise InputError(f"{path}: must not be a symlink")
+    for path in (candidate, logs, out_dir / "grade.json", out_dir / "run.json"):
+        if os.path.lexists(path):
+            raise InputError(f"{path}: already exists; collect already ran for this attempt")
     attempt = agent_eval._read_json(out_dir / "attempt.json")
     if not isinstance(attempt, dict) or attempt.get("format") != agent_eval.FORMAT:
         raise InputError(f"{out_dir}/attempt.json: not made by prepare")
@@ -411,8 +505,7 @@ def collect(
         raise InputError(f"{task_dir}/task.toml changed after prepare")
     task = agent_eval.load_task(task_dir)
     meta = load_meta(meta_path)
-    report = agent_eval.load_report(report_path or out_dir / "report.json")
-    worktree = out_dir / "worktree"
+    report = agent_eval.load_report(report_path)
     base_sha = task["base_sha"]
     if not isinstance(attempt.get("repo"), str):
         raise InputError(f"{out_dir}/attempt.json: no source repository; prepare again")
@@ -420,32 +513,22 @@ def collect(
     # Read, not git rev-parse: Git does not run in the attempt's checkout.
     head = (worktree / ".git" / "HEAD").read_text(encoding="utf-8").strip()
 
-    candidate = out_dir / "candidate"
-    if candidate.exists():
-        raise InputError(f"{candidate}: collect already ran for this attempt")
+    # Every scratch path lives in a new private directory that only the
+    # runner can reach; OUT_DIR receives just candidate/, logs/ and the reports.
+    scratch = Path(tempfile.mkdtemp(prefix="agent-eval-"))
+    trees, home, clone = scratch / "trees", scratch / "home", scratch / "patch-repo"
     candidate.mkdir()
-    trees, logs, home = out_dir / "trees", out_dir / "logs", out_dir.resolve() / "home"
-    scratch = out_dir / "patch-repo"
-    made = [
-        candidate,
-        trees,
-        logs,
-        home,
-        scratch,
-        out_dir / "sandbox-root",
-        out_dir / "sandbox-probe",
-    ]
     try:
+        logs.mkdir()
         _environment(home, trees, python, sandboxed=False)  # writes the python wrappers
-        sandbox = _sandbox(out_dir, _readonly_paths(python, task_dir, home), no_sandbox)
-        patch = _patch(worktree, repo, base_sha, scratch)
+        sandbox = _sandbox(scratch, _readonly_paths(python, task_dir, home), no_sandbox)
+        patch = _patch(worktree, repo, base_sha, clone)
         (candidate / "patch.diff").write_text(patch, encoding="utf-8")
         (candidate / "report.json").write_text(
             json.dumps(report, indent=2) + "\n", encoding="utf-8"
         )
-        _tree(scratch, base_sha, trees / "base", _sections(patch, "tests/"))
-        _tree(scratch, base_sha, trees / "candidate", patch)
-        logs.mkdir()
+        _tree(clone, base_sha, trees / "base", _sections(patch, "tests/"))
+        _tree(clone, base_sha, trees / "candidate", patch)
         validation = task["validation"]
         plan: list[tuple[str, str, list[str]]] = []
         for command in validation["commands"]:
@@ -482,13 +565,15 @@ def collect(
         grade = agent_eval.grade(task_dir, candidate)
     except BaseException:
         # Leave the attempt as prepare left it, so collect can run again.
-        for path in made:
+        for path in (candidate, logs, scratch):
             shutil.rmtree(path, ignore_errors=True)
         raise
-    for path in made[3:] if keep_trees else [trees, *made[3:]]:
+    for path in (home, clone, scratch / "sandbox-root"):
         shutil.rmtree(path, ignore_errors=True)  # runner-owned scratch, not artifacts
+    if not keep_trees:
+        shutil.rmtree(scratch, ignore_errors=True)
 
-    (out_dir / "grade.json").write_text(agent_eval.dumps(grade), encoding="utf-8")
+    _write_new(out_dir / "grade.json", agent_eval.dumps(grade))
     minutes = round((started - attempt["prepared_epoch"]) / 60, 1)
     max_minutes = task.get("limits", {}).get("max_minutes")
     checks = grade["checks"]
@@ -539,10 +624,20 @@ def collect(
         for path in sorted([out_dir / top, *(out_dir / top).rglob("*")])
         if path.is_file() and not path.is_symlink()
     }
-    (out_dir / "run.json").write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    if keep_trees:
+        result["kept_trees"] = str(trees)
+    _write_new(out_dir / "run.json", json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
+
+
+def _write_new(path: Path, text: str) -> None:
+    """Create ``path``; never follow or replace something already there."""
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    except FileExistsError as exc:
+        raise InputError(f"{path}: already exists") from exc
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def _check_import(

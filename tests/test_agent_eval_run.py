@@ -284,6 +284,11 @@ def test_a_sandboxed_check_sees_only_its_tree(
         "status = open('/proc/self/status').read()\n"
         "assert 'CapEff:\\t0000000000000000' in status, status\n"
         "assert 'CapBnd:\\t0000000000000000' in status, status\n"
+        "import resource\n"
+        "assert resource.getrlimit(resource.RLIMIT_FSIZE)[0] == 2 * 1024**3\n"
+        "assert resource.getrlimit(resource.RLIMIT_AS)[0] == 8 * 1024**3\n"
+        "tmp = os.statvfs('/tmp')\n"
+        "assert tmp.f_blocks * tmp.f_frsize <= 512 * 1024**2, 'the /tmp size is not limited'\n"
         "try:\n"
         "    os.chroot('.')\n"
         "    raise SystemExit('chroot is still allowed')\n"
@@ -315,7 +320,8 @@ def test_a_sandboxed_check_sees_only_its_tree(
     assert result["sandbox"] == "namespaces"
     log = (out / "logs" / "05-candidate.log").read_text()
     assert "[exit 0]" in log, log
-    assert (out / "trees" / "candidate" / "written").read_text() == "ok"
+    assert (Path(result["kept_trees"]) / "candidate" / "written").read_text() == "ok"
+    shutil.rmtree(Path(result["kept_trees"]).parent)
     assert result["verdict"] == "fail"  # the probe passes on the base tree too
 
 
@@ -418,9 +424,12 @@ def test_a_timeout_kills_the_command_s_children(
     out = tmp_path / "out"
     runner.prepare(task, out, repo)
     _attempt(out)
-    runner.collect(out, timeout=1, no_sandbox=True, keep_trees=True)
+    result = runner.collect(out, timeout=1, no_sandbox=True, keep_trees=True)
     time.sleep(3)
-    assert not (out / "trees" / "candidate" / "l").exists()
+    trees = Path(result["kept_trees"])
+    assert (trees / "candidate").is_dir()
+    assert not (trees / "candidate" / "l").exists()
+    shutil.rmtree(trees.parent)
 
 
 def test_a_grading_error_leaves_the_attempt_collectable(
@@ -498,5 +507,102 @@ def test_kept_trees_are_not_hashed_and_links_are_not_followed(
         result = runner.collect(out, no_sandbox=True, keep_trees=True)
     finally:
         unreadable.chmod(0o600)
-    assert (out / "trees" / "candidate" / "tests" / "link_test.py").is_symlink()
+    assert (Path(result["kept_trees"]) / "candidate" / "tests" / "link_test.py").is_symlink()
+    shutil.rmtree(Path(result["kept_trees"]).parent)
     assert not any(name.startswith(("trees/", "worktree/")) for name in result["artifacts"])
+
+
+def _snapshot(directory: Path) -> dict[str, str]:
+    return {
+        str(path.relative_to(directory)): path.read_text() if path.is_file() else "<dir>"
+        for path in sorted(directory.rglob("*"))
+    }
+
+
+def test_planted_scratch_symlinks_are_never_followed(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("untouched")
+    for name in ("home", "patch-repo", "trees", "sandbox-root", "sandbox-probe"):
+        (out / name).symlink_to(outside, target_is_directory=True)
+    before = _snapshot(outside)
+    assert runner.collect(out, no_sandbox=True)["verdict"] == "pass"
+    assert _snapshot(outside) == before
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["candidate", "logs", "grade.json", "run.json", "report.json", "worktree/.git", "worktree"],
+)
+def test_planted_output_symlinks_are_refused(
+    project: tuple[Path, Path, str], tmp_path: Path, name: str
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("untouched")
+    planted = out / name
+    if planted.exists():
+        moved = tmp_path / "moved"
+        planted.rename(moved)
+    planted.symlink_to(outside / "keep.txt" if name.endswith(".json") else outside)
+    before = _snapshot(outside)
+    with pytest.raises(InputError, match="symlink|already exists"):
+        runner.collect(out, no_sandbox=True)
+    assert _snapshot(outside) == before
+
+
+def test_the_caller_s_git_configuration_is_ignored(
+    project: tuple[Path, Path, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    marker = tmp_path / "filter-ran"
+    helper = tmp_path / "filter.sh"
+    helper.write_text(f"#!/bin/sh\ntouch {marker}\ncat\n")
+    helper.chmod(0o755)
+    config = tmp_path / "gitconfig"
+    config.write_text(f'[filter "lfs"]\n\tclean = {helper}\n\tsmudge = {helper}\n')
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    (out / "worktree" / ".gitattributes").write_text("*.py filter=lfs\n")
+    runner.collect(out, no_sandbox=True)
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    ("relative", "venv", "allowed"),
+    [
+        (".", False, False),
+        ("..", False, False),
+        ("projects/tool", False, False),
+        ("projects/.venv", True, True),
+        (".local/share/uv/python/cpython-3.12", False, True),
+        (".pyenv/versions/3.12.1", False, True),
+    ],
+)
+def test_interpreter_prefixes_never_expose_the_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str, venv: bool, allowed: bool
+) -> None:
+    home = tmp_path / "home"
+    path = home / relative
+    path.mkdir(parents=True, exist_ok=True)
+    if venv:
+        (path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    monkeypatch.setattr(runner.Path, "home", classmethod(lambda cls: home))
+    if allowed:
+        runner._check_interpreter_path(path)
+    else:
+        with pytest.raises(InputError, match="home directory"):
+            runner._check_interpreter_path(path)
+    runner._check_interpreter_path(tmp_path / "elsewhere")  # outside the home directory

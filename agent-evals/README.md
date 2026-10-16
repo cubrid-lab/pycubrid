@@ -98,13 +98,20 @@ success rate, and nothing is scored in CI.
   and network namespaces (`unshare`) inside a private root. That root holds
   the system directories (`/usr`, `/bin`, `/lib`, `/etc` and their siblings)
   and the interpreter's prefixes, the task directory and the `python`
-  wrapper read-only, a fresh `/tmp`, a minimal `/dev` and `/proc`, and the
-  tree under test as the only writable path. The caller's home directory
+  wrapper read-only (non-recursive binds, so no submount stays writable), a
+  fresh 512 MB `/tmp`, a minimal `/dev` and `/proc`, and the tree under test
+  as the only writable path. The caller's home directory
   (credential files included), host sockets under `/run`, the other tree and
   the runner's own artifacts are not visible, and there is no network.
   Before the check starts, every capability of the namespace root is dropped
   (`setpriv`, empty bounding set, no new privileges), so it can neither
-  `chroot` out of the root nor change its mounts.
+  `chroot` out of the root nor change its mounts. `prlimit` caps the
+  address space at 8 GiB, a written file at 2 GiB and the number of
+  processes at the caller's current count plus 1024.
+- An interpreter prefix is bound only when it does not expose the home
+  directory: a prefix that is or contains the home directory is refused,
+  and one inside it must be a virtual environment or a known interpreter
+  install (uv, pyenv, mise, asdf, rye, hatch).
 - Where the sandbox cannot be built (no `unshare`, or unprivileged user
   namespaces are disabled), `collect` refuses to run unless `--no-sandbox` is
   passed, and `run.json` records `"sandbox": "none"` instead of
@@ -124,12 +131,25 @@ success rate, and nothing is scored in CI.
 - Git never runs in the attempt's checkout, whose configuration the attempt
   controls (`core.fsmonitor`, filters, external diff and textconv drivers).
   `collect` copies its files, without `.git`, over a fresh depth-1 clone of
-  the base and diffs them there with `--no-ext-diff --no-textconv`.
+  the base and diffs them there with `--no-ext-diff --no-textconv`. Every
+  host-side Git call ignores the caller's global and system configuration
+  and attributes (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM`,
+  `GIT_ATTR_NOSYSTEM`), so an attempt cannot select a filter driver, such as
+  Git LFS, that the caller configured.
+- The attempt can write in `OUT_DIR`, so `collect` keeps all its scratch
+  (trees, the clone, the wrapper directory, the sandbox root) in a new
+  private temporary directory, refuses a symlinked `attempt.json`,
+  `report.json`, `worktree` or `worktree/.git`, refuses an existing
+  `candidate`, `logs`, `grade.json` or `run.json`, and creates each of those
+  without following links.
 - The trees are built outside any repository, so `git apply` applies every
   path even when `OUT_DIR` is inside a checkout.
-- The runner never commits, pushes, merges or publishes. Its trees, sandbox
-  root and wrapper directory are deleted after the run (`--keep-trees` keeps
-  the trees).
+- The runner never commits, pushes, merges or publishes. Its scratch is
+  deleted after the run; `--keep-trees` keeps the trees and records their
+  path as `kept_trees` in `run.json`.
+- With `--no-sandbox`, a process that leaves the command's process group
+  (`setsid`) survives the timeout; the runner stops reading its output
+  after 10 seconds instead of waiting, but the process may keep running.
 - The attempt's own sandbox, such as what the agent tool may run or reach
   while it works, is the operator's responsibility; the runner isolates only
   the checks it runs.
