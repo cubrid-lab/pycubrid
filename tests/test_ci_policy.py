@@ -27,6 +27,7 @@ def test_dependabot_updates_the_committed_uv_lock() -> None:
     assert len(root_python) == 1
     assert root_python[0]["package-ecosystem"] == "uv"
     assert (ROOT / "uv.lock").is_file()
+    assert not (ROOT / "docs/requirements.txt").exists(), "docs pins live in pyproject.toml"
 
 
 def test_dependabot_can_fetch_the_conditional_python_315_wheel() -> None:

@@ -125,13 +125,6 @@ def test_no_workflow_builds_site_with_unpinned_tools() -> None:
                 pytest.fail(f"{wf.name} installs mkdocs tooling outside the docs group: {ln}")
 
 
-def test_dependabot_root_pip_entry_covers_the_dependency_groups() -> None:
-    cfg = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
-    dirs = {u["directory"] for u in cfg["updates"] if u["package-ecosystem"] == "pip"}
-    assert dirs == {"/"}
-    assert not (ROOT / "docs/requirements.txt").exists(), "docs pins live in pyproject.toml"
-
-
 @pytest.mark.parametrize("workflow", ["codeql.yml", "security.yml"])
 def test_scan_concurrency_cancels_only_pull_requests(workflow: str) -> None:
     cfg = yaml.safe_load((WORKFLOWS / workflow).read_text())
@@ -157,14 +150,14 @@ def test_dependabot_groups_only_minor_and_patch_version_updates() -> None:
     # the runtime dependency tzdata keep their own PRs.
     cfg = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
     groups = {(u["package-ecosystem"], u["directory"]): u.get("groups") for u in cfg["updates"]}
-    assert set(groups) == {("pip", "/"), ("github-actions", "/")}
+    assert set(groups) == {("uv", "/"), ("github-actions", "/")}
     for key, group in groups.items():
         assert group is not None and len(group) == 1, key
         (spec,) = group.values()
         assert spec["applies-to"] == "version-updates", key
         assert spec["patterns"] == ["*"], key
         assert spec["update-types"] == ["minor", "patch"], key
-    assert groups[("pip", "/")]["dev-tools"]["exclude-patterns"] == ["tzdata"]
+    assert groups[("uv", "/")]["dev-tools"]["exclude-patterns"] == ["tzdata"]
 
 
 def test_every_artifact_upload_sets_a_retention_period() -> None:
