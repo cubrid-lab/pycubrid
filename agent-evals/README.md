@@ -38,7 +38,8 @@ that its reference passes the scope, limits, documentation and SQL checks and
 defines its regression tests.
 
 `lab-volume-964` has no pytest test, so `acceptance.py` checks the tutorial
-pages instead: every `docker rm` of the lab passes `-v`, each page still shows
+pages instead: every `docker rm` of the lab forces the removal and passes `-v`
+(bundled forms such as `-vf` count), each page still shows
 the command, and each Finish Safely page explains `-v` with the volume. It
 exits 1 on the base and 0 on the fix, so a patch that only touches the
 required documents fails. The wording itself stays a human review action.

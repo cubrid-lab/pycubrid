@@ -7,7 +7,7 @@ MYPY = $(PYTHON) -m mypy
 BANDIT = bandit
 SRC = pycubrid
 TESTS = tests
-LINT_PATHS = pycubrid tests scripts demos examples
+LINT_PATHS = pycubrid tests scripts demos examples agent-evals
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \

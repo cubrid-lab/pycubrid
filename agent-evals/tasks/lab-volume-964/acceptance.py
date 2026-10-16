@@ -6,7 +6,9 @@ Exits 0 when the tutorial in TREE removes the Docker lab together with its
 anonymous volume, 1 when it does not, and 2 when TREE is not a directory.
 It reads only the four tutorial pages and checks text, deterministically:
 
-- every ``docker rm`` of ``pycubrid-quickstart`` passes ``-v`` (or ``--volumes``);
+- every ``docker rm`` of ``pycubrid-quickstart`` forces the removal of the
+  running lab and removes its volume (``-f``/``--force`` and ``-v``/``--volumes``,
+  also bundled as ``-fv`` or ``-vf``);
 - each page still shows at least one such removal command;
 - each Finish Safely page explains ``-v`` together with the volume.
 
@@ -30,6 +32,18 @@ VOLUME_WORD = {"docs/finish-safely.md": "volume", "docs/ko/finish-safely.md": "ë
 REMOVAL = re.compile(r"docker\s+rm((?:\s+-[-\w]+)*)\s+pycubrid-quickstart\b")
 
 
+def _options(flags: str) -> set[str]:
+    """The long names of ``docker rm`` options, with short bundles such as ``-vf`` split."""
+    names = {"f": "force", "v": "volumes", "l": "link"}
+    options = set()
+    for flag in flags.split():
+        if flag.startswith("--"):
+            options.add(flag[2:])
+        else:
+            options.update(names.get(letter, letter) for letter in flag[1:])
+    return options
+
+
 def problems(tree: Path) -> list[str]:
     found = []
     for page in PAGES:
@@ -42,8 +56,12 @@ def problems(tree: Path) -> list[str]:
         if not removals:
             found.append(f"{page}: no docker rm of pycubrid-quickstart")
         for flags in removals:
-            options = flags.split()
-            if "-v" not in options and "--volumes" not in options and "-fv" not in options:
+            options = _options(flags)
+            if "force" not in options:
+                found.append(
+                    f"{page}: docker rm{flags} pycubrid-quickstart cannot remove the running lab"
+                )
+            if "volumes" not in options:
                 found.append(f"{page}: docker rm{flags} pycubrid-quickstart keeps the volume")
         word = VOLUME_WORD.get(page)
         if word and not any(

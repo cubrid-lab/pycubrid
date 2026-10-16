@@ -459,6 +459,9 @@ def _lab_tree(tmp_path: Path, command: str, explain: bool) -> Path:
     [
         ("docker rm -f -v pycubrid-quickstart", True, 0),
         ("docker rm --force --volumes pycubrid-quickstart", True, 0),
+        ("docker rm -vf pycubrid-quickstart", True, 0),
+        ("docker rm -fv pycubrid-quickstart", True, 0),
+        ("docker rm -v pycubrid-quickstart", True, 1),  # cannot remove the running lab
         ("docker rm -f pycubrid-quickstart", True, 1),
         ("docker rm -f -v pycubrid-quickstart", False, 1),
     ],

@@ -1,4 +1,4 @@
-files: "^(pycubrid|tests|scripts|demos|examples)/"
+files: "^(pycubrid|tests|scripts|demos|examples|agent-evals)/"
 repos:
   - repo: local
     hooks:
