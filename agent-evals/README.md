@@ -19,9 +19,7 @@ nothing here changes them or the default CI matrices.
 | `tasks/<id>/task.toml` | A real task, rebuilt from an earlier pycubrid issue and its merged fix |
 | `tasks/<id>/reference.diff` | That merged fix, `git diff --no-renames <base_sha> <reference_fix>`: the oracle |
 | `../scripts/agent_eval.py` | The offline grader |
-
-The opt-in runner that applies an attempt in a pinned worktree is added in a
-later pull request of #925.
+| `../scripts/agent_eval_run.py` | The opt-in runner that prepares a pinned checkout and collects an attempt |
 
 ## Tasks
 
@@ -47,6 +45,72 @@ required documents fails. The wording itself stays a human review action.
 `lob-generation-932` turns `sql_interpolation` off in its `[rubric]`: the merged
 fix formats a generated table name into DDL with `%`, following its test
 file, and the scanner cannot tell an identifier from a value.
+
+## Running an attempt
+
+The runner is opt-in and runs no model: a person, or a tool they control,
+makes the attempt between its two steps. Ordinary CI never runs it.
+
+```bash
+python scripts/agent_eval_run.py prepare agent-evals/tasks/reply-bounds-383 /tmp/attempt-1
+# The attempt works in /tmp/attempt-1/worktree, following /tmp/attempt-1/prompt.md,
+# leaves its changes uncommitted and writes /tmp/attempt-1/report.json.
+python scripts/agent_eval_run.py collect /tmp/attempt-1 --meta meta.json
+python scripts/agent_eval_run.py summarize /tmp/attempt-*
+```
+
+`prepare` makes `worktree/`, a new repository holding only the task's base
+commit (a depth-1 fetch, so the reference fix and later history are not
+there), and `prompt.md`, the problem, scope and validation without the
+expected behavior, the reference fix or the evidence links.
+
+`collect` takes the attempt's uncommitted changes, new files included, as
+`candidate/patch.diff` and builds two trees from `git archive` of the base: the
+base tree with the patch's `tests/` files and the candidate tree with the
+whole patch. A patch that does not apply is unusable input. It then runs the
+validation commands on the candidate tree, and the regression tests and
+acceptance scripts on both, and records their exit codes in
+`candidate/evidence.json`, with one log per command under `logs/`. It grades
+the candidate (`grade.json`) and writes `run.json`. A failed `collect` removes
+what it made, so it can run again.
+
+The optional `--meta` file holds what the operator observed: `model`,
+`model_version`, `tool`, `tool_version`, `prompt_id` (default: the task ID),
+`seed`, `tokens`, `cost` and `human_review_actions`. Anything missing is
+recorded as `"unknown"`, never guessed. `run.json` adds the base commit, the
+task digest, the attempt's duration and whether it went over `max_minutes`,
+whether the attempt moved `HEAD`, the verdict and failed checks, the commands
+that passed, the out-of-scope edits, the regression escapes (regression-test
+and acceptance failures), the human review actions including every manual
+check, the Python version, the environment variable names, the network mode
+and the SHA-256 of every artifact. Grading the same artifacts again gives the
+same `grade.json`.
+
+`summarize` reports, per task, how many attempts there were and the
+distribution of verdicts, failed checks and models. There is no single
+success rate, and nothing is scored in CI.
+
+### Sandbox
+
+- Commands get only an allowlisted environment (`LANG`, `LC_ALL`, `TERM`,
+  `TZ`, a `PATH` with the chosen interpreter, a temporary `HOME`, `PYTHONPATH`
+  set to the tree, `PIP_NO_INDEX=1` and an unusable proxy). Release tokens,
+  deploy credentials and `CUBRID_TEST_*` settings of the calling shell do not
+  reach them, so live integration tests skip.
+- Commands run in a network namespace without network access
+  (`unshare --net --map-root-user`). Where that is unavailable, `collect`
+  refuses to run unless `--allow-network` is passed, and `run.json` records
+  `"network": "allowed"`.
+- Logs are redacted: credential-shaped text (GitHub and PyPI tokens, AWS
+  access keys, `Authorization` headers, `password=`-style values), the values
+  of the caller's secret-named variables and the home directory are replaced.
+- Each command has a timeout (`--timeout`, 900 seconds by default), recorded
+  as exit code 124.
+- The runner never commits, pushes, merges or publishes. Its own trees and
+  temporary home are deleted after the run (`--keep-trees` keeps the trees).
+- The attempt's own sandbox, such as what the agent tool may run or reach
+  while it works, is the operator's responsibility; the runner isolates only
+  the checks it runs.
 
 ## Task manifest (format 1)
 
@@ -132,7 +196,8 @@ make agent-eval-check
 
 This grades every self-test candidate twice, checks that both grades are
 identical and that each matches its `expected.json`, and runs
-`tests/test_agent_eval.py`. The candidates cover a correct solution, a missing
-regression test, a misleading validation claim, an unrelated-file change, SQL
-built by string formatting, a test that already passes on the base, and a
-missing documentation update with an unreported validation command.
+`tests/test_agent_eval.py` and `tests/test_agent_eval_run.py`. The candidates
+cover a correct solution, a missing regression test, a misleading validation
+claim, an unrelated-file change, SQL built by string formatting, a test that
+already passes on the base, and a missing documentation update with an
+unreported validation command.

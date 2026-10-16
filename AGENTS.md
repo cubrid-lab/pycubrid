@@ -34,6 +34,7 @@ directly under `docs/`, and `scripts/check_agents_docs.py` checks their links an
 | Tests and CI workflows | [Testing and CI guide](docs/agents/testing-ci.md), [docs/CI_POLICY.md](docs/CI_POLICY.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | `make test`, `make check-all` |
 | Documentation and contributor guidance | [Documentation guide](docs/agents/documentation.md), [Documentation definition of done](#documentation-definition-of-done), [CONTRIBUTING.md](CONTRIBUTING.md) | `python scripts/generate_llms_full.py`, `mkdocs build --strict`, `python scripts/check_docs_links.py`, `python scripts/check_agents_docs.py` |
 | Release | [Release Process](#release-process), [GitHub Release Policy](#github-release-policy), [RELEASING.md](RELEASING.md) | `make release-check VERSION=x.y.z` (read-only; never release by hand) |
+| Agent task evaluations (`agent-evals/`) | [Agent evaluation guide](agent-evals/README.md) | `make agent-eval-check` |
 | Performance and roadmap | [Performance guide](docs/agents/performance.md), [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | the measurement steps in docs/PERFORMANCE.md |
 
 ## Development

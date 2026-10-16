@@ -42,9 +42,9 @@ docs-reason-check: ## Verify docs exemption examples and real event JSON regress
 
 check-all: check security docs-reason-check ## Run lint + typecheck + security + docs-reason checks
 
-agent-eval-check: ## Self-test the offline agent-evaluation grader against its fixtures (#925)
+agent-eval-check: ## Self-test the agent-evaluation grader and runner against their fixtures (#925)
 	$(PYTHON) scripts/agent_eval.py self-test
-	$(PYTHON) -m pytest tests/test_agent_eval.py -q
+	$(PYTHON) -m pytest tests/test_agent_eval.py tests/test_agent_eval_run.py -q
 
 test: ## Run offline tests with coverage (no DB required)
 	$(PYTEST) $(TESTS)/ -v \
