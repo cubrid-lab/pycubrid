@@ -863,3 +863,23 @@ def test_a_directory_symlink_in_the_checkout_is_kept_as_a_link(
     runner.collect(task, out, repo=repo, no_sandbox=True)
     patch = (out / "candidate" / "patch.diff").read_text()
     assert "diff --git a/tests_link b/tests_link\nnew file mode 120000" in patch
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any directory")
+def test_an_unreadable_directory_in_the_checkout_is_refused(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    hidden = out / "worktree" / "extra"
+    hidden.mkdir()
+    (hidden / "change.py").write_text("x = 1\n")
+    hidden.chmod(0)
+    try:
+        with pytest.raises(InputError, match="cannot be copied"):
+            runner.collect(task, out, repo=repo, no_sandbox=True)
+    finally:
+        hidden.chmod(0o700)
+    assert not (out / "candidate").exists()

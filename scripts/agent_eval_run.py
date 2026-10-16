@@ -320,8 +320,12 @@ def _copy_held(worktree_fd: int, destination: Path) -> None:
     checkout. Symlinks are kept as links; any other non-regular file is
     unusable input.
     """
+
+    def refuse(error: OSError) -> None:
+        raise error  # a directory that cannot be read would drop its changes silently
+
     for directory, subdirectories, files, directory_fd in os.fwalk(
-        ".", dir_fd=worktree_fd, follow_symlinks=False
+        ".", dir_fd=worktree_fd, follow_symlinks=False, onerror=refuse
     ):
         target = destination / directory
         target.mkdir(exist_ok=True)
