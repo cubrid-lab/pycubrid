@@ -55,7 +55,7 @@ makes the attempt between its two steps. Ordinary CI never runs it.
 python scripts/agent_eval_run.py prepare agent-evals/tasks/reply-bounds-383 /tmp/attempt-1
 # The attempt works in /tmp/attempt-1/worktree, following /tmp/attempt-1/prompt.md,
 # leaves its changes uncommitted and writes /tmp/attempt-1/report.json.
-python scripts/agent_eval_run.py collect /tmp/attempt-1 --meta meta.json
+python scripts/agent_eval_run.py collect agent-evals/tasks/reply-bounds-383 /tmp/attempt-1 --meta meta.json
 python scripts/agent_eval_run.py summarize /tmp/attempt-*
 ```
 
@@ -71,8 +71,15 @@ whole patch. A patch that does not apply is unusable input. It then runs the
 validation commands on the candidate tree, and the regression tests and
 acceptance scripts on both, and records their exit codes in
 `candidate/evidence.json`, with one log per command under `logs/`. It grades
-the candidate (`grade.json`) and writes `run.json`. A failed `collect` removes
-what it made, so it can run again.
+the candidate (`grade.json`) and writes `run.json`. A failed `collect` writes
+nothing into `OUT_DIR`, so it can run again.
+
+`collect` takes the task directory, and the source repository (`--repo`, by
+default this checkout), from the caller and never from `OUT_DIR`, which the
+attempt can write: `attempt.json` only has to agree with them (the same
+`task.toml` digest and base commit), so editing it cannot change which task
+is graded. The runner assumes that no attempt process is still running when
+`collect` starts; stop the agent tool first.
 
 The optional `--meta` file holds what the operator observed: `model`,
 `model_version`, `tool`, `tool_version`, `prompt_id` (default: the task ID),
@@ -107,11 +114,17 @@ success rate, and nothing is scored in CI.
   (`setpriv`, empty bounding set, no new privileges), so it can neither
   `chroot` out of the root nor change its mounts. `prlimit` caps the
   address space at 8 GiB, a written file at 2 GiB and the number of
-  processes at the caller's current count plus 1024.
+  processes at the caller's current count plus 1024. These limits are per
+  process and per file: the total memory and disk a check uses is bounded
+  only by `--timeout` and the 512 MB `/tmp`. Where systemd is available, run
+  `collect` under `systemd-run --user --scope -p MemoryMax=... -p TasksMax=...`
+  for a total bound.
 - An interpreter prefix is bound only when it does not expose the home
   directory: a prefix that is or contains the home directory is refused,
   and one inside it must be a virtual environment or a known interpreter
-  install (uv, pyenv, mise, asdf, rye, hatch).
+  install (uv, pyenv, mise, asdf, rye, hatch). The check protects the home
+  directory only, so do not point `--python` at an interpreter whose prefix
+  is a broad directory such as `/opt` or `/srv` that holds other data.
 - Where the sandbox cannot be built (no `unshare`, or unprivileged user
   namespaces are disabled), `collect` refuses to run unless `--no-sandbox` is
   passed, and `run.json` records `"sandbox": "none"` instead of
@@ -137,11 +150,18 @@ success rate, and nothing is scored in CI.
   `GIT_ATTR_NOSYSTEM`), so an attempt cannot select a filter driver, such as
   Git LFS, that the caller configured.
 - The attempt can write in `OUT_DIR`, so `collect` keeps all its scratch
-  (trees, the clone, the wrapper directory, the sandbox root) in a new
-  private temporary directory, refuses a symlinked `attempt.json`,
-  `report.json`, `worktree` or `worktree/.git`, refuses an existing
-  `candidate`, `logs`, `grade.json` or `run.json`, and creates each of those
-  without following links.
+  (trees, the clone, the wrapper directory, the sandbox root and the outputs
+  while they are built and graded) in a new private temporary directory. It
+  opens `OUT_DIR`, `worktree` and `worktree/.git` as held directory
+  descriptors without following links, reads `attempt.json`, `report.json`
+  and `.git/HEAD` only as size-capped regular files (a symlink or a FIFO is
+  unusable input), copies the checkout through its held descriptor and
+  refuses it if `worktree` was replaced meanwhile, copies only regular files
+  and symlinks (as links) from it, refuses an existing `candidate`, `logs`,
+  `grade.json` or `run.json`, and writes those through held descriptors,
+  creating each entry without following or replacing anything. These guard
+  against planted links, not against a process that is still running and
+  racing the runner, which the runner assumes there is none of.
 - The trees are built outside any repository, so `git apply` applies every
   path even when `OUT_DIR` is inside a checkout.
 - The runner never commits, pushes, merges or publishes. Its scratch is

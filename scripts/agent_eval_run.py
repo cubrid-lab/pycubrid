@@ -12,7 +12,7 @@ runs a model. A person, or a tool they control, makes the attempt between
     validation the attempt must run or report. The prompt leaves out the
     expected behavior, the reference fix and the evidence links.
 
-``collect OUT_DIR [--report REPORT] [--meta META]``
+``collect TASK_DIR OUT_DIR [--repo REPO] [--report REPORT] [--meta META]``
     Takes the attempt's uncommitted changes as ``patch.diff``, builds the base
     tree (base commit plus the patch's ``tests/`` files) and the candidate tree
     (base commit plus the whole patch) from ``git archive``, runs the task's
@@ -20,7 +20,8 @@ runs a model. A person, or a tool they control, makes the attempt between
     sandbox described below, writes ``evidence.json`` and
     redacted logs, grades the candidate with ``scripts/agent_eval.py`` and
     writes ``run.json``. It exits 0 for a passing verdict, 1 for a failing one
-    and 2 for unusable input.
+    and 2 for unusable input. The task and the repository come from the
+    caller, never from OUT_DIR; it assumes no attempt process is still running.
 
 ``summarize OUT_DIR...``
     Reports repeated attempts as distributions of verdicts and failed checks
@@ -48,6 +49,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
@@ -221,13 +223,15 @@ def prepare(task_dir: Path, out_dir: Path, repo: Path = ROOT) -> Path:
     return worktree
 
 
-def _patch(worktree: Path, repo: Path, base_sha: str, scratch: Path) -> str:
+def _patch(worktree_fd: int, repo: Path, base_sha: str, scratch: Path) -> str:
     """The attempt's changes against the base, new files included, as ``git diff`` text.
 
     Git never runs in the attempt's checkout, whose configuration the attempt
     controls (``core.fsmonitor``, filters, external diff and textconv
-    drivers). Its files, without ``.git``, are copied over a fresh depth-1
-    clone of the base, whose configuration is the runner's, and diffed there.
+    drivers). Its files, without ``.git``, are copied from the held directory
+    descriptor over a fresh depth-1 clone of the base, whose configuration is
+    the runner's, and diffed there. Only regular files and symlinks (as
+    links) are copied; a FIFO, socket or device is unusable input.
     """
     _git("init", "-q", str(scratch))
     _git("fetch", "-q", "--depth", "1", repo.resolve().as_uri(), base_sha, cwd=scratch)
@@ -235,9 +239,23 @@ def _patch(worktree: Path, repo: Path, base_sha: str, scratch: Path) -> str:
     for entry in scratch.iterdir():
         if entry.name != ".git":
             shutil.rmtree(entry) if entry.is_dir() and not entry.is_symlink() else entry.unlink()
-    shutil.copytree(
-        worktree, scratch, symlinks=True, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git")
-    )
+
+    def copy_regular(source: str, destination: str) -> None:
+        if not stat.S_ISREG(os.lstat(source).st_mode):
+            raise InputError(f"the checkout holds a file that is not a regular file: {source}")
+        shutil.copy2(source, destination)
+
+    try:
+        shutil.copytree(
+            f"/proc/self/fd/{worktree_fd}",
+            scratch,
+            symlinks=True,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(".git"),
+            copy_function=copy_regular,
+        )
+    except (shutil.Error, OSError) as exc:
+        raise InputError(f"the checkout cannot be copied: {exc}") from exc
     _git("add", "-A", cwd=scratch)
     return _git(
         "diff",
@@ -473,8 +491,68 @@ def _sandbox(scratch: Path, readonly: list[str], disabled: bool) -> tuple[Path, 
     return root, readonly
 
 
+READ_LIMIT = 16 * 1024 * 1024
+DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+def _read_regular(path: str | Path, dir_fd: int | None = None, limit: int = READ_LIMIT) -> bytes:
+    """Read a regular file without following a final symlink or blocking on a FIFO."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except OSError as exc:
+        raise InputError(f"{path}: cannot be opened ({exc.strerror})") from exc
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise InputError(f"{path}: not a regular file")
+        chunks, size = [], 0
+        while chunk := os.read(descriptor, 65536):
+            size += len(chunk)
+            if size > limit:
+                raise InputError(f"{path}: larger than {limit} bytes")
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def _open_directory(path: str | Path, dir_fd: int | None = None) -> int:
+    try:
+        return os.open(path, DIRECTORY, dir_fd=dir_fd)
+    except OSError as exc:
+        raise InputError(f"{path}: not a directory, or a symlink ({exc.strerror})") from exc
+
+
+def _write_at(dir_fd: int, name: str, data: bytes) -> None:
+    """Create ``name`` in the held directory; never follow or replace an entry."""
+    try:
+        descriptor = os.open(
+            name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd
+        )
+    except FileExistsError as exc:
+        raise InputError(f"{name}: already exists; collect already ran for this attempt") from exc
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(data)
+
+
+def _publish(out_fd: int, name: str, files: dict[str, bytes]) -> None:
+    """Create the directory ``name`` in OUT_DIR and write ``files`` into it by descriptor."""
+    try:
+        os.mkdir(name, 0o700, dir_fd=out_fd)
+    except FileExistsError as exc:
+        raise InputError(f"{name}: already exists; collect already ran for this attempt") from exc
+    directory = _open_directory(name, dir_fd=out_fd)
+    try:
+        for file_name, data in files.items():
+            _write_at(directory, file_name, data)
+    finally:
+        os.close(directory)
+
+
 def collect(
+    task_dir: Path,
     out_dir: Path,
+    repo: Path = ROOT,
     report_path: Path | None = None,
     meta_path: Path | None = None,
     python: Path = Path(sys.executable),
@@ -482,51 +560,116 @@ def collect(
     no_sandbox: bool = False,
     keep_trees: bool = False,
 ) -> dict:
-    """Run the attempt's checks and grade it; return ``run.json``."""
+    """Run the attempt's checks and grade it; return ``run.json``.
+
+    The task and the source repository come from the caller, never from
+    OUT_DIR, which the attempt can write: ``attempt.json`` only has to agree
+    with them. Every output is built in a private directory, graded there and
+    then written into OUT_DIR through held directory descriptors.
+    """
     started = time.time()
     python = python.absolute()  # absolute, not resolved: a venv keeps its path
-    out_dir = out_dir.absolute()
-    worktree = out_dir / "worktree"
-    candidate, logs = out_dir / "candidate", out_dir / "logs"
-    report_path = report_path or out_dir / "report.json"
-    # The attempt can write in OUT_DIR. Paths the runner reads there must not
-    # be symlinks, and paths it writes there must not exist yet.
-    for path in (out_dir / "attempt.json", report_path, worktree, worktree / ".git"):
-        if path.is_symlink():
-            raise InputError(f"{path}: must not be a symlink")
-    for path in (candidate, logs, out_dir / "grade.json", out_dir / "run.json"):
-        if os.path.lexists(path):
-            raise InputError(f"{path}: already exists; collect already ran for this attempt")
-    attempt = agent_eval._read_json(out_dir / "attempt.json")
-    if not isinstance(attempt, dict) or attempt.get("format") != agent_eval.FORMAT:
-        raise InputError(f"{out_dir}/attempt.json: not made by prepare")
-    task_dir = Path(attempt["task_dir"])
-    if _digest(task_dir / "task.toml") != attempt["task_digest"]:
-        raise InputError(f"{task_dir}/task.toml changed after prepare")
+    task_dir = task_dir.resolve()  # acceptance scripts run from inside the trees
     task = agent_eval.load_task(task_dir)
-    meta = load_meta(meta_path)
-    report = agent_eval.load_report(report_path)
+    task_digest = _digest(task_dir / "task.toml")
     base_sha = task["base_sha"]
-    if not isinstance(attempt.get("repo"), str):
-        raise InputError(f"{out_dir}/attempt.json: no source repository; prepare again")
-    repo = Path(attempt["repo"])
-    # Read, not git rev-parse: Git does not run in the attempt's checkout.
-    head = (worktree / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+    meta = load_meta(meta_path)
+    out_fd = _open_directory(out_dir.absolute())
+    try:
+        for name in ("candidate", "logs", "grade.json", "run.json"):
+            try:
+                os.lstat(name, dir_fd=out_fd)
+            except FileNotFoundError:
+                continue
+            raise InputError(f"{out_dir / name}: already exists; collect already ran")
+        attempt_bytes = _read_regular("attempt.json", dir_fd=out_fd)
+        try:
+            attempt = json.loads(attempt_bytes)
+        except ValueError as exc:
+            raise InputError(f"{out_dir}/attempt.json: {exc}") from exc
+        if (
+            not isinstance(attempt, dict)
+            or attempt.get("format") != agent_eval.FORMAT
+            or attempt.get("task_digest") != task_digest
+            or attempt.get("base_sha") != base_sha
+        ):
+            raise InputError(f"{out_dir}/attempt.json: not made by prepare for this task")
+        if report_path is None:
+            report_bytes = _read_regular("report.json", dir_fd=out_fd)
+        else:
+            report_bytes = _read_regular(report_path)
+        worktree_fd = _open_directory("worktree", dir_fd=out_fd)
+        try:
+            git_fd = _open_directory(".git", dir_fd=worktree_fd)
+            try:
+                head = _read_regular("HEAD", dir_fd=git_fd, limit=4096).decode(errors="replace")
+            finally:
+                os.close(git_fd)
+            return _collect(
+                task,
+                task_dir,
+                task_digest,
+                out_dir,
+                out_fd,
+                worktree_fd,
+                repo,
+                attempt,
+                attempt_bytes,
+                report_bytes,
+                head.strip(),
+                meta,
+                python,
+                timeout,
+                no_sandbox,
+                keep_trees,
+                started,
+            )
+        finally:
+            os.close(worktree_fd)
+    finally:
+        os.close(out_fd)
 
-    # Every scratch path lives in a new private directory that only the
-    # runner can reach; OUT_DIR receives just candidate/, logs/ and the reports.
+
+def _collect(
+    task: dict,
+    task_dir: Path,
+    task_digest: str,
+    out_dir: Path,
+    out_fd: int,
+    worktree_fd: int,
+    repo: Path,
+    attempt: dict,
+    attempt_bytes: bytes,
+    report_bytes: bytes,
+    head: str,
+    meta: dict,
+    python: Path,
+    timeout: int,
+    no_sandbox: bool,
+    keep_trees: bool,
+    started: float,
+) -> dict:
+    base_sha = task["base_sha"]
+    # Every scratch path lives in a new private directory; nothing in OUT_DIR
+    # is written until the grade is done.
     scratch = Path(tempfile.mkdtemp(prefix="agent-eval-"))
     trees, home, clone = scratch / "trees", scratch / "home", scratch / "patch-repo"
-    candidate.mkdir()
+    candidate = scratch / "candidate"
     try:
-        logs.mkdir()
+        candidate.mkdir()
+        (candidate / "report.json").write_bytes(report_bytes)
+        agent_eval.load_report(candidate / "report.json")  # unusable reports stop here
         _environment(home, trees, python, sandboxed=False)  # writes the python wrappers
         sandbox = _sandbox(scratch, _readonly_paths(python, task_dir, home), no_sandbox)
-        patch = _patch(worktree, repo, base_sha, clone)
+        held = os.fstat(worktree_fd)
+        patch = _patch(worktree_fd, repo, base_sha, clone)
+        try:
+            now = os.lstat("worktree", dir_fd=out_fd)
+        except OSError:
+            now = None
+        if now is None or (now.st_dev, now.st_ino) != (held.st_dev, held.st_ino):
+            raise InputError(f"{out_dir}/worktree was replaced while it was being copied")
         (candidate / "patch.diff").write_text(patch, encoding="utf-8")
-        (candidate / "report.json").write_text(
-            json.dumps(report, indent=2) + "\n", encoding="utf-8"
-        )
         _tree(clone, base_sha, trees / "base", _sections(patch, "tests/"))
         _tree(clone, base_sha, trees / "candidate", patch)
         validation = task["validation"]
@@ -541,7 +684,7 @@ def collect(
                 tree = str((trees / tree_name).resolve())
                 plan.append((tree_name, script, ["python", str(task_dir / script), tree]))
 
-        evidence, timings = [], []
+        evidence, timings, logs = [], [], {}
         checked: set[str] = set()
         env: dict[str, str] = {}
         for number, (tree_name, command, argv) in enumerate(plan, start=1):
@@ -552,39 +695,36 @@ def collect(
                 checked.add(tree_name)
             began = time.time()
             code, output = _execute(_command(argv, tree, sandbox), tree, env, timeout)
-            log = logs / f"{number:02d}-{tree_name}.log"
-            log.write_text(
-                redact(f"$ {command}\n{output}\n[exit {code}]\n").replace(str(Path.home()), "~"),
-                encoding="utf-8",
-            )
+            name = f"{number:02d}-{tree_name}.log"
+            text = redact(f"$ {command}\n{output}\n[exit {code}]\n")
+            logs[name] = text.replace(str(Path.home()), "~").encode()
             evidence.append({"command": command, "tree": tree_name, "exit_code": code})
-            timings.append({"log": log.name, "seconds": round(time.time() - began, 1)})
+            timings.append({"log": name, "seconds": round(time.time() - began, 1)})
         (candidate / "evidence.json").write_text(
             json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
         )
         grade = agent_eval.grade(task_dir, candidate)
+        graded = {name: (candidate / name).read_bytes() for name in sorted(os.listdir(candidate))}
     except BaseException:
-        # Leave the attempt as prepare left it, so collect can run again.
-        for path in (candidate, logs, scratch):
-            shutil.rmtree(path, ignore_errors=True)
+        shutil.rmtree(scratch, ignore_errors=True)
         raise
-    for path in (home, clone, scratch / "sandbox-root"):
+    for path in (home, clone, scratch / "sandbox-root", candidate):
         shutil.rmtree(path, ignore_errors=True)  # runner-owned scratch, not artifacts
     if not keep_trees:
         shutil.rmtree(scratch, ignore_errors=True)
 
-    _write_new(out_dir / "grade.json", agent_eval.dumps(grade))
-    minutes = round((started - attempt["prepared_epoch"]) / 60, 1)
+    grade_text = agent_eval.dumps(grade)
+    minutes = round((started - attempt.get("prepared_epoch", started)) / 60, 1)
     max_minutes = task.get("limits", {}).get("max_minutes")
     checks = grade["checks"]
     result = {
         "format": RUNNER_VERSION,
         "task": task["id"],
-        "task_digest": attempt["task_digest"],
+        "task_digest": task_digest,
         "base_sha": base_sha,
         **meta,
         "prompt_id": meta["prompt_id"] if meta["prompt_id"] != UNKNOWN else task["id"],
-        "prepared_at": attempt["prepared_at"],
+        "prepared_at": str(attempt.get("prepared_at", UNKNOWN)),
         "collected_at": _now(),
         "attempt_minutes": minutes,
         "over_max_minutes": max_minutes is not None and minutes > max_minutes,
@@ -616,28 +756,24 @@ def collect(
         ],
         "timings": timings,
     }
-    # The runner's own outputs only: the checkout and kept trees hold
-    # attempt-controlled files, which are never opened on the host.
+    # The digests of exactly the bytes the runner read, graded and published.
+    published = {
+        "attempt.json": attempt_bytes,
+        "report.json": report_bytes,
+        "grade.json": grade_text.encode(),
+        **{f"candidate/{name}": data for name, data in graded.items()},
+        **{f"logs/{name}": data for name, data in logs.items()},
+    }
     result["artifacts"] = {
-        str(path.relative_to(out_dir)): _digest(path)
-        for top in ("attempt.json", "prompt.md", "report.json", "grade.json", "candidate", "logs")
-        for path in sorted([out_dir / top, *(out_dir / top).rglob("*")])
-        if path.is_file() and not path.is_symlink()
+        name: hashlib.sha256(data).hexdigest() for name, data in sorted(published.items())
     }
     if keep_trees:
         result["kept_trees"] = str(trees)
-    _write_new(out_dir / "run.json", json.dumps(result, indent=2, sort_keys=True) + "\n")
+    _publish(out_fd, "candidate", graded)
+    _publish(out_fd, "logs", logs)
+    _write_at(out_fd, "grade.json", grade_text.encode())
+    _write_at(out_fd, "run.json", (json.dumps(result, indent=2, sort_keys=True) + "\n").encode())
     return result
-
-
-def _write_new(path: Path, text: str) -> None:
-    """Create ``path``; never follow or replace something already there."""
-    try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    except FileExistsError as exc:
-        raise InputError(f"{path}: already exists") from exc
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(text)
 
 
 def _check_import(
@@ -701,7 +837,9 @@ def main(argv: list[str] | None = None) -> int:
     prep.add_argument("task_dir", type=Path)
     prep.add_argument("out_dir", type=Path)
     col = sub.add_parser("collect", help="run the checks and grade the attempt")
+    col.add_argument("task_dir", type=Path)
     col.add_argument("out_dir", type=Path)
+    col.add_argument("--repo", type=Path, default=ROOT, help="the source repository")
     col.add_argument("--report", type=Path, help="default: OUT_DIR/report.json")
     col.add_argument("--meta", type=Path)
     col.add_argument("--python", type=Path, default=Path(sys.executable))
@@ -719,7 +857,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(summarize(args.out_dirs), indent=2, sort_keys=True))
             return 0
         result = collect(
+            args.task_dir,
             args.out_dir,
+            args.repo,
             args.report,
             args.meta,
             args.python,
