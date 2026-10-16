@@ -141,6 +141,7 @@ def parse_diff(text: str) -> dict[str, FileChange]:
     current: FileChange | None = None
     old_left = new_left = 0
     old_path = ""
+    copy_source = ""  # a copy leaves its source unchanged, so it is not counted
     adding = False
 
     def touch(path: str) -> FileChange:
@@ -172,15 +173,13 @@ def parse_diff(text: str) -> dict[str, FileChange]:
             match = _GIT_HEADER.match(line)
             if match is None:
                 raise InputError(f"patch.diff: unsupported (quoted) path in {line!r}")
-            old_path, current = match.group(1), touch(match.group(2))
-            if old_path != current.path:
-                touch(old_path).gone = True  # a rename or copy header; see below
+            old_path, current, copy_source = match.group(1), touch(match.group(2)), ""
         elif line.startswith("rename from "):
             touch(line[len("rename from ") :]).gone = True
         elif line.startswith("rename to ") or line.startswith("copy to "):
             current = touch(line.split(" ", 2)[2])
         elif line.startswith("copy from "):
-            touch(line[len("copy from ") :]).gone = False  # a copy keeps its source
+            copy_source = line[len("copy from ") :]
         elif line.startswith("deleted file mode") and current is not None:
             current.gone = True
         elif line.startswith("Binary files ") or line == "GIT binary patch":
@@ -197,8 +196,8 @@ def parse_diff(text: str) -> dict[str, FileChange]:
                 current.gone = True
             else:
                 current = touch(new_path)
-                if old_path not in ("/dev/null", new_path):
-                    touch(old_path).gone = True
+                if old_path not in ("/dev/null", new_path, copy_source):
+                    touch(old_path).gone = True  # a rename
         else:
             hunk = _HUNK.match(line)
             if hunk is not None:
@@ -282,20 +281,55 @@ def check_docs(task: dict, changes: dict[str, FileChange]) -> dict:
             failures.append(f"required documentation not updated: {doc}")
         elif changes[doc].gone:
             failures.append(f"required documentation deleted or renamed away: {doc}")
+        elif not (changes[doc].blocks or changes[doc].removed or changes[doc].binary):
+            failures.append(f"required documentation has no content change: {doc}")
     return _result(failures)
 
 
 # SQL built by string formatting instead of ``?`` parameters (AGENTS.md: no
-# f-string interpolation in SQL queries). Patterns run over each block of
-# consecutive added lines, so a triple-quoted or wrapped expression counts.
-_SQL_WORD = r"(SELECT|INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|CALL)\b"
-_QUOTE = r"(\"\"\"|'''|\"|')"
-_UNSAFE_SQL = (
-    re.compile(rf"\bexecute(many)?\(\s*[rbu]*f{_QUOTE}", re.IGNORECASE),
-    re.compile(rf"\b[rbu]*f{_QUOTE}\s*{_SQL_WORD}", re.IGNORECASE),
-    re.compile(rf"{_QUOTE}\s*{_SQL_WORD}[^\"']*{_QUOTE}\s*(%|\.format\()", re.IGNORECASE),
-    re.compile(r"\bexecute(many)?\([^#)]*[\"']\s*(%\s|\.format\()", re.IGNORECASE),
+# f-string interpolation in SQL queries). Each block of consecutive added lines
+# is scanned for complete Python string literals, so quotes inside SQL text do
+# not end a string, and a triple-quoted or wrapped expression counts.
+_SQL_START = re.compile(
+    r"\s*(SELECT|INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|CALL)\b", re.IGNORECASE
 )
+_LITERAL_START = re.compile(r"""(?<![\w"'])([rRbBuUfF]{0,2})("\"\"|'''|"|')""")
+_FORMATTED = re.compile(r"\s*(%(?!=)|\.format\()")
+_EXECUTE = re.compile(r"\bexecute(many)?\(\s*$")
+
+
+def _string_literals(text: str) -> list[tuple[int, int, str, str]]:
+    """Return ``(start, end, prefix, body)`` of each Python string literal in ``text``."""
+    found = []
+    index = 0
+    while True:
+        match = _LITERAL_START.search(text, index)
+        if match is None:
+            return found
+        prefix, quote = match.group(1).lower(), match.group(2)
+        position = match.end()
+        while position < len(text):
+            if text[position] == "\\" and "r" not in prefix:
+                position += 2
+            elif text.startswith(quote, position):
+                break
+            elif len(quote) == 1 and text[position] == "\n":
+                break  # an unterminated single-quoted string ends at the line
+            else:
+                position += 1
+        end = min(position + len(quote), len(text))
+        found.append((match.start(), end, prefix, text[match.end() : position]))
+        index = end
+
+
+def _unsafe_sql(text: str) -> bool:
+    for start, end, prefix, body in _string_literals(text):
+        is_sql = _SQL_START.match(body) is not None
+        if "f" in prefix and (is_sql or _EXECUTE.search(text[:start])):
+            return True
+        if (is_sql or _EXECUTE.search(text[:start])) and _FORMATTED.match(text, end):
+            return True
+    return False
 
 
 def check_sql_interpolation(changes: dict[str, FileChange]) -> dict:
@@ -304,8 +338,7 @@ def check_sql_interpolation(changes: dict[str, FileChange]) -> dict:
         if not path.endswith(".py"):
             continue
         for block in changes[path].blocks:
-            text = "\n".join(block)
-            if any(pattern.search(text) for pattern in _UNSAFE_SQL):
+            if _unsafe_sql("\n".join(block)):
                 first = next((line.strip() for line in block if line.strip()), "")
                 failures.append(f"SQL built by string formatting in {path}: {first}")
     return _result(failures)
@@ -333,6 +366,13 @@ def check_validation_claims(task: dict, report: dict, evidence: list[dict]) -> d
         if command not in claimed_commands and command not in unrun:
             failures.append(
                 f"validation command neither reported run nor reported unrun: {command}"
+            )
+        # The runner's result counts whatever the attempt reported, so a
+        # failing command cannot be hidden by calling it unrun.
+        codes = sorted({run["exit_code"] for run in _runs(evidence, command, "candidate")})
+        if any(code != 0 for code in codes):
+            failures.append(
+                f"validation command fails on the patched tree (exit {codes}): {command}"
             )
     return _result(failures)
 

@@ -56,7 +56,7 @@ A regression test is checked through the command
 `python -m pytest -q <node id>`, run on both trees.
 
 The patch must be what `git diff` produces. Renames, mode changes and binary
-files count as changed files even without content lines; a path that Git
+files count as changed files even without content lines, and a copy counts only its destination; a path that Git
 quotes, a hunk that does not match its line counts, or a malformed report or
 evidence file makes the input unusable (exit code 2) instead of being
 skipped.
@@ -77,9 +77,9 @@ with its reasons:
 | `scope` | the patch touches a file outside `[scope] allowed` |
 | `limits` | the patch changes more files or lines than `[limits]` allows |
 | `regression_tests` | a named test is not added by the patch, does not pass on the patched tree, or does not fail as a test on the base (pytest exit 1; a collection error or a missing test proves nothing) |
-| `docs` | a `required_docs` file is not changed, or is deleted or renamed away |
-| `sql_interpolation` | added Python code builds SQL with an f-string (also triple-quoted or wrapped over lines), `%` or `.format()` |
-| `validation_claims` | the report claims a command passed (or failed) that the evidence shows otherwise or never ran, or lists a validation command as neither run nor unrun |
+| `docs` | a `required_docs` file has no content change (a mode change does not count), or is deleted or renamed away |
+| `sql_interpolation` | added Python code builds SQL with an f-string (also triple-quoted or wrapped over lines), `%` or `.format()`; whole Python string literals are read, so quotes inside SQL text do not confuse it |
+| `validation_claims` | the report claims a command passed (or failed) that the evidence shows otherwise or never ran, lists a validation command as neither run nor unrun, or a validation command fails on the patched tree, whatever the report says |
 
 The verdict passes only when every enabled check passes. The output is sorted
 JSON that records the SHA-256 of every input, so grading the same candidate
