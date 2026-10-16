@@ -1,0 +1,11 @@
+{
+  "checks": {
+    "docs": "pass",
+    "limits": "pass",
+    "regression_tests": "pass",
+    "scope": "pass",
+    "sql_interpolation": "pass",
+    "validation_claims": "pass"
+  },
+  "verdict": "pass"
+}

@@ -1,0 +1,9 @@
+{
+  "checks": {
+    "sql_interpolation": "fail"
+  },
+  "details": {
+    "sql_interpolation": "SQL built by string formatting"
+  },
+  "verdict": "fail"
+}

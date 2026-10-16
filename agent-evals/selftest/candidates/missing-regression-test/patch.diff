@@ -1,0 +1,12 @@
+--- a/pycubrid/packet.py
++++ b/pycubrid/packet.py
+@@ -1,3 +1,5 @@
+ def read_bytes(self, length):
++    if length < 0:
++        raise ValueError("negative length in broker reply")
+     return self._take(length)
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,1 +1,2 @@
+ ## [Unreleased]
++- A negative length in a broker reply raises ValueError.

@@ -1,0 +1,11 @@
+{
+  "checks": {
+    "docs": "fail",
+    "validation_claims": "fail"
+  },
+  "details": {
+    "docs": "CHANGELOG.md",
+    "validation_claims": "neither reported run nor reported unrun"
+  },
+  "verdict": "fail"
+}

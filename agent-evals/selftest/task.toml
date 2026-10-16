@@ -1,0 +1,33 @@
+# Self-test task for scripts/agent_eval.py (#925). It is synthetic: the
+# candidates below are hand-written fixtures that exercise each grader check,
+# not attempts at a real defect, and their patches are not meant to apply.
+format = 1
+id = "selftest-negative-length"
+title = "Reject a negative length in a broker reply"
+base_sha = "0edf209c30456b6ff81457b0225d8d245576d237"
+
+[problem]
+statement = """
+A length field read from a broker reply can be negative. The reader must raise
+ValueError instead of reading before the start of the frame.
+"""
+# The real rule this fixture imitates: reply parsing never reads past the end
+# of a reply (AGENTS.md, Wire Protocol Summary).
+evidence = ["https://github.com/cubrid-lab/pycubrid/issues/383"]
+
+[scope]
+allowed = ["pycubrid/packet.py", "tests/test_packet.py", "CHANGELOG.md"]
+non_goals = ["changing the error type the connection reports"]
+required_docs = ["CHANGELOG.md"]
+
+[validation]
+commands = ["python -m pytest -q tests/test_packet.py"]
+regression_tests = ["tests/test_packet.py::test_negative_length_raises"]
+
+[expected]
+behavior = "PacketReader raises ValueError for a negative length and reads nothing."
+
+[limits]
+max_files = 3
+max_changed_lines = 60
+max_minutes = 30

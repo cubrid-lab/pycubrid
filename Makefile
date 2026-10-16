@@ -1,4 +1,4 @@
-.PHONY: help install tooling-check lint format typecheck security docs-reason-check check check-all test mutation integration integration-local integration-tls docker-up docker-down changelog clean clean-all doctor release-check
+.PHONY: help install tooling-check lint format typecheck security docs-reason-check check check-all test mutation integration integration-local integration-tls docker-up docker-down changelog clean clean-all doctor release-check agent-eval-check
 
 PYTHON = python3
 PYTEST = python3 -m pytest
@@ -41,6 +41,10 @@ docs-reason-check: ## Verify docs exemption examples and real event JSON regress
 	$(PYTHON) -m unittest discover -s tests -p test_docs_reason.py
 
 check-all: check security docs-reason-check ## Run lint + typecheck + security + docs-reason checks
+
+agent-eval-check: ## Self-test the offline agent-evaluation grader against its fixtures (#925)
+	$(PYTHON) scripts/agent_eval.py self-test
+	$(PYTHON) -m pytest tests/test_agent_eval.py -q
 
 test: ## Run offline tests with coverage (no DB required)
 	$(PYTEST) $(TESTS)/ -v \

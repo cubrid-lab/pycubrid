@@ -1,0 +1,11 @@
+{
+  "tests_run": [
+    {
+      "command": "python -m pytest -q tests/test_packet.py",
+      "result": "passed"
+    }
+  ],
+  "unrun_checks": [
+    "make integration (needs a live CUBRID)"
+  ]
+}

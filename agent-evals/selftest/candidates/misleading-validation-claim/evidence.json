@@ -1,0 +1,17 @@
+[
+  {
+    "command": "python -m pytest -q tests/test_packet.py::test_negative_length_raises",
+    "tree": "base",
+    "exit_code": 1
+  },
+  {
+    "command": "python -m pytest -q tests/test_packet.py::test_negative_length_raises",
+    "tree": "candidate",
+    "exit_code": 0
+  },
+  {
+    "command": "python -m pytest -q tests/test_packet.py",
+    "tree": "candidate",
+    "exit_code": 1
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "checks": {
+    "limits": "fail",
+    "scope": "fail"
+  },
+  "details": {
+    "scope": "out-of-scope change: pycubrid/cursor.py"
+  },
+  "verdict": "fail"
+}

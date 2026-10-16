@@ -1,0 +1,7 @@
+[
+  {
+    "command": "python -m pytest -q tests/test_packet.py",
+    "tree": "candidate",
+    "exit_code": 0
+  }
+]

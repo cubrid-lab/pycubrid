@@ -1,0 +1,10 @@
+{
+  "checks": {
+    "regression_tests": "fail",
+    "scope": "pass"
+  },
+  "details": {
+    "regression_tests": "missing regression test"
+  },
+  "verdict": "fail"
+}

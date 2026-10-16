@@ -1,0 +1,10 @@
+{
+  "checks": {
+    "regression_tests": "pass",
+    "validation_claims": "fail"
+  },
+  "details": {
+    "validation_claims": "passed, but it exited [1]"
+  },
+  "verdict": "fail"
+}
