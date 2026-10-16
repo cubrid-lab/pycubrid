@@ -1,24 +1,28 @@
+diff --git a/pycubrid/packet.py b/pycubrid/packet.py
 --- a/pycubrid/packet.py
 +++ b/pycubrid/packet.py
-@@ -1,3 +1,5 @@
+@@ -1,2 +1,4 @@
  def read_bytes(self, length):
 +    if length < 0:
 +        raise ValueError("negative length in broker reply")
      return self._take(length)
+diff --git a/tests/test_packet.py b/tests/test_packet.py
 --- a/tests/test_packet.py
 +++ b/tests/test_packet.py
-@@ -1,2 +1,7 @@
+@@ -1,1 +1,6 @@
  import pytest
 +
 +
 +def test_negative_length_raises():
 +    with pytest.raises(ValueError):
 +        reader(b"\xff\xff\xff\xff").read_bytes(-1)
+diff --git a/CHANGELOG.md b/CHANGELOG.md
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -1,1 +1,2 @@
  ## [Unreleased]
 +- A negative length in a broker reply raises ValueError.
+diff --git a/pycubrid/cursor.py b/pycubrid/cursor.py
 --- a/pycubrid/cursor.py
 +++ b/pycubrid/cursor.py
 @@ -1,1 +1,2 @@

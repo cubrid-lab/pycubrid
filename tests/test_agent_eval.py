@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -121,11 +122,139 @@ def test_parse_diff_handles_new_deleted_and_renamed_files() -> None:
     ],
 )
 def test_sql_interpolation_patterns(line: str, unsafe: bool) -> None:
-    changes = {"pycubrid/x.py": agent_eval.FileChange("pycubrid/x.py", added=[line])}
+    changes = {"pycubrid/x.py": agent_eval.FileChange("pycubrid/x.py", blocks=[[line]])}
     assert (agent_eval.check_sql_interpolation(changes)["status"] == "fail") is unsafe
 
 
 def test_sql_interpolation_ignores_non_python_files() -> None:
     line = 'cur.execute(f"SELECT {x}")'
-    changes = {"docs/X.md": agent_eval.FileChange("docs/X.md", added=[line])}
+    changes = {"docs/X.md": agent_eval.FileChange("docs/X.md", blocks=[[line]])}
     assert agent_eval.check_sql_interpolation(changes)["status"] == "pass"
+
+
+def test_git_metadata_only_changes_are_inventoried() -> None:
+    # Renames without content, mode-only edits and binary files have no ---/+++ lines.
+    diff = (
+        "diff --git a/pycubrid/a.py b/pycubrid/b.py\n"
+        "similarity index 100%\nrename from pycubrid/a.py\nrename to pycubrid/b.py\n"
+        "diff --git a/scripts/run.sh b/scripts/run.sh\nold mode 100644\nnew mode 100755\n"
+        "diff --git a/docs/logo.png b/docs/logo.png\nindex 1..2 100644\n"
+        "Binary files a/docs/logo.png and b/docs/logo.png differ\n"
+    )
+    changes = agent_eval.parse_diff(diff)
+    assert sorted(changes) == ["docs/logo.png", "pycubrid/a.py", "pycubrid/b.py", "scripts/run.sh"]
+    assert changes["pycubrid/a.py"].gone and not changes["pycubrid/b.py"].gone
+    assert changes["docs/logo.png"].binary
+    task = {"scope": {"allowed": ["pycubrid/*.py"]}}
+    outside = agent_eval.check_scope(task, changes)
+    assert outside["status"] == "fail"
+    assert "out-of-scope change: scripts/run.sh" in outside["details"]
+
+
+def test_header_like_content_inside_a_hunk_stays_content() -> None:
+    diff = (
+        "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n"
+        "@@ -1,2 +1,2 @@\n--- old note\n+++ heading\n same\n"
+    )
+    changes = agent_eval.parse_diff(diff)
+    assert sorted(changes) == ["README.md"]
+    assert changes["README.md"].added == ["++ heading"]
+    assert changes["README.md"].removed == 1
+
+
+@pytest.mark.parametrize(
+    "diff",
+    [
+        "@@ -1 +1 @@\n-a\n+b\n",  # a hunk before any file header
+        "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n-a\n",  # truncated hunk
+        'diff --git "a/x y" "b/x y"\n',  # a path Git had to quote
+    ],
+)
+def test_unusable_patches_are_rejected(diff: str) -> None:
+    with pytest.raises(agent_eval.InputError):
+        agent_eval.parse_diff(diff)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ('allowed = ["pycubrid/packet.py",', "allowed = [1,", "list of strings"),
+        ("max_files = 3", 'max_files = "3"', "non-negative integer"),
+        ("max_files = 3", "max_files = true", "non-negative integer"),
+        ("max_minutes = 30", "max_minutes = 30\nmax_cost = 1", "unknown limit"),
+    ],
+)
+def test_manifest_value_types_are_checked(tmp_path: Path, old: str, new: str, message: str) -> None:
+    text = (SELFTEST / "task.toml").read_text(encoding="utf-8")
+    assert old in text
+    with pytest.raises(agent_eval.InputError, match=message):
+        agent_eval.load_task(_task(tmp_path, text.replace(old, new)))
+
+
+def test_rubric_checks_must_be_a_list_of_strings(tmp_path: Path) -> None:
+    text = (SELFTEST / "task.toml").read_text(encoding="utf-8") + "\n[rubric]\nchecks = 1\n"
+    with pytest.raises(agent_eval.InputError, match="must be list"):
+        agent_eval.load_task(_task(tmp_path, text))
+
+
+def _candidate(tmp_path: Path, **files: str) -> Path:
+    candidate = tmp_path / "c"
+    shutil.copytree(SELFTEST / "candidates" / "correct", candidate)
+    for name, text in files.items():
+        (candidate / name.replace("_", ".")).write_text(text, encoding="utf-8")
+    return candidate
+
+
+@pytest.mark.parametrize("code", [2, 3, 4, 5])
+def test_a_base_run_must_fail_as_a_test(tmp_path: Path, code: int) -> None:
+    evidence = json.loads((SELFTEST / "candidates/correct/evidence.json").read_text())
+    evidence[0]["exit_code"] = code  # pytest's collection, usage and no-test codes
+    candidate = _candidate(tmp_path, evidence_json=json.dumps(evidence))
+    check = agent_eval.grade(SELFTEST, candidate)["checks"]["regression_tests"]
+    assert check["status"] == "fail"
+    assert f"did not fail as a test on the base tree (exit [{code}])" in check["details"][0]
+
+
+def test_deleting_a_required_document_does_not_count_as_updating_it(tmp_path: Path) -> None:
+    patch = (
+        (SELFTEST / "candidates/correct/patch.diff").read_text().split("diff --git a/CHANGELOG")[0]
+    )
+    patch += (
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\ndeleted file mode 100644\n"
+        "--- a/CHANGELOG.md\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-## [Unreleased]\n"
+    )
+    candidate = _candidate(tmp_path, patch_diff=patch)
+    check = agent_eval.grade(SELFTEST, candidate)["checks"]["docs"]
+    assert check == {
+        "details": ["required documentation deleted or renamed away: CHANGELOG.md"],
+        "status": "fail",
+    }
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        ['sql = f"""SELECT {value} FROM db_root"""'],
+        ["cur.execute(", '    f"""', "    SELECT {value} FROM db_root", '    """', ")"],
+        ["sql = (", '    "SELECT * FROM t WHERE id = %s"', "    % value", ")"],
+    ],
+)
+def test_multiline_and_triple_quoted_sql_is_found(block: list[str]) -> None:
+    changes = {"pycubrid/x.py": agent_eval.FileChange("pycubrid/x.py", blocks=[block])}
+    assert agent_eval.check_sql_interpolation(changes)["status"] == "fail"
+
+
+@pytest.mark.parametrize(
+    ("report", "message"),
+    [
+        ('{"tests_run": [{"command": "x", "result": "pass"}]}', "'result' (passed|failed)"),
+        ('{"tests_run": [{"command": "x"}]}', "'result' (passed|failed)"),
+        ('{"tests_run": ["x"]}', "'result' (passed|failed)"),
+        ('{"tests_run": {}}', "must be lists"),
+        ('{"unrun_checks": [1]}', "list of strings"),
+    ],
+)
+def test_malformed_reports_are_rejected(tmp_path: Path, report: str, message: str) -> None:
+    candidate = _candidate(tmp_path, report_json=report)
+    with pytest.raises(agent_eval.InputError, match=re.escape(message)):
+        agent_eval.grade(SELFTEST, candidate)

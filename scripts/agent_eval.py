@@ -53,8 +53,16 @@ class InputError(Exception):
 @dataclass
 class FileChange:
     path: str
-    added: list[str] = field(default_factory=list)
+    # Each run of consecutive added lines is one block, so a check can read an
+    # expression that spans lines.
+    blocks: list[list[str]] = field(default_factory=list)
     removed: int = 0
+    gone: bool = False  # deleted, or renamed away: absent after the patch
+    binary: bool = False
+
+    @property
+    def added(self) -> list[str]:
+        return [line for block in self.blocks for line in block]
 
 
 def _require(table: dict, key: str, kind: type, where: str) -> None:
@@ -62,6 +70,15 @@ def _require(table: dict, key: str, kind: type, where: str) -> None:
         raise InputError(f"{where}: missing '{key}'")
     if not isinstance(table[key], kind):
         raise InputError(f"{where}: '{key}' must be {kind.__name__}")
+
+
+def _strings(table: dict, key: str, where: str, required: bool = False) -> None:
+    """``table[key]``, if present (or ``required``), is a list of strings."""
+    if key not in table and not required:
+        return
+    _require(table, key, list, where)
+    if not all(isinstance(item, str) for item in table[key]):
+        raise InputError(f"{where}: '{key}' must be a list of strings")
 
 
 def load_task(task_dir: Path) -> dict:
@@ -80,43 +97,117 @@ def load_task(task_dir: Path) -> dict:
         _require(task, key, kind, where)
     for key in ("validation", "expected"):
         _require(task, key, dict, where)
+    for key in ("limits", "rubric"):
+        if key in task:
+            _require(task, key, dict, where)
     if not re.fullmatch(r"[0-9a-f]{40}", task["base_sha"]):
         raise InputError(f"{where}: 'base_sha' must be a full 40-character commit SHA")
     _require(task["problem"], "statement", str, f"{where} [problem]")
-    _require(task["problem"], "evidence", list, f"{where} [problem]")
+    _strings(task["problem"], "evidence", f"{where} [problem]", required=True)
     if not task["problem"]["evidence"]:
         raise InputError(f"{where} [problem]: 'evidence' must link the prior issue or commit")
-    _require(task["scope"], "allowed", list, f"{where} [scope]")
-    _require(task["validation"], "commands", list, f"{where} [validation]")
-    checks = task.get("rubric", {}).get("checks", list(CHECKS))
-    unknown = sorted(set(checks) - set(CHECKS))
+    _strings(task["scope"], "allowed", f"{where} [scope]", required=True)
+    for key in ("non_goals", "required_docs"):
+        _strings(task["scope"], key, f"{where} [scope]")
+    _strings(task["validation"], "commands", f"{where} [validation]", required=True)
+    _strings(task["validation"], "regression_tests", f"{where} [validation]")
+    for key, value in task.get("limits", {}).items():
+        if key not in ("max_files", "max_changed_lines", "max_minutes"):
+            raise InputError(f"{where} [limits]: unknown limit '{key}'")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise InputError(f"{where} [limits]: '{key}' must be a non-negative integer")
+    rubric = task.get("rubric", {})
+    _strings(rubric, "checks", f"{where} [rubric]")
+    unknown = sorted(set(rubric.get("checks", CHECKS)) - set(CHECKS))
     if unknown:
         raise InputError(f"{where} [rubric]: unknown checks {unknown}")
     return task
 
 
+_HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
+_GIT_HEADER = re.compile(r"^diff --git a/(\S+) b/(\S+)$")
+
+
 def parse_diff(text: str) -> dict[str, FileChange]:
-    """Return the files a unified diff changes, with their added lines."""
+    """Return the files a unified (``git diff``) patch changes.
+
+    ``---``/``+++`` lines count as file headers only outside a hunk, whose
+    remaining line counts are tracked, so changed text that starts with
+    ``++`` or ``--`` stays content. Git headers also inventory renames, mode
+    changes and binary files, which have no ``---``/``+++`` lines. A path
+    that Git quotes (special characters) is rejected as unsupported.
+    """
     changes: dict[str, FileChange] = {}
     current: FileChange | None = None
+    old_left = new_left = 0
     old_path = ""
+    adding = False
+
+    def touch(path: str) -> FileChange:
+        return changes.setdefault(path, FileChange(path))
+
     for line in text.splitlines():
+        if old_left > 0 or new_left > 0:
+            if current is None:
+                raise InputError("patch.diff: hunk without a file header")
+            if line.startswith("\\"):
+                continue  # "\ No newline at end of file"
+            mark, body = line[:1], line[1:]
+            if mark == "+" and new_left > 0:
+                if not adding:
+                    current.blocks.append([])
+                current.blocks[-1].append(body)
+                new_left, adding = new_left - 1, True
+                continue
+            adding = False
+            if mark == "-" and old_left > 0:
+                current.removed, old_left = current.removed + 1, old_left - 1
+            elif mark in (" ", "") and old_left > 0 and new_left > 0:
+                old_left, new_left = old_left - 1, new_left - 1
+            else:
+                raise InputError(f"patch.diff: line does not fit its hunk: {line!r}")
+            continue
+        adding = False
         if line.startswith("diff --git "):
-            current = None
+            match = _GIT_HEADER.match(line)
+            if match is None:
+                raise InputError(f"patch.diff: unsupported (quoted) path in {line!r}")
+            old_path, current = match.group(1), touch(match.group(2))
+            if old_path != current.path:
+                touch(old_path).gone = True  # a rename or copy header; see below
+        elif line.startswith("rename from "):
+            touch(line[len("rename from ") :]).gone = True
+        elif line.startswith("rename to ") or line.startswith("copy to "):
+            current = touch(line.split(" ", 2)[2])
+        elif line.startswith("copy from "):
+            touch(line[len("copy from ") :]).gone = False  # a copy keeps its source
+        elif line.startswith("deleted file mode") and current is not None:
+            current.gone = True
+        elif line.startswith("Binary files ") or line == "GIT binary patch":
+            if current is not None:
+                current.binary = True
         elif line.startswith("--- "):
             old_path = line[4:].strip()
             old_path = old_path[2:] if old_path.startswith("a/") else old_path
         elif line.startswith("+++ "):
             new_path = line[4:].strip()
             new_path = new_path[2:] if new_path.startswith("b/") else new_path
-            path = old_path if new_path == "/dev/null" else new_path
-            current = changes.setdefault(path, FileChange(path))
-            if old_path not in ("/dev/null", path):
-                changes.setdefault(old_path, FileChange(old_path))  # a rename touches both
-        elif current is not None and line.startswith("+"):
-            current.added.append(line[1:])
-        elif current is not None and line.startswith("-"):
-            current.removed += 1
+            if new_path == "/dev/null":
+                current = touch(old_path)
+                current.gone = True
+            else:
+                current = touch(new_path)
+                if old_path not in ("/dev/null", new_path):
+                    touch(old_path).gone = True
+        else:
+            hunk = _HUNK.match(line)
+            if hunk is not None:
+                if current is None:
+                    raise InputError("patch.diff: hunk without a file header")
+                old_left = int(hunk.group(1) or "1")
+                new_left = int(hunk.group(2) or "1")
+    if old_left > 0 or new_left > 0:
+        raise InputError("patch.diff: the last hunk is truncated")
     return changes
 
 
@@ -176,22 +267,34 @@ def check_regression_tests(
             failures.append(f"no evidence that {node} ran on the base tree")
         elif any(run["exit_code"] == 0 for run in base):
             failures.append(f"{node} passes on the base tree, so it does not detect the defect")
+        elif any(run["exit_code"] != 1 for run in base):
+            # pytest exits 1 only when a collected test failed; 2 to 5 mean an
+            # interruption, a usage error or no such test, which proves nothing.
+            codes = sorted({run["exit_code"] for run in base})
+            failures.append(f"{node} did not fail as a test on the base tree (exit {codes})")
     return _result(failures)
 
 
 def check_docs(task: dict, changes: dict[str, FileChange]) -> dict:
-    missing = [doc for doc in task["scope"].get("required_docs", []) if doc not in changes]
-    return _result([f"required documentation not updated: {doc}" for doc in missing])
+    failures = []
+    for doc in task["scope"].get("required_docs", []):
+        if doc not in changes:
+            failures.append(f"required documentation not updated: {doc}")
+        elif changes[doc].gone:
+            failures.append(f"required documentation deleted or renamed away: {doc}")
+    return _result(failures)
 
 
 # SQL built by string formatting instead of ``?`` parameters (AGENTS.md: no
-# f-string interpolation in SQL queries).
+# f-string interpolation in SQL queries). Patterns run over each block of
+# consecutive added lines, so a triple-quoted or wrapped expression counts.
 _SQL_WORD = r"(SELECT|INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|CALL)\b"
+_QUOTE = r"(\"\"\"|'''|\"|')"
 _UNSAFE_SQL = (
-    re.compile(r"""\bexecute(many)?\(\s*[rbu]*f["']""", re.IGNORECASE),
-    re.compile(rf"""\b[rbu]*f["']\s*{_SQL_WORD}""", re.IGNORECASE),
-    re.compile(rf"""["']\s*{_SQL_WORD}[^"']*["']\s*(%|\.format\()""", re.IGNORECASE),
-    re.compile(r"""\bexecute(many)?\([^#]*["']\s*(%\s|\.format\()""", re.IGNORECASE),
+    re.compile(rf"\bexecute(many)?\(\s*[rbu]*f{_QUOTE}", re.IGNORECASE),
+    re.compile(rf"\b[rbu]*f{_QUOTE}\s*{_SQL_WORD}", re.IGNORECASE),
+    re.compile(rf"{_QUOTE}\s*{_SQL_WORD}[^\"']*{_QUOTE}\s*(%|\.format\()", re.IGNORECASE),
+    re.compile(r"\bexecute(many)?\([^#)]*[\"']\s*(%\s|\.format\()", re.IGNORECASE),
 )
 
 
@@ -200,9 +303,11 @@ def check_sql_interpolation(changes: dict[str, FileChange]) -> dict:
     for path in sorted(changes):
         if not path.endswith(".py"):
             continue
-        for line in changes[path].added:
-            if any(pattern.search(line) for pattern in _UNSAFE_SQL):
-                failures.append(f"SQL built by string formatting in {path}: {line.strip()}")
+        for block in changes[path].blocks:
+            text = "\n".join(block)
+            if any(pattern.search(text) for pattern in _UNSAFE_SQL):
+                first = next((line.strip() for line in block if line.strip()), "")
+                failures.append(f"SQL built by string formatting in {path}: {first}")
     return _result(failures)
 
 
@@ -241,6 +346,28 @@ def _read_json(path: Path) -> object:
         raise InputError(f"{path}: {exc}") from exc
 
 
+def load_report(path: Path) -> dict:
+    report = _read_json(path)
+    if not isinstance(report, dict):
+        raise InputError(f"{path}: must be an object")
+    claims = report.get("tests_run", [])
+    unrun = report.get("unrun_checks", [])
+    if not isinstance(claims, list) or not isinstance(unrun, list):
+        raise InputError(f"{path}: 'tests_run' and 'unrun_checks' must be lists")
+    for claim in claims:
+        if (
+            not isinstance(claim, dict)
+            or not isinstance(claim.get("command"), str)
+            or claim.get("result") not in ("passed", "failed")
+        ):
+            raise InputError(
+                f"{path}: each 'tests_run' entry needs 'command' and 'result' (passed|failed)"
+            )
+    if not all(isinstance(item, str) for item in unrun):
+        raise InputError(f"{path}: 'unrun_checks' must be a list of strings")
+    return report
+
+
 def load_evidence(path: Path) -> list[dict]:
     runs = _read_json(path)
     if not isinstance(runs, list):
@@ -251,6 +378,7 @@ def load_evidence(path: Path) -> list[dict]:
             or not isinstance(run.get("command"), str)
             or run.get("tree") not in ("base", "candidate")
             or not isinstance(run.get("exit_code"), int)
+            or isinstance(run.get("exit_code"), bool)
         ):
             raise InputError(
                 f"{path}: each run needs 'command', 'tree' (base|candidate), 'exit_code'"
@@ -270,9 +398,7 @@ def grade(task_dir: Path, candidate_dir: Path) -> dict:
         changes = parse_diff(patch_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise InputError(f"{patch_path}: not found") from exc
-    report = _read_json(candidate_dir / "report.json")
-    if not isinstance(report, dict):
-        raise InputError(f"{candidate_dir / 'report.json'}: must be an object")
+    report = load_report(candidate_dir / "report.json")
     evidence = load_evidence(candidate_dir / "evidence.json")
     enabled = task.get("rubric", {}).get("checks", list(CHECKS))
     results = {}
