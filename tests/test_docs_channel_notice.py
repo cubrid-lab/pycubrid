@@ -2,8 +2,8 @@
 
 ``docs/overrides/partials/channel.html`` labels the site as built from the
 ``main`` branch and names the commit when the build records one. These tests
-render the partial with Jinja2 (installed with the ``docs`` dependency group;
-skipped without it) and check that the label never depends on a version string.
+render the partial with Jinja2, which the ``test`` dependency group installs
+(#971), and check that the label never depends on a version string.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import jinja2
 import pytest
 import yaml
 
@@ -21,7 +22,6 @@ SHA = "4efe1307031b43a300bbb7fd675292e14cedc933"
 
 
 def _render(revision: str | None, url: str = "quickstart/") -> str:
-    jinja2 = pytest.importorskip("jinja2")
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(PARTIAL.parent.parent)), autoescape=True
     )

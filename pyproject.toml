@@ -54,6 +54,9 @@ test = [
     "pyyaml",
     # scripts/check_docs_links.py and check_agents_docs.py parse Markdown (#927).
     "markdown-it-py>=4",
+    # tests/test_docs_channel_notice.py renders the site notice template (#971);
+    # MkDocs renders it with the same library.
+    "jinja2>=3.1",
 ]
 lint = [
     "ruff==0.17.0",

@@ -105,7 +105,10 @@ remains authoritative.
   drops the project itself). At the commit above these sets were the `.[dev]`
   and `.[mutation]` extras; #784 moved them to the `dev` and `mutation`
   PEP 735 dependency groups. A fresh install of each group after that change
-  resolved the same 63 and 19 package names, so the tables were not regenerated:
+  resolved the same 63 and 19 package names, so the tables were not regenerated.
+  #971 added `jinja2` to the `test` group; a fresh `dev` install on 2026-10-16
+  (CPython 3.12, uv) resolved 65 names, and only the two new rows, `Jinja2` and
+  `MarkupSafe`, were copied from that run's generator output:
 
 ```bash
 uv venv -p 3.12 /tmp/tpl-dev
@@ -128,7 +131,7 @@ they are authoritative in `pyproject.toml`, so a routine pin bump does not
 require regenerating this snapshot. Transitive rows are kept accurate by
 regenerating the tables, not by the test.
 
-## Development / test dependencies: `dev` dependency group (63 packages, not distributed)
+## Development / test dependencies: `dev` dependency group (65 packages, not distributed)
 
 | Name | Version | License | Category | URL |
 |---|---|---|---|---|
@@ -151,10 +154,12 @@ regenerating the tables, not by the test.
 | jaraco.classes | 3.4.0 | MIT License | Permissive | https://github.com/jaraco/jaraco.classes |
 | jaraco.context | 6.1.2 | MIT | Permissive | https://github.com/jaraco/jaraco.context |
 | jaraco.functools | 4.6.0 | MIT | Permissive | https://github.com/jaraco/jaraco.functools |
+| Jinja2 | 3.1.6 | BSD License | Permissive | https://github.com/pallets/jinja/ |
 | jeepney | 0.9.0 | MIT | Permissive | https://gitlab.com/takluyver/jeepney |
 | keyring | 25.7.0 | MIT | Permissive | https://github.com/jaraco/keyring |
 | librt | 0.16.0 | MIT | Permissive | https://github.com/mypyc/librt |
 | markdown-it-py | 4.2.0 | MIT License | Permissive | https://github.com/executablebooks/markdown-it-py |
+| MarkupSafe | 3.0.4 | BSD-3-Clause | Permissive | https://github.com/pallets/markupsafe/ |
 | mdurl | 0.1.2 | MIT License | Permissive | https://github.com/executablebooks/mdurl |
 | more-itertools | 11.1.0 | MIT | Permissive | https://github.com/more-itertools/more-itertools |
 | mypy | 2.4.0 | MIT | Permissive | https://www.mypy-lang.org/ |

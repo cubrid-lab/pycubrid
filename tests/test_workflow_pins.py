@@ -50,6 +50,7 @@ def test_published_metadata_has_no_contributor_extras() -> None:
 # without pyyaml, which the old dev extra pulled in through pre-commit).
 TEST_IMPORT_DISTRIBUTIONS = {
     "hypothesis": "hypothesis",
+    "jinja2": "jinja2",
     "packaging": "packaging",
     "pytest": "pytest",
     "pytest_asyncio": "pytest-asyncio",
