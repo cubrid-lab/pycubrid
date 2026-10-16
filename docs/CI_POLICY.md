@@ -376,8 +376,13 @@ exercises export/installation source-hook, stale-lock and tampered-hash rejectio
 
 `docs.yml` exports `--only-group docs` from the lock. The `docs` group in
 `pyproject.toml` pins the site tools, and `uv.lock` fixes their transitive versions
-and hashes. Dependabot's root `pip` entry proposes dependency updates; update the
-lock and qualify the site build with those changes.
+and hashes. Dependabot's root `uv` entry updates the manifest and lock together
+for every dependency group, including the documentation tools (#750, #784).
+The updater uses its own installed uv version; CI's pinned uv 0.12.17 must
+accept the resulting lock and the site build must pass before merge.
+The conditional Python 3.15 PyYAML wheel source uses a single mapping so the
+updater can fetch the checked-in wheel. Its Python marker and wheel hash remain
+part of the locked installation contract.
 
 `ci.yml` also builds the site on pull requests (#786), so a bump or a docs edit that
 breaks `mkdocs build --strict` fails before merge instead of later on `main`. The

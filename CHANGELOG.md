@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Dependabot now updates the root manifest and `uv.lock` together through its uv
+  ecosystem. The Python 3.15 PyYAML wheel source uses a fetchable mapping; its marker,
+  wheel bytes and locked dependencies are unchanged. This is a CI tooling change
+  with no driver API or runtime behaviour change under the release policy.
+
 - **The execute and fetch profilers no longer drop an existing `_profile_tmp` table (#950)** —
   `scripts/profile_execute.py` and `scripts/profile_fetch.py` ran
   `DROP TABLE IF EXISTS _profile_tmp` before every run, even for `--operation select`, so an
