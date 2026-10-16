@@ -4,7 +4,7 @@
 
 pycubrid 릴리스의 호환성과 기능 지원.
 
-> **참조:** 현재 소스 버전은 [`pycubrid/__init__.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py)의 `pycubrid.__version__`입니다. 게시된 릴리스 상세는 [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)와 [릴리스](https://github.com/cubrid-lab/pycubrid/releases)를 참고하세요.
+> **참조:** 이 페이지는 최근 배포된 릴리스보다 앞서 있을 수 있는 `main` 브랜치를 설명합니다. `main`의 [`pycubrid/__init__.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py)에 있는 `pycubrid.__version__`은 소스의 버전 표시일 뿐 그 버전이 배포되었다는 증거가 아닙니다. `main`은 릴리스 PR이 바꿀 때까지 마지막으로 배포된 번호를 유지하며, 열려 있는 릴리스 PR은 후보일 뿐입니다. 버전은 그 태그가 [릴리스 목록](https://github.com/cubrid-lab/pycubrid/releases)에 나타나고 파일이 [PyPI](https://pypi.org/project/pycubrid/)에 올라갔을 때 배포된 것이며, 그 버전의 지원 범위는 해당 태그 시점의 이 페이지(`docs/SUPPORT_MATRIX.md`)입니다. 릴리스 노트는 [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)에 있습니다.
 
 ---
 

@@ -4,6 +4,8 @@
 
 pycubrid implements the CUBRID CAS (broker) wire protocol in Python. It provides synchronous `pycubrid.connect()` and asynchronous `pycubrid.aio.connect()` connections, declares Python 3.11–3.15 and CUBRID 10.2, 11.0, 11.2 and 11.4 support, and is the recommended driver for sqlalchemy-cubrid. Routine CI validates representative combinations; the full supported matrix is validated for exact release candidates and explicit manual runs, not every main or PR head.
 
+This index and `llms-full.txt` describe the `main` branch (development documentation), which can be ahead of the latest published release; `pycubrid.__version__` on `main` is not proof of publication. A published version's documentation is the `docs/` folder at its tag on the [release list](https://github.com/cubrid-lab/pycubrid/releases).
+
 Key facts:
 - PEP 249 globals: `apilevel = "2.0"`, `threadsafety = 1` (threads may share the module, not connections), `paramstyle = "qmark"`
 - Connect: `pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba", password="")`; async: `await pycubrid.aio.connect(...)` with the same arguments

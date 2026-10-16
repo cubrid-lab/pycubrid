@@ -13,6 +13,19 @@ Python, starting from an empty folder. The next lessons each add one step:
 wire protocol or this project's CI to follow them; those live in the
 [reference pages](#next-steps).
 
+!!! note "Which versions this tutorial describes"
+    - **Document source:** the `main` branch, as the notice at the top of the
+      site says. `main` can be ahead of the latest published release.
+    - **Tested with:** the whole page, run as written, installed pycubrid
+      1.13.0 from PyPI against `cubrid/cubrid:11.4` on Linux x86_64 on
+      2026-10-15 (#956). The split lessons were rerun with pycubrid 1.13.0
+      from a source checkout on 2026-10-16 (#965), and the lab removal on
+      the same day (#966).
+    - **Published release:** what `pip install pycubrid` gives you is the
+      newest version on [PyPI](https://pypi.org/project/pycubrid/) that
+      supports your Python. Step 1 prints it; its notes are on the
+      [release list](https://github.com/cubrid-lab/pycubrid/releases).
+
 ---
 
 ## Before you start

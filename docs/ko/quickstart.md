@@ -12,6 +12,16 @@ pycubrid를 설치한다고 CUBRID가 설치되거나 데이터베이스가 만�
 [안전하게 마치기](finish-safely.md)입니다. DB-API, CUBRID 통신 프로토콜, 이 프로젝트의 CI를 몰라도
 따라 할 수 있으며, 그런 내용은 [참고 문서](#다음-단계)에 있습니다.
 
+!!! note "이 튜토리얼이 설명하는 버전"
+    - **문서 원본:** 사이트 맨 위 안내대로 `main` 브랜치입니다. `main`은 최근 배포된 릴리스보다 앞서 있을
+      수 있습니다.
+    - **확인한 환경:** 페이지 전체를 그대로 실행해 2026-10-15에 Linux x86_64에서 PyPI의 pycubrid
+      1.13.0을 설치하고 `cubrid/cubrid:11.4`에 실행했습니다(#956). 나눈 단원은 2026-10-16에 소스
+      체크아웃의 pycubrid 1.13.0으로 다시 실행했고(#965), 실습 환경 제거도 같은 날 확인했습니다(#966).
+    - **배포된 릴리스:** `pip install pycubrid`가 설치하는 것은 사용 중인 Python을 지원하는
+      [PyPI](https://pypi.org/project/pycubrid/)의 최신 버전입니다. 1단계에서 그 버전이 출력되며, 릴리스
+      노트는 [릴리스 목록](https://github.com/cubrid-lab/pycubrid/releases)에 있습니다.
+
 ---
 
 ## 시작하기 전에

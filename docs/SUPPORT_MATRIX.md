@@ -2,7 +2,7 @@
 
 Compatibility and feature support for pycubrid releases.
 
-> **Reference:** The current source version is `pycubrid.__version__` in [`pycubrid/__init__.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py). For published release details see [`CHANGELOG.md`](../CHANGELOG.md) and [releases](https://github.com/cubrid-lab/pycubrid/releases).
+> **Reference:** This page describes the `main` branch, which can be ahead of the latest published release. `pycubrid.__version__` in [`pycubrid/__init__.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py) on `main` is the version label of the source, not proof that this version is published: `main` keeps the last released number until a release pull request changes it, and an open release pull request is only a candidate. A version is published when its tag appears on the [release list](https://github.com/cubrid-lab/pycubrid/releases) and its files are on [PyPI](https://pypi.org/project/pycubrid/); the support statement for that version is this page at its tag (`docs/SUPPORT_MATRIX.md`). Release notes are in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 

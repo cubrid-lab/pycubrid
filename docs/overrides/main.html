@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+
+{#- #960: every page of this site is built from the main branch, so it says so,
+    with the commit it was built from when the build records one (GITHUB_SHA in
+    GitHub Actions). The label never comes from pycubrid.__version__ or a tag. -#}
+{% block announce %}
+  {% include "partials/channel.html" %}
+{% endblock %}

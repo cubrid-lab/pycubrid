@@ -65,6 +65,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **The documentation site says it is built from `main` (#960)** — every page of the site,
+  English and Korean, now opens with a notice that it is development documentation for the
+  `main` branch, built at a linked commit (from `GITHUB_SHA` in GitHub Actions; a local build
+  says that no commit was recorded), that it can describe unpublished changes, and that a
+  published version's documentation is the `docs/` folder at its tag on the release list.
+  The label never comes from `pycubrid.__version__`, the release manifest or a tag name, and
+  the site shows no hardcoded latest version. The quickstart says separately which source it
+  describes, what its examples were tested with (pycubrid 1.13.0 and CUBRID 11.4, with dates)
+  and how to find the published release; the support matrix and `llms.txt` say that
+  `__version__` on `main` is not proof of publication. The deploy workflow is unchanged.
+
 - **Removing the Docker lab also removes its volume (#964)** — the `cubrid/cubrid` images
   declare a `VOLUME` for the database directory, so `docker rm -f pycubrid-quickstart` left an
   anonymous volume holding the tutorial's `testdb` behind after every lab. The quickstart and
