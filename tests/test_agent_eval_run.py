@@ -24,6 +24,15 @@ sys.modules["agent_eval_run"] = runner
 _SPEC.loader.exec_module(runner)
 InputError = runner.InputError
 
+
+@pytest.fixture(autouse=True)
+def _state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # prepare records the attempt's start outside OUT_DIR (#985); keep it here.
+    state = tmp_path / "state"
+    monkeypatch.setenv("AGENT_EVAL_STATE_DIR", str(state))
+    return state
+
+
 TEST = "def test_add():\n    from calc import add\n\n    assert add(2, 3) == 5\n"
 
 
@@ -669,6 +678,39 @@ def test_outputs_swapped_while_publishing_stay_in_the_runner_s_directory(
     assert {"patch.diff", "report.json", "evidence.json"} <= set(os.listdir(out / "moved"))
 
 
+def _swap_during_walk(monkeypatch: pytest.MonkeyPatch, swap: object) -> None:
+    """Run ``swap`` once, after fwalk has listed the checkout root."""
+    real = runner.os.fwalk
+    done: list[bool] = []
+
+    def walk(*args: object, **kwargs: object) -> object:
+        for entry in real(*args, **kwargs):
+            if not done:
+                done.append(True)
+                swap()
+            yield entry
+
+    monkeypatch.setattr(runner.os, "fwalk", walk)
+
+
+def _outside(tmp_path: Path) -> Path:
+    outside = tmp_path / "outside"
+    (outside / "nested").mkdir(parents=True)
+    (outside / "secret.txt").write_text("do-not-copy-this")
+    (outside / "nested" / "test_secret.py").write_text("do-not-copy-this")
+    return outside
+
+
+def _leaked(out: Path) -> list[str]:
+    # What the copy produced. Logs are left out: unsandboxed, a check may read
+    # through any symlink the attempt itself committed.
+    return [
+        str(path)
+        for path in [*(out / "candidate").rglob("*"), out / "grade.json", out / "run.json"]
+        if path.is_file() and "do-not-copy-this" in path.read_text(errors="replace")
+    ]
+
+
 def test_a_checkout_swapped_while_copying_is_refused(
     project: tuple[Path, Path, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -676,22 +718,47 @@ def test_a_checkout_swapped_while_copying_is_refused(
     out = tmp_path / "out"
     runner.prepare(task, out, repo)
     _attempt(out)
-    outside = tmp_path / "outside"
-    (outside / "tests").mkdir(parents=True)
-    (outside / "secret.txt").write_text("do-not-copy-this")
-    original = shutil.copytree
+    outside = _outside(tmp_path)
 
-    def swap_then_copy(source: str, *args: object, **kwargs: object) -> object:
-        if not (out / "worktree").is_symlink():  # once; copytree also recurses through here
-            (out / "worktree").rename(out / "worktree-moved")
-            (out / "worktree").symlink_to(outside, target_is_directory=True)
-        return original(source, *args, **kwargs)
+    def swap() -> None:
+        (out / "worktree").rename(out / "worktree-moved")
+        (out / "worktree").symlink_to(outside, target_is_directory=True)
 
-    monkeypatch.setattr(runner.shutil, "copytree", swap_then_copy)
+    _swap_during_walk(monkeypatch, swap)
     with pytest.raises(InputError, match="was replaced while it was being copied"):
         runner.collect(task, out, repo=repo, no_sandbox=True)
     assert not (out / "candidate").exists() and not (out / "logs").exists()
-    assert not list(tmp_path.glob("out/**/secret.txt"))
+    assert _leaked(out) == []
+
+
+@pytest.mark.parametrize("swapped", ["tests", "calc.py"])
+def test_a_path_swapped_inside_the_checkout_never_pulls_in_outside_content(
+    project: tuple[Path, Path, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, swapped: str
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    outside = _outside(tmp_path)
+    target = outside / "nested" if swapped == "tests" else outside / "secret.txt"
+
+    def swap() -> None:  # a subdirectory or a file becomes a link to outside content
+        path = out / "worktree" / swapped
+        path.rename(tmp_path / "moved")
+        path.symlink_to(target)
+
+    _swap_during_walk(monkeypatch, swap)
+    try:
+        runner.collect(task, out, repo=repo, no_sandbox=True)
+    except InputError:
+        pass  # refusing the attempt is also safe; leaking content is not
+    # The swap happened: by path, the checkout now reaches the outside content.
+    assert "do-not-copy-this" in "".join(
+        p.read_text() for p in (out / "worktree" / swapped).resolve().rglob("*") if p.is_file()
+    ) or "do-not-copy-this" in (out / "worktree" / swapped).read_text(errors="replace")
+    assert _leaked(out) == []
+    if swapped == "calc.py":  # copied as the link itself, never its target
+        assert "new file mode 120000" in (out / "candidate" / "patch.diff").read_text()
 
 
 @pytest.mark.parametrize("where", [".git/HEAD", "tests/pipe"])
@@ -730,3 +797,54 @@ def test_a_relative_task_directory_still_runs_its_acceptance_scripts(
     monkeypatch.chdir(tmp_path)
     result = runner.collect(Path("task"), out, repo=repo, no_sandbox=True)
     assert result["verdict"] == "pass", result["regression_escapes"]
+
+
+@pytest.mark.parametrize("value", ["soon", None, float("nan"), 1e18, True])
+def test_an_invalid_prepared_epoch_never_hides_the_duration(
+    project: tuple[Path, Path, str], tmp_path: Path, _state_dir: Path, value: object
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    shutil.rmtree(_state_dir)  # prepared elsewhere: only attempt.json says when
+    attempt = json.loads((out / "attempt.json").read_text())
+    attempt["prepared_epoch"] = value
+    (out / "attempt.json").write_text(json.dumps(attempt))
+    result = runner.collect(task, out, repo=repo, no_sandbox=True)
+    assert result["attempt_minutes"] == "unknown"
+    assert result["over_max_minutes"] == "unknown"
+    assert result["duration_source"] == "unknown"
+
+
+def test_a_forged_prepared_epoch_loses_to_the_runner_s_record(
+    project: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    record = json.loads(runner._prepare_record(out).read_text())
+    record["prepared_epoch"] -= 2 * 3600  # the attempt really started two hours ago
+    runner._prepare_record(out).write_text(json.dumps(record))
+    _attempt(out)
+    attempt = json.loads((out / "attempt.json").read_text())
+    attempt["prepared_epoch"] = time.time()  # claims it has just started
+    (out / "attempt.json").write_text(json.dumps(attempt))
+    result = runner.collect(task, out, repo=repo, no_sandbox=True)
+    assert result["duration_source"] == "runner"
+    assert result["attempt_minutes"] >= 120
+    assert result["over_max_minutes"] is True  # max_minutes = 60
+    assert not runner._prepare_record(out).exists()  # removed once collected
+
+
+def test_without_a_record_a_valid_prepared_epoch_is_labelled_as_claimed(
+    project: tuple[Path, Path, str], tmp_path: Path, _state_dir: Path
+) -> None:
+    repo, task, _ = project
+    out = tmp_path / "out"
+    runner.prepare(task, out, repo)
+    _attempt(out)
+    shutil.rmtree(_state_dir)
+    result = runner.collect(task, out, repo=repo, no_sandbox=True)
+    assert result["duration_source"] == "attempt.json"
+    assert isinstance(result["attempt_minutes"], float)

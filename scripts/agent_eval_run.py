@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import math
 import json
 import os
 import re
@@ -220,7 +221,56 @@ def prepare(task_dir: Path, out_dir: Path, repo: Path = ROOT) -> Path:
         "prepared_epoch": time.time(),
     }
     (out_dir / "attempt.json").write_text(json.dumps(attempt, indent=2) + "\n", encoding="utf-8")
+    # The runner's own record of when the attempt started, outside OUT_DIR,
+    # which the attempt can write (#985).
+    record = _prepare_record(out_dir)
+    record.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    record.write_text(
+        json.dumps(
+            {"task_digest": attempt["task_digest"], "prepared_epoch": attempt["prepared_epoch"]}
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return worktree
+
+
+def _prepare_record(out_dir: Path) -> Path:
+    """Where ``prepare`` records the start of the attempt in ``out_dir``."""
+    base = os.environ.get("AGENT_EVAL_STATE_DIR") or os.environ.get("XDG_STATE_HOME")
+    state = Path(base) if base else Path.home() / ".local" / "state"
+    if not os.environ.get("AGENT_EVAL_STATE_DIR"):
+        state = state / "pycubrid-agent-eval"
+    key = hashlib.sha256(str(out_dir.resolve()).encode()).hexdigest()
+    return state / f"{key}.json"
+
+
+def _epoch(value: object, now: float) -> float | None:
+    """A start time that is a finite number not later than now, else ``None``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) and 0 < value <= now else None
+
+
+def _started_at(
+    out_dir: Path, attempt: dict, task_digest: str, now: float
+) -> tuple[float | None, str]:
+    """When the attempt started, and where that came from.
+
+    The runner's own record wins. Without it (prepared elsewhere), the
+    attempt-writable ``attempt.json`` value is used only if it is a valid time,
+    and the source says so; otherwise the duration is unknown.
+    """
+    try:
+        record = json.loads(_prepare_record(out_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        record = None
+    if isinstance(record, dict) and record.get("task_digest") == task_digest:
+        started = _epoch(record.get("prepared_epoch"), now)
+        if started is not None:
+            return started, "runner"
+    started = _epoch(attempt.get("prepared_epoch"), now)
+    return (started, "attempt.json") if started is not None else (None, UNKNOWN)
 
 
 def _patch(worktree_fd: int, repo: Path, base_sha: str, scratch: Path) -> str:
@@ -240,21 +290,9 @@ def _patch(worktree_fd: int, repo: Path, base_sha: str, scratch: Path) -> str:
         if entry.name != ".git":
             shutil.rmtree(entry) if entry.is_dir() and not entry.is_symlink() else entry.unlink()
 
-    def copy_regular(source: str, destination: str) -> None:
-        if not stat.S_ISREG(os.lstat(source).st_mode):
-            raise InputError(f"the checkout holds a file that is not a regular file: {source}")
-        shutil.copy2(source, destination)
-
     try:
-        shutil.copytree(
-            f"/proc/self/fd/{worktree_fd}",
-            scratch,
-            symlinks=True,
-            dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns(".git"),
-            copy_function=copy_regular,
-        )
-    except (shutil.Error, OSError) as exc:
+        _copy_held(worktree_fd, scratch)
+    except OSError as exc:
         raise InputError(f"the checkout cannot be copied: {exc}") from exc
     _git("add", "-A", cwd=scratch)
     return _git(
@@ -267,6 +305,46 @@ def _patch(worktree_fd: int, repo: Path, base_sha: str, scratch: Path) -> str:
         base_sha,
         cwd=scratch,
     )
+
+
+def _copy_held(worktree_fd: int, destination: Path) -> None:
+    """Copy the held checkout, without ``.git``, using descriptors only.
+
+    ``os.fwalk`` opens each directory relative to its parent's descriptor and
+    skips one that was swapped for something else, and every file is opened
+    relative to its directory's descriptor without following a link, so a
+    path replaced during the copy can never pull in content from outside the
+    checkout. Symlinks are kept as links; any other non-regular file is
+    unusable input.
+    """
+    for directory, subdirectories, files, directory_fd in os.fwalk(
+        ".", dir_fd=worktree_fd, follow_symlinks=False
+    ):
+        subdirectories[:] = [name for name in subdirectories if name != ".git"]
+        target = destination / directory
+        target.mkdir(exist_ok=True)
+        for name in files:
+            if name == ".git":
+                continue
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISLNK(info.st_mode):
+                os.symlink(os.readlink(name, dir_fd=directory_fd), target / name)
+                continue
+            source = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+            try:
+                held = os.fstat(source)
+                if not stat.S_ISREG(held.st_mode):
+                    raise InputError(
+                        f"the checkout holds a file that is not a regular file: {directory}/{name}"
+                    )
+                with (
+                    os.fdopen(os.dup(source), "rb") as reader,
+                    open(target / name, "xb") as writer,
+                ):
+                    shutil.copyfileobj(reader, writer)
+                os.chmod(target / name, stat.S_IMODE(held.st_mode))
+            finally:
+                os.close(source)
 
 
 def _sections(patch: str, keep: str) -> str:
@@ -714,8 +792,15 @@ def _collect(
         shutil.rmtree(scratch, ignore_errors=True)
 
     grade_text = agent_eval.dumps(grade)
-    minutes = round((started - attempt.get("prepared_epoch", started)) / 60, 1)
+    began, duration_source = _started_at(out_dir, attempt, task_digest, started)
+    minutes: float | str = UNKNOWN if began is None else round((started - began) / 60, 1)
     max_minutes = task.get("limits", {}).get("max_minutes")
+    if max_minutes is None:
+        over: bool | str = False
+    elif isinstance(minutes, str):
+        over = UNKNOWN  # never hidden as False
+    else:
+        over = minutes > max_minutes
     checks = grade["checks"]
     result = {
         "format": RUNNER_VERSION,
@@ -727,7 +812,8 @@ def _collect(
         "prepared_at": str(attempt.get("prepared_at", UNKNOWN)),
         "collected_at": _now(),
         "attempt_minutes": minutes,
-        "over_max_minutes": max_minutes is not None and minutes > max_minutes,
+        "over_max_minutes": over,
+        "duration_source": duration_source,
         "sandbox": "none" if sandbox is None else "namespaces",
         "environment": sorted(env),
         "python": subprocess.run(
@@ -773,6 +859,7 @@ def _collect(
     _publish(out_fd, "logs", logs)
     _write_at(out_fd, "grade.json", grade_text.encode())
     _write_at(out_fd, "run.json", (json.dumps(result, indent=2, sort_keys=True) + "\n").encode())
+    _prepare_record(out_dir).unlink(missing_ok=True)
     return result
 
 

@@ -85,7 +85,12 @@ The optional `--meta` file holds what the operator observed: `model`,
 `model_version`, `tool`, `tool_version`, `prompt_id` (default: the task ID),
 `seed`, `tokens`, `cost` and `human_review_actions`. Anything missing is
 recorded as `"unknown"`, never guessed. `run.json` adds the base commit, the
-task digest, the attempt's duration and whether it went over `max_minutes`,
+task digest, the attempt's duration and whether it went over `max_minutes`
+(`duration_source` says where the start time came from: `runner`, the
+record `prepare` keeps outside `OUT_DIR` in
+`$XDG_STATE_HOME/pycubrid-agent-eval/` (by default under `~/.local/state`);
+`attempt.json` when that record is missing, used only if it is a finite time
+not in the future; otherwise both are `"unknown"`, never a hidden `false`),
 whether the attempt moved `HEAD` (read from `.git/HEAD`), the verdict and failed checks, the commands
 that passed, the out-of-scope edits, the regression escapes (regression-test
 and acceptance failures), the human review actions including every manual
@@ -155,9 +160,11 @@ success rate, and nothing is scored in CI.
   opens `OUT_DIR`, `worktree` and `worktree/.git` as held directory
   descriptors without following links, reads `attempt.json`, `report.json`
   and `.git/HEAD` only as size-capped regular files (a symlink or a FIFO is
-  unusable input), copies the checkout through its held descriptor and
-  refuses it if `worktree` was replaced meanwhile, copies only regular files
-  and symlinks (as links) from it, refuses an existing `candidate`, `logs`,
+  unusable input), copies the checkout with `os.fwalk` from its held
+  descriptor, opening every directory and file relative to its parent's
+  descriptor without following links (so a path swapped during the copy
+  never pulls in outside content), and refuses it if `worktree` was replaced
+  meanwhile; it copies only regular files and symlinks (as links), refuses an existing `candidate`, `logs`,
   `grade.json` or `run.json`, and writes those through held descriptors,
   creating each entry without following or replacing anything. These guard
   against planted links, not against a process that is still running and
