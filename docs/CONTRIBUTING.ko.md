@@ -268,7 +268,10 @@ refactor(compiler)!: drop legacy LIMIT rendering
 선별한 Unreleased·Upgrade notes는 CHANGELOG에서 계속 검토합니다.
 후보의 노트를 편집하기 전에 `autorelease: review`로 동결하고, 봇이 마지막으로
 갱신한 head에서 CI를 시작하세요.
-[`RELEASING.md`](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 참고하세요.
+[`RELEASING.md`](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 참고하세요. 릴리스 PR을
+병합하기 전에 메인테이너는
+[릴리스 검토 체크리스트](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md#release-review-checklist)를
+완료합니다.
 
 ## 이슈 보고
 

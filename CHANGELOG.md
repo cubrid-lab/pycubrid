@@ -65,6 +65,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **A release review checklist (#960)** — `RELEASING.md` now has a checklist to complete
+  before merging a release PR: the candidate's base and final head, each required check's
+  state at that head (missing, approval required, running, failed or cancelled, successful;
+  only successful counts), the review evidence, the impact classification under
+  `RELEASE_POLICY.md`, and whether there is a user-facing reason to publish (a candidate may
+  stay pending; a documentation-only release stays possible). A release counts as complete
+  only when the publisher summary reports `published and verified`, recorded from that
+  summary. The "start CI after the final bot update" step now describes what happened for
+  candidate #931 (runs waiting as `action_required`, no check runs) instead of saying that
+  bot pushes start no workflow. `CONTRIBUTING.md`, its Korean page and `AGENTS.md` point to
+  the checklist. The release workflows and gates are unchanged.
+
 - **The documentation site says it is built from `main` (#960)** — every page of the site,
   English and Korean, now opens with a notice that it is development documentation for the
   `main` branch, built at a linked commit (from `GITHUB_SHA` in GitHub Actions; a local build
