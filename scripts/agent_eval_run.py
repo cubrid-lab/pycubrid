@@ -633,7 +633,7 @@ def collect(
 def _write_new(path: Path, text: str) -> None:
     """Create ``path``; never follow or replace something already there."""
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     except FileExistsError as exc:
         raise InputError(f"{path}: already exists") from exc
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
