@@ -145,12 +145,23 @@ it is neither a bug nor approval to release.
    a documentation-only release is still possible when it helps users (for
    example, corrected install or safety instructions).
 
-After the merge, the release is complete only when the `publish-pypi.yml`
-summary of the run at the merge SHA reports `published and verified`. Record
-from that summary (do not rebuild or re-verify by another tool): the tag and
-the SHA it points at, the exact package version, the verified wheel file name
-and SHA-256, the PyPI and GitHub Release URLs, and the cookbook verification
-run. Any other final state is not a completed release: follow
+After the merge, the release is complete when the publisher evidence shows
+both publication and post-publication verification for the same tag, release
+SHA and version:
+
+- the `publish-pypi.yml` run at the merge SHA (or a `resume` dispatch for that
+  tag) reports `published and verified`; or
+- that run reports `published; post-release verification failed`, and a later
+  [`verify-only` dispatch](#recovery-dispatch-the-only-manual-entry-point) for
+  the same tag reports `verification only of vX.Y.Z: success`. Such a recovery
+  run can come from a newer workflow commit; its summary has no artifact
+  hashes or publication URLs, so pair it with the original run's.
+
+Record from those summaries (do not rebuild or re-verify by another tool):
+the tag and the SHA it points at, the exact package version, the verified
+wheel file name and SHA-256 and the PyPI and GitHub Release URLs (from the
+publishing run), and the successful cookbook verification run. Any other
+final state is not a completed release: follow
 [Failure and recovery](#failure-and-recovery). A version that will not be
 published is recorded there as abandoned, never as released. `main` showing a
 different version than the latest published release is a normal development
