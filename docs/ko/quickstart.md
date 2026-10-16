@@ -6,7 +6,8 @@ pycubrid는 Python 프로그램이 CUBRID 데이터베이스와 대화할 때 �
 데이터베이스 자체인 CUBRID 서버는 별도의 프로그램이며, 어딘가에서 이미 실행되고 있어야 합니다.
 pycubrid를 설치한다고 CUBRID가 설치되거나 데이터베이스가 만들어지지는 않습니다.
 
-이 페이지는 빈 폴더에서 시작해 첫 쿼리를 실행하고 첫 행을 저장하기까지 안내합니다. DB-API,
+이 페이지는 빈 폴더에서 시작해 데이터베이스와 Python을 준비합니다. [첫 쿼리](first-query.md)는 별도
+단원에서 다루고, 이 페이지는 그다음 첫 행 저장으로 이어집니다. DB-API,
 CUBRID 통신 프로토콜, 이 프로젝트의 CI를 몰라도 따라 할 수 있으며, 그런 내용은
 [참고 문서](#다음-단계)에 있습니다.
 
@@ -70,56 +71,22 @@ python -c "import pycubrid; print(pycubrid.__version__)"
 ```
 
 마지막 명령은 설치된 버전(예: `1.13.0`)을 출력합니다. 아래의 모든 `python` 명령은 가상 환경이
-활성화된 이 터미널에서 실행하세요.
+활성화된 이 터미널에서 실행하세요. 다음으로 [첫 쿼리를 실행하세요](first-query.md).
 
 ---
 
 ## 2단계: 첫 쿼리 실행하기
 
-같은 폴더에 `first_query.py` 파일을 만듭니다.
-
-```python
-import pycubrid
-
-# Connection settings for the disposable local lab. With your own database,
-# replace them with the values from your administrator.
-conn = pycubrid.connect(
-    host="localhost",  # the machine that runs the CUBRID broker
-    port=33000,  # the broker port (33000 is the CUBRID default)
-    database="testdb",  # the database name
-    user="dba",
-    password="",
-)
-
-cur = conn.cursor()  # a cursor sends SQL and reads results
-cur.execute("SELECT 1 + 1")  # execute sends one SQL statement
-print(cur.fetchone())  # fetchone reads one result row
-
-cur.close()
-conn.close()
-```
-
-**연결**(connection)은 데이터베이스와의 세션입니다. **커서**(cursor)는 연결 안에서 일하며,
-`execute`는 SQL 문 하나를 보내고 `fetchone`은 결과에서 한 행을 읽습니다. 파일을 실행하세요.
-
-```bash
-python first_query.py
-```
-
-값 하나가 든 행 하나가 출력됩니다.
-
-```text
-(2,)
-```
-
-오류가 나면 [첫 연결이 실패할 때](#첫-연결이-실패할-때)를 보세요.
+첫 쿼리는 별도 단원에서 다룹니다. [첫 쿼리 실행하기](first-query.md)에서 `first_query.py`를 만들어
+실행하고, 그 프로그램이 쓰는 연결과 커서를 설명합니다. 그 프로그램이 `(2,)`를 출력하면 3단계로
+이어 가세요.
 
 ---
 
 ## 3단계: 행을 저장하고 다시 읽기
 
-이 단계에는 2단계에서 성공한 연결 값이 필요합니다. 같은 다섯 가지 연결 값으로
-`first_saved_row.py`를 만듭니다.
+이 단계에는 [첫 쿼리 실행하기](first-query.md)에서 성공한 연결 값이 필요합니다. 같은 폴더에 같은
+다섯 가지 연결 값으로 `first_saved_row.py`를 만듭니다.
 
 ```python
 import pycubrid

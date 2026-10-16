@@ -18,6 +18,7 @@ ROOT_INDEX = DOCS_DIR.parent / "llms.txt"
 DOC_FILES = [
     "index.md",
     "quickstart.md",
+    "first-query.md",
     "CONNECTION.md",
     "API_REFERENCE.md",
     "TYPES.md",

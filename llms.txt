@@ -21,7 +21,8 @@ Key facts:
 
 ## Docs
 
-- [Your First CUBRID Connection](https://cubrid-lab.github.io/pycubrid/quickstart/): Prepare a database (your own or a disposable Docker lab), first query, first saved row, first-connection problems
+- [Your First CUBRID Connection](https://cubrid-lab.github.io/pycubrid/quickstart/): Prepare a database (your own or a disposable Docker lab) and Python, first saved row, first-connection problems
+- [Run Your First Query](https://cubrid-lab.github.io/pycubrid/first-query/): Connect, execute one statement, read one row, close; the connect timeout default
 - [Connection Guide](https://cubrid-lab.github.io/pycubrid/CONNECTION/): `connect()` parameters, TLS, context managers, autocommit, broker handshake, pooling
 - [API Reference](https://cubrid-lab.github.io/pycubrid/API_REFERENCE/): `connect()`, `pycubrid.aio`, Connection, Cursor, Lob, exceptions, type objects, the explicit native compatibility subset
 - [Parameter Binding](https://cubrid-lab.github.io/pycubrid/PARAMETER_BINDING/): Authoritative driver-side binding contract, type-to-literal mapping, escaping and limits

@@ -15,6 +15,7 @@ theme:
     - navigation.sections
     - navigation.expand
     - navigation.top
+    - navigation.footer
     - content.code.copy
     - search.highlight
     - search.suggest
@@ -38,6 +39,7 @@ nav:
   - Home: index.md
   - Start here:
       - Your First Connection: quickstart.md
+      - Run Your First Query: first-query.md
       - Troubleshooting: TROUBLESHOOTING.md
   - Usage:
       - Examples: EXAMPLES.md
@@ -70,6 +72,7 @@ nav:
       - 홈: ko/index.md
       - 여기서 시작:
           - 처음으로 연결하기: ko/quickstart.md
+          - 첫 쿼리 실행하기: ko/first-query.md
           - 문제 해결: ko/TROUBLESHOOTING.md
       - 사용:
           - 사용 예제: ko/EXAMPLES.md

@@ -5,8 +5,9 @@ CUBRID database. The database itself is a separate program, the CUBRID server,
 that must already be running somewhere. Installing pycubrid does not install
 CUBRID or create a database.
 
-This page takes you from an empty folder to a first query and a first saved
-row. You do not need to know DB-API, the CUBRID wire protocol or this project's
+This page prepares a database and Python, starting from an empty folder. The
+[first query](first-query.md) has its own lesson, and this page then continues
+with a first saved row. You do not need to know DB-API, the CUBRID wire protocol or this project's
 CI to follow it; those live in the [reference pages](#next-steps).
 
 ---
@@ -77,57 +78,23 @@ python -c "import pycubrid; print(pycubrid.__version__)"
 
 The last command prints the installed version, for example `1.13.0`. Run every
 `python` command below in this same terminal, with the virtual environment
-active.
+active. Next, [run your first query](first-query.md).
 
 ---
 
 ## Step 2: Run your first query
 
-Create a file named `first_query.py` in the same folder:
-
-```python
-import pycubrid
-
-# Connection settings for the disposable local lab. With your own database,
-# replace them with the values from your administrator.
-conn = pycubrid.connect(
-    host="localhost",  # the machine that runs the CUBRID broker
-    port=33000,  # the broker port (33000 is the CUBRID default)
-    database="testdb",  # the database name
-    user="dba",
-    password="",
-)
-
-cur = conn.cursor()  # a cursor sends SQL and reads results
-cur.execute("SELECT 1 + 1")  # execute sends one SQL statement
-print(cur.fetchone())  # fetchone reads one result row
-
-cur.close()
-conn.close()
-```
-
-A **connection** is your session with the database. A **cursor** works inside
-a connection: `execute` sends a SQL statement and `fetchone` reads one row of
-the result. Run the file:
-
-```bash
-python first_query.py
-```
-
-It prints one row with one value:
-
-```text
-(2,)
-```
-
-If you see an error instead, go to [If the first connection fails](#if-the-first-connection-fails).
+The first query has its own lesson: [Run Your First Query](first-query.md)
+creates `first_query.py`, runs it and explains the connection and cursor it
+uses. Continue with Step 3 when that program prints `(2,)`.
 
 ---
 
 ## Step 3: Save a row and read it back
 
-This step needs the connection that worked in Step 2. Create
-`first_saved_row.py` with the same five connection values:
+This step needs the connection that worked in
+[Run Your First Query](first-query.md). Create `first_saved_row.py` in the same
+folder, with the same five connection values:
 
 ```python
 import pycubrid

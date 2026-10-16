@@ -65,6 +65,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **The first query is its own lesson (#958)** — `docs/first-query.md` ("Run Your First
+  Query", Korean `docs/ko/first-query.md`) is the first of the focused lessons split from the
+  quickstart: it states what the reader needs from the preparation steps, then gives
+  `first_query.py`, the command, the expected `(2,)`, what the connection, cursor, `execute()`
+  and `fetchone()` did, the default absence of a connect deadline with a link to
+  `connect_timeout`, and the next step. The program is unchanged. `docs/quickstart.md` Step 2
+  is now a short landing that links to the lesson; every quickstart heading and anchor stays.
+  `docs/DEVELOPMENT.md` gains a Documentation Structure map that records each affected page's
+  reader, question, previous and next page and the decision for it (keep, split or move in
+  navigation), so the beginner path, the user reference and the development material keep
+  distinct purposes. The site navigation lists the new lesson after the quickstart in both
+  languages, and every page now shows previous and next links in its footer.
+
 - **A first-connection path for CUBRID beginners (#955)** — `docs/quickstart.md` ("Your
   First CUBRID Connection") now starts by explaining that pycubrid is a connector to a
   separately running CUBRID server, then offers two prerequisites: the five values to

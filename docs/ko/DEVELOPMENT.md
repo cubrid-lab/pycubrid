@@ -20,6 +20,7 @@ pycubrid를 설정·테스트·기여하는 데 필요한 모든 것.
 - [코드 스타일](#코드-스타일)
 - [Makefile 명령](#makefile-명령)
 - [CI/CD](#cicd)
+- [문서 구조](#문서-구조)
 - [아키텍처 개요](#아키텍처-개요)
 - [새 패킷 타입 추가](#새-패킷-타입-추가)
 - [새 데이터 타입 추가](#새-데이터-타입-추가)
@@ -874,6 +875,37 @@ Python 3.10을 포함한 2 OS × 5 Python 오프라인 매트릭스와 pip 캐�
 - 저장소 도구 테스트가 실패·취소된 합성 결과로 `CI Gate`를 실행합니다.
 
 의존성 설치는 이후 uv로 바뀌었습니다([의존성 설치](CI_POLICY.md#의존성-설치)).
+
+---
+
+## 문서 구조
+
+이 사이트는 세 부류의 독자를 위한 것이며, 각 페이지는 다음 역할 중 하나를 맡습니다.
+
+- **학습 경로**(여기서 시작): 처음 쓰는 사람이 하나의 이어지는 예제로, 단원마다 동작 하나씩 차례로
+  배웁니다.
+- **사용자 참고 문서**(사용, 참고): 경험 있는 사용자가 옵션, API 계약, 타입, 지원 범위를 찾아봅니다.
+- **개발 자료**(프로젝트): 기여자가 프로토콜, 설계, 검증 근거를 찾습니다.
+
+아래 표는 영향을 받는 각 페이지의 독자, 그 페이지가 답하는 질문, 앞뒤에 오는 페이지, 결정 사항을
+기록합니다. "원본"은 직접 편집하는 Markdown 파일이고, 사이트 URL은 사이트 루트 기준입니다.
+`docs/ko/<page>`는 같은 구조로 `ko/<page>/`에서 제공됩니다. `docs/llms-full.txt`와 루트의
+`llms.txt`는 `scripts/generate_llms_full.py`가 생성하므로 직접 편집하지 마세요.
+
+| 원본과 사이트 URL | 독자와 질문 | 앞 페이지 | 다음 페이지 | 결정 |
+|---|---|---|---|---|
+| `docs/index.md`, `/` | 누구나: pycubrid는 무엇이고 어디서 시작하나요? | 없음 | `quickstart.md` | 유지합니다. |
+| `README.md`(저장소와 PyPI 페이지, 사이트에는 빌드되지 않음) | 방문자: 어떤 프로젝트인가요? | 없음 | `quickstart.md` | 유지합니다. 시작 페이지로 가는 링크는 그대로 유효합니다. |
+| `docs/quickstart.md`, `/quickstart/` | 처음 쓰는 사람: 데이터베이스와 Python을 어떻게 준비하나요? | Python 3.11 이상, 그리고 Docker 또는 기존 데이터베이스 | `first-query.md` | 하나뿐인 표준 시작 페이지로 유지합니다. 2단계는 첫 쿼리 단원으로 안내하는 짧은 안내 구역이고, 3단계와 정리하기는 다음에 단원으로 나눕니다. 기존 제목을 모두 남겨 예전 딥 링크가 계속 도착합니다. |
+| `docs/first-query.md`, `/first-query/` | 처음 쓰는 사람: 연결하고, 문장 하나를 실행하고, 행 하나를 읽으려면? | `quickstart.md` 1단계 | `quickstart.md` 3단계 | 새 단원입니다. |
+| 행 하나 저장, 커밋과 롤백, 안전하게 마치기(예정된 단원) | 처음 쓰는 사람: 데이터를 저장하고, 되돌리고, 만든 것을 정리하려면? | 앞 단원 | 다음 단원 | `quickstart.md` 3단계와 정리하기에서 나누며, 테이블 소유권 확인과 경고는 그대로 둡니다. |
+| `docs/EXAMPLES.md`, `/EXAMPLES/` | 사용자: 흔한 작업을 어떻게 하나요? | 단원들 | 참고 문서 | 사용에 유지합니다. |
+| `docs/CONNECTION.md`, `/CONNECTION/` | 사용자: 어떤 연결 옵션, URL, 타임아웃, TLS 설정이 있나요? | 단원들 | `API_REFERENCE.md` | 파일과 앵커를 유지하고 단원에서 해당 절로 링크합니다. 탐색에서는 참고로 옮깁니다. |
+| `docs/PARAMETER_BINDING.md`, `/PARAMETER_BINDING/` | 사용자: 값을 어떻게 안전하게 전달하고, 무엇은 보장되지 않나요? | 단원들 | `TYPES.md` | 유지합니다. 참고에 두고 값을 안전하게 전달하기라는 이름을 붙입니다. |
+| `docs/TYPES.md`, `docs/API_REFERENCE.md`, `docs/SUPPORT_MATRIX.md` | 사용자: 어떤 타입, 호출, 버전이 지원되나요? | 어느 페이지든 | 어느 페이지든 | 참고에 유지합니다. |
+| `docs/TROUBLESHOOTING.md`, `docs/faq.md` | 문제가 생긴 사용자: 이 오류는 무슨 뜻인가요? | 어느 페이지든 | `SECURITY.md`와 이슈 양식의 제보 안내 | 파일을 유지하고 탐색에서 도움말로 묶습니다. |
+| `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | 기여자: 드라이버는 어떻게 동작하고, 무엇이 그 근거인가요? | `DEVELOPMENT.md` | 어느 페이지든 | 파일을 유지하고 탐색에서 참고를 떠나 개발 그룹으로 옮깁니다. |
+| `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | 기여자나 운영자: 어떻게 빌드, 테스트, 측정, 릴리스하나요? | 어느 페이지든 | 어느 페이지든 | 유지합니다. |
 
 ---
 

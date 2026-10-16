@@ -76,8 +76,9 @@ CUBRID database. The database itself is a separate program, the CUBRID server,
 that must already be running somewhere. Installing pycubrid does not install
 CUBRID or create a database.
 
-This page takes you from an empty folder to a first query and a first saved
-row. You do not need to know DB-API, the CUBRID wire protocol or this project's
+This page prepares a database and Python, starting from an empty folder. The
+[first query](first-query.md) has its own lesson, and this page then continues
+with a first saved row. You do not need to know DB-API, the CUBRID wire protocol or this project's
 CI to follow it; those live in the [reference pages](#next-steps).
 
 ---
@@ -148,57 +149,23 @@ python -c "import pycubrid; print(pycubrid.__version__)"
 
 The last command prints the installed version, for example `1.13.0`. Run every
 `python` command below in this same terminal, with the virtual environment
-active.
+active. Next, [run your first query](first-query.md).
 
 ---
 
 ## Step 2: Run your first query
 
-Create a file named `first_query.py` in the same folder:
-
-```python
-import pycubrid
-
-# Connection settings for the disposable local lab. With your own database,
-# replace them with the values from your administrator.
-conn = pycubrid.connect(
-    host="localhost",  # the machine that runs the CUBRID broker
-    port=33000,  # the broker port (33000 is the CUBRID default)
-    database="testdb",  # the database name
-    user="dba",
-    password="",
-)
-
-cur = conn.cursor()  # a cursor sends SQL and reads results
-cur.execute("SELECT 1 + 1")  # execute sends one SQL statement
-print(cur.fetchone())  # fetchone reads one result row
-
-cur.close()
-conn.close()
-```
-
-A **connection** is your session with the database. A **cursor** works inside
-a connection: `execute` sends a SQL statement and `fetchone` reads one row of
-the result. Run the file:
-
-```bash
-python first_query.py
-```
-
-It prints one row with one value:
-
-```text
-(2,)
-```
-
-If you see an error instead, go to [If the first connection fails](#if-the-first-connection-fails).
+The first query has its own lesson: [Run Your First Query](first-query.md)
+creates `first_query.py`, runs it and explains the connection and cursor it
+uses. Continue with Step 3 when that program prints `(2,)`.
 
 ---
 
 ## Step 3: Save a row and read it back
 
-This step needs the connection that worked in Step 2. Create
-`first_saved_row.py` with the same five connection values:
+This step needs the connection that worked in
+[Run Your First Query](first-query.md). Create `first_saved_row.py` in the same
+folder, with the same five connection values:
 
 ```python
 import pycubrid
@@ -356,6 +323,106 @@ This is a recorded example, not a full compatibility or performance certificate.
 - Reference: [API Reference](API_REFERENCE.md), [Type Mapping](TYPES.md),
   [Parameter Binding](PARAMETER_BINDING.md), [Support Matrix](SUPPORT_MATRIX.md)
   and, for the wire protocol itself, [Protocol](PROTOCOL.md).
+
+============================================================
+File: first-query.md
+============================================================
+
+# Run Your First Query
+
+This lesson connects to CUBRID, sends one SQL statement and reads the one row
+it returns. It is the lesson that follows
+[Your First CUBRID Connection](quickstart.md), which prepares the database and
+Python.
+
+---
+
+## Before you start
+
+You need what the preparation lesson set up:
+
+- a CUBRID database that answers: the Docker lab printed `CUBRID is ready`
+  ([Before you start](quickstart.md#before-you-start)), or you have the five
+  values for your own database;
+- pycubrid installed in a virtual environment
+  ([Step 1](quickstart.md#step-1-install-pycubrid-in-a-virtual-environment)).
+
+Work in the same folder as Step 1. In a new terminal, activate the virtual
+environment again with `source .venv/bin/activate`. Each step is a file that you
+run from the terminal, so nothing carries over from an earlier Python session.
+
+---
+
+## Write the program
+
+Create a file named `first_query.py` in that folder:
+
+```python
+import pycubrid
+
+# Connection settings for the disposable local lab. With your own database,
+# replace them with the values from your administrator.
+conn = pycubrid.connect(
+    host="localhost",  # the machine that runs the CUBRID broker
+    port=33000,  # the broker port (33000 is the CUBRID default)
+    database="testdb",  # the database name
+    user="dba",
+    password="",
+)
+
+cur = conn.cursor()  # a cursor sends SQL and reads results
+cur.execute("SELECT 1 + 1")  # execute sends one SQL statement
+print(cur.fetchone())  # fetchone reads one result row
+
+cur.close()
+conn.close()
+```
+
+---
+
+## Run it
+
+```bash
+python first_query.py
+```
+
+It prints one row with one value:
+
+```text
+(2,)
+```
+
+If you see an error instead, find its last line in
+[If the first connection fails](quickstart.md#if-the-first-connection-fails).
+
+---
+
+## What the program did
+
+- `pycubrid.connect()` opens a **connection**, your session with the database.
+  It needs the five values: host, port, database, user and password.
+- `conn.cursor()` creates a **cursor**. A cursor works inside a connection: it
+  sends SQL statements and reads their results.
+- `cur.execute()` sends one SQL statement to the server.
+- `cur.fetchone()` reads one row of the result. A row is a tuple, so the single
+  value `2` prints as `(2,)`.
+- `close()` ends the cursor and then the connection. Close what you opened, so
+  the server does not keep an idle session for you.
+
+By default `connect()` sets no time limit of its own on reaching the server. If
+a firewall silently drops the connection, the call waits until the operating
+system gives up. With a database on another machine, add for example
+`connect_timeout=10` to the `connect()` call; the
+[Connection Guide](CONNECTION.md#custom-port-and-timeout) describes it and the
+other timeouts.
+
+---
+
+## Next step
+
+The first query only read a computed value. Next,
+[save a row and read it back](quickstart.md#step-3-save-a-row-and-read-it-back),
+which creates a small table, commits one row and rolls back another.
 
 ============================================================
 File: CONNECTION.md
@@ -9627,6 +9694,7 @@ Everything you need to set up, test, and contribute to pycubrid.
 - [Code Style](#code-style)
 - [Makefile Commands](#makefile-commands)
 - [CI/CD](#cicd)
+- [Documentation Structure](#documentation-structure)
 - [Architecture Overview](#architecture-overview)
 - [Adding a New Packet Type](#adding-a-new-packet-type)
 - [Adding a New Data Type](#adding-a-new-data-type)
@@ -10551,6 +10619,41 @@ history. Two of its outcomes still apply:
 
 Dependency installation has since moved to uv
 ([Dependency installation](CI_POLICY.md#dependency-installation)).
+
+---
+
+## Documentation Structure
+
+The site serves three readers, and each page has one of these roles:
+
+- **Learning path** (Start here): a newcomer learns one operation per lesson,
+  in order, with one continuing example.
+- **User reference** (Usage, Reference): an experienced user looks up an option,
+  an API contract, a type or a support limit.
+- **Development material** (Project): a contributor finds protocol, design and
+  verification evidence.
+
+This map records each affected page's reader, the question it answers, what
+comes before and after it, and the decision for it. "Source" is the Markdown
+file you edit; the site URL is relative to the site root, and `docs/ko/<page>`
+is served at `ko/<page>/` with the same structure. `docs/llms-full.txt` and the
+root `llms.txt` are generated by `scripts/generate_llms_full.py`: never edit
+them by hand.
+
+| Source and site URL | Reader and question | Before it | After it | Decision |
+|---|---|---|---|---|
+| `docs/index.md`, `/` | Anyone: what is pycubrid and where do I start? | Nothing | `quickstart.md` | Keep. |
+| `README.md` (repository and PyPI page, not built into the site) | A visitor: what is this project? | Nothing | `quickstart.md` | Keep; its links to the start page stay valid. |
+| `docs/quickstart.md`, `/quickstart/` | Newcomer: how do I get a database and Python ready? | Python 3.11 or later, and Docker or an existing database | `first-query.md` | Keep as the single canonical start. Step 2 is a short landing that links to the first-query lesson; Step 3 and its cleanup are split into lessons next. Every existing heading stays, so old deep links still land. |
+| `docs/first-query.md`, `/first-query/` | Newcomer: how do I connect, execute one statement and read one row? | `quickstart.md` Step 1 | `quickstart.md` Step 3 | New lesson. |
+| Saving one row, commit and rollback, finishing safely (planned lessons) | Newcomer: how do I save data, undo it, and clean up what I created? | The previous lesson | The next lesson | Split from `quickstart.md` Step 3 and its cleanup, with the same table ownership check and warnings. |
+| `docs/EXAMPLES.md`, `/EXAMPLES/` | User: how do I do a common task? | The lessons | The reference pages | Keep in Usage. |
+| `docs/CONNECTION.md`, `/CONNECTION/` | User: which connection options, URLs, timeouts and TLS settings exist? | The lessons | `API_REFERENCE.md` | Keep the file and its anchors; the lessons link its sections. Moves to Reference in navigation. |
+| `docs/PARAMETER_BINDING.md`, `/PARAMETER_BINDING/` | User: how are values passed safely, and what is not guaranteed? | The lessons | `TYPES.md` | Keep; Reference, labelled as passing values safely. |
+| `docs/TYPES.md`, `docs/API_REFERENCE.md`, `docs/SUPPORT_MATRIX.md` | User: which type, call or version is supported? | Any page | Any page | Keep in Reference. |
+| `docs/TROUBLESHOOTING.md`, `docs/faq.md` | User with a problem: what does this error mean? | Any page | The reporting instructions in `SECURITY.md` and the issue forms | Keep the files; group them as Help in navigation. |
+| `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | Contributor: how does the driver work, and what evidence backs it? | `DEVELOPMENT.md` | Any page | Keep the files; move in navigation from Reference to the development group. |
+| `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | Contributor or operator: how do I build, test, measure and release? | Any page | Any page | Keep. |
 
 ---
 
