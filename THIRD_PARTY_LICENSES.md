@@ -34,13 +34,17 @@ below is generated on Linux, where the conditional dependency is not installed.
   observed behaviour (`official_api_inventory.json`,
   `official_differential_claims.json`, `docs-reason-events.json`), byte values
   observed by running CCI (`cci_collection_golden.json`) and self-generated TLS
-  test certificates (`tests/fixtures/tls/generate.sh`). No upstream source file
-  is copied into the repository.
+  test certificates (`tests/fixtures/tls/generate.sh`). These fixtures contain
+  no copied upstream source.
 - **Acknowledgments**: `NOTICE` records the reference implementations consulted
   while writing pycubrid (node-cubrid, the cubrid-python test suite). pycubrid is
   an independent implementation and vendors none of their code.
 - **Development and test dependencies** are installed by contributors from
-  PyPI. pycubrid uses them as tools; it does not bundle or redistribute them.
+  PyPI. The repository also carries a derived MIT-licensed PyYAML 6.0.3 pure
+  Python wheel for CI on Python 3.15, with its upstream licence inside the wheel.
+  Its input/output hashes and reproduction steps are recorded in
+  [.github/ci-wheels/README.md](.github/ci-wheels/README.md). It is excluded from
+  the published wheel and sdist.
 
 ## License categories
 
@@ -108,7 +112,10 @@ remains authoritative.
   resolved the same 63 and 19 package names, so the tables were not regenerated.
   #971 added `jinja2` to the `test` group; a fresh `dev` install on 2026-10-16
   (CPython 3.12, uv) resolved 65 names, and only the two new rows, `Jinja2` and
-  `MarkupSafe`, were copied from that run's generator output:
+  `MarkupSafe`, were copied from that run's generator output.
+  On 15 October 2026, the locked build group added setuptools 84.0.0 and wheel
+  0.48.0 to `dev`; their PyPI metadata declares MIT. Those two rows extend the
+  existing snapshot; the remaining transitive rows have not been regenerated:
 
 ```bash
 uv venv -p 3.12 /tmp/tpl-dev
@@ -131,7 +138,7 @@ they are authoritative in `pyproject.toml`, so a routine pin bump does not
 require regenerating this snapshot. Transitive rows are kept accurate by
 regenerating the tables, not by the test.
 
-## Development / test dependencies: `dev` dependency group (65 packages, not distributed)
+## Development / test dependencies: `dev` dependency group (67 packages, not distributed)
 
 | Name | Version | License | Category | URL |
 |---|---|---|---|---|
@@ -190,12 +197,14 @@ regenerating the tables, not by the test.
 | SecretStorage | 3.5.0 | BSD-3-Clause | Permissive | https://github.com/mitya57/secretstorage |
 | sortedcontainers | 2.4.0 | Apache Software License | Permissive | http://www.grantjenks.com/docs/sortedcontainers/ |
 | stevedore | 5.9.1 | Apache-2.0 | Permissive | https://docs.openstack.org/stevedore |
+| setuptools | 84.0.0 | MIT | Permissive | https://setuptools.pypa.io/ |
 | tomli_w | 1.2.0 | MIT License | Permissive | https://github.com/hukkin/tomli-w |
 | tox | 4.64.10 | MIT | Permissive | https://tox.wiki |
 | twine | 7.0.0 | Apache-2.0 | Permissive | https://twine.readthedocs.io/ |
 | typing_extensions | 4.16.0 | PSF-2.0 | Permissive | https://github.com/python/typing_extensions |
 | urllib3 | 2.8.0 | MIT | Permissive | - |
 | virtualenv | 21.14.6 | MIT | Permissive | https://github.com/pypa/virtualenv |
+| wheel | 0.48.0 | MIT | Permissive | https://wheel.readthedocs.io/ |
 | certifi | 2026.7.22 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/certifi/python-certifi |
 | hypothesis | 6.168.5 | MPL-2.0 | Weak copyleft (MPL) | https://hypothesis.works |
 | pathspec | 1.1.1 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/cpburnz/python-pathspec |

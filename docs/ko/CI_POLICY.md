@@ -332,42 +332,45 @@ cookbook 스모크 테스트가 여기에 해당합니다. 이 테스트는 모�
 
 ## 의존성 설치
 
-`ci.yml`과 `integration-full.yml`은 uv로 의존성을 설치합니다(#759). 각 Python 잡은
-커밋 SHA로 고정한 `astral-sh/setup-uv`를 실행하고 uv 자체도 고정합니다
-(`version: "0.12.17"`). 그다음 `uv pip install --system`으로 `actions/setup-python`
-인터프리터에 설치하고, 결과를 `uv pip freeze --system`으로 기록합니다. setup-uv에는
-setup-python과 같은 `python-version` 지정(예: `"3.12"` 또는 매트릭스 값)을 넘기므로,
-캐시 키에는 러너 이미지마다 달라 키 불일치를 일으키는 `uv python find`의 패치 버전
-대신 잡의 Python 마이너 버전이 들어갑니다. `pyproject.toml` 해시와 잡별
-`cache-suffix`를 함께 써서 잡과 Python 버전마다 별도 캐시를 유지합니다. 같은 입력이
-`UV_PYTHON`을 내보내며, `uv pip install --system`은 `PATH`에서 처음 일치하는
-인터프리터, 즉 setup-python의 인터프리터를 고릅니다. 일상 CI는 항상 캐시하고(`enable-cache: true`),
-`integration-full.yml`은 `auto`를 사용하며, 이는 태그 푸시, `release`,
-`pull_request_target`, `workflow_run` 이벤트에서만 캐시를 끕니다. 따라서 릴리스 경로
-(`main` 푸시에서 실행되는 `publish-pypi.yml` 또는 복구용 수동 실행)는 여전히 캐시를
-복원합니다. uv 캐시에는 내려받거나 빌드한 wheel만 들어 있고 매 실행이 같은 제약에서
-다시 해석하므로, 캐시는 설치를 빠르게 할 뿐 해석된 버전을 바꿀 수 없어 안전합니다. 바뀌는 것은 설치 도구뿐입니다. 해석은 같은
-`pyproject.toml` 제약을 따릅니다. 전환 전에 Python 3.12에서 `.[dev]`를 pip와 uv로
-해석한 결과는 같은 63개 패키지와 버전이었습니다(PEP 503 이름 정규화 후). 패키징
-스모크 테스트는 일회용 가상 환경에서 일반 `pip`를 유지합니다. 빌드된 wheel과 sdist가
-최종 사용자가 쓰는 도구로 설치되는지 증명하기 때문입니다. `python-canary.yml`도
-프리뷰 인터프리터에서 `pip`를 유지합니다. `tests/test_workflow_installs.py`는 고정된
-uv 설정, 버전 기록, 그리고 이 워크플로들에 다른 `pip install`이 남지 않았는지를
-검증합니다.
+`ci.yml`, `integration-full.yml`, `docs.yml`은 커밋으로 고정한 setup-uv와 uv
+`0.12.17`을 사용합니다. 잡은 `uv.lock`에서 선택한 의존성 그룹을
+`--locked --no-build --no-emit-project`로 내보내며, 프로젝트를 설치하는 잡에서는 해당 런타임
+의존성을 유지합니다. 내보내기 단계도 오래된 잠금 파일을 거부하기 전에 소스 메타데이터를
+빌드하지 않습니다. 서드파티 설치에는 내보낸 해시와 `--only-binary :all:`이 필수이므로
+레지스트리 소스 빌드 훅은 실행되지 않습니다. 선언만 바꾸고 잠금 파일을 갱신하지 않으면
+실패합니다. 의존성 선언과 잠금 파일을 함께 갱신하세요.
+
+잠긴 `build` 그룹으로 백엔드를 먼저 설치한 뒤, `--no-index --no-deps --no-build-isolation`로
+퍼스트파티 편집 가능 설치를 별도로 수행합니다. 패키지는 `python -m build --no-isolation`으로
+빌드합니다. wheel/sdist 스모크 테스트는 의존성을 미리 설치하고 다운로드를 끈 새 환경에서
+일반 pip를 사용합니다. 신뢰하는 체크아웃 빌드는 퍼스트파티 빌드 코드를 실행할 수 있습니다.
+Python 3.15는 파생된 순수 Python PyYAML wheel을 사용합니다. 해시, 라이선스와 재현 방법은
+[CI wheel 출처 문서](https://github.com/cubrid-lab/pycubrid/blob/main/.github/ci-wheels/README.md)에 있습니다.
+
+setup-uv는 setup-python의 `python-version`을 받아 선택한 인터프리터의 `UV_PYTHON`을
+내보냅니다. 캐시 입력은 `pyproject.toml`, `uv.lock`, CI wheel이며 잡별 접미사와 Python
+마이너 버전을 사용합니다. CI와 docs는 항상 캐시하고 `integration-full.yml`은 `auto`를
+유지합니다. 캐시가 필수 아티팩트 해시를 대신할 수는 없습니다. 잡은 설치한 버전을
+`uv pip freeze --system`으로 기록합니다. `python-canary.yml`의 별도 새 설치 검사는
+pip를 유지합니다. `tests/test_workflow_installs.py`는 설치 및 캐시 계약을 검사하고,
+소스 훅, 오래된 잠금 파일, 변조된 해시의 거부를 오프라인으로 확인합니다.
 
 ## 고정된 문서 도구와 스캔 동시성
 
-`docs.yml`은 `pyproject.toml`의 `docs` 의존성 그룹에서만 사이트 도구를 설치합니다
-(`--group`을 지원하는 pip로 올린 뒤 `pip install --group docs`). 이 그룹은(#784 이전에는
-`docs/requirements.txt`) `mkdocs`, `mkdocs-material`, `pymdown-extensions`를 정확한
-버전으로 고정하므로(#782) upstream 릴리스가 저장소 변경 없이 `mkdocs build --strict`
-게이트를 깨뜨릴 수 없습니다. Dependabot의 루트 `pip` 항목이 다른 `pyproject.toml`
-핀과 함께 갱신을 제안합니다.
+`docs.yml`은 잠금 파일에서 `--only-group docs`를 내보냅니다. `pyproject.toml`의
+`docs` 그룹은 사이트 도구를 고정하고 `uv.lock`은 전이 의존성 버전과 해시를 고정합니다.
+Dependabot의 루트 `uv` 항목은 문서 도구를 포함한 모든 의존성 그룹의 매니페스트와 잠금
+파일을 함께 갱신합니다(#750, #784). 업데이터는 자체 설치된 uv 버전을 사용합니다.
+병합 전에 CI에 고정된 uv 0.12.17이 갱신된 잠금 파일을 읽을 수 있어야 하며 사이트
+빌드도 통과해야 합니다. Python 3.15 전용 PyYAML wheel 소스는 업데이터가 저장소의
+wheel을 가져올 수 있도록 단일 매핑으로 선언합니다. Python 마커와 wheel 해시는 잠금된
+설치 계약에 계속 포함됩니다.
 
 `ci.yml`은 풀 리퀘스트에서도 사이트를 빌드합니다(#786). 따라서 `mkdocs build --strict`를
 깨뜨리는 버전 갱신이나 문서 수정은 나중에 `main`에서가 아니라 병합 전에 실패합니다.
 `docs-build` 작업은 `site` 경로 필터로 선택됩니다: `docs/**`(콘텐츠와
-내비게이션 자산), `pyproject.toml`(`docs` 그룹), `mkdocs.yml`, `scripts/generate_llms_full.py`,
+내비게이션 자산), `pyproject.toml`(`docs` 그룹), `uv.lock`, `.github/ci-wheels/**`,
+`mkdocs.yml`, `scripts/generate_llms_full.py`,
 `.github/workflows/docs.yml`, `.github/workflows/ci.yml`. 루트 `*.md` 파일은 사이트
 입력이 아니므로(변경 이력은 링크일 뿐 포함되지 않음) 이 작업을 선택하지 않으며,
 `workflow_dispatch`는 다른 레인처럼 이 작업을 강제로 선택합니다. 이 작업은 `docs.yml`의
