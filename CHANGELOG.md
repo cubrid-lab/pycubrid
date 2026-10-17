@@ -27,8 +27,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   marker, including any inside a quoted identifier, so `execute('SELECT 1 AS "a?b"')`
   failed with a `DatabaseError` that had no message (`errno=-1007`, the CAS code
   `CAS_ER_NUM_BIND`). A CAS-indicator `-1007` reply now raises `ProgrammingError`
-  whose message names this cause; `errno`, `code` and `error_source` are unchanged. A
-  server-indicator `-1007` is not affected. The statement itself still fails.
+  whose message names this cause; `errno`, `code` and `error_source` are unchanged, and
+  `sqlstate` changes from `HY000` to `42000` with the new class. Bracket identifiers
+  (`[a?b]`) are affected the same way. A server-indicator `-1007` is not affected. The
+  statement itself still fails.
 - **Subnormal floats and `-0.0` round-trip through the literal path (#988)** — `execute()`
   and the default `executemany()` rendered a `float` with `float.__repr__`. CUBRID rejects
   every subnormal literal (`5e-324` failed with -493 "exceeds limit of double"), and reads
@@ -36,7 +38,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stored both correctly. A subnormal value is now sent as the exact product of two normal
   doubles, and `-0.0` as the DOUBLE literal `-0.0e0`. Every other `float` renders as
   before, so stored NUMERIC and string values do not change. `-0.0` into a string column
-  now stores `-0` instead of `0.0`.
+  now stores `-0` instead of `0.0`, and `SELECT ?` bound to `-0.0` now returns the
+  `float` `-0.0` instead of `Decimal('0.0')`.
 
 - **Tasks waiting on async connection setup keep `error_source` (#952)** — when
   `AsyncConnection` setup failed with a `DatabaseError`, each task waiting on that setup

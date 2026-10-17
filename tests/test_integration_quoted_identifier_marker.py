@@ -28,9 +28,10 @@ def adapter(request: pytest.FixtureRequest) -> ParityAdapter:
     [
         ('SELECT 1 AS "a?b"', None),
         ("SELECT 1 AS `a?b`", None),
+        ("SELECT 1 AS [a?b]", None),
         ('SELECT ? AS "q?"', (1,)),
     ],
-    ids=["double-quoted", "backtick", "with-parameter"],
+    ids=["double-quoted", "backtick", "bracket", "with-parameter"],
 )
 async def test_marker_in_quoted_identifier_is_explained(
     adapter: ParityAdapter, operation: str, params: tuple[int, ...] | None
@@ -41,6 +42,7 @@ async def test_marker_in_quoted_identifier_is_explained(
         with pytest.raises(ProgrammingError, match="inside a quoted identifier") as raised:
             await adapter.execute(cursor, operation, params)
         assert (raised.value.errno, raised.value.error_source) == (-1007, "cas")
+        assert raised.value.sqlstate == "42000"
         # The connection stays usable.
         await adapter.execute(cursor, "SELECT 1")
         assert [tuple(row) for row in await adapter.fetchall(cursor)] == [(1,)]

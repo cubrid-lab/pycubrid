@@ -213,6 +213,8 @@ def test_cas_num_bind_is_a_programming_error_with_an_explanation() -> None:
         packet.parse(_error_reply(CAS, -1007))
     error = raised.value
     assert (error.errno, error.code, error.error_source) == (-1007, -1007, "cas")
+    # The ProgrammingError class carries the syntax-error class, not HY000 (#992).
+    assert error.sqlstate == "42000"
     assert "including any inside a quoted identifier" in str(error)
 
 

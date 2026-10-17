@@ -385,7 +385,11 @@ CUBRID 브로커는 `execute()`의 문장을 실행하기 전에 마커를 직�
 (`src/broker/cas_execute.c`의 `get_num_markers`). 이런 문장은 드라이버가 올바르게 렌더링해도
 원인을 설명하는 메시지와 함께 `ProgrammingError`(`errno=-1007`, `error_source="cas"`)로
 실패합니다(#990). 식별자나 별칭의 이름을 바꾸세요. `tests/test_error_source.py`와 라이브
-서버의 `tests/test_integration_quoted_identifier_marker.py`로 고정됩니다.
+서버의 `tests/test_integration_quoted_identifier_marker.py`로 고정됩니다. PREPARE가 브로커의
+마커 개수를 보고하므로 prepared 경로도 같은 부풀려진 개수를 봅니다:
+`executemany('INSERT INTO t (v) SELECT ? AS "q?" FROM db_root', [(5,)],
+prepared=True)`는 드라이버의 `ProgrammingError` "wrong number of parameters"를 일으키고,
+`[(5, 6)]`은 실행되지만 브로커가 남는 값을 조용히 무시합니다(CUBRID 11.4에서 확인, #992).
 
 치환 단계는 세그먼트와 렌더링된 리터럴을 연결합니다(`pycubrid/_cursor_common.py:204-208`); 순진한 `str.replace("?", ...)`를 수행하지 않으므로, 한 파라미터의 렌더링된 값에 리터럴 `?`가 있어도 다음 플레이스홀더를 실수로 소비하지 않습니다.
 

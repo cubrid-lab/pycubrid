@@ -12506,7 +12506,12 @@ identifier (`"a?b"`, `` `a?b` ``, `[a?b]`) counts as a marker there
 `ProgrammingError` (`errno=-1007`, `error_source="cas"`), whose message names
 this cause, even though the driver rendered it correctly (#990). Rename the
 identifier or alias. Pinned by `tests/test_error_source.py` and, on a live
-server, `tests/test_integration_quoted_identifier_marker.py`.
+server, `tests/test_integration_quoted_identifier_marker.py`. The prepared paths
+see the same inflated count, because PREPARE reports the broker's marker count:
+`executemany('INSERT INTO t (v) SELECT ? AS "q?" FROM db_root', [(5,)],
+prepared=True)` raises the driver's `ProgrammingError` "wrong number of
+parameters", and `[(5, 6)]` runs while the broker silently ignores the extra
+value (verified on CUBRID 11.4, #992).
 
 The replacement step concatenates segments and rendered literals
 (`pycubrid/_cursor_common.py:204-208`); it never performs a naïve
