@@ -76,7 +76,7 @@ SQL NULL)을 FC2/FC3 타입 페이로드로 전송합니다.
 | `None` | `NULL` | `_cursor_common.format_parameter` | `tests/test_param_security.py:95-97` |
 | `bool` | `1` (True) / `0` (False) | `_cursor_common.format_parameter` | `tests/test_param_security.py:98-102` |
 | `int` (`IntEnum`/`IntFlag` 등 하위 클래스 포함) | `int.__repr__(value)` (값의 10진수). [숫자 하위 클래스](#숫자-하위-클래스) 참고 | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
-| `float` (하위 클래스 포함) | `float.__repr__(value)` (일반 `float`의 `str()`과 같은 최단 왕복 표기, 예: `1e+20`); `nan`/`inf`/`-inf`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
+| `float` (하위 클래스 포함) | `float.__repr__(value)` (일반 `float`의 `str()`과 같은 최단 왕복 표기, 예: `1e+20`). 단, `-0.0`은 `-0.0e0`으로, 비정규 값(0이 아니면서 크기가 `sys.float_info.min`보다 작은 값)은 두 정규 double의 정확한 곱 `(m * 2.409919865102884e-181)`으로 보냅니다(#988); `nan`/`inf`/`-inf`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value`; `tests/test_integration_float_literal.py` |
 | `decimal.Decimal` (하위 클래스 포함) | 고정소수점 숫자(일반 `Decimal`로 변환한 값에 `format(value, "f")`, 따옴표 없음, E 표기 사용 안 함); 부호·후행 0·scale 유지; 리터럴 자릿수가 38을 넘으면 `DataError`; `NaN`/`Infinity`는 `ProgrammingError` 발생 (현재 메시지: `"nan and inf are not supported by CUBRID"`); C `decimal` 모듈이 없으면 하위 클래스는 `ProgrammingError` 발생. [Decimal 파라미터](#decimal-파라미터)와 [숫자 하위 클래스](#숫자-하위-클래스) 참고 | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`, `::TestPureDecimalFallback`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
 | `str` (하위 클래스 포함) | 작은따옴표 리터럴; 값을 일반 `str`로 복사한 뒤 [문자열 이스케이프](#문자열-이스케이프) 적용; NUL(`U+0000`)과 Ctrl-Z(`U+001A`, `\x1a`)는 각각 `ProgrammingError` 발생 (현재 메시지: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). [텍스트, 바이너리, 날짜/시간 하위 클래스](#텍스트-바이너리-날짜시간-하위-클래스) 참고 | `_cursor_common.format_parameter` / `_cursor_common.escape_string` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
 | `bytes`, `bytearray` (하위 클래스 포함) | `X'<hex>'` (소문자 hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
@@ -297,7 +297,10 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
   길이 0인 값을 NULL로 읽지만, 리터럴 `X''`는 빈 비트 문자열입니다.
 - **float.** CUBRID에서 리터럴 `1.5`는 NUMERIC 리터럴입니다(`1e-07` 같은 지수
   형식만 DOUBLE). prepared 값은 항상 DOUBLE입니다. 저장되는 컬럼 값은 같지만
-  `SELECT ?`나 `? / 3` 같은 식의 결과 타입은 다를 수 있습니다.
+  `SELECT ?`나 `? / 3` 같은 식의 결과 타입은 다를 수 있습니다. CUBRID는 비정규
+  리터럴을 거부하고 리터럴 `-0.0`을 NUMERIC 0으로 읽으므로, 리터럴 경로는 이 두
+  경우를 DOUBLE 식(`(m * 2.409919865102884e-181)`, `-0.0e0`)으로 보내 prepared
+  경로와 같은 값을 저장합니다(#988).
 - **서버 측 변환 오류.** 대상 타입에 담을 수 없는 값은 리터럴 경로의 메시지 대신
   오류 -494(`ProgrammingError`, "Cannot coerce host var to type …")로 실패합니다.
   예: 범위를 벗어난 BIGINT를 INTEGER 컬럼에 넣는 경우, TIME을 DATETIME 대상에

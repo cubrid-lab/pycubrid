@@ -43,7 +43,7 @@ NEGATIVES: list[tuple[Any, str]] = [
     (-2.5, "-2.5"),
     (-1e-07, "-1e-07"),
     (-1e20, "-1e+20"),
-    (-0.0, "-0.0"),
+    (-0.0, "-0.0e0"),
     (Decimal("-1.5"), "-1.5"),
     (Decimal("-0.0001"), "-0.0001"),
     # Exponent forms are expanded by format(value, "f").

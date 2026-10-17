@@ -12088,7 +12088,7 @@ implementation; see the fallback restrictions below.
 | `None` | `NULL` | `_cursor_common.format_parameter` | `tests/test_param_security.py:95-97` |
 | `bool` | `1` (True) / `0` (False) | `_cursor_common.format_parameter` | `tests/test_param_security.py:98-102` |
 | `int` (and subclasses such as `IntEnum`/`IntFlag`) | `int.__repr__(value)` (decimal digits of the value). See [Numeric subclasses](#numeric-subclasses) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_int`, `::test_numeric_subclass_renders_by_value` |
-| `float` (and subclasses) | `float.__repr__(value)` (shortest round-trip form, identical to `str()` of a plain `float`, e.g. `1e+20`); `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value` |
+| `float` (and subclasses) | `float.__repr__(value)` (shortest round-trip form, identical to `str()` of a plain `float`, e.g. `1e+20`), except `-0.0`, sent as `-0.0e0`, and a subnormal value (nonzero, below `sys.float_info.min` in magnitude), sent as the exact product `(m * 2.409919865102884e-181)` of two normal doubles (#988); `nan`/`inf`/`-inf` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_float*`, `::test_numeric_subclass_renders_by_value`; `tests/test_integration_float_literal.py` |
 | `decimal.Decimal` (and subclasses) | Plain fixed-point digits (`format(value, "f")` on the value converted to a plain `Decimal`, unquoted, never E notation); sign, trailing zeros and scale kept; more than 38 literal digits raise `DataError`; `NaN`/`Infinity` raise `ProgrammingError` (current message: `"nan and inf are not supported by CUBRID"`); subclasses raise `ProgrammingError` when the C `decimal` module is unavailable. See [Decimal parameters](#decimal-parameters) and [Numeric subclasses](#numeric-subclasses) | `_cursor_common.format_parameter` | `tests/test_param_security.py::TestFormatParameterTypes::test_decimal*`, `::TestPureDecimalFallback`; `tests/test_parity_integration.py::TestParityDecimalLiterals` |
 | `str` (and subclasses) | Single-quoted literal; escaping per [String Escaping](#string-escaping), applied to a plain `str` copy of the value; NUL (`U+0000`) and Ctrl-Z (`U+001A`, `\x1a`) each raise `ProgrammingError` (current messages: `"string parameter contains null byte"`, `"string parameter contains Ctrl-Z (0x1A) byte"`). See [Text, binary and temporal subclasses](#text-binary-and-temporal-subclasses) | `_cursor_common.format_parameter` / `_cursor_common.escape_string` | `tests/test_param_security.py:27-84`, `::TestStrSubclassEscaping` |
 | `bytes`, `bytearray` (and subclasses) | `X'<hex>'` (lowercase hex, `bytes.hex(value)` / `bytearray.hex(value)`) | `_cursor_common.format_parameter` | `tests/test_param_security.py:104-106, 144-145`, `::TestBinarySubclassRendering` |
@@ -12357,7 +12357,10 @@ text, so some results differ from the literal path. Verified on CUBRID 10.2,
 - **Floats.** The literal `1.5` is a NUMERIC literal in CUBRID (only exponent
   forms such as `1e-07` are DOUBLE); the prepared value is always DOUBLE. Stored
   column values are the same, but the result type of `SELECT ?` and of
-  expressions such as `? / 3` can differ.
+  expressions such as `? / 3` can differ. CUBRID rejects subnormal literals and
+  reads the literal `-0.0` as NUMERIC zero, so the literal path sends these two
+  cases as DOUBLE expressions (`(m * 2.409919865102884e-181)` and `-0.0e0`) to
+  store the same value as the prepared path (#988).
 - **Server-side conversion errors.** A value the target type cannot hold fails
   with error -494 (`ProgrammingError`, "Cannot coerce host var to type …")
   instead of the literal path's message. Examples: a BIGINT into an INTEGER

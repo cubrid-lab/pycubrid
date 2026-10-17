@@ -22,6 +22,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Subnormal floats and `-0.0` round-trip through the literal path (#988)** — `execute()`
+  and the default `executemany()` rendered a `float` with `float.__repr__`. CUBRID rejects
+  every subnormal literal (`5e-324` failed with -493 "exceeds limit of double"), and reads
+  the literal `-0.0` as NUMERIC, so a `DOUBLE` column stored `0.0`. The prepared paths
+  stored both correctly. A subnormal value is now sent as the exact product of two normal
+  doubles, and `-0.0` as the DOUBLE literal `-0.0e0`. Every other `float` renders as
+  before, so stored NUMERIC and string values do not change. `-0.0` into a string column
+  now stores `-0` instead of `0.0`.
+
 - **Tasks waiting on async connection setup keep `error_source` (#952)** — when
   `AsyncConnection` setup failed with a `DatabaseError`, each task waiting on that setup
   received a fresh copy with the same class, message, `code`, `errno` and `sqlstate`, but
