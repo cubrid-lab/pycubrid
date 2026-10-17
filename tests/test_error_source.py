@@ -200,3 +200,33 @@ def test_compat_redaction_keeps_error_source(
         cur.execute("INSERT INTO t VALUES (?)", (1,))
     assert raised.value.error_source == "server"
     assert "bound data" not in str(raised.value)
+
+
+# --- CAS_ER_NUM_BIND (#990) ---------------------------------------------------
+
+
+def test_cas_num_bind_is_a_programming_error_with_an_explanation() -> None:
+    # The CAS counts a ? inside a quoted identifier as a marker and replies
+    # -1007 with no text when fewer values were bound.
+    packet = PrepareAndExecutePacket(sql='SELECT 1 AS "a?b"', auto_commit=True)
+    with pytest.raises(ProgrammingError) as raised:
+        packet.parse(_error_reply(CAS, -1007))
+    error = raised.value
+    assert (error.errno, error.code, error.error_source) == (-1007, -1007, "cas")
+    assert "including any inside a quoted identifier" in str(error)
+
+
+def test_cas_num_bind_keeps_text_the_broker_sent() -> None:
+    body = struct.pack(">i", -1007) + b"broker text\x00"
+    with pytest.raises(ProgrammingError, match=r"^broker text \(the CUBRID broker counted"):
+        _raise_error(PacketReader(body), len(body), CAS)
+
+
+@pytest.mark.parametrize("indicator", [DBMS, None])
+def test_num_bind_mapping_needs_the_cas_indicator(indicator: int | None) -> None:
+    # The CAS numbering overlaps server codes; a server -1007 is not CAS_ER_NUM_BIND.
+    body = struct.pack(">i", -1007) + b"\x00"
+    with pytest.raises(DatabaseError) as raised:
+        _raise_error(PacketReader(body), len(body), indicator)
+    assert type(raised.value) is DatabaseError
+    assert "quoted identifier" not in str(raised.value)

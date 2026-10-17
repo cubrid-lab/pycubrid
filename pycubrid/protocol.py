@@ -492,6 +492,17 @@ def _classify_by_text(error_message: str) -> str:
 # Reply indicator before an error code (CUBRID src/broker/cas.h) -> error_source (#903).
 _ERROR_SOURCE_BY_INDICATOR = {-1: "cas", -2: "server"}
 
+# CAS_ER_NUM_BIND in the old CAS numbering, sent with the CAS indicator and no
+# text. The CAS counts every ``?`` outside comments and single-quoted strings,
+# also inside quoted identifiers (get_num_markers in src/broker/cas_execute.c),
+# so ``SELECT 1 AS "a?b"`` fails with it although nothing was bound (#990).
+_CAS_ER_NUM_BIND = -1007
+_CAS_NUM_BIND_MESSAGE = (
+    "the CUBRID broker counted a different number of ? markers than were bound; "
+    "it counts every ? outside comments and single-quoted strings, including any "
+    "inside a quoted identifier"
+)
+
 
 def _raise_error(reader: PacketReader, response_length: int, indicator: int | None = None) -> None:
     """Parse an error response and raise the appropriate DB-API exception.
@@ -511,6 +522,14 @@ def _raise_error(reader: PacketReader, response_length: int, indicator: int | No
 
     # Primary dispatch: CAS error code → exception class
     exc_name = CAS_ERROR_TO_EXCEPTION.get(error_code)
+
+    # The CAS numbering overlaps server codes, so only the CAS indicator
+    # identifies CAS_ER_NUM_BIND (#990).
+    if indicator == -1 and error_code == _CAS_ER_NUM_BIND:
+        exc_name = "ProgrammingError"
+        error_message = (
+            f"{error_message} ({_CAS_NUM_BIND_MESSAGE})" if error_message else _CAS_NUM_BIND_MESSAGE
+        )
 
     # Fallback: ER_FAILED (-1) uses text classification (CAS passthrough)
     if exc_name is None and error_code == -1:
