@@ -12496,6 +12496,15 @@ A `?` inside any of the above is part of the SQL text and is **not** treated as
 a placeholder. This is pinned by `tests/test_split_placeholders.py` in its
 entirety.
 
+The CUBRID broker counts markers itself before running `execute()`'s statement,
+and it skips only comments and single-quoted strings: a `?` inside a quoted
+identifier (`"a?b"`, `` `a?b` ``, `[a?b]`) counts as a marker there
+(`get_num_markers` in `src/broker/cas_execute.c`). Such a statement fails with
+`ProgrammingError` (`errno=-1007`, `error_source="cas"`), whose message names
+this cause, even though the driver rendered it correctly (#990). Rename the
+identifier or alias. Pinned by `tests/test_error_source.py` and, on a live
+server, `tests/test_integration_quoted_identifier_marker.py`.
+
 The replacement step concatenates segments and rendered literals
 (`pycubrid/_cursor_common.py:204-208`); it never performs a naïve
 `str.replace("?", ...)`, so a literal `?` in the rendered value of one

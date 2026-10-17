@@ -377,6 +377,13 @@ CUBRID [10.2](https://www.cubrid.org/manual/en/10.2/admin/config.html) 및 [11.4
 
 위의 어느 것이든 내부의 `?`는 SQL 텍스트의 일부이며 플레이스홀더로 **취급되지 않습니다**. 이것은 `tests/test_split_placeholders.py` 전체로 고정됩니다.
 
+CUBRID 브로커는 `execute()`의 문장을 실행하기 전에 마커를 직접 세며, 주석과 작은따옴표
+문자열만 건너뜁니다. 따옴표 식별자(`"a?b"`, `` `a?b` ``, `[a?b]`) 안의 `?`도 마커로 셉니다
+(`src/broker/cas_execute.c`의 `get_num_markers`). 이런 문장은 드라이버가 올바르게 렌더링해도
+원인을 설명하는 메시지와 함께 `ProgrammingError`(`errno=-1007`, `error_source="cas"`)로
+실패합니다(#990). 식별자나 별칭의 이름을 바꾸세요. `tests/test_error_source.py`와 라이브
+서버의 `tests/test_integration_quoted_identifier_marker.py`로 고정됩니다.
+
 치환 단계는 세그먼트와 렌더링된 리터럴을 연결합니다(`pycubrid/_cursor_common.py:204-208`); 순진한 `str.replace("?", ...)`를 수행하지 않으므로, 한 파라미터의 렌더링된 값에 리터럴 `?`가 있어도 다음 플레이스홀더를 실수로 소비하지 않습니다.
 
 렌더링된 값은 앞의 SQL 텍스트와 이어져 주석이 되지 않습니다(#893).

@@ -22,6 +22,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **A `?` inside a quoted identifier raises an explained `ProgrammingError` (#990)** —
+  the CUBRID broker counts every `?` outside comments and single-quoted strings as a
+  marker, including any inside a quoted identifier, so `execute('SELECT 1 AS "a?b"')`
+  failed with a `DatabaseError` that had no message (`errno=-1007`, the CAS code
+  `CAS_ER_NUM_BIND`). A CAS-indicator `-1007` reply now raises `ProgrammingError`
+  whose message names this cause; `errno`, `code` and `error_source` are unchanged. A
+  server-indicator `-1007` is not affected. The statement itself still fails.
+
 - **Tasks waiting on async connection setup keep `error_source` (#952)** — when
   `AsyncConnection` setup failed with a `DatabaseError`, each task waiting on that setup
   received a fresh copy with the same class, message, `code`, `errno` and `sqlstate`, but
