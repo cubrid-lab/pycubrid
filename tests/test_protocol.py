@@ -823,6 +823,93 @@ class TestParseRowData:
         rows = _parse_row_data(reader, 0, [], CUBRIDStatementType.SELECT)
         assert rows == []
 
+    # CAS writes a NULL cell as size -1 and an empty BIT/VARBIT value as size 0,
+    # with no terminator (dbval_to_net_buf, add_res_data_bytes); JDBC reads
+    # only a negative size as NULL (#994).
+    @staticmethod
+    def _bit_rows() -> bytes:
+        cells = [b"\xff\xff\xff\xff", b"\x00\x00\x00\x00", b"\x00\x00\x00\x01\x0f"]
+        return b"".join(
+            struct.pack(">i", index) + b"\x00" * DataSize.OID + cell + struct.pack(">i", -1)
+            for index, cell in enumerate(cells, start=1)
+        )
+
+    @pytest.mark.parametrize("column_type", [CUBRIDDataType.BIT, CUBRIDDataType.VARBIT])
+    @pytest.mark.parametrize(
+        "second_type", [CUBRIDDataType.INT, CUBRIDDataType.NULL], ids=["fast", "typed-column"]
+    )
+    def test_empty_bit_cell_is_empty_bytes_not_null(
+        self, column_type: int, second_type: int
+    ) -> None:
+        # A NULL-typed second column sends every row through the per-cell path.
+        cols = [ColumnMetaData(column_type=column_type), ColumnMetaData(column_type=second_type)]
+        reader = PacketReader(self._bit_rows())
+        rows = _parse_row_data(reader, 3, cols, CUBRIDStatementType.SELECT)
+        assert rows == [(None, None), (b"", None), (b"\x0f", None)]
+        assert reader.bytes_remaining() == 0
+
+    @pytest.mark.parametrize(
+        "column_type",
+        [CUBRIDDataType.STRING, CUBRIDDataType.INT, CUBRIDDataType.NUMERIC],
+    )
+    @pytest.mark.parametrize(
+        "second_type", [CUBRIDDataType.INT, CUBRIDDataType.NULL], ids=["fast", "typed-column"]
+    )
+    def test_other_size_zero_cells_stay_null(self, column_type: int, second_type: int) -> None:
+        cols = [ColumnMetaData(column_type=column_type), ColumnMetaData(column_type=second_type)]
+        row = struct.pack(">i", 1) + b"\x00" * DataSize.OID + struct.pack(">ii", 0, -1)
+        rows = _parse_row_data(PacketReader(row), 1, cols, CUBRIDStatementType.SELECT)
+        assert rows == [(None, None)]
+
+    @pytest.mark.parametrize(
+        ("statement_type", "column_type", "row_hex", "expected"),
+        [
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                CUBRIDDataType.NULL,
+                "00000001 0000000000000000 00000002 8306",
+                b"",
+                id="call-empty-varbit",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                CUBRIDDataType.NULL,
+                "00000001 0000000000000000 00000001 05",
+                b"",
+                id="call-empty-bit-one-byte-header",
+            ),
+            pytest.param(
+                CUBRIDStatementType.SELECT,
+                CUBRIDDataType.NULL,
+                "00000001 0000000000000000 00000002 8306",
+                b"",
+                id="null-typed-column-empty-varbit",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                CUBRIDDataType.NULL,
+                "00000001 0000000000000000 00000003 8306 0f",
+                b"\x0f",
+                id="call-varbit",
+            ),
+            pytest.param(
+                CUBRIDStatementType.CALL,
+                CUBRIDDataType.VARBIT,
+                "00000001 0000000000000000 00000000",
+                None,
+                id="call-size-zero-without-header",
+            ),
+        ],
+    )
+    def test_typed_empty_bit_cell(
+        self, statement_type: int, column_type: int, row_hex: str, expected: object
+    ) -> None:
+        reader = PacketReader(bytes.fromhex(row_hex))
+        col = ColumnMetaData(column_type=column_type)
+        rows = _parse_row_data(reader, 1, [col], statement_type)
+        assert rows == [(expected,)]
+        assert reader.bytes_remaining() == 0
+
 
 class TestParseResultInfos:
     """Tests for _parse_result_infos helper."""

@@ -184,9 +184,16 @@ def test_bit_cell_overrunning_next_cell_is_malformed(column_type: int) -> None:
 
 @pytest.mark.parametrize("column_type", BIT_TYPES)
 def test_valid_bit_cells_are_unchanged(column_type: int) -> None:
-    body = _fetch_body([[_cell(b"\xab\xcd"), _cell(b"")], [_cell(b"\x01"), _cell(b"\xff" * 3)]])
+    # Size 0 is an empty bit string and size -1 is NULL (#994).
+    body = _fetch_body(
+        [
+            [_cell(b"\xab\xcd"), _cell(b"")],
+            [_cell(b"\x01"), _cell(b"\xff" * 3)],
+            [_cell(b"", declared=-1), _cell(b"\x02")],
+        ]
+    )
     packet = _fetch([column_type, column_type], body)
-    assert packet.rows == [(b"\xab\xcd", None), (b"\x01", b"\xff\xff\xff")]
+    assert packet.rows == [(b"\xab\xcd", b""), (b"\x01", b"\xff\xff\xff"), (None, b"\x02")]
 
 
 @pytest.mark.parametrize(

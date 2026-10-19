@@ -826,6 +826,11 @@ def _parse_cell_type(reader: PacketReader, size: int) -> tuple[int, int]:
 
 
 _LOB_COLUMN_TYPES = frozenset((CUBRIDDataType.BLOB, CUBRIDDataType.CLOB))
+# CAS writes a NULL cell as size -1 and a BIT/VARBIT value as its bytes with no
+# terminator, so an empty bit string is a size-0 cell; every other type's
+# encoding is never empty (strings carry a NUL), and its size-0 cell stays None
+# (#994).
+_BIT_COLUMN_TYPES = frozenset((CUBRIDDataType.BIT, CUBRIDDataType.VARBIT))
 
 
 def _check_row_data_bounds(
@@ -923,6 +928,7 @@ def _parse_row_data(
     # Only a SET column converts its value (#559): every other type returns the
     # value unchanged from _convert_collection_value, so skip that call.
     converts = [ct == CUBRIDDataType.SET for ct in col_types]
+    empty_bits = [ct in _BIT_COLUMN_TYPES for ct in col_types]
 
     rows: list[tuple[Any, ...]] = []
     _rows_append = rows.append
@@ -947,15 +953,22 @@ def _parse_row_data(
                         row[i] = (
                             _convert_collection_value(col_types[i], value) if converts[i] else value
                         )
+                    elif size == 0 and empty_bits[i]:
+                        row[i] = b""
             else:
                 for i in range(ncols):
                     size = _parse_int()
-                    if size <= 0:
-                        continue
                     ct = col_types[i]
-                    if is_call_type or ct == _null_type:
+                    typed_cell = is_call_type or ct == _null_type
+                    if size <= 0:
+                        if size == 0 and not typed_cell and empty_bits[i]:
+                            row[i] = b""
+                        continue
+                    if typed_cell:
                         ct, size = _parse_cell_type(reader, size)
                         if size == 0:
+                            if ct in _BIT_COLUMN_TYPES:
+                                row[i] = b""
                             continue
                     _check_cell_size(ct, size)
                     method_name = _get(ct)

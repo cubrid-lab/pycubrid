@@ -297,7 +297,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `DATETIME` | 22 | `datetime.datetime` | Date + time + millisecond |
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps (second precision, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes (millisecond precision) |
-| `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
+| `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data; an empty `BIT VARYING` value (`X''`) is `b""`, distinct from `NULL` (#994) |
 | `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set. Always UTF-8, whatever the connection `charset` |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
 | `OBJECT` (OID) | 19 | `str` | Format: `"OID:@page\|slot\|volume"` |

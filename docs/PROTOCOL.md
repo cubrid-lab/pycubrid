@@ -794,8 +794,9 @@ the locator's trailing NUL. Each row cell
 of a FETCH or inline execute reply must use exactly the bytes its size word
 declares: fixed-width values (`INT`, `DATE`, `OBJECT`, ...) do not read the size
 themselves, so the row parser checks it against the type's width before reading
-the value (#523), also when it re-walks a reply before raising `DataError`; a
-non-positive size is SQL `NULL`. A negative FETCH tuple count is malformed too, and
+the value (#523), also when it re-walks a reply before raising `DataError`. The
+CAS writes SQL `NULL` as size `-1`; a non-positive size is `NULL`, except that a
+`BIT`/`VARBIT` cell of size `0` is an empty bit string, `b""` (#994). A negative FETCH tuple count is malformed too, and
 so is a negative column count or column name, real-name, table-name or default
 length in FC2, FC3 or FC41 column metadata (#555); a zero length is an empty
 string. FC41 also rejects a negative bind count, `total_tuple_count` or inline
@@ -881,8 +882,8 @@ Column data is transmitted as a 4-byte size prefix followed by the raw data. The
 | 2         | `STRING`   | Null-terminated string in the connection charset (default UTF-8) |
 | 3         | `NCHAR`    | Null-terminated string in the connection charset (default UTF-8) |
 | 4         | `VARNCHAR` | Null-terminated string in the connection charset (default UTF-8) |
-| 5         | `BIT`      | Raw bytes |
-| 6         | `VARBIT`   | Raw bytes |
+| 5         | `BIT`      | Raw bytes; size 0 → `b""` (#994) |
+| 6         | `VARBIT`   | Raw bytes; size 0 → `b""` (#994) |
 | 7         | `NUMERIC`  | Null-terminated string → `Decimal` |
 | 8         | `INT`      | 4-byte big-endian signed int |
 | 9         | `SHORT`    | 2-byte big-endian signed short |
