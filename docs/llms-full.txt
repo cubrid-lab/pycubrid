@@ -4769,6 +4769,9 @@ Notes:
 - A nonempty collection whose elements are all SQL NULL (for example `{NULL}` or
   `{NULL, NULL}`) decodes to `[None, ...]` for `MULTISET`/`SEQUENCE` and
   `frozenset({None})` for `SET`. An empty collection decodes to `[]` / `frozenset()`.
+- An empty `BIT`/`BIT VARYING` element (`X''`, wire length 0) decodes to `b""` and a NULL
+  element (length -1) to `None`, so `SEQUENCE{X'', NULL, X'01'}` is
+  `[b"", None, b"\x01"]` (#998). A zero-length element of any other type is `None`.
 - Nested collection payloads remain raw `bytes`.
 - Unknown collection element types fall back to raw `bytes`.
 - `SET` values are normalized to a `frozenset` when every decoded element is hashable.
@@ -6629,7 +6632,8 @@ header longer than its cell is a malformed reply.
 
 A collection value is one element-type byte, a 4-byte element count, then a
 4-byte length and payload per element; a NULL element has length `-1` and no
-payload. When every element is NULL, CUBRID 10.2/11.4 send element type `0`
+payload. An empty `BIT`/`VARBIT` element (`X''`) has length `0` and decodes as
+`b""`; a length-0 element of any other type decodes as `None` (#998). When every element is NULL, CUBRID 10.2/11.4 send element type `0`
 (NULL): `{}` is `00 00000000` and `{NULL, NULL}` is `00 00000002 ffffffff ffffffff`.
 
 Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:

@@ -870,7 +870,8 @@ header longer than its cell is a malformed reply.
 
 A collection value is one element-type byte, a 4-byte element count, then a
 4-byte length and payload per element; a NULL element has length `-1` and no
-payload. When every element is NULL, CUBRID 10.2/11.4 send element type `0`
+payload. An empty `BIT`/`VARBIT` element (`X''`) has length `0` and decodes as
+`b""`; a length-0 element of any other type decodes as `None` (#998). When every element is NULL, CUBRID 10.2/11.4 send element type `0`
 (NULL): `{}` is `00 00000000` and `{NULL, NULL}` is `00 00000002 ffffffff ffffffff`.
 
 Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:

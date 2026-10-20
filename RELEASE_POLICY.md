@@ -305,6 +305,15 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Empty `BIT`/`BIT VARYING` collection elements (#998)** — PATCH / bug fix to
+  the documented collection decoding (`docs/PROTOCOL.md`, `docs/TYPES.md`). With
+  `decode_collections=True`, a `BIT`/`VARBIT` element of length `0` (an empty
+  value, `X''`) decodes as `b""` instead of `None`; a NULL element (length `-1`)
+  is still `None`. This follows the #994 row-cell rule and is covered by the same
+  `CHANGELOG.md` Upgrade note. Other element types, raw collection bytes
+  (`decode_collections=False`), public signatures, the wire format and supported
+  versions are unchanged.
+
 - **Empty `BIT`/`BIT VARYING` values (#994)** — PATCH / bug fix to the
   documented row decoding (`docs/PROTOCOL.md`, `docs/TYPES.md`). A `BIT`/`VARBIT`
   cell of size `0` (an empty value, `X''`) decodes as `b""` instead of `None`, as

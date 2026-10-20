@@ -438,6 +438,9 @@ Notes:
 - A nonempty collection whose elements are all SQL NULL (for example `{NULL}` or
   `{NULL, NULL}`) decodes to `[None, ...]` for `MULTISET`/`SEQUENCE` and
   `frozenset({None})` for `SET`. An empty collection decodes to `[]` / `frozenset()`.
+- An empty `BIT`/`BIT VARYING` element (`X''`, wire length 0) decodes to `b""` and a NULL
+  element (length -1) to `None`, so `SEQUENCE{X'', NULL, X'01'}` is
+  `[b"", None, b"\x01"]` (#998). A zero-length element of any other type is `None`.
 - Nested collection payloads remain raw `bytes`.
 - Unknown collection element types fall back to raw `bytes`.
 - `SET` values are normalized to a `frozenset` when every decoded element is hashable.

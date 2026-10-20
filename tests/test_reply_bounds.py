@@ -467,7 +467,8 @@ def test_valid_collections_are_unchanged() -> None:
     packet = _fetch(
         [CUBRIDDataType.SEQUENCE, CUBRIDDataType.MULTISET], body, decode_collections=True
     )
-    assert packet.rows == [([b"\x01", None, b"\x02\x03"], [7, 8])]
+    # A length-0 BIT element is an empty bit string, not NULL (#998).
+    assert packet.rows == [([b"\x01", b"", b"\x02\x03"], [7, 8])]
     raw = _fetch([CUBRIDDataType.SEQUENCE], _fetch_body([[_cell(seq)]]))
     assert raw.rows == [(seq,)]
 

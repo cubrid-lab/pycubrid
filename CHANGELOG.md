@@ -10,7 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Empty `BIT`/`BIT VARYING` values (#994)** — code that tests `v is None` on a `BIT` or
   `BIT VARYING` column to detect an empty value now sees `b""` for `X''`; `NULL` is still
-  `None`.
+  `None`. With `decode_collections=True`, an empty `BIT`/`BIT VARYING` collection element
+  is `b""` too (#998).
 
 ### Changed
 
@@ -34,9 +35,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (`v IS NULL` is 0, `BIT_LENGTH(v)` is 0) was indistinguishable from NULL in Python, so a
   read-modify-write turned it into NULL. A `BIT`/`VARBIT` cell of size `0` now decodes as
   `b""`, also after a CALL or NULL-typed cell header, sync and async, as the official JDBC
-  driver reads it. Size-0 cells of every other type, and zero-length collection elements,
-  still decode as `None`. The prepared path still rejects `b""`, because the broker reads a
-  zero-length bind as NULL.
+  driver reads it. Size-0 cells of every other type still decode as `None`. The prepared
+  path still rejects `b""`, because the broker reads a zero-length bind as NULL.
+
+- **An empty `BIT VARYING` collection element is decoded as `b""`, not `None` (#998)** — with
+  `decode_collections=True`, the element decoder read every element length `<= 0` as NULL,
+  so `SET{X''}` decoded to `frozenset({None})` and `SEQUENCE{X'', NULL, X'01'}` to
+  `[None, None, b'\x01']`. The CAS writes a NULL element as length `-1` and an empty bit
+  string as length `0`; a `BIT`/`VARBIT` element of length `0` now decodes as `b""`, sync
+  and async, matching row cells (#994). Zero-length elements of every other type still
+  decode as `None`, collection size and consumed-bytes validation is unchanged, and raw
+  collection bytes (`decode_collections=False`) are unchanged.
 
 - **A `?` inside a quoted identifier raises an explained `ProgrammingError` (#990)** —
   the CUBRID broker counts every `?` outside comments and single-quoted strings as a

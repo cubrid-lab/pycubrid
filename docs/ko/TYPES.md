@@ -430,6 +430,9 @@ CUBRID의 컬렉션 타입(`SET`, `MULTISET`, `SEQUENCE`)은 하위 호환을 �
 - 모든 요소가 SQL NULL인 비어 있지 않은 컬렉션(예: `{NULL}`, `{NULL, NULL}`)은
   `MULTISET`/`SEQUENCE`에서 `[None, ...]`, `SET`에서 `frozenset({None})`으로 디코딩됩니다.
   빈 컬렉션은 `[]` / `frozenset()`으로 디코딩됩니다.
+- 빈 `BIT`/`BIT VARYING` 요소(`X''`, 와이어 길이 0)는 `b""`, NULL 요소(길이 -1)는 `None`으로
+  디코딩되므로 `SEQUENCE{X'', NULL, X'01'}`은 `[b"", None, b"\x01"]`입니다(#998). 다른 타입의
+  길이 0 요소는 `None`입니다.
 - 중첩 컬렉션 페이로드는 raw `bytes`로 유지됩니다.
 - 알 수 없는 컬렉션 요소 타입은 raw `bytes`로 폴백됩니다.
 - `SET` 값은 모든 디코딩된 요소가 해시 가능하면 `frozenset`으로 정규화됩니다.

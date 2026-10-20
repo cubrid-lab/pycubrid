@@ -3,7 +3,9 @@
 CAS writes a NULL cell as size -1 and an empty bit string as size 0, but the
 row decoder read every size <= 0 as NULL, so ``X''`` (``IS NULL`` 0,
 ``BIT_LENGTH`` 0) came back as ``None`` next to a real NULL. Sync and async,
-for a stored column, a constant and a NULL/value UNION column.
+for a stored column, a constant and a NULL/value UNION column. With
+``decode_collections=True`` an empty BIT VARYING collection element (length 0)
+is b"" and a NULL element (length -1) is None as well (#998).
 """
 
 from __future__ import annotations
@@ -12,7 +14,9 @@ from typing import cast
 
 import pytest
 
-from tests._parity_helpers import ADAPTERS, ParityAdapter, table_name
+import pycubrid
+import pycubrid.aio
+from tests._parity_helpers import ADAPTERS, ParityAdapter, connect_kwargs, table_name
 
 pytestmark = [pytest.mark.integration]
 
@@ -110,3 +114,105 @@ async def test_evaluate_empty_bit_string(adapter: ParityAdapter) -> None:
     finally:
         await adapter.close_cursor(cursor)
         await adapter.close_connection(connection)
+
+
+_COLLECTION_QUERIES: list[tuple[str, object, bytes]] = [
+    (
+        "SELECT SET{X''} FROM db_root",
+        frozenset({b""}),
+        bytes.fromhex("05 00000001 00000000"),
+    ),
+    (
+        "SELECT SEQUENCE{X'', NULL, X'01'} FROM db_root",
+        [b"", None, b"\x01"],
+        bytes.fromhex("05 00000003 00000000 ffffffff 00000001 01"),
+    ),
+    (
+        "SELECT CAST(MULTISET{X'', X'', NULL, X'0F'} AS MULTISET(BIT VARYING)) FROM db_root",
+        [b"", b"", b"\x0f", None],
+        bytes.fromhex("06 00000004 00000000 00000000 00000001 0f ffffffff"),
+    ),
+]
+
+
+def _collection_ddl(table: str) -> list[str]:
+    return [
+        "CREATE TABLE %s (id INT PRIMARY KEY, s SET(BIT VARYING(64)),"
+        " m MULTISET(BIT VARYING(64)), q SEQUENCE(BIT VARYING(64)))" % table,
+        "INSERT INTO %s VALUES (1, {X''}, {X'', NULL}, {X'', NULL, X'01'})" % table,
+    ]
+
+
+_STORED_ROW = (1, frozenset({b""}), [None, b""], [b"", None, b"\x01"])
+
+
+def test_empty_bit_collection_element_is_empty_bytes_sync() -> None:
+    table = table_name("bit998s")
+    with pycubrid.connect(**connect_kwargs(), decode_collections=True) as connection:
+        connection.autocommit = True
+        cursor = connection.cursor()
+        for sql, expected, _raw in _COLLECTION_QUERIES:
+            cursor.execute(sql)
+            assert cursor.fetchall() == [(expected,)], sql
+        for statement in _collection_ddl(table):
+            cursor.execute(statement)
+        try:
+            cursor.execute("SELECT id, s, m, q FROM %s" % table)
+            row = cursor.fetchone()
+            assert row is not None
+            assert (row[0], row[1], sorted(row[2], key=repr), row[3]) == (
+                _STORED_ROW[0],
+                _STORED_ROW[1],
+                sorted(_STORED_ROW[2], key=repr),
+                _STORED_ROW[3],
+            )
+        finally:
+            cursor.execute("DROP TABLE %s" % table)
+
+
+def test_bit_collection_without_decoding_stays_raw_bytes_sync() -> None:
+    with pycubrid.connect(**connect_kwargs()) as connection:
+        cursor = connection.cursor()
+        for sql, _expected, raw in _COLLECTION_QUERIES:
+            cursor.execute(sql)
+            assert cursor.fetchall() == [(raw,)], sql
+
+
+@pytest.mark.asyncio
+async def test_empty_bit_collection_element_is_empty_bytes_async() -> None:
+    table = table_name("bit998a")
+    connection = await pycubrid.aio.connect(**connect_kwargs(), decode_collections=True)
+    try:
+        await connection.set_autocommit(True)
+        cursor = connection.cursor()
+        for sql, expected, _raw in _COLLECTION_QUERIES:
+            await cursor.execute(sql)
+            assert await cursor.fetchall() == [(expected,)], sql
+        for statement in _collection_ddl(table):
+            await cursor.execute(statement)
+        try:
+            await cursor.execute("SELECT id, s, m, q FROM %s" % table)
+            row = await cursor.fetchone()
+            assert row is not None
+            assert (row[0], row[1], sorted(row[2], key=repr), row[3]) == (
+                _STORED_ROW[0],
+                _STORED_ROW[1],
+                sorted(_STORED_ROW[2], key=repr),
+                _STORED_ROW[3],
+            )
+        finally:
+            await cursor.execute("DROP TABLE %s" % table)
+    finally:
+        await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_bit_collection_without_decoding_stays_raw_bytes_async() -> None:
+    connection = await pycubrid.aio.connect(**connect_kwargs())
+    try:
+        cursor = connection.cursor()
+        for sql, _expected, raw in _COLLECTION_QUERIES:
+            await cursor.execute(sql)
+            assert await cursor.fetchall() == [(raw,)], sql
+    finally:
+        await connection.close()
