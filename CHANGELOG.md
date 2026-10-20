@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **Empty `BIT`/`BIT VARYING` values (#994)** — code that tests `v is None` on a `BIT` or
+  `BIT VARYING` column to detect an empty value now sees `b""` for `X''`; `NULL` is still
+  `None`.
+
 ### Changed
 
 - **The execute and fetch profilers no longer drop an existing `_profile_tmp` table (#950)** —

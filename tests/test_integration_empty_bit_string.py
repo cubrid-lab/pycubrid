@@ -67,3 +67,46 @@ async def test_empty_bit_string_is_not_null(adapter: ParityAdapter) -> None:
     finally:
         await adapter.close_cursor(cursor)
         await adapter.close_connection(connection)
+
+
+@pytest.mark.asyncio
+async def test_empty_bit_string_across_fetch_pages(adapter: ParityAdapter) -> None:
+    """Rows past the first FETCH page decode b"" and NULL the same way."""
+    table = table_name("bit994p")
+    connection = await adapter.connect()
+    cursor = adapter.cursor(connection)
+    try:
+        await adapter.set_autocommit(connection, True)
+        await adapter.execute(
+            cursor, "CREATE TABLE %s (id INT PRIMARY KEY, v BIT VARYING(8))" % table
+        )
+        try:
+            await adapter.execute(
+                cursor,
+                "INSERT INTO %s SELECT ROWNUM, CASE WHEN MOD(ROWNUM, 2) = 0 THEN X'' END"
+                " FROM db_attribute a, db_attribute b WHERE ROWNUM <= 1000" % table,
+            )
+            await adapter.execute(cursor, "SELECT id, v FROM %s ORDER BY id" % table)
+            rows = [tuple(row) for row in await adapter.fetchall(cursor)]
+            assert len(rows) == 1000
+            assert rows == [(i, b"" if i % 2 == 0 else None) for i in range(1, 1001)]
+        finally:
+            await adapter.execute(cursor, "DROP TABLE %s" % table)
+    finally:
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_empty_bit_string(adapter: ParityAdapter) -> None:
+    """EVALUATE sends a self-typed cell; X'' is b"" and NULL is None."""
+    connection = await adapter.connect()
+    cursor = adapter.cursor(connection)
+    try:
+        await adapter.execute(cursor, "EVALUATE X''")
+        assert [tuple(row) for row in await adapter.fetchall(cursor)] == [(b"",)]
+        await adapter.execute(cursor, "EVALUATE CAST(NULL AS BIT VARYING)")
+        assert [tuple(row) for row in await adapter.fetchall(cursor)] == [(None,)]
+    finally:
+        await adapter.close_cursor(cursor)
+        await adapter.close_connection(connection)

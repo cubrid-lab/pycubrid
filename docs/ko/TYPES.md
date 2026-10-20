@@ -296,7 +296,7 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 | `DATETIME` | 22 | `datetime.datetime` | 날짜 + 시간 + 밀리초 |
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | 타임존 포함 타임스탬프 (초 정밀도, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | 타임존 포함 datetime (밀리초 정밀도) |
-| `BIT`, `BIT VARYING` | 5, 6 | `bytes` | raw 바이너리 데이터. 빈 `BIT VARYING` 값(`X''`)은 `NULL`과 구분되는 `b""` (#994) |
+| `BIT`, `BIT VARYING` | 5, 6 | `bytes` | raw 바이너리 데이터. 빈 `BIT`/`BIT VARYING` 값(`X''`, `B''`)은 `NULL`과 구분되는 `b""` (#994). JDBC 드라이버를 따른 동작이며, 공식 CUBRIDdb 드라이버는 `X''`에 `None`을 돌려줌 |
 | `JSON` | 34 | `str` 또는 `Any` | 기본은 raw JSON 문자열; `json_deserializer=` 설정 시 디코딩됨. 연결 `charset`과 무관하게 항상 UTF-8 |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` 또는 디코딩된 컬렉션 | `decode_collections=True`일 때만 디코딩 |
 | `OBJECT` (OID) | 19 | `str` | 형식: `"OID:@page\|slot\|volume"` |

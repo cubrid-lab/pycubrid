@@ -305,6 +305,15 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Empty `BIT`/`BIT VARYING` values (#994)** — PATCH / bug fix to the
+  documented row decoding (`docs/PROTOCOL.md`, `docs/TYPES.md`). A `BIT`/`VARBIT`
+  cell of size `0` (an empty value, `X''`) decodes as `b""` instead of `None`, as
+  the official JDBC driver reads it; `NULL` (size `-1`) is still `None`. Code that
+  checks `v is None` on such a column now sees `b""` for an empty value (see the
+  `CHANGELOG.md` Upgrade note). Collection elements, the prepared-path `b""`
+  rejection, public signatures, the wire format and supported versions are
+  unchanged.
+
 - **`error_source` of copied async setup failures (#952)** — PATCH / bug fix
   to the documented setup-waiter contract (`docs/API_REFERENCE.md`, #554) and
   the `error_source` attribute (#903). The `DatabaseError` copy each waiting
