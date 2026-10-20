@@ -319,9 +319,9 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   cell of size `0` (an empty value, `X''`) decodes as `b""` instead of `None`, as
   the official JDBC driver reads it; `NULL` (size `-1`) is still `None`. Code that
   checks `v is None` on such a column now sees `b""` for an empty value (see the
-  `CHANGELOG.md` Upgrade note). Collection elements, the prepared-path `b""`
-  rejection, public signatures, the wire format and supported versions are
-  unchanged.
+  `CHANGELOG.md` Upgrade note). Decoded collection elements are covered by the
+  #998 entry above. The prepared-path `b""` rejection, public signatures, the
+  wire format and supported versions are unchanged.
 
 - **`error_source` of copied async setup failures (#952)** — PATCH / bug fix
   to the documented setup-waiter contract (`docs/API_REFERENCE.md`, #554) and
