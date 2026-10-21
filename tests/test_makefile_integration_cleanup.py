@@ -313,15 +313,29 @@ def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
     env["CUBRID_DATABASES"] = str(databases)
     env["TMPDIR"] = str(tmp_path)
 
-    result = subprocess.run(
-        ["make", "-f", str(MAKEFILE), "docker-fix-db-host"],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    listing.chmod(0o640)
+    os.utime(listing, (1_000_000_000, 1_000_000_000))
+    inode = listing.stat().st_ino
+
+    def fix() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["make", "-f", str(MAKEFILE), "docker-fix-db-host"],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    result = fix()
 
     assert result.returncode == 0, result.stderr
+    # Rewritten in place, so the owner and mode the server relies on are kept.
+    assert listing.stat().st_ino == inode
+    assert stat.S_IMODE(listing.stat().st_mode) == 0o640
+    # cp -p: the backup keeps the original's mode and timestamp.
+    backup = databases / "databases.txt.before-fix-db-host"
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o640
+    assert backup.stat().st_mtime == 1_000_000_000
     assert log.read_text().startswith("compose exec -T -u root cubrid sh -c ")
     original = (databases / "databases.txt.before-fix-db-host").read_text()
     assert original.splitlines()[1].split()[2] == "ee2bfa1105f9"
@@ -341,3 +355,6 @@ def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
         "databases.txt",
         "databases.txt.before-fix-db-host",
     ]
+    # A second run keeps the first backup, the only record of the stale host.
+    assert fix().returncode == 0
+    assert backup.read_text() == original
