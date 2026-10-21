@@ -325,10 +325,14 @@ def test_workflow_shell_stops_after_probe_cli_failure(workflow: str, tmp_path: P
     assert "DOWNSTREAM_TESTS_STARTED" not in result.stdout
 
 
-_STALE_353 = (
-    "Failed to connect to database server, 'testdb', on the following host(s): "
-    "ee2bfa1105f9 (errno=-353, sqlstate='HY000')"
+_STALE_MSG = (
+    "Failed to connect to database server, 'testdb', on the following host(s): ee2bfa1105f9"
 )
+
+
+def _stale_353(message: str = _STALE_MSG) -> pycubrid.OperationalError:
+    # Built as the driver builds a server error, so str() adds the errno suffix itself.
+    return pycubrid.OperationalError(message, errno=-353, sqlstate="HY000")
 
 
 def _getent(monkeypatch: pytest.MonkeyPatch, outcome: int | Exception) -> MagicMock:
@@ -347,7 +351,7 @@ def test_stale_database_host_fails_fast_with_repair_hint(
     """A -353 host the container cannot resolve never heals, so stop retrying (#1000)."""
     main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
     monkeypatch.setenv("CUBRID_TEST_DOCKER_CONTAINER", "fa382e70ffe2aaaa\n")
-    connect = MagicMock(side_effect=pycubrid.OperationalError(_STALE_353))
+    connect = MagicMock(side_effect=_stale_353())
     sleep = MagicMock()
     monkeypatch.setattr(pycubrid, "connect", connect)
     monkeypatch.setattr("time.sleep", sleep)
@@ -390,7 +394,7 @@ def test_unconfirmed_database_host_keeps_retrying(
 ) -> None:
     main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
     monkeypatch.setenv("CUBRID_TEST_DOCKER_CONTAINER", container)
-    connect = MagicMock(side_effect=pycubrid.OperationalError(_STALE_353))
+    connect = MagicMock(side_effect=_stale_353())
     monkeypatch.setattr(pycubrid, "connect", connect)
     monkeypatch.setattr("time.sleep", MagicMock())
     run = _getent(monkeypatch, outcome)
@@ -403,14 +407,22 @@ def test_unconfirmed_database_host_keeps_retrying(
     assert "docker-fix-db-host" not in err
 
 
-def test_other_failures_do_not_query_the_container(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "error",
+    [
+        pycubrid.OperationalError("failed to connect to CUBRID broker"),
+        # The host list alone is not enough: only errno -353 names databases.txt hosts.
+        pycubrid.OperationalError(_STALE_MSG, errno=-677),
+        pycubrid.OperationalError(_STALE_MSG),
+        OSError(_STALE_MSG),
+    ],
+)
+def test_other_failures_do_not_query_the_container(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
     main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
     monkeypatch.setenv("CUBRID_TEST_DOCKER_CONTAINER", "fa382e70ffe2")
-    monkeypatch.setattr(
-        pycubrid,
-        "connect",
-        MagicMock(side_effect=pycubrid.OperationalError("failed to connect to CUBRID broker")),
-    )
+    monkeypatch.setattr(pycubrid, "connect", MagicMock(side_effect=error))
     monkeypatch.setattr("time.sleep", MagicMock())
     run = _getent(monkeypatch, 2)
 
@@ -421,10 +433,8 @@ def test_other_failures_do_not_query_the_container(monkeypatch: pytest.MonkeyPat
 def test_every_listed_host_must_be_unresolvable(monkeypatch: pytest.MonkeyPatch) -> None:
     main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
     monkeypatch.setenv("CUBRID_TEST_DOCKER_CONTAINER", "fa382e70ffe2")
-    message = _STALE_353.replace("ee2bfa1105f9", "ee2bfa1105f9:localhost")
-    monkeypatch.setattr(
-        pycubrid, "connect", MagicMock(side_effect=pycubrid.OperationalError(message))
-    )
+    message = _STALE_MSG.replace("ee2bfa1105f9", "ee2bfa1105f9:localhost")
+    monkeypatch.setattr(pycubrid, "connect", MagicMock(side_effect=_stale_353(message)))
     monkeypatch.setattr("time.sleep", MagicMock())
     run = MagicMock(
         side_effect=lambda argv, **_: subprocess.CompletedProcess(

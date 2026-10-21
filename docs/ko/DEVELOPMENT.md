@@ -472,10 +472,15 @@ services:
       - "${CUBRID_TEST_PORT:-33000}:33000"
     volumes:
       - cubrid-data:/var/lib/cubrid
+
+volumes:
+  cubrid-data:
 ```
 
-`CUBRID_DB_HOST: localhost`를 설정하면 이미지가 볼륨의 `databases.txt`에 `testdb`를
-`localhost`로 등록합니다. 이 값이 없으면 데이터베이스를 만든 컨테이너의 ID가 기록되고,
+실제 파일에는 `healthcheck`도 있습니다.
+
+`CUBRID_DB_HOST: localhost`를 설정하면 이미지가 `databases.txt`에 `testdb`를
+`localhost`로 등록합니다. 10.2와 11.2는 이 파일을 `cubrid-data` 볼륨에 둡니다. 이 값이 없으면 데이터베이스를 만든 컨테이너의 ID가 기록되고,
 그 컨테이너를 다시 만들면 데이터베이스를 사용할 수 없게 됩니다
 ([문제 해결](TROUBLESHOOTING.md#컨테이너를-다시-만든-뒤-데이터베이스-서버-호스트를-찾을-수-없음)).
 

@@ -516,10 +516,15 @@ services:
       - "${CUBRID_TEST_PORT:-33000}:33000"
     volumes:
       - cubrid-data:/var/lib/cubrid
+
+volumes:
+  cubrid-data:
 ```
 
+The full file also defines a `healthcheck`.
+
 `CUBRID_DB_HOST: localhost` makes the image register `testdb` for `localhost` in
-`databases.txt` on the volume. Without it the image records the creating container's ID,
+`databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume. Without it the image records the creating container's ID,
 and the database stops working once that container is recreated
 ([Troubleshooting](TROUBLESHOOTING.md#database-server-host-not-found-after-recreating-the-container)).
 

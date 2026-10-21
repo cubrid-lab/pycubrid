@@ -14,10 +14,12 @@ matching component of ``CUBRID_TEST_URL``, then localhost:33000/testdb/dba/"".
 ``CUBRID_TEST_CONNECT_TIMEOUT`` / ``CUBRID_TEST_READ_TIMEOUT`` default to 5 seconds,
 so a broker that accepts TCP but stalls cannot leave a probe waiting indefinitely.
 
-With ``CUBRID_TEST_DOCKER_CONTAINER`` set (``make integration`` sets it), a -353
-"Failed to connect to database server" naming only hosts that do not resolve inside
-that container fails at once with a repair hint, instead of retrying: the database
-volume records a host that no container will resolve again (#1000).
+With ``CUBRID_TEST_DOCKER_CONTAINER`` set (``make integration`` and ``make
+integration-tls`` set it), a -353 "Failed to connect to database server" naming only
+hosts that ``getent hosts`` cannot resolve inside that container fails at once with a
+repair hint, instead of retrying: the database volume records a host that no container
+will resolve again (#1000). The hosts it records are ``localhost`` or a container ID,
+both answered from ``/etc/hosts``, so a failed lookup is not a transient DNS error.
 
 Usage:
     python scripts/wait_for_cubrid.py [attempts] [sleep_seconds] [--server-info PATH]
@@ -82,7 +84,8 @@ def _write_identity(path: Path, endpoint: str, result: dict[str, object]) -> Non
 
 
 # CUBRID -353 (ER_NET_CANT_CONNECT_SERVER) lists the hosts databases.txt names.
-_SERVER_HOSTS = re.compile(r"on the following host\(s\): (?P<hosts>[^()]+?) \(errno=-353\b")
+_CANT_CONNECT_SERVER = -353
+_SERVER_HOSTS = re.compile(r"on the following host\(s\):(?P<hosts>.*)\Z", re.DOTALL)
 
 _STALE_HOST_HINT = (
     "CUBRID database server host(s) {hosts} do not resolve inside container {container}. "
@@ -94,7 +97,9 @@ _STALE_HOST_HINT = (
 
 
 def _server_hosts(exc: BaseException) -> list[str]:
-    match = _SERVER_HOSTS.search(str(exc))
+    if getattr(exc, "errno", None) != _CANT_CONNECT_SERVER:
+        return []
+    match = _SERVER_HOSTS.search(str(getattr(exc, "msg", "")))
     if match is None:
         return []
     return [host for host in re.split(r"[\s,:]+", match.group("hosts")) if host]

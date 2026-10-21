@@ -1168,10 +1168,11 @@ Inside the container, `csql -u dba testdb -c "SELECT 1"` reports
 `Cannot find ("ee2bfa1105f9") in /etc/hosts`, although `cubrid server status` lists
 `testdb`.
 
-**Cause:** the image registers the database in `databases.txt` on the data volume, for
+**Cause:** the image registers the database in `databases.txt`, for
 `CUBRID_DB_HOST` or, when that is unset, for the hostname of the container that created
-it, which is that container's ID. `down` keeps the volume, and a recreated container has a
-new ID, so nothing resolves the recorded host. The repository's `docker-compose.yml` sets
+it, which is that container's ID. On 10.2 and 11.2 the file is on the `cubrid-data` volume
+(11.4 keeps its databases elsewhere, #1002). `down` keeps the volume, and a recreated
+container has a new ID, so nothing resolves the recorded host. The repository's `docker-compose.yml` sets
 `CUBRID_DB_HOST: localhost`, so a volume it creates keeps working; a volume created by an
 older copy still records the old ID. `make integration` reports this case at its first
 -353 instead of retrying 36 times.
@@ -1183,6 +1184,8 @@ older copy still records the old ID. `make integration` reports this case at its
 make docker-up
 make docker-fix-db-host
 ```
+
+The previous file is saved next to it as `databases.txt.before-fix-db-host`.
 
 **Fix, deleting the data:** `make docker-down` runs `docker compose down -v`, which
 **removes the volume and every table in it**; the next `make docker-up` creates a fresh

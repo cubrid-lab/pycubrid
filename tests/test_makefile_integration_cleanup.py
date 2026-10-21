@@ -276,8 +276,13 @@ def test_readiness_probe_gets_the_compose_container(tmp_path: Path, target: str)
         text=True,
         check=True,
     ).stdout
-    probe = recipe.split("scripts/wait_for_cubrid.py", 1)[0].rsplit("&&", 1)[-1]
-    assert "CUBRID_TEST_DOCKER_CONTAINER=" in probe
+    before_probe = recipe.split("scripts/wait_for_cubrid.py", 1)[0]
+    lookup = 'container="$(docker compose ps -q cubrid)";'
+    assert lookup in before_probe
+    # The probe command is the one right after the lookup, and it gets that value.
+    probe = before_probe.rsplit(lookup, 1)[1]
+    assert "&&" not in probe and ";" not in probe
+    assert 'CUBRID_TEST_DOCKER_CONTAINER="$container"' in probe
 
 
 def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
@@ -318,6 +323,8 @@ def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert log.read_text().startswith("compose exec -T -u root cubrid sh -c ")
+    original = (databases / "databases.txt.before-fix-db-host").read_text()
+    assert original.splitlines()[1].split()[2] == "ee2bfa1105f9"
     lines = listing.read_text().splitlines()
     assert lines[0] == "#db-name\tvol-path\t\tdb-host\t\tlog-path\t\tlob-base-path"
     assert lines[1].split() == [
@@ -330,3 +337,7 @@ def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
     assert lines[2].split()[2] == "ee2bfa1105f9"
     assert "localhost" in result.stdout
     assert sorted(path.name for path in tmp_path.iterdir()) == ["databases", "docker", "docker.log"]
+    assert sorted(path.name for path in databases.iterdir()) == [
+        "databases.txt",
+        "databases.txt.before-fix-db-host",
+    ]
