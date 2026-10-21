@@ -267,6 +267,19 @@ def test_compose_registers_the_database_for_a_stable_host() -> None:
     assert environment["CUBRID_DB_HOST"] == "localhost"
 
 
+def test_compose_keeps_every_image_database_directory_in_a_named_volume() -> None:
+    """Images up to 11.3 keep databases in /var/lib/cubrid, 11.4 elsewhere (#1002)."""
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    mounts = dict(volume.split(":", 1)[::-1] for volume in compose["services"]["cubrid"]["volumes"])
+    assert mounts == {
+        "/var/lib/cubrid": "cubrid-data",
+        "/home/cubrid/CUBRID/databases": "cubrid-databases",
+    }
+    assert set(compose["volumes"]) == {"cubrid-data", "cubrid-databases"}
+
+
 @pytest.mark.parametrize("target", ["integration", "integration-tls"])
 def test_readiness_probe_gets_the_compose_container(tmp_path: Path, target: str) -> None:
     recipe = subprocess.run(

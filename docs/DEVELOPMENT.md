@@ -516,15 +516,21 @@ services:
       - "${CUBRID_TEST_PORT:-33000}:33000"
     volumes:
       - cubrid-data:/var/lib/cubrid
+      - cubrid-databases:/home/cubrid/CUBRID/databases
 
 volumes:
   cubrid-data:
+  cubrid-databases:
 ```
 
 The full file also defines a `healthcheck`.
 
 `CUBRID_DB_HOST: localhost` makes the image register `testdb` for `localhost` in
-`databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume. Without it the image records the creating container's ID,
+`databases.txt`. Images up to 11.3 keep it and the database on the `cubrid-data` volume,
+and 11.4 on `cubrid-databases`, so `docker compose down` keeps the database on every
+supported version. Versions up to 11.3 share `cubrid-data`; a database created by one
+CUBRID version is not guaranteed to open on another, so run `make docker-down` (which
+deletes the test data) before switching `CUBRID_VERSION`. Without it the image records the creating container's ID,
 and the database stops working once that container is recreated
 ([Troubleshooting](TROUBLESHOOTING.md#database-server-host-not-found-after-recreating-the-container)).
 

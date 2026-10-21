@@ -472,15 +472,20 @@ services:
       - "${CUBRID_TEST_PORT:-33000}:33000"
     volumes:
       - cubrid-data:/var/lib/cubrid
+      - cubrid-databases:/home/cubrid/CUBRID/databases
 
 volumes:
   cubrid-data:
+  cubrid-databases:
 ```
 
 실제 파일에는 `healthcheck`도 있습니다.
 
 `CUBRID_DB_HOST: localhost`를 설정하면 이미지가 `databases.txt`에 `testdb`를
-`localhost`로 등록합니다. 10.2와 11.2는 이 파일을 `cubrid-data` 볼륨에 둡니다. 이 값이 없으면 데이터베이스를 만든 컨테이너의 ID가 기록되고,
+`localhost`로 등록합니다. 11.3까지의 이미지는 이 파일과 데이터베이스를 `cubrid-data` 볼륨에, 11.4는 `cubrid-databases`에
+두므로 지원하는 모든 버전에서 `docker compose down`이 데이터베이스를 남깁니다. 11.3까지의 버전은
+`cubrid-data`를 함께 쓰고, 한 CUBRID 버전이 만든 데이터베이스가 다른 버전에서 열린다는 보장은 없으므로
+`CUBRID_VERSION`을 바꾸기 전에 `make docker-down`(테스트 데이터 삭제)을 실행하세요. 이 값이 없으면 데이터베이스를 만든 컨테이너의 ID가 기록되고,
 그 컨테이너를 다시 만들면 데이터베이스를 사용할 수 없게 됩니다
 ([문제 해결](TROUBLESHOOTING.md#컨테이너를-다시-만든-뒤-데이터베이스-서버-호스트를-찾을-수-없음)).
 
