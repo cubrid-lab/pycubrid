@@ -508,13 +508,20 @@ open htmlcov/index.html
 ```yaml
 services:
   cubrid:
-    image: cubrid/cubrid:11.2
-    container_name: cubrid-test
-    ports:
-      - "33000:33000"
+    image: cubrid/cubrid:${CUBRID_VERSION:-11.2}
     environment:
       CUBRID_DB: testdb
+      CUBRID_DB_HOST: localhost
+    ports:
+      - "${CUBRID_TEST_PORT:-33000}:33000"
+    volumes:
+      - cubrid-data:/var/lib/cubrid
 ```
+
+`CUBRID_DB_HOST: localhost` makes the image register `testdb` for `localhost` in
+`databases.txt` on the volume. Without it the image records the creating container's ID,
+and the database stops working once that container is recreated
+([Troubleshooting](TROUBLESHOOTING.md#database-server-host-not-found-after-recreating-the-container)).
 
 ### Commands
 
@@ -531,8 +538,14 @@ docker compose ps
 # View logs
 docker compose logs -f cubrid
 
-# Stop and cleanup
+# Stop, keeping the data volume
+docker compose down
+
+# Stop and delete the data volume (removes all test data)
 docker compose down -v
+
+# Repair a volume created before CUBRID_DB_HOST was set (keeps the data)
+make docker-fix-db-host
 ```
 
 ### Connection Details

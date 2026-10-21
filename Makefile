@@ -1,4 +1,4 @@
-.PHONY: help install tooling-check lint format typecheck security docs-reason-check check check-all test mutation integration integration-local integration-tls docker-up docker-down changelog clean clean-all doctor release-check agent-eval-check
+.PHONY: help install tooling-check lint format typecheck security docs-reason-check check check-all test mutation integration integration-local integration-tls docker-up docker-down docker-fix-db-host changelog clean clean-all doctor release-check agent-eval-check
 
 PYTHON = python3
 PYTEST = python3 -m pytest
@@ -72,8 +72,10 @@ INTEGRATION_ENV = CUBRID_TEST_URL="cubrid://dba@localhost:$(CUBRID_TEST_PORT)/te
 integration: docker-up ## Run integration tests against a Docker CUBRID (fails if it never becomes ready or every test skips)
 	@trap 'docker compose down; exit 130' INT TERM; \
 	status=0; \
-	$(INTEGRATION_ENV) $(PYTHON) scripts/wait_for_cubrid.py 36 5 && \
-	$(INTEGRATION_ENV) CUBRID_TEST_DOCKER_CONTAINER="$$(docker compose ps -q cubrid)" \
+	container="$$(docker compose ps -q cubrid)"; \
+	$(INTEGRATION_ENV) CUBRID_TEST_DOCKER_CONTAINER="$$container" \
+		$(PYTHON) scripts/wait_for_cubrid.py 36 5 && \
+	$(INTEGRATION_ENV) CUBRID_TEST_DOCKER_CONTAINER="$$container" \
 		$(PYTEST) $(TESTS)/ -m "integration and not tls" -v --junitxml=$(INTEGRATION_RESULTS) && \
 	$(PYTHON) scripts/check_integration_lanes.py --results $(INTEGRATION_RESULTS) || status=$$?; \
 	docker compose down || { cleanup_status=$$?; echo "ERROR: Docker cleanup failed with status $$cleanup_status"; [ $$status -ne 0 ] || status=$$cleanup_status; }; \
@@ -92,7 +94,8 @@ integration-tls: docker-up ## Run async TLS integration tests (requires SSL=ON b
 	@echo "      see the 'integration-tls' job in .github/workflows/integration-full.yml."
 	@trap 'docker compose down; exit 130' INT TERM; \
 	status=0; \
-	$(INTEGRATION_ENV) $(PYTHON) scripts/wait_for_cubrid.py 36 5 && \
+	$(INTEGRATION_ENV) CUBRID_TEST_DOCKER_CONTAINER="$$(docker compose ps -q cubrid)" \
+		$(PYTHON) scripts/wait_for_cubrid.py 36 5 && \
 	$(INTEGRATION_ENV) $(PYTEST) $(TESTS)/test_aio_ssl_integration.py -v --junitxml=$(INTEGRATION_RESULTS) && \
 	$(PYTHON) scripts/check_integration_lanes.py --results $(INTEGRATION_RESULTS) || status=$$?; \
 	docker compose down || { cleanup_status=$$?; echo "ERROR: Docker cleanup failed with status $$cleanup_status"; [ $$status -ne 0 ] || status=$$cleanup_status; }; \
@@ -102,8 +105,18 @@ docker-up: ## Start CUBRID Docker container (published on CUBRID_TEST_PORT, defa
 	CUBRID_TEST_PORT=$(CUBRID_TEST_PORT) docker compose up -d
 	@echo "CUBRID container starting..."
 
-docker-down: ## Stop and remove CUBRID Docker container
+docker-down: ## Stop and remove CUBRID Docker container and its data volume (deletes the test data)
 	docker compose down -v
+
+# A volume created before docker-compose.yml set CUBRID_DB_HOST registers testdb
+# for the creating container's ID, which a recreated container cannot resolve
+# (-353, #1000). Rewrite only that host field to localhost; the data is kept.
+docker-fix-db-host: ## Repair a running container's volume that registers testdb for a stale host (keeps the data)
+	docker compose exec -T -u root cubrid sh -c 'set -e; \
+		f="$$CUBRID_DATABASES/databases.txt"; t="$$(mktemp)"; \
+		awk '"'"'BEGIN { OFS = "\t" } $$1 == "testdb" { $$3 = "localhost" } { print }'"'"' "$$f" > "$$t"; \
+		cat "$$t" > "$$f"; rm -f "$$t"; \
+		grep "^testdb[[:space:]]" "$$f"'
 
 changelog: ## Generate changelog with git-cliff
 	git-cliff --output CHANGELOG.md

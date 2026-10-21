@@ -464,13 +464,20 @@ open htmlcov/index.html
 ```yaml
 services:
   cubrid:
-    image: cubrid/cubrid:11.2
-    container_name: cubrid-test
-    ports:
-      - "33000:33000"
+    image: cubrid/cubrid:${CUBRID_VERSION:-11.2}
     environment:
       CUBRID_DB: testdb
+      CUBRID_DB_HOST: localhost
+    ports:
+      - "${CUBRID_TEST_PORT:-33000}:33000"
+    volumes:
+      - cubrid-data:/var/lib/cubrid
 ```
+
+`CUBRID_DB_HOST: localhost`를 설정하면 이미지가 볼륨의 `databases.txt`에 `testdb`를
+`localhost`로 등록합니다. 이 값이 없으면 데이터베이스를 만든 컨테이너의 ID가 기록되고,
+그 컨테이너를 다시 만들면 데이터베이스를 사용할 수 없게 됩니다
+([문제 해결](TROUBLESHOOTING.md#컨테이너를-다시-만든-뒤-데이터베이스-서버-호스트를-찾을-수-없음)).
 
 ### 명령
 
@@ -487,8 +494,14 @@ docker compose ps
 # 로그 보기
 docker compose logs -f cubrid
 
-# 중지 및 정리
+# 중지 (데이터 볼륨 유지)
+docker compose down
+
+# 중지 및 데이터 볼륨 삭제 (테스트 데이터가 모두 삭제됨)
 docker compose down -v
+
+# CUBRID_DB_HOST 설정 전에 만든 볼륨 복구 (데이터 유지)
+make docker-fix-db-host
 ```
 
 ### 연결 상세

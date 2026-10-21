@@ -48,6 +48,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [Mixing Parameterized and Direct Execution](#mixing-parameterized-and-direct-execution)
 - [Docker Issues](#docker-issues)
   - [Container Starts but Cannot Connect](#container-starts-but-cannot-connect)
+  - [Database Server Host Not Found After Recreating the Container](#database-server-host-not-found-after-recreating-the-container)
   - [Database Not Found](#database-not-found)
   - [Container Health Check](#container-health-check)
 - [SQLAlchemy Integration Issues](#sqlalchemy-integration-issues)
@@ -1150,6 +1151,42 @@ conn.close()
 docker compose ps
 # Verify 33000->33000/tcp is shown
 ```
+
+---
+
+### Database Server Host Not Found After Recreating the Container
+
+**Symptom:** after `docker compose down` and `up` (or a second `make integration`),
+the broker answers but every connection fails, naming a host that looks like an old
+container ID:
+
+```
+OperationalError: Failed to connect to database server, 'testdb', on the following host(s): ee2bfa1105f9 (errno=-353, sqlstate='HY000')
+```
+
+Inside the container, `csql -u dba testdb -c "SELECT 1"` reports
+`Cannot find ("ee2bfa1105f9") in /etc/hosts`, although `cubrid server status` lists
+`testdb`.
+
+**Cause:** the image registers the database in `databases.txt` on the data volume, for
+`CUBRID_DB_HOST` or, when that is unset, for the hostname of the container that created
+it, which is that container's ID. `down` keeps the volume, and a recreated container has a
+new ID, so nothing resolves the recorded host. The repository's `docker-compose.yml` sets
+`CUBRID_DB_HOST: localhost`, so a volume it creates keeps working; a volume created by an
+older copy still records the old ID. `make integration` reports this case at its first
+-353 instead of retrying 36 times.
+
+**Fix, keeping the data:** with the container running, rewrite only the host field of
+`testdb` to `localhost`:
+
+```bash
+make docker-up
+make docker-fix-db-host
+```
+
+**Fix, deleting the data:** `make docker-down` runs `docker compose down -v`, which
+**removes the volume and every table in it**; the next `make docker-up` creates a fresh
+database. Use it only for a volume whose data you do not need.
 
 ---
 

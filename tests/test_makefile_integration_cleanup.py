@@ -255,3 +255,78 @@ def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_na
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate()
+
+
+def test_compose_registers_the_database_for_a_stable_host() -> None:
+    """The image records CUBRID_DB_HOST (else the container ID) on the volume (#1000)."""
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    environment = compose["services"]["cubrid"]["environment"]
+    assert environment["CUBRID_DB"] == "testdb"
+    assert environment["CUBRID_DB_HOST"] == "localhost"
+
+
+@pytest.mark.parametrize("target", ["integration", "integration-tls"])
+def test_readiness_probe_gets_the_compose_container(tmp_path: Path, target: str) -> None:
+    recipe = subprocess.run(
+        ["make", "-n", "-f", str(MAKEFILE), target],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    probe = recipe.split("scripts/wait_for_cubrid.py", 1)[0].rsplit("&&", 1)[-1]
+    assert "CUBRID_TEST_DOCKER_CONTAINER=" in probe
+
+
+def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
+    """Run the target's in-container script against a local databases.txt (#1000)."""
+    databases = tmp_path / "databases"
+    databases.mkdir()
+    listing = databases / "databases.txt"
+    listing.write_text(
+        "#db-name\tvol-path\t\tdb-host\t\tlog-path\t\tlob-base-path\n"
+        "testdb\t\t/var/lib/cubrid/testdb\tee2bfa1105f9\t/var/lib/cubrid/testdb\t"
+        "file:/var/lib/cubrid/testdb/lob\n"
+        "otherdb\t/var/lib/cubrid/otherdb\tee2bfa1105f9\t/var/lib/cubrid/otherdb\t"
+        "file:/var/lib/cubrid/otherdb/lob\n"
+    )
+    log = tmp_path / "docker.log"
+    docker = tmp_path / "docker"
+    # Log the call, then run the `sh -c` script locally as `docker compose exec` would.
+    docker.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$*" >> "$REVIEW_LOG"\n'
+        'while [ "$#" -gt 0 ] && [ "$1" != "-c" ]; do shift; done\n'
+        'exec sh -c "$2"\n'
+    )
+    docker.chmod(docker.stat().st_mode | stat.S_IEXEC)
+    env = dict(os.environ)
+    env["PATH"] = str(tmp_path) + os.pathsep + env.get("PATH", "")
+    env["REVIEW_LOG"] = str(log)
+    env["CUBRID_DATABASES"] = str(databases)
+    env["TMPDIR"] = str(tmp_path)
+
+    result = subprocess.run(
+        ["make", "-f", str(MAKEFILE), "docker-fix-db-host"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert log.read_text().startswith("compose exec -T -u root cubrid sh -c ")
+    lines = listing.read_text().splitlines()
+    assert lines[0] == "#db-name\tvol-path\t\tdb-host\t\tlog-path\t\tlob-base-path"
+    assert lines[1].split() == [
+        "testdb",
+        "/var/lib/cubrid/testdb",
+        "localhost",
+        "/var/lib/cubrid/testdb",
+        "file:/var/lib/cubrid/testdb/lob",
+    ]
+    assert lines[2].split()[2] == "ee2bfa1105f9"
+    assert "localhost" in result.stdout
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["databases", "docker", "docker.log"]
