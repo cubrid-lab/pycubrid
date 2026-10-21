@@ -598,6 +598,22 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   explicit `make docker-down` remains destructive. Driver APIs, connection
   semantics, package dependencies and existing readiness/audit gates are unchanged.
 
+- **Stable Docker test database host (#1000, #1003)** — PATCH /
+  development-tooling correction. `docker-compose.yml` registers `testdb` for
+  `CUBRID_DB_HOST: localhost`, so a recreated container opens the kept database.
+  `make docker-fix-db-host` repairs an older volume in place and keeps its first
+  backup. The readiness probe fails fast only on a -353 whose hosts the Compose
+  container cannot resolve. Driver APIs, connection semantics, package
+  dependencies and CI service containers are unchanged.
+
+- **CUBRID 11.4 Docker test database volume (#1002)** — PATCH /
+  development-tooling correction. The `cubrid-databases` named volume keeps 11.4's
+  `/home/cubrid/CUBRID/databases`, as `cubrid-data` keeps `/var/lib/cubrid` for
+  images up to 11.3, so `docker compose down` keeps the test database on every
+  supported version. `make docker-down` deletes both. Reusing one volume across
+  CUBRID versions is not verified, so the guides reset it before a version switch.
+  Driver APIs, package dependencies and CI service containers are unchanged.
+
 - **TLS preflight alerts and timeout context (#592)** — PATCH / diagnostic
   and error-path correction. Fatal alert bytes use only the existing probe
   deadline, and best-effort alert-send failures retain the original TLS error.
