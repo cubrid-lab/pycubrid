@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`make format-check` and `make verify` (#1007)** — `make format-check` runs only
+  `ruff format --check`; `make verify` runs `make check` and then `make test`, without
+  Docker. `scripts/run_integration.py` now runs the Docker integration lanes.
+
+### Changed
+
+- **Makefile targets have one meaning each (#1007)** — `make lint` runs only `ruff check`;
+  `make format` is the only quality target that modifies files. `make check` is the complete
+  static gate: `lint`, `format-check`, `typecheck`, `security` and `docs-reason-check`.
+  `make doctor` now exits non-zero, without its success line, when a required tool is
+  missing or fails `--version`. Every tool variable (`PIP`, `PYTEST`, `RUFF`, `MYPY`,
+  `BANDIT`, `PRE_COMMIT`) runs as `$(PYTHON) -m <tool>` and can be overridden with `?=`
+  from the command line or the environment. `make help` groups the targets by purpose.
+- **`make integration` and `make integration-tls` are one `scripts/run_integration.py` call
+  (#1007)** — the script owns the Compose lifecycle, readiness, SIGINT/SIGTERM handling,
+  cleanup, exit status and the every-test-skipped audit. Test selection, the pinned
+  endpoint and volume handling are unchanged: cleanup runs `docker compose down`, never
+  `-v`, after success, failure or a signal. Cleanup now also runs when
+  `docker compose up` fails.
+
+### Deprecated
+
+- **`make check-all` (#1007)** — an alias of `make check` that prints a notice on stderr.
+  It will be removed after the next minor release; use `make check`.
+
+### CI
+
+- **The lint lanes run `make check` (#1007)** — `ci.yml`, its release copy in
+  `integration-full.yml` and `maintenance.yml` call `make check` instead of `make lint` (and,
+  in `maintenance.yml`, a separate Bandit command).
+
 ## [1.13.1] - 2026-10-21
 
 ### Upgrade notes

@@ -670,8 +670,8 @@ jobs:
         run: |
           uv pip install --system -e . --group dev
           uv pip freeze --system
-      - name: Check tool consistency, lint, and format maintained Python
-        run: make lint
+      - name: Static quality gate (tooling, lint, format, mypy, bandit, docs-reason)
+        run: make check
       - name: Lint CHANGELOG structure
         run: python scripts/lint_changelog.py
       - name: Korean documents keep the structure of their English source

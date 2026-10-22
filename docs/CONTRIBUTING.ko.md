@@ -36,6 +36,10 @@ pip install -e . --group dev
 `pip install -e ".[dev]"` extra는 더 이상 없으며 `pip install -e . --group dev`로
 대체되었습니다(#784).
 
+이어서 `make doctor`로 필요한 모든 도구가 이 환경에서 실행되는지 확인하세요. 하나라도
+없거나 동작하지 않으면 성공 메시지 없이 0이 아닌 상태로 종료합니다. `make help`는 나머지
+대상을 목적별로 묶어 보여 줍니다.
+
 ## 테스트 실행
 
 ### 오프라인 테스트
@@ -51,8 +55,9 @@ make integration                          # Docker broker on localhost:33000
 make integration CUBRID_TEST_PORT=33522   # use a free port if 33000 is taken
 ```
 
-`make integration`은 준비가 될 때까지 기다리며, 브로커가 준비되지 않거나 선택한
-테스트가 모두 스킵되면 실패하고 항상 컨테이너를 제거합니다. 이미 실행 중인
+`make integration`은 `scripts/run_integration.py`를 통해 준비가 될 때까지 기다리며,
+브로커가 준비되지 않거나 선택한 테스트가 모두 스킵되면 실패하고 Ctrl-C나 SIGTERM에서도
+항상 컨테이너를 제거합니다. 데이터 볼륨은 유지합니다. 이미 실행 중인
 서버를 검사하려면 엔드포인트를 명시하세요:
 
 ```bash
@@ -75,10 +80,12 @@ CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
 
 ## 코드 스타일
 
-이 프로젝트는 Ruff로 린트와 포맷 검사를 수행합니다.
+이 프로젝트는 Ruff로 린트와 포맷 검사를 수행합니다. 아래 두 검사는 파일을 수정하지
+않으며, `make check`는 이 검사들을 typecheck, security, docs-reason-check와 함께 실행합니다.
 
 ```bash
-make lint
+make lint            # ruff check
+make format-check    # ruff format --check
 ```
 
 자동 수정:
@@ -102,7 +109,7 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 훅도 명시적으로 `pycubrid/`를 검사합니다.
 
 도구를 갱신하려면 `pyproject.toml`의 `lint` 의존성 그룹에 있는 버전 고정값을 변경하고
-`dev` 그룹을 다시 설치한 뒤 `make check-all`과 `pre-commit run --all-files`를 실행하세요.
+`dev` 그룹을 다시 설치한 뒤 `make check`와 `pre-commit run --all-files`를 실행하세요.
 별도로 수정할 훅 revision은 없습니다. 드리프트 게이트는 누락·모호한 고정값,
 고정값과 다른 설치 버전, 좁아진 검사 범위를 거부합니다. Dependabot의 `pip`
 생태계는 `pyproject.toml` 고정값만 갱신할 수 있으며, pre-commit 훅이 항상 설치된
@@ -112,7 +119,8 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 
 1. 변경을 한 가지 목적에 집중하고 PR 설명에 동기를 적으세요.
 2. 동작 변경에 맞는 테스트를 추가하거나 갱신하세요.
-3. `make check-all`과 `make test`를 실행하고 명령·결과와 실행하지 못한 검사를 기록하세요.
+3. `make check`와 `make test`를 실행하고(`make verify`는 둘 다 실행하며, `make check-all`은
+   `make check`의 폐기 예정 별칭입니다) 명령·결과와 실행하지 못한 검사를 기록하세요.
 4. 연결·프로토콜 관련 변경에는 통합 테스트를 실행하세요.
 5. 사용자에게 보이는 변경은 `CHANGELOG.md`에 기록하세요.
 

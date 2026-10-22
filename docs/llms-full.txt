@@ -10323,17 +10323,19 @@ make integration                          # broker published on localhost:33000
 make integration CUBRID_TEST_PORT=33522   # same, on a port nothing else uses
 ```
 
-`make integration` starts the compose service, waits with
-`scripts/wait_for_cubrid.py` (fails the run if the broker is not ready within
-about three minutes instead of sleeping a fixed time), runs
+`make integration` runs `scripts/run_integration.py`, which starts the compose
+service, waits with `scripts/wait_for_cubrid.py` (fails the run if the broker is
+not ready within about three minutes instead of sleeping a fixed time), runs
 `-m "integration and not tls"` with every endpoint field set explicitly, audits
 the JUnit report with `scripts/check_integration_lanes.py --results` (an
 all-skipped or unclassified-skip run fails), and always removes the container.
+The exit status is the first failing step's; a failed `docker compose down` is
+reported and fails an otherwise passing run.
 TLS tests need an SSL-enabled broker; see
 [Async TLS integration tests](#async-tls-integration-tests).
 
 
-`make integration` and `make integration-tls` clean up containers after success, readiness failure or test failure, while preserving existing Docker volumes. Explicit `make docker-down` uses `down -v` and removes volumes. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM, except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
+`make integration` and `make integration-tls` clean up containers after success, readiness failure or test failure, while preserving existing Docker volumes. Explicit `make docker-down` uses `down -v` and removes volumes. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
 
 **Enabling integration vs. choosing the endpoint.** Integration tests are
 *enabled* when `CUBRID_TEST_URL` or `CUBRID_TEST_HOST` is set to a non-empty
@@ -10591,10 +10593,11 @@ target-version = "py311"
 ### Linting
 
 ```bash
-# Check for issues
-make lint
+# Check for issues (neither command modifies files)
+make lint            # ruff check
+make format-check    # ruff format --check
 
-# Auto-fix
+# Auto-fix (the only mutating quality target)
 make format
 
 # Check tool pins and the active environment separately
@@ -10616,7 +10619,7 @@ ecosystem does exactly this) and reinstalling the `dev` group is enough. Activat
 environment (or a venv where it's installed) whenever a commit should run the
 hooks; otherwise Ruff/Mypy are missing or a stale/global version silently runs
 instead of the pinned one. Update the `lint` group pin, reinstall the `dev` group, and run
-`make check-all` plus `pre-commit run --all-files`. `make tooling-check` rejects
+`make check` plus `pre-commit run --all-files`. `make tooling-check` rejects
 pin, installed-version, hook-scope, and CI-scope drift before
 lint/format/typecheck.
 
@@ -10634,10 +10637,15 @@ lint/format/typecheck.
 
 | Command | Description |
 |---------|-------------|
+| `make help` | List the targets, grouped by purpose |
 | `make install` | Install in dev mode with all dependencies |
+| `make doctor` | Check the required tools; fails if one is missing or broken |
+| `make lint` | Run ruff check (never modifies files) |
+| `make format-check` | Run ruff format --check (never modifies files) |
+| `make format` | Auto-fix lint and formatting issues (the only mutating quality target) |
+| `make check` | Static quality gate: lint, format-check, typecheck, security, docs-reason-check (`make check-all` is a deprecated alias) |
 | `make test` | Run offline tests with coverage |
-| `make lint` | Run ruff check + format check |
-| `make format` | Auto-fix lint and formatting issues |
+| `make verify` | `make check` then `make test`; no Docker |
 | `make integration` | Docker → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker) |
 | `make integration-local` | Integration tests against an already-running server (`CUBRID_TEST_URL` or `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | Remove build artifacts |
@@ -10900,7 +10908,7 @@ remains a separate exception.
 Markers may have zero to three leading spaces; indented code and raw HTML quote,
 preformatted or code blocks remain examples rather than authorizations.
 Run `make docs-reason-check` for helper doctests and real event-JSON workflow cases;
-these checks also run in `make check-all` and docs-sync CI.
+these checks also run in `make check` and docs-sync CI.
 
 Contributors report actual commands/results and checks not run with reasons;
 optional AI review is recorded separately. Maintainers coordinate internal reviews,
@@ -11693,6 +11701,10 @@ pip install -e . --group dev
 `pip install -e ".[dev]"` extra는 더 이상 없으며 `pip install -e . --group dev`로
 대체되었습니다(#784).
 
+이어서 `make doctor`로 필요한 모든 도구가 이 환경에서 실행되는지 확인하세요. 하나라도
+없거나 동작하지 않으면 성공 메시지 없이 0이 아닌 상태로 종료합니다. `make help`는 나머지
+대상을 목적별로 묶어 보여 줍니다.
+
 ## 테스트 실행
 
 ### 오프라인 테스트
@@ -11708,8 +11720,9 @@ make integration                          # Docker broker on localhost:33000
 make integration CUBRID_TEST_PORT=33522   # use a free port if 33000 is taken
 ```
 
-`make integration`은 준비가 될 때까지 기다리며, 브로커가 준비되지 않거나 선택한
-테스트가 모두 스킵되면 실패하고 항상 컨테이너를 제거합니다. 이미 실행 중인
+`make integration`은 `scripts/run_integration.py`를 통해 준비가 될 때까지 기다리며,
+브로커가 준비되지 않거나 선택한 테스트가 모두 스킵되면 실패하고 Ctrl-C나 SIGTERM에서도
+항상 컨테이너를 제거합니다. 데이터 볼륨은 유지합니다. 이미 실행 중인
 서버를 검사하려면 엔드포인트를 명시하세요:
 
 ```bash
@@ -11732,10 +11745,12 @@ CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
 
 ## 코드 스타일
 
-이 프로젝트는 Ruff로 린트와 포맷 검사를 수행합니다.
+이 프로젝트는 Ruff로 린트와 포맷 검사를 수행합니다. 아래 두 검사는 파일을 수정하지
+않으며, `make check`는 이 검사들을 typecheck, security, docs-reason-check와 함께 실행합니다.
 
 ```bash
-make lint
+make lint            # ruff check
+make format-check    # ruff format --check
 ```
 
 자동 수정:
@@ -11759,7 +11774,7 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 훅도 명시적으로 `pycubrid/`를 검사합니다.
 
 도구를 갱신하려면 `pyproject.toml`의 `lint` 의존성 그룹에 있는 버전 고정값을 변경하고
-`dev` 그룹을 다시 설치한 뒤 `make check-all`과 `pre-commit run --all-files`를 실행하세요.
+`dev` 그룹을 다시 설치한 뒤 `make check`와 `pre-commit run --all-files`를 실행하세요.
 별도로 수정할 훅 revision은 없습니다. 드리프트 게이트는 누락·모호한 고정값,
 고정값과 다른 설치 버전, 좁아진 검사 범위를 거부합니다. Dependabot의 `pip`
 생태계는 `pyproject.toml` 고정값만 갱신할 수 있으며, pre-commit 훅이 항상 설치된
@@ -11769,7 +11784,8 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 
 1. 변경을 한 가지 목적에 집중하고 PR 설명에 동기를 적으세요.
 2. 동작 변경에 맞는 테스트를 추가하거나 갱신하세요.
-3. `make check-all`과 `make test`를 실행하고 명령·결과와 실행하지 못한 검사를 기록하세요.
+3. `make check`와 `make test`를 실행하고(`make verify`는 둘 다 실행하며, `make check-all`은
+   `make check`의 폐기 예정 별칭입니다) 명령·결과와 실행하지 못한 검사를 기록하세요.
 4. 연결·프로토콜 관련 변경에는 통합 테스트를 실행하세요.
 5. 사용자에게 보이는 변경은 `CHANGELOG.md`에 기록하세요.
 

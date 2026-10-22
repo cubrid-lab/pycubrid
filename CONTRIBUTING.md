@@ -35,6 +35,10 @@ Install a single group when only that tool set is needed, for example
 `pip install -e ".[dev]"` extra no longer exists; it is replaced by
 `pip install -e . --group dev` (#784).
 
+`make doctor` then confirms that every required tool runs from that environment;
+it exits non-zero, without a success line, when one is missing or broken.
+`make help` lists the other targets grouped by purpose.
+
 ## Running Tests
 
 ### Offline tests
@@ -50,8 +54,9 @@ make integration                          # Docker broker on localhost:33000
 make integration CUBRID_TEST_PORT=33522   # use a free port if 33000 is taken
 ```
 
-`make integration` waits for readiness, fails if the broker never comes up or
-if every selected test skips, and always removes the container. To test an
+`make integration` (through `scripts/run_integration.py`) waits for readiness,
+fails if the broker never comes up or if every selected test skips, and always
+removes the container, also on Ctrl-C or SIGTERM; it keeps the data volumes. To test an
 already-running server, set the endpoint explicitly:
 
 ```bash
@@ -75,10 +80,12 @@ broker/version coverage for connection or protocol changes.
 
 ## Code Style
 
-This project uses Ruff for linting and formatting.
+This project uses Ruff for linting and formatting. Both checks below leave files
+unchanged; `make check` runs them with typecheck, security and docs-reason-check.
 
 ```bash
-make lint
+make lint            # ruff check
+make format-check    # ruff format --check
 ```
 
 To auto-fix:
@@ -103,7 +110,7 @@ static contract in `make typecheck`) remains separate, and its pre-commit hook
 explicitly checks `pycubrid/`.
 
 When updating either tool, change its pin in the `lint` dependency group of `pyproject.toml`,
-reinstall the `dev` group, then run `make check-all` and `pre-commit run --all-files`; there is no
+reinstall the `dev` group, then run `make check` and `pre-commit run --all-files`; there is no
 separate hook revision to edit. The drift gate rejects missing/ambiguous pins,
 an installed version that no longer matches the pin, and narrowed scopes.
 Dependabot's `pip` ecosystem can bump the `pyproject.toml` pin on its own and CI
@@ -127,7 +134,8 @@ to install or use any agent or internal review tool.
 
 1. Keep changes focused and explain the motivation in the PR description.
 2. Add or update tests for behavior changes.
-3. Run `make check-all` and `make test`; report commands/results and checks not run.
+3. Run `make check` and `make test` (`make verify` runs both; `make check-all` is a deprecated
+   alias of `make check`); report commands/results and checks not run.
 4. Run integration tests for connection/protocol-related updates.
 5. Update `CHANGELOG.md` for user-visible changes.
 

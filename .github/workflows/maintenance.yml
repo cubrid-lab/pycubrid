@@ -26,8 +26,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e . --group dev
 
-      - name: Run lint checks
-        run: make lint
-
-      - name: Run security scan
-        run: bandit -r pycubrid/ -c pyproject.toml
+      - name: Static quality gate (lint, format, mypy, bandit, docs-reason)
+        run: make check

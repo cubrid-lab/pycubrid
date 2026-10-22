@@ -31,7 +31,7 @@ directly under `docs/`, and `scripts/check_agents_docs.py` checks their links an
 | CAS protocol: packets, reply parsing, binds, LOB handles | [Wire protocol guide](docs/agents/protocol.md), [docs/PROTOCOL.md](docs/PROTOCOL.md), [Architecture guide](docs/agents/architecture.md) | `make test`, `make check`, `make integration` |
 | Connection, reconnect, transactions, async | [Wire protocol guide](docs/agents/protocol.md#packet-format) (CAS_INFO, reconnect, handle release), [docs/CONNECTION.md](docs/CONNECTION.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | `make test`, `make check`, `make integration` |
 | Public API, types, parameter binding, `compat` | [Architecture guide](docs/agents/architecture.md), [docs/API_REFERENCE.md](docs/API_REFERENCE.md), [docs/TYPES.md](docs/TYPES.md), [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md), [RELEASE_POLICY.md](RELEASE_POLICY.md) | `make test`, `make check` |
-| Tests and CI workflows | [Testing and CI guide](docs/agents/testing-ci.md), [docs/CI_POLICY.md](docs/CI_POLICY.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | `make test`, `make check-all` |
+| Tests and CI workflows | [Testing and CI guide](docs/agents/testing-ci.md), [docs/CI_POLICY.md](docs/CI_POLICY.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | `make test`, `make check` |
 | Documentation and contributor guidance | [Documentation guide](docs/agents/documentation.md), [Documentation definition of done](#documentation-definition-of-done), [CONTRIBUTING.md](CONTRIBUTING.md) | `python scripts/generate_llms_full.py`, `mkdocs build --strict`, `python scripts/check_docs_links.py`, `python scripts/check_agents_docs.py` |
 | Release | [Release Process](#release-process), [GitHub Release Policy](#github-release-policy), [RELEASING.md](RELEASING.md) | `make release-check VERSION=x.y.z` (read-only; never release by hand) |
 | Agent task evaluations (`agent-evals/`) | [Agent evaluation guide](agent-evals/README.md) | `make agent-eval-check` |
@@ -50,12 +50,14 @@ make install          # pip install -e . --group dev (pip 25.1+)
 ### Key Commands
 
 ```bash
+make doctor           # Required tools present and working (fails otherwise)
+make check            # Static gate: lint, format-check, typecheck, security, docs-reason-check
 make test             # Offline tests with 95% coverage threshold
-make lint             # ruff check + format
-make typecheck        # mypy
-make format           # Auto-fix lint/format
-make integration      # Docker → readiness wait → integration tests → skip audit → cleanup
-make help             # Every target, including check, check-all, security and mutation
+make verify           # check + test; no Docker
+make lint             # ruff check only; make format-check for ruff format --check
+make format           # Auto-fix lint/format (the only mutating quality target)
+make integration      # scripts/run_integration.py: Docker → readiness → tests → skip audit → cleanup
+make help             # Every target, grouped by purpose (check-all is a deprecated alias of check)
 ```
 
 ### Test Commands (manual)

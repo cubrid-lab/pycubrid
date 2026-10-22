@@ -37,7 +37,7 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 - [ ] The linked issue has current scope, verifiable completion criteria and validation instructions; completed dependencies are not still blockers
 
 - [ ] My code follows the project's code style
-- [ ] I have run `make check-all` and `make test`, or recorded checks not run and reasons below
+- [ ] I have run `make check` and `make test` (or `make verify`), or recorded checks not run and reasons below
 - [ ] I have added tests for new functionality (if applicable)
 - [ ] I have updated affected behavior/API/version/config docs, or provided a genuine standalone docs-not-needed reason / requested the existing maintainer label exception
 - [ ] I have recorded missing translations and requested maintainer help if needed; this request does not authorize deferral

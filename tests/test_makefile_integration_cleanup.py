@@ -1,15 +1,19 @@
-"""Stub-based regressions for Makefile integration teardown.
+"""Stub-based regressions for ``make integration`` / ``make integration-tls`` teardown.
 
-These tests run the real Makefile with command stubs so they do not need
-Docker or a CUBRID instance. They cover success, pytest failure, and
-docker-down failure without changing integration-local.
+Both recipes are one ``scripts/run_integration.py`` call (#1007). These tests run the
+real Makefile and the real runner with command stubs for ``docker``, pytest, the
+readiness probe and the lane audit, so they need neither Docker nor a CUBRID. They
+cover success, step failures, cleanup failure, SIGINT/SIGTERM and exit-status
+propagation, and that automatic cleanup never deletes the reused volumes.
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,6 +24,90 @@ pytestmark = pytest.mark.skipif(
 
 ROOT = Path(__file__).resolve().parents[1]
 MAKEFILE = ROOT / "Makefile"
+TARGETS = ["integration", "integration-tls"]
+CONTAINER = "0123456789ab"
+
+
+def _executable(path: Path, text: str) -> Path:
+    path.write_text(text)
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+    return path
+
+
+def _stubs(tmp_path: Path, readiness: str | None = None) -> dict[str, str]:
+    """Write the command stubs and return the environment that puts them first.
+
+    ``docker`` logs every call and prints a container ID for ``compose ps -q cubrid``.
+    The ``PYTHON`` stub runs the real runner with this interpreter, logs the readiness
+    probe's endpoint and the audit call, and exits with the configured statuses.
+    """
+    _executable(
+        tmp_path / "docker",
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$*" >> "$REVIEW_LOG"\n'
+        'case " $* " in\n'
+        '  *" compose down "*) exit "$REVIEW_DOWN_EXIT" ;;\n'
+        '  *" compose up "*) exit "$REVIEW_UP_EXIT" ;;\n'
+        f'  *" compose ps -q cubrid "*) echo {CONTAINER} ;;\n'
+        "esac\n"
+        "exit 0\n",
+    )
+    _executable(tmp_path / "sleep", "#!/bin/sh\nexit 0\n")
+    _executable(
+        tmp_path / "pytest-stub",
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$REVIEW_PYTEST_LOG"\nexit "$REVIEW_PYTEST_EXIT"\n',
+    )
+    readiness = readiness or (
+        'printf "%s|%s|%s|%s|%s\\n" "$CUBRID_TEST_DOCKER_CONTAINER" "$CUBRID_TEST_URL" '
+        '"$CUBRID_TEST_HOST" "$CUBRID_TEST_PORT" "$*" >> "$REVIEW_READINESS_LOG"\n'
+        'exit "$REVIEW_READINESS_EXIT"\n'
+    )
+    _executable(
+        tmp_path / "python-stub",
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        f'  *run_integration.py) exec {shlex.quote(sys.executable)} "$@" ;;\n'
+        '  *check_integration_lanes.py) printf "%s\\n" "$*" >> "$REVIEW_AUDIT_LOG"; '
+        'exit "$REVIEW_AUDIT_EXIT" ;;\n'
+        "  *wait_for_cubrid.py) ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n" + readiness,
+    )
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("CUBRID_TEST_") and not key.startswith("REVIEW_")
+    }
+    env.update(
+        PATH=str(tmp_path) + os.pathsep + env.get("PATH", ""),
+        REVIEW_LOG=str(tmp_path / "docker.log"),
+        REVIEW_PYTEST_LOG=str(tmp_path / "pytest.log"),
+        REVIEW_READINESS_LOG=str(tmp_path / "readiness.log"),
+        REVIEW_AUDIT_LOG=str(tmp_path / "audit.log"),
+        REVIEW_UP_EXIT="0",
+        REVIEW_DOWN_EXIT="0",
+        REVIEW_PYTEST_EXIT="0",
+        REVIEW_READINESS_EXIT="0",
+        REVIEW_AUDIT_EXIT="0",
+    )
+    return env
+
+
+def _make_args(tmp_path: Path, target: str) -> list[str]:
+    return [
+        "make",
+        "-C",
+        str(ROOT),
+        target,
+        f"PYTEST={tmp_path / 'pytest-stub'}",
+        f"PYTHON={tmp_path / 'python-stub'}",
+        f"INTEGRATION_RESULTS={tmp_path / 'results.xml'}",
+        "CUBRID_TEST_PORT=33522",
+    ]
+
+
+def _read(path: Path) -> str:
+    return path.read_text() if path.exists() else ""
 
 
 def _run_make(
@@ -29,76 +117,84 @@ def _run_make(
     pytest_exit: int = 0,
     down_exit: int = 0,
     readiness_exit: int = 0,
+    audit_exit: int = 0,
+    up_exit: int = 0,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    log = tmp_path / "docker.log"
-    docker = tmp_path / "docker"
-    docker.write_text(
-        "#!/bin/sh\n"
-        'printf "%s\\n" "$*" >> "$REVIEW_LOG"\n'
-        'case " $* " in\n'
-        '  *" compose down "*) exit "$REVIEW_DOWN_EXIT" ;;\n'
-        "esac\n"
-        "exit 0\n"
+    env = _stubs(tmp_path)
+    env.update(
+        REVIEW_PYTEST_EXIT=str(pytest_exit),
+        REVIEW_DOWN_EXIT=str(down_exit),
+        REVIEW_READINESS_EXIT=str(readiness_exit),
+        REVIEW_AUDIT_EXIT=str(audit_exit),
+        REVIEW_UP_EXIT=str(up_exit),
+        **(extra_env or {}),
     )
-    docker.chmod(docker.stat().st_mode | stat.S_IEXEC)
-
-    sleep = tmp_path / "sleep"
-    sleep.write_text("#!/bin/sh\nexit 0\n")
-    sleep.chmod(sleep.stat().st_mode | stat.S_IEXEC)
-
-    stub_pytest = tmp_path / "pytest-stub"
-    stub_pytest.write_text('#!/bin/sh\nexit "$REVIEW_PYTEST_EXIT"\n')
-    stub_pytest.chmod(stub_pytest.stat().st_mode | stat.S_IEXEC)
-
-    stub_python = tmp_path / "python-stub"
-    stub_python.write_text(
-        '#!/bin/sh\ncase "$1" in\n'
-        '  *wait_for_cubrid.py) exit "$REVIEW_READINESS_EXIT" ;;\n'
-        "esac\nexit 0\n"
-    )
-    stub_python.chmod(stub_python.stat().st_mode | stat.S_IEXEC)
-    env = dict(os.environ)
-    env["PATH"] = str(tmp_path) + os.pathsep + env.get("PATH", "")
-    env["REVIEW_LOG"] = str(log)
-    env["REVIEW_PYTEST_EXIT"] = str(pytest_exit)
-    env["REVIEW_DOWN_EXIT"] = str(down_exit)
-    env["REVIEW_READINESS_EXIT"] = str(readiness_exit)
-
     result = subprocess.run(
-        [
-            "make",
-            "-f",
-            str(MAKEFILE),
-            target,
-            f"PYTEST={stub_pytest}",
-            f"PYTHON={stub_python}",
-        ],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
+        _make_args(tmp_path, target), env=env, capture_output=True, text=True, check=False
     )
-    setattr(result, "log_text", log.read_text() if log.exists() else "")
+    setattr(result, "log_text", _read(tmp_path / "docker.log"))
     return result
 
 
-@pytest.mark.parametrize("target", ["integration", "integration-tls"])
+@pytest.mark.parametrize("target", TARGETS)
+def test_recipe_is_a_single_runner_invocation(tmp_path: Path, target: str) -> None:
+    recipe = subprocess.run(
+        ["make", "-n", "-C", str(ROOT), target],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    commands = [line for line in recipe.splitlines() if line.strip() and "Entering" not in line]
+    commands = [line for line in commands if "Leaving" not in line]
+    assert len(commands) == 1, recipe
+    assert "scripts/run_integration.py" in commands[0]
+    assert "docker" not in commands[0] and "trap" not in commands[0]
+
+
+@pytest.mark.parametrize("target", TARGETS)
 def test_cleanup_runs_after_pytest_failure(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target, pytest_exit=1)
     assert result.returncode != 0
+    assert "Error 1" in result.stderr
     assert "compose up -d" in result.log_text
     assert "compose down" in result.log_text
+    # A failing test run is not audited; its own status is reported.
+    assert _read(tmp_path / "audit.log") == ""
 
 
-@pytest.mark.parametrize("target", ["integration", "integration-tls"])
+@pytest.mark.parametrize("target", TARGETS)
 def test_cleanup_runs_after_pytest_success(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target, pytest_exit=0)
-    assert result.returncode == 0
-    assert "compose up -d" in result.log_text
+    assert result.returncode == 0, result.stderr
+    assert result.log_text.splitlines() == ["compose up -d", "compose ps -q cubrid", "compose down"]
+    assert _read(tmp_path / "audit.log").split() == [
+        "scripts/check_integration_lanes.py",
+        "--results",
+        str(tmp_path / "results.xml"),
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_every_test_skipped_fails_after_cleanup(tmp_path: Path, target: str) -> None:
+    """The lane audit fails a run in which every selected test skipped."""
+    result = _run_make(tmp_path, target, audit_exit=4)
+    assert result.returncode != 0
+    assert "Error 4" in result.stderr
     assert "compose down" in result.log_text
 
 
-@pytest.mark.parametrize("target", ["integration", "integration-tls"])
+@pytest.mark.parametrize("target", TARGETS)
+def test_compose_up_failure_still_cleans_up(tmp_path: Path, target: str) -> None:
+    result = _run_make(tmp_path, target, up_exit=6)
+    assert result.returncode != 0
+    assert "Error 6" in result.stderr
+    assert "compose down" in result.log_text
+    assert _read(tmp_path / "readiness.log") == ""
+    assert _read(tmp_path / "pytest.log") == ""
+
+
+@pytest.mark.parametrize("target", TARGETS)
 def test_cleanup_failure_does_not_hide_pytest_failure(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target, pytest_exit=7, down_exit=1)
     assert result.returncode != 0
@@ -107,13 +203,125 @@ def test_cleanup_failure_does_not_hide_pytest_failure(tmp_path: Path, target: st
     assert "Error 7" in result.stderr
 
 
-@pytest.mark.parametrize("target", ["integration", "integration-tls"])
+@pytest.mark.parametrize("target", TARGETS)
 def test_cleanup_failure_fails_successful_run(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target, pytest_exit=0, down_exit=3)
     assert result.returncode != 0
     assert "Error 3" in result.stderr
     assert "compose down" in result.log_text
     assert "Docker cleanup failed" in result.stderr + result.stdout
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_readiness_failure_still_preserves_volumes(tmp_path: Path, target: str) -> None:
+    result = _run_make(tmp_path, target, readiness_exit=9)
+    assert result.returncode != 0
+    assert "Error 9" in result.stderr
+    assert "compose down" in result.log_text
+    assert "-v" not in result.log_text
+    assert _read(tmp_path / "pytest.log") == ""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_automatic_cleanup_never_removes_reused_volumes(tmp_path: Path, target: str) -> None:
+    result = _run_make(tmp_path, target)
+    assert result.returncode == 0
+    assert "compose down" in result.log_text
+    assert "-v" not in result.log_text
+
+
+@pytest.mark.parametrize(
+    ("target", "selection"),
+    [
+        ("integration", ["tests/", "-m", "integration and not tls", "-v"]),
+        ("integration-tls", ["tests/test_aio_ssl_integration.py", "-v"]),
+    ],
+)
+def test_each_lane_runs_its_unchanged_test_selection(
+    tmp_path: Path, target: str, selection: list[str]
+) -> None:
+    result = _run_make(tmp_path, target)
+    assert result.returncode == 0, result.stderr
+    recorded = _read(tmp_path / "pytest.log").rstrip("\n")
+    assert recorded == " ".join([*selection, f"--junitxml={tmp_path / 'results.xml'}"])
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_readiness_probe_gets_the_compose_container(tmp_path: Path, target: str) -> None:
+    # A stray endpoint export must not redirect the run away from the compose service.
+    result = _run_make(
+        tmp_path,
+        target,
+        extra_env={"CUBRID_TEST_HOST": "elsewhere", "CUBRID_TEST_URL": "cubrid://x@elsewhere:1/x"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert _read(tmp_path / "readiness.log").splitlines() == [
+        f"{CONTAINER}|cubrid://dba@localhost:33522/testdb|localhost|33522|"
+        "scripts/wait_for_cubrid.py 36 5"
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("signal_name", ["SIGINT", "SIGTERM"])
+def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_name: str) -> None:
+    import signal
+    import time
+
+    # Block inside the readiness probe only; the runner is the probe's parent.
+    ready = tmp_path / "ready"
+    env = _stubs(
+        tmp_path,
+        readiness=(
+            'printf "%s %s" "$$" "$PPID" > "$REVIEW_READY.tmp"\n'
+            'mv "$REVIEW_READY.tmp" "$REVIEW_READY"\n'
+            "while :; do sleep 0.02; done\n"
+        ),
+    )
+    env["REVIEW_READY"] = str(ready)
+
+    def _default_signals() -> None:
+        # A non-interactive shell starts `cmd &` jobs with SIGINT ignored, and the
+        # runner keeps an ignored signal ignored, like a shell trap. Reset the
+        # dispositions so the runner's handlers are what the test exercises, however
+        # pytest itself was launched (#775).
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+    process = subprocess.Popen(
+        _make_args(tmp_path, target),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+        preexec_fn=_default_signals,
+    )
+    # Upper bounds only: both waits end as soon as the stub or make finishes (well
+    # under a second when idle). They are generous so CPU contention from parallel
+    # suites cannot turn a slow fork/exec chain into a false failure.
+    timeout = 60
+    try:
+        deadline = time.monotonic() + timeout
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists(), "readiness stub did not start"
+        child, runner = map(int, ready.read_text().split())
+        os.kill(runner, getattr(signal, signal_name))
+        stdout, stderr = process.communicate(timeout=timeout)
+        assert process.returncode != 0
+        assert "Error 130" in stderr, stdout + stderr
+        assert f"Interrupted by {signal_name}" in stderr
+        log = _read(tmp_path / "docker.log")
+        assert "compose down" in log
+        assert "-v" not in log
+        assert _read(tmp_path / "pytest.log") == ""
+        # The runner stopped the step it was waiting for.
+        with pytest.raises(ProcessLookupError):
+            os.kill(child, 0)
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
 
 
 def test_integration_local_without_url_does_not_call_docker(tmp_path: Path) -> None:
@@ -163,100 +371,6 @@ def test_integration_local_with_url_does_not_call_docker(tmp_path: Path) -> None
     assert not log.exists()
 
 
-@pytest.mark.parametrize("target", ["integration", "integration-tls"])
-def test_readiness_failure_still_preserves_volumes(tmp_path: Path, target: str) -> None:
-    result = _run_make(tmp_path, target, readiness_exit=9)
-    assert result.returncode != 0
-    assert "compose down" in result.log_text
-    assert "-v" not in result.log_text
-
-
-@pytest.mark.parametrize("target", ["integration", "integration-tls"])
-def test_automatic_cleanup_never_removes_reused_volumes(tmp_path: Path, target: str) -> None:
-    result = _run_make(tmp_path, target)
-    assert result.returncode == 0
-    assert "compose down" in result.log_text
-    assert "-v" not in result.log_text
-
-
-@pytest.mark.parametrize("target", ["integration", "integration-tls"])
-@pytest.mark.parametrize("signal_name", ["SIGINT", "SIGTERM"])
-def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_name: str) -> None:
-    import signal
-    import time
-
-    # Reuse the normal command stubs, then block inside the readiness probe only; any
-    # other $(PYTHON) call exits 0 so a skipped trap fails fast, not after the timeout.
-    _run_make(tmp_path, target)
-    log = tmp_path / "docker.log"
-    log.write_text("")
-    ready = tmp_path / "ready"
-    stub_python = tmp_path / "python-stub"
-    stub_python.write_text(
-        '#!/bin/sh\ncase "$1" in *wait_for_cubrid.py) ;; *) exit 0 ;; esac\n'
-        'trap "exit 0" USR1\n'
-        'printf "%s %s" "$$" "$PPID" > "$REVIEW_READY.tmp"\n'
-        'mv "$REVIEW_READY.tmp" "$REVIEW_READY"\n'
-        "while :; do sleep 0.02; done\n"
-    )
-    env = dict(os.environ)
-    env.update(
-        PATH=str(tmp_path) + os.pathsep + env.get("PATH", ""),
-        REVIEW_LOG=str(log),
-        REVIEW_READY=str(ready),
-        REVIEW_DOWN_EXIT="0",
-        REVIEW_PYTEST_EXIT="0",
-    )
-
-    def _default_signals() -> None:
-        # A non-interactive shell starts `cmd &` jobs with SIGINT ignored, and POSIX
-        # forbids a shell from trapping a signal that was ignored on entry. Reset the
-        # dispositions so the recipe's `trap ... INT TERM` is what the test exercises,
-        # however pytest itself was launched (#775).
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
-        signal.signal(signal.SIGTERM, signal.SIG_DFL)
-
-    process = subprocess.Popen(
-        [
-            "make",
-            "-f",
-            str(MAKEFILE),
-            target,
-            f"PYTEST={tmp_path / 'pytest-stub'}",
-            f"PYTHON={stub_python}",
-        ],
-        cwd=tmp_path,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-        preexec_fn=_default_signals,
-    )
-    # Upper bounds only: both waits end as soon as the stub or make finishes (well
-    # under a second when idle). They are generous so CPU contention from parallel
-    # suites cannot turn a slow fork/exec chain into a false failure.
-    timeout = 60
-    try:
-        deadline = time.monotonic() + timeout
-        while not ready.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert ready.exists(), "readiness stub did not start"
-        child, recipe_shell = map(int, ready.read_text().split())
-        os.kill(recipe_shell, getattr(signal, signal_name))
-        # POSIX shells defer traps while waiting; release the controlled child.
-        os.kill(child, signal.SIGUSR1)
-        stdout, stderr = process.communicate(timeout=timeout)
-        assert process.returncode != 0
-        assert "Error 130" in stderr, stdout + stderr
-        assert "compose down" in log.read_text()
-        assert "-v" not in log.read_text()
-    finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
-
-
 def test_compose_registers_the_database_for_a_stable_host() -> None:
     """The image records CUBRID_DB_HOST (else the container ID) on the volume (#1000)."""
     import yaml
@@ -278,24 +392,6 @@ def test_compose_keeps_every_image_database_directory_in_a_named_volume() -> Non
         "/home/cubrid/CUBRID/databases": "cubrid-databases",
     }
     assert set(compose["volumes"]) == {"cubrid-data", "cubrid-databases"}
-
-
-@pytest.mark.parametrize("target", ["integration", "integration-tls"])
-def test_readiness_probe_gets_the_compose_container(tmp_path: Path, target: str) -> None:
-    recipe = subprocess.run(
-        ["make", "-n", "-f", str(MAKEFILE), target],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    before_probe = recipe.split("scripts/wait_for_cubrid.py", 1)[0]
-    lookup = 'container="$(docker compose ps -q cubrid)";'
-    assert lookup in before_probe
-    # The probe command is the one right after the lookup, and it gets that value.
-    probe = before_probe.rsplit(lookup, 1)[1]
-    assert "&&" not in probe and ";" not in probe
-    assert 'CUBRID_TEST_DOCKER_CONTAINER="$container"' in probe
 
 
 def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:

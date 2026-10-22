@@ -316,17 +316,19 @@ make integration                          # 브로커를 localhost:33000에 게�
 make integration CUBRID_TEST_PORT=33522   # 다른 컨테이너가 쓰지 않는 포트 사용
 ```
 
-`make integration`은 compose 서비스를 시작하고, 고정 시간 대기 대신
+`make integration`은 `scripts/run_integration.py`를 실행하며, 이 스크립트는 compose 서비스를 시작하고, 고정 시간 대기 대신
 `scripts/wait_for_cubrid.py`로 준비 상태를 기다리며(약 3분 안에 준비되지 않으면
 실행 실패), 모든 엔드포인트 필드를 명시적으로 설정해
 `-m "integration and not tls"`를 실행합니다. 이어서
 `scripts/check_integration_lanes.py --results`로 JUnit 보고서를 검사해 전부
 건너뛰었거나 분류되지 않은 skip이 있으면 실패시키고, 컨테이너는 항상 제거합니다.
+종료 상태는 처음 실패한 단계의 상태이며, `docker compose down`이 실패하면 이를 보고하고
+그 외에는 통과한 실행도 실패로 처리합니다.
 TLS 테스트는 SSL이 켜진 브로커가 필요합니다.
 [비동기 TLS 통합 테스트](#비동기-tls-통합-테스트)를 참고하세요.
 
 
-`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. 명시적 `make docker-down`은 `down -v`로 볼륨을 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만, 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
+`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. 명시적 `make docker-down`은 `down -v`로 볼륨을 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
 
 **통합 테스트 활성화와 엔드포인트 선택의 구분.** 통합 테스트는
 `CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 비어 있지 않은 값으로 설정되면
@@ -551,10 +553,11 @@ target-version = "py311"
 ### 린팅
 
 ```bash
-# 문제 확인
-make lint
+# 문제 확인 (두 명령 모두 파일을 수정하지 않음)
+make lint            # ruff check
+make format-check    # ruff format --check
 
-# 자동 수정
+# 자동 수정 (파일을 수정하는 유일한 품질 대상)
 make format
 
 # 도구 버전과 현재 환경을 별도로 검사
@@ -575,7 +578,7 @@ pre-commit 훅은 `repo: local` / `language: system` 훅으로, 같은 활성 �
 작업을 수행합니다) `dev` 그룹을 다시 설치하면 충분합니다. 커밋 시 훅이 실행되길
 원한다면 그 환경(또는 이를 설치한 venv)을 항상 활성화해두세요. 그렇지 않으면
 Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치된 버전이 조용히
-실행됩니다. `lint` 그룹 핀을 갱신하고 `dev` 그룹을 다시 설치한 뒤 `make check-all` 및
+실행됩니다. `lint` 그룹 핀을 갱신하고 `dev` 그룹을 다시 설치한 뒤 `make check` 및
 `pre-commit run --all-files`를 실행하세요. `make tooling-check`는 린트/포맷/타입
 검사 전에 핀, 설치 버전, 훅 범위 및 CI 범위의 불일치를 실패 처리합니다.
 
@@ -593,10 +596,15 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 
 | 명령 | 설명 |
 |---------|-------------|
+| `make help` | 목적별로 묶은 대상 목록 표시 |
 | `make install` | 모든 의존성과 함께 개발 모드 설치 |
+| `make doctor` | 필수 도구 확인; 하나라도 없거나 동작하지 않으면 실패 |
+| `make lint` | ruff check 실행 (파일 수정 없음) |
+| `make format-check` | ruff format --check 실행 (파일 수정 없음) |
+| `make format` | 린트와 포맷 문제 자동 수정 (파일을 수정하는 유일한 품질 대상) |
+| `make check` | 정적 품질 게이트: lint, format-check, typecheck, security, docs-reason-check (`make check-all`은 폐기 예정 별칭) |
 | `make test` | 커버리지와 함께 오프라인 테스트 실행 |
-| `make lint` | ruff check + format 검사 실행 |
-| `make format` | 린트와 포맷 문제 자동 수정 |
+| `make verify` | `make check` 후 `make test`; Docker 불필요 |
 | `make integration` | Docker → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경) |
 | `make integration-local` | 이미 실행 중인 서버에 대한 통합 테스트 (`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | 빌드 산출물 제거 |
@@ -841,7 +849,7 @@ python scripts/check_official_differential.py --evidence official-evidence.jsonl
 앞의 공백은 0~3개까지 허용하며, 들여쓴 코드와 HTML 인용/pre/code 블록의 예시는
 예외 승인을 부여하지 않습니다.
 기존 `docs-not-needed` 라벨 예외는 별도로 유지됩니다. `make docs-reason-check`는
-헬퍼 doctest와 실제 이벤트 JSON 기반 워크플로 사례를 실행하며, `make check-all`과
+헬퍼 doctest와 실제 이벤트 JSON 기반 워크플로 사례를 실행하며, `make check`와
 docs-sync CI에서도 이 검사를 실행합니다.
 
 기여자는 실제 실행한 명령/결과와 실행하지 않은 검사/이유를 기록하고, 선택적 AI

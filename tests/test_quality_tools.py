@@ -156,8 +156,8 @@ def test_precommit_scope_cannot_omit_demos(project: Path) -> None:
 
 def test_ci_cannot_replace_shared_scope_with_package_only_lint(project: Path) -> None:
     path = project / ".github" / "workflows" / "ci.yml"
-    path.write_text(path.read_text().replace("run: make lint", "run: ruff check pycubrid/ tests/"))
-    with pytest.raises(ValueError, match="shared make lint"):
+    path.write_text(path.read_text().replace("run: make check", "run: ruff check pycubrid/ tests/"))
+    with pytest.raises(ValueError, match="shared make check"):
         check_configuration(project)
 
 

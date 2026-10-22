@@ -80,7 +80,7 @@ docs = [
 mutation = [
     "mutmut>=3.8,<4",
 ]
-# Everything a contributor needs for `make check-all` and `make test`; the same
+# Everything a contributor needs for `make check` and `make test`; the same
 # set the former `dev` extra installed.
 dev = [
     {include-group = "test"},
