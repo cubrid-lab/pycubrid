@@ -11315,8 +11315,8 @@ Median per-job runner minutes on successful code pushes:
 | Mutation testing | `bug-hunt.yml` `mutation` | Same as bug hunt |
 | Benchmark trend | `bug-hunt.yml` `perf-trend` | Same as bug hunt |
 | Downstream corpus (advisory) | `bug-hunt.yml` `downstream-corpus` | Same as bug hunt |
-| Lint, CHANGELOG structure, translation structure, `llms-full.txt` sync | `ci.yml` `lint`; `integration-full.yml` `lint` (same steps) | Every event; release and full dispatch |
-| Type checking | `ci.yml` `typecheck`; `integration-full.yml` `typecheck` (same steps) | Every code event; release and full dispatch |
+| Lint, format, Bandit, docs-reason examples (`make check` without `typecheck`), CHANGELOG structure, translation structure, `llms-full.txt` sync | `ci.yml` `lint`; `integration-full.yml` `lint` (same steps) | Every event; release and full dispatch |
+| Type checking (the only mypy run in each workflow) | `ci.yml` `typecheck`; `integration-full.yml` `typecheck` (same steps) | Every code event; release and full dispatch |
 | Public API baseline | `ci.yml` `compat-check`; `integration-full.yml` `compat-check` (same steps) | Every code event; release and full dispatch |
 | Packaging | `ci.yml` `packaging-smoke-test`; `publish-pypi.yml` `consistency` and `build` | Risk PR, non-PR code; release |
 | Repository tooling | `ci.yml` `repo-tooling-tests`; `integration-full.yml` `repo-tooling-tests` (same steps) | Tooling-path events; release and full dispatch |

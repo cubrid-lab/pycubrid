@@ -154,8 +154,8 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 뮤테이션 테스트 | `bug-hunt.yml` `mutation` | 버그 탐색과 같음 |
 | 벤치마크 추세 | `bug-hunt.yml` `perf-trend` | 버그 탐색과 같음 |
 | 다운스트림 코퍼스 (권고용) | `bug-hunt.yml` `downstream-corpus` | 버그 탐색과 같음 |
-| lint, CHANGELOG 구조, 번역 구조, `llms-full.txt` 동기화 | `ci.yml` `lint`, `integration-full.yml` `lint` (같은 단계) | 모든 이벤트, 릴리스와 전체 수동 실행 |
-| 타입 검사 | `ci.yml` `typecheck`, `integration-full.yml` `typecheck` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
+| lint, 포맷, Bandit, docs-reason 예제(`typecheck`를 뺀 `make check`), CHANGELOG 구조, 번역 구조, `llms-full.txt` 동기화 | `ci.yml` `lint`, `integration-full.yml` `lint` (같은 단계) | 모든 이벤트, 릴리스와 전체 수동 실행 |
+| 타입 검사(각 워크플로에서 mypy를 실행하는 유일한 잡) | `ci.yml` `typecheck`, `integration-full.yml` `typecheck` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 공개 API 기준선 | `ci.yml` `compat-check`, `integration-full.yml` `compat-check` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 패키징 | `ci.yml` `packaging-smoke-test`, `publish-pypi.yml` `consistency`와 `build` | 위험 PR, PR이 아닌 코드 이벤트, 릴리스 |
 | 저장소 도구 | `ci.yml` `repo-tooling-tests`, `integration-full.yml` `repo-tooling-tests` (같은 단계) | 도구 경로 이벤트, 릴리스와 전체 수동 실행 |

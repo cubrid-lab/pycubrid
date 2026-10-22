@@ -365,8 +365,10 @@ jobs:
         run: |
           uv pip install --system -e . --group dev
           uv pip freeze --system
-      - name: Static quality gate (tooling, lint, format, mypy, bandit, docs-reason)
-        run: make check
+      # `make check` minus `typecheck`: the typecheck job runs mypy once, and only
+      # for code changes, so docs-only events skip it (#1009).
+      - name: Static quality gate without mypy (tooling, lint, format, bandit, docs-reason)
+        run: make lint format-check security docs-reason-check
       - name: Lint CHANGELOG structure
         run: python scripts/lint_changelog.py
       - name: Korean documents keep the structure of their English source

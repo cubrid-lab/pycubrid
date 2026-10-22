@@ -154,9 +154,34 @@ def test_precommit_scope_cannot_omit_demos(project: Path) -> None:
         check_configuration(project)
 
 
-def test_ci_cannot_replace_shared_scope_with_package_only_lint(project: Path) -> None:
+@pytest.mark.parametrize("workflow", ["ci.yml", "maintenance.yml"])
+def test_ci_cannot_replace_shared_scope_with_package_only_lint(
+    project: Path, workflow: str
+) -> None:
+    path = project / ".github" / "workflows" / workflow
+    original = path.read_text()
+    replaced = re.sub(
+        r"run: make (?:check|lint format-check security docs-reason-check)$",
+        "run: ruff check pycubrid/ tests/",
+        original,
+        flags=re.MULTILINE,
+    )
+    assert replaced != original
+    path.write_text(replaced)
+    with pytest.raises(ValueError, match="shared make check"):
+        check_configuration(project)
+
+
+def test_ci_lint_goals_without_ruff_lint_fail(project: Path) -> None:
     path = project / ".github" / "workflows" / "ci.yml"
-    path.write_text(path.read_text().replace("run: make check", "run: ruff check pycubrid/ tests/"))
+    original = path.read_text()
+    assert "run: make lint format-check security docs-reason-check\n" in original
+    path.write_text(
+        original.replace(
+            "run: make lint format-check security docs-reason-check\n",
+            "run: make format-check security docs-reason-check\n",
+        )
+    )
     with pytest.raises(ValueError, match="shared make check"):
         check_configuration(project)
 

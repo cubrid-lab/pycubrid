@@ -38,6 +38,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **The lint lanes run `make check` (#1007)** — `ci.yml`, its release copy in
   `integration-full.yml` and `maintenance.yml` call `make check` instead of `make lint` (and,
   in `maintenance.yml`, a separate Bandit command).
+- **mypy runs once per code pull request and not on docs-only ones (#1009)** — the always-on
+  `lint` job in `ci.yml`, and its release copy in `integration-full.yml`, now run
+  `make lint format-check security docs-reason-check`, which is `make check` without
+  `typecheck`. mypy runs only in the `typecheck` job, which runs for code changes and which
+  the CI gate still requires. `make check` and `maintenance.yml` are unchanged.
 
 ## [1.13.1] - 2026-10-21
 

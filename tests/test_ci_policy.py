@@ -260,6 +260,46 @@ def test_gate_still_requires_static_and_offline_jobs() -> None:
     assert {"lint", "typecheck", "offline-tests", *LIVE_JOBS} <= needs
 
 
+def _make_goals(job: dict) -> list[list[str]]:
+    return [
+        str(step["run"]).split()[1:]
+        for step in job.get("steps", [])
+        if str(step.get("run", "")).startswith("make ")
+    ]
+
+
+def test_mypy_runs_once_and_only_in_the_code_gated_typecheck_job() -> None:
+    # #1009: the always-on lint job runs every `make check` goal except
+    # `typecheck`, so docs-only events skip mypy and code events run it once.
+    jobs = workflow("ci.yml")["jobs"]
+    check = re.search(r"^check: ([^#\n]+)", (ROOT / "Makefile").read_text(), re.MULTILINE)
+    assert check is not None
+    check_goals = check[1].split()
+    assert "typecheck" in check_goals
+    assert _make_goals(jobs["lint"]) == [[g for g in check_goals if g != "typecheck"]]
+    assert _make_goals(jobs["typecheck"]) == [["typecheck"]]
+    assert jobs["typecheck"]["if"] == "needs.detect-changes.outputs.code == 'true'"
+    # Goals that run mypy; a lint job that runs one of them again fails here.
+    mypy_goals = {"typecheck", "check", "check-all", "verify"}
+    mypy_jobs = [
+        name for name, job in jobs.items() for goals in _make_goals(job) if mypy_goals & set(goals)
+    ]
+    mypy_jobs += [
+        name
+        for name, job in jobs.items()
+        for step in job.get("steps", [])
+        if "mypy" in str(step.get("run", ""))
+    ]
+    assert mypy_jobs == ["typecheck"]
+
+
+def test_gate_fails_a_code_event_when_typecheck_fails() -> None:
+    selected = {"validate-target", "detect-changes", "lint", "typecheck", "offline-tests"}
+    completed = run_gate(selected | {"compat-check"}, {"typecheck": "failure"})
+    assert completed.returncode != 0
+    assert "typecheck expected success, got failure" in completed.stdout
+
+
 # --- #745: offline endpoint versions --------------------------------------
 
 EVENTS = ("pull_request", "push", "schedule", "workflow_dispatch")
