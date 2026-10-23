@@ -170,7 +170,7 @@ verify the target workflow and its `workflow_call` inputs at that commit, update
 callers together and run required checks. The shared doc-lint workflow still fetches
 main-based configuration/scanner assets, so caller pinning does not freeze those assets.
 
-### Agent-review evidence gate (advisory only)
+### Agent-review evidence gate
 
 `agent-review` is optional **diagnostic information**, not a required check,
 a code approval or a condition of merging. The current script may still
