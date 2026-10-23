@@ -11,8 +11,9 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.15 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests, and lanes a successful push run of the same SHA already ran are not repeated (see [Event tiers and cost evidence](#event-tiers-and-cost-evidence)) |
 | Explicit full dispatch or release | Existing full Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.15 offline suite with the 95% floor, lint, type checking, the public API baseline and the repository tooling tests |
 
-The PR smoke suite is deliberately bounded. Contributors must run the regression
-checks relevant to their change locally and record commands/results in the PR.
+The PR smoke suite is deliberately bounded. Contributors are encouraged to run regression checks relevant to their change
+locally and record actual commands/results or reasons for any skipped checks.
+Required GitHub CI remains the authoritative PR merge validation.
 Passing smoke is not evidence that the whole offline suite or coverage floor ran.
 `make test` and `make integration` remain available without changing their scope.
 
