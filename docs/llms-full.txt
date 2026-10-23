@@ -11168,8 +11168,9 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.15 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests, and lanes a successful push run of the same SHA already ran are not repeated (see [Event tiers and cost evidence](#event-tiers-and-cost-evidence)) |
 | Explicit full dispatch or release | Existing full Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.15 offline suite with the 95% floor, lint, type checking, the public API baseline and the repository tooling tests |
 
-The PR smoke suite is deliberately bounded. Contributors must run the regression
-checks relevant to their change locally and record commands/results in the PR.
+The PR smoke suite is deliberately bounded. Contributors are encouraged to run regression checks relevant to their change
+locally and record actual commands/results or reasons for any skipped checks.
+Required GitHub CI remains the authoritative PR merge validation.
 Passing smoke is not evidence that the whole offline suite or coverage floor ran.
 `make test` and `make integration` remain available without changing their scope.
 
@@ -11789,33 +11790,26 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 4. 연결·프로토콜 관련 변경에는 통합 테스트를 실행하세요.
 5. 사용자에게 보이는 변경은 `CHANGELOG.md`에 기록하세요.
 
-메인테이너나 에이전트가 작성한 PR은 [AGENTS.md](../AGENTS.md#development-workflow-cubrid-lab-org-standard)의
-도구별 리뷰 경로를 따릅니다. 중요한 OpenCode 작업은 문서화된 Oracle 설계 리뷰와 구현 후
-리뷰를 거치고, 사소한 OpenCode 수정은 이유를 기록하면 이 리뷰를 생략할 수 있습니다.
-Claude Code, Codex, ChatGPT 등 독립 에이전트 도구는 병합 전에 PR에 제출된 실질적인
-GitHub Copilot 리뷰나 메인테이너의 리뷰를 기다립니다(메인테이너 결정, 2026-10-15). 구현자가
-실행한 리뷰어 에이전트는 인정되지 않습니다. 리뷰 요청, 자체 리뷰, 통과한 CI, 자동 승인
-제안만으로는 리뷰 경로가 완료되지 않습니다. 최종 결과, 반영한 지적과 해결되지 않은 스레드는
-AGENTS.md에 따라 기록합니다. 사람의 기여는 일반 기여자 리뷰를 따르며, 어떤 에이전트나 내부
-리뷰 도구도 설치하거나 사용할 필요가 없습니다.
+모든 PR에는 **사람이 직접 작성했는지, OpenCode, Codex, Claude Code, ChatGPT 등
+어떤 도구로 구현했는지와 관계없이 동일한 검토 기준**이 적용됩니다.
+특정 AI 도구의 Oracle 사전·사후 리뷰나 Copilot 리뷰는 필수 조건이 아닙니다.
+최종 변경에 대해 GitHub CI의 필수 검사가 통과해야 하며, 로컬 검사는 권장하지만
+별도의 병합 필수 조건은 아닙니다. 실제 실행한 명령과 결과, 실행하지 못한
+검사 및 이유를 기록합니다. 메인테이너가 정확성, 테스트, 보안, 호환성과
+미해결 지적을 확인하고 병합 여부를 결정합니다.
 
-`.github/workflows/agent-review.yml`의 `agent-review` 체크는 GitHub에 기록된 리뷰만 읽어 이
-리뷰 경로가 충족됐는지 알려 주는 **참고용(advisory)** 체크입니다. 최종 head에 대해 두 차례 AI
-리뷰 예산 안에서 제출된 실질적인 Copilot 리뷰, 또는 메인테이너의 `APPROVED` 리뷰나 인라인
-스레드를 연 `COMMENTED` 리뷰만 인정합니다. PR 본문 체크박스, 대기 중인 리뷰 요청, 자체 리뷰,
-다른 사람이나 다른 AI 에이전트의 리뷰, 이전 커밋에 대한 리뷰는 인정하지 않습니다. 바인딩,
-프로토콜, 패킷, 연결/TLS, `compat` 모듈, 모든 워크플로, 릴리스 및 레인 점검 스크립트와 이
-게이트 자체를 바꾸는 PR에는 메인테이너의 `APPROVED` 리뷰가 필요합니다. PR이 같은 이름의 체크를
-게시할 수 있으므로, PR이 흉내 낼 수 없는 주체(GitHub App 등)가 결과를 게시할 때까지(#945)
-필수 체크로 지정하지 않습니다. 자세한 규칙은
-[CONTRIBUTING.md](../CONTRIBUTING.md#agent-review-evidence-gate)에 있습니다.
+`agent-review`는 과거 리뷰 기록을 요약하는 **참고용(advisory)** 진단입니다.
+결과가 승인이나 필수 병합 기준을 의미하지 않으며 Oracle, Copilot 등
+AI 검토 결과 역시 참고자료입니다. 단, 워크플로 권한, 연결/TLS, 프로토콜,
+릴리스·게시 관련 고위험 변경의 독립적인 메인테이너 검토와 기존 보안
+요건은 구현 도구와 관계없이 유지합니다. 자세한 사항은
+[CONTRIBUTING.md](../CONTRIBUTING.md#agent-review-evidence-gate)를 참고하세요.
 
 `.github/CODEOWNERS`는 릴리스, CI, 보안 정책, 와이어 프로토콜/연결 경로의 변경에
 메인테이너 리뷰를 자동으로 요청합니다. 리뷰 라우팅만 담당하며 보안 경계가 아니고,
 그 밖의 변경은 코드 오너를 기다리지 않습니다.
 
-외부 기여자는 동기, 구현, 테스트와 관련 문서를 제공합니다. 메인테이너는 내부
-Oracle/에이전트 검토, 통합 검증과 릴리스 분류를 조율합니다. 이런 프로젝트 도구의
+외부 기여자는 동기, 구현, 테스트와 관련 문서를 제공합니다. 메인테이너는 선택적인 AI 검토, 통합 검증과 릴리스 분류를 조율합니다. 이런 프로젝트 도구의
 설치는 외부 기여의 사전 조건이 아닙니다. 기여자 저작 정보를 보존하고, 실제로
 그 도구가 커밋을 작성했을 때만 도구 출처를 추가하세요.
 
