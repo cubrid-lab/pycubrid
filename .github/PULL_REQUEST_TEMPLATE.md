@@ -37,7 +37,7 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 - [ ] The linked issue has current scope, verifiable completion criteria and validation instructions; completed dependencies are not still blockers
 
 - [ ] My code follows the project's code style
-- [ ] I have run `make check` and `make test` (or `make verify`), or recorded checks not run and reasons below
+- [ ] I have documented required GitHub CI results and any recommended local checks (or why they were not run)
 - [ ] I have added tests for new functionality (if applicable)
 - [ ] I have updated affected behavior/API/version/config docs, or provided a genuine standalone docs-not-needed reason / requested the existing maintainer label exception
 - [ ] I have recorded missing translations and requested maintainer help if needed; this request does not authorize deferral
@@ -45,21 +45,18 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 
 <!-- Docs exceptions need real text after "Docs: not needed -" on a standalone physical source line outside quotes/comments/fences. The line may be adjacent to ordinary prose without its own paragraph. Do not leave the template placeholder as a reason. Maintainers coordinate internal reviews, labels and approved translation follow-up. -->
 
-## Review Route and Final Disposition
+## Review and Final Disposition
 
-<!-- Record the route actually used; human contributors do not need a specific AI tool. -->
-- Development route: OpenCode + Oracle pre/post / trivial OpenCode with recorded Oracle skip / standalone Claude Code / standalone Codex / standalone ChatGPT or other agent (name it) / human (select one).
-- Trivial OpenCode exception, if used: skipped Oracle phases and reason, or not applicable.
-- Review evidence: reviewer or Oracle design/post-review references, reviewed head SHA, or **pending**.
-- Finding dispositions: fixed commit + verification / rejected with reason / deferred issue.
-- Unresolved review threads and reason, or "none" after verification.
-- Merge decision: **pending**; maintainer to confirm the applicable review route, final code, required CI and thread dispositions.
-<!-- A review request, green CI, or automated "approval recommended" text alone does not complete the review route.
-     The advisory `agent-review` check reads only GitHub's submitted reviews of the head commit;
-     this section and its checkboxes are records for maintainers, never evidence. Protected paths
-     (binding, protocol, packet, connection/TLS and compat modules, every workflow, the release and
-     lane-audit scripts, the gate) need a maintainer's APPROVED review.
-     See CONTRIBUTING.md#agent-review-evidence-gate. -->
+<!-- Same review criteria for human-authored and AI-assisted changes. -->
+- Required GitHub CI at final PR head: **pending** (link checks and relevant result).
+- Local checks performed (optional): commands/results, or "not run" with reason.
+- Optional Oracle/Copilot/agent-review findings: link and dispositions, or N/A.
+- Finding dispositions: fixed commit plus verification / rejected with reason / deferred issue.
+- Open threads and blocking security issues: list or "none" after review.
+- Maintainer merge decision: **pending** until final code, required CI and risk are checked.
+<!-- For sensitive connection/TLS, wire protocol, release, workflow permissions
+     or other protected paths, retain explicit independent maintainer scrutiny.
+     No coding tool or optional AI reviewer grants automatic approval. -->
 
 ## Validation Evidence
 
@@ -69,7 +66,7 @@ Checks not run and reasons:
 
 Live CUBRID evidence (connection/protocol/SQL changes; CUBRID version and command, or "not applicable"):
 
-Optional additional AI review (tool/findings; separate from executed tests and not a replacement for the required review route):
+Optional additional AI review (tool/findings; advisory only, separate from executed test evidence):
 
 ## Related Issues
 
