@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-10-24
+
 ### Added
 
 - **`make format-check` and `make verify` (#1007)** — `make format-check` runs only
@@ -71,6 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   empty database and leaves no volumes; the manual lab's containers and data are untouched.
   Readiness, the lane audit and exit statuses are unchanged.
 
+* **test:** isolate make integration from the manual Docker Compose project ([#1027](https://github.com/cubrid-lab/pycubrid/issues/1027)) ([588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58))
+
 ### Documentation
 
 - **CAS architecture and protocol concepts page (#1015)** — a new advanced overview,
@@ -83,6 +87,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Application Server) versus Compare-And-Swap. `PROTOCOL.md` and `ARCHITECTURE.md` stay
   authoritative; the README, the site index, the connection guide and both reference
   pages link to the overview. No driver behavior changed.
+
+* **advanced:** introduce CUBRID CAS architecture and protocol concepts ([#1019](https://github.com/cubrid-lab/pycubrid/issues/1019)) ([dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73))
+* **agents:** require repository-local issue authoring checks ([#1014](https://github.com/cubrid-lab/pycubrid/issues/1014)) ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae))
+* enforce repository-local issue drafting ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae))
+* **triage:** clarify PR overlap and execution precedence ([d2c9318](https://github.com/cubrid-lab/pycubrid/commit/d2c93180672105b46cf1d29797cc5808386a85d6)), refs [#1025](https://github.com/cubrid-lab/pycubrid/issues/1025)
 
 ### CI
 
