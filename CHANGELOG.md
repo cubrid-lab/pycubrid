@@ -8,11 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [1.13.3] - 2026-10-24
 
-### CI
+### Upgrade notes
 
-* **release:** verify against the current cookbook and restart after the abandoned 1.13.2 ([#1040](https://github.com/cubrid-lab/pycubrid/issues/1040)) ([be7817e](https://github.com/cubrid-lab/pycubrid/commit/be7817e17ec59397af105dfe193eee550afdd38c)), refs [#1016](https://github.com/cubrid-lab/pycubrid/issues/1016)
-
-## [1.13.2] - 2026-10-24
+- **1.13.2 was never published (#1016).** Its cookbook candidate verification failed (the
+  pinned cookbook's `fundamentals/pandas/03_clean_and_transform` golden mismatched under
+  pandas 3.1.0), so no 1.13.2 tag, GitHub Release or PyPI version exists. 1.13.3 contains
+  every 1.13.2 change below; upgrade from 1.13.1 directly to 1.13.3.
 
 ### Added
 
@@ -100,6 +101,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 * **triage:** clarify PR overlap and execution precedence ([d2c9318](https://github.com/cubrid-lab/pycubrid/commit/d2c93180672105b46cf1d29797cc5808386a85d6)), refs [#1025](https://github.com/cubrid-lab/pycubrid/issues/1025)
 
 ### CI
+
+* **release:** verify against the current cookbook and restart after the abandoned 1.13.2 ([#1040](https://github.com/cubrid-lab/pycubrid/issues/1040)) ([be7817e](https://github.com/cubrid-lab/pycubrid/commit/be7817e17ec59397af105dfe193eee550afdd38c)), refs [#1016](https://github.com/cubrid-lab/pycubrid/issues/1016)
 
 - **Every live CI job runs the Make contract or documents why not (#1023)** — each job of
   `ci.yml`, `integration-full.yml` and `bug-hunt.yml` that talks to a live CUBRID now carries
