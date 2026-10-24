@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.13.4](https://github.com/cubrid-lab/pycubrid/compare/v1.13.3...v1.13.4) (2026-10-24)
+
+
+### Fixed
+
+* **reporting:** redact credentials in saved integration command metadata ([#1046](https://github.com/cubrid-lab/pycubrid/issues/1046)) ([80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f))
+
+
+### Documentation
+
+* **examples:** add a bounded opt-in prepared executemany example ([#1039](https://github.com/cubrid-lab/pycubrid/issues/1039)) ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d))
+* **examples:** document prepared executemany batches ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d)), closes [#891](https://github.com/cubrid-lab/pycubrid/issues/891)
+
 ## [1.13.3](https://github.com/cubrid-lab/pycubrid/compare/v1.13.2...v1.13.3) (2026-10-24)
 
 
