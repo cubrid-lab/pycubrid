@@ -433,7 +433,14 @@ def test_manual_docker_lifecycle(tmp_path: Path, target: str, command: str) -> N
         tmp_path / "docker",
         '#!/bin/sh\nprintf "%s|%s\\n" "$CUBRID_TEST_PORT" "$*" >> "$REVIEW_LOG"\nexit 0\n',
     )
-    env = {key: value for key, value in os.environ.items() if not key.startswith("CUBRID_TEST_")}
+    # Drop inherited ports and outer-make state: `make test CUBRID_TEST_PORT=...` would
+    # otherwise reach the nested make through MAKEFLAGS and override the default.
+    inherited = ("MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "MAKELEVEL")
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("CUBRID_TEST_") and key not in inherited
+    }
     env.update(PATH=str(tmp_path) + os.pathsep + env.get("PATH", ""), REVIEW_LOG=str(log))
 
     for port_args, port in (([], "33000"), (["CUBRID_TEST_PORT=33522"], "33522")):
