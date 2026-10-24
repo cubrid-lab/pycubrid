@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`environment.json` masks credentials in the saved command (#1042)** —
+  `scripts/report_results.py` copied the `--command` text verbatim, so an authenticated URL
+  or a password assignment on the command line could be written to `test-results/` and its
+  uploaded artifact. The password of a `scheme://user:password@host` URL and the value of a
+  `password`, `passwd`, `pwd`, `token`, `secret` or `api_key` key (`--password=x`,
+  `--password x`, `CUBRID_PASSWORD=x`) are now saved as `***`; any other command text is
+  unchanged. This is best-effort masking: keep real credentials off command lines. The
+  schema, statuses and exit codes are unchanged.
+
 ## [1.13.3] - 2026-10-24
 
 ### Upgrade notes
