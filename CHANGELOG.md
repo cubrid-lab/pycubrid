@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.13.3] - 2026-10-24
+
+### CI
+
+* **release:** verify against the current cookbook and restart after the abandoned 1.13.2 ([#1040](https://github.com/cubrid-lab/pycubrid/issues/1040)) ([be7817e](https://github.com/cubrid-lab/pycubrid/commit/be7817e17ec59397af105dfe193eee550afdd38c)), refs [#1016](https://github.com/cubrid-lab/pycubrid/issues/1016)
+
 ## [1.13.2] - 2026-10-24
 
 ### Added
