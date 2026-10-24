@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -196,6 +197,21 @@ def test_redact_command_masks_url_passwords_and_credential_values(
 ) -> None:
     assert rr.redact_command(command) == expected
     assert "example" not in rr.redact_command(command)
+
+
+@pytest.mark.parametrize(
+    "noise", ["a." * 50_000, "-a" * 50_000, "--x" * 30_000], ids=["dotted", "dashed", "options"]
+)
+def test_redact_command_scans_a_long_word_once(noise: str) -> None:
+    # A URL scheme may only start at a word start, so a long dotted or dashed word is not
+    # rescanned from every character (that took several seconds per 100k characters).
+    command = f"{noise} cubrid://dba:example-secret@h/db"
+
+    started = time.perf_counter()
+    redacted = rr.redact_command(command)
+
+    assert time.perf_counter() - started < 1.0
+    assert redacted == f"{noise} cubrid://dba:***@h/db"
 
 
 def test_environment_json_masks_credentials_in_the_command(tmp_path: Path) -> None:

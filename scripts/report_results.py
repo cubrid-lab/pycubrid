@@ -26,7 +26,8 @@ before it is saved: the password of an authenticated URL (``scheme://user:***@ho
 and the value of a ``password``/``passwd``/``pwd``/``token``/``secret``/``api_key``
 key (``--password=***``, ``--password ***``, ``CUBRID_PASSWORD=***``). This is a
 best-effort pattern match, not a secret scanner: a credential in any other form (a
-positional argument, a header, a short flag such as ``-p``) is saved as given, so never
+positional argument, a header, a short flag such as ``-p``, a URL password containing an
+unencoded ``/``, ``?``, ``#``, quote or space) is saved as given, so never
 put real credentials on a command line; pass them through the environment instead.
 
 Usage::
@@ -169,7 +170,7 @@ _MASK = "***"
 # percent-encoded one is ordinary text. A URL without a password (user@host,
 # host:port) does not match.
 _URL_PASSWORD = re.compile(
-    r"(?P<prefix>\b[A-Za-z][A-Za-z0-9+.-]*://[^\s:/?#@'\"]*:)[^\s/?#'\"]+(?=@)"
+    r"(?P<prefix>(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://[^\s:/?#@'\"]*:)[^\s/?#'\"]+(?=@)"
 )
 # A key whose name ends with a credential word: CUBRID_PASSWORD, --db-password, api-key.
 # The word must end the key, so --password-file, --tokenizer and password_test do not match.
@@ -196,7 +197,8 @@ def _mask_assignment(match: re.Match[str]) -> str:
 
 def redact_command(command: str) -> str:
     """Mask URL passwords and credential-key values; any other text is returned unchanged."""
-    command = _URL_PASSWORD.sub(rf"\g<prefix>{_MASK}", command)
+    if "://" in command:
+        command = _URL_PASSWORD.sub(rf"\g<prefix>{_MASK}", command)
     return _ASSIGNMENT.sub(_mask_assignment, command)
 
 
