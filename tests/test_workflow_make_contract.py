@@ -1,14 +1,15 @@
 """Every live CI job runs the Make/Compose contract or documents why not (#1023).
 
 A job "talks to a live CUBRID" when it declares a ``cubrid/cubrid`` service container
-or a step starts one with ``docker run``. Such a job either runs ``make integration*``
-or carries a ``# Not using make integration because <reason>`` comment in its workflow
+or a step starts one with ``docker run``. Such a job either executes ``make integration``
+or ``make integration-tls`` (optionally with ``VAR=value`` arguments) or carries a ``# Not using make integration because <reason>`` comment in its workflow
 block and a row in the docs/DEVELOPMENT.md (and docs/ko/DEVELOPMENT.md) table.
 """
 
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 DOCS = [ROOT / "docs/DEVELOPMENT.md", ROOT / "docs/ko/DEVELOPMENT.md"]
 REASON = re.compile(r"^    # Not using make integration because \S", re.MULTILINE)
-MAKE = re.compile(r"\bmake integration(-tls)?\b")
+TARGETS = {"integration", "integration-tls"}
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+SEPARATORS = {";", "&&", "||", "|", "&", "(", ")"}
 ROW = re.compile(r"^\| `([\w.-]+\.yml)` \| `([\w-]+)` \|", re.MULTILINE)
 
 
@@ -50,8 +53,70 @@ def _live_jobs() -> list[tuple[str, str, dict[str, Any], str]]:
     return found
 
 
+def _invokes_make_target(script: str) -> bool:
+    """Return True when a shell command of ``script`` is ``make integration[-tls]``.
+
+    Only the command word counts: ``echo "make integration"``, a ``#`` comment and
+    other targets such as ``make integration-local`` do not. Leading and trailing
+    ``VAR=value`` words are allowed; any other argument or flag is not.
+    """
+    for line in script.replace("\\\n", " ").splitlines():
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        try:
+            tokens = list(lexer)
+        except ValueError:  # unbalanced quotes: not a command this check can trust
+            continue
+        command: list[str] = []
+        for token in [*tokens, ";"]:
+            if token not in SEPARATORS:
+                command.append(token)
+                continue
+            words = [w for w in command if not ASSIGNMENT.match(w)]
+            while command and ASSIGNMENT.match(command[0]):
+                command.pop(0)
+            if command[:1] == ["make"] and len(words) == 2 and words[1] in TARGETS:
+                return True
+            command = []
+    return False
+
+
 def _runs_make(job: dict[str, Any]) -> bool:
-    return any(MAKE.search(str(s.get("run", ""))) for s in job.get("steps") or [])
+    return any(_invokes_make_target(str(s.get("run", ""))) for s in job.get("steps") or [])
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "make integration",
+        "make integration-tls",
+        "make integration CUBRID_TEST_PORT=33522 INTEGRATION_RESULTS=out/junit.xml",
+        "CUBRID_VERSION=10.2 make integration",
+        "set -e\nmake integration-tls && echo done",
+        "make \\\n  integration CUBRID_TEST_PORT=33522",
+    ],
+)
+def test_make_integration_invocations_are_recognised(script: str) -> None:
+    assert _invokes_make_target(script)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "make integration-local",
+        "make integration-tlsx",
+        'echo "make integration"',
+        "echo make integration",
+        "# make integration",
+        "python -m pytest  # replaces make integration",
+        "make -n integration",
+        "make integration test",
+        "make lint",
+        "",
+    ],
+)
+def test_other_commands_are_not_make_integration(script: str) -> None:
+    assert not _invokes_make_target(script)
 
 
 def test_live_jobs_are_detected() -> None:

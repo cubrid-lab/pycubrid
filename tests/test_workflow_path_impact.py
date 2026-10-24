@@ -107,6 +107,9 @@ def test_workflow_impact_table(name: str) -> None:
         ("agent-evals/tasks/lab-volume-964/task.toml", {"code", "tooling"}),
         ("agent-evals/README.md", {"docs", "tooling"}),
         ("docs/finish-safely.md", {"docs", "site", "tooling"}),
+        # tests/test_workflow_make_contract.py reads its decision tables (#1023).
+        ("docs/DEVELOPMENT.md", {"docs", "site", "tooling"}),
+        ("docs/ko/DEVELOPMENT.md", {"docs", "site", "tooling"}),
         ("THIRD_PARTY_LICENSES.md", {"docs", "tooling"}),
         ("release-please-config.json", {"code", "tooling"}),
         ("api-baseline.json", {"code", "tooling"}),

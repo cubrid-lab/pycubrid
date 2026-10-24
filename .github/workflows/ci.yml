@@ -202,6 +202,9 @@ jobs:
               - 'docs/ko/quickstart.md'
               - 'docs/finish-safely.md'
               - 'docs/ko/finish-safely.md'
+              # The CI live-job decision table (#1023).
+              - 'docs/DEVELOPMENT.md'
+              - 'docs/ko/DEVELOPMENT.md'
               - 'THIRD_PARTY_LICENSES.md'
               - 'release-please-config.json'
               - 'api-baseline.json'
