@@ -297,7 +297,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 | `DATETIME` | 22 | `datetime.datetime` | Date + time + millisecond |
 | `TIMESTAMPTZ`, `TIMESTAMPLTZ` | 29, 30 | `datetime.datetime` | Timezone-aware timestamps (second precision, microsecond = 0) |
 | `DATETIMETZ`, `DATETIMELTZ` | 31, 32 | `datetime.datetime` | Timezone-aware datetimes (millisecond precision) |
-| `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data |
+| `BIT`, `BIT VARYING` | 5, 6 | `bytes` | Raw binary data; an empty `BIT`/`BIT VARYING` value (`X''`, `B''`) is `b""`, distinct from `NULL` (#994). This follows the JDBC driver; the official CUBRIDdb driver returns `None` for `X''` |
 | `JSON` | 34 | `str` or `Any` | Raw JSON string by default; decoded when `json_deserializer=` is set. Always UTF-8, whatever the connection `charset` |
 | `SET`, `MULTISET`, `SEQUENCE` | 16, 17, 18 | `bytes` or decoded collection | Decoded only when `decode_collections=True` |
 | `OBJECT` (OID) | 19 | `str` | Format: `"OID:@page\|slot\|volume"` |
@@ -438,6 +438,9 @@ Notes:
 - A nonempty collection whose elements are all SQL NULL (for example `{NULL}` or
   `{NULL, NULL}`) decodes to `[None, ...]` for `MULTISET`/`SEQUENCE` and
   `frozenset({None})` for `SET`. An empty collection decodes to `[]` / `frozenset()`.
+- An empty `BIT`/`BIT VARYING` element (`X''`, wire length 0) decodes to `b""` and a NULL
+  element (length -1) to `None`, so `SEQUENCE{X'', NULL, X'01'}` is
+  `[b"", None, b"\x01"]` (#998). A zero-length element of any other type is `None`.
 - Nested collection payloads remain raw `bytes`.
 - Unknown collection element types fall back to raw `bytes`.
 - `SET` values are normalized to a `frozenset` when every decoded element is hashable.

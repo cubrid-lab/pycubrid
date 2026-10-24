@@ -358,3 +358,71 @@ def test_malformed_null_only_collection_is_rejected(payload: bytes) -> None:
     reader = PacketReader(payload, decode_collections=True)
     with pytest.raises(ValueError, match="malformed NULL-only collection"):
         _read_value(reader, CUBRIDDataType.SEQUENCE, len(payload))
+
+
+def _encode_sized_collection(element_type: int, elements: list[tuple[int, bytes]]) -> bytes:
+    """Encode elements as explicit ``(length word, payload)`` pairs."""
+    payload = bytearray((element_type,))
+    payload.extend(struct.pack(">i", len(elements)))
+    for length, value in elements:
+        payload.extend(struct.pack(">i", length))
+        payload.extend(value)
+    return bytes(payload)
+
+
+# CUBRID 11.4 sends an empty BIT/VARBIT element as length 0 and a NULL element
+# as length -1, e.g. SEQUENCE{X'', NULL, X'01'} (#998).
+_BIT_ELEMENTS = [(0, b""), (-1, b""), (1, b"\x01")]
+
+
+@pytest.mark.parametrize("element_type", [CUBRIDDataType.BIT, CUBRIDDataType.VARBIT])
+@pytest.mark.parametrize(
+    "column_type,expected",
+    [
+        (CUBRIDDataType.SET, frozenset({b"", None, b"\x01"})),
+        (CUBRIDDataType.MULTISET, [b"", None, b"\x01"]),
+        (CUBRIDDataType.SEQUENCE, [b"", None, b"\x01"]),
+    ],
+)
+def test_empty_bit_element_is_empty_bytes_and_null_element_is_none(
+    element_type: int, column_type: int, expected: object
+) -> None:
+    payload = _encode_sized_collection(element_type, _BIT_ELEMENTS)
+    reader = PacketReader(payload, decode_collections=True)
+    assert _read_value(reader, column_type, len(payload)) == expected
+    assert reader.bytes_remaining() == 0
+    raw_reader = PacketReader(payload)
+    assert _read_value(raw_reader, column_type, len(payload)) == payload
+    assert raw_reader.bytes_remaining() == 0
+
+
+@pytest.mark.parametrize("element_type", [CUBRIDDataType.BIT, CUBRIDDataType.VARBIT])
+@pytest.mark.parametrize("length", [0, -1])
+def test_single_empty_or_null_bit_element(element_type: int, length: int) -> None:
+    payload = _encode_sized_collection(element_type, [(length, b"")])
+    reader = PacketReader(payload, decode_collections=True)
+    expected = b"" if length == 0 else None
+    assert _read_value(reader, CUBRIDDataType.SEQUENCE, len(payload)) == [expected]
+    assert reader.bytes_remaining() == 0
+
+
+@pytest.mark.parametrize(
+    "element_type",
+    [CUBRIDDataType.STRING, CUBRIDDataType.INT, CUBRIDDataType.NUMERIC, CUBRIDDataType.BLOB],
+)
+@pytest.mark.parametrize("length", [0, -1])
+def test_other_zero_length_elements_stay_none(element_type: int, length: int) -> None:
+    payload = _encode_sized_collection(element_type, [(length, b"")])
+    reader = PacketReader(payload, decode_collections=True)
+    assert _read_value(reader, CUBRIDDataType.SEQUENCE, len(payload)) == [None]
+    assert reader.bytes_remaining() == 0
+
+
+@pytest.mark.parametrize("element_type", [CUBRIDDataType.BIT, CUBRIDDataType.VARBIT])
+def test_empty_bit_element_keeps_collection_size_validation(element_type: int) -> None:
+    # An empty element consumes no payload, so a stray byte after it is still
+    # rejected as not matching the declared collection size (#383).
+    payload = _encode_sized_collection(element_type, [(0, b"")]) + b"\x00"
+    reader = PacketReader(payload, decode_collections=True)
+    with pytest.raises(ValueError, match="elements do not match its size"):
+        _read_value(reader, CUBRIDDataType.SEQUENCE, len(payload))

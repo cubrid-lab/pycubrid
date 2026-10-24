@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime
 import math
 import re
+import sys
 import warnings
 from decimal import Decimal
 from importlib import import_module
@@ -436,6 +437,31 @@ def _checked_decimal(cls: type, value: Decimal) -> Decimal:
     return value
 
 
+# Scaling by 2**600 moves every subnormal double into the normal range, and
+# 2**-600 is itself normal, so the server computes (m * 2**-600) exactly (#988).
+_SUBNORMAL_SHIFT = 600
+_SUBNORMAL_UNSCALE = float.__repr__(math.ldexp(1.0, -_SUBNORMAL_SHIFT))
+
+
+def _float_literal(value: float) -> str:
+    """Render a finite float so that CUBRID stores the same double.
+
+    A plain literal such as ``1.5`` is NUMERIC in CUBRID, which drops the sign
+    of ``-0.0``; ``-0.0e0`` is a DOUBLE literal that keeps it. CUBRID rejects
+    any subnormal literal ("exceeds limit of double", -493), so a subnormal is
+    sent as an exact product of two normal doubles. Every other value keeps
+    its shortest round-trip form, which NUMERIC and string targets rely on.
+    ``math`` reads the stored double, so a subclass cannot alter the result.
+    """
+    magnitude = math.fabs(value)
+    if magnitude == 0.0:
+        return "-0.0e0" if math.copysign(1.0, value) < 0 else "0.0"
+    if magnitude < sys.float_info.min:
+        scaled = math.ldexp(math.copysign(magnitude, value), _SUBNORMAL_SHIFT)
+        return f"({float.__repr__(scaled)} * {_SUBNORMAL_UNSCALE})"
+    return float.__repr__(value)
+
+
 def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
     """Format a single Python value as a CUBRID SQL literal string."""
     if value is None:
@@ -494,7 +520,7 @@ def format_parameter(value: Any, *, no_backslash_escapes: bool = True) -> str:
     if issubclass(cls, float):
         if math.isnan(value) or math.isinf(value):
             raise ProgrammingError("nan and inf are not supported by CUBRID")
-        return float.__repr__(value)
+        return _float_literal(value)
     # Typed collections (#567). The classes cannot be subclassed; they are
     # matched by identity and each element goes through this same renderer.
     if cls is Set or cls is Multiset or cls is SequenceParam:

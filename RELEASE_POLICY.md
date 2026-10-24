@@ -305,6 +305,33 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Non-destructive `make docker-down` and loopback Compose broker (#1006)** —
+  development-tooling change; no release on its own. `make docker-down` keeps the
+  named test-data volumes and the new `make docker-clean` is the only target that
+  deletes them, which supersedes "`make docker-down` remains destructive" (#501)
+  and "`make docker-down` deletes both" (#1002) below. `docker-compose.yml`
+  publishes the broker only on `127.0.0.1`. Driver APIs, connection semantics,
+  package dependencies, `make integration` cleanup and CI service containers are
+  unchanged.
+
+- **Empty `BIT`/`BIT VARYING` collection elements (#998)** — PATCH / bug fix to
+  the documented collection decoding (`docs/PROTOCOL.md`, `docs/TYPES.md`). With
+  `decode_collections=True`, a `BIT`/`VARBIT` element of length `0` (an empty
+  value, `X''`) decodes as `b""` instead of `None`; a NULL element (length `-1`)
+  is still `None`. This follows the #994 row-cell rule and is covered by the same
+  `CHANGELOG.md` Upgrade note. Other element types, raw collection bytes
+  (`decode_collections=False`), public signatures, the wire format and supported
+  versions are unchanged.
+
+- **Empty `BIT`/`BIT VARYING` values (#994)** — PATCH / bug fix to the
+  documented row decoding (`docs/PROTOCOL.md`, `docs/TYPES.md`). A `BIT`/`VARBIT`
+  cell of size `0` (an empty value, `X''`) decodes as `b""` instead of `None`, as
+  the official JDBC driver reads it; `NULL` (size `-1`) is still `None`. Code that
+  checks `v is None` on such a column now sees `b""` for an empty value (see the
+  `CHANGELOG.md` Upgrade note). Decoded collection elements are covered by the
+  #998 entry above. The prepared-path `b""` rejection, public signatures, the
+  wire format and supported versions are unchanged.
+
 - **`error_source` of copied async setup failures (#952)** — PATCH / bug fix
   to the documented setup-waiter contract (`docs/API_REFERENCE.md`, #554) and
   the `error_source` attribute (#903). The `DatabaseError` copy each waiting
@@ -579,6 +606,22 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   development-tooling correction. Normal and signal cleanup retain named volumes;
   explicit `make docker-down` remains destructive. Driver APIs, connection
   semantics, package dependencies and existing readiness/audit gates are unchanged.
+
+- **Stable Docker test database host (#1000, #1003)** — PATCH /
+  development-tooling correction. `docker-compose.yml` registers `testdb` for
+  `CUBRID_DB_HOST: localhost`, so a recreated container opens the kept database.
+  `make docker-fix-db-host` repairs an older volume in place and keeps its first
+  backup. The readiness probe fails fast only on a -353 whose hosts the Compose
+  container cannot resolve. Driver APIs, connection semantics, package
+  dependencies and CI service containers are unchanged.
+
+- **CUBRID 11.4 Docker test database volume (#1002)** — PATCH /
+  development-tooling correction. The `cubrid-databases` named volume keeps 11.4's
+  `/home/cubrid/CUBRID/databases`, as `cubrid-data` keeps `/var/lib/cubrid` for
+  images up to 11.3, so `docker compose down` keeps the test database on every
+  supported version. `make docker-down` deletes both. Reusing one volume across
+  CUBRID versions is not verified, so the guides reset it before a version switch.
+  Driver APIs, package dependencies and CI service containers are unchanged.
 
 - **TLS preflight alerts and timeout context (#592)** — PATCH / diagnostic
   and error-path correction. Fatal alert bytes use only the existing probe

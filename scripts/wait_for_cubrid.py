@@ -14,12 +14,20 @@ matching component of ``CUBRID_TEST_URL``, then localhost:33000/testdb/dba/"".
 ``CUBRID_TEST_CONNECT_TIMEOUT`` / ``CUBRID_TEST_READ_TIMEOUT`` default to 5 seconds,
 so a broker that accepts TCP but stalls cannot leave a probe waiting indefinitely.
 
+With ``CUBRID_TEST_DOCKER_CONTAINER`` set (``make integration`` and ``make
+integration-tls`` set it), a -353 "Failed to connect to database server" naming only
+hosts that ``getent hosts`` cannot resolve inside that container fails at once with a
+repair hint, instead of retrying: the database volume records a host that no container
+will resolve again (#1000). The hosts it records are ``localhost`` or a container ID,
+both answered from ``/etc/hosts``, so a failed lookup is not a transient DNS error.
+
 Usage:
     python scripts/wait_for_cubrid.py [attempts] [sleep_seconds] [--server-info PATH]
 
 Exit codes:
     0 - broker reachable
-    1 - broker never became ready within the retry budget
+    1 - broker never became ready within the retry budget, or its database is
+        registered for a host the container cannot resolve
 """
 
 from __future__ import annotations
@@ -28,6 +36,8 @@ import importlib.util
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime
@@ -73,6 +83,55 @@ def _write_identity(path: Path, endpoint: str, result: dict[str, object]) -> Non
         print(_repro.sanitize(f"Server identity unavailable: {exc}"), file=sys.stderr)
 
 
+# CUBRID -353 (ER_NET_CANT_CONNECT_SERVER) lists the hosts databases.txt names.
+_CANT_CONNECT_SERVER = -353
+_SERVER_HOSTS = re.compile(r"on the following host\(s\):(?P<hosts>.*)\Z", re.DOTALL)
+
+_STALE_HOST_HINT = (
+    "CUBRID database server host(s) {hosts} do not resolve inside container {container}. "
+    "The data volume registers its database for the host of the container that created it; "
+    "before #1000 that host was the creating container's ID, which a recreated container "
+    "does not have. Repair the volume in place, keeping its data: make docker-fix-db-host. "
+    "Or delete the volume and all its data: make docker-clean."
+)
+
+
+def _server_hosts(exc: BaseException) -> list[str]:
+    if getattr(exc, "errno", None) != _CANT_CONNECT_SERVER:
+        return []
+    match = _SERVER_HOSTS.search(str(getattr(exc, "msg", "")))
+    if match is None:
+        return []
+    return [host for host in re.split(r"[\s,:]+", match.group("hosts")) if host]
+
+
+def _resolves_in_container(container: str, host: str) -> bool | None:
+    """True/False when ``getent hosts`` answers inside the container; None if it cannot run."""
+    try:
+        done = subprocess.run(
+            ["docker", "exec", container, "getent", "hosts", host],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode == 0:
+        return True
+    # getent exits 2 when the key is not found; anything else is not an answer.
+    return False if done.returncode == 2 else None
+
+
+def _stale_host_hint(exc: BaseException) -> str | None:
+    container = os.environ.get("CUBRID_TEST_DOCKER_CONTAINER", "").strip()
+    hosts = _server_hosts(exc)
+    if not container or not hosts:
+        return None
+    if all(_resolves_in_container(container, host) is False for host in hosts):
+        return _STALE_HOST_HINT.format(hosts=", ".join(hosts), container=container[:12])
+    return None
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("attempts", nargs="?", type=int, default=30)
@@ -106,6 +165,11 @@ def main(argv: list[str]) -> int:
             if args.server_info is not None:
                 _write_identity(args.server_info, endpoint.describe(), result)
             print(f"[{i}/{attempts}] CUBRID {endpoint.describe()} not ready: {exc}")
+            hint = _stale_host_hint(exc)
+            if hint is not None:
+                sys.stdout.flush()
+                print(hint, file=sys.stderr)
+                return 1
             time.sleep(sleep_s)
             continue
         print(f"CUBRID {endpoint.describe()} ready")

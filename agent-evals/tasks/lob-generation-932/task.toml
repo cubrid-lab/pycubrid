@@ -1,0 +1,83 @@
+# Agent task built from merged pycubrid work (#925). The oracle is
+# reference.diff: `git diff 5b0bc2a 03d7f70`, the fix as it was merged.
+format = 1
+id = "lob-generation-932"
+title = "Reject LOB handles bound to a replaced physical session"
+base_sha = "5b0bc2a7672b719e000286e86bcf4fa77a7a2416"
+
+[problem]
+statement = """
+A `Lob` is a session-scoped server handle. Its constructor records the owning
+connection's physical generation, but `Lob.read()` and `Lob.write()` never check
+it and call `_send_and_receive(packet)` without `expected_generation`. After
+`ping(reconnect=True)`, or a failed out-of-transaction CHECK_CAS probe,
+replaced the physical session, a LOB created on the old session can send its
+stale handle to the new one. A stale LOB must fail before any request is sent,
+under the connection's session lock, without reconnecting, retrying or
+replaying the operation. Valid handles on their own session, including partial
+writes, keep working. This is a code-level state-validation gap, not a
+reproduced incident.
+"""
+evidence = [
+    "https://github.com/cubrid-lab/pycubrid/issues/932",
+    "https://github.com/cubrid-lab/pycubrid/pull/934",
+    "https://github.com/cubrid-lab/pycubrid/commit/03d7f70871ca28c00dd3627f76bfbc77fbf06b0e",
+]
+
+[scope]
+allowed = [
+    "pycubrid/lob.py",
+    "tests/test_lob*.py",
+    "tests/test_integration_lob.py",
+    "docs/API_REFERENCE.md",
+    "docs/ko/API_REFERENCE.md",
+    "docs/CONNECTION.md",
+    "docs/ko/CONNECTION.md",
+    "docs/llms-full.txt",
+    "RELEASE_POLICY.md",
+    "CHANGELOG.md",
+]
+non_goals = [
+    "retrying or replaying a LOB operation after a reconnect",
+    "changing the connection's reconnect policy",
+    "claiming live CUBRID results without a run",
+]
+required_docs = [
+    "CHANGELOG.md",
+    "docs/API_REFERENCE.md",
+    "docs/ko/API_REFERENCE.md",
+]
+
+[validation]
+commands = [
+    "python -m pytest -q tests/test_lob.py tests/test_lob_session.py",
+]
+regression_tests = [
+    "tests/test_lob.py::test_stale_generation_raises_before_sending",
+    "tests/test_lob_session.py::test_lob_from_before_ping_reconnect_sends_nothing_to_the_new_session",
+    "tests/test_lob_session.py::test_failed_probe_before_a_lob_request_fails_it_and_later_ones",
+]
+manual = [
+    "make integration-local (the live LOB lane needs a CUBRID server)",
+]
+
+[expected]
+behavior = """
+Lob.read() and Lob.write() raise InterfaceError, before sending anything, when
+the connection's physical generation is no longer the one the Lob was created
+or wrapped on, and they pass expected_generation so a replacement during the
+call is fenced too. A Lob on its current session reads and writes as before.
+"""
+reference_fix = "03d7f70871ca28c00dd3627f76bfbc77fbf06b0e"
+
+[limits]
+# The merged fix changed 11 files and 324 lines.
+max_files = 22
+max_changed_lines = 648
+max_minutes = 90
+
+[rubric]
+# sql_interpolation is off for this task: the merged fix follows the existing
+# tests/test_integration_lob.py pattern of formatting a generated table name
+# into DDL with `%`, which the scanner cannot tell from a formatted value.
+checks = ["scope", "limits", "regression_tests", "docs", "validation_claims"]

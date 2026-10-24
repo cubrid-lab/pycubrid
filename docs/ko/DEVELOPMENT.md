@@ -316,17 +316,38 @@ make integration                          # 브로커를 localhost:33000에 게�
 make integration CUBRID_TEST_PORT=33522   # 다른 컨테이너가 쓰지 않는 포트 사용
 ```
 
-`make integration`은 compose 서비스를 시작하고, 고정 시간 대기 대신
+`make integration`은 `scripts/run_integration.py`를 실행하며, 이 스크립트는 compose 서비스를 시작하고, 고정 시간 대기 대신
 `scripts/wait_for_cubrid.py`로 준비 상태를 기다리며(약 3분 안에 준비되지 않으면
 실행 실패), 모든 엔드포인트 필드를 명시적으로 설정해
 `-m "integration and not tls"`를 실행합니다. 이어서
 `scripts/check_integration_lanes.py --results`로 JUnit 보고서를 검사해 전부
-건너뛰었거나 분류되지 않은 skip이 있으면 실패시키고, 컨테이너는 항상 제거합니다.
+건너뛰었거나 분류되지 않은 skip이 있으면 실패시키고, 생성한 리소스는 항상 제거합니다.
+종료 상태는 처음 실패한 단계의 상태이며, `docker compose down -v`가 실패하면 이를 보고하고
+그 외에는 통과한 실행도 실패로 처리합니다.
 TLS 테스트는 SSL이 켜진 브로커가 필요합니다.
 [비동기 TLS 통합 테스트](#비동기-tls-통합-테스트)를 참고하세요.
 
+**결과 파일(#1024).** `make test`는 `test-results/test/`에 `junit.xml`, `coverage.xml`,
+`summary.json`, `environment.json`을 쓰고, `make integration`과 `make integration-tls`는
+`test-results/integration/`, `test-results/integration-tls/`에
+`junit.xml`, `summary.json`, `environment.json`(실패한 실행에서는 `service.log`도)을 씁니다.
+이 디렉터리는 gitignore 대상이며 `make clean`이 삭제합니다.
+CI도 오프라인, 통합, TLS 통합 job에서 같은 구조로 결과를 쓰고, 한 줄 요약을 job 요약에
+추가하며, 성공·실패와 관계없이 매 실행마다 `test-results/`를
+`test-results-<lane>-py<python>[-cubrid<version>]`라는 7일 보관 아티팩트로 업로드합니다.
+`scripts/report_results.py`가 `summary.json`(`schema_version`, `lane`, `status`, `exit_code`,
+결과별 `counts`, `coverage`)을 만들고 같은 상태와 개수를 콘솔 한 줄로 출력합니다.
+`status`는 통과한 테스트가 하나 이상이고 실패·오류가 없으며 종료 상태가 0일 때만 `PASS`,
+테스트가 실패했거나 명령이 0이 아닌 상태로 끝나면(커버리지 하한 미달 포함) `FAIL`,
+실행되었다는 증거가 없으면(JUnit 파일 없음, 수집된 테스트 없음, 전부 skip) `INCOMPLETE`입니다.
+실패한 뒤 teardown에서도 오류가 난 테스트는 가장 나쁜 결과로 한 번만 셉니다.
+`environment.json`은 Python, pycubrid, CUBRID 이미지 버전, 플랫폼, 명령만으로 만들어지므로
+비밀번호 등 비밀이 결과 파일에 들어가지 않습니다. 이 파일들은 명령의 종료 상태를 바꾸지 않습니다. 통합 테스트 레인의 `summary.json`은 정리 뒤에 쓰이므로 최종 종료 상태를 담고(`down -v` 실패는 `FAIL`), `service.log` 저장은 실패해도 경고만 남기고 정리를 건너뛰지 않습니다. 프로젝트 잠금을 잡은 실행이 결과 파일을 소유하며 이전 실행의 파일을 먼저 지웁니다. 잠금 이후의 거부(이미 있는 프로젝트, 소유권 확인 실패)나 잘못된 `INTEGRATION_PROJECT`는 `reason`이 있는 `FAIL` 요약을 남기고, 다른 실행이 잠금을 쥐고 있어 거부된 실행은 아무것도 쓰거나 지우지 않습니다.
+`INTEGRATION_RESULTS=<경로>`로 통합 테스트 JUnit 파일 위치를 바꾸면 나머지 파일도 그 옆에 쓰입니다.
+CI 작업은 이 타깃을 실행하지 않습니다. [CI 라이브 작업과 Make 계약](#ci-라이브-작업과-make-계약)을 참고하세요.
 
-`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. 명시적 `make docker-down`은 `down -v`로 볼륨을 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만, 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
+
+**`make docker-up`과의 격리(#1021).** `make integration`과 `make integration-tls`는 자체 Compose 프로젝트(기본값 `pycubrid-it-<타임스탬프>-<pid>`)에서 실행되며 모든 `docker compose` 호출에 `-p <project>`를 붙이므로, `make docker-up`으로 띄운 CUBRID에 붙거나 재시작하거나 제거하지 않습니다(내보낸 `COMPOSE_PROJECT_NAME`도 무시됩니다). 이름은 `INTEGRATION_PROJECT=<이름>`(`^[a-z0-9][a-z0-9_-]*$`)으로 정할 수 있으며, 실행 전에 해당 프로젝트에 컨테이너·볼륨·네트워크가 없는지 확인하고 있으면 아무것도 시작하거나 제거하지 않은 채 "Refusing to run"과 함께 종료 코드 1로 끝납니다. 같은 이름의 실행이 진행 중일 때 두 번째 실행도 거부되며("another run owns project"), 정리가 끝날 때까지 임시 디렉터리의 잠금 파일에 건 `flock`으로 보장합니다(POSIX 전용, Windows에서는 이 보호가 생략됩니다). 프로젝트가 실행 자신의 것이므로 성공·준비 실패·테스트 실패·SIGINT·SIGTERM 후의 정리는 `docker compose -p <project> down -v`이며, 이 실행의 볼륨도 삭제하므로 매 실행이 빈 데이터베이스에서 시작하고 아무것도 남기지 않습니다. 수동 랩의 데이터 볼륨은 건드리지 않습니다. `make docker-down`은 수동 랩의 데이터를 보존하고, `make docker-clean`(기본 프로젝트에 대한 `down -v`)만 이를 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
 
 **통합 테스트 활성화와 엔드포인트 선택의 구분.** 통합 테스트는
 `CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 비어 있지 않은 값으로 설정되면
@@ -464,17 +485,45 @@ open htmlcov/index.html
 ```yaml
 services:
   cubrid:
-    image: cubrid/cubrid:11.2
-    container_name: cubrid-test
-    ports:
-      - "33000:33000"
+    image: cubrid/cubrid:${CUBRID_VERSION:-11.2}
     environment:
       CUBRID_DB: testdb
+      CUBRID_DB_HOST: localhost
+    ports:
+      - "127.0.0.1:${CUBRID_TEST_PORT:-33000}:33000"
+    volumes:
+      - cubrid-data:/var/lib/cubrid
+      - cubrid-databases:/home/cubrid/CUBRID/databases
+
+volumes:
+  cubrid-data:
+  cubrid-databases:
 ```
+
+실제 파일에는 `csql -u dba testdb -c "SELECT 1"`을 실행하는 `healthcheck`도 있습니다.
+브로커는 `127.0.0.1`에만 게시되므로 이 호스트에서는 접근할 수 있지만 네트워크에서는 접근할 수 없습니다.
+지원하는 재정의 값은 `CUBRID_VERSION`(기본값 `11.2`)과 `CUBRID_TEST_PORT`(기본값 `33000`)입니다.
+서비스에 고정 `container_name`이 없으므로 별도의 Compose 프로젝트(`COMPOSE_PROJECT_NAME` 또는
+`docker compose -p`)를 서로 다른 포트에서 동시에 실행할 수 있습니다.
+
+`CUBRID_DB_HOST: localhost`를 설정하면 이미지가 `databases.txt`에 `testdb`를
+`localhost`로 등록합니다. 11.3까지의 이미지는 이 파일과 데이터베이스를 `cubrid-data` 볼륨에, 11.4는 `cubrid-databases`에
+두므로 지원하는 모든 버전에서 `docker compose down`이 데이터베이스를 남깁니다. 11.3까지의 버전은
+`cubrid-data`를 함께 쓰고, 한 CUBRID 버전이 만든 데이터베이스가 다른 버전에서 열린다는 보장은 없으므로
+`CUBRID_VERSION`을 바꾸기 전에 `make docker-clean`(테스트 데이터 삭제)을 실행하세요. 이 값이 없으면 데이터베이스를 만든 컨테이너의 ID가 기록되고,
+그 컨테이너를 다시 만들면 데이터베이스를 사용할 수 없게 됩니다
+([문제 해결](TROUBLESHOOTING.md#컨테이너를-다시-만든-뒤-데이터베이스-서버-호스트를-찾을-수-없음)).
 
 ### 명령
 
+Makefile이 수동 수명 주기를 감싸며, 각 타깃은 `CUBRID_TEST_PORT`를 Compose에 전달합니다:
+
 ```bash
+make docker-up                            # CUBRID 시작 (127.0.0.1:33000)
+make docker-up CUBRID_TEST_PORT=33522     # 다른 호스트 포트에서 시작
+make docker-down                          # 컨테이너와 네트워크 제거, 데이터 유지
+make docker-clean                         # 파괴적: 데이터 볼륨까지 삭제
+
 # 기본 CUBRID 11.2로 시작
 docker compose up -d
 
@@ -487,8 +536,14 @@ docker compose ps
 # 로그 보기
 docker compose logs -f cubrid
 
-# 중지 및 정리
+# 중지 (데이터 볼륨 유지)
+docker compose down
+
+# 중지 및 데이터 볼륨 삭제 (테스트 데이터가 모두 삭제됨)
 docker compose down -v
+
+# CUBRID_DB_HOST 설정 전에 만든 볼륨 복구 (데이터 유지)
+make docker-fix-db-host
 ```
 
 ### 연결 상세
@@ -528,10 +583,11 @@ target-version = "py311"
 ### 린팅
 
 ```bash
-# 문제 확인
-make lint
+# 문제 확인 (두 명령 모두 파일을 수정하지 않음)
+make lint            # ruff check
+make format-check    # ruff format --check
 
-# 자동 수정
+# 자동 수정 (파일을 수정하는 유일한 품질 대상)
 make format
 
 # 도구 버전과 현재 환경을 별도로 검사
@@ -539,7 +595,7 @@ make tooling-check
 ```
 
 Make와 일반/정기 CI는 `Makefile`의 `LINT_PATHS` 목록을 공유합니다:
-`pycubrid tests scripts demos examples`. Ruff CLI와 훅은 명시적으로 Python/pyi만 검사하므로
+`pycubrid tests scripts demos examples agent-evals`. Ruff CLI와 훅은 명시적으로 Python/pyi만 검사하므로
 Markdown은 이 포맷 범위에 포함하지 않습니다. 훅에도 같은 관리 파일 범위를 적용하며,
 Mypy는 패키지에 대한 엄격한 검사를 유지합니다. `make typecheck`와 CI는
 `tests/typing_self_contract.py` 정적 계약도 검사하며, pre-commit 훅은 `pycubrid/`만 검사합니다. 검사는 현재 Python 환경의
@@ -552,7 +608,7 @@ pre-commit 훅은 `repo: local` / `language: system` 훅으로, 같은 활성 �
 작업을 수행합니다) `dev` 그룹을 다시 설치하면 충분합니다. 커밋 시 훅이 실행되길
 원한다면 그 환경(또는 이를 설치한 venv)을 항상 활성화해두세요. 그렇지 않으면
 Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치된 버전이 조용히
-실행됩니다. `lint` 그룹 핀을 갱신하고 `dev` 그룹을 다시 설치한 뒤 `make check-all` 및
+실행됩니다. `lint` 그룹 핀을 갱신하고 `dev` 그룹을 다시 설치한 뒤 `make check` 및
 `pre-commit run --all-files`를 실행하세요. `make tooling-check`는 린트/포맷/타입
 검사 전에 핀, 설치 버전, 훅 범위 및 CI 범위의 불일치를 실패 처리합니다.
 
@@ -570,11 +626,16 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 
 | 명령 | 설명 |
 |---------|-------------|
+| `make help` | 목적별로 묶은 대상 목록 표시 |
 | `make install` | 모든 의존성과 함께 개발 모드 설치 |
-| `make test` | 커버리지와 함께 오프라인 테스트 실행 |
-| `make lint` | ruff check + format 검사 실행 |
-| `make format` | 린트와 포맷 문제 자동 수정 |
-| `make integration` | Docker → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경) |
+| `make doctor` | 필수 도구 확인; 하나라도 없거나 동작하지 않으면 실패 |
+| `make lint` | ruff check 실행 (파일 수정 없음) |
+| `make format-check` | ruff format --check 실행 (파일 수정 없음) |
+| `make format` | 린트와 포맷 문제 자동 수정 (파일을 수정하는 유일한 품질 대상) |
+| `make check` | 정적 품질 게이트: lint, format-check, typecheck, security, docs-reason-check (`make check-all`은 폐기 예정 별칭) |
+| `make test` | 커버리지와 함께 오프라인 테스트 실행; `test-results/test/`(JUnit, 커버리지, `summary.json`) 작성 |
+| `make verify` | `make check` 후 `make test`; Docker 불필요 |
+| `make integration` | Docker(실행 전용 Compose 프로젝트) → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경, `INTEGRATION_PROJECT=<name>`으로 프로젝트 이름 지정) |
 | `make integration-local` | 이미 실행 중인 서버에 대한 통합 테스트 (`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | 빌드 산출물 제거 |
 
@@ -818,7 +879,7 @@ python scripts/check_official_differential.py --evidence official-evidence.jsonl
 앞의 공백은 0~3개까지 허용하며, 들여쓴 코드와 HTML 인용/pre/code 블록의 예시는
 예외 승인을 부여하지 않습니다.
 기존 `docs-not-needed` 라벨 예외는 별도로 유지됩니다. `make docs-reason-check`는
-헬퍼 doctest와 실제 이벤트 JSON 기반 워크플로 사례를 실행하며, `make check-all`과
+헬퍼 doctest와 실제 이벤트 JSON 기반 워크플로 사례를 실행하며, `make check`와
 docs-sync CI에서도 이 검사를 실행합니다.
 
 기여자는 실제 실행한 명령/결과와 실행하지 않은 검사/이유를 기록하고, 선택적 AI
@@ -857,6 +918,36 @@ Python 3.11/CUBRID 10.2 통합 조합을 추가합니다. 저장소 도구 검�
 따라 Linux 단일 레인에서 실행합니다. 전체 통합 검사는 명시적 수동 실행과
 릴리스에서 유지합니다. 정확한 선택 조건과 검증 요건은 [CI 실행 정책](CI_POLICY.md)을
 참고하세요.
+
+### CI 라이브 작업과 Make 계약
+
+기여자는 `make integration`(루트 `docker-compose.yml`, CUBRID 서버 하나,
+`-m "integration and not tls"`)과 `make integration-tls`로 라이브 테스트를 실행합니다.
+라이브 CUBRID에 접속하는 CI 작업은 이 타깃 중 하나를 실행하거나, 워크플로에
+`# Not using make integration because ...` 주석을 두고 아래 표에 행을 둡니다.
+`tests/test_workflow_make_contract.py`가 두 조건을 모두 검사합니다(#1023). 작업은
+CUBRID 버전과 매트릭스, pytest 선택, 레인 감사, 결과 파일과 아티팩트, 준비 대기,
+권한이 그대로일 때만 전환합니다. 현재 이를 만족하는 작업은 없으므로 모든 라이브 작업은
+자체 서비스 컨테이너와 단계를 유지합니다.
+
+| 워크플로 | 작업 | 결정 | Make 계약과 같지 않은 이유 |
+|----------|------|------|----------------------------|
+| `ci.yml` | `integration-tests` | 유지 | `integration and not slow and not tls`를 선택하지만 `make integration`은 slow 테스트도 실행합니다. 실행 전 레인 감사, Python × CUBRID 매트릭스, 단계 전 GitHub 서비스 헬스 체크를 사용합니다 |
+| `integration-full.yml` | `integration-full` | 유지 | `integration-tests`와 같은 선택과 감사를, 요청된 SHA에서 Python 5 × CUBRID 4 릴리스 매트릭스로 실행합니다 |
+| `ci.yml` | `integration-tls` | 유지 | 생성한 인증서와 SSL=OFF 포트 30000을 갖춘 SSL=ON 브로커를 준비하고 `tests/` 전체에서 `integration and tls`를 실행합니다. Compose 서비스에는 SSL 브로커가 없고 `make integration-tls`는 `tests/test_aio_ssl_integration.py`만 실행합니다 |
+| `integration-full.yml` | `integration-tls` | 유지 | `ci.yml` TLS 작업과 같으며 전체 TLS 매트릭스로 실행합니다 |
+| `ci.yml` | `integration-charset` | 유지 | Compose 서비스가 설정하지 않는 EUC-KR 데이터베이스(`CUBRID_LOCALE=ko_KR.euckr`)가 필요하고 `tests/test_integration_charset.py`만 실행합니다 |
+| `integration-full.yml` | `integration-charset` | 유지 | `ci.yml` charset 작업과 같습니다 |
+| `ci.yml` | `official-differential` | 유지 | CUBRID 10.2와 11.4를 동시에(포트 33102, 33114) 띄우고 고정된 공식 oracle 빌드가 필요합니다. Compose는 서버 하나만 시작합니다 |
+| `integration-full.yml` | `official-differential` | 유지 | `ci.yml` 공식 differential과 같습니다 |
+| `integration-full.yml` | `version-differential` | 유지 | CUBRID 10.2, 11.0, 11.2, 11.4를 동시에 띄워야 합니다(`CUBRID_VERSION_MATRIX`) |
+| `bug-hunt.yml` | `property-and-fault` | 유지 | 주간 광역 Hypothesis 프로필, 별도의 slow soak/chaos 레인, `xunit1` JUnit 파일, 서버 정보를 포함한 repro 수집을 사용합니다 |
+| `bug-hunt.yml` | `perf-trend` | 유지 | `integration` 마커가 아니라 캐시된 기준선에 대해 `tests/test_benchmarks.py`를 실행합니다 |
+| `bug-hunt.yml` | `downstream-corpus` | 유지 | 다운스트림 저장소의 자체 테스트를 정확한 SHA의 드라이버로 실행합니다 |
+
+릴리스를 검증하는 `publish-pypi.yml` 작업은 직접 CUBRID를 실행하지 않습니다. `matrix`는
+위에서 다룬 `integration-full.yml`을 호출하고, `verify-candidate`와 `verify-cookbook`은
+cookbook의 `smoke-test.yml`을 호출합니다.
 
 ### PR 검증 비용
 
@@ -907,6 +998,7 @@ Python 3.10을 포함한 2 OS × 5 Python 오프라인 매트릭스와 pip 캐�
 | `docs/CONNECTION.md`, `/CONNECTION/` | 사용자: 어떤 연결 옵션, URL, 타임아웃, TLS 설정이 있나요? | 단원들 | `API_REFERENCE.md` | 파일과 앵커를 유지하고 단원에서 해당 절로 링크합니다. 참고에 두고 연결 옵션이라는 이름을 붙입니다. |
 | `docs/PARAMETER_BINDING.md`, `/PARAMETER_BINDING/` | 사용자: 값을 어떻게 안전하게 전달하고, 무엇은 보장되지 않나요? | 단원들 | `TYPES.md` | 유지합니다. 참고에 두고 값을 안전하게 전달하기라는 이름을 붙입니다. |
 | `docs/TYPES.md`, `docs/API_REFERENCE.md`, `docs/SUPPORT_MATRIX.md` | 사용자: 어떤 타입, 호출, 버전이 지원되나요? | 어느 페이지든 | 어느 페이지든 | 참고에 유지합니다. |
+| `docs/CAS_OVERVIEW.md`, `/CAS_OVERVIEW/` | 숙련 사용자: 브로커, CAS 프로세스, CAS 와이어 프로토콜, CCI는 무엇이고, DB-API 호출은 프로토콜의 어디와 만나나요? | 참고 페이지 | `PROTOCOL.md`, `ARCHITECTURE.md` | 참고에 심화로 둡니다. `PROTOCOL.md`, `ARCHITECTURE.md`, `CONNECTION.md`를 복사하지 않고 링크하는 개념 개요입니다. |
 | `docs/TROUBLESHOOTING.md`, `docs/faq.md` | 문제가 생긴 사용자: 이 오류는 무슨 뜻인가요? | 어느 페이지든 | `SECURITY.md`와 이슈 양식의 제보 안내 | 파일을 유지하고 도움말에 두며, 이슈 양식과 `SECURITY.md`로 가는 링크를 함께 둡니다. |
 | `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | 기여자: 드라이버는 어떻게 동작하고, 무엇이 그 근거인가요? | `DEVELOPMENT.md` | 어느 페이지든 | 파일을 유지하고 탐색에서 개발과 기여에 둡니다(참고에서 옮김). |
 | `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | 기여자나 운영자: 어떻게 빌드, 테스트, 측정, 릴리스하나요? | 어느 페이지든 | 어느 페이지든 | 유지합니다. 개발과 기여에 두되, 성능 가이드는 운영에 남깁니다. |

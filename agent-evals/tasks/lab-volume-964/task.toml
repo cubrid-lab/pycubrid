@@ -1,0 +1,70 @@
+# Agent task built from merged pycubrid work (#925). The oracle is
+# reference.diff: `git diff 5d23755 4efe130`, the fix as it was merged.
+format = 1
+id = "lab-volume-964"
+title = "Remove the tutorial lab container's anonymous volume"
+base_sha = "5d237551c56f4f1f756c027d5c24021c83f1d29e"
+
+[problem]
+statement = """
+The quickstart removes its Docker lab with `docker rm -f pycubrid-quickstart`.
+The `cubrid/cubrid` images declare a `VOLUME` for their database directory, so
+that command leaves an anonymous volume holding the tutorial's `testdb` behind
+on every run. Every place the tutorial removes the lab must use
+`docker rm -f -v pycubrid-quickstart`, and the page that removes the whole lab
+must say once that `-v` also deletes the volume and that without it the
+volume stays. Keep the English and Korean pages in the same structure. The
+lab was checked on Linux x86_64 only: do not claim results for macOS, Apple
+silicon or Windows.
+"""
+evidence = [
+    "https://github.com/cubrid-lab/pycubrid/issues/964",
+    "https://github.com/cubrid-lab/pycubrid/pull/966",
+    "https://github.com/cubrid-lab/pycubrid/commit/4efe1307031b43a300bbb7fd675292e14cedc933",
+]
+
+[scope]
+allowed = [
+    "docs/quickstart.md",
+    "docs/ko/quickstart.md",
+    "docs/finish-safely.md",
+    "docs/ko/finish-safely.md",
+    "docs/llms-full.txt",
+    "CHANGELOG.md",
+]
+non_goals = [
+    "changing the lab image, port, database name or tutorial programs",
+    "changing Compose-based developer workflows",
+]
+required_docs = [
+    "docs/finish-safely.md",
+    "docs/ko/finish-safely.md",
+    "CHANGELOG.md",
+]
+
+[validation]
+commands = [
+    "python scripts/check_docs_links.py",
+    "python scripts/check_docs_translation.py",
+]
+regression_tests = []
+# Run by the runner on both trees: exit 1 on the base, 0 on a correct patch.
+acceptance = ["acceptance.py"]
+manual = [
+    "remove the lab with the documented command on macOS with Docker Desktop and confirm docker volume ls shows no leftover (not available on the Linux runner)",
+]
+
+[expected]
+behavior = """
+Every lab removal in the quickstart and Finish Safely pages uses
+docker rm -f -v pycubrid-quickstart; Finish Safely explains that -v deletes the
+anonymous volume with testdb and that without it the volume stays. The report
+lists the macOS check as not run instead of claiming it.
+"""
+reference_fix = "4efe1307031b43a300bbb7fd675292e14cedc933"
+
+[limits]
+# The merged fix changed 6 files and 39 lines.
+max_files = 12
+max_changed_lines = 200
+max_minutes = 90

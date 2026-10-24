@@ -174,6 +174,46 @@ jobs:
               - 'tests/test_official_fixture_setup.py'
               - 'tests/test_upstream_scenario_ledger.py'
               - 'tests/fixtures/upstream_scenarios.csv'
+              # Every module with repo_tooling tests, which only this lane
+              # runs, and the files only they read (#983). The guard in
+              # tests/test_workflow_path_impact.py keeps the module list whole.
+              - 'tests/test_agent_eval*.py'
+              - 'tests/test_check_docs_translation.py'
+              - 'tests/test_check_official_differential.py'
+              - 'tests/test_check_public_api.py'
+              - 'tests/test_check_release_title.py'
+              - 'tests/test_collect_repro.py'
+              - 'tests/test_compat_factories.py'
+              - 'tests/test_compose_release_changelog.py'
+              - 'tests/test_docs_reason.py'
+              - 'tests/test_downstream_corpus.py'
+              - 'tests/test_extract_release_notes.py'
+              - 'tests/test_integration_lanes.py'
+              - 'tests/test_issue_metadata.py'
+              - 'tests/test_makefile_mutation.py'
+              - 'tests/test_mutation_shards.py'
+              - 'tests/test_pr_title.py'
+              - 'tests/test_prepare_release.py'
+              - 'tests/test_pypi_duplicate_guard.py'
+              - 'tests/test_quality_tools.py'
+              - 'tests/test_reconcile_release_labels.py'
+              - 'tests/test_release_detect.py'
+              - 'tests/test_release_please_config.py'
+              - 'tests/test_release_summary.py'
+              - 'tests/test_third_party_licenses.py'
+              - 'tests/test_verify_dist.py'
+              - 'tests/test_wait_for_cubrid.py'
+              - 'agent-evals/**'
+              - 'docs/quickstart.md'
+              - 'docs/ko/quickstart.md'
+              - 'docs/finish-safely.md'
+              - 'docs/ko/finish-safely.md'
+              # The CI live-job decision table (#1023).
+              - 'docs/DEVELOPMENT.md'
+              - 'docs/ko/DEVELOPMENT.md'
+              - 'THIRD_PARTY_LICENSES.md'
+              - 'release-please-config.json'
+              - 'api-baseline.json'
             tls:
               - 'pycubrid/aio/**'
               - 'pycubrid/connection.py'
@@ -352,12 +392,18 @@ jobs:
           uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
-      - name: Check tool consistency, lint, and format maintained Python
-        run: make lint
+      # `make check` minus `typecheck`: the typecheck job runs mypy once, and only
+      # for code changes, so docs-only events skip it (#1009).
+      - name: Static quality gate without mypy (tooling, lint, format, bandit, docs-reason)
+        run: make lint format-check security docs-reason-check
       - name: Lint CHANGELOG structure
         run: python scripts/lint_changelog.py
       - name: Korean documents keep the structure of their English source
         run: python scripts/check_docs_translation.py
+      # The guard is a repo_tooling test, and the tooling lane is skipped when
+      # only an unlisted module changes, so it also runs here on every event (#983).
+      - name: Every repository-tooling module selects the tooling lane
+        run: python -m pytest -q -p no:cacheprovider "tests/test_workflow_path_impact.py::test_every_repo_tooling_module_selects_the_tooling_lane"
       - name: llms-full.txt and root llms.txt are in sync with source docs
         run: |
           python scripts/generate_llms_full.py
@@ -441,10 +487,10 @@ jobs:
           uv pip freeze --system
       - name: Run representative PR smoke tests
         if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true'
-        run: python -m pytest tests/test_pep249.py tests/test_exceptions.py tests/test_types.py -m "not integration and not repo_tooling" -q --tb=short
+        run: python -m pytest tests/test_pep249.py tests/test_exceptions.py tests/test_types.py -m "not integration and not repo_tooling" -q --tb=short --junitxml=test-results/test/junit.xml
       - name: Run relevant PR offline regressions with conservative fallback
         if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk == 'true'
-        run: python -m pytest tests/ -m "not integration and not repo_tooling" -q --tb=short
+        run: python -m pytest tests/ -m "not integration and not repo_tooling" -q --tb=short --junitxml=test-results/test/junit.xml
       - name: Run offline tests with coverage
         if: github.event_name != 'pull_request'
         shell: bash
@@ -455,7 +501,25 @@ jobs:
             --cov=pycubrid \
             --cov-report=term-missing \
             --cov-report=xml:coverage-py${{ matrix.python-version }}.xml \
+            --junitxml=test-results/test/junit.xml \
             --cov-fail-under=95
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane test --results-dir test-results/test \
+            --exit-code ${{ job.status != 'success' && 1 || 0 }} \
+            --coverage coverage-py${{ matrix.python-version }}.xml
+          python scripts/report_results.py step-summary --results-dir test-results/test \
+            --title "Offline tests (Python ${{ matrix.python-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-test-py${{ matrix.python-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Upload coverage report artifact
         if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -567,6 +631,9 @@ jobs:
           /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
 
   integration-tests:
+    # Not using make integration because it selects "integration and not slow and not tls"
+    # (the target also runs slow tests) per Python x CUBRID matrix cell;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     # Starts with lint/type/offline (#760); ci-gate still requires all of them.
     needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.live == 'true'
@@ -621,10 +688,29 @@ jobs:
         run: |
           python scripts/check_integration_lanes.py
           python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \
-            --junitxml=normal-results.xml
-          python scripts/check_integration_lanes.py --results normal-results.xml
+            --junitxml=test-results/integration/junit.xml
+          python scripts/check_integration_lanes.py --results test-results/integration/junit.xml
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane integration --results-dir test-results/integration \
+            --exit-code ${{ job.status != 'success' && 1 || 0 }}
+          python scripts/report_results.py step-summary --results-dir test-results/integration \
+            --title "Integration tests (Python ${{ matrix.python-version }}, CUBRID ${{ matrix.cubrid-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-integration-py${{ matrix.python-version }}-cubrid${{ matrix.cubrid-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
 
   integration-charset:
+    # Not using make integration because it needs an EUC-KR database (CUBRID_LOCALE),
+    # which the Compose service does not set;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     # Starts with lint/type/offline (#760); ci-gate still requires all of them.
     needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.charset == 'true'
@@ -681,6 +767,9 @@ jobs:
           python scripts/check_integration_lanes.py --results charset-results.xml
 
   integration-tls:
+    # Not using make integration because it provisions an SSL=ON broker with a generated
+    # certificate and runs "integration and tls";
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     # Starts with lint/type/offline (#760); ci-gate still requires all of them.
     needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.tls == 'true'
@@ -854,9 +943,25 @@ jobs:
           set -euxo pipefail
           python -m pytest tests/ -m "integration and tls" -v --tb=short \
             -o addopts="" -p no:cacheprovider \
-            --junitxml=tls-results.xml \
+            --junitxml=test-results/integration-tls/junit.xml \
             --no-header --no-summary -rN 2>&1 | tee tls-run.log
-          python scripts/check_integration_lanes.py --results tls-results.xml
+          python scripts/check_integration_lanes.py --results test-results/integration-tls/junit.xml
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane integration-tls --results-dir test-results/integration-tls \
+            --exit-code ${{ job.status != 'success' && 1 || 0 }}
+          python scripts/report_results.py step-summary --results-dir test-results/integration-tls \
+            --title "TLS integration tests (Python ${{ matrix.python-version }}, CUBRID ${{ matrix.cubrid-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-integration-tls-py${{ matrix.python-version }}-cubrid${{ matrix.cubrid-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Capture TLS broker logs on failure
         if: failure()
         run: docker logs cubrid-tls || true
@@ -865,6 +970,9 @@ jobs:
         run: docker stop cubrid-tls || true
 
   official-differential:
+    # Not using make integration because it needs CUBRID 10.2 and 11.4 at once plus the
+    # pinned official oracle;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     # Starts with lint/type/offline (#760); ci-gate still requires all of them.
     needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.official == 'true'

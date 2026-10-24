@@ -1,0 +1,838 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 8992718..36a2bc7 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -65,6 +65,12 @@ graph TD
+ [8:]   PAYLOAD      (variable length)
+ ```
+ 
++Reply parsing never reads past the end of a reply (#383): a negative or
++overrunning length, or collection elements that do not fill their size, raise
++`ValueError`, which the connection reports as `OperationalError('malformed
++response from broker')` and closes. Trailing bytes after the last declared
++value are not checked; `DataError` is only for a complete reply (#492, #512).
++
+ `CAS_INFO[0]` is transaction status: `0` is OUT_TRAN and `1` is IN_TRAN.
+ OUT_TRAN after END_TRAN is not a signal to reconnect; retain the physical
+ session. Because the CAS may still close the socket after an OUT_TRAN reply
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 3062ba0..050fee6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -46,6 +46,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
+ - **Cookbook smoke-test fallback is now pinned** — `RELEASING.md`'s manual `gh workflow run smoke-test.yml -R cubrid-lab/cubrid-cookbook-python` fallback now passes `-f package=pycubrid -f version=X.Y.Z`, so it verifies the exact published release instead of testing the cookbook's latest releases (cubrid-lab/cubrid-cookbook-python#179).
+ 
+ ### Fixed
++- **Reads past the end of a broker reply are rejected (#383)** — a length
++  field that ran past the end of a reply was cut short by a Python slice and
++  returned as if complete: a `BIT`/`VARBIT` cell declaring 8 bytes but carrying
++  2 returned those 2 bytes, a `LOB_READ` reply declaring 10 bytes with 3 in
++  the payload set `bytes_read = 10`, and strings, `NUMERIC`, `JSON`, raw
++  collections and LOB handles and locators behaved the same way. A negative
++  length moved the reader backwards. Every length-prefixed read now checks
++  `0 <= length <= remaining` before it moves, and a decoded collection's
++  elements must fill its declared size exactly (previously elements could run
++  into the next column). Such a reply raises
++  `OperationalError('malformed response from broker')` and closes the
++  connection, sync and async, like other framing damage; `DataError` stays for
++  complete replies (#492, #512). A `LOB_READ` count below the requested length
++  is still a valid short read (#362), and bytes after the last value a reply
++  declares are still ignored. Documented in `docs/PROTOCOL.md` and
++  `docs/TROUBLESHOOTING.md` (+ Korean).
+ - **Zero `DATE`/`DATETIME`/`TIMESTAMP` values no longer close the connection
+   (#512)** — CUBRID accepts zero values such as `DATE'0000-00-00'`,
+   `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
+diff --git a/RELEASE_POLICY.md b/RELEASE_POLICY.md
+index 0eb8f47..11581c4 100644
+--- a/RELEASE_POLICY.md
++++ b/RELEASE_POLICY.md
+@@ -221,6 +221,17 @@ Code without a corresponding documentation update is considered incomplete.
+ Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
+ the documented release contract stays complete alongside `CHANGELOG.md`:
+ 
++- **Reads past the end of a broker reply are rejected (#383)** — PATCH /
++  correction of a protocol-robustness defect. A length field that is negative
++  or runs past the end of a complete reply (row values, collections, LOB
++  handles, `LOB_READ` byte counts), or collection elements that do not fill
++  their declared size, now raise `OperationalError('malformed response from
++  broker')` and close the connection instead of returning a shortened value
++  and keeping it. A normal server does not send such replies. Valid replies,
++  short `LOB_READ` results, the `DataError` classification of complete replies
++  (#492, #512), public signatures, dependencies and supported versions are
++  unchanged.
++
+ - **Zero temporal values raise `DataError` and keep the session (#512)** —
+   PATCH / correction of error classification and connection lifetime, extending
+   #492 and #413. A zero `DATE`, `DATETIME`, `TIMESTAMP` or TZ/LTZ value (year 0,
+diff --git a/docs/PROTOCOL.md b/docs/PROTOCOL.md
+index 33863ca..6285f68 100644
+--- a/docs/PROTOCOL.md
++++ b/docs/PROTOCOL.md
+@@ -614,6 +614,19 @@ Available parameters (`CCIDbParam`):
+ | `_parse_bytes(count)` | `bytes` | `count` |
+ | `_parse_null_terminated_string(length)` | `str` | `length` |
+ 
++Every read stays inside the reply (#383). A length-prefixed read (bytes, text,
++`NUMERIC`, `JSON`, a raw collection or LOB handle, `_skip_bytes()`) checks
++`0 <= length <= bytes_remaining()` before it moves and raises `ValueError`
++otherwise; a fixed-width read past the end raises `struct.error` or
++`IndexError`. A failed read leaves the offset unchanged. Text readers return
++`""` for a non-positive length without moving. A decoded collection's elements
++must fill its declared size exactly, and a `LOB_READ` byte count must fit the
++reply (a count below the requested length is a valid short read). The
++connection turns these exceptions into `OperationalError("malformed response
++from broker")` and closes; `DataError` stays reserved for a complete reply
++whose value Python cannot represent (#492, #512). Unread bytes after the last
++value a reply declares are not checked.
++
+ ### Composite Parsers
+ 
+ | Method | Returns | Description |
+diff --git a/docs/TROUBLESHOOTING.md b/docs/TROUBLESHOOTING.md
+index a8f21c3..59a16cb 100644
+--- a/docs/TROUBLESHOOTING.md
++++ b/docs/TROUBLESHOOTING.md
+@@ -235,6 +235,18 @@ InterfaceError: Connection is closed
+ - **Broker restart** — If the broker restarts, all existing connections are terminated.
+ - **Network interruption** — Temporary network failure drops the TCP connection.
+ - **Idle connection cleanup** — The broker may close idle connections to free resources.
++- **Malformed broker reply** — the call itself raised
++  `OperationalError: malformed response from broker` because the reply could
++  not be read as a whole: a length field (a `BIT`/`VARBIT`, string, `NUMERIC`,
++  collection or LOB byte count) that is negative or runs past the end of the
++  reply, or collection elements that do not fill their declared size. The
++  driver closes the connection, because the next reply boundary is unknown,
++  and later calls raise `InterfaceError`. Bytes after the last value a reply
++  declares are not an error. A complete reply with a value Python cannot
++  represent raises `DataError` and keeps the connection instead (see
++  [Invalid UTF-8](#invalid-utf-8-in-a-value-or-error-message) and
++  [Zero Date](#zero-date-or-datetime-value)). Earlier releases returned a
++  shortened value for a cut-off field and kept the connection (#383).
+ 
+ **Fix:** Create a new connection when this error occurs:
+ 
+diff --git a/docs/ko/PROTOCOL.md b/docs/ko/PROTOCOL.md
+index 326ed29..b7b1ba0 100644
+--- a/docs/ko/PROTOCOL.md
++++ b/docs/ko/PROTOCOL.md
+@@ -600,6 +600,19 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
+ | `_parse_bytes(count)` | `bytes` | `count` |
+ | `_parse_null_terminated_string(length)` | `str` | `length` |
+ 
++모든 읽기는 응답 안에서만 이루어집니다(#383). 길이가 앞에 오는 읽기(바이트,
++텍스트, `NUMERIC`, `JSON`, 디코딩하지 않은 컬렉션 또는 LOB 핸들,
++`_skip_bytes()`)는 이동하기 전에 `0 <= length <= bytes_remaining()`를 확인하고,
++아니면 `ValueError`를 발생시킵니다. 고정 폭 읽기가 끝을 넘으면 `struct.error`
++또는 `IndexError`가 발생합니다. 실패한 읽기는 오프셋을 바꾸지 않습니다. 텍스트
++리더는 길이가 0 이하이면 이동하지 않고 `""`를 반환합니다. 디코딩한 컬렉션의
++원소는 선언된 크기를 정확히 채워야 하며, `LOB_READ` 바이트 수는 응답 안에
++들어가야 합니다(요청한 길이보다 작은 값은 정상적인 짧은 읽기). 연결은 이
++예외들을 `OperationalError("malformed response from broker")`로 바꾸고 연결을
++닫습니다. `DataError`는 응답은 완전하지만 Python이 값을 표현할 수 없는 경우에만
++사용합니다(#492, #512). 응답이 선언한 마지막 값 뒤에 남은 바이트는 검사하지
++않습니다.
++
+ ### 복합 파서
+ 
+ | 메서드 | 반환 | 설명 |
+diff --git a/docs/ko/TROUBLESHOOTING.md b/docs/ko/TROUBLESHOOTING.md
+index dddb43b..e12b9d2 100644
+--- a/docs/ko/TROUBLESHOOTING.md
++++ b/docs/ko/TROUBLESHOOTING.md
+@@ -236,6 +236,16 @@ InterfaceError: Connection is closed
+ - **브로커 재시작** — 브로커가 재시작되면 기존 연결이 모두 종료됩니다.
+ - **네트워크 중단** — 일시적인 네트워크 장애가 TCP 연결을 끊습니다.
+ - **유휴 연결 정리** — 브로커가 자원을 freeing하기 위해 유휴 연결을 닫을 수 있습니다.
++- **잘못된 형식의 브로커 응답** — 호출 자체가
++  `OperationalError: malformed response from broker`를 발생시켰다면 응답을
++  온전히 읽을 수 없었던 것입니다. 길이 필드(`BIT`/`VARBIT`, 문자열, `NUMERIC`,
++  컬렉션 또는 LOB 바이트 수)가 음수이거나 응답 끝을 넘어서는 경우, 또는 컬렉션
++  원소가 선언된 크기와 정확히 맞지 않는 경우입니다. 다음 응답의 경계를 알 수
++  없으므로 드라이버는 연결을 닫고, 이후 호출은 `InterfaceError`를 발생시킵니다.
++  응답이 선언한 마지막 값 뒤의 바이트는 오류가 아닙니다. 응답은 완전하지만
++  Python이 표현할 수 없는 값이 있으면 대신 `DataError`를 발생시키고 연결을
++  유지합니다(유효하지 않은 UTF-8, 0 날짜 항목 참고). 이전 릴리스는 잘린 필드를
++  짧아진 값으로 반환하고 연결을 유지했습니다(#383).
+ 
+ **해결:** 이 오류가 발생하면 새 연결을 만드세요:
+ 
+diff --git a/docs/llms-full.txt b/docs/llms-full.txt
+index c1d34ca..4c62eef 100644
+--- a/docs/llms-full.txt
++++ b/docs/llms-full.txt
+@@ -4686,6 +4686,19 @@ Available parameters (`CCIDbParam`):
+ | `_parse_bytes(count)` | `bytes` | `count` |
+ | `_parse_null_terminated_string(length)` | `str` | `length` |
+ 
++Every read stays inside the reply (#383). A length-prefixed read (bytes, text,
++`NUMERIC`, `JSON`, a raw collection or LOB handle, `_skip_bytes()`) checks
++`0 <= length <= bytes_remaining()` before it moves and raises `ValueError`
++otherwise; a fixed-width read past the end raises `struct.error` or
++`IndexError`. A failed read leaves the offset unchanged. Text readers return
++`""` for a non-positive length without moving. A decoded collection's elements
++must fill its declared size exactly, and a `LOB_READ` byte count must fit the
++reply (a count below the requested length is a valid short read). The
++connection turns these exceptions into `OperationalError("malformed response
++from broker")` and closes; `DataError` stays reserved for a complete reply
++whose value Python cannot represent (#492, #512). Unread bytes after the last
++value a reply declares are not checked.
++
+ ### Composite Parsers
+ 
+ | Method | Returns | Description |
+@@ -5696,6 +5709,18 @@ InterfaceError: Connection is closed
+ - **Broker restart** — If the broker restarts, all existing connections are terminated.
+ - **Network interruption** — Temporary network failure drops the TCP connection.
+ - **Idle connection cleanup** — The broker may close idle connections to free resources.
++- **Malformed broker reply** — the call itself raised
++  `OperationalError: malformed response from broker` because the reply could
++  not be read as a whole: a length field (a `BIT`/`VARBIT`, string, `NUMERIC`,
++  collection or LOB byte count) that is negative or runs past the end of the
++  reply, or collection elements that do not fill their declared size. The
++  driver closes the connection, because the next reply boundary is unknown,
++  and later calls raise `InterfaceError`. Bytes after the last value a reply
++  declares are not an error. A complete reply with a value Python cannot
++  represent raises `DataError` and keeps the connection instead (see
++  [Invalid UTF-8](#invalid-utf-8-in-a-value-or-error-message) and
++  [Zero Date](#zero-date-or-datetime-value)). Earlier releases returned a
++  shortened value for a cut-off field and kept the connection (#383).
+ 
+ **Fix:** Create a new connection when this error occurs:
+ 
+diff --git a/pycubrid/packet.py b/pycubrid/packet.py
+index 56ab179..fe20fce 100644
+--- a/pycubrid/packet.py
++++ b/pycubrid/packet.py
+@@ -375,7 +375,33 @@ def _unrepresentable_temporal(
+     return DataError(f"CUBRID {type_name} value {fields!r} cannot be represented in Python: {exc}")
+ 
+ 
++def _out_of_bounds(count: int, offset: int, buffer_size: int) -> ValueError:
++    """A length that cannot be read from the reply: a malformed response (#383)."""
++    if count < 0:
++        return ValueError(f"negative length {count} in broker reply")
++    return ValueError(
++        f"read of {count} bytes at offset {offset} runs past the end of the "
++        f"broker reply ({buffer_size - offset} bytes left)"
++    )
++
++
+ class PacketReader:
++    """Read CAS values from one complete broker reply.
++
++    Every read that consumes bytes stays inside the reply (#383): a
++    length-prefixed read checks ``0 <= length <= bytes_remaining()`` before it
++    moves and raises ``ValueError`` otherwise, and a fixed-width read past the
++    end raises ``struct.error`` or ``IndexError``. The connection reports all
++    three as ``OperationalError("malformed response from broker")`` and closes,
++    while ``DataError`` stays for a complete reply holding a value Python cannot
++    represent (#492, #512). A failed read leaves the offset where it was.
++    Text readers treat a non-positive length as empty without moving.
++
++    Bytes left unread after a reply is parsed are not checked: only values whose
++    size the protocol states exactly (a length word, a collection's size) must
++    match it.
++    """
++
+     __slots__ = ("_buffer", "_offset", "_decode_collections", "_json_deserializer", "_encoding")
+ 
+     def __init__(
+@@ -433,11 +459,16 @@ class PacketReader:
+     def _parse_bytes(self, count: int) -> bytes:
+         start = self._offset
+         end = start + count
++        if count < 0 or end > len(self._buffer):
++            raise _out_of_bounds(count, start, len(self._buffer))
+         self._offset = end
+         return bytes(self._buffer[start:end])
+ 
+     def _skip_bytes(self, count: int) -> None:
+-        self._offset += count
++        end = self._offset + count
++        if count < 0 or end > len(self._buffer):
++            raise _out_of_bounds(count, self._offset, len(self._buffer))
++        self._offset = end
+ 
+     def _parse_null_terminated_string(self, length: int) -> str:
+         """Decode protocol text (NUMERIC, timezone names, version) as UTF-8."""
+@@ -446,6 +477,8 @@ class PacketReader:
+ 
+         start = self._offset
+         end = start + length
++        if end > len(self._buffer):
++            raise _out_of_bounds(length, start, len(self._buffer))
+         self._offset = end
+         if self._buffer[end - 1] == 0:
+             return bytes(self._buffer[start : end - 1]).decode("utf-8")
+@@ -463,6 +496,8 @@ class PacketReader:
+         codec = self._encoding if encoding is None else encoding
+         start = self._offset
+         end = start + length
++        if end > len(self._buffer):
++            raise _out_of_bounds(length, start, len(self._buffer))
+         self._offset = end
+         if self._buffer[end - 1] == 0:
+             end -= 1
+@@ -479,6 +514,8 @@ class PacketReader:
+             return ""
+         start = self._offset
+         end = start + length
++        if end > len(self._buffer):
++            raise _out_of_bounds(length, start, len(self._buffer))
+         self._offset = end
+         if self._buffer[end - 1] == 0:
+             end -= 1
+@@ -643,7 +680,15 @@ class PacketReader:
+                         self._offset += element_size
+                 if self._offset > start_offset + size:
+                     raise ValueError("malformed collection: elements exceed its size") from None
++                if self._offset != start_offset + size:
++                    raise ValueError(
++                        "malformed collection: elements do not match its size"
++                    ) from None
+                 raise
++        if self._offset != start_offset + size:
++            # The elements must fill the declared size exactly, or the next
++            # value in the row would be read from the wrong place (#383).
++            raise ValueError("malformed collection: elements do not match its size")
+         return values
+ 
+     def _parse_object(self, size: int = 0) -> str:
+@@ -678,6 +723,8 @@ class PacketReader:
+             return ""
+         start = self._offset
+         end = start + length
++        if end > len(self._buffer):
++            raise _out_of_bounds(length, start, len(self._buffer))
+         self._offset = end
+         if self._buffer[end - 1] == 0:
+             end -= 1
+diff --git a/pycubrid/protocol.py b/pycubrid/protocol.py
+index 8cbad0d..0b20268 100644
+--- a/pycubrid/protocol.py
++++ b/pycubrid/protocol.py
+@@ -723,7 +723,8 @@ def _check_row_data_bounds(
+     """Walk ``tuple_count`` rows by declared sizes; raise if the reply is short.
+ 
+     Each value's size includes the type byte of CALL/NULL-typed columns, so
+-    skipping ``size`` bytes covers every column layout.
++    skipping ``size`` bytes covers every column layout. A size past the end of
++    the reply raises ``ValueError`` from ``_skip_bytes`` (#383).
+     """
+     reader._offset = rows_start
+     for _ in range(tuple_count):
+@@ -733,8 +734,6 @@ def _check_row_data_bounds(
+             size = reader._parse_int()
+             if size > 0:
+                 reader._skip_bytes(size)
+-    if reader.bytes_remaining() < 0:
+-        raise IndexError("row data runs past the end of the broker reply")
+ 
+ 
+ def _parse_row_data(
+@@ -1597,9 +1596,10 @@ class LOBReadPacket(_CasPacket):
+         if response_code < 0:
+             remaining = len(data) - 8
+             _raise_error(reader, remaining)
++        # A count past the end of the reply raises before any field is set (#383).
++        if response_code > 0:
++            self.lob_data = reader._parse_bytes(response_code)
+         self.bytes_read = response_code
+-        if self.bytes_read > 0:
+-            self.lob_data = reader._parse_bytes(self.bytes_read)
+ 
+ 
+ class GetLastInsertIdPacket(_CasPacket):
+diff --git a/tests/test_invalid_utf8_response.py b/tests/test_invalid_utf8_response.py
+index 4c8f4dc..bbbc811 100644
+--- a/tests/test_invalid_utf8_response.py
++++ b/tests/test_invalid_utf8_response.py
+@@ -110,8 +110,9 @@ def test_invalid_fetched_value_raises_data_error() -> None:
+ def test_truncated_value_stays_a_framing_error() -> None:
+     body = _select_body(b"ab" + CUT_CHAR + b"\x00")
+     packet = PrepareAndExecutePacket("SELECT v FROM t")
+-    with pytest.raises(IndexError):
++    with pytest.raises(ValueError, match="past the end") as raised:
+         packet.parse(body[:-3])
++    assert not isinstance(raised.value, DataError)
+ 
+ 
+ def test_invalid_value_before_truncated_row_stays_a_framing_error() -> None:
+@@ -124,8 +125,9 @@ def test_invalid_value_before_truncated_row_stays_a_framing_error() -> None:
+     columns = PrepareAndExecutePacket("SELECT v FROM t")
+     columns.parse(_select_body(b"ok\x00"))
+     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
+-    with pytest.raises(IndexError):
++    with pytest.raises(ValueError, match="past the end") as raised:
+         packet.parse(body[:-2], columns=columns.columns)
++    assert not isinstance(raised.value, DataError)
+ 
+ 
+ # --- sync connection and cursor --------------------------------------------
+diff --git a/tests/test_reply_bounds.py b/tests/test_reply_bounds.py
+new file mode 100644
+index 0000000..633c019
+--- /dev/null
++++ b/tests/test_reply_bounds.py
+@@ -0,0 +1,437 @@
++"""Reads past the end of a broker reply are malformed responses (#383).
++
++A length-prefixed field whose declared size does not fit the reply used to be
++cut short by a Python slice and returned as if it were complete; a negative
++length moved the reader backwards. Every reader primitive now checks
++``0 <= length <= remaining`` before it moves, and raises ``ValueError``, which
++the sync and async connections report as ``OperationalError("malformed
++response from broker")`` and close the connection. A complete reply with a
++value Python cannot represent stays ``DataError`` with the session kept
++(#492, #512).
++"""
++
++from __future__ import annotations
++
++import struct
++from collections.abc import Callable
++from typing import Any
++from unittest.mock import MagicMock
++
++import pytest
++
++from pycubrid.aio.connection import AsyncConnection
++from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
++from pycubrid.exceptions import DataError, OperationalError
++from pycubrid.packet import PacketReader
++from pycubrid.protocol import ColumnMetaData, FetchPacket, LOBReadPacket, _read_value
++from tests.test_connection import socket_queue  # noqa: F401
++from tests.test_invalid_utf8_response import (
++    CAS_INFO,
++    _async_connection_with_reply,
++    _connection_with_reply,
++)
++
++# --- reader primitives -------------------------------------------------------
++
++
++def _reader_at(data: bytes, offset: int) -> PacketReader:
++    reader = PacketReader(data)
++    reader._skip_bytes(offset)
++    return reader
++
++
++def test_parse_bytes_past_end_raises_without_moving() -> None:
++    reader = PacketReader(b"abc")
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        reader._parse_bytes(10)
++    assert reader._offset == 0
++    assert reader.bytes_remaining() == 3
++
++
++def test_parse_bytes_negative_length_raises_without_moving() -> None:
++    reader = _reader_at(b"abcdef", 4)
++    with pytest.raises(ValueError, match="negative length"):
++        reader._parse_bytes(-3)
++    assert reader._offset == 4
++
++
++def test_skip_bytes_negative_raises_without_moving() -> None:
++    reader = PacketReader(b"abcdef")
++    with pytest.raises(ValueError, match="negative length"):
++        reader._skip_bytes(-2)
++    assert reader._offset == 0
++
++
++def test_skip_bytes_past_end_raises_without_moving() -> None:
++    reader = _reader_at(b"abcdef", 2)
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        reader._skip_bytes(5)
++    assert reader._offset == 2
++
++
++def test_exact_reads_to_the_end_still_work() -> None:
++    reader = PacketReader(b"abcdef")
++    assert reader._parse_bytes(0) == b""
++    reader._skip_bytes(2)
++    assert reader._parse_bytes(4) == b"cdef"
++    assert reader.bytes_remaining() == 0
++
++
++TEXT_READERS = [
++    pytest.param(lambda r, n: r._parse_text_value(n), id="text_value"),
++    pytest.param(lambda r, n: r._parse_metadata_text(n), id="metadata_text"),
++    pytest.param(lambda r, n: r._parse_lenient_text(n), id="lenient_text"),
++    pytest.param(lambda r, n: r._parse_null_terminated_string(n), id="null_terminated"),
++    pytest.param(lambda r, n: r._parse_numeric(n), id="numeric"),
++    pytest.param(lambda r, n: r._parse_json(n), id="json"),
++]
++
++
++@pytest.mark.parametrize("read", TEXT_READERS)
++def test_text_read_past_end_raises_without_moving(
++    read: Callable[[PacketReader, int], object],
++) -> None:
++    reader = PacketReader(b"12\x00")
++    with pytest.raises(ValueError, match="past the end of the broker reply") as raised:
++        read(reader, 8)
++    assert not isinstance(raised.value, DataError)
++    assert reader._offset == 0
++
++
++@pytest.mark.parametrize("read", TEXT_READERS[:4])
++def test_text_read_of_non_positive_length_is_empty(
++    read: Callable[[PacketReader, int], object],
++) -> None:
++    # Text readers keep treating a non-positive length as empty; they never
++    # move the reader for it.
++    reader = PacketReader(b"12\x00")
++    assert read(reader, 0) == ""
++    assert read(reader, -1) == ""
++    assert reader._offset == 0
++
++
++@pytest.mark.parametrize(
++    "name", ["_parse_byte", "_parse_short", "_parse_int", "_parse_long", "_parse_double"]
++)
++def test_fixed_width_read_past_end_raises_without_moving(name: str) -> None:
++    reader = _reader_at(b"\x00", 1)
++    with pytest.raises((struct.error, IndexError)):
++        getattr(reader, name)()
++    assert reader._offset == 1
++
++
++# --- FETCH rows -------------------------------------------------------------
++
++
++def _fetch_body(rows: list[list[bytes]]) -> bytes:
++    """A FETCH reply whose cells are given raw (length word + payload)."""
++    body = CAS_INFO + struct.pack(">ii", 0, len(rows))
++    for index, cells in enumerate(rows):
++        body += struct.pack(">i", index + 1) + b"\x00" * 8 + b"".join(cells)
++    return body
++
++
++def _cell(payload: bytes, declared: int | None = None) -> bytes:
++    size = len(payload) if declared is None else declared
++    return struct.pack(">i", size) + payload
++
++
++def _fetch(
++    column_types: list[int], body: bytes, *, decode_collections: bool = False
++) -> FetchPacket:
++    packet = FetchPacket(
++        1,
++        0,
++        columns=[ColumnMetaData(column_type=t) for t in column_types],
++        statement_type=CUBRIDStatementType.SELECT,
++        decode_collections=decode_collections,
++    )
++    packet.parse(body)
++    return packet
++
++
++BIT_TYPES = [
++    pytest.param(CUBRIDDataType.BIT, id="bit"),
++    pytest.param(CUBRIDDataType.VARBIT, id="varbit"),
++]
++
++
++@pytest.mark.parametrize("column_type", BIT_TYPES)
++def test_truncated_bit_cell_in_last_row_is_malformed(column_type: int) -> None:
++    # The last cell of the last row declares 8 bytes but the reply ends after 2.
++    body = _fetch_body([[_cell(b"\x01")], [_cell(b"\xab\xcd", declared=8)]])
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _fetch([column_type], body)
++
++
++@pytest.mark.parametrize("column_type", BIT_TYPES)
++def test_bit_cell_overrunning_next_cell_is_malformed(column_type: int) -> None:
++    # The first cell claims the next cell's bytes and more than the reply holds.
++    body = _fetch_body([[_cell(b"\xab\xcd", declared=12), _cell(b"\x01\x02")]])
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _fetch([column_type, column_type], body)
++
++
++@pytest.mark.parametrize("column_type", BIT_TYPES)
++def test_valid_bit_cells_are_unchanged(column_type: int) -> None:
++    body = _fetch_body([[_cell(b"\xab\xcd"), _cell(b"")], [_cell(b"\x01"), _cell(b"\xff" * 3)]])
++    packet = _fetch([column_type, column_type], body)
++    assert packet.rows == [(b"\xab\xcd", None), (b"\x01", b"\xff\xff\xff")]
++
++
++@pytest.mark.parametrize(
++    ("column_type", "payload"),
++    [
++        pytest.param(CUBRIDDataType.STRING, b"abc\x00", id="string"),
++        pytest.param(CUBRIDDataType.NUMERIC, b"12.5\x00", id="numeric"),
++        pytest.param(CUBRIDDataType.JSON, b'{"a": 1}\x00', id="json"),
++    ],
++)
++def test_truncated_text_cell_is_malformed(column_type: int, payload: bytes) -> None:
++    body = _fetch_body([[_cell(payload, declared=len(payload) + 16)]])
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _fetch([column_type], body)
++
++
++def test_truncated_unknown_type_cell_is_malformed() -> None:
++    # A type without a decoder is returned as raw bytes; it is bounded too.
++    body = _fetch_body([[_cell(b"\x01\x02", declared=9)]])
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _fetch([250], body)
++
++
++def test_trailing_bytes_after_last_row_are_ignored() -> None:
++    # Deliberate: a FETCH reply is not required to end at its last row, so
++    # bytes after it are not a framing error (only reads past the end are).
++    body = _fetch_body([[_cell(struct.pack(">i", 42))]]) + b"JUNKJUNK"
++    assert _fetch([CUBRIDDataType.INT], body).rows == [(42,)]
++
++
++# --- collections ------------------------------------------------------------
++
++
++def _collection(element_type: int, elements: list[bytes]) -> bytes:
++    payload = struct.pack(">Bi", element_type, len(elements))
++    for element in elements:
++        payload += struct.pack(">i", len(element)) + element
++    return payload
++
++
++def test_collection_element_past_end_of_reply_is_malformed() -> None:
++    payload = struct.pack(">Bi", CUBRIDDataType.BIT, 1) + struct.pack(">i", 16) + b"\xab"
++    reader = PacketReader(payload, decode_collections=True)
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _read_value(reader, CUBRIDDataType.SEQUENCE, len(payload))
++
++
++def test_collection_element_overrunning_into_next_cell_is_malformed() -> None:
++    # The elements take more bytes than the collection declares, eating into
++    # the next cell, although the reply itself is long enough.
++    collection = _collection(CUBRIDDataType.BIT, [b"\x01\x02\x03\x04"])
++    body = _fetch_body([[_cell(collection, declared=len(collection) - 2), _cell(b"\x00" * 4)]])
++    with pytest.raises(ValueError, match="collection"):
++        _fetch([CUBRIDDataType.SEQUENCE, CUBRIDDataType.BIT], body, decode_collections=True)
++
++
++def test_collection_shorter_than_declared_size_is_malformed() -> None:
++    # Elements end before the declared size: the next cell would be misread.
++    collection = _collection(CUBRIDDataType.INT, [struct.pack(">i", 1)])
++    body = _fetch_body([[_cell(collection + b"\x00\x00", declared=len(collection) + 2)]])
++    with pytest.raises(ValueError, match="collection"):
++        _fetch([CUBRIDDataType.SEQUENCE], body, decode_collections=True)
++
++
++def test_raw_collection_past_end_of_reply_is_malformed() -> None:
++    collection = _collection(CUBRIDDataType.INT, [struct.pack(">i", 1)])
++    body = _fetch_body([[_cell(collection, declared=len(collection) + 4)]])
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _fetch([CUBRIDDataType.SET], body)
++
++
++def test_valid_collections_are_unchanged() -> None:
++    seq = _collection(CUBRIDDataType.BIT, [b"\x01", b"", b"\x02\x03"])
++    ints = _collection(CUBRIDDataType.INT, [struct.pack(">i", 7), struct.pack(">i", 8)])
++    body = _fetch_body([[_cell(seq), _cell(ints)]])
++    packet = _fetch(
++        [CUBRIDDataType.SEQUENCE, CUBRIDDataType.MULTISET], body, decode_collections=True
++    )
++    assert packet.rows == [([b"\x01", None, b"\x02\x03"], [7, 8])]
++    raw = _fetch([CUBRIDDataType.SEQUENCE], _fetch_body([[_cell(seq)]]))
++    assert raw.rows == [(seq,)]
++
++
++# --- LOB --------------------------------------------------------------------
++
++
++def _lob_read_body(declared: int, payload: bytes) -> bytes:
++    return CAS_INFO + struct.pack(">i", declared) + payload
++
++
++def test_lob_read_declaring_more_than_payload_is_malformed() -> None:
++    packet = LOBReadPacket(b"fixture-handle", offset=0, length=10)
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        packet.parse(_lob_read_body(10, b"abc"))
++    assert packet.bytes_read == 0
++    assert packet.lob_data == b""
++
++
++def test_lob_short_read_matching_its_payload_is_valid() -> None:
++    # The broker may return fewer bytes than requested (#362): declaring 3 and
++    # sending 3 is a complete reply.
++    packet = LOBReadPacket(b"fixture-handle", offset=0, length=10)
++    packet.parse(_lob_read_body(3, b"abc"))
++    assert packet.bytes_read == 3
++    assert packet.lob_data == b"abc"
++
++
++def _lob_handle(locator: bytes, locator_size: int | None = None) -> bytes:
++    size = len(locator) if locator_size is None else locator_size
++    return struct.pack(">iqi", CUBRIDDataType.BLOB, 5, size) + locator
++
++
++def test_lob_handle_with_locator_past_its_end_is_malformed() -> None:
++    handle = _lob_handle(b"file:/x\x00", locator_size=64)
++    body = _fetch_body([[_cell(handle)]])
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _fetch([CUBRIDDataType.BLOB], body)
++
++
++def test_lob_handle_past_end_of_reply_is_malformed() -> None:
++    handle = _lob_handle(b"file:/x\x00")
++    body = _fetch_body([[_cell(handle, declared=len(handle) + 8)]])
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _fetch([CUBRIDDataType.BLOB], body)
++
++
++def test_valid_lob_handle_is_unchanged() -> None:
++    handle = _lob_handle(b"file:/x\x00")
++    (row,) = _fetch([CUBRIDDataType.CLOB], _fetch_body([[_cell(handle)]])).rows
++    assert row[0]["lob_length"] == 5
++    assert row[0]["file_locator"] == "file:/x"
++    assert row[0]["packed_lob_handle"] == handle
++
++
++# --- connection boundary (sync and async) -----------------------------------
++
++
++def _truncated_bit_fetch() -> tuple[FetchPacket, bytes]:
++    packet = FetchPacket(
++        1,
++        0,
++        columns=[ColumnMetaData(column_type=CUBRIDDataType.BIT)],
++        statement_type=CUBRIDStatementType.SELECT,
++    )
++    return packet, _fetch_body([[_cell(b"\xab\xcd", declared=8)]])
++
++
++def _truncated_lob_read() -> tuple[LOBReadPacket, bytes]:
++    return LOBReadPacket(b"fixture-handle", offset=0, length=10), _lob_read_body(10, b"abc")
++
++
++MALFORMED_REPLIES = [
++    pytest.param(_truncated_bit_fetch, id="bit-cell"),
++    pytest.param(_truncated_lob_read, id="lob-read"),
++]
++
++
++@pytest.mark.parametrize("make", MALFORMED_REPLIES)
++def test_sync_read_past_end_closes_connection(
++    make: Callable[[], tuple[Any, bytes]],
++    socket_queue: list[MagicMock],  # noqa: F811
++) -> None:
++    packet, body = make()
++    conn, sock = _connection_with_reply(socket_queue, body)
++    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
++        conn._send_and_receive(packet)
++    assert isinstance(raised.value.__cause__, ValueError)
++    assert conn._connected is False
++    sock.close.assert_called()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("make", MALFORMED_REPLIES)
++async def test_async_read_past_end_closes_connection(make: Callable[[], tuple[Any, bytes]]) -> None:
++    packet, body = make()
++    conn = _async_connection_with_reply(body)
++    assert isinstance(conn, AsyncConnection)
++    writer = conn._writer
++    assert isinstance(writer, MagicMock)
++    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
++        await conn._send_and_receive(packet)
++    assert isinstance(raised.value.__cause__, ValueError)
++    assert conn._connected is False
++    writer.close.assert_called()
++
++
++def test_sync_valid_short_lob_read_keeps_connection(
++    socket_queue: list[MagicMock],  # noqa: F811
++) -> None:
++    conn, _ = _connection_with_reply(socket_queue, _lob_read_body(3, b"abc"))
++    packet = LOBReadPacket(b"fixture-handle", offset=0, length=10)
++    conn._send_and_receive(packet)
++    assert packet.lob_data == b"abc"
++    assert conn._connected is True
++
++
++@pytest.mark.asyncio
++async def test_async_valid_short_lob_read_keeps_connection() -> None:
++    conn = _async_connection_with_reply(_lob_read_body(3, b"abc"))
++    packet = LOBReadPacket(b"fixture-handle", offset=0, length=10)
++    await conn._send_and_receive(packet)
++    assert packet.lob_data == b"abc"
++    assert conn._connected is True
++
++
++def test_collection_of_unknown_element_type_past_end_of_reply_is_malformed() -> None:
++    payload = struct.pack(">Bi", 250, 1) + struct.pack(">i", 1) + b"\x00"
++    reader = PacketReader(payload, decode_collections=True)
++    with pytest.raises(ValueError, match="past the end of the broker reply"):
++        _read_value(reader, CUBRIDDataType.SET, len(payload) + 4)
++    assert reader._offset == 0
++
++
++def test_unrepresentable_element_in_underfilled_collection_is_malformed() -> None:
++    # A DataError element (#512) is reported only when the collection is
++    # otherwise exact; spare bytes inside its declared size are framing damage.
++    zero_date = struct.pack(">3h", 0, 0, 0)
++    collection = _collection(CUBRIDDataType.DATE, [zero_date]) + b"\x00\x00"
++    reader = PacketReader(collection, decode_collections=True)
++    with pytest.raises(ValueError, match="do not match its size") as raised:
++        _read_value(reader, CUBRIDDataType.SEQUENCE, len(collection))
++    assert not isinstance(raised.value, DataError)
++    body = _fetch_body([[_cell(collection)]])
++    with pytest.raises(ValueError, match="do not match its size"):
++        _fetch([CUBRIDDataType.SEQUENCE], body, decode_collections=True)
++
++
++def _underfilled_zero_date_collection_fetch() -> tuple[FetchPacket, bytes]:
++    collection = _collection(CUBRIDDataType.DATE, [struct.pack(">3h", 0, 0, 0)]) + b"\x00\x00"
++    packet = FetchPacket(
++        1,
++        0,
++        columns=[ColumnMetaData(column_type=CUBRIDDataType.SEQUENCE)],
++        statement_type=CUBRIDStatementType.SELECT,
++        decode_collections=True,
++    )
++    return packet, _fetch_body([[_cell(collection)]])
++
++
++def test_sync_unrepresentable_element_in_underfilled_collection_closes_connection(
++    socket_queue: list[MagicMock],  # noqa: F811
++) -> None:
++    packet, body = _underfilled_zero_date_collection_fetch()
++    conn, _ = _connection_with_reply(socket_queue, body)
++    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
++        conn._send_and_receive(packet)
++    assert not isinstance(raised.value.__cause__, DataError)
++    assert conn._connected is False
++
++
++@pytest.mark.asyncio
++async def test_async_unrepresentable_element_in_underfilled_collection_closes_connection() -> None:
++    packet, body = _underfilled_zero_date_collection_fetch()
++    conn = _async_connection_with_reply(body)
++    with pytest.raises(OperationalError, match="malformed response from broker") as raised:
++        await conn._send_and_receive(packet)
++    assert not isinstance(raised.value.__cause__, DataError)
++    assert conn._connected is False
+diff --git a/tests/test_zero_temporal_values.py b/tests/test_zero_temporal_values.py
+index 27f7f18..89ea3d2 100644
+--- a/tests/test_zero_temporal_values.py
++++ b/tests/test_zero_temporal_values.py
+@@ -153,8 +153,9 @@ def _fetch_body(values: list[bytes], *, cut: int = 0) -> bytes:
+ def test_zero_date_before_truncated_row_is_a_framing_error() -> None:
+     body = _fetch_body([_ZERO_DATE, struct.pack(">3h", 2024, 1, 2)], cut=3)
+     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
+-    with pytest.raises((IndexError, struct.error)):
++    with pytest.raises(ValueError, match="past the end") as raised:
+         packet.parse(body, columns=_date_columns())
++    assert not isinstance(raised.value, DataError)
+ 
+ 
+ def test_zero_date_before_overlong_value_is_a_framing_error() -> None:
+@@ -163,7 +164,7 @@ def test_zero_date_before_overlong_value_is_a_framing_error() -> None:
+     body += struct.pack(">i", 2) + b"\x00" * 8 + struct.pack(">i", 64) + b"\x00" * 6
+     body = body[:4] + struct.pack(">ii", 0, 2) + body[12:]
+     packet = FetchPacket(1, 0, statement_type=CUBRIDStatementType.SELECT)
+-    with pytest.raises(IndexError, match="past the end"):
++    with pytest.raises(ValueError, match="past the end"):
+         packet.parse(body, columns=_date_columns())
+ 
+ 

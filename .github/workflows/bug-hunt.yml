@@ -42,6 +42,9 @@ jobs:
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
   property-and-fault:
+    # Not using make integration because it runs the slow soak/chaos lanes with a wide
+    # Hypothesis profile and repro collection;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: activity
     if: needs.activity.outputs.changed == 'true'
     name: property / protocol / state-machine / fault / chaos / soak (weekly representative)
@@ -172,6 +175,9 @@ jobs:
           retention-days: 14
 
   perf-trend:
+    # Not using make integration because it runs the benchmarks against a cached baseline,
+    # not the integration marker;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: activity
     if: needs.activity.outputs.changed == 'true'
     name: benchmark trend detection
@@ -242,6 +248,9 @@ jobs:
           retention-days: 30
 
   downstream-corpus:
+    # Not using make integration because it runs downstream repositories' suites against
+    # the exact driver SHA;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: activity
     if: needs.activity.outputs.changed == 'true'
     name: downstream corpus (${{ matrix.lane }}, CUBRID 11.4)

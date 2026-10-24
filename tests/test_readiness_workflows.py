@@ -323,3 +323,126 @@ def test_workflow_shell_stops_after_probe_cli_failure(workflow: str, tmp_path: P
     assert result.returncode == 1
     assert "never became ready" in result.stderr
     assert "DOWNSTREAM_TESTS_STARTED" not in result.stdout
+
+
+_STALE_MSG = (
+    "Failed to connect to database server, 'testdb', on the following host(s): ee2bfa1105f9"
+)
+
+
+def _stale_353(message: str = _STALE_MSG) -> pycubrid.OperationalError:
+    # Built as the driver builds a server error, so str() adds the errno suffix itself.
+    return pycubrid.OperationalError(message, errno=-353, sqlstate="HY000")
+
+
+def _getent(monkeypatch: pytest.MonkeyPatch, outcome: int | Exception) -> MagicMock:
+    run = MagicMock()
+    if isinstance(outcome, Exception):
+        run.side_effect = outcome
+    else:
+        run.return_value = subprocess.CompletedProcess([], outcome)
+    monkeypatch.setattr(subprocess, "run", run)
+    return run
+
+
+def test_stale_database_host_fails_fast_with_repair_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A -353 host the container cannot resolve never heals, so stop retrying (#1000)."""
+    main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
+    monkeypatch.setenv("CUBRID_TEST_DOCKER_CONTAINER", "fa382e70ffe2aaaa\n")
+    connect = MagicMock(side_effect=_stale_353())
+    sleep = MagicMock()
+    monkeypatch.setattr(pycubrid, "connect", connect)
+    monkeypatch.setattr("time.sleep", sleep)
+    run = _getent(monkeypatch, 2)
+
+    assert main(["wait_for_cubrid.py", "36", "5"]) == 1
+    assert connect.call_count == 1
+    sleep.assert_not_called()
+    run.assert_called_once()
+    assert run.call_args.args[0] == [
+        "docker",
+        "exec",
+        "fa382e70ffe2aaaa",
+        "getent",
+        "hosts",
+        "ee2bfa1105f9",
+    ]
+    err = capsys.readouterr().err
+    assert "host(s) ee2bfa1105f9 do not resolve inside container fa382e70ffe2" in err
+    assert "make docker-fix-db-host" in err
+    assert "make docker-clean" in err
+    assert "make docker-down" not in err
+    assert "never became ready" not in err
+
+
+@pytest.mark.parametrize(
+    ("container", "outcome"),
+    [
+        ("fa382e70ffe2", 0),  # resolves: the server may still be starting
+        ("fa382e70ffe2", 1),  # getent failed for another reason
+        ("fa382e70ffe2", OSError("docker not found")),
+        ("fa382e70ffe2", subprocess.TimeoutExpired("docker", 10)),
+        ("", 2),  # no container to ask
+    ],
+)
+def test_unconfirmed_database_host_keeps_retrying(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    container: str,
+    outcome: int | Exception,
+) -> None:
+    main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
+    monkeypatch.setenv("CUBRID_TEST_DOCKER_CONTAINER", container)
+    connect = MagicMock(side_effect=_stale_353())
+    monkeypatch.setattr(pycubrid, "connect", connect)
+    monkeypatch.setattr("time.sleep", MagicMock())
+    run = _getent(monkeypatch, outcome)
+
+    assert main(["wait_for_cubrid.py", "3", "0"]) == 1
+    assert connect.call_count == 3
+    assert run.call_count == (3 if container else 0)
+    err = capsys.readouterr().err
+    assert "never became ready after 3 attempts" in err
+    assert "docker-fix-db-host" not in err
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pycubrid.OperationalError("failed to connect to CUBRID broker"),
+        # The host list alone is not enough: only errno -353 names databases.txt hosts.
+        pycubrid.OperationalError(_STALE_MSG, errno=-677),
+        pycubrid.OperationalError(_STALE_MSG),
+        OSError(_STALE_MSG),
+    ],
+)
+def test_other_failures_do_not_query_the_container(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
+    monkeypatch.setenv("CUBRID_TEST_DOCKER_CONTAINER", "fa382e70ffe2")
+    monkeypatch.setattr(pycubrid, "connect", MagicMock(side_effect=error))
+    monkeypatch.setattr("time.sleep", MagicMock())
+    run = _getent(monkeypatch, 2)
+
+    assert main(["wait_for_cubrid.py", "2", "0"]) == 1
+    run.assert_not_called()
+
+
+def test_every_listed_host_must_be_unresolvable(monkeypatch: pytest.MonkeyPatch) -> None:
+    main = runpy.run_path(str(ROOT / "scripts" / "wait_for_cubrid.py"))["main"]
+    monkeypatch.setenv("CUBRID_TEST_DOCKER_CONTAINER", "fa382e70ffe2")
+    message = _STALE_MSG.replace("ee2bfa1105f9", "ee2bfa1105f9:localhost")
+    monkeypatch.setattr(pycubrid, "connect", MagicMock(side_effect=_stale_353(message)))
+    monkeypatch.setattr("time.sleep", MagicMock())
+    run = MagicMock(
+        side_effect=lambda argv, **_: subprocess.CompletedProcess(
+            argv, 0 if argv[-1] == "localhost" else 2
+        )
+    )
+    monkeypatch.setattr(subprocess, "run", run)
+
+    assert main(["wait_for_cubrid.py", "2", "0"]) == 1
+    assert [call.args[0][-1] for call in run.call_args_list] == ["ee2bfa1105f9", "localhost"] * 2

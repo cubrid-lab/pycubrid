@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import enum
+import math
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -201,6 +202,35 @@ class TestFormatParameterTypes:
     def test_float(self, cursor: object) -> None:
         assert cursor._format_parameter(3.14) == "3.14"
 
+    @pytest.mark.parametrize(
+        "value",
+        [5e-324, -5e-324, 1e-320, 2.225073858507201e-308, -2.225073858507201e-308],
+        ids=["min-subnormal", "negative-min", "mid", "max-subnormal", "negative-max"],
+    )
+    def test_float_subnormal_renders_as_an_exact_product(
+        self, cursor: object, value: float
+    ) -> None:
+        # CUBRID rejects every subnormal literal ("exceeds limit of double",
+        # -493), so it is sent as two normal doubles whose product is the
+        # value (#988).
+        rendered = cursor._format_parameter(value)
+        assert rendered.startswith("(") and rendered.endswith(")")
+        scaled, unscale = (float(part) for part in rendered[1:-1].split(" * "))
+        for operand in (scaled, unscale):
+            assert abs(operand) >= sys.float_info.min
+        assert scaled * unscale == value
+        assert math.copysign(1.0, scaled) == math.copysign(1.0, value)
+
+    def test_float_smallest_normal_keeps_its_literal(self, cursor: object) -> None:
+        value = sys.float_info.min
+        assert cursor._format_parameter(value) == repr(value)
+
+    def test_float_negative_zero_keeps_its_sign(self, cursor: object) -> None:
+        # The plain literal -0.0 is NUMERIC in CUBRID and loses the sign;
+        # -0.0e0 is a DOUBLE literal (#988).
+        assert cursor._format_parameter(-0.0) == "-0.0e0"
+        assert cursor._format_parameter(0.0) == "0.0"
+
     def test_float_large_scientific_notation(self, cursor: object) -> None:
         # CUBRID accepts scientific/exponential notation in numeric literals
         # (an approximate number written with E is parsed as DOUBLE), so
@@ -353,6 +383,8 @@ class TestFormatParameterTypes:
             (_HostileInt(-(10**40)), "-1" + "0" * 40),
             (_HostileFloat(2.5), "2.5"),
             (_HostileFloat(1e20), "1e+20"),
+            (_HostileFloat(-0.0), "-0.0e0"),
+            (_HostileFloat(-5e-324), "(-2.0501330894674953e-143 * 2.409919865102884e-181)"),
             pytest.param(_HostileDecimal("1E-7"), "0.0000001", marks=requires_c_decimal),
             pytest.param(_HostileDecimal("-1.10"), "-1.10", marks=requires_c_decimal),
         ],
@@ -364,6 +396,8 @@ class TestFormatParameterTypes:
             "int-subclass-large",
             "float-subclass",
             "float-subclass-exponent",
+            "float-subclass-negative-zero",
+            "float-subclass-subnormal",
             "decimal-subclass",
             "decimal-subclass-scale",
         ],

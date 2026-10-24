@@ -297,6 +297,7 @@ Python 3.11·3.15 전체 오프라인 검사를 추가합니다.
 | [타입 매핑](TYPES.md) | 전체 타입 매핑, CUBRID 전용 타입, 컬렉션 타입 |
 | [API 레퍼런스](API_REFERENCE.md) | 전체 API 문서 — 모듈, 클래스, 함수 |
 | [프로토콜](PROTOCOL.md) | CAS 와이어 프로토콜 레퍼런스 |
+| [CAS 개념](ko/CAS_OVERVIEW.md) | 심화: 브로커, CAS 프로세스, CAS 와이어 프로토콜, CCI와 DB-API 호출의 대응 |
 | [성능 가이드](ko/PERFORMANCE.md) | 벤치마크 방법론, 회귀 확인, 프로파일링, 타이밍 훅 |
 | [개발 가이드](DEVELOPMENT.md) | 개발 환경 설정, 테스트, Docker, 커버리지, CI/CD |
 | [예제](EXAMPLES.md) | 실용적인 사용 예제와 코드 |

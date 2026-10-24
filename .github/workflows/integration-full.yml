@@ -70,6 +70,9 @@ jobs:
             await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();
 
   integration-full:
+    # Not using make integration because it selects "integration and not slow and not tls"
+    # (the target also runs slow tests) per Python x CUBRID matrix cell;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -125,10 +128,29 @@ jobs:
         run: |
           python scripts/check_integration_lanes.py
           python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \
-            --junitxml=normal-results.xml
-          python scripts/check_integration_lanes.py --results normal-results.xml
+            --junitxml=test-results/integration/junit.xml
+          python scripts/check_integration_lanes.py --results test-results/integration/junit.xml
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane integration --results-dir test-results/integration \
+            --exit-code ${{ job.status != 'success' && 1 || 0 }}
+          python scripts/report_results.py step-summary --results-dir test-results/integration \
+            --title "Integration tests (Python ${{ matrix.python-version }}, CUBRID ${{ matrix.cubrid-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-integration-py${{ matrix.python-version }}-cubrid${{ matrix.cubrid-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
 
   integration-tls:
+    # Not using make integration because it provisions an SSL=ON broker with a generated
+    # certificate and runs "integration and tls";
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     # Provision a CUBRID broker with SSL=ON so tests/test_aio_ssl_integration.py
     # is exercised in CI instead of silently skipping (closes #147).  Uses a
@@ -327,9 +349,25 @@ jobs:
           # cannot pass silently: every selected test must run.
           python -m pytest tests/ -m "integration and tls" -v --tb=short \
             -o addopts="" -p no:cacheprovider \
-            --junitxml=tls-results.xml \
+            --junitxml=test-results/integration-tls/junit.xml \
             --no-header --no-summary -rN 2>&1 | tee tls-run.log
-          python scripts/check_integration_lanes.py --results tls-results.xml
+          python scripts/check_integration_lanes.py --results test-results/integration-tls/junit.xml
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane integration-tls --results-dir test-results/integration-tls \
+            --exit-code ${{ job.status != 'success' && 1 || 0 }}
+          python scripts/report_results.py step-summary --results-dir test-results/integration-tls \
+            --title "TLS integration tests (Python ${{ matrix.python-version }}, CUBRID ${{ matrix.cubrid-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-integration-tls-py${{ matrix.python-version }}-cubrid${{ matrix.cubrid-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Capture TLS broker logs on failure
         if: failure()
         run: docker logs cubrid-tls || true
@@ -338,6 +376,9 @@ jobs:
         run: docker stop cubrid-tls || true
 
   integration-charset:
+    # Not using make integration because it needs an EUC-KR database (CUBRID_LOCALE),
+    # which the Compose service does not set;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     # EUC-KR database lane (#86): the same CUBRID image with
     # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
@@ -393,6 +434,8 @@ jobs:
           python scripts/check_integration_lanes.py --results charset-results.xml
 
   version-differential:
+    # Not using make integration because it needs CUBRID 10.2, 11.0, 11.2 and 11.4 at once;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     # Property-driven behavior differential (#351): the same generated values
     # and statements run against CUBRID 10.2, 11.0, 11.2 and 11.4 at once, and
@@ -509,6 +552,9 @@ jobs:
           retention-days: 14
 
   official-differential:
+    # Not using make integration because it needs CUBRID 10.2 and 11.4 at once plus the
+    # pinned official oracle;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     # Claims-driven differential against the pinned official CUBRIDdb driver
     # (#446): tests/fixtures/official_differential_claims.json, one live case
@@ -664,7 +710,25 @@ jobs:
             --cov=pycubrid \
             --cov-report=term-missing \
             --cov-report=xml:coverage-py${{ matrix.python-version }}.xml \
+            --junitxml=test-results/test/junit.xml \
             --cov-fail-under=95
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane test --results-dir test-results/test \
+            --exit-code ${{ job.status != 'success' && 1 || 0 }} \
+            --coverage coverage-py${{ matrix.python-version }}.xml
+          python scripts/report_results.py step-summary --results-dir test-results/test \
+            --title "Offline tests (Python ${{ matrix.python-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-test-py${{ matrix.python-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
 
   # The four ci.yml lanes below (#750) run on the exact release SHA for the same
   # reason as offline-endpoints: a main push run of ci.yml covers them, but
@@ -704,12 +768,16 @@ jobs:
           uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
-      - name: Check tool consistency, lint, and format maintained Python
-        run: make lint
+      # `make check` minus `typecheck`: the typecheck job runs mypy once, and only
+      # for code changes, so docs-only events skip it (#1009).
+      - name: Static quality gate without mypy (tooling, lint, format, bandit, docs-reason)
+        run: make lint format-check security docs-reason-check
       - name: Lint CHANGELOG structure
         run: python scripts/lint_changelog.py
       - name: Korean documents keep the structure of their English source
         run: python scripts/check_docs_translation.py
+      - name: Every repository-tooling module selects the tooling lane
+        run: python -m pytest -q -p no:cacheprovider "tests/test_workflow_path_impact.py::test_every_repo_tooling_module_selects_the_tooling_lane"
       - name: llms-full.txt and root llms.txt are in sync with source docs
         run: |
           python scripts/generate_llms_full.py

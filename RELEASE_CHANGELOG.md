@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.13.1](https://github.com/cubrid-lab/pycubrid/compare/v1.13.0...v1.13.1) (2026-10-21)
+
+
+### Fixed
+
+* **agent-eval:** copy the held worktree by descriptor and validate prepared_epoch ([#986](https://github.com/cubrid-lab/pycubrid/issues/986)) ([81f327d](https://github.com/cubrid-lab/pycubrid/commit/81f327d683f868ac53af6103fe65e82f7eef29b9))
+* **agent-eval:** create and read the runner start record without following links ([#987](https://github.com/cubrid-lab/pycubrid/issues/987)) ([14ebed1](https://github.com/cubrid-lab/pycubrid/commit/14ebed12a1137ea1949286bea724e2446c9e6bd2))
+* **agent-review:** do not count empty reply-only Copilot records as review rounds ([#949](https://github.com/cubrid-lab/pycubrid/issues/949)) ([10fb72c](https://github.com/cubrid-lab/pycubrid/commit/10fb72c65a40e522cc1c2d4e287a3e815431bb29)), closes [#948](https://github.com/cubrid-lab/pycubrid/issues/948)
+* **aio:** keep error_source when copying a setup failure for waiting tasks ([#961](https://github.com/cubrid-lab/pycubrid/issues/961)) ([4cde43a](https://github.com/cubrid-lab/pycubrid/commit/4cde43afd2d84a4bdd4003ebcecdac01efc7f095)), closes [#952](https://github.com/cubrid-lab/pycubrid/issues/952)
+* **binding:** keep subnormal floats and -0.0 on the literal path ([#989](https://github.com/cubrid-lab/pycubrid/issues/989)) ([2ed16bc](https://github.com/cubrid-lab/pycubrid/commit/2ed16bc1b117fc3837a39924d9d7925be08f3bf3)), closes [#988](https://github.com/cubrid-lab/pycubrid/issues/988)
+* **context:** keep the original error when leaving a context after the session was retired ([#959](https://github.com/cubrid-lab/pycubrid/issues/959)) ([a535d9c](https://github.com/cubrid-lab/pycubrid/commit/a535d9cd5c9438289e03635532c6f7bf1afb14df))
+* **docs:** close four parser gaps in the deterministic documentation check ([#940](https://github.com/cubrid-lab/pycubrid/issues/940)) ([703a1c2](https://github.com/cubrid-lab/pycubrid/commit/703a1c29ba4f76996a2574ade6a9fb6c89124203))
+* **docs:** follow the configured site slugifier and toc id rules in the docs-check parser ([#976](https://github.com/cubrid-lab/pycubrid/issues/976)) ([a0f8260](https://github.com/cubrid-lab/pycubrid/commit/a0f826089d8275a881efffa59f7d77e43ba7664b)), closes [#975](https://github.com/cubrid-lab/pycubrid/issues/975)
+* **docs:** handle adjacent shell operators, decoded titles and comment backslashes in the docs check ([#947](https://github.com/cubrid-lab/pycubrid/issues/947)) ([ebb3170](https://github.com/cubrid-lab/pycubrid/commit/ebb3170b582ac5f59ac80ef3d655c3aba3b7bba9))
+* **docs:** read arithmetic, empty and alternated case forms correctly in the docs-check shell scanner ([#978](https://github.com/cubrid-lab/pycubrid/issues/978)) ([0edf209](https://github.com/cubrid-lab/pycubrid/commit/0edf209c30456b6ff81457b0225d8d245576d237))
+* **docs:** sync the docs-check parser with sqlalchemy-cubrid ([#954](https://github.com/cubrid-lab/pycubrid/issues/954)) ([4495ffb](https://github.com/cubrid-lab/pycubrid/commit/4495ffbdf5bd4ffbe6e294f5d73b4ccf5a940855)), closes [#953](https://github.com/cubrid-lab/pycubrid/issues/953)
+* **errors:** explain the CAS marker count for a ? in a quoted identifier ([#991](https://github.com/cubrid-lab/pycubrid/issues/991)) ([bb07791](https://github.com/cubrid-lab/pycubrid/commit/bb0779125793404ab90ff8e818e7ff33d5ec52a3)), closes [#990](https://github.com/cubrid-lab/pycubrid/issues/990)
+* **lob:** reject LOB handles bound to a replaced physical session ([#934](https://github.com/cubrid-lab/pycubrid/issues/934)) ([03d7f70](https://github.com/cubrid-lab/pycubrid/commit/03d7f70871ca28c00dd3627f76bfbc77fbf06b0e))
+* **profile:** create a per-run scratch table and clean up only what the run owns ([#962](https://github.com/cubrid-lab/pycubrid/issues/962)) ([b01a663](https://github.com/cubrid-lab/pycubrid/commit/b01a66336f1e7d608397daa20fb9e73c1e7f8cf4))
+* **protocol:** decode an empty BIT VARYING collection element as b"" instead of None ([#999](https://github.com/cubrid-lab/pycubrid/issues/999)) ([224b4be](https://github.com/cubrid-lab/pycubrid/commit/224b4be6bfe809a693bfcc440fb61ef5c9ba1feb))
+* **protocol:** fetch an empty BIT VARYING value as b"" instead of None ([#995](https://github.com/cubrid-lab/pycubrid/issues/995)) ([87ed36a](https://github.com/cubrid-lab/pycubrid/commit/87ed36ae0c7ebd1895791591794a20307e11fe9a))
+* **test:** keep the CUBRID 11.4 Docker test database in a named volume ([#1004](https://github.com/cubrid-lab/pycubrid/issues/1004)) ([ec2d9ed](https://github.com/cubrid-lab/pycubrid/commit/ec2d9ed1720519b9f3c058cacaf730fbc9ad0195))
+* **test:** keep the first databases.txt backup in docker-fix-db-host ([#1003](https://github.com/cubrid-lab/pycubrid/issues/1003)) ([4843d47](https://github.com/cubrid-lab/pycubrid/commit/4843d47ccfb9c3d9f299f58ab42e86658f849900)), closes [#1000](https://github.com/cubrid-lab/pycubrid/issues/1000)
+* **test:** register the Docker test database for a stable host ([#1001](https://github.com/cubrid-lab/pycubrid/issues/1001)) ([48cbd78](https://github.com/cubrid-lab/pycubrid/commit/48cbd78e9e7d6971867a3c8bc3e9a23a7f2d2ba2))
+
+
+### Documentation
+
+* **agents:** name a maintainer's review as the standalone-agent alternative to Copilot ([#944](https://github.com/cubrid-lab/pycubrid/issues/944)) ([b99f02d](https://github.com/cubrid-lab/pycubrid/commit/b99f02d410cf0fcc8d946d08a4acf3d17e210b83)), closes [#943](https://github.com/cubrid-lab/pycubrid/issues/943)
+* **contributing:** clarify good-first-issue access for human contributors ([#929](https://github.com/cubrid-lab/pycubrid/issues/929)) ([5b0bc2a](https://github.com/cubrid-lab/pycubrid/commit/5b0bc2a7672b719e000286e86bcf4fa77a7a2416))
+* **errors:** record the sqlstate and result-type changes from the marker and float fixes ([#993](https://github.com/cubrid-lab/pycubrid/issues/993)) ([72f15c1](https://github.com/cubrid-lab/pycubrid/commit/72f15c14eb8c3ad85dac9e8aa781df6fc0f0e010)), closes [#992](https://github.com/cubrid-lab/pycubrid/issues/992)
+* **onboarding:** guide CUBRID beginners from server preparation to their first saved row ([#956](https://github.com/cubrid-lab/pycubrid/issues/956)) ([bc4bffd](https://github.com/cubrid-lab/pycubrid/commit/bc4bffdf40f3d829b300932145ce7790f9fb5b1f))
+* **quickstart:** remove the lab container's volume with docker rm -f -v ([#966](https://github.com/cubrid-lab/pycubrid/issues/966)) ([4efe130](https://github.com/cubrid-lab/pycubrid/commit/4efe1307031b43a300bbb7fd675292e14cedc933)), closes [#964](https://github.com/cubrid-lab/pycubrid/issues/964)
+* **quickstart:** split the first query into its own lesson and map page roles ([#963](https://github.com/cubrid-lab/pycubrid/issues/963)) ([aca7dc2](https://github.com/cubrid-lab/pycubrid/commit/aca7dc20ee96cab2e5454945d6a255cb32e15720)), closes [#958](https://github.com/cubrid-lab/pycubrid/issues/958)
+* **quickstart:** split the remaining lessons and group navigation by reader ([#965](https://github.com/cubrid-lab/pycubrid/issues/965)) ([5d23755](https://github.com/cubrid-lab/pycubrid/commit/5d237551c56f4f1f756c027d5c24021c83f1d29e)), closes [#958](https://github.com/cubrid-lab/pycubrid/issues/958)
+* **release:** add a release review checklist to the runbook ([#968](https://github.com/cubrid-lab/pycubrid/issues/968)) ([4d5d84c](https://github.com/cubrid-lab/pycubrid/commit/4d5d84ccca773ec56090d30ada19364627ece29f))
+* **release:** set last-release-sha when an abandoned release has no tag ([#930](https://github.com/cubrid-lab/pycubrid/issues/930)) ([2e97ee9](https://github.com/cubrid-lab/pycubrid/commit/2e97ee94357252084e80abdc7b8535c5ecf37eb6))
+* **site:** keep wrapped lines that start with an issue number from rendering as headings ([#942](https://github.com/cubrid-lab/pycubrid/issues/942)) ([52c4ed4](https://github.com/cubrid-lab/pycubrid/commit/52c4ed435f1d508fcc569de1b2178f9926cdaa3b)), closes [#938](https://github.com/cubrid-lab/pycubrid/issues/938)
+* **site:** label the site as main-branch documentation with its build commit ([#967](https://github.com/cubrid-lab/pycubrid/issues/967)) ([36f2532](https://github.com/cubrid-lab/pycubrid/commit/36f253215dd71468212aceb0afcf1d2e52c8bc6e)), closes [#960](https://github.com/cubrid-lab/pycubrid/issues/960)
+* **troubleshooting:** clarify sync and async read timeouts ([#957](https://github.com/cubrid-lab/pycubrid/issues/957)) ([c324703](https://github.com/cubrid-lab/pycubrid/commit/c324703e05d2162cf27ba40a2ddbb5b83a6c61cb))
+
 ## [1.13.0](https://github.com/cubrid-lab/pycubrid/compare/v1.12.0...v1.13.0) (2026-10-14)
 
 

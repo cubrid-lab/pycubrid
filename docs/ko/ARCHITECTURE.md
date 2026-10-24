@@ -2,6 +2,9 @@
 
 > 🌐 [ARCHITECTURE.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/ARCHITECTURE.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
+브로커, CAS 프로세스, CAS 와이어 프로토콜, CCI를 독자 관점에서 소개하는 글은
+[CAS 아키텍처와 프로토콜 개념](CAS_OVERVIEW.md)을 참고하세요.
+
 ## 설계 목표
 
 - **순수 Python**: 시스템 의존성 0 — C 확장이나 CCI 라이브러리가 필요 없고 Python이 돌아가는 어디서나 실행됩니다.

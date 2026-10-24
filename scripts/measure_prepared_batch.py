@@ -52,6 +52,17 @@ MODES = ("sync", "sync-generator", "async", "async-generator")
 DEFAULT_ROWS = (10_000, 100_000)
 
 
+def _positive_int(value: str) -> int:
+    """Parse a positive integer for a user-facing command-line option."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _endpoint_kwargs() -> dict[str, Any]:
     spec = importlib.util.spec_from_file_location(
         "_pycubrid_measure_endpoint",
@@ -199,7 +210,7 @@ def measure(mode: str, count: int) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--rows", type=int, nargs="+", default=list(DEFAULT_ROWS))
+    parser.add_argument("--rows", type=_positive_int, nargs="+", default=list(DEFAULT_ROWS))
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
     parser.add_argument("--json", type=Path, help="also write the results to this file")
     parser.add_argument(

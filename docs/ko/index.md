@@ -45,6 +45,7 @@ conn.close()
 - 찾아보기: [API 참조](API_REFERENCE.md), [연결 옵션](CONNECTION.md),
   [값을 안전하게 전달하기(파라미터 바인딩 계약)](PARAMETER_BINDING.md), [타입 시스템](TYPES.md),
   [지원 매트릭스](SUPPORT_MATRIX.md)
+- 더 깊이: [CAS 아키텍처와 프로토콜 개념](CAS_OVERVIEW.md), pycubrid가 CUBRID 브로커, CAS와 통신하는 방식
 - 도움 받기: [문제 해결](TROUBLESHOOTING.md), [자주 묻는 질문](faq.md), 보안 문제는
   [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)의 비공개 제보 경로
 - 기여하기: [개발 가이드](DEVELOPMENT.md), [아키텍처](ARCHITECTURE.md), [CAS 프로토콜](PROTOCOL.md)

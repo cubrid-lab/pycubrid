@@ -328,17 +328,45 @@ make integration                          # broker published on localhost:33000
 make integration CUBRID_TEST_PORT=33522   # same, on a port nothing else uses
 ```
 
-`make integration` starts the compose service, waits with
-`scripts/wait_for_cubrid.py` (fails the run if the broker is not ready within
-about three minutes instead of sleeping a fixed time), runs
+`make integration` runs `scripts/run_integration.py`, which starts the compose
+service, waits with `scripts/wait_for_cubrid.py` (fails the run if the broker is
+not ready within about three minutes instead of sleeping a fixed time), runs
 `-m "integration and not tls"` with every endpoint field set explicitly, audits
 the JUnit report with `scripts/check_integration_lanes.py --results` (an
-all-skipped or unclassified-skip run fails), and always removes the container.
+all-skipped or unclassified-skip run fails), and always removes what it created.
+The exit status is the first failing step's; a failed `docker compose down -v` is
+reported and fails an otherwise passing run.
 TLS tests need an SSL-enabled broker; see
 [Async TLS integration tests](#async-tls-integration-tests).
 
+**Result files (#1024).** `make test` writes `test-results/test/junit.xml`,
+`coverage.xml`, `summary.json` and `environment.json`; `make integration` and
+`make integration-tls` write `test-results/integration/` and
+`test-results/integration-tls/` (`junit.xml`, `summary.json`, `environment.json`, and
+`service.log` after a failed run). The directory is gitignored and `make clean` removes it.
+CI writes the same layout for its offline, integration and TLS jobs, appends the one-line
+summary to the job summary and uploads `test-results/` as a 7-day artifact named
+`test-results-<lane>-py<python>[-cubrid<version>]` on every run, pass or fail.
+`scripts/report_results.py` builds `summary.json` (`schema_version`, `lane`, `status`,
+`exit_code`, per-outcome `counts`, `coverage`) and prints the same status and counts as one
+console line. `status` is `PASS` only when at least one test passed, none failed or
+errored and the exit status was 0; `FAIL` when a test failed or the command exited
+non-zero (including a missed coverage floor); `INCOMPLETE` when nothing proves the lane
+ran (no JUnit file, nothing collected, every test skipped). A test that fails and also
+errors in teardown counts once, with its worst outcome. `environment.json` holds the
+Python, pycubrid and CUBRID image versions, the platform and the command, built from those
+values only, so no password or other secret reaches a result file. The files never change a
+command's exit status. For the integration lanes `summary.json` is written after cleanup,
+so it carries the final exit status (a failed `down -v` is `FAIL`), and saving `service.log`
+is best effort (a warning, never a skipped cleanup). The run that holds the project lock owns
+the files and removes the previous run's first; a refusal after the lock (existing project,
+failed ownership probe) or an invalid `INTEGRATION_PROJECT` leaves a `FAIL` summary with a
+`reason`, while a run refused because another run holds the lock writes and removes nothing. `INTEGRATION_RESULTS=<path>` moves the integration JUnit file, and
+the other files go next to it. CI jobs do not run these targets; see
+[CI live jobs and the Make contract](#ci-live-jobs-and-the-make-contract).
 
-`make integration` and `make integration-tls` clean up containers after success, readiness failure or test failure, while preserving existing Docker volumes. Explicit `make docker-down` uses `down -v` and removes volumes. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM, except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
+
+**Isolation from `make docker-up` (#1021).** `make integration` and `make integration-tls` run in their own Compose project, `pycubrid-it-<timestamp>-<pid>` by default, and pass `-p <project>` on every `docker compose` call, so they never attach to, restart or remove the CUBRID started by `make docker-up` (an exported `COMPOSE_PROJECT_NAME` is ignored too). Set `INTEGRATION_PROJECT=<name>` (`^[a-z0-9][a-z0-9_-]*$`) to choose the name; the run first checks that the project has no container, volume or network and otherwise exits 1 with "Refusing to run" before starting or removing anything. A second run of the same name while the first is active is refused too ("another run owns project"), through a `flock` on a lock file in the temp directory held until cleanup ends (POSIX only; the guard is skipped on Windows). Because the project is the run's own, cleanup after success, readiness failure, test failure, SIGINT or SIGTERM is `docker compose -p <project> down -v`: it also deletes the run's volumes, so every run starts from an empty database and leaves nothing behind. The manual lab's data volumes are never touched. `make docker-down` keeps the manual lab's data; only `make docker-clean` (`down -v` on the default project) removes it. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
 
 **Enabling integration vs. choosing the endpoint.** Integration tests are
 *enabled* when `CUBRID_TEST_URL` or `CUBRID_TEST_HOST` is set to a non-empty
@@ -508,17 +536,47 @@ open htmlcov/index.html
 ```yaml
 services:
   cubrid:
-    image: cubrid/cubrid:11.2
-    container_name: cubrid-test
-    ports:
-      - "33000:33000"
+    image: cubrid/cubrid:${CUBRID_VERSION:-11.2}
     environment:
       CUBRID_DB: testdb
+      CUBRID_DB_HOST: localhost
+    ports:
+      - "127.0.0.1:${CUBRID_TEST_PORT:-33000}:33000"
+    volumes:
+      - cubrid-data:/var/lib/cubrid
+      - cubrid-databases:/home/cubrid/CUBRID/databases
+
+volumes:
+  cubrid-data:
+  cubrid-databases:
 ```
+
+The full file also defines a `healthcheck` that runs `csql -u dba testdb -c "SELECT 1"`.
+The broker is published only on `127.0.0.1`, so it is reachable from this host but not
+from the network; `CUBRID_VERSION` (default `11.2`) and `CUBRID_TEST_PORT` (default
+`33000`) are the supported overrides. The service has no fixed `container_name`, so
+separate Compose projects (`COMPOSE_PROJECT_NAME` or `docker compose -p`) can run side by
+side on different ports.
+
+`CUBRID_DB_HOST: localhost` makes the image register `testdb` for `localhost` in
+`databases.txt`. Images up to 11.3 keep it and the database on the `cubrid-data` volume,
+and 11.4 on `cubrid-databases`, so `docker compose down` keeps the database on every
+supported version. Versions up to 11.3 share `cubrid-data`; a database created by one
+CUBRID version is not guaranteed to open on another, so run `make docker-clean` (which
+deletes the test data) before switching `CUBRID_VERSION`. Without it the image records the creating container's ID,
+and the database stops working once that container is recreated
+([Troubleshooting](TROUBLESHOOTING.md#database-server-host-not-found-after-recreating-the-container)).
 
 ### Commands
 
+The Makefile wraps the manual lifecycle; each target passes `CUBRID_TEST_PORT` to Compose:
+
 ```bash
+make docker-up                            # start CUBRID (127.0.0.1:33000)
+make docker-up CUBRID_TEST_PORT=33522     # same, on another host port
+make docker-down                          # remove container and network, keep the data
+make docker-clean                         # DESTRUCTIVE: also delete the data volumes
+
 # Start with default CUBRID 11.2
 docker compose up -d
 
@@ -531,8 +589,14 @@ docker compose ps
 # View logs
 docker compose logs -f cubrid
 
-# Stop and cleanup
+# Stop, keeping the data volume
+docker compose down
+
+# Stop and delete the data volume (removes all test data)
 docker compose down -v
+
+# Repair a volume created before CUBRID_DB_HOST was set (keeps the data)
+make docker-fix-db-host
 ```
 
 ### Connection Details
@@ -572,10 +636,11 @@ target-version = "py311"
 ### Linting
 
 ```bash
-# Check for issues
-make lint
+# Check for issues (neither command modifies files)
+make lint            # ruff check
+make format-check    # ruff format --check
 
-# Auto-fix
+# Auto-fix (the only mutating quality target)
 make format
 
 # Check tool pins and the active environment separately
@@ -583,7 +648,7 @@ make tooling-check
 ```
 
 Make and regular/maintenance CI share the `LINT_PATHS` list in `Makefile`:
-`pycubrid tests scripts demos examples`. Ruff CLI discovery and hook types are explicitly
+`pycubrid tests scripts demos examples agent-evals`. Ruff CLI discovery and hook types are explicitly
 Python/pyi-only; Markdown is outside this formatting contract. Hooks use the same maintained-file scope;
 Mypy remains strict on the package. `make typecheck` and CI also check the
 `tests/typing_self_contract.py` static contract; the pre-commit hook checks `pycubrid/` only. The tools run through the active Python
@@ -597,7 +662,7 @@ ecosystem does exactly this) and reinstalling the `dev` group is enough. Activat
 environment (or a venv where it's installed) whenever a commit should run the
 hooks; otherwise Ruff/Mypy are missing or a stale/global version silently runs
 instead of the pinned one. Update the `lint` group pin, reinstall the `dev` group, and run
-`make check-all` plus `pre-commit run --all-files`. `make tooling-check` rejects
+`make check` plus `pre-commit run --all-files`. `make tooling-check` rejects
 pin, installed-version, hook-scope, and CI-scope drift before
 lint/format/typecheck.
 
@@ -615,13 +680,18 @@ lint/format/typecheck.
 
 | Command | Description |
 |---------|-------------|
+| `make help` | List the targets, grouped by purpose |
 | `make install` | Install in dev mode with all dependencies |
-| `make test` | Run offline tests with coverage |
-| `make lint` | Run ruff check + format check |
-| `make format` | Auto-fix lint and formatting issues |
-| `make integration` | Docker → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker) |
+| `make doctor` | Check the required tools; fails if one is missing or broken |
+| `make lint` | Run ruff check (never modifies files) |
+| `make format-check` | Run ruff format --check (never modifies files) |
+| `make format` | Auto-fix lint and formatting issues (the only mutating quality target) |
+| `make check` | Static quality gate: lint, format-check, typecheck, security, docs-reason-check (`make check-all` is a deprecated alias) |
+| `make test` | Run offline tests with coverage; writes `test-results/test/` (JUnit, coverage, `summary.json`) |
+| `make verify` | `make check` then `make test`; no Docker |
+| `make integration` | Docker (run-owned Compose project) → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker, `INTEGRATION_PROJECT=<name>` to name the project) |
 | `make integration-local` | Integration tests against an already-running server (`CUBRID_TEST_URL` or `CUBRID_TEST_HOST`/`PORT`) |
-| `make clean` | Remove build artifacts |
+| `make clean` | Remove build artifacts and `test-results/` |
 
 ---
 
@@ -881,7 +951,7 @@ remains a separate exception.
 Markers may have zero to three leading spaces; indented code and raw HTML quote,
 preformatted or code blocks remain examples rather than authorizations.
 Run `make docs-reason-check` for helper doctests and real event-JSON workflow cases;
-these checks also run in `make check-all` and docs-sync CI.
+these checks also run in `make check` and docs-sync CI.
 
 Contributors report actual commands/results and checks not run with reasons;
 optional AI review is recorded separately. Maintainers coordinate internal reviews,
@@ -923,6 +993,36 @@ the full offline suite with 95% coverage on Python 3.11 and 3.15 and add Python
 tooling is path-selected on one Linux lane. Full integration is explicit/manual
 and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
 validation requirements.
+
+### CI live jobs and the Make contract
+
+Contributors run live tests with `make integration` (the root `docker-compose.yml`,
+one CUBRID server, `-m "integration and not tls"`) and `make integration-tls`.
+A CI job that talks to a live CUBRID either runs one of these targets or carries a
+`# Not using make integration because ...` comment in the workflow, with a row in the
+table below; `tests/test_workflow_make_contract.py` enforces both (#1023). A job is
+switched only when the switch keeps its CUBRID versions and matrix, pytest selection,
+lane audit, result files and artifacts, readiness and permissions. No job meets that
+today, so every live job keeps its own service containers and steps:
+
+| Workflow | Job | Decision | Reason the Make contract is not equivalent |
+|----------|-----|----------|--------------------------------------------|
+| `ci.yml` | `integration-tests` | keep | Selects `integration and not slow and not tls`; `make integration` also runs the slow tests. Runs the pre-run lane audit, a Python × CUBRID matrix, and a GitHub service health check before the steps |
+| `integration-full.yml` | `integration-full` | keep | Same selection and audit as `integration-tests`, over the 5 Python × 4 CUBRID release matrix at the requested SHA |
+| `ci.yml` | `integration-tls` | keep | Provisions an SSL=ON broker with a generated certificate and the SSL=OFF port 30000, and runs `integration and tls` across `tests/`; the Compose service has no SSL broker and `make integration-tls` runs only `tests/test_aio_ssl_integration.py` |
+| `integration-full.yml` | `integration-tls` | keep | Same as the `ci.yml` TLS job, over the full TLS matrix |
+| `ci.yml` | `integration-charset` | keep | Needs an EUC-KR database (`CUBRID_LOCALE=ko_KR.euckr`), which the Compose service does not set; runs only `tests/test_integration_charset.py` |
+| `integration-full.yml` | `integration-charset` | keep | Same as the `ci.yml` charset job |
+| `ci.yml` | `official-differential` | keep | Needs CUBRID 10.2 and 11.4 at the same time (ports 33102, 33114) and the pinned official oracle build; Compose starts one server |
+| `integration-full.yml` | `official-differential` | keep | Same as the `ci.yml` official differential |
+| `integration-full.yml` | `version-differential` | keep | Needs CUBRID 10.2, 11.0, 11.2 and 11.4 at the same time (`CUBRID_VERSION_MATRIX`) |
+| `bug-hunt.yml` | `property-and-fault` | keep | Weekly wide Hypothesis profile, separate slow soak/chaos lane, `xunit1` JUnit files and repro collection with server info |
+| `bug-hunt.yml` | `perf-trend` | keep | Runs `tests/test_benchmarks.py` against a cached baseline, not the `integration` marker |
+| `bug-hunt.yml` | `downstream-corpus` | keep | Runs the downstream repositories' own suites against the driver at the exact SHA |
+
+The `publish-pypi.yml` jobs that verify a release run no CUBRID themselves: `matrix`
+calls `integration-full.yml`, covered above, and `verify-candidate` and
+`verify-cookbook` call the cookbook's `smoke-test.yml`.
 
 ### PR verification cost
 
@@ -979,6 +1079,7 @@ them by hand.
 | `docs/CONNECTION.md`, `/CONNECTION/` | User: which connection options, URLs, timeouts and TLS settings exist? | The lessons | `API_REFERENCE.md` | Keep the file and its anchors; the lessons link its sections. Reference, labelled Connection Options. |
 | `docs/PARAMETER_BINDING.md`, `/PARAMETER_BINDING/` | User: how are values passed safely, and what is not guaranteed? | The lessons | `TYPES.md` | Keep; Reference, labelled as passing values safely. |
 | `docs/TYPES.md`, `docs/API_REFERENCE.md`, `docs/SUPPORT_MATRIX.md` | User: which type, call or version is supported? | Any page | Any page | Keep in Reference. |
+| `docs/CAS_OVERVIEW.md`, `/CAS_OVERVIEW/` | Experienced user: what are the Broker, a CAS process, the CAS wire protocol and CCI, and where do DB-API calls meet the protocol? | The reference pages | `PROTOCOL.md`, `ARCHITECTURE.md` | Reference, labelled Advanced: a concept overview that links to `PROTOCOL.md`, `ARCHITECTURE.md` and `CONNECTION.md` instead of copying them. |
 | `docs/TROUBLESHOOTING.md`, `docs/faq.md` | User with a problem: what does this error mean? | Any page | The reporting instructions in `SECURITY.md` and the issue forms | Keep the files; Help, with links to the issue forms and `SECURITY.md`. |
 | `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | Contributor: how does the driver work, and what evidence backs it? | `DEVELOPMENT.md` | Any page | Keep the files; Development and contributing in navigation (moved from Reference). |
 | `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | Contributor or operator: how do I build, test, measure and release? | Any page | Any page | Keep; Development and contributing, except Performance, which stays in Operations. |

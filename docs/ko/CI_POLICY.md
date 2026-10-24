@@ -25,9 +25,13 @@ PR 스모크 스위트는 의도적으로 범위가 제한되어 있습니다. �
 Python과 최신 Python에서의 기존 오프라인 회귀 스위트를 선택합니다([오프라인 엔드포인트 버전](#오프라인-엔드포인트-버전) 참고). 그 밖의 워크플로 변경은 대신 저장소 도구
 레인을 선택합니다([워크플로 변경 영향](#워크플로-변경-영향) 참고). 그 밖의 코드 변경은 제한된 스모크
 스위트를 유지합니다. 저장소 도구 테스트는 도구가 바뀔 때 Linux 한 레인에서
-실행합니다. `tests/test_official_fixture_setup.py`, `tests/test_upstream_scenario_ledger.py`
-또는 `tests/fixtures/upstream_scenarios.csv` 변경은 같은 도구 레인을 명시적으로
-선택합니다. 이 마커 기반 검사는 드라이버 오프라인 레인에서 제외됩니다.
+실행합니다. `repo_tooling` 테스트가 있는 모든 테스트 모듈(`tests/test_official_fixture_setup.py`,
+`tests/test_upstream_scenario_ledger.py` 등)과 그 테스트만 읽는 파일
+(`tests/fixtures/upstream_scenarios.csv`, `agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
+`release-please-config.json`, `api-baseline.json` 등)의 변경은 같은 도구 레인을 명시적으로
+선택하며, 그런 모듈이 선택되지 않으면 항상 실행되는 린트 잡에서도 돌아가는
+`tests/test_workflow_path_impact.py`의 가드가 실패합니다.
+이 마커 기반 검사는 드라이버 오프라인 레인에서 제외됩니다.
 정적 린트 잡은 생성 문서 검사를 포함해 모든 이벤트에서 계속 실행됩니다.
 
 집계 필수 검사의 이름은 그대로 유지되며 변경 감지를 포함합니다. 선택된 잡은
@@ -150,8 +154,8 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 뮤테이션 테스트 | `bug-hunt.yml` `mutation` | 버그 탐색과 같음 |
 | 벤치마크 추세 | `bug-hunt.yml` `perf-trend` | 버그 탐색과 같음 |
 | 다운스트림 코퍼스 (권고용) | `bug-hunt.yml` `downstream-corpus` | 버그 탐색과 같음 |
-| lint, CHANGELOG 구조, 번역 구조, `llms-full.txt` 동기화 | `ci.yml` `lint`, `integration-full.yml` `lint` (같은 단계) | 모든 이벤트, 릴리스와 전체 수동 실행 |
-| 타입 검사 | `ci.yml` `typecheck`, `integration-full.yml` `typecheck` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
+| lint, 포맷, Bandit, docs-reason 예제(`typecheck`를 뺀 `make check`), CHANGELOG 구조, 번역 구조, `llms-full.txt` 동기화 | `ci.yml` `lint`, `integration-full.yml` `lint` (같은 단계) | 모든 이벤트, 릴리스와 전체 수동 실행 |
+| 타입 검사(각 워크플로에서 mypy를 실행하는 유일한 잡) | `ci.yml` `typecheck`, `integration-full.yml` `typecheck` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 공개 API 기준선 | `ci.yml` `compat-check`, `integration-full.yml` `compat-check` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 패키징 | `ci.yml` `packaging-smoke-test`, `publish-pypi.yml` `consistency`와 `build` | 위험 PR, PR이 아닌 코드 이벤트, 릴리스 |
 | 저장소 도구 | `ci.yml` `repo-tooling-tests`, `integration-full.yml` `repo-tooling-tests` (같은 단계) | 도구 경로 이벤트, 릴리스와 전체 수동 실행 |

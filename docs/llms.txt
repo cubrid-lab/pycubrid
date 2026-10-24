@@ -37,6 +37,7 @@ Key facts:
 ## Reference
 
 - [Protocol](https://cubrid-lab.github.io/pycubrid/PROTOCOL/): CAS wire protocol, packets and function codes
+- [CAS Concepts](https://cubrid-lab.github.io/pycubrid/CAS_OVERVIEW/): Advanced overview of the Broker, CAS process, CAS wire protocol and CCI; pure-Python versus CUBRIDdb/CCI paths; DB-API calls mapped to function codes
 - [Architecture](https://cubrid-lab.github.io/pycubrid/ARCHITECTURE/): Module structure, CAS reconnection, public API boundary
 - [Support Matrix](https://cubrid-lab.github.io/pycubrid/SUPPORT_MATRIX/): Python and CUBRID version compatibility and per-feature status
 - [Official Driver API Inventory](https://cubrid-lab.github.io/pycubrid/UPSTREAM_COMPATIBILITY/): Differences from the official CUBRIDdb driver and the selected compatibility contract

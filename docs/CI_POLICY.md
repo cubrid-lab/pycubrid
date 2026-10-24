@@ -11,8 +11,9 @@ Routine CI uses representative combinations instead of a Cartesian version/OS ma
 | Monday 03:00 UTC | Same policy as a main push (including the Python 3.11/3.15 offline suite), comparing changes in the previous seven days; unchanged/docs-only history does not select runtime tests, and lanes a successful push run of the same SHA already ran are not repeated (see [Event tiers and cost evidence](#event-tiers-and-cost-evidence)) |
 | Explicit full dispatch or release | Existing full Python 3.11–3.15 × CUBRID 10.2/11.0/11.2/11.4 integration workflow and mandatory release lanes, plus the Python 3.11/3.15 offline suite with the 95% floor, lint, type checking, the public API baseline and the repository tooling tests |
 
-The PR smoke suite is deliberately bounded. Contributors must run the regression
-checks relevant to their change locally and record commands/results in the PR.
+The PR smoke suite is deliberately bounded. Contributors are encouraged to run regression checks relevant to their change
+locally and record actual commands/results or reasons for any skipped checks.
+Required GitHub CI remains the authoritative PR merge validation.
 Passing smoke is not evidence that the whole offline suite or coverage floor ran.
 `make test` and `make integration` remain available without changing their scope.
 
@@ -25,8 +26,12 @@ supported Python (see [Offline endpoint versions](#offline-endpoint-versions)).
 Other workflow changes select the repository-tooling lane instead (see
 [Workflow change impact](#workflow-change-impact)). Other code
 changes retain the bounded smoke suite. Repository tooling tests run in one Linux lane when tooling changes.
-Changes to `tests/test_official_fixture_setup.py`, `tests/test_upstream_scenario_ledger.py`
-or `tests/fixtures/upstream_scenarios.csv` explicitly select that same tooling lane;
+Every test module with `repo_tooling` tests (such as `tests/test_official_fixture_setup.py`
+and `tests/test_upstream_scenario_ledger.py`) and the files only those tests read (such as
+`tests/fixtures/upstream_scenarios.csv`, `agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
+`release-please-config.json` and `api-baseline.json`) explicitly select that same tooling
+lane, and a guard in `tests/test_workflow_path_impact.py`, which the always-on lint job
+also runs, fails when such a module does not;
 these marker-based checks are excluded from the driver offline lane.
 The static lint job continues on all events, including generated documentation checks.
 
@@ -154,8 +159,8 @@ Median per-job runner minutes on successful code pushes:
 | Mutation testing | `bug-hunt.yml` `mutation` | Same as bug hunt |
 | Benchmark trend | `bug-hunt.yml` `perf-trend` | Same as bug hunt |
 | Downstream corpus (advisory) | `bug-hunt.yml` `downstream-corpus` | Same as bug hunt |
-| Lint, CHANGELOG structure, translation structure, `llms-full.txt` sync | `ci.yml` `lint`; `integration-full.yml` `lint` (same steps) | Every event; release and full dispatch |
-| Type checking | `ci.yml` `typecheck`; `integration-full.yml` `typecheck` (same steps) | Every code event; release and full dispatch |
+| Lint, format, Bandit, docs-reason examples (`make check` without `typecheck`), CHANGELOG structure, translation structure, `llms-full.txt` sync | `ci.yml` `lint`; `integration-full.yml` `lint` (same steps) | Every event; release and full dispatch |
+| Type checking (the only mypy run in each workflow) | `ci.yml` `typecheck`; `integration-full.yml` `typecheck` (same steps) | Every code event; release and full dispatch |
 | Public API baseline | `ci.yml` `compat-check`; `integration-full.yml` `compat-check` (same steps) | Every code event; release and full dispatch |
 | Packaging | `ci.yml` `packaging-smoke-test`; `publish-pypi.yml` `consistency` and `build` | Risk PR, non-PR code; release |
 | Repository tooling | `ci.yml` `repo-tooling-tests`; `integration-full.yml` `repo-tooling-tests` (same steps) | Tooling-path events; release and full dispatch |

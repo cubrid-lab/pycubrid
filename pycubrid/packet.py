@@ -701,6 +701,10 @@ class PacketReader:
             return self._parse_bytes(size)
 
         parser = getattr(self, method_name)
+        # CAS writes a NULL element as length -1 and a BIT/VARBIT element as its
+        # bytes with no terminator, so length 0 is an empty bit string; every
+        # other element's encoding is never empty and length 0 stays None (#998).
+        empty_value = b"" if element_type in (CUBRIDDataType.BIT, CUBRIDDataType.VARBIT) else None
         values: list[object] = []
         first_error: DataError | None = None
         last_size_start = collection_end - DataSize.INT
@@ -709,7 +713,7 @@ class PacketReader:
                 raise ValueError("malformed collection: truncated element size")
             element_size = self._parse_int()
             if element_size <= 0:
-                values.append(None)
+                values.append(empty_value if element_size == 0 else None)
                 continue
             element_start = self._offset
             element_end = element_start + element_size

@@ -45,6 +45,8 @@ conn.close()
   [Connection Options](CONNECTION.md),
   [Passing Values Safely (Parameter Binding Contract)](PARAMETER_BINDING.md),
   [Type Mapping](TYPES.md) and [Support Matrix](SUPPORT_MATRIX.md).
+- Go deeper: [CAS Architecture and Protocol Concepts](CAS_OVERVIEW.md), how
+  pycubrid talks to the CUBRID Broker and CAS.
 - Get help: [Troubleshooting](TROUBLESHOOTING.md), [FAQ](faq.md), and for a
   security problem the private reporting route in
   [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md).

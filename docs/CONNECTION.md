@@ -621,6 +621,9 @@ for the second filter, four-field columns and cleanup/error contract.
 
 ## Broker Handshake
 
+For what the Broker and the CAS process are, and how later `execute()`, fetch and
+commit calls map to the protocol, see [CAS Architecture and Protocol Concepts](CAS_OVERVIEW.md).
+
 When `pycubrid.connect()` is called, the following protocol handshake occurs:
 
 ```mermaid

@@ -6,6 +6,122 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`make format-check` and `make verify` (#1007)** — `make format-check` runs only
+  `ruff format --check`; `make verify` runs `make check` and then `make test`, without
+  Docker. `scripts/run_integration.py` now runs the Docker integration lanes.
+- **`make docker-clean` (#1006)** — runs `docker compose down -v`: it removes the CUBRID
+  container, its network and the `cubrid-data` and `cubrid-databases` volumes with all test
+  data. It is now the only Make target that deletes them.
+
+### Changed
+
+- **`make test` and `make integration` write `test-results/` (#1024)** — `make test`
+  writes `junit.xml`, `coverage.xml`, `summary.json` and `environment.json` to
+  `test-results/test/`; `make integration` and `make integration-tls` write them (and
+  `service.log` after a failed run) to `test-results/integration/` and
+  `test-results/integration-tls/`. `scripts/report_results.py` reports `PASS`, `FAIL` or
+  `INCOMPLETE` and prints the same one-line summary; a skipped or unexecuted lane is never
+  `PASS`, no credential is written, and exit codes are unchanged. The directory is gitignored
+  and `make clean` removes it. `INTEGRATION_RESULTS` no longer defaults to
+  `integration-results.xml` in the repository root. CI is unchanged.
+- **Makefile targets have one meaning each (#1007)** — `make lint` runs only `ruff check`;
+  `make format` is the only quality target that modifies files. `make check` is the complete
+  static gate: `lint`, `format-check`, `typecheck`, `security` and `docs-reason-check`.
+  `make doctor` now exits non-zero, without its success line, when a required tool is
+  missing or fails `--version`. Every tool variable (`PIP`, `PYTEST`, `RUFF`, `MYPY`,
+  `BANDIT`, `PRE_COMMIT`) runs as `$(PYTHON) -m <tool>` and can be overridden with `?=`
+  from the command line or the environment. `make help` groups the targets by purpose.
+- **`make integration` and `make integration-tls` are one `scripts/run_integration.py` call
+  (#1007)** — the script owns the Compose lifecycle, readiness, SIGINT/SIGTERM handling,
+  cleanup, exit status and the every-test-skipped audit. Test selection, the pinned
+  endpoint and volume handling are unchanged: cleanup runs `docker compose down`, never
+  `-v`, after success, failure or a signal. Cleanup now also runs when
+  `docker compose up` fails.
+- **`make docker-down` keeps the test data (#1006)** — it now runs `docker compose down`,
+  which removes the container and network but keeps the named data volumes, so the next
+  `make docker-up` opens the same database. It used to run `docker compose down -v` and
+  delete them; use `make docker-clean` for that. `make docker-up`, `make docker-down` and
+  `make docker-clean` pass `CUBRID_TEST_PORT` to Compose.
+- **The Compose broker listens only on `127.0.0.1` (#1006)** — `docker-compose.yml`
+  publishes it as `127.0.0.1:${CUBRID_TEST_PORT:-33000}:33000` instead of on every host
+  interface, so the test database is no longer reachable from other machines. Connections
+  to `localhost` or `127.0.0.1` on the host, `make integration` and the readiness probe are
+  unchanged. The readiness probe's stale-host hint now names `make docker-clean` as the
+  destructive fix.
+
+### Deprecated
+
+- **`make check-all` (#1007)** — an alias of `make check` that prints a notice on stderr.
+  It will be removed after the next minor release; use `make check`.
+
+### Fixed
+
+- **`make integration` no longer attaches to or removes the `make docker-up` lab (#1021)** —
+  `scripts/run_integration.py` ran `docker compose up -d`, `ps` and `down` on the default
+  Compose project, so a run could attach to a manually started CUBRID, stop and remove its
+  container, and reuse its data volumes. Every `docker compose` call now carries
+  `-p <project>` with a run-unique default `pycubrid-it-<timestamp>-<pid>` (override with
+  `INTEGRATION_PROJECT=<name>`; an exported `COMPOSE_PROJECT_NAME` is ignored). The run
+  refuses a project that already has a container, volume or network (exit 1) before
+  starting or removing anything, and refuses a second run of the same project name while
+  the first holds its `flock` lock (POSIX only). Cleanup, after success, failure or SIGINT/SIGTERM, is now
+  `docker compose -p <project> down -v` of that run-owned project, so each run starts from an
+  empty database and leaves no volumes; the manual lab's containers and data are untouched.
+  Readiness, the lane audit and exit statuses are unchanged.
+
+### Documentation
+
+- **CAS architecture and protocol concepts page (#1015)** — a new advanced overview,
+  `docs/CAS_OVERVIEW.md` with its Korean translation, listed under Reference in the site
+  navigation. It separates the Broker, the CAS process, the CAS wire protocol and CCI,
+  draws the pycubrid pure-Python path next to the `CUBRIDdb` → `_cubrid` → CCI path,
+  maps `connect()`, `execute()`, fetch, commit and close to function codes, and covers
+  the frame, the literal versus `executemany(..., prepared=True)` binding paths,
+  `CHECK_CAS`, unknown outcomes without replay, client-side TLS, and CUBRID CAS (Common
+  Application Server) versus Compare-And-Swap. `PROTOCOL.md` and `ARCHITECTURE.md` stay
+  authoritative; the README, the site index, the connection guide and both reference
+  pages link to the overview. No driver behavior changed.
+
+### CI
+
+- **Every live CI job runs the Make contract or documents why not (#1023)** — each job of
+  `ci.yml`, `integration-full.yml` and `bug-hunt.yml` that talks to a live CUBRID now carries
+  a `# Not using make integration because ...` comment, and docs/DEVELOPMENT.md lists the
+  reason per job (test selection, SSL=ON broker, EUC-KR database, several servers at once,
+  benchmark or downstream suites). No job switched: none could keep its versions, matrix,
+  test selection, lane audit, result files and readiness unchanged.
+  `tests/test_workflow_make_contract.py` fails when a new live job has neither. Steps,
+  permissions, secrets and triggers are unchanged.
+
+- **CI publishes the test-results summary and uploads it on every run (#1024)** — the offline
+  (`offline-tests`, `offline-endpoints`), integration and TLS integration jobs of `ci.yml` and
+  `integration-full.yml` write their JUnit XML to `test-results/<lane>/junit.xml`, run
+  `scripts/report_results.py summarize` and append its one-line summary to the job summary,
+  then upload `test-results/` with `actions/upload-artifact` (the commit `publish-pypi.yml`
+  already pins), both with `if: always()`; one 7-day artifact per matrix entry. Test
+  selection, coverage files, Codecov uploads, lane checks, permissions, secrets and triggers
+  are unchanged.
+
+- **The lint lanes run `make check` (#1007)** — `ci.yml`, its release copy in
+  `integration-full.yml` and `maintenance.yml` call `make check` instead of `make lint` (and,
+  in `maintenance.yml`, a separate Bandit command).
+- **mypy runs once per code pull request and not on docs-only ones (#1009)** — the always-on
+  `lint` job in `ci.yml`, and its release copy in `integration-full.yml`, now run
+  `make lint format-check security docs-reason-check`, which is `make check` without
+  `typecheck`. mypy runs only in the `typecheck` job, which runs for code changes and which
+  the CI gate still requires. `make check` and `maintenance.yml` are unchanged.
+
+## [1.13.1] - 2026-10-21
+
+### Upgrade notes
+
+- **Empty `BIT`/`BIT VARYING` values (#994)** — code that tests `v is None` on a `BIT` or
+  `BIT VARYING` column to detect an empty value now sees `b""` for `X''`; `NULL` is still
+  `None`. With `decode_collections=True`, an empty `BIT`/`BIT VARYING` collection element
+  is `b""` too (#998).
+
 ### Changed
 
 - Dependabot now updates the root manifest and `uv.lock` together through its uv
@@ -26,6 +142,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   table; it is not retried through a reconnect. The driver itself is unchanged.
 
 ### Fixed
+
+- **An empty `BIT VARYING` value is fetched as `b""`, not `None` (#994)** — the CAS writes a
+  NULL row cell as size `-1` and an empty bit string (`X''`, or `b""` bound on the literal
+  path) as size `0`, but the row decoder read every size `<= 0` as NULL. A stored empty value
+  (`v IS NULL` is 0, `BIT_LENGTH(v)` is 0) was indistinguishable from NULL in Python, so a
+  read-modify-write turned it into NULL. A `BIT`/`VARBIT` cell of size `0` now decodes as
+  `b""`, also after a CALL or NULL-typed cell header, sync and async, as the official JDBC
+  driver reads it. Size-0 cells of every other type still decode as `None`. The prepared
+  path still rejects `b""`, because the broker reads a zero-length bind as NULL.
+
+- **An empty `BIT VARYING` collection element is decoded as `b""`, not `None` (#998)** — with
+  `decode_collections=True`, the element decoder read every element length `<= 0` as NULL,
+  so `SET{X''}` decoded to `frozenset({None})` and `SEQUENCE{X'', NULL, X'01'}` to
+  `[None, None, b'\x01']`. The CAS writes a NULL element as length `-1` and an empty bit
+  string as length `0`; a `BIT`/`VARBIT` element of length `0` now decodes as `b""`, sync
+  and async, matching row cells (#994). Zero-length elements of every other type still
+  decode as `None`, collection size and consumed-bytes validation is unchanged, and raw
+  collection bytes (`decode_collections=False`) are unchanged.
+
+- **A `?` inside a quoted identifier raises an explained `ProgrammingError` (#990)** —
+  the CUBRID broker counts every `?` outside comments and single-quoted strings as a
+  marker, including any inside a quoted identifier, so `execute('SELECT 1 AS "a?b"')`
+  failed with a `DatabaseError` that had no message (`errno=-1007`, the CAS code
+  `CAS_ER_NUM_BIND`). A CAS-indicator `-1007` reply now raises `ProgrammingError`
+  whose message names this cause; `errno`, `code` and `error_source` are unchanged, and
+  `sqlstate` changes from `HY000` to `42000` with the new class. Bracket identifiers
+  (`[a?b]`) are affected the same way. A server-indicator `-1007` is not affected. The
+  statement itself still fails.
+- **Subnormal floats and `-0.0` round-trip through the literal path (#988)** — `execute()`
+  and the default `executemany()` rendered a `float` with `float.__repr__`. CUBRID rejects
+  every subnormal literal (`5e-324` failed with -493 "exceeds limit of double"), and reads
+  the literal `-0.0` as NUMERIC, so a `DOUBLE` column stored `0.0`. The prepared paths
+  stored both correctly. A subnormal value is now sent as the exact product of two normal
+  doubles, and `-0.0` as the DOUBLE literal `-0.0e0`. Every other `float` renders as
+  before, so stored NUMERIC and string values do not change. `-0.0` into a string column
+  now stores `-0` instead of `0.0`, and `SELECT ?` bound to `-0.0` now returns the
+  `float` `-0.0` instead of `Decimal('0.0')`.
 
 - **Tasks waiting on async connection setup keep `error_source` (#952)** — when
   `AsyncConnection` setup failed with a `DatabaseError`, each task waiting on that setup
@@ -67,6 +220,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (`add_res_data_lob_handle`) and live handles from both versions. Valid handles, a value
   without an external file (size `-1`, empty locator) and bytes after the cell are
   unchanged.
+
+* **agent-eval:** copy the held worktree by descriptor and validate prepared_epoch ([#986](https://github.com/cubrid-lab/pycubrid/issues/986)) ([81f327d](https://github.com/cubrid-lab/pycubrid/commit/81f327d683f868ac53af6103fe65e82f7eef29b9))
+* **agent-eval:** create and read the runner start record without following links ([#987](https://github.com/cubrid-lab/pycubrid/issues/987)) ([14ebed1](https://github.com/cubrid-lab/pycubrid/commit/14ebed12a1137ea1949286bea724e2446c9e6bd2))
+* **agent-review:** do not count empty reply-only Copilot records as review rounds ([#949](https://github.com/cubrid-lab/pycubrid/issues/949)) ([10fb72c](https://github.com/cubrid-lab/pycubrid/commit/10fb72c65a40e522cc1c2d4e287a3e815431bb29)), refs [#948](https://github.com/cubrid-lab/pycubrid/issues/948)
+* **aio:** keep error_source when copying a setup failure for waiting tasks ([#961](https://github.com/cubrid-lab/pycubrid/issues/961)) ([4cde43a](https://github.com/cubrid-lab/pycubrid/commit/4cde43afd2d84a4bdd4003ebcecdac01efc7f095)), refs [#952](https://github.com/cubrid-lab/pycubrid/issues/952)
+* **binding:** keep subnormal floats and -0.0 on the literal path ([#989](https://github.com/cubrid-lab/pycubrid/issues/989)) ([2ed16bc](https://github.com/cubrid-lab/pycubrid/commit/2ed16bc1b117fc3837a39924d9d7925be08f3bf3)), refs [#988](https://github.com/cubrid-lab/pycubrid/issues/988)
+* **context:** keep the original error when leaving a context after the session was retired ([#959](https://github.com/cubrid-lab/pycubrid/issues/959)) ([a535d9c](https://github.com/cubrid-lab/pycubrid/commit/a535d9cd5c9438289e03635532c6f7bf1afb14df))
+* **docs:** close four parser gaps in the deterministic documentation check ([#940](https://github.com/cubrid-lab/pycubrid/issues/940)) ([703a1c2](https://github.com/cubrid-lab/pycubrid/commit/703a1c29ba4f76996a2574ade6a9fb6c89124203))
+* **docs:** follow the configured site slugifier and toc id rules in the docs-check parser ([#976](https://github.com/cubrid-lab/pycubrid/issues/976)) ([a0f8260](https://github.com/cubrid-lab/pycubrid/commit/a0f826089d8275a881efffa59f7d77e43ba7664b)), refs [#975](https://github.com/cubrid-lab/pycubrid/issues/975)
+* **docs:** handle adjacent shell operators, decoded titles and comment backslashes in the docs check ([#947](https://github.com/cubrid-lab/pycubrid/issues/947)) ([ebb3170](https://github.com/cubrid-lab/pycubrid/commit/ebb3170b582ac5f59ac80ef3d655c3aba3b7bba9))
+* **docs:** read arithmetic, empty and alternated case forms correctly in the docs-check shell scanner ([#978](https://github.com/cubrid-lab/pycubrid/issues/978)) ([0edf209](https://github.com/cubrid-lab/pycubrid/commit/0edf209c30456b6ff81457b0225d8d245576d237))
+* **docs:** sync the docs-check parser with sqlalchemy-cubrid ([#954](https://github.com/cubrid-lab/pycubrid/issues/954)) ([4495ffb](https://github.com/cubrid-lab/pycubrid/commit/4495ffbdf5bd4ffbe6e294f5d73b4ccf5a940855)), refs [#953](https://github.com/cubrid-lab/pycubrid/issues/953)
+* **errors:** explain the CAS marker count for a ? in a quoted identifier ([#991](https://github.com/cubrid-lab/pycubrid/issues/991)) ([bb07791](https://github.com/cubrid-lab/pycubrid/commit/bb0779125793404ab90ff8e818e7ff33d5ec52a3)), refs [#990](https://github.com/cubrid-lab/pycubrid/issues/990)
+* **lob:** reject LOB handles bound to a replaced physical session ([#934](https://github.com/cubrid-lab/pycubrid/issues/934)) ([03d7f70](https://github.com/cubrid-lab/pycubrid/commit/03d7f70871ca28c00dd3627f76bfbc77fbf06b0e))
+* **profile:** create a per-run scratch table and clean up only what the run owns ([#962](https://github.com/cubrid-lab/pycubrid/issues/962)) ([b01a663](https://github.com/cubrid-lab/pycubrid/commit/b01a66336f1e7d608397daa20fb9e73c1e7f8cf4))
+* **protocol:** decode an empty BIT VARYING collection element as b"" instead of None ([#999](https://github.com/cubrid-lab/pycubrid/issues/999)) ([224b4be](https://github.com/cubrid-lab/pycubrid/commit/224b4be6bfe809a693bfcc440fb61ef5c9ba1feb))
+* **protocol:** fetch an empty BIT VARYING value as b"" instead of None ([#995](https://github.com/cubrid-lab/pycubrid/issues/995)) ([87ed36a](https://github.com/cubrid-lab/pycubrid/commit/87ed36ae0c7ebd1895791591794a20307e11fe9a))
+* **test:** keep the CUBRID 11.4 Docker test database in a named volume ([#1004](https://github.com/cubrid-lab/pycubrid/issues/1004)) ([ec2d9ed](https://github.com/cubrid-lab/pycubrid/commit/ec2d9ed1720519b9f3c058cacaf730fbc9ad0195))
+* **test:** keep the first databases.txt backup in docker-fix-db-host ([#1003](https://github.com/cubrid-lab/pycubrid/issues/1003)) ([4843d47](https://github.com/cubrid-lab/pycubrid/commit/4843d47ccfb9c3d9f299f58ab42e86658f849900)), refs [#1000](https://github.com/cubrid-lab/pycubrid/issues/1000)
+* **test:** register the Docker test database for a stable host ([#1001](https://github.com/cubrid-lab/pycubrid/issues/1001)) ([48cbd78](https://github.com/cubrid-lab/pycubrid/commit/48cbd78e9e7d6971867a3c8bc3e9a23a7f2d2ba2))
 
 ### Documentation
 
@@ -183,10 +356,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   release is tagged. sqlalchemy-cubrid documents the same recovery
   (cubrid-lab/sqlalchemy-cubrid#912).
 
+* **agents:** name a maintainer's review as the standalone-agent alternative to Copilot ([#944](https://github.com/cubrid-lab/pycubrid/issues/944)) ([b99f02d](https://github.com/cubrid-lab/pycubrid/commit/b99f02d410cf0fcc8d946d08a4acf3d17e210b83)), refs [#943](https://github.com/cubrid-lab/pycubrid/issues/943)
+* **contributing:** clarify good-first-issue access for human contributors ([#929](https://github.com/cubrid-lab/pycubrid/issues/929)) ([5b0bc2a](https://github.com/cubrid-lab/pycubrid/commit/5b0bc2a7672b719e000286e86bcf4fa77a7a2416))
+* **errors:** record the sqlstate and result-type changes from the marker and float fixes ([#993](https://github.com/cubrid-lab/pycubrid/issues/993)) ([72f15c1](https://github.com/cubrid-lab/pycubrid/commit/72f15c14eb8c3ad85dac9e8aa781df6fc0f0e010)), refs [#992](https://github.com/cubrid-lab/pycubrid/issues/992)
+* **onboarding:** guide CUBRID beginners from server preparation to their first saved row ([#956](https://github.com/cubrid-lab/pycubrid/issues/956)) ([bc4bffd](https://github.com/cubrid-lab/pycubrid/commit/bc4bffdf40f3d829b300932145ce7790f9fb5b1f))
+* **quickstart:** remove the lab container's volume with docker rm -f -v ([#966](https://github.com/cubrid-lab/pycubrid/issues/966)) ([4efe130](https://github.com/cubrid-lab/pycubrid/commit/4efe1307031b43a300bbb7fd675292e14cedc933)), refs [#964](https://github.com/cubrid-lab/pycubrid/issues/964)
+* **quickstart:** split the first query into its own lesson and map page roles ([#963](https://github.com/cubrid-lab/pycubrid/issues/963)) ([aca7dc2](https://github.com/cubrid-lab/pycubrid/commit/aca7dc20ee96cab2e5454945d6a255cb32e15720)), refs [#958](https://github.com/cubrid-lab/pycubrid/issues/958)
+* **quickstart:** split the remaining lessons and group navigation by reader ([#965](https://github.com/cubrid-lab/pycubrid/issues/965)) ([5d23755](https://github.com/cubrid-lab/pycubrid/commit/5d237551c56f4f1f756c027d5c24021c83f1d29e)), refs [#958](https://github.com/cubrid-lab/pycubrid/issues/958)
+* **release:** add a release review checklist to the runbook ([#968](https://github.com/cubrid-lab/pycubrid/issues/968)) ([4d5d84c](https://github.com/cubrid-lab/pycubrid/commit/4d5d84ccca773ec56090d30ada19364627ece29f))
+* **release:** set last-release-sha when an abandoned release has no tag ([#930](https://github.com/cubrid-lab/pycubrid/issues/930)) ([2e97ee9](https://github.com/cubrid-lab/pycubrid/commit/2e97ee94357252084e80abdc7b8535c5ecf37eb6))
+* **site:** keep wrapped lines that start with an issue number from rendering as headings ([#942](https://github.com/cubrid-lab/pycubrid/issues/942)) ([52c4ed4](https://github.com/cubrid-lab/pycubrid/commit/52c4ed435f1d508fcc569de1b2178f9926cdaa3b)), refs [#938](https://github.com/cubrid-lab/pycubrid/issues/938)
+* **site:** label the site as main-branch documentation with its build commit ([#967](https://github.com/cubrid-lab/pycubrid/issues/967)) ([36f2532](https://github.com/cubrid-lab/pycubrid/commit/36f253215dd71468212aceb0afcf1d2e52c8bc6e)), refs [#960](https://github.com/cubrid-lab/pycubrid/issues/960)
+* **troubleshooting:** clarify sync and async read timeouts ([#957](https://github.com/cubrid-lab/pycubrid/issues/957)) ([c324703](https://github.com/cubrid-lab/pycubrid/commit/c324703e05d2162cf27ba40a2ddbb5b83a6c61cb))
 
 ### CI
 
+- **The CUBRID 11.4 Docker test database is kept in a named volume (#1002)** — `docker-compose.yml` mounted its named volume only at `/var/lib/cubrid`, where images up to 11.3 keep their databases. `cubrid/cubrid:11.4` keeps them in `/home/cubrid/CUBRID/databases` (`CUBRID_DATABASES`, also its declared `VOLUME`), so with `CUBRID_VERSION=11.4` the database lived in an anonymous volume: `docker compose down` (also run at the end of every `make integration`) detached it, the next `up` started a new empty database, and each run left a dangling volume behind. A second named volume, `cubrid-databases`, now holds that path. Checked on CUBRID 10.2, 11.2 and 11.4: a table created before `docker compose down` is still there after `up`, `make docker-fix-db-host` works on 11.4, and `docker compose down -v` leaves no volume behind. Versions up to 11.3 still share `cubrid-data`; `docs/DEVELOPMENT.md` now says to run `make docker-down` before switching `CUBRID_VERSION`, since opening a database created by another CUBRID version is not verified. An 11.4 database kept in an earlier anonymous volume is not moved; it was already lost on the next `down` and `up`.
+
+- **The Docker test database keeps working after its container is recreated (#1000)** — the image registers the database in `databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume, for `CUBRID_DB_HOST`, or, when that is unset, for the creating container's hostname, its container ID. `docker-compose.yml` did not set it, and `docker compose down` (also run at the end of every `make integration`) keeps the volume, so the next container, with a new ID, could not resolve the recorded host: every connection failed with -353 and the next `make integration` retried 36 times before giving up. `docker-compose.yml` now sets `CUBRID_DB_HOST: localhost`, which a recreated container resolves; checked on CUBRID 10.2 and 11.2 across `down` and `up`, and with two full `make integration` runs on a repaired 11.2 volume. 11.4 keeps its databases outside that volume (see #1002 below). A volume created before this change keeps the old ID: `make docker-fix-db-host` rewrites only `testdb`'s host field to `localhost`, keeps the data and, on its first run, saves the previous file as `databases.txt.before-fix-db-host` (a later run keeps that copy), and `make docker-down` (`docker compose down -v`) deletes the volume and its data. `scripts/wait_for_cubrid.py` now receives `CUBRID_TEST_DOCKER_CONTAINER` from `make integration` and `make integration-tls`, and stops at the first -353 whose hosts all fail `getent hosts` inside that container, naming both fixes; a host that resolves, a failed lookup or no container keeps the existing retries. CI starts CUBRID as a service, not with Compose, and is unchanged; the driver is unchanged.
+
+- **The agent-evaluation runner's start record is created and read without following links (#985)** — `prepare` wrote its start record with `Path.write_text`, which follows a symlink at that path, and `collect` read it the same way. The record is now created with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0600`; a stale or planted entry at its path is removed (a symlink itself, never its target) and the record created afresh. `collect` reads it only as a regular file of at most 4 KiB, without following links, and otherwise falls back to `attempt.json`, labelled as such. The state directory is created with, or reset to, exactly `0700` (so neither group or other access nor a missing owner write bit remains) and refused when it is a symlink or belongs to another user. `run.json`'s `over_max_minutes` may be `"unknown"` as well as `true` or `false`.
+
+- **The agent-evaluation runner copies the checkout by descriptor and measures the attempt itself (#985)** — `collect` copied the held checkout with `shutil.copytree`, which descends into subdirectories and opens files by path, so a path swapped for a symlink during the copy could pull outside content into `candidate/patch.diff`. It now walks the checkout with `os.fwalk(follow_symlinks=False)` and opens every file relative to its directory's descriptor without following links; a symlink is copied as a link. The attempt's start time came only from the attempt-writable `attempt.json`, where a non-numeric `prepared_epoch` raised a traceback and a forged one could hide `over_max_minutes`. `prepare` now also records the start outside `OUT_DIR`, which `collect` prefers; without that record a valid `attempt.json` value is used and labelled, and an invalid one makes the duration and `over_max_minutes` `"unknown"`. `run.json` gains `duration_source`. This is opt-in contributor tooling; the driver is unchanged.
+
+- **Every repository-tooling test module and its inputs select the tooling lane (#983)** — tests marked `repo_tooling` run only in `repo-tooling-tests`, which runs only when the `tooling` paths filter matches, so a pull request that changed only one of 25 such modules (among them `tests/test_quality_tools.py`, `tests/test_docs_reason.py`, `tests/test_release_detect.py` and `tests/test_agent_eval.py`), or a file only they read, ran none of the tests that check it. The filter now lists every such module and the files only they read: `agent-evals/**`, the four tutorial pages the `lab-volume-964` acceptance script reads, `THIRD_PARTY_LICENSES.md`, `release-please-config.json` and `api-baseline.json`. A guard in `tests/test_workflow_path_impact.py` now fails when a module with `repo_tooling` tests is not selected; the always-on lint job (and its release copy) also runs it, because a pull request that adds only an unlisted module selects no tooling lane. Which tests each lane runs is unchanged.
+
 - **An offline grader for agent task evaluations (#925)** — `scripts/agent_eval.py` grades what a coding agent produced for a pycubrid task: a unified diff, the agent's report of what it ran and did not run, and a runner's record of the commands actually executed on the base and the patched tree. Against a versioned task manifest (`agent-evals/`, format 1: base commit, problem and evidence links, allowed files, required documentation, validation commands, regression tests, expected behavior, limits) it checks the scope, the size limits, that each named regression test is added by the patch and fails on the base but passes on the patch, the required documentation, SQL built by string formatting in added Python lines, and that every validation claim is backed by the evidence. It runs no model, test or network request; the grade is sorted JSON with input digests, so a replay is byte-identical, and there is no single score. `make agent-eval-check` self-tests it on seven hand-written candidates (a correct solution, a missing regression test, a misleading validation claim, an unrelated-file change, unsafe SQL, a test that already passes on the base, missing documentation). Ordinary CI and the driver's tests are unchanged; real task manifests and the opt-in runner follow in later pull requests.
+
+- **Three agent evaluation tasks from earlier pycubrid fixes (#925)** — `agent-evals/tasks/` adds `reply-bounds-383` (a malformed reply length must close the session without reading past the frame; #383), `lob-generation-932` (a LOB handle of a replaced physical session must fail before anything is sent; #932) and `lab-volume-964` (a tutorial documentation fix whose macOS check cannot run on Linux; #964). Each manifest links its issue, pull request and commit and ships the merged fix as `reference.diff`; each regression test was checked to exit 1 on the base with the fix's tests and to pass on the fix. The manifest format gains `[validation] manual`, checks only a person can do, which an attempt must list as not run and never claim; `[validation] acceptance`, scripts in the task directory that the runner runs on both trees and that must exit 1 on the base and 0 on the patch (`lab-volume-964` uses one to check the tutorial's removal commands and volume explanation, so a patch that only touches the required documents fails); and `[expected] reference_fix`. `grade --output FILE` now writes the grade to the file and prints only the verdict. `agent-evals/` joins the shared Ruff scope (`LINT_PATHS` and the pre-commit hooks). Ordinary CI and the driver are unchanged.
+
+- **An opt-in runner for agent evaluation attempts (#925)** — `scripts/agent_eval_run.py prepare` makes a fresh repository holding only a task's base commit (a depth-1 fetch, so the reference fix and later history are absent) and a prompt without the expected behavior, the reference fix or the evidence links. `collect TASK_DIR OUT_DIR` takes the task and the source repository from the caller, never from the attempt-writable `OUT_DIR` (whose `attempt.json` only has to agree with them), and takes the attempt's uncommitted changes as the candidate patch, builds the base tree (base plus the patch's `tests/` files) and the candidate tree (base plus the whole patch), runs the validation commands, regression tests and acceptance scripts there, writes their exit codes as evidence with redacted logs, grades the attempt and writes `run.json`: model and tool versions, prompt ID, seed, tokens and cost (`"unknown"` when not observed), base commit, duration against `max_minutes`, passing commands, out-of-scope edits, regression escapes, human review actions including every manual check, and the SHA-256 of every artifact. Git never runs in the attempt's checkout (its files are diffed in a fresh clone of the base, without external diff or textconv helpers). Each check runs, with every capability dropped, in new user, mount, PID and network namespaces inside a private root that exposes only the system directories and the interpreter read-only and the tree under test as the only writable path, so the caller's home directory, credential files, host sockets, the other tree and the runner's artifacts are not visible and there is no network; the checks run under process, address-space and file-size limits with a 512 MB `/tmp`; host-side Git ignores the caller's global and system configuration; the runner's scratch lives in a private temporary directory and it refuses symlinked or pre-existing paths in `OUT_DIR`, so an attempt cannot redirect what the runner writes; the environment is allowlisted, a timeout kills the whole process group, and where the sandbox cannot be built `collect` refuses to run unless `--no-sandbox` is passed and recorded. The runner never commits, pushes or publishes. `summarize` reports repeated attempts as distributions of verdicts and failed checks per task, never one success rate. It runs no model and is not part of ordinary CI; `make agent-eval-check` now also runs its tests. `AGENTS.md` links the evaluation guide from its task routing table.
 
 - **The documentation check reads three more `case` forms in shell commands (#977)** — `_substitution_end()` in the shared `scripts/_markdown.py` took `case` inside arithmetic (`$((case + 1))`) for a keyword, never closed an empty `case x in esac`, and let `esac` after a pattern `|` (`x|esac)`) close the `case`; each dropped the `make` goals of the whole documented command. It now tracks arithmetic parentheses and each `case`'s subject, `in`, clause start, pattern and body, as the cookbook copy does (cubrid-lab/cubrid-cookbook-python#404); the unused `_keyword_at()` is removed, and the file matches that copy apart from its header lines. The first review here found three more forms, also fixed: `;&` and `;;&` end a clause like `;;`, a word continued by a quote or backslash (`esac"x"`, `esac\*`) is a pattern rather than `esac`, and a `#` comment at a word boundary inside a substitution changes nothing (an escaped separator, a quote or a closing `)` keeps the word going, so the `#` stays literal). The 8 cookbook regression cases (3 failed here before) and 13 new ones are added; the cookbook copy takes the same change next so the copies stay identical.
 

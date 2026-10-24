@@ -298,6 +298,7 @@ See [CI execution policy](docs/CI_POLICY.md) and [support matrix](docs/SUPPORT_M
 | [Parameter Binding](docs/PARAMETER_BINDING.md) | Driver-side literal-binding contract: per-type SQL mapping, escaping rules, non-guarantees |
 | [API Reference](docs/API_REFERENCE.md) | Complete API documentation — modules, classes, functions |
 | [Protocol](docs/PROTOCOL.md) | CAS wire protocol reference |
+| [CAS Concepts](docs/CAS_OVERVIEW.md) | Advanced: Broker, CAS process, CAS wire protocol and CCI, and how DB-API calls map to them |
 | [Development](docs/DEVELOPMENT.md) | Dev setup, testing, Docker, coverage, CI/CD |
 | [Examples](docs/EXAMPLES.md) | Practical usage examples with code |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Connection errors, query problems, LOB handling, debugging |

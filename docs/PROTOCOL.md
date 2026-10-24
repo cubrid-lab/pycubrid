@@ -2,6 +2,8 @@
 
 Technical documentation for the CUBRID CAS (Common Application Server) wire protocol as implemented by pycubrid.
 
+New to CAS? [CAS Architecture and Protocol Concepts](CAS_OVERVIEW.md) introduces the Broker, CAS process and CCI and maps DB-API calls to function codes before this reference.
+
 ---
 
 ## Table of Contents
@@ -794,8 +796,9 @@ the locator's trailing NUL. Each row cell
 of a FETCH or inline execute reply must use exactly the bytes its size word
 declares: fixed-width values (`INT`, `DATE`, `OBJECT`, ...) do not read the size
 themselves, so the row parser checks it against the type's width before reading
-the value (#523), also when it re-walks a reply before raising `DataError`; a
-non-positive size is SQL `NULL`. A negative FETCH tuple count is malformed too, and
+the value (#523), also when it re-walks a reply before raising `DataError`. The
+CAS writes SQL `NULL` as size `-1`; a non-positive size is `NULL`, except that a
+`BIT`/`VARBIT` cell of size `0` is an empty bit string, `b""` (#994). A negative FETCH tuple count is malformed too, and
 so is a negative column count or column name, real-name, table-name or default
 length in FC2, FC3 or FC41 column metadata (#555); a zero length is an empty
 string. FC41 also rejects a negative bind count, `total_tuple_count` or inline
@@ -869,7 +872,8 @@ header longer than its cell is a malformed reply.
 
 A collection value is one element-type byte, a 4-byte element count, then a
 4-byte length and payload per element; a NULL element has length `-1` and no
-payload. When every element is NULL, CUBRID 10.2/11.4 send element type `0`
+payload. An empty `BIT`/`VARBIT` element (`X''`) has length `0` and decodes as
+`b""`; a length-0 element of any other type decodes as `None` (#998). When every element is NULL, CUBRID 10.2/11.4 send element type `0`
 (NULL): `{}` is `00 00000000` and `{NULL, NULL}` is `00 00000002 ffffffff ffffffff`.
 
 Column data is transmitted as a 4-byte size prefix followed by the raw data. The type determines how the data bytes are interpreted:
@@ -881,8 +885,8 @@ Column data is transmitted as a 4-byte size prefix followed by the raw data. The
 | 2         | `STRING`   | Null-terminated string in the connection charset (default UTF-8) |
 | 3         | `NCHAR`    | Null-terminated string in the connection charset (default UTF-8) |
 | 4         | `VARNCHAR` | Null-terminated string in the connection charset (default UTF-8) |
-| 5         | `BIT`      | Raw bytes |
-| 6         | `VARBIT`   | Raw bytes |
+| 5         | `BIT`      | Raw bytes; size 0 → `b""` (#994) |
+| 6         | `VARBIT`   | Raw bytes; size 0 → `b""` (#994) |
 | 7         | `NUMERIC`  | Null-terminated string → `Decimal` |
 | 8         | `INT`      | 4-byte big-endian signed int |
 | 9         | `SHORT`    | 2-byte big-endian signed short |

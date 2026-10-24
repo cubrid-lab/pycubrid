@@ -77,6 +77,8 @@ dmypy.json
 .DS_Store
 Thumbs.db
 integration-results.xml
+# make test / make integration result summaries (#1024)
+test-results/
 
 # Official-driver differential oracle build and evidence (#446)
 .official-oracle/

@@ -59,7 +59,7 @@ test = [
     "jinja2>=3.1",
 ]
 lint = [
-    "ruff==0.17.0",
+    "ruff==0.17.1",
     "mypy==2.4.0",
     "pre-commit",
 ]
@@ -68,7 +68,7 @@ security = [
 ]
 build = [
     "build",
-    "setuptools==84.0.0",
+    "setuptools==84.1.0",
     "wheel==0.48.0",
 ]
 release = [
@@ -78,14 +78,14 @@ release = [
 docs = [
     "mkdocs==1.6.1",
     "mkdocs-material==9.7.7",
-    "pymdown-extensions==12.1",
+    "pymdown-extensions==12.3",
     # The deterministic documentation checks in the docs-check CI job (#927).
     "markdown-it-py==4.2.0",
 ]
 mutation = [
     "mutmut>=3.8,<4",
 ]
-# Everything a contributor needs for `make check-all` and `make test`; the same
+# Everything a contributor needs for `make check` and `make test`; the same
 # set the former `dev` extra installed.
 dev = [
     {include-group = "test"},

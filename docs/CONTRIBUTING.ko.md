@@ -36,6 +36,10 @@ pip install -e . --group dev
 `pip install -e ".[dev]"` extra는 더 이상 없으며 `pip install -e . --group dev`로
 대체되었습니다(#784).
 
+이어서 `make doctor`로 필요한 모든 도구가 이 환경에서 실행되는지 확인하세요. 하나라도
+없거나 동작하지 않으면 성공 메시지 없이 0이 아닌 상태로 종료합니다. `make help`는 나머지
+대상을 목적별로 묶어 보여 줍니다.
+
 ## 테스트 실행
 
 ### 오프라인 테스트
@@ -44,6 +48,9 @@ pip install -e . --group dev
 make test
 ```
 
+`make test`와 `make integration`은 `test-results/`(JUnit, `PASS`/`FAIL`/`INCOMPLETE`를 담은
+`summary.json`, `environment.json`)도 씁니다. gitignore 대상이며 `make clean`이 삭제합니다.
+
 ### 통합 테스트
 
 ```bash
@@ -51,13 +58,23 @@ make integration                          # Docker broker on localhost:33000
 make integration CUBRID_TEST_PORT=33522   # use a free port if 33000 is taken
 ```
 
-`make integration`은 준비가 될 때까지 기다리며, 브로커가 준비되지 않거나 선택한
-테스트가 모두 스킵되면 실패하고 항상 컨테이너를 제거합니다. 이미 실행 중인
+`make integration`은 `scripts/run_integration.py`를 통해 준비가 될 때까지 기다리며,
+브로커가 준비되지 않거나 선택한 테스트가 모두 스킵되면 실패하고 Ctrl-C나 SIGTERM에서도
+항상 컨테이너를 제거합니다. 데이터 볼륨은 유지합니다. 이미 실행 중인
 서버를 검사하려면 엔드포인트를 명시하세요:
 
 ```bash
 CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
   pytest tests/ -m "integration and not slow and not tls" -v
+```
+
+실행 사이에 데이터베이스를 유지하려면 수동 수명 주기를 사용하세요. 브로커는 `127.0.0.1`에만
+게시되며, `CUBRID_VERSION`과 `CUBRID_TEST_PORT`로 이미지 태그와 호스트 포트를 바꿀 수 있습니다:
+
+```bash
+make docker-up                            # 127.0.0.1:33000에서 CUBRID 시작
+make docker-down                          # 컨테이너와 네트워크 제거, 데이터 유지
+make docker-clean                         # 파괴적: 데이터 볼륨까지 삭제
 ```
 
 `CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 통합 테스트를 *활성화*합니다.
@@ -75,10 +92,12 @@ CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
 
 ## 코드 스타일
 
-이 프로젝트는 Ruff로 린트와 포맷 검사를 수행합니다.
+이 프로젝트는 Ruff로 린트와 포맷 검사를 수행합니다. 아래 두 검사는 파일을 수정하지
+않으며, `make check`는 이 검사들을 typecheck, security, docs-reason-check와 함께 실행합니다.
 
 ```bash
-make lint
+make lint            # ruff check
+make format-check    # ruff format --check
 ```
 
 자동 수정:
@@ -102,7 +121,7 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 훅도 명시적으로 `pycubrid/`를 검사합니다.
 
 도구를 갱신하려면 `pyproject.toml`의 `lint` 의존성 그룹에 있는 버전 고정값을 변경하고
-`dev` 그룹을 다시 설치한 뒤 `make check-all`과 `pre-commit run --all-files`를 실행하세요.
+`dev` 그룹을 다시 설치한 뒤 `make check`와 `pre-commit run --all-files`를 실행하세요.
 별도로 수정할 훅 revision은 없습니다. 드리프트 게이트는 누락·모호한 고정값,
 고정값과 다른 설치 버전, 좁아진 검사 범위를 거부합니다. Dependabot의 `pip`
 생태계는 `pyproject.toml` 고정값만 갱신할 수 있으며, pre-commit 훅이 항상 설치된
@@ -112,37 +131,31 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 
 1. 변경을 한 가지 목적에 집중하고 PR 설명에 동기를 적으세요.
 2. 동작 변경에 맞는 테스트를 추가하거나 갱신하세요.
-3. `make check-all`과 `make test`를 실행하고 명령·결과와 실행하지 못한 검사를 기록하세요.
+3. `make check`와 `make test`를 실행하고(`make verify`는 둘 다 실행하며, `make check-all`은
+   `make check`의 폐기 예정 별칭입니다) 명령·결과와 실행하지 못한 검사를 기록하세요.
 4. 연결·프로토콜 관련 변경에는 통합 테스트를 실행하세요.
 5. 사용자에게 보이는 변경은 `CHANGELOG.md`에 기록하세요.
 
-메인테이너나 에이전트가 작성한 PR은 [AGENTS.md](../AGENTS.md#development-workflow-cubrid-lab-org-standard)의
-도구별 리뷰 경로를 따릅니다. 중요한 OpenCode 작업은 문서화된 Oracle 설계 리뷰와 구현 후
-리뷰를 거치고, 사소한 OpenCode 수정은 이유를 기록하면 이 리뷰를 생략할 수 있습니다.
-Claude Code, Codex, ChatGPT 등 독립 에이전트 도구는 병합 전에 PR에 제출된 실질적인
-GitHub Copilot 리뷰나 메인테이너의 리뷰를 기다립니다(메인테이너 결정, 2026-10-15). 구현자가
-실행한 리뷰어 에이전트는 인정되지 않습니다. 리뷰 요청, 자체 리뷰, 통과한 CI, 자동 승인
-제안만으로는 리뷰 경로가 완료되지 않습니다. 최종 결과, 반영한 지적과 해결되지 않은 스레드는
-AGENTS.md에 따라 기록합니다. 사람의 기여는 일반 기여자 리뷰를 따르며, 어떤 에이전트나 내부
-리뷰 도구도 설치하거나 사용할 필요가 없습니다.
+모든 PR에는 **사람이 직접 작성했는지, OpenCode, Codex, Claude Code, ChatGPT 등
+어떤 도구로 구현했는지와 관계없이 동일한 검토 기준**이 적용됩니다.
+특정 AI 도구의 Oracle 사전·사후 리뷰나 Copilot 리뷰는 필수 조건이 아닙니다.
+최종 변경에 대해 GitHub CI의 필수 검사가 통과해야 하며, 로컬 검사는 권장하지만
+별도의 병합 필수 조건은 아닙니다. 실제 실행한 명령과 결과, 실행하지 못한
+검사 및 이유를 기록합니다. 메인테이너가 정확성, 테스트, 보안, 호환성과
+미해결 지적을 확인하고 병합 여부를 결정합니다.
 
-`.github/workflows/agent-review.yml`의 `agent-review` 체크는 GitHub에 기록된 리뷰만 읽어 이
-리뷰 경로가 충족됐는지 알려 주는 **참고용(advisory)** 체크입니다. 최종 head에 대해 두 차례 AI
-리뷰 예산 안에서 제출된 실질적인 Copilot 리뷰, 또는 메인테이너의 `APPROVED` 리뷰나 인라인
-스레드를 연 `COMMENTED` 리뷰만 인정합니다. PR 본문 체크박스, 대기 중인 리뷰 요청, 자체 리뷰,
-다른 사람이나 다른 AI 에이전트의 리뷰, 이전 커밋에 대한 리뷰는 인정하지 않습니다. 바인딩,
-프로토콜, 패킷, 연결/TLS, `compat` 모듈, 모든 워크플로, 릴리스 및 레인 점검 스크립트와 이
-게이트 자체를 바꾸는 PR에는 메인테이너의 `APPROVED` 리뷰가 필요합니다. PR이 같은 이름의 체크를
-게시할 수 있으므로, PR이 흉내 낼 수 없는 주체(GitHub App 등)가 결과를 게시할 때까지(#945)
-필수 체크로 지정하지 않습니다. 자세한 규칙은
-[CONTRIBUTING.md](../CONTRIBUTING.md#agent-review-evidence-gate)에 있습니다.
+`agent-review`는 과거 리뷰 기록을 요약하는 **참고용(advisory)** 진단입니다.
+결과가 승인이나 필수 병합 기준을 의미하지 않으며 Oracle, Copilot 등
+AI 검토 결과 역시 참고자료입니다. 단, 워크플로 권한, 연결/TLS, 프로토콜,
+릴리스·게시 관련 고위험 변경의 독립적인 메인테이너 검토와 기존 보안
+요건은 구현 도구와 관계없이 유지합니다. 자세한 사항은
+[CONTRIBUTING.md](../CONTRIBUTING.md#agent-review-evidence-gate)를 참고하세요.
 
 `.github/CODEOWNERS`는 릴리스, CI, 보안 정책, 와이어 프로토콜/연결 경로의 변경에
 메인테이너 리뷰를 자동으로 요청합니다. 리뷰 라우팅만 담당하며 보안 경계가 아니고,
 그 밖의 변경은 코드 오너를 기다리지 않습니다.
 
-외부 기여자는 동기, 구현, 테스트와 관련 문서를 제공합니다. 메인테이너는 내부
-Oracle/에이전트 검토, 통합 검증과 릴리스 분류를 조율합니다. 이런 프로젝트 도구의
+외부 기여자는 동기, 구현, 테스트와 관련 문서를 제공합니다. 메인테이너는 선택적인 AI 검토, 통합 검증과 릴리스 분류를 조율합니다. 이런 프로젝트 도구의
 설치는 외부 기여의 사전 조건이 아닙니다. 기여자 저작 정보를 보존하고, 실제로
 그 도구가 커밋을 작성했을 때만 도구 출처를 추가하세요.
 
