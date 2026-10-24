@@ -216,6 +216,32 @@ These rules add to the release procedure above; the procedures and gates in
   selective fix needs a dry-run diff and maintainer approval. Never invent PR or commit
   references. Note formatting never changes tags, dates, artifacts or publish state.
 
+## PR overlap and execution precedence
+
+- Before opening a PR, inspect the linked issue's current decision and
+  dependencies, open PRs on the same behavior/files and relevant changes
+  merged to `main`. Describe `Supersedes #N`, `Depends on #N` or
+  `Parallel to #N` with a reason, or state `None`.
+- Compare accepted behavior, scope and evidence to choose the canonical PR;
+  neither the newest PR nor the earliest issue wins automatically. Recheck
+  overlap and prerequisites against current `main` before merge. Passing CI
+  cannot waive an unresolved design decision, protected-path approval or a
+  breaking-release boundary.
+- After the canonical PR merges, reconcile displaced open PRs and linked issues
+  in the same review cycle. Explain and close truly superseded work with a
+  replacement link, or record why independent work remains. Keep external
+  contributors' discussions and coordinate ownership rather than silently
+  replacing their contributions.
+- When contributor policy changes, check active issue/PR descriptions and
+  templates for contradictions, and amend them or record a narrow follow-up.
+- Issue `priority: ...` expresses urgency and `size: ...` effort, not merge
+  readiness. Choose the next executable work by severity, satisfied
+  dependencies, risk, final-head validation and maintainer release decisions.
+  Record exceptional reordering in the relevant issue. Preserve the required
+  CI, protocol/connection security and major-release safeguards.
+
+No new workflow, bot or merge gate is implied by this coordination check.
+
 ## Issue specification and ownership
 
 Issues and implementation acceptance are repository-local: file work in the
