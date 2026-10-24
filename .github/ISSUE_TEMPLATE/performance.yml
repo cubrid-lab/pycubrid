@@ -1,7 +1,7 @@
 name: Performance Investigation
 description: Report a measured performance regression or gap detected by cubrid-benchmark
 title: "perf: "
-labels: ["performance"]
+labels: ["performance", "status: needs triage"]
 body:
   - type: markdown
     attributes:

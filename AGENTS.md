@@ -302,6 +302,35 @@ implementation follows the agreed contract.
   Re-read the issue after saving. Never mark a tracker complete just because
   its children merged; confirm its integration acceptance separately.
 
+## Issue triage lifecycle
+
+All newly opened issues in **this repository** begin with `status: needs triage`,
+including maintainer- or agent-created issues. Issue forms add the status
+immediately; the `issues: opened` workflow covers external submissions.
+GitHub Actions using `GITHUB_TOKEN` must set the label at issue creation
+because their own events do not retrigger the workflow.
+
+1. **Validate:** check the observed problem and evidence (or state what is
+   unknown), title/type, repository ownership, scope/non-goals, acceptance
+   criteria and real dependencies. Search open and recently closed issues and
+   open PRs for duplicates; close invalid/duplicate requests with a reason.
+2. **Compare:** inspect the **complete currently open issue backlog** in this
+   repository, including paginated results, existing priorities, active PRs,
+   risk, and blocked prerequisites. Record any justified changes to older
+   issue priorities; avoid automatic rankings by age or issue number.
+3. **Classify:** set exactly one `priority: critical/high/medium/low` and
+   exactly one of the existing `size: XS/S/M/L/XL`. Size is estimated effort,
+   not urgency; split an oversized scope into independently verifiable tasks.
+   Preserve other labels, assignees and contributors' claims.
+4. **Confirm:** re-fetch the saved issue and confirm the actual type, priority,
+   size, overlap disposition and review decision. Only then remove
+   `status: needs triage`. If investigation or a dependency decision is
+   still pending, retain it. No workflow may auto-assign priority or clear
+   triage merely because labels are present.
+
+This is issue management, **not** a required PR check or a license to
+weaken protected code, CI, security, integration or release requirements.
+
 ## Issue Labeling (cubrid-lab org standard)
 
 Write GitHub issues, PRs and comments in English; localized documentation remains
@@ -313,16 +342,15 @@ triagers assign exactly one `priority: <value>` label and exactly one `size: <va
 alongside a type label (`bug`/`enhancement`/`documentation`/`chore`/`ci`/…) and an
 `area:` label when applicable. These must be GitHub labels, not just text in the
 issue title or body. Reporters describe urgency and effort without needing label
-permissions. Maintainer-created issues receive these labels at creation; permissionless
-reports receive them during initial maintainer triage.
+permissions. All newly filed issues enter `status: needs triage` first; priority and size
+are finalized during maintainer triage, not guessed from the issue title.
 
 Issue titles use the same `type(scope): description` format as pull request
 titles (see [CONTRIBUTING.md](CONTRIBUTING.md#pull-request-and-commit-titles)).
-`.github/workflows/issue-triage.yml` flags incomplete human-submitted issue
-titles or labels as `status: needs triage` without posting a comment or
-guessing priority/size. Maintainers remove that label once triage is complete.
-Agents and workflows creating issues through CLI/API must supply canonical
-metadata at creation; `GITHUB_TOKEN`-created issues do not retrigger this guard.
+`.github/workflows/issue-triage.yml` marks every externally opened issue as
+`status: needs triage`. Automation using `GITHUB_TOKEN` must attach this status
+when creating the issue, because those actions may not trigger another workflow.
+The responsible maintainer removes it only after the review below is complete.
 
 Use the following exact names, with **one space after the colon**:
 
@@ -349,10 +377,9 @@ helps contributors pick appropriately scoped work.
 Rules:
 
 1. **Size reflects effort, not importance** — a one-line fix for a critical bug is still `size: XS`.
-2. **Maintainers assign both `priority:` and `size:` at creation/initial triage.** If scope or impact
-   is uncertain, use a provisional estimate, explain the uncertainty in the body,
-   and add `status: needs triage` (or the repo's equivalent). Refine the estimates
-   during triage rather than omitting either required label.
+2. **Maintainers finalize both `priority:` and `size:` during triage.** If
+   evidence is uncertain, keep `status: needs triage`; a provisional estimate
+   never means the issue was reviewed.
 3. **`good first issue` should be `size: XS` or `size: S`.** If a good-first-issue grows
    past `size: S`, re-scope it or drop the `good first issue` label.
 4. **`size: XL` is a signal to split**, not a green light to start a sprawling change.
