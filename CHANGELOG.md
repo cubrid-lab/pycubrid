@@ -86,6 +86,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **CI publishes the test-results summary and uploads it on every run (#1024)** — the offline
+  (`offline-tests`, `offline-endpoints`), integration and TLS integration jobs of `ci.yml` and
+  `integration-full.yml` write their JUnit XML to `test-results/<lane>/junit.xml`, run
+  `scripts/report_results.py summarize` and append its one-line summary to the job summary,
+  then upload `test-results/` with `actions/upload-artifact` (the commit `publish-pypi.yml`
+  already pins), both with `if: always()`; one 7-day artifact per matrix entry. Test
+  selection, coverage files, Codecov uploads, lane checks, permissions, secrets and triggers
+  are unchanged.
+
 - **The lint lanes run `make check` (#1007)** — `ci.yml`, its release copy in
   `integration-full.yml` and `maintenance.yml` call `make check` instead of `make lint` (and,
   in `maintenance.yml`, a separate Bandit command).

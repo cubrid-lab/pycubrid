@@ -120,8 +120,24 @@ jobs:
         run: |
           python scripts/check_integration_lanes.py
           python -m pytest tests/ -m "integration and not slow and not tls" -v --tb=short \
-            --junitxml=normal-results.xml
-          python scripts/check_integration_lanes.py --results normal-results.xml
+            --junitxml=test-results/integration/junit.xml
+          python scripts/check_integration_lanes.py --results test-results/integration/junit.xml
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane integration --results-dir test-results/integration \
+            --exit-code ${{ job.status == 'success' && 0 || 1 }}
+          python scripts/report_results.py step-summary --results-dir test-results/integration \
+            --title "Integration tests (Python ${{ matrix.python-version }}, CUBRID ${{ matrix.cubrid-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-integration-py${{ matrix.python-version }}-cubrid${{ matrix.cubrid-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
 
   integration-tls:
     needs: validate-target
@@ -317,9 +333,25 @@ jobs:
           # cannot pass silently: every selected test must run.
           python -m pytest tests/ -m "integration and tls" -v --tb=short \
             -o addopts="" -p no:cacheprovider \
-            --junitxml=tls-results.xml \
+            --junitxml=test-results/integration-tls/junit.xml \
             --no-header --no-summary -rN 2>&1 | tee tls-run.log
-          python scripts/check_integration_lanes.py --results tls-results.xml
+          python scripts/check_integration_lanes.py --results test-results/integration-tls/junit.xml
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane integration-tls --results-dir test-results/integration-tls \
+            --exit-code ${{ job.status == 'success' && 0 || 1 }}
+          python scripts/report_results.py step-summary --results-dir test-results/integration-tls \
+            --title "TLS integration tests (Python ${{ matrix.python-version }}, CUBRID ${{ matrix.cubrid-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-integration-tls-py${{ matrix.python-version }}-cubrid${{ matrix.cubrid-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Capture TLS broker logs on failure
         if: failure()
         run: docker logs cubrid-tls || true
@@ -635,7 +667,25 @@ jobs:
             --cov=pycubrid \
             --cov-report=term-missing \
             --cov-report=xml:coverage-py${{ matrix.python-version }}.xml \
+            --junitxml=test-results/test/junit.xml \
             --cov-fail-under=95
+      - name: Publish test results summary
+        if: always()
+        shell: bash
+        run: |
+          python scripts/report_results.py summarize --lane test --results-dir test-results/test \
+            --exit-code ${{ job.status == 'success' && 0 || 1 }} \
+            --coverage coverage-py${{ matrix.python-version }}.xml
+          python scripts/report_results.py step-summary --results-dir test-results/test \
+            --title "Offline tests (Python ${{ matrix.python-version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-test-py${{ matrix.python-version }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
 
   # The four ci.yml lanes below (#750) run on the exact release SHA for the same
   # reason as offline-endpoints: a main push run of ci.yml covers them, but

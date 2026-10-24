@@ -49,7 +49,9 @@ make test
 
 `make test` and `make integration` also write `test-results/` (JUnit, `summary.json` with
 `PASS`/`FAIL`/`INCOMPLETE`, `environment.json`; gitignored, removed by `make clean`); see
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#integration-tests) for the files.
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#integration-tests) for the files. CI writes the same
+layout, appends each lane's summary to the job summary and uploads `test-results/` as a
+7-day artifact named `test-results-<lane>-...` on every run, pass or fail.
 
 ### Integration tests
 

@@ -10349,6 +10349,9 @@ TLS tests need an SSL-enabled broker; see
 `make integration-tls` write `test-results/integration/` and
 `test-results/integration-tls/` (`junit.xml`, `summary.json`, `environment.json`, and
 `service.log` after a failed run). The directory is gitignored and `make clean` removes it.
+CI writes the same layout for its offline, integration and TLS jobs, appends the one-line
+summary to the job summary and uploads `test-results/` as a 7-day artifact named
+`test-results-<lane>-py<python>[-cubrid<version>]` on every run, pass or fail.
 `scripts/report_results.py` builds `summary.json` (`schema_version`, `lane`, `status`,
 `exit_code`, per-outcome `counts`, `coverage`) and prints the same status and counts as one
 console line. `status` is `PASS` only when at least one test passed, none failed or

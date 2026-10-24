@@ -332,6 +332,9 @@ TLS 테스트는 SSL이 켜진 브로커가 필요합니다.
 `test-results/integration/`, `test-results/integration-tls/`에
 `junit.xml`, `summary.json`, `environment.json`(실패한 실행에서는 `service.log`도)을 씁니다.
 이 디렉터리는 gitignore 대상이며 `make clean`이 삭제합니다.
+CI도 오프라인, 통합, TLS 통합 job에서 같은 구조로 결과를 쓰고, 한 줄 요약을 job 요약에
+추가하며, 성공·실패와 관계없이 매 실행마다 `test-results/`를
+`test-results-<lane>-py<python>[-cubrid<version>]`라는 7일 보관 아티팩트로 업로드합니다.
 `scripts/report_results.py`가 `summary.json`(`schema_version`, `lane`, `status`, `exit_code`,
 결과별 `counts`, `coverage`)을 만들고 같은 상태와 개수를 콘솔 한 줄로 출력합니다.
 `status`는 통과한 테스트가 하나 이상이고 실패·오류가 없으며 종료 상태가 0일 때만 `PASS`,

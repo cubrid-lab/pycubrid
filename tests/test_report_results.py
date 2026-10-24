@@ -132,3 +132,25 @@ def test_environment_json_holds_no_process_environment(tmp_path: Path, monkeypat
 
 def test_step_summary_without_summary_json(tmp_path: Path) -> None:
     assert "No readable" in rr.step_summary(tmp_path, None)
+
+
+def test_step_summary_cli_prints_a_titled_console_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    junit = _junit(tmp_path, PASS, FAIL)
+    rr.main(["summarize", "--lane", "test", "--results-dir", str(tmp_path), "--exit-code", "1"])
+    capsys.readouterr()
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert junit.is_file()
+    assert rr.main(["step-summary", "--results-dir", str(tmp_path), "--title", "Unit"]) == 0
+    assert capsys.readouterr().out == f"### Unit\n\n`{rr.console_line(summary)}`\n"
+
+
+@pytest.mark.parametrize("content", ["{not json", '{"lane": "t"}'])
+def test_step_summary_reports_an_unreadable_summary_and_exits_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], content: str
+) -> None:
+    (tmp_path / "summary.json").write_text(content)
+    assert rr.main(["step-summary", "--results-dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("### Test results\n\n") and "No readable" in out
