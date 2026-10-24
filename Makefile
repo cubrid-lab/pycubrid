@@ -1,4 +1,4 @@
-.PHONY: help install doctor tooling-check lint format-check format typecheck security docs-reason-check check check-all verify test mutation integration integration-local integration-tls docker-up docker-down docker-fix-db-host changelog clean clean-all release-check agent-eval-check
+.PHONY: help install doctor tooling-check lint format-check format typecheck security docs-reason-check check check-all verify test mutation integration integration-local integration-tls docker-up docker-down docker-clean docker-fix-db-host changelog clean clean-all release-check agent-eval-check
 
 # Every tool runs through the same interpreter, and each can be overridden from the
 # command line or the environment, e.g. `make check PYTHON=.venv/bin/python`.
@@ -114,12 +114,18 @@ integration-local: ## Run integration tests against an already-running CUBRID (s
 integration-tls: ## Run async TLS integration tests (requires SSL=ON broker; see CONTRIBUTING.md)
 	$(RUN_INTEGRATION) --lane tls
 
-docker-up: ## Start CUBRID Docker container (published on CUBRID_TEST_PORT, default 33000)
+# Manual lifecycle (#1006): docker-up starts the compose service, docker-down removes
+# its container and network but keeps the named data volumes, and docker-clean is
+# the one target that also deletes them.
+docker-up: ## Start CUBRID Docker container (published on 127.0.0.1:CUBRID_TEST_PORT, default 33000)
 	CUBRID_TEST_PORT=$(CUBRID_TEST_PORT) docker compose up -d
 	@echo "CUBRID container starting..."
 
-docker-down: ## DESTRUCTIVE: stop and remove the CUBRID container and its data volumes (deletes the test data)
-	docker compose down -v
+docker-down: ## Stop and remove the CUBRID container and network; keeps the test data volumes
+	CUBRID_TEST_PORT=$(CUBRID_TEST_PORT) docker compose down
+
+docker-clean: ## DESTRUCTIVE: like docker-down, and also delete the test data volumes
+	CUBRID_TEST_PORT=$(CUBRID_TEST_PORT) docker compose down -v
 
 # A volume created before docker-compose.yml set CUBRID_DB_HOST registers testdb
 # for the creating container's ID, which a recreated container cannot resolve

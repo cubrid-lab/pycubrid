@@ -340,7 +340,7 @@ TLS tests need an SSL-enabled broker; see
 [Async TLS integration tests](#async-tls-integration-tests).
 
 
-`make integration` and `make integration-tls` clean up containers after success, readiness failure or test failure, while preserving existing Docker volumes. Explicit `make docker-down` uses `down -v` and removes volumes. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
+`make integration` and `make integration-tls` clean up containers after success, readiness failure or test failure, while preserving existing Docker volumes. `make docker-down` also keeps them; only `make docker-clean` (`down -v`) removes the volumes and the test data. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
 
 **Enabling integration vs. choosing the endpoint.** Integration tests are
 *enabled* when `CUBRID_TEST_URL` or `CUBRID_TEST_HOST` is set to a non-empty
@@ -515,7 +515,7 @@ services:
       CUBRID_DB: testdb
       CUBRID_DB_HOST: localhost
     ports:
-      - "${CUBRID_TEST_PORT:-33000}:33000"
+      - "127.0.0.1:${CUBRID_TEST_PORT:-33000}:33000"
     volumes:
       - cubrid-data:/var/lib/cubrid
       - cubrid-databases:/home/cubrid/CUBRID/databases
@@ -525,20 +525,32 @@ volumes:
   cubrid-databases:
 ```
 
-The full file also defines a `healthcheck`.
+The full file also defines a `healthcheck` that runs `csql -u dba testdb -c "SELECT 1"`.
+The broker is published only on `127.0.0.1`, so it is reachable from this host but not
+from the network; `CUBRID_VERSION` (default `11.2`) and `CUBRID_TEST_PORT` (default
+`33000`) are the supported overrides. The service has no fixed `container_name`, so
+separate Compose projects (`COMPOSE_PROJECT_NAME` or `docker compose -p`) can run side by
+side on different ports.
 
 `CUBRID_DB_HOST: localhost` makes the image register `testdb` for `localhost` in
 `databases.txt`. Images up to 11.3 keep it and the database on the `cubrid-data` volume,
 and 11.4 on `cubrid-databases`, so `docker compose down` keeps the database on every
 supported version. Versions up to 11.3 share `cubrid-data`; a database created by one
-CUBRID version is not guaranteed to open on another, so run `make docker-down` (which
+CUBRID version is not guaranteed to open on another, so run `make docker-clean` (which
 deletes the test data) before switching `CUBRID_VERSION`. Without it the image records the creating container's ID,
 and the database stops working once that container is recreated
 ([Troubleshooting](TROUBLESHOOTING.md#database-server-host-not-found-after-recreating-the-container)).
 
 ### Commands
 
+The Makefile wraps the manual lifecycle; each target passes `CUBRID_TEST_PORT` to Compose:
+
 ```bash
+make docker-up                            # start CUBRID (127.0.0.1:33000)
+make docker-up CUBRID_TEST_PORT=33522     # same, on another host port
+make docker-down                          # remove container and network, keep the data
+make docker-clean                         # DESTRUCTIVE: also delete the data volumes
+
 # Start with default CUBRID 11.2
 docker compose up -d
 

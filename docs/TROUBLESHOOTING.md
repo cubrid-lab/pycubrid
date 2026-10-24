@@ -1188,7 +1188,7 @@ make docker-fix-db-host
 The first run saves the previous file next to it as `databases.txt.before-fix-db-host`;
 a later run keeps that copy.
 
-**Fix, deleting the data:** `make docker-down` runs `docker compose down -v`, which
+**Fix, deleting the data:** `make docker-clean` runs `docker compose down -v`, which
 **removes the volume and every table in it**; the next `make docker-up` creates a fresh
 database. Use it only for a volume whose data you do not need.
 

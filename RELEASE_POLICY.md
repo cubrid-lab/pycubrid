@@ -305,6 +305,15 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Non-destructive `make docker-down` and loopback Compose broker (#1006)** —
+  development-tooling change; no release on its own. `make docker-down` keeps the
+  named test-data volumes and the new `make docker-clean` is the only target that
+  deletes them, which supersedes "`make docker-down` remains destructive" (#501)
+  and "`make docker-down` deletes both" (#1002) below. `docker-compose.yml`
+  publishes the broker only on `127.0.0.1`. Driver APIs, connection semantics,
+  package dependencies, `make integration` cleanup and CI service containers are
+  unchanged.
+
 - **Empty `BIT`/`BIT VARYING` collection elements (#998)** — PATCH / bug fix to
   the documented collection decoding (`docs/PROTOCOL.md`, `docs/TYPES.md`). With
   `decode_collections=True`, a `BIT`/`VARBIT` element of length `0` (an empty

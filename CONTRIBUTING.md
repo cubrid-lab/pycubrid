@@ -64,6 +64,16 @@ CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
   pytest tests/ -m "integration and not slow and not tls" -v
 ```
 
+For a database that stays up between runs, use the manual lifecycle. The broker is
+published only on `127.0.0.1`; `CUBRID_VERSION` and `CUBRID_TEST_PORT` override the
+image tag and host port:
+
+```bash
+make docker-up                            # start CUBRID on 127.0.0.1:33000
+make docker-down                          # remove container and network, keep the data
+make docker-clean                         # DESTRUCTIVE: also delete the data volumes
+```
+
 `CUBRID_TEST_URL` or `CUBRID_TEST_HOST` *enables* integration tests; the
 endpoint comes from the per-field `CUBRID_TEST_*` variables, then the URL, then
 `localhost:33000/testdb` as user `dba`. With nothing configured, integration

@@ -372,7 +372,8 @@ def test_stale_database_host_fails_fast_with_repair_hint(
     err = capsys.readouterr().err
     assert "host(s) ee2bfa1105f9 do not resolve inside container fa382e70ffe2" in err
     assert "make docker-fix-db-host" in err
-    assert "make docker-down" in err
+    assert "make docker-clean" in err
+    assert "make docker-down" not in err
     assert "never became ready" not in err
 
 

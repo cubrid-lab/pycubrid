@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`make format-check` and `make verify` (#1007)** — `make format-check` runs only
   `ruff format --check`; `make verify` runs `make check` and then `make test`, without
   Docker. `scripts/run_integration.py` now runs the Docker integration lanes.
+- **`make docker-clean` (#1006)** — runs `docker compose down -v`: it removes the CUBRID
+  container, its network and the `cubrid-data` and `cubrid-databases` volumes with all test
+  data. It is now the only Make target that deletes them.
 
 ### Changed
 
@@ -27,6 +30,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   endpoint and volume handling are unchanged: cleanup runs `docker compose down`, never
   `-v`, after success, failure or a signal. Cleanup now also runs when
   `docker compose up` fails.
+- **`make docker-down` keeps the test data (#1006)** — it now runs `docker compose down`,
+  which removes the container and network but keeps the named data volumes, so the next
+  `make docker-up` opens the same database. It used to run `docker compose down -v` and
+  delete them; use `make docker-clean` for that. `make docker-up`, `make docker-down` and
+  `make docker-clean` pass `CUBRID_TEST_PORT` to Compose.
+- **The Compose broker listens only on `127.0.0.1` (#1006)** — `docker-compose.yml`
+  publishes it as `127.0.0.1:${CUBRID_TEST_PORT:-33000}:33000` instead of on every host
+  interface, so the test database is no longer reachable from other machines. Connections
+  to `localhost` or `127.0.0.1` on the host, `make integration` and the readiness probe are
+  unchanged. The readiness probe's stale-host hint now names `make docker-clean` as the
+  destructive fix.
 
 ### Deprecated
 

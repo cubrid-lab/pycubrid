@@ -12,7 +12,7 @@ recipes used to spell out in shell:
 4. ``scripts/check_integration_lanes.py --results ...``, which fails when every
    selected test skipped;
 5. ``docker compose down`` (never ``-v``: the named data volumes are reused, and only
-   ``make docker-down`` deletes them), whatever happened before.
+   ``make docker-clean`` deletes them), whatever happened before.
 
 Exit status: the first failing step's status. A cleanup failure is reported and fails
 an otherwise successful run, but never hides an earlier failure. SIGINT and SIGTERM

@@ -92,7 +92,7 @@ _STALE_HOST_HINT = (
     "The data volume registers its database for the host of the container that created it; "
     "before #1000 that host was the creating container's ID, which a recreated container "
     "does not have. Repair the volume in place, keeping its data: make docker-fix-db-host. "
-    "Or delete the volume and all its data: make docker-down."
+    "Or delete the volume and all its data: make docker-clean."
 )
 
 

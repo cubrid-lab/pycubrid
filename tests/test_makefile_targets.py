@@ -195,6 +195,12 @@ def test_help_groups_targets_by_purpose() -> None:
         groups[quality]
     )
     assert {"test", "verify"} <= set(groups["Tests"])
-    assert {"integration", "integration-tls", "docker-down"} <= set(groups["Integration (Docker)"])
+    assert {
+        "integration",
+        "integration-tls",
+        "docker-up",
+        "docker-down",
+        "docker-clean",
+    } <= set(groups["Integration (Docker)"])
     documented = re.findall(r"^([a-zA-Z_-]+):.*?## ", MAKEFILE, re.MULTILINE)
     assert sorted(t for targets in groups.values() for t in targets) == sorted(documented)

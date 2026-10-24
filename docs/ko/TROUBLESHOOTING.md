@@ -1182,7 +1182,7 @@ make docker-fix-db-host
 처음 실행할 때 이전 파일을 같은 위치에 `databases.txt.before-fix-db-host`로 저장하며,
 다시 실행해도 그 사본은 유지됩니다.
 
-**데이터를 삭제하는 해결:** `make docker-down`은 `docker compose down -v`를 실행하며,
+**데이터를 삭제하는 해결:** `make docker-clean`은 `docker compose down -v`를 실행하며,
 **볼륨과 그 안의 모든 테이블을 삭제합니다**. 다음 `make docker-up`이 새 데이터베이스를
 만듭니다. 데이터가 필요 없는 볼륨에만 사용하세요.
 

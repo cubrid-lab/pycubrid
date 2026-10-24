@@ -328,7 +328,7 @@ TLS 테스트는 SSL이 켜진 브로커가 필요합니다.
 [비동기 TLS 통합 테스트](#비동기-tls-통합-테스트)를 참고하세요.
 
 
-`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. 명시적 `make docker-down`은 `down -v`로 볼륨을 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
+`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. `make docker-down`도 볼륨을 보존하며, `make docker-clean`(`down -v`)만 볼륨과 테스트 데이터를 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
 
 **통합 테스트 활성화와 엔드포인트 선택의 구분.** 통합 테스트는
 `CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 비어 있지 않은 값으로 설정되면
@@ -471,7 +471,7 @@ services:
       CUBRID_DB: testdb
       CUBRID_DB_HOST: localhost
     ports:
-      - "${CUBRID_TEST_PORT:-33000}:33000"
+      - "127.0.0.1:${CUBRID_TEST_PORT:-33000}:33000"
     volumes:
       - cubrid-data:/var/lib/cubrid
       - cubrid-databases:/home/cubrid/CUBRID/databases
@@ -481,19 +481,30 @@ volumes:
   cubrid-databases:
 ```
 
-실제 파일에는 `healthcheck`도 있습니다.
+실제 파일에는 `csql -u dba testdb -c "SELECT 1"`을 실행하는 `healthcheck`도 있습니다.
+브로커는 `127.0.0.1`에만 게시되므로 이 호스트에서는 접근할 수 있지만 네트워크에서는 접근할 수 없습니다.
+지원하는 재정의 값은 `CUBRID_VERSION`(기본값 `11.2`)과 `CUBRID_TEST_PORT`(기본값 `33000`)입니다.
+서비스에 고정 `container_name`이 없으므로 별도의 Compose 프로젝트(`COMPOSE_PROJECT_NAME` 또는
+`docker compose -p`)를 서로 다른 포트에서 동시에 실행할 수 있습니다.
 
 `CUBRID_DB_HOST: localhost`를 설정하면 이미지가 `databases.txt`에 `testdb`를
 `localhost`로 등록합니다. 11.3까지의 이미지는 이 파일과 데이터베이스를 `cubrid-data` 볼륨에, 11.4는 `cubrid-databases`에
 두므로 지원하는 모든 버전에서 `docker compose down`이 데이터베이스를 남깁니다. 11.3까지의 버전은
 `cubrid-data`를 함께 쓰고, 한 CUBRID 버전이 만든 데이터베이스가 다른 버전에서 열린다는 보장은 없으므로
-`CUBRID_VERSION`을 바꾸기 전에 `make docker-down`(테스트 데이터 삭제)을 실행하세요. 이 값이 없으면 데이터베이스를 만든 컨테이너의 ID가 기록되고,
+`CUBRID_VERSION`을 바꾸기 전에 `make docker-clean`(테스트 데이터 삭제)을 실행하세요. 이 값이 없으면 데이터베이스를 만든 컨테이너의 ID가 기록되고,
 그 컨테이너를 다시 만들면 데이터베이스를 사용할 수 없게 됩니다
 ([문제 해결](TROUBLESHOOTING.md#컨테이너를-다시-만든-뒤-데이터베이스-서버-호스트를-찾을-수-없음)).
 
 ### 명령
 
+Makefile이 수동 수명 주기를 감싸며, 각 타깃은 `CUBRID_TEST_PORT`를 Compose에 전달합니다:
+
 ```bash
+make docker-up                            # CUBRID 시작 (127.0.0.1:33000)
+make docker-up CUBRID_TEST_PORT=33522     # 다른 호스트 포트에서 시작
+make docker-down                          # 컨테이너와 네트워크 제거, 데이터 유지
+make docker-clean                         # 파괴적: 데이터 볼륨까지 삭제
+
 # 기본 CUBRID 11.2로 시작
 docker compose up -d
 

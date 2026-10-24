@@ -65,6 +65,15 @@ CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
   pytest tests/ -m "integration and not slow and not tls" -v
 ```
 
+실행 사이에 데이터베이스를 유지하려면 수동 수명 주기를 사용하세요. 브로커는 `127.0.0.1`에만
+게시되며, `CUBRID_VERSION`과 `CUBRID_TEST_PORT`로 이미지 태그와 호스트 포트를 바꿀 수 있습니다:
+
+```bash
+make docker-up                            # 127.0.0.1:33000에서 CUBRID 시작
+make docker-down                          # 컨테이너와 네트워크 제거, 데이터 유지
+make docker-clean                         # 파괴적: 데이터 볼륨까지 삭제
+```
+
 `CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 통합 테스트를 *활성화*합니다.
 엔드포인트는 필드별 `CUBRID_TEST_*` 변수, URL, 기본값 순서로 결정하며,
 기본값은 사용자 `dba`의 `localhost:33000/testdb`입니다. 설정이 없으면 통합

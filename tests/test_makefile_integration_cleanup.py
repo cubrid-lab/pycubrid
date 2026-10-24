@@ -4,7 +4,9 @@ Both recipes are one ``scripts/run_integration.py`` call (#1007). These tests ru
 real Makefile and the real runner with command stubs for ``docker``, pytest, the
 readiness probe and the lane audit, so they need neither Docker nor a CUBRID. They
 cover success, step failures, cleanup failure, SIGINT/SIGTERM and exit-status
-propagation, and that automatic cleanup never deletes the reused volumes.
+propagation, and that automatic cleanup never deletes the reused volumes. They also
+pin the Compose service and the manual ``docker-up``/``docker-down``/``docker-clean``
+lifecycle (#1006).
 """
 
 from __future__ import annotations
@@ -392,6 +394,59 @@ def test_compose_keeps_every_image_database_directory_in_a_named_volume() -> Non
         "/home/cubrid/CUBRID/databases": "cubrid-databases",
     }
     assert set(compose["volumes"]) == {"cubrid-data", "cubrid-databases"}
+
+
+def test_compose_service_contract() -> None:
+    """One ``cubrid`` service, overridable image and port, loopback-only broker (#1006)."""
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    assert set(compose["services"]) == {"cubrid"}
+    service = compose["services"]["cubrid"]
+    assert service["image"] == "cubrid/cubrid:${CUBRID_VERSION:-11.2}"
+    assert service["ports"] == ["127.0.0.1:${CUBRID_TEST_PORT:-33000}:33000"]
+    # A fixed name would stop two Compose projects from running side by side.
+    assert "container_name" not in service
+    assert service["healthcheck"]["test"] == [
+        "CMD",
+        "csql",
+        "-u",
+        "dba",
+        "testdb",
+        "-c",
+        "SELECT 1",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("target", "command"),
+    [
+        ("docker-up", "compose up -d"),
+        ("docker-down", "compose down"),
+        ("docker-clean", "compose down -v"),
+    ],
+)
+def test_manual_docker_lifecycle(tmp_path: Path, target: str, command: str) -> None:
+    """docker-down keeps the data volumes; only docker-clean deletes them (#1006)."""
+    log = tmp_path / "docker.log"
+    _executable(
+        tmp_path / "docker",
+        '#!/bin/sh\nprintf "%s|%s\\n" "$CUBRID_TEST_PORT" "$*" >> "$REVIEW_LOG"\nexit 0\n',
+    )
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CUBRID_TEST_")}
+    env.update(PATH=str(tmp_path) + os.pathsep + env.get("PATH", ""), REVIEW_LOG=str(log))
+
+    for port_args, port in (([], "33000"), (["CUBRID_TEST_PORT=33522"], "33522")):
+        log.unlink(missing_ok=True)
+        result = subprocess.run(
+            ["make", "-s", "-C", str(ROOT), target, *port_args],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert log.read_text().splitlines() == [f"{port}|{command}"]
 
 
 def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
