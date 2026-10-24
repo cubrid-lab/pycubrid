@@ -10367,8 +10367,8 @@ is best effort (a warning, never a skipped cleanup). The run that holds the proj
 the files and removes the previous run's first; a refusal after the lock (existing project,
 failed ownership probe) or an invalid `INTEGRATION_PROJECT` leaves a `FAIL` summary with a
 `reason`, while a run refused because another run holds the lock writes and removes nothing. `INTEGRATION_RESULTS=<path>` moves the integration JUnit file, and
-the other files go next to it. CI does not use these targets yet; its own result
-upload is tracked separately in #1024.
+the other files go next to it. CI jobs do not run these targets; see
+[CI live jobs and the Make contract](#ci-live-jobs-and-the-make-contract).
 
 
 **Isolation from `make docker-up` (#1021).** `make integration` and `make integration-tls` run in their own Compose project, `pycubrid-it-<timestamp>-<pid>` by default, and pass `-p <project>` on every `docker compose` call, so they never attach to, restart or remove the CUBRID started by `make docker-up` (an exported `COMPOSE_PROJECT_NAME` is ignored too). Set `INTEGRATION_PROJECT=<name>` (`^[a-z0-9][a-z0-9_-]*$`) to choose the name; the run first checks that the project has no container, volume or network and otherwise exits 1 with "Refusing to run" before starting or removing anything. A second run of the same name while the first is active is refused too ("another run owns project"), through a `flock` on a lock file in the temp directory held until cleanup ends (POSIX only; the guard is skipped on Windows). Because the project is the run's own, cleanup after success, readiness failure, test failure, SIGINT or SIGTERM is `docker compose -p <project> down -v`: it also deletes the run's volumes, so every run starts from an empty database and leaves nothing behind. The manual lab's data volumes are never touched. `make docker-down` keeps the manual lab's data; only `make docker-clean` (`down -v` on the default project) removes it. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
@@ -10998,6 +10998,36 @@ the full offline suite with 95% coverage on Python 3.11 and 3.15 and add Python
 tooling is path-selected on one Linux lane. Full integration is explicit/manual
 and release-only. See [CI execution policy](CI_POLICY.md) for exact selection and
 validation requirements.
+
+### CI live jobs and the Make contract
+
+Contributors run live tests with `make integration` (the root `docker-compose.yml`,
+one CUBRID server, `-m "integration and not tls"`) and `make integration-tls`.
+A CI job that talks to a live CUBRID either runs one of these targets or carries a
+`# Not using make integration because ...` comment in the workflow, with a row in the
+table below; `tests/test_workflow_make_contract.py` enforces both (#1023). A job is
+switched only when the switch keeps its CUBRID versions and matrix, pytest selection,
+lane audit, result files and artifacts, readiness and permissions. No job meets that
+today, so every live job keeps its own service containers and steps:
+
+| Workflow | Job | Decision | Reason the Make contract is not equivalent |
+|----------|-----|----------|--------------------------------------------|
+| `ci.yml` | `integration-tests` | keep | Selects `integration and not slow and not tls`; `make integration` also runs the slow tests. Runs the pre-run lane audit, a Python × CUBRID matrix, and a GitHub service health check before the steps |
+| `integration-full.yml` | `integration-full` | keep | Same selection and audit as `integration-tests`, over the 5 Python × 4 CUBRID release matrix at the requested SHA |
+| `ci.yml` | `integration-tls` | keep | Provisions an SSL=ON broker with a generated certificate and the SSL=OFF port 30000, and runs `integration and tls` across `tests/`; the Compose service has no SSL broker and `make integration-tls` runs only `tests/test_aio_ssl_integration.py` |
+| `integration-full.yml` | `integration-tls` | keep | Same as the `ci.yml` TLS job, over the full TLS matrix |
+| `ci.yml` | `integration-charset` | keep | Needs an EUC-KR database (`CUBRID_LOCALE=ko_KR.euckr`), which the Compose service does not set; runs only `tests/test_integration_charset.py` |
+| `integration-full.yml` | `integration-charset` | keep | Same as the `ci.yml` charset job |
+| `ci.yml` | `official-differential` | keep | Needs CUBRID 10.2 and 11.4 at the same time (ports 33102, 33114) and the pinned official oracle build; Compose starts one server |
+| `integration-full.yml` | `official-differential` | keep | Same as the `ci.yml` official differential |
+| `integration-full.yml` | `version-differential` | keep | Needs CUBRID 10.2, 11.0, 11.2 and 11.4 at the same time (`CUBRID_VERSION_MATRIX`) |
+| `bug-hunt.yml` | `property-and-fault` | keep | Weekly wide Hypothesis profile, separate slow soak/chaos lane, `xunit1` JUnit files and repro collection with server info |
+| `bug-hunt.yml` | `perf-trend` | keep | Runs `tests/test_benchmarks.py` against a cached baseline, not the `integration` marker |
+| `bug-hunt.yml` | `downstream-corpus` | keep | Runs the downstream repositories' own suites against the driver at the exact SHA |
+
+The `publish-pypi.yml` jobs that verify a release run no CUBRID themselves: `matrix`
+calls `integration-full.yml`, covered above, and `verify-candidate` and
+`verify-cookbook` call the cookbook's `smoke-test.yml`.
 
 ### PR verification cost
 

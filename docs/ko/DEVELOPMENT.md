@@ -344,7 +344,7 @@ CI도 오프라인, 통합, TLS 통합 job에서 같은 구조로 결과를 쓰�
 `environment.json`은 Python, pycubrid, CUBRID 이미지 버전, 플랫폼, 명령만으로 만들어지므로
 비밀번호 등 비밀이 결과 파일에 들어가지 않습니다. 이 파일들은 명령의 종료 상태를 바꾸지 않습니다. 통합 테스트 레인의 `summary.json`은 정리 뒤에 쓰이므로 최종 종료 상태를 담고(`down -v` 실패는 `FAIL`), `service.log` 저장은 실패해도 경고만 남기고 정리를 건너뛰지 않습니다. 프로젝트 잠금을 잡은 실행이 결과 파일을 소유하며 이전 실행의 파일을 먼저 지웁니다. 잠금 이후의 거부(이미 있는 프로젝트, 소유권 확인 실패)나 잘못된 `INTEGRATION_PROJECT`는 `reason`이 있는 `FAIL` 요약을 남기고, 다른 실행이 잠금을 쥐고 있어 거부된 실행은 아무것도 쓰거나 지우지 않습니다.
 `INTEGRATION_RESULTS=<경로>`로 통합 테스트 JUnit 파일 위치를 바꾸면 나머지 파일도 그 옆에 쓰입니다.
-CI는 아직 이 타깃을 쓰지 않으며, CI의 결과 업로드는 #1024에서 따로 다룹니다.
+CI 작업은 이 타깃을 실행하지 않습니다. [CI 라이브 작업과 Make 계약](#ci-라이브-작업과-make-계약)을 참고하세요.
 
 
 **`make docker-up`과의 격리(#1021).** `make integration`과 `make integration-tls`는 자체 Compose 프로젝트(기본값 `pycubrid-it-<타임스탬프>-<pid>`)에서 실행되며 모든 `docker compose` 호출에 `-p <project>`를 붙이므로, `make docker-up`으로 띄운 CUBRID에 붙거나 재시작하거나 제거하지 않습니다(내보낸 `COMPOSE_PROJECT_NAME`도 무시됩니다). 이름은 `INTEGRATION_PROJECT=<이름>`(`^[a-z0-9][a-z0-9_-]*$`)으로 정할 수 있으며, 실행 전에 해당 프로젝트에 컨테이너·볼륨·네트워크가 없는지 확인하고 있으면 아무것도 시작하거나 제거하지 않은 채 "Refusing to run"과 함께 종료 코드 1로 끝납니다. 같은 이름의 실행이 진행 중일 때 두 번째 실행도 거부되며("another run owns project"), 정리가 끝날 때까지 임시 디렉터리의 잠금 파일에 건 `flock`으로 보장합니다(POSIX 전용, Windows에서는 이 보호가 생략됩니다). 프로젝트가 실행 자신의 것이므로 성공·준비 실패·테스트 실패·SIGINT·SIGTERM 후의 정리는 `docker compose -p <project> down -v`이며, 이 실행의 볼륨도 삭제하므로 매 실행이 빈 데이터베이스에서 시작하고 아무것도 남기지 않습니다. 수동 랩의 데이터 볼륨은 건드리지 않습니다. `make docker-down`은 수동 랩의 데이터를 보존하고, `make docker-clean`(기본 프로젝트에 대한 `down -v`)만 이를 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
@@ -918,6 +918,36 @@ Python 3.11/CUBRID 10.2 통합 조합을 추가합니다. 저장소 도구 검�
 따라 Linux 단일 레인에서 실행합니다. 전체 통합 검사는 명시적 수동 실행과
 릴리스에서 유지합니다. 정확한 선택 조건과 검증 요건은 [CI 실행 정책](CI_POLICY.md)을
 참고하세요.
+
+### CI 라이브 작업과 Make 계약
+
+기여자는 `make integration`(루트 `docker-compose.yml`, CUBRID 서버 하나,
+`-m "integration and not tls"`)과 `make integration-tls`로 라이브 테스트를 실행합니다.
+라이브 CUBRID에 접속하는 CI 작업은 이 타깃 중 하나를 실행하거나, 워크플로에
+`# Not using make integration because ...` 주석을 두고 아래 표에 행을 둡니다.
+`tests/test_workflow_make_contract.py`가 두 조건을 모두 검사합니다(#1023). 작업은
+CUBRID 버전과 매트릭스, pytest 선택, 레인 감사, 결과 파일과 아티팩트, 준비 대기,
+권한이 그대로일 때만 전환합니다. 현재 이를 만족하는 작업은 없으므로 모든 라이브 작업은
+자체 서비스 컨테이너와 단계를 유지합니다.
+
+| 워크플로 | 작업 | 결정 | Make 계약과 같지 않은 이유 |
+|----------|------|------|----------------------------|
+| `ci.yml` | `integration-tests` | 유지 | `integration and not slow and not tls`를 선택하지만 `make integration`은 slow 테스트도 실행합니다. 실행 전 레인 감사, Python × CUBRID 매트릭스, 단계 전 GitHub 서비스 헬스 체크를 사용합니다 |
+| `integration-full.yml` | `integration-full` | 유지 | `integration-tests`와 같은 선택과 감사를, 요청된 SHA에서 Python 5 × CUBRID 4 릴리스 매트릭스로 실행합니다 |
+| `ci.yml` | `integration-tls` | 유지 | 생성한 인증서와 SSL=OFF 포트 30000을 갖춘 SSL=ON 브로커를 준비하고 `tests/` 전체에서 `integration and tls`를 실행합니다. Compose 서비스에는 SSL 브로커가 없고 `make integration-tls`는 `tests/test_aio_ssl_integration.py`만 실행합니다 |
+| `integration-full.yml` | `integration-tls` | 유지 | `ci.yml` TLS 작업과 같으며 전체 TLS 매트릭스로 실행합니다 |
+| `ci.yml` | `integration-charset` | 유지 | Compose 서비스가 설정하지 않는 EUC-KR 데이터베이스(`CUBRID_LOCALE=ko_KR.euckr`)가 필요하고 `tests/test_integration_charset.py`만 실행합니다 |
+| `integration-full.yml` | `integration-charset` | 유지 | `ci.yml` charset 작업과 같습니다 |
+| `ci.yml` | `official-differential` | 유지 | CUBRID 10.2와 11.4를 동시에(포트 33102, 33114) 띄우고 고정된 공식 oracle 빌드가 필요합니다. Compose는 서버 하나만 시작합니다 |
+| `integration-full.yml` | `official-differential` | 유지 | `ci.yml` 공식 differential과 같습니다 |
+| `integration-full.yml` | `version-differential` | 유지 | CUBRID 10.2, 11.0, 11.2, 11.4를 동시에 띄워야 합니다(`CUBRID_VERSION_MATRIX`) |
+| `bug-hunt.yml` | `property-and-fault` | 유지 | 주간 광역 Hypothesis 프로필, 별도의 slow soak/chaos 레인, `xunit1` JUnit 파일, 서버 정보를 포함한 repro 수집을 사용합니다 |
+| `bug-hunt.yml` | `perf-trend` | 유지 | `integration` 마커가 아니라 캐시된 기준선에 대해 `tests/test_benchmarks.py`를 실행합니다 |
+| `bug-hunt.yml` | `downstream-corpus` | 유지 | 다운스트림 저장소의 자체 테스트를 정확한 SHA의 드라이버로 실행합니다 |
+
+릴리스를 검증하는 `publish-pypi.yml` 작업은 직접 CUBRID를 실행하지 않습니다. `matrix`는
+위에서 다룬 `integration-full.yml`을 호출하고, `verify-candidate`와 `verify-cookbook`은
+cookbook의 `smoke-test.yml`을 호출합니다.
 
 ### PR 검증 비용
 

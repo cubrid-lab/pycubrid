@@ -86,6 +86,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **Every live CI job runs the Make contract or documents why not (#1023)** — each job of
+  `ci.yml`, `integration-full.yml` and `bug-hunt.yml` that talks to a live CUBRID now carries
+  a `# Not using make integration because ...` comment, and docs/DEVELOPMENT.md lists the
+  reason per job (test selection, SSL=ON broker, EUC-KR database, several servers at once,
+  benchmark or downstream suites). No job switched: none could keep its versions, matrix,
+  test selection, lane audit, result files and readiness unchanged.
+  `tests/test_workflow_make_contract.py` fails when a new live job has neither. Steps,
+  permissions, secrets and triggers are unchanged.
+
 - **CI publishes the test-results summary and uploads it on every run (#1024)** — the offline
   (`offline-tests`, `offline-endpoints`), integration and TLS integration jobs of `ci.yml` and
   `integration-full.yml` write their JUnit XML to `test-results/<lane>/junit.xml`, run

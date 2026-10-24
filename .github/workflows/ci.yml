@@ -585,6 +585,9 @@ jobs:
           /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
 
   integration-tests:
+    # Not using make integration because it selects "integration and not slow and not tls"
+    # (the target also runs slow tests) per Python x CUBRID matrix cell;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     # Starts with lint/type/offline (#760); ci-gate still requires all of them.
     needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.live == 'true'
@@ -654,6 +657,9 @@ jobs:
           if-no-files-found: warn
 
   integration-charset:
+    # Not using make integration because it needs an EUC-KR database (CUBRID_LOCALE),
+    # which the Compose service does not set;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     # Starts with lint/type/offline (#760); ci-gate still requires all of them.
     needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.charset == 'true'
@@ -705,6 +711,9 @@ jobs:
           python scripts/check_integration_lanes.py --results charset-results.xml
 
   integration-tls:
+    # Not using make integration because it provisions an SSL=ON broker with a generated
+    # certificate and runs "integration and tls";
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     # Starts with lint/type/offline (#760); ci-gate still requires all of them.
     needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.tls == 'true'
@@ -900,6 +909,9 @@ jobs:
         run: docker stop cubrid-tls || true
 
   official-differential:
+    # Not using make integration because it needs CUBRID 10.2 and 11.4 at once plus the
+    # pinned official oracle;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     # Starts with lint/type/offline (#760); ci-gate still requires all of them.
     needs: [validate-target, detect-changes]
     if: needs.detect-changes.outputs.official == 'true'

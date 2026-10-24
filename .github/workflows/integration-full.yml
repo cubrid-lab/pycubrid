@@ -70,6 +70,9 @@ jobs:
             await core.summary.addRaw(`Validated commit: ${sha}; PR: ${pr || 'none'}`).write();
 
   integration-full:
+    # Not using make integration because it selects "integration and not slow and not tls"
+    # (the target also runs slow tests) per Python x CUBRID matrix cell;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -140,6 +143,9 @@ jobs:
           if-no-files-found: warn
 
   integration-tls:
+    # Not using make integration because it provisions an SSL=ON broker with a generated
+    # certificate and runs "integration and tls";
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     # Provision a CUBRID broker with SSL=ON so tests/test_aio_ssl_integration.py
     # is exercised in CI instead of silently skipping (closes #147).  Uses a
@@ -360,6 +366,9 @@ jobs:
         run: docker stop cubrid-tls || true
 
   integration-charset:
+    # Not using make integration because it needs an EUC-KR database (CUBRID_LOCALE),
+    # which the Compose service does not set;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     # EUC-KR database lane (#86): the same CUBRID image with
     # CUBRID_LOCALE=ko_KR.euckr, so createdb makes an EUC-KR testdb, and the
@@ -410,6 +419,8 @@ jobs:
           python scripts/check_integration_lanes.py --results charset-results.xml
 
   version-differential:
+    # Not using make integration because it needs CUBRID 10.2, 11.0, 11.2 and 11.4 at once;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     # Property-driven behavior differential (#351): the same generated values
     # and statements run against CUBRID 10.2, 11.0, 11.2 and 11.4 at once, and
@@ -521,6 +532,9 @@ jobs:
           retention-days: 14
 
   official-differential:
+    # Not using make integration because it needs CUBRID 10.2 and 11.4 at once plus the
+    # pinned official oracle;
+    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
     needs: validate-target
     # Claims-driven differential against the pinned official CUBRIDdb driver
     # (#446): tests/fixtures/official_differential_claims.json, one live case
