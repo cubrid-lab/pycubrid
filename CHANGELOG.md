@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.13.4] - 2026-10-24
+
 ### Fixed
 
 - **`environment.json` masks credentials in the saved command (#1042)** —
@@ -16,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `--password x`, `CUBRID_PASSWORD=x`) are now saved as `***`; any other command text is
   unchanged. This is best-effort masking: keep real credentials off command lines. The
   schema, statuses and exit codes are unchanged.
+
+* **reporting:** redact credentials in saved integration command metadata ([#1046](https://github.com/cubrid-lab/pycubrid/issues/1046)) ([80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f))
+
+### Documentation
+
+* **examples:** add a bounded opt-in prepared executemany example ([#1039](https://github.com/cubrid-lab/pycubrid/issues/1039)) ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d))
+* **examples:** document prepared executemany batches ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d)), refs [#891](https://github.com/cubrid-lab/pycubrid/issues/891)
 
 ## [1.13.3] - 2026-10-24
 
