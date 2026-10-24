@@ -131,8 +131,9 @@ When updating either tool, change its pin in the `lint` dependency group of `pyp
 reinstall the `dev` group, then run `make check` and `pre-commit run --all-files`; there is no
 separate hook revision to edit. The drift gate rejects missing/ambiguous pins,
 an installed version that no longer matches the pin, and narrowed scopes.
-Dependabot's `pip` ecosystem can bump the `pyproject.toml` pin on its own and CI
-stays green, since the pre-commit hooks always run whatever is installed.
+Dependabot's root `uv` entry updates `pyproject.toml` and `uv.lock` together.
+Its updater uses its own installed uv version; CI qualifies the resulting lock
+with the pinned uv version before running the installed pre-commit tools.
 
 ## Pull Request Guidelines
 

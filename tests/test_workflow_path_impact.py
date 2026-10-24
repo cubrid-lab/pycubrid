@@ -89,6 +89,8 @@ def test_workflow_impact_table(name: str) -> None:
         ("tests/test_tls_matrix_offline.py", {"code", "risk", "tls"}),
         ("scripts/wait_for_cubrid.py", {"code", "risk", "tooling", "official"}),
         ("pyproject.toml", {"code", "risk", "tooling", "site"}),
+        ("uv.lock", {"code", "risk", "tooling", "site"}),
+        (".github/ci-wheels/pyyaml-6.0.3-1-py3-none-any.whl", {"code", "risk", "tooling", "site"}),
         ("docs/CI_POLICY.md", {"docs", "site"}),
         ("mkdocs.yml", {"code", "site", "tooling"}),
         ("scripts/generate_llms_full.py", {"code", "risk", "tooling", "official", "site"}),

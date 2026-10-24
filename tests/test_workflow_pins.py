@@ -105,10 +105,17 @@ def test_docs_group_is_exact_pins() -> None:
 
 def test_docs_workflow_installs_only_the_docs_group() -> None:
     installs = _pip_lines("docs.yml")
-    assert installs, "docs.yml must install the docs tools"
-    for ln in installs:
-        assert ln in {"python -m pip install --upgrade pip", "pip install --group docs"}, ln
-    assert "pip install --group docs" in installs
+    assert installs == [
+        'uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"'
+    ]
+    exports = [
+        ln.strip()
+        for run in _runs("docs.yml")
+        for ln in run.splitlines()
+        if ln.strip().startswith("uv export ")
+    ]
+    assert len(exports) == 1
+    assert "--locked --no-build --only-group docs --no-emit-project" in exports[0]
 
 
 def test_no_workflow_builds_site_with_unpinned_tools() -> None:
@@ -116,13 +123,6 @@ def test_no_workflow_builds_site_with_unpinned_tools() -> None:
         for ln in (ln for run in _runs(wf.name) for ln in run.splitlines()):
             if re.search(r"\bpip3?\s+install\b", ln) and "mkdocs" in ln:
                 pytest.fail(f"{wf.name} installs mkdocs tooling outside the docs group: {ln}")
-
-
-def test_dependabot_root_pip_entry_covers_the_dependency_groups() -> None:
-    cfg = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
-    dirs = {u["directory"] for u in cfg["updates"] if u["package-ecosystem"] == "pip"}
-    assert dirs == {"/"}
-    assert not (ROOT / "docs/requirements.txt").exists(), "docs pins live in pyproject.toml"
 
 
 @pytest.mark.parametrize("workflow", ["codeql.yml", "security.yml"])
@@ -150,14 +150,14 @@ def test_dependabot_groups_only_minor_and_patch_version_updates() -> None:
     # the runtime dependency tzdata keep their own PRs.
     cfg = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
     groups = {(u["package-ecosystem"], u["directory"]): u.get("groups") for u in cfg["updates"]}
-    assert set(groups) == {("pip", "/"), ("github-actions", "/")}
+    assert set(groups) == {("uv", "/"), ("github-actions", "/")}
     for key, group in groups.items():
         assert group is not None and len(group) == 1, key
         (spec,) = group.values()
         assert spec["applies-to"] == "version-updates", key
         assert spec["patterns"] == ["*"], key
         assert spec["update-types"] == ["minor", "patch"], key
-    assert groups[("pip", "/")]["dev-tools"]["exclude-patterns"] == ["tzdata"]
+    assert groups[("uv", "/")]["dev-tools"]["exclude-patterns"] == ["tzdata"]
 
 
 def test_every_artifact_upload_sets_a_retention_period() -> None:

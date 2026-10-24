@@ -124,6 +124,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Dependabot now updates the root manifest and `uv.lock` together through its uv
+  ecosystem. The Python 3.15 PyYAML wheel source uses a fetchable mapping; its marker,
+  wheel bytes and locked dependencies are unchanged. This is a CI tooling change
+  with no driver API or runtime behaviour change under the release policy.
+
 - **The execute and fetch profilers no longer drop an existing `_profile_tmp` table (#950)** —
   `scripts/profile_execute.py` and `scripts/profile_fetch.py` ran
   `DROP TABLE IF EXISTS _profile_tmp` before every run, even for `--operation select`, so an
@@ -445,6 +450,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   made a required check until it is posted from an identity a PR cannot impersonate
   (#945). `CONTRIBUTING.md`, `AGENTS.md`, the PR template and `docs/CONTRIBUTING.ko.md`
   document it.
+- CI, full integration and documentation installs use locked, hash-checked
+  third-party wheels. Trusted checkout builds use the locked backend separately.
+  Python 3.15 uses a documented pure Python PyYAML 6.0.3 wheel until upstream
+  provides a compatible wheel.
+
 - **The documentation check closes its parser gaps (#939)** — `scripts/_markdown.py` now
   matches sqlalchemy-cubrid's reviewed parser (cubrid-lab/sqlalchemy-cubrid#919), plus the
   four cases of cubrid-lab/sqlalchemy-cubrid#921:

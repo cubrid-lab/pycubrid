@@ -66,8 +66,13 @@ lint = [
 security = [
     "bandit[toml]==1.9.4",
 ]
-release = [
+build = [
     "build",
+    "setuptools==84.1.0",
+    "wheel==0.48.0",
+]
+release = [
+    {include-group = "build"},
     "twine",
 ]
 docs = [
@@ -96,6 +101,15 @@ Repository = "https://github.com/cubrid-lab/pycubrid"
 Documentation = "https://cubrid-lab.github.io/pycubrid/"
 Changelog = "https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md"
 Issues = "https://github.com/cubrid-lab/pycubrid/issues"
+
+[tool.uv.sources]
+# PyYAML 6.0.3 has no CPython 3.15 wheel. This contains its unchanged Python
+# modules with the optional native extension removed; see the wheel provenance.
+pyyaml = {path = ".github/ci-wheels/pyyaml-6.0.3-1-py3-none-any.whl", marker = "python_version == '3.15'"}
+
+[tool.uv.dependency-groups]
+# Matches the existing make mutation Python guard.
+mutation = {requires-python = ">=3.12"}
 
 [tool.setuptools]
 packages = ["pycubrid", "pycubrid.aio", "pycubrid.compat"]

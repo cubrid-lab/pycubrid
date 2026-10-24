@@ -1398,3 +1398,7 @@ at their immutable SHA before publication. That workflow also repeats the `ci.ym
 lint, type check, public API check and repository tooling tests at the same SHA
 and requires them in its fail-closed gate (#750), so publication never depends on
 a `main` push run of `ci.yml`.
+
+Locked CI dependency installs and the repository-only Python 3.15 PyYAML wheel
+are CI maintenance. They change no published runtime dependency or API and do
+not require a version bump by themselves.
