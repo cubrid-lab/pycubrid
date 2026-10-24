@@ -113,8 +113,8 @@ def _reserve(project: str) -> int | None:
     """Take an exclusive, non-blocking per-project lock; return its fd or None if held.
 
     The ownership probes are read-only, so two runs of the same project could both pass
-    them and then share, and ``down -v``, each other's resources. The lock lives until
-    the process exits (after cleanup); the descriptor is not inherited by children.
+    them and then share, and ``down -v``, each other's resources. ``main`` closes the
+    descriptor, releasing the lock, after cleanup; it is not inherited by children.
     """
     if fcntl is None:  # pragma: no cover - platform dependent
         return -1
@@ -219,7 +219,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     project = project or f"pycubrid-it-{time.strftime('%Y%m%d%H%M%S')}-{os.getpid()}"
-    if _reserve(project) is None:
+    lock = _reserve(project)
+    if lock is None:
         print(
             f"ERROR: another run owns project '{project}' (lock held); nothing was started "
             "or removed.",
@@ -227,6 +228,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             flush=True,
         )
         return 1
+    try:
+        return _run_owned(args, project)
+    finally:
+        if lock >= 0:
+            os.close(lock)  # releases the per-project lock after cleanup
+
+
+def _run_owned(args: argparse.Namespace, project: str) -> int:
+    """Run the lane in the reserved, run-owned project and always clean it up."""
     if not _owns_nothing(project):
         print(
             f"ERROR: Refusing to run: Compose project '{project}' already has containers, "
