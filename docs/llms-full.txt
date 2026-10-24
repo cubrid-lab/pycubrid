@@ -11348,7 +11348,7 @@ After the handshake, every request and reply uses the same frame:
 
 | Field | Size | Meaning |
 |---|---|---|
-| Data length | 4 bytes | Length of the CAS info and payload, big-endian signed int |
+| Data length | 4 bytes | Length of the payload only (excluding the 8-byte header), big-endian signed int |
 | CAS info | 4 bytes | Session state echoed between client and CAS; the first byte is the transaction state |
 | Payload | variable | Request: function code byte and its arguments. Reply: response code, then result data |
 
