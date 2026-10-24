@@ -35,6 +35,7 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 
 - [ ] I checked existing Assignees, claims and PRs; maintainer-operated autonomous agents taking `good first issue` work have issue-specific approval and assignment. Human-led outside contributors need no preapproval or Assignee rights.
 - [ ] The linked issue has current scope, verifiable completion criteria and validation instructions; completed dependencies are not still blockers
+- [ ] I checked related open PRs and recent merged changes and recorded any replacement or unresolved prerequisite below
 
 - [ ] My code follows the project's code style
 - [ ] I have documented required GitHub CI results and any recommended local checks (or why they were not run)
@@ -74,3 +75,8 @@ Optional additional AI review (tool/findings; advisory only, separate from execu
      Cite sibling dependencies as Refs owner/repo#N, not closing keywords.
      Each repo manages its own work and closure; the PR title check enforces
      no direct auto-closing references to a foreign repository. -->
+
+<!-- For this repository, cite Supersedes #N / Depends on #N /
+     Parallel to #N, with one reason, or None. Recheck before merge. -->
+Related PRs and precedence: None
+Unresolved decision or dependency: None
