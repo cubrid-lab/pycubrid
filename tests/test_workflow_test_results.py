@@ -70,7 +70,9 @@ def test_summary_step_follows_the_tests_and_always_runs(
     run = summary["run"]
     assert f"report_results.py summarize --lane {lane} --results-dir test-results/{lane}" in run
     assert f"step-summary --results-dir test-results/{lane}" in run
-    assert "job.status == 'success' && 0 || 1" in run  # the lane keeps pytest's own status
+    # Numeric 0 is falsy in Actions expressions, so `success && 0 || 1` is always 1.
+    assert "job.status != 'success' && 1 || 0" in run  # the lane keeps pytest's own status
+    assert "&& 0 ||" not in run
     assert run.rstrip().endswith('>> "$GITHUB_STEP_SUMMARY"')
 
 
@@ -96,7 +98,8 @@ def test_upload_step_is_pinned_always_and_uniquely_named(
 def test_artifact_names_are_unique_within_each_workflow() -> None:
     for wf in ("ci.yml", "integration-full.yml"):
         names = [
-            with_["name"].split("-py")[0] + ":" + job
+            # The name templates themselves: two jobs with one template would collide.
+            with_["name"]
             for w, job, *_ in JOBS
             if w == wf
             for with_ in [
