@@ -33,6 +33,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`make check-all` (#1007)** — an alias of `make check` that prints a notice on stderr.
   It will be removed after the next minor release; use `make check`.
 
+### Documentation
+
+- **CAS architecture and protocol concepts page (#1015)** — a new advanced overview,
+  `docs/CAS_OVERVIEW.md` with its Korean translation, listed under Reference in the site
+  navigation. It separates the Broker, the CAS process, the CAS wire protocol and CCI,
+  draws the pycubrid pure-Python path next to the `CUBRIDdb` → `_cubrid` → CCI path,
+  maps `connect()`, `execute()`, fetch, commit and close to function codes, and covers
+  the frame, the literal versus `executemany(..., prepared=True)` binding paths,
+  `CHECK_CAS`, unknown outcomes without replay, client-side TLS, and CUBRID CAS (Common
+  Application Server) versus Compare-And-Swap. `PROTOCOL.md` and `ARCHITECTURE.md` stay
+  authoritative; the README, the site index, the connection guide and both reference
+  pages link to the overview. No driver behavior changed.
+
 ### CI
 
 - **The lint lanes run `make check` (#1007)** — `ci.yml`, its release copy in

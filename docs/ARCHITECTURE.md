@@ -1,5 +1,8 @@
 # Architecture
 
+For a reader-facing introduction to the Broker, CAS process, CAS wire protocol and CCI, see
+[CAS Architecture and Protocol Concepts](CAS_OVERVIEW.md).
+
 ## Design Objectives
 
 - **Pure Python**: Zero system dependencies, no C extensions or CCI library required, runs anywhere Python runs.

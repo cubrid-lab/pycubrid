@@ -23,6 +23,7 @@ directly under `docs/` (except `PRD.md` and the README translations) and copies 
 | `docs/TYPES.md` | Type mapping and CUBRID-specific types |
 | `docs/PARAMETER_BINDING.md` | Driver-side literal binding contract: per-type SQL mapping, escaping, non-guarantees |
 | `docs/PROTOCOL.md` | CAS wire protocol reference |
+| `docs/CAS_OVERVIEW.md` | Advanced concept overview: Broker, CAS process, wire protocol and CCI; DB-API calls mapped to function codes (links to `PROTOCOL.md`, not a second specification) |
 | `docs/ARCHITECTURE.md` | Request flow, CAS reconnection, module boundaries, design decisions |
 | `docs/SUPPORT_MATRIX.md` | Supported Python and CUBRID versions and features |
 | `docs/CI_POLICY.md` | CI event tiers, lane selection and release evidence |

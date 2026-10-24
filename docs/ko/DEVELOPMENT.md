@@ -938,6 +938,7 @@ Python 3.10을 포함한 2 OS × 5 Python 오프라인 매트릭스와 pip 캐�
 | `docs/CONNECTION.md`, `/CONNECTION/` | 사용자: 어떤 연결 옵션, URL, 타임아웃, TLS 설정이 있나요? | 단원들 | `API_REFERENCE.md` | 파일과 앵커를 유지하고 단원에서 해당 절로 링크합니다. 참고에 두고 연결 옵션이라는 이름을 붙입니다. |
 | `docs/PARAMETER_BINDING.md`, `/PARAMETER_BINDING/` | 사용자: 값을 어떻게 안전하게 전달하고, 무엇은 보장되지 않나요? | 단원들 | `TYPES.md` | 유지합니다. 참고에 두고 값을 안전하게 전달하기라는 이름을 붙입니다. |
 | `docs/TYPES.md`, `docs/API_REFERENCE.md`, `docs/SUPPORT_MATRIX.md` | 사용자: 어떤 타입, 호출, 버전이 지원되나요? | 어느 페이지든 | 어느 페이지든 | 참고에 유지합니다. |
+| `docs/CAS_OVERVIEW.md`, `/CAS_OVERVIEW/` | 숙련 사용자: 브로커, CAS 프로세스, CAS 와이어 프로토콜, CCI는 무엇이고, DB-API 호출은 프로토콜의 어디와 만나나요? | 참고 페이지 | `PROTOCOL.md`, `ARCHITECTURE.md` | 참고에 심화로 둡니다. `PROTOCOL.md`, `ARCHITECTURE.md`, `CONNECTION.md`를 복사하지 않고 링크하는 개념 개요입니다. |
 | `docs/TROUBLESHOOTING.md`, `docs/faq.md` | 문제가 생긴 사용자: 이 오류는 무슨 뜻인가요? | 어느 페이지든 | `SECURITY.md`와 이슈 양식의 제보 안내 | 파일을 유지하고 도움말에 두며, 이슈 양식과 `SECURITY.md`로 가는 링크를 함께 둡니다. |
 | `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/UPSTREAM_COMPATIBILITY.md`, `docs/PREPARED_BINDING_DESIGN.md` | 기여자: 드라이버는 어떻게 동작하고, 무엇이 그 근거인가요? | `DEVELOPMENT.md` | 어느 페이지든 | 파일을 유지하고 탐색에서 개발과 기여에 둡니다(참고에서 옮김). |
 | `docs/DEVELOPMENT.md`, `docs/CI_POLICY.md`, `docs/PRD.md`, `docs/PERFORMANCE.md` | 기여자나 운영자: 어떻게 빌드, 테스트, 측정, 릴리스하나요? | 어느 페이지든 | 어느 페이지든 | 유지합니다. 개발과 기여에 두되, 성능 가이드는 운영에 남깁니다. |

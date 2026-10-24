@@ -2,6 +2,8 @@
 
 Technical documentation for the CUBRID CAS (Common Application Server) wire protocol as implemented by pycubrid.
 
+New to CAS? [CAS Architecture and Protocol Concepts](CAS_OVERVIEW.md) introduces the Broker, CAS process and CCI and maps DB-API calls to function codes before this reference.
+
 ---
 
 ## Table of Contents

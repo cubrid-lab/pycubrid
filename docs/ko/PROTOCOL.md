@@ -4,6 +4,8 @@
 
 pycubrid가 구현하는 CUBRID CAS(Common Application Server) 와이어 프로토콜의 기술 문서.
 
+CAS가 처음이라면 이 참조 전에 [CAS 아키텍처와 프로토콜 개념](CAS_OVERVIEW.md)에서 브로커, CAS 프로세스, CCI를 소개하고 DB-API 호출을 함수 코드에 대응시킨 설명을 먼저 읽으세요.
+
 ---
 
 ## 목차
