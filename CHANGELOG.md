@@ -47,6 +47,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`make check-all` (#1007)** — an alias of `make check` that prints a notice on stderr.
   It will be removed after the next minor release; use `make check`.
 
+### Fixed
+
+- **`make integration` no longer attaches to or removes the `make docker-up` lab (#1021)** —
+  `scripts/run_integration.py` ran `docker compose up -d`, `ps` and `down` on the default
+  Compose project, so a run could attach to a manually started CUBRID, stop and remove its
+  container, and reuse its data volumes. Every `docker compose` call now carries
+  `-p <project>` with a run-unique default `pycubrid-it-<timestamp>-<pid>` (override with
+  `INTEGRATION_PROJECT=<name>`; an exported `COMPOSE_PROJECT_NAME` is ignored). The run
+  refuses a project that already has a container, volume or network (exit 1) before
+  starting or removing anything. Cleanup, after success, failure or SIGINT/SIGTERM, is now
+  `docker compose -p <project> down -v` of that run-owned project, so each run starts from an
+  empty database and leaves no volumes; the manual lab's containers and data are untouched.
+  Readiness, the lane audit and exit statuses are unchanged.
+
 ### Documentation
 
 - **CAS architecture and protocol concepts page (#1015)** — a new advanced overview,

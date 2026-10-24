@@ -4,9 +4,10 @@ Both recipes are one ``scripts/run_integration.py`` call (#1007). These tests ru
 real Makefile and the real runner with command stubs for ``docker``, pytest, the
 readiness probe and the lane audit, so they need neither Docker nor a CUBRID. They
 cover success, step failures, cleanup failure, SIGINT/SIGTERM and exit-status
-propagation, and that automatic cleanup never deletes the reused volumes. They also
-pin the Compose service and the manual ``docker-up``/``docker-down``/``docker-clean``
-lifecycle (#1006).
+propagation. Every ``docker compose`` call must carry the run-owned project name, and
+cleanup removes (``down -v``) only that project, never the ``make docker-up`` one
+(#1021). They also pin the Compose service and the manual
+``docker-up``/``docker-down``/``docker-clean`` lifecycle (#1006).
 """
 
 from __future__ import annotations
@@ -39,7 +40,8 @@ def _executable(path: Path, text: str) -> Path:
 def _stubs(tmp_path: Path, readiness: str | None = None) -> dict[str, str]:
     """Write the command stubs and return the environment that puts them first.
 
-    ``docker`` logs every call and prints a container ID for ``compose ps -q cubrid``.
+    ``docker`` logs every call, prints a container ID for ``compose ps -q cubrid`` and
+    reports ``$REVIEW_EXISTING`` as a container of the project (ownership check).
     The ``PYTHON`` stub runs the real runner with this interpreter, logs the readiness
     probe's endpoint and the audit call, and exits with the configured statuses.
     """
@@ -48,9 +50,10 @@ def _stubs(tmp_path: Path, readiness: str | None = None) -> dict[str, str]:
         "#!/bin/sh\n"
         'printf "%s\\n" "$*" >> "$REVIEW_LOG"\n'
         'case " $* " in\n'
-        '  *" compose down "*) exit "$REVIEW_DOWN_EXIT" ;;\n'
-        '  *" compose up "*) exit "$REVIEW_UP_EXIT" ;;\n'
-        f'  *" compose ps -q cubrid "*) echo {CONTAINER} ;;\n'
+        '  *" compose "*" down "*) exit "$REVIEW_DOWN_EXIT" ;;\n'
+        '  *" compose "*" up "*) exit "$REVIEW_UP_EXIT" ;;\n'
+        f'  *" compose "*" ps -q cubrid "*) echo {CONTAINER} ;;\n'
+        '  *" ps -aq "*) [ -z "$REVIEW_EXISTING" ] || echo "$REVIEW_EXISTING" ;;\n'
         "esac\n"
         "exit 0\n",
     )
@@ -78,7 +81,8 @@ def _stubs(tmp_path: Path, readiness: str | None = None) -> dict[str, str]:
     env = {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith("CUBRID_TEST_") and not key.startswith("REVIEW_")
+        if not key.startswith(("CUBRID_TEST_", "REVIEW_", "INTEGRATION_"))
+        and key != "COMPOSE_PROJECT_NAME"
     }
     env.update(
         PATH=str(tmp_path) + os.pathsep + env.get("PATH", ""),
@@ -108,6 +112,24 @@ def _make_args(tmp_path: Path, target: str) -> list[str]:
     ]
 
 
+def _ownership_probes(project: str) -> list[str]:
+    label = f"label=com.docker.compose.project={project}"
+    return [
+        f"ps -aq --filter {label}",
+        f"volume ls -q --filter {label}",
+        f"network ls -q --filter {label}",
+        "volume ls -q",
+    ]
+
+
+def _project(result: subprocess.CompletedProcess[str]) -> str:
+    """Return the Compose project the run announced."""
+    for line in result.stdout.splitlines():
+        if line.startswith("Using run-owned Compose project '"):
+            return line.split("'")[1]
+    raise AssertionError(result.stdout + result.stderr)
+
+
 def _read(path: Path) -> str:
     return path.read_text() if path.exists() else ""
 
@@ -122,6 +144,7 @@ def _run_make(
     audit_exit: int = 0,
     up_exit: int = 0,
     extra_env: dict[str, str] | None = None,
+    make_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = _stubs(tmp_path)
     env.update(
@@ -133,7 +156,11 @@ def _run_make(
         **(extra_env or {}),
     )
     result = subprocess.run(
-        _make_args(tmp_path, target), env=env, capture_output=True, text=True, check=False
+        [*_make_args(tmp_path, target), *(make_args or [])],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     setattr(result, "log_text", _read(tmp_path / "docker.log"))
     return result
@@ -159,8 +186,8 @@ def test_cleanup_runs_after_pytest_failure(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target, pytest_exit=1)
     assert result.returncode != 0
     assert "Error 1" in result.stderr
-    assert "compose up -d" in result.log_text
-    assert "compose down" in result.log_text
+    assert " up -d" in result.log_text
+    assert " down -v" in result.log_text
     # A failing test run is not audited; its own status is reported.
     assert _read(tmp_path / "audit.log") == ""
 
@@ -169,7 +196,13 @@ def test_cleanup_runs_after_pytest_failure(tmp_path: Path, target: str) -> None:
 def test_cleanup_runs_after_pytest_success(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target, pytest_exit=0)
     assert result.returncode == 0, result.stderr
-    assert result.log_text.splitlines() == ["compose up -d", "compose ps -q cubrid", "compose down"]
+    project = _project(result)
+    assert result.log_text.splitlines() == [
+        *_ownership_probes(project),
+        f"compose -p {project} up -d",
+        f"compose -p {project} ps -q cubrid",
+        f"compose -p {project} down -v",
+    ]
     assert _read(tmp_path / "audit.log").split() == [
         "scripts/check_integration_lanes.py",
         "--results",
@@ -183,7 +216,7 @@ def test_every_test_skipped_fails_after_cleanup(tmp_path: Path, target: str) -> 
     result = _run_make(tmp_path, target, audit_exit=4)
     assert result.returncode != 0
     assert "Error 4" in result.stderr
-    assert "compose down" in result.log_text
+    assert " down -v" in result.log_text
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -191,7 +224,7 @@ def test_compose_up_failure_still_cleans_up(tmp_path: Path, target: str) -> None
     result = _run_make(tmp_path, target, up_exit=6)
     assert result.returncode != 0
     assert "Error 6" in result.stderr
-    assert "compose down" in result.log_text
+    assert " down -v" in result.log_text
     assert _read(tmp_path / "readiness.log") == ""
     assert _read(tmp_path / "pytest.log") == ""
 
@@ -200,7 +233,7 @@ def test_compose_up_failure_still_cleans_up(tmp_path: Path, target: str) -> None
 def test_cleanup_failure_does_not_hide_pytest_failure(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target, pytest_exit=7, down_exit=1)
     assert result.returncode != 0
-    assert "compose down" in result.log_text
+    assert " down -v" in result.log_text
     assert "Docker cleanup failed" in result.stderr + result.stdout
     assert "Error 7" in result.stderr
 
@@ -210,26 +243,90 @@ def test_cleanup_failure_fails_successful_run(tmp_path: Path, target: str) -> No
     result = _run_make(tmp_path, target, pytest_exit=0, down_exit=3)
     assert result.returncode != 0
     assert "Error 3" in result.stderr
-    assert "compose down" in result.log_text
+    assert " down -v" in result.log_text
     assert "Docker cleanup failed" in result.stderr + result.stdout
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_readiness_failure_still_preserves_volumes(tmp_path: Path, target: str) -> None:
+def test_readiness_failure_still_cleans_up(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target, readiness_exit=9)
     assert result.returncode != 0
     assert "Error 9" in result.stderr
-    assert "compose down" in result.log_text
-    assert "-v" not in result.log_text
+    assert " down -v" in result.log_text
     assert _read(tmp_path / "pytest.log") == ""
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_automatic_cleanup_never_removes_reused_volumes(tmp_path: Path, target: str) -> None:
+def test_cleanup_removes_the_run_owned_volumes(tmp_path: Path, target: str) -> None:
     result = _run_make(tmp_path, target)
     assert result.returncode == 0
-    assert "compose down" in result.log_text
-    assert "-v" not in result.log_text
+    assert " down -v" in result.log_text
+
+
+def _compose_calls(result: subprocess.CompletedProcess[str]) -> list[str]:
+    return [line for line in result.log_text.splitlines() if line.startswith("compose ")]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_every_compose_call_carries_a_run_unique_project(tmp_path: Path, target: str) -> None:
+    projects = []
+    for name in ("a", "b"):
+        (tmp_path / name).mkdir()
+        result = _run_make(tmp_path / name, target)
+        assert result.returncode == 0, result.stderr
+        project = _project(result)
+        assert project.startswith("pycubrid-it-")
+        calls = _compose_calls(result)
+        assert calls and all(call.startswith(f"compose -p {project} ") for call in calls)
+        projects.append(project)
+    assert projects[0] != projects[1]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_project_is_overridable_and_ignores_compose_project_name(
+    tmp_path: Path, target: str
+) -> None:
+    env = {"COMPOSE_PROJECT_NAME": "manual-lab"}
+    result = _run_make(tmp_path, target, extra_env=env, make_args=["INTEGRATION_PROJECT=it-mine"])
+    assert result.returncode == 0, result.stderr
+    assert _project(result) == "it-mine"
+    calls = _compose_calls(result)
+    assert len(calls) == 3
+    assert all(call.startswith("compose -p it-mine ") for call in calls)
+    assert "manual-lab" not in result.log_text
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_cleanup_touches_only_the_run_owned_project(tmp_path: Path, target: str) -> None:
+    result = _run_make(tmp_path, target, pytest_exit=1, make_args=["INTEGRATION_PROJECT=it-mine"])
+    assert result.returncode != 0
+    downs = [line for line in result.log_text.splitlines() if " down" in line]
+    assert downs == ["compose -p it-mine down -v"]
+    # Nothing else removes resources, and no call lacks the project.
+    assert not any(" rm" in line or " prune" in line for line in result.log_text.splitlines())
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_existing_project_is_refused_and_left_alone(tmp_path: Path, target: str) -> None:
+    result = _run_make(
+        tmp_path,
+        target,
+        extra_env={"REVIEW_EXISTING": CONTAINER},
+        make_args=["INTEGRATION_PROJECT=manual"],
+    )
+    assert result.returncode != 0
+    assert "Refusing to run" in result.stderr
+    assert _compose_calls(result) == []
+    assert _read(tmp_path / "readiness.log") == ""
+    assert _read(tmp_path / "pytest.log") == ""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_invalid_project_name_is_rejected_before_docker(tmp_path: Path, target: str) -> None:
+    result = _run_make(tmp_path, target, make_args=["INTEGRATION_PROJECT=Bad Name"])
+    assert result.returncode != 0
+    assert "INTEGRATION_PROJECT must match" in result.stderr
+    assert result.log_text == ""
 
 
 @pytest.mark.parametrize(
@@ -265,7 +362,9 @@ def test_readiness_probe_gets_the_compose_container(tmp_path: Path, target: str)
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("signal_name", ["SIGINT", "SIGTERM"])
-def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_name: str) -> None:
+def test_signal_cleanup_removes_the_run_owned_project(
+    tmp_path: Path, target: str, signal_name: str
+) -> None:
     import signal
     import time
 
@@ -314,8 +413,7 @@ def test_signal_cleanup_preserves_volumes(tmp_path: Path, target: str, signal_na
         assert "Error 130" in stderr, stdout + stderr
         assert f"Interrupted by {signal_name}" in stderr
         log = _read(tmp_path / "docker.log")
-        assert "compose down" in log
-        assert "-v" not in log
+        assert " down -v" in log
         assert _read(tmp_path / "pytest.log") == ""
         # The runner stopped the step it was waiting for.
         with pytest.raises(ProcessLookupError):

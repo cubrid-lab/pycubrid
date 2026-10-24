@@ -321,14 +321,14 @@ make integration CUBRID_TEST_PORT=33522   # 다른 컨테이너가 쓰지 않는
 실행 실패), 모든 엔드포인트 필드를 명시적으로 설정해
 `-m "integration and not tls"`를 실행합니다. 이어서
 `scripts/check_integration_lanes.py --results`로 JUnit 보고서를 검사해 전부
-건너뛰었거나 분류되지 않은 skip이 있으면 실패시키고, 컨테이너는 항상 제거합니다.
-종료 상태는 처음 실패한 단계의 상태이며, `docker compose down`이 실패하면 이를 보고하고
+건너뛰었거나 분류되지 않은 skip이 있으면 실패시키고, 생성한 리소스는 항상 제거합니다.
+종료 상태는 처음 실패한 단계의 상태이며, `docker compose down -v`가 실패하면 이를 보고하고
 그 외에는 통과한 실행도 실패로 처리합니다.
 TLS 테스트는 SSL이 켜진 브로커가 필요합니다.
 [비동기 TLS 통합 테스트](#비동기-tls-통합-테스트)를 참고하세요.
 
 
-`make integration`과 `make integration-tls`는 성공·준비 실패·테스트 실패 후 컨테이너를 정리하지만 기존 Docker 볼륨을 보존합니다. `make docker-down`도 볼륨을 보존하며, `make docker-clean`(`down -v`)만 볼륨과 테스트 데이터를 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
+**`make docker-up`과의 격리(#1021).** `make integration`과 `make integration-tls`는 자체 Compose 프로젝트(기본값 `pycubrid-it-<타임스탬프>-<pid>`)에서 실행되며 모든 `docker compose` 호출에 `-p <project>`를 붙이므로, `make docker-up`으로 띄운 CUBRID에 붙거나 재시작하거나 제거하지 않습니다(내보낸 `COMPOSE_PROJECT_NAME`도 무시됩니다). 이름은 `INTEGRATION_PROJECT=<이름>`(`^[a-z0-9][a-z0-9_-]*$`)으로 정할 수 있으며, 실행 전에 해당 프로젝트에 컨테이너·볼륨·네트워크가 없는지 확인하고 있으면 아무것도 시작하거나 제거하지 않은 채 "Refusing to run"과 함께 종료 코드 1로 끝납니다. 프로젝트가 실행 자신의 것이므로 성공·준비 실패·테스트 실패·SIGINT·SIGTERM 후의 정리는 `docker compose -p <project> down -v`이며, 이 실행의 볼륨도 삭제하므로 매 실행이 빈 데이터베이스에서 시작하고 아무것도 남기지 않습니다. 수동 랩의 데이터 볼륨은 건드리지 않습니다. `make docker-down`은 수동 랩의 데이터를 보존하고, `make docker-clean`(기본 프로젝트에 대한 `down -v`)만 이를 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
 
 **통합 테스트 활성화와 엔드포인트 선택의 구분.** 통합 테스트는
 `CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 비어 있지 않은 값으로 설정되면
@@ -616,7 +616,7 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | `make check` | 정적 품질 게이트: lint, format-check, typecheck, security, docs-reason-check (`make check-all`은 폐기 예정 별칭) |
 | `make test` | 커버리지와 함께 오프라인 테스트 실행 |
 | `make verify` | `make check` 후 `make test`; Docker 불필요 |
-| `make integration` | Docker → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경) |
+| `make integration` | Docker(실행 전용 Compose 프로젝트) → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경, `INTEGRATION_PROJECT=<name>`으로 프로젝트 이름 지정) |
 | `make integration-local` | 이미 실행 중인 서버에 대한 통합 테스트 (`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | 빌드 산출물 제거 |
 

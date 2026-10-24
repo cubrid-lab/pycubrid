@@ -98,8 +98,12 @@ mutation: ## Run mutation testing on the driver core (pip install -e . --group d
 # and owns the Compose lifecycle, readiness, cleanup and exit status.
 CUBRID_TEST_PORT ?= 33000
 INTEGRATION_RESULTS ?= integration-results.xml
+# Compose project of the run: empty means a run-unique pycubrid-it-<time>-<pid>. The
+# run refuses a project that already has resources and removes (down -v) only its own,
+# so it never touches the `make docker-up` project (#1021).
+INTEGRATION_PROJECT ?=
 RUN_INTEGRATION = $(PYTHON) scripts/run_integration.py --python "$(PYTHON)" --pytest "$(PYTEST)" \
-	--port "$(CUBRID_TEST_PORT)" --results "$(INTEGRATION_RESULTS)"
+	--port "$(CUBRID_TEST_PORT)" --project "$(INTEGRATION_PROJECT)" --results "$(INTEGRATION_RESULTS)"
 
 integration: ## Run integration tests against a Docker CUBRID (fails if it never becomes ready or every test skips)
 	$(RUN_INTEGRATION) --lane normal

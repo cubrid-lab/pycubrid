@@ -56,7 +56,9 @@ make integration CUBRID_TEST_PORT=33522   # use a free port if 33000 is taken
 
 `make integration` (through `scripts/run_integration.py`) waits for readiness,
 fails if the broker never comes up or if every selected test skips, and always
-removes the container, also on Ctrl-C or SIGTERM; it keeps the data volumes. To test an
+removes what it created, also on Ctrl-C or SIGTERM. It runs in its own Compose project
+(`pycubrid-it-<time>-<pid>`, or `INTEGRATION_PROJECT=<name>`) and deletes that project's
+volumes (`down -v`), so it never touches a `make docker-up` lab. To test an
 already-running server, set the endpoint explicitly:
 
 ```bash
