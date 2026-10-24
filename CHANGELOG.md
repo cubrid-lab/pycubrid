@@ -56,7 +56,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `-p <project>` with a run-unique default `pycubrid-it-<timestamp>-<pid>` (override with
   `INTEGRATION_PROJECT=<name>`; an exported `COMPOSE_PROJECT_NAME` is ignored). The run
   refuses a project that already has a container, volume or network (exit 1) before
-  starting or removing anything. Cleanup, after success, failure or SIGINT/SIGTERM, is now
+  starting or removing anything, and refuses a second run of the same project name while
+  the first holds its `flock` lock (POSIX only). Cleanup, after success, failure or SIGINT/SIGTERM, is now
   `docker compose -p <project> down -v` of that run-owned project, so each run starts from an
   empty database and leaves no volumes; the manual lab's containers and data are untouched.
   Readiness, the lane audit and exit statuses are unchanged.

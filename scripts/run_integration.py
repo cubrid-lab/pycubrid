@@ -6,8 +6,11 @@ recipes used to spell out in shell:
 
 0. Pick a run-owned Compose project (``--project``, default
    ``pycubrid-it-<timestamp>-<pid>``) and refuse to run when it already has a
-   container, volume or network, so the run never attaches to the ``make docker-up``
-   project or removes anything it did not create (#1021);
+   container, volume or network, and hold an exclusive non-blocking ``flock`` on
+   ``<tempdir>/pycubrid-integration-<project>.lock`` through cleanup, so a concurrent
+   run of the same name is refused (POSIX only; skipped without ``fcntl``). The run
+   never attaches to the ``make docker-up`` project or removes anything it did not
+   create (#1021);
 1. ``docker compose -p <project> up -d`` with the broker published on ``--port``;
 2. ``scripts/wait_for_cubrid.py 36 5``, given the compose container ID in
    ``CUBRID_TEST_DOCKER_CONTAINER`` so a volume registered for a stale host fails
@@ -42,10 +45,16 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Sequence
 from pathlib import Path
 from types import FrameType
+
+try:  # POSIX only: without fcntl (Windows) the same-project guard is skipped.
+    import fcntl
+except ImportError:  # pragma: no cover - platform dependent
+    fcntl = None  # type: ignore[assignment]
 
 ROOT = Path(__file__).resolve().parents[1]
 INTERRUPTED = 130
@@ -98,6 +107,28 @@ def _run(command: Sequence[str], env: dict[str, str] | None = None) -> int:
         raise
     # A step killed by a signal reports -N; report it as a shell would (128 + N).
     return 128 - status if status < 0 else status
+
+
+def _reserve(project: str) -> int | None:
+    """Take an exclusive, non-blocking per-project lock; return its fd or None if held.
+
+    The ownership probes are read-only, so two runs of the same project could both pass
+    them and then share, and ``down -v``, each other's resources. The lock lives until
+    the process exits (after cleanup); the descriptor is not inherited by children.
+    """
+    if fcntl is None:  # pragma: no cover - platform dependent
+        return -1
+    fd = os.open(
+        os.path.join(tempfile.gettempdir(), f"pycubrid-integration-{project}.lock"),
+        os.O_CREAT | os.O_RDWR,
+        0o600,
+    )
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
 
 
 def _probe(command: Sequence[str]) -> list[str]:
@@ -188,6 +219,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     project = project or f"pycubrid-it-{time.strftime('%Y%m%d%H%M%S')}-{os.getpid()}"
+    if _reserve(project) is None:
+        print(
+            f"ERROR: another run owns project '{project}' (lock held); nothing was started "
+            "or removed.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 1
     if not _owns_nothing(project):
         print(
             f"ERROR: Refusing to run: Compose project '{project}' already has containers, "

@@ -627,3 +627,23 @@ def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
     # A second run keeps the first backup, the only record of the stale host.
     assert fix().returncode == 0
     assert backup.read_text() == original
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_second_run_of_the_same_project_is_refused_without_docker(
+    tmp_path: Path, target: str
+) -> None:
+    """A concurrent run holding the project lock blocks a same-name run (#1021)."""
+    import fcntl
+    import tempfile
+
+    project = f"it-lock-{os.getpid()}"
+    lock = Path(tempfile.gettempdir()) / f"pycubrid-integration-{project}.lock"
+    with open(lock, "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = _run_make(tmp_path, target, make_args=[f"INTEGRATION_PROJECT={project}"])
+    lock.unlink(missing_ok=True)
+    assert result.returncode != 0
+    assert f"another run owns project '{project}'" in result.stderr
+    assert result.log_text == ""
+    assert _read(tmp_path / "pytest.log") == ""

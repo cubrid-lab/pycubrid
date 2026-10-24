@@ -10338,14 +10338,14 @@ service, waits with `scripts/wait_for_cubrid.py` (fails the run if the broker is
 not ready within about three minutes instead of sleeping a fixed time), runs
 `-m "integration and not tls"` with every endpoint field set explicitly, audits
 the JUnit report with `scripts/check_integration_lanes.py --results` (an
-all-skipped or unclassified-skip run fails), and always removes the container.
-The exit status is the first failing step's; a failed `docker compose down` is
+all-skipped or unclassified-skip run fails), and always removes what it created.
+The exit status is the first failing step's; a failed `docker compose down -v` is
 reported and fails an otherwise passing run.
 TLS tests need an SSL-enabled broker; see
 [Async TLS integration tests](#async-tls-integration-tests).
 
 
-`make integration` and `make integration-tls` clean up containers after success, readiness failure or test failure, while preserving existing Docker volumes. `make docker-down` also keeps them; only `make docker-clean` (`down -v`) removes the volumes and the test data. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
+**Isolation from `make docker-up` (#1021).** `make integration` and `make integration-tls` run in their own Compose project, `pycubrid-it-<timestamp>-<pid>` by default, and pass `-p <project>` on every `docker compose` call, so they never attach to, restart or remove the CUBRID started by `make docker-up` (an exported `COMPOSE_PROJECT_NAME` is ignored too). Set `INTEGRATION_PROJECT=<name>` (`^[a-z0-9][a-z0-9_-]*$`) to choose the name; the run first checks that the project has no container, volume or network and otherwise exits 1 with "Refusing to run" before starting or removing anything. A second run of the same name while the first is active is refused too ("another run owns project"), through a `flock` on a lock file in the temp directory held until cleanup ends (POSIX only; the guard is skipped on Windows). Because the project is the run's own, cleanup after success, readiness failure, test failure, SIGINT or SIGTERM is `docker compose -p <project> down -v`: it also deletes the run's volumes, so every run starts from an empty database and leaves nothing behind. The manual lab's data volumes are never touched. `make docker-down` keeps the manual lab's data; only `make docker-clean` (`down -v` on the default project) removes it. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
 
 **Enabling integration vs. choosing the endpoint.** Integration tests are
 *enabled* when `CUBRID_TEST_URL` or `CUBRID_TEST_HOST` is set to a non-empty
@@ -10668,7 +10668,7 @@ lint/format/typecheck.
 | `make check` | Static quality gate: lint, format-check, typecheck, security, docs-reason-check (`make check-all` is a deprecated alias) |
 | `make test` | Run offline tests with coverage |
 | `make verify` | `make check` then `make test`; no Docker |
-| `make integration` | Docker → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker) |
+| `make integration` | Docker (run-owned Compose project) → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker, `INTEGRATION_PROJECT=<name>` to name the project) |
 | `make integration-local` | Integration tests against an already-running server (`CUBRID_TEST_URL` or `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | Remove build artifacts |
 
