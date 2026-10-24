@@ -595,6 +595,9 @@ same checks and the same differences from literals (host-variable coercion,
   position (`rows[i][j]`) and never its contents. Each value carries its own
   type, so a column may hold an `int` in one row and a `Decimal` or `None` in
   the next.
+- `seq_of_parameters` may be any iterable. A generator is consumed once, and
+  every encoded row is retained before network I/O, so memory use scales with
+  the whole request rather than a streamed chunk. Use finite, bounded batches.
 - Other statements raise `NotSupportedError`; there is no fallback to the
   literal batch.
 

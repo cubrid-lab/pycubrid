@@ -20,6 +20,7 @@ Practical examples for using pycubrid — from basic CRUD to advanced features.
   - [Autocommit Mode](#autocommit-mode)
 - [Parameterized Queries](#parameterized-queries)
 - [Batch Operations](#batch-operations)
+  - [Prepared `executemany`](#prepared-executemany)
   - [executemany](#executemany)
   - [executemany_batch](#executemany_batch)
 - [Fetching Strategies](#fetching-strategies)
@@ -367,6 +368,40 @@ cur.execute("INSERT INTO users (name, email) VALUES (?, ?)",
 ---
 
 ## Batch Operations
+
+### Prepared `executemany`
+
+`prepared=True` is an explicit opt-in, not the default. It sends typed host
+variables for `INSERT`, `UPDATE`, `DELETE`, or `MERGE` only. Keep each input
+finite and reasonably sized:
+
+```python
+rows = [
+    (101, "Alice"),
+    (101, "duplicate id"),
+    (102, "Bob"),
+]
+
+try:
+    cur.executemany(
+        "INSERT INTO users (id, name) VALUES (?, ?)",
+        rows,
+        prepared=True,
+    )
+except pycubrid.DatabaseError as exc:
+    for index, error in exc.batch_errors or ():
+        print(f"row {index} failed: {error.errno} {error.msg}")
+    print("applied:", sum(count for count in exc.batch_rowcounts or () if count >= 0))
+    conn.rollback()
+else:
+    conn.commit()
+```
+
+A row error does not make the whole call atomic: successful rows may already
+be part of the current transaction, and the driver does not retry them. The
+[parameter-binding reference](PARAMETER_BINDING.md#executemany-preparedtrue)
+documents the typed values, one-time generator consumption, and whole-request
+memory behavior.
 
 ### executemany
 

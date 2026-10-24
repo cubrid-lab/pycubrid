@@ -22,6 +22,7 @@
   - [오토커밋 모드](#오토커밋-모드)
 - [파라미터화 쿼리](#파라미터화-쿼리)
 - [배치 연산](#배치-연산)
+  - [Prepared `executemany`](#prepared-executemany)
   - [executemany](#executemany)
   - [executemany_batch](#executemany_batch)
 - [가져오기 전략](#가져오기-전략)
@@ -364,6 +365,39 @@ cur.execute("INSERT INTO users (name, email) VALUES (?, ?)",
 ---
 
 ## 배치 연산
+
+### Prepared `executemany`
+
+`prepared=True`는 기본값이 아닌 명시적 옵트인입니다. `INSERT`, `UPDATE`,
+`DELETE`, `MERGE`에만 타입 지정 호스트 변수를 전송합니다. 각 입력은 유한하고
+적당한 크기로 유지하세요:
+
+```python
+rows = [
+    (101, "Alice"),
+    (101, "duplicate id"),
+    (102, "Bob"),
+]
+
+try:
+    cur.executemany(
+        "INSERT INTO users (id, name) VALUES (?, ?)",
+        rows,
+        prepared=True,
+    )
+except pycubrid.DatabaseError as exc:
+    for index, error in exc.batch_errors or ():
+        print(f"row {index} failed: {error.errno} {error.msg}")
+    print("applied:", sum(count for count in exc.batch_rowcounts or () if count >= 0))
+    conn.rollback()
+else:
+    conn.commit()
+```
+
+행 오류가 발생해도 호출 전체가 원자적으로 처리되지는 않습니다. 성공한 행은 이미
+현재 트랜잭션에 포함되었을 수 있으며 드라이버는 이를 자동으로 재시도하지 않습니다.
+[파라미터 바인딩 참조](PARAMETER_BINDING.md#executemany-preparedtrue)에서 타입 지정 값,
+생성기의 일회성 소비, 전체 요청의 메모리 동작을 설명합니다.
 
 ### executemany
 
