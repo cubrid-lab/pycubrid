@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.0](https://github.com/cubrid-lab/pycubrid/compare/v1.13.5...v1.14.0) (2026-10-25)
+
+
+### Added
+
+* **make:** run the live integration lane in make verify ([#1050](https://github.com/cubrid-lab/pycubrid/issues/1050)) ([4f63593](https://github.com/cubrid-lab/pycubrid/commit/4f63593d3d7e456edececf75ba566d9ed65f758f))
+
 ## [1.13.5](https://github.com/cubrid-lab/pycubrid/compare/v1.13.4...v1.13.5) (2026-10-25)
 
 
