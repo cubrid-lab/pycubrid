@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **README and docs site show the cube-redesign brand icon (#1060)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `38b4646`, which carries the redesigned Driver icon. Documentation only; behavior is unchanged.
 - **README and docs site show the 2026-10-25 brand icon (#1058)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the approved CUBRID Lab brand revision `8aa81b7`. Documentation only; behavior is unchanged.
 
 ### Tests
