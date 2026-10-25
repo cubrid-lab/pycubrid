@@ -72,12 +72,19 @@ check-all: check ## Deprecated alias of check (removed after the next minor rele
 
 # Full verification (#1022): the static gate, the offline tests, then the managed live
 # lane, which needs Docker and fails when CUBRID never becomes ready or every test skips.
-# The phases are sub-makes, not prerequisites, so even `make -j` starts each one only
-# after the previous one succeeded. `make test` stays the offline-only target.
-verify: ## Full verification: check, offline tests, then the live integration lane (needs Docker)
-	@$(MAKE) --no-print-directory check
-	@$(MAKE) --no-print-directory test
-	@$(MAKE) --no-print-directory integration
+# scripts/run_verify.py runs the phases as sub-makes, not prerequisites, so even `make -j`
+# starts each one only after the previous one succeeded, and always writes the aggregate
+# summary.json, junit/<lane>.xml and environment.json under VERIFY_RESULTS (#1053). `exec`
+# makes it the recipe's only process, so make's SIGTERM reaches it. VERIFY_MAKE is $(MAKE)
+# under another name: a recipe line that names $(MAKE) runs even under `make -n`, which must
+# write nothing. `make test` stays the offline-only target.
+VERIFY_RESULTS = test-results/verify
+VERIFY_MAKE = $(MAKE)
+verify: ## Full verification: check, offline tests, then the live integration lane (needs Docker); writes test-results/verify/
+	@exec $(PYTHON) scripts/run_verify.py --make "$(VERIFY_MAKE)" \
+		--results-dir "$(VERIFY_RESULTS)" \
+		--test-results "$(TEST_RESULTS_DIR)" \
+		--integration-junit "$(or $(INTEGRATION_RESULTS),test-results/integration/junit.xml)"
 
 # Machine-readable results (#1024): junit.xml, coverage.xml, summary.json and
 # environment.json under test-results/test/ (gitignored). The summary reports PASS, FAIL
@@ -129,8 +136,10 @@ INTEGRATION_PROJECT ?=
 RUN_INTEGRATION = $(PYTHON) scripts/run_integration.py --python "$(PYTHON)" --pytest "$(PYTEST)" \
 	--port "$(CUBRID_TEST_PORT)" --project "$(INTEGRATION_PROJECT)" --results "$(INTEGRATION_RESULTS)"
 
+# `exec` makes the runner the recipe's only process, so the SIGTERM make passes on to its
+# recipe (also from make verify, #1053) reaches it and the run still cleans up.
 integration: ## Run integration tests against a Docker CUBRID (fails if it never becomes ready or every test skips)
-	$(RUN_INTEGRATION) --lane normal
+	exec $(RUN_INTEGRATION) --lane normal
 
 integration-local: ## Run integration tests against an already-running CUBRID (set CUBRID_TEST_URL or CUBRID_TEST_HOST/PORT; no Docker)
 	@if [ -z "$$CUBRID_TEST_URL" ] && [ -z "$$CUBRID_TEST_HOST" ]; then \
@@ -140,7 +149,7 @@ integration-local: ## Run integration tests against an already-running CUBRID (s
 	$(PYTEST) $(TESTS)/ -m integration -v
 
 integration-tls: ## Run async TLS integration tests (requires SSL=ON broker; see CONTRIBUTING.md)
-	$(RUN_INTEGRATION) --lane tls
+	exec $(RUN_INTEGRATION) --lane tls
 
 # Manual lifecycle (#1006): docker-up starts the compose service, docker-down removes
 # its container and network but keeps the named data volumes, and docker-clean is

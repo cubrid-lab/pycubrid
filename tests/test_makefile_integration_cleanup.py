@@ -3,7 +3,7 @@
 Both recipes are one ``scripts/run_integration.py`` call (#1007). These tests run the
 real Makefile and the real runner with command stubs for ``docker``, pytest, the
 readiness probe and the lane audit, so they need neither Docker nor a CUBRID. They
-cover success, step failures, cleanup failure, SIGINT/SIGTERM and exit-status
+cover success, step failures, cleanup failure, SIGINT/SIGTERM/SIGHUP and exit-status
 propagation. Every ``docker compose`` call must carry the run-owned project name, and
 cleanup removes (``down -v``) only that project, never the ``make docker-up`` one
 (#1021). They also pin the Compose service and the manual
@@ -365,7 +365,7 @@ def test_readiness_probe_gets_the_compose_container(tmp_path: Path, target: str)
 
 
 @pytest.mark.parametrize("target", TARGETS)
-@pytest.mark.parametrize("signal_name", ["SIGINT", "SIGTERM"])
+@pytest.mark.parametrize("signal_name", ["SIGINT", "SIGTERM", "SIGHUP"])
 def test_signal_cleanup_removes_the_run_owned_project(
     tmp_path: Path, target: str, signal_name: str
 ) -> None:
@@ -391,6 +391,7 @@ def test_signal_cleanup_removes_the_run_owned_project(
         # pytest itself was launched (#775).
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGHUP, signal.SIG_DFL)
 
     process = subprocess.Popen(
         _make_args(tmp_path, target),

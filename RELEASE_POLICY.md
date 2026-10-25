@@ -305,6 +305,11 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`make verify` writes an aggregate summary (#1053)** — development-tooling change; no
+  release on its own. `make verify` runs its phases through `scripts/run_verify.py` and always
+  writes `test-results/verify/` (`summary.json`, masked `junit/<lane>.xml` and
+  `environment.json` copies); `make integration` and `make integration-tls` also clean up on
+  SIGHUP. Driver APIs, connection semantics, package dependencies and CI jobs are unchanged.
 - **`make verify` runs the live integration lane (#1022)** — development-tooling
   change; no release on its own. `make verify` is `make check`, `make test`, then the managed
   `make integration` lane, which supersedes the offline-only `make verify` of #1007. `make test`

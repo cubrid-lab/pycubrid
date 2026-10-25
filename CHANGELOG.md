@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`make verify` writes an aggregate summary under `test-results/verify/` (#1053)** — the
+  recipe now `exec`s `scripts/run_verify.py`, which runs `check`, `test` and `integration`
+  in order and always writes `summary.json` (overall `PASS`/`FAIL`/`INCOMPLETE` and one entry
+  per phase, `NOT_RUN` for a phase that never started), `junit/<lane>.xml` copies and the live
+  lane's `environment.json`, also after a failure or a signal. Configured test passwords are
+  masked in every copy; a missing or unreadable lane summary or a failed copy is never `PASS`.
+  The runner forwards the first SIGINT, SIGTERM or SIGHUP to the running phase as SIGTERM and
+  exits 128 + N; `make integration` now `exec`s its runner and also cleans up on SIGHUP.
+  `make -n verify` writes nothing. Development tooling only; the driver API and runtime are
+  unchanged.
+
 ### Changed
 
 - **`make verify` now runs the live integration lane (#1022)** — it runs `make check`, the
