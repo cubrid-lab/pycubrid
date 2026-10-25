@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- **CI installs third-party dependencies from a committed `uv.lock`** — CI, full
+  integration and documentation jobs install locked, hash-checked wheels with source builds
+  disabled, and build the trusted checkout separately with its locked backend. Dependabot
+  updates `pyproject.toml` and `uv.lock` together through its uv ecosystem. Python 3.15 uses a
+  documented pure Python PyYAML 6.0.3 wheel until upstream provides a compatible wheel. No
+  driver API or runtime behaviour changes.
 - **Every new issue starts in `status: needs triage` (#1033)** — the issue forms add the
   label and `issue-triage.yml` adds it to every opened issue instead of only to issues with
   incomplete titles or labels; the unused `scripts/check_issue_metadata.py` check is removed.
@@ -174,11 +180,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   is `b""` too (#998).
 
 ### Changed
-
-- Dependabot now updates the root manifest and `uv.lock` together through its uv
-  ecosystem. The Python 3.15 PyYAML wheel source uses a fetchable mapping; its marker,
-  wheel bytes and locked dependencies are unchanged. This is a CI tooling change
-  with no driver API or runtime behaviour change under the release policy.
 
 - **The execute and fetch profilers no longer drop an existing `_profile_tmp` table (#950)** —
   `scripts/profile_execute.py` and `scripts/profile_fetch.py` ran
@@ -501,11 +502,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   made a required check until it is posted from an identity a PR cannot impersonate
   (#945). `CONTRIBUTING.md`, `AGENTS.md`, the PR template and `docs/CONTRIBUTING.ko.md`
   document it.
-- CI, full integration and documentation installs use locked, hash-checked
-  third-party wheels. Trusted checkout builds use the locked backend separately.
-  Python 3.15 uses a documented pure Python PyYAML 6.0.3 wheel until upstream
-  provides a compatible wheel.
-
 - **The documentation check closes its parser gaps (#939)** — `scripts/_markdown.py` now
   matches sqlalchemy-cubrid's reviewed parser (cubrid-lab/sqlalchemy-cubrid#919), plus the
   four cases of cubrid-lab/sqlalchemy-cubrid#921:
