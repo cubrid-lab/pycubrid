@@ -412,12 +412,10 @@ type(scope): description
 <body: what changed and why>
 
 Refs #N
-
-<tool attribution trailer, only for work produced with that tool>
 ```
 
-Preserve actual contributor authorship and existing `Co-authored-by:` trailers. Add a
-tool attribution trailer only for commits actually produced with that tool, using that
-tool's own trailer (for example `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
-for Claude Code, or `Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>` for
-OpenCode/Sisyphus). It is not a required footer for outside contributors' commits.
+Preserve actual contributor authorship and existing `Co-authored-by:` trailers.
+The copyable commit example intentionally has no agent-specific footer: do
+not add a coauthor or tool credit unless it truthfully identifies a real
+contributor to that commit. Human-authored and AI-assisted contributions follow
+the same review criteria; neither a named AI tool nor a trailer is mandatory.
