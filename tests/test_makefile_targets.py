@@ -180,9 +180,12 @@ def test_verify_runs_check_then_offline_tests_then_the_live_lane(tmp_path: Path)
     assert "--lane normal" in live[0]
 
 
-def test_verify_stops_before_the_live_lane_when_offline_tests_fail(tmp_path: Path) -> None:
+@pytest.mark.parametrize("jobs", [[], ["-j3"]], ids=["serial", "parallel"])
+def test_verify_stops_before_the_live_lane_when_offline_tests_fail(
+    tmp_path: Path, jobs: list[str]
+) -> None:
     stub, log = _python_stub(tmp_path)
-    result = _make("verify", f"PYTHON={stub}", env={"REVIEW_FAIL": "pytest"})
+    result = _make(*jobs, "verify", f"PYTHON={stub}", env={"REVIEW_FAIL": "pytest"})
     assert result.returncode != 0
     assert not any(c.startswith("scripts/run_integration.py") for c in log.read_text().splitlines())
 

@@ -72,8 +72,12 @@ check-all: check ## Deprecated alias of check (removed after the next minor rele
 
 # Full verification (#1022): the static gate, the offline tests, then the managed live
 # lane, which needs Docker and fails when CUBRID never becomes ready or every test skips.
-# Prerequisites run in this order; `make test` stays the offline-only target.
-verify: check test integration ## Full verification: check, offline tests, then the live integration lane (needs Docker)
+# The phases are sub-makes, not prerequisites, so even `make -j` starts each one only
+# after the previous one succeeded. `make test` stays the offline-only target.
+verify: ## Full verification: check, offline tests, then the live integration lane (needs Docker)
+	@$(MAKE) --no-print-directory check
+	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory integration
 
 # Machine-readable results (#1024): junit.xml, coverage.xml, summary.json and
 # environment.json under test-results/test/ (gitignored). The summary reports PASS, FAIL
