@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from scripts import report_results as rr
+from tests.helpers.make_env import MAKEFILE_VARIABLES, make_env
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="command stubs need a POSIX shell")
 
@@ -37,8 +38,6 @@ TOOLS = {
     "BANDIT": "bandit",
     "PRE_COMMIT": "pre_commit",
 }
-# An outer make (e.g. `make test` running this suite) must not leak into the tested make.
-MAKE_VARIABLES = {"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES"}
 
 
 def _python_stub(tmp_path: Path) -> tuple[Path, Path]:
@@ -58,10 +57,9 @@ def _python_stub(tmp_path: Path) -> tuple[Path, Path]:
 def _make(
     *args: str, env: dict[str, str] | None = None, dry_run: bool = False
 ) -> subprocess.CompletedProcess[str]:
-    base = {k: v for k, v in os.environ.items() if k not in {"PYTHON", *TOOLS, *MAKE_VARIABLES}}
     return subprocess.run(
         ["make", "-s", "-C", str(ROOT), *(["-n"] if dry_run else []), *args],
-        env={**base, **(env or {})},
+        env={**make_env(), **(env or {})},
         capture_output=True,
         text=True,
         check=False,
@@ -363,10 +361,9 @@ def test_verify_forwards_sigterm_to_the_live_lane_and_still_writes_the_summary(
     # `timeout make verify` and `kill <make pid>` signal only make, which passes SIGTERM to
     # the runner; the runner must stop the live lane (which then cleans up), not orphan it.
     stub, log = _verify_stub(tmp_path)
-    base = {k: v for k, v in os.environ.items() if k not in {"PYTHON", *TOOLS, *MAKE_VARIABLES}}
     process = subprocess.Popen(
         ["make", "-s", "-C", str(ROOT), "verify", f"PYTHON={stub}", *_verify_results(tmp_path)],
-        env={**base, **VERIFY_ENV, "REVIEW_BLOCK": "1"},
+        env={**make_env(), **VERIFY_ENV, "REVIEW_BLOCK": "1"},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -427,17 +424,89 @@ def test_help_groups_targets_by_purpose() -> None:
     assert sorted(t for targets in groups.values() for t in targets) == sorted(documented)
 
 
+def _test_target(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run the real `make test` recipe with its results under tmp_path (#1052)."""
+    stub, log = _python_stub(tmp_path)
+    result = _make(
+        "test",
+        f"PYTHON={stub}",
+        f"TEST_RESULTS_DIR={tmp_path}/test",
+        env={"REVIEW_FAIL": "--cov-fail-under=95"},
+    )
+    return result, log.read_text().splitlines()
+
+
 def test_test_writes_results_and_keeps_pytest_status(tmp_path: Path) -> None:
     """`make test` passes pytest's status through and always summarizes it (#1024)."""
-    stub, log = _python_stub(tmp_path)
-    result = _make("test", f"PYTHON={stub}", env={"REVIEW_FAIL": "--cov-fail-under=95"})
+    result, calls = _test_target(tmp_path)
     assert result.returncode != 0
-    calls = log.read_text().splitlines()
-    assert "--junitxml=test-results/test/junit.xml" in calls[0]
-    assert "--cov-report=xml:test-results/test/coverage.xml" in calls[0]
+    assert f"--junitxml={tmp_path}/test/junit.xml" in calls[0]
+    assert f"--cov-report=xml:{tmp_path}/test/coverage.xml" in calls[0]
     assert [c.split()[1] for c in calls[1:]] == ["environment", "summarize"]
     assert "--exit-code 1" in calls[2]
-    assert "--coverage test-results/test/coverage.xml" in calls[2]
+    assert f"--coverage {tmp_path}/test/coverage.xml" in calls[2]
+    assert (tmp_path / "test").is_dir()
+    # The default stays the repository's test-results/test.
+    recipe = _make("test", dry_run=True).stdout
+    assert '"test-results/test"' in recipe
+    assert "--junitxml=test-results/test/junit.xml" in recipe
+
+
+def test_makefile_tests_ignore_an_outer_makes_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`make test PYTHON=... CUBRID_TEST_PORT=...` running this suite leaks nothing (#1052).
+
+    The outer make passes its command-line variables in MAKEFLAGS and exports them into
+    the recipe that runs pytest; the tested make must still see the Makefile defaults.
+    """
+    overrides = {
+        "PYTHON": "/opt/py",
+        "RUFF": "/opt/ruff",
+        "CUBRID_TEST_PORT": "33599",
+        "TEST_RESULTS_DIR": "/opt/results",
+        "VERIFY_RESULTS": "/opt/verify",
+        "INTEGRATION_RESULTS": "/opt/integration.xml",
+        "INTEGRATION_PROJECT": "outer",
+    }
+    assert set(overrides) <= MAKEFILE_VARIABLES
+    flags = " ".join(f"{key}={value}" for key, value in overrides.items())
+    monkeypatch.setenv("MAKEFLAGS", f" -- {flags}")
+    monkeypatch.setenv("MAKEOVERRIDES", "${-*-command-variables-*-}")
+    monkeypatch.setenv("MFLAGS", "")
+    monkeypatch.setenv("MAKELEVEL", "1")
+    for key, value in overrides.items():
+        monkeypatch.setenv(key, value)
+
+    lint = _make("lint", dry_run=True).stdout
+    assert "python3 -m ruff check " in lint and "/opt/" not in lint
+    recipe = _make("test", dry_run=True).stdout
+    assert '"test-results/test"' in recipe and "/opt/" not in recipe
+    verify = _make("verify", dry_run=True).stdout
+    assert '--results-dir "test-results/verify"' in verify
+    assert '--integration-junit "test-results/integration/junit.xml"' in verify
+    assert "/opt/" not in verify
+    integration = _make("integration", dry_run=True).stdout
+    assert '--port "33000" --project "" --results ""' in integration
+
+
+def test_makefile_tests_leave_the_repository_test_results_untouched(tmp_path: Path) -> None:
+    """Running the real `make test` recipe never deletes the repository's results (#1052).
+
+    A `make verify` in the same checkout reads test-results/test after its offline phase;
+    a Makefile test that ran `rm -rf test-results/test` there made it INCOMPLETE.
+    """
+    results = ROOT / "test-results" / "test"
+    created = [path for path in (results.parent, results) if not path.exists()]
+    results.mkdir(parents=True, exist_ok=True)
+    sentinel = results / f"sentinel-1052-{os.getpid()}"
+    sentinel.write_text("keep")
+    try:
+        _test_target(tmp_path)
+        assert sentinel.read_text() == "keep"
+    finally:
+        sentinel.unlink(missing_ok=True)
+        for path in reversed(created):
+            if path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
 
 
 def test_clean_removes_test_results() -> None:

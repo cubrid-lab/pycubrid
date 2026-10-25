@@ -19,6 +19,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `make -n verify` writes nothing. Development tooling only; the driver API and runtime are
   unchanged.
 
+### Tests
+
+- **Makefile tests are isolated from the outer `make` and the repository's results (#1052)** —
+  the tests that run the real Makefile now drop `MAKEFLAGS`, `MFLAGS`, `MAKEOVERRIDES`,
+  `MAKELEVEL` and every variable the Makefile assigns from the child environment, so
+  `make test PYTHON=.venv/bin/python` (or an exported `CUBRID_TEST_PORT`) no longer replaces
+  the defaults they assert. The test that runs the real `make test` recipe writes its results
+  under its temporary directory instead of deleting the checkout's `test-results/test/`,
+  which a `make verify` in the same checkout reads. No Makefile, driver or runtime change.
+
 ## [1.14.0] - 2026-10-25
 
 ### Added

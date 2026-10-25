@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.make_env import make_env
+
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = [
     pytest.mark.repo_tooling,
@@ -41,7 +43,7 @@ def _run(tmp_path: Path, version: tuple[int, int]) -> tuple[subprocess.Completed
     )
     # A bare mutmut on PATH must never be used: it may run another interpreter.
     _executable(tmp_path / "mutmut", "#!/bin/sh\nexit 99\n")
-    env = {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"}
+    env = {**make_env(), "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"}
     result = subprocess.run(
         ["make", "-s", "-C", str(ROOT), "mutation", f"PYTHON={python}"],
         capture_output=True,

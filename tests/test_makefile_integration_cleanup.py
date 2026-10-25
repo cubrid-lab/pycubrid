@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.make_env import make_env
+
 pytestmark = pytest.mark.skipif(
     os.name != "posix", reason="Command stubs and signal delivery require a POSIX shell"
 )
@@ -84,7 +86,7 @@ def _stubs(tmp_path: Path, readiness: str | None = None) -> dict[str, str]:
     )
     env = {
         key: value
-        for key, value in os.environ.items()
+        for key, value in make_env().items()
         if not key.startswith(("CUBRID_TEST_", "REVIEW_", "INTEGRATION_"))
         and key != "COMPOSE_PROJECT_NAME"
     }
@@ -174,6 +176,7 @@ def _run_make(
 def test_recipe_is_a_single_runner_invocation(tmp_path: Path, target: str) -> None:
     recipe = subprocess.run(
         ["make", "-n", "-C", str(ROOT), target],
+        env=make_env(),
         capture_output=True,
         text=True,
         check=True,
@@ -437,7 +440,7 @@ def test_integration_local_without_url_does_not_call_docker(tmp_path: Path) -> N
     stub_pytest = tmp_path / "pytest-stub"
     stub_pytest.write_text("#!/bin/sh\nexit 0\n")
     stub_pytest.chmod(stub_pytest.stat().st_mode | stat.S_IEXEC)
-    env = dict(os.environ)
+    env = make_env()
     env["PATH"] = str(tmp_path) + os.pathsep + env.get("PATH", "")
     env["REVIEW_LOG"] = str(log)
     env.pop("CUBRID_TEST_URL", None)
@@ -461,7 +464,7 @@ def test_integration_local_with_url_does_not_call_docker(tmp_path: Path) -> None
     stub_pytest = tmp_path / "pytest-stub"
     stub_pytest.write_text("#!/bin/sh\nexit 0\n")
     stub_pytest.chmod(stub_pytest.stat().st_mode | stat.S_IEXEC)
-    env = dict(os.environ)
+    env = make_env()
     env["PATH"] = str(tmp_path) + os.pathsep + env.get("PATH", "")
     env["REVIEW_LOG"] = str(log)
     env["CUBRID_TEST_URL"] = "cubrid://dba@127.0.0.1:33000/testdb"
@@ -538,12 +541,7 @@ def test_manual_docker_lifecycle(tmp_path: Path, target: str, command: str) -> N
     )
     # Drop inherited ports and outer-make state: `make test CUBRID_TEST_PORT=...` would
     # otherwise reach the nested make through MAKEFLAGS and override the default.
-    inherited = ("MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "MAKELEVEL")
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith("CUBRID_TEST_") and key not in inherited
-    }
+    env = {key: value for key, value in make_env().items() if not key.startswith("CUBRID_TEST_")}
     env.update(PATH=str(tmp_path) + os.pathsep + env.get("PATH", ""), REVIEW_LOG=str(log))
 
     for port_args, port in (([], "33000"), (["CUBRID_TEST_PORT=33522"], "33522")):
@@ -581,7 +579,7 @@ def test_fix_db_host_rewrites_only_the_testdb_host(tmp_path: Path) -> None:
         'exec sh -c "$2"\n'
     )
     docker.chmod(docker.stat().st_mode | stat.S_IEXEC)
-    env = dict(os.environ)
+    env = make_env()
     env["PATH"] = str(tmp_path) + os.pathsep + env.get("PATH", "")
     env["REVIEW_LOG"] = str(log)
     env["CUBRID_DATABASES"] = str(databases)
@@ -723,11 +721,31 @@ def test_default_results_live_under_test_results() -> None:
     for target in TARGETS:
         recipe = subprocess.run(
             ["make", "-n", "-C", str(ROOT), target],
+            env=make_env(),
             capture_output=True,
             text=True,
             check=True,
         ).stdout
         assert '--results ""' in recipe
+
+
+def test_defaults_ignore_an_outer_makes_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`make test CUBRID_TEST_PORT=33599` running this suite leaks into no recipe (#1052)."""
+    overrides = "CUBRID_TEST_PORT=33599 INTEGRATION_RESULTS=/opt/i.xml INTEGRATION_PROJECT=outer"
+    monkeypatch.setenv("MAKEFLAGS", f" -- {overrides}")
+    monkeypatch.setenv("MAKELEVEL", "1")
+    for pair in overrides.split():
+        monkeypatch.setenv(*pair.split("=", 1))
+    test_default_results_live_under_test_results()
+    for target in TARGETS:
+        recipe = subprocess.run(
+            ["make", "-n", "-C", str(ROOT), target],
+            env=make_env(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        assert '--port "33000" --project "" --results ""' in recipe, recipe
 
 
 STALE_PASS = '{"schema_version": 1, "lane": "integration", "status": "PASS", "exit_code": 0}'
