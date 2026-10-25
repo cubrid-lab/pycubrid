@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-25
+
+### Added
+
+* **make:** run the live integration lane in make verify ([#1050](https://github.com/cubrid-lab/pycubrid/issues/1050)) ([4f63593](https://github.com/cubrid-lab/pycubrid/commit/4f63593d3d7e456edececf75ba566d9ed65f758f))
+
 ### Changed
 
 - **`make verify` now runs the live integration lane (#1022)** — it runs `make check`, the
