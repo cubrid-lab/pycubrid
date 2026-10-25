@@ -305,6 +305,11 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`make verify` runs the live integration lane (#1022)** — development-tooling
+  change; no release on its own. `make verify` is `make check`, `make test`, then the managed
+  `make integration` lane, which supersedes the offline-only `make verify` of #1007. `make test`
+  stays offline. Driver APIs, connection semantics, package dependencies and CI jobs are
+  unchanged.
 - **Non-destructive `make docker-down` and loopback Compose broker (#1006)** —
   development-tooling change; no release on its own. `make docker-down` keeps the
   named test-data volumes and the new `make docker-clean` is the only target that

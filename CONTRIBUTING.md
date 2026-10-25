@@ -145,7 +145,8 @@ existing security-sensitive path review and release safeguards.
 
 1. Keep changes focused and explain the motivation in the PR description.
 2. Add or update tests for behavior changes.
-3. Run `make check` and `make test` locally when practical (`make verify` runs both; `make check-all` is a deprecated
+3. Run `make test` (offline) locally when practical, and `make verify` (`make check`, `make test`, then the
+   live `make integration` lane; needs Docker) for a full verification (`make check-all` is a deprecated
    alias of `make check`). Required GitHub CI validates the final PR head; report commands/results and gaps.
 4. Run integration tests for connection/protocol-related updates.
 5. Update `CHANGELOG.md` for user-visible changes.

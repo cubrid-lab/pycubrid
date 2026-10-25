@@ -632,14 +632,14 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | 명령 | 설명 |
 |---------|-------------|
 | `make help` | 목적별로 묶은 대상 목록 표시 |
+| `make test` | 커버리지와 함께 오프라인 테스트 실행; `test-results/test/`(JUnit, 커버리지, `summary.json`) 작성 |
+| `make verify` | 전체 검증: `make check`, `make test`, 이어서 live `make integration` 레인; Docker가 필요하며 레인을 실행할 수 없거나 모든 live 테스트가 skip되면 실패 |
 | `make install` | 모든 의존성과 함께 개발 모드 설치 |
 | `make doctor` | 필수 도구 확인; 하나라도 없거나 동작하지 않으면 실패 |
 | `make lint` | ruff check 실행 (파일 수정 없음) |
 | `make format-check` | ruff format --check 실행 (파일 수정 없음) |
 | `make format` | 린트와 포맷 문제 자동 수정 (파일을 수정하는 유일한 품질 대상) |
 | `make check` | 정적 품질 게이트: lint, format-check, typecheck, security, docs-reason-check (`make check-all`은 폐기 예정 별칭) |
-| `make test` | 커버리지와 함께 오프라인 테스트 실행; `test-results/test/`(JUnit, 커버리지, `summary.json`) 작성 |
-| `make verify` | `make check` 후 `make test`; Docker 불필요 |
 | `make integration` | Docker(실행 전용 Compose 프로젝트) → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경, `INTEGRATION_PROJECT=<name>`으로 프로젝트 이름 지정) |
 | `make integration-local` | 이미 실행 중인 서버에 대한 통합 테스트 (`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | 빌드 산출물 제거 |

@@ -3,8 +3,8 @@
 The tests run the real Makefile with a ``PYTHON`` stub that records each call, so
 they need none of the tools installed: ``doctor`` fails when a tool is missing,
 ``lint``/``format-check`` never modify files, ``check`` is the complete static gate
-with ``check-all`` as a deprecated alias, ``verify`` is ``check`` plus ``test``
-without Docker, every tool goes through ``$(PYTHON) -m`` and stays overridable, and
+with ``check-all`` as a deprecated alias, ``verify`` is ``check``, ``test`` and then
+the managed live ``integration`` lane (#1022), every tool goes through ``$(PYTHON) -m`` and stays overridable, and
 ``help`` groups the targets.
 """
 
@@ -165,16 +165,30 @@ def test_check_all_is_a_deprecated_alias_of_check(tmp_path: Path) -> None:
     assert "deprecated" not in result.stdout
 
 
-def test_verify_runs_check_then_offline_tests_without_docker(tmp_path: Path) -> None:
+def test_verify_runs_check_then_offline_tests_then_the_live_lane(tmp_path: Path) -> None:
     calls = _calls(tmp_path, "verify")
+    live = [c for c in calls if c.startswith("scripts/run_integration.py")]
     reports = [c for c in calls if c.startswith("scripts/report_results.py")]
-    static = [c for c in calls if "pytest" not in c and c not in reports]
+    static = [c for c in calls if "pytest" not in c and c not in reports and c not in live]
     tests = [c for c in calls if c.startswith("-m pytest")]
     _assert_check_calls(static)
     assert len(tests) == 1 and "-m not integration" in tests[0]
-    # The result summaries (#1024) come after pytest, which is the last test step.
-    assert calls[-len(reports) - 1] == tests[0] and len(reports) == 2
-    recipe = _make("verify", dry_run=True).stdout
+    # The offline result summaries (#1024) follow pytest, and the managed live lane
+    # (#1022) runs last, only after the offline tests.
+    assert len(reports) == 2 and len(live) == 1
+    assert calls[-4:] == [tests[0], *reports, live[0]]
+    assert "--lane normal" in live[0]
+
+
+def test_verify_stops_before_the_live_lane_when_offline_tests_fail(tmp_path: Path) -> None:
+    stub, log = _python_stub(tmp_path)
+    result = _make("verify", f"PYTHON={stub}", env={"REVIEW_FAIL": "pytest"})
+    assert result.returncode != 0
+    assert not any(c.startswith("scripts/run_integration.py") for c in log.read_text().splitlines())
+
+
+def test_test_stays_offline() -> None:
+    recipe = _make("test", dry_run=True).stdout
     assert "docker" not in recipe and "run_integration" not in recipe
 
 

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`make verify` now runs the live integration lane (#1022)** — it runs `make check`, the
+  offline `make test` and then the managed `make integration` lane, so it needs Docker and fails
+  when CUBRID never becomes ready or every live test skips. The live lane starts only after
+  the offline tests pass. `make test` stays offline and needs no Docker or database; use
+  `make check test` for the former offline-only `make verify`. Development tooling only; the
+  driver API and runtime are unchanged.
+
 ### CI
 
 - **Every new issue starts in `status: needs triage` (#1033)** — the issue forms add the

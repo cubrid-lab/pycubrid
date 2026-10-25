@@ -686,14 +686,14 @@ lint/format/typecheck.
 | Command | Description |
 |---------|-------------|
 | `make help` | List the targets, grouped by purpose |
+| `make test` | Run offline tests with coverage; writes `test-results/test/` (JUnit, coverage, `summary.json`) |
+| `make verify` | Full verification: `make check`, `make test`, then the live `make integration` lane; needs Docker and fails when the lane cannot run or every live test skips |
 | `make install` | Install in dev mode with all dependencies |
 | `make doctor` | Check the required tools; fails if one is missing or broken |
 | `make lint` | Run ruff check (never modifies files) |
 | `make format-check` | Run ruff format --check (never modifies files) |
 | `make format` | Auto-fix lint and formatting issues (the only mutating quality target) |
 | `make check` | Static quality gate: lint, format-check, typecheck, security, docs-reason-check (`make check-all` is a deprecated alias) |
-| `make test` | Run offline tests with coverage; writes `test-results/test/` (JUnit, coverage, `summary.json`) |
-| `make verify` | `make check` then `make test`; no Docker |
 | `make integration` | Docker (run-owned Compose project) → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker, `INTEGRATION_PROJECT=<name>` to name the project) |
 | `make integration-local` | Integration tests against an already-running server (`CUBRID_TEST_URL` or `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | Remove build artifacts and `test-results/` |
