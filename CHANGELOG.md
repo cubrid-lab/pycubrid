@@ -19,6 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `make -n verify` writes nothing. Development tooling only; the driver API and runtime are
   unchanged.
 
+### Documentation
+
+- **README and docs site show the 2026-10-25 brand icon (#1058)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the approved CUBRID Lab brand revision `8aa81b7`. Documentation only; behavior is unchanged.
+
 ### Tests
 
 - **Makefile tests are isolated from the outer `make` and the repository's results (#1052)** —
