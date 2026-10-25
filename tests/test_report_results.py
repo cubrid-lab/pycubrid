@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -154,3 +155,77 @@ def test_step_summary_reports_an_unreadable_summary_and_exits_zero(
     assert rr.main(["step-summary", "--results-dir", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert out.startswith("### Test results\n\n") and "No readable" in out
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "make integration",
+        "python3 -m pytest tests/ -v -m 'integration and not slow'",
+        "python -m pytest --db-url=cubrid://localhost:33000/testdb",
+        "python -m pytest --db-url=cubrid://dba@localhost:33000/testdb",
+        "python -m pytest -k password_test",
+        "python -m pytest -k 'password and not tls'",
+        "tool --password-file=/run/secrets/db --tokenizer=word --no-token --verbose",
+    ],
+)
+def test_redact_command_keeps_a_command_without_credentials_byte_identical(command: str) -> None:
+    assert rr.redact_command(command) == command
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (
+            "python -m pytest --db-url=cubrid://dba:example-secret@localhost:33000/testdb",
+            "python -m pytest --db-url=cubrid://dba:***@localhost:33000/testdb",
+        ),
+        ("x cubrid://dba:ex%40mple%3Asecret@h:1/db", "x cubrid://dba:***@h:1/db"),
+        ("x cubrid://dba:ex@mple@h/db", "x cubrid://dba:***@h/db"),
+        ("x https://:example-secret@h", "x https://:***@h"),
+        ("x --password=example-secret -v", "x --password=*** -v"),
+        ("x --password example-secret -v", "x --password *** -v"),
+        ("PASSWORD=example-secret make integration", "PASSWORD=*** make integration"),
+        ("CUBRID_PASSWORD='example secret' make", "CUBRID_PASSWORD='***' make"),
+        ('x --db-password "example secret"', 'x --db-password "***"'),
+        ("x --API-KEY=example-secret --token example-secret", "x --API-KEY=*** --token ***"),
+        ("x cubrid://h/db?pwd=example-secret&user=dba", "x cubrid://h/db?pwd=***&user=dba"),
+    ],
+)
+def test_redact_command_masks_url_passwords_and_credential_values(
+    command: str, expected: str
+) -> None:
+    assert rr.redact_command(command) == expected
+    assert "example" not in rr.redact_command(command)
+
+
+@pytest.mark.parametrize(
+    "noise", ["a." * 50_000, "-a" * 50_000, "--x" * 30_000], ids=["dotted", "dashed", "options"]
+)
+def test_redact_command_scans_a_long_word_once(noise: str) -> None:
+    # A URL scheme may only start at a word start, so a long dotted or dashed word is not
+    # rescanned from every character (that took several seconds per 100k characters).
+    command = f"{noise} cubrid://dba:example-secret@h/db"
+
+    started = time.perf_counter()
+    redacted = rr.redact_command(command)
+
+    assert time.perf_counter() - started < 1.0
+    assert redacted == f"{noise} cubrid://dba:***@h/db"
+
+
+def test_environment_json_masks_credentials_in_the_command(tmp_path: Path) -> None:
+    command = (
+        "PASSWORD=example-secret python -m pytest -k password_test "
+        "--db-url=cubrid://dba:example-secret@localhost:33000/testdb"
+    )
+    args = ["environment", "--lane", "integration", "--results-dir", str(tmp_path)]
+    assert rr.main([*args, "--command", command, "--cubrid-version", "11.4"]) == 0
+    text = (tmp_path / "environment.json").read_text()
+    saved = json.loads(text)["command"]
+    assert "example-secret" not in text
+    assert saved == (
+        "PASSWORD=*** python -m pytest -k password_test "
+        "--db-url=cubrid://dba:***@localhost:33000/testdb"
+    )
+    assert rr.build_environment("integration", command, "11.4")["command"] == saved

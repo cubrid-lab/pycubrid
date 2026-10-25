@@ -57,11 +57,15 @@ def _iter_additional_docs() -> list[str]:
 
 
 def generate() -> None:
+    missing = [name for name in DOC_FILES if not (DOCS_DIR / name).exists()]
+    if missing:
+        raise FileNotFoundError("required llms-full source page(s) missing: " + ", ".join(missing))
+
     parts: list[str] = []
 
     for name in [*DOC_FILES, *_iter_additional_docs()]:
         path = DOCS_DIR / name
-        if not path.exists():
+        if name not in DOC_FILES and not path.exists():
             continue
         content = path.read_text(encoding="utf-8").strip()
         parts.append(f"{'=' * 60}\nFile: {name}\n{'=' * 60}\n\n{content}")

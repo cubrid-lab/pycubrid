@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.13.5] - 2026-10-25
+
+### Documentation
+
+* **agents:** clarify commit attribution and validation evidence ([#1048](https://github.com/cubrid-lab/pycubrid/issues/1048)) ([48d8d0e](https://github.com/cubrid-lab/pycubrid/commit/48d8d0eeca8341422d29622a8bb2148e0327a2ed))
+
+## [1.13.4] - 2026-10-24
+
+### Fixed
+
+- **`environment.json` masks credentials in the saved command (#1042)** —
+  `scripts/report_results.py` copied the `--command` text verbatim, so an authenticated URL
+  or a password assignment on the command line could be written to `test-results/` and its
+  uploaded artifact. The password of a `scheme://user:password@host` URL and the value of a
+  `password`, `passwd`, `pwd`, `token`, `secret` or `api_key` key (`--password=x`,
+  `--password x`, `CUBRID_PASSWORD=x`) are now saved as `***`; any other command text is
+  unchanged. This is best-effort masking: keep real credentials off command lines. The
+  schema, statuses and exit codes are unchanged.
+
+* **reporting:** redact credentials in saved integration command metadata ([#1046](https://github.com/cubrid-lab/pycubrid/issues/1046)) ([80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f))
+
+### Documentation
+
+* **examples:** add a bounded opt-in prepared executemany example ([#1039](https://github.com/cubrid-lab/pycubrid/issues/1039)) ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d))
+* **examples:** document prepared executemany batches ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d)), refs [#891](https://github.com/cubrid-lab/pycubrid/issues/891)
+
+## [1.13.3] - 2026-10-24
+
+### Upgrade notes
+
+- **1.13.2 was never published (#1016).** Its cookbook candidate verification failed (the
+  pinned cookbook's `fundamentals/pandas/03_clean_and_transform` golden mismatched under
+  pandas 3.1.0), so no 1.13.2 tag, GitHub Release or PyPI version exists. 1.13.3 contains
+  every 1.13.2 change below; upgrade from 1.13.1 directly to 1.13.3.
+
 ### Added
 
 - **`make format-check` and `make verify` (#1007)** — `make format-check` runs only
@@ -71,6 +106,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   empty database and leaves no volumes; the manual lab's containers and data are untouched.
   Readiness, the lane audit and exit statuses are unchanged.
 
+* **test:** isolate make integration from the manual Docker Compose project ([#1027](https://github.com/cubrid-lab/pycubrid/issues/1027)) ([588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58))
+
 ### Documentation
 
 - **CAS architecture and protocol concepts page (#1015)** — a new advanced overview,
@@ -84,7 +121,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   authoritative; the README, the site index, the connection guide and both reference
   pages link to the overview. No driver behavior changed.
 
+* **advanced:** introduce CUBRID CAS architecture and protocol concepts ([#1019](https://github.com/cubrid-lab/pycubrid/issues/1019)) ([dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73))
+* **agents:** require repository-local issue authoring checks ([#1014](https://github.com/cubrid-lab/pycubrid/issues/1014)) ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae))
+* enforce repository-local issue drafting ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae))
+* **triage:** clarify PR overlap and execution precedence ([d2c9318](https://github.com/cubrid-lab/pycubrid/commit/d2c93180672105b46cf1d29797cc5808386a85d6)), refs [#1025](https://github.com/cubrid-lab/pycubrid/issues/1025)
+
 ### CI
+
+* **release:** verify against the current cookbook and restart after the abandoned 1.13.2 ([#1040](https://github.com/cubrid-lab/pycubrid/issues/1040)) ([be7817e](https://github.com/cubrid-lab/pycubrid/commit/be7817e17ec59397af105dfe193eee550afdd38c)), refs [#1016](https://github.com/cubrid-lab/pycubrid/issues/1016)
 
 - **Every live CI job runs the Make contract or documents why not (#1023)** — each job of
   `ci.yml`, `integration-full.yml` and `bug-hunt.yml` that talks to a live CUBRID now carries

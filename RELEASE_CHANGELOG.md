@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.13.5](https://github.com/cubrid-lab/pycubrid/compare/v1.13.4...v1.13.5) (2026-10-25)
+
+
+### Documentation
+
+* **agents:** clarify commit attribution and validation evidence ([#1048](https://github.com/cubrid-lab/pycubrid/issues/1048)) ([48d8d0e](https://github.com/cubrid-lab/pycubrid/commit/48d8d0eeca8341422d29622a8bb2148e0327a2ed))
+
+## [1.13.4](https://github.com/cubrid-lab/pycubrid/compare/v1.13.3...v1.13.4) (2026-10-24)
+
+
+### Fixed
+
+* **reporting:** redact credentials in saved integration command metadata ([#1046](https://github.com/cubrid-lab/pycubrid/issues/1046)) ([80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f))
+
+
+### Documentation
+
+* **examples:** add a bounded opt-in prepared executemany example ([#1039](https://github.com/cubrid-lab/pycubrid/issues/1039)) ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d))
+* **examples:** document prepared executemany batches ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d)), closes [#891](https://github.com/cubrid-lab/pycubrid/issues/891)
+
+## [1.13.3](https://github.com/cubrid-lab/pycubrid/compare/v1.13.2...v1.13.3) (2026-10-24)
+
+
+### CI
+
+* **release:** verify against the current cookbook and restart after the abandoned 1.13.2 ([#1040](https://github.com/cubrid-lab/pycubrid/issues/1040)) ([be7817e](https://github.com/cubrid-lab/pycubrid/commit/be7817e17ec59397af105dfe193eee550afdd38c)), closes [#1016](https://github.com/cubrid-lab/pycubrid/issues/1016)
+
+## [1.13.2](https://github.com/cubrid-lab/pycubrid/compare/v1.13.1...v1.13.2) (2026-10-24)
+
+
+### Fixed
+
+* **test:** isolate make integration from the manual Docker Compose project ([#1027](https://github.com/cubrid-lab/pycubrid/issues/1027)) ([588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58))
+
+
+### Documentation
+
+* **advanced:** introduce CUBRID CAS architecture and protocol concepts ([#1019](https://github.com/cubrid-lab/pycubrid/issues/1019)) ([dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73))
+* **agents:** require repository-local issue authoring checks ([#1014](https://github.com/cubrid-lab/pycubrid/issues/1014)) ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae))
+* enforce repository-local issue drafting ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae))
+* **triage:** clarify PR overlap and execution precedence ([d2c9318](https://github.com/cubrid-lab/pycubrid/commit/d2c93180672105b46cf1d29797cc5808386a85d6)), closes [#1025](https://github.com/cubrid-lab/pycubrid/issues/1025)
+
 ## [1.13.1](https://github.com/cubrid-lab/pycubrid/compare/v1.13.0...v1.13.1) (2026-10-21)
 
 

@@ -355,7 +355,12 @@ non-zero (including a missed coverage floor); `INCOMPLETE` when nothing proves t
 ran (no JUnit file, nothing collected, every test skipped). A test that fails and also
 errors in teardown counts once, with its worst outcome. `environment.json` holds the
 Python, pycubrid and CUBRID image versions, the platform and the command, built from those
-values only, so no password or other secret reaches a result file. The files never change a
+values only, never from the process environment, so an exported `CUBRID_PASSWORD` never
+reaches a result file. Before the command is saved, the password of an authenticated URL
+(`cubrid://dba:***@host`) and the value of a `password`, `passwd`, `pwd`, `token`, `secret`
+or `api_key` key (`--password=***`, `--password ***`, `CUBRID_PASSWORD=***`) are masked.
+This is a best-effort pattern match, not a secret scanner: a credential in any other form is
+saved as given, so pass credentials through the environment, never on a command line. The files never change a
 command's exit status. For the integration lanes `summary.json` is written after cleanup,
 so it carries the final exit status (a failed `down -v` is `FAIL`), and saving `service.log`
 is best effort (a warning, never a skipped cleanup). The run that holds the project lock owns
