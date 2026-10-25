@@ -392,7 +392,8 @@ integration=PASS -> test-results/verify/summary.json`. `make verify` keeps the e
 first failing phase, exits 128 + N after signal N, and exits 1 whenever the summary is not
 `PASS`. Every copy has the values of `CUBRID_PASSWORD`, `CUBRID_TEST_PASSWORD` and
 `CUBRID_TLS_TEST_PASSWORD` and the password of `CUBRID_TEST_URL` (also percent-encoded, XML- and
-JSON-escaped) replaced with `***`, since a failing offline test can print them into its JUnit
+JSON-escaped) replaced with `***` in their parsed text, attribute and string values, so the
+copies stay valid XML and JSON (a file that does not parse is masked byte for byte), since a failing offline test can print them into its JUnit
 report; the summary records no command, URL or environment variable.
 
 The phases stay in the caller's process group, so Ctrl-C and a terminal hangup reach them as

@@ -154,6 +154,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 - reporting must never hide the phase status
         print(f"ERROR: could not write the verify summary: {exc}", file=sys.stderr, flush=True)
         summary_status = "INCOMPLETE"
+    # A signal that arrived while the summary was written still decides the exit status.
+    if _State.received is not None:
+        status = status or 128 + _State.received
     return status or (0 if summary_status == "PASS" else 1)
 
 

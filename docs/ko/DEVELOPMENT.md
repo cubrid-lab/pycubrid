@@ -373,7 +373,8 @@ test-results/verify/summary.json`). `make verify`는 처음 실패한 단계의 
 시그널 N 뒤에는 128 + N으로, 요약이 `PASS`가 아니면 1로 종료합니다. 실패한 오프라인 테스트가
 JUnit 보고서에 비밀번호를 출력할 수 있으므로, 모든 사본에서 `CUBRID_PASSWORD`,
 `CUBRID_TEST_PASSWORD`, `CUBRID_TLS_TEST_PASSWORD`의 값과 `CUBRID_TEST_URL`의 비밀번호(퍼센트
-인코딩, XML·JSON 이스케이프 형태 포함)를 `***`로 바꿉니다. 요약에는 명령, URL, 환경 변수를
+인코딩, XML·JSON 이스케이프 형태 포함)를 파싱한 텍스트·속성·문자열 값에서 `***`로 바꾸므로 사본은
+유효한 XML과 JSON으로 남습니다(파싱할 수 없는 파일은 바이트 단위로 가립니다). 요약에는 명령, URL, 환경 변수를
 기록하지 않습니다.
 
 단계는 호출한 프로세스 그룹에 남으므로 Ctrl-C와 터미널 hangup은 평소처럼 단계에 전달됩니다.

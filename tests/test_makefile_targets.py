@@ -512,3 +512,30 @@ def test_run_verify_forwards_the_first_signal_as_sigterm_and_exits_128_plus_n(
     assert status == "FAIL"
     # The lane summaries are missing, so the passing phases are INCOMPLETE.
     assert phases == {"check": "PASS", "test": "INCOMPLETE", "integration": "FAIL"}
+
+
+def test_run_verify_keeps_a_signal_received_while_the_summary_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Copilot review of #1054: a signal during reporting still exits 128 + N."""
+    import types
+
+    from scripts import run_verify
+
+    make = tmp_path / "make"
+    make.write_text("#!/bin/sh\nexit 0\n")
+    make.chmod(make.stat().st_mode | stat.S_IXUSR)
+
+    def _aggregate(*args: object) -> dict[str, str]:
+        run_verify._on_signal(signal.SIGTERM, None)
+        return {"status": "PASS"}
+
+    monkeypatch.setattr(
+        run_verify, "_reporter", lambda: types.SimpleNamespace(aggregate=_aggregate)
+    )
+    monkeypatch.setattr(run_verify, "HANDLED_SIGNALS", ())
+    monkeypatch.setattr(run_verify._State, "received", None)
+    argv = ["--make", str(make), "--results-dir", str(tmp_path / "verify")]
+    argv += ["--test-results", str(tmp_path / "test")]
+    argv += ["--integration-junit", str(tmp_path / "integration" / "junit.xml")]
+    assert run_verify.main(argv) == 128 + signal.SIGTERM

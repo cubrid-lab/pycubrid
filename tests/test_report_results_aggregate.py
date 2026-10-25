@@ -248,3 +248,44 @@ def test_secret_variables_match_what_the_suite_reads_and_what_commands_mask() ->
     for name in rr.URL_VARIABLES:
         command = f"{name}=cubrid://dba:value@localhost/testdb"
         assert "value" not in rr.redact_command(command)
+
+
+def _serialized_junit(path: Path, secret: str) -> None:
+    """A JUnit file written the way pytest writes one, with *secret* in text and attributes."""
+    from xml.etree import ElementTree as ET
+
+    suite = ET.Element("testsuite", name="pytest")
+    case = ET.SubElement(suite, "testcase", classname="tests.t", name="test_a")
+    ET.SubElement(case, "failure", message=f"connect failed: {secret}").text = f"pw={secret}"
+    ET.ElementTree(suite).write(path, encoding="utf-8", xml_declaration=True)
+
+
+@pytest.mark.parametrize("secret", ['it\'s "quoted" & <odd>', "test", "testsuite"])
+def test_copies_stay_valid_xml_and_json_and_mask_serialized_values(
+    tmp_path: Path, secret: str
+) -> None:
+    """Copilot review of #1054: mask parsed values, never markup or JSON syntax."""
+    from xml.etree import ElementTree as ET
+
+    junit = tmp_path / "junit.xml"
+    _serialized_junit(junit, secret)
+    environment = tmp_path / "environment.json"
+    environment.write_text(json.dumps({"lane": "integration", "command": f"x {secret}"}))
+    secrets = rr.configured_secrets({"CUBRID_TEST_PASSWORD": secret})
+
+    root = ET.fromstring(rr.mask_copy(junit, secrets))
+    assert root.tag == "testsuite" and root.find("testcase") is not None
+    failure = root.find("testcase/failure")
+    assert failure is not None
+    assert failure.get("message") == "connect failed: ***"
+    assert failure.text == "pw=***"
+    document = json.loads(rr.mask_copy(environment, secrets))
+    assert document == {"lane": "integration", "command": "x ***"}
+
+
+def test_an_unparsable_copy_is_still_masked_byte_for_byte(tmp_path: Path) -> None:
+    broken = tmp_path / "junit.xml"
+    broken.write_text("<testsuite><testcase name='s3cret'")
+    masked = rr.mask_copy(broken, rr.configured_secrets({"CUBRID_PASSWORD": "s3cret"}))
+    assert masked == b"<testsuite><testcase name='***'"
+    assert rr.mask_copy(broken, []) == broken.read_bytes()

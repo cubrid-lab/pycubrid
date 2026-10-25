@@ -40,7 +40,8 @@ started is ``NOT_RUN``. The overall status is ``FAIL`` when a phase failed, ``IN
 when a phase did not run or proved nothing, a lane summary is missing or unreadable, or a
 result file could not be copied, and ``PASS`` otherwise. Every copy has the configured
 passwords (``SECRET_VARIABLES`` and the URL passwords of ``URL_VARIABLES``, also in their
-percent-encoded, XML- and JSON-escaped forms) replaced with ``***``.
+percent-encoded, XML- and JSON-escaped forms) replaced with ``***`` in the parsed text,
+attribute and string values, so the copies stay valid XML/JSON.
 
 Usage::
 
@@ -262,7 +263,17 @@ def configured_secrets(environ: Mapping[str, str]) -> list[str]:
     for secret in filter(None, raw):
         for form in {secret, urllib.parse.unquote(secret), urllib.parse.quote(secret, safe="")}:
             forms.update(
-                (form, html.escape(form), html.escape(form, quote=False), json.dumps(form)[1:-1])
+                (
+                    form,
+                    html.escape(form),
+                    html.escape(form, quote=False),
+                    # ElementTree escapes '"' (not "'") in attributes and neither in text.
+                    form.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace('"', "&quot;"),
+                    json.dumps(form)[1:-1],
+                )
             )
     return sorted(filter(None, forms), key=len, reverse=True)
 
@@ -272,6 +283,50 @@ def scrub(data: bytes, secrets: Sequence[str]) -> bytes:
     for secret in secrets:
         data = data.replace(secret.encode(), _MASK.encode())
     return data
+
+
+def _mask_text(text: str, secrets: Sequence[str]) -> str:
+    for secret in secrets:
+        text = text.replace(secret, _MASK)
+    return text
+
+
+def _mask_json(value: Any, secrets: Sequence[str]) -> Any:
+    if isinstance(value, str):
+        return _mask_text(value, secrets)
+    if isinstance(value, list):
+        return [_mask_json(item, secrets) for item in value]
+    if isinstance(value, dict):
+        return {key: _mask_json(item, secrets) for key, item in value.items()}
+    return value
+
+
+def mask_copy(source: Path, secrets: Sequence[str]) -> bytes:
+    """The masked bytes of a JUnit or JSON result file.
+
+    A file that parses is masked in its text, attribute and string values and serialized
+    again, so masking never touches markup or JSON syntax (a password such as ``test``
+    must not turn ``<testsuite>`` into ``<***suite>``). A file that does not parse is
+    masked byte for byte in every escaped form.
+    """
+    data = source.read_bytes()
+    if not secrets:
+        return data
+    try:
+        if source.suffix == ".json":
+            document = _mask_json(json.loads(data.decode("utf-8")), secrets)
+            return (json.dumps(document, indent=2) + "\n").encode()
+        root = _load_xml(source)
+    except (UnicodeDecodeError, ValueError, ET.ParseError):
+        return scrub(data, secrets)
+    for element in root.iter():
+        if element.text:
+            element.text = _mask_text(element.text, secrets)
+        if element.tail:
+            element.tail = _mask_text(element.tail, secrets)
+        for key, value in element.attrib.items():
+            element.set(key, _mask_text(value, secrets))
+    return bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
 
 def _lane_status(path: Path) -> tuple[str | None, str]:
@@ -369,7 +424,7 @@ def aggregate(
             continue
         try:
             target.parent.mkdir(exist_ok=True)
-            target.write_bytes(scrub(source.read_bytes(), secrets))
+            target.write_bytes(mask_copy(source, secrets))
         except OSError as exc:
             with contextlib.suppress(OSError):  # e.g. a partial copy; never a stale one
                 target.unlink(missing_ok=True)
