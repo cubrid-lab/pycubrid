@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### CI
+
+- **Every new issue starts in `status: needs triage` (#1033)** — the issue forms add the
+  label and `issue-triage.yml` adds it to every opened issue instead of only to issues with
+  incomplete titles or labels; the unused `scripts/check_issue_metadata.py` check is removed.
+  Priority and size are still set by a maintainer, who removes the label after triage.
+
 ## [1.13.5] - 2026-10-25
 
 ### Documentation

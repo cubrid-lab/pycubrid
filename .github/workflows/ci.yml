@@ -184,7 +184,6 @@ jobs:
               - 'tests/test_downstream_corpus.py'
               - 'tests/test_extract_release_notes.py'
               - 'tests/test_integration_lanes.py'
-              - 'tests/test_issue_metadata.py'
               - 'tests/test_makefile_mutation.py'
               - 'tests/test_mutation_shards.py'
               - 'tests/test_pr_title.py'
