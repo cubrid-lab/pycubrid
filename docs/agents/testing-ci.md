@@ -18,9 +18,10 @@
 | `.github/workflows/docs.yml` | Push to main, manual | Build and deploy the MkDocs site |
 | `.github/workflows/python-canary.yml` | Manual dispatch | Advisory fresh-install check on the newest Python |
 
-Other workflows (security, CodeQL, SBOM, maintenance, bug hunt, labels, issue triage,
-stale, badge sync, Dependabot auto-merge) are scheduled or housekeeping jobs; read the
-workflow file before relying on one.
+The issue-triage workflow is an **issue-opened** intake helper, not a required
+PR approval check or a priority classifier. Other workflows (security, CodeQL,
+SBOM, maintenance, bug hunt, labels, stale, badge sync, Dependabot auto-merge)
+are scheduled or housekeeping jobs; read the workflow file before relying on one.
 
 ### CI Matrix
 
@@ -45,6 +46,12 @@ declared in `pyproject.toml` `[tool.pytest.ini_options]`; the main ones are:
   workflow contracts, PR title) with no driver behavior.
 - `tls`, `version_matrix`, `official_differential`, `slow`, `benchmark` — dedicated
   CI lanes; see [docs/CI_POLICY.md](../CI_POLICY.md).
+
+`make verify` runs the static checks and offline tests; it does **not** prove a
+live broker round trip. Report the actual `make integration` lane (and any TLS
+or version-matrix lane) separately, including skipped/unrun checks. CI results
+must correspond to the final PR head, not an earlier commit or advisory agent
+review.
 
 Shared fixtures are in `tests/conftest.py`, helpers in `tests/helpers/` and recorded data
 (official API inventory, differential claims, golden bytes) in `tests/fixtures/`. Sync and
