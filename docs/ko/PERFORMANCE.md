@@ -610,6 +610,10 @@ Docker의 CUBRID 11.4, 한 Linux 호스트의 Python 3.11.15에서 `(int, 'v%09d
 
 `scripts/profile_fetch.py`는 라이브 서버에서 `fetchone`, `fetchmany`, `fetchall`을 프로파일링합니다.
 
+> **경고:** 대상 데이터베이스(기본값 `demodb`)에 씁니다. 실행할 때마다 자신만의 테이블을 만들고,
+> 행을 채우고, 삭제합니다. 버려도 되는 데이터베이스에서만 실행하세요.
+> [프로파일링 스크립트 실행](#프로파일링-스크립트-실행)을 참고하세요.
+
 ```bash
 # 1000행, fetch 50회 반복 (기본):
 python scripts/profile_fetch.py
@@ -685,7 +689,10 @@ flowchart TD
 경우에도 그 테이블만 삭제합니다. 정리 실패는 보고됩니다. 작업 예외의 note로 추가되거나,
 작업이 성공한 뒤에는 `ScratchCleanupError`로 발생합니다. 정리를 다시 시도하려고 재연결하지
 않으므로, 강제 종료된 실행이나 끊어진 연결은 테이블을 남길 수 있습니다.
-`DROP TABLE _profile_tmp_<hex>`로 삭제하세요. 버려도 되는 데이터베이스를 사용하세요.
+`DROP TABLE _profile_tmp_<hex>`로 삭제하세요.
+
+> **경고:** 버려도 되는 데이터베이스에서만 실행하세요. `profile_execute.py --operation select`도
+> 읽기 전용 명령이 아닙니다. 이때도 테이블을 만들고 삭제합니다.
 
 #### 연결 핸드셰이크
 

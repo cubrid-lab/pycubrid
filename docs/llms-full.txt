@@ -7907,6 +7907,10 @@ Measured fetch throughput and peak memory for different `fetch_size` values are 
 `scripts/profile_fetch.py` profiles `fetchone`, `fetchmany` and `fetchall` against a live
 server.
 
+> **Warning:** it writes to the target database (default `demodb`): each run creates, fills
+> and drops its own table. Run it only against a disposable database; see
+> [Running the Profiling Scripts](#running-the-profiling-scripts).
+
 ```bash
 # 1000 rows, 50 fetch iterations (default):
 python scripts/profile_fetch.py
@@ -7984,8 +7988,11 @@ so it never reuses or drops an existing table (a name collision fails the run), 
 only that table afterwards, also when the workload fails. A cleanup failure is reported: it
 is added as a note to the workload's exception, or raised as `ScratchCleanupError` after a
 successful workload. Nothing reconnects to retry the cleanup, so a killed run or a lost
-connection can leave the table behind; drop it with `DROP TABLE _profile_tmp_<hex>`. Use a
-disposable database.
+connection can leave the table behind; drop it with `DROP TABLE _profile_tmp_<hex>`.
+
+> **Warning:** run them only against a disposable database. `profile_execute.py
+> --operation select` is not a read-only command either: it still creates and drops its
+> table.
 
 #### Connection handshake
 

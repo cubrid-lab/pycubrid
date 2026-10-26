@@ -7,6 +7,9 @@ reuses or drops an existing table, and only that table is dropped after the run,
 also when the workload fails (#950). A run that is killed or loses its connection
 can leave the table behind; drop it by hand.
 
+Every run writes to the target database. Run it only against a disposable
+database; the default is ``demodb``.
+
 Usage
 -----
     python scripts/profile_fetch.py [options]
@@ -48,9 +51,17 @@ _SQL = {
 }
 
 
+_WARNING = (
+    "Writes to the target database: every run "
+    "creates, fills and drops its own table _profile_tmp_<12 hex digits>. "
+    "Run it only against a disposable database."
+)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Profile pycubrid fetch operations (fetchone, fetchall, fetchmany)."
+        description="Profile pycubrid fetch operations (fetchone, fetchall, fetchmany).",
+        epilog=_WARNING,
     )
     parser.add_argument("--host", default="localhost", help="CUBRID host (default: localhost)")
     parser.add_argument("--port", type=int, default=33000, help="CAS port (default: 33000)")

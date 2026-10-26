@@ -5,6 +5,10 @@ Creates its own scratch table ``_profile_tmp_<12 hex digits>`` with a plain
 that table after the run, also when the workload fails (#950). A run that is
 killed or loses its connection can leave the table behind; drop it by hand.
 
+Every run writes to the target database, ``--operation select`` included: it is
+not a read-only command. Run it only against a disposable database; the default
+is ``demodb``.
+
 Usage
 -----
     python scripts/profile_execute.py [options]
@@ -17,8 +21,8 @@ Examples
     # Only INSERT, 200 iterations, save .prof for snakeviz:
     python scripts/profile_execute.py --operation insert --iterations 200 --output exec.prof
 
-    # SELECT only against a custom host:
-    python scripts/profile_execute.py --host myhost --database testdb --operation select
+    # SELECT only, against a disposable database on another host:
+    python scripts/profile_execute.py --host myhost --database scratchdb --operation select
 
     # Visualise saved profile:
     pip install snakeviz
@@ -50,9 +54,17 @@ _SQL = {
 }
 
 
+_WARNING = (
+    "Writes to the target database: every run, --operation select included, "
+    "creates and drops its own table _profile_tmp_<12 hex digits>. "
+    "Run it only against a disposable database."
+)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Profile pycubrid prepare+execute cycles for DML operations."
+        description="Profile pycubrid prepare+execute cycles for DML operations.",
+        epilog=_WARNING,
     )
     parser.add_argument("--host", default="localhost", help="CUBRID host (default: localhost)")
     parser.add_argument("--port", type=int, default=33000, help="CAS port (default: 33000)")
