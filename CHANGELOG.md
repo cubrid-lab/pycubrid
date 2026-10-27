@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+
+- **README and docs site show the transparent brand icon (#1096)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `e55990a`, where the Driver icon's layer gaps are real transparency instead of white strokes. Documentation only; behavior is unchanged.
+
 ## [1.15.0] - 2026-10-27
 
 ### Added
