@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.15.0](https://github.com/cubrid-lab/pycubrid/compare/v1.14.0...v1.15.0) (2026-10-27)
+
+
+### Added
+
+* **make:** write an aggregate verification summary under test-results/verify ([#1054](https://github.com/cubrid-lab/pycubrid/issues/1054)) ([a7e0be2](https://github.com/cubrid-lab/pycubrid/commit/a7e0be2a80f79331cbdf4fec8770c5c3ab645ea4))
+
+
+### Documentation
+
+* **profile:** warn that the profilers write to the target database ([#1063](https://github.com/cubrid-lab/pycubrid/issues/1063)) ([1789ebc](https://github.com/cubrid-lab/pycubrid/commit/1789ebc32fab0a2648cbad21f567e3da32ed1e53)), closes [#918](https://github.com/cubrid-lab/pycubrid/issues/918)
+* **readme:** repin the brand icon to the 2026-10-25 brand revision ([#1059](https://github.com/cubrid-lab/pycubrid/issues/1059)) ([a3f7d6b](https://github.com/cubrid-lab/pycubrid/commit/a3f7d6bb30652a592d43a8f492cc88bdcd5d459c))
+* **readme:** repin the brand icon to the cube redesign ([#1061](https://github.com/cubrid-lab/pycubrid/issues/1061)) ([675739e](https://github.com/cubrid-lab/pycubrid/commit/675739ee5fc541fac02f6b289aa533eeb42daba8))
+* **readme:** repin the brand icon to the emblem-aligned keyline ([#1070](https://github.com/cubrid-lab/pycubrid/issues/1070)) ([223d83a](https://github.com/cubrid-lab/pycubrid/commit/223d83a85e187d766f3b256790b3f15671ecd5d0))
+* **readme:** repin the brand icon to the shared white marks ([#1072](https://github.com/cubrid-lab/pycubrid/issues/1072)) ([5dcd360](https://github.com/cubrid-lab/pycubrid/commit/5dcd3608bac3d1e3f71ba85e636a5de6eb974c79))
+
 ## [1.14.0](https://github.com/cubrid-lab/pycubrid/compare/v1.13.5...v1.14.0) (2026-10-25)
 
 
