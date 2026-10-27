@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **Docs FAQ names supported Python versions (#1094)** — the English and Korean site FAQs now
+  state Python 3.11–3.15 support, the standard GIL build requirement, and the Python 3.10
+  fallback to 1.9.x. The Support Matrix remains the authoritative compatibility reference.
 - **README and docs site show the transparent brand icon (#1096)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `e55990a`, where the Driver icon's layer gaps are real transparency instead of white strokes. Documentation only; behavior is unchanged.
 
 ## [1.15.0] - 2026-10-27
