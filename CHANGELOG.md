@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-27
+
 ### Added
 
 - **`make verify` writes an aggregate summary under `test-results/verify/` (#1053)** — the
@@ -19,12 +21,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `make -n verify` writes nothing. Development tooling only; the driver API and runtime are
   unchanged.
 
+* **make:** write an aggregate verification summary under test-results/verify ([#1054](https://github.com/cubrid-lab/pycubrid/issues/1054)) ([a7e0be2](https://github.com/cubrid-lab/pycubrid/commit/a7e0be2a80f79331cbdf4fec8770c5c3ab645ea4))
+
 ### Documentation
 
 - **README and docs site show the brand icon with white marks (#1071)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `3a385be`, where the Python Yellow icons draw white role marks on a bare cube like every other language. Documentation only; behavior is unchanged.
 - **README and docs site show the emblem-aligned brand icon (#1069)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `538bad3`, whose Python Yellow keyline keeps the cube silhouette of the organization emblem (open seams, no flat bottom). Documentation only; behavior is unchanged.
 - **README and docs site show the cube-redesign brand icon (#1060)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `38b4646`, which carries the redesigned Driver icon. Documentation only; behavior is unchanged.
 - **README and docs site show the 2026-10-25 brand icon (#1058)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the approved CUBRID Lab brand revision `8aa81b7`. Documentation only; behavior is unchanged.
+
+* **profile:** warn that the profilers write to the target database ([#1063](https://github.com/cubrid-lab/pycubrid/issues/1063)) ([1789ebc](https://github.com/cubrid-lab/pycubrid/commit/1789ebc32fab0a2648cbad21f567e3da32ed1e53)), refs [#918](https://github.com/cubrid-lab/pycubrid/issues/918)
+* **readme:** repin the brand icon to the 2026-10-25 brand revision ([#1059](https://github.com/cubrid-lab/pycubrid/issues/1059)) ([a3f7d6b](https://github.com/cubrid-lab/pycubrid/commit/a3f7d6bb30652a592d43a8f492cc88bdcd5d459c))
+* **readme:** repin the brand icon to the cube redesign ([#1061](https://github.com/cubrid-lab/pycubrid/issues/1061)) ([675739e](https://github.com/cubrid-lab/pycubrid/commit/675739ee5fc541fac02f6b289aa533eeb42daba8))
+* **readme:** repin the brand icon to the emblem-aligned keyline ([#1070](https://github.com/cubrid-lab/pycubrid/issues/1070)) ([223d83a](https://github.com/cubrid-lab/pycubrid/commit/223d83a85e187d766f3b256790b3f15671ecd5d0))
+* **readme:** repin the brand icon to the shared white marks ([#1072](https://github.com/cubrid-lab/pycubrid/issues/1072)) ([5dcd360](https://github.com/cubrid-lab/pycubrid/commit/5dcd3608bac3d1e3f71ba85e636a5de6eb974c79))
 
 ### Tests
 
