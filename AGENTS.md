@@ -1,5 +1,10 @@
 # AGENTS.md
 
+## Organization-wide issue, PR, and commit writing
+
+Follow the [cubrid-lab writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md). **Issue titles** use only a type prefix (for example, `feat: ...` or `bug: ...`); do not require a module scope. Describe the problem or goal in plain English, with reproducible evidence and verifiable acceptance criteria appropriate to the issue. **Triage** validates scope, duplicates, type, priority and size; **PRs and commits** retain the existing Conventional Commits format and PR CI validators. Keep issue goals distinct from implementation/PR evidence and avoid internal IDs, personal comments or agent bookkeeping in the title/body.
+
+
 Project knowledge base for AI coding agents.
 
 ## Project Overview
@@ -345,8 +350,7 @@ issue title or body. Reporters describe urgency and effort without needing label
 permissions. All newly filed issues enter `status: needs triage` first; priority and size
 are finalized during maintainer triage, not guessed from the issue title.
 
-Issue titles use the same `type(scope): description` format as pull request
-titles (see [CONTRIBUTING.md](CONTRIBUTING.md#pull-request-and-commit-titles)).
+Issue titles use a type-only prefix (`feat:`, `bug:`, etc.) without a required scope; see the [organization writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md).
 `.github/workflows/issue-triage.yml` marks every externally opened issue as
 `status: needs triage`. Automation using `GITHUB_TOKEN` must attach this status
 when creating the issue, because those actions may not trigger another workflow.
@@ -417,7 +421,7 @@ Do not mark work complete until code, tests, and documentation are consistent.
 
 ## Commit Convention
 
-Issue titles, pull request titles and commit subjects follow
+Pull request titles and commit subjects follow
 [CONTRIBUTING.md - Pull request and commit titles](CONTRIBUTING.md#pull-request-and-commit-titles):
 `type(scope)!: description` with types `feat`, `fix`, `docs`, `test`, `perf`,
 `refactor`, `ci`, `build`, `chore`, `style`, `revert`; English, lowercase start
