@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`make verify` writes an aggregate summary under `test-results/verify/` (#1053)** — the
+  recipe now `exec`s `scripts/run_verify.py`, which runs `check`, `test` and `integration`
+  in order and always writes `summary.json` (overall `PASS`/`FAIL`/`INCOMPLETE` and one entry
+  per phase, `NOT_RUN` for a phase that never started), `junit/<lane>.xml` copies and the live
+  lane's `environment.json`, also after a failure or a signal. Configured test passwords are
+  masked in every copy; a missing or unreadable lane summary or a failed copy is never `PASS`.
+  The runner forwards the first SIGINT, SIGTERM or SIGHUP to the running phase as SIGTERM and
+  exits 128 + N; `make integration` now `exec`s its runner and also cleans up on SIGHUP.
+  `make -n verify` writes nothing. Development tooling only; the driver API and runtime are
+  unchanged.
+
+### Documentation
+
+- **README and docs site show the cube-redesign brand icon (#1060)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `38b4646`, which carries the redesigned Driver icon. Documentation only; behavior is unchanged.
+- **README and docs site show the 2026-10-25 brand icon (#1058)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the approved CUBRID Lab brand revision `8aa81b7`. Documentation only; behavior is unchanged.
+
+### Tests
+
+- **Makefile tests are isolated from the outer `make` and the repository's results (#1052)** —
+  the tests that run the real Makefile now drop `MAKEFLAGS`, `MFLAGS`, `MAKEOVERRIDES`,
+  `MAKELEVEL` and every variable the Makefile assigns from the child environment, so
+  `make test PYTHON=.venv/bin/python` (or an exported `CUBRID_TEST_PORT`) no longer replaces
+  the defaults they assert. The test that runs the real `make test` recipe writes its results
+  under its temporary directory instead of deleting the checkout's `test-results/test/`,
+  which a `make verify` in the same checkout reads. No Makefile, driver or runtime change.
+
+## [1.14.0] - 2026-10-25
+
+### Added
+
+* **make:** run the live integration lane in make verify ([#1050](https://github.com/cubrid-lab/pycubrid/issues/1050)) ([4f63593](https://github.com/cubrid-lab/pycubrid/commit/4f63593d3d7e456edececf75ba566d9ed65f758f))
+
+### Changed
+
+- **`make verify` now runs the live integration lane (#1022)** — it runs `make check`, the
+  offline `make test` and then the managed `make integration` lane, so it needs Docker and fails
+  when CUBRID never becomes ready or every live test skips. The live lane starts only after
+  the offline tests pass. `make test` stays offline and needs no Docker or database; use
+  `make check test` for the former offline-only `make verify`. Development tooling only; the
+  driver API and runtime are unchanged.
+
 ### CI
 
 - **CI installs third-party dependencies from a committed `uv.lock`** — CI, full

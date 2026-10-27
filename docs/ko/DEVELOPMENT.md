@@ -351,8 +351,41 @@ CI도 오프라인, 통합, TLS 통합 job에서 같은 구조로 결과를 쓰�
 `INTEGRATION_RESULTS=<경로>`로 통합 테스트 JUnit 파일 위치를 바꾸면 나머지 파일도 그 옆에 쓰입니다.
 CI 작업은 이 타깃을 실행하지 않습니다. [CI 라이브 작업과 Make 계약](#ci-라이브-작업과-make-계약)을 참고하세요.
 
+**검증 요약(`make verify`, #1053).** `make verify`는 `scripts/run_verify.py`를 `exec`하며, 이
+스크립트가 `make check`, `make test`, `make integration`을 차례로 실행하고 처음 실패한 단계에서
+멈춥니다. 실패나 시그널 뒤에도 항상 `test-results/verify/`를 씁니다(`VERIFY_RESULTS=<디렉터리>`로
+위치를 바꿀 수 있습니다). 먼저 그 디렉터리에 있던 이전 실행의 파일을 지우며, `make -n verify`는
+아무것도 쓰지 않습니다.
 
-**`make docker-up`과의 격리(#1021).** `make integration`과 `make integration-tls`는 자체 Compose 프로젝트(기본값 `pycubrid-it-<타임스탬프>-<pid>`)에서 실행되며 모든 `docker compose` 호출에 `-p <project>`를 붙이므로, `make docker-up`으로 띄운 CUBRID에 붙거나 재시작하거나 제거하지 않습니다(내보낸 `COMPOSE_PROJECT_NAME`도 무시됩니다). 이름은 `INTEGRATION_PROJECT=<이름>`(`^[a-z0-9][a-z0-9_-]*$`)으로 정할 수 있으며, 실행 전에 해당 프로젝트에 컨테이너·볼륨·네트워크가 없는지 확인하고 있으면 아무것도 시작하거나 제거하지 않은 채 "Refusing to run"과 함께 종료 코드 1로 끝납니다. 같은 이름의 실행이 진행 중일 때 두 번째 실행도 거부되며("another run owns project"), 정리가 끝날 때까지 임시 디렉터리의 잠금 파일에 건 `flock`으로 보장합니다(POSIX 전용, Windows에서는 이 보호가 생략됩니다). 프로젝트가 실행 자신의 것이므로 성공·준비 실패·테스트 실패·SIGINT·SIGTERM 후의 정리는 `docker compose -p <project> down -v`이며, 이 실행의 볼륨도 삭제하므로 매 실행이 빈 데이터베이스에서 시작하고 아무것도 남기지 않습니다. 수동 랩의 데이터 볼륨은 건드리지 않습니다. `make docker-down`은 수동 랩의 데이터를 보존하고, `make docker-clean`(기본 프로젝트에 대한 `down -v`)만 이를 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT와 SIGTERM에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
+| 파일 | 내용 |
+|---|---|
+| `summary.json` | `schema_version`, `lane`(`verify`), 전체 `status`와 `problems`, 그리고 단계 순서(`check`, `test`, `integration`)대로 단계마다 하나씩 있는 `phases` 항목(`status`, `exit_code`, 읽은 레인 `summary`와 그 요약의 `summary_status`) |
+| `junit/test.xml`, `junit/integration.xml` | 실행되어 JUnit 파일을 쓴 레인의 JUnit 사본 |
+| `environment.json` | live 레인이 실행되어 쓴 `environment.json`의 사본 |
+
+단계는 종료 상태가 0이고 자신의 `summary.json`(`test`와 `integration`)을 읽을 수 있으며 그 값이
+`PASS`일 때만 `PASS`입니다. 앞 단계가 실패해 시작하지 않은 단계는 `NOT_RUN`입니다. 전체 상태는
+실패한 단계가 있으면 `FAIL`, 실행되지 않은 단계가 있거나 레인 요약이 없거나 읽을 수 없거나
+`PASS`/`FAIL`/`INCOMPLETE` 문자열 상태가 아니거나, 레인이 아무것도 증명하지 못했거나 결과 파일을
+복사하지 못하면 `INCOMPLETE`, 모든 단계가 통과했을 때만 `PASS`입니다. 마지막 콘솔 줄이 이를
+반복합니다(예: `verify: PASS check=PASS test=PASS integration=PASS ->
+test-results/verify/summary.json`). `make verify`는 처음 실패한 단계의 종료 상태를 유지하고,
+시그널 N 뒤에는 128 + N으로, 요약이 `PASS`가 아니면 1로 종료합니다. 실패한 오프라인 테스트가
+JUnit 보고서에 비밀번호를 출력할 수 있으므로, 모든 사본에서 `CUBRID_PASSWORD`,
+`CUBRID_TEST_PASSWORD`, `CUBRID_TLS_TEST_PASSWORD`의 값과 `CUBRID_TEST_URL`의 비밀번호(퍼센트
+인코딩, XML·JSON 이스케이프 형태 포함)를 파싱한 텍스트·속성·문자열 값에서 `***`로 바꾸므로 사본은
+유효한 XML과 JSON으로 남습니다(파싱할 수 없는 파일은 바이트 단위로 가립니다). 요약에는 명령, URL, 환경 변수를
+기록하지 않습니다.
+
+단계는 호출한 프로세스 그룹에 남으므로 Ctrl-C와 터미널 hangup은 평소처럼 단계에 전달됩니다.
+GNU make는 레시피에 SIGTERM만 전달합니다(`timeout make verify`, `kill <make pid>`). 러너는 처음
+받은 SIGINT, SIGTERM, SIGHUP을 실행 중인 단계의 make에 SIGTERM으로 전달하고, `make integration`은
+자신의 러너를 `exec`하므로 live 레인은 여전히 Compose 프로젝트를 제거합니다. 이후 러너는 다음
+단계를 시작하지 않고 요약을 씁니다. 터미널 밖에서 make에만 보낸 SIGINT나 SIGHUP은 러너에
+전달되지 않습니다.
+
+
+**`make docker-up`과의 격리(#1021).** `make integration`과 `make integration-tls`는 자체 Compose 프로젝트(기본값 `pycubrid-it-<타임스탬프>-<pid>`)에서 실행되며 모든 `docker compose` 호출에 `-p <project>`를 붙이므로, `make docker-up`으로 띄운 CUBRID에 붙거나 재시작하거나 제거하지 않습니다(내보낸 `COMPOSE_PROJECT_NAME`도 무시됩니다). 이름은 `INTEGRATION_PROJECT=<이름>`(`^[a-z0-9][a-z0-9_-]*$`)으로 정할 수 있으며, 실행 전에 해당 프로젝트에 컨테이너·볼륨·네트워크가 없는지 확인하고 있으면 아무것도 시작하거나 제거하지 않은 채 "Refusing to run"과 함께 종료 코드 1로 끝납니다. 같은 이름의 실행이 진행 중일 때 두 번째 실행도 거부되며("another run owns project"), 정리가 끝날 때까지 임시 디렉터리의 잠금 파일에 건 `flock`으로 보장합니다(POSIX 전용, Windows에서는 이 보호가 생략됩니다). 프로젝트가 실행 자신의 것이므로 성공·준비 실패·테스트 실패·SIGINT·SIGTERM·SIGHUP 후의 정리는 `docker compose -p <project> down -v`이며, 이 실행의 볼륨도 삭제하므로 매 실행이 빈 데이터베이스에서 시작하고 아무것도 남기지 않습니다. 수동 랩의 데이터 볼륨은 건드리지 않습니다. `make docker-down`은 수동 랩의 데이터를 보존하고, `make docker-clean`(기본 프로젝트에 대한 `down -v`)만 이를 삭제합니다. 기존 브로커를 유지하며 테스트하려면 Docker를 관리하지 않는 `make integration-local`을 사용하세요. SIGINT, SIGTERM, SIGHUP에서도 정리가 실행되지만(현재 단계를 멈추고 130으로 종료), 비대화형 셸의 백그라운드 작업(`&`)으로 시작한 `make integration`은 POSIX에 따라 SIGINT를 무시하며 SIGTERM에서는 여전히 정리가 실행됩니다.
 
 **통합 테스트 활성화와 엔드포인트 선택의 구분.** 통합 테스트는
 `CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`가 비어 있지 않은 값으로 설정되면
@@ -632,14 +665,14 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | 명령 | 설명 |
 |---------|-------------|
 | `make help` | 목적별로 묶은 대상 목록 표시 |
+| `make test` | 커버리지와 함께 오프라인 테스트 실행; `test-results/test/`(JUnit, 커버리지, `summary.json`) 작성 |
+| `make verify` | 전체 검증: `make check`, `make test`, 이어서 live `make integration` 레인; Docker가 필요하고, 레인을 실행할 수 없거나 모든 live 테스트가 skip되면 실패하며, 항상 `test-results/verify/`를 씀 |
 | `make install` | 모든 의존성과 함께 개발 모드 설치 |
 | `make doctor` | 필수 도구 확인; 하나라도 없거나 동작하지 않으면 실패 |
 | `make lint` | ruff check 실행 (파일 수정 없음) |
 | `make format-check` | ruff format --check 실행 (파일 수정 없음) |
 | `make format` | 린트와 포맷 문제 자동 수정 (파일을 수정하는 유일한 품질 대상) |
 | `make check` | 정적 품질 게이트: lint, format-check, typecheck, security, docs-reason-check (`make check-all`은 폐기 예정 별칭) |
-| `make test` | 커버리지와 함께 오프라인 테스트 실행; `test-results/test/`(JUnit, 커버리지, `summary.json`) 작성 |
-| `make verify` | `make check` 후 `make test`; Docker 불필요 |
 | `make integration` | Docker(실행 전용 Compose 프로젝트) → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경, `INTEGRATION_PROJECT=<name>`으로 프로젝트 이름 지정) |
 | `make integration-local` | 이미 실행 중인 서버에 대한 통합 테스트 (`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | 빌드 산출물 제거 |

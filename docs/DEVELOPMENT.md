@@ -370,8 +370,41 @@ failed ownership probe) or an invalid `INTEGRATION_PROJECT` leaves a `FAIL` summ
 the other files go next to it. CI jobs do not run these targets; see
 [CI live jobs and the Make contract](#ci-live-jobs-and-the-make-contract).
 
+**Verification summary (`make verify`, #1053).** `make verify` `exec`s
+`scripts/run_verify.py`, which runs `make check`, `make test` and `make integration` one after
+another, stops at the first failing phase and always writes `test-results/verify/`, also after a
+failure or a signal (`VERIFY_RESULTS=<dir>` moves it). It first removes the previous run's files
+there; `make -n verify` writes nothing.
 
-**Isolation from `make docker-up` (#1021).** `make integration` and `make integration-tls` run in their own Compose project, `pycubrid-it-<timestamp>-<pid>` by default, and pass `-p <project>` on every `docker compose` call, so they never attach to, restart or remove the CUBRID started by `make docker-up` (an exported `COMPOSE_PROJECT_NAME` is ignored too). Set `INTEGRATION_PROJECT=<name>` (`^[a-z0-9][a-z0-9_-]*$`) to choose the name; the run first checks that the project has no container, volume or network and otherwise exits 1 with "Refusing to run" before starting or removing anything. A second run of the same name while the first is active is refused too ("another run owns project"), through a `flock` on a lock file in the temp directory held until cleanup ends (POSIX only; the guard is skipped on Windows). Because the project is the run's own, cleanup after success, readiness failure, test failure, SIGINT or SIGTERM is `docker compose -p <project> down -v`: it also deletes the run's volumes, so every run starts from an empty database and leaves nothing behind. The manual lab's data volumes are never touched. `make docker-down` keeps the manual lab's data; only `make docker-clean` (`down -v` on the default project) removes it. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT and SIGTERM (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
+| File | Content |
+|---|---|
+| `summary.json` | `schema_version`, `lane` (`verify`), overall `status` and `problems`, and one `phases` entry per phase in order (`check`, `test`, `integration`) with its `status`, `exit_code`, the lane `summary` it read and that summary's `summary_status` |
+| `junit/test.xml`, `junit/integration.xml` | copies of the JUnit files of the lanes that ran and wrote one |
+| `environment.json` | a copy of the live lane's `environment.json`, when it ran and wrote one |
+
+A phase is `PASS` only when it exited 0 and its own `summary.json` (for `test` and
+`integration`) is readable and says `PASS`; a phase that never started because an earlier one
+failed is `NOT_RUN`. The overall status is `FAIL` when a phase failed, `INCOMPLETE` when a phase
+did not run, a lane summary is missing, unreadable or has no string `PASS`/`FAIL`/`INCOMPLETE`
+status, the lane proved nothing or a result file could not be copied, and `PASS` only when every
+phase passed. The last console line repeats it, e.g. `verify: PASS check=PASS test=PASS
+integration=PASS -> test-results/verify/summary.json`. `make verify` keeps the exit status of the
+first failing phase, exits 128 + N after signal N, and exits 1 whenever the summary is not
+`PASS`. Every copy has the values of `CUBRID_PASSWORD`, `CUBRID_TEST_PASSWORD` and
+`CUBRID_TLS_TEST_PASSWORD` and the password of `CUBRID_TEST_URL` (also percent-encoded, XML- and
+JSON-escaped) replaced with `***` in their parsed text, attribute and string values, so the
+copies stay valid XML and JSON (a file that does not parse is masked byte for byte), since a failing offline test can print them into its JUnit
+report; the summary records no command, URL or environment variable.
+
+The phases stay in the caller's process group, so Ctrl-C and a terminal hangup reach them as
+usual. GNU make passes only SIGTERM on to a recipe (`timeout make verify`, `kill <make pid>`);
+the runner forwards the first SIGINT, SIGTERM or SIGHUP it receives to the running phase's make
+as SIGTERM, and `make integration` `exec`s its runner, so the live lane still removes its Compose
+project. The runner then starts no further phase and writes the summary. A SIGINT or SIGHUP sent
+to make alone, outside a terminal, does not reach the runner.
+
+
+**Isolation from `make docker-up` (#1021).** `make integration` and `make integration-tls` run in their own Compose project, `pycubrid-it-<timestamp>-<pid>` by default, and pass `-p <project>` on every `docker compose` call, so they never attach to, restart or remove the CUBRID started by `make docker-up` (an exported `COMPOSE_PROJECT_NAME` is ignored too). Set `INTEGRATION_PROJECT=<name>` (`^[a-z0-9][a-z0-9_-]*$`) to choose the name; the run first checks that the project has no container, volume or network and otherwise exits 1 with "Refusing to run" before starting or removing anything. A second run of the same name while the first is active is refused too ("another run owns project"), through a `flock` on a lock file in the temp directory held until cleanup ends (POSIX only; the guard is skipped on Windows). Because the project is the run's own, cleanup after success, readiness failure, test failure, SIGINT, SIGTERM or SIGHUP is `docker compose -p <project> down -v`: it also deletes the run's volumes, so every run starts from an empty database and leaves nothing behind. The manual lab's data volumes are never touched. `make docker-down` keeps the manual lab's data; only `make docker-clean` (`down -v` on the default project) removes it. Use `make integration-local` to test an existing broker without managing Docker. Cleanup also runs on SIGINT, SIGTERM and SIGHUP (the run stops the current step and exits 130), except that a `make integration` started as a background job (`&`) of a non-interactive shell ignores SIGINT, per POSIX, while SIGTERM still runs cleanup.
 
 **Enabling integration vs. choosing the endpoint.** Integration tests are
 *enabled* when `CUBRID_TEST_URL` or `CUBRID_TEST_HOST` is set to a non-empty
@@ -686,14 +719,14 @@ lint/format/typecheck.
 | Command | Description |
 |---------|-------------|
 | `make help` | List the targets, grouped by purpose |
+| `make test` | Run offline tests with coverage; writes `test-results/test/` (JUnit, coverage, `summary.json`) |
+| `make verify` | Full verification: `make check`, `make test`, then the live `make integration` lane; needs Docker, fails when the lane cannot run or every live test skips, and always writes `test-results/verify/` |
 | `make install` | Install in dev mode with all dependencies |
 | `make doctor` | Check the required tools; fails if one is missing or broken |
 | `make lint` | Run ruff check (never modifies files) |
 | `make format-check` | Run ruff format --check (never modifies files) |
 | `make format` | Auto-fix lint and formatting issues (the only mutating quality target) |
 | `make check` | Static quality gate: lint, format-check, typecheck, security, docs-reason-check (`make check-all` is a deprecated alias) |
-| `make test` | Run offline tests with coverage; writes `test-results/test/` (JUnit, coverage, `summary.json`) |
-| `make verify` | `make check` then `make test`; no Docker |
 | `make integration` | Docker (run-owned Compose project) → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker, `INTEGRATION_PROJECT=<name>` to name the project) |
 | `make integration-local` | Integration tests against an already-running server (`CUBRID_TEST_URL` or `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | Remove build artifacts and `test-results/` |

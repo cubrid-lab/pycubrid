@@ -36,8 +36,8 @@ recipes used to spell out in shell:
    touched (``make docker-clean`` remains the way to delete those).
 
 Every ``docker compose`` call carries ``-p <project>``. Exit status: the first failing step's status. A cleanup failure is reported and fails
-an otherwise successful run, but never hides an earlier failure. SIGINT and SIGTERM
-stop the running step, still run cleanup and exit 130.
+an otherwise successful run, but never hides an earlier failure. SIGINT, SIGTERM and
+SIGHUP stop the running step, still run cleanup and exit 130.
 
 The endpoint is pinned to the compose service (``localhost:<port>/testdb`` as ``dba``)
 so a stray ``CUBRID_TEST_*`` export cannot redirect the run to another server.
@@ -71,6 +71,11 @@ except ImportError:  # pragma: no cover - platform dependent
 
 ROOT = Path(__file__).resolve().parents[1]
 INTERRUPTED = 130
+# A terminal hangup reaches the whole foreground job, including this runner (#1053);
+# SIGHUP does not exist on Windows.
+HANDLED_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
 READINESS_ARGS = ("36", "5")
 PROJECT_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]*")
 # Volumes of docker-compose.yml (#1000, #1002).
@@ -90,7 +95,7 @@ TLS_NOTE = (
 
 
 class Interrupted(Exception):
-    """Raised from the SIGINT/SIGTERM handler to unwind into cleanup."""
+    """Raised from the SIGINT/SIGTERM/SIGHUP handler to unwind into cleanup."""
 
 
 # Only the first signal unwinds the lane; later ones (including any during cleanup)
@@ -334,7 +339,7 @@ def _run_owned(args: argparse.Namespace, project: str) -> int:
         print(TLS_NOTE, flush=True)
     compose_env = {**os.environ, "CUBRID_TEST_PORT": args.port}
     _signals["armed"] = True
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    for sig in HANDLED_SIGNALS:
         # Like a shell trap, keep a signal ignored on entry ignored: a background job
         # of a non-interactive shell starts with SIGINT ignored (POSIX).
         if signal.getsignal(sig) is not signal.SIG_IGN:

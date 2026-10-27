@@ -50,10 +50,10 @@ make install          # pip install -e . --group dev (pip 25.1+)
 ### Key Commands
 
 ```bash
+make test             # Offline tests with 95% coverage threshold; no Docker, no database
+make verify           # Full verification: check, test, then the live integration lane (Docker)
 make doctor           # Required tools present and working (fails otherwise)
 make check            # Static gate: lint, format-check, typecheck, security, docs-reason-check
-make test             # Offline tests with 95% coverage threshold
-make verify           # check + test; no Docker
 make lint             # ruff check only; make format-check for ruff format --check
 make format           # Auto-fix lint/format (the only mutating quality target)
 make integration      # scripts/run_integration.py: Docker → readiness → tests → skip audit → cleanup

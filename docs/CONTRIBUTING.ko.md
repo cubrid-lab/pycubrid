@@ -131,8 +131,9 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 
 1. 변경을 한 가지 목적에 집중하고 PR 설명에 동기를 적으세요.
 2. 동작 변경에 맞는 테스트를 추가하거나 갱신하세요.
-3. `make check`와 `make test`를 실행하고(`make verify`는 둘 다 실행하며, `make check-all`은
-   `make check`의 폐기 예정 별칭입니다) 명령·결과와 실행하지 못한 검사를 기록하세요.
+3. 가능하면 오프라인 `make test`를 실행하고, 전체 검증에는 `make verify`(`make check`, `make test`, 이어서
+   live `make integration` 레인; Docker 필요)를 실행하고(`make check-all`은 `make check`의 폐기 예정
+   별칭입니다) 명령·결과와 실행하지 못한 검사를 기록하세요.
 4. 연결·프로토콜 관련 변경에는 통합 테스트를 실행하세요.
 5. 사용자에게 보이는 변경은 `CHANGELOG.md`에 기록하세요.
 

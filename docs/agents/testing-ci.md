@@ -47,9 +47,10 @@ declared in `pyproject.toml` `[tool.pytest.ini_options]`; the main ones are:
 - `tls`, `version_matrix`, `official_differential`, `slow`, `benchmark` — dedicated
   CI lanes; see [docs/CI_POLICY.md](../CI_POLICY.md).
 
-`make verify` runs the static checks and offline tests; it does **not** prove a
-live broker round trip. Report the actual `make integration` lane (and any TLS
-or version-matrix lane) separately, including skipped/unrun checks. CI results
+`make test` runs the offline tests only; it does **not** prove a live broker round
+trip. `make verify` runs the static checks, the offline tests and then the managed
+`make integration` lane, so it needs Docker. Report the lanes that actually ran (and
+any TLS or version-matrix lane) separately, including skipped/unrun checks. CI results
 must correspond to the final PR head, not an earlier commit or advisory agent
 review.
 
