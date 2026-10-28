@@ -140,3 +140,99 @@ def test_generation_inputs_are_recorded() -> None:
     assert re.search(r"CPython 3\.\d+\.\d+ on Linux", record)
     assert "scripts/generate_third_party_licenses.py --exclude pycubrid" in record
     assert "-e . --group dev" in record and "-e . --group mutation" in record
+
+
+def _dist(**headers: object):
+    """A fake distribution whose metadata is an email message, as field() expects."""
+    import email.message
+    from types import SimpleNamespace
+
+    message = email.message.Message()
+    for key, value in headers.items():
+        for item in value if isinstance(value, list) else [value]:
+            message[key] = str(item)
+    return SimpleNamespace(metadata=message)
+
+
+def test_license_expression_wins_over_classifiers_and_license_field() -> None:
+    dist = _dist(
+        **{
+            "License-Expression": "MIT",
+            "Classifier": "License :: OSI Approved :: BSD License",
+            "License": "GPL",
+        }
+    )
+
+    assert generator.license_of(dist) == "MIT"
+
+
+def test_classifiers_drop_the_bare_osi_entry_and_are_sorted_and_deduplicated() -> None:
+    dist = _dist(
+        **{
+            "Classifier": [
+                "License :: OSI Approved :: MIT License",
+                "License :: OSI Approved",
+                "License :: OSI Approved :: MIT License",
+                "License :: OSI Approved :: Apache Software License",
+            ]
+        }
+    )
+
+    assert generator.license_of(dist) == "Apache Software License / MIT License"
+
+
+def test_a_short_single_line_license_field_is_used() -> None:
+    assert generator.license_of(_dist(**{"License": "BSD-3-Clause"})) == "BSD-3-Clause"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["MIT\nfull text", "x" * 61],
+    ids=["multi-line", "longer-than-sixty"],
+)
+def test_unrecognised_license_text_is_never_guessed(text: str) -> None:
+    assert generator.license_of(_dist(**{"License": text})) == "UNKNOWN"
+
+
+def test_sixty_character_license_field_is_still_used() -> None:
+    text = "x" * 60
+
+    assert generator.license_of(_dist(**{"License": text})) == text
+
+
+def test_no_license_metadata_is_unknown() -> None:
+    assert generator.license_of(_dist()) == "UNKNOWN"
+
+
+def test_project_url_prefers_a_known_label() -> None:
+    dist = _dist(
+        **{
+            "Project-URL": [
+                "Documentation, https://docs.invalid",
+                "Source, https://source.invalid",
+            ]
+        }
+    )
+
+    assert generator.url_of(dist) == "https://source.invalid"
+
+
+def test_project_url_label_is_case_insensitive_and_stripped() -> None:
+    dist = _dist(**{"Project-URL": "  REPOSITORY , https://repo.invalid "})
+
+    assert generator.url_of(dist) == "https://repo.invalid"
+
+
+def test_home_page_is_the_fallback_before_the_dash() -> None:
+    dist = _dist(
+        **{
+            "Project-URL": "Docs, https://docs.invalid",
+            "Home-page": "https://home.invalid",
+        }
+    )
+
+    assert generator.url_of(dist) == "https://home.invalid"
+
+
+def test_no_url_metadata_reports_a_dash() -> None:
+    assert generator.url_of(_dist()) == "-"
