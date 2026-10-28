@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **Troubleshooting logging example works on a fresh database (#1085)** — the English and Korean
+  examples query the built-in `db_class` catalog and close their cursor and connection.
 - **Docs FAQ names supported Python versions (#1094)** — the English and Korean site FAQs now
   state Python 3.11–3.15 support, the standard GIL build requirement, and the Python 3.10
   fallback to 1.9.x. The Support Matrix remains the authoritative compatibility reference.
