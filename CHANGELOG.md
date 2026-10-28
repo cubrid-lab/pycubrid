@@ -17,6 +17,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Native `connection.schema_info()` first-row subset (#1011)** — the opt-in
+  `pycubrid.compat.native.connection` gains positional-only
+  `schema_info(schema_type, class_name[, attr_name])`, matching the pinned official
+  `_cubrid.connection.schema_info`: it returns the first CLASS/VCLASS (pattern flag 1) or
+  ATTRIBUTE/CLASS_ATTRIBUTE (flag 2) row as a `list` of `str`/`int`/`None`, or `None` when no
+  row exists, with the CCI DOMAIN mask (a `SET(INT)` column reports `8`). Other in-range schema
+  types raise `NotSupportedError` before any request, out-of-range types `InterfaceError`, and
+  argument errors the official exception classes; unencodable text raises `DataError`. The
+  owned FC9 handle is always closed on the connection's current physical session, without
+  retry or reconnect, also on the no-row and error paths that the official extension leaves
+  open. A live differential against the official driver on CUBRID 10.2 and 11.4 covers the
+  supported types. The ordinary `get_schema_info()`, `fetch_schema_info()` and
+  `close_schema_info()` are unchanged.
+
 - **`make verify` writes an aggregate summary under `test-results/verify/` (#1053)** — the
   recipe now `exec`s `scripts/run_verify.py`, which runs `check`, `test` and `integration`
   in order and always writes `summary.json` (overall `PASS`/`FAIL`/`INCOMPLETE` and one entry

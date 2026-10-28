@@ -98,7 +98,7 @@ execute의 self 반환, 캐시된 문자열/None identity, None 크기 필드, B
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`에서 null_ok는 정수 0/1이고 precision은 쿼리별 값이며 네이티브 플래그 타입을 유지합니다. 값과 Python 타입을 모두 보존하고 컬렉션 16→32를 무조건 변환하지 않습니다. |
 | 확장 메타데이터 (#445) | 네이티브 전용 `cursor.result_info([n])`는 성공한 실행의 캐시된 메타데이터를 읽어 15필드 튜플들의 튜플(1부터 시작하는 번호는 바깥 항목 하나)을 반환하며, 실행한 컬럼 없는 문장은 None을 반환합니다. 실제 CCI 타입·정수 플래그·전달된 문자열을 공식 구현 순서로 사용합니다. 지원 CUBRID 생산자는 없는 텍스트를 None이 아닌 빈 문자열로 보내며 속성·기본값을 추측하지 않습니다. 일반·래퍼 description과 행 위치는 바뀌지 않습니다. |
 | 컬렉션 | 저장된 SET의 목표는 변경 가능한 set, MULTISET/SEQUENCE는 list입니다. 비NULL 요소는 검증된 타입별 텍스트 변환을 사용하고 중복·순서·빈 값을 보존합니다. 전체 SQL NULL과 NULL 요소는 아래 안전성 차이에 따라 None입니다. 중괄호 리터럴은 저장된 SET의 증거가 아니며 네이티브 타입 지정 import/bind는 위의 #440 행입니다. 일반 커서용 `pycubrid.types.Set`/`Multiset`/`Sequence` 파라미터(#567)에는 공식 대응물이 없습니다. 공식 wrapper `execute(query, args, set_type)`는 일반 list를 네이티브 prepared `bind_set`으로 바인딩하며 pycubrid는 이를 호환 래퍼에서만 제공하므로(#610), 이 일반 커서 파라미터에 대해서는 차등 비교 주장을 하지 않습니다. |
-| Identity / 스키마 | 네이티브 `insert_id() -> int \| None`은 기존 INSERT 캐시의 형변환이 아니라 현재 브로커 identity를 조회합니다. `schema_info(schema_type, class_name, attr_name omitted, /)`는 키워드/플래그/명시적 None 없이 첫 행의 list 또는 None을 반환합니다. CLASS/VCLASS 플래그 1, ATTRIBUTE/CLASS_ATTRIBUTE 2, 나머지 0을 추론합니다. #456의 전체 소비·정리가 제공되면 재사용하며 기존 소비 API는 계속 모든 행을 반환합니다. |
+| Identity / 스키마 | 네이티브 `insert_id() -> int \| None`은 기존 INSERT 캐시의 형변환이 아니라 현재 브로커 identity를 조회합니다. 네이티브 `schema_info(schema_type, class_name, attr_name omitted, /)`는 CLASS/VCLASS(플래그 1)와 ATTRIBUTE/CLASS_ATTRIBUTE(플래그 2)에 대해서만 제공됩니다(#1011, 아래). 키워드나 명시적 None 없이 첫 행의 list 또는 None을 반환하고, DOMAIN은 CCI처럼 마스킹하며, 소유한 핸들은 항상 닫습니다. 범위 안의 나머지 형식은 NotSupportedError를 발생시키며 기존 스키마 소비 API는 계속 모든 행을 반환합니다. |
 | 네이티브 LOB 핸들 조회·바인딩 (#441) | 동기 전용으로 제공됩니다. `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None`(로컬 전용, 서버 해제 요청 없음, 그 전에 만든 바인딩은 유효), `cursor.fetch_lob(col, lob, /) -> None`, `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob`은 `fetch_row`처럼 다음 행을 소비하고 BLOB/CLOB 타입을 `col`에서 정합니다(공식은 1번 컬럼을 읽지만 10.2/11.4에서 저장되는 복사본은 같음). int가 아닌 `col`은 공식 인자 파서처럼 먼저 TypeError를 내고, 결과 끝에서는 공식과 같이 컬럼 범위·타입이나 lob 상태를 검사하기 전에 None을 반환하며, 그 밖에는 LOB가 아니거나 범위를 벗어난 컬럼이 행을 소비하지 않고 ProgrammingError를 내며, NULL 셀은 공식과 같이 행을 소비하고 lob을 비웁니다. `bind_lob`은 공식과 같이 lob이 아니면 TypeError를 내고, 공식과 같이 커밋된 행에서 조회한 핸들을 다시, 다른 연결에서, 원래 연결이 닫히거나 재접속한 뒤에도 바인딩합니다(서버가 복사본 저장). 닫히거나 빈 lob은 요청 전에 InterfaceError를 내며(공식은 NULL 바인딩), 닫힌 lob이나 다른 연결의 lob으로 `fetch_lob`하면 InterfaceError입니다(공식은 채움). int가 아닌 인덱스는 공식과 같이 lob보다 먼저 TypeError를 내고, 범위를 벗어난 인덱스는 ProgrammingError입니다. 완전한 응답의 셀이 컬럼 LOB 타입의 핸들이 아니면 행을 소비하지 않고 DataError를 내며, 핸들 구조가 손상되었으면 OperationalError를 내고 세션을 폐기합니다. 각 lob은 출처(fetched/created)를 기록하므로 #442가 생성한 임시 핸들을 자기 세션에 묶을 수 있고, 실제 autocommit 모드에서 조회했는지도 기록합니다. 수동 모드에서 조회한 핸들은 나중에 커밋해도 다른 연결로 넘기지 않으며, autocommit 모드에서 다시 조회해야 합니다. 스트림 작업은 아래 #442에서 제공하며, 원시 파일 전송은 #443에서 별도로 설명합니다. |
 | 네이티브 LOB 스트림 (#442) | 동기 전용으로 `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`와 `SEEK_*` 상수를 제공합니다. 위치와 크기는 바이트 단위이고 BLOB/CLOB 모두 UTF-8 텍스트를 반환하며 SEEK_END는 크기-offset입니다. 첫 쓰기는 BLOB/CLOB을 만들고 이후 쓰기는 끝에만 추가합니다. 안전상 중간 쓰기·유효하지 않은 위치는 요청 전에 거부하고 빈 값·EOF·초과 읽기는 공식 CCI의 위험한 동작 대신 가능한 문자열을 반환합니다. 네이티브 객체의 close는 계속 종료 상태이고, 생성 핸들은 원래 세션에 묶이며 첫 autocommit 바인딩이 임시 파일을 소비합니다. 일반 절대 오프셋 `Lob`은 그대로이며 추가된 네이티브 파일 작업은 아래 #443에서 설명합니다. |
 | 예외 | 네임스페이스별 PEP 249 어댑터는 `(numeric_code, formatted_message)` args와 code/errno/SQLSTATE 증거를 유지하며 기존 예외 identity/args는 바꾸지 않습니다. 제공된 result_info의 로컬 오류는 아래에 분류한 pycubrid 메시지 하나의 args를 유지하며 더 넓은 어댑터는 별도 작업입니다. 불안정한 메시지의 완전 일치나 네이티브 인자 파서 충돌은 목표가 아닙니다. |
@@ -127,6 +127,36 @@ e75ec36/CCI7d1eb8f 오라클을 사용했습니다. 두 빌드에서 정상 네�
 자체 패키지·manifest와 일치합니다. 다른 드라이버의 ID나 네 부분 정규식과의
 일치를 뜻하지 않습니다. 정상 사례가 소스 단언, 결함 복구, 트랜잭션 중립성이나
 전체 기능 패리티를 인증하지 않으며 기존 주장과 원장 판정은 유지합니다.
+
+### 네이티브 schema_info 계약 (#1011)
+
+[네이티브 소스](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L1323)
+(`PyArg_ParseTuple(args, "is|s", ...)`, `METH_VARARGS`)와 CCI
+`confirm_schema_type_info`로 고정한 뒤, `scripts/build_official_oracle.py`로 만든
+e75ec36/CCI 7d1eb8f 오라클(로컬 Python 3.12.13)로 소유한 CUBRID 10.2.18.9024와
+11.4.6.1963 컨테이너에서 실제 동작을 관측했습니다.
+
+| 항목 | 공식(고정 소스와 관측) | pycubrid `compat.native` |
+| --- | --- | --- |
+| 인자 | 위치 인자만 허용. `class_name`은 필수 `str`, `attr_name`은 선택 `str`. 키워드, `None`, `bytes`, NUL, 정수가 아니거나 32비트를 넘는 형식은 파서에서 실패 | 같은 예외 클래스(`TypeError`, `ValueError`, `OverflowError`), 메시지는 pycubrid 고유 |
+| 스키마 형식 범위 | 1–20(`CCI_SCH_FIRST`..`CCI_SCH_LAST`) 밖은 `InterfaceError` -30015 | `InterfaceError`, 메시지만 담은 args |
+| 지원 형식 | 1–20 전체를 브로커로 전송 | CLASS 1, VCLASS 2(플래그 1)와 ATTRIBUTE 4, CLASS_ATTRIBUTE 5(플래그 2)만. 3과 6–20은 I/O 전에 `NotSupportedError` |
+| `attr_name` | 주었을 때만 모든 형식에서 FC9 arg2로 전송 | 같음 |
+| 결과 | 첫 행을 `list`로. INT/SHORT 열은 `int`, 나머지 열은 `str`, NULL은 `None`. 행이 없으면 `None` | 같은 값과 형식. STRING/SHORT/INT가 아닌 열은 `NotSupportedError` |
+| ATTRIBUTE DOMAIN | CCI가 첫 형식 바이트의 컬렉션(0x60)·프로토콜(0x80) 비트를 지워 `SET(INT)`는 `8` | 같은 마스크 |
+| 인코딩 불가 문자열 | `UnicodeEncodeError`(UTF-8 변환) | 연결 문자 집합 기준으로 I/O 전에 `DataError` |
+| 핸들 수명 | 행을 가져온 뒤에만 닫고 행 없음·오류 경로에서는 열어 둠 | 현재 세션에서 반환 전에 항상 닫음. 닫기 실패 시 세션 폐기 |
+| 세션 | OUT_TRAN이면 CCI가 재접속 후 FC9를 다시 보낼 수 있음 | 고정 물리 세션, 재시도·재접속·재실행 없음. 종료 후에는 `InterfaceError` |
+
+`native-schema-info` 주장은 모드(기본 autocommit True와 명시적 수동 False)마다
+63개 호출과 키워드 호출 하나를 두 서버에서 오라클과 비교합니다. 정확한 테이블
+이름과 패턴, 뷰, 없는 이름, 명시적 속성 이름과 패턴, 클래스 속성, 스칼라·NUMERIC·
+SET/SEQUENCE/MULTISET·BLOB·JSON·ENUM·CHAR 열의 DOMAIN, 인자 오류와 종료된 연결을
+포함합니다. 두 서버 모두 일치했고 로컬 증거 검증기는 Python 버전(레인의 3.11이
+아닌 3.12.13)만 거부했으므로 CI 레인이 다시 실행합니다. 실서버 테스트는 각 호출이
+같은 CAS 핸들 ID를 재사용하고(누수 없음) 열린 prepared 결과를 계속 쓸 수 있음을
+보입니다. 형식 3과 6–20(오라클은 응답함), 오류 메시지와 인자 튜플, 장애·복구,
+스레드 공유, upstream `test_schema_info` 단언은 비교하거나 주장하지 않습니다.
 
 ### 네이티브 LOB 파일 범위와 안전상 차이 (#443)
 
@@ -317,8 +347,8 @@ nightly와 릴리스 전체 매트릭스도 막습니다. `PYCUBRID_OFFICIAL_ORA
 | 표면 | 일치 | 분류된 차이 | 합계 |
 | --- | ---: | ---: | ---: |
 | 래퍼 (`CUBRIDdb`) | 18 | 4 | 22 |
-| 네이티브 (`_cubrid`) | 33 | 13 | 46 |
-| **합계** | **51** | **17** | **68** |
+| 네이티브 (`_cubrid`) | 34 | 13 | 47 |
+| **합계** | **52** | **17** | **69** |
 
 - 오라클: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.11
 - 필수 서버: CUBRID 10.2, CUBRID 11.4

@@ -448,7 +448,8 @@ not ordinary `Connection.ping()`'s CHECK_CAS/bool/optional-recovery operation.
 Live utilities use the effective autocommit mode, not a writable native cache,
 and the exact current driver, socket and physical generation. They do not retry,
 reconnect or explicitly commit/rollback. An active private schema result blocks
-effective-autocommit utility requests; this is not a public native schema API.
+effective-autocommit utility requests; native [`schema_info()`](#native-schema-info-1011)
+never leaves one open.
 Closed or replaced owners fail rather than using another session. Ping validates
 consumed result pages and closes only a still-owned handle before returning
 success; transaction-retired handles are not closed again. A cleanup-only error
@@ -457,6 +458,55 @@ Ordinary/async utilities, defaults and thread-sharing guarantees are unchanged.
 The scoped comparison case covers healthy native/wrapper calls in default True
 and explicit manual False modes; client IDs are separate per-driver observations,
 not a matching-ID, recovery, error-profile or upstream-regex certificate.
+
+<a name="native-schema-info-1011"></a>
+
+### Native schema_info (#1011)
+
+`native.connection.schema_info(schema_type, class_name, attr_name, /)` returns the
+**first** schema row as a `list`, or `None` when there is no row, like the pinned
+official `_cubrid.connection.schema_info`. The wrapper does not expose it; use
+`wrapper.connection.schema_info(...)`. The ordinary `get_schema_info()`,
+`fetch_schema_info()` and `close_schema_info()` are unchanged.
+
+| Argument | Accepted | Rejected before I/O |
+| --- | --- | --- |
+| `schema_type` | `CLASS` (1), `VCLASS` (2), `ATTRIBUTE` (4), `CLASS_ATTRIBUTE` (5); any `__index__` value such as `CCISchemaType` members or `True` | non-integers: `TypeError`; outside signed 32-bit: `OverflowError`; outside 1–20: `InterfaceError`; the other in-range types (3, 6–20): `NotSupportedError` |
+| `class_name` | required `str`, sent as given (`%`/`_` patterns for CLASS/VCLASS) | missing or not `str` (including `None`): `TypeError`; NUL: `ValueError`; not encodable in the connection charset: `DataError` |
+| `attr_name` | optional `str`, sent only when given (patterns for ATTRIBUTE/CLASS_ATTRIBUTE) | not `str` (including explicit `None`): `TypeError`; NUL: `ValueError`; unencodable: `DataError` |
+
+A `str` subclass is validated and sent as its stored text. Keywords are rejected
+with `TypeError`. The official `_cubrid.CUBRID_SCH_*`
+constants are not exported; pass the integers or `pycubrid.constants.CCISchemaType`
+members. CLASS/VCLASS send pattern flag 1 (class
+name) and ATTRIBUTE/CLASS_ATTRIBUTE flag 2 (attribute name), as the official
+extension does. Rows hold `str`, `int` and `None`: CLASS/VCLASS `[NAME, TYPE,
+REMARKS]`, ATTRIBUTE/CLASS_ATTRIBUTE the 14 columns `[ATTR_NAME, DOMAIN, SCALE,
+PRECISION, INDEXED, NON_NULL, SHARED, UNIQUE, DEFAULT, ATTR_ORDER, CLASS_NAME,
+SOURCE_CLASS, IS_KEY, REMARKS]`. Like CCI, `DOMAIN` drops the collection and
+protocol bits of the wire type, so a `SET(INT)` column reports `8`. CUBRID 11.x
+qualifies class names with their owner (`dba.t`); 10.2 does not. A result column
+of any type other than STRING/SHORT/INT raises `NotSupportedError`.
+
+The call runs on the connection's current physical session with its effective
+autocommit mode and does not commit, retry, reconnect or replay. It sends FC9,
+one FETCH only when a row exists, then always closes the server handle before
+returning, also for no row and after a FETCH error (the official extension
+leaves the handle open on those paths). A complete server error propagates and
+keeps the session; a malformed reply, or a failed close, retires it. An open
+prepared result on the same connection stays usable.
+
+```python
+from pycubrid.compat import native
+from pycubrid.constants import CCISchemaType
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    table = conn.schema_info(CCISchemaType.CLASS, "users")  # ['dba.users', 2, None]
+    column = conn.schema_info(4, "users", "email")  # first ATTRIBUTE row or None
+finally:
+    conn.close()
+```
 
 ### Wrapper transaction boundaries (#662)
 

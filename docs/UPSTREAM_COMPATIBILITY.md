@@ -98,7 +98,7 @@ and an omitted optional argument is not interchangeable with explicit None.
 | Description | `(name, native_type, 0, 0, precision, scale, null_ok)`, with integer 0/1 null_ok, query-specific precision and native flagged types. Preserve value AND Python type; no unconditional collection 16→32 conversion. |
 | Extended metadata (#445) | Delivered native-only `cursor.result_info([n])` reads cached successful-execution metadata, returning tuple-of-15-tuples (one outer entry for a one-based selector), or None for executed zero-column statements. It uses measured CCI types, integer flags and actual strings in the implemented official order. Supported CUBRID producers encode absent text as an empty string, not None; no attribute/default value is inferred. Ordinary/wrapper description and row position are unchanged. |
 | Collections | Stored SET targets mutable set, MULTISET/SEQUENCE list; validated type-aware textual non-NULL elements, preserving duplicates/order/empty values. Whole SQL NULL and NULL elements remain None by the safety deviation below. A brace literal is not evidence for stored SET; native typed import/bind is the #440 row above. The ordinary-cursor `pycubrid.types.Set`/`Multiset`/`Sequence` parameters (#567) have no official equivalent: official wrapper `execute(query, args, set_type)` binds plain lists through native prepared `bind_set`, which pycubrid delivers only on the compatibility wrapper (#610), so no differential claim is made for these ordinary-cursor parameters. |
-| Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. `schema_info(schema_type, class_name, attr_name omitted, /)` accepts no keywords/flags/explicit None, returns the first row as list or None; infer CLASS/VCLASS flag 1, ATTRIBUTE/CLASS_ATTRIBUTE flag 2, otherwise 0. Reuse #456 eager consumption/cleanup when available; ordinary consumption still returns all rows. |
+| Identity / schema | Native `insert_id() -> int \| None` queries current broker identity, not a cast of the ordinary cached INSERT snapshot. Native `schema_info(schema_type, class_name, attr_name omitted, /)` is delivered for CLASS/VCLASS (flag 1) and ATTRIBUTE/CLASS_ATTRIBUTE (flag 2) only (#1011, below): no keywords or explicit None, first row as list or None, CCI-masked DOMAIN, owned handle always closed. The other in-range types raise NotSupportedError; ordinary schema consumption still returns all rows. |
 | Native LOB handle fetch/bind (#441) | Delivered sync-only: `connection.lob() -> lob`, `lob(connection, /)`, `lob.close() -> None` (local only; no server free request; a binding made before it stays valid), `cursor.fetch_lob(col, lob, /) -> None` and `cursor.bind_lob(index, lob, /) -> None`. `fetch_lob` consumes the next row like `fetch_row` and takes the BLOB/CLOB type from `col` (official reads column 1; the stored copy is the same on 10.2/11.4). A non-int `col` raises TypeError first, as the official argument parser does. At the end of the result it returns None before the column range or type or the lob's state is checked, as official; otherwise a non-LOB or out-of-range column raises ProgrammingError without consuming the row, and a NULL cell consumes the row and leaves the lob empty, as official. `bind_lob` raises TypeError for a non-lob, as official, and binds a fetched handle of a committed row again, on another connection and after its own connection closed or reconnected, as official (the server stores a copy). A closed or empty lob raises InterfaceError before any request (official binds NULL); `fetch_lob` into a closed lob or another connection's lob raises InterfaceError (official fills it); a non-int index raises TypeError before the lob is checked, as official, and an out-of-range index raises ProgrammingError. A complete reply whose cell is not a handle of the column's LOB type raises DataError without consuming the row; damaged handle framing raises OperationalError and retires the session. Each lob records its origin (fetched/created) so #442 can keep created temp handles on their own session, and whether it was fetched in effective autocommit mode; a manually fetched holder remains non-transferable after a later commit until re-fetched in autocommit mode. Stream operations are delivered in #442 below; raw file transfer is documented separately in #443. |
 | Native LOB stream (#442) | Delivered sync-only: `lob.write(data, type="B", /) -> None`, `read(length=0, /) -> str`, `seek(offset, whence=SEEK_CUR, /) -> int`, plus exported `SEEK_*` constants. Position and size count bytes; UTF-8 text is returned for BLOB and CLOB. SEEK_END computes size-offset. Writes create a BLOB/CLOB lazily and append only at the end. Safe deviations: non-end writes and invalid resulting positions fail before I/O, while empty/EOF and oversized reads return available text instead of reproducing unsafe CCI behavior. The native holder's close remains terminal; created handles stay on their original session and first autocommit bind consumes their temp file. Ordinary absolute-offset `Lob` is unchanged; additive native file operations are documented below (#443). |
 | Exceptions | Namespace-specific PEP 249 adapters retain `(numeric_code, formatted_message)` args and code/errno/SQLSTATE evidence without changing ordinary exception identities/args. The delivered result_info local errors retain pycubrid message-only args as classified below; broader adapters remain separate. Exact unstable messages and native argument-parser crashes are not targets. |
@@ -130,6 +130,38 @@ matches its package/manifest, not the other driver's ID or a four-component rege
 No source assertion, fault/recovery, transaction-neutrality or full-feature
 parity certificate follows from this healthy case; earlier claims and ledger
 assessments remain unchanged.
+
+### Native schema_info contract (#1011)
+
+Pinned from the [native source](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L1323)
+(`PyArg_ParseTuple(args, "is|s", ...)`, `METH_VARARGS`) and CCI
+`confirm_schema_type_info`, then observed live with the pinned e75ec36/CCI 7d1eb8f
+oracle built by `scripts/build_official_oracle.py` (Python 3.12.13 locally) on
+owned CUBRID 10.2.18.9024 and 11.4.6.1963 containers:
+
+| Aspect | Official (pinned and observed) | pycubrid `compat.native` |
+| --- | --- | --- |
+| Arguments | positional only; `class_name` required `str`, `attr_name` optional `str`; keywords, `None`, `bytes`, NUL, non-integer or >32-bit types fail in the parser | same exception classes (`TypeError`, `ValueError`, `OverflowError`); messages are pycubrid's |
+| Schema type range | outside 1–20 (`CCI_SCH_FIRST`..`CCI_SCH_LAST`): `InterfaceError` -30015 | `InterfaceError`, message-only args |
+| Supported types | all of 1–20 are sent to the broker | CLASS 1, VCLASS 2 (flag 1) and ATTRIBUTE 4, CLASS_ATTRIBUTE 5 (flag 2) only; 3 and 6–20 raise `NotSupportedError` before I/O |
+| `attr_name` | sent as FC9 arg2 only when given, for every type | same |
+| Result | first row as a `list`; INT/SHORT columns `int`, other columns `str`, NULL `None`; no row: `None` | same values and types; a column other than STRING/SHORT/INT raises `NotSupportedError` |
+| ATTRIBUTE DOMAIN | CCI strips the collection (0x60) and protocol (0x80) bits of the first type byte, so `SET(INT)` is `8` | same mask |
+| Unencodable text | `UnicodeEncodeError` (UTF-8 conversion) | `DataError` before I/O, in the connection charset |
+| Handle lifetime | closed only after a fetched row; left open on the no-row and error paths | always closed before return on the current session; a failed close retires it |
+| Session | CCI may reconnect and resend FC9 while OUT_TRAN | fixed physical session, no retry/reconnect/replay; closed: `InterfaceError` |
+
+The `native-schema-info` claim compares 63 calls and a keyword call per mode (default autocommit
+True and explicit manual False) against the oracle on both servers: exact and
+pattern table names, views, missing names, explicit attribute names and patterns,
+class attributes and DOMAIN for scalar, NUMERIC, SET/SEQUENCE/MULTISET, BLOB,
+JSON, ENUM and CHAR columns, plus the argument errors and a closed connection.
+It matched on both servers; the local evidence validator rejected only the
+Python version (3.12.13 instead of the lane's 3.11), so the CI lane re-runs it.
+Live tests also show that each call reuses the same CAS handle id (no leak) and
+leaves an open prepared result usable. Types 3 and 6–20 (which the oracle does
+answer), error messages and argument tuples, fault/recovery, thread sharing and
+the upstream `test_schema_info` assertions are not compared or claimed.
 
 ### Native LOB file scope and safety differences (#443)
 
@@ -335,8 +367,8 @@ claims without cases and oracle pins that differ from the build script.
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
 | Wrapper (`CUBRIDdb`) | 18 | 4 | 22 |
-| Native (`_cubrid`) | 33 | 13 | 46 |
-| **Total** | **51** | **17** | **68** |
+| Native (`_cubrid`) | 34 | 13 | 47 |
+| **Total** | **52** | **17** | **69** |
 
 - Oracle: cubrid-python `e75ec36b2a92`, CCI `7d1eb8f40f04`, Python 3.11
 - Required servers: CUBRID 10.2, CUBRID 11.4

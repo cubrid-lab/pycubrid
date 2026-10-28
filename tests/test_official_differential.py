@@ -1114,6 +1114,66 @@ def _native_result_info_error_args() -> tuple[str, str]:
     return observe(native), observe(_cubrid)
 
 
+def _native_schema_info() -> tuple[str, str]:
+    """First-row CLASS/VCLASS/ATTRIBUTE/CLASS_ATTRIBUTE results and argument errors (#1011)."""
+    table, child, view = _table("odsi1011"), _table("odsi1011c"), _table("odsi1011v")
+    with _ordinary() as setup:
+        cur = setup.cursor()
+        try:
+            cur.execute(
+                f"CREATE TABLE {table} (id INT PRIMARY KEY, name VARCHAR(20) NOT NULL DEFAULT 'x',"
+                " n NUMERIC(10,2), s SET(INT), q SEQUENCE(VARCHAR(5)), m MULTISET(DATETIME),"
+                " b BLOB, j JSON, e ENUM('a','b'), ch CHAR(3))"
+            )
+            cur.execute(f"ALTER TABLE {table} ADD CLASS ATTRIBUTE ca INT")
+            cur.execute(
+                f"CREATE TABLE {child} (cid INT, pid INT, FOREIGN KEY (pid) REFERENCES {table}(id))"
+            )
+            cur.execute(f"CREATE VIEW {view} AS SELECT id FROM {table}")
+            attributes = ("id", "name", "n", "s", "q", "m", "b", "j", "e", "ch", "n%", "%", "")
+            calls: list[tuple[Any, ...]] = [
+                (kind, name) for kind in (1, 2, 4, 5) for name in (table, child, view, "odsi1011%")
+            ]
+            calls += [(kind, name, "") for kind in (1, 2) for name in (table, view)]
+            calls += [(kind, table, attr) for kind in (4, 5) for attr in (*attributes, "ca")]
+            calls += [(4, view, "id"), (1, "odsi1011_missing"), (4, "odsi1011_missing"), (1, "")]
+            calls += [(True, table), (0, table), (21, table), (-1, table), (2**31, table)]
+            calls += [(1,), (1, None), (4, table, None), ("1", table), (1.0, table), (1, "a\x00")]
+
+            def observe(module: Any) -> str:
+                observations = []
+                with closing(module.connect(URL, TEST_USER, TEST_PASSWORD)) as conn:
+                    for manual in (False, True):
+                        if manual:
+                            conn.set_autocommit(False)
+                        for args in calls:
+                            try:
+                                outcome = render(conn.schema_info(*args))
+                            except Exception as exc:  # compared by class name only
+                                outcome = f"raises {type(exc).__name__}"
+                            observations.append(f"{manual} {args!r} {outcome}")
+                        try:
+                            conn.schema_info(schema_type=1, class_name=table)
+                        except TypeError:
+                            observations.append(f"{manual} keywords raise TypeError")
+                        if manual:
+                            conn.rollback()
+                try:
+                    conn.schema_info(1, table)
+                except Exception as exc:  # compared by class name only
+                    observations.append(f"closed raises {type(exc).__name__}")
+                return "\n".join(observations)
+
+            return observe(native), observe(_cubrid)
+        finally:
+            for statement in (
+                f"DROP VIEW IF EXISTS {view}",
+                f"DROP TABLE IF EXISTS {child}",
+                f"DROP TABLE IF EXISTS {table}",
+            ):
+                cur.execute(statement)
+
+
 _POSITION_QUERY = "SELECT id, txt FROM odnav444_fixture WHERE id <= ? ORDER BY id"
 
 
@@ -1805,6 +1865,7 @@ CASES: dict[str, Callable[[], tuple[str, str]]] = {
     ),
     "wrapper-transaction-boundaries": _wrapper_transaction_boundaries,
     "native-wrapper-utilities": _native_wrapper_utilities,
+    "native-schema-info": _native_schema_info,
 }
 
 

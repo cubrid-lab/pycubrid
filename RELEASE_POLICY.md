@@ -114,7 +114,7 @@ Adding optional parameters with defaults *at the end of the parameter list*,
 adding new methods, adding new exception subclasses, and adding new public
 modules are all permitted in minor releases.
 
-### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445, #444, #610)
+### Staged explicit compatibility namespaces (#438, #465, #439, #440, #441, #442, #467, #466, #445, #444, #610, #1011)
 
 The selected [additive design](docs/UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
 includes `pycubrid.compat.cubriddb` construction (#465) and autocommit access
@@ -139,6 +139,8 @@ metadata without changing ordinary/wrapper descriptions, row position or APIs.
 #444 adds native-only absolute/relative seek and shadow-counter tell over a live
 current SELECT; explicit manual mode before preparation is the measured cross-page
 prerequisite. No wrapper forwarding or default-mode lifetime promise is added.
+#1011 adds native-only first-row `connection.schema_info()` for
+CLASS/VCLASS/ATTRIBUTE/CLASS_ATTRIBUTE; other schema types fail explicitly.
 Only their implemented factories, connection and cursor methods are public;
 no wrapper LOB execute, public async prepared API, threadsafety declaration or
 complete native/DB-API parity is promised. The checker and baseline cover
@@ -762,6 +764,18 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   transactional server-file reclamation. Ordinary/async/wrapper APIs,
   dependencies, defaults, supported versions and release/tag/publication
   policy are unchanged.
+
+- **Native first-row `schema_info()` (#1011)** — MINOR / additive, under the
+  provisional `pycubrid.compat` namespace. The opt-in sync
+  `pycubrid.compat.native.connection` gains positional-only
+  `schema_info(schema_type, class_name[, attr_name])`, returning the first
+  CLASS/VCLASS/ATTRIBUTE/CLASS_ATTRIBUTE row as a list or `None` with the
+  official pattern flags and CCI DOMAIN mask. Other in-range schema types raise
+  `NotSupportedError` before I/O; the owned FC9 handle is always closed on the
+  fixed physical session (no retry/reconnect). Unencodable text raises
+  `DataError`, not the official `UnicodeEncodeError`. The ordinary
+  `get_schema_info()`/`fetch_schema_info()`/`close_schema_info()`, the wrapper,
+  async APIs, defaults, dependencies and supported versions are unchanged.
 
 - **Native connection utilities (#666)** — MINOR / additive. The opt-in sync
   native facade gains zero-argument fresh full `server_version()`, frozen own
