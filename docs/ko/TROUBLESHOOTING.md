@@ -1428,16 +1428,19 @@ import pycubrid
 logging.basicConfig(level=logging.DEBUG)
 
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+try:
+    print(f"Server version: {conn.get_server_version()}")
+    print(f"Autocommit: {conn.autocommit}")
 
-# 연결 상태 확인
-print(f"Server version: {conn.get_server_version()}")
-print(f"Autocommit: {conn.autocommit}")
-
-# 쿼리 후 커서 상태 확인
-cur = conn.cursor()
-cur.execute("SELECT * FROM users")
-print(f"Description: {cur.description}")
-print(f"Row count: {cur.rowcount}")
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM db_class")
+        print(f"Description: {cur.description}")
+        print(f"Row count: {cur.rowcount}")
+    finally:
+        cur.close()
+finally:
+    conn.close()
 ```
 
 드라이버의 디버그 로그는 바인딩된 파라미터 값을 출력하지 않도록 의도되어 있습니다.
