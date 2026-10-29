@@ -69,11 +69,12 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Provide details about your environment
+      description: Provide details about your environment. For versions, use `pycubrid.__version__`, `python --version`, and `conn.get_server_version()`.
       placeholder: |
         - Python version: 3.12
         - CUBRID version: 11.2
-        - pycubrid version: 0.6.0
+        - pycubrid version: 1.15.0
+        - How CUBRID runs (e.g. Docker `cubrid/cubrid:11.4` on amd64 / installed server): ...
         - Operating System: Linux/macOS/Windows
         - Using TLS? (yes / no / custom ssl.SSLContext): no
         - If TLS: sync (pycubrid.connect) or async (pycubrid.aio.connect)?
