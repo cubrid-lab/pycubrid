@@ -480,5 +480,16 @@ documentation, presentations, and other maintainer-facing writing.
   separate lookup table. Edit an existing editable comment to correct unclear
   wording rather than adding redundant follow-up comments.
 
+Source comments, test names and docstrings, examples, PR descriptions and
+review replies follow the organization's canonical rule,
+[Explanations in code, tests, reviews and agent-written text](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md#6-explanations-in-code-tests-reviews-and-agent-written-text).
+Say what happens, why it matters, and the invariant or constraint (for
+example, which session owns a query handle and when it may be released)
+before any issue number or protocol code such as `#488` or `FC41`; keep those
+identifiers afterwards for traceability. Do not rename tests, fixtures or
+other machine-readable identifiers to satisfy this rule, and revise existing
+comments only where a new reader would be confused.
+
 This is a shared writing convention, not a new CI check, reviewer approval,
-or merge gate. Keep existing repository-specific technical and safety rules.
+or merge gate. This repository's DB-API, protocol, test, security and release
+rules keep precedence over it.

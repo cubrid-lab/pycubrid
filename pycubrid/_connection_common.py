@@ -474,7 +474,9 @@ class ConnectionCommonMixin:
 
         if self._json_deserializer is not None and not callable(self._json_deserializer):
             raise TypeError("json_deserializer must be callable or None")
-        # Note: json_deserializer is used as-is (issue #220 — removed no-op assignment).
+        # The callable is stored unchanged and handed to the result decoder,
+        # which calls it for JSON columns on fetch; with None, JSON is returned
+        # as str. An earlier no-op reassignment was removed here (#220).
 
         # Timing support
         self._timing: TimingStats | None = None
