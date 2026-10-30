@@ -4,7 +4,6 @@
 
 Follow the [cubrid-lab writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md). **Issue titles** use only a type prefix (for example, `feat: ...` or `bug: ...`); do not require a module scope. Describe the problem or goal in plain English, with reproducible evidence and verifiable acceptance criteria appropriate to the issue. **Triage** validates scope, duplicates, type, priority and size; **PRs and commits** retain the existing Conventional Commits format and PR CI validators. Keep issue goals distinct from implementation/PR evidence and avoid internal IDs, personal comments or agent bookkeeping in the title/body.
 
-
 Project knowledge base for AI coding agents.
 
 ## Project Overview
