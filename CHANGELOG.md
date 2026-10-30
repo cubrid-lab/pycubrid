@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-10-30
+
 ### Documentation
 
 - **Troubleshooting logging example works on a fresh database (#1085)** — the English and Korean
@@ -14,6 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   state Python 3.11–3.15 support, the standard GIL build requirement, and the Python 3.10
   fallback to 1.9.x. The Support Matrix remains the authoritative compatibility reference.
 - **README and docs site show the transparent brand icon (#1096)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `e55990a`, where the Driver icon's layer gaps are real transparency instead of white strokes. Documentation only; behavior is unchanged.
+
+* align issue titles with organization writing standard ([#1067](https://github.com/cubrid-lab/pycubrid/issues/1067)) ([629a3ac](https://github.com/cubrid-lab/pycubrid/commit/629a3ac3b9e8492207db9ac092d78d5abcefdd7c))
+* **faq:** clarify supported Python versions ([#1099](https://github.com/cubrid-lab/pycubrid/issues/1099)) ([5b6a814](https://github.com/cubrid-lab/pycubrid/commit/5b6a814ac6fdcaf4c41afdc4cfe8d82a366a51e0))
+* **readme:** repin the brand icon to the transparent role marks ([#1097](https://github.com/cubrid-lab/pycubrid/issues/1097)) ([d9e2e1b](https://github.com/cubrid-lab/pycubrid/commit/d9e2e1b8cb5c02a4af205e2d7b61469f738b7c25))
+* require human-readable agent communication and self-explanatory comments ([#1062](https://github.com/cubrid-lab/pycubrid/issues/1062)) ([83fbbca](https://github.com/cubrid-lab/pycubrid/commit/83fbbca04828b15ea24fe4d3e962d187deb77940))
+* **troubleshooting:** list the connection-closed errors the driver raises ([#1095](https://github.com/cubrid-lab/pycubrid/issues/1095)) ([232c15e](https://github.com/cubrid-lab/pycubrid/commit/232c15ebd3129dbe345da8d3bb426f7eb6dc4c04))
+* **troubleshooting:** make verbose logging example runnable ([#1104](https://github.com/cubrid-lab/pycubrid/issues/1104)) ([818dd04](https://github.com/cubrid-lab/pycubrid/commit/818dd04dfdd43c86223e5cdb6a04ba0eff866a6f))
+* update bug report environment guidance ([#1102](https://github.com/cubrid-lab/pycubrid/issues/1102)) ([e588438](https://github.com/cubrid-lab/pycubrid/commit/e588438a7a8e004f4fdda430ca1f746e7b59344b))
+* use the Python yellow from the brand tokens in the site theme ([#1103](https://github.com/cubrid-lab/pycubrid/issues/1103)) ([c18d35a](https://github.com/cubrid-lab/pycubrid/commit/c18d35a3057e879989868163481068a351bdcbaa))
 
 ## [1.15.0] - 2026-10-27
 
