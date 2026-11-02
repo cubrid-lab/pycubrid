@@ -59,8 +59,8 @@ test = [
     "jinja2>=3.1",
 ]
 lint = [
-    "ruff==0.17.2",
-    "mypy==2.4.0",
+    "ruff==0.17.3",
+    "mypy==2.4.1",
     "pre-commit",
 ]
 security = [
