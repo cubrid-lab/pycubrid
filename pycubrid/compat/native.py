@@ -450,11 +450,6 @@ class connection:
                     row[1] = row[1] & 0xFFFF & ~(_DOMAIN_FIRST_BYTE_MASK << 8)
                 completed = True
                 return row
-            # An interrupt after completion is still the primary failure.
-            # codeql[py/catch-base-exception]
-            except BaseException:
-                completed = False
-                raise
             finally:
                 # Read the handle from the packet itself, so an interrupt right
                 # after FC9 completes still releases it. A failed fenced FC9

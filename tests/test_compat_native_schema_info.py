@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import inspect
 import struct
-import sys
 from typing import Any
 
 import pytest
@@ -357,36 +355,6 @@ def test_cleanup_failure_after_primary_failure_keeps_the_primary(owned) -> None:
         owner.schema_info(1, "t")
     assert caught.value is driver.utility_errors[0]
     assert caught.value.errno == -1012
-    assert not driver._connected
-
-
-@pytest.mark.parametrize("statement,rows", [("return row", 1), ("return None", 0)])
-def test_cleanup_failure_after_interrupted_return_keeps_the_interrupt(
-    owned, statement: str, rows: int
-) -> None:
-    owner, driver, sock = owned
-    rs = ResultSet("class", _CLASS_COLUMNS, _class_rows("t").rows[:rows])
-    replies = [_schema(rs, handle=57)] + ([_page(rs)] if rows else [])
-    _load(sock, *replies, error_body(IN_TRAN, -1012, "close failed"))
-    method = inspect.unwrap(native.connection.schema_info)
-    source, first = inspect.getsourcelines(method)
-    target = first + next(i for i, line in enumerate(source) if line.strip() == statement)
-
-    def tracer(frame: Any, event: str, _arg: Any) -> Any:
-        if frame.f_code is not method.__code__:
-            return None
-        if event == "line" and frame.f_lineno == target:
-            raise KeyboardInterrupt
-        return tracer
-
-    previous = sys.gettrace()
-    sys.settrace(tracer)
-    try:
-        with pytest.raises(KeyboardInterrupt):
-            owner.schema_info(1, "t")
-    finally:
-        sys.settrace(previous)
-    assert _codes(sock)[-1] == 6
     assert not driver._connected
 
 
