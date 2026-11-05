@@ -1,5 +1,7 @@
 # Official driver API inventory and compatibility design
 
+> **Deprecated.** `pycubrid.compat` emits a `FutureWarning` and will be removed in a later 1.x MINOR release. See the [migration guide](COMPAT_MIGRATION.md). The text below is historical and is not rewritten.
+
 The [machine-readable catalog](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_api_inventory.json)
 accounts for driver-declared public operations in the official
 [CUBRID/cubrid-python snapshot](https://github.com/CUBRID/cubrid-python/tree/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b).

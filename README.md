@@ -23,7 +23,7 @@
 
 ---
 
-> **Status: Stable (1.x).** `pycubrid` and `pycubrid.aio` follow [semantic versioning](RELEASE_POLICY.md). The opt-in `pycubrid.compat` namespaces are an optional tier: names first released in 1.9.0 or later are provisional, and deprecated names can be retired in a MINOR release after notice. See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract.
+> **Status: Stable (1.x).** `pycubrid` and `pycubrid.aio` follow [semantic versioning](RELEASE_POLICY.md). The opt-in `pycubrid.compat` namespaces are an optional tier: names first released in 1.9.0 or later are provisional, and deprecated names can be retired in a MINOR release after notice. See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract. `pycubrid.compat` is deprecated and will be removed in a later 1.x MINOR release; see the [migration guide](docs/COMPAT_MIGRATION.md).
 
 ## Start here
 

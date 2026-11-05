@@ -200,6 +200,8 @@ conn = pycubrid.connect(
 
 ## Explicit Native Compatibility Subset
 
+> **Deprecated.** `pycubrid.compat` emits a `FutureWarning` and will be removed in a later 1.x MINOR release. See the [migration guide](COMPAT_MIGRATION.md).
+
 The opt-in `pycubrid.compat.native` module uses the pure-Python sync transport.
 It now provides a bounded **sync-only prepared cursor** for scalar values
 (`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`/`bytearray`, `date`,

@@ -207,10 +207,12 @@ authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI
 publication or a security-support change.
 
 **Planned retirement (#1120).** The project intends to retire the functional
-`pycubrid.compat` layer in a later 1.x MINOR release. From now on these
-namespaces receive bug and security fixes only: no new public names and no new
-official-driver parity work. The removal itself still needs every step in §3;
-this paragraph authorizes none of them and names no version or date.
+`pycubrid.compat` layer in a later 1.x MINOR release. These namespaces are
+deprecated: creating a connection through them emits `FutureWarning`, with the
+[migration guide](docs/COMPAT_MIGRATION.md) in its message. They receive bug and
+security fixes only: no new public names and no new official-driver parity work.
+The removal itself still needs every step in §3; this paragraph authorizes none
+of them and names no version or date.
 
 ### Typed collection parameters (#567)
 
@@ -355,7 +357,9 @@ to prevent any further occurrences of this pattern. The 1.2.0 violation is
 acknowledged in `CHANGELOG.md` and not silently rewritten.
 
 The project remains on the 1.x line; the violation is treated as one-off rather
-than an excuse to abandon the contract going forward.
+than an excuse to abandon the contract going forward. That still holds for the
+core tier (§2). The withdrawal below is a different case: an announced change of
+the contract for the optional tier, with notice, not an unannounced break.
 
 ### Withdrawn 1.x guarantee for 1.8.0 Compat names
 
@@ -432,6 +436,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`pycubrid.compat` deprecated (#1120)** — MINOR / deprecation. Creating a connection
+  through any Compat factory emits one `FutureWarning` at the caller's line, before any socket
+  work, with the migration guide URL. `FutureWarning` is used under the default in §3 because
+  it is shown by default from imported modules. Importing these modules and using `pycubrid` or
+  `pycubrid.aio` do not warn. Behavior is otherwise unchanged and no public name is removed.
+  An application with warnings as errors sees a raised `FutureWarning` until it migrates or
+  filters that message. The first PyPI upload of a release containing this entry starts the
+  §3 notice period, unless the guide link or the warning proves defective.
 - **Deprecation-based retirement policy (#1124)** — policy change; no runtime
   change and no release on its own. Adds the core and optional stability tiers
   (§2), the optional-tier retirement process with a published warning release and

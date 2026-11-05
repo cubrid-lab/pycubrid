@@ -55,6 +55,7 @@ nav:
       - Connection Options (Connection Guide): CONNECTION.md
       - Passing Values Safely (Parameter Binding): PARAMETER_BINDING.md
       - Type Mapping: TYPES.md
+      - Migrating off pycubrid.compat: COMPAT_MIGRATION.md
       - Support Matrix: SUPPORT_MATRIX.md
       - "Advanced: CAS Architecture and Protocol": CAS_OVERVIEW.md
   - Help:
@@ -95,6 +96,7 @@ nav:
           - 연결 옵션(연결 가이드): ko/CONNECTION.md
           - 값을 안전하게 전달하기(파라미터 바인딩): ko/PARAMETER_BINDING.md
           - 타입 시스템: ko/TYPES.md
+          - pycubrid.compat에서 벗어나기: ko/COMPAT_MIGRATION.md
           - 지원 매트릭스: ko/SUPPORT_MATRIX.md
           - "심화: CAS 아키텍처와 프로토콜": ko/CAS_OVERVIEW.md
       - 도움말:
