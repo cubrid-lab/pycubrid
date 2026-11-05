@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **The 1.x guarantee for 1.8.0 `pycubrid.compat` names is withdrawn (#1124).** The
+  1.9.0 Upgrade note and the release policy promised that these names would stay
+  supported for the rest of 1.x. That promise no longer holds, and this is a
+  deliberate reversal, not a clarification: those names were not provisional. They
+  remain supported until they are retired through the new process. Nothing changes
+  at runtime in this release, no warning is added yet, and no removal version or
+  date is set.
+- **`pycubrid.compat` can now be retired in a MINOR release (#1124).** A later 1.x
+  MINOR release may remove these namespaces, after an earlier published MINOR release
+  with a visible warning and a migration guide, and at least 28 calendar days of
+  notice from its PyPI upload. `pycubrid>=1.8.0,<2.0` and similar ranges can install
+  such a release automatically; pin below the removal version if you still use these
+  namespaces when it is announced. `pycubrid` and `pycubrid.aio` keep the MAJOR-only
+  rule for breaking changes, PATCH releases stay compatible, and `pycubrid.compat`
+  now receives bug and security fixes only. See the
+  [release policy](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
+
 ## [1.16.0] - 2026-11-05
 
 ### Added

@@ -25,7 +25,7 @@
 
 ---
 
-> **상태: Stable (1.x).** 공개 API는 [시맨틱 버저닝](../RELEASE_POLICY.md)을 따릅니다. opt-in `pycubrid.compat` 네임스페이스에서 1.9.0 이후 처음 릴리스된 이름은 잠정(provisional) 상태입니다. 전체 계약은 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)를 참고하세요.
+> **상태: Stable (1.x).** `pycubrid`와 `pycubrid.aio`는 [시맨틱 버저닝](../RELEASE_POLICY.md)을 따릅니다. opt-in `pycubrid.compat` 네임스페이스는 선택(optional) 등급입니다. 1.9.0 이후 처음 릴리스된 이름은 잠정(provisional) 상태이며, deprecated된 이름은 사전 고지 후 MINOR 릴리스에서 제거될 수 있습니다. 전체 계약은 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)를 참고하세요.
 
 ## 여기서 시작하세요
 
