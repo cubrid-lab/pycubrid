@@ -711,7 +711,7 @@ Available parameters (`CCIDbParam`):
 | Code | Name               | Description |
 |------|--------------------|-------------|
 | 1    | `ISOLATION_LEVEL`  | Transaction isolation level |
-| 2    | `LOCK_TIMEOUT`     | Lock wait timeout |
+| 2    | `LOCK_TIMEOUT`     | Lock wait timeout in milliseconds; `-1` waits forever |
 | 3    | `MAX_STRING_LENGTH`| Maximum string length |
 | 4    | `AUTO_COMMIT`      | Auto-commit mode (0/1) |
 

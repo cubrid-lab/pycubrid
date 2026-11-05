@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`get_isolation_level()` and `get_lock_timeout()` read the effective settings (#1129)** — on
+  `Connection` and `AsyncConnection` (`await` them). Each call asks the server for the current
+  physical session's value, so a level or timeout set with `SET TRANSACTION` can now be
+  confirmed without Compat. The transaction stays open. The lock timeout is in milliseconds
+  (`-1` waits forever), although `SET TRANSACTION LOCK TIMEOUT` takes seconds. After the driver
+  replaces a session, the calls report the new session's values, and settings made with SQL
+  are not restored. Checked live on CUBRID 10.2, 11.0, 11.2 and 11.4.
+
 ### Tests
 
 - **Core DB-API semantics are covered without Compat (#1123)** — new ordinary sync and async

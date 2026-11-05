@@ -1049,6 +1049,40 @@ print(conn.get_server_version())  # "11.2.0.0378"
 
 ---
 
+#### `get_isolation_level()`
+
+```python
+def get_isolation_level(self) -> int
+```
+
+현재 물리 세션의 실제 격리 수준을 반환합니다. 값은 `4`(READ COMMITTED), `5`(REPEATABLE READ),
+`6`(SERIALIZABLE)이며 `CUBRIDIsolationLevel`의 값과 같습니다. 호출할 때마다
+`GET_DB_PARAMETER`(FC=4)로 서버에서 읽으므로 `SET TRANSACTION ISOLATION LEVEL`로 설정한
+수준도 확인할 수 있고, 열려 있는 트랜잭션은 그대로 유지됩니다. 트랜잭션 밖에서는 다른 요청과
+마찬가지로 `CHECK_CAS`를 먼저 보냅니다.
+
+드라이버가 세션을 교체했다면 새 세션의 수준을 반환합니다. SQL로 설정한 값은 복원되지 않으므로,
+수준이 서버 기본값으로 돌아왔다면 설정이 사라진 것입니다.
+
+```python
+cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+print(conn.get_isolation_level())  # 5
+```
+
+---
+
+#### `get_lock_timeout()`
+
+```python
+def get_lock_timeout(self) -> int
+```
+
+현재 물리 세션의 실제 잠금 타임아웃을 **밀리초** 단위로 반환합니다. `-1`은 무한 대기, `0`은
+대기하지 않음을 뜻합니다. `SET TRANSACTION LOCK TIMEOUT`은 초 단위이므로 `5`로 설정하면
+`5000`으로 읽힙니다. 그 밖의 동작은 `get_isolation_level()`과 같습니다.
+
+---
+
 #### `get_last_insert_id()`
 
 ```python
@@ -1931,6 +1965,8 @@ with conn.cursor() as cur:
 | `close()` | `async def close(self) -> None` | 연결과 추적 중인 커서 종료 |
 | `ping()` | `async def ping(self, reconnect: bool = True) -> bool` | 네이티브 `CHECK_CAS` 헬스 체크 (선택적 재연결) |
 | `get_server_version()` | `async def get_server_version(self) -> str` | 엔진 버전 조회 |
+| `get_isolation_level()` | `async def get_isolation_level(self) -> int` | 현재 세션의 실제 격리 수준 |
+| `get_lock_timeout()` | `async def get_lock_timeout(self) -> int` | 실제 잠금 타임아웃(밀리초), `-1`은 무한 대기 |
 | `get_last_insert_id()` | `async def get_last_insert_id(self) -> str \| None` | 캐시된 브로커 식별자 문자열 또는 `None` 반환 |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | 파싱된 패킷 객체 반환 |
 | `fetch_schema_info()` | `async def fetch_schema_info(packet) -> list[tuple[Any, ...]]` | 전체 행을 읽고 원래 핸들 정리 |

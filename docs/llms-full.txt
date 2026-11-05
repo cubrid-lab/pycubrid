@@ -1195,7 +1195,8 @@ through SQL: session variables, `SET TRANSACTION ISOLATION LEVEL`, lock timeouts
 and other server session state belong to the lost CAS session and are not
 carried over. Layers that apply such settings with SQL must keep re-applying
 them on a new physical session (for example sqlalchemy-cubrid's isolation-level
-re-apply, sqlalchemy-cubrid#527).
+re-apply, sqlalchemy-cubrid#527). `get_isolation_level()` and `get_lock_timeout()` read
+the current session, so they show whether a setting is still in effect.
 
 `commit()` and `rollback()` first verify an out-of-transaction CAS, then send
 `CLOSE_REQ` for every query handle still held by an unclosed cursor before
@@ -1260,6 +1261,8 @@ the failure.
 | `rollback()`                        | `None`        | Roll back the current transaction                |
 | `close()`                           | `None`        | Close the connection and free resources           |
 | `get_server_version()`              | `str`         | Return the CUBRID server version string          |
+| `get_isolation_level()`             | `int`         | Read the session's effective isolation level     |
+| `get_lock_timeout()`                | `int`         | Read the session's lock timeout in milliseconds  |
 | `get_last_insert_id()`              | `str \| None` | Return the cached broker identity, or `None`   |
 | `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | Query schema metadata from the server |
@@ -2743,6 +2746,40 @@ print(conn.get_server_version())  # "11.2.0.0378"
 
 ---
 
+#### `get_isolation_level()`
+
+```python
+def get_isolation_level(self) -> int
+```
+
+Return the effective isolation level of the current physical session: `4` (READ
+COMMITTED), `5` (REPEATABLE READ) or `6` (SERIALIZABLE), the values of
+`CUBRIDIsolationLevel`. Each call reads the server with `GET_DB_PARAMETER` (FC=4), so it
+sees a level set with `SET TRANSACTION ISOLATION LEVEL`, and it leaves an open transaction
+as it is. Out of transaction it sends `CHECK_CAS` first, as any request does.
+
+If the driver replaced the session, this reports the new session's level. Settings made
+with SQL are not restored, so a level back at the server default shows the setting was lost.
+
+```python
+cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+print(conn.get_isolation_level())  # 5
+```
+
+---
+
+#### `get_lock_timeout()`
+
+```python
+def get_lock_timeout(self) -> int
+```
+
+Return the effective lock timeout of the current physical session in **milliseconds**:
+`-1` waits forever and `0` does not wait. `SET TRANSACTION LOCK TIMEOUT` takes seconds, so
+setting `5` reads back as `5000`. The call otherwise behaves like `get_isolation_level()`.
+
+---
+
 #### `get_last_insert_id()`
 
 ```python
@@ -3660,6 +3697,8 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 | `close()` | `async def close(self) -> None` | Close connection and tracked cursors |
 | `ping()` | `async def ping(self, reconnect: bool = True) -> bool` | Native `CHECK_CAS` health check with optional reconnect |
 | `get_server_version()` | `async def get_server_version(self) -> str` | Fetch engine version |
+| `get_isolation_level()` | `async def get_isolation_level(self) -> int` | Effective isolation level of the current session |
+| `get_lock_timeout()` | `async def get_lock_timeout(self) -> int` | Effective lock timeout in milliseconds; `-1` waits forever |
 | `get_last_insert_id()` | `async def get_last_insert_id(self) -> str \| None` | Cached broker identity as a string, or `None` |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | Returns the parsed packet object |
 | `fetch_schema_info()` | `async def fetch_schema_info(packet) -> list[tuple[Any, ...]]` | Eager rows, then original-handle cleanup |
@@ -6565,7 +6604,7 @@ Available parameters (`CCIDbParam`):
 | Code | Name               | Description |
 |------|--------------------|-------------|
 | 1    | `ISOLATION_LEVEL`  | Transaction isolation level |
-| 2    | `LOCK_TIMEOUT`     | Lock wait timeout |
+| 2    | `LOCK_TIMEOUT`     | Lock wait timeout in milliseconds; `-1` waits forever |
 | 3    | `MAX_STRING_LENGTH`| Maximum string length |
 | 4    | `AUTO_COMMIT`      | Auto-commit mode (0/1) |
 
@@ -9971,6 +10010,7 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 | `autocommit` property | ✅ | 1.0.0 | Get/set on `Connection` |
 | `Connection.ping()` | ✅ | 1.2.0 (#70) | Native CHECK_CAS health check, no SQL needed |
 | `get_server_version()` | ✅ | 1.0.0 | Returns version string (e.g. `"11.2.0.0378"`) |
+| `get_isolation_level()`, `get_lock_timeout()` | ✅ | 1.18.0 (#1129) | Sync and async reads of the current session's effective values; lock timeout in milliseconds. Verified on 10.2, 11.0, 11.2 and 11.4 |
 | `get_last_insert_id()` | ✅ | 1.0.0 | After AUTO_INCREMENT INSERT |
 | Schema getter | ✅ | 1.0.0 | Raw `GetSchemaPacket`; original positional arguments retained |
 | Owned schema rows | ✅ | 1.8.0 (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only `arg2=None`; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |
@@ -12267,7 +12307,7 @@ There is no DSN string. `autocommit=True` keeps the Compat default. Drop it for
 manual mode. Compat rejects HA and TLS URL options. The ordinary connection
 accepts `ssl`, timeouts and `fetch_size` (see [Connection Options](CONNECTION.md)).
 The native connection read three server parameters at connect. The ordinary one
-does not, so `lock_timeout`, `max_string_len` and `isolation_level` are gone
+does not, so the `lock_timeout`, `max_string_len` and `isolation_level` attributes are gone
 (see "Isolation level and lock timeout").
 
 ### `cubriddb.Connection.connection`
@@ -12326,21 +12366,23 @@ Covers `set_isolation_level`, `isolation_level`, `lock_timeout` and
 ```python
 # before
 n.set_isolation_level(5); n.isolation_level; n.lock_timeout; n.max_string_len
-# after: write only
+# after
 cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
 cur.execute("SET TRANSACTION LOCK TIMEOUT 5")
+conn.get_isolation_level()                # 5
+conn.get_lock_timeout()                   # 5000: milliseconds, as native reported
 ```
 
-Setting works. Reading back does not: there is no equivalent API. Run live,
-`GET TRANSACTION ISOLATION LEVEL` and `GET TRANSACTION LOCK TIMEOUT` raised
-`InterfaceError: No result set available` on fetch. The `TO iso` forms were
-accepted, but `SELECT @iso` raised error -1070. There is also no equivalent for
-`max_string_len`.
+`get_isolation_level()` and `get_lock_timeout()` need pycubrid 1.18.0 or later, and in
+`pycubrid.aio` you `await` them. They read the server on each call, where native
+attributes were cached snapshots. Native reported level 4 as text
+`"CUBRID_TRAN_UNKNOWN_ISOLATION"` and the method returns the number `4`. There is no
+equivalent for `max_string_len`.
 
 Settings made with SQL are lost when the driver replaces the session. Reapply
 them (see [Connection Options](CONNECTION.md)). Native applied its setting
-"without committing". Whether `SET TRANSACTION` commits an open transaction is
-not verified, and neither was the effect read back.
+"without committing". `SET TRANSACTION` does not commit either: an open transaction
+stays open and can still roll back.
 
 ### Versions and ping
 
@@ -12589,7 +12631,6 @@ listed.
 | Compat feature | Ordinary status | What to do |
 | --- | --- | --- |
 | `cubriddb.Connection.connection` | No equivalent, not needed | Use the one connection object |
-| Read the effective isolation level or lock timeout | No equivalent API | Set with SQL. No verified way to read back |
 | `max_string_len` | No equivalent | None |
 | `set_fetch_value_converter` | No equivalent API | Convert rows at the call site |
 | `set_type` argument of wrapper `execute` | No equivalent | The literal's element types apply |
@@ -12623,8 +12664,10 @@ run for this guide.
 
 - The "run live" results were observed once on CUBRID 11.4.6 with Python 3.12.
   Versions 10.2, 11.0 and 11.2 were not verified.
-- Not verified: whether `SET TRANSACTION` commits, a way to read the effective
-  isolation level, lock timeout or `max_string_len`, the failure behavior of
+- `get_isolation_level()` and `get_lock_timeout()` were checked live on 10.2, 11.0,
+  11.2 and 11.4.
+- That `SET TRANSACTION` does not commit was also checked live on those four versions.
+- Not verified: a way to read `max_string_len`, the failure behavior of
   plain `executemany` compared with the wrapper, and the `LIMIT ?, ?` form.
 - Private use of Compat cannot be counted, so the project cannot say that nobody
   depends on it.

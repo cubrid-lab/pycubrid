@@ -490,7 +490,8 @@ through SQL: session variables, `SET TRANSACTION ISOLATION LEVEL`, lock timeouts
 and other server session state belong to the lost CAS session and are not
 carried over. Layers that apply such settings with SQL must keep re-applying
 them on a new physical session (for example sqlalchemy-cubrid's isolation-level
-re-apply, sqlalchemy-cubrid#527).
+re-apply, sqlalchemy-cubrid#527). `get_isolation_level()` and `get_lock_timeout()` read
+the current session, so they show whether a setting is still in effect.
 
 `commit()` and `rollback()` first verify an out-of-transaction CAS, then send
 `CLOSE_REQ` for every query handle still held by an unclosed cursor before
@@ -555,6 +556,8 @@ the failure.
 | `rollback()`                        | `None`        | Roll back the current transaction                |
 | `close()`                           | `None`        | Close the connection and free resources           |
 | `get_server_version()`              | `str`         | Return the CUBRID server version string          |
+| `get_isolation_level()`             | `int`         | Read the session's effective isolation level     |
+| `get_lock_timeout()`                | `int`         | Read the session's lock timeout in milliseconds  |
 | `get_last_insert_id()`              | `str \| None` | Return the cached broker identity, or `None`   |
 | `create_lob(lob_type)`              | `Lob`         | Create a new LOB object (CLOB=24, BLOB=23)       |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | Query schema metadata from the server |

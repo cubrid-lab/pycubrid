@@ -39,6 +39,7 @@ from pycubrid.protocol import (
     CommitPacket,
     ExecuteArrayPacket,
     FetchPacket,
+    GetDbParameterPacket,
     GetEngineVersionPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
@@ -652,6 +653,35 @@ class AsyncConnection(ConnectionCommonMixin):
         packet = await self._send_and_receive(GetEngineVersionPacket(auto_commit=self._autocommit))
         version: str = packet.engine_version
         return version
+
+    async def get_isolation_level(self) -> int:
+        """Return the effective isolation level of the current physical session.
+
+        Reads the server on every call (FC=4), including a level set with
+        ``SET TRANSACTION ISOLATION LEVEL``, without changing the transaction.
+        The value is ``4`` (READ COMMITTED), ``5`` (REPEATABLE READ) or ``6``
+        (SERIALIZABLE), matching :class:`~pycubrid.constants.CUBRIDIsolationLevel`.
+        If the driver replaced the session, this is the new session's level:
+        settings made with SQL are not carried over.
+        """
+        self._ensure_connected()
+        packet = await self._send_and_receive(GetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL))
+        level: int = packet.value
+        return level
+
+    async def get_lock_timeout(self) -> int:
+        """Return the effective lock timeout of the current session, in milliseconds.
+
+        Reads the server on every call (FC=4) without changing the transaction.
+        ``-1`` means wait forever and ``0`` means do not wait. Note that
+        ``SET TRANSACTION LOCK TIMEOUT`` takes seconds. If the driver replaced
+        the session, this is the new session's timeout: settings made with SQL
+        are not carried over.
+        """
+        self._ensure_connected()
+        packet = await self._send_and_receive(GetDbParameterPacket(CCIDbParam.LOCK_TIMEOUT))
+        timeout: int = packet.value
+        return timeout
 
     async def get_last_insert_id(self) -> str | None:
         """Return the cached broker-reported auto-increment id as a string.

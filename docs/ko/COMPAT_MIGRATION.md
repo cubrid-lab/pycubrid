@@ -101,7 +101,7 @@ DSN 문자열은 없습니다. `autocommit=True`는 Compat의 기본값을 유�
 모드를 쓰려면 빼세요. Compat은 HA와 TLS URL 옵션을 거부합니다. 일반 연결은
 `ssl`, 타임아웃, `fetch_size`를 받습니다([연결 옵션](CONNECTION.md) 참고). 네이티브
 연결은 연결 시점에 서버 파라미터 세 개를 읽었지만 일반 연결은 읽지 않으므로,
-`lock_timeout`, `max_string_len`, `isolation_level`은 사라집니다("격리 수준과 락 타임아웃" 참고).
+`lock_timeout`, `max_string_len`, `isolation_level` 속성은 사라집니다("격리 수준과 락 타임아웃" 참고).
 
 ### `cubriddb.Connection.connection`
 
@@ -159,21 +159,23 @@ conn.autocommit = False; conn.autocommit
 ```python
 # before
 n.set_isolation_level(5); n.isolation_level; n.lock_timeout; n.max_string_len
-# after: write only
+# after
 cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
 cur.execute("SET TRANSACTION LOCK TIMEOUT 5")
+conn.get_isolation_level()                # 5
+conn.get_lock_timeout()                   # 5000: 네이티브와 같은 밀리초
 ```
 
-설정은 됩니다. 되읽기는 안 됩니다. 대체 API가 없습니다. 실제 실행에서
-`GET TRANSACTION ISOLATION LEVEL`과 `GET TRANSACTION LOCK TIMEOUT`은 fetch 시
-`InterfaceError: No result set available`을 발생시켰습니다. `TO iso` 형식은
-받아들여졌지만 `SELECT @iso`는 오류 -1070을 냈습니다. `max_string_len`에도 대체
-수단이 없습니다.
+`get_isolation_level()`과 `get_lock_timeout()`은 pycubrid 1.18.0 이상이 필요하며
+`pycubrid.aio`에서는 `await`로 호출합니다. 네이티브 속성은 캐시된 스냅숏이었지만 이
+메서드는 호출할 때마다 서버에서 읽습니다. 네이티브는 수준 4를 문자열
+`"CUBRID_TRAN_UNKNOWN_ISOLATION"`으로 보고했지만 이 메서드는 숫자 `4`를 반환합니다.
+`max_string_len`에는 대체 수단이 없습니다.
 
 SQL로 지정한 설정은 드라이버가 세션을 교체하면 사라집니다. 다시 적용하세요([연결
 옵션](CONNECTION.md) 참고). 네이티브는 설정을 "커밋하지 않고" 적용했습니다.
-`SET TRANSACTION`이 열린 트랜잭션을 커밋하는지는 확인하지 않았고, 효과를 되읽어
-확인하지도 않았습니다.
+`SET TRANSACTION`도 커밋하지 않습니다. 열린 트랜잭션은 그대로 유지되며 롤백할 수
+있습니다.
 
 ### 버전과 ping
 
@@ -421,7 +423,6 @@ with open("out.bin", "wb") as fh:
 | Compat 기능 | 일반 API 상태 | 할 일 |
 | --- | --- | --- |
 | `cubriddb.Connection.connection` | 대체 API 없음, 필요 없음 | 하나뿐인 연결 객체를 사용 |
-| 실효 격리 수준이나 락 타임아웃 읽기 | 대체 API 없음 | SQL로 설정. 되읽는 검증된 방법 없음 |
 | `max_string_len` | 대체 수단 없음 | 없음 |
 | `set_fetch_value_converter` | 대체 API 없음 | 호출하는 쪽에서 행을 변환 |
 | 래퍼 `execute`의 `set_type` 인자 | 대체 수단 없음 | 리터럴의 요소 타입이 적용됨 |
@@ -456,8 +457,9 @@ cur.execute("SELECT id FROM t ORDER BY id LIMIT ?, ?", (offset, size))
 
 - "실제 실행" 결과는 CUBRID 11.4.6과 Python 3.12에서 한 번 관찰한 것입니다. 10.2,
   11.0, 11.2는 확인하지 않았습니다.
-- 확인하지 않은 것: `SET TRANSACTION`이 커밋하는지 여부, 실효 격리 수준, 락
-  타임아웃, `max_string_len`을 읽는 방법, 일반 `executemany`와 래퍼의 실패 동작
+- `get_isolation_level()`과 `get_lock_timeout()`, 그리고 `SET TRANSACTION`이 커밋하지
+  않는다는 점은 10.2, 11.0, 11.2, 11.4에서 실제로 확인했습니다.
+- 확인하지 않은 것: `max_string_len`을 읽는 방법, 일반 `executemany`와 래퍼의 실패 동작
   비교, `LIMIT ?, ?` 형식.
 - Compat의 비공개 사용은 셀 수 없으므로, 아무도 의존하지 않는다고 프로젝트가 말할
   수는 없습니다.

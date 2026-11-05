@@ -121,6 +121,7 @@ pycubrid는 모든 버전을 같은 방식으로 디코딩합니다. 아래 차�
 | `autocommit` 속성 | ✅ | 1.0.0 | `Connection`에서 조회/설정 |
 | `Connection.ping()` | ✅ | 1.2.0 (#70) | 네이티브 CHECK_CAS 헬스 체크, SQL 불필요 |
 | `get_server_version()` | ✅ | 1.0.0 | 버전 문자열 반환 (예: `"11.2.0.0378"`) |
+| `get_isolation_level()`, `get_lock_timeout()` | ✅ | 1.18.0 (#1129) | 현재 세션의 실제 값을 동기/비동기로 조회, 잠금 타임아웃은 밀리초. 10.2, 11.0, 11.2, 11.4에서 검증 |
 | `get_last_insert_id()` | ✅ | 1.0.0 | AUTO_INCREMENT INSERT 이후 |
 | 스키마 getter | ✅ | 1.0.0 | 원시 `GetSchemaPacket`; 기존 위치 인자 유지 |
 | 소유권이 있는 스키마 행 | ✅ | 1.8.0 (#456) | 동기/비동기 `fetch_schema_info()` / `close_schema_info()`, 키워드 전용 `arg2=None`; #457 실서버 행렬은 10.2/11.4에서 CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를 검증하며 네이티브 동등성이나 다른 스키마 코드는 인증하지 않음 |

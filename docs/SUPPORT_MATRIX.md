@@ -124,6 +124,7 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 | `autocommit` property | ✅ | 1.0.0 | Get/set on `Connection` |
 | `Connection.ping()` | ✅ | 1.2.0 (#70) | Native CHECK_CAS health check, no SQL needed |
 | `get_server_version()` | ✅ | 1.0.0 | Returns version string (e.g. `"11.2.0.0378"`) |
+| `get_isolation_level()`, `get_lock_timeout()` | ✅ | 1.18.0 (#1129) | Sync and async reads of the current session's effective values; lock timeout in milliseconds. Verified on 10.2, 11.0, 11.2 and 11.4 |
 | `get_last_insert_id()` | ✅ | 1.0.0 | After AUTO_INCREMENT INSERT |
 | Schema getter | ✅ | 1.0.0 | Raw `GetSchemaPacket`; original positional arguments retained |
 | Owned schema rows | ✅ | 1.8.0 (#456) | Sync/async `fetch_schema_info()` / `close_schema_info()`, keyword-only `arg2=None`; #457 live matrix covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS on 10.2/11.4, not native parity or other schema codes |

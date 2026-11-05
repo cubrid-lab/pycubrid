@@ -417,7 +417,7 @@ conn.autocommit = True
 - 검사가 실패하면 **해당 요청에 대해 한 번만** 연결을 교체합니다. 고정하지 않은 이스케이프 모드를 다시 감지하고 명시적으로 설정한 `autocommit`을 복원한 뒤, 요청을 새 세션에서 처음으로 보냅니다. SQL은 재실행하지 않으며, CAS가 열린 트랜잭션이 없다고 보고했으므로 커밋되지 않은 작업을 잃지 않습니다. 잃어버린 세션에 의존하는 요청은 새 세션으로 보내지 않습니다. 그 세션 핸들에 대한 `CLOSE_REQ`는 건너뛰고, 아직 읽지 않은 행에 대한 FETCH, last-insert-id 조회, 그 세션에서 얻은 LOB의 읽기/쓰기는 `OperationalError`를 발생시키며, `pycubrid.compat.native` prepared 문은 이전 세션 소속으로 거부됩니다. autocommit INSERT 직후 CAS가 재활용되면 INSERT는 커밋되지만 `lastrowid`는 `None`이 되고 WARNING 로그가 남습니다. 교체 설정 자체도 트랜잭션 밖에서 끝나므로 요청 전에 `CHECK_CAS`로 한 번 더 확인합니다. 커서는 파라미터를 렌더링하기 *전에* 이 검사를 수행하므로 파라미터 SQL은 실제로 전송될 세션 기준으로 바인딩됩니다. 이미 렌더링된 뒤 세션이 교체된 SQL은 보내지 않고 재시도 가능한 `OperationalError`("... parameter binding; retry operation")로 실패시키며, 새 세션은 재시도를 위해 열린 채로 둡니다.
 - 교체에 실패하면 `OperationalError`를 발생시키고 연결을 닫지 않은 채 끊긴 상태로 둡니다. `ping(reconnect=True)`로 다시 연결하거나 새 연결을 여세요.
 
-복원하는 것은 드라이버가 소유한 상태뿐입니다. 실제 재접속은 SQL로 설정한 세션 상태를 초기화합니다. 세션 변수, `SET TRANSACTION ISOLATION LEVEL`, 잠금 타임아웃 등 서버 세션 상태는 잃어버린 CAS 세션에 속하므로 이어지지 않습니다. 이런 설정을 SQL로 적용하는 계층은 새 물리 세션마다 계속 다시 적용해야 합니다(예: sqlalchemy-cubrid의 격리 수준 재적용, sqlalchemy-cubrid#527).
+복원하는 것은 드라이버가 소유한 상태뿐입니다. 실제 재접속은 SQL로 설정한 세션 상태를 초기화합니다. 세션 변수, `SET TRANSACTION ISOLATION LEVEL`, 잠금 타임아웃 등 서버 세션 상태는 잃어버린 CAS 세션에 속하므로 이어지지 않습니다. 이런 설정을 SQL로 적용하는 계층은 새 물리 세션마다 계속 다시 적용해야 합니다(예: sqlalchemy-cubrid의 격리 수준 재적용, sqlalchemy-cubrid#527). `get_isolation_level()`과 `get_lock_timeout()`은 현재 세션을 읽으므로 설정이 아직 유효한지 확인할 수 있습니다.
 
 `commit()`과 `rollback()`은 먼저 트랜잭션 밖 CAS를 확인한 뒤 `END_TRAN` 전에 닫히지 않은 커서가 가진 모든 쿼리 핸들에 `CLOSE_REQ`를 보내므로, 오래 유지되는 세션에 서버 핸들이 쌓이지 않습니다. 이미 받은 행은 계속 읽을 수 있고, 끝나지 않은 결과는 다음 FETCH가 필요할 때 여전히 `InterfaceError`를 발생시킵니다. autocommit 모드에서는 `END_TRAN`을 보내지 않으므로 닫히지 않은 커서의 서버 핸들은 `commit()`, `rollback()` 또는 `close()`까지 계속 쌓입니다. 커서를 닫거나 컨텍스트 매니저로 사용하세요.
 닫혔거나 수집된 커서의 대기 중인 핸들은 같은 세션의 `CLOSE_REQ`를 실제로
@@ -460,6 +460,8 @@ pycubrid는 전송 실패 후 임의의 SQL 요청을 자동 재실행하지 않
 | `rollback()`                        | `None`        | 현재 트랜잭션 롤백                              |
 | `close()`                           | `None`        | 연결 종료 및 리소스 해제                          |
 | `get_server_version()`              | `str`         | CUBRID 서버 버전 문자열 반환                      |
+| `get_isolation_level()`             | `int`         | 세션의 실제 격리 수준 조회                         |
+| `get_lock_timeout()`                | `int`         | 세션의 잠금 타임아웃을 밀리초로 조회               |
 | `get_last_insert_id()`              | `str \| None` | 캐시된 브로커 식별자 또는 `None` 반환              |
 | `create_lob(lob_type)`              | `Lob`         | 새 LOB 객체 생성 (CLOB=24, BLOB=23)              |
 | `get_schema_info(schema_type, ...)` | `GetSchemaPacket` | 서버에서 스키마 메타데이터 조회            |

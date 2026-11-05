@@ -1100,6 +1100,40 @@ print(conn.get_server_version())  # "11.2.0.0378"
 
 ---
 
+#### `get_isolation_level()`
+
+```python
+def get_isolation_level(self) -> int
+```
+
+Return the effective isolation level of the current physical session: `4` (READ
+COMMITTED), `5` (REPEATABLE READ) or `6` (SERIALIZABLE), the values of
+`CUBRIDIsolationLevel`. Each call reads the server with `GET_DB_PARAMETER` (FC=4), so it
+sees a level set with `SET TRANSACTION ISOLATION LEVEL`, and it leaves an open transaction
+as it is. Out of transaction it sends `CHECK_CAS` first, as any request does.
+
+If the driver replaced the session, this reports the new session's level. Settings made
+with SQL are not restored, so a level back at the server default shows the setting was lost.
+
+```python
+cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+print(conn.get_isolation_level())  # 5
+```
+
+---
+
+#### `get_lock_timeout()`
+
+```python
+def get_lock_timeout(self) -> int
+```
+
+Return the effective lock timeout of the current physical session in **milliseconds**:
+`-1` waits forever and `0` does not wait. `SET TRANSACTION LOCK TIMEOUT` takes seconds, so
+setting `5` reads back as `5000`. The call otherwise behaves like `get_isolation_level()`.
+
+---
+
 #### `get_last_insert_id()`
 
 ```python
@@ -2017,6 +2051,8 @@ Async counterpart to `Connection` for use with `asyncio`, with a similar surface
 | `close()` | `async def close(self) -> None` | Close connection and tracked cursors |
 | `ping()` | `async def ping(self, reconnect: bool = True) -> bool` | Native `CHECK_CAS` health check with optional reconnect |
 | `get_server_version()` | `async def get_server_version(self) -> str` | Fetch engine version |
+| `get_isolation_level()` | `async def get_isolation_level(self) -> int` | Effective isolation level of the current session |
+| `get_lock_timeout()` | `async def get_lock_timeout(self) -> int` | Effective lock timeout in milliseconds; `-1` waits forever |
 | `get_last_insert_id()` | `async def get_last_insert_id(self) -> str \| None` | Cached broker identity as a string, or `None` |
 | `get_schema_info()` | `async def get_schema_info(...) -> GetSchemaPacket` | Returns the parsed packet object |
 | `fetch_schema_info()` | `async def fetch_schema_info(packet) -> list[tuple[Any, ...]]` | Eager rows, then original-handle cleanup |
