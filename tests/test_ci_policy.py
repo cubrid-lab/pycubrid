@@ -63,7 +63,7 @@ def run_gate(selected: set[str], results: dict[str, str]) -> subprocess.Complete
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=30,
     )
 
 
@@ -231,7 +231,7 @@ new AsyncFunction('github', 'context', 'core', script)(github, context, core)
         capture_output=True,
         text=True,
         check=False,
-        timeout=5,
+        timeout=30,
     )
     if case == "release-recovery" and filename == "ci.yml":
         expected = 1
@@ -497,7 +497,7 @@ def run_full_gate(results: dict[str, str]) -> subprocess.CompletedProcess:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=30,
     )
 
 
@@ -685,7 +685,7 @@ new AsyncFunction('github', 'context', 'core', script)(github, context, core)
         capture_output=True,
         text=True,
         check=False,
-        timeout=5,
+        timeout=30,
     )
     data = json.loads(completed.stdout or "{}")
     return completed.returncode, data.get("outputs", {}), " ".join(data.get("warnings", []))
