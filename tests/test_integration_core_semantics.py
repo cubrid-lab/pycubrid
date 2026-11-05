@@ -172,6 +172,7 @@ async def test_abandoned_cursor_does_not_commit_manual_dml(connect: Connect) -> 
         await _call(cursor.execute(f"INSERT INTO {table} VALUES (?)", (1,)))
         del cursor
         gc.collect()
+        assert await _run(actor, select) == [(1,)]
         assert await _run(observer, select) == []
         await _call(actor.rollback())
         assert await _run(observer, select) == []

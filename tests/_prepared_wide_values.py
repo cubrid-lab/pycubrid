@@ -8,7 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 _NEW_YORK = ZoneInfo("America/New_York")
-_COLUMNS = (
+COLUMNS = (
     ("b", "INTEGER"),
     ("bi", "BIGINT"),
     ("big", "NUMERIC(38,0)"),
@@ -22,7 +22,7 @@ _COLUMNS = (
     ("vb", "BIT VARYING(64)"),
 )
 # One row per case; every column is bound in each row.
-_ROWS: tuple[tuple[Any, ...], ...] = (
+ROWS: tuple[tuple[Any, ...], ...] = (
     (
         True,
         2**63 - 1,

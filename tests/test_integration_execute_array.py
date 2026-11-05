@@ -30,7 +30,7 @@ from pycubrid.exceptions import (
 from pycubrid.types import Multiset, Sequence, Set
 
 from ._parity_helpers import connect_kwargs, table_name
-from ._prepared_wide_values import _COLUMNS, _ROWS
+from ._prepared_wide_values import COLUMNS, ROWS
 
 pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
@@ -70,23 +70,23 @@ def _ids(admin: Connection, table: str) -> list[int]:
 
 def test_wide_types_store_the_same_values_as_the_literal_batch(admin: Connection) -> None:
     name = table_name("p839w")
-    columns = ", ".join(f"{column} {sql_type}" for column, sql_type in _COLUMNS)
-    names = ", ".join(column for column, _sql_type in _COLUMNS)
-    markers = ", ".join("?" * (len(_COLUMNS) + 2))
+    columns = ", ".join(f"{column} {sql_type}" for column, sql_type in COLUMNS)
+    names = ", ".join(column for column, _sql_type in COLUMNS)
+    markers = ", ".join("?" * (len(COLUMNS) + 2))
     sql = f"INSERT INTO {name} VALUES ({markers})"
     with admin.cursor() as cursor:
         cursor.execute(f"CREATE TABLE {name} (id INTEGER, path VARCHAR(8), {columns})")
         try:
-            cursor.executemany(sql, [(i, "literal", *row) for i, row in enumerate(_ROWS)])
+            cursor.executemany(sql, [(i, "literal", *row) for i, row in enumerate(ROWS)])
             cursor.executemany(
-                sql, [(i, "prepared", *row) for i, row in enumerate(_ROWS)], prepared=True
+                sql, [(i, "prepared", *row) for i, row in enumerate(ROWS)], prepared=True
             )
-            assert cursor.rowcount == len(_ROWS)
+            assert cursor.rowcount == len(ROWS)
             select = f"SELECT id, {names} FROM {name} WHERE path = '%s' ORDER BY id"
             literal = _rows(admin, select % "literal")
             prepared = _rows(admin, select % "prepared")
             assert prepared == literal
-            assert len(literal) == len(_ROWS)
+            assert len(literal) == len(ROWS)
             # Spot-check the values themselves, not only the parity.
             first = prepared[0]
             assert first[1:4] == (1, 2**63 - 1, Decimal(10**38 - 1))
