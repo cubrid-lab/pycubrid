@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 from collections.abc import Generator
 from decimal import Decimal
 from typing import Any
@@ -29,7 +30,7 @@ from pycubrid.exceptions import (
 from pycubrid.types import Multiset, Sequence, Set
 
 from ._parity_helpers import connect_kwargs, table_name
-from .test_integration_prepared_wide_types import _COLUMNS, _ROWS
+from ._prepared_wide_values import COLUMNS, ROWS
 
 pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
@@ -69,22 +70,32 @@ def _ids(admin: Connection, table: str) -> list[int]:
 
 def test_wide_types_store_the_same_values_as_the_literal_batch(admin: Connection) -> None:
     name = table_name("p839w")
-    columns = ", ".join(f"{column} {sql_type}" for column, sql_type in _COLUMNS)
-    names = ", ".join(column for column, _sql_type in _COLUMNS)
-    markers = ", ".join("?" * (len(_COLUMNS) + 2))
+    columns = ", ".join(f"{column} {sql_type}" for column, sql_type in COLUMNS)
+    names = ", ".join(column for column, _sql_type in COLUMNS)
+    markers = ", ".join("?" * (len(COLUMNS) + 2))
     sql = f"INSERT INTO {name} VALUES ({markers})"
     with admin.cursor() as cursor:
         cursor.execute(f"CREATE TABLE {name} (id INTEGER, path VARCHAR(8), {columns})")
         try:
-            cursor.executemany(sql, [(i, "literal", *row) for i, row in enumerate(_ROWS)])
+            cursor.executemany(sql, [(i, "literal", *row) for i, row in enumerate(ROWS)])
             cursor.executemany(
-                sql, [(i, "prepared", *row) for i, row in enumerate(_ROWS)], prepared=True
+                sql, [(i, "prepared", *row) for i, row in enumerate(ROWS)], prepared=True
             )
-            assert cursor.rowcount == len(_ROWS)
+            assert cursor.rowcount == len(ROWS)
             select = f"SELECT id, {names} FROM {name} WHERE path = '%s' ORDER BY id"
             literal = _rows(admin, select % "literal")
-            assert _rows(admin, select % "prepared") == literal
-            assert len(literal) == len(_ROWS)
+            prepared = _rows(admin, select % "prepared")
+            assert prepared == literal
+            assert len(literal) == len(ROWS)
+            # Spot-check the values themselves, not only the parity.
+            first = prepared[0]
+            assert first[1:4] == (1, 2**63 - 1, Decimal(10**38 - 1))
+            assert first[6] == Decimal("0." + "1" * 38)
+            assert first[9] == datetime.datetime(2024, 2, 29, 23, 59, 59, 999000)
+            assert first[11] == b"\x00\xff"
+            repeated = prepared[1][10]
+            assert repeated is not None
+            assert repeated.utcoffset() == datetime.timedelta(hours=-5)
         finally:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")
 
@@ -157,6 +168,21 @@ def test_conversion_error_matches_the_literal_batch(
             assert [code for _count, code, _m in cursor._batch_row_results][::2] == [0, 0]
         conn.commit()
     assert _ids(admin, table) == ([1, 3, 11, 13] if autocommit else [11, 13])
+
+
+def test_insert_host_variable_coercion_error_keeps_the_session_usable(
+    admin: Connection, table: str
+) -> None:
+    # 2**40 is typed BIGINT; storing it in INT overflows on the server.
+    sql = f"INSERT INTO {table} (id, k) VALUES (?, ?)"
+    with admin.cursor() as cursor:
+        with pytest.raises(ProgrammingError) as raised:
+            cursor.executemany(sql, [(1, 2**40)], prepared=True)
+        assert isinstance(raised.value, DatabaseError)
+        assert raised.value.errno == -494
+        cursor.executemany(sql, [(2, 7)], prepared=True)
+        assert cursor.rowcount == 1
+    assert _rows(admin, f"SELECT id, k FROM {table}") == [(2, 7)]
 
 
 @AUTOCOMMIT

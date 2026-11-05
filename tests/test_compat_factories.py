@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import inspect
 import json
+import socket
 from threading import RLock
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 import pycubrid
 from pycubrid.compat import cubriddb, native
 from pycubrid.constants import CCIDbParam
-from pycubrid.exceptions import InterfaceError, NotSupportedError
+from pycubrid.exceptions import DataError, InterfaceError, NotSupportedError
 from pycubrid.protocol import GetDbParameterPacket
 
+from .test_charset import _chain
 
 DSN = "CUBRID:127.0.0.1:33000:testdb:::"
 
@@ -205,6 +208,37 @@ def test_invalid_charset_type_and_extra_wrapper_args_fail_early(fake_driver: typ
     with pytest.raises(TypeError):
         cubriddb.Connect(DSN, unknown=True)
     assert not fake_driver.created
+
+
+@pytest.mark.parametrize(
+    ("charset", "error"),
+    [("utf-16", ValueError), ("nope", ValueError), (b"utf8", TypeError)],
+)
+def test_wrapper_invalid_charset_fails_before_any_socket_work(
+    charset: Any, error: type[Exception], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_socket(*args: object, **kwargs: object) -> None:
+        raise AssertionError("socket opened before charset validation")
+
+    monkeypatch.setattr(socket, "create_connection", no_socket)
+    with pytest.raises(error):
+        cubriddb.Connection("CUBRID:localhost:33000:testdb:::", charset=charset)
+
+
+def test_unencodable_native_prepare_sql_is_not_kept_in_the_exception_chain() -> None:
+    owner = native.connection.__new__(native.connection)
+    driver = MagicMock()
+    driver._encoding = "euc_kr"
+    driver._connected = True
+    owner._driver = driver
+    owner._closed = False
+    owner._session_lock = RLock()
+    owner._prepared_owners = set()
+    cursor = native.cursor(owner)
+    with pytest.raises(DataError, match="prepared SQL cannot be encoded as euc_kr") as raised:
+        cursor.prepare("SELECT 'sql-secret\U0001f600'")
+    assert "sql-secret" not in _chain(raised.value)
+    driver._send_and_receive.assert_not_called()
 
 
 def test_constructor_failure_closes_acquired_transport_and_keeps_original(

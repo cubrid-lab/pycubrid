@@ -17,69 +17,9 @@ from pycubrid.exceptions import DatabaseError, ProgrammingError
 
 from ._cubrid_endpoint import TEST_DB, TEST_HOST, TEST_PASSWORD, TEST_PORT, TEST_USER
 from ._parity_helpers import connect_kwargs, table_name
+from ._prepared_wide_values import COLUMNS, ROWS
 
 pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
-
-_NEW_YORK = ZoneInfo("America/New_York")
-_COLUMNS = (
-    ("b", "INTEGER"),
-    ("bi", "BIGINT"),
-    ("big", "NUMERIC(38,0)"),
-    ("d", "DOUBLE"),
-    ("n", "NUMERIC(38,10)"),
-    ("frac", "NUMERIC(38,38)"),
-    ("dt", "DATE"),
-    ("tm", "TIME"),
-    ("dtm", "DATETIME"),
-    ("dtz", "DATETIMETZ"),
-    ("vb", "BIT VARYING(64)"),
-)
-# One row per case; every column is bound in each row.
-_ROWS: tuple[tuple[Any, ...], ...] = (
-    (
-        True,
-        2**63 - 1,
-        10**38 - 1,
-        0.1,
-        Decimal("-123.4500000000"),
-        Decimal("0." + "1" * 38),
-        datetime.date(1, 1, 1),
-        datetime.time(0, 0, 0),
-        datetime.datetime(2024, 2, 29, 23, 59, 59, 999999),
-        datetime.datetime(2024, 1, 2, 3, 4, 5, 6000, tzinfo=ZoneInfo("Asia/Seoul")),
-        b"\x00\xff",
-    ),
-    (
-        False,
-        -(2**63),
-        -(2**63) - 1,
-        -1e300,
-        Decimal("0.5"),
-        Decimal("-0.00000000000000000000000000000000000001"),
-        datetime.date(9999, 12, 31),
-        datetime.time(23, 59, 59, 999999),
-        datetime.datetime(1, 1, 1, 0, 0, 0),
-        # The second 01:30 of the repeated hour (EST), not the first (EDT).
-        datetime.datetime(2024, 11, 3, 1, 30, tzinfo=_NEW_YORK, fold=1),
-        b"\x01",
-    ),
-    (
-        True,
-        2**31,
-        2**64,
-        -0.0,
-        Decimal("1E+5"),
-        Decimal("0E-38"),
-        datetime.date(2024, 2, 29),
-        datetime.time(12, 0, 1),
-        datetime.datetime(2024, 1, 1, 0, 0, 0, 1000),
-        datetime.datetime(
-            2024, 6, 1, 12, 0, tzinfo=datetime.timezone(-datetime.timedelta(hours=5, minutes=30))
-        ),
-        bytearray(b"pycubrid"),
-    ),
-    (None,) * 11,
-)
 
 
 def _native() -> native.connection:
@@ -96,7 +36,7 @@ def ordinary() -> Generator[Connection, None, None]:
 @pytest.fixture
 def table(ordinary: Connection) -> Generator[str, None, None]:
     name = table_name("p840")
-    columns = ", ".join(f"{column} {sql_type}" for column, sql_type in _COLUMNS)
+    columns = ", ".join(f"{column} {sql_type}" for column, sql_type in COLUMNS)
     with ordinary.cursor() as cursor:
         cursor.execute(f"CREATE TABLE {name} (id INTEGER, path VARCHAR(8), {columns})")
     try:
@@ -107,17 +47,17 @@ def table(ordinary: Connection) -> Generator[str, None, None]:
 
 
 def _stored(ordinary: Connection, table: str, path: str) -> list[tuple[Any, ...]]:
-    names = ", ".join(column for column, _sql_type in _COLUMNS)
+    names = ", ".join(column for column, _sql_type in COLUMNS)
     with ordinary.cursor() as cursor:
         cursor.execute(f"SELECT id, {names} FROM {table} WHERE path = ? ORDER BY id", (path,))
         return [tuple(row) for row in cursor.fetchall()]
 
 
 def test_prepared_binds_store_the_same_values_as_literals(ordinary: Connection, table: str) -> None:
-    markers = ", ".join("?" * (len(_COLUMNS) + 2))
+    markers = ", ".join("?" * (len(COLUMNS) + 2))
     sql = f"INSERT INTO {table} VALUES ({markers})"
     with ordinary.cursor() as cursor:
-        for row_id, row in enumerate(_ROWS):
+        for row_id, row in enumerate(ROWS):
             cursor.execute(sql, (row_id, "literal", *row))
 
     conn = _native()
@@ -125,7 +65,7 @@ def test_prepared_binds_store_the_same_values_as_literals(ordinary: Connection, 
         cur = conn.cursor()
         try:
             cur.prepare(sql)
-            for row_id, row in enumerate(_ROWS):
+            for row_id, row in enumerate(ROWS):
                 for index, value in enumerate((row_id, "prepared", *row), 1):
                     cur.bind_param(index, value)
                 assert cur.execute() == 1
@@ -137,7 +77,7 @@ def test_prepared_binds_store_the_same_values_as_literals(ordinary: Connection, 
     literal = _stored(ordinary, table, "literal")
     prepared = _stored(ordinary, table, "prepared")
     assert prepared == literal
-    assert len(prepared) == len(_ROWS)
+    assert len(prepared) == len(ROWS)
     # Spot-check the values themselves, not only the parity.
     first = prepared[0]
     assert first[1:4] == (1, 2**63 - 1, Decimal(10**38 - 1))

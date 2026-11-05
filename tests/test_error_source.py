@@ -15,20 +15,17 @@ from __future__ import annotations
 import copy
 import pickle
 import struct
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from pycubrid._cursor_common import _batch_failure
 from pycubrid.aio.connection import AsyncConnection
-from pycubrid.compat import cubriddb
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDStatementType, DataSize
 from pycubrid.exceptions import DatabaseError, OperationalError, ProgrammingError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import (
-    ExecutePacket,
     GetSchemaPacket,
     OpenDatabasePacket,
     PrepareAndExecutePacket,
@@ -37,7 +34,6 @@ from pycubrid.protocol import (
 )
 
 from .test_async import make_mock_stream_pair
-from .test_compat_wrapper_collections import _driver, wrapped  # noqa: F401
 from .test_connection import build_handshake_response, make_socket
 
 CAS_INFO = b"\x00\xff\xff\xff"
@@ -177,29 +173,6 @@ async def test_async_connect_with_bad_credentials_raises_operational_error(code:
             await conn.connect()
     assert (raised.value.errno, raised.value.sqlstate) == (code, "28000")
     assert raised.value.error_source == "server"
-
-
-def test_compat_redaction_keeps_error_source(
-    wrapped: cubriddb.Connection,  # noqa: F811
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    driver = _driver(wrapped)
-    cur = wrapped.cursor()
-    original = driver._send_and_receive
-
-    def failing(packet: Any, **kwargs: Any) -> Any:
-        if isinstance(packet, ExecutePacket):
-            error = ProgrammingError("server text with bound data", code=-494)
-            setattr(error, "_cas_server_error", True)
-            error._error_source = "server"
-            raise error
-        return original(packet, **kwargs)
-
-    monkeypatch.setattr(driver, "_send_and_receive", failing)
-    with pytest.raises(ProgrammingError, match="failed on server") as raised:
-        cur.execute("INSERT INTO t VALUES (?)", (1,))
-    assert raised.value.error_source == "server"
-    assert "bound data" not in str(raised.value)
 
 
 # --- CAS_ER_NUM_BIND (#990) ---------------------------------------------------

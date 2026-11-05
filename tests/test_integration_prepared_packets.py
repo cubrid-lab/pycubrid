@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Sequence
+from decimal import Decimal
+from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
 import pycubrid
 from pycubrid.constants import CCIPrepareOption
-from pycubrid.exceptions import OperationalError
+from pycubrid.exceptions import DatabaseError, OperationalError, ProgrammingError
 from pycubrid.protocol import (
     CloseQueryPacket,
     ExecutePacket,
@@ -19,6 +23,82 @@ from pycubrid.protocol import (
 from ._parity_helpers import connect_kwargs, table_name
 
 pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
+
+
+def _execute_scalar(conn: pycubrid.Connection, prep: PreparePacket, value: object) -> ExecutePacket:
+    packet = ExecutePacket(
+        prep.query_handle,
+        prep.statement_type,
+        auto_commit=True,
+        protocol_version=conn._protocol_version,
+        bindings=(_encode_prepared_scalar(value),),
+        bind_count=prep.bind_count,
+    )
+    packet.columns = prep.columns
+    conn._send_and_receive(packet, expected_generation=conn._physical_generation)
+    return packet
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        True,
+        2**40,
+        Decimal("-0.5"),
+        Decimal("0.0"),
+        Decimal("-0.00"),
+        datetime.date(2024, 2, 29),
+        datetime.time(1, 2, 3),
+        datetime.datetime(2024, 2, 29, 1, 2, 3, 4000),
+        datetime.datetime(2024, 2, 29, 1, 2, 3, tzinfo=ZoneInfo("Asia/Seoul")),
+        b"\x01\x02",
+    ],
+    ids=repr,
+)
+def test_internal_untyped_marker_returns_the_bound_type(value: Any) -> None:
+    with pycubrid.connect(**connect_kwargs(), autocommit=True) as conn:
+        generation = conn._physical_generation
+        prep = PreparePacket("SELECT ?", auto_commit=True)
+        conn._send_and_receive(prep, expected_generation=generation)
+        try:
+            ((fetched,),) = _execute_scalar(conn, prep, value).rows
+        finally:
+            conn._send_and_receive(
+                CloseQueryPacket(prep.query_handle), expected_generation=generation
+            )
+    expected = int(value) if isinstance(value, bool) else value
+    if isinstance(value, datetime.datetime):
+        expected = value.replace(microsecond=value.microsecond // 1000 * 1000)
+    assert fetched == expected
+    assert type(fetched) is type(expected)
+
+
+@pytest.mark.parametrize(
+    ("sql", "value"),
+    [
+        # Host variables are coerced to the target type, not parsed as SQL.
+        ("SELECT CAST(? AS INTEGER)", 2**40),
+        ("SELECT CAST(? AS DATETIME)", datetime.time(1, 2, 3)),
+    ],
+    ids=["bigint-into-int", "time-into-datetime"],
+)
+def test_internal_host_variable_coercion_errors_keep_the_session(sql: str, value: Any) -> None:
+    with pycubrid.connect(**connect_kwargs(), autocommit=True) as conn:
+        generation = conn._physical_generation
+        prep = PreparePacket(sql, auto_commit=True)
+        conn._send_and_receive(prep, expected_generation=generation)
+        try:
+            with pytest.raises(ProgrammingError) as caught:
+                _execute_scalar(conn, prep, value)
+            assert isinstance(caught.value, DatabaseError)
+            assert caught.value.errno == -494
+            # The handle and the session stay usable after the server error.
+            assert _execute_scalar(conn, prep, None).rows == [(None,)]
+            assert conn._physical_generation == generation
+        finally:
+            conn._send_and_receive(
+                CloseQueryPacket(prep.query_handle), expected_generation=generation
+            )
 
 
 @pytest.mark.parametrize("autocommit", [False, True], ids=["manual", "auto"])

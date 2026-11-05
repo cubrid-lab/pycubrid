@@ -18,7 +18,6 @@ from pycubrid._connection_common import (
 )
 from pycubrid.aio import connect as aio_connect
 from pycubrid.aio.connection import AsyncConnection
-from pycubrid.compat import cubriddb
 from pycubrid.connection import Connection
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.exceptions import DataError, ProgrammingError
@@ -186,8 +185,6 @@ def test_invalid_charset_fails_before_any_socket_work(
         connect(database="testdb", charset=charset)
     with pytest.raises(error):
         AsyncConnection("localhost", 33000, "testdb", "dba", "", charset=charset)
-    with pytest.raises(error):
-        cubriddb.Connection("CUBRID:localhost:33000:testdb:::", charset=charset)
 
 
 @pytest.mark.asyncio
@@ -576,22 +573,39 @@ def test_unencodable_secrets_are_not_kept_in_the_exception_chain(
     assert "bound-secret" not in _chain(raised.value)
 
 
-def test_unencodable_native_prepare_sql_is_not_kept_in_the_exception_chain() -> None:
-    from pycubrid.compat import native
-
-    owner = native.connection.__new__(native.connection)
-    driver = MagicMock()
-    driver._encoding = "euc_kr"
-    driver._connected = True
-    owner._driver = driver
-    owner._closed = False
-    owner._session_lock = __import__("threading").RLock()
-    owner._prepared_owners = set()
-    cursor = native.cursor(owner)
-    with pytest.raises(DataError, match="prepared SQL cannot be encoded as euc_kr") as raised:
-        cursor.prepare("SELECT 'sql-secret\U0001f600'")
+def test_unencodable_prepared_batch_sql_is_not_kept_in_the_exception_chain(
+    socket_queue: list[MagicMock],  # noqa: F811
+) -> None:
+    open_db = build_open_db_response()
+    sock = make_socket([build_handshake_response(), open_db[:4], open_db[4:]])
+    socket_queue.append(sock)
+    conn = Connection("localhost", 33000, "testdb", "dba", "", charset="euckr")
+    sock.sendall.reset_mock()
+    with pytest.raises(DataError, match="SQL cannot be encoded as euc_kr") as raised:
+        conn.cursor().executemany(
+            "INSERT INTO t VALUES ('sql-secret\U0001f600', ?)", [(1,)], prepared=True
+        )
     assert "sql-secret" not in _chain(raised.value)
-    driver._send_and_receive.assert_not_called()
+    sock.sendall.assert_not_called()
+    assert conn._connected is True
+
+
+@pytest.mark.asyncio
+async def test_async_unencodable_prepared_batch_sql_is_not_kept_in_the_exception_chain() -> None:
+    conn = AsyncConnection("localhost", 33000, "testdb", "dba", "", charset="euckr")
+    conn._connected = True
+    conn._record_reply_cas_info(CAS_INFO)
+    conn._reader = MagicMock()
+    writer = MagicMock()
+    writer.drain = AsyncMock()
+    conn._writer = writer
+    with pytest.raises(DataError, match="SQL cannot be encoded as euc_kr") as raised:
+        await conn.cursor().executemany(
+            "INSERT INTO t VALUES ('sql-secret\U0001f600', ?)", [(1,)], prepared=True
+        )
+    assert "sql-secret" not in _chain(raised.value)
+    writer.write.assert_not_called()
+    assert conn._connected is True
 
 
 def test_sync_unencodable_schema_argument_keeps_the_session(

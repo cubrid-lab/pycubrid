@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Tests
+
+- **Core DB-API semantics are covered without Compat (#1123)** — new ordinary sync and async
+  live tests state their own expected values for computed rows and `description`, aliases and
+  duplicate names, commit/rollback visibility, READ COMMITTED versus REPEATABLE READ, text
+  collection elements on the literal and prepared paths, and LOB contents including a large
+  multi-byte CLOB. The failure paths of `Lob.read()`/`Lob.write()` have their own offline cases.
+  Shared test data and regressions moved out of Compat-dependent modules, so ordinary test
+  modules collect without Compat; Compat tests stay, some in another Compat module, until the
+  removal release. No driver or runtime change.
+
 ## [1.17.0] - 2026-11-05
 
 ### Upgrade notes

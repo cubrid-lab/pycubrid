@@ -15,10 +15,9 @@ Empirically grounded against CUBRID 11.2. Notable contracts:
 * ``BLOB``/``CLOB`` decode to a LOB-locator ``dict``, not raw bytes;
 * ``TIMESTAMPTZ``/``DATETIMETZ`` decode to tz-aware ``datetime``.
 
-Collection types (SET/MULTISET/SEQUENCE) are intentionally out of scope here:
-they cannot be parameter-bound and their end-to-end decode needs separate
-investigation (tracked under the type/collection work), so pinning them in this
-contract matrix would encode unverified behavior.
+Collection types (SET/MULTISET/SEQUENCE) are out of scope here: they bind through
+the typed ``Set``/``Multiset``/``Sequence`` parameters and decode only with
+``decode_collections=True``, and ``tests/test_integration_collections.py`` covers them.
 
 Skipped when no CUBRID server is configured; errors when a configured one is
 unreachable (see the shared ``tests/conftest.py`` gate).
@@ -65,13 +64,17 @@ _KST = datetime.timezone(datetime.timedelta(hours=9))
 CASES: list[TypeCase] = [
     TypeCase("short", "SHORT", 123, None, int, 123),
     TypeCase("integer", "INTEGER", 2147483647, None, int, 2147483647),
+    TypeCase("integer_min", "INTEGER", -(2**31), None, int, -(2**31)),
     TypeCase("bigint", "BIGINT", 9223372036854775807, None, int, 9223372036854775807),
+    TypeCase("bigint_min", "BIGINT", -(2**63), None, int, -(2**63)),
     TypeCase("numeric", "NUMERIC(10,2)", Decimal("12.34"), None, Decimal, Decimal("12.34")),
     TypeCase("float", "FLOAT", 1.5, None, float, 1.5),
     TypeCase("double", "DOUBLE", 3.14159, None, float, 3.14159),
     TypeCase("monetary", "MONETARY", Decimal("99.99"), None, float, 99.99),
     TypeCase("char", "CHAR(5)", "abc", None, str, "abc  "),
     TypeCase("varchar", "VARCHAR(20)", "hello", None, str, "hello"),
+    TypeCase("varchar_hostile", "VARCHAR(20)", "a'\\한", None, str, "a'\\한"),
+    TypeCase("varchar_empty", "VARCHAR(20)", "", None, str, ""),
     TypeCase("string", "STRING", "world", None, str, "world"),
     TypeCase(
         "date", "DATE", datetime.date(2024, 1, 15), None, datetime.date, datetime.date(2024, 1, 15)
