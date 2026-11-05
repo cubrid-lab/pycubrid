@@ -12,7 +12,7 @@ from unittest import mock
 
 import pytest
 
-from pycubrid import InterfaceError
+import pycubrid
 from pycubrid.compat import cubriddb, native
 from pycubrid.compat._deprecation import MESSAGE, MIGRATION_URL
 
@@ -38,7 +38,7 @@ def _run(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str
 def test_every_factory_warns_once_at_the_caller(factory: Callable[..., Any]) -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        with pytest.raises(InterfaceError):
+        with pytest.raises(pycubrid.InterfaceError):
             factory(BAD_URL)
 
     assert [w.category for w in caught] == [FutureWarning]
@@ -73,7 +73,7 @@ def test_warnings_as_errors_stops_before_any_socket_work() -> None:
 def test_a_suppressed_warning_keeps_the_factory_working() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)
-        with pytest.raises(InterfaceError):
+        with pytest.raises(pycubrid.InterfaceError):
             native.connect(BAD_URL)
 
 
@@ -106,8 +106,6 @@ def test_warning_is_visible_by_default_from_an_imported_module(tmp_path: Path) -
 
 
 def test_ordinary_connect_does_not_warn() -> None:
-    import pycubrid
-
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         with mock.patch.object(pycubrid.connection.Connection, "__init__", return_value=None):

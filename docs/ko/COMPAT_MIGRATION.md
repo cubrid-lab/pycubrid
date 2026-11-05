@@ -394,12 +394,13 @@ text = lob.read(cell["lob_length"]).decode("utf-8")
 # before: files
 l.imports("in.bin", "B"); l.export("out.bin")
 # after: not atomic; write to a temporary file and os.replace() for the same guarantee
+file_lob = conn.create_lob(23)            # 새 LOB: 쓰기는 이어 쓰기만 가능
 with open("in.bin", "rb") as fh:
     offset = 0
     while chunk := fh.read(65536):
-        offset += lob.write(chunk, offset)
+        offset += file_lob.write(chunk, offset)
 with open("out.bin", "wb") as fh:
-    fh.write(lob.read(cell["lob_length"]))
+    fh.write(file_lob.read(offset))
 ```
 
 | 주제 | 네이티브 | 일반 (실제 실행) |
