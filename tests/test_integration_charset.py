@@ -277,6 +277,26 @@ def test_prepared_compat_path_and_cubriddb_wrapper_use_the_charset(
 
 
 @pytest.mark.asyncio
+async def test_prepared_batch_uses_the_charset(conn: Any) -> None:
+    table = _table()
+    await _query(conn, f"CREATE TABLE {table} (id INT, v VARCHAR(10))")
+    try:
+        cursor = conn.cursor()
+        try:
+            sql = f"INSERT INTO {table} VALUES (?, ?)"
+            await _call(cursor.executemany(sql, [(1, HANGUL), (2, "가")], prepared=True))
+            assert cursor.rowcount == 2
+            with pytest.raises(DataError, match="cannot be encoded as euc_kr"):
+                await _call(cursor.executemany(sql, [(3, "\U0001f600")], prepared=True))
+        finally:
+            await _call(cursor.close())
+        rows = await _query(conn, f"SELECT id, v, length(v) FROM {table} ORDER BY id")
+        assert rows == [(1, HANGUL, 2), (2, "가", 1)]
+    finally:
+        await _query(conn, f"DROP TABLE IF EXISTS {table}")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("value", ["\u3164", "\u3164\u3138\u3157\u3141", "한\u3164"])
 async def test_hangul_filler_round_trips(conn: Any, value: str) -> None:
     table = _table()

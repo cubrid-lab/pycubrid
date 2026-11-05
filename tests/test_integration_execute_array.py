@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 from collections.abc import Generator
 from decimal import Decimal
 from typing import Any
@@ -29,7 +30,7 @@ from pycubrid.exceptions import (
 from pycubrid.types import Multiset, Sequence, Set
 
 from ._parity_helpers import connect_kwargs, table_name
-from .test_integration_prepared_wide_types import _COLUMNS, _ROWS
+from ._prepared_wide_values import _COLUMNS, _ROWS
 
 pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
@@ -83,8 +84,18 @@ def test_wide_types_store_the_same_values_as_the_literal_batch(admin: Connection
             assert cursor.rowcount == len(_ROWS)
             select = f"SELECT id, {names} FROM {name} WHERE path = '%s' ORDER BY id"
             literal = _rows(admin, select % "literal")
-            assert _rows(admin, select % "prepared") == literal
+            prepared = _rows(admin, select % "prepared")
+            assert prepared == literal
             assert len(literal) == len(_ROWS)
+            # Spot-check the values themselves, not only the parity.
+            first = prepared[0]
+            assert first[1:4] == (1, 2**63 - 1, Decimal(10**38 - 1))
+            assert first[6] == Decimal("0." + "1" * 38)
+            assert first[9] == datetime.datetime(2024, 2, 29, 23, 59, 59, 999000)
+            assert first[11] == b"\x00\xff"
+            repeated = prepared[1][10]
+            assert repeated is not None
+            assert repeated.utcoffset() == datetime.timedelta(hours=-5)
         finally:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")
 
@@ -157,6 +168,21 @@ def test_conversion_error_matches_the_literal_batch(
             assert [code for _count, code, _m in cursor._batch_row_results][::2] == [0, 0]
         conn.commit()
     assert _ids(admin, table) == ([1, 3, 11, 13] if autocommit else [11, 13])
+
+
+def test_insert_host_variable_coercion_error_keeps_the_session_usable(
+    admin: Connection, table: str
+) -> None:
+    # 2**40 is typed BIGINT; storing it in INT overflows on the server.
+    sql = f"INSERT INTO {table} (id, k) VALUES (?, ?)"
+    with admin.cursor() as cursor:
+        with pytest.raises(ProgrammingError) as raised:
+            cursor.executemany(sql, [(1, 2**40)], prepared=True)
+        assert isinstance(raised.value, DatabaseError)
+        assert raised.value.errno == -494
+        cursor.executemany(sql, [(2, 7)], prepared=True)
+        assert cursor.rowcount == 1
+    assert _rows(admin, f"SELECT id, k FROM {table}") == [(2, 7)]
 
 
 @AUTOCOMMIT

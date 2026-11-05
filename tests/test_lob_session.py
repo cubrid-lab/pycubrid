@@ -15,8 +15,9 @@ import pytest
 
 from pycubrid.connection import Connection
 from pycubrid.constants import CASFunctionCode, CUBRIDDataType
-from pycubrid.exceptions import InterfaceError, OperationalError
+from pycubrid.exceptions import DatabaseError, DataError, InterfaceError, OperationalError
 from pycubrid.lob import Lob
+from pycubrid.protocol import LOBReadPacket, LOBWritePacket
 
 from .test_cas_reconnect_probe import (
     IN_TRAN,
@@ -118,3 +119,102 @@ def test_lob_created_after_a_failed_probe_belongs_to_the_new_session() -> None:
         CASFunctionCode.LOB_NEW,
         CASFunctionCode.LOB_WRITE,
     ]
+
+
+# -- fail-closed branches of the fenced LOB request (#1123) ----------------------
+
+
+OPERATIONS = pytest.mark.parametrize("operation", ["read", "write"])
+
+
+def _use(lob: Lob, operation: str) -> None:
+    if operation == "read":
+        lob.read(4)
+    else:
+        lob.write(b"data")
+
+
+def _assert_retired(conn: Connection, sock: MagicMock, lob: Lob, operation: str) -> None:
+    """The session is gone, nothing was retried, and the handle stays refused."""
+    assert conn._connected is False
+    assert conn._socket is None
+    sock.close.assert_called()
+    assert sock.sendall.call_count == 1
+    with patch("socket.create_connection") as create:
+        with pytest.raises(InterfaceError, match="connection is closed"):
+            _use(lob, operation)
+    create.assert_not_called()
+    assert sock.sendall.call_count == 1
+
+
+def _fenced_lob() -> tuple[Connection, MagicMock, Lob]:
+    conn, sock = make_connected_connection()
+    sock.sendall.reset_mock()
+    return conn, sock, Lob(conn, CUBRIDDataType.BLOB, HANDLE)
+
+
+@OPERATIONS
+def test_lob_malformed_reply_retires_the_session(operation: str) -> None:
+    conn, sock, lob = _fenced_lob()
+    body = IN_TRAN + b"\x00"  # the response code is cut short
+    _script(sock, _frames(struct.pack(">i", len(body) - 4) + body))
+
+    with pytest.raises(OperationalError, match="malformed response from broker"):
+        _use(lob, operation)
+
+    _assert_retired(conn, sock, lob, operation)
+
+
+@OPERATIONS
+def test_lob_complete_server_error_keeps_the_session(operation: str) -> None:
+    conn, sock, lob = _fenced_lob()
+    generation = conn._physical_generation
+    error_info = b"\x01\x09\x08\x07"
+    _script(
+        sock,
+        _frames(_reply(-2, struct.pack(">i", -1016) + b"server text\x00", cas_info=error_info)),
+    )
+
+    with pytest.raises(DatabaseError) as raised:
+        _use(lob, operation)
+
+    assert raised.value.errno == -1016
+    assert conn._connected is True
+    assert conn._socket is sock
+    assert conn._physical_generation == generation
+    assert conn._cas_info == error_info
+    assert sock.sendall.call_count == 1
+
+
+@OPERATIONS
+@pytest.mark.parametrize(
+    "failure",
+    [RuntimeError("parser bug"), DataError("driver text")],
+    ids=["unexpected", "non-server-error"],
+)
+def test_lob_parser_failure_retires_the_session(operation: str, failure: Exception) -> None:
+    conn, sock, lob = _fenced_lob()
+    _script(sock, _frames(_reply(4, b"data")))
+    packet = LOBReadPacket if operation == "read" else LOBWritePacket
+
+    with patch.object(packet, "parse", side_effect=failure):
+        with pytest.raises(OperationalError, match="malformed response from broker") as raised:
+            _use(lob, operation)
+
+    assert raised.value.__cause__ is failure
+    _assert_retired(conn, sock, lob, operation)
+
+
+@OPERATIONS
+@pytest.mark.parametrize("stage", ["send", "reply"])
+def test_lob_transport_failure_retires_the_session(operation: str, stage: str) -> None:
+    conn, sock, lob = _fenced_lob()
+    if stage == "send":
+        sock.sendall.side_effect = OSError("connection reset")
+    else:
+        sock.recv_into.side_effect = OSError("connection reset")
+
+    with pytest.raises(OperationalError, match="socket communication failed"):
+        _use(lob, operation)
+
+    _assert_retired(conn, sock, lob, operation)

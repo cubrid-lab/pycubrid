@@ -14,11 +14,10 @@ from hypothesis import given, strategies as st
 
 from pycubrid import protocol
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
-from pycubrid.exceptions import InterfaceError, OperationalError, ProgrammingError
+from pycubrid.exceptions import OperationalError, ProgrammingError
 from pycubrid.lob import Lob
 from pycubrid.protocol import ExecutePacket, LOBWritePacket
 
-from .test_compat_prepared import FakeDriver, _owner, _packets, fake_driver  # noqa: F401
 from .test_prepared_collection_contract import _frame, _int
 
 BLOB, CLOB = CUBRIDDataType.BLOB, CUBRIDDataType.CLOB
@@ -331,30 +330,3 @@ def test_failed_or_empty_lob_write_keeps_the_handle(lob_connection: MagicMock) -
     with pytest.raises(OperationalError):
         lob.write(b"abc", 0)
     assert lob.lob_handle == NEW_BLOB
-
-
-# --- the reconnect fence in the native prepared cursor ----------------------
-
-
-def test_native_execute_rejects_a_lob_binding_from_another_session(
-    fake_driver: FakeDriver,  # noqa: F811
-) -> None:
-    conn, cur = _owner(fake_driver)
-    other = FakeDriver(autocommit=True)  # another connection, also at generation 1
-    try:
-        cur.prepare("INSERT INTO t VALUES (?)")
-        assert other._physical_generation == fake_driver._physical_generation
-        # Internal bindings (no public bind_lob yet): an earlier session of
-        # this connection, then the same generation number on another one.
-        for owner, generation in ((fake_driver, 0), (other, 1), (OWNER, 1)):
-            cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, owner, generation)
-            with pytest.raises(InterfaceError, match="another physical session"):
-                cur.execute()
-        assert _packets(fake_driver, ExecutePacket) == []
-        cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, fake_driver, 1)
-        count = cur.execute()
-        assert count == 1
-        sent = _packets(fake_driver, ExecutePacket)[0]
-        assert _bind_pair(sent.bindings[0]) == bytes.fromhex(OFFICIAL_BIND_PAIRS[0][2])
-    finally:
-        conn.close()

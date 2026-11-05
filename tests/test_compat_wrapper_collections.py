@@ -345,3 +345,26 @@ def test_wrapper_int_past_int32_binds_bigint(wrapped: cubriddb.Connection) -> No
         CUBRIDDataType.BIGINT,
         (2**40).to_bytes(8, "big"),
     )
+
+
+def test_compat_redaction_keeps_error_source(
+    wrapped: cubriddb.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _driver(wrapped)
+    cur = wrapped.cursor()
+    original = driver._send_and_receive
+
+    def failing(packet: Any, **kwargs: Any) -> Any:
+        if isinstance(packet, ExecutePacket):
+            error = ProgrammingError("server text with bound data", code=-494)
+            setattr(error, "_cas_server_error", True)
+            error._error_source = "server"
+            raise error
+        return original(packet, **kwargs)
+
+    monkeypatch.setattr(driver, "_send_and_receive", failing)
+    with pytest.raises(ProgrammingError, match="failed on server") as raised:
+        cur.execute("INSERT INTO t VALUES (?)", (1,))
+    assert raised.value.error_source == "server"
+    assert "bound data" not in str(raised.value)

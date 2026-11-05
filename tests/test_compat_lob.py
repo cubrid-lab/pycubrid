@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from pycubrid import protocol
 from pycubrid.compat import native
 from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
 from pycubrid.exceptions import DataError, InterfaceError, OperationalError, ProgrammingError
@@ -19,8 +20,14 @@ from pycubrid.protocol import (
     PreparePacket,
 )
 
-from .test_compat_prepared import DSN, FakeDriver, _packets
-from .test_prepared_lob_contract import FETCHED_BLOB, FETCHED_CLOB, OFFICIAL_BIND_PAIRS, _bind_pair
+from .test_compat_prepared import DSN, FakeDriver, _owner, _packets, fake_driver  # noqa: F401
+from .test_prepared_lob_contract import (
+    FETCHED_BLOB,
+    FETCHED_CLOB,
+    OFFICIAL_BIND_PAIRS,
+    OWNER,
+    _bind_pair,
+)
 
 BLOB, CLOB, INT = CUBRIDDataType.BLOB, CUBRIDDataType.CLOB, CUBRIDDataType.INT
 
@@ -648,6 +655,33 @@ def test_a_binding_made_before_close_keeps_its_handle(driver: LobDriver) -> None
         result = ins.execute()
         assert result == 1
         sent = _packets(driver, ExecutePacket)[-1]
+        assert _bind_pair(sent.bindings[0]) == bytes.fromhex(OFFICIAL_BIND_PAIRS[0][2])
+    finally:
+        conn.close()
+
+
+# --- the reconnect fence in the native prepared cursor ----------------------
+
+
+def test_native_execute_rejects_a_lob_binding_from_another_session(
+    fake_driver: FakeDriver,  # noqa: F811
+) -> None:
+    conn, cur = _owner(fake_driver)
+    other = FakeDriver(autocommit=True)  # another connection, also at generation 1
+    try:
+        cur.prepare("INSERT INTO t VALUES (?)")
+        assert other._physical_generation == fake_driver._physical_generation
+        # Internal bindings (no public bind_lob yet): an earlier session of
+        # this connection, then the same generation number on another one.
+        for owner, generation in ((fake_driver, 0), (other, 1), (OWNER, 1)):
+            cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, owner, generation)
+            with pytest.raises(InterfaceError, match="another physical session"):
+                cur.execute()
+        assert _packets(fake_driver, ExecutePacket) == []
+        cur._bindings[0] = protocol._PreparedLob(BLOB, FETCHED_BLOB, fake_driver, 1)
+        count = cur.execute()
+        assert count == 1
+        sent = _packets(fake_driver, ExecutePacket)[0]
         assert _bind_pair(sent.bindings[0]) == bytes.fromhex(OFFICIAL_BIND_PAIRS[0][2])
     finally:
         conn.close()
