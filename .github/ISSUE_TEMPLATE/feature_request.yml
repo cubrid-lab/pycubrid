@@ -15,6 +15,13 @@ body:
         Before implementation, check existing Assignees, claims and open PRs.
         Maintainer-operated autonomous agents also need issue-specific approval
         and assignment; human-led contributors need neither.
+        Triage labels do not approve a new public API. If this request would add
+        an exported method/type, change a public contract, add a runtime
+        dependency or alter the support policy, maintainers record an
+        independent product decision before directing implementation.
+        You can submit a question or proposal without knowing the solution.
+        Removing pycubrid.compat does not automatically justify recreating
+        its features in pycubrid / pycubrid.aio.
 
   - type: textarea
     id: problem
@@ -29,10 +36,19 @@ body:
     id: solution
     attributes:
       label: Proposed Solution
-      description: Describe how you would like this feature to be implemented
-      placeholder: What should the feature do and how should it work?
+      description: Optional idea or open design question; proposing a solution does not approve implementation
+      placeholder: What behavior might help, or which decision should maintainers investigate?
     validations:
-      required: true
+      required: false
+
+  - type: textarea
+    id: independent_need
+    attributes:
+      label: Independent user need and existing API alternatives
+      description: For new public APIs, explain the ordinary-driver use case, existing options or workarounds, and why they are insufficient. If unknown, leave this for maintainer investigation.
+      placeholder: Who needs this, what can they do today, and why would a permanent API be justified?
+    validations:
+      required: false
 
   - type: textarea
     id: alternatives

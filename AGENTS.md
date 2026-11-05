@@ -128,6 +128,50 @@ Do not weaken branch protections, live CUBRID checks, protected code paths,
 security constraints or release/publishing controls through a documentation
 simplification.
 
+## Public API and product-scope decisions before implementation
+
+**Issue triage is not implementation approval.** Priority/size labels, a proposed
+solution, a successful test run, and an updated `api-baseline.json` do not decide
+whether a new stable API belongs in pycubrid. A research issue that asks *whether*
+to expose a capability is still an investigation, even if an implementation is
+technically feasible.
+
+For maintainer-directed work (including autonomous agents), record an explicit
+maintainer decision **in the relevant issue before implementing** a new public
+function, method or export, a material existing-API behavior/compatibility change,
+a new runtime dependency, or a change to supported environments. The issue must
+state:
+
+1. **Independent user need:** a concrete ordinary-driver scenario and evidence;
+   "the official driver/Compat has it" or "Compat removal would lose it" is not
+   sufficient by itself.
+2. **Existing alternatives:** why documented `pycubrid` / `pycubrid.aio`
+   behavior, an application-side approach, or no change is insufficient.
+3. **Long-term contract:** stable surface, behavior across transactions and
+   reconnects, compatibility/support burden, non-goals and validation.
+4. **Disposition:** `implement` with a bounded contract, `investigate further`
+   with a decision deliverable, or `not planned`. No decision means
+   investigation only; it does not authorize an implementation PR.
+
+Do not use a PR or a passing CI run as a substitute for this issue decision.
+An implementation PR that precedes the decision must remain draft/not ready
+for merge until the maintainer records and reviews the product decision; retain
+work and evidence rather than discarding it automatically. The PR links the
+decision and accurately identifies remaining unknowns; unapproved features
+must not claim a specific future release version.
+
+**Compat retirement boundary:** #1120 / #1130 remove official-driver
+emulation, not automatically port it to the ordinary 1.x API. Any proposed
+ordinary replacement requires its own independent use case and decision.
+The retirement itself must not depend on speculative replacement APIs.
+
+This is a *targeted product-scope review*, not a new blanket sign-off for
+routine bug fixes within an already approved contract, tests or documentation.
+Human-led outside contributors may continue to submit proposals and PRs
+without prior assignment or approval; maintainers evaluate the decision before
+merging. Existing code review, compatibility baseline and release/CI controls
+remain in force; this section does not create a new automated merge gate.
+
 ## Agent PR scope and review guardrails
 
 These guardrails apply regardless of the implementation tool:

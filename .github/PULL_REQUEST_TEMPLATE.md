@@ -20,6 +20,25 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 
 <!-- What this PR deliberately does not change; defer out-of-scope findings to a separate issue -->
 
+## Public API and product-scope decision (if applicable)
+
+<!-- If adding a public API, materially changing its behavior, adding a runtime
+dependency, or changing support policy, link the related issue's explicit
+maintainer decision and explain the independent ordinary-driver use case,
+existing alternatives, and long-term stability/maintenance implications.
+Triage labels and green CI are not product approval. Removing Compat does not
+require replacing every Compat feature. Maintainer-directed implementations
+need this decision before starting; external contributors may submit a
+proposal/PR without prior approval, but maintainers resolve product scope
+before merge. For ordinary bug fixes/docs within an existing contract, N/A
+with a reason is enough. Do not assert an unapproved future release version. -->
+
+Decision / issue link: pending or N/A (reason)
+
+Independent use case, alternatives and continuing API cost: pending or N/A (reason)
+
+Release target: unreleased until a release is reviewed
+
 ## Type of Change
 
 <!-- Check the relevant option -->
