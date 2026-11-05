@@ -6,17 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Documentation
-
-- **Troubleshooting logging example works on a fresh database (#1085)** — the English and Korean
-  examples query the built-in `db_class` catalog and close their cursor and connection.
-- **Docs FAQ names supported Python versions (#1094)** — the English and Korean site FAQs now
-  state Python 3.11–3.15 support, the standard GIL build requirement, and the Python 3.10
-  fallback to 1.9.x. The Support Matrix remains the authoritative compatibility reference.
-- **README and docs site show the transparent brand icon (#1096)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `e55990a`, where the Driver icon's layer gaps are real transparency instead of white strokes. Documentation only; behavior is unchanged.
-
-## [1.15.0] - 2026-10-27
-
 ### Added
 
 - **Native `connection.schema_info()` first-row subset (#1011)** — the opt-in
@@ -32,6 +21,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   open. A live differential against the official driver on CUBRID 10.2 and 11.4 covers the
   supported types. The ordinary `get_schema_info()`, `fetch_schema_info()` and
   `close_schema_info()` are unchanged.
+
+### Documentation
+
+- **Troubleshooting logging example works on a fresh database (#1085)** — the English and Korean
+  examples query the built-in `db_class` catalog and close their cursor and connection.
+- **Docs FAQ names supported Python versions (#1094)** — the English and Korean site FAQs now
+  state Python 3.11–3.15 support, the standard GIL build requirement, and the Python 3.10
+  fallback to 1.9.x. The Support Matrix remains the authoritative compatibility reference.
+- **README and docs site show the transparent brand icon (#1096)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `e55990a`, where the Driver icon's layer gaps are real transparency instead of white strokes. Documentation only; behavior is unchanged.
+
+## [1.15.0] - 2026-10-27
+
+### Added
 
 - **`make verify` writes an aggregate summary under `test-results/verify/` (#1053)** — the
   recipe now `exec`s `scripts/run_verify.py`, which runs `check`, `test` and `integration`
