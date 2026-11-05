@@ -42,7 +42,9 @@ abandoned version that has no tag (see [Failure and recovery](#failure-and-recov
 Python strategy updates `pycubrid/__init__.py` and leaves dynamic
 `pyproject.toml` version metadata unchanged. Tags remain `vX.Y.Z`.
 
-Conventional `fix` proposes patch, `feat` minor, breaking changes major.
+Conventional `fix` proposes patch, `feat` minor, breaking changes major
+(see [Breaking MINOR release](#breaking-minor-release) for the only reviewed way to
+ship a breaking change as a MINOR).
 Python strategy also treats `docs` as a patch release; hidden `chore` alone
 creates no candidate. Review these proposals against RELEASE_POLICY §7;
 commit spelling does not replace compatibility review. A maintainer-approved
@@ -166,6 +168,74 @@ final state is not a completed release: follow
 published is recorded there as abandoned, never as released. `main` showing a
 different version than the latest published release is a normal development
 state, not something to fix by tagging.
+
+### Breaking MINOR release
+
+Use this only for an optional-tier retirement under
+[`RELEASE_POLICY.md` §3](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
+Any other breaking change stays MAJOR. This procedure changes no gate: the same
+checks, full matrix, candidate verification and review apply.
+
+**Before the removal pull request merges,** record in its `breaking-change` issue:
+
+- the warning release, and its notice start from PyPI:
+  `curl -s https://pypi.org/pypi/pycubrid/X.Y.Z/json | jq -r '.urls[].upload_time_iso_8601'`
+  (use the earliest value; apply the restart rules in the policy if that release
+  was yanked or corrected);
+- the earliest allowed merge date of the release PR (notice start plus the
+  approved period, at least 28 calendar days);
+- the target version: the next MINOR after the latest published release. Merge the
+  removal only when that version is ready to ship, because every later candidate
+  contains the break until it is released.
+
+**Keep the break visible and pin the version.** The removal keeps its `!`, and its
+commit message has both footers:
+
+```text
+feat(compat)!: remove the pycubrid.compat namespaces
+
+BREAKING CHANGE: pycubrid.compat is removed; see the migration guide.
+Release-As: X.Y.0
+```
+
+Without `Release-As`, release-please proposes `2.0.0`. Do not remove `!` or
+`BREAKING CHANGE` to get a MINOR: that hides the break from the generated notes.
+Do not edit `.release-please-manifest.json` on main. Repository squash merges keep
+the commit messages, so put the override in a commit of the pull request and do
+not retype the message at merge: nothing checks a squash message edited there.
+
+Pinned release-please 17.6.0 behaves as follows (`scripts/check_release_please.cjs`
+covers the first row; the rest were measured against the same core for #1124):
+
+| Commits since the last release | Result |
+|---|---|
+| `feat!` with `BREAKING CHANGE` and `Release-As: 1.20.0` | `1.20.0`, with `⚠ BREAKING CHANGES` in the notes |
+| The footers in either order, in separate blocks, or above a `Co-Authored-By` trailer | `1.20.0` |
+| The same `feat!` without `Release-As` | `2.0.0` |
+| Another commit, older or newer, carries `Release-As: 1.20.0` | `1.20.0` for the whole candidate |
+| Two commits carry different overrides | The newest wins |
+
+Because an override applies to the whole candidate, a later `feat!` on top of it
+stays MINOR without any warning. Reviewing a candidate that has an override
+therefore includes reading every commit in it for another breaking change.
+
+**Review the candidate.** In addition to the
+[release review checklist](#release-review-checklist), confirm and record:
+
+1. The manifest, `__version__` and CHANGELOG all say the intended `X.Y.0`, not
+   `2.0.0`. If the candidate says anything else, correct the override with a
+   reviewed commit; do not edit the release PR's version.
+2. The candidate's merge date is on or after the earliest allowed date.
+3. `compat-check` passes because `api-baseline.json` carries the reviewed removal
+   diff, and that diff contains optional-tier names only. A removed core name
+   stops the release.
+4. The curated Upgrade notes call this an intentional breaking MINOR release, link
+   the migration guide and disclose the automatic-upgrade risk.
+5. A clean install of the built wheel still passes the ordinary sync and async
+   smoke checks, as the existing candidate verification requires.
+
+An override that is wrong or no longer wanted is corrected through a reviewed
+commit, as above. Historical versions, tags and release notes stay immutable.
 
 ### 3. Squash-merge and next-candidate lifecycle
 

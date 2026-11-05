@@ -26,7 +26,9 @@ The **public API** of pycubrid is exactly the union of:
    `pycubrid.compat.cubriddb.__all__` / `pycubrid.compat.native.__all__`.
    These namespaces are a staged, opt-in subset, not a complete DB-API or
    official native driver; names first released in 1.9.0 or later are
-   **provisional** (see "Staged explicit compatibility namespaces" in §2).
+   **provisional** (see "Staged explicit compatibility namespaces" in §2), and
+   every name in these namespaces is in the optional tier (§2, "Stability
+   tiers") that §3 allows to be retired in a MINOR release after deprecation.
 4. The following classes, which users receive as return values from public
    factory functions and therefore depend on transitively:
    - `pycubrid.connection.Connection`
@@ -74,21 +76,56 @@ without notice:
   attached to an instance is not.
 - Behavior that is not documented in `docs/` or covered by an offline test.
 
-## 2. Semantic Versioning Rules
+<a id="2-semantic-versioning-rules"></a>
 
-pycubrid follows [Semantic Versioning 2.0](https://semver.org/). Starting from
-**1.0.0**, version components have the following meaning:
+## 2. Versioning Rules
+
+pycubrid follows [Semantic Versioning 2.0](https://semver.org/) for the core
+tier defined below. For the optional tier it uses a deprecation-based model
+instead: a name can be retired in a MINOR release once the process in §3 has
+been completed. **This is a deliberate departure from strict SemVer, adopted in
+#1124.** A version number alone does not prove that an upgrade within `<2.0` is
+compatible; read the Upgrade notes of every MINOR release you adopt.
+
+Starting from **1.0.0**, version components have the following meaning:
 
 - **MAJOR** (`x.0.0`) — May contain breaking changes to the public API surface
-  as defined in §1. The next major version is `2.0.0`.
+  as defined in §1, and is used for broad API restructuring when that is
+  warranted. It is required for any breaking change to the core tier, apart from
+  the PATCH security exception below. It is not required for retiring a
+  deprecated optional-tier name. The next major version
+  is `2.0.0`.
 - **MINOR** (`1.x.0`) — Adds functionality in a backward-compatible manner.
   May add new public functions, methods, classes, parameters with defaults,
   or `__all__` entries. May not remove, rename, or change the structural
-  signature of anything already on the public surface. The only exception is
-  a provisional `pycubrid.compat` name first released in 1.9.0 or later; see
-  "Staged explicit compatibility namespaces" below.
+  signature of anything already on the public surface, with two exceptions, both
+  limited to the optional tier: a provisional `pycubrid.compat` name first
+  released in 1.9.0 or later (see "Staged explicit compatibility namespaces"
+  below), and a deprecated name whose retirement has completed the process in §3
+  ("Deprecation-based retirement in a MINOR release").
 - **PATCH** (`1.x.y`) — Backward-compatible bug fixes only. Must not add new
-  public API.
+  public API, and never retires or removes anything, whatever its tier. The only
+  exception is a security fix that cannot be made compatibly: it may change the
+  affected behavior under §5, must change no more than the fix requires, and
+  must say so in a `CHANGELOG.md` Upgrade note. A PATCH release may add a
+  deprecation warning only to correct a warning that a MINOR release already
+  announced (see the notice rule in §3).
+
+### Stability tiers
+
+The tiers say what kind of change a name can receive. They do not rank the
+quality of its implementation.
+
+| Tier | Covers | Breaking change allowed in |
+|---|---|---|
+| **Core** | Everything in §1 that is not in the optional tier: `pycubrid`, `pycubrid.aio` and their returned classes, including the PEP 249 surface and documented extensions such as `executemany(..., prepared=True)` | MAJOR only, apart from the PATCH security exception above |
+| **Optional** | `pycubrid.compat`, `pycubrid.compat.cubriddb`, `pycubrid.compat.cursors`, `pycubrid.compat.native` and the classes they return | MINOR, after the §3 retirement process; MAJOR otherwise |
+
+The optional tier is this exact list. A new name enters it only through a
+reviewed amendment of this table, not by being described as experimental
+elsewhere, and a core name is not moved into it to make a removal possible.
+Deprecating a core name, for example `fetchmany(size)` with `size <= 0` (#678),
+stays a MINOR change, but its breaking phase stays reserved for a MAJOR release.
 
 A "structural signature change" includes any of the following on any public
 callable:
@@ -158,7 +195,9 @@ namespaces stable:
   say so in a `CHANGELOG.md` Upgrade note. PATCH releases stay backward
   compatible for them.
 - Names already in the 1.8.0 baseline (`git show v1.8.0:api-baseline.json`)
-  keep the full guarantee of this section.
+  keep the full guarantee of this section until they are retired through §3.
+  They are not provisional and never were; §4 records that the promise to keep
+  them for the rest of 1.x is withdrawn.
 - `pycubrid` and `pycubrid.aio` are unaffected.
 - The checker and baseline keep tracking every compat name, so a provisional
   change still appears as an explicit baseline diff in review.
@@ -166,6 +205,12 @@ These are **MINOR** additions while ordinary behavior stays unchanged;
 documented ordinary bug corrections remain **PATCH**. The staged work does not
 authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI
 publication or a security-support change.
+
+**Planned retirement (#1120).** The project intends to retire the functional
+`pycubrid.compat` layer in a later 1.x MINOR release. From now on these
+namespaces receive bug and security fixes only: no new public names and no new
+official-driver parity work. The removal itself still needs every step in §3;
+this paragraph authorizes none of them and names no version or date.
 
 ### Typed collection parameters (#567)
 
@@ -203,12 +248,14 @@ in code review:
 
 ## 3. Breaking-Change Process
 
-Breaking changes are only permitted in major version bumps, with one
-exception: a provisional `pycubrid.compat` name first released in 1.9.0 or
-later may change in a MINOR release (§2, "Staged explicit compatibility
-namespaces"). Names in the 1.8.0 baseline, `pycubrid` and `pycubrid.aio` have
-no such exception. A provisional change skips the major version bump, the
-`breaking-change` issue and the `### Breaking Changes` section (steps 1 and
+Breaking changes are only permitted in major version bumps, with two
+exceptions, both limited to the optional tier (§2). First, a provisional
+`pycubrid.compat` name first released in 1.9.0 or later may change in a MINOR
+release (§2, "Staged explicit compatibility namespaces"). Second, any
+optional-tier name, including one in the 1.8.0 baseline, may be retired in a
+MINOR release through "Deprecation-based retirement in a MINOR release" below.
+`pycubrid` and `pycubrid.aio` have neither exception. A provisional change
+skips the major version bump and the `breaking-change` issue (steps 1 and
 5–7), but still regenerates and commits `api-baseline.json` with the source
 change (steps 3–4) and must describe the change and how callers migrate in a
 `CHANGELOG.md` Upgrade note. The full process for landing a major-version
@@ -225,9 +272,10 @@ breaking change is:
 
 4. Commit `api-baseline.json` together with the source change so the surface
    diff is auditable in pull-request review.
-5. Add a `### Breaking Changes` section to the relevant `CHANGELOG.md` entry
+5. Add an entry to the `### Upgrade notes` section of the relevant `CHANGELOG.md`
+   version, the only allowed heading for this (`scripts/lint_changelog.py`),
    describing what changed, why, and how users migrate. The entry must include
-   a `Migration` subsection with concrete before/after code.
+   concrete before/after code under a bold `Migration` label.
 6. Land the change on `main`, then prepare the release PR with
    `gh workflow run release-please.yml` after a reviewed breaking commit or `Release-As: X.0.0` override: it proposes
    `__version__` in `pycubrid/__init__.py` (the single source that
@@ -238,6 +286,62 @@ breaking change is:
 The CI gate (`compat-check` job) will fail any pull request that changes the
 public surface without also updating `api-baseline.json`, which is exactly
 how this policy is enforced in practice.
+
+### Deprecation-based retirement in a MINOR release
+
+An optional-tier name may be removed in a MINOR release only when **all** of
+the following hold. Nothing here applies to the core tier, and a removal pull
+request cannot grant itself an exception.
+
+1. **A warning has shipped.** At least one earlier **published** MINOR release
+   emits a warning that users can see when they actually use the name. The
+   warning names the migration guide. Importing `pycubrid` or `pycubrid.aio`
+   must not warn. Because Python hides `DeprecationWarning` outside `__main__` by
+   default (PEP 565), the warning uses `FutureWarning` unless the deprecating
+   pull request documents and tests why a hidden-by-default category is enough.
+2. **The announcement has shipped.** That same release has a `### Deprecated`
+   entry in `CHANGELOG.md`, says in its Upgrade notes that a later MINOR release
+   will remove the name, and publishes an English migration guide with its
+   Korean counterpart. The guide gives before/after examples and says plainly
+   where no ordinary API replaces a name. A documentation-only announcement does
+   not satisfy this rule or rule 1.
+3. **The notice period has elapsed.** At least **28 calendar days** pass between
+   the notice start (below) and the merge of the release pull request of the
+   removal version. Both this period and rule 1 are required: a number of
+   releases does not replace the time, and the time does not replace a release.
+   28 days is a floor. The maintainer sets a longer period when the affected-user
+   assessment calls for it, and records it before the warning release ships.
+4. **The decision is recorded.** An issue labelled `breaking-change` records the
+   explicit maintainer decision, an affected-user assessment based on evidence
+   (never an assumption that there are no users), the correction plan if the
+   release causes a regression (for example yanking under §5 and a replacement
+   release), and the accepted residual risk from rule 6.
+5. **The change is reviewed in full.** The removal is its own pull request. It
+   regenerates `api-baseline.json` (steps 3–4 above), and its `CHANGELOG.md`
+   entry follows step 5 above. The release is called an intentional breaking
+   MINOR release in its Upgrade notes. No required check, `compat-check` or
+   release gate is skipped or loosened to land it. A `compat-check` failure is
+   fixed with the reviewed baseline diff. [`RELEASING.md`](RELEASING.md#breaking-minor-release)
+   defines the version mechanics.
+6. **The upgrade risk is disclosed.** The Upgrade notes state that a compatible
+   version range such as `pycubrid>=1.8.0,<2.0` can install the removal release
+   automatically. Warnings and notes reduce this risk but cannot remove it: only
+   an upper bound below the removal version protects a consumer that has not
+   migrated.
+
+**When the notice period starts.** The clock starts at the PyPI upload time of
+the first release that satisfies rules 1 and 2, in UTC, read from the PyPI JSON
+API (`urls[].upload_time_iso_8601`). Merging, tagging or a GitHub Release does
+not start it. A delayed, failed or abandoned release does not start it. If the
+warning release is yanked, or the warning turns out not to reach users (it does
+not fire on actual use, or its link is dead), the clock restarts at the PyPI
+upload of the release that corrects it. That correction may be a PATCH release,
+and the MINOR release requirement in rule 1 stays satisfied by the original
+release if it was not yanked.
+
+Security exceptions (§5) do not shorten the notice: a vulnerability in an
+optional-tier name is fixed in that name, or handled as a PATCH under §2, rather
+than used as a reason to remove the name early.
 
 ## 4. Acknowledged Historical Violation
 
@@ -252,6 +356,27 @@ acknowledged in `CHANGELOG.md` and not silently rewritten.
 
 The project remains on the 1.x line; the violation is treated as one-off rather
 than an excuse to abandon the contract going forward.
+
+### Withdrawn 1.x guarantee for 1.8.0 Compat names
+
+The **1.9.0 Upgrade note** (2026-10-04) and earlier revisions of §2 and §3 promised
+that the `pycubrid.compat` names released in 1.8.0
+(`git show v1.8.0:api-baseline.json`) "keep the normal 1.x guarantee", which means
+they would stay for the rest of the 1.x line. **#1124 withdraws that promise.** The change is a deliberate
+reversal, not a clarification:
+
+- Those names were not provisional, and this document does not say that they were.
+  The 1.9.0 note stays as published and is not rewritten.
+- Removing them in 1.x breaks a commitment that consumers could reasonably have
+  relied on. That costs trust, and the project accepts that cost openly instead of
+  releasing 2.0 only to retire a non-core API.
+- Consumers with a compatible range such as `<2.0` can receive the removal release
+  automatically, and no release note prevents that (§3, rule 6).
+- The withdrawal covers these names and any other optional-tier name only. It does
+  not weaken the guarantee for the core tier (§2), and PATCH releases remain
+  compatible, apart from the security exception in §2.
+- The withdrawal removes nothing by itself. Every §3 rule still applies, so these
+  names stay supported until a release that satisfies them.
 
 ## 5. Yanking and Security Releases
 
@@ -307,6 +432,14 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **Deprecation-based retirement policy (#1124)** — policy change; no runtime
+  change and no release on its own. Adds the core and optional stability tiers
+  (§2), the optional-tier retirement process with a published warning release and
+  a 28-day notice floor (§3), the withdrawal of the 1.x guarantee for 1.8.0
+  `pycubrid.compat` names (§4), and the [breaking MINOR release](RELEASING.md#breaking-minor-release)
+  procedure. `pycubrid.compat` stops receiving new features. Driver APIs, the
+  public API baseline and wire behavior are unchanged, and this entry starts no
+  notice period.
 - **`make verify` writes an aggregate summary (#1053)** — development-tooling change; no
   release on its own. `make verify` runs its phases through `scripts/run_verify.py` and always
   writes `test-results/verify/` (`summary.json`, masked `junit/<lane>.xml` and

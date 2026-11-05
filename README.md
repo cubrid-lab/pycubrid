@@ -23,7 +23,7 @@
 
 ---
 
-> **Status: Stable (1.x).** The public API follows [semantic versioning](RELEASE_POLICY.md); names first released in 1.9.0 or later in the opt-in `pycubrid.compat` namespaces are provisional. See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract.
+> **Status: Stable (1.x).** `pycubrid` and `pycubrid.aio` follow [semantic versioning](RELEASE_POLICY.md). The opt-in `pycubrid.compat` namespaces are an optional tier: names first released in 1.9.0 or later are provisional, and deprecated names can be retired in a MINOR release after notice. See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract.
 
 ## Start here
 
