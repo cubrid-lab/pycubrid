@@ -12,9 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   1.9.0 Upgrade note and the release policy promised that these names would stay
   supported for the rest of 1.x. That promise no longer holds, and this is a
   deliberate reversal, not a clarification: those names were not provisional. They
-  remain supported until they are retired through the new process. Nothing changes
-  at runtime in this release, no warning is added yet, and no removal version or
-  date is set.
+  remain supported until they are retired through the new process, and no removal
+  version or date is set. The note below describes the warning they now emit.
 - **`pycubrid.compat` can now be retired in a MINOR release (#1124).** A later 1.x
   MINOR release may remove these namespaces, after an earlier published MINOR release
   with a visible warning and a migration guide, and at least 28 calendar days of
