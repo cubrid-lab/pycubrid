@@ -21,8 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   notice from its PyPI upload. `pycubrid>=1.8.0,<2.0` and similar ranges can install
   such a release automatically; pin below the removal version if you still use these
   namespaces when it is announced. `pycubrid` and `pycubrid.aio` keep the MAJOR-only
-  rule for breaking changes, PATCH releases stay compatible, and `pycubrid.compat`
-  now receives bug and security fixes only. See the
+  rule for breaking changes, PATCH releases stay compatible except for a security
+  fix that cannot be made compatibly (it changes no more than the fix requires and
+  carries its own Upgrade note), and `pycubrid.compat` now receives bug and security
+  fixes only. See the
   [release policy](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
 
 ## [1.16.0] - 2026-11-05

@@ -91,8 +91,9 @@ Starting from **1.0.0**, version components have the following meaning:
 
 - **MAJOR** (`x.0.0`) — May contain breaking changes to the public API surface
   as defined in §1, and is used for broad API restructuring when that is
-  warranted. It is required for any breaking change to the core tier. It is not
-  required for retiring a deprecated optional-tier name. The next major version
+  warranted. It is required for any breaking change to the core tier, apart from
+  the PATCH security exception below. It is not required for retiring a
+  deprecated optional-tier name. The next major version
   is `2.0.0`.
 - **MINOR** (`1.x.0`) — Adds functionality in a backward-compatible manner.
   May add new public functions, methods, classes, parameters with defaults,
@@ -117,7 +118,7 @@ quality of its implementation.
 
 | Tier | Covers | Breaking change allowed in |
 |---|---|---|
-| **Core** | Everything in §1 that is not in the optional tier: `pycubrid`, `pycubrid.aio` and their returned classes, including the PEP 249 surface and documented extensions such as `executemany(..., prepared=True)` | MAJOR only |
+| **Core** | Everything in §1 that is not in the optional tier: `pycubrid`, `pycubrid.aio` and their returned classes, including the PEP 249 surface and documented extensions such as `executemany(..., prepared=True)` | MAJOR only, apart from the PATCH security exception above |
 | **Optional** | `pycubrid.compat`, `pycubrid.compat.cubriddb`, `pycubrid.compat.cursors`, `pycubrid.compat.native` and the classes they return | MINOR, after the §3 retirement process; MAJOR otherwise |
 
 The optional tier is this exact list. A new name enters it only through a
@@ -373,7 +374,7 @@ reversal, not a clarification:
   automatically, and no release note prevents that (§3, rule 6).
 - The withdrawal covers these names and any other optional-tier name only. It does
   not weaken the guarantee for the core tier (§2), and PATCH releases remain
-  compatible.
+  compatible, apart from the security exception in §2.
 - The withdrawal removes nothing by itself. Every §3 rule still applies, so these
   names stay supported until a release that satisfies them.
 
