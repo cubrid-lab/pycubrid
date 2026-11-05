@@ -254,8 +254,7 @@ release (§2, "Staged explicit compatibility namespaces"). Second, any
 optional-tier name, including one in the 1.8.0 baseline, may be retired in a
 MINOR release through "Deprecation-based retirement in a MINOR release" below.
 `pycubrid` and `pycubrid.aio` have neither exception. A provisional change
-skips the major version bump, the `breaking-change` issue and the
-`### Breaking Changes` section (steps 1 and
+skips the major version bump and the `breaking-change` issue (steps 1 and
 5–7), but still regenerates and commits `api-baseline.json` with the source
 change (steps 3–4) and must describe the change and how callers migrate in a
 `CHANGELOG.md` Upgrade note. The full process for landing a major-version
@@ -272,9 +271,10 @@ breaking change is:
 
 4. Commit `api-baseline.json` together with the source change so the surface
    diff is auditable in pull-request review.
-5. Add a `### Breaking Changes` section to the relevant `CHANGELOG.md` entry
+5. Add an entry to the `### Upgrade notes` section of the relevant `CHANGELOG.md`
+   version, the only allowed heading for this (`scripts/lint_changelog.py`),
    describing what changed, why, and how users migrate. The entry must include
-   a `Migration` subsection with concrete before/after code.
+   concrete before/after code under a bold `Migration` label.
 6. Land the change on `main`, then prepare the release PR with
    `gh workflow run release-please.yml` after a reviewed breaking commit or `Release-As: X.0.0` override: it proposes
    `__version__` in `pycubrid/__init__.py` (the single source that
