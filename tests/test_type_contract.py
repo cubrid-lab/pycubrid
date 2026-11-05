@@ -15,10 +15,9 @@ Empirically grounded against CUBRID 11.2. Notable contracts:
 * ``BLOB``/``CLOB`` decode to a LOB-locator ``dict``, not raw bytes;
 * ``TIMESTAMPTZ``/``DATETIMETZ`` decode to tz-aware ``datetime``.
 
-Collection types (SET/MULTISET/SEQUENCE) are intentionally out of scope here:
-they cannot be parameter-bound and their end-to-end decode needs separate
-investigation (tracked under the type/collection work), so pinning them in this
-contract matrix would encode unverified behavior.
+Collection types (SET/MULTISET/SEQUENCE) are out of scope here: they bind through
+the typed ``Set``/``Multiset``/``Sequence`` parameters and decode only with
+``decode_collections=True``, and ``tests/test_integration_collections.py`` covers them.
 
 Skipped when no CUBRID server is configured; errors when a configured one is
 unreachable (see the shared ``tests/conftest.py`` gate).
