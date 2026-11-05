@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.17.0](https://github.com/cubrid-lab/pycubrid/compare/v1.16.0...v1.17.0) (2026-11-05)
+
+
+### Added
+
+* **compat:** warn that the compat namespaces are deprecated ([#1128](https://github.com/cubrid-lab/pycubrid/issues/1128)) ([24c4518](https://github.com/cubrid-lab/pycubrid/commit/24c4518fd848876d2da3b8998c4c9e7116584f01))
+
+
+### Documentation
+
+* **release:** adopt deprecation-based MINOR retirement for Compat ([#1125](https://github.com/cubrid-lab/pycubrid/issues/1125)) ([2c52d45](https://github.com/cubrid-lab/pycubrid/commit/2c52d459999ac5a2332f2de51921bd01e4775ab1))
+
 ## [1.16.0](https://github.com/cubrid-lab/pycubrid/compare/v1.15.0...v1.16.0) (2026-11-05)
 
 
