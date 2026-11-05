@@ -20,12 +20,23 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
+          cache-suffix: ${{ github.job }}
       - run: |
-          python -m pip install --upgrade pip
-          pip install --group docs
+          uv export --locked --no-build --only-group docs --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip freeze --system
       - run: python scripts/generate_llms_full.py
       - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

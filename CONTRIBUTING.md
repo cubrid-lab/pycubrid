@@ -131,8 +131,9 @@ When updating either tool, change its pin in the `lint` dependency group of `pyp
 reinstall the `dev` group, then run `make check` and `pre-commit run --all-files`; there is no
 separate hook revision to edit. The drift gate rejects missing/ambiguous pins,
 an installed version that no longer matches the pin, and narrowed scopes.
-Dependabot's `pip` ecosystem can bump the `pyproject.toml` pin on its own and CI
-stays green, since the pre-commit hooks always run whatever is installed.
+Dependabot's root `uv` entry updates `pyproject.toml` and `uv.lock` together.
+Its updater uses its own installed uv version; CI qualifies the resulting lock
+with the pinned uv version before running the installed pre-commit tools.
 
 ## Pull Request Guidelines
 
@@ -239,8 +240,7 @@ Normal testing, docs and review requirements still apply. Maintainers decide whe
 
 ## Pull request and commit titles
 
-This rule covers issue titles, pull request titles and commit subjects in every
-cubrid-lab repository. Pull requests are squash-merged and the pull request
+This section covers pull request titles and commit subjects in this repository. Issue titles use a type-only prefix (`feat:`, `bug:`, etc.) without a required scope; see the [organization writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md). Pull requests are squash-merged and the pull request
 title becomes the commit title on `main`, so the pull request title is the one
 that must be right. The `PR title` check enforces it.
 
@@ -312,9 +312,7 @@ release. Maintainers use the PR-only `release-please.yml` generator; curated Unr
 ## Reporting Issues
 
 Search for an existing issue first, then use the closest issue form. Keep its
-prefilled title prefix; for a custom issue, pick the type from
-[Pull request and commit titles](#pull-request-and-commit-titles), for example
-`fix(protocol): ...`.
+prefilled title prefix; for a custom issue, use a type-only prefix such as `bug:` or `feat:` without a module scope.
 
 Reporters describe impact and reproduction; they do **not** need permission
 to apply GitHub labels. Maintainers assign a type label, one

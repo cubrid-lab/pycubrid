@@ -235,9 +235,13 @@ socket.timeout: timed out
 **증상:**
 
 ```
-OperationalError: Connection is closed
-InterfaceError: Connection is closed
+InterfaceError: connection is closed
+OperationalError: socket communication failed
+OperationalError: connection lost during receive
 ```
+
+첫 번째 메시지는 이미 닫힌 연결에 대한 이후 호출에서 발생합니다. 나머지 두 개는
+전송이 끊긴 호출에서 발생합니다.
 
 **원인:**
 
@@ -275,7 +279,7 @@ conn = get_connection()
 try:
     cur = conn.cursor()
     cur.execute("SELECT 1")
-except pycubrid.OperationalError:
+except (pycubrid.OperationalError, pycubrid.InterfaceError):
     # 연결 유실 시 재연결
     conn = get_connection()
     cur = conn.cursor()
@@ -1424,16 +1428,19 @@ import pycubrid
 logging.basicConfig(level=logging.DEBUG)
 
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+try:
+    print(f"Server version: {conn.get_server_version()}")
+    print(f"Autocommit: {conn.autocommit}")
 
-# 연결 상태 확인
-print(f"Server version: {conn.get_server_version()}")
-print(f"Autocommit: {conn.autocommit}")
-
-# 쿼리 후 커서 상태 확인
-cur = conn.cursor()
-cur.execute("SELECT * FROM users")
-print(f"Description: {cur.description}")
-print(f"Row count: {cur.rowcount}")
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM db_class")
+        print(f"Description: {cur.description}")
+        print(f"Row count: {cur.rowcount}")
+    finally:
+        cur.close()
+finally:
+    conn.close()
 ```
 
 드라이버의 디버그 로그는 바인딩된 파라미터 값을 출력하지 않도록 의도되어 있습니다.

@@ -61,3 +61,51 @@ def test_missing_section_still_fails_closed(tmp_path: Path) -> None:
     result = extract(tmp_path, CHANGELOG, "v9.9.9")
     assert result.returncode == 1
     assert not (tmp_path / "RELEASE_NOTES.md").exists()
+
+
+@pytest.mark.parametrize("args", [[], ["v1.2.0", "v1.1.0"]])
+def test_wrong_argument_count_prints_usage_and_exits_2(tmp_path: Path, args: list[str]) -> None:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "usage: extract_release_notes.py vX.Y.Z" in result.stderr
+    assert not (tmp_path / "RELEASE_NOTES.md").exists()
+
+
+def test_missing_changelog_fails_closed(tmp_path: Path) -> None:
+    """No CHANGELOG.md in the working directory is an error, not an empty release."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "v1.2.0"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "ERROR: CHANGELOG.md not found" in result.stderr
+    assert not (tmp_path / "RELEASE_NOTES.md").exists()
+
+
+def test_empty_section_fails_closed(tmp_path: Path) -> None:
+    """A dated header with no body must not produce an empty release."""
+    changelog = (
+        "# Changelog\n\n## [1.2.0] - 2026-10-01\n\n"
+        "## [1.1.0] - 2026-09-01\n\n### Fixed\n\n- Older.\n"
+    )
+
+    result = extract(tmp_path, changelog, "v1.2.0")
+
+    assert result.returncode == 1
+    assert "ERROR: Empty CHANGELOG section for 1.2.0" in result.stderr
+    assert not (tmp_path / "RELEASE_NOTES.md").exists()
+
+
+def test_version_without_the_leading_v_is_accepted(tmp_path: Path) -> None:
+    """A bare version behaves like the tagged one."""
+    assert extract(tmp_path, CHANGELOG, "1.1.0").returncode == 0
+    assert notes(tmp_path) == "### Fixed\n\n- Older.\n\n" + LINK + "v1.0.0...v1.1.0\n"

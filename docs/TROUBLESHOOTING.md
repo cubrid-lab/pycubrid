@@ -233,9 +233,13 @@ See [What the timeouts bound](CONNECTION.md#what-the-timeouts-bound) for details
 **Symptom:**
 
 ```
-OperationalError: Connection is closed
-InterfaceError: Connection is closed
+InterfaceError: connection is closed
+OperationalError: socket communication failed
+OperationalError: connection lost during receive
 ```
+
+The first message is raised by calls made after a connection has already
+closed. The other two are raised by the call that lost the transport.
 
 **Causes:**
 
@@ -274,7 +278,7 @@ conn = get_connection()
 try:
     cur = conn.cursor()
     cur.execute("SELECT 1")
-except pycubrid.OperationalError:
+except (pycubrid.OperationalError, pycubrid.InterfaceError):
     # Reconnect on connection loss
     conn = get_connection()
     cur = conn.cursor()
@@ -1430,16 +1434,19 @@ import pycubrid
 logging.basicConfig(level=logging.DEBUG)
 
 conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba")
+try:
+    print(f"Server version: {conn.get_server_version()}")
+    print(f"Autocommit: {conn.autocommit}")
 
-# Check connection state
-print(f"Server version: {conn.get_server_version()}")
-print(f"Autocommit: {conn.autocommit}")
-
-# Check cursor state after query
-cur = conn.cursor()
-cur.execute("SELECT * FROM users")
-print(f"Description: {cur.description}")
-print(f"Row count: {cur.rowcount}")
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM db_class")
+        print(f"Description: {cur.description}")
+        print(f"Row count: {cur.rowcount}")
+    finally:
+        cur.close()
+finally:
+    conn.close()
 ```
 
 The driver's debug logs intentionally avoid printing bound parameter values.

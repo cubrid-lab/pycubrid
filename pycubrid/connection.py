@@ -1024,8 +1024,11 @@ class Connection(ConnectionCommonMixin):
                 isinstance(packet, CloseQueryPacket)
                 and self._peek_boundary_deferred_close() == packet.query_handle
             ):
-                # The same send-time ownership transfer as FC41, but one FIFO
-                # CLOSE_REQ at a boundary. No extra wire argument is added.
+                # Like the PREPARE_AND_EXECUTE (FC41) branch above, the queued
+                # handle leaves the queue only when this request is sent, so a
+                # failure before sending keeps it. Here it is the oldest queued
+                # handle, sent as an ordinary CLOSE_REQ at a transaction
+                # boundary, so no extra wire argument is added.
                 deferred_count = 1
             try:
                 request_data = packet.write(self._cas_info)

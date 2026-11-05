@@ -17,6 +17,29 @@ ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.repo_tooling
 
 
+def test_dependabot_updates_the_committed_uv_lock() -> None:
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    root_python = [
+        entry
+        for entry in config["updates"]
+        if entry["directory"] == "/" and entry["package-ecosystem"] in {"pip", "uv"}
+    ]
+    assert len(root_python) == 1
+    assert root_python[0]["package-ecosystem"] == "uv"
+    assert (ROOT / "uv.lock").is_file()
+    assert not (ROOT / "docs/requirements.txt").exists(), "docs pins live in pyproject.toml"
+
+
+def test_dependabot_can_fetch_the_conditional_python_315_wheel() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    source = project["tool"]["uv"]["sources"]["pyyaml"]
+    # Dependabot's uv fetcher recognises path sources expressed as mappings.
+    assert isinstance(source, dict)
+    assert source["marker"] == "python_version == '3.15'"
+    wheel = ROOT / source["path"]
+    assert wheel.suffix == ".whl" and wheel.is_file()
+
+
 def workflow(name: str) -> dict:
     return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
 
@@ -798,7 +821,7 @@ def test_docs_build_job_mirrors_docs_workflow_and_stays_build_only() -> None:
             assert len(step["uses"].split("@", 1)[1].split()[0]) == 40, step["uses"]
             assert "pages" not in step["uses"], "PRs never upload or deploy a Pages artifact"
     runs = [s["run"] for s in steps if "run" in s]
-    assert "uv pip install --system --group docs" in runs[0]
+    assert "uv export --locked --no-build --only-group docs --no-emit-project" in runs[0]
     # Same order and commands as docs.yml's build job.
     docs_runs = [s["run"] for s in workflow("docs.yml")["jobs"]["build"]["steps"] if "run" in s]
     assert (
@@ -809,7 +832,7 @@ def test_docs_build_job_mirrors_docs_workflow_and_stays_build_only() -> None:
             "mkdocs build --strict",
         ]
     )
-    assert docs_runs[0] == "python -m pip install --upgrade pip\npip install --group docs\n"
+    assert docs_runs[0] == runs[0]
 
 
 def test_docs_site_selection_covers_every_site_input() -> None:
@@ -819,6 +842,8 @@ def test_docs_site_selection_covers_every_site_input() -> None:
     assert set(filters["site"]) == {
         "docs/**",  # content and nav assets
         "pyproject.toml",  # the docs dependency group (#784)
+        "uv.lock",
+        ".github/ci-wheels/**",
         "mkdocs.yml",
         "scripts/generate_llms_full.py",
         ".github/workflows/docs.yml",

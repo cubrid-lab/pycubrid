@@ -27,27 +27,25 @@ def _write_benchmarks(path: Path, medians: dict[str, float]) -> None:
     )
 
 
+def _write_raw_benchmarks(path: Path, entries: list[dict[str, object]]) -> None:
+    path.write_text(json.dumps({"benchmarks": entries}))
+
+
 def _run_report(
     tmp_path: Path,
     baseline: dict[str, float],
     current: dict[str, float],
     *,
-    threshold: float,
+    threshold: float | None,
 ) -> int:
     baseline_path = tmp_path / "baseline.json"
     current_path = tmp_path / "current.json"
     _write_benchmarks(baseline_path, baseline)
     _write_benchmarks(current_path, current)
-    return bench_regression.main(
-        [
-            "--baseline",
-            str(baseline_path),
-            "--current",
-            str(current_path),
-            "--fail-threshold",
-            str(threshold),
-        ]
-    )
+    argv = ["--baseline", str(baseline_path), "--current", str(current_path)]
+    if threshold is not None:
+        argv += ["--fail-threshold", str(threshold)]
+    return bench_regression.main(argv)
 
 
 def test_regression_strictly_above_threshold_fails(
@@ -112,3 +110,77 @@ def test_malformed_json_exits_with_input_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert f"error: cannot read benchmark JSON {baseline_path}:" in captured.err
+
+
+def test_load_medians_falls_back_to_fullname_and_skips_unusable_entries(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "bench.json"
+    _write_raw_benchmarks(
+        path,
+        [
+            {"name": "named", "stats": {"median": 0.1}},
+            {"fullname": "tests/test_x.py::test_y", "stats": {"median": 0.2}},
+            {"name": "", "fullname": "empty-name", "stats": {"median": 0.3}},
+            {"name": "no_stats"},
+            {"name": "string_median", "stats": {"median": "0.1"}},
+            {"name": "null_median", "stats": {"median": None}},
+            {"name": "zero_median", "stats": {"median": 0}},
+        ],
+    )
+
+    assert bench_regression._load_medians(path) == {
+        "named": 0.1,
+        "tests/test_x.py::test_y": 0.2,
+        "empty-name": 0.3,
+        "zero_median": 0.0,
+    }
+
+
+@pytest.mark.parametrize("baseline_median", [0.0, -0.1])
+def test_pct_change_with_non_positive_baseline_is_zero(baseline_median: float) -> None:
+    assert bench_regression._pct_change(baseline_median, 0.5) == 0.0
+
+
+def test_zero_baseline_never_reports_a_regression(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run_report(tmp_path, {"zero": 0.0}, {"zero": 0.5}, threshold=10) == 0
+
+    captured = capsys.readouterr()
+    assert "+0.0%" in captured.out
+    assert "worst change: +0.0%" in captured.out
+    assert "REGRESSION" not in captured.out
+    assert captured.err == ""
+
+
+def test_dropped_and_new_benchmarks_are_listed_sorted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert (
+        _run_report(
+            tmp_path,
+            {"z_dropped": 0.1, "keep": 0.1, "a_dropped": 0.1},
+            {"b_new": 0.1, "keep": 0.1, "a_new": 0.1},
+            threshold=None,
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert "benchmarks only in baseline (dropped?): a_dropped, z_dropped" in captured.out
+    assert "benchmarks only in current (new?): a_new, b_new" in captured.out
+    assert "REGRESSION" not in captured.out
+    assert captured.err == ""
+
+
+def test_report_only_without_threshold_passes_large_slowdown(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run_report(tmp_path, {"select": 0.1}, {"select": 0.5}, threshold=None) == 0
+
+    captured = capsys.readouterr()
+    assert "+400.0%" in captured.out
+    assert "worst change: +400.0%" in captured.out
+    assert "REGRESSION" not in captured.out
+    assert captured.err == ""

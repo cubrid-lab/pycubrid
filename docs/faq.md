@@ -26,7 +26,8 @@ Common pycubrid usage questions with practical answers.
         If your deployment uses broker-to-CAS port redirection, ensure network rules allow the redirected CAS port(s).
 
 ??? "What Python versions are supported?"
-    pycubrid follows its package support matrix and CI-tested versions.
+    pycubrid supports Python 3.11–3.15 (standard GIL builds; free-threaded builds are not supported).
+    On Python 3.10, `pip` installs the 1.9.x release line.
 
     !!! note
         Check the latest compatibility table in [Support Matrix](SUPPORT_MATRIX.md).

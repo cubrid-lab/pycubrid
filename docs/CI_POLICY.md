@@ -352,45 +352,48 @@ external caller is not allowlisted.
 
 ## Dependency installation
 
-`ci.yml` and `integration-full.yml` install dependencies with uv (#759): each
-Python job runs `astral-sh/setup-uv` pinned to a commit SHA, with uv itself pinned
-(`version: "0.12.17"`), then `uv pip install --system` into the
-`actions/setup-python` interpreter, and logs the result with
-`uv pip freeze --system`. setup-uv receives the same `python-version` spec as
-setup-python (for example `"3.12"` or the matrix value), so its cache key carries the
-job's Python minor version rather than the patch release `uv python find` would
-report, which differs between runner images and would make the key miss. With the
-`pyproject.toml` hash and a per-job `cache-suffix`, each job and Python version keeps
-its own cache. The same input exports `UV_PYTHON`, and `uv pip install --system`
-picks the first matching interpreter on `PATH`, which is setup-python's. Routine CI always caches
-(`enable-cache: true`); `integration-full.yml` uses `auto`, which disables caching only
-for tag pushes, `release`, `pull_request_target` and `workflow_run` events. The release
-path (`publish-pypi.yml` on a `main` push, or its recovery dispatch) therefore still
-restores caches. That is safe because a uv cache holds only downloaded and built
-wheels: every run re-resolves from the same constraints, so a cache can speed an
-install but cannot change the resolved versions. Only the installer changes. Resolution
-follows the same `pyproject.toml` constraints: before the switch, `.[dev]` on
-Python 3.12 resolved to the same 63 packages and versions with pip and uv (after
-PEP 503 name normalization). The packaging smoke test keeps plain `pip` in its
-throwaway virtual environments, because it proves the built wheel and sdist install
-with the tool end users run. `python-canary.yml` also stays on `pip` for preview
-interpreters. `tests/test_workflow_installs.py` enforces the pinned uv setup, the
-version log, and that no other `pip install` remains in these workflows.
+`ci.yml`, `integration-full.yml` and `docs.yml` use commit-pinned setup-uv and
+uv `0.12.17`. Jobs export their selected dependency groups from `uv.lock` with
+`--locked --no-build --no-emit-project`, preserving applicable runtime dependencies for jobs
+that install the project. Export also refuses source metadata builds before a
+stale lock is rejected. Third-party installs require the exported hashes and
+`--only-binary :all:`, so registry source-build hooks cannot run. A manifest change
+without an updated lock fails. Update the lock with the dependency declarations.
+
+The locked `build` group supplies the backend before a separate first-party
+editable install with `--no-index --no-deps --no-build-isolation`. Package builds
+use `python -m build --no-isolation`. Wheel/sdist smoke tests retain plain pip in
+fresh environments, with dependencies already installed and downloads disabled.
+These trusted checkout builds may execute first-party build code. Python 3.15
+uses a derived pure Python PyYAML wheel whose hashes, licence and reproduction
+steps are in [the CI wheel provenance](https://github.com/cubrid-lab/pycubrid/blob/main/.github/ci-wheels/README.md).
+
+setup-uv receives setup-python's `python-version` and exports `UV_PYTHON` for
+the selected interpreter. Caches include `pyproject.toml`, `uv.lock` and CI wheels,
+with a per-job suffix and Python minor version. CI and docs always cache;
+`integration-full.yml` retains `auto`. Cache contents cannot replace the required
+artifact hashes. Jobs log installed versions with `uv pip freeze --system`.
+`python-canary.yml` retains pip for its separate fresh-install probe.
+`tests/test_workflow_installs.py` checks these install and cache contracts and
+exercises export/installation source-hook, stale-lock and tampered-hash rejection offline.
 
 ## Pinned documentation tools and scan concurrency
 
-`docs.yml` installs the site tools only from the `docs` dependency group in
-`pyproject.toml` (`pip install --group docs`, after upgrading pip to a release that
-supports `--group`), which pins `mkdocs`, `mkdocs-material` and `pymdown-extensions`
-to exact versions (#782, moved from `docs/requirements.txt` in #784), so an
-upstream release cannot break the `mkdocs build --strict` gate without a repository
-change. Dependabot's root `pip` entry proposes updates with the other
-`pyproject.toml` pins.
+`docs.yml` exports `--only-group docs` from the lock. The `docs` group in
+`pyproject.toml` pins the site tools, and `uv.lock` fixes their transitive versions
+and hashes. Dependabot's root `uv` entry updates the manifest and lock together
+for every dependency group, including the documentation tools (#750, #784).
+The updater uses its own installed uv version; CI's pinned uv 0.12.17 must
+accept the resulting lock and the site build must pass before merge.
+The conditional Python 3.15 PyYAML wheel source uses a single mapping so the
+updater can fetch the checked-in wheel. Its Python marker and wheel hash remain
+part of the locked installation contract.
 
 `ci.yml` also builds the site on pull requests (#786), so a bump or a docs edit that
 breaks `mkdocs build --strict` fails before merge instead of later on `main`. The
 `docs-build` job is selected by the `site` path filter: `docs/**` (content and
-nav assets), `pyproject.toml` (the `docs` group), `mkdocs.yml`, `scripts/generate_llms_full.py`,
+nav assets), `pyproject.toml` (the `docs` group), `uv.lock`, `.github/ci-wheels/**`,
+`mkdocs.yml`, `scripts/generate_llms_full.py`,
 `.github/workflows/docs.yml` and `.github/workflows/ci.yml`. Root `*.md` files are not
 site inputs (the changelog is linked, not staged), so they do not select it, and
 `workflow_dispatch` forces it like the other lanes. The job runs the `docs.yml` build

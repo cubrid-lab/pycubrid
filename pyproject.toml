@@ -59,20 +59,25 @@ test = [
     "jinja2>=3.1",
 ]
 lint = [
-    "ruff==0.17.1",
+    "ruff==0.17.2",
     "mypy==2.4.0",
     "pre-commit",
 ]
 security = [
     "bandit[toml]==1.9.4",
 ]
-release = [
+build = [
     "build",
+    "setuptools==84.2.1",
+    "wheel==0.48.0",
+]
+release = [
+    {include-group = "build"},
     "twine",
 ]
 docs = [
     "mkdocs==1.6.1",
-    "mkdocs-material==9.7.7",
+    "mkdocs-material==9.8.0",
     "pymdown-extensions==12.3",
     # The deterministic documentation checks in the docs-check CI job (#927).
     "markdown-it-py==4.2.0",
@@ -96,6 +101,15 @@ Repository = "https://github.com/cubrid-lab/pycubrid"
 Documentation = "https://cubrid-lab.github.io/pycubrid/"
 Changelog = "https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md"
 Issues = "https://github.com/cubrid-lab/pycubrid/issues"
+
+[tool.uv.sources]
+# PyYAML 6.0.3 has no CPython 3.15 wheel. This contains its unchanged Python
+# modules with the optional native extension removed; see the wheel provenance.
+pyyaml = {path = ".github/ci-wheels/pyyaml-6.0.3-1-py3-none-any.whl", marker = "python_version == '3.15'"}
+
+[tool.uv.dependency-groups]
+# Matches the existing make mutation Python guard.
+mutation = {requires-python = ">=3.12"}
 
 [tool.setuptools]
 packages = ["pycubrid", "pycubrid.aio", "pycubrid.compat"]

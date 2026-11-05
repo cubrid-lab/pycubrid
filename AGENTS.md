@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Organization-wide issue, PR, and commit writing
+
+Follow the [cubrid-lab writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md). **Issue titles** use only a type prefix (for example, `feat: ...` or `bug: ...`); do not require a module scope. Describe the problem or goal in plain English, with reproducible evidence and verifiable acceptance criteria appropriate to the issue. **Triage** validates scope, duplicates, type, priority and size; **PRs and commits** retain the existing Conventional Commits format and PR CI validators. Keep issue goals distinct from implementation/PR evidence and avoid internal IDs, personal comments or agent bookkeeping in the title/body.
+
 Project knowledge base for AI coding agents.
 
 ## Project Overview
@@ -345,8 +349,7 @@ issue title or body. Reporters describe urgency and effort without needing label
 permissions. All newly filed issues enter `status: needs triage` first; priority and size
 are finalized during maintainer triage, not guessed from the issue title.
 
-Issue titles use the same `type(scope): description` format as pull request
-titles (see [CONTRIBUTING.md](CONTRIBUTING.md#pull-request-and-commit-titles)).
+Issue titles use a type-only prefix (`feat:`, `bug:`, etc.) without a required scope; see the [organization writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md).
 `.github/workflows/issue-triage.yml` marks every externally opened issue as
 `status: needs triage`. Automation using `GITHUB_TOKEN` must attach this status
 when creating the issue, because those actions may not trigger another workflow.
@@ -417,7 +420,7 @@ Do not mark work complete until code, tests, and documentation are consistent.
 
 ## Commit Convention
 
-Issue titles, pull request titles and commit subjects follow
+Pull request titles and commit subjects follow
 [CONTRIBUTING.md - Pull request and commit titles](CONTRIBUTING.md#pull-request-and-commit-titles):
 `type(scope)!: description` with types `feat`, `fix`, `docs`, `test`, `perf`,
 `refactor`, `ci`, `build`, `chore`, `style`, `revert`; English, lowercase start
@@ -446,3 +449,47 @@ The copyable commit example intentionally has no agent-specific footer: do
 not add a coauthor or tool credit unless it truthfully identifies a real
 contributor to that commit. Human-authored and AI-assisted contributions follow
 the same review criteria; neither a named AI tool nor a trailer is mandatory.
+
+## Human-readable communication (all agents)
+
+Use this rule for text authored or edited by Codex, Claude Code, OpenCode,
+ChatGPT, Copilot, or any other agent. It applies to issues, PRs, reviews,
+comments, checklists, status updates, commit summaries, release notes,
+documentation, presentations, and other maintainer-facing writing.
+
+- Write for a reader unfamiliar with the underlying script, storyboard,
+  automation run, or agent plan. Name the actual project, component,
+  action, evidence, and location in ordinary, clear language.
+- Never use unexplained internal identifiers as reader-facing labels or
+  checklist instructions (for example, `H1, P1, C1, K1, F2` or `A1/B1/R1/R2`).
+  Do not substitute `P1`/`P2` for repository priority labels.
+- When an internal identifier is necessary for accurate cross-reference,
+  **describe the subject first**, then add the identifier in context:
+  `pycubrid introduction (0:20; storyboard shot P1)`. Use descriptive
+  names and timestamps, section titles, or paths wherever practical.
+- Use natural, actionable wording. Prefer `Listen to the full narration and
+  verify the pronunciation of each project name` to `Maintainer full listen`.
+  Avoid compressed task fragments, unexplained acronyms, and generated
+  process/status jargon.
+- Keep legitimate technical identifiers unchanged in code, tests, structured
+  data, logs, specifications, and exact evidence references. Issue numbers,
+  filenames, command names, APIs, error codes, and hashes are not prohibited.
+  Do not break machine-readable references to improve prose.
+- Before publishing, reread the text as a first-time maintainer. It should
+  state what happened or needs to happen, why, and where without requiring a
+  separate lookup table. Edit an existing editable comment to correct unclear
+  wording rather than adding redundant follow-up comments.
+
+Source comments, test names and docstrings, examples, PR descriptions and
+review replies follow the organization's canonical rule,
+[Explanations in code, tests, reviews and agent-written text](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md#6-explanations-in-code-tests-reviews-and-agent-written-text).
+Say what happens, why it matters, and the invariant or constraint (for
+example, which session owns a query handle and when it may be released)
+before any issue number or protocol code such as `#488` or `FC41`; keep those
+identifiers afterwards for traceability. Do not rename tests, fixtures or
+other machine-readable identifiers to satisfy this rule, and revise existing
+comments only where a new reader would be confused.
+
+This is a shared writing convention, not a new CI check, reviewer approval,
+or merge gate. This repository's DB-API, protocol, test, security and release
+rules keep precedence over it.

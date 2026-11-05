@@ -135,6 +135,8 @@ jobs:
             site:
               - 'docs/**'
               - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/ci-wheels/**'
               - 'mkdocs.yml'
               - 'scripts/generate_llms_full.py'
               - '.github/workflows/docs.yml'
@@ -145,6 +147,8 @@ jobs:
               - 'pycubrid/**'
               - 'tests/**'
               - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/ci-wheels/**'
               - 'setup.cfg'
               - 'Makefile'
               - 'docker-compose.yml'
@@ -155,6 +159,7 @@ jobs:
               - '.github/**'
               - 'Makefile'
               - 'pyproject.toml'
+              - 'uv.lock'
               - 'setup.cfg'
               - 'tests/test_*workflow*.py'
               - 'tests/test_ci_policy.py'
@@ -266,19 +271,23 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install the pinned documentation tools
         run: |
-          uv pip install --system --group docs
+          uv export --locked --no-build --only-group docs --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip freeze --system
       - name: Check local links, anchors, fences and commands
         run: python scripts/check_docs_links.py
@@ -300,19 +309,23 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install the pinned documentation tools
         run: |
-          uv pip install --system --group docs
+          uv export --locked --no-build --only-group docs --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip freeze --system
       - name: Generate llms-full.txt
         run: python scripts/generate_llms_full.py
@@ -329,19 +342,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid (import-only)
         run: |
-          uv pip install --system -e .
+          uv export --locked --no-build --no-default-groups --group build --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Verify public API surface matches api-baseline.json
         run: python scripts/check_public_api.py
@@ -354,19 +372,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pinned ruff from pyproject.toml
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       # `make check` minus `typecheck`: the typecheck job runs mypy once, and only
       # for code changes, so docs-only events skip it (#1009).
@@ -401,19 +424,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install dependencies
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Mypy strict
         run: make typecheck
@@ -436,21 +464,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python-version }}
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system -e . --group dev
-          uv pip install --system pytest-cov
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Run representative PR smoke tests
         if: github.event_name == 'pull_request' && needs.detect-changes.outputs.risk != 'true'
@@ -528,20 +560,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Run repository tooling tests
         shell: bash
@@ -556,26 +593,30 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install build tool
         run: |
-          uv pip install --system build
+          uv export --locked --no-build --only-group build --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip freeze --system
       - name: Build sdist and wheel
-        run: python -m build
+        run: python -m build --no-isolation
       - name: Smoke test wheel install
         run: |
           python -m venv /tmp/test-wheel
-          /tmp/test-wheel/bin/pip install dist/*.whl
+          /tmp/test-wheel/bin/pip install --no-index --no-deps dist/*.whl
           cd /tmp
           /tmp/test-wheel/bin/python -c "import pycubrid; print(pycubrid.__version__)"
           /tmp/test-wheel/bin/python -c "import pycubrid.aio; print('async OK')"
@@ -583,7 +624,8 @@ jobs:
       - name: Smoke test sdist install
         run: |
           python -m venv /tmp/test-sdist
-          /tmp/test-sdist/bin/pip install dist/*.tar.gz
+          uv pip install --python /tmp/test-sdist/bin/python --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          /tmp/test-sdist/bin/pip install --no-index --no-deps --no-build-isolation dist/*.tar.gz
           cd /tmp
           /tmp/test-sdist/bin/python -c "import pycubrid; print(pycubrid.__version__)"
 
@@ -616,19 +658,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python-version }}
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
@@ -689,19 +736,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.14"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.14"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Wait for CUBRID readiness
         run: python scripts/wait_for_cubrid.py
@@ -736,19 +788,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python-version }}
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Start CUBRID broker with SSL=ON
         run: |
@@ -954,20 +1011,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         id: python
         with:
           python-version: "3.11"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.11"
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
           cache-suffix: ${{ github.job }}
       - name: Install pycubrid
         run: |
-          uv pip install --system -e . --group dev
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
           uv pip freeze --system
       - name: Restore the official oracle build
         id: oracle-cache
