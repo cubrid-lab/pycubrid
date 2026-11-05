@@ -198,6 +198,8 @@ conn = pycubrid.connect(
 
 ## 명시적 네이티브 호환 기능
 
+> **Deprecated.** `pycubrid.compat`은 `FutureWarning`을 내며 이후의 1.x MINOR 릴리스에서 제거됩니다. [마이그레이션 가이드](COMPAT_MIGRATION.md)를 참고하세요.
+
 옵트인 `pycubrid.compat.native`는 순수 Python 동기 전송 위에 스칼라 값
 (`None`, `bool`, `int`, `float`, `Decimal`, `str`, `bytes`/`bytearray`, `date`,
 `time`, `datetime`; #840부터 타입 지정,

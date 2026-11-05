@@ -2,6 +2,8 @@
 
 > 🌐 [UPSTREAM_COMPATIBILITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/UPSTREAM_COMPATIBILITY.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
+> **Deprecated.** `pycubrid.compat`은 `FutureWarning`을 내며 이후의 1.x MINOR 릴리스에서 제거됩니다. [마이그레이션 가이드](COMPAT_MIGRATION.md)를 참고하세요. 아래 내용은 과거 기록이며 고쳐 쓰지 않습니다.
+
 [기계 판독 가능한 카탈로그](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_api_inventory.json)는
 공식 [CUBRID/cubrid-python 소스 스냅샷](https://github.com/CUBRID/cubrid-python/tree/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b)에
 드라이버가 선언한 공개 연산을 기록합니다. 소스 참조, 시그니처, 기본값,

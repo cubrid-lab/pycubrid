@@ -12,9 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   1.9.0 Upgrade note and the release policy promised that these names would stay
   supported for the rest of 1.x. That promise no longer holds, and this is a
   deliberate reversal, not a clarification: those names were not provisional. They
-  remain supported until they are retired through the new process. Nothing changes
-  at runtime in this release, no warning is added yet, and no removal version or
-  date is set.
+  remain supported until they are retired through the new process, and no removal
+  version or date is set. The note below describes the warning they now emit.
 - **`pycubrid.compat` can now be retired in a MINOR release (#1124).** A later 1.x
   MINOR release may remove these namespaces, after an earlier published MINOR release
   with a visible warning and a migration guide, and at least 28 calendar days of
@@ -26,6 +25,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   carries its own Upgrade note), and `pycubrid.compat` now receives bug and security
   fixes only. See the
   [release policy](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
+- **Creating a `pycubrid.compat` connection now emits `FutureWarning` (#1120).** Your code
+  keeps working, and Python shows the warning by default once per calling line. If you run
+  with warnings as errors (`python -W error`, or `filterwarnings = error` in pytest), this
+  upgrade makes `pycubrid.compat` connections raise `FutureWarning` until you migrate or add
+  a narrow filter for that message. Migrating is not only a rename: for example Compat starts
+  in autocommit and `pycubrid.connect()` does not, so code that never calls `commit()` would
+  lose writes. Follow the [migration guide](docs/COMPAT_MIGRATION.md), which lists what has no
+  ordinary replacement. A later 1.x MINOR release will remove these namespaces, at least 28
+  calendar days after this release reaches PyPI. No version or date is set yet, and a range
+  such as `pycubrid>=1.8.0,<2.0` can install that release automatically.
+
+### Deprecated
+
+- **`pycubrid.compat` (#1120)** — `pycubrid.compat.native`, `pycubrid.compat.cubriddb` and
+  `pycubrid.compat.cursors`, the opt-in imitation of the official `_cubrid` and `CUBRIDdb` APIs,
+  are deprecated. `pycubrid` and `pycubrid.aio` are the replacements. Every factory warns at
+  the caller's line before any socket work. Importing these modules, and using `pycubrid` or
+  `pycubrid.aio`, does not warn.
 
 ## [1.16.0] - 2026-11-05
 

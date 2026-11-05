@@ -71,6 +71,8 @@ from pycubrid.protocol import (
     _encode_prepared_scalar,
 )
 
+from ._deprecation import warn_compat_deprecated
+
 _LOGGER = logging.getLogger(__name__)
 _HOST = re.compile(r"[A-Za-z0-9_.-]+\Z")
 _PORT = re.compile(r"[0-9]+\Z")
@@ -132,6 +134,7 @@ class connection:
         *,
         charset: str = "utf-8",
     ) -> None:
+        warn_compat_deprecated()
         host, port, database = _parse_url(url)
         for name, value in (("user", user), ("passwd", passwd)):
             if not isinstance(value, str):
