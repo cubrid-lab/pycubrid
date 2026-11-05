@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-11-05
+
 ### Upgrade notes
 
 - **The 1.x guarantee for 1.8.0 `pycubrid.compat` names is withdrawn (#1124).** The
@@ -36,6 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   calendar days after this release reaches PyPI. No version or date is set yet, and a range
   such as `pycubrid>=1.8.0,<2.0` can install that release automatically.
 
+### Added
+
+* **compat:** warn that the compat namespaces are deprecated ([#1128](https://github.com/cubrid-lab/pycubrid/issues/1128)) ([24c4518](https://github.com/cubrid-lab/pycubrid/commit/24c4518fd848876d2da3b8998c4c9e7116584f01))
+
 ### Deprecated
 
 - **`pycubrid.compat` (#1120)** — `pycubrid.compat.native`, `pycubrid.compat.cubriddb` and
@@ -43,6 +49,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   are deprecated. `pycubrid` and `pycubrid.aio` are the replacements. Every factory warns at
   the caller's line before any socket work. Importing these modules, and using `pycubrid` or
   `pycubrid.aio`, does not warn.
+
+### Documentation
+
+* **release:** adopt deprecation-based MINOR retirement for Compat ([#1125](https://github.com/cubrid-lab/pycubrid/issues/1125)) ([2c52d45](https://github.com/cubrid-lab/pycubrid/commit/2c52d459999ac5a2332f2de51921bd01e4775ab1))
 
 ## [1.16.0] - 2026-11-05
 
