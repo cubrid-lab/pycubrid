@@ -3999,6 +3999,33 @@
               ]
             }
           },
+          "schema_info": {
+            "kind": "callable",
+            "signature": {
+              "params": [
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "self"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "schema_type"
+                },
+                {
+                  "has_default": false,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "class_name"
+                },
+                {
+                  "has_default": true,
+                  "kind": "POSITIONAL_ONLY",
+                  "name": "attr_name"
+                }
+              ]
+            }
+          },
           "server_version": {
             "kind": "callable",
             "signature": {
@@ -4622,6 +4649,33 @@
               "has_default": false,
               "kind": "POSITIONAL_OR_KEYWORD",
               "name": "self"
+            }
+          ]
+        }
+      },
+      "schema_info": {
+        "kind": "callable",
+        "signature": {
+          "params": [
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "self"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "schema_type"
+            },
+            {
+              "has_default": false,
+              "kind": "POSITIONAL_ONLY",
+              "name": "class_name"
+            },
+            {
+              "has_default": true,
+              "kind": "POSITIONAL_ONLY",
+              "name": "attr_name"
             }
           ]
         }

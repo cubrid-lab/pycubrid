@@ -440,8 +440,8 @@ finally:
 실제 요청은 직접 대입 가능한 네이티브 캐시가 아닌 실제 autocommit 모드와
 현재의 정확한 드라이버·소켓·물리 세대를 사용합니다. 재시도·재접속 또는
 명시적인 commit/rollback은 하지 않습니다. 활성 private 스키마 결과가 있으면
-실제 autocommit 유틸리티 요청을 거부하며 공개 네이티브 스키마 API를 제공하는
-것은 아닙니다. 종료되거나 교체된 소유자는 다른 세션을 쓰는 대신 실패합니다.
+실제 autocommit 유틸리티 요청을 거부하며, 네이티브
+[`schema_info()`](#native-schema-info-1011)는 결과를 열어 두지 않습니다. 종료되거나 교체된 소유자는 다른 세션을 쓰는 대신 실패합니다.
 Ping은 소비한 결과 페이지를 검증하고 아직 소유한 핸들만 닫은 뒤 성공을
 반환합니다. 트랜잭션으로 이미 폐기된 핸들은 다시 닫지 않습니다. 정리만
 실패하면 오류를 전달하지만 부차적인 정리 오류가 앞선 쿼리 오류를 대체하지
@@ -449,6 +449,54 @@ Ping은 소비한 결과 페이지를 검증하고 아직 소유한 핸들만 �
 한정된 비교 사례는 기본 True와 명시적 수동 False 모드의 정상 네이티브·래퍼
 호출을 다룹니다. Client ID는 드라이버별 별도 관측이며 ID 일치, 복구,
 오류 프로파일 또는 upstream 정규식의 인증이 아닙니다.
+
+<a name="native-schema-info-1011"></a>
+
+### 네이티브 schema_info (#1011)
+
+`native.connection.schema_info(schema_type, class_name, attr_name, /)`는 고정한
+공식 `_cubrid.connection.schema_info`처럼 **첫 번째** 스키마 행을 `list`로,
+행이 없으면 `None`을 반환합니다. 래퍼는 이 메서드를 제공하지 않으므로
+`wrapper.connection.schema_info(...)`를 사용합니다. 일반 `get_schema_info()`,
+`fetch_schema_info()`, `close_schema_info()`는 바뀌지 않습니다.
+
+| 인자 | 허용 | I/O 전에 거부 |
+| --- | --- | --- |
+| `schema_type` | `CLASS`(1), `VCLASS`(2), `ATTRIBUTE`(4), `CLASS_ATTRIBUTE`(5). `CCISchemaType` 멤버나 `True`처럼 `__index__`가 있는 값 | 정수가 아니면 `TypeError`, 부호 있는 32비트 범위 밖은 `OverflowError`, 1–20 밖은 `InterfaceError`, 범위 안의 나머지 형식(3, 6–20)은 `NotSupportedError` |
+| `class_name` | 필수 `str`, 그대로 전송(CLASS/VCLASS는 `%`/`_` 패턴) | 누락 또는 `str`이 아님(`None` 포함): `TypeError`, NUL: `ValueError`, 연결 문자 집합으로 인코딩 불가: `DataError` |
+| `attr_name` | 선택 `str`, 주었을 때만 전송(ATTRIBUTE/CLASS_ATTRIBUTE는 패턴) | `str`이 아님(명시적 `None` 포함): `TypeError`, NUL: `ValueError`, 인코딩 불가: `DataError` |
+
+`str` 하위 클래스는 저장된 문자열 그대로 검증·전송합니다. 키워드 인자는
+`TypeError`로 거부합니다. 공식 `_cubrid.CUBRID_SCH_*` 상수는
+내보내지 않으므로 정수나 `pycubrid.constants.CCISchemaType` 멤버를 넘깁니다.
+공식 확장처럼 CLASS/VCLASS는 패턴 플래그 1(클래스 이름),
+ATTRIBUTE/CLASS_ATTRIBUTE는 플래그 2(속성 이름)를 보냅니다. 행 값은 `str`,
+`int`, `None`입니다. CLASS/VCLASS는 `[NAME, TYPE, REMARKS]`,
+ATTRIBUTE/CLASS_ATTRIBUTE는 14개 열 `[ATTR_NAME, DOMAIN, SCALE, PRECISION,
+INDEXED, NON_NULL, SHARED, UNIQUE, DEFAULT, ATTR_ORDER, CLASS_NAME,
+SOURCE_CLASS, IS_KEY, REMARKS]`입니다. CCI처럼 `DOMAIN`은 와이어 형식의
+컬렉션·프로토콜 비트를 지우므로 `SET(INT)` 열은 `8`을 보고합니다. CUBRID 11.x는
+클래스 이름에 소유자를 붙이고(`dba.t`) 10.2는 붙이지 않습니다.
+STRING/SHORT/INT가 아닌 결과 열은 `NotSupportedError`를 발생시킵니다.
+
+호출은 연결의 현재 물리 세션과 실제 autocommit 모드에서 실행하며 커밋,
+재시도, 재접속, 재실행을 하지 않습니다. FC9를 보내고 행이 있을 때만 FETCH를
+한 번 보낸 뒤, 행이 없을 때와 FETCH 오류 후에도 반환 전에 서버 핸들을 항상
+닫습니다(공식 확장은 이 경로에서 핸들을 열어 둡니다). 완전한 서버 오류는
+전달하고 세션을 유지하며, 잘못된 응답이나 닫기 실패는 세션을 폐기합니다.
+같은 연결의 열린 prepared 결과는 계속 사용할 수 있습니다.
+
+```python
+from pycubrid.compat import native
+from pycubrid.constants import CCISchemaType
+
+conn = native.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+try:
+    table = conn.schema_info(CCISchemaType.CLASS, "users")  # ['dba.users', 2, None]
+    column = conn.schema_info(4, "users", "email")  # 첫 ATTRIBUTE 행 또는 None
+finally:
+    conn.close()
+```
 
 ### 래퍼 트랜잭션 경계 (#662)
 

@@ -8,7 +8,9 @@ stream operations (``connection.lob()``, ``cursor.fetch_lob()``,
 (``lob.imports/export``), and cached column metadata
 (``cursor.result_info()``) and current-result positioning
 (``cursor.data_seek/row_seek/row_tell``) are supported here. Connection version
-text and query-based integer ping use the captured physical session without retry.
+text, query-based integer ping and the first-row ``schema_info()`` for
+CLASS/VCLASS/ATTRIBUTE/CLASS_ATTRIBUTE use the captured physical session without
+retry.
 Prepared
 scalar strings use the connection charset (UTF-8 unless ``charset`` says
 otherwise); native LOB stream text uses UTF-8 like the official Python 3
@@ -36,6 +38,7 @@ from pycubrid.connection import Connection as _DriverConnection
 from pycubrid.constants import (
     CCIDbParam,
     CCIPrepareOption,
+    CCISchemaType,
     CUBRIDDataType,
     CUBRIDIsolationLevel,
     CUBRIDStatementType,
@@ -56,6 +59,7 @@ from pycubrid.protocol import (
     FetchPacket,
     GetDbParameterPacket,
     GetEngineVersionPacket,
+    GetSchemaPacket,
     LOBReadPacket,
     PreparePacket,
     PrepareAndExecutePacket,
@@ -77,6 +81,16 @@ _LOB_IO_CHUNK = 64 * 1024
 _MAX_LOB_POSITION = (1 << 63) - 1
 _UNKNOWN_ISOLATION = "CUBRID_TRAN_UNKNOWN_ISOLATION"
 _UtilityState = tuple[_DriverConnection, int, _Socket, bool]
+_OMITTED: Any = object()
+_CCI_SCH_LAST = 20  # CCI_SCH_ATTR_WITH_SYNONYM in the pinned CCI
+_SCHEMA_PATTERN_FLAGS: dict[int, int] = {
+    CCISchemaType.CLASS: 1,
+    CCISchemaType.VCLASS: 1,
+    CCISchemaType.ATTRIBUTE: 2,
+    CCISchemaType.CLASS_ATTRIBUTE: 2,
+}
+_SCHEMA_CELL_TYPES = frozenset({CUBRIDDataType.STRING, CUBRIDDataType.SHORT, CUBRIDDataType.INT})
+_DOMAIN_FIRST_BYTE_MASK = 0x60 | 0x80  # CCI_CODE_COLLECTION | CAS_TYPE_FIRST_BYTE_PROTOCOL_MASK
 _ISOLATION_NAMES = {
     4: "CUBRID_REP_CLASS_COMMIT_INSTANCE",
     5: "CUBRID_REP_CLASS_REP_INSTANCE",
@@ -265,7 +279,13 @@ class connection:
 
     def _utility_request(
         self,
-        packet: GetEngineVersionPacket | PrepareAndExecutePacket | FetchPacket | CloseQueryPacket,
+        packet: (
+            GetEngineVersionPacket
+            | GetSchemaPacket
+            | PrepareAndExecutePacket
+            | FetchPacket
+            | CloseQueryPacket
+        ),
         state: _UtilityState,
     ) -> None:
         self._check_utility_state(state)
@@ -366,6 +386,87 @@ class connection:
                         if primary is None:
                             raise
                         _LOGGER.warning("Failed to close utility query after primary failure")
+
+    def schema_info(
+        self, schema_type: int, class_name: str, attr_name: str = _OMITTED, /
+    ) -> list[Any] | None:
+        """Return the first CLASS/VCLASS/ATTRIBUTE/CLASS_ATTRIBUTE row as a list, or None.
+
+        Like the pinned extension, CLASS/VCLASS send pattern flag 1 and
+        ATTRIBUTE/CLASS_ATTRIBUTE flag 2, and ``attr_name`` is sent only when
+        given. Other schema types are not verified and raise NotSupportedError.
+        The owned FC9 handle is closed on this physical session before return.
+        """
+        kind = operator.index(schema_type)
+        if not -(2**31) <= kind < 2**31:
+            raise OverflowError("schema type does not fit a signed 32-bit int")
+        names: list[str] = []
+        for position, name in enumerate(
+            (class_name,) if attr_name is _OMITTED else (class_name, attr_name), 2
+        ):
+            if not isinstance(name, str):
+                raise TypeError(f"argument {position} must be str, not {type(name).__name__}")
+            # Use the stored text, as the C parser does: a subclass cannot
+            # override what is validated or encoded.
+            text = str.__str__(name)
+            if "\x00" in text:
+                raise ValueError("embedded null character")
+            names.append(text)
+        if not CCISchemaType.CLASS <= kind <= _CCI_SCH_LAST:
+            raise InterfaceError("invalid schema type")
+        flag = _SCHEMA_PATTERN_FLAGS.get(kind)
+        if flag is None:
+            raise NotSupportedError(
+                "native schema_info supports only CLASS, VCLASS, ATTRIBUTE and CLASS_ATTRIBUTE"
+            )
+        with self._session_lock:
+            state = self._utility_state()
+            driver, generation, sock, _mode = state
+            for name in names:
+                driver._check_encodable("schema argument", name)
+            packet = GetSchemaPacket(
+                kind,
+                names[0],
+                flag,
+                arg2=names[1] if len(names) > 1 else None,
+                protocol_version=driver._protocol_version,
+            )
+            completed = False
+            try:
+                self._utility_request(packet, state)
+                if any(c.column_type not in _SCHEMA_CELL_TYPES for c in packet.columns):
+                    raise NotSupportedError("schema result has an unverified column type")
+                if packet.tuple_count == 0:
+                    completed = True
+                    return None
+                fetched = FetchPacket(packet.query_handle, 0, fetch_size=1, columns=packet.columns)
+                self._utility_request(fetched, state)
+                if not fetched.rows:
+                    raise OperationalError("schema result ended before its declared row count")
+                row = list(fetched.rows[0])
+                if kind >= CCISchemaType.ATTRIBUTE and len(row) > 1 and type(row[1]) is int:
+                    # CCI confirm_schema_type_info: drop the collection and
+                    # protocol-mask bits of the DOMAIN short's first byte.
+                    row[1] = row[1] & 0xFFFF & ~(_DOMAIN_FIRST_BYTE_MASK << 8)
+                completed = True
+                return row
+            finally:
+                # Read the handle from the packet itself, so an interrupt right
+                # after FC9 completes still releases it. A failed fenced FC9
+                # leaves none on a current session: parse failures retire the
+                # session and server errors allocate no handle.
+                handle = packet.query_handle
+                if handle and driver._prepared_session_is_current(generation, sock):
+                    try:
+                        self._utility_request(CloseQueryPacket(handle), state)
+                    # Preserve a primary error; any cleanup failure retires the session.
+                    # codeql[py/catch-base-exception]
+                    except BaseException:
+                        if driver._prepared_session_is_current(generation, sock):
+                            driver._discard_uncertain_prepared_session()
+                        if completed:
+                            raise
+                        _LOGGER.warning("Failed to close schema result after primary failure")
 
     def set(self) -> _NativeSet:
         """Create an empty collection value for ``cursor.bind_set()``; no I/O."""

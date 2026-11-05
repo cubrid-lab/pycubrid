@@ -701,6 +701,16 @@
       "scenario_ids": [],
       "scenario_gap": "Independent healthy default/manual utility sequence; upstream version regex and whole ping scenarios, legacy aliases and client-ID equivalence are unassessed.",
       "issue": "#666"
+    },
+    {
+      "id": "native-schema-info",
+      "surface": "native",
+      "classification": "match",
+      "summary": "Native schema_info returns the first CLASS/VCLASS/ATTRIBUTE/CLASS_ATTRIBUTE row as a list of str/int/None, or None for no row, under constructor autocommit True and explicit manual False: exact and pattern table names, views, an explicit attribute name or pattern, class attributes and the CCI-masked DOMAIN of scalar, collection, LOB, JSON and ENUM columns. Out-of-range types, wrong argument types/counts, keywords, explicit None, NUL and a closed connection raise the same exception classes. Other schema types, error messages and handle lifetime are not compared.",
+      "inventory_ids": ["documented_cubrid.connection.schema_info"],
+      "scenario_ids": [],
+      "scenario_gap": "Independent owned-table sequence; the upstream test_schema_info assertions, legacy aliases and the other sixteen schema types are unassessed.",
+      "issue": "#1011"
     }
   ]
 }

@@ -204,7 +204,11 @@ def test_discrepancies_and_public_gaps_cannot_be_parity_passes() -> None:
     assert "charset" in OPERATIONS["CUBRIDdb.connections.Connection.__init__"]["defaults"]
     assert OPERATIONS["CUBRIDdb.connections.Connection.charset"]["pycubrid"]["relation"] == "gap"
     assert "int" in OPERATIONS["documented_cubrid.connection.insert_id"]["contract"]["returns"]
-    assert "list" in OPERATIONS["documented_cubrid.connection.schema_info"]["contract"]["returns"]
+    schema_info = OPERATIONS["documented_cubrid.connection.schema_info"]
+    assert "list" in schema_info["contract"]["returns"]
+    assert schema_info["pycubrid"]["target"] == "pycubrid.compat.native.connection.schema_info"
+    assert schema_info["pycubrid"]["relation"] == "different"
+    assert callable(native.connection.schema_info)
     for name in ("althosts", "rctime"):
         assert f"documented_cubrid.connection.url_options.{name}" in OPERATIONS
     exclusions = CATALOG["exclusions"]
