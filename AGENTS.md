@@ -208,6 +208,18 @@ emulation, not automatically port it to the ordinary 1.x API. Any proposed
 ordinary replacement requires its own independent use case and decision.
 The retirement itself must not depend on speculative replacement APIs.
 
+**1.x extension policy (#1144):** protect the PEP 249 DB-API contract and
+essential data/transaction/session correctness. Do not assume every
+project-specific public extension is permanently frozen until 2.0, but do
+not treat any shipped extension as automatically experimental either.
+An intentional 1.x MINOR break to a **specifically approved non-core
+extension** requires a prior published MINOR warning, usable migration
+guidance, at least 28 calendar days' notice, a reviewed impact/risk
+decision and the unchanged release/compatibility checks under
+`RELEASE_POLICY.md` §3. PATCH remains compatible except the documented
+narrow security exception. A policy README edit alone does not start an
+API-specific warning clock or authorize an implementation.
+
 This is a *targeted product-scope review*, not a new blanket sign-off for
 routine bug fixes within an already approved contract, tests or documentation.
 Human-led outside contributors may continue to submit proposals and PRs
