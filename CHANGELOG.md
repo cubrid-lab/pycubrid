@@ -24,6 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   such as `../SECURITY.md` and `../LICENSE` returned 404 on the documentation site, including the
   vulnerability-reporting link in every translated README. They now use GitHub URLs, and
   `mkdocs build --strict` fails on a new broken link.
+- **The Performance guide shows how to import large inputs with bounded memory (#1013)** — it
+  gives two tested recipes for splitting the input into several `executemany(prepared=True)`
+  calls, one all-or-nothing and one resumable, with measured memory and what each chunk means for
+  the transaction, `rowcount` and the `batch_*` indices. No new API was added.
 - **The Compat migration guide now shows how to read the isolation level and lock timeout
   (#1129)** — it said ordinary SQL had no way to do this, which was wrong. `GET TRANSACTION
   ISOLATION LEVEL TO iso` followed by `SELECT iso` works, as does the `LOCK TIMEOUT` form, on

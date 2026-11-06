@@ -417,13 +417,133 @@ detects the end of the stream itself and has no cause.
 
 Decision: no runtime change. No failure, unsafe frame or excessive allocation was reproduced up to
 1,000,000 rows, and the behavior is linear and predictable. To bound memory, split the input into
-several `executemany()` calls. Automatic chunking or an input limit would change transaction and
+several `executemany()` calls, as in [Bounded-memory imports](#bounded-memory-imports-1013). Automatic chunking or an input limit would change transaction and
 error semantics, so it is not part of this change.
 
 Not measured: CUBRID 11.0 and 11.2; 1,000,000 rows on 10.2 and for the other two inputs; repeated
 trials (each case ran once); server memory; whether a broker refuses a request below the 32-bit
 limit (the largest frame sent was 43.9 MiB, which 11.4 accepted; #881 below sent 128 MiB); wide
 rows, LOB and collection values (measured in #881 below); TLS and remote networks; Python versions other than 3.12; RSS on other operating systems.
+
+#### Bounded-memory imports (#1013)
+
+[#1013](https://github.com/cubrid-lab/pycubrid/issues/1013) asked whether large or one-shot inputs
+need a new API. Decision: no new API and no change to `executemany()`. Split the input in the
+calling code, as below. An automatic split would present several requests as one operation, and
+the recipes show that the caller has to decide what a chunk boundary means. The cost is small, as
+the table shows.
+
+Rows are `(id INT, v VARCHAR, n INT)`, in one transaction with one commit, measured with
+`scripts/measure_prepared_batch.py --chunk-size N [--value-bytes N]`. The run used Python 3.11.15
+and CUBRID 11.4.6.1963 in local Docker, driver commit `88f523d`, an Intel i5-9400F with a load
+average of 2.1-4.2. Each case ran once, so small time differences mean nothing.
+
+| Rows | Value | `executemany()` calls | Input | Time | RSS growth | Heap peak | `PREPARE` bytes |
+|---:|---:|---:|---|---:|---:|---:|---:|
+| 10,000 | 10 B | 1 | sync, generator | 826 ms | 5.4 MiB | 4.7 MiB | 81 |
+| 10,000 | 10 B | 10 | sync, generator | 825 ms | 0.8 MiB | 0.7 MiB | 810 |
+| 100,000 | 10 B | 1 | sync, generator | 8,215 ms | 52.5 MiB | 47.3 MiB | 81 |
+| 100,000 | 10 B | 10 | sync, generator | 8,105 ms | 7.9 MiB | 6.3 MiB | 810 |
+| 100,000 | 10 B | 100 | sync, generator | 8,312 ms | 0.8 MiB | 0.7 MiB | 8,100 |
+| 100,000 | 10 B | 1 | async, generator | 8,091 ms | 52.9 MiB | 47.3 MiB | 81 |
+| 100,000 | 10 B | 100 | async, generator | 8,132 ms | 0.8 MiB | 0.9 MiB | 8,100 |
+| 100,000 | 10 B | 100 | sync, list | 8,149 ms | 0.5 MiB | 0.5 MiB | 8,100 |
+| 10,000 | 2,000 B | 1 | sync, generator | 890 ms | 62.3 MiB | 63.1 MiB | 81 |
+| 10,000 | 2,000 B | 10 | sync, generator | 897 ms | 8.7 MiB | 8.3 MiB | 810 |
+
+Memory follows the chunk, not the input: a list built in advance still costs its own memory, which
+is why a generator is the input to use. Each call sends its own `PREPARE` and `EXECUTE_ARRAY`, so
+requests grow with the number of chunks. These runs saw no time cost on a local server. A slow
+network would add a round trip per request; that was not measured.
+
+**All rows or none.** One transaction across every chunk:
+
+```python
+from contextlib import suppress
+from itertools import islice
+
+import pycubrid
+
+
+def chunks(rows, size):
+    if size < 1:
+        raise ValueError("size must be at least 1")
+    rows = iter(rows)
+    while chunk := list(islice(rows, size)):
+        yield chunk
+
+
+def import_rows(conn, sql, rows, size=10_000):
+    """Insert every row, or none. Returns the number of rows."""
+    cursor = conn.cursor()
+    total = 0
+    try:
+        for chunk in chunks(rows, size):
+            cursor.executemany(sql, chunk, prepared=True)
+            total += cursor.rowcount  # rowcount covers this chunk only.
+        conn.commit()
+    except BaseException:  # Includes asyncio.CancelledError.
+        with suppress(pycubrid.InterfaceError):  # A retired session has nothing to undo.
+            conn.rollback()
+        raise
+    return total
+```
+
+**Resumable.** A commit per chunk, which also keeps the transaction short. Committed rows stay when
+a later chunk fails:
+
+```python
+def import_in_steps(conn, sql, rows, start=0, size=10_000):
+    """Commit each chunk and yield the number of rows committed so far."""
+    cursor = conn.cursor()
+    done = start
+    for chunk in chunks(islice(rows, start, None), size):
+        try:
+            cursor.executemany(sql, chunk, prepared=True)
+            conn.commit()
+        except BaseException:
+            with suppress(pycubrid.InterfaceError):
+                conn.rollback()
+            raise
+        done += len(chunk)
+        yield done
+
+
+done = saved_progress()
+for done in import_in_steps(conn, sql, rows, start=done):
+    save_progress(done)
+```
+
+Resuming needs the same rows in the same order. The saved number can fall behind: a process that
+dies after `commit()` and before `save_progress()` repeats that chunk. Read the progress back from
+the table, write the progress row in the same transaction as the chunk, or make the insert safe to
+repeat. With `pycubrid.aio`, use the same code with `await`
+in front of `executemany()`, `commit()` and `rollback()`, and `async for` around `import_in_steps()`
+written as an async generator. `tests/test_integration_prepared_chunked_import.py` runs both recipes,
+sync and async.
+
+What a chunk boundary changes, compared with one `executemany()`:
+
+| Topic | One call | Chunks |
+|---|---|---|
+| Transaction | One | The recipe decides. Between chunks, other sessions see committed rows only |
+| Autocommit | Each row commits | Same, per row, in every chunk. The recipes assume it is off |
+| A failing row | The other rows run, and the caller decides | The same inside its chunk. Later chunks are not sent. `import_rows()` rolls back every chunk, and `import_in_steps()` rolls back this chunk and keeps the committed ones |
+| `batch_index`, `batch_errors`, `batch_rowcounts` | Position in the input | Position in the chunk. Add the rows before it, for example `done + exc.batch_index` |
+| `rowcount` | The total | The last chunk. Add it up as `import_rows()` does |
+| A generator that raises | Nothing is sent | Earlier chunks were sent. The chunk being read was not |
+| `ER_INTERRUPTED` | Rows after it did not run | The same inside its chunk |
+| Lost connection | The batch is not replayed | The same for the chunk in flight. Its rows, or a `commit()` whose reply was lost, may have taken effect, so check the table before resuming |
+| Task cancellation (`pycubrid.aio`) | A cancellation once a request was sent retires the session | The same for the chunk in flight. The recipes' `rollback()` then has nothing to reach and `CancelledError` still propagates. The server discards the uncommitted transaction. During `commit()` that commit may still take effect and nothing can undo it, so check the table before resuming |
+| Created `Lob` values | Sync, autocommit off | A commit removes the session's temporary LOB files. In the resumable recipe, create each `Lob` for its own chunk |
+| `pycubrid.aio` | The whole input is read and encoded on the event loop | The same per chunk, and other tasks can run during each chunk's network wait |
+
+`size` counts rows, not bytes, so choose it from the widest expected row. A chunk whose frame passes
+2,147,483,647 bytes raises `DataError` after `PREPARE` and before any row runs, and a smaller chunk
+can still hold a row that is too large by itself.
+
+Not measured: repeated trials, 10.2, 11.0, 11.2, a remote server, server memory, the resumable
+recipe's time, and how a long transaction affects the server. Chunks do not make an import faster.
 
 #### Wide values and two connections (#881)
 

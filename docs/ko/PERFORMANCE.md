@@ -319,6 +319,122 @@ INSERT, UPDATE, DELETE의 비율은 프로토타입과 같습니다. 이 문 형
 
 측정하지 않음: CUBRID 11.0과 11.2, 10.2와 나머지 두 입력의 1,000,000행, 반복 시행(각 경우 한 번 실행), 서버 메모리, 브로커가 32비트 한도보다 작은 요청을 거부하는지(보낸 가장 큰 프레임은 43.9 MiB였고 11.4가 받아들였습니다. 아래 #881은 128 MiB를 보냈습니다), 넓은 행·LOB·컬렉션 값(아래 #881에서 측정), TLS와 원격 네트워크, Python 3.12 외의 버전, 다른 운영체제의 RSS.
 
+#### 메모리를 제한하는 대량 가져오기 (#1013)
+
+[#1013](https://github.com/cubrid-lab/pycubrid/issues/1013)은 크거나 한 번만 읽을 수 있는 입력에 새 API가
+필요한지 물었습니다. 결정: 새 API를 추가하지 않고 `executemany()`도 바꾸지 않습니다. 아래처럼 호출하는
+코드에서 입력을 나눕니다. 자동 분할은 여러 요청을 하나의 작업처럼 보이게 하는데, 청크 경계의 의미는
+호출자가 정해야 합니다. 표에서 보듯 비용은 작습니다.
+
+행은 `(id INT, v VARCHAR, n INT)`이고 한 트랜잭션에서 한 번 커밋했으며,
+`scripts/measure_prepared_batch.py --chunk-size N [--value-bytes N]`으로 측정했습니다. Python 3.11.15,
+로컬 Docker의 CUBRID 11.4.6.1963, 드라이버 커밋 `88f523d`, Intel i5-9400F, 부하 평균 2.1-4.2입니다. 각 경우를
+한 번만 실행했으므로 작은 시간 차이는 의미가 없습니다.
+
+| 행 | 값 | `executemany()` 호출 | 입력 | 시간 | RSS 증가 | 힙 최대치 | `PREPARE` 바이트 |
+|---:|---:|---:|---|---:|---:|---:|---:|
+| 10,000 | 10 B | 1 | 동기, 제너레이터 | 826 ms | 5.4 MiB | 4.7 MiB | 81 |
+| 10,000 | 10 B | 10 | 동기, 제너레이터 | 825 ms | 0.8 MiB | 0.7 MiB | 810 |
+| 100,000 | 10 B | 1 | 동기, 제너레이터 | 8,215 ms | 52.5 MiB | 47.3 MiB | 81 |
+| 100,000 | 10 B | 10 | 동기, 제너레이터 | 8,105 ms | 7.9 MiB | 6.3 MiB | 810 |
+| 100,000 | 10 B | 100 | 동기, 제너레이터 | 8,312 ms | 0.8 MiB | 0.7 MiB | 8,100 |
+| 100,000 | 10 B | 1 | 비동기, 제너레이터 | 8,091 ms | 52.9 MiB | 47.3 MiB | 81 |
+| 100,000 | 10 B | 100 | 비동기, 제너레이터 | 8,132 ms | 0.8 MiB | 0.9 MiB | 8,100 |
+| 100,000 | 10 B | 100 | 동기, 리스트 | 8,149 ms | 0.5 MiB | 0.5 MiB | 8,100 |
+| 10,000 | 2,000 B | 1 | 동기, 제너레이터 | 890 ms | 62.3 MiB | 63.1 MiB | 81 |
+| 10,000 | 2,000 B | 10 | 동기, 제너레이터 | 897 ms | 8.7 MiB | 8.3 MiB | 810 |
+
+메모리는 입력 전체가 아니라 청크 크기를 따릅니다. 미리 만든 리스트는 그 자체의 메모리가 그대로 들기
+때문에 입력은 제너레이터를 쓰세요. 호출마다 `PREPARE`와 `EXECUTE_ARRAY`를 보내므로 요청 수는 청크 수만큼
+늘어납니다. 로컬 서버에서는 시간 비용이 보이지 않았습니다. 느린 네트워크에서는 요청마다 왕복 시간이
+더해지며, 이는 측정하지 않았습니다.
+
+**전부 또는 전무.** 모든 청크를 한 트랜잭션으로 묶습니다.
+
+```python
+from contextlib import suppress
+from itertools import islice
+
+import pycubrid
+
+
+def chunks(rows, size):
+    if size < 1:
+        raise ValueError("size must be at least 1")
+    rows = iter(rows)
+    while chunk := list(islice(rows, size)):
+        yield chunk
+
+
+def import_rows(conn, sql, rows, size=10_000):
+    """모든 행을 넣거나 하나도 넣지 않고, 행 수를 반환합니다."""
+    cursor = conn.cursor()
+    total = 0
+    try:
+        for chunk in chunks(rows, size):
+            cursor.executemany(sql, chunk, prepared=True)
+            total += cursor.rowcount  # rowcount는 이 청크만 셉니다.
+        conn.commit()
+    except BaseException:  # asyncio.CancelledError도 포함합니다.
+        with suppress(pycubrid.InterfaceError):  # 폐기된 세션에는 되돌릴 것이 없습니다.
+            conn.rollback()
+        raise
+    return total
+```
+
+**이어서 실행 가능.** 청크마다 커밋하므로 트랜잭션도 짧아집니다. 뒤 청크가 실패해도 커밋한 행은 남습니다.
+
+```python
+def import_in_steps(conn, sql, rows, start=0, size=10_000):
+    """청크마다 커밋하고, 지금까지 커밋한 행 수를 내보냅니다."""
+    cursor = conn.cursor()
+    done = start
+    for chunk in chunks(islice(rows, start, None), size):
+        try:
+            cursor.executemany(sql, chunk, prepared=True)
+            conn.commit()
+        except BaseException:
+            with suppress(pycubrid.InterfaceError):
+                conn.rollback()
+            raise
+        done += len(chunk)
+        yield done
+
+
+done = saved_progress()
+for done in import_in_steps(conn, sql, rows, start=done):
+    save_progress(done)
+```
+
+이어서 실행하려면 같은 행을 같은 순서로 다시 넘겨야 합니다. 저장한 수는 뒤처질 수 있습니다. `commit()` 뒤
+`save_progress()` 전에 프로세스가 죽으면 그 청크를 다시 넣게 됩니다. 진행 상황을 테이블에서 다시 읽거나, 진행
+행을 청크와 같은 트랜잭션에 쓰거나, 삽입을 반복해도 안전하게 만드세요. `pycubrid.aio`에서는 `executemany()`, `commit()`,
+`rollback()` 앞에 `await`를 붙이고, `import_in_steps()`를 비동기 제너레이터로 작성해 `async for`로 순회하세요.
+`tests/test_integration_prepared_chunked_import.py`가 두 예제를 동기와 비동기로 실행합니다.
+
+한 번의 `executemany()`와 비교해 청크 경계가 바꾸는 것:
+
+| 항목 | 한 번 호출 | 청크 |
+|---|---|---|
+| 트랜잭션 | 하나 | 예제에 따라 다릅니다. 청크 사이에 다른 세션은 커밋된 행만 봅니다 |
+| 자동 커밋 | 행마다 커밋 | 모든 청크에서 행마다 커밋합니다. 예제는 꺼져 있다고 가정합니다 |
+| 실패한 행 | 나머지 행은 실행되고 호출자가 결정 | 해당 청크 안에서는 같습니다. 뒤 청크는 보내지 않습니다. `import_rows()`는 모든 청크를 롤백하고, `import_in_steps()`는 이 청크만 롤백하며 커밋한 청크는 남깁니다 |
+| `batch_index`, `batch_errors`, `batch_rowcounts` | 입력 내 위치 | 청크 내 위치입니다. 앞선 행 수를 더하세요. 예: `done + exc.batch_index` |
+| `rowcount` | 합계 | 마지막 청크입니다. `import_rows()`처럼 더하세요 |
+| 예외를 내는 제너레이터 | 아무것도 보내지 않음 | 앞선 청크는 이미 보냈고, 읽던 청크는 보내지 않습니다 |
+| `ER_INTERRUPTED` | 뒤 행은 실행되지 않음 | 해당 청크 안에서는 같습니다 |
+| 연결 끊김 | 배치를 재전송하지 않음 | 진행 중이던 청크도 같습니다. 그 행이나 응답을 잃은 `commit()`이 이미 적용됐을 수 있으니 이어서 실행하기 전에 테이블을 확인하세요 |
+| 태스크 취소(`pycubrid.aio`) | 요청을 보낸 뒤 취소하면 세션을 폐기합니다 | 전송 중인 청크도 같습니다. 예제의 `rollback()`은 보낼 곳이 없고 `CancelledError`는 그대로 전파됩니다. 서버는 커밋되지 않은 트랜잭션을 버립니다. `commit()` 중 취소하면 그 커밋이 반영될 수 있고 되돌릴 수 없으므로 재개 전에 테이블을 확인합니다 |
+| 생성한 `Lob` 값 | 동기, 자동 커밋 꺼짐 | 커밋하면 세션의 임시 LOB 파일이 삭제됩니다. 이어서 실행하는 예제에서는 청크마다 해당 `Lob`을 만드세요 |
+| `pycubrid.aio` | 입력 전체를 이벤트 루프에서 읽고 인코딩 | 청크 단위로 같으며, 각 청크의 네트워크 대기 중에 다른 태스크가 실행될 수 있습니다 |
+
+`size`는 바이트가 아니라 행 수입니다. 가장 넓은 행을 기준으로 정하세요. 프레임이 2,147,483,647바이트를 넘는
+청크는 `PREPARE` 뒤, 어떤 행도 실행되기 전에 `DataError`를 냅니다. 작은 청크에도 그 자체로 너무 큰 행이 있을 수
+있습니다.
+
+측정하지 않은 항목: 반복 시행, 10.2, 11.0, 11.2, 원격 서버, 서버 메모리, 이어서 실행하는 예제의 시간, 긴
+트랜잭션이 서버에 주는 영향. 청크로 나눈다고 가져오기가 빨라지지는 않습니다.
+
 #### 넓은 값과 두 연결 (#881)
 
 [#881](https://github.com/cubrid-lab/pycubrid/issues/881)은 `scripts/measure_prepared_wide_rows.py`로 더 큰 값과 동시에 실행되는 두 배치를 측정했습니다. 각 행은 `(id INT PRIMARY KEY, v <타입>)`입니다:

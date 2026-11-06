@@ -16,12 +16,18 @@ Modes: ``sync`` and ``async`` pass a list built before the measurement;
 ``sync-generator`` and ``async-generator`` pass a one-shot generator, so the
 rows are created while they are encoded.
 
+``--chunk-size N`` splits the input into several ``executemany()`` calls of at
+most N rows, in one transaction with one commit, as the large-import recipe in
+``docs/PERFORMANCE.md`` does (#1013). ``--value-bytes N`` pads ``v`` to N bytes
+for a wide-row case.
+
 The endpoint is resolved as the test suite does (``tests/_cubrid_endpoint.py``:
 ``CUBRID_TEST_URL`` or ``CUBRID_TEST_HOST`` / ``_PORT`` / ``_DB`` / ``_USER`` /
 ``_PASSWORD``). RSS comes from ``resource.getrusage`` (Unix only) and is in KiB on Linux.
 
 Usage:
     python scripts/measure_prepared_batch.py [--rows N ...] [--modes M ...] [--json PATH]
+        [--chunk-size N] [--value-bytes N]
 
 Example:
     CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \\
@@ -40,7 +46,8 @@ import sys
 import time
 import tracemalloc
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +57,7 @@ from pycubrid.protocol import ExecuteArrayPacket, PreparePacket
 
 MODES = ("sync", "sync-generator", "async", "async-generator")
 DEFAULT_ROWS = (10_000, 100_000)
+DEFAULT_VALUE_BYTES = 10  # "v%09d"
 
 
 def _positive_int(value: str) -> int:
@@ -76,9 +84,27 @@ def _endpoint_kwargs() -> dict[str, Any]:
     return kwargs
 
 
-def _rows(count: int) -> Iterator[tuple[int, str, int]]:
+def _value_width(value: str) -> int:
+    """Parse a width no shorter than the generated value, so the report stays true."""
+    parsed = _positive_int(value)
+    if parsed < DEFAULT_VALUE_BYTES:
+        raise argparse.ArgumentTypeError(f"must be at least {DEFAULT_VALUE_BYTES}")
+    return parsed
+
+
+def _rows(count: int, value_bytes: int = DEFAULT_VALUE_BYTES) -> Iterator[tuple[int, str, int]]:
     for i in range(count):
-        yield (i, "v%09d" % i, i)
+        yield (i, ("v%09d" % i).ljust(value_bytes, "x"), i)
+
+
+def _chunks(rows: Iterable[Any], size: int | None) -> Iterator[Any]:
+    """Yield the input in one piece, or as lists of at most ``size`` rows."""
+    if size is None:
+        yield rows
+        return
+    iterator = iter(rows)
+    while chunk := list(islice(iterator, size)):
+        yield chunk
 
 
 def _record_request_sizes() -> dict[str, int]:
@@ -102,7 +128,13 @@ def _max_rss_kib() -> int:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
 
-def _child(mode: str, count: int, trace: bool) -> dict[str, Any]:
+def _child(
+    mode: str,
+    count: int,
+    trace: bool,
+    chunk_size: int | None = None,
+    value_bytes: int = DEFAULT_VALUE_BYTES,
+) -> dict[str, Any]:
     kwargs = _endpoint_kwargs()
     table = "p854_" + uuid.uuid4().hex[:12]
     sizes = _record_request_sizes()
@@ -111,12 +143,15 @@ def _child(mode: str, count: int, trace: bool) -> dict[str, Any]:
         "mode": mode,
         "rows": count,
         "traced": trace,
+        "chunk_size": chunk_size,
+        "value_bytes": value_bytes,
         "pycubrid": pycubrid.__version__,
         "pycubrid_path": str(Path(pycubrid.__file__).resolve().parent),
     }
 
     def measure_start() -> Any:
-        rows: Any = _rows(count) if generator else list(_rows(count))
+        source = _rows(count, value_bytes)
+        rows: Any = source if generator else list(source)
         result["rss_before_kib"] = _max_rss_kib()
         if trace:
             tracemalloc.start()
@@ -131,23 +166,25 @@ def _child(mode: str, count: int, trace: bool) -> dict[str, Any]:
         result["rss_peak_kib"] = _max_rss_kib()
 
     sql = f"INSERT INTO {table} (id, v, n) VALUES (?, ?, ?)"
+    create = f"CREATE TABLE {table} (id INT PRIMARY KEY, v VARCHAR({value_bytes + 22}), n INT)"
     if mode.startswith("async"):
 
         async def run() -> None:
             async with await pycubrid.aio.connect(**kwargs) as conn:
                 cursor = conn.cursor()
-                await cursor.execute(
-                    f"CREATE TABLE {table} (id INT PRIMARY KEY, v VARCHAR(32), n INT)"
-                )
+                await cursor.execute(create)
                 await conn.commit()
                 try:
                     rows = measure_start()
                     started = time.perf_counter()
-                    await cursor.executemany(sql, rows, prepared=True)
+                    rowcount = 0
+                    for chunk in _chunks(rows, chunk_size):
+                        await cursor.executemany(sql, chunk, prepared=True)
+                        rowcount += cursor.rowcount
                     executed = time.perf_counter()
                     await conn.commit()
                     measure_stop(started, executed)
-                    result["rowcount"] = cursor.rowcount
+                    result["rowcount"] = rowcount
                     await cursor.execute(f"SELECT COUNT(*) FROM {table}")
                     row = await cursor.fetchone()
                     assert row is not None
@@ -160,16 +197,19 @@ def _child(mode: str, count: int, trace: bool) -> dict[str, Any]:
     else:
         with pycubrid.connect(**kwargs) as conn:
             cursor = conn.cursor()
-            cursor.execute(f"CREATE TABLE {table} (id INT PRIMARY KEY, v VARCHAR(32), n INT)")
+            cursor.execute(create)
             conn.commit()
             try:
                 rows = measure_start()
                 started = time.perf_counter()
-                cursor.executemany(sql, rows, prepared=True)
+                rowcount = 0
+                for chunk in _chunks(rows, chunk_size):
+                    cursor.executemany(sql, chunk, prepared=True)
+                    rowcount += cursor.rowcount
                 executed = time.perf_counter()
                 conn.commit()
                 measure_stop(started, executed)
-                result["rowcount"] = cursor.rowcount
+                result["rowcount"] = rowcount
                 cursor.execute(f"SELECT COUNT(*) FROM {table}")
                 row = cursor.fetchone()
                 assert row is not None
@@ -182,7 +222,12 @@ def _child(mode: str, count: int, trace: bool) -> dict[str, Any]:
     return result
 
 
-def measure(mode: str, count: int) -> dict[str, Any]:
+def measure(
+    mode: str,
+    count: int,
+    chunk_size: int | None = None,
+    value_bytes: int = DEFAULT_VALUE_BYTES,
+) -> dict[str, Any]:
     """Run one case in two fresh child processes and merge their results."""
     # Measure the checkout this script belongs to, even without an editable install.
     env = dict(os.environ)
@@ -191,7 +236,16 @@ def measure(mode: str, count: int) -> dict[str, Any]:
     runs: list[dict[str, Any]] = []
     for trace in (False, True):
         completed = subprocess.run(  # nosec B603 - this interpreter and this script only
-            [sys.executable, __file__, "--child", mode, str(count), "1" if trace else "0"],
+            [
+                sys.executable,
+                __file__,
+                "--child",
+                mode,
+                str(count),
+                "1" if trace else "0",
+                str(chunk_size or 0),
+                str(value_bytes),
+            ],
             check=True,
             env=env,
             capture_output=True,
@@ -214,17 +268,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
     parser.add_argument("--json", type=Path, help="also write the results to this file")
     parser.add_argument(
-        "--child", nargs=3, metavar=("MODE", "ROWS", "TRACE"), help=argparse.SUPPRESS
+        "--chunk-size", type=_positive_int, help="split the input into calls of N rows"
+    )
+    parser.add_argument(
+        "--value-bytes",
+        type=_value_width,
+        default=DEFAULT_VALUE_BYTES,
+        help="pad the VARCHAR value to N bytes",
+    )
+    parser.add_argument(
+        "--child",
+        nargs=5,
+        metavar=("MODE", "ROWS", "TRACE", "CHUNK_SIZE", "VALUE_BYTES"),
+        help=argparse.SUPPRESS,
     )
     args = parser.parse_args(argv)
     if args.child:
-        mode, count, trace = args.child
-        print(json.dumps(_child(mode, int(count), trace == "1"), sort_keys=True))
+        mode, count, trace, chunk_size, value_bytes = args.child
+        result = _child(mode, int(count), trace == "1", int(chunk_size) or None, int(value_bytes))
+        print(json.dumps(result, sort_keys=True))
         return 0
     results = []
     for count in args.rows:
         for mode in args.modes:
-            result = measure(mode, count)
+            result = measure(mode, count, args.chunk_size, args.value_bytes)
             results.append(result)
             print(json.dumps(result, sort_keys=True), flush=True)
     if args.json is not None:
