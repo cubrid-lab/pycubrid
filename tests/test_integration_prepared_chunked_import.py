@@ -8,6 +8,7 @@ and resuming after a committed chunk neither loses nor repeats a row.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import AsyncIterator, Iterable, Iterator
 from contextlib import suppress
@@ -46,7 +47,7 @@ async def import_all_or_nothing(conn: Any, sql: str, rows: Iterable[Any], size: 
             await _call(cursor.executemany(sql, chunk, prepared=True))
             total += cursor.rowcount
         await _call(conn.commit())
-    except Exception:
+    except BaseException:  # Includes asyncio.CancelledError.
         with suppress(pycubrid.InterfaceError):  # A retired session has nothing to undo.
             await _call(conn.rollback())
         raise
@@ -62,7 +63,7 @@ async def import_in_steps(
         try:
             await _call(cursor.executemany(sql, chunk, prepared=True))
             await _call(conn.commit())
-        except Exception:
+        except BaseException:
             with suppress(pycubrid.InterfaceError):
                 await _call(conn.rollback())
             raise
@@ -183,6 +184,19 @@ async def test_a_generator_error_sends_nothing_from_its_chunk(conn: Any, table: 
             pass
     assert progress == SIZE
     assert await _ids(conn, table) == list(range(SIZE))
+
+
+@pytest.mark.asyncio
+@MODES
+async def test_a_cancellation_after_a_chunk_leaves_nothing(conn: Any, table: str) -> None:
+    def cancelled() -> Iterator[tuple[int, int]]:
+        yield from _rows(15)
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await import_all_or_nothing(conn, _insert(table), cancelled())
+    await _call(conn.commit())
+    assert await _ids(conn, table) == []
 
 
 class _RetiredConnection:

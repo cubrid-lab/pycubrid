@@ -373,7 +373,7 @@ def import_rows(conn, sql, rows, size=10_000):
             cursor.executemany(sql, chunk, prepared=True)
             total += cursor.rowcount  # rowcount는 이 청크만 셉니다.
         conn.commit()
-    except Exception:
+    except BaseException:  # asyncio.CancelledError도 포함합니다.
         with suppress(pycubrid.InterfaceError):  # 폐기된 세션에는 되돌릴 것이 없습니다.
             conn.rollback()
         raise
@@ -391,7 +391,7 @@ def import_in_steps(conn, sql, rows, start=0, size=10_000):
         try:
             cursor.executemany(sql, chunk, prepared=True)
             conn.commit()
-        except Exception:
+        except BaseException:
             with suppress(pycubrid.InterfaceError):
                 conn.rollback()
             raise
@@ -404,7 +404,9 @@ for done in import_in_steps(conn, sql, rows, start=done):
     save_progress(done)
 ```
 
-이어서 실행하려면 같은 행을 같은 순서로 다시 넘겨야 합니다. `pycubrid.aio`에서는 `executemany()`, `commit()`,
+이어서 실행하려면 같은 행을 같은 순서로 다시 넘겨야 합니다. 저장한 수는 뒤처질 수 있습니다. `commit()` 뒤
+`save_progress()` 전에 프로세스가 죽으면 그 청크를 다시 넣게 됩니다. 진행 상황을 테이블에서 다시 읽거나, 진행
+행을 청크와 같은 트랜잭션에 쓰거나, 삽입을 반복해도 안전하게 만드세요. `pycubrid.aio`에서는 `executemany()`, `commit()`,
 `rollback()` 앞에 `await`를 붙이고, `import_in_steps()`를 비동기 제너레이터로 작성해 `async for`로 순회하세요.
 `tests/test_integration_prepared_chunked_import.py`가 두 예제를 동기와 비동기로 실행합니다.
 

@@ -480,7 +480,7 @@ def import_rows(conn, sql, rows, size=10_000):
             cursor.executemany(sql, chunk, prepared=True)
             total += cursor.rowcount  # rowcount covers this chunk only.
         conn.commit()
-    except Exception:
+    except BaseException:  # Includes asyncio.CancelledError.
         with suppress(pycubrid.InterfaceError):  # A retired session has nothing to undo.
             conn.rollback()
         raise
@@ -499,7 +499,7 @@ def import_in_steps(conn, sql, rows, start=0, size=10_000):
         try:
             cursor.executemany(sql, chunk, prepared=True)
             conn.commit()
-        except Exception:
+        except BaseException:
             with suppress(pycubrid.InterfaceError):
                 conn.rollback()
             raise
@@ -512,7 +512,10 @@ for done in import_in_steps(conn, sql, rows, start=done):
     save_progress(done)
 ```
 
-Resuming needs the same rows in the same order. With `pycubrid.aio`, use the same code with `await`
+Resuming needs the same rows in the same order. The saved number can fall behind: a process that
+dies after `commit()` and before `save_progress()` repeats that chunk. Read the progress back from
+the table, write the progress row in the same transaction as the chunk, or make the insert safe to
+repeat. With `pycubrid.aio`, use the same code with `await`
 in front of `executemany()`, `commit()` and `rollback()`, and `async for` around `import_in_steps()`
 written as an async generator. `tests/test_integration_prepared_chunked_import.py` runs both recipes,
 sync and async.
