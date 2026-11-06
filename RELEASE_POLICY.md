@@ -83,8 +83,9 @@ without notice:
 pycubrid 1.x protects its **PEP 249 / DB-API core**, including ordinary data,
 transaction and session correctness. The project also publishes Python/CUBRID-
 specific **extension APIs** that may evolve or be retired in a later 1.x MINOR,
-but **only after an individual, reviewed decision and the deprecation process
-in §3**. The opt-in Compat tier follows the same retirement requirements.
+but **only after an individual, reviewed decision and proportionate migration
+disclosure under §3**. The opt-in Compat tier retains its separately promised,
+stricter published-warning and 28-day retirement process.
 This is a documented departure from strict [Semantic Versioning
 2.0](https://semver.org/) for non-core interfaces, not permission to break the
 standard DB-API contract or to make unannounced removals.
@@ -100,15 +101,16 @@ Starting from **1.0.0**, version components have the following meaning:
 - **MAJOR** (`x.0.0`) — Required for breaking changes to the protected
   PEP 249 / DB-API core (apart from the narrow PATCH security exception),
   and for broad API restructuring without an approved extension retirement.
-  A reviewed, deprecated non-core extension can instead be retired in a MINOR.
+  An individually approved non-core extension can instead change in a MINOR
+  under the safeguards below.
   The next major version is `2.0.0`.
 - **MINOR** (`1.x.0`) — Normally adds backward-compatible functionality.
-  May also remove, rename or incompatibly change a **specifically approved
-  non-core extension** after the prior published warning, migration guidance,
-  minimum 28-day notice and reviewed release decision in §3. This includes the
-  existing optional Compat tier. A MINOR must not break the DB-API core,
-  silently change a signature, or treat this policy itself as a deprecation
-  warning for every extension.
+  May also change an individually approved **non-core extension** under the
+  proportional review, migration and disclosure process in §3; no universal
+  28-day wait applies to ordinary extensions. The already-deprecated
+  **Compat tier has a stricter, separate 28-day rule**. A MINOR must not
+  break the DB-API core, silently change a signature, or treat this policy
+  itself as a deprecation warning for every extension.
 - **PATCH** (`1.x.y`) — Backward-compatible bug fixes only. Must not add new
   public API, and never retires or removes anything, whatever its tier. The only
   exception is a security fix that cannot be made compatibly: it may change the
@@ -125,7 +127,7 @@ quality of its implementation.
 | Tier | Covers | Breaking change allowed in |
 |---|---|---|
 | **DB-API core** | PEP 249 module constants and exception/type contracts, standard connection/cursor methods (including `connect`, `cursor`, `execute`, `executemany`, `fetch*`, `commit`, `rollback`), their sync/async equivalents, and essential data, transaction and session correctness | MAJOR only, apart from the PATCH security exception above |
-| **Project extensions** | Public pycubrid-specific options, methods and types beyond the protected DB-API core, for example the opt-in `executemany(..., prepared=True)` mode; classification of any particular change requires an explicit, reviewed issue decision | MINOR **only** after the full §3 deprecation process; MAJOR otherwise |
+| **Project extensions** | Public pycubrid-specific options, methods and types beyond the protected DB-API core, for example the opt-in `executemany(..., prepared=True)` mode; classification of any particular change requires an explicit, reviewed issue decision | MINOR **only** after the §3 extension-specific review and migration process; MAJOR otherwise |
 | **Compat (optional)** | The `pycubrid.compat` namespaces and returned classes while they remain published; see the specific retirement in #1120 | MINOR, after the §3 retirement process; MAJOR otherwise |
 
 Do not infer that a public API can be removed just because PEP 249 does not
@@ -134,7 +136,7 @@ strict 1.x guarantee; §4 acknowledges the prospective withdrawal of that
 promise.** Each proposed change must independently identify the affected
 extension, explain why the DB-API/core semantics remain intact, compare
 alternatives, assess consumers and obtain a maintainer decision **before**
-starting its own deprecation clock. Absent that decision and notice, the
+approving its migration plan. Absent that decision and release disclosure, the
 published API remains supported. A previously published warning for
 `pycubrid.compat` does **not** count as notice for another API.
 
@@ -277,7 +279,7 @@ in code review:
 Breaking changes to the protected DB-API core require a MAJOR release, apart
 from the existing narrow security exception. A non-core project extension
 may be retired or incompatibly changed in a MINOR **only** through the
-deprecation-based process below. The pre-existing Compat exception also allows
+project-extension process below. Compat uses a separate, stricter process. The pre-existing Compat exception also allows
 provisional Compat names first released in 1.9.0 or later to change in a MINOR,
 as documented in §2. That historical provisional exception does not apply to
 ordinary `pycubrid` or `pycubrid.aio` extensions. It still requires an
@@ -312,18 +314,50 @@ The CI gate (`compat-check` job) will fail any pull request that changes the
 public surface without also updating `api-baseline.json`, which is exactly
 how this policy is enforced in practice.
 
+### Project-extension changes in a MINOR release
+
+This exception is for an individual, **already published non-core API** in
+`pycubrid` or `pycubrid.aio`. It is not a license to break the DB-API
+contract or to label existing exports experimental after publication.
+There is no blanket 28-day wait for ordinary extensions; the appropriate
+migration notice depends on actual consumer impact.
+
+1. **Decision before implementation:** the maintainer records the exact API,
+   existing caller scenarios, alternatives, downstream/consumer assessment and
+   why retaining compatibility is impractical. A green test or updated API
+   baseline is not product approval.
+2. **Practical migration:** the breaking MINOR's Upgrade notes describe the
+   change plainly, explain the reason and give concrete before/after code or
+   a documented absence of a substitute. For removal/rename, provide English
+   and Korean migration guidance. If an earlier deprecation warning is
+   feasible, normally ship it first; if omitted, explain why and record the
+   chosen notice in the issue. Avoid warning on bare `import pycubrid`.
+   There is **no fixed release-count or calendar-day requirement** for these
+   ordinary extensions.
+3. **Version and user risk:** review the resulting public API baseline diff,
+   full CI and release checks; retain the `BREAKING CHANGE` marker and an
+   intentional `Release-As: X.Y.0` override under `RELEASING.md`.
+   Disclose that `<2.0` dependency ranges can select this release
+   automatically; callers needing a fixed legacy API must constrain versions.
+4. **Safety:** core PEP 249 semantics, data precision, transaction/session
+   correctness and stricter documented binding guarantees cannot be
+   reclassified as optional by this procedure. PATCH releases remain
+   backward compatible apart from §5.
+
+The decision and migration plan can be recorded in **one issue and one PR**.
+Do not create an extra approval workflow, a universal deprecation timetable
+or a new CI gate. This policy revision alone does **not** announce or
+authorize removal of any specific extension.
+
 <a id="deprecation-based-retirement-in-a-minor-release"></a>
 
-### Deprecation-based retirement or incompatible extension change in a MINOR release
+### Compat retirement in a MINOR release
 
-An **individually approved project-specific extension** or an optional Compat
-name may be removed (or incompatibly changed) in a MINOR release only when
-**all** of the following hold. This is not a blanket reclassification:
-the proposal must identify the affected surface, establish that protected
-DB-API/core correctness is unchanged, and obtain the maintainer's explicit
-classification and product decision before issuing the warning. Nothing
-here permits breaking the DB-API core, and a breaking-change pull request cannot
-grant itself an exception.
+A published `pycubrid.compat` name may be removed in a MINOR only when
+**all** of the following hold. This narrower process preserves the
+existing published warning, user notice and explicit decision in #1120.
+It cannot be used to shorten that notice or to break the protected
+DB-API core; a removal PR cannot grant itself an exception.
 
 1. **A warning has shipped.** At least one earlier **published** MINOR release
    emits a warning that users can see when they actually use the name. The
@@ -333,10 +367,10 @@ grant itself an exception.
    pull request documents and tests why a hidden-by-default category is enough.
 2. **The announcement has shipped.** That same release has a `### Deprecated`
    entry in `CHANGELOG.md`, says in its Upgrade notes that a later MINOR release
-   will remove or incompatibly change the identified API, and publishes an
-   English migration guide with its Korean counterpart. The guide gives
-   before/after examples and says plainly when no equivalent exists. A documentation-only announcement does
-   not satisfy this rule or rule 1.
+   will remove the identified Compat name, and publishes an English
+   migration guide with its Korean counterpart. The guide gives before/after
+   examples and says plainly when no equivalent exists. A documentation-only
+   announcement does not satisfy this rule or rule 1.
 3. **The notice period has elapsed.** At least **28 calendar days** pass between
    the notice start (below) and the merge of the release pull request of the
    affected version. Both this period and rule 1 are required: a number of
@@ -348,10 +382,9 @@ grant itself an exception.
    (never an assumption that there are no users), the correction plan if the
    release causes a regression (for example yanking under §5 and a replacement
    release), and the accepted residual risk from rule 6.
-5. **The change is reviewed in full.** The specific retirement or incompatible
-   extension change is its own pull request. It regenerates `api-baseline.json`
-   if the tracked surface changes (steps 3–4 above), and its `CHANGELOG.md`
-   entry follows step 5 above. The release is called an intentional breaking
+5. **The change is reviewed in full.** The Compat retirement is its own
+   pull request. It regenerates `api-baseline.json` with the tracked removal
+   (steps 3–4 above), and its `CHANGELOG.md` entry follows step 5 above. The release is called an intentional breaking
    MINOR release in its Upgrade notes. No required check, `compat-check` or
    release gate is skipped or loosened to land it. A `compat-check` failure is
    fixed with the reviewed baseline diff. [`RELEASING.md`](RELEASING.md#breaking-minor-release)
@@ -401,14 +434,16 @@ break before 2.0. That guarantee was a real user-facing commitment, and
 changing it has compatibility and trust costs. Starting when this amended
 policy is published, the project instead gives **PEP 249/core behavior**
 the strongest protection and permits a *particular* non-core extension to
-change in a future 1.x MINOR only after the §3 deprecation process.
+change in a future 1.x MINOR only after the separate §3
+project-extension decision and migration process.
 
 This change **does not** claim that existing extensions were experimental or
 unsupported when released, and it is not itself the warning release or
 permission to remove any specific API. A reviewed issue must first identify
 the exact extension and justify its classification and user migration. The
-API-specific warning and guide must then ship in an earlier published MINOR,
-and at least 28 days must elapse before the breaking release PR merges.
+maintainer then chooses proportionate notice and documents the migration in
+the release. Earlier published warnings are recommended where practical,
+but the fixed 28-day Compat period does **not** apply to ordinary extensions.
 Consumers using `<2.0` ranges can receive that breaking MINOR automatically;
 release notes and advance warnings cannot eliminate that risk.
 
