@@ -182,7 +182,7 @@ its classification, user need, alternatives, migration and impact must be
 reviewed in its own issue before the warning ships. This procedure changes no
 gate: the same checks, full matrix, candidate verification and review apply.
 
-**Before the removal pull request merges,** record in its `breaking-change` issue:
+**Before an approved breaking-extension implementation merges,** record in its `breaking-change` issue:
 
 - the warning release, and its notice start from PyPI:
   `curl -s https://pypi.org/pypi/pycubrid/X.Y.Z/json | jq -r '.urls[].upload_time_iso_8601'`
@@ -191,7 +191,7 @@ gate: the same checks, full matrix, candidate verification and review apply.
 - the earliest allowed merge date of the release PR (notice start plus the
   approved period, at least 28 calendar days);
 - the target version: the next MINOR after the latest published release. Merge the
-  removal only when that version is ready to ship, because every later candidate
+  change only when that version is ready to ship, because every later candidate
   contains the break until it is released.
 
 **Keep the break visible and pin the version.** The removal keeps its `!`, and its
