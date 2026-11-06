@@ -273,11 +273,12 @@ jobs:
               re.I | re.A,
           )
           local_repo = os.environ.get("GITHUB_REPOSITORY", "").lower()
-          # Dependabot quotes upstream release notes in its PR body, in HTML that
-          # looks like a closure, and the author cannot edit that out (#1119).
-          # Ignoring quotes would also excuse a person's, so the exception is the
-          # exact bot login, which no user can register, and only for a body
-          # reference outside this owner: a sibling repository stays protected.
+          # Dependabot quotes upstream release notes in its PR body and rewrites
+          # their issue links to redirect.github.com. GitHub does not take that
+          # host as a closing reference, so the link closes nothing whoever merges
+          # (#1119). Only such a link is ignored, only from the exact bot login,
+          # which no user can register, and only in the body and outside this
+          # owner. Plain references and github.com links stay checked.
           upstream_notes = os.environ.get("PR_AUTHOR") == "dependabot[bot]"
           local_owner = local_repo.split("/")[0]
           # (Foreign issue, where) -> "direct" or "link", in the order found.
@@ -286,11 +287,17 @@ jobs:
 
           def note(owner: str, repo: str, number: str, how: str) -> None:
               target = f"{owner}/{repo}".lower()
-              quoted = upstream_notes and where == "PR body" and owner.lower() != local_owner
-              if target != local_repo and not quoted:
+              if target != local_repo:
                   key = (f"{target}#{number.lstrip('0') or '0'}", where)
                   if found.get(key) != "direct":
                       found[key] = how
+
+          def display_only(text: str, start: int, owner: str) -> bool:
+              # Dependabot's rewritten upstream link, which closes nothing.
+              host = "://redirect.github.com/"
+              before = text[max(0, start - len(host)) : start].lower()
+              in_notes = upstream_notes and where == "PR body"
+              return in_notes and owner.lower() != local_owner and before == host
 
           def gap_ends(text: str, start: int, seen: set, scanned: dict) -> tuple[list, bool]:
               # New positions reachable from start over spaces, a colon, emphasis,
@@ -384,7 +391,8 @@ jobs:
                       owner = match["owner"]
                       if owner == "..":
                           owner = local_repo.split("/")[0]
-                      note(owner, match["repo"], match["number"], "link")
+                      if not display_only(text, match.start(), owner):
+                          note(owner, match["repo"], match["number"], "link")
 
           def without_markup(text: str, instruction_end: str, cdata_end: str) -> str:
               hidden = (

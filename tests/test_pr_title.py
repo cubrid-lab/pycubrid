@@ -95,7 +95,7 @@ INVALID = (
 
 TICK = chr(96)
 FENCE = TICK * 3
-GUARD_SHA256 = "cf86a6a4c5b922b16c11951d47f23e51b551b4120ea34a43941076b70768e525"
+GUARD_SHA256 = "3781dcac3091422a98fd669fa84a48b682fa1e442f5b1246777e78740b6bea7b"
 
 
 def _validator() -> str:
@@ -490,12 +490,29 @@ class PrTitleValidatorTest(unittest.TestCase):
     def test_dependabot_may_quote_upstream_closures_in_its_body(self) -> None:
         for body in (
             self.UPSTREAM_NOTES,
-            "> Closes astral-sh/ruff#29470\n",
-            "Closes [the bug](https://github.com/astral-sh/ruff/issues/29470)\n",
+            "Closes [#29470](https://redirect.github.com/astral-sh/ruff/issues/29470)\n",
+            "Closes [#29470](HTTPS://Redirect.GitHub.com/astral-sh/ruff/issues/29470)\n",
         ):
             with self.subTest(body=body[:40]):
                 result = _run("chore(deps): bump ruff", body, author="dependabot[bot]")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_dependabot_body_may_only_quote_redirect_links(self) -> None:
+        # GitHub acts on these, so whether they close anything would depend on
+        # the merger's rights on the other repository.
+        for body in (
+            "> Closes astral-sh/ruff#29470\n",
+            "Closes https://github.com/astral-sh/ruff/issues/29470\n",
+            "Closes [the bug](https://github.com/astral-sh/ruff/issues/29470)\n",
+            'Closes <a href="https://github.com/astral-sh/ruff/issues/29470">#29470</a>\n',
+            "Closes [x](https://redirect.github.com.evil.test/astral-sh/ruff/issues/29470)\n",
+            "Closes [x](https://notredirect.github.com/astral-sh/ruff/issues/29470)\n",
+            self.UPSTREAM_NOTES + "Closes astral-sh/ruff#29470\n",
+        ):
+            with self.subTest(body=body[:60]):
+                result = _run("chore(deps): bump ruff", body, author="dependabot[bot]")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("astral-sh/ruff#29470", result.stdout)
 
     def test_only_the_exact_bot_login_may_quote_upstream_closures(self) -> None:
         for author in (
@@ -518,6 +535,7 @@ class PrTitleValidatorTest(unittest.TestCase):
             "Closes cubrid-lab/sqlalchemy-cubrid#833",
             "Closes CUBRID-Lab/sqlalchemy-cubrid#833",
             "Closes [x](https://github.com/cubrid-lab/sqlalchemy-cubrid/issues/833)",
+            "Closes [x](https://redirect.github.com/cubrid-lab/sqlalchemy-cubrid/issues/833)",
         ):
             with self.subTest(body=body):
                 result = _run("chore(deps): bump ruff", body, author="dependabot[bot]")
