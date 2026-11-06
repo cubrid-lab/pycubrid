@@ -39,6 +39,15 @@ Independent use case, alternatives and continuing API cost: pending or N/A (reas
 
 Release target: unreleased until a release is reviewed
 
+<!-- For intentional 1.x breaking changes to a project extension or Compat,
+link the extension-specific decision, the *published* prior MINOR warning,
+migration guide and actual notice start/date (at least 28 days). Distinguish
+the protected PEP 249 core from the proposed extension. This project-wide
+policy is not itself an API-specific deprecation announcement. Keep ordinary
+non-breaking changes N/A; do not bypass release/CI review. -->
+
+1.x breaking extension notice and eligibility: N/A (reason), or links/dates
+
 ## Premise and scope countercheck (for feature proposals or claimed gaps)
 
 <!-- State the observation and the inference separately. Check a concrete
