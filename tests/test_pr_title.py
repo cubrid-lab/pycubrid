@@ -95,7 +95,7 @@ INVALID = (
 
 TICK = chr(96)
 FENCE = TICK * 3
-GUARD_SHA256 = "a44a7759b0897b3bc790605175e29ffb86421f7a245b882a52b70c399817178d"
+GUARD_SHA256 = "cf86a6a4c5b922b16c11951d47f23e51b551b4120ea34a43941076b70768e525"
 
 
 def _validator() -> str:
@@ -107,7 +107,11 @@ def _validator() -> str:
 
 
 def _run(
-    title: str, body: str = "", commits: str | None = None, timeout: float | None = None
+    title: str,
+    body: str = "",
+    commits: str | None = None,
+    timeout: float | None = None,
+    author: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
@@ -116,6 +120,9 @@ def _run(
         "GITHUB_REPOSITORY": "cubrid-lab/pycubrid",
     }
     env.pop("PR_COMMITS_FILE", None)
+    env.pop("PR_AUTHOR", None)
+    if author is not None:
+        env["PR_AUTHOR"] = author
     if commits is not None:
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
             handle.write(commits)
@@ -471,6 +478,67 @@ class PrTitleValidatorTest(unittest.TestCase):
         )
         result = _run("docs: x", "Closes alice_acme/another-repo#42")
         self.assertNotIn("aliceacme", result.stdout)
+
+    # The markup of a real Dependabot body: HTML, with redirect.github.com links.
+    UPSTREAM_NOTES = (
+        "Bumps the dev-tools group.\n\n<details>\n<summary>Release notes</summary>\n"
+        "<blockquote>\n<ul>\n<li>Fix dedent, closes "
+        '<a href="https://redirect.github.com/astral-sh/ruff/issues/29470">#29470</a></li>\n'
+        "</ul>\n</blockquote>\n</details>\n"
+    )
+
+    def test_dependabot_may_quote_upstream_closures_in_its_body(self) -> None:
+        for body in (
+            self.UPSTREAM_NOTES,
+            "> Closes astral-sh/ruff#29470\n",
+            "Closes [the bug](https://github.com/astral-sh/ruff/issues/29470)\n",
+        ):
+            with self.subTest(body=body[:40]):
+                result = _run("chore(deps): bump ruff", body, author="dependabot[bot]")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_only_the_exact_bot_login_may_quote_upstream_closures(self) -> None:
+        for author in (
+            None,
+            "",
+            "someone",
+            "dependabot",
+            "dependabot-bot",
+            "Dependabot[bot]",
+            "dependabot[bot] ",
+            "renovate[bot]",
+        ):
+            with self.subTest(author=author):
+                result = _run("chore(deps): bump ruff", self.UPSTREAM_NOTES, author=author)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("astral-sh/ruff#29470", result.stdout)
+
+    def test_dependabot_body_still_cannot_close_a_sibling_issue(self) -> None:
+        for body in (
+            "Closes cubrid-lab/sqlalchemy-cubrid#833",
+            "Closes CUBRID-Lab/sqlalchemy-cubrid#833",
+            "Closes [x](https://github.com/cubrid-lab/sqlalchemy-cubrid/issues/833)",
+        ):
+            with self.subTest(body=body):
+                result = _run("chore(deps): bump ruff", body, author="dependabot[bot]")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("cubrid-lab/sqlalchemy-cubrid#833", result.stdout)
+
+    def test_dependabot_title_and_commits_are_still_checked(self) -> None:
+        commits = "chore(deps): bump ruff\n\nCloses astral-sh/ruff#29470\n"
+        result = _run("chore(deps): bump ruff", "", commits, author="dependabot[bot]")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("in a commit message", result.stdout)
+        result = _run(
+            "chore(deps): closes https://github.com/astral-sh/ruff/issues/29470",
+            author="dependabot[bot]",
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("in a PR title", result.stdout)
+
+    def test_the_author_comes_from_the_event_payload(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("PR_AUTHOR: ${{ github.event.pull_request.user.login }}", text)
 
     def test_foreign_closure_in_a_commit_message_fails(self) -> None:
         commits = "fix: keep cursor state\n\nCloses another-org/another-repo#43\n"

@@ -9,6 +9,7 @@ name: PR title
 # requests: `gh api` lists the PR's commit messages into a file that is read as
 # data only. Also rejects foreign-issue closing keywords in the PR body, and in
 # the title and commit messages, which make up the squash commit.
+# PR_AUTHOR is GitHub's login for the PR author, which the PR cannot set.
 # The job name "PR title" is the required-status-check context; keep it stable.
 
 on:
@@ -33,6 +34,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_COMMIT_COUNT: ${{ github.event.pull_request.commits }}
           GH_TOKEN: ${{ github.token }}
@@ -271,13 +273,21 @@ jobs:
               re.I | re.A,
           )
           local_repo = os.environ.get("GITHUB_REPOSITORY", "").lower()
+          # Dependabot quotes upstream release notes in its PR body, in HTML that
+          # looks like a closure, and the author cannot edit that out (#1119).
+          # Ignoring quotes would also excuse a person's, so the exception is the
+          # exact bot login, which no user can register, and only for a body
+          # reference outside this owner: a sibling repository stays protected.
+          upstream_notes = os.environ.get("PR_AUTHOR") == "dependabot[bot]"
+          local_owner = local_repo.split("/")[0]
           # (Foreign issue, where) -> "direct" or "link", in the order found.
           found = {}
           where = "PR body"
 
           def note(owner: str, repo: str, number: str, how: str) -> None:
               target = f"{owner}/{repo}".lower()
-              if target != local_repo:
+              quoted = upstream_notes and where == "PR body" and owner.lower() != local_owner
+              if target != local_repo and not quoted:
                   key = (f"{target}#{number.lstrip('0') or '0'}", where)
                   if found.get(key) != "direct":
                       found[key] = how
