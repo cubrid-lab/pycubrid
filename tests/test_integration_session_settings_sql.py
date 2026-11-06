@@ -80,8 +80,10 @@ async def test_set_and_read_keep_the_open_transaction(connect: Connect) -> None:
         await _run(actor, "SET TRANSACTION LOCK TIMEOUT 5")
         await _run(actor, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         await _settings(actor)
+        assert await _run(actor, f"SELECT id FROM {table}") == [(1,)]
         assert await _run(observer, f"SELECT id FROM {table}") == []
         await _call(actor.rollback())
+        assert await _run(actor, f"SELECT id FROM {table}") == []
         assert await _run(observer, f"SELECT id FROM {table}") == []
     finally:
         await _call(actor.rollback())
