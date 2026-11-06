@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **The Troubleshooting Docker examples now wait for a real login and stay local (#1083)** — the
+  health check used `cubrid broker status`, which passes before `testdb` accepts logins, so
+  `docker compose up -d --wait` returned early. The examples published port 33000 on every
+  interface with an empty `dba` password. They now match `docker-compose.yml`.
 - **The Compat migration guide now shows how to read the isolation level and lock timeout
   (#1129)** — it said ordinary SQL had no way to do this, which was wrong. `GET TRANSACTION
   ISOLATION LEVEL TO iso` followed by `SELECT iso` works, as does the `LOCK TIMEOUT` form, on

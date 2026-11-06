@@ -8557,7 +8557,7 @@ OperationalError: ... (during connection handshake)
      cubrid:
        image: cubrid/cubrid:11.2
        ports:
-         - "33000:33000"
+         - "127.0.0.1:33000:33000"
        environment:
          CUBRID_DB: testdb
    ```
@@ -9460,23 +9460,27 @@ services:
 
 ### Container Health Check
 
-**Add a health check to your docker-compose.yml:**
+**Add a health check that logs in to the database, as the repository's
+[`docker-compose.yml`](https://github.com/cubrid-lab/pycubrid/blob/main/docker-compose.yml) does.**
+A `cubrid broker status` check is not enough: the broker reports healthy before
+`testdb` accepts logins. The `127.0.0.1` binding keeps the empty-password `dba`
+account off the network.
 
 ```yaml
 services:
   cubrid:
     image: cubrid/cubrid:11.2
-    container_name: cubrid-test
-    ports:
-      - "33000:33000"
     environment:
       CUBRID_DB: testdb
+      CUBRID_DB_HOST: localhost
+    ports:
+      - "127.0.0.1:33000:33000"
     healthcheck:
-      test: ["CMD", "cubrid", "broker", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+      test: ["CMD", "csql", "-u", "dba", "testdb", "-c", "SELECT 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 ```
 
 **Wait for health check in tests:**
