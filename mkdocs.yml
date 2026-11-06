@@ -152,7 +152,8 @@ validation:
   nav:
     omitted_files: ignore
   links:
-    not_found: ignore
+    not_found: warn
+    unrecognized_links: warn
     anchors: warn
 
 extra:

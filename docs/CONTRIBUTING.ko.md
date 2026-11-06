@@ -150,7 +150,7 @@ examples`)를 공유하므로 Markdown을 다시 포맷하지 않습니다. stri
 AI 검토 결과 역시 참고자료입니다. 단, 워크플로 권한, 연결/TLS, 프로토콜,
 릴리스·게시 관련 고위험 변경의 독립적인 메인테이너 검토와 기존 보안
 요건은 구현 도구와 관계없이 유지합니다. 자세한 사항은
-[CONTRIBUTING.md](../CONTRIBUTING.md#agent-review-evidence-gate)를 참고하세요.
+[CONTRIBUTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md#agent-review-evidence-gate)를 참고하세요.
 
 `.github/CODEOWNERS`는 릴리스, CI, 보안 정책, 와이어 프로토콜/연결 경로의 변경에
 메인테이너 리뷰를 자동으로 요청합니다. 리뷰 라우팅만 담당하며 보안 경계가 아니고,

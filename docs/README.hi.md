@@ -10,7 +10,7 @@
 
 **CUBRID डेटाबेस के लिए शुद्ध Python DB-API 2.0 ड्राइवर** — बिना C एक्सटेंशन, बिना कम्पाइलेशन, PEP 249 (DB-API 2.0) इंटरफ़ेस को लागू करता है।
 
-[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](../README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
+[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
 
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
@@ -34,8 +34,8 @@
 > पहले घोषित `pycubrid.compat` हटाने पर [अलग न्यूनतम 28-दिन का नियम](COMPAT_MIGRATION.md)
 > लागू रहता है। PATCH सीमित सुरक्षा अपवादों को छोड़कर संगत रहता है।
 > यह पुराने 1.x एक्सटेंशन वादे में भविष्य का बदलाव है; `<2.0` सीमा हर
-> MINOR के लिए संगतता की गारंटी नहीं देती। [चेंजलॉग](../CHANGELOG.md) और
-> [रिलीज़ नीति](../RELEASE_POLICY.md) देखें।
+> MINOR के लिए संगतता की गारंटी नहीं देती। [चेंजलॉग](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md) और
+> [रिलीज़ नीति](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md) देखें।
 
 ## pycubrid क्यों?
 
@@ -363,18 +363,18 @@ CUBRID 10.2, 11.0, 11.2, और 11.4 CI में टेस्ट किए ज�
 
 ## रोडमैप
 
-इस परियोजना की दिशा और अगले milestones के लिए [`ROADMAP.md`](../ROADMAP.md) देखें।
+इस परियोजना की दिशा और अगले milestones के लिए [`ROADMAP.md`](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md) देखें।
 
 पूरे ecosystem के दृष्टिकोण के लिए [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md) देखें।
 
 ## योगदान
 
-दिशानिर्देशों के लिए [CONTRIBUTING.md](../CONTRIBUTING.md) और development setup के लिए [docs/DEVELOPMENT.md](DEVELOPMENT.md) देखें।
+दिशानिर्देशों के लिए [CONTRIBUTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md) और development setup के लिए [docs/DEVELOPMENT.md](DEVELOPMENT.md) देखें।
 
 ## सुरक्षा
 
-कमज़ोरियों की रिपोर्ट GitHub की निजी vulnerability reporting के माध्यम से करें (वैकल्पिक रूप से ईमेल) — विवरण के लिए [SECURITY.md](../SECURITY.md) देखें। सुरक्षा चिंताओं के लिए सार्वजनिक issues न खोलें।
+कमज़ोरियों की रिपोर्ट GitHub की निजी vulnerability reporting के माध्यम से करें (वैकल्पिक रूप से ईमेल) — विवरण के लिए [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md) देखें। सुरक्षा चिंताओं के लिए सार्वजनिक issues न खोलें।
 
 ## लाइसेंस
 
-MIT — [LICENSE](../LICENSE) देखें.
+MIT — [LICENSE](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE) देखें.

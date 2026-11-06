@@ -797,7 +797,7 @@ flowchart TD
 ```
 
 1. **File an issue** — use the
-   [Performance Investigation template](../.github/ISSUE_TEMPLATE/performance.yml).
+   [Performance Investigation template](https://github.com/cubrid-lab/pycubrid/blob/main/.github/ISSUE_TEMPLATE/performance.yml).
    Paste the benchmark output and link the CI run that triggered this.
 
 2. **Profile the affected operation** — pick the script that matches the slow operation:
@@ -999,7 +999,7 @@ All cursors created from a connection report into the same `TimingStats`. Stats 
 4. For larger workloads, or to compare `pycubrid` with `CUBRIDdb` on the same server, use the
    [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark) harness. Set
    `autocommit` explicitly for every driver.
-5. Report the result in a [Performance issue](../.github/ISSUE_TEMPLATE/performance.yml) with
+5. Report the result in a [Performance issue](https://github.com/cubrid-lab/pycubrid/blob/main/.github/ISSUE_TEMPLATE/performance.yml) with
    the environment listed under [Benchmark Methodology](#benchmark-methodology).
 
 ```bash

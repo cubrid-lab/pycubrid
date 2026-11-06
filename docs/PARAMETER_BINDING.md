@@ -7,7 +7,7 @@ Python values into SQL literals before sending them to CUBRID. Every claim in
 this document is backed by a citation to the implementation
 (`pycubrid/_cursor_common.py`) and to a unit test that pins the behavior. Any
 change to the rules below is a contract change governed by
-[`RELEASE_POLICY.md`](../RELEASE_POLICY.md).
+[`RELEASE_POLICY.md`](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md).
 
 ---
 
@@ -645,7 +645,7 @@ them implicitly.
   is not a guarantee. The public-API surface gate
   (`scripts/check_public_api.py`) does not detect behavioral drift; it only
   detects structural surface changes. See
-  [`RELEASE_POLICY.md`](../RELEASE_POLICY.md) §"What the gate does *not*
+  [`RELEASE_POLICY.md`](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md) §"What the gate does *not*
   detect".
 
 ---
@@ -653,7 +653,7 @@ them implicitly.
 ## Compatibility Policy (1.x)
 
 Within the 1.x line, the following changes are governed by
-[`RELEASE_POLICY.md`](../RELEASE_POLICY.md):
+[`RELEASE_POLICY.md`](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md):
 
 ### Allowed in a minor (`1.y` → `1.y+1`) release
 
@@ -723,10 +723,10 @@ Together these tests provide the executable specification of this contract.
 
 ## References
 
-- Implementation: [`pycubrid/_cursor_common.py`](../pycubrid/_cursor_common.py)
-- Sync entry points: [`pycubrid/cursor.py`](../pycubrid/cursor.py)
-- Async entry points: [`pycubrid/aio/cursor.py`](../pycubrid/aio/cursor.py)
-- Connection flag: [`pycubrid/_connection_common.py`](../pycubrid/_connection_common.py)
-- Release policy: [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)
+- Implementation: [`pycubrid/_cursor_common.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/_cursor_common.py)
+- Sync entry points: [`pycubrid/cursor.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/cursor.py)
+- Async entry points: [`pycubrid/aio/cursor.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/aio/cursor.py)
+- Connection flag: [`pycubrid/_connection_common.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/_connection_common.py)
+- Release policy: [`RELEASE_POLICY.md`](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md)
 - Type system (fetch / description side): [`docs/TYPES.md`](TYPES.md)
 - API reference: [`docs/API_REFERENCE.md`](API_REFERENCE.md)

@@ -221,15 +221,15 @@ CUBRID 자체 또는 설계 선택에서 비롯된 제약입니다:
 
 | 문서 | 내용 |
 |---|---|
-| [`README.md`](../../README.md) | 퀵스타트가 포함된 랜딩 페이지 |
+| [`README.md`](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) | 퀵스타트가 포함된 랜딩 페이지 |
 | [`docs/CONNECTION.md`](CONNECTION.md) | 연결 문자열, 설정 |
 | [`docs/TYPES.md`](TYPES.md) | 타입 매핑, CUBRID 전용 타입 |
 | [`docs/API_REFERENCE.md`](API_REFERENCE.md) | 전체 API 문서 |
 | [`docs/PROTOCOL.md`](PROTOCOL.md) | CAS 와이어 프로토콜 참조 |
 | [`docs/DEVELOPMENT.md`](DEVELOPMENT.md) | 개발 환경 설정, 테스트, Docker, CI/CD |
 | [`docs/EXAMPLES.md`](EXAMPLES.md) | 실용적인 사용 예제 |
-| [`CHANGELOG.md`](../../CHANGELOG.md) | 릴리스 이력 |
-| [`CONTRIBUTING.md`](../../CONTRIBUTING.md) | 기여 가이드라인 |
+| [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md) | 릴리스 이력 |
+| [`CONTRIBUTING.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md) | 기여 가이드라인 |
 
 ---
 

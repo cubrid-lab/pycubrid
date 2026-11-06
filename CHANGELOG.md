@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   health check used `cubrid broker status`, which passes before `testdb` accepts logins, so
   `docker compose up -d --wait` returned early. The examples published port 33000 on every
   interface with an empty `dba` password. They now match `docker-compose.yml`.
+- **Published pages no longer link to repository files the site does not serve (#1088)** — links
+  such as `../SECURITY.md` and `../LICENSE` returned 404 on the documentation site, including the
+  vulnerability-reporting link in every translated README. They now use GitHub URLs, and
+  `mkdocs build --strict` fails on a new broken link.
 - **The Compat migration guide now shows how to read the isolation level and lock timeout
   (#1129)** — it said ordinary SQL had no way to do this, which was wrong. `GET TRANSACTION
   ISOLATION LEVEL TO iso` followed by `SELECT iso` works, as does the `LOCK TIMEOUT` form, on

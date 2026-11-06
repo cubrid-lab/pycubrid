@@ -219,15 +219,15 @@ Limitations imposed by CUBRID or design choices:
 
 | Document | Content |
 |---|---|
-| [`README.md`](../README.md) | Landing page with Quick Start |
+| [`README.md`](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) | Landing page with Quick Start |
 | [`docs/CONNECTION.md`](CONNECTION.md) | Connection strings, configuration |
 | [`docs/TYPES.md`](TYPES.md) | Type mapping, CUBRID-specific types |
 | [`docs/API_REFERENCE.md`](API_REFERENCE.md) | Complete API documentation |
 | [`docs/PROTOCOL.md`](PROTOCOL.md) | CAS wire protocol reference |
 | [`docs/DEVELOPMENT.md`](DEVELOPMENT.md) | Dev setup, testing, Docker, CI/CD |
 | [`docs/EXAMPLES.md`](EXAMPLES.md) | Practical usage examples |
-| [`CHANGELOG.md`](../CHANGELOG.md) | Release history |
-| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Contribution guidelines |
+| [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md) | Release history |
+| [`CONTRIBUTING.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md) | Contribution guidelines |
 
 ---
 

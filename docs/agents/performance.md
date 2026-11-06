@@ -1,6 +1,6 @@
 # Performance guide
 
-> Moved from the root [AGENTS.md](../../AGENTS.md) (#926). Owner: pycubrid maintainers.
+> Moved from the root [AGENTS.md](https://github.com/cubrid-lab/pycubrid/blob/main/AGENTS.md) (#926). Owner: pycubrid maintainers.
 > Every rule in the root file still applies. Scope: Where performance and roadmap priorities live, and the driver-focused performance goals.
 
 ## Performance and Roadmap Pointers
@@ -8,7 +8,7 @@
 Performance work is tracked in issues, not in this file. Before treating any
 performance or roadmap item as current priority, check the live sources:
 
-- [ROADMAP.md](../../ROADMAP.md) — public roadmap and current project baseline (the
+- [ROADMAP.md](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md) — public roadmap and current project baseline (the
   linked org project board may require cubrid-lab membership).
 - [docs/PERFORMANCE.md](../PERFORMANCE.md) — benchmark methodology, regression
   checks, profiling scripts, timing hooks and how to reproduce a measurement.

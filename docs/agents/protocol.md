@@ -1,6 +1,6 @@
 # Wire protocol guide
 
-> Moved from the root [AGENTS.md](../../AGENTS.md) (#926). Owner: pycubrid maintainers.
+> Moved from the root [AGENTS.md](https://github.com/cubrid-lab/pycubrid/blob/main/AGENTS.md) (#926). Owner: pycubrid maintainers.
 > Every rule in the root file still applies. Scope: CAS packet layouts, reply parsing bounds, bind encodings, LOB and handle lifetimes, CAS_INFO and reconnect rules, handshake and key constants. [docs/PROTOCOL.md](../PROTOCOL.md) is the user-facing protocol reference; supported versions are in the [support matrix](../SUPPORT_MATRIX.md).
 
 ## Wire Protocol Summary
