@@ -235,8 +235,8 @@ type(scope)!: description
   개별 API의 비호환 변경에는 메인테이너의 이슈별 결정, 사용자 영향 검토,
   마이그레이션 안내와 MINOR 릴리스 검토가 필요합니다. 가능하면 이전 릴리스에서
   폐기 경고를 안내하되 일반 확장 API에는 일률적인 28일 대기 기간을 두지 않습니다.
-  기존 Compat 제거에는 약속된 최소 28일 사전 공지가 그대로 적용됩니다. 공개 API의 추적 대상이 달라지면 `api-baseline.json`도
-  함께 검토합니다. PEP 249에 없는 API라는 이유만으로 제거를 진행하지
+  기존 Compat 제거에는 약속된 최소 28일 사전 공지가 그대로 적용됩니다.
+  공개 API의 추적 대상이 달라지면 `api-baseline.json`도 함께 검토합니다. PEP 249에 없는 API라는 이유만으로 제거를 진행하지
   마세요. 자세한 절차는 [`RELEASE_POLICY.md` §3](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md#project-extension-changes-in-a-minor-release)를
   참고하세요. 외부 기여자는 사전 승인 없이 변경을 제안할 수 있습니다.
 - 콜론 뒤에는 정확히 **공백 하나**를 둡니다.
