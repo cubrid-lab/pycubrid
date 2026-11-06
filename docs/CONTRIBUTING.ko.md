@@ -230,6 +230,14 @@ type(scope)!: description
   `aio`, `deps`, `release`.
 - 콜론 앞의 **`!`**는 호환성을 깨는 변경입니다. 그런 변경에는 저장소 릴리스
   정책도 따르세요.
+- **1.x 호환성:** PEP 249/DB-API 핵심 계약은 보호합니다. 이미 배포한 프로젝트
+  고유 공개 확장 API라고 해서 자동으로 잠정 API가 되는 것은 아닙니다.
+  개별 API의 비호환 변경에는 메인테이너의 이슈별 결정, 앞선 MINOR 릴리스의
+  실제 폐기 경고와 마이그레이션 안내, 최소 28일의 공지 기간, 최종 릴리스
+  검토가 필요합니다. 공개 API의 추적 대상이 달라지면 `api-baseline.json`도
+  함께 검토합니다. PEP 249에 없는 API라는 이유만으로 제거를 진행하지
+  마세요. 자세한 절차는 [`RELEASE_POLICY.md` §3](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release)를
+  참고하세요. 외부 기여자는 사전 승인 없이 변경을 제안할 수 있습니다.
 - 콜론 뒤에는 정확히 **공백 하나**를 둡니다.
 - **description**: 영어로 구체적으로 적으세요. 변경한 함수·타입·동작을
   명시하고, 첫 단어가 API 이름·약어·고유명사가 아니면 소문자로 시작합니다.
