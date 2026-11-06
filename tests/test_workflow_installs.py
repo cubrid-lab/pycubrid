@@ -15,7 +15,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.repo_tooling
 
-UV_ACTION = "astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2"
+WORKFLOW_DIR = ROOT / ".github" / "workflows"
+UV_ACTION_PREFIX = "astral-sh/setup-uv@"
+UV_ACTION_REF = re.compile(rf"{re.escape(UV_ACTION_PREFIX)}([^\s#'\"]+)")
+FULL_SHA = re.compile(r"[0-9a-f]{40}")
 UV_VERSION = "0.12.17"
 # The release gate keeps setup-uv's event guard (`auto`); routine CI always caches.
 WORKFLOWS = {"ci.yml": True, "integration-full.yml": "auto"}
@@ -38,6 +41,68 @@ def _python_jobs() -> list:
 PYTHON_JOBS = _python_jobs()
 
 
+def _uv_ref_problem(refs: set[str]) -> str | None:
+    """Say what is wrong with the setup-uv refs, without naming the expected SHA (#1118)."""
+    if len(refs) != 1:
+        return f"setup-uv must use one ref everywhere, found {sorted(refs)}"
+    ref = next(iter(refs))
+    if not FULL_SHA.fullmatch(ref):
+        return f"setup-uv must be pinned to a full commit SHA, found {ref!r}"
+    return None
+
+
+def _workflow_uv_refs() -> set[str]:
+    return {
+        ref
+        for path in WORKFLOW_DIR.glob("*.yml")
+        for ref in UV_ACTION_REF.findall(path.read_text(encoding="utf-8"))
+    }
+
+
+def test_setup_uv_has_one_full_sha_pin() -> None:
+    assert _uv_ref_problem(_workflow_uv_refs()) is None
+
+
+@pytest.mark.parametrize(
+    "refs",
+    [{"a" * 40}, {"0123456789abcdef0123456789abcdef01234567"}],
+)
+def test_a_new_setup_uv_sha_needs_no_test_edit(refs: set[str]) -> None:
+    assert _uv_ref_problem(refs) is None
+
+
+@pytest.mark.parametrize(
+    ("refs", "message"),
+    [
+        ({"a" * 40, "b" * 40}, "one ref"),
+        ({"v10.3.3"}, "full commit SHA"),
+        ({"v10"}, "full commit SHA"),
+        ({"main"}, "full commit SHA"),
+        ({"68559e9"}, "full commit SHA"),
+        ({"a" * 39}, "full commit SHA"),
+        ({"a" * 41}, "full commit SHA"),
+        ({"A" * 40}, "full commit SHA"),
+        (set(), "one ref"),
+    ],
+)
+def test_setup_uv_ref_problems_are_reported(refs: set[str], message: str) -> None:
+    problem = _uv_ref_problem(refs)
+    assert problem is not None
+    assert message in problem
+
+
+@pytest.mark.parametrize(
+    ("line", "ref"),
+    [
+        ("      - uses: astral-sh/setup-uv@abc123 # v10.3.3\n", "abc123"),
+        ("      - uses: 'astral-sh/setup-uv@abc123'\n", "abc123"),
+        ('      - uses: "astral-sh/setup-uv@v10"\n', "v10"),
+    ],
+)
+def test_workflow_uv_ref_is_read_without_its_comment_or_quotes(line: str, ref: str) -> None:
+    assert UV_ACTION_REF.findall(line) == [ref]
+
+
 def test_python_jobs_are_found() -> None:
     for wf, expected in EXPECTED_JOBS.items():
         assert sum(1 for p in PYTHON_JOBS if p.values[0] == wf) == expected, wf
@@ -45,9 +110,8 @@ def test_python_jobs_are_found() -> None:
 
 @pytest.mark.parametrize(("wf", "name", "steps"), PYTHON_JOBS)
 def test_job_sets_up_pinned_uv_with_cache(wf: str, name: str, steps: list) -> None:
-    uv = [s for s in steps if str(s.get("uses", "")).startswith("astral-sh/setup-uv@")]
+    uv = [s for s in steps if str(s.get("uses", "")).startswith(UV_ACTION_PREFIX)]
     assert len(uv) == 1, f"{wf}:{name} needs exactly one setup-uv step"
-    assert uv[0]["uses"] == UV_ACTION
     assert uv[0]["with"]["version"] == UV_VERSION
     assert uv[0]["with"]["enable-cache"] == WORKFLOWS[wf]
     assert set(uv[0]["with"]["cache-dependency-glob"].splitlines()) == {
