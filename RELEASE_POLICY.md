@@ -303,7 +303,9 @@ The CI gate (`compat-check` job) will fail any pull request that changes the
 public surface without also updating `api-baseline.json`, which is exactly
 how this policy is enforced in practice.
 
-### Deprecation-based retirement in a MINOR release
+<a id="deprecation-based-retirement-in-a-minor-release"></a>
+
+### Deprecation-based retirement or incompatible extension change in a MINOR release
 
 An **individually approved project-specific extension** or an optional Compat
 name may be removed (or incompatibly changed) in a MINOR release only when
@@ -311,7 +313,7 @@ name may be removed (or incompatibly changed) in a MINOR release only when
 the proposal must identify the affected surface, establish that protected
 DB-API/core correctness is unchanged, and obtain the maintainer's explicit
 classification and product decision before issuing the warning. Nothing
-here permits breaking the DB-API core, and a removal pull request cannot
+here permits breaking the DB-API core, and a breaking-change pull request cannot
 grant itself an exception.
 
 1. **A warning has shipped.** At least one earlier **published** MINOR release
@@ -322,13 +324,13 @@ grant itself an exception.
    pull request documents and tests why a hidden-by-default category is enough.
 2. **The announcement has shipped.** That same release has a `### Deprecated`
    entry in `CHANGELOG.md`, says in its Upgrade notes that a later MINOR release
-   will remove the name, and publishes an English migration guide with its
-   Korean counterpart. The guide gives before/after examples and says plainly
-   where no ordinary API replaces a name. A documentation-only announcement does
+   will remove or incompatibly change the identified API, and publishes an
+   English migration guide with its Korean counterpart. The guide gives
+   before/after examples and says plainly when no equivalent exists. A documentation-only announcement does
    not satisfy this rule or rule 1.
 3. **The notice period has elapsed.** At least **28 calendar days** pass between
    the notice start (below) and the merge of the release pull request of the
-   removal version. Both this period and rule 1 are required: a number of
+   affected version. Both this period and rule 1 are required: a number of
    releases does not replace the time, and the time does not replace a release.
    28 days is a floor. The maintainer sets a longer period when the affected-user
    assessment calls for it, and records it before the warning release ships.
@@ -337,17 +339,18 @@ grant itself an exception.
    (never an assumption that there are no users), the correction plan if the
    release causes a regression (for example yanking under §5 and a replacement
    release), and the accepted residual risk from rule 6.
-5. **The change is reviewed in full.** The removal is its own pull request. It
-   regenerates `api-baseline.json` (steps 3–4 above), and its `CHANGELOG.md`
+5. **The change is reviewed in full.** The specific retirement or incompatible
+   extension change is its own pull request. It regenerates `api-baseline.json`
+   if the tracked surface changes (steps 3–4 above), and its `CHANGELOG.md`
    entry follows step 5 above. The release is called an intentional breaking
    MINOR release in its Upgrade notes. No required check, `compat-check` or
    release gate is skipped or loosened to land it. A `compat-check` failure is
    fixed with the reviewed baseline diff. [`RELEASING.md`](RELEASING.md#breaking-minor-release)
    defines the version mechanics.
 6. **The upgrade risk is disclosed.** The Upgrade notes state that a compatible
-   version range such as `pycubrid>=1.8.0,<2.0` can install the removal release
+   version range such as `pycubrid>=1.8.0,<2.0` can install the breaking MINOR
    automatically. Warnings and notes reduce this risk but cannot remove it: only
-   an upper bound below the removal version protects a consumer that has not
+   an upper bound below the affected version protects a consumer that has not
    migrated.
 
 **When the notice period starts.** The clock starts at the PyPI upload time of
