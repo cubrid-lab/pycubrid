@@ -366,9 +366,9 @@ def main(argv: list[str] | None = None) -> int:
         "    python scripts/check_public_api.py --update\n"
         "    git add api-baseline.json && git commit\n"
         "\n"
-        "For 1.x, breaking protected DB-API/core API requires a MAJOR release.\\n"
-        "Only an approved non-core extension or optional Compat change can\\n"
-        "ship in a MINOR after the RELEASE_POLICY.md deprecation process.\\n"
+        "For 1.x, breaking protected DB-API/core API requires a MAJOR release.\n"
+        "Only an approved non-core extension or optional Compat change can\n"
+        "ship in a MINOR after the RELEASE_POLICY.md deprecation process.\n"
         "A baseline update alone is not approval to break compatibility.",
         file=sys.stderr,
     )
