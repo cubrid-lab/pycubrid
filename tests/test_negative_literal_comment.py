@@ -98,10 +98,19 @@ def test_rendering_around_minus(operation: str, values: tuple[Any, ...], expecte
     assert bind_parameters(operation, values) == expected
 
 
+# Stay within the 38 digits a Decimal may render as: 32 before the point, 6 after.
+_SMALLEST_DECIMAL = Decimal("-" + "9" * 32 + ".000000")
+
 _NUMBERS = st.one_of(
     st.integers(max_value=-1),
     st.floats(max_value=-0.0, allow_nan=False, allow_infinity=False),
-    st.decimals(max_value=0, allow_nan=False, allow_infinity=False, places=6),
+    st.decimals(
+        min_value=_SMALLEST_DECIMAL,
+        max_value=0,
+        allow_nan=False,
+        allow_infinity=False,
+        places=6,
+    ),
 )
 
 
@@ -122,6 +131,11 @@ def test_no_new_double_minus(prefix: str, value: Any) -> None:
         assert rest == " " + literal + " AND 1"
     else:
         assert rest == literal + " AND 1"
+
+
+def test_generated_decimals_reach_the_digit_limit() -> None:
+    literal = format_parameter(_SMALLEST_DECIMAL)
+    assert len(literal.lstrip("-").replace(".", "")) == 38
 
 
 def _conn() -> MagicMock:
