@@ -2,7 +2,7 @@
 
 Compatibility and feature support for pycubrid releases.
 
-> **Reference:** This page describes the `main` branch, which can be ahead of the latest published release. `pycubrid.__version__` in [`pycubrid/__init__.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py) on `main` is the version label of the source, not proof that this version is published: `main` keeps the last released number until a release pull request changes it, and an open release pull request is only a candidate. A version is published when its tag appears on the [release list](https://github.com/cubrid-lab/pycubrid/releases) and its files are on [PyPI](https://pypi.org/project/pycubrid/); the support statement for that version is this page at its tag (`docs/SUPPORT_MATRIX.md`). Release notes are in [`CHANGELOG.md`](../CHANGELOG.md).
+> **Reference:** This page describes the `main` branch, which can be ahead of the latest published release. `pycubrid.__version__` in [`pycubrid/__init__.py`](https://github.com/cubrid-lab/pycubrid/blob/main/pycubrid/__init__.py) on `main` is the version label of the source, not proof that this version is published: `main` keeps the last released number until a release pull request changes it, and an open release pull request is only a candidate. A version is published when its tag appears on the [release list](https://github.com/cubrid-lab/pycubrid/releases) and its files are on [PyPI](https://pypi.org/project/pycubrid/); the support statement for that version is this page at its tag (`docs/SUPPORT_MATRIX.md`). Release notes are in [`CHANGELOG.md`](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md).
 
 ---
 
@@ -252,4 +252,4 @@ upstream link, is in `tests/helpers/version_matrix.py`.
 `pycubrid.lob.Lob` with `packed_lob_handle` to read bytes, or insert `str`/`bytes` directly
 when writing CLOB/BLOB values.
 
-*See also: [Connection Guide](CONNECTION.md) · [Type System](TYPES.md) · [API Reference](API_REFERENCE.md) · [Performance Guide](PERFORMANCE.md) · [Changelog](../CHANGELOG.md)*
+*See also: [Connection Guide](CONNECTION.md) · [Type System](TYPES.md) · [API Reference](API_REFERENCE.md) · [Performance Guide](PERFORMANCE.md) · [Changelog](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)*

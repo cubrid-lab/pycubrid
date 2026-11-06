@@ -10,7 +10,7 @@
 
 **CUBRID 데이터베이스를 위한 순수 Python DB-API 2.0 드라이버** — C 확장 없이, 컴파일 없이, PEP 249(DB-API 2.0) 인터페이스를 구현합니다.
 
-[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](../README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
+[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
 
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
@@ -34,8 +34,8 @@
 > [별도의 최소 28일 요건](ko/COMPAT_MIGRATION.md)이 그대로 적용됩니다.
 > PATCH는 제한적인 보안 예외를 제외하고 호환성을 유지합니다.
 > 이는 기존 1.x 확장 API 보장을 앞으로 변경하는 정책이며 `<2.0` 범위만으로
-> 모든 MINOR의 호환성이 보장되지 않습니다. [변경 기록](../CHANGELOG.md)과
-> [릴리스 정책](../RELEASE_POLICY.md)을 확인하세요.
+> 모든 MINOR의 호환성이 보장되지 않습니다. [변경 기록](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)과
+> [릴리스 정책](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md)을 확인하세요.
 
 ## 여기서 시작하세요
 
@@ -418,7 +418,7 @@ CUBRID가 처음이신가요? 작업하려는 내용에 맞는 저장소를 선�
 
 ### 로드맵
 
-이 프로젝트의 방향과 다음 마일스톤은 [`ROADMAP.md`](../ROADMAP.md)를 참고하세요.
+이 프로젝트의 방향과 다음 마일스톤은 [`ROADMAP.md`](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md)를 참고하세요.
 
 생태계 전체 관점은 [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md)를 참고하세요.
 
@@ -429,14 +429,14 @@ CUBRID가 처음이신가요? 작업하려는 내용에 맞는 저장소를 선�
 
 ## 보안
 
-취약점은 GitHub의 비공개 취약점 제보(private vulnerability reporting)로 제보해 주세요(대체 수단은 이메일) — 자세한 내용은 [SECURITY.md](../SECURITY.md)를 참고하세요. 보안 관련 사항은 공개 이슈로 등록하지 마세요.
+취약점은 GitHub의 비공개 취약점 제보(private vulnerability reporting)로 제보해 주세요(대체 수단은 이메일) — 자세한 내용은 [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)를 참고하세요. 보안 관련 사항은 공개 이슈로 등록하지 마세요.
 
 ## 감사의 말
 
-pycubrid 초기 개발 당시, CUBRID의 공식 Node.js 드라이버인 [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause)를 참고 구현으로 삼아 CUBRID의 CAS(Common Application Server) 와이어 프로토콜 — 패킷 구조와 함수 코드 — 를 이해하는 데 활용했습니다. pycubrid는 독립적인 순수 Python 구현이며, 자세한 내용은 [NOTICE](../NOTICE)를 참고하세요.
+pycubrid 초기 개발 당시, CUBRID의 공식 Node.js 드라이버인 [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause)를 참고 구현으로 삼아 CUBRID의 CAS(Common Application Server) 와이어 프로토콜 — 패킷 구조와 함수 코드 — 를 이해하는 데 활용했습니다. pycubrid는 독립적인 순수 Python 구현이며, 자세한 내용은 [NOTICE](https://github.com/cubrid-lab/pycubrid/blob/main/NOTICE)를 참고하세요.
 
-[CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python)의 메인테이너와 기여자분들께도 감사드립니다. 이 프로젝트의 `tests3` 스위트는 #409, #410, #433에서 추가한 INDEX, PARTITION, VIEW, TRIGGER, 컬렉션, ENUM, LOB 왕복 회귀 시나리오의 참고 자료였습니다. 시나리오는 pycubrid의 API와 문서화된 차이에 맞게 적용했으며, CUBRIDdb API 전체의 동등성을 주장하지 않습니다. 참고한 파일은 [NOTICE](../NOTICE), 출처와 라이선스 확인의 한계는 [서드파티 문서](../THIRD_PARTY_LICENSES.md#reference-test-suite)를 확인하세요.
+[CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python)의 메인테이너와 기여자분들께도 감사드립니다. 이 프로젝트의 `tests3` 스위트는 #409, #410, #433에서 추가한 INDEX, PARTITION, VIEW, TRIGGER, 컬렉션, ENUM, LOB 왕복 회귀 시나리오의 참고 자료였습니다. 시나리오는 pycubrid의 API와 문서화된 차이에 맞게 적용했으며, CUBRIDdb API 전체의 동등성을 주장하지 않습니다. 참고한 파일은 [NOTICE](https://github.com/cubrid-lab/pycubrid/blob/main/NOTICE), 출처와 라이선스 확인의 한계는 [서드파티 문서](https://github.com/cubrid-lab/pycubrid/blob/main/THIRD_PARTY_LICENSES.md#reference-test-suite)를 확인하세요.
 
 ## 라이선스
 
-MIT — [LICENSE](../LICENSE) 참조.
+MIT — [LICENSE](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE) 참조.

@@ -10,7 +10,7 @@
 
 **Чистый Python-драйвер DB-API 2.0 для базы данных CUBRID** — без C-расширений, без компиляции, реализует интерфейс PEP 249 (DB-API 2.0).
 
-[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](../README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
+[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
 
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
@@ -37,7 +37,7 @@
 > PATCH остаётся совместимым, кроме узких исключений безопасности.
 > Это перспективное изменение прежней гарантии расширений 1.x: диапазон
 > `<2.0` не гарантирует совместимость каждого MINOR. См.
-> [историю изменений](../CHANGELOG.md) и [политику релизов](../RELEASE_POLICY.md).
+> [историю изменений](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md) и [политику релизов](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md).
 
 ## Почему pycubrid?
 
@@ -367,18 +367,18 @@ Python 3.11, 3.12, 3.13, 3.14 и 3.15 (стандартные сборки с GI
 
 ## Дорожная карта
 
-См. [`ROADMAP.md`](../ROADMAP.md), чтобы узнать о направлении проекта и следующих этапах.
+См. [`ROADMAP.md`](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md), чтобы узнать о направлении проекта и следующих этапах.
 
 Для обзора по всей экосистеме см. [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
 
 ## Участие в проекте
 
-См. [CONTRIBUTING.md](../CONTRIBUTING.md) с рекомендациями и [docs/DEVELOPMENT.md](DEVELOPMENT.md) с настройкой среды разработки.
+См. [CONTRIBUTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md) с рекомендациями и [docs/DEVELOPMENT.md](DEVELOPMENT.md) с настройкой среды разработки.
 
 ## Безопасность
 
-Сообщайте об уязвимостях конфиденциально через GitHub private vulnerability reporting (запасной вариант — электронная почта) — см. [SECURITY.md](../SECURITY.md). Не создавайте публичные issues по вопросам безопасности.
+Сообщайте об уязвимостях конфиденциально через GitHub private vulnerability reporting (запасной вариант — электронная почта) — см. [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md). Не создавайте публичные issues по вопросам безопасности.
 
 ## Лицензия
 
-MIT — см. [LICENSE](../LICENSE).
+MIT — см. [LICENSE](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE).

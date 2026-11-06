@@ -10,7 +10,7 @@
 
 **适用于 CUBRID 数据库的纯 Python DB-API 2.0 驱动** — 无需 C 扩展、无需编译，实现了 PEP 249（DB-API 2.0）接口。
 
-[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](../README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
+[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
 
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
@@ -32,7 +32,7 @@
 > 已公告的 `pycubrid.compat` 移除仍遵守[单独的至少 28 天通知](COMPAT_MIGRATION.md)。
 > PATCH 通常保持兼容，只有有限的安全例外。这是对旧有 1.x 扩展 API 承诺的
 > 前瞻性修订，`<2.0` 版本范围本身不能保证全部 MINOR 兼容。升级前请阅读
-> [更新说明](../CHANGELOG.md)及[发布政策](../RELEASE_POLICY.md)。
+> [更新说明](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)及[发布政策](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md)。
 
 ## 为什么选择 pycubrid？
 
@@ -352,18 +352,18 @@ CUBRID 10.2、11.0、11.2 和 11.4 已在 CI 中测试。
 
 ## 路线图
 
-项目方向和后续里程碑请参见 [`ROADMAP.md`](../ROADMAP.md)。
+项目方向和后续里程碑请参见 [`ROADMAP.md`](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md)。
 
 生态系统全貌请参见 [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md)。
 
 ## 贡献
 
-贡献指南请参阅 [CONTRIBUTING.md](../CONTRIBUTING.md)，开发环境设置请参阅 [docs/DEVELOPMENT.md](DEVELOPMENT.md)。
+贡献指南请参阅 [CONTRIBUTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md)，开发环境设置请参阅 [docs/DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ## 安全
 
-请通过 GitHub 私密漏洞报告（private vulnerability reporting）报告漏洞（备用方式为电子邮件）——详见 [SECURITY.md](../SECURITY.md)。请勿就安全问题创建公开 issue。
+请通过 GitHub 私密漏洞报告（private vulnerability reporting）报告漏洞（备用方式为电子邮件）——详见 [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)。请勿就安全问题创建公开 issue。
 
 ## 许可证
 
-MIT — 参见 [LICENSE](../LICENSE)。
+MIT — 参见 [LICENSE](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE)。

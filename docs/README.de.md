@@ -10,7 +10,7 @@
 
 **Reiner Python-DB-API-2.0-Treiber für die CUBRID-Datenbank** — ohne C-Erweiterungen, ohne Kompilierung, implementiert die PEP-249-(DB-API-2.0)-Schnittstelle.
 
-[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](../README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
+[🇰🇷 한국어](README.ko.md) · [🇺🇸 English](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) · [🇨🇳 中文](README.zh.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇩🇪 Deutsch](README.de.md) · [🇷🇺 Русский](README.ru.md)
 
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
@@ -37,8 +37,8 @@
 > [gesonderte Mindestfrist von 28 Tagen](COMPAT_MIGRATION.md) bestehen.
 > PATCH bleibt bis auf enge Sicherheitsausnahmen kompatibel. Dies ist eine
 > künftige Änderung der früheren 1.x-Zusage; `<2.0` garantiert nicht die
-> Kompatibilität jedes MINOR. Siehe [Änderungsprotokoll](../CHANGELOG.md)
-> und [Release-Richtlinie](../RELEASE_POLICY.md).
+> Kompatibilität jedes MINOR. Siehe [Änderungsprotokoll](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)
+> und [Release-Richtlinie](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md).
 
 ## Warum pycubrid?
 
@@ -371,18 +371,18 @@ Ja. Verwenden Sie `pycubrid.aio.connect()` für native asyncio-Unterstützung. D
 
 ## Roadmap
 
-Siehe [`ROADMAP.md`](../ROADMAP.md) für die Ausrichtung des Projekts und die nächsten Meilensteine.
+Siehe [`ROADMAP.md`](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md) für die Ausrichtung des Projekts und die nächsten Meilensteine.
 
 Für die Ökosystem-Perspektive siehe die [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
 
 ## Mitwirken
 
-Hinweise finden Sie in [CONTRIBUTING.md](../CONTRIBUTING.md), die Entwicklungsumgebung in [docs/DEVELOPMENT.md](DEVELOPMENT.md).
+Hinweise finden Sie in [CONTRIBUTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md), die Entwicklungsumgebung in [docs/DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Sicherheit
 
-Melden Sie Schwachstellen vertraulich über GitHubs Private Vulnerability Reporting (alternativ per E-Mail) — siehe [SECURITY.md](../SECURITY.md). Erstellen Sie keine öffentlichen Issues für Sicherheitsprobleme.
+Melden Sie Schwachstellen vertraulich über GitHubs Private Vulnerability Reporting (alternativ per E-Mail) — siehe [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md). Erstellen Sie keine öffentlichen Issues für Sicherheitsprobleme.
 
 ## Lizenz
 
-MIT — siehe [LICENSE](../LICENSE).
+MIT — siehe [LICENSE](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE).

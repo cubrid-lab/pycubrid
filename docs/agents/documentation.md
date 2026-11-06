@@ -14,6 +14,11 @@ are advisory (`scripts/check_translation_sync.py`).
 directly under `docs/` (except `PRD.md` and the README translations) and copies the canonical index
 `docs/llms.txt` to the root `llms.txt`; run it after doc edits and commit both outputs.
 
+The site publishes only `docs/`. In a published page, link to a repository file outside
+`docs/` with its `https://github.com/cubrid-lab/pycubrid/blob/main/...` URL: `mkdocs build
+--strict` rejects a relative `../` link to one (#1088). The guides in `docs/agents/` are
+excluded from the site, so they keep their repository-relative links.
+
 | Document | Content |
 |---|---|
 | `docs/index.md` | Documentation site landing page |
