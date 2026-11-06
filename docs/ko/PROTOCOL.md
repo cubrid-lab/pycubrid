@@ -22,7 +22,7 @@ CAS가 처음이라면 이 참조 전에 [CAS 아키텍처와 프로토콜 개�
   - [연결 문자셋](#연결-문자셋)
   - [PrepareAndExecutePacket](#prepareandexecutepacket)
   - [PreparePacket](#preparepacket)
-  - [ExecutePacket](#executepacket)
+  - [Prepared 바인드 인자](#prepared-바인드-인자)
   - [FetchPacket](#fetchpacket)
   - [CommitPacket](#commitpacket)
   - [RollbackPacket](#rollbackpacket)
@@ -36,7 +36,7 @@ CAS가 처음이라면 이 참조 전에 [CAS 아키텍처와 프로토콜 개�
   - [LOBWritePacket](#lobwritepacket)
   - [LOBReadPacket](#lobreadpacket)
   - [GetLastInsertIdPacket](#getlastinsertidpacket)
-  - [GetDbParameterPacket / SetDbParameterPacket](#getdbparameterpacket--setdbparameterpacket)
+  - [SetDbParameterPacket](#setdbparameterpacket)
 - [PacketWriter](#packetwriter)
 - [PacketReader](#packetreader)
 - [와이어 데이터 타입](#와이어-데이터-타입)
@@ -134,7 +134,7 @@ CUBRID를 뜻하는 `1`이 아닌 경우)는 추가 인자를 무시하므로 �
 pooling 비활성화 시의 소유권(#584): 직접 연결된 CUBRID CAS에서 statement
 pooling이 명시적으로 꺼져 있으면 트랜잭션 경계에서 일반 커서·스키마 핸들을
 모두 해제하며, 같은 물리 세션에서 그 id를 즉시 재사용할 수 있습니다.
-드라이버는 END_TRAN, 자동 커밋 FC41/FC3·버전 요청, 실패 후 자동 rollback하는
+드라이버는 END_TRAN, 자동 커밋 FC41/FC21·버전 요청, 실패 후 자동 rollback하는
 자동 커밋 FC2 또는 일반 자동 커밋 결과의 마지막 FETCH의 실제 응답이 OUT_TRAN이면
 소유권을 폐기합니다. 성공한 FC2 prepare는 경계를 확정하지 않습니다. 응답 파싱과
 INSERT의 identity 조회 전에 처리하므로, 후속 조회가 IN_TRAN을 반환해도 이미
@@ -253,7 +253,7 @@ sequenceDiagram
 요청에 이 값을 전달합니다(#932). 전송 계층은 connect·ping 복구·close와 요청/응답 전체를
 보호하는 동일한 재진입 잠금 안에서 직렬화 전·송신 직전, 그리고 응답 전후에 세대와 소켓 정체성을
 확인합니다. 한 요청은 포착한 소켓으로만 송수신하므로 재진입으로 연결이 바뀌어도
-이전 FC3/FC6 바이트를 새 세션에 보내거나 새 세션의 응답을 성공으로 읽지 않습니다.
+이전 요청 바이트를 새 세션에 보내거나 새 세션의 응답을 성공으로 읽지 않습니다.
 명확한 송신 전 로컬 검증 실패는
 세션을 유지하고, 중단되었거나 부분적인 prepared 송신과 불확실한 응답은 재실행이나 새 세션 FC6 없이
 세션을 폐기합니다. 완전히 받은 브로커 SQL 오류는 기존 오류코드 기반 DB-API
@@ -275,8 +275,8 @@ sequenceDiagram
 |------|-----------------------|------|
 | 1    | `END_TRAN`            | 트랜잭션 커밋 또는 롤백 |
 | 2    | `PREPARE`             | SQL 문 준비 |
-| 3    | `EXECUTE`             | 준비된 문장 실행 |
-| 4    | `GET_DB_PARAMETER`    | 데이터베이스 파라미터 값 조회 |
+| 3    | `EXECUTE`             | 준비된 문장 실행 (pycubrid는 보내지 않음) |
+| 4    | `GET_DB_PARAMETER`    | 데이터베이스 파라미터 값 조회 (pycubrid는 보내지 않음) |
 | 5    | `SET_DB_PARAMETER`    | 데이터베이스 파라미터 값 설정 |
 | 6    | `CLOSE_REQ_HANDLE`    | 쿼리/요청 핸들 닫기 |
 | 7    | `CURSOR`              | 커서 위치 이동 |
@@ -412,20 +412,19 @@ FC2가 autocommit 바이트 뒤에 대기 중인 지연 닫기 핸들 id를 붙�
 
 ---
 
-### ExecutePacket
+### Prepared 바인드 인자
 
-**준비된 문장 실행** (FC=3).
+`ExecuteArrayPacket`(FC=21)이 행마다 표시마다 쓰는 **(타입 바이트, 값) 인자 쌍**입니다.
 
-고정 인자 10개 뒤에 검증된 스칼라 바인딩마다 타입 바이트와 값 바이트를 길이 접두 인자
-2개로 보냅니다. 지원하는 내부 범위는 부호 있는 INT32(`8`, 빅엔디언 4바이트), 연결 문자셋의 CHAR(`1`,
+검증된 스칼라 바인딩 하나는 타입 바이트와 값 바이트, 길이 접두 인자
+2개입니다. 지원하는 내부 범위는 부호 있는 INT32(`8`, 빅엔디언 4바이트), 연결 문자셋의 CHAR(`1`,
 바이트와 끝 NUL), SQL NULL(`0`, 0바이트)입니다. 빈 CHAR는 NUL 1바이트이며 NULL이
 아닙니다. #840부터 BIGINT(`21`, 빅엔디언 8바이트), DOUBLE(`12`, 8바이트, 유한값만),
 NUMERIC(`7`, ASCII 10진 텍스트와 NUL), 빅엔디언 int16 필드 7개(14바이트, 브로커는
 TIME을 오프셋 6에서 읽음)인 DATE(`13`), TIME(`14`), DATETIME(`22`), 그 14바이트 뒤에
 NUL 없는 시간대 텍스트를 붙인 DATETIMETZ(`31`), VARBIT(`6`, 1바이트 이상; 길이 0이면
 NULL로 읽힘)도 포함합니다.
-[Prepared 호스트 변수 매핑](PARAMETER_BINDING.md#prepared-호스트-변수-매핑)을 참고하세요. 선택적 `bind_count`는 전달된 바인딩 수와 일치해야 하며 forward-only
-바이트는 실제 autocommit을 따라 auto 모드일 때 `1`, 수동 모드일 때 `0`입니다. FC41 폴백이나 SQL 리터럴
+[Prepared 호스트 변수 매핑](PARAMETER_BINDING.md#prepared-호스트-변수-매핑)을 참고하세요. FC41 폴백이나 SQL 리터럴
 변환은 하지 않습니다.
 
 타입 컬렉션 바인딩(#482)도 같은 인자 쌍을
@@ -462,22 +461,6 @@ LOB 핸들 바인딩(#441)도
 CUBRID 10.2와 11.4에서 조회한 핸들은 새 행에 복사되므로 다시 바인딩할 수 있지만,
 LOB_NEW로 만든 핸들은 임시 파일을 가리키며 첫 autocommit 문장이 실패하더라도 그
 파일을 가져갑니다.
-
-프로토콜 버전이 1보다 크고 응답의 `include_column_info=1`이면 전체 FC2 메타데이터
-본문이 shard ID와 인라인 FETCH 앞에 옵니다. 파서는 문장·바인드·컬럼 정보를
-갱신하고 잘린 메타데이터를 거부합니다. 결과 레코드가 음수 오류를 나타내면 성공으로
-처리하지 않고, 기존 CAS 코드→DB-API 예외 클래스 매핑을 적용합니다. 브로커 오류
-문구는 그대로 노출하지 않습니다.
-이 패킷 기본 요소는 #439가 물리 세션 소유권, 커서 수명주기와 전체 라이브 지원 게이트를
-제공할 때까지 내부용으로 남습니다.
-
-| 속성            | 타입   | 설명 |
-|----------------------|--------|------|
-| `total_tuple_count`  | `int`  | 총 결과 행 수 |
-| `result_count`       | `int`  | 결과 정보 수 |
-| `result_infos`       | `list[ResultInfo]` | 문장별 결과 |
-| `tuple_count`        | `int`  | 인라인 fetch 행 수 |
-| `rows`               | `list[tuple[Any, ...]]` | 인라인으로 가져온 행 |
 
 ---
 
@@ -595,7 +578,7 @@ CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS를
 
 요청(CAS `fn_execute_array`): int 쿼리 핸들, int 쿼리 타임아웃(`0`, 프로토콜 V4 이상만),
 byte autocommit, 그 뒤 행 순서대로 행마다 표시마다 (타입 바이트, 값) 인자 쌍 하나씩.
-이 쌍은 `ExecutePacket`이 바인딩 하나에 쓰는 것과 같습니다. 모든 행은 서버의 바인딩
+[Prepared 바인드 인자](#prepared-바인드-인자)를 참고하세요. 모든 행은 서버의 바인딩
 개수와 정확히 같아야 합니다. CAS는 남는 값을 조용히 무시합니다.
 
 응답(CAS `ux_execute_array`): int 결과 코드, int 실행된 행 수, 그 뒤 행마다
@@ -661,13 +644,13 @@ CUBRID 10.2와 11.4에서 현재 크기가 아닌 오프셋(값 안쪽이든 끝
 
 ---
 
-### GetDbParameterPacket / SetDbParameterPacket
+### SetDbParameterPacket
 
-**데이터베이스 파라미터 조회/설정** (FC=4 / FC=5).
+**데이터베이스 파라미터 설정** (FC=5).
 
 | 속성 | 타입  | 설명 |
 |-----------|-------|------|
-| `value`   | `int` | 파라미터 값 (조회 결과 / 설정 입력) |
+| `value`   | `int` | 파라미터 값 |
 
 사용 가능한 파라미터(`CCIDbParam`):
 
@@ -700,7 +683,6 @@ CUBRID 10.2와 11.4에서 현재 크기가 아닌 오프셋(값 안쪽이든 끝
 | `add_time(h, m, s)` | 길이 접두 시간 쓰기 |
 | `add_timestamp(y,m,d,h,m,s)` | 길이 접두 타임스탬프 쓰기 |
 | `add_datetime(y,m,d,h,m,s,ms)` | 길이 접두 datetime 쓰기 |
-| `add_cache_time()` | 캐시 시간 쓰기 (int 0 두 개) |
 | `to_bytes()` | 쓴 모든 바이트 반환 |
 
 ### 내부 메서드
@@ -760,13 +742,13 @@ NUL을 확인하지 않습니다. FETCH 또는
 파서가 값을 읽기 전에 타입의 폭과 비교합니다(#523). `DataError`를 발생시키기 전에
 응답을 다시 훑을 때도 같습니다. CAS는 SQL `NULL`을 크기 `-1`로 씁니다. 0 이하의
 크기는 `NULL`이지만, 크기 `0`인 `BIT`/`VARBIT` 셀은 빈 비트 문자열 `b""`입니다(#994). 음수인 FETCH
-튜플 수도 잘못된 형식이며, FC2, FC3, FC41 컬럼 메타데이터의 음수 컬럼 수와 음수
+튜플 수도 잘못된 형식이며, FC2, FC41 컬럼 메타데이터의 음수 컬럼 수와 음수
 컬럼 이름, 실제 이름, 테이블 이름, 기본값 길이도 마찬가지입니다(#555). 길이 0은
 빈 문자열입니다. FC41도 FC2처럼 음수인 바인드 수, `total_tuple_count`, 인라인
 튜플 수와, 응답의 나머지 바이트에 들어갈 수 없는 컬럼 수(컬럼당 최소 31바이트)를
-거부하며, FC3는 음수인 인라인 튜플 수를 거부합니다(#581). 연결 문자셋으로 디코딩할
+거부합니다(#581). 연결 문자셋으로 디코딩할
 수 없는 컬럼 메타데이터 텍스트는 남은 메타데이터를 선언된 길이대로 끝까지 훑은
-뒤 오류를 보류합니다(#581). FC41과 컬럼을 갱신하는 FC3는 남은 꼬리 필드·카운트·
+뒤 오류를 보류합니다(#581). FC41은 남은 꼬리 필드·카운트·
 인라인 행을 검증한 뒤 최초 메타데이터 `DataError`를 다시 발생시킵니다.
 뒤쪽 구조 손상이 있으면 해당 오류가 우선합니다(#591). 이 오류 경로에서는 사용자
 JSON 변환기를 호출하지 않으며, 앞선 행 값을 표현할 수 없어도 이후 셀을 검증합니다.

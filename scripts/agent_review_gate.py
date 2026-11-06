@@ -87,7 +87,7 @@ PROTECTED_PATHS = (
     # Driver-side literal binding and escaping: every value rendered into SQL text
     # (docs/PARAMETER_BINDING.md); a mistake here is SQL injection.
     "pycubrid/_cursor_common.py",
-    # Typed prepared (FC3/FC21) bind encoding, which the CAS trusts byte for byte.
+    # Typed prepared (FC21) bind encoding, which the CAS trusts byte for byte.
     "pycubrid/_prepared_binding.py",
     # CAS wire protocol and packet parsing: bounds checks on untrusted broker replies.
     "pycubrid/protocol.py",

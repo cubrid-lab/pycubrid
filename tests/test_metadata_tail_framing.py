@@ -10,10 +10,10 @@ from unittest.mock import MagicMock
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
+from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import DataError, OperationalError
 from pycubrid.packet import PacketReader
-from pycubrid.protocol import ExecutePacket, PrepareAndExecutePacket
+from pycubrid.protocol import PrepareAndExecutePacket
 from tests.helpers import cas_reply
 from tests.test_connection import socket_queue  # noqa: F401
 from tests.test_invalid_utf8_response import (
@@ -22,24 +22,17 @@ from tests.test_invalid_utf8_response import (
 )
 from tests.test_protocol_fuzz import _sync_connection
 
-KINDS = ["fc41", "fc3"]
 DAMAGE = ["truncated_rows", "negative_inline_count", "truncated_tail", "partial_inline_header"]
 STRUCTURAL = (ValueError, IndexError, struct.error)
-CASES = [
-    pytest.param(kind, damage, id=f"{kind}-{damage}") for kind in KINDS for damage in DAMAGE
-] + [pytest.param("fc41", "negative_total_count", id="fc41-negative_total_count")]
+CASES = [*DAMAGE, "negative_total_count"]
 
 
-def _packet(kind: str) -> PrepareAndExecutePacket | ExecutePacket:
-    if kind == "fc41":
-        return PrepareAndExecutePacket("SELECT * FROM fuzz_t", decode_collections=True)
-    return ExecutePacket(5, CUBRIDStatementType.SELECT, decode_collections=True)
+def _packet() -> PrepareAndExecutePacket:
+    return PrepareAndExecutePacket("SELECT * FROM fuzz_t", decode_collections=True)
 
 
-def _seed(kind: str, rs: cas_reply.ResultSet = cas_reply.STRINGS) -> cas_reply.Seed:
-    if kind == "fc41":
-        return cas_reply.prepare_and_execute_reply(rs)
-    return cas_reply.execute_reply(rs, refresh_columns=True)
+def _seed(rs: cas_reply.ResultSet = cas_reply.STRINGS) -> cas_reply.Seed:
+    return cas_reply.prepare_and_execute_reply(rs)
 
 
 def _undecodable(seed: cas_reply.Seed) -> bytearray:
@@ -54,15 +47,14 @@ def _metadata_end(seed: cas_reply.Seed) -> int:
     return last + 4 + size + 7  # remaining column flags
 
 
-def _damaged(kind: str, damage: str, cut: int = 5) -> bytes:
-    seed = _seed(kind)
+def _damaged(damage: str, cut: int = 5) -> bytes:
+    seed = _seed()
     reply = _undecodable(seed)
     if damage == "truncated_rows":
         del reply[-cut:]
     elif damage == "negative_inline_count":
         struct.pack_into(">i", reply, seed.counts[-1], -1)
     elif damage == "negative_total_count":
-        assert kind == "fc41"
         struct.pack_into(">i", reply, _metadata_end(seed), -1)
     elif damage == "partial_inline_header":
         del reply[seed.counts[-1] - 1 :]
@@ -72,22 +64,21 @@ def _damaged(kind: str, damage: str, cut: int = 5) -> bytes:
     return bytes(reply)
 
 
-@pytest.mark.parametrize(("kind", "damage"), CASES)
-def test_metadata_error_does_not_hide_tail_damage(kind: str, damage: str) -> None:
+@pytest.mark.parametrize("damage", CASES)
+def test_metadata_error_does_not_hide_tail_damage(damage: str) -> None:
     with pytest.raises(STRUCTURAL) as raised:
-        _packet(kind).parse(_damaged(kind, damage))
+        _packet().parse(_damaged(damage))
     assert not isinstance(raised.value, DataError)
 
 
-@pytest.mark.parametrize(("kind", "damage"), CASES)
+@pytest.mark.parametrize("damage", CASES)
 def test_sync_metadata_tail_damage_retires_connection(
-    kind: str,
     damage: str,
     socket_queue: list[MagicMock],  # noqa: F811
 ) -> None:
-    conn, sock = _connection_with_reply(socket_queue, _damaged(kind, damage))
+    conn, sock = _connection_with_reply(socket_queue, _damaged(damage))
     with pytest.raises(OperationalError, match="malformed response from broker") as raised:
-        conn._send_and_receive(_packet(kind))
+        conn._send_and_receive(_packet())
     assert isinstance(raised.value.__cause__, STRUCTURAL)
     assert not isinstance(raised.value.__cause__, DataError)
     assert conn._connected is False
@@ -95,59 +86,56 @@ def test_sync_metadata_tail_damage_retires_connection(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("kind", "damage"), CASES)
-async def test_async_metadata_tail_damage_retires_connection(kind: str, damage: str) -> None:
-    conn = _async_connection_with_reply(_damaged(kind, damage))
+@pytest.mark.parametrize("damage", CASES)
+async def test_async_metadata_tail_damage_retires_connection(damage: str) -> None:
+    conn = _async_connection_with_reply(_damaged(damage))
     writer = conn._writer
     assert isinstance(writer, MagicMock)
     with pytest.raises(OperationalError, match="malformed response from broker") as raised:
-        await conn._send_and_receive(_packet(kind))
+        await conn._send_and_receive(_packet())
     assert isinstance(raised.value.__cause__, STRUCTURAL)
     assert not isinstance(raised.value.__cause__, DataError)
     assert conn._connected is False
     writer.close.assert_called()
 
 
-def _complete_invalid_metadata_and_row(kind: str) -> bytes:
-    seed = _seed(kind)
+def _complete_invalid_metadata_and_row() -> bytes:
+    seed = _seed()
     reply = _undecodable(seed)
     first_cell = next(pos for pos in seed.lengths if pos > seed.counts[-1])
     reply[first_cell + 4] = 0xFF
     return bytes(reply)
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_complete_reply_keeps_first_metadata_error_even_with_invalid_row_text(kind: str) -> None:
+def test_complete_reply_keeps_first_metadata_error_even_with_invalid_row_text() -> None:
     with pytest.raises(DataError, match="column metadata is not valid"):
-        _packet(kind).parse(_complete_invalid_metadata_and_row(kind))
+        _packet().parse(_complete_invalid_metadata_and_row())
 
 
-@pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("use_async", [False, True])
-def test_complete_undecodable_reply_keeps_session(kind: str, use_async: bool) -> None:
-    reply = _complete_invalid_metadata_and_row(kind)
+def test_complete_undecodable_reply_keeps_session(use_async: bool) -> None:
+    reply = _complete_invalid_metadata_and_row()
     if use_async:
         conn = _async_connection_with_reply(reply)
         with pytest.raises(DataError, match="column metadata is not valid"):
-            asyncio.run(conn._send_and_receive(_packet(kind)))
+            asyncio.run(conn._send_and_receive(_packet()))
     else:
         conn, _ = _sync_connection(reply)
         with pytest.raises(DataError, match="column metadata is not valid"):
-            conn._send_and_receive(_packet(kind))
+            conn._send_and_receive(_packet())
     assert conn._connected is True
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_metadata_error_does_not_hide_nested_collection_damage(kind: str) -> None:
-    seed = _seed(kind, cas_reply.COLLECTIONS)
+def test_metadata_error_does_not_hide_nested_collection_damage() -> None:
+    seed = _seed(cas_reply.COLLECTIONS)
     reply = _undecodable(seed)
     struct.pack_into(">i", reply, seed.element_types[0] + 1, -1)
     with pytest.raises(ValueError) as raised:
-        _packet(kind).parse(reply)
+        _packet().parse(reply)
     assert not isinstance(raised.value, DataError)
 
 
-def _mixed_reply(kind: str, scenario: str) -> bytes:
+def _mixed_reply(scenario: str) -> bytes:
     if scenario in ("row_then_collection", "row_then_empty_negative_collection", "row_then_lob"):
 
         def bad_collection(wire: cas_reply.Wire) -> None:
@@ -181,13 +169,12 @@ def _mixed_reply(kind: str, scenario: str) -> bytes:
         ),
         ((first, second),),
     )
-    reply = _undecodable(_seed(kind, rs))
+    reply = _undecodable(_seed(rs))
     if scenario == "json_hook_then_truncation":
         del reply[-1:]
     return bytes(reply)
 
 
-@pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize(
     "scenario",
     [
@@ -198,21 +185,19 @@ def _mixed_reply(kind: str, scenario: str) -> bytes:
     ],
 )
 @pytest.mark.parametrize("use_async", [False, True])
-def test_later_cells_are_validated_without_user_hooks(
-    kind: str, scenario: str, use_async: bool
-) -> None:
+def test_later_cells_are_validated_without_user_hooks(scenario: str, use_async: bool) -> None:
     hook_calls: list[str] = []
 
     def hostile_hook(value: str) -> Any:
         hook_calls.append(value)
         raise RuntimeError("user hook must not run after invalid metadata")
 
-    packet = _packet(kind)
+    packet = _packet()
     packet.json_deserializer = hostile_hook
     # Framing validation must work even when ordinary collection results
     # would be returned as opaque bytes.
     packet.decode_collections = False
-    reply = _mixed_reply(kind, scenario)
+    reply = _mixed_reply(scenario)
     if use_async:
         conn = _async_connection_with_reply(reply)
         with pytest.raises(OperationalError, match="malformed response from broker"):
@@ -225,8 +210,7 @@ def test_later_cells_are_validated_without_user_hooks(
     assert hook_calls == []
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_successful_metadata_retains_application_json_hook(kind: str) -> None:
+def test_successful_metadata_retains_application_json_hook() -> None:
     calls: list[str] = []
     marker = object()
 
@@ -239,9 +223,9 @@ def test_successful_metadata_retains_application_json_hook(kind: str) -> None:
         (cas_reply.Column("value", CUBRIDDataType.JSON),),
         ((cas_reply.json_("{}", {}),),),
     )
-    packet = _packet(kind)
+    packet = _packet()
     packet.json_deserializer = hook
-    packet.parse(_seed(kind, rs).data)
+    packet.parse(_seed(rs).data)
     assert calls == ["{}"]
     assert packet.rows == [(marker,)]
 
@@ -266,33 +250,26 @@ def test_reader_mark_seek_can_restore_and_reach_the_end() -> None:
     assert reader.bytes_remaining() == 0
 
 
-@given(kind=st.sampled_from(KINDS), damage=st.sampled_from(DAMAGE), cut=st.integers(1, 7))
+@given(damage=st.sampled_from(DAMAGE), cut=st.integers(1, 7))
 @settings(deadline=None)
-def test_two_field_metadata_and_tail_fuzz(kind: str, damage: str, cut: int) -> None:
+def test_two_field_metadata_and_tail_fuzz(damage: str, cut: int) -> None:
     with pytest.raises(STRUCTURAL) as raised:
-        _packet(kind).parse(_damaged(kind, damage, cut))
+        _packet().parse(_damaged(damage, cut))
     assert not isinstance(raised.value, DataError)
 
 
-@given(
-    kind=st.sampled_from(KINDS),
-    damage=st.sampled_from(DAMAGE),
-    cut=st.integers(1, 7),
-    use_async=st.booleans(),
-)
+@given(damage=st.sampled_from(DAMAGE), cut=st.integers(1, 7), use_async=st.booleans())
 @settings(deadline=None)
-def test_two_field_tail_fuzz_retires_sync_and_async(
-    kind: str, damage: str, cut: int, use_async: bool
-) -> None:
-    reply = _damaged(kind, damage, cut)
+def test_two_field_tail_fuzz_retires_sync_and_async(damage: str, cut: int, use_async: bool) -> None:
+    reply = _damaged(damage, cut)
     if use_async:
         conn = _async_connection_with_reply(reply)
         with pytest.raises(OperationalError, match="malformed response from broker"):
-            asyncio.run(conn._send_and_receive(_packet(kind)))
+            asyncio.run(conn._send_and_receive(_packet()))
     else:
         # A local scripted socket keeps this property test independent of
         # function-scoped pytest fixtures.
         conn, _ = _sync_connection(reply)
         with pytest.raises(OperationalError, match="malformed response from broker"):
-            conn._send_and_receive(_packet(kind))
+            conn._send_and_receive(_packet())
     assert conn._connected is False

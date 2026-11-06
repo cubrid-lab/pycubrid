@@ -8,15 +8,16 @@ import struct
 import pytest
 
 from pycubrid.constants import CUBRIDDataType as T
-from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import DataError, OperationalError
 from pycubrid.packet import PacketReader
-from pycubrid.protocol import ExecutePacket, PrepareAndExecutePacket
+from pycubrid.protocol import FetchPacket, PrepareAndExecutePacket
 from tests.helpers import cas_reply
 from tests.test_invalid_utf8_response import _async_connection_with_reply
 from tests.test_protocol_fuzz import _sync_connection
 
 DAMAGE = ["short_date", "long_date", "truncated_header", "truncated_payload"]
+# FETCH reuses the row parser of FC41 but has no metadata to corrupt.
+REPLIES = [("fc41", False), ("fc41", True), ("fetch", False)]
 
 
 @pytest.mark.parametrize("size", [1, 4])
@@ -40,28 +41,30 @@ def _payload(damage: str | None = None) -> bytes:
     return first + struct.pack(">i3h", 6, 2026, 13, 1)
 
 
-def _reply(kind: str, bad_metadata: bool, damage: str | None) -> bytes:
+def _result_set(damage: str | None = None) -> cas_reply.ResultSet:
     value = cas_reply.Value(T.SEQUENCE, lambda wire: wire.raw(_payload(damage)), None)
-    rs = cas_reply.ResultSet(
+    return cas_reply.ResultSet(
         "collection_error_remainder",
         (cas_reply.Column("dates", T.SEQUENCE, element_type=T.DATE),),
         ((value,),),
     )
-    seed = (
-        cas_reply.prepare_and_execute_reply(rs)
-        if kind == "fc41"
-        else cas_reply.execute_reply(rs, refresh_columns=True)
-    )
+
+
+def _reply(kind: str, bad_metadata: bool, damage: str | None) -> bytes:
+    rs = _result_set(damage)
+    if kind == "fetch":
+        return cas_reply.fetch_reply(rs).data
+    seed = cas_reply.prepare_and_execute_reply(rs)
     reply = bytearray(seed.data)
     if bad_metadata:
         reply[seed.metadata_lengths[0] + 4] = 0xFF
     return bytes(reply)
 
 
-def _packet(kind: str) -> PrepareAndExecutePacket | ExecutePacket:
+def _packet(kind: str) -> PrepareAndExecutePacket | FetchPacket:
     if kind == "fc41":
         return PrepareAndExecutePacket("SELECT dates FROM t", decode_collections=True)
-    return ExecutePacket(5, CUBRIDStatementType.SELECT, decode_collections=True)
+    return FetchPacket(5, 0, columns=_result_set().metadata(), decode_collections=True)
 
 
 @pytest.mark.parametrize("damage", DAMAGE)
@@ -72,8 +75,7 @@ def test_data_error_does_not_hide_later_collection_damage(damage: str) -> None:
     assert not isinstance(raised.value, DataError)
 
 
-@pytest.mark.parametrize("kind", ["fc41", "fc3"])
-@pytest.mark.parametrize("bad_metadata", [False, True])
+@pytest.mark.parametrize(("kind", "bad_metadata"), REPLIES)
 @pytest.mark.parametrize("use_async", [False, True])
 @pytest.mark.parametrize("damage", DAMAGE)
 def test_malformed_collection_after_data_error_retires_session(
@@ -99,8 +101,7 @@ def test_complete_collection_preserves_first_conversion_error_and_cause() -> Non
     assert isinstance(raised.value.__cause__, ValueError)
 
 
-@pytest.mark.parametrize("kind", ["fc41", "fc3"])
-@pytest.mark.parametrize("bad_metadata", [False, True])
+@pytest.mark.parametrize(("kind", "bad_metadata"), REPLIES)
 @pytest.mark.parametrize("use_async", [False, True])
 def test_complete_collection_keeps_error_and_usable_session(
     kind: str, bad_metadata: bool, use_async: bool

@@ -3,10 +3,10 @@
 Existing coverage inventoried before adding cases here (per #562's
 acceptance criteria):
 
-- ``test_prepared_packet_contract.py`` already freezes FC2/FC3
-  (``PreparePacket`` and ``ExecutePacket`` scalar bindings, including NULL,
+- ``test_prepared_packet_contract.py`` already freezes FC2/FC21
+  (``PreparePacket`` and ``ExecuteArrayPacket`` scalar bindings, including NULL,
   empty strings and int32 boundaries) and ``test_prepared_collection_contract.py``
-  already freezes the FC3 typed collection payload (#482). Reused via the
+  already freezes the typed collection payload (#482). Reused via the
   ``_arguments()`` helper imported below, not duplicated.
 - ``test_charset.py`` (``_GOLDEN_PREPARE_AND_EXECUTE``/``_GOLDEN_BATCH``/
   ``_GOLDEN_SCHEMA``, lines ~219-247) already freezes one full exact frame
@@ -31,13 +31,13 @@ This module covers every other ``_CasPacket`` request class in
 not already covered above), FETCH, END_TRAN, CON_CLOSE, CLOSE_REQ_HANDLE,
 GET_DB_VERSION, one independently-sourced SCHEMA_INFO case, the
 protocol-version boundary of EXECUTE_BATCH, LOB_NEW, LOB_WRITE, LOB_READ,
-GET_LAST_INSERT_ID, GET_DB_PARAMETER, CHECK_CAS and SET_DB_PARAMETER. Two
+GET_LAST_INSERT_ID, CHECK_CAS and SET_DB_PARAMETER. Two
 invalid-input cases (an unencodable EXECUTE_BATCH statement and an
 unencodable FC41 SQL string) assert that write() raises before returning
 anything to send; the FC41 one goes further and drives the real
 ``Connection._send_and_receive`` path to assert ``sock.sendall`` is never
 called and the session stays usable, the way
-test_prepared_collection_contract.py's invalid-binding case does for FC3.
+test_prepared_collection_contract.py's invalid-binding case does for FC21.
 
 Expected bytes are derived independently from the CAS/CCI C source at the
 commits already pinned by this repo for request-byte work (see
@@ -52,7 +52,7 @@ in ``pycubrid.constants`` (which both the packet under test and a
 same-named-enum expectation would otherwise share) cannot make a request
 byte and its expectation drift together and still pass. The general
 "argument = 4-byte big-endian length + payload" framing is the same one
-``_arguments()`` (imported below) already decodes for the FC2/FC3 contract
+``_arguments()`` (imported below) already decodes for the FC2/FC21 contract
 tests; every CAS ``fn_*`` handler reads its arguments with the matching
 ``net_arg_get_*`` macro/function from ``cas_net_buf.h``.
 """
@@ -72,7 +72,6 @@ from .test_prepared_packet_contract import _CAS_INFO, _arguments
 # CAS_FC_* request function codes, src/broker/cas_protocol.h (11.4:170-221;
 # identical in 10.2). Plain ints, not pycubrid.constants.CASFunctionCode.
 _FC_END_TRAN = 1
-_FC_GET_DB_PARAMETER = 4
 _FC_SET_DB_PARAMETER = 5
 _FC_CLOSE_REQ_HANDLE = 6
 _FC_FETCH = 8
@@ -129,7 +128,7 @@ def _packed_lob_handle(db_type: int, lob_size: int, locator: bytes) -> bytes:
 # driver always claims protocol >= 1) query_timeout (11.4:594-600,
 # 10.2:551-556). That is 6 wire arguments, not 10: PREPARE_AND_EXECUTE's
 # embedded EXECUTE never sends query_handle, fetch_flag, auto_commit or
-# forward_only as separate arguments the way standalone FC3 does.
+# forward_only as separate arguments.
 #
 # test_charset.py's _GOLDEN_PREPARE_AND_EXECUTE already pins one such frame
 # with zero deferred-close handles; the two tests below add the #488 case it
@@ -413,23 +412,15 @@ def test_get_last_insert_id_exact_request() -> None:
 
 
 # ---------------------------------------------------------------------------
-# FC4 GET_DB_PARAMETER / FC5 SET_DB_PARAMETER
+# FC5 SET_DB_PARAMETER
 # ---------------------------------------------------------------------------
 #
-# fn_get_db_parameter (11.4:871-883, 10.2:774-786) reads one int,
-# param_name. fn_set_db_parameter (11.4:961-1050, 10.2:867-956) reads
+# fn_set_db_parameter (11.4:961-1050, 10.2:867-956) reads
 # param_name (int) then a second int whose meaning depends on param_name
 # (isolation level, lock timeout, ...); pycubrid always sends exactly two
 # ints regardless of which parameter is addressed. Parameter codes are
 # CCI_PARAM_ISOLATION_LEVEL=1, CCI_PARAM_LOCK_TIMEOUT=2,
 # CCI_PARAM_MAX_STRING_LENGTH=3 (src/cci/cas_cci.h:408-410).
-
-
-@pytest.mark.parametrize("parameter", [1, 2, 3])
-def test_get_db_parameter_exact_request(parameter: int) -> None:
-    packet = protocol.GetDbParameterPacket(parameter)
-    args = _arguments(packet.write(_CAS_INFO), _FC_GET_DB_PARAMETER)
-    assert args == [struct.pack(">i", parameter)]
 
 
 def test_set_db_parameter_exact_request() -> None:

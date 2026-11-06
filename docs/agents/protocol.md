@@ -23,7 +23,7 @@ value (#897). Trailing bytes after the last declared
 value are not checked; `DataError` is only for a complete reply (#492, #512),
 including JSON text the built-in `json.loads` cannot decode (#543, #900):
 undecodable column metadata text re-walks the remaining metadata by length
-(#581), and FC41/refreshed FC3 defer that error until their declared tail and
+(#581), and FC41 defers that error until its declared tail and
 inline rows have been validated without application hooks (#591). Later
 structural errors close the session; complete replies retain the first
 metadata DataError.
@@ -33,8 +33,8 @@ bytes even after a complete element raises DataError (#595). Later structural
 damage wins; complete collections retain the first conversion error. Opaque
 and unsupported nested member layouts keep their existing raw-byte contracts.
 
-Scalar FC3 binds (`_encode_prepared_scalar`; #439, widened by #840; FC21 shares the
-encoding, and `ExecutePacket` has no production caller since Compat was removed) send one type byte and its value bytes:
+Scalar FC21 binds (`_encode_prepared_scalar`; #439, widened by #840) send one
+type byte and its value bytes:
 INT `8` (int32; `bool` as 1/0), BIGINT `21` (int64), NUMERIC `7` (ASCII
 fixed-point text plus NUL, a lone leading `0` dropped because the CAS counts
 every character but sign and point as precision; also ints past int64 up to
@@ -46,7 +46,7 @@ NUL: a NUL breaks region names, -1162), VARBIT `6` (non-empty: a zero-length
 value is read as NULL) and NULL `0`. Dispatch on `type(value)` and read values
 through base-class methods, as the literal path does (#518, #528).
 
-Typed collection FC3 binds (#482, #440) send
+Typed collection FC21 binds (#482, #440) send
 the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument
 and `[element type][int32 len, payload]*` as the value, with no element count.
 INT elements are 4 bytes, STRING (`2`) elements are connection-charset bytes
@@ -58,7 +58,7 @@ MULTISET kind with -454, so `Multiset` values are sent as SEQUENCE.
 
 EXECUTE_ARRAY (FC21, `ExecuteArrayPacket`; #839, public as
 `executemany(..., prepared=True)` on both cursors) sends int handle, int timeout
-(V4+), byte autocommit, then the FC3 (type, value) pair per marker per row in
+(V4+), byte autocommit, then the (type, value) pair per marker per row in
 row order, from `_encode_prepared_value` (scalars as above; `Set`/`Sequence`
 and `Multiset`-as-SEQUENCE with STRING elements). The CAS ignores extra values,
 so rows are checked against the PREPARE bind count first. The reply is per row
@@ -71,7 +71,7 @@ the PREPARE handle at once so #488/#584 release paths free it; this FC2 (only
 it, via `carries_deferred_closes`) carries queued deferred-close ids after the
 autocommit byte, which CAS `fn_prepare_internal` frees as for FC41.
 
-Typed LOB-handle FC3 binds (#441) send BLOB `23`/CLOB `24` as the
+Typed LOB-handle FC21 binds (#441) send BLOB `23`/CLOB `24` as the
 type argument and the packed handle `[int32 db_type 33/34][int64 size][int32
 locator length][locator NUL]` as the value: the official `bind_lob()` bytes
 whenever the official lob type matches the column (official takes the type

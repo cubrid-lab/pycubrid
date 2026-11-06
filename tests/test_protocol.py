@@ -37,9 +37,7 @@ from pycubrid.protocol import (
     CloseDatabasePacket,
     ColumnMetaData,
     CommitPacket,
-    ExecutePacket,
     FetchPacket,
-    GetDbParameterPacket,
     GetEngineVersionPacket,
     GetLastInsertIdPacket,
     GetSchemaPacket,
@@ -932,6 +930,10 @@ class TestParseResultInfos:
         infos = _parse_result_infos(reader, 0)
         assert infos == []
 
+    def test_negative_result_count_is_malformed(self) -> None:
+        with pytest.raises(ValueError, match="negative execute result count"):
+            _parse_result_infos(PacketReader(b""), -1)
+
 
 # ---------------------------------------------------------------------------
 # Test Packet Classes
@@ -1193,6 +1195,11 @@ class TestPrepareAndExecutePacket:
 class TestPreparePacket:
     """Tests for PreparePacket."""
 
+    def test_truncated_prepare_info_cannot_succeed(self) -> None:
+        response = DEFAULT_CAS_INFO + struct.pack(">ii", 1, 0)  # handle and lifetime only
+        with pytest.raises(ValueError, match="truncated prepared column metadata"):
+            PreparePacket("SELECT 1").parse(response)
+
     def test_write(self) -> None:
         pkt = PreparePacket("SELECT * FROM t", auto_commit=False)
         data = pkt.write(DEFAULT_CAS_INFO)
@@ -1238,212 +1245,6 @@ class TestPreparePacket:
         response = _build_error_response(DEFAULT_CAS_INFO, -1, "parse error")
         with pytest.raises(DatabaseError, match="parse error"):
             pkt.parse(response)
-
-
-class TestExecutePacket:
-    """Tests for ExecutePacket."""
-
-    def test_write_select(self) -> None:
-        pkt = ExecutePacket(1, CUBRIDStatementType.SELECT)
-        data = pkt.write(DEFAULT_CAS_INFO)
-        payload = data[8:]
-        assert payload[0] == CASFunctionCode.EXECUTE
-
-    def test_write_insert(self) -> None:
-        pkt = ExecutePacket(1, CUBRIDStatementType.INSERT, auto_commit=True)
-        data = pkt.write(DEFAULT_CAS_INFO)
-        payload = data[8:]
-        assert payload[0] == CASFunctionCode.EXECUTE
-
-    def test_parse_insert_success(self) -> None:
-        pkt = ExecutePacket(1, CUBRIDStatementType.INSERT, protocol_version=7)
-        result_info = bytearray()
-        result_info.append(CUBRIDStatementType.INSERT)
-        result_info.extend(struct.pack(">i", 1))
-        result_info.extend(b"\x00" * DataSize.OID)
-        result_info.extend(struct.pack(">i", 0))
-        result_info.extend(struct.pack(">i", 0))
-
-        response = bytearray()
-        response.extend(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">i", 1))  # total_tuple_count
-        response.append(0)  # cache_reusable
-        response.extend(struct.pack(">i", 1))  # result_count
-        response.extend(result_info)
-        response.append(0)  # includes_column_info
-        response.extend(struct.pack(">i", 0))  # shard_id
-
-        pkt.parse(bytes(response))
-        assert pkt.total_tuple_count == 1
-        assert pkt.result_count == 1
-
-    def test_parse_select_with_rows(self) -> None:
-        cols = [ColumnMetaData(column_type=CUBRIDDataType.INT, name="id")]
-        pkt = ExecutePacket(1, CUBRIDStatementType.SELECT, protocol_version=7)
-        value = struct.pack(">i", 42)
-        row = _build_row_data(0, [(CUBRIDDataType.INT, value)])
-
-        result_info = bytearray()
-        result_info.append(CUBRIDStatementType.SELECT)
-        result_info.extend(struct.pack(">i", 1))
-        result_info.extend(b"\x00" * DataSize.OID)
-        result_info.extend(struct.pack(">i", 0))
-        result_info.extend(struct.pack(">i", 0))
-
-        response = bytearray()
-        response.extend(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">i", 1))
-        response.append(0)
-        response.extend(struct.pack(">i", 1))
-        response.extend(result_info)
-        response.append(0)  # includes_column_info
-        response.extend(struct.pack(">i", 0))  # shard_id
-        response.extend(struct.pack(">i", 0))  # fetch_code
-        response.extend(struct.pack(">i", 1))  # tuple_count
-        response.extend(row)
-
-        pkt.parse(bytes(response), columns=cols)
-        assert pkt.total_tuple_count == 1
-        assert pkt.tuple_count == 1
-        assert pkt.rows[0][0] == 42
-        assert pkt.columns[0]._cci_type is None
-
-    def test_parse_refreshed_column_info_before_shard_and_fetch(self) -> None:
-        pkt = ExecutePacket(1, CUBRIDStatementType.SELECT, protocol_version=7)
-        result_info = bytearray()
-        result_info.append(CUBRIDStatementType.SELECT)
-        result_info.extend(struct.pack(">i", 1))
-        result_info.extend(b"\x00" * DataSize.OID)
-        result_info.extend(struct.pack(">ii", 0, 0))
-
-        response = bytearray(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">iBi", 1, 0, 1))
-        response.extend(result_info)
-        response.append(1)  # included prepare-info follows
-        response.extend(struct.pack(">iBiBi", 0, CUBRIDStatementType.SELECT, 1, 0, 1))
-        response.extend(_build_column_metadata(column_type=CUBRIDDataType.INT, name="fresh"))
-        response.extend(struct.pack(">iii", 9, 0, 1))  # shard, fetch code, tuple count
-        response.extend(_build_row_data(0, [(CUBRIDDataType.INT, struct.pack(">i", 42))]))
-
-        pkt.parse(bytes(response))
-        assert pkt.columns[0].name == "fresh"
-        assert pkt.columns[0]._cci_type == 8
-        assert pkt.bind_count == 1
-        assert pkt.rows == [(42,)]
-
-    def test_truncated_refreshed_column_info_cannot_succeed(self) -> None:
-        pkt = ExecutePacket(1, CUBRIDStatementType.INSERT, protocol_version=7)
-        result_info = bytearray()
-        result_info.append(CUBRIDStatementType.INSERT)
-        result_info.extend(struct.pack(">i", 1))
-        result_info.extend(b"\x00" * DataSize.OID)
-        result_info.extend(struct.pack(">ii", 0, 0))
-
-        response = bytearray(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">iBi", 1, 0, 1))
-        response.extend(result_info)
-        response.append(1)
-        response.extend(struct.pack(">i", 0))  # lifetime only; other metadata absent
-
-        with pytest.raises((IndexError, ValueError, struct.error)):
-            pkt.parse(bytes(response))
-
-    @pytest.mark.parametrize(
-        ("error_code", "error_class", "sqlstate"),
-        [
-            (-493, ProgrammingError, "42000"),
-            (-631, IntegrityError, "23000"),
-        ],
-    )
-    def test_negative_result_record_uses_code_mapping(
-        self, error_code: int, error_class: type[DatabaseError], sqlstate: str
-    ) -> None:
-        pkt = ExecutePacket(1, CUBRIDStatementType.INSERT, protocol_version=7)
-        response = bytearray(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">iBi", 1, 0, 1))
-        response.append(CUBRIDStatementType.INSERT)
-        response.extend(struct.pack(">iii", -1, error_code, 4))
-        response.extend(b"bad\x00")
-
-        with pytest.raises(error_class) as caught:
-            pkt.parse(bytes(response))
-        assert type(caught.value) is error_class
-        assert caught.value.errno == error_code
-        assert caught.value.sqlstate == sqlstate
-        assert "bad" not in str(caught.value)
-
-    def test_parse_select_no_columns(self) -> None:
-        """SELECT with no columns provided — should not parse rows."""
-        pkt = ExecutePacket(1, CUBRIDStatementType.SELECT, protocol_version=7)
-        result_info = bytearray()
-        result_info.append(CUBRIDStatementType.SELECT)
-        result_info.extend(struct.pack(">i", 0))
-        result_info.extend(b"\x00" * DataSize.OID)
-        result_info.extend(struct.pack(">i", 0))
-        result_info.extend(struct.pack(">i", 0))
-
-        response = bytearray()
-        response.extend(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">i", 1))
-        response.append(0)
-        response.extend(struct.pack(">i", 1))
-        response.extend(result_info)
-        response.append(0)
-        response.extend(struct.pack(">i", 0))
-        response.extend(struct.pack(">i", 0))  # fetch_code
-        response.extend(struct.pack(">i", 1))  # tuple_count
-
-        pkt.parse(bytes(response))
-        assert pkt.rows == []
-
-    def test_parse_error(self) -> None:
-        pkt = ExecutePacket(1, CUBRIDStatementType.SELECT)
-        response = _build_error_response(DEFAULT_CAS_INFO, -1, "execute error")
-        with pytest.raises(DatabaseError, match="execute error"):
-            pkt.parse(response)
-
-    def test_parse_low_protocol_version(self) -> None:
-        pkt = ExecutePacket(1, CUBRIDStatementType.INSERT, protocol_version=1)
-        result_info = bytearray()
-        result_info.append(CUBRIDStatementType.INSERT)
-        result_info.extend(struct.pack(">i", 1))
-        result_info.extend(b"\x00" * DataSize.OID)
-        result_info.extend(struct.pack(">i", 0))
-        result_info.extend(struct.pack(">i", 0))
-
-        response = bytearray()
-        response.extend(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">i", 1))
-        response.append(0)
-        response.extend(struct.pack(">i", 1))
-        response.extend(result_info)
-
-        pkt.parse(bytes(response))
-        assert pkt.total_tuple_count == 1
-
-    def test_parse_select_not_enough_bytes(self) -> None:
-        """SELECT with no remaining bytes for fetch data."""
-        pkt = ExecutePacket(1, CUBRIDStatementType.SELECT, protocol_version=7)
-        cols = [ColumnMetaData(column_type=CUBRIDDataType.INT)]
-        result_info = bytearray()
-        result_info.append(CUBRIDStatementType.SELECT)
-        result_info.extend(struct.pack(">i", 0))
-        result_info.extend(b"\x00" * DataSize.OID)
-        result_info.extend(struct.pack(">i", 0))
-        result_info.extend(struct.pack(">i", 0))
-
-        response = bytearray()
-        response.extend(DEFAULT_CAS_INFO)
-        response.extend(struct.pack(">i", 0))
-        response.append(0)
-        response.extend(struct.pack(">i", 1))
-        response.extend(result_info)
-        response.append(0)
-        response.extend(struct.pack(">i", 0))
-        # No fetch data
-
-        pkt.parse(bytes(response), columns=cols)
-        assert pkt.rows == []
 
 
 class TestFetchPacket:
@@ -1606,7 +1407,6 @@ _SimpleResponsePacket: TypeAlias = (
     | LOBNewPacket
     | LOBWritePacket
     | LOBReadPacket
-    | GetDbParameterPacket
     | SetDbParameterPacket
 )
 
@@ -1622,7 +1422,6 @@ _SimpleResponsePacket: TypeAlias = (
         pytest.param(lambda: LOBNewPacket(CCILOBType.BLOB), id="lob-new"),
         pytest.param(lambda: LOBWritePacket(b"handle", 0, b"data"), id="lob-write"),
         pytest.param(lambda: LOBReadPacket(b"handle", 0, 4), id="lob-read"),
-        pytest.param(lambda: GetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL), id="get-param"),
         pytest.param(lambda: SetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL, 4), id="set-param"),
     ],
 )
@@ -1956,32 +1755,6 @@ class TestGetLastInsertIdPacket:
         pkt = GetLastInsertIdPacket()
         response = _build_error_response(DEFAULT_CAS_INFO, -1, "no insert id")
         with pytest.raises(DatabaseError, match="no insert id"):
-            pkt.parse(response)
-
-
-class TestGetDbParameterPacket:
-    """Tests for GetDbParameterPacket."""
-
-    def test_write(self) -> None:
-        pkt = GetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL)
-        data = pkt.write(DEFAULT_CAS_INFO)
-        payload = data[8:]
-        assert payload[0] == CASFunctionCode.GET_DB_PARAMETER
-
-    def test_parse_success(self) -> None:
-        pkt = GetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL)
-        response = (
-            DEFAULT_CAS_INFO
-            + struct.pack(">i", 0)  # responseCode
-            + struct.pack(">i", 4)  # value
-        )
-        pkt.parse(response)
-        assert pkt.value == 4
-
-    def test_parse_error(self) -> None:
-        pkt = GetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL)
-        response = _build_error_response(DEFAULT_CAS_INFO, -1, "param error")
-        with pytest.raises(DatabaseError, match="param error"):
             pkt.parse(response)
 
 

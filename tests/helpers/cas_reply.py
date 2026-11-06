@@ -756,7 +756,7 @@ def prepare_and_execute_reply(
 
 
 def prepare_info(w: Wire, rs: ResultSet, *, bind_count: int = 0) -> None:
-    """The FC2 tail, also sent by FC3 when it refreshes column info."""
+    """The FC2 tail, also sent inside an FC41 reply."""
     w.mark()
     w.i32(0)  # result cache lifetime
     w.byte(rs.statement_type)
@@ -774,28 +774,6 @@ def prepare_reply(rs: ResultSet, *, query_handle: int = 5, bind_count: int = 2) 
     prepare_info(w, rs, bind_count=bind_count)
     w.mark()
     return w.seed(f"prepare/{rs.name}")
-
-
-def execute_reply(rs: ResultSet, *, refresh_columns: bool) -> Seed:
-    """FC3 EXECUTE, optionally carrying refreshed column info, with inline rows."""
-    w = Wire()
-    w.raw(CAS_INFO)
-    w.mark()
-    w.i32(len(rs.rows))  # response code = total tuple count
-    w.byte(0)  # cache reusable
-    w.count(1)
-    _result_info(w, rs.statement_type, len(rs.rows))
-    w.mark()
-    w.byte(1 if refresh_columns else 0)
-    if refresh_columns:
-        prepare_info(w, rs)
-    w.i32(0)  # shard id
-    w.mark()
-    w.i32(0)  # fetch code
-    w.count(len(rs.rows))
-    write_rows(w, rs.rows, rs.typed(), legacy_cell_type=rs.legacy_cell_type)
-    suffix = "refreshed" if refresh_columns else "cached"
-    return w.seed(f"execute_{suffix}/{rs.name}")
 
 
 # Schema (FC9) SCH_CLASS-style result: condensed column metadata, rows via FETCH.

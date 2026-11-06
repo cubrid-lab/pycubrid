@@ -1,6 +1,6 @@
-"""Internal typed FC3 LOB-handle binds and the packed-handle size field (#441).
+"""Internal typed LOB-handle binds and the packed-handle size field (#441).
 
-These pin the wire contract that the native ``bind_lob()`` builds on.
+These pin the wire contract that FC21 sends for a ``Lob`` value.
 """
 
 from __future__ import annotations
@@ -13,12 +13,12 @@ import pytest
 from hypothesis import given, strategies as st
 
 from pycubrid import protocol
-from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
+from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import OperationalError, ProgrammingError
 from pycubrid.lob import Lob
-from pycubrid.protocol import ExecutePacket, LOBWritePacket
+from pycubrid.protocol import LOBWritePacket
 
-from .test_prepared_collection_contract import _frame, _int
+from .test_prepared_collection_contract import _execute, _frame, _int, _packet
 
 BLOB, CLOB = CUBRIDDataType.BLOB, CUBRIDDataType.CLOB
 OWNER = object()  # stands in for the owning driver connection
@@ -27,8 +27,9 @@ _CAS_INFO = b"\x01\x00\x00\x00"
 # Captured through a TCP proxy in front of a CUBRID 11.4 broker from the pinned
 # official driver (cubrid-python e75ec36, CCI 7d1eb8f): the packed handles of a
 # fetched BLOB ("\x00\x01blob", 6 bytes) and CLOB ("clob 한글", 11 bytes), and the
-# FC3 bind pairs `cur.bind_lob(1, lob)` sent for them. The value argument is the
-# handle exactly as fetched; the type byte is BLOB (23) or CLOB (24).
+# FC3 bind pairs `cur.bind_lob(1, lob)` sent for them, the pairs FC21 writes too.
+# The value argument is the handle exactly as fetched; the type byte is BLOB (23)
+# or CLOB (24).
 FETCHED_BLOB = bytes.fromhex(
     "000000210000000000000006000000386669"
     "6c653a6365735f3339302f6462612e70343431635f6461386261632e303030303137393039"
@@ -112,24 +113,14 @@ def test_bind_pair_is_byte_identical_to_the_official_driver(
 ) -> None:
     binding = protocol._PreparedLob(lob_type, handle, OWNER, 1)
     assert _bind_pair(binding) == bytes.fromhex(pair)
-    frame = ExecutePacket(7, CUBRIDStatementType.INSERT, bindings=(binding,), bind_count=1).write(
-        _CAS_INFO
-    )
-    assert bytes.fromhex(pair) in frame
+    assert bytes.fromhex(pair) in _execute(binding)
 
 
 def test_full_frame_mixes_lob_and_scalar_bindings() -> None:
     blob = protocol._PreparedLob(BLOB, FETCHED_BLOB, OWNER, 1)
-    frame = ExecutePacket(
-        7,
-        CUBRIDStatementType.SELECT,
-        bindings=(
-            protocol._encode_prepared_scalar(5),
-            blob,
-            protocol._encode_prepared_scalar(None),
-        ),
-        bind_count=3,
-    ).write(_CAS_INFO)
+    frame = _execute(
+        protocol._encode_prepared_scalar(5), blob, protocol._encode_prepared_scalar(None)
+    )
     assert frame == _frame(
         b"\x00\x00\x00\x01\x08"
         + _int(4)
@@ -144,12 +135,7 @@ def test_full_frame_mixes_lob_and_scalar_bindings() -> None:
 
 def test_lob_binding_needs_no_charset_match() -> None:
     # The handle is not text; a packet with another charset still sends it.
-    packet = ExecutePacket(
-        7,
-        CUBRIDStatementType.INSERT,
-        bindings=(protocol._PreparedLob(CLOB, FETCHED_CLOB, OWNER, 1),),
-        bind_count=1,
-    )
+    packet = _packet(protocol._PreparedLob(CLOB, FETCHED_CLOB, OWNER, 1))
     packet.encoding = "euc-kr"
     frame = packet.write(_CAS_INFO)
     assert FETCHED_CLOB in frame
@@ -198,8 +184,8 @@ def test_lob_binding_is_immutable() -> None:
 
 
 def test_execute_packet_still_rejects_unknown_binding_objects() -> None:
-    bindings: Any = (object(),)
-    packet = ExecutePacket(7, CUBRIDStatementType.INSERT, bindings=bindings, bind_count=1)
+    binding: Any = object()
+    packet = _packet(binding)
     with pytest.raises(ProgrammingError, match="invalid prepared parameter encoding"):
         packet.write(_CAS_INFO)
 

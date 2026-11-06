@@ -10,9 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pycubrid.constants import CUBRIDStatementType
 from pycubrid.exceptions import OperationalError, ProgrammingError
-from pycubrid.protocol import CloseQueryPacket, ExecutePacket
+from pycubrid.protocol import CloseQueryPacket, ExecuteArrayPacket, _encode_prepared_scalar
 
 from .test_network_edge_cases import (
     build_simple_ok_response,
@@ -61,11 +60,14 @@ def test_stale_generation_rejects_before_packet_write() -> None:
 
 @pytest.mark.parametrize(
     "packet",
-    [ExecutePacket(7, CUBRIDStatementType.SELECT), CloseQueryPacket(7)],
-    ids=["FC3", "FC6"],
+    [
+        ExecuteArrayPacket(7, ((_encode_prepared_scalar(1),),), auto_commit=False, bind_count=1),
+        CloseQueryPacket(7),
+    ],
+    ids=["FC21", "FC6"],
 )
 def test_physical_replacement_during_serialization_rejects_before_send(
-    packet: ExecutePacket | CloseQueryPacket,
+    packet: ExecuteArrayPacket | CloseQueryPacket,
 ) -> None:
     conn, old_sock = make_connected_connection()
     replacement = _response_socket()

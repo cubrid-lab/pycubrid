@@ -581,7 +581,7 @@ def _parse_schema_column_metadata(reader: PacketReader, column_count: int) -> li
 
 
 def _parse_column_metadata(reader: PacketReader, column_count: int) -> list[ColumnMetaData]:
-    """Parse FC2/FC3/FC41 column metadata entries from the reader.
+    """Parse FC2/FC41 column metadata entries from the reader.
 
     The text decoder reads a non-positive length as empty, so each metadata
     length is bounded here first: a negative one is framing damage (#555).
@@ -692,7 +692,7 @@ def _read_column_metadata(
 def _parse_prepare_info(
     reader: PacketReader,
 ) -> tuple[int, int, list[ColumnMetaData], DataError | None]:
-    """Parse the FC2 tail also reused by FC3 refreshed-column responses."""
+    """Parse the FC2 tail also reused by FC41 responses."""
     if reader.bytes_remaining() < 14:
         raise ValueError("truncated prepared column metadata")
     _ = reader._parse_int()  # result cache lifetime
@@ -991,9 +991,7 @@ def _parse_row_data(
     return rows
 
 
-def _parse_result_infos(
-    reader: PacketReader, result_count: int, *, prepared: bool = False
-) -> list[ResultInfo]:
+def _parse_result_infos(reader: PacketReader, result_count: int) -> list[ResultInfo]:
     """Parse result info entries."""
     if result_count < 0:
         raise ValueError("negative execute result count")
@@ -1001,25 +999,6 @@ def _parse_result_infos(
     for _ in range(result_count):
         stmt_type = reader._parse_byte()
         count = reader._parse_int()
-        if prepared and count < 0:
-            if reader.bytes_remaining() < 8:
-                raise ValueError("truncated prepared execution error")
-            error_code = reader._parse_int()
-            message_size = reader._parse_int()
-            if message_size < 0 or message_size > reader.bytes_remaining():
-                raise ValueError("invalid prepared execution error length")
-            _ = reader._parse_bytes(message_size)  # Broker text may contain bound data.
-            exc_name = CAS_ERROR_TO_EXCEPTION.get(error_code, "DatabaseError")
-            exc_class = _EXCEPTION_CLASSES[exc_name]
-            error = exc_class(
-                "prepared statement execution failed",
-                code=error_code,
-                errno=error_code,
-                sqlstate=get_sqlstate(error_code) or _DEFAULT_SQLSTATE[exc_name],
-            )
-            setattr(error, "_cas_server_error", True)
-            error._error_source = _ERROR_SOURCE_BY_INDICATOR.get(count)
-            raise error
         oid = reader._parse_bytes(DataSize.OID)
         cache_sec = reader._parse_int()
         cache_usec = reader._parse_int()
@@ -1315,128 +1294,6 @@ class PreparePacket(_CasPacket):
             reader
         )
         self.column_count = len(self.columns)
-        if metadata_error is not None:
-            raise metadata_error
-
-
-class ExecutePacket(_CasPacket):
-    """Execute a prepared statement (FC=3)."""
-
-    def __init__(
-        self,
-        query_handle: int,
-        statement_type: int,
-        auto_commit: bool = False,
-        protocol_version: int = CASProtocol.VERSION,
-        decode_collections: bool = False,
-        json_deserializer: Any = None,
-        *,
-        bindings: Sequence[_PreparedScalar | _PreparedCollection | _PreparedLob] = (),
-        bind_count: int | None = None,
-        forward_only: bool | None = None,
-    ) -> None:
-        self.query_handle = query_handle
-        self.statement_type = statement_type
-        self.auto_commit = auto_commit
-        self.protocol_version = protocol_version
-        self.decode_collections = decode_collections
-        self.json_deserializer = json_deserializer
-        self.bindings = tuple(bindings)
-        self.bind_count = bind_count
-        self.forward_only = auto_commit if forward_only is None else forward_only
-
-        self.total_tuple_count: int = 0
-        self.result_count: int = 0
-        self.result_infos: list[ResultInfo] = []
-        self.tuple_count: int = 0
-        self.rows: list[tuple[Any, ...]] = []
-        self.columns: list[ColumnMetaData] = []
-
-    def write(self, cas_info: bytes) -> bytes:
-        """Serialize the execute request."""
-        if not isinstance(self.auto_commit, bool):
-            raise ProgrammingError("prepared autocommit must be a boolean")
-        if self.bind_count is not None and (
-            isinstance(self.bind_count, bool)
-            or not isinstance(self.bind_count, int)
-            or self.bind_count < 0
-        ):
-            raise ProgrammingError("prepared bind count must be a nonnegative integer")
-        if self.bind_count is not None and len(self.bindings) != self.bind_count:
-            raise ProgrammingError("prepared parameter count does not match server bind count")
-        if not isinstance(self.forward_only, bool):
-            raise ProgrammingError("forward_only must be a boolean")
-        fetch_flag = 1 if self.statement_type == CUBRIDStatementType.SELECT else 0
-        writer = PacketWriter()
-        writer._write_byte(CASFunctionCode.EXECUTE)
-        writer.add_int(self.query_handle)
-        writer.add_byte(CCIExecutionOption.NORMAL)
-        writer.add_int(0)  # max_col_size
-        writer.add_int(0)  # max_row_size
-        writer.add_null()  # NULL
-        writer._write_int(1)  # SELECT fetch-flag argument length
-        writer._write_byte(fetch_flag)
-        writer.add_byte(1 if self.auto_commit else 0)
-        writer.add_byte(1 if self.forward_only else 0)
-        writer.add_cache_time()
-        writer.add_int(0)  # query timeout
-        for binding in self.bindings:
-            _write_prepared_binding(writer, binding, self.encoding)
-        return writer.finalize(cas_info)
-
-    def parse(self, data: bytes | bytearray, columns: list[ColumnMetaData] | None = None) -> None:
-        """Parse the execute response."""
-        if columns is not None:
-            self.columns = columns
-        reader = PacketReader(
-            data,
-            decode_collections=self.decode_collections,
-            json_deserializer=self.json_deserializer,
-            encoding=self.encoding,
-        )
-        reader._skip_bytes(DataSize.CAS_INFO)
-        response_code = reader._parse_int()
-        if response_code < 0:
-            remaining = len(data) - 8
-            _raise_error(reader, remaining, response_code)
-
-        self.total_tuple_count = response_code
-        metadata_error = None
-        _ = reader._parse_byte()  # cache_reusable
-        self.result_count = reader._parse_int()
-        self.result_infos = _parse_result_infos(reader, self.result_count, prepared=True)
-
-        if self.protocol_version > 1:
-            includes_column_info = reader._parse_byte()
-            if includes_column_info not in (0, 1):
-                raise ValueError("invalid refreshed-column-info flag")
-            if includes_column_info:
-                self.statement_type, self.bind_count, self.columns, metadata_error = (
-                    _parse_prepare_info(reader)
-                )
-        if metadata_error is not None:
-            position = reader.mark()
-            reader = PacketReader(data, decode_collections=True, encoding=self.encoding)
-            reader.seek(position)
-        if self.protocol_version > 4:
-            _ = reader._parse_int()  # shard_id
-
-        if self.statement_type == CUBRIDStatementType.SELECT:
-            if 0 < reader.bytes_remaining() < 8:
-                raise ValueError("truncated inline fetch header")
-            if reader.bytes_remaining() >= 8:
-                _ = reader._parse_int()  # fetch_code
-                self.tuple_count = reader._parse_int()
-                if self.tuple_count < 0:
-                    raise ValueError("negative tuple count")
-                if self.tuple_count > 0 and self.columns:
-                    self.rows = _parse_row_data(
-                        reader,
-                        self.tuple_count,
-                        self.columns,
-                        self.statement_type,
-                        defer_data_errors=metadata_error is not None,
-                    )
         if metadata_error is not None:
             raise metadata_error
 
@@ -1769,7 +1626,7 @@ class ExecuteArrayPacket(_CasPacket):
     Request (CAS ``fn_execute_array``, JDBC ``UStatement``
     ``writeExecuteBatchRequest``): int query handle, int query timeout for
     protocol V4+, byte autocommit, then one (type byte, value) argument pair
-    per marker per row, in row order, the pair ``ExecutePacket`` writes.
+    per marker per row, in row order, from :func:`_write_prepared_binding`.
 
     Reply (CAS ``ux_execute_array``): int result code, int executed row
     count, then per row either ``int count >= 0`` and an 8-byte OID, or a
@@ -1976,26 +1833,6 @@ class GetLastInsertIdPacket(_CasPacket):
             _, remaining = _parse_cell_type(reader, value_size)
             if remaining > 0:
                 self.last_insert_id = reader._parse_null_terminated_string(remaining)
-
-
-class GetDbParameterPacket(_CasPacket):
-    """Get a database parameter (FC=4)."""
-
-    def __init__(self, parameter: int) -> None:
-        self.parameter = parameter
-        self.value: int = 0
-
-    def write(self, cas_info: bytes) -> bytes:
-        """Serialize the get db parameter request."""
-        writer = PacketWriter()
-        writer._write_byte(CASFunctionCode.GET_DB_PARAMETER)
-        writer.add_int(self.parameter)
-        return writer.finalize(cas_info)
-
-    def parse(self, data: bytes | bytearray) -> None:
-        """Parse the get db parameter response."""
-        reader, _ = self._parse_response(data)
-        self.value = reader._parse_int()
 
 
 class CheckCasPacket(_CasPacket):

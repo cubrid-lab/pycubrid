@@ -24,7 +24,7 @@ from pycubrid.exceptions import DataError, ProgrammingError
 from pycubrid.packet import PacketReader, PacketWriter
 from pycubrid.protocol import (
     BatchExecutePacket,
-    ExecutePacket,
+    ExecuteArrayPacket,
     GetSchemaPacket,
     OpenDatabasePacket,
     PrepareAndExecutePacket,
@@ -525,11 +525,8 @@ def test_prepared_strings_use_the_connection_codec() -> None:
 
 
 def test_prepared_execute_rejects_a_binding_for_another_codec() -> None:
-    packet = ExecutePacket(
-        1,
-        CUBRIDStatementType.INSERT,
-        bindings=(_encode_prepared_scalar(HANGUL, "euc_kr"),),
-        bind_count=1,
+    packet = ExecuteArrayPacket(
+        1, ((_encode_prepared_scalar(HANGUL, "euc_kr"),),), auto_commit=False, bind_count=1
     )
     with pytest.raises(ProgrammingError, match="different charset"):
         packet.write(CAS_INFO)

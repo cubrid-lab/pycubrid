@@ -254,12 +254,6 @@ class PacketWriter:
         self._write_short(second)
         self._write_short(millisecond)
 
-    def add_cache_time(self) -> None:
-        """Write a length-prefixed cache time value (two zero ints)."""
-        self._write_int(DataSize.LONG)
-        self._write_int(0)
-        self._write_int(0)
-
     def _write_byte(self, value: int) -> None:
         self._buffer.extend(_STRUCT_BYTE.pack(value & 0xFF))
 

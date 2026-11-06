@@ -46,7 +46,6 @@ from .protocol import (
     CloseQueryPacket,
     CommitPacket,
     ExecuteArrayPacket,
-    ExecutePacket,
     FetchPacket,
     GetEngineVersionPacket,
     GetLastInsertIdPacket,
@@ -677,8 +676,7 @@ class ConnectionCommonMixin:
             return
         ends_transaction = isinstance(packet, (CommitPacket, RollbackPacket))
         if isinstance(
-            packet,
-            (PrepareAndExecutePacket, ExecutePacket, ExecuteArrayPacket, GetEngineVersionPacket),
+            packet, (PrepareAndExecutePacket, ExecuteArrayPacket, GetEngineVersionPacket)
         ):
             ends_transaction = packet.auto_commit
         elif isinstance(packet, PreparePacket):
