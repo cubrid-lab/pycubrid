@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Generator, Sequence
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -80,6 +81,15 @@ def test_host_variable_coercion_errors_keep_the_session(
             cursor.executemany(sql, [(3, None)], prepared=True)
         assert conn._physical_generation == generation
     assert _rows(admin, f"SELECT id, v FROM {table} ORDER BY id") == [(2, None), (3, None)]
+
+
+@pytest.mark.parametrize("value", [Decimal("0.0"), Decimal("-0.00")], ids=repr)
+def test_zero_decimal_binds_store_zero(admin: Connection, table: str, value: Decimal) -> None:
+    # A lone leading 0 is dropped from NUMERIC text: the CAS counts it as precision.
+    _create(admin, table, "v NUMERIC(10,2)")
+    with admin.cursor() as cursor:
+        cursor.executemany(f"INSERT INTO {table} VALUES (?)", [(value,)], prepared=True)
+    assert _rows(admin, f"SELECT v FROM {table}") == [(Decimal("0.00"),)]
 
 
 @pytest.mark.parametrize("autocommit", [False, True], ids=["manual", "auto"])
