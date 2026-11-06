@@ -12586,7 +12586,7 @@ with open("out.bin", "wb") as fh:
 | Read type | `str`, decoded as UTF-8. A BLOB that is not UTF-8 raises `UnicodeDecodeError` | `bytes` |
 | Position | Stateful `seek` | You hold the offset. `SEEK_*` has no use. Use the `os.SEEK_*` meanings in your own code |
 | Rebind a fetched handle on the same connection | Yes | Yes (a `Lob` built from the cell) |
-| Rebind on another connection | Yes, for committed rows | No equivalent: raises `InterfaceError`. Read the bytes and write a new LOB |
+| Rebind on another connection | Yes, for committed rows | Read the bytes and write a new LOB. A `Lob` of another connection raises `InterfaceError`. Rewrapping the handle with `Lob(target, ...)` is not refused, but it can store data another transaction never committed, so do not rely on it |
 | Write at a non-append offset | `NotSupportedError` before any I/O | The server returns error -1016 |
 | Async | None | None |
 

@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (#1129)** — it said ordinary SQL had no way to do this, which was wrong. `GET TRANSACTION
   ISOLATION LEVEL TO iso` followed by `SELECT iso` works, as does the `LOCK TIMEOUT` form, on
   every supported server. The guide also now says that `SET TRANSACTION` does not commit.
+- **The Compat migration guide warns against rewrapping a LOB handle on another connection
+  (#1130)** — the guide said this raises `InterfaceError`, which holds only for another
+  connection's `Lob` object. `Lob(target, ...)` is not refused and can store data that another
+  transaction never committed. Read the bytes and write a new LOB instead.
 
 ### Tests
 

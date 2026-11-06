@@ -419,7 +419,7 @@ with open("out.bin", "wb") as fh:
 | 읽기 타입 | `str`, UTF-8로 디코딩. UTF-8이 아닌 BLOB은 `UnicodeDecodeError` | `bytes` |
 | 위치 | 상태를 가진 `seek` | 오프셋을 직접 보관. `SEEK_*`는 쓸 곳이 없음. 자체 코드에서 `os.SEEK_*`의 의미를 쓰세요 |
 | 같은 연결에서 가져온 핸들 재바인드 | 가능 | 가능(셀로 만든 `Lob`) |
-| 다른 연결에서 재바인드 | 커밋된 행에 한해 가능 | 대체 API 없음: `InterfaceError` 발생. 바이트를 읽어 새 LOB에 쓰세요 |
+| 다른 연결에서 재바인드 | 커밋된 행에 한해 가능 | 바이트를 읽어 새 LOB에 쓰세요. 다른 연결의 `Lob`은 `InterfaceError`를 발생시킵니다. `Lob(target, ...)`으로 핸들을 다시 감싸면 거부되지 않지만 다른 트랜잭션이 커밋하지 않은 데이터가 저장될 수 있으니 이 방식에 의존하지 마세요 |
 | 추가(append)가 아닌 오프셋에 쓰기 | I/O 전에 `NotSupportedError` | 서버가 오류 -1016 반환 |
 | 비동기 | 없음 | 없음 |
 
