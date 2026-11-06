@@ -259,6 +259,14 @@ These guardrails apply regardless of the implementation tool:
 
 ## Release Process
 
+**Cadence:** plan to review meaningful release candidates about every two
+weeks; skip empty cycles. Publish urgent security or correctness fixes sooner
+only after the normal review and release gates. This timing applies to
+**merging** the reviewed release PR, not generating Release Please candidates
+or running a scheduled publish. Never rush an unchecked candidate or shorten
+the already published Compat retirement notice to meet a date. See
+[`RELEASING.md`](RELEASING.md#release-cadence) for the authoritative policy.
+
 Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`
 (`pyproject.toml` reads it dynamically). Merging a reviewed release PR is the only
 normal way to release: `release-please.yml` opens it (curated + Conventional Commit dated CHANGELOG section +
