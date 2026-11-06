@@ -29,10 +29,8 @@ below is generated on Linux, where the conditional dependency is not installed.
   `tests/test_*.py` modules. Test fixtures, `conftest.py` and test
   helpers are not included in the sdist.
 - **Repository only (not in either distribution)**: test fixtures contain only
-  material produced for this project: a ledger of upstream test identifiers
-  (`tests/fixtures/upstream_scenarios.csv`), recorded upstream API names and
-  observed behaviour (`official_api_inventory.json`,
-  `official_differential_claims.json`, `docs-reason-events.json`), byte values
+  material produced for this project: recorded observations
+  (`docs-reason-events.json`), byte values
   observed by running CCI (`cci_collection_golden.json`) and self-generated TLS
   test certificates (`tests/fixtures/tls/generate.sh`). These fixtures contain
   no copied upstream source.

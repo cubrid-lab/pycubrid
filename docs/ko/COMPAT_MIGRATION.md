@@ -3,24 +3,20 @@
 > 🌐 [COMPAT_MIGRATION.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/COMPAT_MIGRATION.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
 옵트인 `pycubrid.compat` 네임스페이스(`pycubrid.compat.native`,
-`pycubrid.compat.cubriddb`, `pycubrid.compat.cursors`)는 deprecated되었습니다.
-이 네임스페이스는 공식 `CUBRIDdb`와 `_cubrid` 드라이버를 흉내 냅니다. 이 가이드는
+`pycubrid.compat.cubriddb`, `pycubrid.compat.cursors`)는 제거되었습니다.
+이 네임스페이스는 공식 `CUBRIDdb`와 `_cubrid` 드라이버를 흉내 냈습니다. 이 가이드는
 무엇으로 대체해야 하는지, 그리고 Compat 기능 중 일반 API로 대체할 수 없는 것이
 무엇인지 설명합니다.
 
-## 무슨 일이 일어나고 있나
+## 무엇이 바뀌었나
 
-이제 Compat 연결을 만들면 이 페이지를 가리키는 `FutureWarning`이 발생합니다.
-Compat은 계속 동작합니다. 이후의 1.x MINOR 릴리스에서 제거되며, 경고를 처음
-내보내는 릴리스가 PyPI에 올라온 뒤 최소 28일(달력 기준)이 지난 다음에 제거됩니다.
-제거 버전과 날짜는 아직 정해지지 않았습니다. 규칙은
+이제 이 모듈들을 import하면 이 페이지를 가리키는 `ImportError`가 발생합니다.
+이 제거는 1.x MINOR 릴리스의 의도된 파괴적 변경입니다. 규칙은
 [`RELEASE_POLICY.md`](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md)
-(2~4절)에 있습니다.
+(2~4절)에 있습니다. 이것이 여러분에게 중요한 이유는 다음과 같습니다.
 
-이것이 여러분에게 중요한 이유는 다음과 같습니다.
-
-- `pycubrid`나 `pycubrid.aio`를 import할 때는 경고가 나오지 않습니다. 경고는
-  Compat 사용자에게만 보입니다.
+- `pycubrid`와 `pycubrid.aio`는 바뀌지 않았습니다. `pycubrid.compat`을 import하는
+  코드만 실패합니다.
 - 1.9.0 Upgrade note는 1.8.0에서 릴리스된 이름이 1.x가 끝날 때까지 유지된다고
   약속했습니다. 이 약속은 철회되었습니다. `RELEASE_POLICY.md` 4절이 이를
   공개적으로 밝힙니다.
@@ -28,43 +24,20 @@ Compat은 계속 동작합니다. 이후의 1.x MINOR 릴리스에서 제거되�
 
 ## 사용 위치 찾기
 
-경고 문구는 다음과 같습니다.
+오류 문구는 다음과 같습니다.
 
 ```text
-pycubrid.compat is deprecated and will be removed in a later 1.x MINOR release.
-Use pycubrid or pycubrid.aio instead; see https://cubrid-lab.github.io/pycubrid/COMPAT_MIGRATION/
+pycubrid.compat was removed. Use pycubrid or pycubrid.aio instead; see https://cubrid-lab.github.io/pycubrid/COMPAT_MIGRATION/
 ```
 
-경고는 연결을 만드는 여러분의 코드 줄에 귀속됩니다. 기본적으로 Python은 그런 줄마다
-한 번씩 경고를 보여 줍니다. 모든 사용 위치를 찾으려면 경고를 오류로 바꾸세요.
-
-```bash
-python -W error::FutureWarning your_app.py
-pytest -W error::FutureWarning
-```
-
-자체 테스트가 이미 경고를 오류로 취급한다면, 이제 Compat 연결에서 테스트가
-실패합니다. 마이그레이션하는 동안 이 경고만 잠시 끄려면 범위를 좁힌 필터를 쓰고,
-끝나면 제거하세요.
-
-```python
-import warnings
-
-warnings.filterwarnings(
-    "ignore",
-    message="pycubrid.compat is deprecated",
-    category=FutureWarning,
-)
-```
-
-`FutureWarning` 전체에 대한 무차별 `ignore`는 쓰지 마세요.
+오류는 import 줄을 가리키므로 `pycubrid.compat`을 검색하면 모든 사용 위치를 찾을 수
+있습니다. 아래 각 절은 예전 Compat 코드와 이를 대체하는 일반 코드를 보여 줍니다.
 
 ### 버전 고정하기
 
 `pycubrid>=1.8.0,<2.0` 같은 범위는 코드를 바꾸지 않아도 제거 릴리스를 자동으로
-설치할 수 있습니다. 제거 버전이 `CHANGELOG.md`에 공지되면, 마이그레이션을 마칠
-때까지 그 버전 아래로 고정하세요. 예: `pycubrid>=1.8.0,<X.Y` (`X.Y`는 공지된 제거
-버전).
+설치합니다. 마이그레이션을 마칠 때까지 `CHANGELOG.md`에 적힌 제거 릴리스 아래로
+고정하세요. 예: `pycubrid>=1.8.0,<X.Y` (`X.Y`는 그 버전).
 
 ## 이름만 바꾸면 틀립니다
 
@@ -419,7 +392,7 @@ with open("out.bin", "wb") as fh:
 | 읽기 타입 | `str`, UTF-8로 디코딩. UTF-8이 아닌 BLOB은 `UnicodeDecodeError` | `bytes` |
 | 위치 | 상태를 가진 `seek` | 오프셋을 직접 보관. `SEEK_*`는 쓸 곳이 없음. 자체 코드에서 `os.SEEK_*`의 의미를 쓰세요 |
 | 같은 연결에서 가져온 핸들 재바인드 | 가능 | 가능(셀로 만든 `Lob`) |
-| 다른 연결에서 재바인드 | 커밋된 행에 한해 가능 | 바이트를 읽어 새 LOB에 쓰세요. 다른 연결의 `Lob`은 `InterfaceError`를 발생시킵니다. `Lob(target, ...)`으로 핸들을 다시 감싸면 거부되지 않지만 다른 트랜잭션이 커밋하지 않은 데이터가 저장될 수 있으니 이 방식에 의존하지 마세요 |
+| 다른 연결에서 재바인드 | 커밋된 행에 한해 가능 | 지원하지 않음. 바이트를 읽어 새 LOB에 쓰세요. 다른 연결의 `Lob`은 `InterfaceError`를 발생시킵니다. `Lob(target, ...)`으로 핸들을 다시 감싸면 거부되지 않지만 다른 트랜잭션이 커밋하지 않은 데이터가 저장될 수 있으니 이 방식에 의존하지 마세요 |
 | 추가(append)가 아닌 오프셋에 쓰기 | I/O 전에 `NotSupportedError` | 서버가 오류 -1016 반환 |
 | 비동기 | 없음 | 없음 |
 
@@ -437,7 +410,7 @@ with open("out.bin", "wb") as fh:
 | `data_seek`, `row_seek`, `row_tell` | 대체 API 없음 | 아래 참고 |
 | `commit()` 뒤에도 살아 있는 결과 | 큰 결과에서는 지원 안 함 | commit 전에 다 읽거나 두 번째 연결을 사용 |
 | 오토커밋에서의 LOB 바인드 | 거부됨 | 수동 트랜잭션 사용 |
-| 가져온 LOB을 다른 연결에서 재바인드 | 대체 수단 없음 | 바이트를 읽어 새 LOB에 쓰기 |
+| 가져온 LOB을 다른 연결에서 재바인드 | 대체 수단 없음 | 바이트를 읽어 새 LOB에 쓰기. 위 LOB 표 참고 |
 | 서버 측 prepared SELECT, 재사용 문장 핸들 | 대체 수단 없음 | 리터럴을 렌더링하는 `execute()` 사용 |
 
 ### `result_info`

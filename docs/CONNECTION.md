@@ -471,8 +471,7 @@ as the CUBRID JDBC driver does (#485):
   is lost. Requests that depend on the lost session are not sent there: a
   `CLOSE_REQ` for one of its handles is skipped; a FETCH of its unread rows, a
   last-insert-id lookup, or a LOB read/write on a LOB obtained from it raises
-  `OperationalError`; and `pycubrid.compat.native` prepared statements are
-  rejected as belonging to an earlier session. If the CAS is recycled right
+  `OperationalError`. If the CAS is recycled right
   after an autocommit INSERT, that INSERT is committed but its `lastrowid` is
   `None`; a WARNING is logged. Because the replacement setup itself ends out of
   transaction, it is verified with one more `CHECK_CAS` before the request.
@@ -888,10 +887,10 @@ by `ping(reconnect=True)` and the CHECK_CAS recovery.
 
 | Direction | Text | Behavior |
 |---|---|---|
-| Sent | SQL text, including parameters rendered into it (JSON parameters too); `executemany` batch SQL; schema-info arguments; `compat.native` prepared SQL and string bindings | Encoded before any byte of the request is sent. An unencodable character raises `DataError` naming the codec and character position (the text itself is not echoed); nothing of that request is sent and the session stays usable. With `euc_kr`, Hangul syllables outside KS X 1001 (such as 똠 or 뷁) are unencodable: Python would send them as 8-byte makeup sequences that CUBRID stores as separate jamo. On read, the Hangul filler U+3164 and following jamo decode as separate characters, as CUBRID stores them. |
+| Sent | SQL text, including parameters rendered into it (JSON parameters too); `executemany` batch SQL; schema-info arguments; `executemany(..., prepared=True)` SQL and string bindings | Encoded before any byte of the request is sent. An unencodable character raises `DataError` naming the codec and character position (the text itself is not echoed); nothing of that request is sent and the session stays usable. With `euc_kr`, Hangul syllables outside KS X 1001 (such as 똠 or 뷁) are unencodable: Python would send them as 8-byte makeup sequences that CUBRID stores as separate jamo. On read, the Hangul filler U+3164 and following jamo decode as separate characters, as CUBRID stores them. |
 | Sent | `OPEN_DATABASE` database, user and password | Encoded, then cut to the 32-byte field on a character boundary. |
 | Received | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING` and `ENUM` values, collection elements (`decode_collections=True`) | Strict decode. Undecodable bytes raise `DataError` (for example `column value is not valid euc_kr (invalid byte at offset 0)`); the session stays usable. |
-| Received | Column, table and alias names; column default values | Strict decode; `DataError` (`column metadata is not valid ...`). Ordinary cursors keep the session and release the server handle; `get_schema_info()` and the `compat.native` prepared cursor still retire the session, as for any unparsable reply there. |
+| Received | Column, table and alias names; column default values | Strict decode; `DataError` (`column metadata is not valid ...`). Ordinary cursors keep the session and release the server handle; `get_schema_info()` still retires the session, as for any unparsable reply there. |
 | Received | Server error messages, including per-statement batch errors | Decoded with `errors="replace"`, so the native error always surfaces. |
 | Received | LOB file locators (`file_locator`; the server path embeds the table name) | Decoded with `errors="replace"`: informational only, the packed handle is what goes back to the server. |
 

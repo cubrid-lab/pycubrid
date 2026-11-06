@@ -44,7 +44,7 @@ declared in `pyproject.toml` `[tool.pytest.ini_options]`; the main ones are:
   when no server is configured, excluded from `make test`.
 - `repo_tooling` — repository policy and tooling checks (docs, release scripts, CI
   workflow contracts, PR title) with no driver behavior.
-- `tls`, `version_matrix`, `official_differential`, `slow`, `benchmark` — dedicated
+- `tls`, `version_matrix`, `slow`, `benchmark` — dedicated
   CI lanes; see [docs/CI_POLICY.md](../CI_POLICY.md).
 
 `make test` runs the offline tests only; it does **not** prove a live broker round
@@ -55,7 +55,7 @@ must correspond to the final PR head, not an earlier commit or advisory agent
 review.
 
 Shared fixtures are in `tests/conftest.py`, helpers in `tests/helpers/` and recorded data
-(official API inventory, differential claims, golden bytes) in `tests/fixtures/`. Sync and
+(golden bytes) in `tests/fixtures/`. Sync and
 async parity tests usually parametrize over both cursor or connection classes. Test layout,
 the backslash-escape-mode pin and the fast-versus-tooling split are described in
 [docs/DEVELOPMENT.md](../DEVELOPMENT.md#running-tests).

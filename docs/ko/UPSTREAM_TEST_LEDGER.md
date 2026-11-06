@@ -2,7 +2,9 @@
 
 > 🌐 [UPSTREAM_TEST_LEDGER.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/UPSTREAM_TEST_LEDGER.md)의 번역입니다. 영어 원문이 표준이며, CI가 영어 원문과의 구조 일치를 검사합니다.
 
-[시나리오 원장](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/upstream_scenarios.csv)은
+> **역사 기록.** 이 원장은 `pycubrid.compat`과 함께 폐기되었습니다. 파일은 [`v1.17.0` 태그](https://github.com/cubrid-lab/pycubrid/tree/v1.17.0)에 있습니다.
+
+[시나리오 원장](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/tests/fixtures/upstream_scenarios.csv)은
 [공개 기능 패리티 추적 이슈](https://github.com/cubrid-lab/pycubrid/issues/396) 아래의
 [#437](https://github.com/cubrid-lab/pycubrid/issues/437)을 위한 초기 목록입니다.
 기능 패리티 인증서나 Python 2 호환성 약속이 아닙니다.

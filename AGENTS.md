@@ -15,9 +15,9 @@ or native CCI library.
 - **Language**: Python; minimum version is `requires-python` in [`pyproject.toml`](pyproject.toml).
   Supported Python and CUBRID versions are listed in the
   [support matrix](docs/SUPPORT_MATRIX.md); do not copy them here.
-- **APIs**: sync `pycubrid.connect()`, asyncio `pycubrid.aio.connect()`, and the opt-in
-  `pycubrid.compat` namespaces (`compat.cubriddb`, `compat.native`) for code written
-  against the official CUBRIDdb driver
+- **APIs**: sync `pycubrid.connect()` and asyncio `pycubrid.aio.connect()`.
+  `pycubrid.compat` was removed; importing it raises `ImportError` with the
+  [migration guide](docs/COMPAT_MIGRATION.md)
 - **Protocol**: CUBRID CAS binary protocol (version 8, since CUBRID 10.2+)
 - **License**: MIT
 - **Version source**: `pycubrid.__version__` in [`pycubrid/__init__.py`](pycubrid/__init__.py)
@@ -34,7 +34,7 @@ directly under `docs/`, and `scripts/check_agents_docs.py` checks their links an
 |---|---|---|
 | CAS protocol: packets, reply parsing, binds, LOB handles | [Wire protocol guide](docs/agents/protocol.md), [docs/PROTOCOL.md](docs/PROTOCOL.md), [Architecture guide](docs/agents/architecture.md) | `make test`, `make check`, `make integration` |
 | Connection, reconnect, transactions, async | [Wire protocol guide](docs/agents/protocol.md#packet-format) (CAS_INFO, reconnect, handle release), [docs/CONNECTION.md](docs/CONNECTION.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | `make test`, `make check`, `make integration` |
-| Public API, types, parameter binding, `compat` | [Architecture guide](docs/agents/architecture.md), [docs/API_REFERENCE.md](docs/API_REFERENCE.md), [docs/TYPES.md](docs/TYPES.md), [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md), [RELEASE_POLICY.md](RELEASE_POLICY.md) | `make test`, `make check` |
+| Public API, types, parameter binding | [Architecture guide](docs/agents/architecture.md), [docs/API_REFERENCE.md](docs/API_REFERENCE.md), [docs/TYPES.md](docs/TYPES.md), [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md), [RELEASE_POLICY.md](RELEASE_POLICY.md) | `make test`, `make check` |
 | Tests and CI workflows | [Testing and CI guide](docs/agents/testing-ci.md), [docs/CI_POLICY.md](docs/CI_POLICY.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | `make test`, `make check` |
 | Documentation and contributor guidance | [Documentation guide](docs/agents/documentation.md), [Documentation definition of done](#documentation-definition-of-done), [CONTRIBUTING.md](CONTRIBUTING.md) | `python scripts/generate_llms_full.py`, `mkdocs build --strict`, `python scripts/check_docs_links.py`, `python scripts/check_agents_docs.py` |
 | Release | [Release Process](#release-process), [GitHub Release Policy](#github-release-policy), [RELEASING.md](RELEASING.md) | `make release-check VERSION=x.y.z` (read-only; never release by hand) |

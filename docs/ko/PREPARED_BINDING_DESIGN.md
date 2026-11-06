@@ -12,9 +12,12 @@ prepared 커서를 사용할 수 있게 되지 않으며, #439가 소유자/fetc
 바꾸지 않고, 측정된 속도 향상이나 플랜 캐시 효과를 약속하지 않으며, 현재의
 SQL 인젝션 익스플로잇을 입증하지 않고, CUBRID `TIME` 정밀도를 바꾸지도 않습니다.
 
+> **역사 기록.** 이 설계가 설명하는 `pycubrid.compat.native` prepared 커서는 제거되었습니다.
+> 타입 인코더는 `executemany(..., prepared=True)`가 계속 사용합니다.
+
 [공식 공개 API 목록](UPSTREAM_COMPATIBILITY.md)과
 [#438 additive 계약](../UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)은
-동기 전용 `pycubrid.compat.native` prepared 커서를 선택합니다. 공개
+동기 전용 `pycubrid.compat.native` prepared 커서를 선택했습니다. 공개
 비동기 prepared 커서는 #439의 범위가 **아닙니다**. private 비동기 전송 테스트는
 비동기 prepared API를 공표하지 않습니다.
 래퍼 쿼리 인자, 컬렉션, LOB, 커서 탐색과 폭넓은

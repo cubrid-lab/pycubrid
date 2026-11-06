@@ -31,8 +31,8 @@
 > प्रत्येक बदलाव की maintainer समीक्षा, उपयोगकर्ता प्रभाव आकलन और migration
 > notes के बाद MINOR में बदले जा सकते हैं। संभव होने पर पहले deprecation
 > warning दें; सामान्य एक्सटेंशन पर निश्चित 28-दिन की प्रतीक्षा लागू नहीं है।
-> पहले घोषित `pycubrid.compat` हटाने पर [अलग न्यूनतम 28-दिन का नियम](COMPAT_MIGRATION.md)
-> लागू रहता है। PATCH सीमित सुरक्षा अपवादों को छोड़कर संगत रहता है।
+> पुराने `pycubrid.compat` नेमस्पेस हटा दिए गए हैं; [माइग्रेशन गाइड](COMPAT_MIGRATION.md)
+> देखें। PATCH सीमित सुरक्षा अपवादों को छोड़कर संगत रहता है।
 > यह पुराने 1.x एक्सटेंशन वादे में भविष्य का बदलाव है; `<2.0` सीमा हर
 > MINOR के लिए संगतता की गारंटी नहीं देती। [चेंजलॉग](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md) और
 > [रिलीज़ नीति](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md) देखें।

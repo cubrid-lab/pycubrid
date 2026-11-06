@@ -1,68 +1,43 @@
 # Migrating off pycubrid.compat
 
 The opt-in `pycubrid.compat` namespaces (`pycubrid.compat.native`,
-`pycubrid.compat.cubriddb` and `pycubrid.compat.cursors`) are deprecated. They
-imitate the official `CUBRIDdb` and `_cubrid` drivers. This guide shows what to
+`pycubrid.compat.cubriddb` and `pycubrid.compat.cursors`) were removed. They
+imitated the official `CUBRIDdb` and `_cubrid` drivers. This guide shows what to
 use instead, and where nothing replaces a Compat feature.
 
-## What is happening
+## What changed
 
-Creating a Compat connection now emits a `FutureWarning` that links to this
-page. Compat keeps working. A later 1.x MINOR release will remove it, at least
-28 calendar days after the release that first emits the warning reaches PyPI.
-No removal version or date is set yet. The rules are in
+Importing any of these modules now raises `ImportError` with a link to this
+page. The removal is an intentional breaking change in a 1.x MINOR release. The
+rules are in
 [`RELEASE_POLICY.md`](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md)
-(sections 2 to 4).
+(sections 2 to 4). Why this matters to you:
 
-Why this matters to you:
-
-- Importing `pycubrid` or `pycubrid.aio` never warns. Only Compat users see the
-  warning.
+- `pycubrid` and `pycubrid.aio` are unchanged. Only code that imports
+  `pycubrid.compat` fails.
 - The 1.9.0 Upgrade note promised that the names released in 1.8.0 would stay
-  for the rest of 1.x. That promise is withdrawn. `RELEASE_POLICY.md` section 4
+  for the rest of 1.x. That promise was withdrawn. `RELEASE_POLICY.md` section 4
   says so openly.
-- Code that does not migrate fails with an import error on the removal release.
+- Code that did not migrate fails with an import error on the removal release.
 
 ## Find your uses
 
-The warning text is:
+The error text is:
 
 ```text
-pycubrid.compat is deprecated and will be removed in a later 1.x MINOR release.
-Use pycubrid or pycubrid.aio instead; see https://cubrid-lab.github.io/pycubrid/COMPAT_MIGRATION/
+pycubrid.compat was removed. Use pycubrid or pycubrid.aio instead; see https://cubrid-lab.github.io/pycubrid/COMPAT_MIGRATION/
 ```
 
-It is attributed to the line of your code that creates the connection. By
-default Python shows it once for each such line. To find every use, turn it into
-an error:
-
-```bash
-python -W error::FutureWarning your_app.py
-pytest -W error::FutureWarning
-```
-
-If your own tests already treat warnings as errors, they now fail on Compat
-connections. To silence this one warning while you migrate, use a narrow filter
-and remove it afterwards:
-
-```python
-import warnings
-
-warnings.filterwarnings(
-    "ignore",
-    message="pycubrid.compat is deprecated",
-    category=FutureWarning,
-)
-```
-
-Do not use a blanket `ignore` for `FutureWarning`.
+It points at the import, so a search for `pycubrid.compat` finds every use. Each
+section below shows the Compat code as it was and the ordinary code that replaces
+it.
 
 ### Pin the version
 
-A range such as `pycubrid>=1.8.0,<2.0` can install the removal release
-automatically, with no change in your code. Once the removal version is
-announced in `CHANGELOG.md`, pin below it until you have migrated, for example
-`pycubrid>=1.8.0,<X.Y`, where `X.Y` is the announced removal version.
+A range such as `pycubrid>=1.8.0,<2.0` installs the removal release
+automatically, with no change in your code. Pin below the removal release named
+in `CHANGELOG.md` until you have migrated, for example `pycubrid>=1.8.0,<X.Y`,
+where `X.Y` is that version.
 
 ## Renaming alone is wrong
 
@@ -419,7 +394,7 @@ with open("out.bin", "wb") as fh:
 | Read type | `str`, decoded as UTF-8. A BLOB that is not UTF-8 raises `UnicodeDecodeError` | `bytes` |
 | Position | Stateful `seek` | You hold the offset. `SEEK_*` has no use. Use the `os.SEEK_*` meanings in your own code |
 | Rebind a fetched handle on the same connection | Yes | Yes (a `Lob` built from the cell) |
-| Rebind on another connection | Yes, for committed rows | Read the bytes and write a new LOB. A `Lob` of another connection raises `InterfaceError`. Rewrapping the handle with `Lob(target, ...)` is not refused, but it can store data another transaction never committed, so do not rely on it |
+| Rebind on another connection | Yes, for committed rows | Unsupported. Read the bytes and write a new LOB. A `Lob` of another connection raises `InterfaceError`. Rewrapping the handle with `Lob(target, ...)` is not refused, but it can store data another transaction never committed, so do not rely on it |
 | Write at a non-append offset | `NotSupportedError` before any I/O | The server returns error -1016 |
 | Async | None | None |
 
@@ -438,7 +413,7 @@ listed.
 | `data_seek`, `row_seek`, `row_tell` | No equivalent API | See below |
 | Result that survives `commit()` | Not supported on large results | Finish reading before commit, or use a second connection |
 | LOB bind in autocommit | Refused | Use a manual transaction |
-| Rebind a fetched LOB on another connection | No equivalent | Read the bytes and write a new LOB |
+| Rebind a fetched LOB on another connection | No equivalent | Read the bytes and write a new LOB. See the LOB table above |
 | Server-side prepared SELECT, reusable statement handle | No equivalent | Use `execute()`, which renders literals |
 
 ### `result_info`

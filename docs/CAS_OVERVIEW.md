@@ -84,11 +84,6 @@ the Broker handshake for each request. It repeats the handshake only when it
 opens a new physical session, for example after a failed `CHECK_CAS` probe
 (see [Operational consequences](#operational-consequences)).
 
-`pycubrid.compat.cubriddb` and `pycubrid.compat.native` are not the native
-path: they imitate parts of the official API on top of pycubrid's pure-Python
-transport. They are bounded compatibility subsets, not full native parity; see
-the [Official Driver API Inventory](UPSTREAM_COMPATIBILITY.md).
-
 ## One program, step by step
 
 The program below uses only ordinary DB-API calls. The rest of this section
@@ -211,8 +206,6 @@ finished SQL, and the driver keeps no statement-handle cache. The opt-in
 `prepared=True` path has its own type rules and differences from literals; see
 [`executemany(..., prepared=True)`](PARAMETER_BINDING.md#executemany-preparedtrue)
 and [Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping).
-The separate `pycubrid.compat.native` prepared cursor (FC2, FC3) is a bounded
-compatibility API, not part of ordinary cursors.
 
 ## Operational consequences
 

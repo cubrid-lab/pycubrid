@@ -23,7 +23,7 @@ The site publishes only `docs/`. In a published page, link to a repository file 
 | `docs/index.md` | Documentation site landing page |
 | `docs/quickstart.md`, `docs/first-query.md`, `docs/save-a-row.md`, `docs/commit-and-rollback.md`, `docs/finish-safely.md`, `docs/EXAMPLES.md` | The five beginner lessons (preparation first) and practical usage examples (page roles and the lesson convention: `docs/DEVELOPMENT.md#documentation-structure`) |
 | `docs/CONNECTION.md` | Connection strings, URL format, options, TLS, timeouts, reconnect |
-| `docs/API_REFERENCE.md` | Complete sync, async and compatibility API reference |
+| `docs/API_REFERENCE.md` | Complete sync and async API reference |
 | `docs/TYPES.md` | Type mapping and CUBRID-specific types |
 | `docs/PARAMETER_BINDING.md` | Driver-side literal binding contract: per-type SQL mapping, escaping, non-guarantees |
 | `docs/PROTOCOL.md` | CAS wire protocol reference |
@@ -34,7 +34,7 @@ The site publishes only `docs/`. In a published page, link to a repository file 
 | `docs/DEVELOPMENT.md` | Dev setup, tests, Docker, coverage, CI/CD |
 | `docs/PERFORMANCE.md` | Benchmark methodology, profiling, timing hooks |
 | `docs/TROUBLESHOOTING.md`, `docs/faq.md` | Common errors and questions |
-| `docs/UPSTREAM_COMPATIBILITY.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/PREPARED_BINDING_DESIGN.md` | Official-driver compatibility inventory, scenario ledger and typed binding design |
+| `docs/UPSTREAM_COMPATIBILITY.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/PREPARED_BINDING_DESIGN.md` | Historical official-driver inventory and scenario ledger, and the typed binding design |
 | `docs/PRD.md` | Product requirements |
 
 Repository-root policy documents: [RELEASE_POLICY.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md) (public surface,

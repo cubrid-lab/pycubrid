@@ -148,21 +148,6 @@ def test_sensitive_execution_paths_select_live_validation() -> None:
     assert "tests/fixtures/tls/**" in filters["tls"]
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "tests/test_official_fixture_setup.py",
-        "tests/test_upstream_scenario_ledger.py",
-        "tests/fixtures/upstream_scenarios.csv",
-    ],
-)
-def test_changed_tooling_regressions_select_the_tooling_lane(path: str) -> None:
-    filters = yaml.safe_load(
-        workflow("ci.yml")["jobs"]["detect-changes"]["steps"][-1]["with"]["filters"]
-    )
-    assert path in filters["tooling"]
-
-
 def test_pr_smoke_paths_exist() -> None:
     import shlex
 
@@ -260,14 +245,14 @@ def test_manual_validation_is_forced_and_preflight_precedes_execution(filename: 
             if step.get("uses", "").startswith("actions/checkout@"):
                 assert step["with"]["ref"] == "${{ inputs.sha || github.sha }}"
     if filename == "ci.yml":
-        for key in ("code", "tooling", "live", "tls", "charset", "official"):
+        for key in ("code", "tooling", "live", "tls", "charset"):
             assert (
                 "github.event_name == 'workflow_dispatch' ||"
                 in jobs["detect-changes"]["outputs"][key]
             )
 
 
-LIVE_JOBS = ("integration-tests", "integration-charset", "integration-tls", "official-differential")
+LIVE_JOBS = ("integration-tests", "integration-charset", "integration-tls")
 
 
 @pytest.mark.parametrize("name", LIVE_JOBS)
@@ -584,7 +569,6 @@ def test_release_gate_needs_every_release_lane() -> None:
         "integration-tls",
         "integration-charset",
         "version-differential",
-        "official-differential",
         "offline-endpoints",
         *RELEASE_COPIES,
     }
@@ -593,7 +577,7 @@ def test_release_gate_needs_every_release_lane() -> None:
 
 
 DETECT = workflow("ci.yml")["jobs"]["detect-changes"]
-CODE_FAMILY = ("code", "live", "extended", "tls", "charset", "official")
+CODE_FAMILY = ("code", "live", "extended", "tls", "charset")
 
 
 def detect_output(key: str, event: str, filt: dict[str, str], reuse: dict[str, str]) -> bool:
@@ -601,14 +585,14 @@ def detect_output(key: str, event: str, filt: dict[str, str], reuse: dict[str, s
     expr = DETECT["outputs"][key].strip().removeprefix("${{").removesuffix("}}")
     names: dict[str, str] = {"event": event}
     for prefix, values in (("filter", filt), ("reuse", reuse)):
-        for name in ("code", "tooling", "risk", "tls", "charset", "official", "docs"):
+        for name in ("code", "tooling", "risk", "tls", "charset", "docs"):
             names[f"{prefix}_{name}"] = values.get(name, "")
             expr = expr.replace(f"steps.{prefix}.outputs.{name}", f"{prefix}_{name}")
     expr = expr.replace("github.event_name", "event").replace("&&", " and ").replace("||", " or ")
     return bool(eval(expr, {"__builtins__": {}}, names))  # noqa: S307 - fixed workflow text
 
 
-ALL_CHANGED = {name: "true" for name in ("code", "tooling", "risk", "tls", "charset", "official")}
+ALL_CHANGED = {name: "true" for name in ("code", "tooling", "risk", "tls", "charset")}
 
 
 @pytest.mark.parametrize("key", CODE_FAMILY)

@@ -6,7 +6,7 @@
 ## Architecture
 
 The [current package tree](https://github.com/cubrid-lab/pycubrid/tree/main/pycubrid)
-has the sync core, the `aio` asyncio package and the opt-in `compat` package. Shared
+has the sync core and the `aio` asyncio package. Shared
 sync/async logic lives in private `_*_common.py` modules so the two implementations do not
 drift. [docs/ARCHITECTURE.md](../ARCHITECTURE.md) explains the request flow, CAS reconnection
 and module boundaries; the diagram below is a map of the files, not a design document.
@@ -33,10 +33,7 @@ graph TD
     aioinit["__init__.py - pycubrid.aio.connect()"]
     aioconn[connection.py - AsyncConnection]
     aiocursor[cursor.py - AsyncCursor]
-    compat["compat/ - opt-in official-driver compatibility"]
-    cubriddb[cubriddb.py - CUBRIDdb-style connection]
-    compatcursors[cursors.py - CUBRIDdb-style row cursors]
-    native[native.py - native-style prepared cursor, set, lob]
+    compat["compat/ - error-only tombstone for the removed namespaces"]
 
     root --> init
     root --> exceptions
@@ -58,9 +55,6 @@ graph TD
     aio --> aioinit
     aio --> aioconn
     aio --> aiocursor
-    compat --> cubriddb
-    compat --> compatcursors
-    compat --> native
 ```
 
 ### Module Responsibilities
@@ -82,4 +76,4 @@ graph TD
 | `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |
 | `timing.py` | `TimingStats`, attached when `enable_timing=True` or `PYCUBRID_ENABLE_TIMING` is set |
 | `aio/` | `pycubrid.aio.connect()`, `AsyncConnection` and `AsyncCursor`, the asyncio counterparts of the sync classes |
-| `compat/` | Opt-in, provisional compatibility surfaces: `compat.cubriddb` (CUBRIDdb-style connection and `Cursor`/`DictCursor`) and `compat.native` (native-style prepared cursor, `set`, `lob`). See [docs/UPSTREAM_COMPATIBILITY.md](../UPSTREAM_COMPATIBILITY.md) and the staged-namespace rules in [RELEASE_POLICY.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md) |
+| `compat/` | Error-only tombstone: importing it raises `ImportError` with the [migration guide](../COMPAT_MIGRATION.md). It must not regain behavior |

@@ -1,6 +1,8 @@
 # Upstream scenario ledger
 
-The [scenario ledger](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/upstream_scenarios.csv) is an initial
+> **Historical.** The ledger was retired with `pycubrid.compat`. Its files are at the [`v1.17.0` tag](https://github.com/cubrid-lab/pycubrid/tree/v1.17.0).
+
+The [scenario ledger](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/tests/fixtures/upstream_scenarios.csv) is an initial
 inventory for [#437](https://github.com/cubrid-lab/pycubrid/issues/437), under the
 [public-parity tracker](https://github.com/cubrid-lab/pycubrid/issues/396).
 It is not a functional-parity certificate or a Python 2 compatibility promise.

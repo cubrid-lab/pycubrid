@@ -414,7 +414,7 @@ conn.autocommit = True
 그래도 CAS는 이런 응답 직후 소켓을 닫을 수 있습니다. 메모리가 `APPL_SERVER_MAX_SIZE`를 넘으면 다음 `END_TRAN`에서 재시작하고, `cubrid broker reset`은 유휴 워커를 재활용하며, `KEEP_CONNECTION=AUTO`에서 `MAX_NUM_APPL_SERVER`보다 많은 클라이언트가 연결되면 유휴 워커를 대기 중인 클라이언트에게 넘깁니다(CHANGE CLIENT). 그래서 직전 응답이 OUT_TRAN이면 동기/비동기 연결 모두 CUBRID JDBC 드라이버처럼 다음 요청 전에 네이티브 `CHECK_CAS`를 한 번 보냅니다(#485).
 
 - CAS가 응답하면 같은 세션을 유지하고 요청을 보냅니다. autocommit 모드의 모든 문장을 포함해 트랜잭션 밖에서 보내는 요청마다 왕복이 한 번 늘어납니다(autocommit INSERT는 last-insert-id 조회 전에도 검사합니다).
-- 검사가 실패하면 **해당 요청에 대해 한 번만** 연결을 교체합니다. 고정하지 않은 이스케이프 모드를 다시 감지하고 명시적으로 설정한 `autocommit`을 복원한 뒤, 요청을 새 세션에서 처음으로 보냅니다. SQL은 재실행하지 않으며, CAS가 열린 트랜잭션이 없다고 보고했으므로 커밋되지 않은 작업을 잃지 않습니다. 잃어버린 세션에 의존하는 요청은 새 세션으로 보내지 않습니다. 그 세션 핸들에 대한 `CLOSE_REQ`는 건너뛰고, 아직 읽지 않은 행에 대한 FETCH, last-insert-id 조회, 그 세션에서 얻은 LOB의 읽기/쓰기는 `OperationalError`를 발생시키며, `pycubrid.compat.native` prepared 문은 이전 세션 소속으로 거부됩니다. autocommit INSERT 직후 CAS가 재활용되면 INSERT는 커밋되지만 `lastrowid`는 `None`이 되고 WARNING 로그가 남습니다. 교체 설정 자체도 트랜잭션 밖에서 끝나므로 요청 전에 `CHECK_CAS`로 한 번 더 확인합니다. 커서는 파라미터를 렌더링하기 *전에* 이 검사를 수행하므로 파라미터 SQL은 실제로 전송될 세션 기준으로 바인딩됩니다. 이미 렌더링된 뒤 세션이 교체된 SQL은 보내지 않고 재시도 가능한 `OperationalError`("... parameter binding; retry operation")로 실패시키며, 새 세션은 재시도를 위해 열린 채로 둡니다.
+- 검사가 실패하면 **해당 요청에 대해 한 번만** 연결을 교체합니다. 고정하지 않은 이스케이프 모드를 다시 감지하고 명시적으로 설정한 `autocommit`을 복원한 뒤, 요청을 새 세션에서 처음으로 보냅니다. SQL은 재실행하지 않으며, CAS가 열린 트랜잭션이 없다고 보고했으므로 커밋되지 않은 작업을 잃지 않습니다. 잃어버린 세션에 의존하는 요청은 새 세션으로 보내지 않습니다. 그 세션 핸들에 대한 `CLOSE_REQ`는 건너뛰고, 아직 읽지 않은 행에 대한 FETCH, last-insert-id 조회, 그 세션에서 얻은 LOB의 읽기/쓰기는 `OperationalError`를 발생시킵니다. autocommit INSERT 직후 CAS가 재활용되면 INSERT는 커밋되지만 `lastrowid`는 `None`이 되고 WARNING 로그가 남습니다. 교체 설정 자체도 트랜잭션 밖에서 끝나므로 요청 전에 `CHECK_CAS`로 한 번 더 확인합니다. 커서는 파라미터를 렌더링하기 *전에* 이 검사를 수행하므로 파라미터 SQL은 실제로 전송될 세션 기준으로 바인딩됩니다. 이미 렌더링된 뒤 세션이 교체된 SQL은 보내지 않고 재시도 가능한 `OperationalError`("... parameter binding; retry operation")로 실패시키며, 새 세션은 재시도를 위해 열린 채로 둡니다.
 - 교체에 실패하면 `OperationalError`를 발생시키고 연결을 닫지 않은 채 끊긴 상태로 둡니다. `ping(reconnect=True)`로 다시 연결하거나 새 연결을 여세요.
 
 복원하는 것은 드라이버가 소유한 상태뿐입니다. 실제 재접속은 SQL로 설정한 세션 상태를 초기화합니다. 세션 변수, `SET TRANSACTION ISOLATION LEVEL`, 잠금 타임아웃 등 서버 세션 상태는 잃어버린 CAS 세션에 속하므로 이어지지 않습니다. 이런 설정을 SQL로 적용하는 계층은 새 물리 세션마다 계속 다시 적용해야 합니다(예: sqlalchemy-cubrid의 격리 수준 재적용, sqlalchemy-cubrid#527).
@@ -765,10 +765,10 @@ aconn = await pycubrid.aio.connect(database="kodb", charset="euckr")
 
 | 방향 | 텍스트 | 동작 |
 |---|---|---|
-| 송신 | SQL 텍스트(렌더링된 파라미터와 JSON 파라미터 포함), `executemany` 배치 SQL, 스키마 정보 인자, `compat.native` prepared SQL과 문자열 바인딩 | 요청의 어떤 바이트도 보내기 전에 인코딩합니다. 인코딩할 수 없는 문자는 코덱과 문자 위치를 담은 `DataError`를 발생시키며(텍스트 자체는 출력하지 않음), 해당 요청은 전혀 전송되지 않고 세션은 계속 사용할 수 있습니다. `euc_kr`에서 KS X 1001 밖의 한글 음절(예: 똠, 뷁)은 인코딩할 수 없습니다. Python은 이를 8바이트 조합 시퀀스로 보내고 CUBRID는 개별 자모로 저장하기 때문입니다. 읽을 때 한글 채움 문자 U+3164와 뒤따르는 자모는 CUBRID가 저장한 대로 개별 문자로 디코딩됩니다. |
+| 송신 | SQL 텍스트(렌더링된 파라미터와 JSON 파라미터 포함), `executemany` 배치 SQL, 스키마 정보 인자, `executemany(..., prepared=True)` SQL과 문자열 바인딩 | 요청의 어떤 바이트도 보내기 전에 인코딩합니다. 인코딩할 수 없는 문자는 코덱과 문자 위치를 담은 `DataError`를 발생시키며(텍스트 자체는 출력하지 않음), 해당 요청은 전혀 전송되지 않고 세션은 계속 사용할 수 있습니다. `euc_kr`에서 KS X 1001 밖의 한글 음절(예: 똠, 뷁)은 인코딩할 수 없습니다. Python은 이를 8바이트 조합 시퀀스로 보내고 CUBRID는 개별 자모로 저장하기 때문입니다. 읽을 때 한글 채움 문자 U+3164와 뒤따르는 자모는 CUBRID가 저장한 대로 개별 문자로 디코딩됩니다. |
 | 송신 | `OPEN_DATABASE`의 database, user, password | 인코딩한 뒤 32바이트 필드에 맞게 문자 경계에서 자릅니다. |
 | 수신 | `CHAR`, `VARCHAR`, `STRING`, `NCHAR`, `NCHAR VARYING`, `ENUM` 값, 컬렉션 요소(`decode_collections=True`) | 엄격 디코딩. 디코딩할 수 없는 바이트는 `DataError`(예: `column value is not valid euc_kr (invalid byte at offset 0)`)이며 세션은 유지됩니다. |
-| 수신 | 컬럼·테이블·별칭 이름, 컬럼 기본값 | 엄격 디코딩, `DataError`(`column metadata is not valid ...`). 일반 커서는 세션을 유지하고 서버 핸들을 해제합니다. `get_schema_info()`와 `compat.native` 준비 커서는 해석할 수 없는 응답과 마찬가지로 세션을 폐기합니다. |
+| 수신 | 컬럼·테이블·별칭 이름, 컬럼 기본값 | 엄격 디코딩, `DataError`(`column metadata is not valid ...`). 일반 커서는 세션을 유지하고 서버 핸들을 해제합니다. `get_schema_info()`는 해석할 수 없는 응답과 마찬가지로 세션을 폐기합니다. |
 | 수신 | 서버 오류 메시지(배치의 문장별 오류 포함) | `errors="replace"`로 디코딩하므로 원래 오류가 항상 드러납니다. |
 | 수신 | LOB 파일 로케이터(`file_locator`, 서버 경로에 테이블 이름 포함) | `errors="replace"`로 디코딩합니다. 참고용이며 서버로 돌려보내는 것은 packed handle입니다. |
 

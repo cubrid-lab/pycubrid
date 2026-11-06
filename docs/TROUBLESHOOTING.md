@@ -803,9 +803,7 @@ zone, so even `UTC` needs the database. Usual causes:
 
 The connection stays usable. Offsets such as `+09:00` need no database; an
 offset outside ±24 hours raises `DataError: cannot resolve CUBRID timezone
-offset ...`. The explicit prepared API (`pycubrid.compat.native`) stays
-fail-closed, as for invalid UTF-8: it raises `OperationalError` and retires
-the session. To read the values without zone resolution, select them as
+offset ...`. To read the values without zone resolution, select them as
 text, e.g. `SELECT TO_CHAR(col)`.
 
 Earlier releases logged `Unknown timezone token` and returned a naive
@@ -860,8 +858,7 @@ SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- find them
 ```
 
 Use `DATETIME'0000-00-00 00:00:00'` (or the matching type) for the other
-types. The explicit prepared API (`pycubrid.compat.native`) stays fail-closed,
-as for invalid UTF-8: it raises `OperationalError` and retires the session.
+types.
 A reply that is cut short is still `OperationalError: malformed response from
 broker`, even when it also contains a zero date.
 
@@ -896,11 +893,6 @@ raw `str`, so this does not apply: `str.__new__` never fails on the text
 CUBRID sends. Only the built-in `json.loads` path above is reclassified: a
 caller-supplied `json_deserializer` callable is invoked as-is, and whatever it
 raises is not turned into `DataError`.
-
-This is ordinary-cursor behavior. The explicit prepared API
-(`pycubrid.compat.native`), which threads the same `json_deserializer`, stays
-fail-closed as for invalid UTF-8 and zero dates: it raises `OperationalError`
-and retires the session.
 
 Earlier releases raised `OperationalError: malformed response from broker`
 and closed the connection (#543).

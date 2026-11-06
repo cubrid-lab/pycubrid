@@ -334,9 +334,7 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 > 필드 값도 같은 방식으로 보고됩니다. `None`이나 텍스트로 반환하는 옵션은
 > 없으므로 SQL에서 변환하세요. 예: `NULLIF(d, DATE'0000-00-00')`(0 값은 `NULL`),
 > `CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END`,
-> `TO_CHAR(d, 'YYYY-MM-DD')`(`'0000-00-00'` 반환). 명시적 prepared
-> API(`pycubrid.compat.native`)는 fail-closed로 동작하여 `OperationalError`를
-> 발생시키고 세션을 폐기합니다.
+> `TO_CHAR(d, 'YYYY-MM-DD')`(`'0000-00-00'` 반환).
 > [0 날짜 또는 날짜시간 값](TROUBLESHOOTING.md#0-날짜-또는-날짜시간-값)을 참고하세요.
 
 > **타임존 디코딩 (#413):** CUBRID는 각 값의 타임존을 텍스트로 보냅니다. 오프셋
@@ -353,9 +351,7 @@ fetch 시 pycubrid가 CUBRID 와이어 타입을 Python 객체로 변환하는 �
 >
 > 클라이언트의 타임존 데이터베이스가 모르는 리전이나, 형식이 잘못되었거나 ±24시간
 > 범위를 벗어난 오프셋은 naive 값을 조용히 반환하지 않고, 해당 타임존을 담은
-> `DataError`를 발생시킵니다. 연결은 계속 사용할 수 있습니다. 명시적 prepared
-> API(`pycubrid.compat.native`)는 잘못된 UTF-8(#492)과 마찬가지로 fail-closed로
-> 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다. `zoneinfo`는 시스템 데이터베이스 또는
+> `DataError`를 발생시킵니다. 연결은 계속 사용할 수 있습니다. `zoneinfo`는 시스템 데이터베이스 또는
 > [`tzdata`](https://pypi.org/project/tzdata/) 패키지를 읽습니다. Windows에서는
 > pycubrid가 `tzdata`를 자동으로 설치하며, 최소 구성 Linux 이미지에서는 `tzdata`를
 > (pip 또는 OS 패키지로) 설치하세요.

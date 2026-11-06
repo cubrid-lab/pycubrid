@@ -33,8 +33,8 @@
 > nachvollziehbaren Migrationshinweisen in einem MINOR geändert werden.
 > Eine frühere Deprecation-Warnung ist empfehlenswert, wenn praktikabel; es
 > gibt keine allgemeine 28-Tage-Frist für gewöhnliche Erweiterungen.
-> Für die angekündigte Entfernung von `pycubrid.compat` bleibt die
-> [gesonderte Mindestfrist von 28 Tagen](COMPAT_MIGRATION.md) bestehen.
+> Die früheren `pycubrid.compat`-Namensräume wurden entfernt; siehe den
+> [Migrationsleitfaden](COMPAT_MIGRATION.md).
 > PATCH bleibt bis auf enge Sicherheitsausnahmen kompatibel. Dies ist eine
 > künftige Änderung der früheren 1.x-Zusage; `<2.0` garantiert nicht die
 > Kompatibilität jedes MINOR. Siehe [Änderungsprotokoll](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)

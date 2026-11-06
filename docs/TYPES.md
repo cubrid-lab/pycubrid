@@ -340,9 +340,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > There is no option to return `None` or text instead: convert the value in
 > SQL, for example `NULLIF(d, DATE'0000-00-00')` (zero becomes `NULL`),
 > `CASE WHEN d = DATE'0000-00-00' THEN NULL ELSE d END`, or
-> `TO_CHAR(d, 'YYYY-MM-DD')` (returns `'0000-00-00'`). The explicit prepared
-> API (`pycubrid.compat.native`) stays fail-closed: it raises
-> `OperationalError` and retires the session. See
+> `TO_CHAR(d, 'YYYY-MM-DD')` (returns `'0000-00-00'`). See
 > [Zero Date or Datetime Value](TROUBLESHOOTING.md#zero-date-or-datetime-value).
 
 > **Zone decoding (#413):** CUBRID sends each value's zone as text: an offset
@@ -360,9 +358,7 @@ How pycubrid converts CUBRID wire types to Python objects when fetching results:
 > A region the client's time zone database does not know, or an offset that is
 > malformed or not strictly within ±24 hours, raises `DataError` naming the
 > zone, rather than silently returning a naive value. The connection stays
-> usable. The explicit prepared API (`pycubrid.compat.native`) stays
-> fail-closed as for invalid UTF-8 (#492): it raises `OperationalError` and
-> retires the session. `zoneinfo` reads the system database or the
+> usable. `zoneinfo` reads the system database or the
 > [`tzdata`](https://pypi.org/project/tzdata/) package; on Windows pycubrid
 > installs `tzdata` automatically, and on minimal Linux images install
 > `tzdata` (pip or the OS package). See

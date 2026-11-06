@@ -96,7 +96,7 @@ PROTECTED_PATHS = (
     "pycubrid/_connection_common.py",
     "pycubrid/connection.py",
     "pycubrid/aio/connection.py",
-    # The CUBRIDdb-compatible surface (native binds, LOB handles across sessions).
+    # The removed namespace's error-only tombstone: it must not regain behavior.
     "pycubrid/compat/*",
     # Every workflow: any of them can gain write permissions or impersonate a check.
     # ci.yml also selects the CI lanes through its inline path filters.

@@ -29,7 +29,7 @@
 > 事务和会话正确性在 1.x 中受到保护。项目特有的公开扩展通常保持兼容，但在
 > 逐项维护者批准、用户影响评估及明确的迁移说明后，可能在 MINOR 版本中变更。
 > 可行时建议提前发布弃用警告；普通扩展没有统一的 28 天等待要求。
-> 已公告的 `pycubrid.compat` 移除仍遵守[单独的至少 28 天通知](COMPAT_MIGRATION.md)。
+> 旧的 `pycubrid.compat` 命名空间已被移除，请参阅[迁移指南](COMPAT_MIGRATION.md)。
 > PATCH 通常保持兼容，只有有限的安全例外。这是对旧有 1.x 扩展 API 承诺的
 > 前瞻性修订，`<2.0` 版本范围本身不能保证全部 MINOR 兼容。升级前请阅读
 > [更新说明](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md)及[发布政策](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md)。
