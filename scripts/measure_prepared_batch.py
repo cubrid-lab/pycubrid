@@ -84,6 +84,14 @@ def _endpoint_kwargs() -> dict[str, Any]:
     return kwargs
 
 
+def _value_width(value: str) -> int:
+    """Parse a width no shorter than the generated value, so the report stays true."""
+    parsed = _positive_int(value)
+    if parsed < DEFAULT_VALUE_BYTES:
+        raise argparse.ArgumentTypeError(f"must be at least {DEFAULT_VALUE_BYTES}")
+    return parsed
+
+
 def _rows(count: int, value_bytes: int = DEFAULT_VALUE_BYTES) -> Iterator[tuple[int, str, int]]:
     for i in range(count):
         yield (i, ("v%09d" % i).ljust(value_bytes, "x"), i)
@@ -264,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--value-bytes",
-        type=_positive_int,
+        type=_value_width,
         default=DEFAULT_VALUE_BYTES,
         help="pad the VARCHAR value to N bytes",
     )

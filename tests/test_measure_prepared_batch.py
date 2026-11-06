@@ -73,6 +73,12 @@ def test_nonpositive_options_fail_before_measurement(option: str) -> None:
         measure_prepared_batch.main(["--rows", "3", option, "0"])
 
 
+def test_a_width_below_the_generated_value_is_refused() -> None:
+    with pytest.raises(SystemExit):
+        measure_prepared_batch.main(["--rows", "3", "--value-bytes", "9"])
+    assert len(next(measure_prepared_batch._rows(1, 10))[1].encode()) == 10
+
+
 def test_chunks_keep_every_row_in_order() -> None:
     chunks = measure_prepared_batch._chunks
     assert list(chunks(iter(range(5)), 2)) == [[0, 1], [2, 3], [4]]

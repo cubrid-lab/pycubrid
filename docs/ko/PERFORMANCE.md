@@ -359,6 +359,8 @@ import pycubrid
 
 
 def chunks(rows, size):
+    if size < 1:
+        raise ValueError("size must be at least 1")
     rows = iter(rows)
     while chunk := list(islice(rows, size)):
         yield chunk

@@ -35,6 +35,8 @@ async def _call(value: Any) -> Any:
 
 
 def chunks(rows: Iterable[Any], size: int) -> Iterator[list[Any]]:
+    if size < 1:
+        raise ValueError("size must be at least 1")
     iterator = iter(rows)
     while chunk := list(islice(iterator, size)):
         yield chunk
@@ -185,6 +187,20 @@ async def test_a_generator_error_sends_nothing_from_its_chunk(conn: Any, table: 
             pass
     assert progress == SIZE
     assert await _ids(conn, table) == list(range(SIZE))
+
+
+@pytest.mark.asyncio
+@MODES
+@pytest.mark.parametrize("size", [0, -1])
+async def test_a_nonpositive_size_imports_nothing_and_says_so(
+    conn: Any, table: str, size: int
+) -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        await import_all_or_nothing(conn, _insert(table), _rows(3), size)
+    with pytest.raises(ValueError, match="at least 1"):
+        async for _ in import_in_steps(conn, _insert(table), _rows(3), size=size):
+            pass
+    assert await _ids(conn, table) == []
 
 
 @pytest.mark.asyncio
