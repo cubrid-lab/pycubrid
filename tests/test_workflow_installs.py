@@ -17,7 +17,7 @@ pytestmark = pytest.mark.repo_tooling
 
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 UV_ACTION_PREFIX = "astral-sh/setup-uv@"
-UV_ACTION_REF = re.compile(rf"{re.escape(UV_ACTION_PREFIX)}([^\s#'\"]+)")
+UV_ACTION_REF = re.compile(rf"{re.escape(UV_ACTION_PREFIX)}([^\s#'\"]*)")
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 UV_VERSION = "0.12.17"
 # The release gate keeps setup-uv's event guard (`auto`); routine CI always caches.
@@ -75,6 +75,8 @@ def test_a_new_setup_uv_sha_needs_no_test_edit(refs: set[str]) -> None:
     ("refs", "message"),
     [
         ({"a" * 40, "b" * 40}, "one ref"),
+        ({"a" * 40, ""}, "one ref"),
+        ({""}, "full commit SHA"),
         ({"v10.3.3"}, "full commit SHA"),
         ({"v10"}, "full commit SHA"),
         ({"main"}, "full commit SHA"),
@@ -97,6 +99,7 @@ def test_setup_uv_ref_problems_are_reported(refs: set[str], message: str) -> Non
         ("      - uses: astral-sh/setup-uv@abc123 # v10.3.3\n", "abc123"),
         ("      - uses: 'astral-sh/setup-uv@abc123'\n", "abc123"),
         ('      - uses: "astral-sh/setup-uv@v10"\n', "v10"),
+        ("      - uses: astral-sh/setup-uv@\n", ""),
     ],
 )
 def test_workflow_uv_ref_is_read_without_its_comment_or_quotes(line: str, ref: str) -> None:
