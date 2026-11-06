@@ -7747,6 +7747,7 @@ What a chunk boundary changes, compared with one `executemany()`:
 | A generator that raises | Nothing is sent | Earlier chunks were sent. The chunk being read was not |
 | `ER_INTERRUPTED` | Rows after it did not run | The same inside its chunk |
 | Lost connection | The batch is not replayed | The same for the chunk in flight. Its rows, or a `commit()` whose reply was lost, may have taken effect, so check the table before resuming |
+| Task cancellation (`pycubrid.aio`) | A cancellation once a request was sent retires the session | The same for the chunk in flight. The recipes' `rollback()` then has nothing to reach and `CancelledError` still propagates. The server discards the uncommitted transaction. During `commit()` that commit may still take effect and nothing can undo it, so check the table before resuming |
 | Created `Lob` values | Sync, autocommit off | A commit removes the session's temporary LOB files. In the resumable recipe, create each `Lob` for its own chunk |
 | `pycubrid.aio` | The whole input is read and encoded on the event loop | The same per chunk, and other tasks can run during each chunk's network wait |
 
