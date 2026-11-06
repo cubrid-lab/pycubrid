@@ -137,6 +137,15 @@ alternatives, assess consumers and obtain a maintainer decision **before**
 starting its own deprecation clock. Absent that decision and notice, the
 published API remains supported. A previously published warning for
 `pycubrid.compat` does **not** count as notice for another API.
+
+Existing stricter domain contracts still apply. In particular,
+[`docs/PARAMETER_BINDING.md`](docs/PARAMETER_BINDING.md#compatibility-policy-1x)
+continues to reserve its documented parameter-style, mapping, literal and
+error-class changes for a MAJOR release. The new extension option does not
+silently reclassify these correctness contracts as optional. Any proposal
+to revise such a guarantee is a separate compatibility-policy decision,
+not an API-refactor side effect.
+
 Deprecating a DB-API core name remains a MINOR announcement, but its breaking
 phase still requires a MAJOR release.
 
