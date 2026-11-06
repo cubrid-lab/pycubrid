@@ -260,11 +260,12 @@ type(scope)!: description
 - **1.x compatibility:** protect the PEP 249/DB-API core. A shipped
   project-specific public extension is not automatically provisional;
   breaking changes to one require an issue-specific maintainer decision,
-  an earlier published MINOR deprecation warning and migration guidance,
-  at least 28 calendar days of notice, and a reviewed release. Update the
+  assessed user impact, migration instructions and a reviewed MINOR release.
+  Warn in an earlier release when practical; ordinary extensions have no
+  fixed 28-day wait, while Compat retirement keeps its existing 28-day rule. Update the
   public API baseline when its tracked surface changes. Do not implement or
   merge an extension removal simply because it is not in PEP 249; see
-  [`RELEASE_POLICY.md` §3](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
+  [`RELEASE_POLICY.md` §3](RELEASE_POLICY.md#project-extension-changes-in-a-minor-release).
   External contributors may propose changes without advance approval.
 - Exactly **one space** after the colon.
 - **description**: English and specific (name the function, type or behavior
