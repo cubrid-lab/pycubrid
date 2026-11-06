@@ -16,6 +16,13 @@ Every release ships the same way: a reviewed release-please PR (generated commit
 §7) is merged, and `publish-pypi.yml` releases it. There is no manual tag or publish
 step; see [`RELEASING.md`](RELEASING.md).
 
+**Release cadence:** pycubrid aims to review and publish meaningful releases
+approximately every two weeks, but skips empty cycles. Critical fixes may be
+released earlier after the normal reviews and checks. The cadence never
+overrides compatibility requirements, release gates, or the existing
+`pycubrid.compat` published-warning/28-day retirement period. See
+[Release cadence](RELEASING.md#release-cadence) for operational details.
+
 ## 1. Public API Surface
 
 The **public API** of pycubrid is exactly the union of:
