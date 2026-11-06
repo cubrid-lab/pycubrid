@@ -128,6 +128,49 @@ Do not weaken branch protections, live CUBRID checks, protected code paths,
 security constraints or release/publishing controls through a documentation
 simplification.
 
+## Verify the premise before implementing a proposed solution
+
+For maintainer-directed agent work, **first test the reason the change is needed**,
+not just whether the proposed implementation passes tests. Apply this especially
+to new features, reported capability gaps, public API or architectural changes,
+and agent-generated follow-up issues. Keep this step proportionate to the risk;
+a clearly reproduced routine bug fix does not require a separate design study.
+
+1. **Separate observation from inference.** Record the current revision,
+   relevant Python/CUBRID versions, exact failing input and result. A failed
+   SQL form, one negative code search or a missing method does **not** prove
+   that the capability is unavailable through another supported path.
+2. **Try to disprove the gap.** Inspect ordinary driver APIs, tests, local
+   recipes/docs and relevant CUBRID documentation and downstream integrations.
+   Exercise the strongest plausible existing API or SQL alternative and a
+   counterexample to the proposed explanation. For server-dependent claims,
+   use a live server when available; mark untested versions and hypotheses
+   honestly, rather than reporting source inspection as execution.
+3. **Choose the least new contract.** Prefer correcting documentation,
+   configuration, usage or a localized defect over adding a permanent public
+   API. Record why each credible alternative does not address the use case.
+   If the premise is false, **stop implementation**, correct the issue and
+   disposition it as not planned or already supported; preserve useful
+   evidence, but do not merge an unnecessary implementation.
+4. **Keep scope bounded.** Work only within the recorded issue contract.
+   New exports, official-driver parity, unrelated refactors, speculative
+   abstractions and release commitments require their own decision. A
+   test-green PR is not permission to broaden scope.
+
+**Example (issues #1129 and PR #1133):** `SELECT @iso` failing after
+`GET TRANSACTION ISOLATION LEVEL TO iso` did not establish that the server
+lacks an ordinary read-back path. `SELECT iso` works; the existing SQL
+path made two proposed core connection methods unnecessary. Check the actual
+alternative before treating an apparent gap as a feature requirement.
+
+At review, the responsible maintainer must separately challenge the problem
+statement, alternatives and scope for material API/architecture/support
+changes, **even when the implementation and CI are correct**. A reviewer or
+different agent may supply independent counterevidence as advisory input; a
+second mandated reviewer, specific AI product or self-review sign-off is not
+introduced. Existing technical gates remain authoritative for code quality
+but do not decide product necessity.
+
 ## Public API and product-scope decisions before implementation
 
 **Issue triage is not implementation approval.** Priority/size labels, a proposed
