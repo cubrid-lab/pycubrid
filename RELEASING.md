@@ -19,6 +19,27 @@ Key invariants:
   notes use the standard `###` sections. Both rules, and the handling of stale
   drafts, are in the "GitHub Release Policy" section of [`AGENTS.md`](AGENTS.md).
 
+## Release cadence
+
+Aim for **one reviewed release about every two weeks**, provided there are
+meaningful user-facing changes or worthwhile fixes ready to ship. This is a
+planning cadence, **not** an automatic publishing schedule, a release deadline,
+or a reason to generate an empty version. Skip a cycle when nothing warrants
+publication; defer a candidate rather than relaxing any test or approval gate.
+
+Critical correctness bugs, security fixes and urgent regressions may justify an
+earlier **reviewed** release. Verify the exact candidate contents so an emergency
+release does not accidentally include unrelated breaking or unfinished work.
+All normal release-policy, compatibility, candidate-validation and publish
+controls still apply. In particular, the published Compat retirement notice
+and its 28-day minimum are not shortened by the cadence.
+
+`release-please.yml` may continue to prepare/update an open release PR whenever
+`main` changes. **The maintainer controls when that candidate is reviewed and
+merged**; only merging the reviewed release PR triggers publication. Do not add a
+timer, force a version bump, merge a draft/unverified candidate, or push a tag
+to meet a calendar date.
+
 ## Normal flow
 
 `release-please.yml` prepares a release PR on pushes to `main` or manual dispatch.
@@ -43,8 +64,10 @@ Python strategy updates `pycubrid/__init__.py` and leaves dynamic
 `pyproject.toml` version metadata unchanged. Tags remain `vX.Y.Z`.
 
 Conventional `fix` proposes patch, `feat` minor, breaking changes major
-(see [Breaking MINOR release](#breaking-minor-release) for the only reviewed way to
-ship a breaking change as a MINOR).
+unless a specifically approved, previously deprecated non-core API is retired
+through the [Breaking MINOR release](#breaking-minor-release) process. Protected
+PEP 249/core API changes still require a MAJOR (apart from the security
+exception in `RELEASE_POLICY.md`).
 Python strategy also treats `docs` as a patch release; hidden `chore` alone
 creates no candidate. Review these proposals against RELEASE_POLICY §7;
 commit spelling does not replace compatibility review. A maintainer-approved
@@ -171,22 +194,30 @@ state, not something to fix by tagging.
 
 ### Breaking MINOR release
 
-Use this only for an optional-tier retirement under
-[`RELEASE_POLICY.md` §3](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
-Any other breaking change stays MAJOR. This procedure changes no gate: the same
-checks, full matrix, candidate verification and review apply.
+Use this only for a **specific, maintainer-approved change to a non-core
+project extension** under [`RELEASE_POLICY.md` §3](RELEASE_POLICY.md#project-extension-changes-in-a-minor-release),
+or for an optional Compat retirement under its
+[stricter published-warning rule](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
+The protected PEP 249 / DB-API core cannot use this route. A published
+extension is not eligible merely because PEP 249 does not list its name:
+its classification, real callers, alternatives, migration and impact must be
+reviewed in its own issue **before implementation**. There is no fixed
+28-day notice for ordinary extensions; Compat retirement retains its
+published 28-day minimum. All existing tests and release gates still apply.
 
-**Before the removal pull request merges,** record in its `breaking-change` issue:
+**Before the breaking release,** record the extension-specific decision,
+consumer impact, migration guidance, reason for any skipped early warning,
+and target MINOR in its issue. For **Compat retirement**, additionally record
+all the previously promised facts in its `breaking-change` issue:
 
-- the warning release, and its notice start from PyPI:
+- the **published** warning release, and its notice start from PyPI:
   `curl -s https://pypi.org/pypi/pycubrid/X.Y.Z/json | jq -r '.urls[].upload_time_iso_8601'`
-  (use the earliest value; apply the restart rules in the policy if that release
-  was yanked or corrected);
-- the earliest allowed merge date of the release PR (notice start plus the
-  approved period, at least 28 calendar days);
-- the target version: the next MINOR after the latest published release. Merge the
-  removal only when that version is ready to ship, because every later candidate
-  contains the break until it is released.
+  (use the earliest value; apply the restart rules for yanked/corrected releases);
+- the earliest release-PR merge date: notice start plus **at least 28 calendar
+  days**, as required for Compat only;
+- the target version: the next MINOR after the latest published release.
+  Merge the change only when ready to ship, because every later candidate
+  retains the break until it is released.
 
 **Keep the break visible and pin the version.** The removal keeps its `!`, and its
 commit message has both footers:
@@ -200,6 +231,12 @@ Release-As: X.Y.0
 
 Without `Release-As`, release-please proposes `2.0.0`. Do not remove `!` or
 `BREAKING CHANGE` to get a MINOR: that hides the break from the generated notes.
+The above is the Compat example, **not** blanket approval for any other
+extension. Use a change-specific commit title and footers only when that
+extension's independently reviewed decision and practical migration plan
+are complete. The strict published-warning/28-day clock still applies to
+Compat. Updating policy text or README alone does not authorize any specific
+breaking API change.
 Do not edit `.release-please-manifest.json` on main. Repository squash merges keep
 the commit messages, so put the override in a commit of the pull request and do
 not retype the message at merge: nothing checks a squash message edited there.
@@ -225,10 +262,14 @@ therefore includes reading every commit in it for another breaking change.
 1. The manifest, `__version__` and CHANGELOG all say the intended `X.Y.0`, not
    `2.0.0`. If the candidate says anything else, correct the override with a
    reviewed commit; do not edit the release PR's version.
-2. The candidate's merge date is on or after the earliest allowed date.
-3. `compat-check` passes because `api-baseline.json` carries the reviewed removal
-   diff, and that diff contains optional-tier names only. A removed core name
-   stops the release.
+2. For Compat, the candidate's merge date is on or after the recorded
+   earliest allowed date. For other extensions, the individually approved
+   user-notice and migration requirements are satisfied.
+3. `compat-check` passes because `api-baseline.json` carries the reviewed
+   API diff. Audit each removed or changed entry against the **specific**
+   approved extension/Compat scope; an unrelated change
+   or any protected PEP 249/core break stops the release. A green baseline
+   check does not independently approve the change.
 4. The curated Upgrade notes call this an intentional breaking MINOR release, link
    the migration guide and disclose the automatic-upgrade risk.
 5. A clean install of the built wheel still passes the ordinary sync and async

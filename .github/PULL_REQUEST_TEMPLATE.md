@@ -39,6 +39,15 @@ Independent use case, alternatives and continuing API cost: pending or N/A (reas
 
 Release target: unreleased until a release is reviewed
 
+<!-- For an intentional 1.x non-core breaking change, link the API-specific
+maintainer decision, consumer impact and usable migration guidance; record
+whether and why a prior deprecation warning was or was not published.
+For Compat retirement, additionally cite the published warning and >=28-day
+notice dates. Keep the protected PEP 249/core contract unchanged, ordinary
+PRs N/A and the existing release/CI gates intact. -->
+
+1.x breaking extension notice and eligibility: N/A (reason), or links/dates
+
 ## Premise and scope countercheck (for feature proposals or claimed gaps)
 
 <!-- State the observation and the inference separately. Check a concrete

@@ -25,7 +25,17 @@
 
 ---
 
-> **상태: Stable (1.x).** `pycubrid`와 `pycubrid.aio`는 [시맨틱 버저닝](../RELEASE_POLICY.md)을 따릅니다. opt-in `pycubrid.compat` 네임스페이스는 선택(optional) 등급입니다. 1.9.0 이후 처음 릴리스된 이름은 잠정(provisional) 상태이며, deprecated된 이름은 사전 고지 후 MINOR 릴리스에서 제거될 수 있습니다. 전체 계약은 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)를 참고하세요. `pycubrid.compat`은 deprecated되었으며 이후의 1.x MINOR 릴리스에서 제거됩니다. [마이그레이션 가이드](ko/COMPAT_MIGRATION.md)를 참고하세요.
+> **상태: DB-API 안정 지원(1.x), 확장 API는 지속 개선.** PEP 249 표준 API와
+> 데이터 정확성, 트랜잭션 및 세션의 핵심 동작은 1.x에서 보호합니다. 프로젝트 고유
+> 공개 확장 API도 원칙적으로 호환성을 유지하지만, 개별 메인테이너 결정과 사용자
+> 영향 검토, 마이그레이션 안내를 거쳐 MINOR에서 변경될 수 있습니다. 가능한 경우
+> 이전 릴리스에 폐기 경고를 제공하되, 일반 확장 API에 일률적인 28일 대기 기간을
+> 적용하지 않습니다. 이미 공지한 `pycubrid.compat` 제거에는
+> [별도의 최소 28일 요건](ko/COMPAT_MIGRATION.md)이 그대로 적용됩니다.
+> PATCH는 제한적인 보안 예외를 제외하고 호환성을 유지합니다.
+> 이는 기존 1.x 확장 API 보장을 앞으로 변경하는 정책이며 `<2.0` 범위만으로
+> 모든 MINOR의 호환성이 보장되지 않습니다. [변경 기록](../CHANGELOG.md)과
+> [릴리스 정책](../RELEASE_POLICY.md)을 확인하세요.
 
 ## 여기서 시작하세요
 

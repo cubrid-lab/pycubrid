@@ -208,6 +208,19 @@ emulation, not automatically port it to the ordinary 1.x API. Any proposed
 ordinary replacement requires its own independent use case and decision.
 The retirement itself must not depend on speculative replacement APIs.
 
+**1.x extension policy (#1144):** protect the PEP 249 DB-API contract and
+essential data/transaction/session correctness. Do not assume every
+project-specific public extension is permanently frozen until 2.0, but do
+not treat any shipped extension as automatically experimental either.
+An intentional 1.x MINOR break to a **specifically approved non-core
+extension** requires a recorded impact/risk decision, usable migration
+guidance and explicit Upgrade notes. An earlier warning is preferred when
+practical; no universal 28-day delay applies to ordinary extensions.
+The preannounced Compat retirement alone retains its published-warning and
+minimum 28-day conditions. Keep the existing release/compatibility checks.
+PATCH remains compatible except the documented narrow security exception.
+A policy README edit alone does not authorize a particular API change.
+
 This is a *targeted product-scope review*, not a new blanket sign-off for
 routine bug fixes within an already approved contract, tests or documentation.
 Human-led outside contributors may continue to submit proposals and PRs
@@ -245,6 +258,14 @@ These guardrails apply regardless of the implementation tool:
   and any independent high-risk approval before merging.
 
 ## Release Process
+
+**Cadence:** plan to review meaningful release candidates about every two
+weeks; skip empty cycles. Publish urgent security or correctness fixes sooner
+only after the normal review and release gates. This timing applies to
+**merging** the reviewed release PR, not generating Release Please candidates
+or running a scheduled publish. Never rush an unchecked candidate or shorten
+the already published Compat retirement notice to meet a date. See
+[`RELEASING.md`](RELEASING.md#release-cadence) for the authoritative policy.
 
 Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"`
 (`pyproject.toml` reads it dynamically). Merging a reviewed release PR is the only

@@ -25,7 +25,20 @@
 
 ---
 
-> **Status: Stable (1.x).** Die öffentliche API folgt [Semantic Versioning](../RELEASE_POLICY.md): Minor-Releases ergänzen abwärtskompatible Funktionen, Patch-Releases liefern ausschließlich Fehlerbehebungen; Breaking Changes sind dem nächsten Major-Release (2.0+) vorbehalten und werden durch einen automatisierten `compat-check`-CI-Job gegen [`api-baseline.json`](../api-baseline.json) abgesichert. Die Entwicklung läuft aktiv weiter — der vollständige Vertrag findet sich in [`RELEASE_POLICY.md`](../RELEASE_POLICY.md).
+> **Status: Stabile DB-API (1.x), weiterentwickelte Erweiterungen.** Die
+> PEP-249-Schnittstelle sowie wesentliche Daten-, Transaktions- und
+> Sitzungskorrektheit bleiben in 1.x geschützt. Projektspezifische öffentliche
+> Erweiterungen bleiben normalerweise kompatibel, können jedoch nach einer
+> individuellen Maintainer-Entscheidung, einer Folgenabschätzung und
+> nachvollziehbaren Migrationshinweisen in einem MINOR geändert werden.
+> Eine frühere Deprecation-Warnung ist empfehlenswert, wenn praktikabel; es
+> gibt keine allgemeine 28-Tage-Frist für gewöhnliche Erweiterungen.
+> Für die angekündigte Entfernung von `pycubrid.compat` bleibt die
+> [gesonderte Mindestfrist von 28 Tagen](COMPAT_MIGRATION.md) bestehen.
+> PATCH bleibt bis auf enge Sicherheitsausnahmen kompatibel. Dies ist eine
+> künftige Änderung der früheren 1.x-Zusage; `<2.0` garantiert nicht die
+> Kompatibilität jedes MINOR. Siehe [Änderungsprotokoll](../CHANGELOG.md)
+> und [Release-Richtlinie](../RELEASE_POLICY.md).
 
 ## Warum pycubrid?
 

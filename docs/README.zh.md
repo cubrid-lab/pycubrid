@@ -25,7 +25,14 @@
 
 ---
 
-> **状态：Stable（1.x）。** 公共 API 遵循[语义化版本控制](../RELEASE_POLICY.md)：次版本发布添加向后兼容的功能，补丁发布仅修复 bug；破坏性变更保留到下一个主版本（2.0+），并由针对 [`api-baseline.json`](../api-baseline.json) 的自动化 `compat-check` CI 作业进行门控。开发持续进行 — 完整契约请参见 [`RELEASE_POLICY.md`](../RELEASE_POLICY.md)。
+> **状态：1.x 的 DB-API 核心保持稳定，扩展 API 持续演进。** PEP 249 接口及关键的数据、
+> 事务和会话正确性在 1.x 中受到保护。项目特有的公开扩展通常保持兼容，但在
+> 逐项维护者批准、用户影响评估及明确的迁移说明后，可能在 MINOR 版本中变更。
+> 可行时建议提前发布弃用警告；普通扩展没有统一的 28 天等待要求。
+> 已公告的 `pycubrid.compat` 移除仍遵守[单独的至少 28 天通知](COMPAT_MIGRATION.md)。
+> PATCH 通常保持兼容，只有有限的安全例外。这是对旧有 1.x 扩展 API 承诺的
+> 前瞻性修订，`<2.0` 版本范围本身不能保证全部 MINOR 兼容。升级前请阅读
+> [更新说明](../CHANGELOG.md)及[发布政策](../RELEASE_POLICY.md)。
 
 ## 为什么选择 pycubrid？
 
