@@ -213,12 +213,13 @@ essential data/transaction/session correctness. Do not assume every
 project-specific public extension is permanently frozen until 2.0, but do
 not treat any shipped extension as automatically experimental either.
 An intentional 1.x MINOR break to a **specifically approved non-core
-extension** requires a prior published MINOR warning, usable migration
-guidance, at least 28 calendar days' notice, a reviewed impact/risk
-decision and the unchanged release/compatibility checks under
-`RELEASE_POLICY.md` §3. PATCH remains compatible except the documented
-narrow security exception. A policy README edit alone does not start an
-API-specific warning clock or authorize an implementation.
+extension** requires a recorded impact/risk decision, usable migration
+guidance and explicit Upgrade notes. An earlier warning is preferred when
+practical; no universal 28-day delay applies to ordinary extensions.
+The preannounced Compat retirement alone retains its published-warning and
+minimum 28-day conditions. Keep the existing release/compatibility checks.
+PATCH remains compatible except the documented narrow security exception.
+A policy README edit alone does not authorize a particular API change.
 
 This is a *targeted product-scope review*, not a new blanket sign-off for
 routine bug fixes within an already approved contract, tests or documentation.
