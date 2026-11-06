@@ -328,7 +328,7 @@ OperationalError: ... (during connection handshake)
      cubrid:
        image: cubrid/cubrid:11.2
        ports:
-         - "33000:33000"
+         - "127.0.0.1:33000:33000"
        environment:
          CUBRID_DB: testdb
    ```
@@ -1225,23 +1225,27 @@ services:
 
 ### 컨테이너 헬스 체크
 
-**docker-compose.yml에 헬스 체크를 추가하세요:**
+**저장소의
+[`docker-compose.yml`](https://github.com/cubrid-lab/pycubrid/blob/main/docker-compose.yml)처럼 데이터베이스에 실제로 로그인하는 헬스 체크를 추가하세요.**
+`cubrid broker status`만으로는 부족합니다. 브로커는 `testdb`가 로그인을 받기 전에도
+정상으로 보고합니다. `127.0.0.1`에 바인딩하면 비밀번호가 없는 `dba` 계정이 네트워크에
+노출되지 않습니다.
 
 ```yaml
 services:
   cubrid:
     image: cubrid/cubrid:11.2
-    container_name: cubrid-test
-    ports:
-      - "33000:33000"
     environment:
       CUBRID_DB: testdb
+      CUBRID_DB_HOST: localhost
+    ports:
+      - "127.0.0.1:33000:33000"
     healthcheck:
-      test: ["CMD", "cubrid", "broker", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+      test: ["CMD", "csql", "-u", "dba", "testdb", "-c", "SELECT 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 ```
 
 **테스트에서 헬스 체크 대기:**
