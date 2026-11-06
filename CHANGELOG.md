@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Building from source now declares the setuptools it needs (#1108)** — the build requirement
+  allowed setuptools 65 to 76, which reject the `license = "MIT"` field, so a non-isolated build
+  with one of those versions failed. It now needs setuptools 77 or later. The separate `wheel`
+  requirement is gone, because these versions build wheels themselves. Installing a published
+  wheel is not affected.
+
 ### Documentation
 
 - **The Compat migration guide now shows how to read the isolation level and lock timeout
