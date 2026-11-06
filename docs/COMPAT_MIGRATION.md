@@ -159,21 +159,30 @@ Covers `set_isolation_level`, `isolation_level`, `lock_timeout` and
 ```python
 # before
 n.set_isolation_level(5); n.isolation_level; n.lock_timeout; n.max_string_len
-# after: write only
+# after
 cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
 cur.execute("SET TRANSACTION LOCK TIMEOUT 5")
+cur.execute("GET TRANSACTION ISOLATION LEVEL TO iso")
+cur.execute("SELECT iso")
+cur.fetchone()                            # (5,)
+cur.execute("GET TRANSACTION LOCK TIMEOUT TO lk")
+cur.execute("SELECT lk")
+cur.fetchone()                            # (5.0,)
 ```
 
-Setting works. Reading back does not: there is no equivalent API. Run live,
-`GET TRANSACTION ISOLATION LEVEL` and `GET TRANSACTION LOCK TIMEOUT` raised
-`InterfaceError: No result set available` on fetch. The `TO iso` forms were
-accepted, but `SELECT @iso` raised error -1070. There is also no equivalent for
-`max_string_len`.
+Each read takes two statements, and the variable is selected without `@`. Without
+`TO`, the `GET TRANSACTION` statement returns no result set. Unlike the native
+attributes, these read the current session each time.
+
+The lock timeout comes back in seconds as a `float`, matching `SET TRANSACTION LOCK
+TIMEOUT`, and `-1.0` means wait forever. Native `lock_timeout` was in milliseconds.
+There is no equivalent for `max_string_len`.
 
 Settings made with SQL are lost when the driver replaces the session. Reapply
 them (see [Connection Options](CONNECTION.md)). Native applied its setting
-"without committing". Whether `SET TRANSACTION` commits an open transaction is
-not verified, and neither was the effect read back.
+"without committing". `SET TRANSACTION` does not commit either: an open transaction
+stays open and can still roll back. After a replacement, the reads above show the
+server defaults, which is how you can tell that a setting was lost.
 
 ### Versions and ping
 
@@ -422,7 +431,6 @@ listed.
 | Compat feature | Ordinary status | What to do |
 | --- | --- | --- |
 | `cubriddb.Connection.connection` | No equivalent, not needed | Use the one connection object |
-| Read the effective isolation level or lock timeout | No equivalent API | Set with SQL. No verified way to read back |
 | `max_string_len` | No equivalent | None |
 | `set_fetch_value_converter` | No equivalent API | Convert rows at the call site |
 | `set_type` argument of wrapper `execute` | No equivalent | The literal's element types apply |
@@ -456,8 +464,9 @@ run for this guide.
 
 - The "run live" results were observed once on CUBRID 11.4.6 with Python 3.12.
   Versions 10.2, 11.0 and 11.2 were not verified.
-- Not verified: whether `SET TRANSACTION` commits, a way to read the effective
-  isolation level, lock timeout or `max_string_len`, the failure behavior of
+- The `SET TRANSACTION` and `GET TRANSACTION` results were checked live on 10.2, 11.0,
+  11.2 and 11.4, sync and async.
+- Not verified: a way to read `max_string_len`, the failure behavior of
   plain `executemany` compared with the wrapper, and the `LIMIT ?, ?` form.
 - Private use of Compat cannot be counted, so the project cannot say that nobody
   depends on it.
