@@ -39,6 +39,31 @@ Independent use case, alternatives and continuing API cost: pending or N/A (reas
 
 Release target: unreleased until a release is reviewed
 
+## Premise and scope countercheck (for feature proposals or claimed gaps)
+
+<!-- State the observation and the inference separately. Check a concrete
+counterexample or the closest existing API, SQL, documentation or downstream
+recipe, especially before claiming a capability is unavailable. A failed
+syntax is not evidence that all supported routes fail (see #1129/#1133).
+For server-dependent claims, report real commands, CUBRID/Python versions,
+results and untested cases. If the premise is disproved, do not merge a
+needless feature. Ordinary bug/doc changes may state N/A with a reason. -->
+
+Observed problem, exact evidence and versions: pending or N/A (reason)
+
+Strongest existing alternative or counterexample checked, with result: pending or N/A (reason)
+
+<!-- For changes to public API, compare the new api-baseline.json to main and
+record which exports/methods/signatures changed. A green compat-check verifies
+the committed baseline, not whether adding the API is justified. For
+high-impact changes the maintainer challenges the rationale and scope,
+independently of code/tests; optional agent reviews are advisory, and no
+additional reviewer or CI approval gate is introduced. -->
+
+Public API baseline diff and contract impact: none or describe changed entries
+
+Maintainer scope challenge and decision: pending or N/A (reason)
+
 ## Type of Change
 
 <!-- Check the relevant option -->
