@@ -144,9 +144,6 @@ markdown_extensions:
 
 exclude_docs: |
   overrides/
-  # Repository guidance for agent tools (#926). It links to files by their
-  # repository paths, which the site does not publish (#1088).
-  agents/
 
 plugins:
   - search

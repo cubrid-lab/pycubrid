@@ -1,6 +1,6 @@
 # Documentation guide
 
-> Moved from the root [AGENTS.md](../../AGENTS.md) (#926). Owner: pycubrid maintainers.
+> Moved from the root [AGENTS.md](https://github.com/cubrid-lab/pycubrid/blob/main/AGENTS.md) (#926). Owner: pycubrid maintainers.
 > Every rule in the root file still applies. Scope: Documentation map, translation and generated-file rules. The Documentation definition of done in the root file still applies.
 
 ## Documentation
@@ -16,8 +16,7 @@ directly under `docs/` (except `PRD.md` and the README translations) and copies 
 
 The site publishes only `docs/`. In a published page, link to a repository file outside
 `docs/` with its `https://github.com/cubrid-lab/pycubrid/blob/main/...` URL: `mkdocs build
---strict` rejects a relative `../` link to one (#1088). The guides in `docs/agents/` are
-excluded from the site, so they keep their repository-relative links.
+--strict` rejects a relative `../` link to one (#1088).
 
 | Document | Content |
 |---|---|
@@ -38,6 +37,6 @@ excluded from the site, so they keep their repository-relative links.
 | `docs/UPSTREAM_COMPATIBILITY.md`, `docs/UPSTREAM_TEST_LEDGER.md`, `docs/PREPARED_BINDING_DESIGN.md` | Official-driver compatibility inventory, scenario ledger and typed binding design |
 | `docs/PRD.md` | Product requirements |
 
-Repository-root policy documents: [RELEASE_POLICY.md](../../RELEASE_POLICY.md) (public surface,
-semantic versioning, behavior-change classifications), [RELEASING.md](../../RELEASING.md),
-[CONTRIBUTING.md](../../CONTRIBUTING.md), [ROADMAP.md](../../ROADMAP.md) and [SECURITY.md](../../SECURITY.md).
+Repository-root policy documents: [RELEASE_POLICY.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md) (public surface,
+semantic versioning, behavior-change classifications), [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md),
+[CONTRIBUTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md), [ROADMAP.md](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md) and [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md).

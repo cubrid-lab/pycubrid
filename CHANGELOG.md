@@ -23,8 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Published pages no longer link to repository files the site does not serve (#1088)** — links
   such as `../SECURITY.md` and `../LICENSE` returned 404 on the documentation site, including the
   vulnerability-reporting link in every translated README. They now use GitHub URLs, and
-  `mkdocs build --strict` fails on a new broken link. The `docs/agents/` guides, which are for
-  agent tools and were not in the site navigation, are no longer published.
+  `mkdocs build --strict` fails on a new broken link.
 - **The Compat migration guide now shows how to read the isolation level and lock timeout
   (#1129)** — it said ordinary SQL had no way to do this, which was wrong. `GET TRANSACTION
   ISOLATION LEVEL TO iso` followed by `SELECT iso` works, as does the `LOCK TIMEOUT` form, on

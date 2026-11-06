@@ -1,6 +1,6 @@
 # Architecture guide
 
-> Moved from the root [AGENTS.md](../../AGENTS.md) (#926). Owner: pycubrid maintainers.
+> Moved from the root [AGENTS.md](https://github.com/cubrid-lab/pycubrid/blob/main/AGENTS.md) (#926). Owner: pycubrid maintainers.
 > Every rule in the root file still applies. Scope: Package map and module responsibilities. [docs/ARCHITECTURE.md](../ARCHITECTURE.md) explains the design.
 
 ## Architecture
@@ -82,4 +82,4 @@ graph TD
 | `lob.py` | `Lob` class — LOB type, length, file locator, packed handle |
 | `timing.py` | `TimingStats`, attached when `enable_timing=True` or `PYCUBRID_ENABLE_TIMING` is set |
 | `aio/` | `pycubrid.aio.connect()`, `AsyncConnection` and `AsyncCursor`, the asyncio counterparts of the sync classes |
-| `compat/` | Opt-in, provisional compatibility surfaces: `compat.cubriddb` (CUBRIDdb-style connection and `Cursor`/`DictCursor`) and `compat.native` (native-style prepared cursor, `set`, `lob`). See [docs/UPSTREAM_COMPATIBILITY.md](../UPSTREAM_COMPATIBILITY.md) and the staged-namespace rules in [RELEASE_POLICY.md](../../RELEASE_POLICY.md) |
+| `compat/` | Opt-in, provisional compatibility surfaces: `compat.cubriddb` (CUBRIDdb-style connection and `Cursor`/`DictCursor`) and `compat.native` (native-style prepared cursor, `set`, `lob`). See [docs/UPSTREAM_COMPATIBILITY.md](../UPSTREAM_COMPATIBILITY.md) and the staged-namespace rules in [RELEASE_POLICY.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md) |

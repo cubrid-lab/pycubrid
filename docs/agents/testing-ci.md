@@ -1,6 +1,6 @@
 # Testing and CI guide
 
-> Moved from the root [AGENTS.md](../../AGENTS.md) (#926). Owner: pycubrid maintainers.
+> Moved from the root [AGENTS.md](https://github.com/cubrid-lab/pycubrid/blob/main/AGENTS.md) (#926). Owner: pycubrid maintainers.
 > Every rule in the root file still applies. Scope: Workflows, CI lane summary and test layout. [docs/CI_POLICY.md](../CI_POLICY.md) owns the exact lanes and versions.
 
 ## CI Matrix
