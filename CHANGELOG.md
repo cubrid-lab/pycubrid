@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+
+- **The Compat migration guide now shows how to read the isolation level and lock timeout
+  (#1129)** — it said ordinary SQL had no way to do this, which was wrong. `GET TRANSACTION
+  ISOLATION LEVEL TO iso` followed by `SELECT iso` works, as does the `LOCK TIMEOUT` form, on
+  every supported server. The guide also now says that `SET TRANSACTION` does not commit.
+
 ### Tests
 
 - **Core DB-API semantics are covered without Compat (#1123)** — new ordinary sync and async

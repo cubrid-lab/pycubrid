@@ -159,21 +159,30 @@ conn.autocommit = False; conn.autocommit
 ```python
 # before
 n.set_isolation_level(5); n.isolation_level; n.lock_timeout; n.max_string_len
-# after: write only
+# after
 cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
 cur.execute("SET TRANSACTION LOCK TIMEOUT 5")
+cur.execute("GET TRANSACTION ISOLATION LEVEL TO iso")
+cur.execute("SELECT iso")
+cur.fetchone()                            # (5,)
+cur.execute("GET TRANSACTION LOCK TIMEOUT TO lk")
+cur.execute("SELECT lk")
+cur.fetchone()                            # (5.0,)
 ```
 
-설정은 됩니다. 되읽기는 안 됩니다. 대체 API가 없습니다. 실제 실행에서
-`GET TRANSACTION ISOLATION LEVEL`과 `GET TRANSACTION LOCK TIMEOUT`은 fetch 시
-`InterfaceError: No result set available`을 발생시켰습니다. `TO iso` 형식은
-받아들여졌지만 `SELECT @iso`는 오류 -1070을 냈습니다. `max_string_len`에도 대체
-수단이 없습니다.
+값 하나를 읽는 데 두 문장이 필요하며, 변수는 `@` 없이 선택합니다. `TO`를 빼면
+`GET TRANSACTION` 문은 결과 집합을 돌려주지 않습니다. 네이티브 속성과 달리 매번 현재
+세션을 읽습니다.
+
+락 타임아웃은 `SET TRANSACTION LOCK TIMEOUT`과 같은 초 단위 `float`로 돌아오며,
+`-1.0`은 무한 대기입니다. 네이티브 `lock_timeout`은 밀리초였습니다. `max_string_len`에는
+대체 수단이 없습니다.
 
 SQL로 지정한 설정은 드라이버가 세션을 교체하면 사라집니다. 다시 적용하세요([연결
 옵션](CONNECTION.md) 참고). 네이티브는 설정을 "커밋하지 않고" 적용했습니다.
-`SET TRANSACTION`이 열린 트랜잭션을 커밋하는지는 확인하지 않았고, 효과를 되읽어
-확인하지도 않았습니다.
+`SET TRANSACTION`도 커밋하지 않습니다. 열린 트랜잭션은 그대로 유지되며 롤백할 수
+있습니다. 세션이 교체되면 위 읽기는 서버 기본값을 보여 주므로, 설정이 사라졌는지 확인할 수
+있습니다.
 
 ### 버전과 ping
 
@@ -421,7 +430,6 @@ with open("out.bin", "wb") as fh:
 | Compat 기능 | 일반 API 상태 | 할 일 |
 | --- | --- | --- |
 | `cubriddb.Connection.connection` | 대체 API 없음, 필요 없음 | 하나뿐인 연결 객체를 사용 |
-| 실효 격리 수준이나 락 타임아웃 읽기 | 대체 API 없음 | SQL로 설정. 되읽는 검증된 방법 없음 |
 | `max_string_len` | 대체 수단 없음 | 없음 |
 | `set_fetch_value_converter` | 대체 API 없음 | 호출하는 쪽에서 행을 변환 |
 | 래퍼 `execute`의 `set_type` 인자 | 대체 수단 없음 | 리터럴의 요소 타입이 적용됨 |
@@ -456,8 +464,9 @@ cur.execute("SELECT id FROM t ORDER BY id LIMIT ?, ?", (offset, size))
 
 - "실제 실행" 결과는 CUBRID 11.4.6과 Python 3.12에서 한 번 관찰한 것입니다. 10.2,
   11.0, 11.2는 확인하지 않았습니다.
-- 확인하지 않은 것: `SET TRANSACTION`이 커밋하는지 여부, 실효 격리 수준, 락
-  타임아웃, `max_string_len`을 읽는 방법, 일반 `executemany`와 래퍼의 실패 동작
+- `SET TRANSACTION`과 `GET TRANSACTION` 결과는 10.2, 11.0, 11.2, 11.4의 동기와 비동기에서
+  실제로 확인했습니다.
+- 확인하지 않은 것: `max_string_len`을 읽는 방법, 일반 `executemany`와 래퍼의 실패 동작
   비교, `LIMIT ?, ?` 형식.
 - Compat의 비공개 사용은 셀 수 없으므로, 아무도 의존하지 않는다고 프로젝트가 말할
   수는 없습니다.
