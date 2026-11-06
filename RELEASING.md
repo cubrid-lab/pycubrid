@@ -43,8 +43,10 @@ Python strategy updates `pycubrid/__init__.py` and leaves dynamic
 `pyproject.toml` version metadata unchanged. Tags remain `vX.Y.Z`.
 
 Conventional `fix` proposes patch, `feat` minor, breaking changes major
-(see [Breaking MINOR release](#breaking-minor-release) for the only reviewed way to
-ship a breaking change as a MINOR).
+unless a specifically approved, previously deprecated non-core API is retired
+through the [Breaking MINOR release](#breaking-minor-release) process. Protected
+PEP 249/core API changes still require a MAJOR (apart from the security
+exception in `RELEASE_POLICY.md`).
 Python strategy also treats `docs` as a patch release; hidden `chore` alone
 creates no candidate. Review these proposals against RELEASE_POLICY §7;
 commit spelling does not replace compatibility review. A maintainer-approved
@@ -171,10 +173,14 @@ state, not something to fix by tagging.
 
 ### Breaking MINOR release
 
-Use this only for an optional-tier retirement under
-[`RELEASE_POLICY.md` §3](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
-Any other breaking change stays MAJOR. This procedure changes no gate: the same
-checks, full matrix, candidate verification and review apply.
+Use this only for a **specific, maintainer-approved deprecation-based retirement
+or incompatible change** of a non-core project extension or the optional Compat
+tier, under [`RELEASE_POLICY.md` §3](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
+The protected PEP 249 / DB-API core cannot use this route. A publicly documented
+extension is not eligible merely because PEP 249 does not list its name:
+its classification, user need, alternatives, migration and impact must be
+reviewed in its own issue before the warning ships. This procedure changes no
+gate: the same checks, full matrix, candidate verification and review apply.
 
 **Before the removal pull request merges,** record in its `breaking-change` issue:
 
@@ -200,6 +206,11 @@ Release-As: X.Y.0
 
 Without `Release-As`, release-please proposes `2.0.0`. Do not remove `!` or
 `BREAKING CHANGE` to get a MINOR: that hides the break from the generated notes.
+The above is the Compat example, **not** blanket approval for any other
+extension. Use a change-specific commit title and footers only when that
+extension's separate published warning, migration and notice requirements
+have been met. Updating policy text or README alone does not start a
+deprecation clock.
 Do not edit `.release-please-manifest.json` on main. Repository squash merges keep
 the commit messages, so put the override in a commit of the pull request and do
 not retype the message at merge: nothing checks a squash message edited there.
@@ -226,9 +237,11 @@ therefore includes reading every commit in it for another breaking change.
    `2.0.0`. If the candidate says anything else, correct the override with a
    reviewed commit; do not edit the release PR's version.
 2. The candidate's merge date is on or after the earliest allowed date.
-3. `compat-check` passes because `api-baseline.json` carries the reviewed removal
-   diff, and that diff contains optional-tier names only. A removed core name
-   stops the release.
+3. `compat-check` passes because `api-baseline.json` carries the reviewed
+   API diff. Audit each removed or changed entry against the **specific**
+   previously warned and approved extension/Compat scope; an unrelated change
+   or any protected PEP 249/core break stops the release. A green baseline
+   check does not independently approve the change.
 4. The curated Upgrade notes call this an intentional breaking MINOR release, link
    the migration guide and disclose the automatic-upgrade risk.
 5. A clean install of the built wheel still passes the ordinary sync and async
